@@ -46,6 +46,15 @@ describe('document thumbnail architecture boundaries', () => {
         expect(sourceThumbnails).not.toContain('.document-thumbnail-list__item.is-current');
     });
 
+    it('forwards virtual-row overlay and label slots without creating an eager row path', () => {
+        const sourceThumbnails = read('app/components/document-viewer/DocumentThumbnailList.vue');
+
+        expect(sourceThumbnails).toContain('<slot name="overlay" :page-number="item.pageNumber" />');
+        expect(sourceThumbnails).toContain('<slot name="label" :page-number="item.pageNumber">');
+        expect(sourceThumbnails).toContain('v-for="item in virtualItems"');
+        expect(sourceThumbnails).not.toContain('v-for="page in source.pageCount"');
+    });
+
     it('uses one shared layout and reveal policy instead of a PDF geometry fork', () => {
         const pdfThumbnails = read('app/modules/pdf-viewer/components/PdfThumbnails.vue');
         const sourceController = read('app/utils/document-viewer/thumbnails/useDocumentThumbnailController.ts');

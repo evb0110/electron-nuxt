@@ -6,6 +6,7 @@ import {
 import {reactive} from 'vue';
 import {
     DEFAULT_SCAN_CLEANUP_PREFERENCES,
+    dismissScanCleanupFirstRunGuidance,
     loadScanCleanupDocumentOverrides,
     loadScanCleanupPreferences,
     resetScanCleanupDocumentOverrides,
@@ -50,6 +51,14 @@ describe('scan cleanup preferences', () => {
         expect(loadScanCleanupDocumentOverrides('document-b', storage)).toEqual({});
         resetScanCleanupDocumentOverrides('document-a', storage);
         expect(loadScanCleanupDocumentOverrides('document-a', storage)).toEqual({});
+    });
+
+    it('persists first-run guidance dismissal with the existing preferences', () => {
+        const storage = memoryStorage();
+
+        expect(loadScanCleanupPreferences(storage).firstRunGuidanceDismissed).toBe(false);
+        dismissScanCleanupFirstRunGuidance(storage);
+        expect(loadScanCleanupPreferences(storage).firstRunGuidanceDismissed).toBe(true);
     });
 
     it('persists Vue-reactive page overrides as plain JSON data', () => {

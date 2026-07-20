@@ -38,6 +38,7 @@ export interface IScanCleanupWorkerPaths {
     pdfimagesBinary?: string;
     scanCleanupBinary: string;
     pdfImageCombineBinary: string;
+    pdfPageOpsBinary?: string;
     tempDir: string;
 }
 
@@ -63,6 +64,30 @@ interface ICleanupPageMetadata {
     excluded: boolean;
     blankOutputsSkipped: number;
     outputCount: number;
+    outputs?: ILosslessAnalysisOutput[];
+}
+
+interface ILosslessAnalysisOutput {
+    half: 'full' | 'left' | 'right';
+    cropRect: IScanCleanupRect;
+    inputWidth: number;
+    inputHeight: number;
+}
+
+interface IScanCleanupRect {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+}
+
+interface IPdfPageSize {
+    pageNumber: number;
+    xPoints?: number;
+    yPoints?: number;
+    widthPoints: number;
+    heightPoints: number;
+    rotation: number;
 }
 
 interface ICleanupOutputJob {
@@ -89,6 +114,8 @@ interface ICleanupPageJob {
         skipBlankPages: boolean;
         experimentalAutoDewarp: boolean;
         manualSplitX: number | null;
+        manualContentBoxes: IScanCleanupOptions['pageOverrides'][string]['manualContentBoxes'];
+        placementOverrides: IScanCleanupOptions['pageOverrides'][string]['placementOverrides'];
     };
     outputs: ICleanupOutputJob[];
 }
@@ -128,6 +155,319 @@ function emitProgress(
         totalPages,
         percent: Math.min(100, Math.max(0, percent)),
     });
+}
+
+export function pruneLosslessScanCleanupOptions(options: IScanCleanupOptions): IScanCleanupOptions {
+    return {
+        ...options,
+        outputMode: 'color',
+        thickness: 0,
+        despeckle: false,
+        skipBlankPages: false,
+        straightenCurvedLines: false,
+    };
+}
+
+function rectFromPoints(points: Array<{
+    x: number;
+    y: number
+}>): IScanCleanupRect {
+    const left = Math.min(...points.map(point => point.x));
+    const right = Math.max(...points.map(point => point.x));
+    const bottom = Math.min(...points.map(point => point.y));
+    const top = Math.max(...points.map(point => point.y));
+    return {
+        x: left,
+        y: bottom,
+        width: right - left,
+        height: top - bottom,
+    };
+}
+
+function unrotateAnalysisPoint(
+    point: {
+        x: number;
+        y: number
+    },
+    inputWidth: number,
+    inputHeight: number,
+    rotation: ICleanupPageMetadata['rotation'],
+) {
+    if (rotation === 90) {
+        return {
+            x: point.y,
+            y: inputHeight - point.x,
+        };
+    }
+    if (rotation === 180) {
+        return {
+            x: inputWidth - point.x,
+            y: inputHeight - point.y,
+        };
+    }
+    if (rotation === 270) {
+        return {
+            x: inputWidth - point.y,
+            y: point.x,
+        };
+    }
+    return point;
+}
+
+function displayPointToPdf(
+    point: {
+        x: number;
+        y: number
+    },
+    inputWidth: number,
+    inputHeight: number,
+    page: IPdfPageSize,
+) {
+    const markerX = point.x / inputWidth;
+    const markerY = point.y / inputHeight;
+    const x = page.xPoints ?? 0;
+    const y = page.yPoints ?? 0;
+    const rotation = ((Math.round(page.rotation / 90) * 90 % 360) + 360) % 360;
+    if (rotation === 90) {
+        return {
+            x: x + markerY * page.widthPoints,
+            y: y + markerX * page.heightPoints,
+        };
+    }
+    if (rotation === 180) {
+        return {
+            x: x + (1 - markerX) * page.widthPoints,
+            y: y + markerY * page.heightPoints,
+        };
+    }
+    if (rotation === 270) {
+        return {
+            x: x + (1 - markerY) * page.widthPoints,
+            y: y + (1 - markerX) * page.heightPoints,
+        };
+    }
+    return {
+        x: x + markerX * page.widthPoints,
+        y: y + (1 - markerY) * page.heightPoints,
+    };
+}
+
+export function mapLosslessAnalysisRectToPdf(
+    rect: IScanCleanupRect,
+    inputWidth: number,
+    inputHeight: number,
+    cleanupRotation: ICleanupPageMetadata['rotation'],
+    page: IPdfPageSize,
+) {
+    const corners = [
+        {
+            x: rect.x,
+            y: rect.y,
+        },
+        {
+            x: rect.x + rect.width,
+            y: rect.y,
+        },
+        {
+            x: rect.x,
+            y: rect.y + rect.height,
+        },
+        {
+            x: rect.x + rect.width,
+            y: rect.y + rect.height,
+        },
+    ].map(point => unrotateAnalysisPoint(point, inputWidth, inputHeight, cleanupRotation))
+        .map(point => displayPointToPdf(point, inputWidth, inputHeight, page));
+    return rectFromPoints(corners);
+}
+
+function placeUniformBox(
+    content: IScanCleanupRect,
+    width: number,
+    height: number,
+    alignment: IScanCleanupOptions['pageAlignment'],
+) {
+    const [
+        vertical,
+        horizontal = vertical,
+    ] = alignment.split('-');
+    const x = horizontal === 'left'
+        ? content.x
+        : horizontal === 'right' ? content.x + content.width - width : content.x + (content.width - width) / 2;
+    const y = vertical === 'bottom'
+        ? content.y
+        : vertical === 'top' ? content.y + content.height - height : content.y + (content.height - height) / 2;
+    return {
+        x,
+        y,
+        width,
+        height,
+    };
+}
+
+async function runLosslessScanCleanup(
+    request: IRunScanCleanupPipelineRequest,
+    paths: IScanCleanupWorkerPaths,
+    preparedPdfPath: string,
+    preparedWarnings: string[],
+    pageNumbers: number[],
+    dpiDetails: Awaited<ReturnType<typeof detectSourceDpiDetails>>,
+    scratch: string,
+    stagedPdfPath: string,
+    signal: AbortSignal,
+    onProgress: (progress: IScanCleanupProgress) => void,
+    log: TWorkerLog,
+    dependencies: IRunScanCleanupPipelineDependencies,
+) {
+    if (!paths.pdfPageOpsBinary) throw new Error('evb-pdf-page-ops is unavailable for lossless scan cleanup');
+    const pageSizesPath = join(scratch, 'page-sizes.json');
+    await dependencies.runCommand(paths.pdfPageOpsBinary, [
+        'page-sizes',
+        '--input',
+        preparedPdfPath,
+        '--output',
+        pageSizesPath,
+    ], {
+        signal,
+        commandLabel: 'evb-pdf-page-ops(page-sizes:scan-cleanup)',
+        timeoutMs: 60_000,
+        log,
+    });
+    const pageSizes = (JSON.parse(await readFile(pageSizesPath, 'utf8')) as {pages: IPdfPageSize[]}).pages;
+    const documentDpi = clampDpi(dpiDetails.documentDpi);
+    const losslessOptions = pruneLosslessScanCleanupOptions(request.options);
+    let rasterizedCount = 0;
+    const pages = await mapScanCleanupRasterPages(pageNumbers, 3, async pageNumber => {
+        signal.throwIfAborted();
+        const dpi = clampDpi(dpiDetails.pageDpiByNumber.get(pageNumber) ?? documentDpi);
+        const inputPath = join(scratch, `analysis-${pageNumber}.png`);
+        await dependencies.renderPage(paths, log, pageNumber, preparedPdfPath, inputPath, dpi, undefined, signal);
+        const pageOverride = getScanCleanupPageOverride(losslessOptions.pageOverrides, pageNumber);
+        rasterizedCount += 1;
+        emitProgress(onProgress, 'rasterizing', rasterizedCount, pageNumbers.length, 5 + (35 * rasterizedCount / pageNumbers.length));
+        return {
+            inputPath,
+            sourcePageIndex: pageNumber - 1,
+            pageMetadataPath: join(scratch, `analysis-${pageNumber}.json`),
+            options: {
+                dpi,
+                layout: resolveScanCleanupPageLayout(losslessOptions.layoutMode, pageOverride.layoutOverride),
+                cropContent: losslessOptions.crop,
+                marginsMm: [
+                    losslessOptions.marginsMm,
+                    losslessOptions.marginsMm,
+                    losslessOptions.marginsMm,
+                    losslessOptions.marginsMm,
+                ],
+                outputMode: losslessOptions.outputMode,
+                thickness: losslessOptions.thickness,
+                despeckle: losslessOptions.despeckle,
+                rotation: pageOverride.rotation,
+                excluded: pageOverride.excluded,
+                skipBlankPages: false,
+                experimentalAutoDewarp: false,
+                manualSplitX: pageOverride.manualSplitX,
+                manualContentBoxes: pageOverride.manualContentBoxes,
+            },
+        };
+    });
+    const manifestPath = join(scratch, 'lossless-analysis-manifest.json');
+    await writeFile(manifestPath, JSON.stringify({
+        classifyOnly: true,
+        sharedOptions: {},
+        pages,
+    }));
+    await dependencies.runSidecar(paths.scanCleanupBinary, manifestPath, signal, log, progress => {
+        emitProgress(onProgress, 'cleaning', progress.page, pageNumbers.length, 40 + (30 * progress.page / pageNumbers.length));
+    });
+
+    const summary: IScanCleanupSummary = {
+        inputPages: pageNumbers.length,
+        outputPages: 0,
+        spreadsSplit: 0,
+        offcutsDiscarded: 0,
+        deskewSkipped: 0,
+        cropSkipped: 0,
+        excludedPages: 0,
+        blankPagesSkipped: 0,
+        warnings: [...preparedWarnings],
+    };
+    const analyzedPages: Array<{
+        sourcePageIndex: number;
+        rotationQuarterTurns: number;
+        outputs: Array<{
+            half: ILosslessAnalysisOutput['half'];
+            cropRect: IScanCleanupRect
+        }>;
+        pageOverride: ReturnType<typeof getScanCleanupPageOverride>;
+    }> = [];
+    for (const [
+        index,
+        page,
+    ] of pages.entries()) {
+        const metadata = JSON.parse(await readFile(page.pageMetadataPath, 'utf8')) as ICleanupPageMetadata;
+        const pageOverride = getScanCleanupPageOverride(losslessOptions.pageOverrides, index + 1);
+        if (metadata.excluded) {
+            summary.excludedPages += 1;
+            continue;
+        }
+        if (metadata.layoutClassification === 'two-page-spread') summary.spreadsSplit += 1;
+        if (metadata.layoutClassification === 'page-with-offcut') summary.offcutsDiscarded += 1;
+        const pageSize = pageSizes[index];
+        if (!pageSize) throw new Error(`evb-pdf-page-ops returned no geometry for page ${String(index + 1)}`);
+        const outputs = (metadata.outputs ?? []).map(output => ({
+            half: output.half,
+            cropRect: mapLosslessAnalysisRectToPdf(
+                output.cropRect,
+                output.inputWidth,
+                output.inputHeight,
+                metadata.rotation,
+                pageSize,
+            ),
+        }));
+        if (losslessOptions.readingOrder === 'rtl' && metadata.layoutClassification === 'two-page-spread') outputs.reverse();
+        analyzedPages.push({
+            sourcePageIndex: index,
+            rotationQuarterTurns: pageOverride.rotation / 90,
+            outputs,
+            pageOverride,
+        });
+    }
+    const allOutputs = analyzedPages.flatMap(page => page.outputs);
+    if (allOutputs.length === 0) throw new Error('evb-scan-cleanup analysis produced no output pages');
+    if (losslessOptions.matchPageSize) {
+        const width = Math.max(...allOutputs.map(output => output.cropRect.width));
+        const height = Math.max(...allOutputs.map(output => output.cropRect.height));
+        for (const page of analyzedPages) {
+            for (const output of page.outputs) {
+                const alignment = page.pageOverride.placementOverrides?.[output.half] ?? losslessOptions.pageAlignment;
+                output.cropRect = placeUniformBox(output.cropRect, width, height, alignment);
+            }
+        }
+    }
+    summary.outputPages = allOutputs.length;
+    const instructionsPath = join(scratch, 'split-pages.json');
+    await writeFile(instructionsPath, JSON.stringify({pages: analyzedPages.map(page => ({
+        sourcePageIndex: page.sourcePageIndex,
+        rotationQuarterTurns: page.rotationQuarterTurns,
+        outputs: page.outputs.map(output => ({cropRect: output.cropRect})),
+    }))}));
+    emitProgress(onProgress, 'assembling', pageNumbers.length, pageNumbers.length, 82);
+    await dependencies.runCommand(paths.pdfPageOpsBinary, [
+        'split-pages',
+        '--input',
+        preparedPdfPath,
+        '--output',
+        stagedPdfPath,
+        '--instructions-file',
+        instructionsPath,
+    ], {
+        signal,
+        commandLabel: 'evb-pdf-page-ops(split-pages:scan-cleanup)',
+        timeoutMs: 10 * 60 * 1000,
+        log,
+    });
+    return summary;
 }
 
 export async function mapScanCleanupRasterPages<T, R>(
@@ -186,6 +526,29 @@ export async function runScanCleanupPipeline(
             pageNumbers,
         );
         const documentDpi = clampDpi(dpiDetails.documentDpi);
+        if (request.options.preserveOriginalQuality) {
+            const summary = await runLosslessScanCleanup(
+                request,
+                paths,
+                prepared.pdfPath,
+                prepared.warnings,
+                pageNumbers,
+                dpiDetails,
+                scratch,
+                stagedPdfPath,
+                signal,
+                onProgress,
+                log,
+                dependencies,
+            );
+            if ((await stat(stagedPdfPath)).size <= 0) throw new Error('Lossless PDF assembler produced an empty file');
+            emitProgress(onProgress, 'handoff', pageCount, pageCount, 98);
+            await copyFile(stagedPdfPath, publishTempPath);
+            signal.throwIfAborted();
+            await rename(publishTempPath, request.outputPdfPath);
+            emitProgress(onProgress, 'handoff', pageCount, pageCount, 100);
+            return summary;
+        }
         const pageDpi = new Map<number, number>();
         let rasterizedCount = 0;
         const pages = await mapScanCleanupRasterPages(pageNumbers, 3, async pageNumber => {
@@ -215,6 +578,8 @@ export async function runScanCleanupPipeline(
                 skipBlankPages: request.options.skipBlankPages,
                 experimentalAutoDewarp: request.options.straightenCurvedLines,
                 manualSplitX: pageOverride.manualSplitX,
+                manualContentBoxes: pageOverride.manualContentBoxes,
+                placementOverrides: pageOverride.placementOverrides,
             };
             const page: ICleanupPageJob = {
                 inputPath,

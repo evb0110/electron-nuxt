@@ -418,7 +418,10 @@ function readWorkspaceToolbarSnapshot() {
 }
 
 function emitCurrentViewSessionState(snapshot: IWorkspaceToolbarSnapshot = readWorkspaceToolbarSnapshot()) {
-    emit('update-session-state', createTabViewSessionState(snapshot));
+    emit('update-session-state', createTabViewSessionState(
+        snapshot,
+        activeDocumentSession.value.snapshot.value.viewState,
+    ));
 }
 const hasQueuedSplitRestore = computed(() => {
     const session = splitCacheSession.value;

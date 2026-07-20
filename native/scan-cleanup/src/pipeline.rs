@@ -2,7 +2,7 @@ use crate::{
     auto_dewarp::detect_curves,
     background::normalize_illumination,
     bw::{binarize_normalized, binary_to_gray},
-    content::detect_content_and_margins,
+    content::{content_with_margins, detect_content_and_margins},
     deskew::{detect_skew, DeskewResult},
     dewarp::{rasterize_inverse_area, DewarpModel},
     png::RgbImage,
@@ -82,6 +82,142 @@ pub struct PageCleanupResult {
     pub rotation: OrthogonalRotation,
 }
 
+pub struct PageClassificationResult {
+    pub classification: LayoutClassification,
+    pub confidence: f64,
+    pub cutter_x: Option<f64>,
+    pub excluded: bool,
+    pub rotation: OrthogonalRotation,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AnalysisOutputMetadata {
+    pub half: PageHalf,
+    pub source_region: Rect,
+    pub content_box: Option<Rect>,
+    pub crop_rect: Rect,
+    pub applied_margins: [f64; 4],
+    pub input_width: usize,
+    pub input_height: usize,
+}
+
+pub struct PageAnalysisResult {
+    pub outputs: Vec<AnalysisOutputMetadata>,
+    pub classification: LayoutClassification,
+    pub confidence: f64,
+    pub cutter_x: Option<f64>,
+    pub excluded: bool,
+    pub rotation: OrthogonalRotation,
+}
+
+struct PreparedPage {
+    normalized: GrayImage,
+    rotated_color: Option<RgbImage>,
+    original_to_rotated: Affine,
+    split: SplitResult,
+}
+
+pub fn classify_page(
+    source: &GrayImage,
+    options: &CleanupOptions,
+) -> Result<PageClassificationResult, String> {
+    options.validate()?;
+    let prepared = prepare_page(source, None, options);
+    Ok(PageClassificationResult {
+        classification: prepared.split.classification,
+        confidence: prepared.split.confidence,
+        cutter_x: prepared.split.cutter_x,
+        excluded: options.excluded,
+        rotation: options.rotation,
+    })
+}
+
+pub fn analyze_page(
+    source: &GrayImage,
+    options: &CleanupOptions,
+) -> Result<PageAnalysisResult, String> {
+    options.validate()?;
+    if options.excluded {
+        return Ok(PageAnalysisResult {
+            outputs: Vec::new(),
+            classification: LayoutClassification::SingleUncutPage,
+            confidence: 1.0,
+            cutter_x: None,
+            excluded: true,
+            rotation: options.rotation,
+        });
+    }
+    let prepared = prepare_page(source, None, options);
+    let outputs = output_regions(
+        prepared.normalized.width(),
+        prepared.normalized.height(),
+        &prepared.split,
+        options.layout,
+    )
+    .into_iter()
+    .map(|(region, half)| {
+        let working = crop_gray(&prepared.normalized, region);
+        let content = if let Some(manual) = options.manual_content_for(half) {
+            let left = manual
+                .x
+                .clamp(0.0, working.width().saturating_sub(1) as f64);
+            let top = manual
+                .y
+                .clamp(0.0, working.height().saturating_sub(1) as f64);
+            let right = manual.right().clamp(left + 1.0, working.width() as f64);
+            let bottom = manual.bottom().clamp(top + 1.0, working.height() as f64);
+            content_with_margins(
+                &working,
+                options.dpi,
+                Some(Rect::new(left, top, right - left, bottom - top)),
+                options.margins_mm,
+                options.margins_pixels,
+            )
+        } else {
+            detect_content_and_margins(
+                &working,
+                options.dpi,
+                options.margins_mm,
+                options.margins_pixels,
+            )
+        };
+        let crop_enabled = options.crop_content && content.content.is_some();
+        let local_crop = if crop_enabled {
+            content.output_rect
+        } else {
+            Rect::new(0.0, 0.0, working.width() as f64, working.height() as f64)
+        };
+        AnalysisOutputMetadata {
+            half,
+            source_region: region,
+            content_box: content.content,
+            crop_rect: Rect::new(
+                region.x + local_crop.x,
+                region.y + local_crop.y,
+                local_crop.width,
+                local_crop.height,
+            ),
+            applied_margins: if crop_enabled {
+                content.margins
+            } else {
+                [0.0; 4]
+            },
+            input_width: source.width(),
+            input_height: source.height(),
+        }
+    })
+    .collect();
+    Ok(PageAnalysisResult {
+        outputs,
+        classification: prepared.split.classification,
+        confidence: prepared.split.confidence,
+        cutter_x: prepared.split.cutter_x,
+        excluded: false,
+        rotation: options.rotation,
+    })
+}
+
 pub fn clean_page(
     source: &GrayImage,
     options: &CleanupOptions,
@@ -108,32 +244,13 @@ pub fn clean_page_with_color(
             rotation: options.rotation,
         });
     }
-    let (rotated, original_to_rotated) = rotate_orthogonal(source, options.rotation);
-    let rotated_color = color_source.map(|image| rotate_rgb_orthogonal(image, options.rotation));
-    let normalized = if options.normalize_illumination {
-        normalize_illumination(&rotated, options.dpi)
-    } else {
-        rotated
-    };
-    let (analysis_binary, _) = binarize_normalized(&normalized, options);
-    let split = if options.ocr_mode {
-        detect_split(
-            &normalized,
-            &analysis_binary,
-            options.dpi,
-            crate::LayoutMode::Single,
-            None,
-        )
-    } else {
-        detect_split(
-            &normalized,
-            &analysis_binary,
-            options.dpi,
-            options.layout,
-            options.manual_split_x,
-        )
-    };
-    drop(analysis_binary);
+    let prepared = prepare_page(source, color_source, options);
+    let PreparedPage {
+        normalized,
+        rotated_color,
+        original_to_rotated,
+        split,
+    } = prepared;
     let regions = output_regions(
         normalized.width(),
         normalized.height(),
@@ -168,6 +285,44 @@ pub fn clean_page_with_color(
         excluded: false,
         rotation: options.rotation,
     })
+}
+
+fn prepare_page(
+    source: &GrayImage,
+    color_source: Option<&RgbImage>,
+    options: &CleanupOptions,
+) -> PreparedPage {
+    let (rotated, original_to_rotated) = rotate_orthogonal(source, options.rotation);
+    let rotated_color = color_source.map(|image| rotate_rgb_orthogonal(image, options.rotation));
+    let normalized = if options.normalize_illumination {
+        normalize_illumination(&rotated, options.dpi)
+    } else {
+        rotated
+    };
+    let (analysis_binary, _) = binarize_normalized(&normalized, options);
+    let split = if options.ocr_mode {
+        detect_split(
+            &normalized,
+            &analysis_binary,
+            options.dpi,
+            crate::LayoutMode::Single,
+            None,
+        )
+    } else {
+        detect_split(
+            &normalized,
+            &analysis_binary,
+            options.dpi,
+            options.layout,
+            options.manual_split_x,
+        )
+    };
+    PreparedPage {
+        normalized,
+        rotated_color,
+        original_to_rotated,
+        split,
+    }
 }
 
 fn output_regions(
@@ -214,12 +369,30 @@ fn clean_region(
 ) -> Result<CleanupResult, String> {
     let working = crop_gray(normalized, region);
     let deskew = detect_skew(&working, options.dpi);
-    let content = detect_content_and_margins(
-        &working,
-        options.dpi,
-        options.margins_mm,
-        options.margins_pixels,
-    );
+    let content = if let Some(manual) = options.manual_content_for(half) {
+        let left = manual
+            .x
+            .clamp(0.0, working.width().saturating_sub(1) as f64);
+        let top = manual
+            .y
+            .clamp(0.0, working.height().saturating_sub(1) as f64);
+        let right = manual.right().clamp(left + 1.0, working.width() as f64);
+        let bottom = manual.bottom().clamp(top + 1.0, working.height() as f64);
+        content_with_margins(
+            &working,
+            options.dpi,
+            Some(Rect::new(left, top, right - left, bottom - top)),
+            options.margins_mm,
+            options.margins_pixels,
+        )
+    } else {
+        detect_content_and_margins(
+            &working,
+            options.dpi,
+            options.margins_mm,
+            options.margins_pixels,
+        )
+    };
     let automatic_dewarp = if options.dewarp.is_none() && options.experimental_auto_dewarp {
         Some(detect_curves(&working))
     } else {
@@ -665,6 +838,19 @@ mod tests {
         source
     }
 
+    fn single_page_fixture() -> GrayImage {
+        let mut source = GrayImage::new(180, 280, 245);
+        for y in (32..248).step_by(16) {
+            for word in 0..7 {
+                for x in 22 + word * 19..(34 + word * 19).min(158) {
+                    source.set(x, y, 20);
+                    source.set(x, y + 1, 20);
+                }
+            }
+        }
+        source
+    }
+
     fn iou(left: Rect, right: Rect) -> f64 {
         let x0 = left.x.max(right.x);
         let y0 = left.y.max(right.y);
@@ -838,6 +1024,55 @@ mod tests {
         }
         assert_eq!(result.outputs[0].metadata.half, PageHalf::Left);
         assert_eq!(result.outputs[1].metadata.half, PageHalf::Right);
+    }
+
+    #[test]
+    fn classify_only_analysis_matches_full_pipeline_for_spread_and_single_fixtures() {
+        let options = CleanupOptions {
+            dpi: 150.0,
+            normalize_illumination: false,
+            margins_mm: None,
+            margins_pixels: Some([0.0; 4]),
+            ..CleanupOptions::default()
+        };
+        for source in [spread_fixture(), single_page_fixture()] {
+            let classification = classify_page(&source, &options).unwrap();
+            let cleaned = clean_page(&source, &options, 0).unwrap();
+            assert_eq!(classification.classification, cleaned.classification);
+            assert_eq!(classification.confidence, cleaned.layout_confidence);
+            assert_eq!(classification.cutter_x, cleaned.cutter_x);
+        }
+    }
+
+    #[test]
+    fn manual_content_box_replaces_detection_for_the_selected_half() {
+        let source = spread_fixture();
+        let manual = Rect::new(30.0, 42.0, 90.0, 100.0);
+        let result = clean_page(
+            &source,
+            &CleanupOptions {
+                dpi: 150.0,
+                normalize_illumination: false,
+                margins_mm: None,
+                margins_pixels: Some([0.0; 4]),
+                manual_content_boxes: crate::ManualContentBoxes {
+                    left: Some(manual),
+                    ..crate::ManualContentBoxes::default()
+                },
+                ..CleanupOptions::default()
+            },
+            0,
+        )
+        .unwrap();
+        assert_eq!(result.outputs[0].metadata.content_box, Some(manual));
+        assert_ne!(result.outputs[1].metadata.content_box, Some(manual));
+        assert_eq!(
+            (
+                result.outputs[0].metadata.output_width,
+                result.outputs[0].metadata.output_height
+            ),
+            (90, 100)
+        );
     }
 
     #[test]

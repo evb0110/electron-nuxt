@@ -241,6 +241,10 @@ export function createLazyBrowserPlatformApiGenerated({
     const ocrPreprocessingPreprocessPageMethod = lazyAsync(pathDescriptors.ocr.preprocessing.preprocessPage.path);
     const scanCleanupPreviewMethod = lazyAsync(pathDescriptors.scanCleanup.preview.path);
     const scanCleanupCancelPreviewMethod = lazyAsync(pathDescriptors.scanCleanup.cancelPreview.path);
+    const scanCleanupDetectAllMethod = lazyAsync(pathDescriptors.scanCleanup.detectAll.path);
+    const scanCleanupCancelDetectionMethod = lazyAsync(pathDescriptors.scanCleanup.cancelDetection.path);
+    const scanCleanupGetDetectionJobStateMethod = lazyAsync(pathDescriptors.scanCleanup.getDetectionJobState.path);
+    const scanCleanupSubscribeDetectionJobMethod = lazyAsync(pathDescriptors.scanCleanup.subscribeDetectionJob.path);
     const scanCleanupStartMethod = lazyAsync(pathDescriptors.scanCleanup.start.path);
     const scanCleanupCancelMethod = lazyAsync(pathDescriptors.scanCleanup.cancel.path);
     const scanCleanupGetJobStateMethod = lazyAsync(pathDescriptors.scanCleanup.getJobState.path);
@@ -248,6 +252,7 @@ export function createLazyBrowserPlatformApiGenerated({
     const scanCleanupReconnectJobMethod = lazyAsync(pathDescriptors.scanCleanup.reconnectJob.path);
     const scanCleanupPruneGeneratedOutputsMethod = lazyAsync(pathDescriptors.scanCleanup.pruneGeneratedOutputs.path);
     const scanCleanupOnJobStateMethod = lazyEvent(pathDescriptors.scanCleanup.onJobState.path);
+    const scanCleanupOnDetectionJobStateMethod = lazyEvent(pathDescriptors.scanCleanup.onDetectionJobState.path);
     const searchRunMethod = lazyAsync(pathDescriptors.search.run.path);
     const searchWarmIndexMethod = lazyAsync(pathDescriptors.search.warmIndex.path);
     const searchCancelMethod = lazyAsync(pathDescriptors.search.cancel.path);
@@ -569,6 +574,10 @@ export function createLazyBrowserPlatformApiGenerated({
     scanCleanup: {
         preview: scanCleanupPreviewMethod,
         cancelPreview: scanCleanupCancelPreviewMethod,
+        detectAll: scanCleanupDetectAllMethod,
+        cancelDetection: scanCleanupCancelDetectionMethod,
+        getDetectionJobState: scanCleanupGetDetectionJobStateMethod,
+        subscribeDetectionJob: scanCleanupSubscribeDetectionJobMethod,
         start: scanCleanupStartMethod,
         cancel: scanCleanupCancelMethod,
         getJobState: scanCleanupGetJobStateMethod,
@@ -576,6 +585,7 @@ export function createLazyBrowserPlatformApiGenerated({
         reconnectJob: scanCleanupReconnectJobMethod,
         pruneGeneratedOutputs: scanCleanupPruneGeneratedOutputsMethod,
         onJobState: scanCleanupOnJobStateMethod,
+        onDetectionJobState: scanCleanupOnDetectionJobStateMethod,
     },
     search: {
         run: searchRunMethod,

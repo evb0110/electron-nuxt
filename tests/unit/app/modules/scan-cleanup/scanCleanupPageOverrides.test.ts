@@ -8,7 +8,9 @@ import {
     estimateScanCleanupOutputPages,
     getScanCleanupPageOverride,
     resolveScanCleanupPageLayout,
+    resolveScanCleanupOutputPlacement,
     setScanCleanupPageOverride,
+    shouldShowScanCleanupOutputEstimate,
 } from '@app/modules/scan-cleanup/runtime/scanCleanupPageOverrides';
 
 describe('scan cleanup page overrides', () => {
@@ -37,6 +39,12 @@ describe('scan cleanup page overrides', () => {
         expect(resolveScanCleanupPageLayout('force-two-page', 'single')).toBe('force-single');
         expect(resolveScanCleanupPageLayout('auto', 'keep-right')).toBe('keep-right');
         expect(resolveScanCleanupPageLayout('force-single', 'auto')).toBe('force-single');
+    });
+
+    it('resolves per-output placement over the document default', () => {
+        const override = createScanCleanupPageOverride({placementOverrides: {right: 'bottom-right'}});
+        expect(resolveScanCleanupOutputPlacement('top-left', override, 'left')).toBe('top-left');
+        expect(resolveScanCleanupOutputPlacement('top-left', override, 'right')).toBe('bottom-right');
     });
 
     it('accounts exactly for exclusions and forced output counts', () => {
@@ -71,6 +79,40 @@ describe('scan cleanup page overrides', () => {
             skipBlankPages: true,
         }, new Map())).toEqual({
             exact: false,
+            outputPages: 2,
+        });
+    });
+
+    it('hides an automatic estimate until it has classification evidence', () => {
+        const options = {
+            layoutMode: 'auto' as const,
+            pageOverrides: {},
+        };
+        expect(shouldShowScanCleanupOutputEstimate(3, options, new Map())).toBe(false);
+        expect(shouldShowScanCleanupOutputEstimate(3, options, new Map([[
+            1,
+            'single-uncut-page' as const,
+        ]]))).toBe(true);
+        expect(shouldShowScanCleanupOutputEstimate(3, {
+            ...options,
+            layoutMode: 'force-two-page',
+        }, new Map())).toBe(true);
+    });
+
+    it('shows exact counts when overrides fully determine every included page', () => {
+        const pageOverrides = {
+            '1': createScanCleanupPageOverride({layoutOverride: 'spread'}),
+            '2': createScanCleanupPageOverride({excluded: true}),
+        };
+        expect(shouldShowScanCleanupOutputEstimate(2, {
+            layoutMode: 'auto',
+            pageOverrides,
+        }, new Map())).toBe(true);
+        expect(estimateScanCleanupOutputPages(2, {
+            layoutMode: 'auto',
+            pageOverrides,
+        }, new Map())).toEqual({
+            exact: true,
             outputPages: 2,
         });
     });

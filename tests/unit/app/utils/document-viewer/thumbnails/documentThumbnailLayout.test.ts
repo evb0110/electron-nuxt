@@ -9,6 +9,26 @@ import {
 } from '@app/utils/document-viewer/thumbnails/documentThumbnailLayout';
 
 describe('DocumentThumbnailLayout', () => {
+    it('grows only the measured row chrome and shifts following virtual rows', () => {
+        const layout = new DocumentThumbnailLayout({
+            pageCount: 3,
+            renderWidth: 100,
+            estimatedAspectRatio: 1,
+            itemChromeHeight: 30,
+            itemGap: 8,
+        });
+        const previousThirdTop = layout.getPageTop(3);
+        const previousTotal = layout.getTotalHeight();
+
+        expect(layout.updatePageChromeHeight(2, 66)).toBe(true);
+        expect(layout.getPageHeight(1)).toBe(130);
+        expect(layout.getPageHeight(2)).toBe(166);
+        expect(layout.getPageTop(3)).toBe(previousThirdTop + 36);
+        expect(layout.getTotalHeight()).toBe(previousTotal + 36);
+
+        expect(layout.updatePageChromeHeight(2, null)).toBe(true);
+        expect(layout.getPageTop(3)).toBe(previousThirdTop);
+    });
     it('virtualizes a large document to a viewport-sized page range', () => {
         const layout = new DocumentThumbnailLayout({
             pageCount: 100_000,

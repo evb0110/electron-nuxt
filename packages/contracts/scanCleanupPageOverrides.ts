@@ -18,9 +18,16 @@ export const DEFAULT_SCAN_CLEANUP_PAGE_OVERRIDE: Readonly<IScanCleanupPageOverri
 export function createScanCleanupPageOverride(
     value: Partial<IScanCleanupPageOverride> = {},
 ): IScanCleanupPageOverride {
+    const {
+        manualContentBoxes,
+        placementOverrides,
+        ...scalarValues
+    } = value;
     return {
         ...DEFAULT_SCAN_CLEANUP_PAGE_OVERRIDE,
-        ...value,
+        ...scalarValues,
+        ...(manualContentBoxes ? {manualContentBoxes: {...manualContentBoxes}} : {}),
+        ...(placementOverrides ? {placementOverrides: {...placementOverrides}} : {}),
     };
 }
 
@@ -48,7 +55,17 @@ export function isDefaultScanCleanupPageOverride(value: IScanCleanupPageOverride
     return value.rotation === DEFAULT_SCAN_CLEANUP_PAGE_OVERRIDE.rotation
         && value.layoutOverride === DEFAULT_SCAN_CLEANUP_PAGE_OVERRIDE.layoutOverride
         && value.excluded === DEFAULT_SCAN_CLEANUP_PAGE_OVERRIDE.excluded
-        && value.manualSplitX === DEFAULT_SCAN_CLEANUP_PAGE_OVERRIDE.manualSplitX;
+        && value.manualSplitX === DEFAULT_SCAN_CLEANUP_PAGE_OVERRIDE.manualSplitX
+        && Object.keys(value.manualContentBoxes ?? {}).length === 0
+        && Object.keys(value.placementOverrides ?? {}).length === 0;
+}
+
+export function resolveScanCleanupOutputPlacement(
+    documentDefault: IScanCleanupOptions['pageAlignment'],
+    override: Pick<IScanCleanupPageOverride, 'placementOverrides'>,
+    half: IScanCleanupPreviewMetadata['half'],
+) {
+    return override.placementOverrides?.[half] ?? documentDefault;
 }
 
 export function resolveScanCleanupPageLayout(
@@ -99,4 +116,16 @@ export function estimateScanCleanupOutputPages(
         exact,
         outputPages,
     };
+}
+
+export function shouldShowScanCleanupOutputEstimate(
+    totalPages: number,
+    options: Pick<IScanCleanupOptions, 'layoutMode' | 'pageOverrides'>
+        & Partial<Pick<IScanCleanupOptions, 'skipBlankPages'>>,
+    classifications: ReadonlyMap<number, IScanCleanupPreviewMetadata['layoutClassification']>,
+) {
+    if (classifications.size > 0 || options.layoutMode !== 'auto') {
+        return true;
+    }
+    return estimateScanCleanupOutputPages(totalPages, options, classifications).exact;
 }

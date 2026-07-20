@@ -108,4 +108,42 @@ describe('workspace PDF toolbar wiring', () => {
         expect(toolbar).toContain('toolbar-action--ocr');
         expect(toolbar).not.toContain('<slot name="ocr"><slot');
     });
+
+    it('routes scan cleanup through the tab-local sibling surface instead of popup ownership', () => {
+        const documentWorkspace = readWorkspaceFile('app/modules/workspace-shell/components/DocumentWorkspace.vue');
+        const presenter = readWorkspaceFile('app/modules/workspace-shell/components/WorkspacePdfToolbarView.vue');
+
+        expect(presenter).toContain('\'open-scan-cleanup\': []');
+        expect(presenter).toContain('emit(\'open-scan-cleanup\')');
+        expect(presenter).not.toContain('ScanCleanupPopup');
+        expect(documentWorkspace).toContain('@open-scan-cleanup="openScanCleanup"');
+        expect(documentWorkspace).toContain(':is-active="isActive && surfaceMode === \'reader\'"');
+        expect(documentWorkspace).toContain('v-show="surfaceMode === \'reader\'"');
+        expect(documentWorkspace).toContain('v-if="surfaceMode === \'scan-cleanup\'"');
+        expect(documentWorkspace).toContain(':toolbar-active="isActive"');
+        expect(documentWorkspace).toContain(':can-teleport-toolbar="canTeleportToolbar"');
+        expect(documentWorkspace).toContain('@done="closeScanCleanup"');
+    });
+
+    it('keeps one document status teleport present in reader and scan-cleanup modes', () => {
+        const documentWorkspace = readWorkspaceFile('app/modules/workspace-shell/components/DocumentWorkspace.vue');
+        const scanCleanupWorkspace = readWorkspaceFile('app/modules/scan-cleanup/components/ScanCleanupWorkspace.vue');
+        const surfaceOwners = `${documentWorkspace}\n${scanCleanupWorkspace}`;
+        const statusTeleport = documentWorkspace.match(
+            /<Teleport\s+[^>]*to="#editor-global-status-host"[^>]*>/u,
+        )?.[0];
+
+        expect(surfaceOwners.match(/to="#editor-global-status-host"/gu)).toHaveLength(1);
+        expect(statusTeleport).toContain('v-if="isActive && canTeleportStatus"');
+        expect(documentWorkspace).toContain('<PdfStatusBar');
+        for (const surfaceMode of [
+            'reader',
+            'scan-cleanup',
+        ]) {
+            expect(
+                statusTeleport?.includes('surfaceMode'),
+                `status content must remain present in ${surfaceMode} mode`,
+            ).toBe(false);
+        }
+    });
 });

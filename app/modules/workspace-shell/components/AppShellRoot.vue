@@ -633,7 +633,15 @@ const {
     moveTabToWindow,
     mergeWindowInto,
 });
-useScanCleanupRunCoordinator(activeWorkspace, handleOpenInNewTab, isStartupOpenClaimPending, t, tabs);
+useScanCleanupRunCoordinator(
+    activeWorkspace,
+    handleOpenInNewTab,
+    isStartupOpenClaimPending,
+    t,
+    tabs,
+    documentSessionsByTabId,
+    activateTabById,
+);
 function createTabInPane(paneId: string) {
     createTabInPaneFromRouting(paneId);
 }

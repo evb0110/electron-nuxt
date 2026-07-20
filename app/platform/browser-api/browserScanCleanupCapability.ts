@@ -10,6 +10,23 @@ export const browserScanCleanupCapability: IScanCleanupCapability = {
     cancelPreview() {
         return Promise.resolve(false);
     },
+    detectAll() {
+        return Promise.resolve({
+            started: false,
+            jobId: 'browser:unavailable',
+            error: BROWSER_SCAN_CLEANUP_UNAVAILABLE,
+            errorCode: 'tools-unavailable',
+        });
+    },
+    cancelDetection() {
+        return Promise.resolve(false);
+    },
+    getDetectionJobState() {
+        return Promise.resolve(null);
+    },
+    subscribeDetectionJob() {
+        return Promise.resolve(null);
+    },
     start() {
         return Promise.resolve({
             started: false,
@@ -34,4 +51,5 @@ export const browserScanCleanupCapability: IScanCleanupCapability = {
         return Promise.resolve(0);
     },
     onJobState: noopUnsubscribe,
+    onDetectionJobState: noopUnsubscribe,
 };

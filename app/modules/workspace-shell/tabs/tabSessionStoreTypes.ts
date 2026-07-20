@@ -7,8 +7,17 @@ import type { TViewerResidencyState } from '@app/utils/document-viewer/memory/vi
 import type { TDocumentSidebarTab } from '@app/utils/document-viewer/sidebar/documentSidebarTabs';
 
 export type TTabTemperature = 'hot' | 'warm' | 'cold';
+export type TDocumentSurfaceMode = 'reader' | 'scan-cleanup';
+
+export interface IScanCleanupTabSessionState {
+    previewPage: number;
+    previewViewMode: 'original' | 'cleaned';
+    previewZoomMode: 'fit' | 'actual';
+}
 
 export interface ITabViewSessionState {
+    surfaceMode: TDocumentSurfaceMode;
+    scanCleanup?: IScanCleanupTabSessionState;
     /** Optional for checkpoints written before page continuity was persisted. */
     currentPage?: number;
     zoom: number;

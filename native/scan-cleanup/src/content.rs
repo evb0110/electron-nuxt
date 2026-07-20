@@ -114,6 +114,16 @@ pub fn detect_content_and_margins(
             (bottom - top + 1) as f64 / scale,
         )
     });
+    content_with_margins(source, dpi, content, margins_mm, margins_pixels)
+}
+
+pub fn content_with_margins(
+    source: &GrayImage,
+    dpi: f64,
+    content: Option<Rect>,
+    margins_mm: Option<[f64; 4]>,
+    margins_pixels: Option<[f64; 4]>,
+) -> ContentResult {
     let margins = margins_pixels.unwrap_or_else(|| {
         margins_mm
             .unwrap_or([0.0; 4])

@@ -1,6 +1,9 @@
 <template>
     <WorkspaceShell>
-        <WorkspaceToolbarHost :is-active="isActive" :can-teleport="canTeleportToolbar">
+        <WorkspaceToolbarHost
+            :is-active="isActive && surfaceMode === 'reader'"
+            :can-teleport="canTeleportToolbar"
+        >
             <WorkspacePdfToolbarView
                 ref="ocrPopupRef"
                 :snapshot="workspaceToolbarSnapshot"
@@ -20,7 +23,6 @@
                 :navigation-command="navigationCommand"
                 :ocr-pdf-document="pdfDocument"
                 :ocr-working-copy-path="workingCopyPath"
-                :scan-cleanup-document-key="documentRevisionInfo?.documentRef ?? originalPath ?? workingCopyPath"
                 :ocr-external-error="docxExportError"
                 :ocr-is-exporting-docx="isExportingDocx"
                 :ocr-popup-open="ocrPopupOpen"
@@ -41,6 +43,7 @@
                 @update:ocr-running="isOcrRunning = $event"
                 @open-file="documentControls.handleOpenFileFromUi"
                 @open-settings="workspaceCommandBindings.handleOpenSettings"
+                @open-scan-cleanup="openScanCleanup"
                 @save="handleToolbarSave"
                 @repair-save="handleToolbarRepairSave"
                 @optimize-pdf-for-interaction="handleToolbarOptimizePdfForInteraction"
@@ -78,6 +81,7 @@
             />
         </WorkspaceToolbarHost>
         <WorkspaceDocumentAlerts
+            v-show="surfaceMode === 'reader'"
             :pdf-error="pdfError"
             :show-djvu-conversion-ui="showDjvuConversionUi"
             :djvu-error="djvuError"
@@ -86,6 +90,7 @@
             @dismiss="djvuDismissBanner"
         />
         <WorkspaceSidebarHost
+            v-show="surfaceMode === 'reader'"
             :show-sidebar="toolbarShowSidebar"
             :sidebar-wrapper-style="sidebarWrapperStyle"
             :is-resizing-sidebar="isResizingSidebar"
@@ -204,12 +209,27 @@
                 </template>
             </WorkspaceViewerHost>
         </WorkspaceSidebarHost>
+        <ScanCleanupWorkspace
+            v-if="surfaceMode === 'scan-cleanup'"
+            :source-path="workingCopyPath"
+            :page-source="documentPageSource"
+            :page-source-pending="documentPageSource === null && isLoading"
+            :document-key="documentRevisionInfo?.documentRef ?? originalPath ?? workingCopyPath"
+            :current-page="currentPage"
+            :total-pages="totalPages"
+            :session-state="scanCleanupSessionState"
+            :toolbar-active="isActive"
+            :can-teleport-toolbar="canTeleportToolbar"
+            @done="closeScanCleanup"
+            @update:session-state="updateScanCleanupSessionState"
+        />
         <WorkspacePageOpProgressOverlay
+            v-show="surfaceMode === 'reader'"
             :progress="pageOpBatchProgress"
             :eta-text="pageOpBatchEtaText"
             :is-page-operation-in-progress="isPageOperationInProgress"
         />
-        <WorkspaceExportProgressOverlay :overlay="exportOverlay" />
+        <WorkspaceExportProgressOverlay v-show="surfaceMode === 'reader'" :overlay="exportOverlay" />
         <Teleport v-if="isActive && canTeleportStatus" to="#editor-global-status-host">
             <PdfStatusBar
                 :file-path="statusFilePath"
@@ -227,6 +247,7 @@
             />
         </Teleport>
         <WorkspaceAnnotationOverlays
+            v-show="surfaceMode === 'reader'"
             :sorted-annotation-note-windows="sortedAnnotationNoteWindows"
             :annotation-note-positions="annotationNotePositions"
             :annotation-viewport-root="pdfViewerRef?.getViewerContainer?.() ?? null"
@@ -283,12 +304,14 @@
         />
         <DjvuConversionOverlay
             v-if="showDjvuConversionUi"
+            v-show="surfaceMode === 'reader'"
             :is-converting="conversionState.isConverting && !djvuIsLoadingPages"
             :phase="conversionState.phase"
             :percent="conversionState.percent"
             @cancel="handleDjvuCancel"
         />
         <WorkspaceSaveDialogHost
+            v-show="surfaceMode === 'reader'"
             :export-scope-dialog-open="exportScopeDialogOpen"
             :export-scope-dialog-mode="exportScopeDialogMode"
             :export-scope-dialog-selected-pages="exportScopeDialogSelectedPages"
@@ -353,6 +376,10 @@ import WorkspaceShell from '@app/modules/workspace-shell/components/layout/Works
 import WorkspaceSidebarHost from '@app/modules/workspace-shell/components/layout/WorkspaceSidebarHost.vue';
 import WorkspaceToolbarHost from '@app/modules/workspace-shell/components/layout/WorkspaceToolbarHost.vue';
 import WorkspaceViewerHost from '@app/modules/workspace-shell/components/layout/WorkspaceViewerHost.vue';
+import type {
+    IScanCleanupTabSessionState,
+    TDocumentSurfaceMode,
+} from '@app/modules/workspace-shell/tabs/tabSessionStoreTypes';
 import { useDocumentWorkspaceSplitRestore } from '@app/modules/workspace-shell/composables/useDocumentWorkspaceSplitRestore';
 import { useDocumentWorkspaceOptimizeDialog } from '@app/modules/workspace-shell/composables/useDocumentWorkspaceOptimizeDialog';
 import { useDocumentWorkspaceToolbar } from '@app/modules/workspace-shell/composables/useDocumentWorkspaceToolbar';
@@ -390,6 +417,7 @@ import { getErrorMessage } from '@app/utils/error';
 import { DESKTOP_EDITOR_READER_COMMAND_SURFACE } from '@app/utils/readerCommandSurface';
 import type { IRecentFile } from '@contracts/shared';
 import { useWorkspaceViewerAdapterBinding } from '@app/modules/workspace-shell/viewers/useWorkspaceViewerAdapterBinding';
+import type { IDocumentPageSource } from '@app/utils/document-viewer/source/documentPageSource';
 import { createDocumentWorkspaceAutomationHandlers } from '@app/modules/workspace-shell/automation/createDocumentWorkspaceAutomationHandlers';
 import { useDocumentOpenedAutomationEvent } from '@app/modules/workspace-shell/automation/useDocumentOpenedAutomationEvent';
 import { usePendingWorkspaceDocumentOpen } from '@app/modules/workspace-shell/composables/usePendingWorkspaceDocumentOpen';
@@ -409,6 +437,9 @@ import {
     type IDocumentWorkspaceProps,
 } from '@app/modules/workspace-shell/composables/createDocumentWorkspaceCommandBindings';
 const DjvuConversionOverlay = defineAsyncComponent(() => import('@app/modules/djvu-viewer/public').then(componentModule => componentModule.DjvuConversionOverlay));
+const ScanCleanupWorkspace = defineAsyncComponent(
+    () => import('@app/modules/scan-cleanup/public').then(module => module.ScanCleanupWorkspace),
+);
 const documentOpenSurface = injectDocumentOpenSurfaceSession();
 if (!documentOpenSurface) {
     throw new Error('DocumentWorkspace requires the host-owned document open surface session');
@@ -444,6 +475,28 @@ const canUseDjvu = true;
 const toolbarSurface = DESKTOP_EDITOR_READER_COMMAND_SURFACE;
 const isOcrRunning = ref(false);
 const ocrPopupRef = ref<IOcrPopupAgentExpose | null>(null);
+const localSurfaceMode = ref<TDocumentSurfaceMode>(
+    documentSession?.snapshot.value.viewState.surfaceMode ?? initialViewState?.surfaceMode ?? 'reader',
+);
+const surfaceMode = computed<TDocumentSurfaceMode>({
+    get: () => documentSession?.snapshot.value.viewState.surfaceMode ?? localSurfaceMode.value,
+    set: (mode) => {
+        localSurfaceMode.value = mode;
+        if (documentSession) {
+            documentSession.applyViewState({
+                ...documentSession.snapshot.value.viewState,
+                surfaceMode: mode,
+            });
+        }
+    },
+});
+const localScanCleanupSessionState = ref<IScanCleanupTabSessionState | null>(
+    documentSession?.snapshot.value.viewState.scanCleanup ?? initialViewState?.scanCleanup ?? null,
+);
+const scanCleanupSessionState = computed(() => (
+    documentSession?.snapshot.value.viewState.scanCleanup
+    ?? localScanCleanupSessionState.value
+));
 const emit = defineEmits<IDocumentWorkspaceEmits>();
 const workspaceCommandBindings = createDocumentWorkspaceCommandBindings(emit);
 const { t } = useTypedI18n();
@@ -463,6 +516,25 @@ const currentPageTransitionHistory = ref<Array<{
     page: number;
     at: number 
 }>>([]);
+
+function openScanCleanup() {
+    closeAllDropdowns();
+    surfaceMode.value = 'scan-cleanup';
+}
+
+function closeScanCleanup() {
+    surfaceMode.value = 'reader';
+}
+
+function updateScanCleanupSessionState(state: IScanCleanupTabSessionState) {
+    localScanCleanupSessionState.value = state;
+    if (documentSession) {
+        documentSession.applyViewState({
+            ...documentSession.snapshot.value.viewState,
+            scanCleanup: state,
+        });
+    }
+}
 const navigationFeedbackPage = ref<number | null>(null);
 const {
     pendingDjvuDocumentOpen,
@@ -924,6 +996,11 @@ const {
     shouldAcceptPage: shouldAcceptViewerCurrentPageUpdate,
 });
 const documentSourceSidebar = useDocumentSourceSidebarSession({onNavigate: pageIndex => handleGoToPage(pageIndex + 1, {navigationSource: 'search'})});
+const documentPageSource = shallowRef<IDocumentPageSource | null>(null);
+function handlePageSourceUpdate(source: IDocumentPageSource | null) {
+    documentPageSource.value = source;
+    documentSourceSidebar.publishSource(source);
+}
 const {
     activeViewerComponent,
     activeViewerProps,
@@ -936,7 +1013,7 @@ const {
             documentSourceCapabilities.value = capabilities;
         }
     },
-    onPageSourceUpdate: documentSourceSidebar.publishSource,
+    onPageSourceUpdate: handlePageSourceUpdate,
     annotationCursorMode,
     annotationKeepActive,
     annotationSettings,
@@ -1459,6 +1536,16 @@ useDocumentWorkspaceDocumentRecord({
     isDirty: hasPendingUnsavedChanges,
     djvuSourcePath,
     toolbarSnapshot: workspaceToolbarSnapshot,
+    currentViewState: computed(() => {
+        const retainedState = documentSession?.snapshot.value.viewState ?? initialViewState;
+        return retainedState
+            ? {
+                ...retainedState,
+                surfaceMode: surfaceMode.value,
+                ...(scanCleanupSessionState.value ? {scanCleanup: scanCleanupSessionState.value} : {}),
+            }
+            : null;
+    }),
     formatPendingBatchLabel: values => t('tabs.preparingBatch', values),
     publishRecord: record => emit('update-document-record', record),
 });

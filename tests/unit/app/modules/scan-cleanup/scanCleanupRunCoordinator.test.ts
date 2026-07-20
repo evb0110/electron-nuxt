@@ -34,6 +34,10 @@ describe('scan cleanup run coordinator', () => {
         capability.value = {
             preview: vi.fn(),
             cancelPreview: vi.fn(),
+            detectAll: vi.fn(),
+            cancelDetection: vi.fn(),
+            getDetectionJobState: vi.fn(),
+            subscribeDetectionJob: vi.fn(),
             start: vi.fn(async () => ({
                 started: true,
                 jobId: `job-${++nextJob}`,
@@ -53,16 +57,19 @@ describe('scan cleanup run coordinator', () => {
                 listener = callback;
                 return () => { listener = () => undefined; };
             }),
+            onDetectionJobState: vi.fn(() => () => undefined),
         };
         const openGeneratedPdf = vi.fn(async () => true);
         const runOcrOnActiveDocument = vi.fn(async () => true);
         const saveActiveDocumentAs = vi.fn(async () => true);
+        const openScanCleanupForDocument = vi.fn(async () => true);
         const toastAdd = vi.fn();
         const coordinator = await import('@app/modules/scan-cleanup/runtime/scanCleanupRunCoordinator');
         const cleanup = coordinator.installScanCleanupRunCoordinator({
             openGeneratedPdf,
             runOcrOnActiveDocument,
             saveActiveDocumentAs,
+            openScanCleanupForDocument,
             getOpenPdfPaths: () => ['/managed/already-open.pdf'],
             t: ((key: string) => key) as never,
             toast: {add: toastAdd},
@@ -105,8 +112,10 @@ describe('scan cleanup run coordinator', () => {
             progress: progress(4),
             updatedAtMs: Date.now(),
         });
-        await vi.waitFor(() => expect(openGeneratedPdf).toHaveBeenCalledWith('/managed/book — cleaned.pdf'));
+        await vi.waitFor(() => expect(toastAdd).toHaveBeenCalledWith(expect.objectContaining({color: 'success'})));
+        expect(openGeneratedPdf).toHaveBeenCalledWith('/managed/book — cleaned.pdf');
         const completeToast = toastAdd.mock.calls.at(-1)?.[0];
+        expect(saveActiveDocumentAs).not.toHaveBeenCalled();
         completeToast.actions[0].onClick();
         expect(saveActiveDocumentAs).toHaveBeenCalledOnce();
 
@@ -114,7 +123,7 @@ describe('scan cleanup run coordinator', () => {
             sourcePdfPath: '/source/book.pdf',
             options: expect.anything() as never,
         });
-        coordinator.scanCleanupRun.dialogOpen = false;
+        coordinator.scanCleanupRun.workspaceOpen = false;
         listener({
             jobId: 'job-2',
             status: 'failed',
@@ -126,7 +135,7 @@ describe('scan cleanup run coordinator', () => {
         await vi.waitFor(() => expect(toastAdd).toHaveBeenCalledWith(expect.objectContaining({color: 'error'})));
         const failureToast = toastAdd.mock.calls.at(-1)?.[0];
         failureToast.actions[0].onClick();
-        expect(coordinator.scanCleanupRun.openRequestRevision).toBe(1);
+        expect(openScanCleanupForDocument).toHaveBeenCalledWith('/source/book.pdf');
 
         await coordinator.startScanCleanup({
             sourcePdfPath: '/source/book.pdf',
@@ -144,11 +153,46 @@ describe('scan cleanup run coordinator', () => {
         cleanup();
     });
 
+    it('maps live owner progress to completed source-page ticks only for that workspace', async () => {
+        const {resolveScanCleanupProcessedPages} = await import('@app/modules/scan-cleanup/runtime/scanCleanupRunCoordinator');
+        const runningState: TScanCleanupJobState = {
+            jobId: 'job-progress',
+            status: 'running',
+            progress: progress(3, 6),
+            updatedAtMs: Date.now(),
+        };
+
+        expect([...resolveScanCleanupProcessedPages(
+            runningState,
+            '/source/book.pdf',
+            '/source/book.pdf',
+            6,
+        )]).toEqual([
+            1,
+            2,
+            3,
+        ]);
+        expect(resolveScanCleanupProcessedPages(
+            runningState,
+            '/source/book.pdf',
+            '/source/other.pdf',
+            6,
+        ).size).toBe(0);
+        expect(resolveScanCleanupProcessedPages({
+            ...runningState,
+            status: 'canceled',
+        }, '/source/book.pdf', '/source/book.pdf', 6).size).toBe(0);
+    });
+
     it('starts OCR only after the cleaned document opens and reports the combined result', async () => {
         let listener: (state: TScanCleanupJobState) => void = () => undefined;
         capability.value = {
             preview: vi.fn(),
             cancelPreview: vi.fn(),
+            detectAll: vi.fn(),
+            cancelDetection: vi.fn(),
+            getDetectionJobState: vi.fn(),
+            subscribeDetectionJob: vi.fn(),
             start: vi.fn(async () => ({
                 started: true,
                 jobId: 'job-ocr',
@@ -167,6 +211,7 @@ describe('scan cleanup run coordinator', () => {
                 listener = callback;
                 return () => undefined;
             }),
+            onDetectionJobState: vi.fn(() => () => undefined),
         };
         const order: string[] = [];
         const toastAdd = vi.fn();
@@ -214,6 +259,83 @@ describe('scan cleanup run coordinator', () => {
             'open',
             'ocr',
         ]);
+        cleanup();
+    });
+
+    it('contains generated-document open failures and reports them without starting OCR', async () => {
+        let listener: (state: TScanCleanupJobState) => void = () => undefined;
+        capability.value = {
+            preview: vi.fn(),
+            cancelPreview: vi.fn(),
+            detectAll: vi.fn(),
+            cancelDetection: vi.fn(),
+            getDetectionJobState: vi.fn(),
+            subscribeDetectionJob: vi.fn(),
+            start: vi.fn(async () => ({
+                started: true,
+                jobId: 'job-open-failure',
+            })),
+            cancel: vi.fn(async () => true),
+            getJobState: vi.fn(async () => null),
+            subscribeJob: vi.fn(async jobId => ({
+                jobId,
+                status: 'running' as const,
+                progress: progress(),
+                updatedAtMs: Date.now(),
+            })),
+            reconnectJob: vi.fn(async () => null),
+            pruneGeneratedOutputs: vi.fn(async () => 0),
+            onJobState: vi.fn(callback => {
+                listener = callback;
+                return () => undefined;
+            }),
+            onDetectionJobState: vi.fn(() => () => undefined),
+        };
+        const openGeneratedPdf = vi.fn(async () => {
+            throw new Error('Invalid or non-existent file');
+        });
+        const runOcrOnActiveDocument = vi.fn(async () => true);
+        const toastAdd = vi.fn();
+        const coordinator = await import('@app/modules/scan-cleanup/runtime/scanCleanupRunCoordinator');
+        const cleanup = coordinator.installScanCleanupRunCoordinator({
+            openGeneratedPdf,
+            runOcrOnActiveDocument,
+            saveActiveDocumentAs: vi.fn(),
+            getOpenPdfPaths: () => [],
+            t: ((key: string) => key) as never,
+            toast: {add: toastAdd},
+        });
+        await coordinator.startScanCleanup({
+            sourcePdfPath: '/source/book.pdf',
+            options: expect.anything() as never,
+            runOcrAfterCleanup: true,
+        });
+        listener({
+            jobId: 'job-open-failure',
+            status: 'completed',
+            outputPdfPath: '/managed/missing.pdf',
+            summary: {
+                inputPages: 1,
+                outputPages: 1,
+                spreadsSplit: 0,
+                offcutsDiscarded: 0,
+                deskewSkipped: 0,
+                cropSkipped: 0,
+                excludedPages: 0,
+                blankPagesSkipped: 0,
+                warnings: [],
+            },
+            runOcrAfterCleanup: true,
+            progress: progress(1, 1),
+            updatedAtMs: Date.now(),
+        });
+
+        await vi.waitFor(() => expect(toastAdd).toHaveBeenCalledWith(expect.objectContaining({
+            color: 'error',
+            title: 'scanCleanup.openResultFailed',
+        })));
+        expect(openGeneratedPdf).toHaveBeenCalledWith('/managed/missing.pdf');
+        expect(runOcrOnActiveDocument).not.toHaveBeenCalled();
         cleanup();
     });
 });

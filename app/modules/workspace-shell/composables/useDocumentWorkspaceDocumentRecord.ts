@@ -8,6 +8,8 @@ import type { IDocumentRevisionInfo } from '@contracts/documentRevision';
 import type { IWorkspaceToolbarSnapshot } from '@app/types/workspaceExpose';
 import { buildPendingTabDocumentHint } from '@app/modules/workspace-shell/tabs/buildPendingTabDocumentHint';
 import { resolveWorkspaceTabUpdate } from '@app/modules/workspace-shell/state/resolveWorkspaceTabUpdate';
+import { createTabViewSessionState } from '@app/modules/workspace-shell/tabs/createTabViewSessionState';
+import type { ITabViewSessionState } from '@app/modules/workspace-shell/tabs/tabSessionStoreTypes';
 import {
     createPendingWorkspaceViewState,
     createWorkspaceDocumentRecord,
@@ -32,6 +34,7 @@ interface IUseDocumentWorkspaceDocumentRecordOptions {
     isDirty: Ref<boolean>;
     djvuSourcePath: Ref<TDocumentRef | null>;
     toolbarSnapshot: Ref<IWorkspaceToolbarSnapshot>;
+    currentViewState?: Ref<ITabViewSessionState | null | undefined> | undefined;
     formatPendingBatchLabel: (values: IOpenBatchProgress) => string;
     publishRecord: (record: IWorkspaceDocumentRecord) => void;
 }
@@ -87,7 +90,7 @@ export const useDocumentWorkspaceDocumentRecord = (
             toolbarSnapshot,
             ...(isPendingDocumentHint
                 ? { viewState: createPendingWorkspaceViewState(toolbarSnapshot) }
-                : {}),
+                : {viewState: createTabViewSessionState(toolbarSnapshot, options.currentViewState?.value)}),
         });
     });
 

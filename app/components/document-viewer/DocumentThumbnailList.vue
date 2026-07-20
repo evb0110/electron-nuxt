@@ -13,6 +13,11 @@
                 :key="item.pageNumber"
                 class="document-thumbnail-list__item"
                 :current="item.pageNumber === currentPage"
+                :selected="selectedPages?.has(item.pageNumber)"
+                :tag="itemTag"
+                :role="selectedPages ? 'option' : undefined"
+                :aria-selected="selectedPages ? selectedPages.has(item.pageNumber) : undefined"
+                :tabindex="itemTag === 'div' ? (item.pageNumber === currentPage ? 0 : -1) : undefined"
                 frame-class="document-thumbnail-list__frame"
                 :frame-style="{aspectRatio: item.aspectRatio}"
                 :style="{height: `${String(item.height)}px`, transform: `translateY(${String(item.top)}px)`}"
@@ -20,8 +25,11 @@
                 :data-thumbnail-page="item.pageNumber"
                 :data-thumbnail-request-width="states.get(item.pageNumber)?.widthPx ?? ''"
                 data-pane-relocation-scroll-item
-                @click="emit('go-to-page', item.pageNumber)"
+                @click="emit('go-to-page', item.pageNumber, $event)"
             >
+                <template #overlay>
+                    <slot name="overlay" :page-number="item.pageNumber" />
+                </template>
                 <img
                     v-if="typeof states.get(item.pageNumber)?.surface === 'string'"
                     :src="states.get(item.pageNumber)?.surface as string"
@@ -34,7 +42,9 @@
                     class="document-thumbnail-list__canvas-host"
                 />
                 <span v-else class="document-thumbnail-list__placeholder" />
-                <template #label>{{ item.pageNumber }}</template>
+                <template #label>
+                    <slot name="label" :page-number="item.pageNumber">{{ item.pageNumber }}</slot>
+                </template>
             </DocumentThumbnailItem>
         </div>
     </DocumentThumbnailRail>
@@ -52,8 +62,11 @@ const props = defineProps<{
     currentPage: number;
     isActive?: boolean;
     isResizing?: boolean;
+    itemMetricsKey?: unknown;
+    itemTag?: 'button' | 'div';
+    selectedPages?: ReadonlySet<number>;
 }>();
-const emit = defineEmits<{'go-to-page': [pageNumber: number];}>();
+const emit = defineEmits<{'go-to-page': [pageNumber: number, event: MouseEvent];}>();
 const {t} = useTypedI18n();
 const scrollRoot = ref<HTMLElement | null>(null);
 function setScrollRoot(element: HTMLElement | null) {
@@ -70,6 +83,7 @@ const {
     currentPage: toRef(props, 'currentPage'),
     isActive: computed(() => props.isActive ?? true),
     isResizing: computed(() => props.isResizing ?? false),
+    itemMetricsKey: toRef(props, 'itemMetricsKey'),
     scrollRoot,
     source: toRef(props, 'source'),
 });

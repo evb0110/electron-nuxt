@@ -15,6 +15,12 @@ interface ICreatePdfPageSourceOptions {
 }
 
 export function createPdfPageSource(options: ICreatePdfPageSourceOptions): IDocumentPageSource {
+    function renderPage(request: IDocumentPageRenderRequest) {
+        assertDocumentPageNumber(request.pageNumber, options.pdfDocument.numPages);
+        request.signal.throwIfAborted();
+        return options.renderPage(request);
+    }
+
     return {
         kind: 'pdf',
         documentRef: options.documentRef,
@@ -32,11 +38,8 @@ export function createPdfPageSource(options: ICreatePdfPageSourceOptions): IDocu
                 rotation: rotation as 0 | 90 | 180 | 270,
             };
         },
-        renderPage(request) {
-            assertDocumentPageNumber(request.pageNumber, options.pdfDocument.numPages);
-            request.signal.throwIfAborted();
-            return options.renderPage(request);
-        },
+        renderPage,
+        thumbnailProvider: {renderThumbnail: renderPage},
         dispose() {},
     };
 }

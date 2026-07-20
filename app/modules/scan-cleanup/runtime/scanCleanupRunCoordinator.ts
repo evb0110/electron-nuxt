@@ -5,16 +5,21 @@ import type {
 } from '@contracts/electronApiScanCleanup';
 import type {TTranslateFn} from '@i18n-app';
 import {getScanCleanupCapability} from '@app/utils/getScanCleanupCapability';
+import {
+    dismissScanCleanupFirstRunGuidance,
+    toPlainScanCleanupOptions,
+} from '@app/modules/scan-cleanup/runtime/scanCleanupPreferences';
 
 const ACTIVE_JOB_KEY = 'evb.scanCleanup.activeJobId';
+const ACTIVE_JOB_DOCUMENT_KEY = 'evb.scanCleanup.activeDocumentRef';
 const terminalJobs = new Set<string>();
 
 export const scanCleanupRun = reactive({
     activeJobId: null as string | null,
-    dialogOpen: false,
+    workspaceOpen: false,
     jobState: null as TScanCleanupJobState | null,
     lastError: '',
-    openRequestRevision: 0,
+    ownerDocumentRef: null as string | null,
 });
 
 export const isScanCleanupRunning = computed(() => Boolean(
@@ -26,6 +31,31 @@ export const isScanCleanupRunning = computed(() => Boolean(
         'handoff',
     ].includes(scanCleanupRun.jobState.status),
 ));
+
+export function resolveScanCleanupProcessedPages(
+    state: TScanCleanupJobState | null,
+    ownerDocumentRef: string | null,
+    sourceDocumentRef: string | null,
+    totalPages: number,
+): ReadonlySet<number> {
+    if (
+        !state
+        || !sourceDocumentRef
+        || ownerDocumentRef !== sourceDocumentRef
+        || ![
+            'queued',
+            'running',
+            'handoff',
+        ].includes(state.status)
+    ) {
+        return new Set();
+    }
+    const processedCount = Math.min(
+        Math.max(0, Math.trunc(totalPages)),
+        Math.max(0, Math.trunc(state.progress.processedCount)),
+    );
+    return new Set(Array.from({length: processedCount}, (_, index) => index + 1));
+}
 
 interface IScanCleanupToast {add: (options: {
     color?: 'error' | 'info' | 'success';
@@ -43,6 +73,7 @@ export interface IScanCleanupCoordinatorDependencies {
     openGeneratedPdf: (path: string) => Promise<boolean>;
     runOcrOnActiveDocument: () => Promise<boolean>;
     saveActiveDocumentAs: () => Promise<unknown>;
+    openScanCleanupForDocument?: (documentRef: string) => Promise<boolean> | boolean;
     getOpenPdfPaths: () => string[];
     t: TTranslateFn;
     toast: IScanCleanupToast;
@@ -52,12 +83,19 @@ let installed = false;
 let unsubscribe: (() => void) | null = null;
 let dependencies: IScanCleanupCoordinatorDependencies | null = null;
 
-function persistActiveJob(jobId: string | null) {
+function persistActiveJob(jobId: string | null, documentRef: string | null = scanCleanupRun.ownerDocumentRef) {
     if (!import.meta.client) {
         return;
     }
-    if (jobId) sessionStorage.setItem(ACTIVE_JOB_KEY, jobId);
-    else sessionStorage.removeItem(ACTIVE_JOB_KEY);
+    if (jobId) {
+        sessionStorage.setItem(ACTIVE_JOB_KEY, jobId);
+        if (documentRef) {
+            sessionStorage.setItem(ACTIVE_JOB_DOCUMENT_KEY, documentRef);
+        }
+    } else {
+        sessionStorage.removeItem(ACTIVE_JOB_KEY);
+        sessionStorage.removeItem(ACTIVE_JOB_DOCUMENT_KEY);
+    }
 }
 
 function summaryText(state: Extract<TScanCleanupJobState, {status: 'completed'}>) {
@@ -78,7 +116,8 @@ async function handleTerminalState(state: TScanCleanupJobState) {
     persistActiveJob(null);
 
     if (state.status === 'completed') {
-        const opened = await dependencies.openGeneratedPdf(state.outputPdfPath);
+        dismissScanCleanupFirstRunGuidance();
+        const opened = await dependencies.openGeneratedPdf(state.outputPdfPath).catch(() => false);
         const ocrStarted = opened && state.runOcrAfterCleanup
             ? await dependencies.runOcrOnActiveDocument().catch(() => false)
             : false;
@@ -100,7 +139,7 @@ async function handleTerminalState(state: TScanCleanupJobState) {
 
     if (state.status === 'failed') {
         scanCleanupRun.lastError = state.error;
-        if (!scanCleanupRun.dialogOpen) {
+        if (!scanCleanupRun.workspaceOpen) {
             dependencies.toast.add({
                 color: 'error',
                 title: dependencies.t('scanCleanup.failed'),
@@ -109,14 +148,14 @@ async function handleTerminalState(state: TScanCleanupJobState) {
                     label: dependencies.t('scanCleanup.details'),
                     color: 'neutral',
                     variant: 'outline',
-                    onClick: requestScanCleanupDialog,
+                    onClick: requestOwningScanCleanupWorkspace,
                 }],
             });
         }
         return;
     }
 
-    if (state.status === 'canceled' && !scanCleanupRun.dialogOpen) {
+    if (state.status === 'canceled' && !scanCleanupRun.workspaceOpen) {
         dependencies.toast.add({
             color: 'info',
             title: dependencies.t('scanCleanup.canceled'),
@@ -138,8 +177,10 @@ function acceptScanCleanupJobState(state: TScanCleanupJobState) {
     }
 }
 
-function requestScanCleanupDialog() {
-    scanCleanupRun.openRequestRevision += 1;
+function requestOwningScanCleanupWorkspace() {
+    if (scanCleanupRun.ownerDocumentRef) {
+        void dependencies?.openScanCleanupForDocument?.(scanCleanupRun.ownerDocumentRef);
+    }
 }
 
 export async function startScanCleanup(request: IScanCleanupStartRequest): Promise<IScanCleanupStartResult> {
@@ -153,13 +194,17 @@ export async function startScanCleanup(request: IScanCleanupStartRequest): Promi
         };
     }
     scanCleanupRun.lastError = '';
-    const result = await capability.start(request);
+    const result = await capability.start({
+        ...request,
+        options: toPlainScanCleanupOptions(request.options),
+    });
     if (!result.started) {
         return result;
     }
     terminalJobs.delete(result.jobId);
     scanCleanupRun.activeJobId = result.jobId;
-    persistActiveJob(result.jobId);
+    scanCleanupRun.ownerDocumentRef = request.sourcePdfPath;
+    persistActiveJob(result.jobId, request.sourcePdfPath);
     const restored = await capability.subscribeJob(result.jobId);
     if (restored) acceptScanCleanupJobState(restored);
     return result;
@@ -192,6 +237,7 @@ export function installScanCleanupRunCoordinator(nextDependencies: IScanCleanupC
     const storedJobId = import.meta.client ? sessionStorage.getItem(ACTIVE_JOB_KEY) : null;
     if (storedJobId) {
         scanCleanupRun.activeJobId = storedJobId;
+        scanCleanupRun.ownerDocumentRef = sessionStorage.getItem(ACTIVE_JOB_DOCUMENT_KEY);
         void capability.reconnectJob(storedJobId).then(state => {
             if (state) acceptScanCleanupJobState(state);
             else {

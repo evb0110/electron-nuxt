@@ -47,6 +47,9 @@ impl PdfRect {
 }
 
 pub(crate) enum Operation {
+    SplitPages {
+        instructions_file: PathBuf,
+    },
     Crop {
         pages_file: PathBuf,
         margins: CropMargins,
@@ -70,6 +73,35 @@ pub(crate) enum Operation {
         append: bool,
     },
     PageSizes,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct SplitPagesFile {
+    pub(crate) pages: Vec<SplitPageInstruction>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct SplitPageInstruction {
+    pub(crate) source_page_index: usize,
+    pub(crate) rotation_quarter_turns: i64,
+    pub(crate) outputs: Vec<SplitPageOutput>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct SplitPageOutput {
+    pub(crate) crop_rect: SplitCropRect,
+}
+
+#[derive(Clone, Copy, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct SplitCropRect {
+    pub(crate) x: f64,
+    pub(crate) y: f64,
+    pub(crate) width: f64,
+    pub(crate) height: f64,
 }
 
 pub(crate) struct Config {

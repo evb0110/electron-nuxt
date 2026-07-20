@@ -1056,7 +1056,7 @@ async function collectDjvuProjectedScrollMetricSamples(session: IElectronE2ESess
 describe('Electron E2E - Viewer Smoke', () => {
     const sessionFixture = createElectronE2ESessionFixture({sessionName: () => `e2e-viewer-smoke-${Date.now()}`});
 
-    it('keeps Scan Cleanup open after one toolbar click', async () => {
+    it('shows source thumbnails and keeps Scan Cleanup open on Escape', async () => {
         let session = sessionFixture.getSession();
         if (!session) {
             return;
@@ -1087,6 +1087,10 @@ describe('Electron E2E - Viewer Smoke', () => {
             timeout: 10_000,
             visible: true,
         });
+        await session.page.waitForSelector('.scan-thumbnail-rail .document-thumbnail-list__item', {
+            timeout: 10_000,
+            visible: true,
+        });
         await session.page.evaluate(async () => {
             await new Promise(resolve => setTimeout(resolve, 600));
         });
@@ -1094,6 +1098,17 @@ describe('Electron E2E - Viewer Smoke', () => {
         const dialogTitle = await session.page.$eval('[role="dialog"]', dialog => dialog.textContent ?? '');
         expect(dialogTitle).toContain('Scan cleanup');
         await session.page.keyboard.press('Escape');
+        await session.page.waitForSelector('[role="dialog"]', {
+            timeout: 10_000,
+            visible: true,
+        });
+        const thumbnailRows = await session.page.$$eval(
+            '.scan-thumbnail-rail .document-thumbnail-list__item',
+            rows => rows.length,
+        );
+        expect(thumbnailRows).toBeGreaterThan(0);
+
+        await session.page.$eval('.scan-cleanup-toolbar-done', button => (button as HTMLButtonElement).click());
         await session.page.waitForSelector('[role="dialog"]', {
             hidden: true,
             timeout: 10_000,

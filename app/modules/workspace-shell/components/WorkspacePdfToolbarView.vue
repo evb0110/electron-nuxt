@@ -97,15 +97,27 @@
             />
         </template>
         <template v-if="canUseOcr && isDesktopRuntime" #scan-cleanup="{ isCollapsed }">
-            <ScanCleanupPopup
-                v-model:open="scanCleanupPopupOpen"
-                :source-path="ocrWorkingCopyPath"
-                :document-key="scanCleanupDocumentKey"
-                :current-page="snapshot.currentPage"
-                :total-pages="snapshot.totalPages"
-                :disabled="toolbarControlsDisabled || snapshot.isAnySaving || snapshot.isHistoryBusy"
-                :hide-trigger="isCollapsed(3)"
-            />
+            <AppTooltip :text="scanCleanupTriggerTooltip" :delay-duration="1200">
+                <span v-if="!isCollapsed(3)" class="scan-cleanup-trigger-wrap">
+                    <UButton
+                        class="scan-cleanup-trigger"
+                        :class="{'is-active': isScanCleanupRunning}"
+                        color="neutral"
+                        variant="ghost"
+                        size="md"
+                        square
+                        type="button"
+                        :aria-label="scanCleanupTriggerTooltip"
+                        :aria-pressed="isScanCleanupRunning"
+                        :disabled="toolbarControlsDisabled || snapshot.isAnySaving || snapshot.isHistoryBusy || !ocrWorkingCopyPath"
+                        @click="handleOpenScanCleanup"
+                    >
+                        <ScanCleanupScissorsIcon class="size-5" />
+                    </UButton>
+                    <span v-if="isScanCleanupRunning" class="scan-cleanup-running-dot" aria-hidden="true" />
+                </span>
+                <span v-else class="hidden-trigger" aria-hidden="true" />
+            </AppTooltip>
         </template>
         <template v-if="canUseOcr" #ocr="{ isCollapsed }">
             <OcrPopup
@@ -246,15 +258,17 @@ import type {
 } from '@app/types/ocrAgent';
 import type { IWorkspaceToolbarSnapshot } from '@app/types/workspaceExpose';
 import type { IReaderCommandSurface } from '@app/utils/readerCommandSurface';
+import {
+    isScanCleanupRunning,
+    ScanCleanupScissorsIcon,
+    scanCleanupRun,
+} from '@app/modules/scan-cleanup/public';
 
 const OcrPopup = defineAsyncComponent(
     () => import('@app/modules/ocr-panel/public')
         .then(componentModule => componentModule.OcrPopup),
 );
-const ScanCleanupPopup = defineAsyncComponent(
-    () => import('@app/modules/scan-cleanup/public').then(module => module.ScanCleanupPopup),
-);
-const scanCleanupPopupOpen = ref(false);
+const { t } = useTypedI18n();
 
 const {
     appMenuOpen,
@@ -275,7 +289,6 @@ const {
     ocrPdfDocument = null,
     ocrPopupOpen,
     ocrWorkingCopyPath = null,
-    scanCleanupDocumentKey = null,
     overflowMenuOpen,
     pageDropdownOpen,
     pageDropdownTotalPages: pageDropdownTotalPagesProp = undefined,
@@ -309,7 +322,6 @@ const {
     } | null | undefined;
     ocrPdfDocument?: PDFDocumentProxy | null | undefined;
     ocrWorkingCopyPath?: TDocumentRef | null | undefined;
-    scanCleanupDocumentKey?: string | null | undefined;
     ocrExternalError?: string | null | undefined;
     ocrIsExportingDocx?: boolean | undefined;
     ocrPopupOpen: boolean;
@@ -333,6 +345,7 @@ const emit = defineEmits<{
     'update:ocrRunning': [running: boolean];
     'open-file': [];
     'open-settings': [];
+    'open-scan-cleanup': [];
     'save': [];
     'repair-save': [];
     'optimize-pdf-for-interaction': [];
@@ -382,6 +395,22 @@ const pageNavigationDisabled = computed(() => (
 ));
 const pageDropdownTotalPages = computed(() => pageDropdownTotalPagesProp ?? snapshot.totalPages);
 const ocrIsExportingDocx = computed(() => ocrIsExportingDocxProp ?? snapshot.isExportingDocx);
+const scanCleanupJobProgress = computed(() => scanCleanupRun.jobState?.progress ?? {
+    processedCount: 0,
+    totalPages: Math.max(1, snapshot.totalPages),
+});
+const scanCleanupTriggerTooltip = computed(() => {
+    if (!ocrWorkingCopyPath) {
+        return t('scanCleanup.noDocument');
+    }
+    if (!isScanCleanupRunning.value) {
+        return t('scanCleanup.button');
+    }
+    return t('scanCleanup.runningLabel', {
+        processed: scanCleanupJobProgress.value.processedCount,
+        total: scanCleanupJobProgress.value.totalPages,
+    });
+});
 
 const zoom = computed({
     get: () => snapshot.zoom,
@@ -449,6 +478,10 @@ function handleOpenFile() {
 
 function handleOpenSettings() {
     emit('open-settings');
+}
+
+function handleOpenScanCleanup() {
+    emit('open-scan-cleanup');
 }
 
 function handleSave() {
@@ -618,3 +651,38 @@ defineExpose<IOcrPopupAgentExpose>({
     getAgentOcrSnapshot,
 });
 </script>
+
+<style scoped>
+.scan-cleanup-trigger-wrap {
+    position: relative;
+    display: inline-flex;
+}
+
+.scan-cleanup-trigger.is-active {
+    background: var(--ui-bg-elevated);
+}
+
+.scan-cleanup-running-dot {
+    position: absolute;
+    inset-inline-end: var(--app-space-xs);
+    inset-block-end: var(--app-space-xs);
+    width: var(--app-space-3xl);
+    height: var(--app-space-3xl);
+    border: 1px solid var(--ui-bg);
+    border-radius: var(--app-radius-full);
+    background: var(--ui-primary);
+    animation: scan-cleanup-pulse 1.4s ease-in-out infinite;
+    pointer-events: none;
+}
+
+.hidden-trigger {
+    display: none;
+}
+
+@keyframes scan-cleanup-pulse {
+    50% {
+        opacity: 0.45;
+        transform: scale(0.8);
+    }
+}
+</style>

@@ -47,6 +47,7 @@ interface IUseDocumentThumbnailControllerOptions {
     currentPage: Ref<number>;
     isActive: Ref<boolean>;
     isResizing: Ref<boolean>;
+    itemMetricsKey: Ref<unknown>;
     scrollRoot: Ref<HTMLElement | null>;
     source: Ref<IDocumentPageSource | null>;
 }
@@ -206,9 +207,7 @@ export const useDocumentThumbnailController = (options: IUseDocumentThumbnailCon
         });
     }
 
-    function measureItemChromeHeight() {
-        const root = options.scrollRoot.value;
-        const item = root?.querySelector<HTMLElement>('.document-thumbnail-list__item') ?? null;
+    function measureItemChromeHeight(item: HTMLElement) {
         const label = item?.querySelector<HTMLElement>('[data-document-thumbnail-label]') ?? null;
         if (!item || !label) {
             return null;
@@ -218,6 +217,49 @@ export const useDocumentThumbnailController = (options: IUseDocumentThumbnailCon
             labelHeight: label.getBoundingClientRect().height,
             thumbnailStyle: getComputedStyle(item),
         });
+    }
+
+    function measureItemChromeHeights() {
+        const root = options.scrollRoot.value;
+        const entries = Array.from(root?.querySelectorAll<HTMLElement>('.document-thumbnail-list__item') ?? [])
+            .flatMap(item => {
+                const pageNumber = Number(item.dataset.thumbnailPage);
+                const height = measureItemChromeHeight(item);
+                return Number.isSafeInteger(pageNumber) && pageNumber > 0 && height !== null
+                    ? [{
+                        pageNumber,
+                        height,
+                    }]
+                    : [];
+            });
+        const baseHeight = entries.find(entry => entry.pageNumber !== options.currentPage.value)?.height
+            ?? itemChromeHeight.value;
+        return {
+            baseHeight,
+            entries: entries.map(entry => ({
+                pageNumber: entry.pageNumber,
+                height: Math.abs(entry.height - baseHeight) < 0.5 ? null : entry.height,
+            })),
+        };
+    }
+
+    function updatePageChromeHeights(entries: Array<{
+        pageNumber: number;
+        height: number | null
+    }>) {
+        const root = options.scrollRoot.value;
+        const anchor = resizeAnchorLifecycle.read()
+            ?? (root ? layout.captureAnchor(root.scrollTop) : null);
+        const changed = entries.reduce(
+            (didChange, entry) => layout.updatePageChromeHeight(entry.pageNumber, entry.height) || didChange,
+            false,
+        );
+        if (!changed) {
+            return;
+        }
+        layoutRevision.value += 1;
+        if (root && anchor) root.scrollTop = layout.resolveAnchorScrollTop(anchor);
+        if (resizeAnchorLifecycle.isActive()) resizeAnchorLifecycle.preserve();
     }
 
     function updateLayoutGeometry(nextWidth: number, nextItemChromeHeight: number) {
@@ -245,10 +287,12 @@ export const useDocumentThumbnailController = (options: IUseDocumentThumbnailCon
         isVisible.value = nextVisible;
         const measuredWidth = measureCssWidth();
         if (measuredWidth !== null) {
+            const measuredChrome = measureItemChromeHeights();
             updateLayoutGeometry(
                 measuredWidth,
-                measureItemChromeHeight() ?? itemChromeHeight.value,
+                measuredChrome.baseHeight,
             );
+            updatePageChromeHeights(measuredChrome.entries);
             if (settledCssWidth.value === MIN_CSS_WIDTH && measuredWidth !== MIN_CSS_WIDTH) {
                 settledCssWidth.value = measuredWidth;
             }
@@ -408,7 +452,7 @@ export const useDocumentThumbnailController = (options: IUseDocumentThumbnailCon
     });
 
     watch(
-        virtualItems,
+        () => virtualItems.value.map(item => item.pageNumber).join(','),
         async () => {
             await nextTick();
             measureViewport();
@@ -444,6 +488,17 @@ export const useDocumentThumbnailController = (options: IUseDocumentThumbnailCon
         viewportRevision.value += 1;
         scheduleRefresh();
     });
+    watch(options.itemMetricsKey, async (_value, previousValue) => {
+        if (typeof previousValue === 'number' && Number.isSafeInteger(previousValue)) {
+            updatePageChromeHeights([{
+                pageNumber: previousValue,
+                height: null,
+            }]);
+        }
+        await nextTick();
+        measureViewport();
+        scheduleRefresh();
+    }, {flush: 'post'});
     watch(options.isActive, async active => {
         if (!active) {
             return;

@@ -25,6 +25,7 @@ pub(crate) fn parse_args() -> Result<Config> {
     let mut updates_file = None;
     let mut changes_file = None;
     let mut mutations_file = None;
+    let mut instructions_file = None;
     let mut modified_at = None;
     let mut top = None;
     let mut bottom = None;
@@ -58,6 +59,11 @@ pub(crate) fn parse_args() -> Result<Config> {
             "--mutations-file" => {
                 mutations_file = Some(PathBuf::from(
                     args.next().ok_or("Missing --mutations-file value")?,
+                ))
+            }
+            "--instructions-file" => {
+                instructions_file = Some(PathBuf::from(
+                    args.next().ok_or("Missing --instructions-file value")?,
                 ))
             }
             "--modified-at" => {
@@ -95,6 +101,9 @@ pub(crate) fn parse_args() -> Result<Config> {
     }
 
     let operation = match command.as_str() {
+        "split-pages" => Operation::SplitPages {
+            instructions_file: instructions_file.ok_or("Missing --instructions-file value")?,
+        },
         "crop" => Operation::Crop {
             pages_file: pages_file.ok_or("Missing --pages-file value")?,
             margins: CropMargins {

@@ -141,14 +141,32 @@
     --app-scan-preview-skeleton-height: 18rem;
     --app-scan-preview-compact-surface-height: 18rem;
     --app-scan-preview-compact-content-height: 15rem;
-    --app-scan-dialog-width: 90vw;
-    --app-scan-dialog-max-width: 76rem;
-    --app-scan-dialog-height: 85vh;
     --app-scan-dialog-rail-width: 17.5rem;
-    --app-scan-page-list-width: 14rem;
+    --app-scan-page-list-width: 25rem;
+    --app-scan-page-list-collapsed-width: 3rem;
+    --app-scan-reset-confirmation-width: 17rem;
     --app-scan-details-width: 22rem;
-    --app-scan-progress-card-width: 20rem;
+    --app-scan-toolbar-progress-height: var(--app-search-progress-height);
+    --app-scan-toolbar-left-zone-width: 10rem;
+    --app-scan-toolbar-right-zone-width: 21rem;
+    --app-scan-toolbar-stepper-width: 15rem;
+    --app-scan-toolbar-redetect-width: 6.5rem;
+    --app-scan-toolbar-status-width: 23rem;
+    --app-scan-toolbar-primary-width: 9rem;
     --app-scan-disabled-opacity: 0.58;
+    --app-scan-preview-stale-opacity: var(--app-opacity-muted);
+    --app-scan-preview-crossfade-duration: var(--app-transition-standard);
+    --app-scan-first-run-guidance-width: 32rem;
+    --app-scan-options-fade-height: var(--app-space-16xl);
+    --app-scan-options-fade-mask: linear-gradient(
+        to bottom,
+        var(--ui-bg) calc(100% - var(--app-scan-options-fade-height)),
+        transparent
+    );
+    --app-scan-cutter-handle-width: var(--app-space-16xl);
+    --app-scan-cutter-handle-height: var(--app-space-13xl);
+    --app-scan-content-handle-size: var(--app-space-9xl);
+    --app-scan-content-handle-hit-size: var(--app-space-13xl);
     --app-progress-bar-width: 15rem;
     --app-progress-chip-offset-low: 3rem;
     --app-progress-chip-offset-high: 7rem;
@@ -820,24 +838,6 @@
     --editor-toolbar-delete-image: var(--pdfjs-delete-icon);
 }
 
-.scan-cleanup-dialog-shell {
-    display: flex;
-    flex-direction: column;
-}
-
-.scan-cleanup-dialog-body {
-    display: flex;
-    min-height: 0;
-    flex: 1;
-    overflow: hidden;
-}
-
-.scan-cleanup-dialog-footer {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: var(--app-space-9xl);
-}
 
 .settings-locale-select-content {
     max-width: min(var(--app-settings-select-max-size), var(--reka-combobox-content-available-width, var(--app-settings-select-max-size)));

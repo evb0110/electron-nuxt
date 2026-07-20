@@ -29,11 +29,19 @@ pub fn detect_split(
     manual_split_x: Option<f64>,
 ) -> SplitResult {
     if let Some(cutter) = manual_split_x {
+        // A manually positioned cutter in Auto mode is an explicit spread
+        // decision. Treating Auto as single here discarded the two halves on
+        // the next preview and made the cutter disappear from the editor.
+        let classification = if matches!(mode, LayoutMode::Auto) {
+            LayoutClassification::TwoPageSpread
+        } else {
+            mode_classification(mode)
+        };
         return split_at(
             gray.width(),
             gray.height(),
             cutter.clamp(1.0, gray.width().saturating_sub(1) as f64),
-            mode_classification(mode),
+            classification,
             1.0,
         );
     }
@@ -46,11 +54,12 @@ pub fn detect_split(
                 gray.height(),
                 gray.width() as f64 * 0.5,
                 mode_classification(mode),
-                0.5,
+                1.0,
             )
         };
     }
-    let whitespace = whitespace_candidate(binary, dpi);
+    let shadow_cleaned = shadow_cleaned_binary(binary, dpi);
+    let whitespace = whitespace_candidate(&shadow_cleaned);
     let line = fold_line_candidate(gray, dpi);
     let candidate = match (whitespace, line) {
         (Some(left), Some(right)) if (left.0 - right.0).abs() <= gray.width() as f64 * 0.04 => {
@@ -73,19 +82,24 @@ pub fn detect_split(
             confidence,
         )
     } else if (0.08..=0.92).contains(&position) {
-        split_at(
-            gray.width(),
-            gray.height(),
-            x,
-            LayoutClassification::PageWithOffcut,
-            confidence * 0.85,
-        )
+        let offcut_confidence = confidence * 0.85;
+        if offcut_confidence >= 0.6 && smaller_side_is_essentially_empty(&shadow_cleaned, x, dpi) {
+            split_at(
+                gray.width(),
+                gray.height(),
+                x,
+                LayoutClassification::PageWithOffcut,
+                offcut_confidence,
+            )
+        } else {
+            single(gray.width(), gray.height(), 0.65)
+        }
     } else {
         single(gray.width(), gray.height(), 0.65)
     }
 }
 
-fn whitespace_candidate(binary: &BinaryImage, dpi: f64) -> Option<(f64, f64)> {
+fn shadow_cleaned_binary(binary: &BinaryImage, dpi: f64) -> BinaryImage {
     let shadow_radius = ((dpi / 300.0) * 60.0).round().max(12.0) as usize;
     let seed = open(
         binary,
@@ -95,7 +109,10 @@ fn whitespace_candidate(binary: &BinaryImage, dpi: f64) -> Option<(f64, f64)> {
     let cleaned = binary.subtract(&reconstruct_binary(&seed, binary));
     let map = ComponentMap::from_binary(&cleaned);
     let min_area = ((dpi / 300.0).powi(2) * 3.0).round().max(2.0) as usize;
-    let cleaned = map.retain(|component| component.area >= min_area);
+    map.retain(|component| component.area >= min_area)
+}
+
+fn whitespace_candidate(cleaned: &BinaryImage) -> Option<(f64, f64)> {
     let mut columns = vec![0usize; cleaned.width()];
     for y in 0..cleaned.height() {
         for (x, count) in columns.iter_mut().enumerate() {
@@ -135,6 +152,27 @@ fn whitespace_candidate(binary: &BinaryImage, dpi: f64) -> Option<(f64, f64)> {
     let (x, score) = best?;
     let confidence = (score / (cleaned.width() as f64 * 0.025)).clamp(0.0, 1.0);
     (confidence >= 0.35).then_some((x, confidence))
+}
+
+fn smaller_side_is_essentially_empty(cleaned: &BinaryImage, cutter_x: f64, dpi: f64) -> bool {
+    let cutter = cutter_x
+        .round()
+        .clamp(1.0, cleaned.width().saturating_sub(1) as f64) as usize;
+    let (left, right) = if cutter <= cleaned.width() - cutter {
+        (0, cutter)
+    } else {
+        (cutter, cleaned.width())
+    };
+    let mut ink = 0usize;
+    for y in 0..cleaned.height() {
+        for x in left..right {
+            ink += usize::from(cleaned.get(x, y));
+        }
+    }
+    let area = (right - left).saturating_mul(cleaned.height());
+    let dpi_scaled_speck_budget = (24.0 * (dpi / 300.0).powi(2)).round().max(4.0) as usize;
+    let coverage_budget = (area as f64 * 0.0002).round() as usize;
+    ink <= dpi_scaled_speck_budget.max(coverage_budget)
 }
 
 fn fold_line_candidate(gray: &GrayImage, dpi: f64) -> Option<(f64, f64)> {
@@ -247,6 +285,18 @@ fn mode_classification(mode: LayoutMode) -> LayoutClassification {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn add_text_lines(gray: &mut GrayImage, binary: &mut BinaryImage, x1: usize, x2: usize) {
+        for y in (28..gray.height().saturating_sub(28)).step_by(18) {
+            for x in x1..x2 {
+                binary.set(x, y, true);
+                binary.set(x, y + 1, true);
+                gray.set(x, y, 20);
+                gray.set(x, y + 1, 20);
+            }
+        }
+    }
+
     #[test]
     fn locates_known_two_page_gutter() {
         let mut gray = GrayImage::new(300, 180, 245);
@@ -268,6 +318,18 @@ mod tests {
             "x={:?}",
             result.cutter_x
         );
+    }
+
+    #[test]
+    fn manual_cutter_in_auto_mode_remains_a_two_page_spread() {
+        let gray = GrayImage::new(300, 180, 245);
+        let binary = BinaryImage::new(300, 180);
+
+        let result = detect_split(&gray, &binary, 300.0, LayoutMode::Auto, Some(151.0));
+
+        assert_eq!(result.classification, LayoutClassification::TwoPageSpread);
+        assert_eq!(result.cutter_x, Some(151.0));
+        assert_eq!(result.pages.len(), 2);
     }
     #[test]
     fn manual_override_is_authoritative() {
@@ -294,5 +356,32 @@ mod tests {
             (result.cutter_x.unwrap() - 180.0).abs() <= 5.0,
             "{result:?}"
         );
+    }
+
+    #[test]
+    fn auto_layout_distinguishes_real_margin_spread_and_empty_offcut() {
+        let mut margin_gray = GrayImage::new(660, 936, 245);
+        let mut margin_binary = BinaryImage::new(660, 936);
+        add_text_lines(&mut margin_gray, &mut margin_binary, 45, 530);
+        add_text_lines(&mut margin_gray, &mut margin_binary, 600, 635);
+        let margin = detect_split(&margin_gray, &margin_binary, 150.0, LayoutMode::Auto, None);
+        assert_eq!(margin.classification, LayoutClassification::SingleUncutPage);
+
+        let mut spread_gray = GrayImage::new(660, 420, 245);
+        let mut spread_binary = BinaryImage::new(660, 420);
+        add_text_lines(&mut spread_gray, &mut spread_binary, 35, 300);
+        add_text_lines(&mut spread_gray, &mut spread_binary, 360, 625);
+        let spread = detect_split(&spread_gray, &spread_binary, 150.0, LayoutMode::Auto, None);
+        assert_eq!(spread.classification, LayoutClassification::TwoPageSpread);
+
+        let mut offcut_gray = GrayImage::new(660, 936, 245);
+        let mut offcut_binary = BinaryImage::new(660, 936);
+        add_text_lines(&mut offcut_gray, &mut offcut_binary, 45, 530);
+        for y in 0..offcut_gray.height() {
+            offcut_gray.set(570, y, 190);
+        }
+        let offcut = detect_split(&offcut_gray, &offcut_binary, 150.0, LayoutMode::Auto, None);
+        assert_eq!(offcut.classification, LayoutClassification::PageWithOffcut);
+        assert!(offcut.confidence >= 0.6);
     }
 }

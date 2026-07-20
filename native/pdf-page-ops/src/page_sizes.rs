@@ -14,6 +14,8 @@ struct PageSizesOutput {
 #[serde(rename_all = "camelCase")]
 struct PageSizeEntry {
     page_number: u32,
+    x_points: f64,
+    y_points: f64,
     width_points: f64,
     height_points: f64,
     width_inches: f64,
@@ -30,6 +32,8 @@ fn collect_page_sizes(document: &Document) -> Result<PageSizesOutput> {
             let rotation = resolve_page_rotation(document, page_id)?;
             Ok(PageSizeEntry {
                 page_number,
+                x_points: page_view.x1,
+                y_points: page_view.y1,
                 width_points: page_view.width(),
                 height_points: page_view.height(),
                 width_inches: page_view.width() / 72.0,
@@ -93,6 +97,8 @@ mod tests {
 
         assert_eq!(output.pages.len(), 1);
         assert_eq!(output.pages[0].page_number, 1);
+        assert_eq!(output.pages[0].x_points, 10.0);
+        assert_eq!(output.pages[0].y_points, 20.0);
         assert_eq!(output.pages[0].width_points, 180.0);
         assert_eq!(output.pages[0].height_points, 80.0);
         assert_eq!(output.pages[0].width_inches, 2.5);

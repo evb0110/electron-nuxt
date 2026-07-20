@@ -90,6 +90,7 @@ fn batch_spread_png_writes_two_output_images_and_per_half_metadata() {
         "sharedOptions": {
             "dpi": 150,
             "layout": "force-two-page",
+            "rotation": 90,
             "normalizeIllumination": false,
             "marginsPixels": [0, 0, 0, 0]
         },
@@ -123,6 +124,7 @@ fn batch_spread_png_writes_two_output_images_and_per_half_metadata() {
         assert_eq!(metadata_json["sourcePageIndex"], 7);
         assert_eq!(metadata_json["half"], expected_half);
         assert_eq!(metadata_json["layoutClassification"], "two-page-spread");
+        assert_eq!(metadata_json["rotation"], 90);
         assert!(metadata_json["forwardTransform"]["matrix"].is_array());
         assert!(metadata_json["inverseTransform"]["matrix"].is_array());
     }
@@ -139,7 +141,187 @@ fn batch_spread_png_writes_two_output_images_and_per_half_metadata() {
 }
 
 #[test]
-fn batch_matches_final_page_canvases_with_bottom_right_alignment() {
+fn classify_only_batch_writes_metadata_and_ndjson_but_no_output_images() {
+    let spread_input = temp_path("classify-spread-input", "png");
+    let single_input = temp_path("classify-single-input", "png");
+    let spread_output = temp_path("classify-spread-output", "png");
+    let single_output = temp_path("classify-single-output", "png");
+    let spread_output_metadata = temp_path("classify-spread-output", "json");
+    let single_output_metadata = temp_path("classify-single-output", "json");
+    let spread_page_metadata = temp_path("classify-spread-page", "json");
+    let single_page_metadata = temp_path("classify-single-page", "json");
+    let manifest = temp_path("classify-manifest", "json");
+
+    let mut spread = GrayImage::new(320, 200, 245);
+    for y in (35..165).step_by(14) {
+        for x in 24..142 {
+            spread.set(x, y, 18);
+            spread.set(x, y + 1, 18);
+        }
+        for x in 178..296 {
+            spread.set(x, y, 22);
+            spread.set(x, y + 1, 22);
+        }
+    }
+    let mut single = GrayImage::new(180, 280, 245);
+    for y in (32..248).step_by(16) {
+        for x in 22..158 {
+            single.set(x, y, 20);
+            single.set(x, y + 1, 20);
+        }
+    }
+    fs::write(&spread_input, encode_gray(&spread).unwrap()).unwrap();
+    fs::write(&single_input, encode_gray(&single).unwrap()).unwrap();
+    let payload = serde_json::json!({
+        "classifyOnly": true,
+        "sharedOptions": {
+            "dpi": 150,
+            "normalizeIllumination": false
+        },
+        "pages": [
+            {
+                "inputPath": spread_input,
+                "sourcePageIndex": 0,
+                "classifyOnly": true,
+                "pageMetadataPath": spread_page_metadata,
+                "outputPath": spread_output,
+                "metadataPath": spread_output_metadata
+            },
+            {
+                "inputPath": single_input,
+                "sourcePageIndex": 1,
+                "pageMetadataPath": single_page_metadata,
+                "outputPath": single_output,
+                "metadataPath": single_output_metadata,
+                "options": {
+                    "dpi": 150,
+                    "layout": "force-single",
+                    "normalizeIllumination": false
+                }
+            }
+        ]
+    });
+    fs::write(&manifest, serde_json::to_vec_pretty(&payload).unwrap()).unwrap();
+    let result = Command::new(env!("CARGO_BIN_EXE_evb-scan-cleanup"))
+        .args(["--manifest", manifest.to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(
+        result.status.success(),
+        "stderr={}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+
+    let progress = String::from_utf8(result.stdout).unwrap();
+    let lines = progress
+        .lines()
+        .map(|line| serde_json::from_str::<Value>(line).unwrap())
+        .collect::<Vec<_>>();
+    assert_eq!(lines[1]["classification"], "two-page-spread");
+    assert!(lines[1]["confidence"].as_f64().is_some());
+    assert!(lines[1]["cutterX"].as_f64().is_some());
+    assert_eq!(lines[2]["classification"], "single-uncut-page");
+    assert_eq!(lines[2]["confidence"], 1.0);
+    assert!(lines[2].get("cutterX").is_none());
+
+    let spread_metadata: Value =
+        serde_json::from_slice(&fs::read(&spread_page_metadata).unwrap()).unwrap();
+    let single_metadata: Value =
+        serde_json::from_slice(&fs::read(&single_page_metadata).unwrap()).unwrap();
+    assert_eq!(spread_metadata["layoutClassification"], "two-page-spread");
+    assert_eq!(single_metadata["layoutClassification"], "single-uncut-page");
+    for output in [
+        &spread_output,
+        &single_output,
+        &spread_output_metadata,
+        &single_output_metadata,
+    ] {
+        assert!(!output.exists(), "classify-only wrote {}", output.display());
+    }
+
+    for path in [
+        spread_input,
+        single_input,
+        spread_page_metadata,
+        single_page_metadata,
+        manifest,
+    ] {
+        let _ = fs::remove_file(path);
+    }
+}
+
+#[test]
+fn classify_only_inside_page_options_with_declared_outputs_writes_no_images() {
+    let input = temp_path("nested-classify-input", "png");
+    let output_first = temp_path("nested-classify-first", "png");
+    let output_second = temp_path("nested-classify-second", "png");
+    let metadata_first = temp_path("nested-classify-first", "json");
+    let metadata_second = temp_path("nested-classify-second", "json");
+    let manifest = temp_path("nested-classify-manifest", "json");
+
+    let mut image = GrayImage::new(180, 280, 245);
+    for y in (32..248).step_by(16) {
+        for x in 22..158 {
+            image.set(x, y, 20);
+            image.set(x, y + 1, 20);
+        }
+    }
+    fs::write(&input, encode_gray(&image).unwrap()).unwrap();
+    let payload = serde_json::json!({
+        "sharedOptions": {},
+        "pages": [{
+            "inputPath": input,
+            "sourcePageIndex": 40,
+            "options": {
+                "dpi": 150.0,
+                "layout": "auto",
+                "classifyOnly": true,
+                "normalizeIllumination": false
+            },
+            "outputs": [
+                {"outputPath": output_first, "metadataPath": metadata_first},
+                {"outputPath": output_second, "metadataPath": metadata_second}
+            ]
+        }]
+    });
+    fs::write(&manifest, serde_json::to_vec_pretty(&payload).unwrap()).unwrap();
+
+    let result = Command::new(env!("CARGO_BIN_EXE_evb-scan-cleanup"))
+        .args(["--manifest", manifest.to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(
+        result.status.success(),
+        "stderr={}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    let progress = String::from_utf8(result.stdout).unwrap();
+    let lines = progress
+        .lines()
+        .map(|line| serde_json::from_str::<Value>(line).unwrap())
+        .collect::<Vec<_>>();
+    assert!(lines[1]["classification"].as_str().is_some());
+    assert_eq!(lines[1]["outputPaths"], serde_json::json!([]));
+
+    let metadata: Value = serde_json::from_slice(&fs::read(&metadata_first).unwrap()).unwrap();
+    assert_eq!(metadata["sourcePageIndex"], 40);
+    assert!(metadata["layoutClassification"].as_str().is_some());
+    assert_eq!(metadata["outputCount"], 1);
+    for output in [&output_first, &output_second] {
+        assert!(!output.exists(), "classify-only wrote {}", output.display());
+    }
+    assert!(
+        !metadata_second.exists(),
+        "classify-only wrote per-output metadata instead of one page sidecar"
+    );
+
+    for path in [input, metadata_first, manifest] {
+        let _ = fs::remove_file(path);
+    }
+}
+
+#[test]
+fn batch_applies_per_output_placement_over_document_default() {
     let input_small = temp_path("uniform-small-input", "png");
     let input_large = temp_path("uniform-large-input", "png");
     let output_small = temp_path("uniform-small-output", "png");
@@ -161,13 +343,23 @@ fn batch_matches_final_page_canvases_with_bottom_right_alignment() {
             "cropContent": false,
             "outputMode": "grayscale",
             "matchPageSize": true,
-            "pageAlignment": "bottom-right"
+            "pageAlignment": "top-left"
         },
         "pages": [
             {
                 "inputPath": input_small,
                 "outputPath": output_small,
-                "metadataPath": metadata_small
+                "metadataPath": metadata_small,
+                "options": {
+                    "dpi": 300,
+                    "layout": "force-single",
+                    "normalizeIllumination": false,
+                    "cropContent": false,
+                    "outputMode": "grayscale",
+                    "matchPageSize": true,
+                    "pageAlignment": "top-left",
+                    "placementOverrides": {"full": "bottom-right"}
+                }
             },
             {
                 "inputPath": input_large,

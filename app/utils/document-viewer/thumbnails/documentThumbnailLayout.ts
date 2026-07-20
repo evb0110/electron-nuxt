@@ -39,6 +39,7 @@ function normalizePositive(value: number, fallback: number) {
 export class DocumentThumbnailLayout {
     private adoptFirstAspectAsEstimate: boolean;
     private readonly exactAspectRatios = new Map<number, number>();
+    private readonly exactChromeHeights = new Map<number, number>();
     private readonly heights: number[] = [];
     private readonly tree: number[] = [0];
     private estimatedAspectRatio: number;
@@ -84,11 +85,15 @@ export class DocumentThumbnailLayout {
         for (const page of this.exactAspectRatios.keys()) {
             if (page > this.pageCount) this.exactAspectRatios.delete(page);
         }
+        for (const page of this.exactChromeHeights.keys()) {
+            if (page > this.pageCount) this.exactChromeHeights.delete(page);
+        }
         this.rebuild();
     }
 
     resetDocument(options: IDocumentThumbnailLayoutOptions) {
         this.exactAspectRatios.clear();
+        this.exactChromeHeights.clear();
         this.estimatedAspectRatio = normalizePositive(
             options.estimatedAspectRatio ?? DEFAULT_DOCUMENT_THUMBNAIL_ASPECT_RATIO,
             DEFAULT_DOCUMENT_THUMBNAIL_ASPECT_RATIO,
@@ -126,6 +131,25 @@ export class DocumentThumbnailLayout {
                 return true;
             }
             this.exactAspectRatios.set(page, normalized);
+        }
+        const nextHeight = this.resolvePageHeight(page);
+        if (nextHeight === previousHeight) {
+            return false;
+        }
+        this.heights[page - 1] = nextHeight;
+        this.add(page, nextHeight - previousHeight);
+        return true;
+    }
+
+    updatePageChromeHeight(page: number, chromeHeight: number | null) {
+        if (page < 1 || page > this.pageCount) {
+            return false;
+        }
+        const previousHeight = this.heights[page - 1] ?? 0;
+        if (chromeHeight === null) {
+            this.exactChromeHeights.delete(page);
+        } else {
+            this.exactChromeHeights.set(page, Math.max(0, chromeHeight));
         }
         const nextHeight = this.resolvePageHeight(page);
         if (nextHeight === previousHeight) {
@@ -233,7 +257,8 @@ export class DocumentThumbnailLayout {
 
     private resolvePageHeight(page: number) {
         return Math.max(1, Math.ceil(
-            this.renderWidth * this.getPageAspect(page) + this.itemChromeHeight,
+            this.renderWidth * this.getPageAspect(page)
+            + (this.exactChromeHeights.get(page) ?? this.itemChromeHeight),
         ));
     }
 

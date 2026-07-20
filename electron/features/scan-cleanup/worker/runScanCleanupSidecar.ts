@@ -12,6 +12,9 @@ export interface IScanCleanupSidecarProgress {
     page: number;
     total: number;
     outputPaths?: string[];
+    classification?: 'single-uncut-page' | 'page-with-offcut' | 'two-page-spread';
+    confidence?: number;
+    cutterX?: number;
 }
 
 export async function runScanCleanupSidecar(

@@ -1,13 +1,19 @@
 import type {
     IScanCleanupCapability,
+    IScanCleanupDetectionRequest,
     IScanCleanupPreviewRequest,
     IScanCleanupStartRequest,
     TScanCleanupJobState,
+    TScanCleanupDetectionJobState,
 } from '@contracts/electronApiScanCleanup';
 
 export const SCAN_CLEANUP_CHANNELS = {
     preview: 'scan-cleanup:preview',
     cancelPreview: 'scan-cleanup:preview:cancel',
+    detectAll: 'scan-cleanup:detect-all',
+    cancelDetection: 'scan-cleanup:detect-all:cancel',
+    getDetectionJobState: 'scan-cleanup:detect-all:get-state',
+    subscribeDetectionJob: 'scan-cleanup:detect-all:subscribe',
     start: 'scan-cleanup:start',
     cancel: 'scan-cleanup:cancel',
     getJobState: 'scan-cleanup:job:get-state',
@@ -16,7 +22,10 @@ export const SCAN_CLEANUP_CHANNELS = {
     pruneGeneratedOutputs: 'scan-cleanup:output:prune',
 } as const;
 
-export const SCAN_CLEANUP_EVENT_CHANNELS = {state: 'scan-cleanup:job:state'} as const;
+export const SCAN_CLEANUP_EVENT_CHANNELS = {
+    state: 'scan-cleanup:job:state',
+    detectionState: 'scan-cleanup:detect-all:state',
+} as const;
 
 export interface IScanCleanupInvokeMap {
     [SCAN_CLEANUP_CHANNELS.preview]: {
@@ -24,8 +33,24 @@ export interface IScanCleanupInvokeMap {
         result: Awaited<ReturnType<IScanCleanupCapability['preview']>>;
     };
     [SCAN_CLEANUP_CHANNELS.cancelPreview]: {
-        args: [sourcePdfPath: string];
+        args: [sourcePdfPath: string, invalidateRawCache?: boolean];
         result: boolean;
+    };
+    [SCAN_CLEANUP_CHANNELS.detectAll]: {
+        args: [request: IScanCleanupDetectionRequest];
+        result: Awaited<ReturnType<IScanCleanupCapability['detectAll']>>;
+    };
+    [SCAN_CLEANUP_CHANNELS.cancelDetection]: {
+        args: [jobId: string];
+        result: boolean;
+    };
+    [SCAN_CLEANUP_CHANNELS.getDetectionJobState]: {
+        args: [jobId: string];
+        result: TScanCleanupDetectionJobState | null;
+    };
+    [SCAN_CLEANUP_CHANNELS.subscribeDetectionJob]: {
+        args: [jobId: string];
+        result: TScanCleanupDetectionJobState | null;
     };
     [SCAN_CLEANUP_CHANNELS.start]: {
         args: [request: IScanCleanupStartRequest];
@@ -53,4 +78,7 @@ export interface IScanCleanupInvokeMap {
     };
 }
 
-export interface IScanCleanupEventMap {[SCAN_CLEANUP_EVENT_CHANNELS.state]: TScanCleanupJobState;}
+export interface IScanCleanupEventMap {
+    [SCAN_CLEANUP_EVENT_CHANNELS.state]: TScanCleanupJobState;
+    [SCAN_CLEANUP_EVENT_CHANNELS.detectionState]: TScanCleanupDetectionJobState;
+}

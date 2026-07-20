@@ -1,5 +1,5 @@
 use crate::{
-    pipeline::{clean_page_with_color, CleanupMetadata},
+    pipeline::{analyze_page, clean_page_with_color, AnalysisOutputMetadata, CleanupMetadata},
     png::{self, RgbImage},
     CleanupOptions, OrthogonalRotation, OutputMode, PROTOCOL_VERSION,
 };
@@ -28,6 +28,8 @@ struct PageJob {
     page_metadata_path: Option<PathBuf>,
     #[serde(default)]
     options: Option<CleanupOptions>,
+    #[serde(default)]
+    classify_only: Option<bool>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -42,6 +44,8 @@ struct PageOutputJob {
 struct BatchManifest {
     #[serde(default)]
     shared_options: CleanupOptions,
+    #[serde(default)]
+    classify_only: bool,
     pages: Vec<PageJob>,
 }
 
@@ -53,6 +57,12 @@ struct Progress<'a> {
     total: usize,
     #[serde(skip_serializing_if = "Option::is_none")]
     output_paths: Option<&'a [PathBuf]>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    classification: Option<crate::split::LayoutClassification>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    confidence: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    cutter_x: Option<f64>,
 }
 
 struct WrittenOutput {
@@ -60,6 +70,7 @@ struct WrittenOutput {
     metadata_path: PathBuf,
     options: CleanupOptions,
     is_color: bool,
+    half: crate::pipeline::PageHalf,
 }
 
 #[derive(Serialize)]
@@ -67,15 +78,19 @@ struct WrittenOutput {
 struct PageResultMetadata {
     source_page_index: usize,
     layout_classification: crate::split::LayoutClassification,
+    layout_confidence: f64,
     cutter_x: Option<f64>,
     rotation: OrthogonalRotation,
     excluded: bool,
     blank_outputs_skipped: usize,
     output_count: usize,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    outputs: Vec<AnalysisOutputMetadata>,
 }
 
 struct PageRunResult {
     outputs: Vec<WrittenOutput>,
+    metadata: PageResultMetadata,
 }
 
 pub fn run(args: impl IntoIterator<Item = String>) -> Result<(), Box<dyn Error>> {
@@ -119,6 +134,7 @@ pub fn run(args: impl IntoIterator<Item = String>) -> Result<(), Box<dyn Error>>
             source_page_index: Some(0),
             page_metadata_path: None,
             options: Some(options),
+            classify_only: None,
         },
         None,
         0,
@@ -138,12 +154,26 @@ fn run_manifest(path: &Path) -> Result<(), Box<dyn Error>> {
             event: "start",
             page: 0,
             total: manifest.pages.len(),
-            output_paths: None
+            output_paths: None,
+            classification: None,
+            confidence: None,
+            cutter_x: None
         })?
     );
     let mut written_outputs = Vec::new();
     for (index, page) in manifest.pages.iter().enumerate() {
-        let page_result = run_page(page, Some(&manifest.shared_options), index)?;
+        let classify_only = page.classify_only.unwrap_or_else(|| {
+            page.options
+                .as_ref()
+                .and_then(|options| options.classify_only)
+                .or(manifest.shared_options.classify_only)
+                .unwrap_or(manifest.classify_only)
+        });
+        let page_result = if classify_only {
+            run_classification(page, Some(&manifest.shared_options), index)?
+        } else {
+            run_page(page, Some(&manifest.shared_options), index)?
+        };
         let output_paths = page_result
             .outputs
             .iter()
@@ -156,7 +186,13 @@ fn run_manifest(path: &Path) -> Result<(), Box<dyn Error>> {
                 event: "page-complete",
                 page: index + 1,
                 total: manifest.pages.len(),
-                output_paths: Some(&output_paths)
+                output_paths: Some(&output_paths),
+                classification: Some(page_result.metadata.layout_classification),
+                confidence: Some(page_result.metadata.layout_confidence),
+                cutter_x: (page_result.metadata.layout_classification
+                    == crate::split::LayoutClassification::TwoPageSpread)
+                    .then_some(page_result.metadata.cutter_x)
+                    .flatten()
             })?
         );
     }
@@ -167,7 +203,10 @@ fn run_manifest(path: &Path) -> Result<(), Box<dyn Error>> {
             event: "complete",
             page: manifest.pages.len(),
             total: manifest.pages.len(),
-            output_paths: None
+            output_paths: None,
+            classification: None,
+            confidence: None,
+            cutter_x: None
         })?
     );
     Ok(())
@@ -218,11 +257,13 @@ fn run_page(
     let page_metadata = PageResultMetadata {
         source_page_index: job.source_page_index.unwrap_or(fallback_page_index),
         layout_classification: result.classification,
+        layout_confidence: result.layout_confidence,
         cutter_x: result.cutter_x,
         rotation: result.rotation,
         excluded: result.excluded,
         blank_outputs_skipped: result.blank_outputs_skipped,
         output_count: result.outputs.len(),
+        outputs: Vec::new(),
     };
     let destinations = resolve_destinations(job, result.outputs.len())?;
     let mut written = Vec::with_capacity(result.outputs.len());
@@ -240,12 +281,60 @@ fn run_page(
             metadata_path: destination.metadata_path.clone(),
             options: options.clone(),
             is_color: output.color_image.is_some(),
+            half: output.metadata.half,
         });
     }
     if let Some(path) = &job.page_metadata_path {
         write_json_atomic(path, &page_metadata)?;
     }
-    Ok(PageRunResult { outputs: written })
+    Ok(PageRunResult {
+        outputs: written,
+        metadata: page_metadata,
+    })
+}
+
+fn run_classification(
+    job: &PageJob,
+    shared: Option<&CleanupOptions>,
+    fallback_page_index: usize,
+) -> Result<PageRunResult, Box<dyn Error>> {
+    let options = job.options.as_ref().or(shared).cloned().unwrap_or_default();
+    options.validate().map_err(invalid)?;
+    let input = png::read_gray(&job.input_path, options.max_pixels, options.max_dimension)
+        .map_err(map_image_error)?;
+    let result = analyze_page(&input, &options).map_err(invalid)?;
+    let page_metadata = PageResultMetadata {
+        source_page_index: job.source_page_index.unwrap_or(fallback_page_index),
+        layout_classification: result.classification,
+        layout_confidence: result.confidence,
+        cutter_x: result.cutter_x,
+        rotation: result.rotation,
+        excluded: result.excluded,
+        blank_outputs_skipped: 0,
+        output_count: if result.excluded {
+            0
+        } else if result.classification == crate::split::LayoutClassification::TwoPageSpread {
+            2
+        } else {
+            1
+        },
+        outputs: result.outputs,
+    };
+    let metadata_path = job
+        .page_metadata_path
+        .as_ref()
+        .or_else(|| job.outputs.first().map(|output| &output.metadata_path))
+        .or(job.metadata_path.as_ref())
+        .ok_or_else(|| {
+            invalid(
+                "Classify-only page job requires pageMetadataPath, metadataPath, or a declared output metadataPath",
+            )
+        })?;
+    write_json_atomic(metadata_path, &page_metadata)?;
+    Ok(PageRunResult {
+        outputs: Vec::new(),
+        metadata: page_metadata,
+    })
 }
 
 fn match_page_sizes(outputs: &[WrittenOutput]) -> Result<(), Box<dyn Error>> {
@@ -282,7 +371,7 @@ fn match_page_sizes(outputs: &[WrittenOutput]) -> Result<(), Box<dyn Error>> {
         let available_height = target_height.saturating_sub(image.height());
         let (left, top) = output
             .options
-            .page_alignment
+            .placement_for(output.half)
             .offset(available_width, available_height);
         let right = available_width - left;
         let bottom = available_height - top;

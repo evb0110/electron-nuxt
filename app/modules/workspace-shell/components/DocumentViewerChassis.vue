@@ -91,7 +91,10 @@ import {
     shouldAcceptFeaturePackChassisPage,
     shouldApplyExternalChassisPage,
 } from '@app/utils/document-viewer/chassis/documentViewerChassisAuthority';
-import type { TDocumentPageSourceKind } from '@app/utils/document-viewer/source/documentPageSource';
+import type {
+    IDocumentPageSource,
+    TDocumentPageSourceKind,
+} from '@app/utils/document-viewer/source/documentPageSource';
 import DocumentViewportHost from '@app/utils/document-viewer/chassis/DocumentViewportHost.vue';
 import { workspaceViewerFeatureChunkLoaders } from '@app/modules/workspace-shell/viewers/workspaceViewerFeatureChunkLoaders';
 import {
@@ -125,6 +128,7 @@ const props = defineProps<{
 const emit = defineEmits<{
     'feature-pack-ready': [authority: ReturnType<typeof createDocumentOpeningPageFrameAuthority>];
     'update:current-page': [pageNumber: number];
+    'update:pageSource': [source: IDocumentPageSource | null];
     'update:total-pages': [pageCount: number];
 }>();
 const sourceKind = toRef(props, 'sourceKind');
@@ -491,6 +495,18 @@ const chassisViewportStyle = computed(() => {
 });
 let handoffGeneration = 0;
 provide(documentViewerChassisAuthorityKey, chassisAuthority);
+
+// Feature packs publish their render source through the chassis authority. Keep
+// the compatibility event as a projection of that authoritative state so a
+// parent mounting later in the lifecycle still receives the current source.
+watch(
+    () => chassisAuthority.source.value,
+    source => emit('update:pageSource', source),
+    {
+        flush: 'sync',
+        immediate: true,
+    },
+);
 
 watch(() => props.currentPage, (pageNumber) => {
     if (

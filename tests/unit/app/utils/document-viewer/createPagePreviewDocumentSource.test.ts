@@ -44,6 +44,36 @@ describe('createPagePreviewDocumentSource', () => {
         expect(revokeObjectURL).toHaveBeenCalledOnce();
     });
 
+    it('uses the native page renderer as its thumbnail provider', async () => {
+        const renderPageObjectUrl = vi.fn(async () => ({
+            objectUrl: 'blob:thumbnail-1',
+            renderedPx: 180,
+        }));
+        const source = createPagePreviewDocumentSource({
+            documentRef: '/tmp/document.pdf',
+            pageSizes: [{
+                width: 500,
+                height: 700,
+            }],
+            previewSource: {
+                getPageSizes: vi.fn(async () => []),
+                renderPageObjectUrl,
+                revokeObjectURL: vi.fn(),
+                terminate: vi.fn(),
+            },
+        });
+
+        const lease = await source.thumbnailProvider!.renderThumbnail({
+            pageNumber: 1,
+            widthPx: 180,
+            priority: 'thumbnail',
+            signal: new AbortController().signal,
+        });
+
+        expect(renderPageObjectUrl).toHaveBeenCalledWith(1, {targetPx: 180});
+        expect(lease.surface).toBe('blob:thumbnail-1');
+    });
+
     it('forwards preview invalidation and detaches it when the surface is released', async () => {
         const invalidationPort: { fire: () => void } = { fire: () => false };
         const detachInvalidation = vi.fn();

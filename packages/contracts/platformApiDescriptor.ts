@@ -596,6 +596,22 @@ const otherMethodPaths = defineMethodPaths([
     ],
     [
         'scanCleanup',
+        'detectAll',
+    ],
+    [
+        'scanCleanup',
+        'cancelDetection',
+    ],
+    [
+        'scanCleanup',
+        'getDetectionJobState',
+    ],
+    [
+        'scanCleanup',
+        'subscribeDetectionJob',
+    ],
+    [
+        'scanCleanup',
         'start',
     ],
     [
@@ -621,6 +637,10 @@ const otherMethodPaths = defineMethodPaths([
     [
         'scanCleanup',
         'onJobState',
+    ],
+    [
+        'scanCleanup',
+        'onDetectionJobState',
     ],
     [
         'search',

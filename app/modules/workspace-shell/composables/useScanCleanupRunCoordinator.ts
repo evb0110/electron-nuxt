@@ -8,6 +8,7 @@ import {
 } from '@app/modules/scan-cleanup/public';
 import type { ITab } from '@app/types/tabs';
 import type { IWorkspaceExpose } from '@app/types/workspaceExpose';
+import type { IWorkspaceDocumentSessionController } from '@app/modules/workspace-shell/document-sessions/documentSessionTypes';
 import { getDocumentOpenCapability } from '@app/utils/platformDocuments';
 import type { TOpenFileResult } from '@contracts/electronApiDocuments';
 import type { TTranslateFn } from '@i18n-app';
@@ -18,6 +19,8 @@ export const useScanCleanupRunCoordinator = (
     isStartupOpenClaimPending: Ref<boolean>,
     t: TTranslateFn,
     tabs: Ref<ITab[]>,
+    documentSessionsByTabId: ComputedRef<Record<string, IWorkspaceDocumentSessionController>>,
+    activateTab: (tabId: string) => void,
 ) => {
     const toast = useToast();
     const cleanup = installScanCleanupRunCoordinator({
@@ -39,6 +42,31 @@ export const useScanCleanupRunCoordinator = (
             return result?.ok === true;
         },
         saveActiveDocumentAs: async () => activeWorkspace.value?.handleSaveAs() ?? false,
+        openScanCleanupForDocument: async (documentRef) => {
+            const owner = Object.entries(documentSessionsByTabId.value).find(([
+                ,
+                session,
+            ]) => {
+                const identity = session.snapshot.value.identity;
+                return identity.documentRef === documentRef
+                    || identity.workingCopyPath === documentRef
+                    || identity.originalPath === documentRef;
+            });
+            if (!owner) {
+                return false;
+            }
+            const [
+                tabId,
+                session,
+            ] = owner;
+            session.applyViewState({
+                ...session.snapshot.value.viewState,
+                surfaceMode: 'scan-cleanup',
+            });
+            activateTab(tabId);
+            await nextTick();
+            return true;
+        },
         t,
         toast,
     });

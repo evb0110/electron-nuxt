@@ -233,6 +233,10 @@ export const browserPlatformPathDescriptorsGenerated = {
     scanCleanup: {
         preview: {kind: 'async', path: ["scanCleanup","preview"]},
         cancelPreview: {kind: 'async', path: ["scanCleanup","cancelPreview"]},
+        detectAll: {kind: 'async', path: ["scanCleanup","detectAll"]},
+        cancelDetection: {kind: 'async', path: ["scanCleanup","cancelDetection"]},
+        getDetectionJobState: {kind: 'async', path: ["scanCleanup","getDetectionJobState"]},
+        subscribeDetectionJob: {kind: 'async', path: ["scanCleanup","subscribeDetectionJob"]},
         start: {kind: 'async', path: ["scanCleanup","start"]},
         cancel: {kind: 'async', path: ["scanCleanup","cancel"]},
         getJobState: {kind: 'async', path: ["scanCleanup","getJobState"]},
@@ -240,6 +244,7 @@ export const browserPlatformPathDescriptorsGenerated = {
         reconnectJob: {kind: 'async', path: ["scanCleanup","reconnectJob"]},
         pruneGeneratedOutputs: {kind: 'async', path: ["scanCleanup","pruneGeneratedOutputs"]},
         onJobState: {kind: 'event', path: ["scanCleanup","onJobState"]},
+        onDetectionJobState: {kind: 'event', path: ["scanCleanup","onDetectionJobState"]},
     },
     search: {
         run: {kind: 'async', path: ["search","run"]},

@@ -11,9 +11,13 @@ const SETTINGS_KEY = 'evb.scanCleanup.settings.v1';
 const OVERRIDES_KEY = 'evb.scanCleanup.documentOverrides.v1';
 const MAX_DOCUMENTS = 50;
 
-export interface IScanCleanupGlobalPreferences extends Omit<IScanCleanupOptions, 'pageOverrides'> {runOcrAfterCleanup: boolean;}
+export interface IScanCleanupGlobalPreferences extends Omit<IScanCleanupOptions, 'pageOverrides'> {
+    firstRunGuidanceDismissed: boolean;
+    runOcrAfterCleanup: boolean;
+}
 
 export const DEFAULT_SCAN_CLEANUP_PREFERENCES: Readonly<IScanCleanupGlobalPreferences> = Object.freeze({
+    preserveOriginalQuality: false,
     layoutMode: 'auto',
     outputMode: 'bw',
     readingOrder: 'ltr',
@@ -25,6 +29,7 @@ export const DEFAULT_SCAN_CLEANUP_PREFERENCES: Readonly<IScanCleanupGlobalPrefer
     despeckle: true,
     skipBlankPages: false,
     straightenCurvedLines: false,
+    firstRunGuidanceDismissed: false,
     runOcrAfterCleanup: false,
 });
 
@@ -68,6 +73,9 @@ export function loadScanCleanupPreferences(
     }
     const defaults = DEFAULT_SCAN_CLEANUP_PREFERENCES;
     return {
+        preserveOriginalQuality: typeof value.preserveOriginalQuality === 'boolean'
+            ? value.preserveOriginalQuality
+            : defaults.preserveOriginalQuality ?? false,
         layoutMode: [
             'auto',
             'force-single',
@@ -105,10 +113,25 @@ export function loadScanCleanupPreferences(
         straightenCurvedLines: typeof value.straightenCurvedLines === 'boolean'
             ? value.straightenCurvedLines
             : defaults.straightenCurvedLines,
+        firstRunGuidanceDismissed: typeof value.firstRunGuidanceDismissed === 'boolean'
+            ? value.firstRunGuidanceDismissed
+            : defaults.firstRunGuidanceDismissed,
         runOcrAfterCleanup: typeof value.runOcrAfterCleanup === 'boolean'
             ? value.runOcrAfterCleanup
             : defaults.runOcrAfterCleanup,
     };
+}
+
+export function dismissScanCleanupFirstRunGuidance(
+    storage: IScanCleanupPreferenceStorage = browserStorage,
+) {
+    const preferences = loadScanCleanupPreferences(storage);
+    if (!preferences.firstRunGuidanceDismissed) {
+        saveScanCleanupPreferences({
+            ...preferences,
+            firstRunGuidanceDismissed: true,
+        }, storage);
+    }
 }
 
 export function saveScanCleanupPreferences(

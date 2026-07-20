@@ -20,7 +20,15 @@ export function registerScanCleanupIpcAdapter(
     previewService: IScanCleanupPreviewService = createScanCleanupPreviewService(),
 ) {
     registrar.handle(SCAN_CLEANUP_CHANNELS.preview, (_event, request) => previewService.preview(request));
-    registrar.handle(SCAN_CLEANUP_CHANNELS.cancelPreview, (_event, sourcePdfPath) => previewService.cancel(sourcePdfPath));
+    registrar.handle(SCAN_CLEANUP_CHANNELS.cancelPreview, (
+        _event,
+        sourcePdfPath,
+        invalidateRawCache,
+    ) => previewService.cancel(sourcePdfPath, invalidateRawCache));
+    registrar.handle(SCAN_CLEANUP_CHANNELS.detectAll, (event, request) => previewService.detectAll(event.sender, request));
+    registrar.handle(SCAN_CLEANUP_CHANNELS.cancelDetection, (_event, jobId) => previewService.cancelDetection(jobId));
+    registrar.handle(SCAN_CLEANUP_CHANNELS.getDetectionJobState, (_event, jobId) => previewService.getDetectionJobState(jobId));
+    registrar.handle(SCAN_CLEANUP_CHANNELS.subscribeDetectionJob, (event, jobId) => previewService.subscribeDetectionJob(event.sender, jobId));
     registrar.handle(SCAN_CLEANUP_CHANNELS.start, (event, request) => service.start(event.sender, request));
     registrar.handle(SCAN_CLEANUP_CHANNELS.cancel, (_event, jobId) => service.cancel(jobId));
     registrar.handle(SCAN_CLEANUP_CHANNELS.getJobState, (_event, jobId) => service.getState(jobId));

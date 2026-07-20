@@ -12,8 +12,16 @@ import {
     it,
     vi,
 } from 'vitest';
+import type {WebContents} from 'electron';
 import type { IScanCleanupOptions } from '@contracts/electronApiScanCleanup';
-import { classifyScanCleanupError } from '@electron/features/scan-cleanup/createScanCleanupService';
+import {
+    classifyScanCleanupError,
+    grantScanCleanupOutputAccess,
+} from '@electron/features/scan-cleanup/createScanCleanupService';
+import {
+    removeAllowedOpenPath,
+    requireOpenPath,
+} from '@electron/file-access/openPathCapabilities';
 import {
     mapScanCleanupRasterPages,
     runScanCleanupPipeline,
@@ -125,6 +133,190 @@ afterEach(async () => {
 });
 
 describe('scan cleanup pipeline', () => {
+    it('maps rotated lossless analysis to PDF points, reverses RTL halves, and prunes raster options', async () => {
+        const fixture = await setup();
+        const losslessOptions: IScanCleanupOptions = {
+            ...options,
+            preserveOriginalQuality: true,
+            matchPageSize: false,
+            readingOrder: 'rtl',
+            outputMode: 'bw',
+            thickness: 4,
+            despeckle: true,
+            skipBlankPages: true,
+            straightenCurvedLines: true,
+            pageOverrides: {
+                '1': {
+                    rotation: 90,
+                    layoutOverride: 'spread',
+                    excluded: false,
+                    manualSplitX: 250,
+                },
+                '2': {
+                    rotation: 0,
+                    layoutOverride: 'auto',
+                    excluded: true,
+                    manualSplitX: null,
+                },
+            },
+        };
+        let analyzedOptions: Record<string, unknown> | null = null;
+        let splitInstructions: {pages: Array<{
+            sourcePageIndex: number;
+            rotationQuarterTurns: number;
+            outputs: Array<{cropRect: {
+                x: number;
+                y: number;
+                width: number;
+                height: number
+            }}>
+        }>} | null = null;
+        const runSidecar: IRunScanCleanupPipelineDependencies['runSidecar'] = vi.fn(async (_binary, manifestPath) => {
+            const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as {pages: Array<{
+                pageMetadataPath: string;
+                options: Record<string, unknown>
+            }>};
+            analyzedOptions = manifest.pages[0]!.options;
+            await writeFile(manifest.pages[0]!.pageMetadataPath, JSON.stringify({
+                layoutClassification: 'two-page-spread',
+                cutterX: 250,
+                rotation: 90,
+                excluded: false,
+                blankOutputsSkipped: 0,
+                outputCount: 2,
+                outputs: [
+                    {
+                        half: 'left',
+                        cropRect: {
+                            x: 0,
+                            y: 0,
+                            width: 250,
+                            height: 1000,
+                        },
+                        inputWidth: 1000,
+                        inputHeight: 500,
+                    },
+                    {
+                        half: 'right',
+                        cropRect: {
+                            x: 250,
+                            y: 0,
+                            width: 250,
+                            height: 1000,
+                        },
+                        inputWidth: 1000,
+                        inputHeight: 500,
+                    },
+                ],
+            }));
+            await writeFile(manifest.pages[1]!.pageMetadataPath, JSON.stringify({
+                layoutClassification: 'single-uncut-page',
+                cutterX: null,
+                rotation: 0,
+                excluded: true,
+                blankOutputsSkipped: 0,
+                outputCount: 0,
+                outputs: [],
+            }));
+        });
+        const pipelineDependencies = dependencies(runSidecar);
+        pipelineDependencies.runCommand = vi.fn(async (_command, args) => {
+            const outputPath = args[args.indexOf('--output') + 1]!;
+            if (args[0] === 'page-sizes') {
+                await writeFile(outputPath, JSON.stringify({pages: [
+                    {
+                        pageNumber: 1,
+                        xPoints: 0,
+                        yPoints: 0,
+                        widthPoints: 200,
+                        heightPoints: 100,
+                        rotation: 0,
+                    },
+                    {
+                        pageNumber: 2,
+                        xPoints: 0,
+                        yPoints: 0,
+                        widthPoints: 200,
+                        heightPoints: 100,
+                        rotation: 0,
+                    },
+                ]}));
+            } else {
+                const instructionsPath = args[args.indexOf('--instructions-file') + 1]!;
+                splitInstructions = JSON.parse(await readFile(instructionsPath, 'utf8')) as typeof splitInstructions;
+                await writeFile(outputPath, '%PDF-1.7\n%%EOF\n');
+            }
+            return {
+                exitCode: 0,
+                stdout: '',
+                stderr: '',
+            };
+        });
+
+        const summary = await runScanCleanupPipeline({
+            sourcePdfPath: fixture.sourcePdfPath,
+            outputPdfPath: fixture.outputPdfPath,
+            options: losslessOptions,
+        }, {
+            qpdfBinary: '/qpdf',
+            pdftoppmBinary: '/pdftoppm',
+            scanCleanupBinary: '/cleanup',
+            pdfImageCombineBinary: '/combine',
+            pdfPageOpsBinary: '/page-ops',
+            tempDir: fixture.dir,
+        }, new AbortController().signal, vi.fn(), undefined, pipelineDependencies);
+
+        expect(analyzedOptions).toMatchObject({
+            outputMode: 'color',
+            thickness: 0,
+            despeckle: false,
+            skipBlankPages: false,
+            experimentalAutoDewarp: false,
+        });
+        expect(splitInstructions).toEqual({pages: [{
+            sourcePageIndex: 0,
+            rotationQuarterTurns: 1,
+            outputs: [
+                {cropRect: {
+                    x: 0,
+                    y: 50,
+                    width: 200,
+                    height: 50,
+                }},
+                {cropRect: {
+                    x: 0,
+                    y: 0,
+                    width: 200,
+                    height: 50,
+                }},
+            ],
+        }]});
+        expect(summary).toMatchObject({
+            outputPages: 2,
+            spreadsSplit: 1,
+            excludedPages: 1,
+        });
+        expect(await readFile(fixture.outputPdfPath, 'utf8')).toContain('%PDF-1.7');
+    });
+
+    it('grants each subscribed renderer access to the completed managed output', async () => {
+        const fixture = await setup();
+        await writeFile(fixture.outputPdfPath, '%PDF-1.7\n%%EOF\n');
+        const sender: Partial<WebContents> = {
+            id: 71_104,
+            isDestroyed: () => false,
+            once: vi.fn(),
+            on: vi.fn(),
+            removeListener: vi.fn(),
+        };
+        const webContents = sender as WebContents;
+
+        expect(() => requireOpenPath(fixture.outputPdfPath, webContents)).toThrow('Path not allowed');
+        grantScanCleanupOutputAccess(fixture.outputPdfPath, [webContents]);
+        expect(requireOpenPath(fixture.outputPdfPath, webContents)).toMatch(/cleaned\.pdf$/u);
+        removeAllowedOpenPath(fixture.outputPdfPath);
+    });
+
     it('rasterizes with a bound of three while preserving source order', async () => {
         let active = 0;
         let peak = 0;
@@ -276,6 +468,71 @@ describe('scan cleanup pipeline', () => {
         );
         await entered.promise;
         controller.abort(new DOMException('Canceled', 'AbortError'));
+        await expect(result).rejects.toThrow('Canceled');
+        await expect(readFile(fixture.outputPdfPath)).rejects.toMatchObject({code: 'ENOENT'});
+        expect(await readFile(fixture.sourcePdfPath, 'utf8')).toBe('ORIGINAL');
+    });
+
+    it('cancels lossless analysis without publishing a partial PDF', async () => {
+        const fixture = await setup();
+        const controller = new AbortController();
+        const entered = Promise.withResolvers<undefined>();
+        const runSidecar: IRunScanCleanupPipelineDependencies['runSidecar'] = vi.fn(async (_binary, _manifest, signal) => {
+            entered.resolve(undefined);
+            await new Promise<void>((_resolve, reject) => signal.addEventListener('abort', () => reject(signal.reason), {once: true}));
+        });
+        const pipelineDependencies = dependencies(runSidecar);
+        pipelineDependencies.runCommand = vi.fn(async (_command, args) => {
+            const outputPath = args[args.indexOf('--output') + 1]!;
+            await writeFile(outputPath, JSON.stringify({pages: [
+                {
+                    pageNumber: 1,
+                    xPoints: 0,
+                    yPoints: 0,
+                    widthPoints: 200,
+                    heightPoints: 100,
+                    rotation: 0,
+                },
+                {
+                    pageNumber: 2,
+                    xPoints: 0,
+                    yPoints: 0,
+                    widthPoints: 200,
+                    heightPoints: 100,
+                    rotation: 0,
+                },
+            ]}));
+            return {
+                exitCode: 0,
+                stdout: '',
+                stderr: '',
+            };
+        });
+        const result = runScanCleanupPipeline(
+            {
+                sourcePdfPath: fixture.sourcePdfPath,
+                outputPdfPath: fixture.outputPdfPath,
+                options: {
+                    ...options,
+                    preserveOriginalQuality: true,
+                },
+            },
+            {
+                qpdfBinary: '/qpdf',
+                pdftoppmBinary: '/pdftoppm',
+                scanCleanupBinary: '/cleanup',
+                pdfImageCombineBinary: '/combine',
+                pdfPageOpsBinary: '/page-ops',
+                tempDir: fixture.dir,
+            },
+            controller.signal,
+            vi.fn(),
+            undefined,
+            pipelineDependencies,
+        );
+        await entered.promise;
+        controller.abort(new DOMException('Canceled', 'AbortError'));
+
         await expect(result).rejects.toThrow('Canceled');
         await expect(readFile(fixture.outputPdfPath)).rejects.toMatchObject({code: 'ENOENT'});
         expect(await readFile(fixture.sourcePdfPath, 'utf8')).toBe('ORIGINAL');

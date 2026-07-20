@@ -1,6 +1,7 @@
 import type { TIpcCodecMap } from '@contracts/ipcMain';
 import { isRecord } from '@contracts/runtimeGuards';
 import type {
+    IScanCleanupDetectionRequest,
     IScanCleanupPageOverride,
     IScanCleanupProgress,
     IScanCleanupPreviewMetadata,
@@ -8,7 +9,9 @@ import type {
     IScanCleanupPreviewResult,
     IScanCleanupStartRequest,
     IScanCleanupSummary,
+    TScanCleanupPageAlignment,
     TScanCleanupErrorCode,
+    TScanCleanupDetectionJobState,
     TScanCleanupJobState,
 } from '@contracts/electronApiScanCleanup';
 import {
@@ -20,13 +23,17 @@ import { requireIpcArgumentCount } from '@electron/platform-ipc/ipcCodecValidati
 const PREVIEW_MAX_IMAGE_BYTES = 32 * 1024 * 1024;
 const PREVIEW_MAX_TOTAL_BYTES = 96 * 1024 * 1024;
 
-function decodeSourcePath(args: readonly unknown[]) {
+function decodePreviewCancelArgs(args: readonly unknown[]) {
     requireIpcArgumentCount(args, {
         min: 1,
-        max: 1,
+        max: 2,
     });
     if (typeof args[0] !== 'string' || args[0].trim().length === 0) throw new Error('invalid scan-cleanup source path');
-    return [args[0]] as [string];
+    if (args[1] !== undefined && typeof args[1] !== 'boolean') throw new Error('invalid scan-cleanup preview cache invalidation');
+    return [
+        args[0],
+        args[1],
+    ] as [string, boolean?];
 }
 
 function decodeJobId(args: readonly unknown[]) {
@@ -72,12 +79,65 @@ function decodePageOverride(value: unknown): IScanCleanupPageOverride {
                 && Number.isFinite(value.manualSplitX)
                 && value.manualSplitX > 0)
     ) throw new Error('invalid scan-cleanup page override');
+    const manualContentBoxes = decodeOutputMap(value.manualContentBoxes, (item, label) => {
+        const rect = decodePreviewRect(item, label);
+        if (rect.width <= 0 || rect.height <= 0) throw new Error(`invalid scan-cleanup ${label}`);
+        return rect;
+    }, 'manual content box');
+    const placementOverrides = decodeOutputMap(value.placementOverrides, (item, label) => {
+        if (!SCAN_CLEANUP_ALIGNMENTS.includes(String(item) as TScanCleanupAlignmentValue)) {
+            throw new Error(`invalid scan-cleanup ${label}`);
+        }
+        return item as TScanCleanupPageAlignment;
+    }, 'placement override');
     return {
         rotation: value.rotation as IScanCleanupPageOverride['rotation'],
         layoutOverride: value.layoutOverride as IScanCleanupPageOverride['layoutOverride'],
         excluded: value.excluded,
         manualSplitX: value.manualSplitX,
+        manualContentBoxes,
+        placementOverrides,
     };
+}
+
+const SCAN_CLEANUP_OUTPUT_HALVES = [
+    'full',
+    'left',
+    'right',
+] as const;
+const SCAN_CLEANUP_ALIGNMENTS = [
+    'top-left',
+    'top-center',
+    'top-right',
+    'center-left',
+    'center',
+    'center-right',
+    'bottom-left',
+    'bottom-center',
+    'bottom-right',
+] as const;
+type TScanCleanupAlignmentValue = typeof SCAN_CLEANUP_ALIGNMENTS[number];
+
+function decodeOutputMap<T>(
+    value: unknown,
+    decode: (item: unknown, label: string) => T,
+    label: string,
+): Partial<Record<typeof SCAN_CLEANUP_OUTPUT_HALVES[number], T>> {
+    if (value === undefined) {
+        return {};
+    }
+    if (!isRecord(value)) throw new Error(`invalid scan-cleanup ${label}s`);
+    const entries = Object.entries(value);
+    if (entries.some(([half]) => !SCAN_CLEANUP_OUTPUT_HALVES.includes(half as typeof SCAN_CLEANUP_OUTPUT_HALVES[number]))) {
+        throw new Error(`invalid scan-cleanup ${label} half`);
+    }
+    return Object.fromEntries(entries.map(([
+        half,
+        item,
+    ]) => [
+        half,
+        decode(item, `${label} ${half}`),
+    ]));
 }
 
 function decodePageOverrides(value: unknown) {
@@ -118,17 +178,7 @@ function decodeOptions(options: unknown): IScanCleanupStartRequest['options'] {
         || options.thickness > 5
         || typeof options.crop !== 'boolean'
         || typeof options.matchPageSize !== 'boolean'
-        || ![
-            'top-left',
-            'top-center',
-            'top-right',
-            'center-left',
-            'center',
-            'center-right',
-            'bottom-left',
-            'bottom-center',
-            'bottom-right',
-        ].includes(String(options.pageAlignment))
+        || !SCAN_CLEANUP_ALIGNMENTS.includes(String(options.pageAlignment) as TScanCleanupAlignmentValue)
         || typeof options.despeckle !== 'boolean'
         || typeof options.marginsMm !== 'number'
         || !Number.isFinite(options.marginsMm)
@@ -140,8 +190,12 @@ function decodeOptions(options: unknown): IScanCleanupStartRequest['options'] {
         ].includes(String(options.readingOrder))
         || typeof options.skipBlankPages !== 'boolean'
         || typeof options.straightenCurvedLines !== 'boolean'
+        || (options.preserveOriginalQuality !== undefined && typeof options.preserveOriginalQuality !== 'boolean')
     ) throw new Error('invalid scan-cleanup options');
     return {
+        ...(typeof options.preserveOriginalQuality === 'boolean'
+            ? {preserveOriginalQuality: options.preserveOriginalQuality}
+            : {}),
         layoutMode: options.layoutMode as IScanCleanupStartRequest['options']['layoutMode'],
         outputMode: options.outputMode as IScanCleanupStartRequest['options']['outputMode'],
         thickness: options.thickness,
@@ -181,6 +235,26 @@ function decodePreviewRequest(value: unknown): IScanCleanupPreviewRequest {
         pageNumber: Number(value.pageNumber),
         options: decodeOptions(value.options),
     };
+}
+
+function decodeDetectionRequest(value: unknown): IScanCleanupDetectionRequest {
+    if (
+        !isRecord(value)
+        || typeof value.sourcePdfPath !== 'string'
+        || value.sourcePdfPath.trim().length === 0
+    ) throw new Error('invalid scan-cleanup detection request');
+    return {
+        sourcePdfPath: value.sourcePdfPath,
+        options: decodeOptions(value.options),
+    };
+}
+
+function decodeDetectionArgs(args: readonly unknown[]) {
+    requireIpcArgumentCount(args, {
+        min: 1,
+        max: 1,
+    });
+    return [decodeDetectionRequest(args[0])] as [IScanCleanupDetectionRequest];
 }
 
 function decodePreviewArgs(args: readonly unknown[]) {
@@ -270,6 +344,7 @@ function decodePreviewMetadata(value: unknown): IScanCleanupPreviewMetadata {
     return {
         half: value.half as IScanCleanupPreviewMetadata['half'],
         layoutClassification: value.layoutClassification as IScanCleanupPreviewMetadata['layoutClassification'],
+        layoutConfidence: decodeUnitInterval(value.layoutConfidence, 'layout confidence'),
         sourceRegion: decodePreviewRect(value.sourceRegion, 'source region'),
         contentBox: value.contentBox === null ? null : decodePreviewRect(value.contentBox, 'content box'),
         appliedMargins: value.appliedMargins as IScanCleanupPreviewMetadata['appliedMargins'],
@@ -280,9 +355,15 @@ function decodePreviewMetadata(value: unknown): IScanCleanupPreviewMetadata {
         inputWidth: decodePositiveInteger(value.inputWidth, 'input width'),
         inputHeight: decodePositiveInteger(value.inputHeight, 'input height'),
         rotation: value.rotation as IScanCleanupPreviewMetadata['rotation'],
-        resamplePasses: decodePositiveInteger(value.resamplePasses, 'resample passes'),
+        resamplePasses: decodeNonNegativeInteger(value.resamplePasses, 'resample passes'),
         warnings: value.warnings as string[],
     };
+}
+
+function decodeUnitInterval(value: unknown, label: string) {
+    const decoded = decodeFiniteNumber(value, label);
+    if (decoded < 0 || decoded > 1) throw new Error(`invalid scan-cleanup preview ${label}`);
+    return decoded;
 }
 
 export function decodeScanCleanupPreviewResult(value: unknown): IScanCleanupPreviewResult {
@@ -359,6 +440,18 @@ function decodeStartResult(value: unknown) {
         ...(typeof value.outputPdfPath === 'string' ? {outputPdfPath: value.outputPdfPath} : {}),
         ...(typeof value.error === 'string' ? {error: value.error} : {}),
         ...(typeof value.errorCode === 'string' ? {errorCode: value.errorCode as NonNullable<IScanCleanupInvokeMap[typeof SCAN_CLEANUP_CHANNELS.start]['result']['errorCode']>} : {}),
+    };
+}
+
+function decodeDetectionStartResult(value: unknown) {
+    if (!isRecord(value) || typeof value.started !== 'boolean' || typeof value.jobId !== 'string') {
+        throw new Error('invalid scan-cleanup detection start result');
+    }
+    return {
+        started: value.started,
+        jobId: value.jobId,
+        ...(typeof value.error === 'string' ? {error: value.error} : {}),
+        ...(typeof value.errorCode === 'string' ? {errorCode: value.errorCode as TScanCleanupErrorCode} : {}),
     };
 }
 
@@ -475,17 +568,98 @@ export function decodeScanCleanupJobState(value: unknown): TScanCleanupJobState 
     throw new Error('invalid scan-cleanup job status');
 }
 
+export function decodeScanCleanupDetectionJobState(value: unknown): TScanCleanupDetectionJobState | null {
+    if (value === null) {
+        return null;
+    }
+    if (
+        !isRecord(value)
+        || typeof value.jobId !== 'string'
+        || typeof value.updatedAtMs !== 'number'
+        || !Number.isFinite(value.updatedAtMs)
+        || !isRecord(value.progress)
+        || !Array.isArray(value.results)
+    ) throw new Error('invalid scan-cleanup detection job state');
+    const detectedCount = decodeNonNegativeInteger(value.progress.detectedCount, 'detectedCount');
+    const totalPages = decodeNonNegativeInteger(value.progress.totalPages, 'detection totalPages');
+    if (detectedCount > totalPages) throw new Error('invalid scan-cleanup detection progress');
+    const results = value.results.map(result => {
+        if (
+            !isRecord(result)
+            || ![
+                'single-uncut-page',
+                'page-with-offcut',
+                'two-page-spread',
+            ].includes(String(result.classification))
+            || !(result.cutterX === null || typeof result.cutterX === 'number' && Number.isFinite(result.cutterX))
+        ) throw new Error('invalid scan-cleanup detection result');
+        return {
+            pageNumber: decodePositiveInteger(result.pageNumber, 'detection page number'),
+            classification: result.classification as TScanCleanupDetectionJobState['results'][number]['classification'],
+            confidence: decodeUnitInterval(result.confidence, 'detection confidence'),
+            cutterX: result.cutterX,
+        };
+    });
+    if (results.length !== detectedCount) throw new Error('invalid scan-cleanup detection result count');
+    const base = {
+        jobId: value.jobId,
+        progress: {
+            detectedCount,
+            totalPages,
+        },
+        results,
+        updatedAtMs: value.updatedAtMs,
+    };
+    if (value.status === 'queued' || value.status === 'running' || value.status === 'completed' || value.status === 'canceled') {
+        return {
+            ...base,
+            status: value.status,
+        };
+    }
+    if (value.status === 'failed') {
+        if (typeof value.error !== 'string' || !isScanCleanupErrorCode(value.errorCode)) {
+            throw new Error('failed scan-cleanup detection state requires a typed error');
+        }
+        return {
+            ...base,
+            status: 'failed',
+            error: value.error,
+            errorCode: value.errorCode,
+        };
+    }
+    throw new Error('invalid scan-cleanup detection job status');
+}
+
 export const SCAN_CLEANUP_IPC_CODECS = {
     [SCAN_CLEANUP_CHANNELS.preview]: {
         decodeArgs: decodePreviewArgs,
         decodeResult: decodeScanCleanupPreviewResult,
     },
     [SCAN_CLEANUP_CHANNELS.cancelPreview]: {
-        decodeArgs: decodeSourcePath,
+        decodeArgs: decodePreviewCancelArgs,
         decodeResult: (value: unknown) => {
             if (typeof value !== 'boolean') throw new Error('invalid scan-cleanup preview cancel result');
             return value;
         },
+    },
+    [SCAN_CLEANUP_CHANNELS.detectAll]: {
+        decodeArgs: decodeDetectionArgs,
+        decodeResult: decodeDetectionStartResult,
+    },
+    [SCAN_CLEANUP_CHANNELS.cancelDetection]: {
+        decodeArgs: decodeJobId,
+        decodeResult: (value: unknown) => {
+            if (typeof value !== 'boolean') throw new Error('invalid scan-cleanup detection cancel result');
+            return value;
+        },
+    },
+    [SCAN_CLEANUP_CHANNELS.getDetectionJobState]: {
+        decodeArgs: decodeJobId,
+        decodeResult: decodeScanCleanupDetectionJobState,
+    },
+    [SCAN_CLEANUP_CHANNELS.subscribeDetectionJob]: {
+        decodeArgs: decodeJobId,
+        decodeResult: decodeScanCleanupDetectionJobState,
     },
     [SCAN_CLEANUP_CHANNELS.start]: {
         decodeArgs: decodeStartArgs,

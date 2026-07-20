@@ -25,6 +25,8 @@ import {
     createScanCleanupGeneratedOutputPath,
     pruneScanCleanupGeneratedOutputs,
 } from '@electron/features/scan-cleanup/scanCleanupGeneratedOutputs';
+import {allowOpenPath} from '@electron/file-access/openPathCapabilities';
+import {resolveNativePageOpsPath} from '@electron/features/page-ops/public';
 
 interface IScanCleanupJob {
     abortController: AbortController;
@@ -45,7 +47,19 @@ export function resolveScanCleanupPath() {
     });
 }
 
+export function grantScanCleanupOutputAccess(
+    outputPdfPath: string,
+    subscribers: Iterable<WebContents>,
+) {
+    for (const subscriber of subscribers) {
+        if (!subscriber.isDestroyed()) allowOpenPath(outputPdfPath, subscriber);
+    }
+}
+
 function publish(job: IScanCleanupJob, state: TScanCleanupJobState) {
+    if (state.status === 'completed') {
+        grantScanCleanupOutputAccess(state.outputPdfPath, job.subscribers);
+    }
     job.state = state;
     for (const sender of job.subscribers) {
         if (!sender.isDestroyed()) sender.send(SCAN_CLEANUP_EVENT_CHANNELS.state, state);
@@ -134,7 +148,12 @@ export function createScanCleanupService(): IScanCleanupService {
                     const pdfPaths = getPdfNativeToolPaths();
                     const scanCleanupBinary = resolveScanCleanupPath();
                     const pdfImageCombineBinary = resolveNativePdfImageCombinePath();
-                    if (!scanCleanupBinary || !pdfImageCombineBinary) throw new Error('Scan cleanup native tools are unavailable');
+                    const pdfPageOpsBinary = request.options.preserveOriginalQuality
+                        ? resolveNativePageOpsPath()
+                        : null;
+                    if (!scanCleanupBinary || !pdfImageCombineBinary || (request.options.preserveOriginalQuality && !pdfPageOpsBinary)) {
+                        throw new Error('Scan cleanup native tools are unavailable');
+                    }
                     const summary = await runScanCleanupWorkerTask(
                         workerRequest,
                         {
@@ -143,6 +162,7 @@ export function createScanCleanupService(): IScanCleanupService {
                             ...(pdfPaths.pdfimages ? {pdfimagesBinary: pdfPaths.pdfimages} : {}),
                             scanCleanupBinary,
                             pdfImageCombineBinary,
+                            ...(pdfPageOpsBinary ? {pdfPageOpsBinary} : {}),
                             tempDir: getAppTempDir(),
                         },
                         abortController.signal,
@@ -235,6 +255,9 @@ export function createScanCleanupService(): IScanCleanupService {
                 return null;
             }
             job.subscribers.add(sender);
+            if (job.state.status === 'completed') {
+                grantScanCleanupOutputAccess(job.state.outputPdfPath, [sender]);
+            }
             return job.state;
         },
         pruneGeneratedOutputs(openPdfPaths) {

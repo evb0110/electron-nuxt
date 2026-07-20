@@ -7,6 +7,7 @@ export type TScanCleanupPageAlignment =
     | 'top-left' | 'top-center' | 'top-right'
     | 'center-left' | 'center' | 'center-right'
     | 'bottom-left' | 'bottom-center' | 'bottom-right';
+export type TScanCleanupOutputHalf = 'full' | 'left' | 'right';
 export type TScanCleanupPhase = 'queued' | 'normalizing' | 'rasterizing' | 'cleaning' | 'assembling' | 'handoff';
 export type TScanCleanupErrorCode = 'invalid-request' | 'tools-unavailable' | 'sidecar-failed' | 'canceled' | 'internal';
 
@@ -15,11 +16,14 @@ export interface IScanCleanupPageOverride {
     layoutOverride: TScanCleanupPageLayoutOverride;
     excluded: boolean;
     manualSplitX: number | null;
+    manualContentBoxes?: Partial<Record<TScanCleanupOutputHalf, IScanCleanupPreviewRect>>;
+    placementOverrides?: Partial<Record<TScanCleanupOutputHalf, TScanCleanupPageAlignment>>;
 }
 
 export type TScanCleanupPageOverrides = Record<string, IScanCleanupPageOverride>;
 
 export interface IScanCleanupOptions {
+    preserveOriginalQuality?: boolean;
     layoutMode: TScanCleanupLayoutMode;
     outputMode: TScanCleanupOutputMode;
     thickness: number;
@@ -52,6 +56,7 @@ export interface IScanCleanupPreviewAffine {matrix: number[][];}
 export interface IScanCleanupPreviewMetadata {
     half: 'full' | 'left' | 'right';
     layoutClassification: 'single-uncut-page' | 'page-with-offcut' | 'two-page-spread';
+    layoutConfidence: number;
     sourceRegion: IScanCleanupPreviewRect;
     contentBox: IScanCleanupPreviewRect | null;
     appliedMargins: [number, number, number, number];
@@ -87,6 +92,45 @@ export interface IScanCleanupPreviewResult {
     rawHeight: number;
     pageMetadata: IScanCleanupPreviewPageMetadata;
     outputs: IScanCleanupPreviewOutput[];
+}
+
+export interface IScanCleanupDetectionRequest {
+    sourcePdfPath: string;
+    options: IScanCleanupOptions;
+}
+
+export interface IScanCleanupDetectionResult {
+    pageNumber: number;
+    classification: IScanCleanupPreviewMetadata['layoutClassification'];
+    confidence: number;
+    cutterX: number | null;
+}
+
+export interface IScanCleanupDetectionProgress {
+    detectedCount: number;
+    totalPages: number;
+}
+
+interface IScanCleanupDetectionJobBase {
+    jobId: string;
+    progress: IScanCleanupDetectionProgress;
+    results: IScanCleanupDetectionResult[];
+    updatedAtMs: number;
+}
+
+export type TScanCleanupDetectionJobState =
+    | IScanCleanupDetectionJobBase & {status: 'queued' | 'running' | 'completed' | 'canceled'}
+    | IScanCleanupDetectionJobBase & {
+        status: 'failed';
+        error: string;
+        errorCode: TScanCleanupErrorCode
+    };
+
+export interface IScanCleanupDetectionStartResult {
+    started: boolean;
+    jobId: string;
+    error?: string;
+    errorCode?: TScanCleanupErrorCode;
 }
 
 export interface IScanCleanupStartRequest {
@@ -147,7 +191,11 @@ export interface IScanCleanupStartResult {
 
 export interface IScanCleanupCapability {
     preview: (request: IScanCleanupPreviewRequest) => Promise<IScanCleanupPreviewResult>;
-    cancelPreview: (sourcePdfPath: string) => Promise<boolean>;
+    cancelPreview: (sourcePdfPath: string, invalidateRawCache?: boolean) => Promise<boolean>;
+    detectAll: (request: IScanCleanupDetectionRequest) => Promise<IScanCleanupDetectionStartResult>;
+    cancelDetection: (jobId: string) => Promise<boolean>;
+    getDetectionJobState: (jobId: string) => Promise<TScanCleanupDetectionJobState | null>;
+    subscribeDetectionJob: (jobId: string) => Promise<TScanCleanupDetectionJobState | null>;
     start: (request: IScanCleanupStartRequest) => Promise<IScanCleanupStartResult>;
     cancel: (jobId: string) => Promise<boolean>;
     getJobState: (jobId: string) => Promise<TScanCleanupJobState | null>;
@@ -155,4 +203,5 @@ export interface IScanCleanupCapability {
     reconnectJob: (jobId: string) => Promise<TScanCleanupJobState | null>;
     pruneGeneratedOutputs: (openPdfPaths: string[]) => Promise<number>;
     onJobState: (callback: (state: TScanCleanupJobState) => void) => () => void;
+    onDetectionJobState: (callback: (state: TScanCleanupDetectionJobState) => void) => () => void;
 }

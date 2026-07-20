@@ -1,8 +1,13 @@
 import type { IWorkspaceToolbarSnapshot } from '@app/types/workspaceExpose';
 import type { ITabViewSessionState } from '@app/modules/workspace-shell/tabs/tabSessionStoreTypes';
 
-export function createTabViewSessionState(snapshot: IWorkspaceToolbarSnapshot): ITabViewSessionState {
+export function createTabViewSessionState(
+    snapshot: IWorkspaceToolbarSnapshot,
+    previousState?: ITabViewSessionState | null,
+): ITabViewSessionState {
     return {
+        surfaceMode: previousState?.surfaceMode ?? 'reader',
+        ...(previousState?.scanCleanup ? {scanCleanup: previousState.scanCleanup} : {}),
         currentPage: Math.max(1, Math.trunc(snapshot.currentPage)),
         zoom: snapshot.zoom,
         effectiveZoom: snapshot.effectiveZoom,

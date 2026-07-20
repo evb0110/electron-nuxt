@@ -3,8 +3,7 @@
         class="preview-pane"
         :aria-label="t('scanCleanup.preview.title')"
         tabindex="0"
-        @keydown.left.prevent="navigateFromKeyboard('previous')"
-        @keydown.right.prevent="navigateFromKeyboard('next')"
+        @keydown="handlePaneKeydown"
     >
         <header class="preview-header">
             <div class="page-navigation">
@@ -33,42 +32,18 @@
                 />
             </div>
             <div class="preview-controls">
-                <div class="preview-segmented" role="radiogroup" :aria-label="t('scanCleanup.preview.comparison')">
-                    <UButton
-                        v-for="mode in viewModes"
-                        :key="mode.value"
-                        type="button"
-                        color="neutral"
-                        size="sm"
-                        :variant="effectiveViewMode === mode.value ? 'soft' : 'ghost'"
-                        :aria-checked="effectiveViewMode === mode.value"
-                        role="radio"
-                        :label="mode.label"
-                        @click="$emit('update:viewMode', mode.value)"
-                    />
-                </div>
-                <div class="preview-segmented" role="radiogroup" :aria-label="t('scanCleanup.preview.zoom')">
-                    <UButton
-                        type="button"
-                        color="neutral"
-                        size="sm"
-                        :variant="effectiveZoomMode === 'fit' ? 'soft' : 'ghost'"
-                        :aria-checked="effectiveZoomMode === 'fit'"
-                        role="radio"
-                        :label="t('scanCleanup.preview.fit')"
-                        @click="$emit('update:zoomMode', 'fit')"
-                    />
-                    <UButton
-                        type="button"
-                        color="neutral"
-                        size="sm"
-                        :variant="effectiveZoomMode === 'actual' ? 'soft' : 'ghost'"
-                        :aria-checked="effectiveZoomMode === 'actual'"
-                        role="radio"
-                        label="100%"
-                        @click="$emit('update:zoomMode', 'actual')"
-                    />
-                </div>
+                <ScanCleanupSegmented
+                    :model-value="effectiveViewMode"
+                    :items="viewModes"
+                    :group-label="t('scanCleanup.preview.comparison')"
+                    @update:model-value="$emit('update:viewMode', $event as 'original' | 'cleaned')"
+                />
+                <ScanCleanupSegmented
+                    :model-value="effectiveZoomMode"
+                    :items="zoomModes"
+                    :group-label="t('scanCleanup.preview.zoom')"
+                    @update:model-value="$emit('update:zoomMode', $event as 'fit' | 'actual')"
+                />
             </div>
         </header>
 
@@ -76,23 +51,40 @@
             class="preview-surface"
             :class="[
                 {'is-actual': effectiveZoomMode === 'actual'},
+                {'is-stale-page': isStalePage},
                 effectiveZoomMode === 'actual' && 'app-scrollbar app-scroll-region--balanced',
             ]"
             aria-live="polite"
         >
-            <template v-if="result">
-                <div v-if="result.outputs.length === 0 && effectiveViewMode === 'cleaned'" class="preview-message">
+            <Transition name="scan-preview-crossfade">
+                <div
+                    v-if="result"
+                    :key="previewTransitionKey"
+                    class="preview-result-layer"
+                >
+                <div
+                    v-if="result.outputs.length === 0 && effectiveViewMode === 'cleaned'"
+                    class="preview-message"
+                    :class="{'is-stale-content': isStalePage}"
+                >
                     <span>{{ result.pageMetadata.excluded
                         ? t('scanCleanup.preview.excluded')
                         : t('scanCleanup.preview.blankSkipped') }}</span>
                 </div>
-                <div v-else ref="cutterStage" class="cutter-stage">
+                <div v-else ref="cutterStage" class="cutter-stage" :class="{'is-stale-content': isStalePage}">
                     <div v-if="effectiveViewMode === 'original'" class="raw-preview" :class="{'is-actual': effectiveZoomMode === 'actual'}">
                         <img
                             :src="rawUrl"
-                            :alt="t('scanCleanup.preview.originalAlt', {page: pageNumber})"
+                            :alt="t('scanCleanup.preview.originalAlt', {page: result.pageNumber})"
                             :style="effectiveZoomMode === 'actual' ? {width: `${result.rawWidth}px`, maxWidth: 'none', maxHeight: 'none'} : undefined"
                         >
+                        <span
+                            v-for="(style, index) in losslessCropOverlayStyles"
+                            :key="`lossless-crop-${String(index)}`"
+                            class="lossless-crop-overlay"
+                            :style="style"
+                            aria-hidden="true"
+                        />
                     </div>
                     <div v-else class="cleaned-outputs" :class="{'is-spread': result.outputs.length > 1, 'is-actual': effectiveZoomMode === 'actual'}">
                         <div
@@ -100,38 +92,68 @@
                             :key="`${result.pageNumber}-${output.metadata.half}-${index}`"
                             class="output-column"
                         >
-                            <span v-if="result.outputs.length > 1" class="half-label">
-                                {{ output.metadata.half === 'left'
-                                    ? t('scanCleanup.preview.leftPage')
-                                    : t('scanCleanup.preview.rightPage') }}
-                            </span>
-                            <div
-                                class="uniform-canvas"
-                                :class="{'has-uniform-canvas': matchPageSize, 'is-actual': effectiveZoomMode === 'actual'}"
-                                :style="{
-                                    aspectRatio: `${output.placement.canvasWidth} / ${output.placement.canvasHeight}`,
-                                    ...(effectiveZoomMode === 'actual' ? {width: `${output.placement.canvasWidth}px`} : {}),
-                                }"
-                            >
-                                <img
-                                    class="cleaned-image"
-                                    :src="output.url"
-                                    :alt="t('scanCleanup.preview.cleanedAlt', {page: pageNumber})"
-                                    :style="output.imageStyle"
+                            <div :ref="element => setOutputFitArea(index, element)" class="output-fit-area">
+                                <div
+                                    class="uniform-canvas"
+                                    :class="{'has-uniform-canvas': matchPageSize, 'is-actual': effectiveZoomMode === 'actual'}"
+                                    :style="output.canvasStyle"
                                 >
-                                <span class="margin-overlay" :style="output.imageStyle" aria-hidden="true" />
-                                <span
-                                    v-if="output.contentStyle"
-                                    class="content-overlay"
-                                    :style="output.contentStyle"
-                                    aria-hidden="true"
-                                />
+                                    <div
+                                        class="placed-image"
+                                        :class="{'is-draggable': matchPageSize}"
+                                        :style="output.imageStyle"
+                                        :tabindex="matchPageSize ? 0 : -1"
+                                        :role="matchPageSize ? 'button' : undefined"
+                                        :aria-label="matchPageSize ? t('scanCleanup.preview.placement', {half: outputHalfLabel(output.metadata.half)}) : undefined"
+                                        @pointerdown="startPlacementDrag($event, output)"
+                                        @pointermove="dragPlacement($event, output)"
+                                        @pointerup="finishPlacementDrag"
+                                        @pointercancel="finishPlacementDrag"
+                                        @keydown.esc.stop.prevent="cancelPlacementDrag"
+                                        @keydown="nudgePlacement($event, output)"
+                                    >
+                                        <img
+                                            class="cleaned-image"
+                                            :src="output.url"
+                                            :alt="t('scanCleanup.preview.cleanedAlt', {
+                                                page: result.pageNumber,
+                                                half: outputHalfLabel(output.metadata.half),
+                                            })"
+                                        >
+                                        <span class="margin-overlay" aria-hidden="true" />
+                                    </div>
+                                    <div
+                                        v-if="output.contentStyle"
+                                        class="content-overlay"
+                                        :style="output.contentStyle"
+                                        tabindex="0"
+                                        role="group"
+                                        :aria-label="t('scanCleanup.preview.contentBoxFor', {half: outputHalfLabel(output.metadata.half)})"
+                                        @dblclick.stop="$emit('update:manualContentBox', output.metadata.half, null)"
+                                    >
+                                        <button
+                                            v-for="handle in contentHandles"
+                                            :key="handle"
+                                            type="button"
+                                            class="content-handle"
+                                            :class="`is-${handle}`"
+                                            :aria-label="contentHandleLabel(handle, output.metadata.half)"
+                                            @pointerdown.stop="startContentDrag($event, output, handle)"
+                                            @pointermove.stop="dragContentBox($event, output)"
+                                            @pointerup.stop="finishContentDrag"
+                                            @pointercancel.stop="finishContentDrag"
+                                            @keydown.esc.stop.prevent="cancelContentDrag"
+                                            @keydown="nudgeContentBox($event, output, handle)"
+                                        />
+                                    </div>
+                                </div>
                             </div>
                         </div>
                     </div>
                     <button
                         v-if="showCutter"
                         class="cutter-control"
+                        :class="{'is-refreshing': loading}"
                         type="button"
                         :style="cutterStyle"
                         :aria-label="t('scanCleanup.preview.cutter')"
@@ -140,37 +162,95 @@
                         @pointermove="dragCutter"
                         @pointerup="finishCutterDrag"
                         @pointercancel="finishCutterDrag"
+                        @keydown.esc.stop.prevent="cancelCutterDrag"
                         @dblclick.prevent="$emit('update:manualSplitX', null)"
                         @keydown.left.prevent="nudgeCutter(-1, $event.shiftKey)"
                         @keydown.right.prevent="nudgeCutter(1, $event.shiftKey)"
                     >
-                        <span aria-hidden="true" />
+                        <span class="cutter-line" aria-hidden="true" />
+                        <span class="cutter-grab-handle" aria-hidden="true">
+                            <UIcon name="i-ph-dots-six-vertical" class="size-4" />
+                        </span>
                     </button>
                     <span id="scan-cleanup-cutter-hint" class="sr-only">
                         {{ t('scanCleanup.preview.cutterHint') }}
                     </span>
                 </div>
-                <div v-if="loading || error" class="refresh-indicator" :class="{'is-error': error}">
-                    <UIcon :name="error ? 'i-ph-warning-circle' : 'i-ph-circle-notch'" class="size-4" :class="{'is-spinning': !error}" />
-                    <span class="sr-only">{{ error || t('scanCleanup.preview.refreshing') }}</span>
+                <div v-if="loading && isStalePage" class="page-loading-overlay" role="status">
+                    <UIcon name="i-ph-circle-notch" class="size-6 is-spinning" />
+                    <span>{{ t('scanCleanup.preview.loadingPage', {page: pageNumber}) }}</span>
                 </div>
-            </template>
-            <div v-else-if="loading" class="preview-loading" role="status">
-                <USkeleton class="preview-skeleton" />
-                <span>{{ t('scanCleanup.preview.loading') }}</span>
-            </div>
-            <div v-else-if="error" class="preview-message is-error" role="status">
-                <UIcon name="i-ph-warning-circle" class="size-6" />
-                <span>{{ t('scanCleanup.preview.unavailable') }}</span>
-                <span class="preview-error-detail">{{ error }}</span>
-            </div>
-            <div v-else class="preview-message" role="status">
-                <UIcon name="i-ph-image" class="size-6" />
-                <span>{{ t('scanCleanup.preview.waiting') }}</span>
-            </div>
+                <div v-else-if="loading" class="refresh-indicator">
+                    <UIcon name="i-ph-circle-notch" class="size-4 is-spinning" />
+                    <span class="sr-only">{{ t('scanCleanup.preview.refreshing') }}</span>
+                </div>
+                <div v-if="error" class="preview-refresh-error" role="alert">
+                    <span>{{ t('scanCleanup.preview.unavailable') }}</span>
+                    <UButton
+                        type="button"
+                        color="neutral"
+                        variant="outline"
+                        size="xs"
+                        :label="t('scanCleanup.preview.retry')"
+                        @click="$emit('retry')"
+                    />
+                    <details class="preview-error-disclosure">
+                        <summary>{{ t('scanCleanup.preview.technicalDetails') }}</summary>
+                        <span class="preview-error-detail">{{ error }}</span>
+                    </details>
+                </div>
+                </div>
+            </Transition>
+            <Transition name="scan-preview-crossfade">
+                <div v-if="!result" class="preview-empty-layer">
+                    <div v-if="loading" class="preview-loading" role="status">
+                        <USkeleton class="preview-skeleton" />
+                        <span>{{ t('scanCleanup.preview.loading') }}</span>
+                    </div>
+                    <div v-else-if="error" class="preview-message is-error" role="alert">
+                        <UIcon name="i-ph-warning-circle" class="size-6" />
+                        <span>{{ t('scanCleanup.preview.unavailable') }}</span>
+                        <UButton
+                            type="button"
+                            color="neutral"
+                            variant="outline"
+                            size="sm"
+                            :label="t('scanCleanup.preview.retry')"
+                            @click="$emit('retry')"
+                        />
+                        <details class="preview-error-disclosure">
+                            <summary>{{ t('scanCleanup.preview.technicalDetails') }}</summary>
+                            <span class="preview-error-detail">{{ error }}</span>
+                        </details>
+                    </div>
+                    <div v-else class="preview-message" role="status">
+                        <UIcon name="i-ph-image" class="size-6" />
+                        <span>{{ t('scanCleanup.preview.waiting') }}</span>
+                    </div>
+                </div>
+            </Transition>
+            <aside
+                v-if="showFirstRunGuidance"
+                class="scan-cleanup-first-run-guidance"
+                :aria-label="t('scanCleanup.firstRun.title')"
+            >
+                <strong>{{ t('scanCleanup.firstRun.title') }}</strong>
+                <ol>
+                    <li>{{ t('scanCleanup.firstRun.detect') }}</li>
+                    <li>{{ t('scanCleanup.firstRun.review') }}</li>
+                    <li>{{ t('scanCleanup.firstRun.cleanUp') }}</li>
+                </ol>
+                <UButton
+                    type="button"
+                    color="primary"
+                    size="sm"
+                    :label="t('scanCleanup.firstRun.dismiss')"
+                    @click="$emit('dismiss-first-run-guidance')"
+                />
+            </aside>
         </div>
 
-        <div v-if="effectiveViewMode === 'cleaned'" class="overlay-legend" :aria-label="t('scanCleanup.preview.legend')">
+        <div v-if="effectiveViewMode === 'cleaned' || lossless" class="overlay-legend" :aria-label="t('scanCleanup.preview.legend')">
             <span><i class="legend-swatch is-content" />{{ t('scanCleanup.preview.contentBox') }}</span>
             <span><i class="legend-swatch is-margin" />{{ t('scanCleanup.preview.marginBox') }}</span>
             <span v-if="matchPageSize"><i class="legend-swatch is-canvas" />{{ t('scanCleanup.preview.canvas') }}</span>
@@ -180,18 +260,42 @@
 
 <script setup lang="ts">
 import type {
+    IScanCleanupPreviewMetadata,
+    IScanCleanupPreviewRect,
     IScanCleanupPreviewResult,
+    TScanCleanupOutputHalf,
     TScanCleanupPageAlignment,
 } from '@contracts/electronApiScanCleanup';
+import type {ComponentPublicInstance} from 'vue';
+import ScanCleanupSegmented from '@app/modules/scan-cleanup/components/ScanCleanupSegmented.vue';
 import {
+    clampPreviewRect,
+    previewPointToSourceHalf,
     resolvePreviewCanvasSize,
+    resolvePreviewFitPlacement,
+    resolvePreviewOutputFitRects,
+    resolvePreviewOutputFitSizes,
     resolvePreviewPlacement,
+    resolvePreviewSpreadCutterCenter,
     scanCleanupAnalysisWidth,
     scanCleanupCutterRatio,
     scanCleanupCutterXFromRatio,
     toPreviewStyleRect,
     transformPreviewContentBox,
+    transformPreviewSourceHalfRect,
 } from '@app/modules/scan-cleanup/utils/scanCleanupPreviewGeometry';
+
+type TContentHandle = 'n' | 'ne' | 'e' | 'se' | 's' | 'sw' | 'w' | 'nw';
+
+interface IRenderedOutput {
+    canvasStyle: Record<string, string>;
+    contentRect: IScanCleanupPreviewRect | null;
+    contentStyle: ReturnType<typeof toPreviewStyleRect> | null;
+    imageStyle: ReturnType<typeof toPreviewStyleRect>;
+    metadata: IScanCleanupPreviewMetadata;
+    placement: ReturnType<typeof resolvePreviewPlacement>;
+    url: string;
+}
 
 const props = defineProps<{
     result: IScanCleanupPreviewResult | null;
@@ -205,16 +309,25 @@ const props = defineProps<{
     alignment: TScanCleanupPageAlignment;
     pageNumber: number;
     totalPages: number;
+    stalePage?: boolean;
+    showFirstRunGuidance?: boolean;
     manualSplitX: number | null;
     readingOrder: 'ltr' | 'rtl';
+    manualContentBoxes?: Partial<Record<TScanCleanupOutputHalf, IScanCleanupPreviewRect>>;
+    placementOverrides?: Partial<Record<TScanCleanupOutputHalf, TScanCleanupPageAlignment>>;
+    lossless?: boolean;
 }>();
 
 const emit = defineEmits<{
+    'dismiss-first-run-guidance': [];
     previous: [];
     next: [];
+    retry: [];
     'update:viewMode': [value: 'original' | 'cleaned'];
     'update:zoomMode': [value: 'fit' | 'actual'];
     'update:manualSplitX': [value: number | null];
+    'update:manualContentBox': [half: TScanCleanupOutputHalf, value: IScanCleanupPreviewRect | null];
+    'update:placement': [half: TScanCleanupOutputHalf, value: TScanCleanupPageAlignment];
 }>();
 
 const {t} = useTypedI18n();
@@ -222,9 +335,50 @@ const rawUrl = ref('');
 const cleanedUrls = ref<string[]>([]);
 const cutterStage = ref<HTMLElement | null>(null);
 const draggingCutter = ref(false);
-const effectiveViewMode = computed(() => props.viewMode ?? (props.showBefore ? 'original' : 'cleaned'));
+const outputFitAreas = new Map<number, HTMLElement>();
+const outputFitAreaSizes = reactive<Record<number, {
+    left: number;
+    top: number;
+    width: number;
+    height: number
+}>>({});
+let outputResizeObserver: ResizeObserver | null = null;
+const contentHandles: readonly TContentHandle[] = [
+    'n',
+    'ne',
+    'e',
+    'se',
+    's',
+    'sw',
+    'w',
+    'nw',
+];
+const contentDrag = shallowRef<{
+    half: TScanCleanupOutputHalf;
+    handle: TContentHandle;
+    pointerId: number;
+    rect: IScanCleanupPreviewRect;
+} | null>(null);
+const placementDrag = shallowRef<{
+    half: TScanCleanupOutputHalf;
+    pointerId: number
+} | null>(null);
+const cutterStageSize = reactive({
+    height: 0,
+    width: 0,
+});
+let cutterResizeObserver: ResizeObserver | null = null;
+const effectiveViewMode = computed(() => props.lossless
+    ? 'original'
+    : props.viewMode ?? (props.showBefore ? 'original' : 'cleaned'));
 const effectiveZoomMode = computed(() => props.zoomMode ?? 'fit');
-const viewModes = computed(() => [
+const isStalePage = computed(() => props.stalePage
+    ?? Boolean(props.result && props.result.pageNumber !== props.pageNumber));
+const previewTransitionKey = ref(0);
+const viewModes = computed(() => props.lossless ? [{
+    value: 'original' as const,
+    label: t('scanCleanup.preview.preview'),
+}] : [
     {
         value: 'original' as const,
         label: t('scanCleanup.preview.original'),
@@ -232,6 +386,16 @@ const viewModes = computed(() => [
     {
         value: 'cleaned' as const,
         label: t('scanCleanup.preview.cleaned'),
+    },
+]);
+const zoomModes = computed(() => [
+    {
+        value: 'fit' as const,
+        label: t('scanCleanup.preview.fit'),
+    },
+    {
+        value: 'actual' as const,
+        label: '100%',
     },
 ]);
 const analysisWidth = computed(() => {
@@ -243,13 +407,164 @@ const analysisWidth = computed(() => {
 });
 const cutterX = computed(() => props.manualSplitX ?? props.result?.pageMetadata.cutterX ?? analysisWidth.value / 2);
 const showCutter = computed(() => Boolean(props.result)
-    && (props.manualSplitX !== null
-        || props.result?.pageMetadata.layoutClassification !== 'single-uncut-page'));
-const cutterStyle = computed(() => ({insetInlineStart: `${scanCleanupCutterRatio(cutterX.value, analysisWidth.value) * 100}%`}));
+    && effectiveZoomMode.value === 'fit'
+    && (
+        props.result?.pageMetadata.layoutClassification === 'two-page-spread'
+        || props.manualSplitX !== null
+    ));
+const originalFitPlacement = computed(() => resolvePreviewFitPlacement(
+    cutterStageSize.width,
+    cutterStageSize.height,
+    props.result?.rawWidth ?? 1,
+    props.result?.rawHeight ?? 1,
+));
+function unrotatePreviewRect(rect: IScanCleanupPreviewRect, metadata: IScanCleanupPreviewMetadata) {
+    const points = [
+        {
+            x: rect.x,
+            y: rect.y,
+        },
+        {
+            x: rect.x + rect.width,
+            y: rect.y,
+        },
+        {
+            x: rect.x,
+            y: rect.y + rect.height,
+        },
+        {
+            x: rect.x + rect.width,
+            y: rect.y + rect.height,
+        },
+    ].map(point => {
+        if (metadata.rotation === 90) {
+            return {
+                x: point.y,
+                y: metadata.inputHeight - point.x,
+            };
+        }
+        if (metadata.rotation === 180) {
+            return {
+                x: metadata.inputWidth - point.x,
+                y: metadata.inputHeight - point.y,
+            };
+        }
+        if (metadata.rotation === 270) {
+            return {
+                x: metadata.inputWidth - point.y,
+                y: point.x,
+            };
+        }
+        return point;
+    });
+    const left = Math.min(...points.map(point => point.x));
+    const right = Math.max(...points.map(point => point.x));
+    const top = Math.min(...points.map(point => point.y));
+    const bottom = Math.max(...points.map(point => point.y));
+    return {
+        x: left,
+        y: top,
+        width: right - left,
+        height: bottom - top,
+    };
+}
+const losslessCropOverlayStyles = computed(() => {
+    if (!props.lossless || !props.result || originalFitPlacement.value.width <= 0) {
+        return [];
+    }
+    return props.result.outputs.map(output => {
+        const metadata = output.metadata;
+        const content = props.manualContentBoxes?.[metadata.half] ?? metadata.contentBox;
+        const [
+            top,
+            right,
+            bottom,
+            left,
+        ] = metadata.appliedMargins;
+        const local = content ? {
+            x: content.x - left,
+            y: content.y - top,
+            width: content.width + left + right,
+            height: content.height + top + bottom,
+        } : {
+            x: 0,
+            y: 0,
+            width: metadata.sourceRegion.width,
+            height: metadata.sourceRegion.height,
+        };
+        const rawRect = unrotatePreviewRect({
+            x: metadata.sourceRegion.x + local.x,
+            y: metadata.sourceRegion.y + local.y,
+            width: local.width,
+            height: local.height,
+        }, metadata);
+        return {
+            insetInlineStart: `${originalFitPlacement.value.left + rawRect.x / props.result!.rawWidth * originalFitPlacement.value.width}px`,
+            insetBlockStart: `${originalFitPlacement.value.top + rawRect.y / props.result!.rawHeight * originalFitPlacement.value.height}px`,
+            width: `${rawRect.width / props.result!.rawWidth * originalFitPlacement.value.width}px`,
+            height: `${rawRect.height / props.result!.rawHeight * originalFitPlacement.value.height}px`,
+        };
+    });
+});
+const cutterStyle = computed(() => {
+    const sourceRatio = scanCleanupCutterRatio(cutterX.value, analysisWidth.value);
+    if (effectiveViewMode.value === 'original' && originalFitPlacement.value.width > 0) {
+        return {
+            insetBlockEnd: 'auto',
+            insetBlockStart: `${originalFitPlacement.value.top}px`,
+            insetInlineStart: `${originalFitPlacement.value.left + originalFitPlacement.value.width * sourceRatio}px`,
+            height: `${originalFitPlacement.value.height}px`,
+        };
+    }
+    const outputs = props.result?.outputs ?? [];
+    const canvas = resolvePreviewCanvasSize(outputs.map(output => output.metadata), props.matchPageSize);
+    const canvases = outputs.map(output => ({
+        width: canvas?.width ?? output.metadata.outputWidth,
+        height: canvas?.height ?? output.metadata.outputHeight,
+    }));
+    if (props.readingOrder === 'rtl' && canvases.length > 1) {
+        canvases.reverse();
+    }
+    const areas = canvases
+        .map((_, index) => outputFitAreaSizes[index])
+        .filter(area => area !== undefined);
+    const renderedGapCenter = areas.length === canvases.length
+        ? resolvePreviewSpreadCutterCenter(resolvePreviewOutputFitRects(areas, canvases))
+        : null;
+    if (renderedGapCenter !== null) {
+        return {insetInlineStart: `${renderedGapCenter}px`};
+    }
+    const visualRatio = props.readingOrder === 'rtl' ? 1 - sourceRatio : sourceRatio;
+    return {insetInlineStart: `${visualRatio * 100}%`};
+});
 
 function navigateFromKeyboard(direction: 'previous' | 'next') {
     if (direction === 'previous' && props.pageNumber > 1) emit('previous');
     if (direction === 'next' && props.pageNumber < props.totalPages) emit('next');
+}
+
+function handlePaneKeydown(event: KeyboardEvent) {
+    if (event.target !== event.currentTarget) {
+        return;
+    }
+    if (event.key === 'ArrowLeft') {
+        event.preventDefault();
+        navigateFromKeyboard('previous');
+    } else if (event.key === 'ArrowRight') {
+        event.preventDefault();
+        navigateFromKeyboard('next');
+    }
+}
+
+function outputHalfLabel(half: TScanCleanupOutputHalf) {
+    return t(`scanCleanup.preview.outputHalf.${half}`);
+}
+
+function contentHandleLabel(handle: TContentHandle, half: TScanCleanupOutputHalf) {
+    return t('scanCleanup.preview.resizeContent', {
+        direction: t(`scanCleanup.preview.resizeDirections.${handle}`),
+        half: outputHalfLabel(half),
+    });
 }
 
 function updateCutterFromClientX(clientX: number) {
@@ -257,14 +572,34 @@ function updateCutterFromClientX(clientX: number) {
     if (!rect || rect.width <= 0) {
         return;
     }
-    const ratio = (clientX - rect.left) / rect.width;
+    let ratio = (clientX - rect.left) / rect.width;
+    if (effectiveViewMode.value === 'original' && originalFitPlacement.value.width > 0) {
+        ratio = (clientX - rect.left - originalFitPlacement.value.left) / originalFitPlacement.value.width;
+    } else {
+        const areas = Object.values(outputFitAreaSizes);
+        if (areas.length >= 2) {
+            const left = Math.min(...areas.map(area => area.left));
+            const right = Math.max(...areas.map(area => area.left + area.width));
+            if (right > left) {
+                ratio = (clientX - rect.left - left) / (right - left);
+            }
+        }
+        if (props.readingOrder === 'rtl') ratio = 1 - ratio;
+    }
     emit('update:manualSplitX', scanCleanupCutterXFromRatio(ratio, analysisWidth.value));
 }
 
 function startCutterDrag(event: PointerEvent) {
+    if (event.button !== 0) {
+        return;
+    }
     draggingCutter.value = true;
     (event.currentTarget as HTMLElement).setPointerCapture(event.pointerId);
     updateCutterFromClientX(event.clientX);
+}
+
+function cancelCutterDrag() {
+    draggingCutter.value = false;
 }
 
 function dragCutter(event: PointerEvent) {
@@ -288,6 +623,246 @@ function nudgeCutter(direction: -1 | 1, coarse: boolean) {
     ));
 }
 
+function setOutputFitArea(index: number, element: Element | ComponentPublicInstance | null) {
+    const htmlElement = element instanceof HTMLElement ? element : null;
+    const previous = outputFitAreas.get(index);
+    if (previous && previous !== htmlElement) outputResizeObserver?.unobserve(previous);
+    if (!htmlElement) {
+        outputFitAreas.delete(index);
+        Reflect.deleteProperty(outputFitAreaSizes, index);
+        return;
+    }
+    outputFitAreas.set(index, htmlElement);
+    outputResizeObserver?.observe(htmlElement);
+    updateOutputFitAreaSizes();
+}
+
+function updateOutputFitAreaSizes() {
+    const stageRect = cutterStage.value?.getBoundingClientRect();
+    for (const [
+        index,
+        element,
+    ] of outputFitAreas) {
+        const rect = element.getBoundingClientRect();
+        const current = outputFitAreaSizes[index];
+        const left = rect.left - (stageRect?.left ?? 0);
+        const top = rect.top - (stageRect?.top ?? 0);
+        if (
+            current?.left !== left
+            || current.top !== top
+            || current.width !== rect.width
+            || current.height !== rect.height
+        ) {
+            outputFitAreaSizes[index] = {
+                left,
+                top,
+                width: rect.width,
+                height: rect.height,
+            };
+        }
+    }
+}
+
+function observeOutputFitAreas() {
+    outputResizeObserver?.disconnect();
+    if (typeof ResizeObserver === 'undefined') {
+        updateOutputFitAreaSizes();
+        return;
+    }
+    outputResizeObserver = new ResizeObserver(updateOutputFitAreaSizes);
+    for (const element of outputFitAreas.values()) outputResizeObserver.observe(element);
+    updateOutputFitAreaSizes();
+}
+
+function sourcePointFromEvent(event: PointerEvent, output: IRenderedOutput) {
+    const canvas = (event.currentTarget as HTMLElement).closest<HTMLElement>('.uniform-canvas');
+    const rect = canvas?.getBoundingClientRect();
+    if (!rect || rect.width <= 0 || rect.height <= 0) {
+        return null;
+    }
+    return previewPointToSourceHalf(output.metadata, {
+        x: (event.clientX - rect.left) / rect.width * output.placement.canvasWidth,
+        y: (event.clientY - rect.top) / rect.height * output.placement.canvasHeight,
+    });
+}
+
+function startContentDrag(event: PointerEvent, output: IRenderedOutput, handle: TContentHandle) {
+    if (!output.contentRect || event.button !== 0) {
+        return;
+    }
+    contentDrag.value = {
+        half: output.metadata.half,
+        handle,
+        pointerId: event.pointerId,
+        rect: {...output.contentRect},
+    };
+    (event.currentTarget as HTMLElement).setPointerCapture(event.pointerId);
+    dragContentBox(event, output);
+}
+
+function resizedContentRect(
+    rect: IScanCleanupPreviewRect,
+    handle: TContentHandle,
+    point: {
+        x: number;
+        y: number
+    },
+    metadata: IScanCleanupPreviewMetadata,
+) {
+    const minimum = Math.max(1, Math.min(metadata.sourceRegion.width, metadata.sourceRegion.height) * 0.02);
+    let left = rect.x;
+    let top = rect.y;
+    let right = rect.x + rect.width;
+    let bottom = rect.y + rect.height;
+    if (handle.includes('w')) left = Math.min(right - minimum, point.x);
+    if (handle.includes('e')) right = Math.max(left + minimum, point.x);
+    if (handle.includes('n')) top = Math.min(bottom - minimum, point.y);
+    if (handle.includes('s')) bottom = Math.max(top + minimum, point.y);
+    left = Math.max(0, left);
+    top = Math.max(0, top);
+    right = Math.min(metadata.sourceRegion.width, right);
+    bottom = Math.min(metadata.sourceRegion.height, bottom);
+    return clampPreviewRect({
+        x: left,
+        y: top,
+        width: Math.max(minimum, right - left),
+        height: Math.max(minimum, bottom - top),
+    }, metadata.sourceRegion.width, metadata.sourceRegion.height);
+}
+
+function dragContentBox(event: PointerEvent, output: IRenderedOutput) {
+    const drag = contentDrag.value;
+    if (!drag || drag.pointerId !== event.pointerId || drag.half !== output.metadata.half) {
+        return;
+    }
+    const point = sourcePointFromEvent(event, output);
+    if (!point) {
+        return;
+    }
+    emit('update:manualContentBox', drag.half, resizedContentRect(drag.rect, drag.handle, point, output.metadata));
+}
+
+function finishContentDrag(event: PointerEvent) {
+    const drag = contentDrag.value;
+    if (!drag || drag.pointerId !== event.pointerId) {
+        return;
+    }
+    const target = event.currentTarget as HTMLElement;
+    if (target.hasPointerCapture(event.pointerId)) target.releasePointerCapture(event.pointerId);
+    contentDrag.value = null;
+}
+
+function cancelContentDrag() {
+    contentDrag.value = null;
+}
+
+function nudgeContentBox(event: KeyboardEvent, output: IRenderedOutput, handle: TContentHandle) {
+    if (!output.contentRect || !event.key.startsWith('Arrow')) {
+        return;
+    }
+    event.preventDefault();
+    event.stopPropagation();
+    const step = Math.max(1, Math.min(output.metadata.sourceRegion.width, output.metadata.sourceRegion.height)
+        * (event.shiftKey ? 0.05 : 0.01));
+    const point = {
+        x: handle.includes('w') ? output.contentRect.x : output.contentRect.x + output.contentRect.width,
+        y: handle.includes('n') ? output.contentRect.y : output.contentRect.y + output.contentRect.height,
+    };
+    if (event.key === 'ArrowLeft') point.x -= step;
+    if (event.key === 'ArrowRight') point.x += step;
+    if (event.key === 'ArrowUp') point.y -= step;
+    if (event.key === 'ArrowDown') point.y += step;
+    emit('update:manualContentBox', output.metadata.half, resizedContentRect(
+        output.contentRect,
+        handle,
+        point,
+        output.metadata,
+    ));
+}
+
+function alignmentFromPoint(event: PointerEvent) {
+    const canvas = (event.currentTarget as HTMLElement).closest<HTMLElement>('.uniform-canvas');
+    const rect = canvas?.getBoundingClientRect();
+    if (!rect || rect.width <= 0 || rect.height <= 0) {
+        return null;
+    }
+    const horizontal = event.clientX - rect.left < rect.width / 3
+        ? 'left'
+        : event.clientX - rect.left > rect.width * 2 / 3 ? 'right' : 'center';
+    const vertical = event.clientY - rect.top < rect.height / 3
+        ? 'top'
+        : event.clientY - rect.top > rect.height * 2 / 3 ? 'bottom' : 'center';
+    return vertical === 'center' && horizontal === 'center'
+        ? 'center' as const
+        : `${vertical}-${horizontal}` as TScanCleanupPageAlignment;
+}
+
+function startPlacementDrag(event: PointerEvent, output: IRenderedOutput) {
+    if (!props.matchPageSize || event.button !== 0) {
+        return;
+    }
+    placementDrag.value = {
+        half: output.metadata.half,
+        pointerId: event.pointerId,
+    };
+    (event.currentTarget as HTMLElement).setPointerCapture(event.pointerId);
+    dragPlacement(event, output);
+}
+
+function dragPlacement(event: PointerEvent, output: IRenderedOutput) {
+    const drag = placementDrag.value;
+    if (!drag || drag.pointerId !== event.pointerId || drag.half !== output.metadata.half) {
+        return;
+    }
+    const alignment = alignmentFromPoint(event);
+    if (alignment) emit('update:placement', output.metadata.half, alignment);
+}
+
+function finishPlacementDrag(event: PointerEvent) {
+    const drag = placementDrag.value;
+    if (!drag || drag.pointerId !== event.pointerId) {
+        return;
+    }
+    const target = event.currentTarget as HTMLElement;
+    if (target.hasPointerCapture(event.pointerId)) target.releasePointerCapture(event.pointerId);
+    placementDrag.value = null;
+}
+
+function cancelPlacementDrag() {
+    placementDrag.value = null;
+}
+
+function nudgePlacement(event: KeyboardEvent, output: IRenderedOutput) {
+    if (!props.matchPageSize || !event.key.startsWith('Arrow')) {
+        return;
+    }
+    event.preventDefault();
+    event.stopPropagation();
+    const current = props.placementOverrides?.[output.metadata.half] ?? props.alignment;
+    const [
+        vertical,
+        horizontal = vertical,
+    ] = current.split('-');
+    const axes = [
+        'left',
+        'center',
+        'right',
+    ] as const;
+    const verticalAxes = [
+        'top',
+        'center',
+        'bottom',
+    ] as const;
+    let x = axes.indexOf(horizontal as typeof axes[number]);
+    let y = verticalAxes.indexOf(vertical as typeof verticalAxes[number]);
+    if (event.key === 'ArrowLeft') x = Math.max(0, x - 1);
+    if (event.key === 'ArrowRight') x = Math.min(2, x + 1);
+    if (event.key === 'ArrowUp') y = Math.max(0, y - 1);
+    if (event.key === 'ArrowDown') y = Math.min(2, y + 1);
+    const next = x === 1 && y === 1 ? 'center' : `${verticalAxes[y]}-${axes[x]}`;
+    emit('update:placement', output.metadata.half, next as TScanCleanupPageAlignment);
+}
+
 function revokeUrls() {
     if (rawUrl.value) URL.revokeObjectURL(rawUrl.value);
     for (const url of cleanedUrls.value) URL.revokeObjectURL(url);
@@ -299,16 +874,45 @@ function pngUrl(bytes: Uint8Array) {
     return URL.createObjectURL(new Blob([new Uint8Array(bytes)], {type: 'image/png'}));
 }
 
+function updateCutterStageSize() {
+    const rect = cutterStage.value?.getBoundingClientRect();
+    cutterStageSize.width = rect?.width ?? 0;
+    cutterStageSize.height = rect?.height ?? 0;
+}
+
+function observeCutterStage() {
+    cutterResizeObserver?.disconnect();
+    updateCutterStageSize();
+    if (typeof ResizeObserver === 'undefined' || !cutterStage.value) {
+        return;
+    }
+    cutterResizeObserver ??= new ResizeObserver(updateCutterStageSize);
+    cutterResizeObserver.observe(cutterStage.value);
+}
+
 watch(() => props.result, result => {
+    previewTransitionKey.value += 1;
     revokeUrls();
     if (!result) {
         return;
     }
     rawUrl.value = pngUrl(result.rawImageData);
     cleanedUrls.value = result.outputs.map(output => pngUrl(output.imageData));
+    void nextTick(() => {
+        observeCutterStage();
+        observeOutputFitAreas();
+    });
 }, {immediate: true});
 
-onBeforeUnmount(revokeUrls);
+onMounted(() => {
+    observeCutterStage();
+    observeOutputFitAreas();
+});
+onBeforeUnmount(() => {
+    cutterResizeObserver?.disconnect();
+    outputResizeObserver?.disconnect();
+    revokeUrls();
+});
 
 const renderedOutputs = computed(() => {
     if (!props.result) {
@@ -318,14 +922,15 @@ const renderedOutputs = computed(() => {
         props.result.outputs.map(output => output.metadata),
         props.matchPageSize,
     );
-    const outputs = props.result.outputs.map((output, index) => {
+    const outputs = props.result.outputs.map((output, index): IRenderedOutput => {
         const metadata = output.metadata;
+        const alignment = props.placementOverrides?.[metadata.half] ?? props.alignment;
         const placement = resolvePreviewPlacement(
             metadata.outputWidth,
             metadata.outputHeight,
             canvas?.width ?? metadata.outputWidth,
             canvas?.height ?? metadata.outputHeight,
-            props.alignment,
+            alignment,
         );
         const imageStyle = toPreviewStyleRect({
             x: 0,
@@ -333,16 +938,43 @@ const renderedOutputs = computed(() => {
             width: metadata.outputWidth,
             height: metadata.outputHeight,
         }, placement);
-        const content = transformPreviewContentBox(metadata);
+        const contentRect = props.manualContentBoxes?.[metadata.half] ?? metadata.contentBox;
+        const content = props.manualContentBoxes?.[metadata.half]
+            ? transformPreviewSourceHalfRect(metadata, contentRect)
+            : transformPreviewContentBox(metadata);
         return {
             metadata,
             url: cleanedUrls.value[index] ?? '',
             placement,
             imageStyle,
+            contentRect,
             contentStyle: content ? toPreviewStyleRect(content, placement) : null,
+            canvasStyle: {},
         };
     });
-    return props.readingOrder === 'rtl' && outputs.length > 1 ? outputs.reverse() : outputs;
+    const ordered = props.readingOrder === 'rtl' && outputs.length > 1 ? outputs.reverse() : outputs;
+    const sizes = effectiveZoomMode.value === 'actual'
+        ? ordered.map(output => ({
+            width: output.placement.canvasWidth,
+            height: output.placement.canvasHeight,
+        }))
+        : resolvePreviewOutputFitSizes(
+            ordered.map((_, index) => outputFitAreaSizes[index] ?? {
+                width: 0,
+                height: 0,
+            }),
+            ordered.map(output => ({
+                width: output.placement.canvasWidth,
+                height: output.placement.canvasHeight,
+            })),
+        );
+    return ordered.map((output, index) => ({
+        ...output,
+        canvasStyle: {
+            width: `${sizes[index]?.width ?? 0}px`,
+            height: `${sizes[index]?.height ?? 0}px`,
+        },
+    }));
 });
 </script>
 
@@ -365,9 +997,10 @@ const renderedOutputs = computed(() => {
 .preview-header,
 .page-navigation,
 .preview-controls,
-.preview-segmented,
 .overlay-legend,
-.refresh-indicator {
+.refresh-indicator,
+.page-loading-overlay,
+.cutter-grab-handle {
     display: flex;
     align-items: center;
 }
@@ -377,6 +1010,24 @@ const renderedOutputs = computed(() => {
     color: var(--ui-error);
 }
 
+.preview-refresh-error {
+    position: absolute;
+    z-index: var(--app-z-local-overlay);
+    inset-inline: var(--app-space-9xl);
+    inset-block-end: var(--app-space-9xl);
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: center;
+    gap: var(--app-space-5xl);
+    border: 1px solid var(--ui-error);
+    border-radius: var(--app-radius-md);
+    background: var(--ui-bg);
+    padding: var(--app-space-5xl) var(--app-space-9xl);
+    color: var(--ui-error);
+    font-size: var(--app-text-size-body-sm);
+}
+
 .preview-header {
     justify-content: space-between;
     gap: var(--app-space-3xl);
@@ -384,13 +1035,6 @@ const renderedOutputs = computed(() => {
 
 .preview-controls {
     gap: var(--app-space-9xl);
-}
-
-.preview-segmented {
-    border: 1px solid var(--ui-border);
-    border-radius: var(--app-radius-md);
-    padding: var(--app-space-xs);
-    background: var(--ui-bg);
 }
 
 .page-navigation {
@@ -422,13 +1066,75 @@ const renderedOutputs = computed(() => {
     overflow: auto;
 }
 
+.preview-result-layer,
+.preview-empty-layer {
+    display: grid;
+    width: 100%;
+    height: 100%;
+    min-width: 0;
+    min-height: 0;
+    grid-area: 1 / 1;
+    place-items: center;
+}
+
+.preview-result-layer > .cutter-stage,
+.preview-result-layer > .preview-message {
+    grid-area: 1 / 1;
+}
+
+.scan-preview-crossfade-enter-active,
+.scan-preview-crossfade-leave-active {
+    transition: opacity var(--app-scan-preview-crossfade-duration);
+}
+
+.scan-preview-crossfade-leave-active {
+    position: absolute;
+    inset: var(--app-space-9xl);
+}
+
+.scan-preview-crossfade-enter-from,
+.scan-preview-crossfade-leave-to {
+    opacity: 0;
+}
+
+.is-stale-content {
+    opacity: var(--app-scan-preview-stale-opacity);
+    pointer-events: none;
+    transition: opacity var(--app-scan-preview-crossfade-duration);
+    user-select: none;
+}
+
+.page-loading-overlay {
+    position: absolute;
+    z-index: var(--app-z-local-overlay);
+    inset: 0;
+    flex-direction: column;
+    justify-content: center;
+    gap: var(--app-space-5xl);
+    background: color-mix(in srgb, var(--ui-bg-muted) 42%, transparent);
+    color: var(--ui-text);
+    font-size: var(--app-text-size-body-sm);
+    font-weight: 600;
+    pointer-events: none;
+}
+
 .raw-preview {
+    position: relative;
     display: flex;
     width: 100%;
     height: 100%;
     min-height: 0;
     align-items: center;
     justify-content: center;
+}
+
+.lossless-crop-overlay {
+    position: absolute;
+    z-index: var(--app-z-local-raised);
+    box-sizing: border-box;
+    border: var(--app-hairline-height) solid var(--ui-primary);
+    background: color-mix(in srgb, var(--ui-primary) 8%, transparent);
+    pointer-events: none;
 }
 
 .cutter-stage {
@@ -446,18 +1152,48 @@ const renderedOutputs = computed(() => {
     z-index: var(--app-z-local-raised);
     width: var(--app-space-9xl);
     border: 0;
+    border-radius: var(--app-radius-md);
     background: transparent;
     cursor: col-resize;
     transform: translateX(-50%);
 }
 
-.cutter-control > span {
+.cutter-control.is-refreshing {
+    opacity: var(--app-scan-preview-stale-opacity);
+}
+
+.cutter-line {
     position: absolute;
     inset-block: 0;
     inset-inline-start: 50%;
     width: var(--app-space-xs);
     background: var(--ui-primary);
-    box-shadow: 0 0 0 1px var(--ui-bg);
+    box-shadow: 0 0 0 var(--app-hairline-height) var(--ui-bg);
+    transform: translateX(-50%);
+    transition:
+        background-color var(--app-transition-fast),
+        width var(--app-transition-fast);
+}
+
+.cutter-control:hover .cutter-line,
+.cutter-control:focus-visible .cutter-line {
+    width: var(--app-space-sm);
+    background: var(--ui-primary-hover);
+}
+
+.cutter-grab-handle {
+    position: absolute;
+    inset-inline-start: 50%;
+    inset-block-start: 50%;
+    width: var(--app-scan-cutter-handle-width);
+    height: var(--app-scan-cutter-handle-height);
+    justify-content: center;
+    border: var(--app-hairline-height) solid var(--ui-primary);
+    border-radius: var(--app-radius-md);
+    background: var(--ui-bg);
+    color: var(--ui-primary);
+    box-shadow: var(--shadow-sm);
+    transform: translate(-50%, -50%);
 }
 
 .cutter-control:focus-visible {
@@ -466,12 +1202,12 @@ const renderedOutputs = computed(() => {
 }
 
 .cleaned-outputs {
-    display: flex;
+    display: grid;
     width: 100%;
     height: 100%;
     min-height: 0;
-    align-items: stretch;
-    justify-content: center;
+    grid-auto-columns: minmax(0, 1fr);
+    grid-auto-flow: column;
 }
 
 .raw-preview.is-actual,
@@ -490,33 +1226,31 @@ const renderedOutputs = computed(() => {
     box-shadow: var(--app-document-page-shadow);
 }
 
-.cleaned-outputs {
-    gap: var(--app-space-3xl);
-}
-
 .output-column {
+    box-sizing: border-box;
     display: flex;
     min-width: 0;
     min-height: 0;
     max-width: 100%;
-    flex: 1;
     flex-direction: column;
     align-items: center;
     gap: var(--app-space-sm);
+    padding-inline: calc(var(--app-space-3xl) / 2);
 }
 
-.half-label {
-    color: var(--ui-text-muted);
-    font-size: var(--app-text-size-kicker);
+.output-fit-area {
+    display: grid;
+    width: 100%;
+    min-height: 0;
+    flex: 1;
+    place-items: center;
 }
 
 .uniform-canvas {
     position: relative;
-    width: auto;
     min-height: 0;
-    max-width: 100%;
-    flex: 1 1 0;
-    border: 1px dashed transparent;
+    flex: none;
+    border: var(--app-hairline-height) dashed transparent;
     background: var(--ui-bg);
     box-shadow: var(--app-document-page-shadow);
 }
@@ -532,27 +1266,159 @@ const renderedOutputs = computed(() => {
     background: var(--ui-bg-elevated);
 }
 
-.cleaned-image,
-.margin-overlay,
+.placed-image,
 .content-overlay {
     position: absolute;
     display: block;
 }
 
+.placed-image {
+    touch-action: none;
+}
+
+.placed-image.is-draggable {
+    cursor: grab;
+}
+
+.placed-image.is-draggable:active {
+    cursor: grabbing;
+}
+
+.placed-image:focus-visible,
+.content-overlay:focus-visible {
+    outline: var(--app-hairline-height) solid var(--ui-primary);
+    outline-offset: var(--app-space-xs);
+}
+
 .cleaned-image {
+    display: block;
+    width: 100%;
+    height: 100%;
     object-fit: fill;
+    pointer-events: none;
 }
 
 .margin-overlay {
+    position: absolute;
+    inset: 0;
     box-sizing: border-box;
-    border: 2px solid var(--ui-warning);
+    border: var(--app-hairline-height) solid var(--ui-warning);
     pointer-events: none;
 }
 
 .content-overlay {
-    border: 2px solid var(--ui-primary);
+    box-sizing: border-box;
+    border: var(--app-hairline-height) solid var(--ui-primary);
     background: color-mix(in srgb, var(--ui-primary) 10%, transparent);
-    pointer-events: none;
+    touch-action: none;
+}
+
+.content-handle {
+    position: absolute;
+    width: var(--app-scan-content-handle-hit-size);
+    height: var(--app-scan-content-handle-hit-size);
+    border: 0;
+    background: transparent;
+    padding: 0;
+    touch-action: none;
+}
+
+.content-handle::after {
+    position: absolute;
+    inset: 50% auto auto 50%;
+    width: var(--app-scan-content-handle-size);
+    height: var(--app-scan-content-handle-size);
+    border: var(--app-hairline-height) solid var(--ui-primary);
+    border-radius: var(--app-radius-xs);
+    background: var(--ui-bg);
+    content: '';
+    opacity: 0;
+    transform: translate(-50%, -50%);
+    transition: opacity var(--app-transition-fast);
+}
+
+.content-overlay:hover .content-handle::after,
+.content-overlay:focus-within .content-handle::after,
+.content-handle:focus-visible::after {
+    opacity: 1;
+}
+
+.content-handle.is-n,
+.content-handle.is-s {
+    left: 50%;
+    cursor: ns-resize;
+    transform: translateX(-50%);
+}
+
+.content-handle.is-e,
+.content-handle.is-w {
+    top: 50%;
+    cursor: ew-resize;
+    transform: translateY(-50%);
+}
+
+.content-handle.is-n,
+.content-handle.is-ne,
+.content-handle.is-nw {
+    top: calc(-0.5 * var(--app-scan-content-handle-hit-size));
+}
+
+.content-handle.is-s,
+.content-handle.is-se,
+.content-handle.is-sw {
+    bottom: calc(-0.5 * var(--app-scan-content-handle-hit-size));
+}
+
+.content-handle.is-e,
+.content-handle.is-ne,
+.content-handle.is-se {
+    right: calc(-0.5 * var(--app-scan-content-handle-hit-size));
+}
+
+.content-handle.is-w,
+.content-handle.is-nw,
+.content-handle.is-sw {
+    left: calc(-0.5 * var(--app-scan-content-handle-hit-size));
+}
+
+.content-handle.is-ne,
+.content-handle.is-sw {
+    cursor: nesw-resize;
+}
+
+.content-handle.is-nw,
+.content-handle.is-se {
+    cursor: nwse-resize;
+}
+
+.scan-cleanup-first-run-guidance {
+    position: absolute;
+    z-index: var(--app-z-local-overlay);
+    inset-inline-start: 50%;
+    inset-block-start: 50%;
+    display: grid;
+    width: min(var(--app-scan-first-run-guidance-width), calc(100% - var(--app-space-16xl)));
+    gap: var(--app-space-7xl);
+    border: var(--app-hairline-height) solid var(--ui-border);
+    border-radius: var(--app-radius-lg);
+    background: color-mix(in srgb, var(--ui-bg-elevated) 96%, transparent);
+    box-shadow: var(--shadow-lg);
+    padding: var(--app-space-12xl);
+    color: var(--ui-text);
+    font-size: var(--app-text-size-body-sm);
+    transform: translate(-50%, -50%);
+}
+
+.scan-cleanup-first-run-guidance ol {
+    display: grid;
+    gap: var(--app-space-5xl);
+    margin: 0;
+    padding-inline-start: var(--app-space-16xl);
+    color: var(--ui-text-muted);
+}
+
+.scan-cleanup-first-run-guidance button {
+    justify-self: end;
 }
 
 .preview-loading,
@@ -578,7 +1444,21 @@ const renderedOutputs = computed(() => {
 }
 
 .preview-error-detail {
+    display: block;
+    max-width: var(--app-scan-preview-message-width);
+    margin-block-start: var(--app-space-sm);
     font-size: var(--app-text-size-kicker);
+    overflow-wrap: anywhere;
+}
+
+.preview-error-disclosure {
+    width: 100%;
+    color: var(--ui-text-muted);
+    text-align: start;
+}
+
+.preview-error-disclosure summary {
+    cursor: pointer;
 }
 
 .refresh-indicator {

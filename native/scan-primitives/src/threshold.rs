@@ -90,7 +90,8 @@ pub fn threshold_local_biased(
         let threshold = match method {
             LocalThreshold::Sauvola { k } => mean * (1.0 + k * (deviation / 128.0 - 1.0)),
             LocalThreshold::Wolf { k, deviation_floor } => {
-                let normalized = deviation.max(deviation_floor) / max_deviation.max(deviation_floor);
+                let normalized =
+                    deviation.max(deviation_floor) / max_deviation.max(deviation_floor);
                 mean - k * (1.0 - normalized) * (mean - f64::from(global_min))
             }
         };
@@ -116,8 +117,14 @@ fn horizontal_window_stats(image: &GrayImage, y: usize, radius: usize) -> (Vec<u
                 square += value * value;
             }
         } else {
-            let entering = x.saturating_add(radius).min(image.width().saturating_sub(1));
-            if entering > (x - 1).saturating_add(radius).min(image.width().saturating_sub(1)) {
+            let entering = x
+                .saturating_add(radius)
+                .min(image.width().saturating_sub(1));
+            if entering
+                > (x - 1)
+                    .saturating_add(radius)
+                    .min(image.width().saturating_sub(1))
+            {
                 let value = u32::from(image.get(entering, y));
                 sum += value;
                 square += value * value;
@@ -168,9 +175,8 @@ fn for_each_local_stat(
         }
         let vertical_count = last_row - first_row + 1;
         for x in 0..image.width() {
-            let horizontal_count = x.saturating_add(radius).min(image.width() - 1)
-                - x.saturating_sub(radius)
-                + 1;
+            let horizontal_count =
+                x.saturating_add(radius).min(image.width() - 1) - x.saturating_sub(radius) + 1;
             let count = (horizontal_count * vertical_count) as f64;
             let mean = vertical_sum[x] as f64 / count;
             let deviation = (vertical_square[x] as f64 / count - mean * mean)

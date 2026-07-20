@@ -8,6 +8,7 @@ import { useWorkspaceViewerShellState } from '@app/modules/workspace-shell/compo
 describe('workspace viewer zoom state', () => {
     it('derives compatibility modes from one authoritative discriminated state', () => {
         const state = useWorkspaceViewerShellState({
+            surfaceMode: 'reader',
             currentPage: 42,
             zoom: 1.5,
             effectiveZoom: 1.5,

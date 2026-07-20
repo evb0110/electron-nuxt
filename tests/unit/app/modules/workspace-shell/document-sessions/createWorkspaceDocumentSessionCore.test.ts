@@ -428,6 +428,7 @@ describe('createWorkspaceDocumentSessionCore', () => {
 
         session.attachWorkspace(createWorkspace());
         session.applyViewState({
+            surfaceMode: 'reader',
             zoom: 2,
             effectiveZoom: 2,
             zoomMode: 'custom',

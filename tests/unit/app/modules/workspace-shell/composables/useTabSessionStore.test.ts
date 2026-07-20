@@ -4,7 +4,10 @@ import {
     it,
 } from 'vitest';
 import { createTabViewSessionState } from '@app/modules/workspace-shell/tabs/createTabViewSessionState';
-import { createDefaultWorkspaceViewerCapabilities } from '@app/types/workspaceExpose';
+import {
+    createDefaultWorkspaceToolbarSnapshot,
+    createDefaultWorkspaceViewerCapabilities,
+} from '@app/types/workspaceExpose';
 import { resolveTabLifecycleStates } from '@app/modules/workspace-shell/tabs/resolveTabLifecycleStates';
 import type { IEditorPaneState } from '@contracts/editorPanes';
 import type { ITab } from '@app/types/tabs';
@@ -76,6 +79,45 @@ describe('tab session memory policy', () => {
         expect(state.currentPage).toBe(42);
         expect(state.sidebarTab).toBe('search');
         expect(state.sidebarWidth).toBe(384);
+    });
+
+    it('merges surface mode without changing toolbar-derived reader state', () => {
+        const readerState = createTabViewSessionState({
+            ...createDefaultWorkspaceToolbarSnapshot(),
+            currentPage: 23,
+            zoom: 1.8,
+            effectiveZoom: 1.8,
+            zoomMode: 'custom',
+        });
+        const cleanupState = createTabViewSessionState({
+            ...createDefaultWorkspaceToolbarSnapshot(),
+            currentPage: 23,
+            zoom: 1.8,
+            effectiveZoom: 1.8,
+            zoomMode: 'custom',
+        }, {
+            ...readerState,
+            surfaceMode: 'scan-cleanup',
+            scanCleanup: {
+                previewPage: 17,
+                previewViewMode: 'original',
+                previewZoomMode: 'actual',
+            },
+        });
+
+        expect(cleanupState).toMatchObject({
+            surfaceMode: 'scan-cleanup',
+            currentPage: 23,
+            zoom: 1.8,
+            effectiveZoom: 1.8,
+            zoomMode: 'custom',
+            scanCleanup: {
+                previewPage: 17,
+                previewViewMode: 'original',
+                previewZoomMode: 'actual',
+            },
+        });
+        expect(readerState.surfaceMode).toBe('reader');
     });
 
     it('keeps the active tab hot and recent tabs warm in conservative mode', () => {
