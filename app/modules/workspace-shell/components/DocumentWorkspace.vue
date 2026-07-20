@@ -1262,7 +1262,6 @@ function handleAnnotationComments(comments: IAnnotationCommentSummary[]) {
     }
     applyAnnotationComments(comments);
 }
-
 const {
     runAgentAction,
     readAgentResource,

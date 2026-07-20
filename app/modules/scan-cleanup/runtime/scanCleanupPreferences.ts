@@ -59,10 +59,6 @@ function cloneJsonValue<T>(value: T): T {
     return JSON.parse(JSON.stringify(value)) as T;
 }
 
-export function toPlainScanCleanupOptions(options: IScanCleanupOptions): IScanCleanupOptions {
-    return cloneJsonValue(options);
-}
-
 export function loadScanCleanupPreferences(
     storage: IScanCleanupPreferenceStorage = browserStorage,
 ): IScanCleanupGlobalPreferences {
