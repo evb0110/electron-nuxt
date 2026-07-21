@@ -12,6 +12,7 @@ import {
     resetScanCleanupDocumentOverrides,
     saveScanCleanupDocumentOverrides,
     saveScanCleanupPreferences,
+    toPlainScanCleanupOptions,
     type IScanCleanupPreferenceStorage,
 } from '@app/modules/scan-cleanup/runtime/scanCleanupPreferences';
 
@@ -78,6 +79,28 @@ describe('scan cleanup preferences', () => {
             excluded: false,
             manualSplitX: 480,
         }});
+    });
+
+    it('converts reactive cleanup options into structured-clone-safe data', () => {
+        const options = reactive({
+            ...DEFAULT_SCAN_CLEANUP_PREFERENCES,
+            pageOverrides: {'2': {
+                rotation: 90 as const,
+                layoutOverride: 'spread' as const,
+                excluded: false,
+                manualSplitX: 480,
+            }},
+        });
+
+        const plainOptions = toPlainScanCleanupOptions(options);
+
+        expect(() => structuredClone(plainOptions)).not.toThrow();
+        expect(plainOptions.pageOverrides['2']).toEqual({
+            rotation: 90,
+            layoutOverride: 'spread',
+            excluded: false,
+            manualSplitX: 480,
+        });
     });
 
     it('falls back safely from malformed persisted values', () => {

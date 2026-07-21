@@ -13,10 +13,10 @@ overrides:
   bundle-require@^5.0.0>esbuild: 0.28.1
   fast-uri: 3.1.2
   fontless@^0.2.0>esbuild: 0.28.1
-  js-yaml: 4.2.0
+  js-yaml: 4.3.0
   launch-editor: 2.14.1
   minimatch@^10.0.0>brace-expansion: 5.0.7
-  shell-quote: 1.8.4
+  shell-quote: 1.9.0
   tar: 7.5.19
   tsx@^4.0.0>esbuild: 0.28.1
   vite@^7.0.0>esbuild: 0.28.1
@@ -4361,8 +4361,8 @@ packages:
   js-tokens@9.0.1:
     resolution: {integrity: sha512-mxa9E9ITFOt0ban3j6L5MpjwegGz6lBQmM1IJkWeBZGcMxto50+eWdjC/52xDbS2vy0k7vIMK0Fe2wfL9OQSpQ==}
 
-  js-yaml@4.2.0:
-    resolution: {integrity: sha512-ePWsvanv0DWuDRsW8dnt+R4jQ31SCRCQ7hhNcPXZPsoBZiemuZNYGf7adZdqX2D86j6rvKp3RpCxVTSb8WQlOw==}
+  js-yaml@4.3.0:
+    resolution: {integrity: sha512-1td788aAnnZ5qs7V2QIRl1owjtYpbKt749Y3xauqQgwIIGF/xXWz1wMTEBx5O3LK3lXLVuqXPdPxj2BoFHaW9Q==}
     hasBin: true
 
   jsdoc-type-pratt-parser@7.2.0:
@@ -5419,8 +5419,8 @@ packages:
     resolution: {integrity: sha512-7++dFhtcx3353uBaq8DDR4NuxBetBzC7ZQOhmTQInHEd6bSrXdiEyzCvG07Z44UYdLShWUyXt5M/yhz8ekcb1A==}
     engines: {node: '>=8'}
 
-  shell-quote@1.8.4:
-    resolution: {integrity: sha512-VsC6n6vz1ihYYyZZwX7YZSF5l5x36ca17OC+a69h94YqB7X6XLwf+5MOgynYir2SLFUbl8gIYvBo8K8RoNQ6bQ==}
+  shell-quote@1.9.0:
+    resolution: {integrity: sha512-Iov+JwFv/2HcTpcwNMKd8+IWNb8tboQJNQTkAY/LLVK7gGH9jy+LGkVqPxfekHl+yMmiqXszdGWXgkfml7hjqA==}
     engines: {node: '>= 0.4'}
 
   signal-exit@3.0.7:
@@ -6198,7 +6198,7 @@ snapshots:
   '@apidevtools/json-schema-ref-parser@14.2.1(@types/json-schema@7.0.15)':
     dependencies:
       '@types/json-schema': 7.0.15
-      js-yaml: 4.2.0
+      js-yaml: 4.3.0
 
   '@babel/code-frame@7.29.0':
     dependencies:
@@ -6785,7 +6785,7 @@ snapshots:
       globals: 14.0.0
       ignore: 5.3.2
       import-fresh: 3.3.1
-      js-yaml: 4.2.0
+      js-yaml: 4.3.0
       minimatch: 3.1.5
       strip-json-comments: 3.1.1
     transitivePeerDependencies:
@@ -8197,7 +8197,7 @@ snapshots:
   '@rollup/plugin-yaml@4.1.2(rollup@4.60.2)':
     dependencies:
       '@rollup/pluginutils': 5.3.0(rollup@4.60.2)
-      js-yaml: 4.2.0
+      js-yaml: 4.3.0
       tosource: 2.0.0-alpha.3
     optionalDependencies:
       rollup: 4.60.2
@@ -10382,7 +10382,7 @@ snapshots:
 
   js-tokens@9.0.1: {}
 
-  js-yaml@4.2.0:
+  js-yaml@4.3.0:
     dependencies:
       argparse: 2.0.1
 
@@ -10423,7 +10423,7 @@ snapshots:
   launch-editor@2.14.1:
     dependencies:
       picocolors: 1.1.1
-      shell-quote: 1.8.4
+      shell-quote: 1.9.0
 
   lazystream@1.0.1:
     dependencies:
@@ -11775,7 +11775,7 @@ snapshots:
 
   shebang-regex@3.0.0: {}
 
-  shell-quote@1.8.4: {}
+  shell-quote@1.9.0: {}
 
   signal-exit@3.0.7: {}
 

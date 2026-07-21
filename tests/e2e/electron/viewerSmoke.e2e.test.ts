@@ -1095,8 +1095,8 @@ describe('Electron E2E - Viewer Smoke', () => {
             await new Promise(resolve => setTimeout(resolve, 600));
         });
 
-        const dialogTitle = await session.page.$eval('[role="dialog"]', dialog => dialog.textContent ?? '');
-        expect(dialogTitle).toContain('Scan cleanup');
+        const dialogLabel = await session.page.$eval('[role="dialog"]', dialog => dialog.getAttribute('aria-label'));
+        expect(dialogLabel).toBe('Scan cleanup');
         await session.page.keyboard.press('Escape');
         await session.page.waitForSelector('[role="dialog"]', {
             timeout: 10_000,
