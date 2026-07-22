@@ -1,4 +1,5 @@
 use crate::{
+    engine::text_axis::TextAxisHint,
     protocol::manifest_v2::VERSION,
     split::{DocumentPrior, LayoutClassification},
 };
@@ -37,6 +38,8 @@ pub struct Progress {
     pub cluster_agreement: Option<f64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub document_prior: Option<DocumentPrior>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub text_axis: Option<TextAxisHint>,
 }
 
 #[derive(Serialize)]

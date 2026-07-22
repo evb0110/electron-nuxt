@@ -5,6 +5,7 @@ import {
 import {isRecord} from '@contracts/runtimeGuards';
 import type {
     IScanCleanupDocumentPrior,
+    IScanCleanupTextAxis,
     INativeScanCleanupProgressEnvelopeV2,
     INativeScanCleanupProgressV2,
     INativeScanCleanupResultEnvelopeV2,
@@ -60,6 +61,22 @@ function decodeDocumentPrior(value: unknown): IScanCleanupDocumentPrior {
     };
 }
 
+function decodeTextAxis(value: unknown): IScanCleanupTextAxis {
+    if (
+        !isRecord(value)
+        || Object.keys(value).some(key => key !== 'sideways' && key !== 'confidence')
+        || typeof value.sideways !== 'boolean'
+        || typeof value.confidence !== 'number'
+        || !Number.isFinite(value.confidence)
+        || value.confidence < 0
+        || value.confidence > 1
+    ) throw new Error('Invalid evb-scan-cleanup text axis');
+    return {
+        sideways: value.sideways,
+        confidence: value.confidence,
+    };
+}
+
 function decodeProgress(value: unknown): INativeScanCleanupProgressV2 {
     if (
         !isRecord(value)
@@ -103,6 +120,7 @@ function decodeProgress(value: unknown): INativeScanCleanupProgressV2 {
         || value.clusterAgreement > 1
     )) throw new Error('Invalid evb-scan-cleanup cluster agreement');
     const documentPrior = value.documentPrior === undefined ? undefined : decodeDocumentPrior(value.documentPrior);
+    const textAxis = value.textAxis === undefined ? undefined : decodeTextAxis(value.textAxis);
     return {
         stage: value.stage,
         completedPages: Number(value.completedPages),
@@ -116,6 +134,7 @@ function decodeProgress(value: unknown): INativeScanCleanupProgressV2 {
         ...(typeof value.reconciled === 'boolean' ? {reconciled: value.reconciled} : {}),
         ...(typeof value.clusterAgreement === 'number' ? {clusterAgreement: value.clusterAgreement} : {}),
         ...(documentPrior === undefined ? {} : {documentPrior}),
+        ...(textAxis === undefined ? {} : {textAxis}),
     };
 }
 

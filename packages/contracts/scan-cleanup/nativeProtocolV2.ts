@@ -1,6 +1,7 @@
 import type {TNativeErrorCode} from '@contracts/nativeErrors';
 import type {
     IScanCleanupDocumentPrior,
+    IScanCleanupTextAxis,
     TScanCleanupCanvasScope,
     TScanCleanupLayoutClassification,
     TScanCleanupOutputHalf,
@@ -82,6 +83,7 @@ export interface INativeScanCleanupProgressV2 {
     reconciled?: boolean;
     clusterAgreement?: number;
     documentPrior?: IScanCleanupDocumentPrior;
+    textAxis?: IScanCleanupTextAxis;
 }
 
 export interface INativeScanCleanupProgressEnvelopeV2 {

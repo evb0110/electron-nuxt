@@ -3,6 +3,7 @@ import type {
     IScanCleanupDocumentPrior,
     IScanCleanupOptions,
     IScanCleanupReconciliationMetadata,
+    IScanCleanupTextAxis,
     TScanCleanupCanvasScope,
     TScanCleanupLayoutClassification,
     TScanCleanupPageRotation,
@@ -109,6 +110,7 @@ export interface IScanCleanupDetectionResult extends IScanCleanupReconciliationM
     confidence: number;
     cutterXPx: number | null;
     documentPrior: IScanCleanupDocumentPrior | null;
+    textAxis?: IScanCleanupTextAxis;
 }
 
 interface IScanCleanupDetectionJobBase {

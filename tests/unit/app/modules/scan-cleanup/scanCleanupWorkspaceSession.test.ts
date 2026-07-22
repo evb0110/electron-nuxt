@@ -359,6 +359,37 @@ describe('scan cleanup workspace session detection guidance', () => {
         reopened.unmount();
     });
 
+    it('stores text-axis results and clears them before a fresh detection pass', async () => {
+        const harness = capabilityHarness();
+        capability.value = harness.value;
+        const mounted = mountSession(`text-axis-${Date.now()}`);
+
+        await vi.waitFor(() => expect(harness.value.detectAll).toHaveBeenCalledOnce());
+        await vi.waitFor(() => expect(mounted.session.detection.isDetecting.value).toBe(true));
+        const completed = detectionState('detect-1', 'completed');
+        completed.results[0] = {
+            ...completed.results[0]!,
+            textAxis: {
+                sideways: true,
+                confidence: 0.98,
+            },
+        };
+        harness.emitDetection(completed);
+        await vi.waitFor(() => expect(mounted.session.detection.textAxisByPage.get(1)).toEqual({
+            sideways: true,
+            confidence: 0.98,
+        }));
+
+        await vi.waitFor(() => expect(mounted.session.detection.canDetectAll.value).toBe(true));
+        await mounted.session.detection.detectAllPages();
+        expect(harness.value.detectAll).toHaveBeenCalledTimes(2);
+        expect(mounted.session.detection.textAxisByPage.size).toBe(0);
+
+        harness.emitDetection(completed);
+        expect(mounted.session.detection.textAxisByPage.size).toBe(0);
+        mounted.unmount();
+    });
+
     it('reuses fresh results but re-detects when the saved detection signature is stale', async () => {
         const harness = capabilityHarness();
         capability.value = harness.value;

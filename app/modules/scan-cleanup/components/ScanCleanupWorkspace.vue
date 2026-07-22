@@ -88,6 +88,7 @@
                 :overrides="settings.pageOverrides"
                 :classifications="authoritativeLayoutByPage"
                 :confidences="detectedLayoutConfidenceByPage"
+                :text-axes="detectedTextAxisByPage"
                 :disabled="isRunning"
                 :processed-pages="processedPages"
                 :detection-active="detectionPending"
@@ -248,6 +249,7 @@ const {
     outputEstimate,
     pending: detectionPending,
     progress: detectionProgress,
+    textAxisByPage: detectedTextAxisByPage,
 } = workspaceSession.detection;
 const {
     error: previewError,

@@ -128,6 +128,8 @@ struct PageResultMetadata {
     cluster_agreement: f64,
     #[serde(skip_serializing_if = "Option::is_none")]
     document_prior: Option<crate::split::DocumentPrior>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    text_axis: Option<crate::engine::text_axis::TextAxisHint>,
     #[serde(skip)]
     rotated_width: usize,
     #[serde(skip)]
@@ -373,6 +375,7 @@ fn run_manifest_inner(manifest: &BatchManifest) -> Result<(), Box<dyn Error>> {
         reconciled: None,
         cluster_agreement: None,
         document_prior: None,
+        text_axis: None,
     })?;
     let run_one = |(index, page): (usize, &PageJob)| {
         run_manifest_page(manifest, page, index).map_err(|error| {
@@ -427,6 +430,7 @@ fn run_manifest_inner(manifest: &BatchManifest) -> Result<(), Box<dyn Error>> {
             reconciled: Some(page_result.metadata.reconciled),
             cluster_agreement: Some(page_result.metadata.cluster_agreement),
             document_prior: page_result.metadata.document_prior,
+            text_axis: page_result.metadata.text_axis,
         })?;
     }
     match_page_sizes(&written_outputs, manifest.preview_mode)?;
@@ -443,6 +447,7 @@ fn run_manifest_inner(manifest: &BatchManifest) -> Result<(), Box<dyn Error>> {
         reconciled: None,
         cluster_agreement: None,
         document_prior: None,
+        text_axis: None,
     })?;
     Ok(())
 }
@@ -740,6 +745,7 @@ fn run_page(
         reconciled: false,
         cluster_agreement: 0.0,
         document_prior: None,
+        text_axis: None,
         rotated_width: if matches!(
             options.rotation,
             OrthogonalRotation::Clockwise90 | OrthogonalRotation::Clockwise270
@@ -823,6 +829,7 @@ fn run_classification(
         reconciled: result.reconciliation.reconciled,
         cluster_agreement: result.reconciliation.cluster_agreement,
         document_prior: job.document_prior,
+        text_axis: result.text_axis,
         rotated_width: result.rotated_width,
         rotated_height: result.rotated_height,
         candidate_cutter_ratio: result.candidate_cutter_ratio,

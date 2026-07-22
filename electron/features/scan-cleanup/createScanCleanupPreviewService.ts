@@ -472,6 +472,7 @@ async function runDetection(
                     reconciled: nativeProgress.reconciled ?? false,
                     clusterAgreement: nativeProgress.clusterAgreement ?? 0,
                     documentPrior: nativeProgress.documentPrior ?? null,
+                    ...(nativeProgress.textAxis === undefined ? {} : {textAxis: nativeProgress.textAxis}),
                 });
                 publish([...results], progress);
             },

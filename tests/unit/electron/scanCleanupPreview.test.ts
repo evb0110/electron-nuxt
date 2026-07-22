@@ -704,6 +704,47 @@ describe('scan cleanup preview', () => {
         }))).toThrow('invalid scan-cleanup preview applied left margin');
     });
 
+    it('accepts optional detection text-axis results and rejects malformed values', () => {
+        const state = {
+            jobId: 'detect-axis',
+            status: 'completed',
+            progress: {
+                stage: 'detecting',
+                completedUnits: 1,
+                totalUnits: 1,
+                percent: 100,
+                completedPageNumbers: [1],
+            },
+            results: [{
+                pageNumber: 1,
+                classification: 'single-uncut-page',
+                confidence: 0.9,
+                cutterXPx: null,
+                tier1Verdict: 'single-uncut-page',
+                reconciled: false,
+                clusterAgreement: 0,
+                documentPrior: null,
+                textAxis: {
+                    sideways: true,
+                    confidence: 0.98,
+                },
+            }],
+            updatedAtMs: Date.now(),
+        };
+        expect(decodeScanCleanupDetectionJobState(state)?.results[0]?.textAxis).toEqual({
+            sideways: true,
+            confidence: 0.98,
+        });
+
+        const withoutAxis = structuredClone(state);
+        delete (withoutAxis.results[0] as {textAxis?: unknown}).textAxis;
+        expect(decodeScanCleanupDetectionJobState(withoutAxis)?.results[0]).not.toHaveProperty('textAxis');
+
+        const malformed = structuredClone(state);
+        malformed.results[0]!.textAxis.confidence = Number.NaN;
+        expect(() => decodeScanCleanupDetectionJobState(malformed)).toThrow('detection result');
+    });
+
     it('streams a brokered detect-all lifecycle and reuses preview rasters', async () => {
         const dir = await setup();
         const deps = dependencies(dir);
@@ -770,6 +811,10 @@ describe('scan cleanup preview', () => {
                     reconciled: page.sourcePageIndex === 0,
                     clusterAgreement: page.sourcePageIndex === 1 ? 0 : 0.8,
                     ...(page.sourcePageIndex === 1 ? {} : {documentPrior}),
+                    ...(page.sourcePageIndex === 0 ? {textAxis: {
+                        sideways: true,
+                        confidence: 0.98,
+                    }} : {}),
                 } as const;
                 onProgress({
                     stage: 'detecting',
@@ -821,6 +866,10 @@ describe('scan cleanup preview', () => {
                     reconciled: true,
                     clusterAgreement: 0.8,
                     documentPrior,
+                    textAxis: {
+                        sideways: true,
+                        confidence: 0.98,
+                    },
                 },
                 {
                     pageNumber: 2,

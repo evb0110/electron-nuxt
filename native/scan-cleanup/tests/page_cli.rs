@@ -288,6 +288,10 @@ fn classify_only_batch_writes_metadata_and_ndjson_but_no_output_images() {
     assert_eq!(lines[2]["progress"]["classification"], "single-uncut-page");
     assert_eq!(lines[2]["progress"]["confidence"], 1.0);
     assert!(lines[2]["progress"].get("cutterXPx").is_none());
+    assert_eq!(lines[2]["progress"]["textAxis"]["sideways"], false);
+    assert!(lines[2]["progress"]["textAxis"]["confidence"]
+        .as_f64()
+        .is_some_and(|confidence| (0.0..=1.0).contains(&confidence)));
 
     let spread_metadata: Value =
         serde_json::from_slice(&fs::read(&spread_page_metadata).unwrap()).unwrap();
@@ -295,6 +299,10 @@ fn classify_only_batch_writes_metadata_and_ndjson_but_no_output_images() {
         serde_json::from_slice(&fs::read(&single_page_metadata).unwrap()).unwrap();
     assert_eq!(spread_metadata["layoutClassification"], "two-page-spread");
     assert_eq!(single_metadata["layoutClassification"], "single-uncut-page");
+    assert_eq!(
+        single_metadata["textAxis"],
+        lines[2]["progress"]["textAxis"]
+    );
     for output in [
         &spread_output,
         &single_output,

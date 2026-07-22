@@ -11,6 +11,13 @@ describe('scan cleanup detection results', () => {
         const classifications = new Map();
         const confidences = new Map();
         const documentPriors = new Map();
+        const textAxes = new Map([[
+            2,
+            {
+                sideways: true,
+                confidence: 0.8,
+            },
+        ]]);
         applyScanCleanupDetectionResults([
             {
                 pageNumber: 1,
@@ -29,6 +36,10 @@ describe('scan cleanup detection results', () => {
                     },
                     agreementStrength: 0.84,
                 },
+                textAxis: {
+                    sideways: true,
+                    confidence: 0.97,
+                },
             },
             {
                 pageNumber: 2,
@@ -40,7 +51,7 @@ describe('scan cleanup detection results', () => {
                 clusterAgreement: 0,
                 documentPrior: null,
             },
-        ], classifications, confidences, undefined, documentPriors);
+        ], classifications, confidences, undefined, documentPriors, textAxes);
 
         expect([...classifications]).toEqual([
             [
@@ -67,6 +78,11 @@ describe('scan cleanup detection results', () => {
             agreementStrength: 0.84,
         });
         expect(documentPriors.has(2)).toBe(false);
+        expect(textAxes.get(1)).toEqual({
+            sideways: true,
+            confidence: 0.97,
+        });
+        expect(textAxes.has(2)).toBe(false);
     });
 
     it('produces an exact estimate with detected layouts, overrides, and exclusions', () => {

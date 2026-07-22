@@ -831,6 +831,15 @@ export function decodeScanCleanupDetectionJobState(value: unknown): TScanCleanup
                 || result.clusterAgreement < -1
                 || result.clusterAgreement > 1
             ))
+            || (result.textAxis !== undefined && (
+                !isRecord(result.textAxis)
+                || Object.keys(result.textAxis).some(key => key !== 'sideways' && key !== 'confidence')
+                || typeof result.textAxis.sideways !== 'boolean'
+                || typeof result.textAxis.confidence !== 'number'
+                || !Number.isFinite(result.textAxis.confidence)
+                || result.textAxis.confidence < 0
+                || result.textAxis.confidence > 1
+            ))
         ) throw new Error('invalid scan-cleanup detection result');
         return {
             pageNumber: decodePositiveInteger(result.pageNumber, 'detection page number'),
@@ -851,6 +860,10 @@ export function decodeScanCleanupDetectionJobState(value: unknown): TScanCleanup
             documentPrior: result.documentPrior === null || result.documentPrior === undefined
                 ? null
                 : decodeDocumentPrior(result.documentPrior),
+            ...(isRecord(result.textAxis) ? {textAxis: {
+                sideways: result.textAxis.sideways as boolean,
+                confidence: result.textAxis.confidence as number,
+            }} : {}),
         };
     });
     if (results.length !== progress.completedUnits) throw new Error('invalid scan-cleanup detection result count');

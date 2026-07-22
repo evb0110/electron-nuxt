@@ -41,6 +41,11 @@ export interface IScanCleanupReconciliationMetadata {
     clusterAgreement: number;
 }
 
+export interface IScanCleanupTextAxis {
+    sideways: boolean;
+    confidence: number;
+}
+
 export interface IScanCleanupPageOverride {
     rotationDegrees: TScanCleanupPageRotation;
     layoutOverride: TScanCleanupPageLayoutOverride;

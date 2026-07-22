@@ -1,6 +1,7 @@
 pub use crate::domain::geometry::{AppliedMargins, PageHalf};
 use crate::engine::prepare::{build_analysis_level, AnalysisLevel};
 use crate::engine::render_plan::{content_result_for_dimensions, output_regions};
+use crate::engine::text_axis::{detect_text_axis, TextAxisHint};
 use crate::{
     auto_dewarp::detect_curves,
     background::{normalize_illumination, normalize_illumination_for_layout},
@@ -13,13 +14,13 @@ use crate::{
     dewarp::{rasterize_inverse_area, rasterize_inverse_area_rgb, DewarpModel},
     png::RgbImage,
     split::{
-        detect_split_at_analysis_level, DocumentPrior, LayoutClassification,
+        detect_split_at_analysis_level_with_threshold, DocumentPrior, LayoutClassification,
         ReconciliationMetadata, SplitResult,
     },
     CleanupOptions, OrthogonalRotation, OutputMode,
 };
 use rayon::prelude::*;
-use scan_primitives::{Affine, GrayImage, Point, Polygon, Rect};
+use scan_primitives::{threshold::otsu_threshold, Affine, GrayImage, Point, Polygon, Rect};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -135,6 +136,7 @@ pub struct PageClassificationResult {
     pub rotated_height: usize,
     pub candidate_cutter_ratio: Option<f64>,
     pub whitespace_score: f64,
+    pub text_axis: Option<TextAxisHint>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -246,6 +248,7 @@ pub struct PageAnalysisResult {
     pub rotated_height: usize,
     pub candidate_cutter_ratio: Option<f64>,
     pub whitespace_score: f64,
+    pub text_axis: Option<TextAxisHint>,
 }
 
 struct PreparedPage {
@@ -269,6 +272,7 @@ struct PreparedAnalysis {
     dpi: f64,
     candidate_cutter_ratio: Option<f64>,
     whitespace_score: f64,
+    text_axis: Option<TextAxisHint>,
 }
 
 pub fn classify_page(
@@ -296,6 +300,7 @@ pub fn classify_page_with_document_prior(
         rotated_height: prepared.full_height,
         candidate_cutter_ratio: prepared.candidate_cutter_ratio,
         whitespace_score: prepared.whitespace_score,
+        text_axis: prepared.text_axis,
     })
 }
 
@@ -329,6 +334,7 @@ pub fn analyze_page_with_document_prior(
             rotated_height: source.height(),
             candidate_cutter_ratio: None,
             whitespace_score: 0.0,
+            text_axis: None,
         });
     }
     let prepared = prepare_analysis_page(source, options, true, document_prior);
@@ -414,6 +420,7 @@ pub fn analyze_page_with_document_prior(
         rotated_height: prepared.full_height,
         candidate_cutter_ratio: prepared.candidate_cutter_ratio,
         whitespace_score: prepared.whitespace_score,
+        text_axis: prepared.text_axis,
     })
 }
 
@@ -572,14 +579,23 @@ fn prepare_analysis_page(
     } else {
         (rotated.clone(), rotated)
     };
+    let analysis_threshold = otsu_threshold(&layout_normalized);
+    let text_axis = detect_text_axis(&layout_normalized, analysis_threshold);
     let mut split = if options.ocr_mode {
-        detect_split_at_analysis_level(&layout_normalized, dpi, crate::LayoutMode::Single, None)
+        detect_split_at_analysis_level_with_threshold(
+            &layout_normalized,
+            dpi,
+            crate::LayoutMode::Single,
+            None,
+            analysis_threshold,
+        )
     } else {
-        detect_split_at_analysis_level(
+        detect_split_at_analysis_level_with_threshold(
             &layout_normalized,
             dpi,
             options.layout,
             options.resolved_manual_split_x(normalized.width()),
+            analysis_threshold,
         )
     };
     let candidate_cutter_ratio = (split.diagnostics.decision_x > 0.0)
@@ -610,6 +626,7 @@ fn prepare_analysis_page(
         dpi,
         candidate_cutter_ratio,
         whitespace_score,
+        text_axis,
     }
 }
 

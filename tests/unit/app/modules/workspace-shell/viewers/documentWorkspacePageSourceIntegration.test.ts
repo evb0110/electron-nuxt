@@ -122,6 +122,7 @@ function mountWorkspaceChain(openInitially: boolean) {
                     overrides: {},
                     classifications: new Map(),
                     confidences: new Map(),
+                    textAxes: new Map(),
                     disabled: false,
                 })
                 : null,

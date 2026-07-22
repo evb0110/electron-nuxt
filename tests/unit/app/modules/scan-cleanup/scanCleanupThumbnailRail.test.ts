@@ -19,6 +19,7 @@ import {
 import type {
     IScanCleanupPageOverride,
     IScanCleanupPreviewMetadata,
+    IScanCleanupTextAxis,
     TScanCleanupPageOverrides,
 } from '@contracts/electronApiScanCleanup';
 import type {IDocumentPageSource} from '@app/utils/document-viewer/source/documentPageSource';
@@ -93,6 +94,9 @@ const messages: Record<string, string> = {
     'scanCleanup.pages.excludedFromOutput': 'Excluded from output',
     'scanCleanup.pages.lowConfidence': 'Low-confidence detection',
     'scanCleanup.pages.lowConfidenceHint': 'Detected as "{classification}" with low confidence — check this page and set its layout manually if wrong.',
+    'scanCleanup.pages.textAxisHint': 'Text appears sideways — set rotation (90° or 270°).',
+    'scanCleanup.pages.textAxisAria': 'Sideways text hint for page {page}',
+    'scanCleanup.pages.rotationFor': 'Rotation for page {page}',
     'scanCleanup.pages.processed': 'Processed',
     'scanCleanup.pages.sourceLoading': 'Loading source pages…',
     'scanCleanup.pages.sourceUnavailable': 'Source pages are unavailable',
@@ -139,7 +143,10 @@ const SelectStub = defineComponent({
             default: () => [],
         },
         modelValue: {
-            type: String,
+            type: [
+                Number,
+                String,
+            ],
             default: '',
         },
         portal: {
@@ -277,6 +284,7 @@ function mountRail(options: {
     detectionActive?: boolean;
     classifications?: ReadonlyMap<number, IScanCleanupPreviewMetadata['layoutClassification']>;
     confidences?: ReadonlyMap<number, number>;
+    textAxes?: ReadonlyMap<number, IScanCleanupTextAxis>;
     overrides?: TScanCleanupPageOverrides;
     leader?: number;
     selected?: ReadonlySet<number>;
@@ -299,6 +307,7 @@ function mountRail(options: {
         overrides: options.overrides ?? {},
         classifications: options.classifications ?? new Map(),
         confidences: options.confidences ?? new Map(),
+        textAxes: options.textAxes ?? new Map(),
         processedPages: options.processed ?? new Set(),
         disabled: false,
         onSelectPage: (page: number, intent: TScanCleanupSelectionIntent, orderedPages: readonly number[]) => {
@@ -672,6 +681,63 @@ describe('ScanCleanupThumbnailRail', () => {
             2,
             expect.objectContaining({layoutOverride: 'single'}),
         ]);
+    });
+
+    it('shows the sideways-text hint and wires its page-local rotation selector', async () => {
+        const harness = mountRail({
+            leader: 1,
+            textAxes: new Map([[
+                2,
+                {
+                    sideways: true,
+                    confidence: 0.98,
+                },
+            ]]),
+        });
+        const marker = harness.host.querySelector<HTMLButtonElement>(
+            '[data-page-number="2"] .scan-thumbnail-text-axis',
+        )!;
+        expect(marker.getAttribute('aria-label')).toBe('Sideways text hint for page 2');
+        expect(marker.querySelector('[data-icon="i-ph-arrows-clockwise"]')).not.toBeNull();
+
+        marker.click();
+        await nextTick();
+
+        const popover = document.body.querySelector<HTMLElement>('[data-popover-content]')!;
+        expect(popover.textContent).toContain('Text appears sideways — set rotation (90° or 270°).');
+        const select = popover.querySelector<HTMLSelectElement>('[aria-label="Rotation for page 2"]')!;
+        expect(Array.from(select.options).map(option => option.textContent)).toEqual([
+            '0°',
+            '90°',
+            '180°',
+            '270°',
+        ]);
+
+        select.value = '270';
+        select.dispatchEvent(new Event('change', {bubbles: true}));
+        expect(harness.overrideUpdates.at(-1)).toEqual([
+            2,
+            expect.objectContaining({rotationDegrees: 270}),
+        ]);
+    });
+
+    it('hides the sideways-text marker after a non-zero page rotation', () => {
+        const harness = mountRail({
+            textAxes: new Map([[
+                2,
+                {
+                    sideways: true,
+                    confidence: 0.98,
+                },
+            ]]),
+            overrides: {'2': {
+                rotationDegrees: 90,
+                layoutOverride: 'auto',
+                excluded: false,
+                manualSplit: null,
+            }},
+        });
+        expect(harness.host.querySelector('[data-page-number="2"] .scan-thumbnail-text-axis')).toBeNull();
     });
 
     it('renders the low-confidence hint through AppTooltip on pointer hover and keyboard focus', async () => {

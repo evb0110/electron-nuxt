@@ -65,6 +65,7 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
     const detectedLayoutByPage = reactive(new Map<number, TScanCleanupLayoutClassification>());
     const confidenceByPage = reactive(new Map<number, number>());
     const documentPriorByPage = reactive(new Map<number, NonNullable<IScanCleanupDetectionResult['documentPrior']>>());
+    const textAxisByPage = reactive(new Map<number, NonNullable<IScanCleanupDetectionResult['textAxis']>>());
     let jobId: string | null = null;
     let jobDocumentKey: string | null = null;
     let jobDocumentRevision: string | null = null;
@@ -155,6 +156,7 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
             confidenceByPage,
             pageNumber => signatures.get(pageNumber) === signature(pageNumber),
             documentPriorByPage,
+            textAxisByPage,
         );
         if (state.status === 'failed') error.value = state.error;
         if (!disposed && jobDocumentKey && state.status === 'completed') {
@@ -219,6 +221,7 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
         detectedLayoutByPage.clear();
         confidenceByPage.clear();
         documentPriorByPage.clear();
+        textAxisByPage.clear();
         jobId = result.jobId;
         jobState.value = {
             jobId: result.jobId,
@@ -288,6 +291,7 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
             confidenceByPage,
             undefined,
             documentPriorByPage,
+            textAxisByPage,
         );
         return true;
     }
@@ -333,6 +337,7 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
         detectedLayoutByPage.clear();
         confidenceByPage.clear();
         documentPriorByPage.clear();
+        textAxisByPage.clear();
         autoPending.value = Boolean(options.active() && options.sourcePath.value);
         // The mounted hook owns the initial auto-detect; scheduling it here too
         // would race a just-started or just-completed job on the same document.
@@ -368,5 +373,6 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
         outputEstimate,
         pending,
         progress,
+        textAxisByPage,
     };
 };

@@ -122,6 +122,56 @@
                                 </template>
                             </UPopover>
                         </AppTooltip>
+                        <AppTooltip
+                            v-if="showsSidewaysHint(naturalPage(position))"
+                            :text="t('scanCleanup.pages.textAxisHint')"
+                            usefulness="always"
+                        >
+                            <UPopover
+                                :open="textAxisPopoverPage === naturalPage(position)"
+                                portal="body"
+                                :content="{side: 'right', align: 'start'}"
+                                @update:open="updateTextAxisPopover(naturalPage(position), $event)"
+                            >
+                                <button
+                                    type="button"
+                                    class="scan-thumbnail-text-axis"
+                                    :aria-label="t('scanCleanup.pages.textAxisAria', {page: naturalPage(position)})"
+                                    :aria-expanded="textAxisPopoverPage === naturalPage(position)"
+                                    aria-haspopup="dialog"
+                                    :disabled="disabled"
+                                    @click="openTextAxisPopover(naturalPage(position))"
+                                    @keydown.esc.stop.prevent="closeTextAxisPopover(naturalPage(position))"
+                                >
+                                    <UIcon name="i-ph-arrows-clockwise" aria-hidden="true" />
+                                </button>
+
+                                <template #content>
+                                    <div
+                                        class="scan-thumbnail-text-axis-popover"
+                                        @click.stop
+                                        @pointerdown.stop
+                                        @keydown.esc.stop.prevent="closeTextAxisPopover(naturalPage(position))"
+                                    >
+                                        <p>{{ t('scanCleanup.pages.textAxisHint') }}</p>
+                                        <USelect
+                                            class="scan-thumbnail-popover-rotation-select"
+                                            :model-value="pageOverride(naturalPage(position)).rotationDegrees"
+                                            :items="rotationItems"
+                                            value-key="value"
+                                            size="xs"
+                                            portal="body"
+                                            :content="{position: 'popper', side: 'bottom', align: 'start'}"
+                                            :ui="overrideSelectUi"
+                                            :aria-label="t('scanCleanup.pages.rotationFor', {page: naturalPage(position)})"
+                                            :disabled="disabled"
+                                            @keydown.esc.stop.prevent="closeTextAxisPopover(naturalPage(position))"
+                                            @update:model-value="updateRotationOverride(naturalPage(position), $event)"
+                                        />
+                                    </div>
+                                </template>
+                            </UPopover>
+                        </AppTooltip>
                         <UIcon
                             v-if="pageOverride(naturalPage(position)).excluded"
                             name="i-ph-eye-slash"
@@ -211,6 +261,7 @@ import type {
     TScanCleanupPageLayoutOverride,
     TScanCleanupPageOverrides,
     TScanCleanupPageRotation,
+    IScanCleanupTextAxis,
 } from '@contracts/electronApiScanCleanup';
 import {
     createScanCleanupPageOverride,
@@ -232,6 +283,7 @@ const props = defineProps<{
     overrides: TScanCleanupPageOverrides;
     classifications: ReadonlyMap<number, IScanCleanupPreviewMetadata['layoutClassification']>;
     confidences: ReadonlyMap<number, number>;
+    textAxes?: ReadonlyMap<number, IScanCleanupTextAxis>;
     disabled: boolean;
     processedPages?: ReadonlySet<number>;
     sourcePending?: boolean;
@@ -244,6 +296,7 @@ const emit = defineEmits<{
 const {t} = useTypedI18n();
 const sortMode = ref<TScanCleanupRailSort>('natural');
 const lowConfidencePopoverPage = ref<number | null>(null);
+const textAxisPopoverPage = ref<number | null>(null);
 const sortItems = computed(() => [
     {
         value: 'natural' as const,
@@ -283,6 +336,18 @@ const overrideItems = computed<Array<{
         label: t('scanCleanup.pages.override.keepRight'),
     },
 ]);
+const rotationItems = computed<Array<{
+    label: string;
+    value: TScanCleanupPageRotation
+}>>(() => [
+    0,
+    90,
+    180,
+    270,
+].map(value => ({
+    value: value as TScanCleanupPageRotation,
+    label: `${value}°`,
+})));
 const overrideSelectUi = {
     content: 'scan-thumbnail-override-menu w-auto min-w-(--reka-select-trigger-width)',
     itemLabel: 'overflow-visible whitespace-nowrap text-clip',
@@ -373,6 +438,20 @@ function rotate(page: number) {
     updateOverride(page, {rotationDegrees: rotations[(rotations.indexOf(current) + 1) % rotations.length] ?? 0});
 }
 
+function updateRotationOverride(page: number, value: unknown) {
+    const rotation = Number(value);
+    if (![
+        0,
+        90,
+        180,
+        270,
+    ].includes(rotation)) {
+        return;
+    }
+    updateOverride(page, {rotationDegrees: rotation as TScanCleanupPageRotation});
+    closeTextAxisPopover(page);
+}
+
 function classificationKind(page: number) {
     const classification = props.classifications.get(page);
     if (classification === 'two-page-spread') {
@@ -442,6 +521,28 @@ function updateLowConfidencePopover(page: number, open: boolean) {
         lowConfidencePopoverPage.value = page;
     } else {
         closeLowConfidencePopover(page);
+    }
+}
+
+function showsSidewaysHint(page: number) {
+    return pageOverride(page).rotationDegrees === 0 && (props.textAxes?.get(page)?.sideways ?? false);
+}
+
+function openTextAxisPopover(page: number) {
+    textAxisPopoverPage.value = page;
+}
+
+function closeTextAxisPopover(page: number) {
+    if (textAxisPopoverPage.value === page) {
+        textAxisPopoverPage.value = null;
+    }
+}
+
+function updateTextAxisPopover(page: number, open: boolean) {
+    if (open) {
+        textAxisPopoverPage.value = page;
+    } else {
+        closeTextAxisPopover(page);
     }
 }
 
@@ -608,7 +709,22 @@ function handleKeydown(event: KeyboardEvent) {
     pointer-events: auto;
 }
 
-.scan-thumbnail-low-confidence:focus-visible {
+.scan-thumbnail-text-axis {
+    display: inline-grid;
+    width: var(--app-control-height-xs);
+    height: var(--app-control-height-xs);
+    place-items: center;
+    border: 0;
+    border-radius: var(--app-radius-full);
+    background: var(--ui-warning);
+    color: var(--ui-bg);
+    cursor: pointer;
+    padding: 0;
+    pointer-events: auto;
+}
+
+.scan-thumbnail-low-confidence:focus-visible,
+.scan-thumbnail-text-axis:focus-visible {
     outline: var(--app-hairline-height) solid var(--ui-primary);
     outline-offset: var(--app-space-xs);
 }
@@ -622,13 +738,27 @@ function handleKeydown(event: KeyboardEvent) {
     font-size: var(--app-text-size-body-sm);
 }
 
-.scan-thumbnail-low-confidence-popover p {
+.scan-thumbnail-text-axis-popover {
+    display: grid;
+    width: var(--app-scan-low-confidence-popover-width);
+    gap: var(--app-space-5xl);
+    padding: var(--app-space-5xl);
+    color: var(--ui-text);
+    font-size: var(--app-text-size-body-sm);
+}
+
+.scan-thumbnail-low-confidence-popover p,
+.scan-thumbnail-text-axis-popover p {
     margin: 0;
     color: var(--ui-text-muted);
     line-height: var(--app-line-height-body);
 }
 
 .scan-thumbnail-popover-override-select {
+    width: 100%;
+}
+
+.scan-thumbnail-popover-rotation-select {
     width: 100%;
 }
 

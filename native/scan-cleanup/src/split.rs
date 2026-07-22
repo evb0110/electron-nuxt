@@ -228,16 +228,17 @@ pub fn detect_split(
     mode: LayoutMode,
     manual_split_x: Option<f64>,
 ) -> SplitResult {
-    detect_split_impl(gray, dpi, mode, manual_split_x, false)
+    detect_split_impl(gray, dpi, mode, manual_split_x, false, None)
 }
 
-pub(crate) fn detect_split_at_analysis_level(
+pub(crate) fn detect_split_at_analysis_level_with_threshold(
     gray: &GrayImage,
     dpi: f64,
     mode: LayoutMode,
     manual_split_x: Option<f64>,
+    threshold: u8,
 ) -> SplitResult {
-    detect_split_impl(gray, dpi, mode, manual_split_x, true)
+    detect_split_impl(gray, dpi, mode, manual_split_x, true, Some(threshold))
 }
 
 fn detect_split_impl(
@@ -246,6 +247,7 @@ fn detect_split_impl(
     mode: LayoutMode,
     manual_split_x: Option<f64>,
     already_bounded: bool,
+    threshold: Option<u8>,
 ) -> SplitResult {
     if let Some(cutter) = manual_split_x {
         // A manually positioned cutter in Auto mode is an explicit spread
@@ -285,7 +287,7 @@ fn detect_split_impl(
         };
     }
 
-    let analysis = prepare_analysis(gray, dpi, already_bounded);
+    let analysis = prepare_analysis(gray, dpi, already_bounded, threshold);
     let whitespace = whitespace_candidate(&analysis.cleaned, true);
     let offcut_whitespace = whitespace_candidate(&analysis.cleaned, false);
     let aspect_ratio = analysis.gray.width() as f64 / analysis.gray.height().max(1) as f64;
@@ -333,7 +335,12 @@ fn detect_split_impl(
     result
 }
 
-fn prepare_analysis(gray: &GrayImage, dpi: f64, already_bounded: bool) -> AnalysisImage<'_> {
+fn prepare_analysis(
+    gray: &GrayImage,
+    dpi: f64,
+    already_bounded: bool,
+    threshold: Option<u8>,
+) -> AnalysisImage<'_> {
     let (working, analysis_dpi) = if already_bounded {
         (Cow::Borrowed(gray), dpi)
     } else {
@@ -353,7 +360,12 @@ fn prepare_analysis(gray: &GrayImage, dpi: f64, already_bounded: bool) -> Analys
     } else {
         working
     };
-    let binary = threshold_global(&deskewed, otsu_threshold(&deskewed));
+    let threshold = if deskew.is_some_and(|result| result.accepted) {
+        otsu_threshold(&deskewed)
+    } else {
+        threshold.unwrap_or_else(|| otsu_threshold(&deskewed))
+    };
+    let binary = threshold_global(&deskewed, threshold);
     let cleaned = shadow_cleaned_binary(&binary, analysis_dpi);
     AnalysisImage {
         gray: deskewed,

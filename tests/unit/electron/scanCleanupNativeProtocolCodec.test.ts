@@ -32,6 +32,10 @@ describe('scan-cleanup native protocol codec', () => {
                 reconciled: true,
                 clusterAgreement: 0.885,
                 documentPrior,
+                textAxis: {
+                    sideways: true,
+                    confidence: 0.97,
+                },
             },
         }));
 
@@ -42,8 +46,45 @@ describe('scan-cleanup native protocol codec', () => {
                 reconciled: true,
                 clusterAgreement: 0.885,
                 documentPrior,
+                textAxis: {
+                    sideways: true,
+                    confidence: 0.97,
+                },
             },
         });
+    });
+
+    it('omits an absent text axis and rejects malformed axis confidence', () => {
+        const withoutAxis = decodeNativeScanCleanupEnvelope(JSON.stringify({
+            version: 2,
+            type: 'progress',
+            progress: {
+                stage: 'page-complete',
+                completedPages: 1,
+                totalPages: 1,
+                pageNumber: 1,
+                classification: 'single-uncut-page',
+                confidence: 0.9,
+            },
+        }));
+        expect(withoutAxis.type === 'progress' && withoutAxis.progress).not.toHaveProperty('textAxis');
+
+        expect(() => decodeNativeScanCleanupEnvelope(JSON.stringify({
+            version: 2,
+            type: 'progress',
+            progress: {
+                stage: 'page-complete',
+                completedPages: 1,
+                totalPages: 1,
+                pageNumber: 1,
+                classification: 'single-uncut-page',
+                confidence: 0.9,
+                textAxis: {
+                    sideways: true,
+                    confidence: 1.1,
+                },
+            },
+        }))).toThrow('text axis');
     });
 
     it('rejects an invalid spread prior without a cutter median', () => {
