@@ -3,11 +3,119 @@
 
 use crate::{
     content::ContentResult,
+    dewarp::DewarpModel,
     engine::render::PageHalf,
     split::{LayoutClassification, SplitResult},
     LayoutMode,
 };
-use scan_primitives::Rect;
+use scan_primitives::{Affine, Point, Rect};
+
+/// The final cleanup mapping in rotated-source coordinates.
+///
+/// `DewarpOptions` points are serialized in source-rotated page coordinates.
+/// The renderer first moves those points into the page region and applies the
+/// deskew affine. The resulting cylindrical model therefore lives in deskewed
+/// region coordinates. Mapping an output point back to the source reverses the
+/// crop placement, cylindrical dewarp, deskew, and region placement in that
+/// order, without an intermediate full-resolution raster.
+#[derive(Clone, Debug)]
+pub(crate) struct ComposedRenderPlan {
+    region: Rect,
+    deskew_forward: Affine,
+    deskew_inverse: Affine,
+    dewarp: Option<DewarpModel>,
+    canvas_width: usize,
+    canvas_height: usize,
+    output_rect: Rect,
+}
+
+impl ComposedRenderPlan {
+    pub(crate) fn new(
+        region: Rect,
+        deskew_forward: Affine,
+        deskew_inverse: Affine,
+        dewarp: Option<DewarpModel>,
+        canvas_width: usize,
+        canvas_height: usize,
+        output_rect: Rect,
+    ) -> Self {
+        Self {
+            region,
+            deskew_forward,
+            deskew_inverse,
+            dewarp,
+            canvas_width,
+            canvas_height,
+            output_rect,
+        }
+    }
+
+    pub(crate) fn has_dewarp(&self) -> bool {
+        self.dewarp.is_some()
+    }
+
+    pub(crate) fn output_rect(&self) -> Rect {
+        self.output_rect
+    }
+
+    pub(crate) fn output_width(&self) -> usize {
+        self.output_rect.width.ceil().max(1.0) as usize
+    }
+
+    pub(crate) fn output_height(&self) -> usize {
+        self.output_rect.height.ceil().max(1.0) as usize
+    }
+
+    /// Exact affine form of the composed inverse mapping when no cylindrical
+    /// stage is present. This preserves the optimized affine rasterizer while
+    /// keeping the mapping definition in one plan.
+    pub(crate) fn affine_inverse(&self) -> Option<Affine> {
+        self.dewarp.is_none().then(|| {
+            Affine::translation(self.output_rect.x, self.output_rect.y)
+                .then(self.deskew_inverse)
+                .then(Affine::translation(self.region.x, self.region.y))
+        })
+    }
+
+    pub(crate) fn output_to_source(&self, output: Point) -> Option<Point> {
+        let canvas = Point::new(output.x + self.output_rect.x, output.y + self.output_rect.y);
+        let deskewed = if let Some(model) = &self.dewarp {
+            if canvas.x < 0.0
+                || canvas.y < 0.0
+                || canvas.x > self.canvas_width as f64
+                || canvas.y > self.canvas_height as f64
+            {
+                return None;
+            }
+            model.map_unit_to_source(
+                canvas.x / self.canvas_width.max(1) as f64,
+                canvas.y / self.canvas_height.max(1) as f64,
+            )?
+        } else {
+            canvas
+        };
+        let local = self.deskew_inverse.apply(deskewed);
+        Some(Point::new(local.x + self.region.x, local.y + self.region.y))
+    }
+
+    pub(crate) fn source_to_output(&self, source: Point) -> Option<Point> {
+        let local = Point::new(source.x - self.region.x, source.y - self.region.y);
+        let deskewed = self.deskew_forward.apply(local);
+        let canvas = if let Some(model) = &self.dewarp {
+            let unit = model.map_source_to_unit_approx(deskewed)?;
+            Point::new(
+                unit.x * self.canvas_width as f64,
+                unit.y * self.canvas_height as f64,
+            )
+        } else {
+            deskewed
+        };
+        Some(Point::new(
+            canvas.x - self.output_rect.x,
+            canvas.y - self.output_rect.y,
+        ))
+    }
+}
 
 pub(crate) fn content_result_for_dimensions(
     width: usize,

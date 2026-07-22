@@ -46,19 +46,12 @@ export function resolveEffectiveScanCleanupOptions({
         ocrMode: false,
         layout: resolveScanCleanupPageLayout(options.layoutMode, pageOverride.layoutOverride),
         manualSplit: pageOverride.manualSplit,
-        manualContentBoxes: dewarpRequested ? {} : pageOverride.manualContentBoxes ?? {},
-        cropContent: options.crop && !dewarpRequested,
+        manualContentBoxes: pageOverride.manualContentBoxes ?? {},
+        cropContent: options.crop,
         matchPageSize: options.matchPageSize,
         pageAlignment: options.pageAlignment,
         placementOverrides: pageOverride.placementOverrides ?? {},
-        margins: dewarpRequested
-            ? {
-                leftMm: 0,
-                topMm: 0,
-                rightMm: 0,
-                bottomMm: 0,
-            }
-            : {...resolveScanCleanupMarginsMm(options.marginsMm, pageOverride)},
+        margins: {...resolveScanCleanupMarginsMm(options.marginsMm, pageOverride)},
         experimental: {autoDewarp: dewarpRequested},
         rotationDegrees: pageOverride.rotationDegrees,
         excluded: pageOverride.excluded,

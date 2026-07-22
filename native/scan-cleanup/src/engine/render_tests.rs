@@ -648,7 +648,7 @@ mod tests {
     }
 
     #[test]
-    fn dewarp_metadata_does_not_claim_skew_or_crop_that_were_bypassed() {
+    fn deskew_dewarp_and_crop_share_one_composed_mapping() {
         let source = rotated_text_page(3.0);
         let output = clean_page(
             &source,
@@ -661,9 +661,17 @@ mod tests {
                 margins_pixels: Some([14.0; 4]),
                 layout: crate::LayoutMode::Single,
                 dewarp: Some(crate::DewarpOptions {
-                    top_curve: vec![Point::new(0.0, 0.0), Point::new(360.0, 0.0)],
-                    bottom_curve: vec![Point::new(0.0, 280.0), Point::new(360.0, 280.0)],
-                    depth: 0.0,
+                    top_curve: vec![
+                        Point::new(0.0, 0.0),
+                        Point::new(180.0, 14.0),
+                        Point::new(360.0, 0.0),
+                    ],
+                    bottom_curve: vec![
+                        Point::new(0.0, 280.0),
+                        Point::new(180.0, 266.0),
+                        Point::new(360.0, 280.0),
+                    ],
+                    depth: 0.08,
                 }),
                 ..CleanupOptions::default()
             },
@@ -674,10 +682,55 @@ mod tests {
         .remove(0);
 
         assert!(output.metadata.detected_skew_degrees.abs() > 2.5);
-        assert!(!output.metadata.skew_applied);
-        assert_eq!(output.metadata.content_box, None);
-        assert_eq!(output.metadata.applied_margins, AppliedMargins::default());
-        assert_eq!((output.image.width(), output.image.height()), (360, 280));
+        assert!(output.metadata.skew_applied);
+        assert!(output.metadata.content_box.is_some());
+        assert_eq!(output.metadata.applied_margins, [14.0; 4].into());
+        assert!(output.image.width() < 360 && output.image.height() < 280);
+        assert_eq!(output.metadata.resample_passes, 1);
+
+        let grid = output.metadata.dewarp_mapping.unwrap();
+        assert_eq!((grid.columns, grid.rows), (17, 17));
+        assert_eq!(
+            (grid.output_width, grid.output_height),
+            (output.image.width(), output.image.height())
+        );
+        assert!(grid.output_origin.x > 0.0 && grid.output_origin.y > 0.0);
+        assert_eq!(grid.output_origin.x, output.metadata.crop_rect.x);
+        assert_eq!(grid.output_origin.y, output.metadata.crop_rect.y);
+        assert_eq!(grid.output_width, output.metadata.crop_rect.width.ceil() as usize);
+        assert_eq!(grid.output_height, output.metadata.crop_rect.height.ceil() as usize);
+        let first_source = grid.output_to_source[0];
+        assert!(first_source.x > 0.0 && first_source.y > 0.0);
+        let center_source = grid.output_to_source[8 * 17 + 8];
+        let center_output = grid.source_to_output[8 * 17 + 8];
+        assert!(center_source.x.is_finite() && center_source.y.is_finite());
+        assert!(center_output.x.is_finite() && center_output.y.is_finite());
+    }
+
+    #[test]
+    fn invalid_manual_dewarp_surfaces_a_stable_error_identifier() {
+        let error = clean_page(
+            &GrayImage::new(120, 100, 255),
+            &CleanupOptions {
+                normalize_illumination: false,
+                crop_content: false,
+                layout: crate::LayoutMode::Single,
+                dewarp: Some(crate::DewarpOptions {
+                    top_curve: vec![Point::new(0.0, 0.0), Point::new(120.0, 100.0)],
+                    bottom_curve: vec![Point::new(0.0, 100.0), Point::new(120.0, 0.0)],
+                    depth: 0.0,
+                }),
+                ..CleanupOptions::default()
+            },
+            0,
+        )
+        .err()
+        .expect("crossing manual directrices must fail");
+
+        assert!(
+            error.starts_with("dewarp-model-endpoint-order:"),
+            "error={error}"
+        );
     }
 
     #[test]

@@ -514,6 +514,14 @@ function decodePreviewMetadata(value: unknown): IScanCleanupPreviewMetadata {
         layoutConfidence: decodeUnitInterval(value.layoutConfidence, 'layout confidence'),
         sourceRegion: decodePreviewRect(value.sourceRegion, 'source region'),
         contentBox: value.contentBox === null ? null : decodePreviewRect(value.contentBox, 'content box'),
+        cropRect: value.cropRect === undefined
+            ? {
+                xPx: 0,
+                yPx: 0,
+                widthPx: decodePositiveInteger(value.outputWidthPx, 'output width'),
+                heightPx: decodePositiveInteger(value.outputHeightPx, 'output height'),
+            }
+            : decodePreviewRect(value.cropRect, 'crop rect'),
         ...(value.contentDiagnostics === undefined
             ? {}
             : {contentDiagnostics: decodeContentDiagnostics(value.contentDiagnostics)}),

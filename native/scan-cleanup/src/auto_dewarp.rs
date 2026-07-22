@@ -1,4 +1,4 @@
-use crate::DewarpOptions;
+use crate::{dewarp::DewarpModel, DewarpOptions};
 use scan_primitives::{
     threshold::{otsu_threshold, threshold_global},
     GrayImage, Point,
@@ -61,14 +61,16 @@ pub fn detect_curves(source: &GrayImage) -> AutoDewarpResult {
         .zip(&bottom)
         .all(|(upper, lower)| lower.y - upper.y >= source.height() as f64 * 0.25);
     let confidence = (valid as f64 / samples as f64) * if separation_ok { 0.72 } else { 0.25 };
-    AutoDewarpResult {
-        model: (confidence >= 0.6).then_some(DewarpOptions {
-            top_curve: top,
-            bottom_curve: bottom,
-            depth: 0.0,
-        }),
-        confidence,
-    }
+    let model = validated_candidate((confidence >= 0.6).then_some(DewarpOptions {
+        top_curve: top,
+        bottom_curve: bottom,
+        depth: 0.0,
+    }));
+    AutoDewarpResult { model, confidence }
+}
+
+fn validated_candidate(candidate: Option<DewarpOptions>) -> Option<DewarpOptions> {
+    candidate.filter(|model| DewarpModel::from_options(model).is_ok())
 }
 
 fn smooth_curve(points: &mut [Point]) {
@@ -105,10 +107,21 @@ mod tests {
         let first = detect_curves(&image);
         let second = detect_curves(&image);
         assert!(first.model.is_some(), "confidence={}", first.confidence);
+        assert!(DewarpModel::from_options(first.model.as_ref().unwrap()).is_ok());
         assert_eq!(first.confidence, second.confidence);
         assert_eq!(
             first.model.unwrap().top_curve,
             second.model.unwrap().top_curve
         );
+    }
+
+    #[test]
+    fn silently_discards_invalid_automatic_candidate() {
+        let invalid = DewarpOptions {
+            top_curve: vec![Point::new(0.0, 0.0), Point::new(100.0, 100.0)],
+            bottom_curve: vec![Point::new(0.0, 100.0), Point::new(100.0, 0.0)],
+            depth: 0.0,
+        };
+        assert!(validated_candidate(Some(invalid)).is_none());
     }
 }

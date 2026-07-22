@@ -319,6 +319,7 @@ async function runPreview(
                             layoutConfidence: pageMetadata.layoutConfidence,
                             sourceRegion: output.sourceRegion,
                             contentBox: output.contentBox,
+                            cropRect: output.cropRect,
                             ...(output.contentDiagnostics === undefined
                                 ? {}
                                 : {contentDiagnostics: output.contentDiagnostics}),

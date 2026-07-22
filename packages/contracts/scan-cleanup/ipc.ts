@@ -68,6 +68,8 @@ export interface IScanCleanupPreviewMetadata {
     layoutConfidence: number;
     sourceRegion: IScanCleanupPixelRect;
     contentBox: IScanCleanupPixelRect | null;
+    /** Applied crop in deskewed/dewarped page-region coordinates; absent in older metadata. */
+    cropRect?: IScanCleanupPixelRect;
     /** Optional for metadata produced before native protocol v2 gained A4 diagnostics. */
     contentDiagnostics?: IScanCleanupContentDiagnostics;
     appliedMargins: IScanCleanupAppliedMargins;

@@ -1,5 +1,39 @@
 use crate::{png::RgbImage, DewarpOptions};
 use scan_primitives::{GrayImage, Point, Projective};
+use thiserror::Error;
+
+pub const DEWARP_GRID_SIZE: usize = 17;
+const MIN_CURVE_SEPARATION: f64 = 0.05;
+const MIN_ENDPOINT_CROSS_RATIO: f64 = 0.01;
+const MAX_JACOBIAN_RATIO: f64 = 20.0;
+
+#[derive(Clone, Debug, Error, PartialEq)]
+pub enum DewarpModelError {
+    #[error("dewarp-model-insufficient-points: each directrix requires at least two points")]
+    InsufficientPoints,
+    #[error("dewarp-model-invalid-depth: depth must be finite and between -0.9 and 4.0")]
+    InvalidDepth,
+    #[error("dewarp-model-endpoint-order: endpoint quadrilateral must be convex TL/TR/BR/BL with consistent orientation")]
+    EndpointOrder,
+    #[error("dewarp-model-degenerate-endpoints: endpoint quadrilateral is degenerate")]
+    DegenerateEndpoints,
+    #[error("dewarp-model-noninvertible-homography: endpoint homography is not invertible")]
+    NoninvertibleHomography,
+    #[error("dewarp-model-invalid-point: {directrix} directrix contains a point that cannot be normalized")]
+    InvalidPoint { directrix: &'static str },
+    #[error("dewarp-model-zero-length: {directrix} directrix has zero length")]
+    ZeroLength { directrix: &'static str },
+    #[error("dewarp-model-nonmonotonic-x: {directrix} directrix does not progress monotonically in normalized x")]
+    NonMonotonicX { directrix: &'static str },
+    #[error(
+        "dewarp-model-curve-separation: directrices cross or fall below 5% vertical separation"
+    )]
+    CurveSeparation,
+    #[error("dewarp-model-nonpositive-jacobian: mapping folds or reverses orientation on the 17x17 validity grid")]
+    NonPositiveJacobian,
+    #[error("dewarp-model-excessive-magnification: Jacobian magnitude ratio exceeds 20x on the 17x17 validity grid")]
+    ExcessiveMagnification,
+}
 
 #[derive(Clone, Debug)]
 pub struct DewarpModel {
@@ -18,12 +52,12 @@ struct ArcPolyline {
 }
 
 impl DewarpModel {
-    pub fn from_options(options: &DewarpOptions) -> Result<Self, String> {
+    pub fn from_options(options: &DewarpOptions) -> Result<Self, DewarpModelError> {
         if options.top_curve.len() < 2 || options.bottom_curve.len() < 2 {
-            return Err("Dewarp directrices require at least two points each".into());
+            return Err(DewarpModelError::InsufficientPoints);
         }
         if !options.depth.is_finite() || !(-0.9..=4.0).contains(&options.depth) {
-            return Err("Dewarp depth must be finite and between -0.9 and 4.0".into());
+            return Err(DewarpModelError::InvalidDepth);
         }
         let corners = [
             options.top_curve[0],
@@ -31,21 +65,26 @@ impl DewarpModel {
             *options.bottom_curve.last().unwrap(),
             options.bottom_curve[0],
         ];
+        validate_endpoint_order(corners)?;
         let unit = [
             Point::new(0.0, 0.0),
             Point::new(1.0, 0.0),
             Point::new(1.0, 1.0),
             Point::new(0.0, 1.0),
         ];
-        let homography = homography_from_four(corners, unit)
-            .ok_or("Dewarp endpoint quadrilateral is degenerate")?;
+        let homography =
+            homography_from_four(corners, unit).ok_or(DewarpModelError::DegenerateEndpoints)?;
         let inverse_homography = homography
             .inverse()
-            .ok_or("Dewarp homography is not invertible")?;
+            .ok_or(DewarpModelError::NoninvertibleHomography)?;
         let top_points = options
             .top_curve
             .iter()
-            .map(|&point| homography.apply(point).ok_or("Invalid top directrix point"))
+            .map(|&point| {
+                homography
+                    .apply(point)
+                    .ok_or(DewarpModelError::InvalidPoint { directrix: "top" })
+            })
             .collect::<Result<Vec<_>, _>>()?;
         let bottom_points = options
             .bottom_curve
@@ -53,16 +92,23 @@ impl DewarpModel {
             .map(|&point| {
                 homography
                     .apply(point)
-                    .ok_or("Invalid bottom directrix point")
+                    .ok_or(DewarpModelError::InvalidPoint {
+                        directrix: "bottom",
+                    })
             })
             .collect::<Result<Vec<_>, _>>()?;
-        Ok(Self {
+        validate_monotonic_x(&top_points, "top")?;
+        validate_monotonic_x(&bottom_points, "bottom")?;
+        validate_curve_separation(&top_points, &bottom_points)?;
+        let model = Self {
             homography,
             inverse_homography,
-            top: ArcPolyline::new(top_points)?,
-            bottom: ArcPolyline::new(bottom_points)?,
+            top: ArcPolyline::new(top_points, "top")?,
+            bottom: ArcPolyline::new(bottom_points, "bottom")?,
             depth: options.depth,
-        })
+        };
+        model.validate_jacobian()?;
+        Ok(model)
     }
 
     pub fn map_unit_to_source(&self, u: f64, v: f64) -> Option<Point> {
@@ -106,10 +152,30 @@ impl DewarpModel {
         }
         Some(best)
     }
+
+    fn validate_jacobian(&self) -> Result<(), DewarpModelError> {
+        let mut minimum = f64::INFINITY;
+        let mut maximum: f64 = 0.0;
+        for row in 0..DEWARP_GRID_SIZE {
+            for column in 0..DEWARP_GRID_SIZE {
+                let u = column as f64 / (DEWARP_GRID_SIZE - 1) as f64;
+                let v = row as f64 / (DEWARP_GRID_SIZE - 1) as f64;
+                let determinant = numerical_jacobian(self, u, v)
+                    .filter(|value| value.is_finite() && *value > 1e-12)
+                    .ok_or(DewarpModelError::NonPositiveJacobian)?;
+                minimum = minimum.min(determinant);
+                maximum = maximum.max(determinant);
+            }
+        }
+        if maximum / minimum > MAX_JACOBIAN_RATIO {
+            return Err(DewarpModelError::ExcessiveMagnification);
+        }
+        Ok(())
+    }
 }
 
 impl ArcPolyline {
-    fn new(points: Vec<Point>) -> Result<Self, String> {
+    fn new(points: Vec<Point>, directrix: &'static str) -> Result<Self, DewarpModelError> {
         let mut cumulative = vec![0.0];
         for pair in points.windows(2) {
             let length = ((pair[1].x - pair[0].x).powi(2) + (pair[1].y - pair[0].y).powi(2)).sqrt();
@@ -117,7 +183,7 @@ impl ArcPolyline {
         }
         let length = *cumulative.last().unwrap();
         if length <= 1e-9 {
-            return Err("Dewarp directrix has zero length".into());
+            return Err(DewarpModelError::ZeroLength { directrix });
         }
         Ok(Self {
             points,
@@ -146,20 +212,120 @@ impl ArcPolyline {
     }
 }
 
+fn validate_endpoint_order(corners: [Point; 4]) -> Result<(), DewarpModelError> {
+    let crosses = std::array::from_fn::<_, 4, _>(|index| {
+        let a = corners[index];
+        let b = corners[(index + 1) % corners.len()];
+        let c = corners[(index + 2) % corners.len()];
+        (b.x - a.x) * (c.y - b.y) - (b.y - a.y) * (c.x - b.x)
+    });
+    let minimum = crosses
+        .iter()
+        .map(|value| value.abs())
+        .fold(f64::INFINITY, f64::min);
+    let maximum = crosses.iter().map(|value| value.abs()).fold(0.0, f64::max);
+    if crosses
+        .iter()
+        .any(|value| !value.is_finite() || *value <= 0.0)
+        || maximum <= 1e-12
+        || minimum / maximum < MIN_ENDPOINT_CROSS_RATIO
+    {
+        return Err(DewarpModelError::EndpointOrder);
+    }
+    Ok(())
+}
+
+fn validate_monotonic_x(points: &[Point], directrix: &'static str) -> Result<(), DewarpModelError> {
+    if points.windows(2).any(|pair| pair[1].x - pair[0].x <= 1e-9) {
+        return Err(DewarpModelError::NonMonotonicX { directrix });
+    }
+    Ok(())
+}
+
+fn validate_curve_separation(top: &[Point], bottom: &[Point]) -> Result<(), DewarpModelError> {
+    // Both curves are piecewise linear and monotonic in x, so their vertical
+    // separation is linear between the union of their x breakpoints. Checking
+    // every breakpoint proves the minimum over the full width, rather than
+    // relying on a sampling interval that could miss a narrow crossing.
+    let mut breakpoints = top
+        .iter()
+        .chain(bottom)
+        .map(|point| point.x.clamp(0.0, 1.0))
+        .collect::<Vec<_>>();
+    breakpoints.push(0.0);
+    breakpoints.push(1.0);
+    breakpoints.sort_by(f64::total_cmp);
+    breakpoints.dedup_by(|left, right| (*left - *right).abs() <= 1e-12);
+    for x in breakpoints {
+        let top_y = sample_polyline_at_x(top, x).ok_or(DewarpModelError::CurveSeparation)?;
+        let bottom_y = sample_polyline_at_x(bottom, x).ok_or(DewarpModelError::CurveSeparation)?;
+        if bottom_y - top_y < MIN_CURVE_SEPARATION {
+            return Err(DewarpModelError::CurveSeparation);
+        }
+    }
+    Ok(())
+}
+
+fn sample_polyline_at_x(points: &[Point], x: f64) -> Option<f64> {
+    let first = *points.first()?;
+    let last = *points.last()?;
+    if x <= first.x {
+        return Some(first.y);
+    }
+    if x >= last.x {
+        return Some(last.y);
+    }
+    let pair = points.windows(2).find(|pair| pair[1].x >= x)?;
+    let amount = (x - pair[0].x) / (pair[1].x - pair[0].x);
+    Some(pair[0].y + (pair[1].y - pair[0].y) * amount)
+}
+
+fn numerical_jacobian(model: &DewarpModel, u: f64, v: f64) -> Option<f64> {
+    const STEP: f64 = 1.0 / 4096.0;
+    let u0 = (u - STEP).max(0.0);
+    let u1 = (u + STEP).min(1.0);
+    let v0 = (v - STEP).max(0.0);
+    let v1 = (v + STEP).min(1.0);
+    let left = model.map_unit_to_source(u0, v)?;
+    let right = model.map_unit_to_source(u1, v)?;
+    let top = model.map_unit_to_source(u, v0)?;
+    let bottom = model.map_unit_to_source(u, v1)?;
+    let du = u1 - u0;
+    let dv = v1 - v0;
+    if du <= 0.0 || dv <= 0.0 {
+        return None;
+    }
+    let dx_du = (right.x - left.x) / du;
+    let dy_du = (right.y - left.y) / du;
+    let dx_dv = (bottom.x - top.x) / dv;
+    let dy_dv = (bottom.y - top.y) / dv;
+    Some(dx_du * dy_dv - dy_du * dx_dv)
+}
+
 pub fn rasterize_inverse_area(
     source: &GrayImage,
     model: &DewarpModel,
     width: usize,
     height: usize,
 ) -> GrayImage {
+    rasterize_inverse_area_with(source, width, height, |point| {
+        model.map_unit_to_source(point.x / width as f64, point.y / height as f64)
+    })
+}
+
+pub fn rasterize_inverse_area_with<F>(
+    source: &GrayImage,
+    width: usize,
+    height: usize,
+    output_to_source: F,
+) -> GrayImage
+where
+    F: Fn(Point) -> Option<Point>,
+{
     let mut output = GrayImage::new(width, height, 255);
     for y in 0..height {
         for x in 0..width {
-            let u0 = x as f64 / width as f64;
-            let u1 = (x + 1) as f64 / width as f64;
-            let v0 = y as f64 / height as f64;
-            let v1 = (y + 1) as f64 / height as f64;
-            let Some(quad) = mapped_quad(model, u0, v0, u1, v1) else {
+            let Some(quad) = mapped_quad_with(&output_to_source, x, y) else {
                 continue;
             };
             output.set(x, y, integrate_quad(source, &quad));
@@ -174,14 +340,24 @@ pub fn rasterize_inverse_area_rgb(
     width: usize,
     height: usize,
 ) -> RgbImage {
+    rasterize_inverse_area_rgb_with(source, width, height, |point| {
+        model.map_unit_to_source(point.x / width as f64, point.y / height as f64)
+    })
+}
+
+pub fn rasterize_inverse_area_rgb_with<F>(
+    source: &RgbImage,
+    width: usize,
+    height: usize,
+    output_to_source: F,
+) -> RgbImage
+where
+    F: Fn(Point) -> Option<Point>,
+{
     let mut output = RgbImage::new(width, height, [255; 3]);
     for y in 0..height {
         for x in 0..width {
-            let u0 = x as f64 / width as f64;
-            let u1 = (x + 1) as f64 / width as f64;
-            let v0 = y as f64 / height as f64;
-            let v1 = (y + 1) as f64 / height as f64;
-            let Some(quad) = mapped_quad(model, u0, v0, u1, v1) else {
+            let Some(quad) = mapped_quad_with(&output_to_source, x, y) else {
                 continue;
             };
             output.set(x, y, integrate_quad_rgb(source, &quad));
@@ -190,12 +366,15 @@ pub fn rasterize_inverse_area_rgb(
     output
 }
 
-fn mapped_quad(model: &DewarpModel, u0: f64, v0: f64, u1: f64, v1: f64) -> Option<[Point; 4]> {
+fn mapped_quad_with<F>(output_to_source: &F, x: usize, y: usize) -> Option<[Point; 4]>
+where
+    F: Fn(Point) -> Option<Point>,
+{
     Some([
-        model.map_unit_to_source(u0, v0)?,
-        model.map_unit_to_source(u1, v0)?,
-        model.map_unit_to_source(u1, v1)?,
-        model.map_unit_to_source(u0, v1)?,
+        output_to_source(Point::new(x as f64, y as f64))?,
+        output_to_source(Point::new((x + 1) as f64, y as f64))?,
+        output_to_source(Point::new((x + 1) as f64, (y + 1) as f64))?,
+        output_to_source(Point::new(x as f64, (y + 1) as f64))?,
     ])
 }
 
@@ -489,6 +668,105 @@ mod tests {
                 / deviations.len() as f64)
                 .sqrt();
             assert!(rms < 1.8, "rms={rms}");
+        }
+    }
+
+    #[test]
+    fn rejects_folded_crossing_and_reversed_directrices_with_specific_errors() {
+        for folded_x in [35.0, 45.0, 55.0] {
+            let folded = DewarpOptions {
+                top_curve: vec![
+                    Point::new(0.0, 0.0),
+                    Point::new(70.0, 4.0),
+                    Point::new(folded_x, 2.0),
+                    Point::new(100.0, 0.0),
+                ],
+                bottom_curve: vec![Point::new(0.0, 100.0), Point::new(100.0, 100.0)],
+                depth: 0.0,
+            };
+            assert!(matches!(
+                DewarpModel::from_options(&folded),
+                Err(DewarpModelError::NonMonotonicX { directrix: "top" })
+            ));
+        }
+
+        for overlap in [0.0, -5.0, -20.0] {
+            let crossing = DewarpOptions {
+                top_curve: vec![
+                    Point::new(0.0, 0.0),
+                    Point::new(50.0, 55.0),
+                    Point::new(100.0, 0.0),
+                ],
+                bottom_curve: vec![
+                    Point::new(0.0, 100.0),
+                    Point::new(50.0, 55.0 + overlap),
+                    Point::new(100.0, 100.0),
+                ],
+                depth: 0.0,
+            };
+            assert!(matches!(
+                DewarpModel::from_options(&crossing),
+                Err(DewarpModelError::CurveSeparation)
+            ));
+        }
+
+        let mut reversed = curves();
+        reversed.top_curve.reverse();
+        reversed.bottom_curve.reverse();
+        assert!(matches!(
+            DewarpModel::from_options(&reversed),
+            Err(DewarpModelError::EndpointOrder)
+        ));
+    }
+
+    #[test]
+    fn rejects_weak_endpoint_order_jacobian_folds_and_excessive_magnification() {
+        let weak_corner = DewarpOptions {
+            top_curve: vec![Point::new(0.0, 0.0), Point::new(100.0, 0.0)],
+            bottom_curve: vec![Point::new(99.9, 100.0), Point::new(100.0, 100.0)],
+            depth: 0.0,
+        };
+        assert!(matches!(
+            DewarpModel::from_options(&weak_corner),
+            Err(DewarpModelError::EndpointOrder)
+        ));
+
+        let jacobian_fold = DewarpOptions {
+            top_curve: vec![
+                Point::new(0.0, 0.0),
+                Point::new(1.0, 10.0),
+                Point::new(100.0, 0.0),
+            ],
+            bottom_curve: vec![
+                Point::new(0.0, 20.0),
+                Point::new(99.0, 10.1),
+                Point::new(100.0, 20.0),
+            ],
+            depth: 0.0,
+        };
+        assert!(matches!(
+            DewarpModel::from_options(&jacobian_fold),
+            Err(DewarpModelError::NonPositiveJacobian)
+        ));
+
+        let excessive = DewarpOptions {
+            top_curve: vec![Point::new(0.0, 0.0), Point::new(100.0, 0.0)],
+            bottom_curve: vec![Point::new(0.0, 100.0), Point::new(100.0, 100.0)],
+            depth: -0.9,
+        };
+        assert!(matches!(
+            DewarpModel::from_options(&excessive),
+            Err(DewarpModelError::ExcessiveMagnification)
+        ));
+    }
+
+    #[test]
+    fn valid_fixture_models_remain_valid_across_safe_depths() {
+        for depth in [-0.5, 0.0, 0.15, 0.5, 1.0] {
+            let mut fixture = curves();
+            fixture.depth = depth;
+            DewarpModel::from_options(&fixture)
+                .unwrap_or_else(|error| panic!("depth={depth} unexpectedly failed: {error}"));
         }
     }
 }

@@ -70,6 +70,8 @@ pub struct Page {
     pub input_path: PathBuf,
     pub source_page_index: usize,
     pub page_metadata_path: PathBuf,
+    /// Any serialized dewarp directrices inside `options` are authored in
+    /// source-rotated page coordinates (before deskew, dewarp, and crop).
     pub options: CleanupOptions,
     #[serde(default)]
     pub document_prior: Option<DocumentPrior>,

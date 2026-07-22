@@ -188,6 +188,8 @@ pub struct PlacementOverrides {
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct DewarpOptions {
+    /// Directrix points use source-rotated page coordinates: after the page's
+    /// orthogonal rotation, before region placement, deskew, dewarp, or crop.
     pub top_curve: Vec<scan_primitives::Point>,
     pub bottom_curve: Vec<scan_primitives::Point>,
     #[serde(default)]
@@ -337,6 +339,7 @@ impl CleanupOptions {
             {
                 return Err("Dewarp curves and depth must contain only finite values".into());
             }
+            crate::dewarp::DewarpModel::from_options(dewarp).map_err(|error| error.to_string())?;
         }
         if let Some(split) = self.manual_split_x {
             if !split.x.is_finite()

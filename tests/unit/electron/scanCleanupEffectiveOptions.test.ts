@@ -65,7 +65,7 @@ describe('effective scan cleanup options', () => {
             .toEqual(pageMargins);
     });
 
-    it('disables crop and margins while automatic dewarp uses source-region coordinates', () => {
+    it('composes crop, manual content, and margins with automatic dewarp', () => {
         const effective = resolveEffectiveScanCleanupOptions({
             options,
             pageOverride: createScanCleanupPageOverride({manualContentBoxes: {full: {
@@ -80,14 +80,15 @@ describe('effective scan cleanup options', () => {
             experimental: {autoDewarp: true},
         });
 
-        expect(effective.cropContent).toBe(false);
-        expect(effective.manualContentBoxes).toEqual({});
-        expect(effective.margins).toEqual({
-            leftMm: 0,
-            topMm: 0,
-            rightMm: 0,
-            bottomMm: 0,
-        });
+        expect(effective.cropContent).toBe(true);
+        expect(effective.manualContentBoxes).toEqual({full: {
+            xNormalized: 0.1,
+            yNormalized: 0.1,
+            widthNormalized: 0.8,
+            heightNormalized: 0.8,
+            rotationDegrees: 0,
+        }});
+        expect(effective.margins).toEqual(options.marginsMm);
         expect(effective.experimental.autoDewarp).toBe(true);
     });
 

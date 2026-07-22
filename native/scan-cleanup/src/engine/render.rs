@@ -1,6 +1,8 @@
 pub use crate::domain::geometry::{AppliedMargins, PageHalf};
 use crate::engine::prepare::{build_analysis_level, AnalysisLevel};
-use crate::engine::render_plan::{content_result_for_dimensions, output_regions};
+use crate::engine::render_plan::{
+    content_result_for_dimensions, output_regions, ComposedRenderPlan,
+};
 use crate::engine::text_axis::{detect_text_axis, TextAxisHint};
 use crate::{
     auto_dewarp::detect_curves,
@@ -14,7 +16,9 @@ use crate::{
     calibration::{CalibrationConfig, PageCalibration},
     content::detect_content_and_margins_calibrated,
     deskew::{detect_skew, DeskewResult},
-    dewarp::{rasterize_inverse_area, rasterize_inverse_area_rgb, DewarpModel},
+    dewarp::{
+        rasterize_inverse_area_rgb_with, rasterize_inverse_area_with, DewarpModel, DEWARP_GRID_SIZE,
+    },
     png::RgbImage,
     protocol::manifest_v2::ContentDiagnostics,
     split::{
@@ -56,6 +60,9 @@ pub struct CleanupMetadata {
     pub source_region: Rect,
     #[serde(with = "optional_pixel_rect_serde")]
     pub content_box: Option<Rect>,
+    /// Applied crop in deskewed/dewarped page-region coordinates.
+    #[serde(with = "pixel_rect_serde")]
+    pub crop_rect: Rect,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub content_diagnostics: Option<ContentDiagnostics>,
     pub applied_margins: AppliedMargins,
@@ -778,6 +785,47 @@ fn clean_region(
     } else {
         analysis_working
     };
+    let source_rotated_to_deskewed =
+        Affine::translation(-region.x, -region.y).then(local_deskew_forward);
+    let automatic_dewarp = if options.dewarp.is_none() && options.experimental.auto_dewarp {
+        let mut detected = detect_curves(&working);
+        detected.model = detected
+            .model
+            .map(|model| transform_dewarp_options(&model, Affine::translation(region.x, region.y)));
+        Some(detected)
+    } else {
+        None
+    };
+    let candidate_dewarp = options.dewarp.clone().or_else(|| {
+        automatic_dewarp
+            .as_ref()
+            .and_then(|result| result.model.clone())
+    });
+    let transformed_dewarp = candidate_dewarp
+        .as_ref()
+        .map(|model| transform_dewarp_options(model, source_rotated_to_deskewed));
+    let dewarp_model = if options.dewarp.is_some() {
+        transformed_dewarp
+            .as_ref()
+            .map(DewarpModel::from_options)
+            .transpose()
+            .map_err(|error| error.to_string())?
+    } else {
+        transformed_dewarp
+            .as_ref()
+            .and_then(|model| DewarpModel::from_options(model).ok())
+    };
+    let effective_dewarp = dewarp_model.as_ref().and(candidate_dewarp);
+    let dewarped_analysis = dewarp_model.as_ref().map(|model| {
+        let width = deskewed_analysis.width();
+        let height = deskewed_analysis.height();
+        rasterize_inverse_area_with(&deskewed_analysis, width, height, |point| {
+            model
+                .map_unit_to_source(point.x / width as f64, point.y / height as f64)
+                .map(|mapped| Point::new(mapped.x * local_scale_x, mapped.y * local_scale_y))
+        })
+    });
+    let content_analysis = dewarped_analysis.as_ref().unwrap_or(&deskewed_analysis);
     let (content, source_content_box, content_diagnostics) = if let Some(manual) =
         options.resolved_manual_content_for(half, normalized.width(), normalized.height())
     {
@@ -791,12 +839,25 @@ fn clean_region(
         let bottom = manual.bottom().clamp(top + 1.0, working.height() as f64);
         let source_content = Rect::new(left, top, right - left, bottom - top);
         let deskewed_content = transform_rect_bounds(source_content, local_deskew_forward);
+        let output_content = if let Some(model) = &dewarp_model {
+            map_rect_bounds(deskewed_content, |point| {
+                model.map_source_to_unit_approx(point).map(|unit| {
+                    Point::new(
+                        unit.x * working.width() as f64,
+                        unit.y * working.height() as f64,
+                    )
+                })
+            })
+            .ok_or("Manual content box cannot be mapped through the dewarp model")?
+        } else {
+            deskewed_content
+        };
         (
             content_result_for_dimensions(
                 working.width(),
                 working.height(),
                 options.dpi,
-                Some(deskewed_content),
+                Some(output_content),
                 options.margins_mm.map(crate::MarginsMm::values),
                 options.margins_pixels,
             ),
@@ -805,7 +866,7 @@ fn clean_region(
         )
     } else {
         let detected_result = detect_content_and_margins_calibrated(
-            &deskewed_analysis,
+            content_analysis,
             calibration.effective_dpi,
             None,
             Some([0.0; 4]),
@@ -819,7 +880,20 @@ fn clean_region(
                 rect.height / local_scale_y,
             )
         });
-        let source_content = detected.map(|rect| transform_rect_bounds(rect, local_deskew_inverse));
+        let source_content = detected.and_then(|rect| {
+            if let Some(model) = &dewarp_model {
+                map_rect_bounds(rect, |point| {
+                    model
+                        .map_unit_to_source(
+                            point.x / working.width() as f64,
+                            point.y / working.height() as f64,
+                        )
+                        .map(|deskewed| local_deskew_inverse.apply(deskewed))
+                })
+            } else {
+                Some(transform_rect_bounds(rect, local_deskew_inverse))
+            }
+        });
         (
             content_result_for_dimensions(
                 working.width(),
@@ -833,61 +907,50 @@ fn clean_region(
             detected_result.diagnostics,
         )
     };
-    let automatic_dewarp = if options.dewarp.is_none() && options.experimental.auto_dewarp {
-        Some(detect_curves(&working))
-    } else {
-        None
-    };
-    let effective_dewarp = options.dewarp.clone().or_else(|| {
-        automatic_dewarp
-            .as_ref()
-            .and_then(|result| result.model.clone())
-    });
-    let dewarp_applied = effective_dewarp.is_some();
-    let crop_enabled = options.crop_content
-        && !options.ocr_mode
-        && content.content.is_some()
-        && effective_dewarp.is_none();
+    let crop_enabled = options.crop_content && !options.ocr_mode && content.content.is_some();
     let output_rect = if crop_enabled {
         content.output_rect
     } else {
         Rect::new(0.0, 0.0, working.width() as f64, working.height() as f64)
     };
-    let output_width = output_rect.width.ceil().max(1.0) as usize;
-    let output_height = output_rect.height.ceil().max(1.0) as usize;
-    let local_forward =
-        local_deskew_forward.then(Affine::translation(-output_rect.x, -output_rect.y));
-    let rotated_forward = Affine::translation(-region.x, -region.y).then(local_forward);
-    let render_inverse = rotated_forward
-        .inverse()
-        .ok_or("Cleanup transform is not invertible")?;
-    let rotated_inverse = rotated_forward
-        .inverse()
-        .ok_or("Cleanup rotated-analysis transform is not invertible")?;
+    let render_plan = ComposedRenderPlan::new(
+        region,
+        local_deskew_forward,
+        local_deskew_inverse,
+        dewarp_model,
+        working.width(),
+        working.height(),
+        output_rect,
+    );
+    let output_width = render_plan.output_width();
+    let output_height = render_plan.output_height();
 
     let (rendered_gray, rendered_color, forward_transform, inverse_transform, dewarp_mapping) =
-        if let Some(dewarp) = &effective_dewarp {
-            let model = DewarpModel::from_options(dewarp)?;
-            let gray = rasterize_inverse_area(&working, &model, working.width(), working.height());
+        if render_plan.has_dewarp() {
+            let gray =
+                rasterize_inverse_area_with(normalized, output_width, output_height, |point| {
+                    render_plan.output_to_source(point)
+                });
             let color = color_source.map(|source| {
-                let working_color = crop_rgb(source, region);
-                rasterize_inverse_area_rgb(
-                    &working_color,
-                    &model,
-                    working.width(),
-                    working.height(),
-                )
+                rasterize_inverse_area_rgb_with(source, output_width, output_height, |point| {
+                    render_plan.output_to_source(point)
+                })
             });
-            let grid = sampled_dewarp_grid(&model, region, working.width(), working.height());
+            let grid = sampled_dewarp_grid(&render_plan, region);
             (gray, color, None, None, Some(grid))
         } else {
+            let inverse = render_plan
+                .affine_inverse()
+                .ok_or("Cleanup affine render plan is unavailable")?;
+            let forward = inverse
+                .inverse()
+                .ok_or("Cleanup transform is not invertible")?;
             (
-                render_affine_gray(normalized, output_width, output_height, render_inverse),
-                color_source.map(|color| {
-                    render_affine_rgb(color, output_width, output_height, render_inverse)
-                }),
-                Some(rotated_forward),
-                Some(rotated_inverse),
+                render_affine_gray(normalized, output_width, output_height, inverse),
+                color_source
+                    .map(|color| render_affine_rgb(color, output_width, output_height, inverse)),
+                Some(forward),
+                Some(inverse),
                 None,
             )
         };
@@ -964,15 +1027,8 @@ fn clean_region(
     if options.crop_content && !crop_enabled && content.content.is_none() {
         warnings.push("Content crop was skipped because no content box was detected".into());
     }
-    if dewarp_applied && deskew.accepted {
-        warnings
-            .push("Deskew was not applied because dewarp uses source-region coordinates".into());
-    }
-    if dewarp_applied && options.crop_content && content.content.is_some() {
-        warnings.push("Content crop and margins were not applied because dewarp is active".into());
-    }
     if let Some(auto) = &automatic_dewarp {
-        if auto.model.is_none() {
+        if auto.model.is_none() && auto.confidence < 0.6 {
             warnings.push(format!(
                 "Experimental automatic dewarp confidence {:.3} was below 0.6; no dewarp was applied",
                 auto.confidence
@@ -988,17 +1044,14 @@ fn clean_region(
             half,
             detected_skew_degrees: deskew.angle_degrees,
             skew_confidence: deskew.confidence,
-            skew_applied: deskew.accepted && !dewarp_applied,
+            skew_applied: deskew.accepted,
             layout_classification: split.classification,
             layout_confidence: split.confidence,
             cutter_x: split.cutter_x,
             split_geometry: split.pages.clone(),
             source_region: region,
-            content_box: if dewarp_applied {
-                None
-            } else {
-                source_content_box
-            },
+            content_box: source_content_box,
+            crop_rect: output_rect,
             content_diagnostics,
             applied_margins: if crop_enabled {
                 content.margins
@@ -1154,20 +1207,6 @@ fn crop_gray_to_fit(
     output
 }
 
-fn crop_rgb(source: &RgbImage, rect: Rect) -> RgbImage {
-    let left = rect.x.round().clamp(0.0, source.width() as f64) as usize;
-    let top = rect.y.round().clamp(0.0, source.height() as f64) as usize;
-    let width = rect.width.round().max(1.0) as usize;
-    let height = rect.height.round().max(1.0) as usize;
-    let mut output = RgbImage::new(width, height, [255; 3]);
-    for y in 0..height.min(source.height().saturating_sub(top)) {
-        for x in 0..width.min(source.width().saturating_sub(left)) {
-            output.set(x, y, source.get(left + x, top + y));
-        }
-    }
-    output
-}
-
 fn transform_rect_bounds(rect: Rect, transform: Affine) -> Rect {
     let points = [
         Point::new(rect.x, rect.y),
@@ -1193,6 +1232,59 @@ fn transform_rect_bounds(rect: Rect, transform: Affine) -> Rect {
         .map(|point| point.y)
         .fold(f64::NEG_INFINITY, f64::max);
     Rect::new(left, top, right - left, bottom - top)
+}
+
+fn transform_dewarp_options(
+    options: &crate::DewarpOptions,
+    transform: Affine,
+) -> crate::DewarpOptions {
+    crate::DewarpOptions {
+        top_curve: options
+            .top_curve
+            .iter()
+            .map(|&point| transform.apply(point))
+            .collect(),
+        bottom_curve: options
+            .bottom_curve
+            .iter()
+            .map(|&point| transform.apply(point))
+            .collect(),
+        depth: options.depth,
+    }
+}
+
+fn map_rect_bounds<F>(rect: Rect, map: F) -> Option<Rect>
+where
+    F: Fn(Point) -> Option<Point>,
+{
+    const EDGE_SAMPLES: usize = 17;
+    let mut points = Vec::with_capacity(EDGE_SAMPLES * 4);
+    for step in 0..EDGE_SAMPLES {
+        let amount = step as f64 / (EDGE_SAMPLES - 1) as f64;
+        let x = rect.x + rect.width * amount;
+        let y = rect.y + rect.height * amount;
+        points.push(map(Point::new(x, rect.y))?);
+        points.push(map(Point::new(x, rect.bottom()))?);
+        points.push(map(Point::new(rect.x, y))?);
+        points.push(map(Point::new(rect.right(), y))?);
+    }
+    let left = points
+        .iter()
+        .map(|point| point.x)
+        .fold(f64::INFINITY, f64::min);
+    let top = points
+        .iter()
+        .map(|point| point.y)
+        .fold(f64::INFINITY, f64::min);
+    let right = points
+        .iter()
+        .map(|point| point.x)
+        .fold(f64::NEG_INFINITY, f64::max);
+    let bottom = points
+        .iter()
+        .map(|point| point.y)
+        .fold(f64::NEG_INFINITY, f64::max);
+    Some(Rect::new(left, top, right - left, bottom - top))
 }
 
 fn deskew_transform(width: usize, height: usize, deskew: DeskewResult) -> Affine {
@@ -1394,39 +1486,29 @@ fn render_affine_gray_supersampled_reference(
     output
 }
 
-fn sampled_dewarp_grid(
-    model: &DewarpModel,
-    region: Rect,
-    width: usize,
-    height: usize,
-) -> DewarpMappingGrid {
-    const GRID: usize = 17;
+fn sampled_dewarp_grid(plan: &ComposedRenderPlan, region: Rect) -> DewarpMappingGrid {
+    const GRID: usize = DEWARP_GRID_SIZE;
     let mut output_to_source = Vec::with_capacity(GRID * GRID);
     let mut source_to_output = Vec::with_capacity(GRID * GRID);
     for row in 0..GRID {
         for column in 0..GRID {
             let u = column as f64 / (GRID - 1) as f64;
             let v = row as f64 / (GRID - 1) as f64;
-            let mapped = model
-                .map_unit_to_source(u, v)
-                .unwrap_or(Point::new(u * width as f64, v * height as f64));
-            output_to_source.push(Point::new(mapped.x + region.x, mapped.y + region.y));
-            let source = Point::new(u * width as f64, v * height as f64);
-            let mapped = model
-                .map_source_to_unit_approx(source)
-                .unwrap_or(Point::new(u, v));
-            source_to_output.push(Point::new(
-                mapped.x * width as f64,
-                mapped.y * height as f64,
-            ));
+            let output = Point::new(
+                u * plan.output_width() as f64,
+                v * plan.output_height() as f64,
+            );
+            output_to_source.push(plan.output_to_source(output).unwrap_or(output));
+            let source = Point::new(region.x + u * region.width, region.y + v * region.height);
+            source_to_output.push(plan.source_to_output(source).unwrap_or(source));
         }
     }
     DewarpMappingGrid {
         columns: GRID,
         rows: GRID,
-        output_origin: Point::new(0.0, 0.0),
-        output_width: width,
-        output_height: height,
+        output_origin: Point::new(plan.output_rect().x, plan.output_rect().y),
+        output_width: plan.output_width(),
+        output_height: plan.output_height(),
         output_to_source,
         source_to_output,
     }
