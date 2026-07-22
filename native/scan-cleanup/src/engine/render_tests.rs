@@ -769,6 +769,26 @@ mod tests {
     }
 
     #[test]
+    fn analysis_metadata_emits_per_side_content_confidence() {
+        let result = analyze_page(
+            &single_page_fixture(),
+            &CleanupOptions {
+                dpi: 150.0,
+                normalize_illumination: false,
+                layout: crate::LayoutMode::Single,
+                ..CleanupOptions::default()
+            },
+        )
+        .unwrap();
+        let metadata = serde_json::to_value(&result.outputs[0]).unwrap();
+        let confidence = &metadata["contentDiagnostics"]["sideConfidence"];
+        for side in ["left", "top", "right", "bottom"] {
+            assert!(confidence[side].is_number(), "missing {side}: {metadata}");
+        }
+        assert!(metadata["contentDiagnostics"]["textMask"]["lineCount"].is_number());
+    }
+
+    #[test]
     fn classify_only_analysis_matches_full_pipeline_for_spread_and_single_fixtures() {
         let options = CleanupOptions {
             dpi: 150.0,

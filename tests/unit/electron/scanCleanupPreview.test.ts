@@ -133,6 +133,26 @@ function dependencies(dir: string): IScanCleanupPreviewDependencies {
                     widthPx: 1,
                     heightPx: 1,
                 },
+                contentDiagnostics: {
+                    sideConfidence: {
+                        left: 0.7,
+                        top: 0.6,
+                        right: 0.8,
+                        bottom: 0.5,
+                    },
+                    textMask: {
+                        analysisWidthPx: 1,
+                        analysisHeightPx: 1,
+                        inkPixels: 1,
+                        lineCount: 1,
+                        bounds: {
+                            xPx: 0,
+                            yPx: 0,
+                            widthPx: 1,
+                            heightPx: 1,
+                        },
+                    },
+                },
                 appliedMargins: {
                     leftPx: 0,
                     topPx: 0,
@@ -415,6 +435,10 @@ describe('scan cleanup preview', () => {
                 half: 'full',
                 illuminationNormalized: true,
                 despeckleFallback: true,
+                contentDiagnostics: {
+                    sideConfidence: {left: 0.7},
+                    textMask: {lineCount: 1},
+                },
             }}],
         });
     });
@@ -696,6 +720,30 @@ describe('scan cleanup preview', () => {
                 },
             })),
         })).toThrow('invalid scan-cleanup preview metadata');
+
+        expect(() => decodeScanCleanupPreviewResult({
+            ...result,
+            outputs: result.outputs.map(output => ({
+                ...output,
+                metadata: {
+                    ...output.metadata,
+                    contentDiagnostics: {
+                        sideConfidence: {
+                            left: 1.2,
+                            top: 0,
+                            right: 0,
+                            bottom: 0,
+                        },
+                        textMask: {
+                            analysisWidthPx: 1,
+                            analysisHeightPx: 1,
+                            inkPixels: 0,
+                            lineCount: 0,
+                        },
+                    },
+                },
+            })),
+        })).toThrow('invalid scan-cleanup preview content left confidence');
     });
 
     it('requires named finite applied margins at the IPC boundary', async () => {

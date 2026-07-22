@@ -1,4 +1,5 @@
 use crate::BinaryImage;
+use std::collections::VecDeque;
 
 const INF: i64 = i64::MAX / 8;
 
@@ -40,6 +41,206 @@ pub fn squared_euclidean_distance(image: &BinaryImage) -> Vec<u32> {
         }
     }
     output
+}
+
+/// Finds positive 3x3 local maxima in a squared-distance field.
+///
+/// Flat maxima are collapsed to one deterministic representative per
+/// 4-connected plateau. Infinite values are not peaks.
+pub fn find_peaks(distances: &[u32], width: usize, height: usize) -> Vec<(usize, usize)> {
+    assert_eq!(distances.len(), width.saturating_mul(height));
+    let mut maxima = vec![false; distances.len()];
+    for y in 0..height {
+        for x in 0..width {
+            let index = y * width + x;
+            let value = distances[index];
+            if value == 0 || value == u32::MAX {
+                continue;
+            }
+            maxima[index] = (y.saturating_sub(1)..=(y + 1).min(height - 1)).all(|neighbor_y| {
+                (x.saturating_sub(1)..=(x + 1).min(width - 1))
+                    .all(|neighbor_x| distances[neighbor_y * width + neighbor_x] <= value)
+            });
+        }
+    }
+
+    let mut visited = vec![false; distances.len()];
+    let mut peaks = Vec::new();
+    let mut queue = VecDeque::new();
+    for y in 0..height {
+        for x in 0..width {
+            let index = y * width + x;
+            if !maxima[index] || visited[index] {
+                continue;
+            }
+            let value = distances[index];
+            visited[index] = true;
+            queue.push_back((x, y));
+            let mut representative = (x, y);
+            while let Some((current_x, current_y)) = queue.pop_front() {
+                representative = representative.min((current_x, current_y));
+                for (neighbor_x, neighbor_y) in neighbors4(current_x, current_y, width, height) {
+                    let neighbor_index = neighbor_y * width + neighbor_x;
+                    if maxima[neighbor_index]
+                        && !visited[neighbor_index]
+                        && distances[neighbor_index] == value
+                    {
+                        visited[neighbor_index] = true;
+                        queue.push_back((neighbor_x, neighbor_y));
+                    }
+                }
+            }
+            peaks.push(representative);
+        }
+    }
+    peaks
+}
+
+/// A labeled nearest-seed map using squared Euclidean distance.
+///
+/// Seed labels use zero for "not a seed". Propagation is multi-source and
+/// deterministic; equal-distance ties prefer the lower nonzero label and then
+/// the top-left seed. The queue carries the winning seed coordinates so each
+/// 8-neighbor relaxation can update `(dx +/- 1)^2 + (dy +/- 1)^2` directly.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct InfluenceMap {
+    width: usize,
+    height: usize,
+    labels: Vec<u32>,
+    squared_distances: Vec<u32>,
+}
+
+impl InfluenceMap {
+    pub fn from_seed_labels(width: usize, height: usize, seed_labels: &[u32]) -> Self {
+        assert_eq!(seed_labels.len(), width.saturating_mul(height));
+        let pixel_count = width.saturating_mul(height);
+        let mut labels = vec![0; pixel_count];
+        let mut squared_distances = vec![u32::MAX; pixel_count];
+        let mut seed_x = vec![usize::MAX; pixel_count];
+        let mut seed_y = vec![usize::MAX; pixel_count];
+        let mut queued = vec![false; pixel_count];
+        let mut queue = VecDeque::new();
+
+        for y in 0..height {
+            for x in 0..width {
+                let index = y * width + x;
+                let label = seed_labels[index];
+                if label == 0 {
+                    continue;
+                }
+                labels[index] = label;
+                squared_distances[index] = 0;
+                seed_x[index] = x;
+                seed_y[index] = y;
+                queued[index] = true;
+                queue.push_back(index);
+            }
+        }
+
+        while let Some(index) = queue.pop_front() {
+            queued[index] = false;
+            let x = index % width;
+            let y = index / width;
+            let source_x = seed_x[index];
+            let source_y = seed_y[index];
+            let source_label = labels[index];
+            for neighbor_y in y.saturating_sub(1)..=(y + 1).min(height.saturating_sub(1)) {
+                for neighbor_x in x.saturating_sub(1)..=(x + 1).min(width.saturating_sub(1)) {
+                    if neighbor_x == x && neighbor_y == y {
+                        continue;
+                    }
+                    let neighbor_index = neighbor_y * width + neighbor_x;
+                    let dx = x as i64 - source_x as i64;
+                    let dy = y as i64 - source_y as i64;
+                    let step_x = neighbor_x as i64 - x as i64;
+                    let step_y = neighbor_y as i64 - y as i64;
+                    let next_dx = dx + step_x;
+                    let next_dy = dy + step_y;
+                    let candidate_distance = next_dx
+                        .saturating_mul(next_dx)
+                        .saturating_add(next_dy.saturating_mul(next_dy))
+                        .clamp(0, u32::MAX as i64)
+                        as u32;
+                    let candidate_key = (candidate_distance, source_label, source_y, source_x);
+                    let current_key = (
+                        squared_distances[neighbor_index],
+                        labels[neighbor_index],
+                        seed_y[neighbor_index],
+                        seed_x[neighbor_index],
+                    );
+                    if candidate_key >= current_key {
+                        continue;
+                    }
+                    squared_distances[neighbor_index] = candidate_distance;
+                    labels[neighbor_index] = source_label;
+                    seed_x[neighbor_index] = source_x;
+                    seed_y[neighbor_index] = source_y;
+                    if !queued[neighbor_index] {
+                        queued[neighbor_index] = true;
+                        queue.push_back(neighbor_index);
+                    }
+                }
+            }
+        }
+
+        Self {
+            width,
+            height,
+            labels,
+            squared_distances,
+        }
+    }
+
+    pub fn width(&self) -> usize {
+        self.width
+    }
+
+    pub fn height(&self) -> usize {
+        self.height
+    }
+
+    pub fn label_at(&self, x: usize, y: usize) -> u32 {
+        self.labels[y * self.width + x]
+    }
+
+    pub fn squared_distance_at(&self, x: usize, y: usize) -> u32 {
+        self.squared_distances[y * self.width + x]
+    }
+
+    pub fn labels(&self) -> &[u32] {
+        &self.labels
+    }
+
+    pub fn squared_distances(&self) -> &[u32] {
+        &self.squared_distances
+    }
+}
+
+fn neighbors4(
+    x: usize,
+    y: usize,
+    width: usize,
+    height: usize,
+) -> impl Iterator<Item = (usize, usize)> {
+    let mut neighbors = [(0, 0); 4];
+    let mut count = 0;
+    if x > 0 {
+        neighbors[count] = (x - 1, y);
+        count += 1;
+    }
+    if x + 1 < width {
+        neighbors[count] = (x + 1, y);
+        count += 1;
+    }
+    if y > 0 {
+        neighbors[count] = (x, y - 1);
+        count += 1;
+    }
+    if y + 1 < height {
+        neighbors[count] = (x, y + 1);
+        count += 1;
+    }
+    neighbors.into_iter().take(count)
 }
 
 fn transform_1d(values: &[i64]) -> Vec<i64> {
@@ -114,6 +315,83 @@ mod tests {
                         .min()
                         .unwrap();
                     assert_eq!(actual[y * 9 + x], expected);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn peak_finder_collapses_four_connected_plateaus() {
+        let distances = [
+            0, 0, 0, 0, 0, //
+            0, 4, 4, 0, 3, //
+            0, 4, 4, 0, 0, //
+            0, 0, 0, 0, 0,
+        ];
+        assert_eq!(find_peaks(&distances, 5, 4), vec![(1, 1), (4, 1)]);
+    }
+
+    #[test]
+    fn influence_map_matches_labeled_brute_force() {
+        let width = 8;
+        let height = 7;
+        let mut seeds = vec![0; width * height];
+        seeds[width + 1] = 2;
+        seeds[5 * width + 6] = 1;
+        seeds[width + 6] = 3;
+        let map = InfluenceMap::from_seed_labels(width, height, &seeds);
+        for y in 0..height {
+            for x in 0..width {
+                let expected = [(1usize, 1usize, 2u32), (6, 5, 1), (6, 1, 3)]
+                    .into_iter()
+                    .map(|(seed_x, seed_y, label)| {
+                        let dx = x.abs_diff(seed_x);
+                        let dy = y.abs_diff(seed_y);
+                        (dx * dx + dy * dy, label, seed_y, seed_x)
+                    })
+                    .min()
+                    .unwrap();
+                assert_eq!(map.squared_distance_at(x, y) as usize, expected.0);
+                assert_eq!(map.label_at(x, y), expected.1);
+            }
+        }
+    }
+
+    #[test]
+    fn influence_map_matches_brute_force_for_varied_seed_layouts() {
+        let width = 11;
+        let height = 9;
+        for salt in 0..9 {
+            let seed_points = (0..5)
+                .map(|seed| {
+                    (
+                        (seed * 7 + salt * 3) % width,
+                        (seed * 5 + salt * 2) % height,
+                        (seed % 3 + 1) as u32,
+                    )
+                })
+                .collect::<Vec<_>>();
+            let mut seeds = vec![0; width * height];
+            for &(x, y, label) in &seed_points {
+                seeds[y * width + x] = label;
+            }
+            let map = InfluenceMap::from_seed_labels(width, height, &seeds);
+            for y in 0..height {
+                for x in 0..width {
+                    let expected = seed_points
+                        .iter()
+                        .map(|&(seed_x, seed_y, label)| {
+                            let dx = x.abs_diff(seed_x);
+                            let dy = y.abs_diff(seed_y);
+                            (dx * dx + dy * dy, label, seed_y, seed_x)
+                        })
+                        .min()
+                        .unwrap();
+                    assert_eq!(
+                        (map.squared_distance_at(x, y) as usize, map.label_at(x, y)),
+                        (expected.0, expected.1),
+                        "salt={salt} at ({x}, {y})"
+                    );
                 }
             }
         }

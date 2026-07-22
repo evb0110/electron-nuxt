@@ -11,6 +11,7 @@ const DIRT_RADIUS_FLOOR_SQUARED: u32 = 4;
 const FALLBACK_X_HEIGHT_AT_300_DPI: f64 = 17.0;
 const MIN_LOCAL_THRESHOLD_RADIUS: usize = 8;
 const MAX_MULTISCALE_THRESHOLD_RADIUS: usize = 256;
+const CONTENT_REFERENCE_DPI: f64 = 150.0;
 
 #[doc(hidden)]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -217,6 +218,40 @@ impl PageCalibration {
         } else {
             150.0
         }
+    }
+
+    pub(crate) fn content_long_opening_size(self) -> (usize, usize) {
+        (
+            self.content_reference_length(200.0),
+            self.content_reference_length(1.0),
+        )
+    }
+
+    pub(crate) fn content_minimum_band_rows(self) -> usize {
+        self.content_reference_length(6.0)
+    }
+
+    pub(crate) fn content_trim_geometry(self) -> (usize, usize, usize) {
+        (
+            self.content_reference_length(8.0),
+            self.content_reference_length(8.0),
+            self.content_reference_length(30.0),
+        )
+    }
+
+    pub(crate) fn content_text_bias_area_cap(self) -> usize {
+        self.content_reference_area(5_000.0)
+    }
+
+    fn content_reference_length(self, pixels_at_150_dpi: f64) -> usize {
+        (pixels_at_150_dpi * self.effective_dpi / CONTENT_REFERENCE_DPI)
+            .round()
+            .max(1.0) as usize
+    }
+
+    fn content_reference_area(self, pixels_at_150_dpi: f64) -> usize {
+        let scale = self.effective_dpi / CONTENT_REFERENCE_DPI;
+        (pixels_at_150_dpi * scale * scale).round().max(1.0) as usize
     }
 
     fn mm_to_analysis_px(self, millimeters: f64) -> usize {

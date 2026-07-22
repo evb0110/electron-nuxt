@@ -16,6 +16,7 @@ use crate::{
     deskew::{detect_skew, DeskewResult},
     dewarp::{rasterize_inverse_area, rasterize_inverse_area_rgb, DewarpModel},
     png::RgbImage,
+    protocol::manifest_v2::ContentDiagnostics,
     split::{
         detect_split_at_analysis_level_with_threshold, DocumentPrior, LayoutClassification,
         ReconciliationMetadata, SplitResult,
@@ -55,6 +56,8 @@ pub struct CleanupMetadata {
     pub source_region: Rect,
     #[serde(with = "optional_pixel_rect_serde")]
     pub content_box: Option<Rect>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub content_diagnostics: Option<ContentDiagnostics>,
     pub applied_margins: AppliedMargins,
     #[serde(rename = "softMarginsPx")]
     pub soft_margins_pixels: [usize; 4],
@@ -154,6 +157,8 @@ pub struct AnalysisOutputMetadata {
     pub source_region: Rect,
     #[serde(with = "optional_pixel_rect_serde")]
     pub content_box: Option<Rect>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub content_diagnostics: Option<ContentDiagnostics>,
     #[serde(with = "pixel_rect_serde")]
     pub crop_rect: Rect,
     pub applied_margins: AppliedMargins,
@@ -372,31 +377,31 @@ pub fn analyze_page_with_document_prior(
             region.height * prepared.scale_y,
         );
         let working = crop_gray(&prepared.normalized, analysis_region);
-        let detected_content = if let Some(manual) =
+        let (detected_content, content_diagnostics) = if let Some(manual) =
             options.resolved_manual_content_for(half, prepared.full_width, prepared.full_height)
         {
             let left = manual.x.clamp(0.0, region.width.max(1.0) - 1.0);
             let top = manual.y.clamp(0.0, region.height.max(1.0) - 1.0);
             let right = manual.right().clamp(left + 1.0, region.width);
             let bottom = manual.bottom().clamp(top + 1.0, region.height);
-            Some(Rect::new(left, top, right - left, bottom - top))
+            (Some(Rect::new(left, top, right - left, bottom - top)), None)
         } else {
-            detect_content_and_margins_calibrated(
+            let detected = detect_content_and_margins_calibrated(
                 &working,
                 prepared.calibration.effective_dpi,
                 None,
                 Some([0.0; 4]),
                 prepared.calibration,
-            )
-            .content
-            .map(|content| {
+            );
+            let content = detected.content.map(|content| {
                 Rect::new(
                     content.x / prepared.scale_x,
                     content.y / prepared.scale_y,
                     content.width / prepared.scale_x,
                     content.height / prepared.scale_y,
                 )
-            })
+            });
+            (content, detected.diagnostics)
         };
         let content = content_result_for_dimensions(
             region.width.ceil().max(1.0) as usize,
@@ -416,6 +421,7 @@ pub fn analyze_page_with_document_prior(
             half,
             source_region: region,
             content_box: content.content,
+            content_diagnostics,
             crop_rect: Rect::new(
                 region.x + local_crop.x,
                 region.y + local_crop.y,
@@ -772,7 +778,7 @@ fn clean_region(
     } else {
         analysis_working
     };
-    let (content, source_content_box) = if let Some(manual) =
+    let (content, source_content_box, content_diagnostics) = if let Some(manual) =
         options.resolved_manual_content_for(half, normalized.width(), normalized.height())
     {
         let left = manual
@@ -795,17 +801,17 @@ fn clean_region(
                 options.margins_pixels,
             ),
             Some(source_content),
+            None,
         )
     } else {
-        let detected = detect_content_and_margins_calibrated(
+        let detected_result = detect_content_and_margins_calibrated(
             &deskewed_analysis,
             calibration.effective_dpi,
             None,
             Some([0.0; 4]),
             calibration,
-        )
-        .content
-        .map(|rect| {
+        );
+        let detected = detected_result.content.map(|rect| {
             Rect::new(
                 rect.x / local_scale_x,
                 rect.y / local_scale_y,
@@ -824,6 +830,7 @@ fn clean_region(
                 options.margins_pixels,
             ),
             source_content,
+            detected_result.diagnostics,
         )
     };
     let automatic_dewarp = if options.dewarp.is_none() && options.experimental.auto_dewarp {
@@ -992,6 +999,7 @@ fn clean_region(
             } else {
                 source_content_box
             },
+            content_diagnostics,
             applied_margins: if crop_enabled {
                 content.margins
             } else {

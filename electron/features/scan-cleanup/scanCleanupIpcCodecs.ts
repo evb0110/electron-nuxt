@@ -451,6 +451,32 @@ function decodePreviewAffine(value: unknown) {
     )))};
 }
 
+function decodeContentDiagnostics(
+    value: unknown,
+): NonNullable<IScanCleanupPreviewMetadata['contentDiagnostics']> {
+    if (!isRecord(value) || !isRecord(value.sideConfidence) || !isRecord(value.textMask)) {
+        throw new Error('invalid scan-cleanup preview content diagnostics');
+    }
+    const textMask = value.textMask;
+    return {
+        sideConfidence: {
+            left: decodeUnitInterval(value.sideConfidence.left, 'content left confidence'),
+            top: decodeUnitInterval(value.sideConfidence.top, 'content top confidence'),
+            right: decodeUnitInterval(value.sideConfidence.right, 'content right confidence'),
+            bottom: decodeUnitInterval(value.sideConfidence.bottom, 'content bottom confidence'),
+        },
+        textMask: {
+            analysisWidthPx: decodePositiveInteger(textMask.analysisWidthPx, 'text-mask analysis width'),
+            analysisHeightPx: decodePositiveInteger(textMask.analysisHeightPx, 'text-mask analysis height'),
+            inkPixels: decodeNonNegativeInteger(textMask.inkPixels, 'text-mask ink pixels'),
+            lineCount: decodeNonNegativeInteger(textMask.lineCount, 'text-mask line count'),
+            ...(textMask.bounds === undefined
+                ? {}
+                : {bounds: decodePreviewRect(textMask.bounds, 'text-mask bounds')}),
+        },
+    };
+}
+
 function decodePreviewMetadata(value: unknown): IScanCleanupPreviewMetadata {
     if (!isRecord(value)) throw new Error('invalid scan-cleanup preview metadata');
     if (
@@ -488,6 +514,9 @@ function decodePreviewMetadata(value: unknown): IScanCleanupPreviewMetadata {
         layoutConfidence: decodeUnitInterval(value.layoutConfidence, 'layout confidence'),
         sourceRegion: decodePreviewRect(value.sourceRegion, 'source region'),
         contentBox: value.contentBox === null ? null : decodePreviewRect(value.contentBox, 'content box'),
+        ...(value.contentDiagnostics === undefined
+            ? {}
+            : {contentDiagnostics: decodeContentDiagnostics(value.contentDiagnostics)}),
         appliedMargins: {
             leftPx: decodeNonNegativeFiniteNumber(value.appliedMargins.leftPx, 'applied left margin'),
             topPx: decodeNonNegativeFiniteNumber(value.appliedMargins.topPx, 'applied top margin'),

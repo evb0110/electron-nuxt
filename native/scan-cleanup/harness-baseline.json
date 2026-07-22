@@ -1,4 +1,5 @@
 {
+  "schemaVersion": 1,
   "catastrophes": {
     "binarization": {
       "blankRegionFloods": 0,
@@ -270,7 +271,6 @@
       "offcutMisclassifications": 1
     }
   },
-  "schemaVersion": 1,
   "stubHooks": {
     "curledTruthAmplitudesPx": [
       34.0

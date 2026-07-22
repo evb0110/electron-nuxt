@@ -64,6 +64,7 @@ interface ILosslessPreviewAnalysisOutput {
     half: IScanCleanupPreviewMetadata['half'];
     sourceRegion: IScanCleanupPreviewMetadata['sourceRegion'];
     contentBox: IScanCleanupPreviewMetadata['contentBox'];
+    contentDiagnostics?: IScanCleanupPreviewMetadata['contentDiagnostics'];
     cropRect: IScanCleanupPreviewMetadata['sourceRegion'];
     appliedMargins: IScanCleanupPreviewMetadata['appliedMargins'];
     inputWidthPx: number;
@@ -318,6 +319,9 @@ async function runPreview(
                             layoutConfidence: pageMetadata.layoutConfidence,
                             sourceRegion: output.sourceRegion,
                             contentBox: output.contentBox,
+                            ...(output.contentDiagnostics === undefined
+                                ? {}
+                                : {contentDiagnostics: output.contentDiagnostics}),
                             appliedMargins: output.appliedMargins,
                             outputWidthPx,
                             outputHeightPx,

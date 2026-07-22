@@ -27,6 +27,7 @@ pub(crate) fn content_result_for_dimensions(
         content,
         output_rect: base.expand(margins[0], margins[1], margins[2], margins[3]),
         margins,
+        diagnostics: None,
     }
 }
 

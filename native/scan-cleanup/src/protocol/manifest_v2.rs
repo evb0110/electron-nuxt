@@ -1,9 +1,45 @@
 use crate::{split::DocumentPrior, CleanupOptions};
 use evb_native_support::{NativeError, NativeErrorCode};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
 pub const VERSION: u32 = 2;
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ContentSideConfidence {
+    pub left: f64,
+    pub top: f64,
+    pub right: f64,
+    pub bottom: f64,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ContentDiagnosticRect {
+    pub x_px: usize,
+    pub y_px: usize,
+    pub width_px: usize,
+    pub height_px: usize,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ContentTextMaskSummary {
+    pub analysis_width_px: usize,
+    pub analysis_height_px: usize,
+    pub ink_pixels: usize,
+    pub line_count: usize,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bounds: Option<ContentDiagnosticRect>,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ContentDiagnostics {
+    pub side_confidence: ContentSideConfidence,
+    pub text_mask: ContentTextMaskSummary,
+}
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
 #[serde(rename_all = "kebab-case")]

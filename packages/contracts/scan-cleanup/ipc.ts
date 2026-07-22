@@ -42,12 +42,34 @@ export interface IScanCleanupPreviewCancelRequest extends IScanCleanupOwnerConte
 
 export type TScanCleanupCanvasPolicy = 'intrinsic' | 'robust-quantile' | 'overflow-intrinsic';
 
+export interface IScanCleanupContentSideConfidence {
+    left: number;
+    top: number;
+    right: number;
+    bottom: number;
+}
+
+export interface IScanCleanupContentTextMaskSummary {
+    analysisWidthPx: number;
+    analysisHeightPx: number;
+    inkPixels: number;
+    lineCount: number;
+    bounds?: IScanCleanupPixelRect;
+}
+
+export interface IScanCleanupContentDiagnostics {
+    sideConfidence: IScanCleanupContentSideConfidence;
+    textMask: IScanCleanupContentTextMaskSummary;
+}
+
 export interface IScanCleanupPreviewMetadata {
     half: 'full' | 'left' | 'right';
     layoutClassification: TScanCleanupLayoutClassification;
     layoutConfidence: number;
     sourceRegion: IScanCleanupPixelRect;
     contentBox: IScanCleanupPixelRect | null;
+    /** Optional for metadata produced before native protocol v2 gained A4 diagnostics. */
+    contentDiagnostics?: IScanCleanupContentDiagnostics;
     appliedMargins: IScanCleanupAppliedMargins;
     /** Intrinsic dimensions of the unpadded cleaned raster. */
     outputWidthPx: number;
