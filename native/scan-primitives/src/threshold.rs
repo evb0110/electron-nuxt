@@ -279,6 +279,34 @@ pub fn threshold_local_biased_with_integrals(
     method: LocalThreshold,
     bias: i16,
 ) -> BinaryImage {
+    threshold_local_biased_with_integrals_impl(image, integrals, radius, method, bias, true)
+}
+
+/// Applies one scale of a multiscale local threshold.
+///
+/// For Wolf, the deviation floor protects the per-window normalization
+/// denominator but is not substituted for each local deviation. This faithful
+/// low-variance behavior prevents flat paper windows from degenerating to a
+/// mean threshold. The legacy single-window entry points retain their exact
+/// historical numerator-floor behavior.
+pub fn threshold_local_biased_with_integrals_for_consensus(
+    image: &GrayImage,
+    integrals: &IntegralImages,
+    radius: usize,
+    method: LocalThreshold,
+    bias: i16,
+) -> BinaryImage {
+    threshold_local_biased_with_integrals_impl(image, integrals, radius, method, bias, false)
+}
+
+fn threshold_local_biased_with_integrals_impl(
+    image: &GrayImage,
+    integrals: &IntegralImages,
+    radius: usize,
+    method: LocalThreshold,
+    bias: i16,
+    floor_local_wolf_deviation: bool,
+) -> BinaryImage {
     let width = image.width();
     let height = image.height();
     assert_eq!((integrals.width(), integrals.height()), (width, height));
@@ -302,6 +330,13 @@ pub fn threshold_local_biased_with_integrals(
             .reduce(|| 1.0, f64::max),
         LocalThreshold::Sauvola { .. } => 1.0,
     };
+    let low_variance_wolf = matches!(
+        method,
+        LocalThreshold::Wolf {
+            deviation_floor,
+            ..
+        } if !floor_local_wolf_deviation && max_deviation <= deviation_floor
+    );
     let mut output = BinaryImage::new(width, height);
     let words_per_line = output.words_per_line();
     output
@@ -316,8 +351,12 @@ pub fn threshold_local_biased_with_integrals(
                     LocalThreshold::Wolf {
                         k, deviation_floor, ..
                     } => {
-                        let normalized =
-                            deviation.max(deviation_floor) / max_deviation.max(deviation_floor);
+                        let local_deviation = if floor_local_wolf_deviation {
+                            deviation.max(deviation_floor)
+                        } else {
+                            deviation
+                        };
+                        let normalized = local_deviation / max_deviation.max(deviation_floor);
                         mean - k * (1.0 - normalized) * (mean - f64::from(global_min))
                     }
                 };
@@ -325,6 +364,7 @@ pub fn threshold_local_biased_with_integrals(
                 let black = match method {
                     LocalThreshold::Wolf { hard_ink, .. } if value <= hard_ink => true,
                     LocalThreshold::Wolf { hard_paper, .. } if value >= hard_paper => false,
+                    LocalThreshold::Wolf { .. } if low_variance_wolf => false,
                     _ => f64::from(value) < (threshold + f64::from(bias)).clamp(0.0, 255.0),
                 };
                 if black {
@@ -568,6 +608,38 @@ mod tests {
         );
         assert!(binary.get(1, 1));
         assert!(!binary.get(2, 2));
+    }
+
+    #[test]
+    fn consensus_wolf_abstains_on_low_variance_paper_but_keeps_hard_ink() {
+        let mut image = GrayImage::new(31, 23, 220);
+        for y in 0..image.height() {
+            for x in 0..image.width() {
+                image.set(x, y, 219 + ((x * 5 + y * 3) % 3) as u8);
+            }
+        }
+        let integrals = IntegralImages::new(&image);
+        let method = LocalThreshold::Wolf {
+            k: 0.2,
+            deviation_floor: 2.0,
+            minimum_percentile: 0.01,
+            hard_ink: 48,
+            hard_paper: 248,
+        };
+        let flat_consensus_scale =
+            threshold_local_biased_with_integrals_for_consensus(&image, &integrals, 4, method, 0);
+        assert_eq!(flat_consensus_scale.count_black(), 0);
+
+        image.set(15, 11, 40);
+        let hard_ink_integrals = IntegralImages::new(&image);
+        let with_hard_ink = threshold_local_biased_with_integrals_for_consensus(
+            &image,
+            &hard_ink_integrals,
+            4,
+            method,
+            0,
+        );
+        assert!(with_hard_ink.get(15, 11));
     }
 
     #[test]

@@ -1,8 +1,8 @@
 {
   "catastrophes": {
     "binarization": {
-      "blankRegionFloods": 1,
-      "brokenStrokeExplosions": 1
+      "blankRegionFloods": 0,
+      "brokenStrokeExplosions": 0
     },
     "content": {
       "contentLostOutsideCrop": 2
@@ -55,22 +55,18 @@
   "metrics": {
     "binarization": {
       "blankPixelsEvaluated": 1918624,
-      "blankRegionFloodIds": [
-        "synthetic-blank-page"
-      ],
-      "blankRegionFloods": 1,
-      "brokenStrokeDelta": 5740,
-      "brokenStrokeExplosionIds": [
-        "synthetic-blank-page"
-      ],
-      "brokenStrokeExplosions": 1,
-      "componentCountDelta": 5739,
+      "blankRegionFloodIds": [],
+      "blankRegionFloods": 0,
+      "brokenStrokeDelta": 2,
+      "brokenStrokeExplosionIds": [],
+      "brokenStrokeExplosions": 0,
+      "componentCountDelta": 1,
       "componentPagesEvaluated": 15,
       "expectedComponents": 2857,
-      "outputComponents": 8596,
+      "outputComponents": 2858,
       "pagesEvaluated": 50,
-      "pepperDensity": 0.203303,
-      "pepperPixels": 390062,
+      "pepperDensity": 0.0,
+      "pepperPixels": 0,
       "routeCounts": {
         "otsu": 32,
         "wolf": 18

@@ -7,7 +7,8 @@ use scan_primitives::{
     distance::squared_euclidean_distance,
     threshold::{
         otsu_threshold, threshold_global, threshold_global_biased, threshold_local,
-        threshold_local_biased, LocalThreshold,
+        threshold_local_biased, threshold_local_biased_with_integrals_for_consensus,
+        IntegralImages, LocalThreshold,
     },
     BinaryImage, ComponentMap, GrayImage,
 };
@@ -21,6 +22,7 @@ const SAUVOLA_K: f64 = 0.34;
 const WOLF_MINIMUM_PERCENTILE: f64 = 0.01;
 const WOLF_HARD_INK: u8 = 48;
 const WOLF_HARD_PAPER: u8 = 248;
+const STROKE_EDGE_THRESHOLD: u16 = 24;
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -98,7 +100,13 @@ pub(crate) fn binarize_normalized_with_diagnostics(
 ) -> (BinaryImage, BinarizationDiagnostics, bool) {
     let threshold_input = smooth_for_binarization(normalized, options.dpi);
     let diagnostics = resolve_binarization_diagnostics(routing_sample, options);
-    let binary = threshold_with_mode(&threshold_input, options, diagnostics.route, calibration);
+    let binary = threshold_with_mode(
+        &threshold_input,
+        normalized,
+        options,
+        diagnostics.route,
+        calibration,
+    );
     let (binary, despeckle_fallback) =
         postprocess_binary_with_diagnostics(&binary, Some(normalized), options, calibration);
     (binary, diagnostics, despeckle_fallback)
@@ -111,12 +119,13 @@ fn binarize_with_mode(
     mode: BinarizationMode,
     calibration: PageCalibration,
 ) -> BinaryImage {
-    let binary = threshold_with_mode(threshold_input, options, mode, calibration);
+    let binary = threshold_with_mode(threshold_input, normalized, options, mode, calibration);
     postprocess_binary(&binary, Some(normalized), options, calibration)
 }
 
 fn threshold_with_mode(
     threshold_input: &GrayImage,
+    normalized: &GrayImage,
     options: &CleanupOptions,
     mode: BinarizationMode,
     calibration: PageCalibration,
@@ -127,14 +136,18 @@ fn threshold_with_mode(
         BinarizationMode::Otsu => {
             threshold_global_biased(threshold_input, otsu_threshold(threshold_input), bias)
         }
-        BinarizationMode::Sauvola => threshold_local_biased(
+        BinarizationMode::Sauvola => threshold_local_for_route(
             threshold_input,
+            normalized,
             radius,
             LocalThreshold::Sauvola { k: SAUVOLA_K },
             bias,
+            calibration,
+            options.dpi,
         ),
-        BinarizationMode::Wolf | BinarizationMode::Auto => threshold_local_biased(
+        BinarizationMode::Wolf | BinarizationMode::Auto => threshold_local_for_route(
             threshold_input,
+            normalized,
             radius,
             LocalThreshold::Wolf {
                 k: WOLF_K,
@@ -144,8 +157,104 @@ fn threshold_with_mode(
                 hard_paper: WOLF_HARD_PAPER,
             },
             bias,
+            calibration,
+            options.dpi,
         ),
     }
+}
+
+fn threshold_local_for_route(
+    threshold_input: &GrayImage,
+    normalized: &GrayImage,
+    legacy_radius: usize,
+    method: LocalThreshold,
+    bias: i16,
+    calibration: PageCalibration,
+    raster_dpi: f64,
+) -> BinaryImage {
+    if !calibration.config.multiscale_local_threshold {
+        return threshold_local_biased(threshold_input, legacy_radius, method, bias);
+    }
+
+    let integrals = IntegralImages::new(threshold_input);
+    let [small_radius, medium_radius, large_radius] =
+        calibration.multiscale_threshold_radii(raster_dpi);
+    let small = threshold_local_biased_with_integrals_for_consensus(
+        threshold_input,
+        &integrals,
+        small_radius,
+        method,
+        bias,
+    );
+    let medium = threshold_local_biased_with_integrals_for_consensus(
+        threshold_input,
+        &integrals,
+        medium_radius,
+        method,
+        bias,
+    );
+    let large = threshold_local_biased_with_integrals_for_consensus(
+        threshold_input,
+        &integrals,
+        large_radius,
+        method,
+        bias,
+    );
+    multiscale_consensus(normalized, &small, &medium, &large)
+}
+
+fn multiscale_consensus(
+    normalized: &GrayImage,
+    small: &BinaryImage,
+    medium: &BinaryImage,
+    large: &BinaryImage,
+) -> BinaryImage {
+    assert_eq!(
+        (small.width(), small.height()),
+        (normalized.width(), normalized.height())
+    );
+    assert_eq!(medium.width(), small.width());
+    assert_eq!(medium.height(), small.height());
+    assert_eq!(large.width(), small.width());
+    assert_eq!(large.height(), small.height());
+
+    let mut edge_supported_small = BinaryImage::new(small.width(), small.height());
+    for y in 0..small.height() {
+        for x in 0..small.width() {
+            edge_supported_small.set(
+                x,
+                y,
+                small.get(x, y)
+                    && sobel_gradient_magnitude(normalized, x, y) > STROKE_EDGE_THRESHOLD,
+            );
+        }
+    }
+    medium.and(large).or(&edge_supported_small)
+}
+
+fn sobel_gradient_magnitude(image: &GrayImage, x: usize, y: usize) -> u16 {
+    if image.width() == 0 || image.height() == 0 {
+        return 0;
+    }
+    let left = x.saturating_sub(1);
+    let right = x.saturating_add(1).min(image.width() - 1);
+    let top = y.saturating_sub(1);
+    let bottom = y.saturating_add(1).min(image.height() - 1);
+    let top_left = i32::from(image.get(left, top));
+    let top_center = i32::from(image.get(x, top));
+    let top_right = i32::from(image.get(right, top));
+    let center_left = i32::from(image.get(left, y));
+    let center_right = i32::from(image.get(right, y));
+    let bottom_left = i32::from(image.get(left, bottom));
+    let bottom_center = i32::from(image.get(x, bottom));
+    let bottom_right = i32::from(image.get(right, bottom));
+    let gradient_x =
+        -top_left + top_right - 2 * center_left + 2 * center_right - bottom_left + bottom_right;
+    let gradient_y =
+        -top_left - 2 * top_center - top_right + bottom_left + 2 * bottom_center + bottom_right;
+
+    ((gradient_x.unsigned_abs() + gradient_y.unsigned_abs() + 2) / 4).min(u32::from(u16::MAX))
+        as u16
 }
 
 pub(crate) fn postprocess_binary(
@@ -1005,6 +1114,145 @@ mod tests {
             .iter()
             .filter(|component| component.area <= maximum_area)
             .count()
+    }
+
+    #[test]
+    fn multiscale_consensus_recovers_faint_thin_stroke_only_with_gradient_support() {
+        let mut normalized = GrayImage::new(15, 15, 220);
+        let mut small = BinaryImage::new(15, 15);
+        let medium = BinaryImage::new(15, 15);
+        let large = BinaryImage::new(15, 15);
+        for y in 2..13 {
+            for x in 6..8 {
+                normalized.set(x, y, 190);
+                small.set(x, y, true);
+            }
+        }
+
+        let recovered = multiscale_consensus(&normalized, &small, &medium, &large);
+        assert!(recovered.get(6, 7));
+        assert!(recovered.get(7, 7));
+
+        let flat = GrayImage::new(15, 15, 220);
+        let unsupported = multiscale_consensus(&flat, &small, &medium, &large);
+        assert!(!unsupported.get(6, 7));
+        assert!(!unsupported.get(7, 7));
+    }
+
+    #[test]
+    fn multiscale_consensus_rejects_isolated_low_variance_noise_from_smallest_window() {
+        let mut normalized = GrayImage::new(11, 11, 220);
+        normalized.set(5, 5, 219);
+        let mut small = BinaryImage::new(11, 11);
+        small.set(5, 5, true);
+        let medium = BinaryImage::new(11, 11);
+        let large = BinaryImage::new(11, 11);
+
+        let consensus = multiscale_consensus(&normalized, &small, &medium, &large);
+        assert!(!consensus.get(5, 5));
+    }
+
+    #[test]
+    fn legacy_calibration_keeps_single_window_thresholding() {
+        let mut image = GrayImage::new(61, 43, 232);
+        for y in 7..36 {
+            for x in (8..53).step_by(9) {
+                image.set(x, y, 105 + (x % 4) as u8);
+            }
+        }
+        let options = CleanupOptions {
+            dpi: 300.0,
+            binarization: BinarizationMode::Wolf,
+            ..CleanupOptions::default()
+        };
+        let calibration =
+            PageCalibration::estimate(&image, options.dpi, CalibrationConfig::legacy());
+        let method = LocalThreshold::Wolf {
+            k: WOLF_K,
+            deviation_floor: 2.0,
+            minimum_percentile: WOLF_MINIMUM_PERCENTILE,
+            hard_ink: WOLF_HARD_INK,
+            hard_paper: WOLF_HARD_PAPER,
+        };
+        let expected =
+            threshold_local_biased(&image, calibration.threshold_radius(options.dpi), method, 0);
+
+        assert_eq!(
+            threshold_with_mode(
+                &image,
+                &image,
+                &options,
+                BinarizationMode::Wolf,
+                calibration,
+            ),
+            expected
+        );
+    }
+
+    #[test]
+    #[ignore = "manual release-mode timing for the A3 report"]
+    fn benchmark_multiscale_wolf_against_single_window_bw_route() {
+        use std::time::Instant;
+
+        let mut image = GrayImage::new(1_275, 1_650, 238);
+        for y in 0..image.height() {
+            for x in 0..image.width() {
+                image.set(x, y, 232 + ((x * 7 + y * 11 + x * y % 17) % 13) as u8);
+            }
+        }
+        for top in (35..1_610).step_by(24) {
+            for left in (30..1_235).step_by(19) {
+                for y in top..top + 14 {
+                    for x in left..left + 8 {
+                        if x < left + 2 || y < top + 2 || y >= top + 12 {
+                            image.set(x, y, 82 + ((x + y) % 9) as u8);
+                        }
+                    }
+                }
+            }
+        }
+        let options = CleanupOptions {
+            binarization: BinarizationMode::Wolf,
+            normalize_illumination: false,
+            despeckle: false,
+            ..CleanupOptions::default()
+        };
+        let multiscale = CalibrationConfig::default();
+        let single_window = CalibrationConfig {
+            multiscale_local_threshold: false,
+            ..CalibrationConfig::default()
+        };
+
+        let _ = clean_black_and_white_with_calibration_config(&image, &options, single_window);
+        let _ = clean_black_and_white_with_calibration_config(&image, &options, multiscale);
+        let mut single_samples = Vec::new();
+        let mut multiscale_samples = Vec::new();
+        for _ in 0..3 {
+            let started = Instant::now();
+            let single = std::hint::black_box(clean_black_and_white_with_calibration_config(
+                &image,
+                &options,
+                single_window,
+            ));
+            single_samples.push(started.elapsed());
+
+            let started = Instant::now();
+            let multiple = std::hint::black_box(clean_black_and_white_with_calibration_config(
+                &image, &options, multiscale,
+            ));
+            multiscale_samples.push(started.elapsed());
+            assert_eq!(single.binary.width(), multiple.binary.width());
+            assert_eq!(single.binary.height(), multiple.binary.height());
+        }
+        single_samples.sort_unstable();
+        multiscale_samples.sort_unstable();
+        let single = single_samples[1];
+        let multiscale = multiscale_samples[1];
+        let ratio = multiscale.as_secs_f64() / single.as_secs_f64();
+        eprintln!(
+            "A3 Wolf BW route 1275x1650: single={single:?} multiscale={multiscale:?} ratio={ratio:.3}x"
+        );
+        assert!(ratio <= 1.5, "multiscale BW route ratio was {ratio:.3}x");
     }
 
     #[test]

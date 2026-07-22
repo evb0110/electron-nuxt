@@ -8,6 +8,9 @@ const MIN_ESTIMATE_COMPONENTS: usize = 8;
 const DESPECKLE_STROKE_AREA_FACTOR: f64 = 0.5;
 const DESPECKLE_AREA_FLOOR: usize = 16;
 const DIRT_RADIUS_FLOOR_SQUARED: u32 = 4;
+const FALLBACK_X_HEIGHT_AT_300_DPI: f64 = 17.0;
+const MIN_LOCAL_THRESHOLD_RADIUS: usize = 8;
+const MAX_MULTISCALE_THRESHOLD_RADIUS: usize = 256;
 
 #[doc(hidden)]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -20,6 +23,7 @@ pub struct CalibrationConfig {
     pub despeckle_substantial_area: bool,
     pub despeckle_analysis_scale: bool,
     pub local_threshold_radius: bool,
+    pub multiscale_local_threshold: bool,
 }
 
 impl CalibrationConfig {
@@ -33,6 +37,7 @@ impl CalibrationConfig {
             despeckle_substantial_area: false,
             despeckle_analysis_scale: false,
             local_threshold_radius: false,
+            multiscale_local_threshold: false,
         }
     }
 }
@@ -48,6 +53,7 @@ impl Default for CalibrationConfig {
             despeckle_substantial_area: true,
             despeckle_analysis_scale: true,
             local_threshold_radius: true,
+            multiscale_local_threshold: true,
         }
     }
 }
@@ -183,6 +189,17 @@ impl PageCalibration {
         .clamp(8, 64)
     }
 
+    pub(crate) fn multiscale_threshold_radii(self, raster_dpi: f64) -> [usize; 3] {
+        let x_height = if self.valid {
+            self.scaled_x_height(raster_dpi)
+        } else {
+            FALLBACK_X_HEIGHT_AT_300_DPI * raster_dpi.max(1.0) / 300.0
+        };
+        [1.0, 2.5, 5.0]
+            .map(|scale| (scale * x_height).round() as usize)
+            .map(|radius| radius.clamp(MIN_LOCAL_THRESHOLD_RADIUS, MAX_MULTISCALE_THRESHOLD_RADIUS))
+    }
+
     pub(crate) fn despeckle_substantial_area(self, raster_dpi: f64) -> usize {
         if self.config.despeckle_substantial_area && self.valid {
             (DESPECKLE_STROKE_AREA_FACTOR * self.scaled_stroke_width(raster_dpi).powi(2))
@@ -261,6 +278,7 @@ mod tests {
         assert!((3.0..=5.0).contains(&calibration.stroke_width_px));
         assert_eq!(calibration.x_height_px, 18.0);
         assert_eq!(calibration.threshold_radius(150.0), 27);
+        assert_eq!(calibration.multiscale_threshold_radii(150.0), [18, 45, 90]);
     }
 
     #[test]
@@ -281,6 +299,7 @@ mod tests {
         assert_eq!(calibration.content_dirt_radius_squared(), 36);
         assert_eq!(calibration.despeckle_substantial_area(90.0), 16);
         assert_eq!(calibration.threshold_radius(90.0), 8);
+        assert_eq!(calibration.multiscale_threshold_radii(90.0), [8, 13, 26]);
     }
 
     #[test]
@@ -303,5 +322,6 @@ mod tests {
         assert_eq!(legacy.content_min_block_area(), 64);
         assert_eq!(legacy.content_dirt_radius_squared(), 36);
         assert_eq!(legacy.content_despeckle_dpi(), 150.0);
+        assert!(!legacy.config.multiscale_local_threshold);
     }
 }
