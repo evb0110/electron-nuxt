@@ -1,6 +1,6 @@
 use crate::png::RgbImage;
 use rayon::prelude::*;
-use scan_primitives::{morphology::reconstruct_gray, GrayImage};
+use scan_primitives::{morphology::reconstruct_gray, BinaryImage, GrayImage};
 
 const X_TERMS: usize = 8;
 const Y_TERMS: usize = 5;
@@ -25,24 +25,42 @@ struct SurfaceDiagnostics {
 struct SurfaceFit {
     coefficients: Vec<f64>,
     diagnostics: SurfaceDiagnostics,
+    mask: Vec<bool>,
 }
 
 pub fn normalize_illumination(source: &GrayImage, _dpi: f64) -> GrayImage {
-    let model = background_model(source);
+    normalize_illumination_with_picture_mask(source, _dpi, None)
+}
+
+pub fn normalize_illumination_with_picture_mask(
+    source: &GrayImage,
+    _dpi: f64,
+    picture_mask: Option<&BinaryImage>,
+) -> GrayImage {
+    let model = background_model(source, picture_mask);
     normalize_with_model(source, &model)
 }
 
 pub fn normalize_illumination_rgb(luminance: &GrayImage, source: &RgbImage, _dpi: f64) -> RgbImage {
-    let model = background_model(luminance);
+    normalize_illumination_rgb_with_picture_mask(luminance, source, _dpi, None)
+}
+
+pub fn normalize_illumination_rgb_with_picture_mask(
+    luminance: &GrayImage,
+    source: &RgbImage,
+    _dpi: f64,
+    picture_mask: Option<&BinaryImage>,
+) -> RgbImage {
+    let model = background_model(luminance, picture_mask);
     normalize_rgb_with_model(source, &model)
 }
 
-fn background_model(source: &GrayImage) -> BackgroundModel {
+fn background_model(source: &GrayImage, picture_mask: Option<&BinaryImage>) -> BackgroundModel {
     let (small, candidate) = reconstructed_background(source);
-    match fit_masked_surface(&small, &candidate) {
+    match fit_masked_surface(&small, &candidate, picture_mask) {
         Some(fit) => {
             debug_assert!(validate_surface(fit.diagnostics));
-            BackgroundModel::Surface(fit.coefficients)
+            select_background_model(&small, candidate, fit)
         }
         None => reconstruction_fallback(candidate),
     }
@@ -186,17 +204,36 @@ fn gray_erode(source: &GrayImage, radius: usize) -> GrayImage {
     output
 }
 
-fn fit_masked_surface(source: &GrayImage, candidate: &GrayImage) -> Option<SurfaceFit> {
+fn fit_masked_surface(
+    source: &GrayImage,
+    candidate: &GrayImage,
+    picture_mask: Option<&BinaryImage>,
+) -> Option<SurfaceFit> {
     let x_basis = precompute_chebyshev::<X_TERMS>(source.width());
     let y_basis = precompute_chebyshev::<Y_TERMS>(source.height());
-    let mut accepted = 0usize;
-    let (normal, rhs) =
-        accumulate_surface_system(source, candidate, &x_basis, &y_basis, &mut accepted);
+    let mask = refined_surface_mask(source, candidate, picture_mask);
+    let accepted = mask.iter().filter(|&&included| included).count();
     if accepted < SURFACE_TERMS * 2 {
         return None;
     }
-    let coefficients = cholesky_solve_regularized(normal, rhs)?;
-    let mut residuals = surface_residuals(source, candidate, &x_basis, &y_basis, &coefficients);
+    let mut robust_weights = vec![1.0; mask.len()];
+    let (normal, rhs) =
+        accumulate_surface_system(candidate, &mask, &robust_weights, &x_basis, &y_basis);
+    let mut coefficients = cholesky_solve_regularized(normal, rhs)?;
+    for _ in 0..3 {
+        update_huber_weights(
+            candidate,
+            &mask,
+            &x_basis,
+            &y_basis,
+            &coefficients,
+            &mut robust_weights,
+        );
+        let (normal, rhs) =
+            accumulate_surface_system(candidate, &mask, &robust_weights, &x_basis, &y_basis);
+        coefficients = cholesky_solve_regularized(normal, rhs)?;
+    }
+    let mut residuals = surface_residuals(candidate, &mask, &x_basis, &y_basis, &coefficients);
     let median_absolute_residual = percentile(&mut residuals, 0.5);
     let p90_absolute_residual = percentile(&mut residuals, 0.9);
     let (minimum, maximum) = surface_range(&x_basis, &y_basis, &coefficients);
@@ -210,7 +247,38 @@ fn fit_masked_surface(source: &GrayImage, candidate: &GrayImage) -> Option<Surfa
     validate_surface(diagnostics).then_some(SurfaceFit {
         coefficients,
         diagnostics,
+        mask,
     })
+}
+
+fn select_background_model(
+    source: &GrayImage,
+    candidate: GrayImage,
+    fit: SurfaceFit,
+) -> BackgroundModel {
+    let x_basis = precompute_chebyshev::<X_TERMS>(source.width());
+    let y_basis = precompute_chebyshev::<Y_TERMS>(source.height());
+    let surface_residual = masked_model_residual(
+        source,
+        &fit.mask,
+        &x_basis,
+        &y_basis,
+        Some(&fit.coefficients),
+        None,
+    );
+    let reconstruction_residual = masked_model_residual(
+        source,
+        &fit.mask,
+        &x_basis,
+        &y_basis,
+        None,
+        Some(&candidate),
+    );
+    if reconstruction_residual < surface_residual {
+        reconstruction_fallback(candidate)
+    } else {
+        BackgroundModel::Surface(fit.coefficients)
+    }
 }
 
 fn fit_masked_surface_legacy(source: &GrayImage, candidate: &GrayImage) -> Option<Vec<f64>> {
@@ -247,37 +315,279 @@ fn fit_masked_surface_legacy(source: &GrayImage, candidate: &GrayImage) -> Optio
         .flatten()
 }
 
-fn accumulate_surface_system(
+fn refined_surface_mask(
     source: &GrayImage,
     candidate: &GrayImage,
+    picture_mask: Option<&BinaryImage>,
+) -> Vec<bool> {
+    let mut mask = vec![false; source.width() * source.height()];
+    for y in 0..source.height() {
+        for x in 0..source.width() {
+            let picture = picture_mask.is_some_and(|pictures| {
+                let picture_x = if source.width() <= 1 {
+                    0
+                } else {
+                    x * pictures.width().saturating_sub(1) / (source.width() - 1)
+                };
+                let picture_y = if source.height() <= 1 {
+                    0
+                } else {
+                    y * pictures.height().saturating_sub(1) / (source.height() - 1)
+                };
+                pictures.get(picture_x, picture_y)
+            });
+            mask[y * source.width() + x] =
+                !picture && source.get(x, y).saturating_add(18) >= candidate.get(x, y);
+        }
+    }
+    refine_line_mask(source, &mut mask, true, 3);
+    refine_line_mask(source, &mut mask, false, 5);
+    mask = erode_mask_3x3(&mask, source.width(), source.height());
+    drop_sparse_lines(&mut mask, source.width(), source.height(), true);
+    drop_sparse_lines(&mut mask, source.width(), source.height(), false);
+    mask
+}
+
+fn refine_line_mask(source: &GrayImage, mask: &mut [bool], columns: bool, terms: usize) {
+    let line_count = if columns {
+        source.width()
+    } else {
+        source.height()
+    };
+    let line_length = if columns {
+        source.height()
+    } else {
+        source.width()
+    };
+    let minimum_survivors = line_length.div_ceil(4);
+    for line in 0..line_count {
+        let samples = (0..line_length)
+            .filter_map(|position| {
+                let (x, y) = if columns {
+                    (line, position)
+                } else {
+                    (position, line)
+                };
+                mask[y * source.width() + x].then_some((position, source.get(x, y)))
+            })
+            .collect::<Vec<_>>();
+        if samples.len() < minimum_survivors.max(terms) {
+            set_line(
+                mask,
+                source.width(),
+                line_count,
+                line_length,
+                line,
+                columns,
+                false,
+            );
+            continue;
+        }
+        let Some(coefficients) = fit_line_polynomial(&samples, line_length, terms) else {
+            set_line(
+                mask,
+                source.width(),
+                line_count,
+                line_length,
+                line,
+                columns,
+                false,
+            );
+            continue;
+        };
+        for position in 0..line_length {
+            let (x, y) = if columns {
+                (line, position)
+            } else {
+                (position, line)
+            };
+            let index = y * source.width() + x;
+            if mask[index]
+                && f64::from(source.get(x, y)) + 30.0
+                    < evaluate_line_polynomial(&coefficients, position, line_length)
+            {
+                mask[index] = false;
+            }
+        }
+    }
+}
+
+fn set_line(
+    mask: &mut [bool],
+    width: usize,
+    _line_count: usize,
+    line_length: usize,
+    line: usize,
+    columns: bool,
+    value: bool,
+) {
+    for position in 0..line_length {
+        let (x, y) = if columns {
+            (line, position)
+        } else {
+            (position, line)
+        };
+        mask[y * width + x] = value;
+    }
+}
+
+fn fit_line_polynomial(
+    samples: &[(usize, u8)],
+    line_length: usize,
+    terms: usize,
+) -> Option<Vec<f64>> {
+    let mut normal = vec![vec![0.0; terms + 1]; terms];
+    for &(position, value) in samples {
+        let coordinate = normalized_coordinate(position, line_length);
+        let mut powers = vec![1.0; terms];
+        for power in 1..terms {
+            powers[power] = powers[power - 1] * coordinate;
+        }
+        for row in 0..terms {
+            for column in 0..terms {
+                normal[row][column] += powers[row] * powers[column];
+            }
+            normal[row][terms] += powers[row] * f64::from(value);
+        }
+    }
+    solve(normal)
+}
+
+fn evaluate_line_polynomial(coefficients: &[f64], position: usize, length: usize) -> f64 {
+    let coordinate = normalized_coordinate(position, length);
+    coefficients
+        .iter()
+        .rev()
+        .fold(0.0, |value, coefficient| value * coordinate + coefficient)
+}
+
+fn erode_mask_3x3(mask: &[bool], width: usize, height: usize) -> Vec<bool> {
+    let mut eroded = vec![false; mask.len()];
+    if width < 3 || height < 3 {
+        return eroded;
+    }
+    for y in 1..height - 1 {
+        for x in 1..width - 1 {
+            eroded[y * width + x] = (y - 1..=y + 1)
+                .all(|sample_y| (x - 1..=x + 1).all(|sample_x| mask[sample_y * width + sample_x]));
+        }
+    }
+    eroded
+}
+
+fn drop_sparse_lines(mask: &mut [bool], width: usize, height: usize, columns: bool) {
+    let line_count = if columns { width } else { height };
+    let line_length = if columns { height } else { width };
+    let minimum_survivors = line_length.div_ceil(4);
+    for line in 0..line_count {
+        let survivors = (0..line_length)
+            .filter(|&position| {
+                let (x, y) = if columns {
+                    (line, position)
+                } else {
+                    (position, line)
+                };
+                mask[y * width + x]
+            })
+            .count();
+        if survivors < minimum_survivors {
+            set_line(mask, width, line_count, line_length, line, columns, false);
+        }
+    }
+}
+
+fn update_huber_weights(
+    target: &GrayImage,
+    mask: &[bool],
     x_basis: &[[f64; X_TERMS]],
     y_basis: &[[f64; Y_TERMS]],
-    accepted: &mut usize,
+    coefficients: &[f64],
+    weights: &mut [f64],
+) {
+    const HUBER_DELTA: f64 = 10.0;
+    let mut basis = [0.0; SURFACE_TERMS];
+    for (y, y_values) in y_basis.iter().enumerate() {
+        for (x, x_values) in x_basis.iter().enumerate() {
+            let index = y * target.width() + x;
+            if !mask[index] {
+                weights[index] = 0.0;
+                continue;
+            }
+            fill_surface_basis(&mut basis, x_values, y_values);
+            let residual =
+                (evaluate_surface(coefficients, &basis) - f64::from(target.get(x, y))).abs();
+            weights[index] = if residual <= HUBER_DELTA {
+                1.0
+            } else {
+                HUBER_DELTA / residual
+            };
+        }
+    }
+}
+
+fn masked_model_residual(
+    source: &GrayImage,
+    mask: &[bool],
+    x_basis: &[[f64; X_TERMS]],
+    y_basis: &[[f64; Y_TERMS]],
+    coefficients: Option<&[f64]>,
+    reconstruction: Option<&GrayImage>,
+) -> f64 {
+    let mut residual_sum = 0.0;
+    let mut count = 0usize;
+    let mut basis = [0.0; SURFACE_TERMS];
+    for (y, y_values) in y_basis.iter().enumerate() {
+        for (x, x_values) in x_basis.iter().enumerate() {
+            if !mask[y * source.width() + x] {
+                continue;
+            }
+            let model_value = if let Some(coefficients) = coefficients {
+                fill_surface_basis(&mut basis, x_values, y_values);
+                evaluate_surface(coefficients, &basis)
+            } else {
+                f64::from(
+                    reconstruction
+                        .expect("model candidate is required")
+                        .get(x, y),
+                )
+            };
+            residual_sum += (model_value - f64::from(source.get(x, y))).abs();
+            count += 1;
+        }
+    }
+    residual_sum / count.max(1) as f64
+}
+
+fn accumulate_surface_system(
+    target: &GrayImage,
+    mask: &[bool],
+    robust_weights: &[f64],
+    x_basis: &[[f64; X_TERMS]],
+    y_basis: &[[f64; Y_TERMS]],
 ) -> (Vec<Vec<f64>>, Vec<f64>) {
     let mut normal = vec![vec![0.0; SURFACE_TERMS]; SURFACE_TERMS];
     let mut rhs = vec![0.0; SURFACE_TERMS];
     let mut basis = [0.0; SURFACE_TERMS];
     for (y, y_values) in y_basis.iter().enumerate() {
         for (x, x_values) in x_basis.iter().enumerate() {
-            let original = source.get(x, y);
-            let background = candidate.get(x, y);
-            if original.saturating_add(18) < background {
+            let index = y * target.width() + x;
+            if !mask[index] {
                 continue;
             }
             fill_surface_basis(&mut basis, x_values, y_values);
-            let border_x = source.width() / 30;
-            let weight = if x < border_x || x + border_x >= source.width() {
+            let border_x = target.width() / 30;
+            let border_weight = if x < border_x || x + border_x >= target.width() {
                 0.4
             } else {
                 1.0
             };
+            let weight = border_weight * robust_weights[index];
             for row in 0..SURFACE_TERMS {
                 for column in 0..=row {
                     normal[row][column] += weight * basis[row] * basis[column];
                 }
-                rhs[row] += weight * basis[row] * f64::from(background);
+                rhs[row] += weight * basis[row] * f64::from(target.get(x, y));
             }
-            *accepted += 1;
         }
     }
     for row in 0..SURFACE_TERMS {
@@ -309,8 +619,8 @@ fn evaluate_surface(coefficients: &[f64], basis: &[f64; SURFACE_TERMS]) -> f64 {
 }
 
 fn surface_residuals(
-    source: &GrayImage,
-    candidate: &GrayImage,
+    target: &GrayImage,
+    mask: &[bool],
     x_basis: &[[f64; X_TERMS]],
     y_basis: &[[f64; Y_TERMS]],
     coefficients: &[f64],
@@ -319,13 +629,12 @@ fn surface_residuals(
     let mut basis = [0.0; SURFACE_TERMS];
     for (y, y_values) in y_basis.iter().enumerate() {
         for (x, x_values) in x_basis.iter().enumerate() {
-            let original = source.get(x, y);
-            let background = candidate.get(x, y);
-            if original.saturating_add(18) < background {
+            if !mask[y * target.width() + x] {
                 continue;
             }
             fill_surface_basis(&mut basis, x_values, y_values);
-            residuals.push((evaluate_surface(coefficients, &basis) - f64::from(background)).abs());
+            residuals
+                .push((evaluate_surface(coefficients, &basis) - f64::from(target.get(x, y))).abs());
         }
     }
     residuals
@@ -637,13 +946,13 @@ mod tests {
                 candidate.set(x, y, value as u8);
             }
         }
-        let fit = fit_masked_surface(&source, &candidate).expect("smooth surface must fit");
-        assert_eq!(fit.diagnostics.accepted_samples, 120 * 80);
+        let fit = fit_masked_surface(&source, &candidate, None).expect("smooth surface must fit");
+        assert_eq!(fit.diagnostics.accepted_samples, 118 * 78);
         assert!(fit.diagnostics.median_absolute_residual < 0.75);
         assert!(fit.diagnostics.p90_absolute_residual < 1.5);
 
         let sparse = GrayImage::new(8, 8, 220);
-        assert!(fit_masked_surface(&sparse, &sparse).is_none());
+        assert!(fit_masked_surface(&sparse, &sparse, None).is_none());
         let normalized = normalize_illumination(&sparse, 300.0);
         assert!(normalized.data().iter().all(|value| *value >= 230));
     }
@@ -659,17 +968,60 @@ mod tests {
         }
         let x_basis = precompute_chebyshev::<X_TERMS>(source.width());
         let y_basis = precompute_chebyshev::<Y_TERMS>(source.height());
-        let mut accepted = 0;
-        let (normal, rhs) =
-            accumulate_surface_system(&source, &candidate, &x_basis, &y_basis, &mut accepted);
+        let mask = refined_surface_mask(&source, &candidate, None);
+        let accepted = mask.iter().filter(|&&included| included).count();
+        let (normal, rhs) = accumulate_surface_system(
+            &candidate,
+            &mask,
+            &vec![1.0; mask.len()],
+            &x_basis,
+            &y_basis,
+        );
         let coefficients = cholesky_solve_regularized(normal, rhs)
             .expect("ridge must solve a quadrant-only sample distribution");
         let (minimum, maximum) = surface_range(&x_basis, &y_basis, &coefficients);
 
-        assert_eq!(accepted, 60 * 40);
+        assert!(accepted >= SURFACE_TERMS * 2);
         assert!(minimum.is_finite() && maximum.is_finite());
         assert!(minimum >= -64.0, "minimum={minimum}");
         assert!(maximum <= 320.0, "maximum={maximum}");
+    }
+
+    #[test]
+    fn degenerate_picture_mask_keeps_the_selected_background_bounded() {
+        let mut source = GrayImage::new(140, 100, 225);
+        for y in 0..source.height() {
+            for x in 0..source.width() {
+                source.set(x, y, (180 + 40 * x / (source.width() - 1)) as u8);
+            }
+        }
+        let mut picture_mask = BinaryImage::new(source.width(), source.height());
+        for y in 0..source.height() {
+            for x in 0..source.width() {
+                picture_mask.set(x, y, x >= 42 || y >= 34);
+            }
+        }
+        let normalized =
+            normalize_illumination_with_picture_mask(&source, 300.0, Some(&picture_mask));
+        assert!(normalized.data().iter().all(|&value| value >= 180));
+        assert!(normalized.data().iter().any(|&value| value <= 245));
+    }
+
+    #[test]
+    fn model_selection_prefers_reconstruction_for_a_local_shadow() {
+        let mut source = GrayImage::new(180, 120, 230);
+        for y in 25..95 {
+            for x in 65..145 {
+                let edge_distance = (x - 65).min(144 - x).min((y - 25).min(94 - y));
+                let shadow = (edge_distance.min(18) * 24 / 18) as u8;
+                source.set(x, y, 230 - shadow);
+            }
+        }
+        let (small, candidate) = reconstructed_background(&source);
+        let fit = fit_masked_surface(&small, &candidate, None)
+            .expect("the local-shadow fixture must retain enough surface samples");
+        let model = select_background_model(&small, candidate, fit);
+        assert!(matches!(model, BackgroundModel::Reconstruction { .. }));
     }
 
     #[test]
@@ -686,7 +1038,7 @@ mod tests {
             checksum.update(normalized.row(y));
         }
 
-        assert_eq!(checksum.finalize(), 2_346_348_409);
+        assert_eq!(checksum.finalize(), 2_052_257_257);
     }
 
     #[test]

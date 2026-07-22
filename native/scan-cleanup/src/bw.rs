@@ -1,9 +1,10 @@
 use crate::{
     background::{normalize_illumination, smooth_for_binarization},
     calibration::{CalibrationConfig, PageCalibration},
-    BinarizationMode, CleanupOptions,
+    BinarizationMode, CleanupOptions, DespeckleLevel,
 };
 use scan_primitives::{
+    distance::squared_euclidean_distance,
     threshold::{
         otsu_threshold, threshold_global, threshold_global_biased, threshold_local,
         threshold_local_biased, LocalThreshold,
@@ -11,7 +12,7 @@ use scan_primitives::{
     BinaryImage, ComponentMap, GrayImage,
 };
 use serde::{Deserialize, Serialize};
-use std::{cmp::Reverse, collections::BinaryHeap, sync::OnceLock};
+use std::{collections::VecDeque, sync::OnceLock};
 
 // Corpus calibration keeps Wolf below the 0.3 reference setting: 0.3 erased
 // the Stage-B thin-stroke golden, while 0.2 retained it without adding noise.
@@ -84,7 +85,7 @@ fn binarize_normalized_calibrated(
     let diagnostics = resolve_binarization_diagnostics(&threshold_input, options);
     let mode = diagnostics.route;
     (
-        binarize_with_mode(&threshold_input, options, mode, calibration),
+        binarize_with_mode(&threshold_input, normalized, options, mode, calibration),
         mode,
     )
 }
@@ -99,18 +100,19 @@ pub(crate) fn binarize_normalized_with_diagnostics(
     let diagnostics = resolve_binarization_diagnostics(routing_sample, options);
     let binary = threshold_with_mode(&threshold_input, options, diagnostics.route, calibration);
     let (binary, despeckle_fallback) =
-        postprocess_binary_with_diagnostics(&binary, options, calibration);
+        postprocess_binary_with_diagnostics(&binary, Some(normalized), options, calibration);
     (binary, diagnostics, despeckle_fallback)
 }
 
 fn binarize_with_mode(
     threshold_input: &GrayImage,
+    normalized: &GrayImage,
     options: &CleanupOptions,
     mode: BinarizationMode,
     calibration: PageCalibration,
 ) -> BinaryImage {
     let binary = threshold_with_mode(threshold_input, options, mode, calibration);
-    postprocess_binary(&binary, options, calibration)
+    postprocess_binary(&binary, Some(normalized), options, calibration)
 }
 
 fn threshold_with_mode(
@@ -148,19 +150,23 @@ fn threshold_with_mode(
 
 pub(crate) fn postprocess_binary(
     binary: &BinaryImage,
+    normalized: Option<&GrayImage>,
     options: &CleanupOptions,
     calibration: PageCalibration,
 ) -> BinaryImage {
-    postprocess_binary_with_diagnostics(binary, options, calibration).0
+    postprocess_binary_with_diagnostics(binary, normalized, options, calibration).0
 }
 
 pub(crate) fn postprocess_binary_with_diagnostics(
     binary: &BinaryImage,
+    normalized: Option<&GrayImage>,
     options: &CleanupOptions,
     calibration: PageCalibration,
 ) -> (BinaryImage, bool) {
-    let (despeckled, despeckle_fallback) = if options.despeckle {
-        let outcome = despeckle_connected_impl(binary, options.dpi, calibration, true);
+    let level = options.effective_despeckle_level();
+    let (despeckled, despeckle_fallback) = if level != DespeckleLevel::Off {
+        let outcome =
+            despeckle_connected_impl(binary, normalized, options.dpi, calibration, level, true);
         (outcome.image, outcome.fallback)
     } else {
         (binary.clone(), false)
@@ -575,7 +581,7 @@ pub fn despeckle_connected_with_calibration_config(
     calibration_config: CalibrationConfig,
 ) -> BinaryImage {
     let calibration = PageCalibration::estimate_from_binary(source, dpi, calibration_config);
-    despeckle_connected_impl(source, dpi, calibration, true).image
+    despeckle_connected_impl(source, None, dpi, calibration, DespeckleLevel::Normal, true).image
 }
 
 pub(crate) fn despeckle_connected_calibrated(
@@ -583,7 +589,16 @@ pub(crate) fn despeckle_connected_calibrated(
     dpi: f64,
     calibration: PageCalibration,
 ) -> BinaryImage {
-    despeckle_connected_impl(source, dpi, calibration, true).image
+    let outcome =
+        despeckle_connected_impl(source, None, dpi, calibration, DespeckleLevel::Normal, true);
+    // Content-box preprocessing has no grayscale evidence and treats an all-small
+    // page as potential marginalia/photo structure. Keep its historical fail-open
+    // behavior; output despeckling still uses the required top-decile anchors.
+    if outcome.fallback {
+        source.clone()
+    } else {
+        outcome.image
+    }
 }
 
 struct DespeckleOutcome {
@@ -593,103 +608,284 @@ struct DespeckleOutcome {
 
 fn despeckle_connected_impl(
     source: &BinaryImage,
+    normalized: Option<&GrayImage>,
     dpi: f64,
     calibration: PageCalibration,
+    level: DespeckleLevel,
     use_attachment_graph: bool,
 ) -> DespeckleOutcome {
     let components = ComponentMap::from_binary(source);
-    if components.components().is_empty() {
+    if components.components().is_empty() || level == DespeckleLevel::Off {
         return DespeckleOutcome {
             image: source.clone(),
             fallback: false,
         };
     }
-    let scale = (dpi / 300.0).clamp(0.5, 4.0);
-    let substantial_area = calibration.despeckle_substantial_area(dpi);
-    if !components
-        .components()
-        .iter()
-        .any(|component| component.area >= substantial_area)
-    {
-        return DespeckleOutcome {
-            image: source.clone(),
-            fallback: true,
-        };
-    }
-    let expansion_limit = (7.0 * scale).round().max(3.0) as u32 * 4;
-    let maximum_attachment_cost = expansion_limit.saturating_mul(2);
+    let component_radii = component_maximum_inscribed_radius_squared(source, &components);
     let mut graph = vec![Vec::<AttachmentEdge>::new(); components.components().len() + 1];
-    populate_attachment_graph(components.components(), expansion_limit, &mut graph);
-    let mut keep = vec![false; graph.len()];
-    let mut distance = vec![u32::MAX; graph.len()];
-    let mut hops = vec![u8::MAX; graph.len()];
-    let mut queue = BinaryHeap::new();
-    for component in components.components() {
-        if component.area >= substantial_area {
-            let label = component.label as usize;
-            keep[label] = true;
-            distance[label] = 0;
-            hops[label] = 0;
-            queue.push(Reverse((0u32, 0u8, label)));
-        }
-    }
     if use_attachment_graph {
-        while let Some(Reverse((cost, hop_count, label))) = queue.pop() {
-            if cost != distance[label] || hop_count != hops[label] || hop_count >= 3 {
-                continue;
-            }
-            let parent = &components.components()[label - 1];
-            for edge in &graph[label] {
-                let candidate = &components.components()[edge.neighbor - 1];
-                if candidate.area >= substantial_area
-                    || !relative_attachment_size_is_safe(parent.area, candidate.area)
-                {
-                    continue;
-                }
-                let next_cost = cost.saturating_add(edge.cost);
-                let next_hops = hop_count + 1;
-                if next_cost > maximum_attachment_cost
-                    || (next_cost, next_hops) >= (distance[edge.neighbor], hops[edge.neighbor])
-                {
-                    continue;
-                }
-                distance[edge.neighbor] = next_cost;
-                hops[edge.neighbor] = next_hops;
-                keep[edge.neighbor] = true;
-                queue.push(Reverse((next_cost, next_hops, edge.neighbor)));
-            }
-        }
-        protect_line_supported_marks(
-            components.components(),
-            substantial_area,
-            expansion_limit,
-            &mut keep,
-        );
+        populate_attachment_graph(components.components(), &mut graph);
+    }
+    let (mut keep, fallback) = despeckle_keep_decision(
+        components.components(),
+        &component_radii,
+        &graph,
+        dpi,
+        calibration,
+        level,
+        use_attachment_graph,
+    );
+    if let Some(gray) =
+        normalized.filter(|gray| gray.width() == source.width() && gray.height() == source.height())
+    {
+        let more_cautious = match level {
+            DespeckleLevel::Aggressive => Some(DespeckleLevel::Normal),
+            DespeckleLevel::Normal => Some(DespeckleLevel::Cautious),
+            DespeckleLevel::Cautious | DespeckleLevel::Off => None,
+        };
+        let cautious_keep = more_cautious.map(|cautious_level| {
+            despeckle_keep_decision(
+                components.components(),
+                &component_radii,
+                &graph,
+                dpi,
+                calibration,
+                cautious_level,
+                use_attachment_graph,
+            )
+            .0
+        });
+        protect_high_contrast_components(&components, gray, cautious_keep.as_deref(), &mut keep);
     }
     DespeckleOutcome {
         image: components.retain(|component| keep[component.label as usize]),
-        fallback: false,
+        fallback,
     }
 }
 
 #[derive(Clone, Copy, Debug)]
 struct AttachmentEdge {
     neighbor: usize,
-    cost: u32,
+    distance_squared: u64,
 }
 
-fn relative_attachment_size_is_safe(parent_area: usize, candidate_area: usize) -> bool {
-    candidate_area <= parent_area.saturating_mul(2)
+fn despeckle_keep_decision(
+    components: &[scan_primitives::Component],
+    component_radii: &[u32],
+    graph: &[Vec<AttachmentEdge>],
+    dpi: f64,
+    calibration: PageCalibration,
+    requested_level: DespeckleLevel,
+    use_attachment_graph: bool,
+) -> (Vec<bool>, bool) {
+    let (substantial_area, minimum_radius_squared) =
+        despeckle_seed_thresholds(calibration, dpi, requested_level);
+    let mut seeds = vec![false; components.len() + 1];
+    for component in components {
+        let label = component.label as usize;
+        seeds[label] =
+            component.area >= substantial_area && component_radii[label] >= minimum_radius_squared;
+    }
+    let fallback = !seeds.iter().any(|&seed| seed);
+    let level = if fallback {
+        let mut areas = components
+            .iter()
+            .map(|component| component.area)
+            .collect::<Vec<_>>();
+        areas.sort_unstable();
+        let top_decile = areas[(areas.len() * 9) / 10];
+        for component in components {
+            seeds[component.label as usize] = component.area >= top_decile;
+        }
+        DespeckleLevel::Cautious
+    } else {
+        requested_level
+    };
+    let parameters = DespeckleParameters::for_level(level, dpi);
+    let mut keep = seeds.clone();
+    if use_attachment_graph {
+        let mut hops = vec![u8::MAX; keep.len()];
+        let mut queue = VecDeque::new();
+        for component in components {
+            let label = component.label as usize;
+            if seeds[label] {
+                hops[label] = 0;
+                queue.push_back(label);
+            }
+        }
+        while let Some(label) = queue.pop_front() {
+            if hops[label] >= parameters.maximum_hops {
+                continue;
+            }
+            let parent = &components[label - 1];
+            for edge in &graph[label] {
+                let candidate = &components[edge.neighbor - 1];
+                if seeds[edge.neighbor]
+                    || (parent.area as f64) < candidate.area as f64 * parameters.parent_area_ratio
+                    || edge.distance_squared
+                        > (candidate.area as f64 * parameters.distance_factor).round() as u64
+                {
+                    continue;
+                }
+                let next_hops = hops[label] + 1;
+                if next_hops >= hops[edge.neighbor] {
+                    continue;
+                }
+                hops[edge.neighbor] = next_hops;
+                keep[edge.neighbor] = true;
+                queue.push_back(edge.neighbor);
+            }
+        }
+        protect_line_supported_marks(components, &seeds, dpi, &mut keep);
+    }
+    (keep, fallback)
+}
+
+#[derive(Clone, Copy)]
+struct DespeckleParameters {
+    distance_factor: f64,
+    parent_area_ratio: f64,
+    maximum_hops: u8,
+    seed_stroke_area_factor: f64,
+}
+
+impl DespeckleParameters {
+    fn for_level(level: DespeckleLevel, dpi: f64) -> Self {
+        let dpi_factor = (dpi / 300.0).clamp(0.5, 4.0);
+        match level {
+            DespeckleLevel::Off | DespeckleLevel::Cautious => Self {
+                distance_factor: 100.0,
+                parent_area_ratio: 0.125 * dpi_factor,
+                maximum_hops: 5,
+                seed_stroke_area_factor: 0.35,
+            },
+            DespeckleLevel::Normal => Self {
+                distance_factor: 42.0,
+                parent_area_ratio: 0.175 * dpi_factor,
+                maximum_hops: 3,
+                seed_stroke_area_factor: 0.5,
+            },
+            DespeckleLevel::Aggressive => Self {
+                distance_factor: 12.0,
+                parent_area_ratio: 0.225 * dpi_factor,
+                maximum_hops: 3,
+                seed_stroke_area_factor: 0.75,
+            },
+        }
+    }
+}
+
+fn despeckle_seed_thresholds(
+    calibration: PageCalibration,
+    dpi: f64,
+    level: DespeckleLevel,
+) -> (usize, u32) {
+    let scale = (dpi / 300.0).clamp(0.5, 4.0);
+    if calibration.config.despeckle_substantial_area && calibration.valid {
+        let stroke_width = calibration.stroke_width_px * dpi.max(1.0) / calibration.effective_dpi;
+        let area = (DespeckleParameters::for_level(level, dpi).seed_stroke_area_factor
+            * stroke_width.powi(2))
+        .round()
+        .max(16.0) as usize;
+        let minimum_radius_squared = (stroke_width * 0.5).powi(2).ceil().max(1.0) as u32;
+        (area, minimum_radius_squared)
+    } else {
+        (
+            calibration.despeckle_substantial_area(dpi),
+            scale.powi(2).ceil().max(1.0) as u32,
+        )
+    }
+}
+
+fn component_maximum_inscribed_radius_squared(
+    source: &BinaryImage,
+    components: &ComponentMap,
+) -> Vec<u32> {
+    let distances = squared_euclidean_distance(&source.invert());
+    let mut maxima = vec![0u32; components.components().len() + 1];
+    for y in 0..source.height() {
+        for x in 0..source.width() {
+            let label = components.label_at(x, y) as usize;
+            if label != 0 {
+                maxima[label] = maxima[label].max(distances[y * source.width() + x]);
+            }
+        }
+    }
+    maxima
+}
+
+fn protect_high_contrast_components(
+    components: &ComponentMap,
+    normalized: &GrayImage,
+    more_cautious_keep: Option<&[bool]>,
+    keep: &mut [bool],
+) {
+    const INKY_CONTRAST_THRESHOLD: f64 = 40.0;
+    let mut ink_sums = vec![0u64; components.components().len() + 1];
+    let mut ink_counts = vec![0usize; components.components().len() + 1];
+    for y in 0..normalized.height() {
+        for x in 0..normalized.width() {
+            let label = components.label_at(x, y) as usize;
+            if label != 0 {
+                ink_sums[label] += u64::from(normalized.get(x, y));
+                ink_counts[label] += 1;
+            }
+        }
+    }
+    for component in components.components() {
+        let label = component.label as usize;
+        if keep[label]
+            || ink_counts[label] == 0
+            || more_cautious_keep.is_some_and(|decision| !decision[label])
+        {
+            continue;
+        }
+        let width = component.right - component.left + 1;
+        let height = component.bottom - component.top + 1;
+        let radius = width.min(height).div_ceil(2).clamp(2, 12);
+        let left = component.left.saturating_sub(radius);
+        let right = component
+            .right
+            .saturating_add(radius)
+            .min(normalized.width() - 1);
+        let top = component.top.saturating_sub(radius);
+        let bottom = component
+            .bottom
+            .saturating_add(radius)
+            .min(normalized.height() - 1);
+        let mut paper_sum = 0u64;
+        let mut paper_count = 0usize;
+        for y in top..=bottom {
+            for x in left..=right {
+                if components.label_at(x, y) == 0 {
+                    paper_sum += u64::from(normalized.get(x, y));
+                    paper_count += 1;
+                }
+            }
+        }
+        if paper_count == 0 {
+            continue;
+        }
+        let ink_mean = ink_sums[label] as f64 / ink_counts[label] as f64;
+        let paper_mean = paper_sum as f64 / paper_count as f64;
+        if paper_mean - ink_mean >= INKY_CONTRAST_THRESHOLD {
+            keep[label] = true;
+        }
+    }
 }
 
 fn populate_attachment_graph(
     components: &[scan_primitives::Component],
-    expansion_limit: u32,
     graph: &mut [Vec<AttachmentEdge>],
 ) {
     let mut by_left = (0..components.len()).collect::<Vec<_>>();
     by_left.sort_unstable_by_key(|&index| components[index].left);
-    let horizontal_reach = (expansion_limit / 2) as usize;
+    let maximum_area = components
+        .iter()
+        .map(|component| component.area)
+        .max()
+        .unwrap_or(0);
+    let horizontal_reach = (maximum_area as f64 * 100.0).sqrt().ceil() as usize;
     for (position, &left_index) in by_left.iter().enumerate() {
         let left = &components[left_index];
         for &right_index in &by_left[position + 1..] {
@@ -697,15 +893,15 @@ fn populate_attachment_graph(
             if right.left > left.right.saturating_add(horizontal_reach + 1) {
                 break;
             }
-            let cost = component_gap_cost(left, right);
-            if cost <= expansion_limit {
+            let distance_squared = component_gap_distance_squared(left, right);
+            if distance_squared <= left.area.max(right.area) as u64 * 100 {
                 graph[left.label as usize].push(AttachmentEdge {
                     neighbor: right.label as usize,
-                    cost,
+                    distance_squared,
                 });
                 graph[right.label as usize].push(AttachmentEdge {
                     neighbor: left.label as usize,
-                    cost,
+                    distance_squared,
                 });
             }
         }
@@ -714,22 +910,23 @@ fn populate_attachment_graph(
 
 fn protect_line_supported_marks(
     components: &[scan_primitives::Component],
-    substantial_area: usize,
-    expansion_limit: u32,
+    seeds: &[bool],
+    dpi: f64,
     keep: &mut [bool],
 ) {
     // Cautious mode treats an entire bracketed text row as supporting evidence.
     // This protects long dot leaders and isolated punctuation without making
     // them graph bridges: they are retained but never added to the Dijkstra queue.
-    let horizontal_reach = (expansion_limit as usize).saturating_mul(32);
-    let vertical_reach = (expansion_limit as usize / 3).max(2);
+    let scale = (dpi / 300.0).clamp(0.5, 4.0);
+    let horizontal_reach = (224.0 * scale).round() as usize;
+    let vertical_reach = (9.0 * scale).round().max(2.0) as usize;
     let anchors = components
         .iter()
-        .filter(|component| component.area >= substantial_area)
+        .filter(|component| seeds[component.label as usize])
         .collect::<Vec<_>>();
     for mark in components {
         let label = mark.label as usize;
-        if keep[label] || mark.area < 2 || mark.area >= substantial_area {
+        if keep[label] || mark.area < 2 || seeds[label] {
             continue;
         }
         let mark_center_y = (mark.top + mark.bottom) / 2;
@@ -754,14 +951,13 @@ fn protect_line_supported_marks(
     }
 }
 
-fn component_gap_cost(
+fn component_gap_distance_squared(
     left: &scan_primitives::Component,
     right: &scan_primitives::Component,
-) -> u32 {
-    let x_gap = axis_gap(left.left, left.right, right.left, right.right) as u32;
-    let y_gap = axis_gap(left.top, left.bottom, right.top, right.bottom) as u32;
-    let diagonal = x_gap.min(y_gap);
-    diagonal * 4 + (x_gap - diagonal) * 2 + (y_gap - diagonal) * 3
+) -> u64 {
+    let x_gap = axis_gap(left.left, left.right, right.left, right.right) as u64;
+    let y_gap = axis_gap(left.top, left.bottom, right.top, right.bottom) as u64;
+    x_gap * x_gap + y_gap * y_gap
 }
 
 fn axis_gap(first_start: usize, first_end: usize, second_start: usize, second_end: usize) -> usize {
@@ -887,7 +1083,15 @@ mod tests {
         let cleaned = despeckle_connected(&image, 300.0);
         let calibration =
             PageCalibration::estimate_from_binary(&image, 300.0, CalibrationConfig::default());
-        let graph_disabled = despeckle_connected_impl(&image, 300.0, calibration, false).image;
+        let graph_disabled = despeckle_connected_impl(
+            &image,
+            None,
+            300.0,
+            calibration,
+            DespeckleLevel::Normal,
+            false,
+        )
+        .image;
         assert!(
             cleaned.get(18, 15),
             "nearby diacritic must remain through attachment graph"
@@ -902,6 +1106,51 @@ mod tests {
         );
         assert!(!cleaned.get(2, 2));
         assert!(!cleaned.get(70, 38));
+    }
+
+    #[test]
+    fn grayscale_contrast_demotes_deletion_to_cautious_attachment() {
+        let mut image = BinaryImage::new(70, 40);
+        for y in 18..28 {
+            for x in 10..20 {
+                image.set(x, y, true);
+            }
+        }
+        for y in 21..23 {
+            for x in 35..37 {
+                image.set(x, y, true);
+            }
+        }
+        let mut normalized = GrayImage::new(70, 40, 235);
+        for y in 0..image.height() {
+            for x in 0..image.width() {
+                if image.get(x, y) {
+                    normalized.set(x, y, 25);
+                }
+            }
+        }
+        let calibration =
+            PageCalibration::estimate_from_binary(&image, 300.0, CalibrationConfig::default());
+        let binary_only = despeckle_connected_impl(
+            &image,
+            None,
+            300.0,
+            calibration,
+            DespeckleLevel::Normal,
+            true,
+        )
+        .image;
+        let contrast_aware = despeckle_connected_impl(
+            &image,
+            Some(&normalized),
+            300.0,
+            calibration,
+            DespeckleLevel::Normal,
+            true,
+        )
+        .image;
+        assert!(!binary_only.get(35, 21));
+        assert!(contrast_aware.get(35, 21));
     }
 
     #[test]
@@ -920,20 +1169,53 @@ mod tests {
         }
         let calibration =
             PageCalibration::estimate_from_binary(&image, 300.0, CalibrationConfig::default());
-        let outcome = despeckle_connected_impl(&image, 300.0, calibration, true);
+        let outcome = despeckle_connected_impl(
+            &image,
+            None,
+            300.0,
+            calibration,
+            DespeckleLevel::Normal,
+            true,
+        );
+        assert!(outcome.fallback);
+        assert!(black_count(&outcome.image) > 0);
+    }
+
+    #[test]
+    fn pencil_only_page_survives_top_decile_fallback_anchors() {
+        let mut image = BinaryImage::new(140, 90);
+        for row in 0..3 {
+            for column in 0..12 {
+                let left = 6 + column * 11;
+                let top = 8 + row * 25;
+                for offset in 0..7 {
+                    image.set(left + offset, top + offset, true);
+                }
+            }
+        }
+        let calibration =
+            PageCalibration::estimate_from_binary(&image, 300.0, CalibrationConfig::default());
+        let outcome = despeckle_connected_impl(
+            &image,
+            None,
+            300.0,
+            calibration,
+            DespeckleLevel::Normal,
+            true,
+        );
         assert!(outcome.fallback);
         assert_eq!(outcome.image, image);
     }
 
     #[test]
-    fn cautious_despeckle_caps_transitive_noise_chains() {
+    fn normal_despeckle_caps_transitive_noise_chains_at_three_hops() {
         let mut image = BinaryImage::new(90, 50);
         for y in 20..28 {
             for x in 5..13 {
                 image.set(x, y, true);
             }
         }
-        for left in [27, 41, 55, 69] {
+        for left in [25, 39, 53, 67] {
             for y in 23..25 {
                 for x in left..left + 2 {
                     image.set(x, y, true);
@@ -941,12 +1223,52 @@ mod tests {
             }
         }
         let cleaned = despeckle_connected(&image, 300.0);
-        assert!(cleaned.get(27, 23), "directly attached mark must remain");
-        assert!(cleaned.get(41, 23), "one bounded attachment may remain");
+        assert!(cleaned.get(25, 23), "directly attached mark must remain");
+        assert!(cleaned.get(39, 23), "the second hop must remain");
+        assert!(cleaned.get(53, 23), "the third hop must remain");
         assert!(
-            !cleaned.get(55, 23) && !cleaned.get(69, 23),
+            !cleaned.get(67, 23),
             "a speck chain must not propagate arbitrarily far"
         );
+    }
+
+    #[test]
+    fn aggressive_level_removes_more_pepper_than_normal_without_erasing_page() {
+        let mut image = BinaryImage::new(100, 55);
+        for y in 20..32 {
+            for x in 8..20 {
+                image.set(x, y, true);
+            }
+        }
+        for &(left, top) in &[(31, 22), (46, 23), (63, 21), (82, 40)] {
+            for y in top..top + 2 {
+                for x in left..left + 2 {
+                    image.set(x, y, true);
+                }
+            }
+        }
+        let calibration =
+            PageCalibration::estimate_from_binary(&image, 300.0, CalibrationConfig::default());
+        let normal = despeckle_connected_impl(
+            &image,
+            None,
+            300.0,
+            calibration,
+            DespeckleLevel::Normal,
+            true,
+        )
+        .image;
+        let aggressive = despeckle_connected_impl(
+            &image,
+            None,
+            300.0,
+            calibration,
+            DespeckleLevel::Aggressive,
+            true,
+        )
+        .image;
+        assert!(black_count(&normal) > black_count(&aggressive));
+        assert!(black_count(&aggressive) > 0);
     }
 
     #[test]

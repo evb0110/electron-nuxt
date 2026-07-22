@@ -73,7 +73,7 @@ export interface IScanCleanupPreviewMetadata {
     resamplePasses: number;
     /** True when multiplicative illumination normalization affected the rendered raster. */
     illuminationNormalized?: boolean;
-    /** True when despeckle was skipped because the page had no substantial component seed. */
+    /** True when despeckle used top-decile fallback anchors because the page had no calibrated seed. */
     despeckleFallback?: boolean;
     warnings: string[];
 }

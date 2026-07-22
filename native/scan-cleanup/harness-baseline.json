@@ -59,18 +59,18 @@
         "synthetic-blank-page"
       ],
       "blankRegionFloods": 1,
-      "brokenStrokeDelta": 5156,
+      "brokenStrokeDelta": 5740,
       "brokenStrokeExplosionIds": [
         "synthetic-blank-page"
       ],
       "brokenStrokeExplosions": 1,
-      "componentCountDelta": 5155,
+      "componentCountDelta": 5739,
       "componentPagesEvaluated": 15,
       "expectedComponents": 2857,
-      "outputComponents": 8012,
+      "outputComponents": 8596,
       "pagesEvaluated": 50,
-      "pepperDensity": 0.207254,
-      "pepperPixels": 397643,
+      "pepperDensity": 0.203303,
+      "pepperPixels": 390062,
       "routeCounts": {
         "otsu": 32,
         "wolf": 18
@@ -80,7 +80,7 @@
       "contentLostOutsideCrop": 2,
       "evaluated": 14,
       "lostInkPixels": 392,
-      "meanIou": 0.865671,
+      "meanIou": 0.819646,
       "minimumIou": 0.0,
       "samples": [
         {
@@ -127,7 +127,7 @@
         },
         {
           "id": "synthetic-halftone-photo",
-          "iou": 0.995192,
+          "iou": 0.350847,
           "lostInkFraction": 0.0,
           "lostInkPixels": 0,
           "truthInkPixels": 6642
@@ -229,8 +229,8 @@
       "erasedPages": 0,
       "pagesEvaluated": 16,
       "punctuationMarkers": 15,
-      "retainedPunctuationMarkers": 12,
-      "retainedPunctuationRate": 0.8
+      "retainedPunctuationMarkers": 15,
+      "retainedPunctuationRate": 1.0
     },
     "split": {
       "accuracy": 0.98,

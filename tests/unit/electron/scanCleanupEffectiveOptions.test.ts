@@ -37,6 +37,19 @@ function resolve(pageOverride = createScanCleanupPageOverride()) {
 }
 
 describe('effective scan cleanup options', () => {
+    it('maps the existing despeckle boolean to the native level contract', () => {
+        expect(resolve().despeckleLevel).toBe('normal');
+        expect(resolveEffectiveScanCleanupOptions({
+            options: {
+                ...options,
+                despeckle: false,
+            },
+            pageOverride: createScanCleanupPageOverride(),
+            dpi: 300,
+            qualityPath: 'raster',
+        }).despeckleLevel).toBe('off');
+    });
+
     it('passes asymmetric document margins through unchanged', () => {
         expect(resolve().margins).toEqual(options.marginsMm);
     });
@@ -88,6 +101,7 @@ describe('effective scan cleanup options', () => {
         });
 
         expect(effective.normalizeIllumination).toBe(false);
+        expect(effective.despeckleLevel).toBe('off');
         expect(effective.experimental.autoDewarp).toBe(false);
     });
 });

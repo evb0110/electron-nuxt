@@ -9,6 +9,7 @@ export type {TScanCleanupPageRotation} from '@contracts/scan-cleanup/geometry';
 
 export type TScanCleanupLayoutMode = 'auto' | 'force-single' | 'force-two-page';
 export type TScanCleanupOutputMode = 'bw' | 'grayscale' | 'color';
+export type TScanCleanupDespeckleLevel = 'off' | 'cautious' | 'normal' | 'aggressive';
 export type TScanCleanupReadingOrder = 'ltr' | 'rtl';
 export type TScanCleanupPageLayoutOverride = 'auto' | 'single' | 'spread' | 'keep-left' | 'keep-right';
 export type TScanCleanupPageAlignment =

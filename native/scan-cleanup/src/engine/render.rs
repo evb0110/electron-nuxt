@@ -925,7 +925,12 @@ fn clean_region(
                             && binary.height() == rendered_gray.height()
                     });
                     let (binary, despeckle_fallback) = if let Some(binary) = reusable {
-                        postprocess_binary_with_diagnostics(binary, options, calibration)
+                        postprocess_binary_with_diagnostics(
+                            binary,
+                            Some(&rendered_gray),
+                            options,
+                            calibration,
+                        )
                     } else {
                         (fresh_binary, fresh_despeckle_fallback)
                     };

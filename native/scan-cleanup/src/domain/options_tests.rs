@@ -1,5 +1,5 @@
 use super::{
-    CleanupOptions, MarginsMm, NormalizedRect, OrthogonalRotation, PageAlignment,
+    CleanupOptions, DespeckleLevel, MarginsMm, NormalizedRect, OrthogonalRotation, PageAlignment,
     PlacementOverrides,
 };
 use crate::domain::geometry::PageHalf;
@@ -118,4 +118,14 @@ fn option_objects_reject_unknown_fields() {
         r#"{"margins":{"leftMm":5,"topMm":5,"rightMm":5,"bottomMm":5,"unknown":true}}"#
     )
     .is_err());
+}
+
+#[test]
+fn legacy_despeckle_boolean_maps_to_a_default_normal_level() {
+    let enabled: CleanupOptions = serde_json::from_str(r#"{"despeckle":true}"#).unwrap();
+    assert_eq!(enabled.despeckle_level, DespeckleLevel::Normal);
+    assert_eq!(enabled.effective_despeckle_level(), DespeckleLevel::Normal);
+
+    let disabled: CleanupOptions = serde_json::from_str(r#"{"despeckle":false}"#).unwrap();
+    assert_eq!(disabled.effective_despeckle_level(), DespeckleLevel::Off);
 }

@@ -3,6 +3,7 @@ import type {
     IScanCleanupDocumentPrior,
     IScanCleanupTextAxis,
     TScanCleanupCanvasScope,
+    TScanCleanupDespeckleLevel,
     TScanCleanupLayoutClassification,
     TScanCleanupOutputHalf,
     TScanCleanupOutputMode,
@@ -28,6 +29,7 @@ export interface INativeScanCleanupOptionsV2 {
     thickness: number;
     normalizeIllumination: boolean;
     despeckle: boolean;
+    despeckleLevel: TScanCleanupDespeckleLevel;
     outputMode: TScanCleanupOutputMode;
     ocrMode: boolean;
     layout: 'auto' | 'force-single' | 'page-with-offcut' | 'keep-left' | 'keep-right' | 'force-two-page';

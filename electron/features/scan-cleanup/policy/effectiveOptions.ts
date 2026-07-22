@@ -41,6 +41,7 @@ export function resolveEffectiveScanCleanupOptions({
         thickness: lossless ? 0 : options.thickness,
         normalizeIllumination: !lossless,
         despeckle: !lossless && outputMode === 'bw' && options.despeckle,
+        despeckleLevel: !lossless && outputMode === 'bw' && options.despeckle ? 'normal' : 'off',
         outputMode,
         ocrMode: false,
         layout: resolveScanCleanupPageLayout(options.layoutMode, pageOverride.layoutOverride),

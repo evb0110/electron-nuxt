@@ -18,6 +18,16 @@ pub enum BinarizationMode {
     Auto,
 }
 
+#[derive(Clone, Copy, Debug, Default, Deserialize, Serialize, PartialEq)]
+#[serde(rename_all = "kebab-case")]
+pub enum DespeckleLevel {
+    Off,
+    Cautious,
+    #[default]
+    Normal,
+    Aggressive,
+}
+
 #[derive(Clone, Copy, Debug, Default, Deserialize, Serialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum LayoutMode {
@@ -226,6 +236,7 @@ pub struct CleanupOptions {
     pub thickness: i8,
     pub normalize_illumination: bool,
     pub despeckle: bool,
+    pub despeckle_level: DespeckleLevel,
     pub output_mode: OutputMode,
     pub ocr_mode: bool,
     pub layout: LayoutMode,
@@ -260,6 +271,7 @@ impl Default for CleanupOptions {
             thickness: 0,
             normalize_illumination: true,
             despeckle: true,
+            despeckle_level: DespeckleLevel::Normal,
             output_mode: OutputMode::Bw,
             ocr_mode: false,
             layout: LayoutMode::Auto,
@@ -283,6 +295,14 @@ impl Default for CleanupOptions {
 }
 
 impl CleanupOptions {
+    pub fn effective_despeckle_level(&self) -> DespeckleLevel {
+        if self.despeckle {
+            self.despeckle_level
+        } else {
+            DespeckleLevel::Off
+        }
+    }
+
     pub fn validate(&self) -> Result<(), String> {
         if !self.dpi.is_finite() || self.dpi <= 0.0 {
             return Err("DPI must be positive and finite".into());
