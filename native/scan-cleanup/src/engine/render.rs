@@ -4,9 +4,11 @@ use crate::engine::render_plan::{content_result_for_dimensions, output_regions};
 use crate::engine::text_axis::{detect_text_axis, TextAxisHint};
 use crate::{
     auto_dewarp::detect_curves,
-    background::{normalize_illumination, normalize_illumination_for_layout},
+    background::{
+        normalize_illumination, normalize_illumination_for_layout, normalize_illumination_rgb,
+    },
     bw::{
-        binarize_normalized_with_diagnostics, binary_to_gray, postprocess_binary,
+        binarize_normalized_with_diagnostics, binary_to_gray, postprocess_binary_with_diagnostics,
         BinarizationDiagnostics,
     },
     content::detect_content_and_margins,
@@ -65,9 +67,13 @@ pub struct CleanupMetadata {
     #[serde(default, rename = "matchedCanvasTargetHeightPx")]
     pub matched_canvas_target_height: Option<usize>,
     pub output_mode: OutputMode,
+    #[serde(default)]
+    pub illumination_normalized: bool,
     pub binarization_mode: Option<crate::BinarizationMode>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub binarization_diagnostics: Option<BinarizationDiagnostics>,
+    #[serde(default)]
+    pub despeckle_fallback: bool,
     pub forward_transform: Option<Affine>,
     pub inverse_transform: Option<Affine>,
     pub dewarp_model: Option<crate::DewarpOptions>,
@@ -385,7 +391,7 @@ pub fn analyze_page_with_document_prior(
         let local_crop = if crop_enabled {
             content.output_rect
         } else {
-            Rect::new(0.0, 0.0, working.width() as f64, working.height() as f64)
+            Rect::new(0.0, 0.0, region.width, region.height)
         };
         AnalysisOutputMetadata {
             half,
@@ -516,8 +522,16 @@ fn prepare_page(
         full_height,
         ..
     } = prepare_analysis_page(source, options, true, None);
-    let rotated_color = color_source.map(|image| rotate_rgb_orthogonal(image, options.rotation));
     let (rotated_source, _) = rotate_orthogonal(source, options.rotation);
+    let rotated_color = color_source
+        .map(|image| rotate_rgb_orthogonal(image, options.rotation))
+        .map(|image| {
+            if options.normalize_illumination {
+                normalize_illumination_rgb(&rotated_source, &image, options.dpi)
+            } else {
+                image
+            }
+        });
     let analysis_is_full = analysis_normalized.width() == full_width
         && analysis_normalized.height() == full_height
         && scale_x == 1.0
@@ -756,6 +770,7 @@ fn clean_region(
             .as_ref()
             .and_then(|result| result.model.clone())
     });
+    let dewarp_applied = effective_dewarp.is_some();
     let crop_enabled = options.crop_content
         && !options.ocr_mode
         && content.content.is_some()
@@ -805,48 +820,60 @@ fn clean_region(
         };
     let effectively_blank = is_effectively_blank(&rendered_gray, options.dpi);
     let fail_closed_blank = content.content.is_none() && effectively_blank;
-    let (image, color_image, binarization_mode, binarization_diagnostics) = if fail_closed_blank {
-        (
-            GrayImage::new(output_width, output_height, 255),
-            if options.output_mode == OutputMode::Color && rendered_color.is_some() {
-                Some(RgbImage::new(output_width, output_height, [255; 3]))
-            } else {
-                None
-            },
-            None,
-            None,
-        )
-    } else {
-        match options.output_mode {
-            OutputMode::Bw => {
-                let routing_sample = crop_gray_to_fit(routing_source, region, 256, 256);
-                let (fresh_binary, diagnostics) =
-                    binarize_normalized_with_diagnostics(&rendered_gray, &routing_sample, options);
-                let mode = diagnostics.route;
-                let reusable = split.reusable_binary.as_ref().filter(|binary| {
-                    mode == crate::BinarizationMode::Otsu
-                        && options.thickness == 0
-                        && !deskew.accepted
-                        && effective_dewarp.is_none()
-                        && !crop_enabled
-                        && region.x == 0.0
-                        && region.y == 0.0
-                        && region.width == normalized.width() as f64
-                        && region.height == normalized.height() as f64
-                        && binary.width() == rendered_gray.width()
-                        && binary.height() == rendered_gray.height()
-                });
-                let binary = if let Some(binary) = reusable {
-                    postprocess_binary(binary, options)
+    let (image, color_image, binarization_mode, binarization_diagnostics, despeckle_fallback) =
+        if fail_closed_blank {
+            (
+                GrayImage::new(output_width, output_height, 255),
+                if options.output_mode == OutputMode::Color && rendered_color.is_some() {
+                    Some(RgbImage::new(output_width, output_height, [255; 3]))
                 } else {
-                    fresh_binary
-                };
-                (binary_to_gray(&binary), None, Some(mode), Some(diagnostics))
+                    None
+                },
+                None,
+                None,
+                false,
+            )
+        } else {
+            match options.output_mode {
+                OutputMode::Bw => {
+                    let routing_sample = crop_gray_to_fit(routing_source, region, 256, 256);
+                    let (fresh_binary, diagnostics, fresh_despeckle_fallback) =
+                        binarize_normalized_with_diagnostics(
+                            &rendered_gray,
+                            &routing_sample,
+                            options,
+                        );
+                    let mode = diagnostics.route;
+                    let reusable = split.reusable_binary.as_ref().filter(|binary| {
+                        mode == crate::BinarizationMode::Otsu
+                            && options.thickness == 0
+                            && !deskew.accepted
+                            && effective_dewarp.is_none()
+                            && !crop_enabled
+                            && region.x == 0.0
+                            && region.y == 0.0
+                            && region.width == normalized.width() as f64
+                            && region.height == normalized.height() as f64
+                            && binary.width() == rendered_gray.width()
+                            && binary.height() == rendered_gray.height()
+                    });
+                    let (binary, despeckle_fallback) = if let Some(binary) = reusable {
+                        postprocess_binary_with_diagnostics(binary, options)
+                    } else {
+                        (fresh_binary, fresh_despeckle_fallback)
+                    };
+                    (
+                        binary_to_gray(&binary),
+                        None,
+                        Some(mode),
+                        Some(diagnostics),
+                        despeckle_fallback,
+                    )
+                }
+                OutputMode::Grayscale => (rendered_gray, None, None, None, false),
+                OutputMode::Color => (rendered_gray, rendered_color, None, None, false),
             }
-            OutputMode::Grayscale => (rendered_gray, None, None, None),
-            OutputMode::Color => (rendered_gray, rendered_color, None, None),
-        }
-    };
+        };
     let mut warnings = if deskew.accepted || effective_dewarp.is_some() {
         Vec::new()
     } else {
@@ -857,6 +884,13 @@ fn clean_region(
     };
     if options.crop_content && !crop_enabled && content.content.is_none() {
         warnings.push("Content crop was skipped because no content box was detected".into());
+    }
+    if dewarp_applied && deskew.accepted {
+        warnings
+            .push("Deskew was not applied because dewarp uses source-region coordinates".into());
+    }
+    if dewarp_applied && options.crop_content && content.content.is_some() {
+        warnings.push("Content crop and margins were not applied because dewarp is active".into());
     }
     if let Some(auto) = &automatic_dewarp {
         if auto.model.is_none() {
@@ -875,13 +909,17 @@ fn clean_region(
             half,
             detected_skew_degrees: deskew.angle_degrees,
             skew_confidence: deskew.confidence,
-            skew_applied: deskew.accepted,
+            skew_applied: deskew.accepted && !dewarp_applied,
             layout_classification: split.classification,
             layout_confidence: split.confidence,
             cutter_x: split.cutter_x,
             split_geometry: split.pages.clone(),
             source_region: region,
-            content_box: source_content_box,
+            content_box: if dewarp_applied {
+                None
+            } else {
+                source_content_box
+            },
             applied_margins: if crop_enabled {
                 content.margins
             } else {
@@ -895,8 +933,10 @@ fn clean_region(
             matched_canvas_target_width: None,
             matched_canvas_target_height: None,
             output_mode: options.output_mode,
+            illumination_normalized: options.normalize_illumination,
             binarization_mode,
             binarization_diagnostics,
+            despeckle_fallback,
             forward_transform,
             inverse_transform,
             dewarp_model: effective_dewarp,

@@ -34,23 +34,31 @@ export function resolveEffectiveScanCleanupOptions({
 }: IResolveEffectiveScanCleanupOptionsInput): INativeScanCleanupOptionsV2 {
     const lossless = qualityPath === 'lossless';
     const outputMode = lossless ? 'color' : options.outputMode;
+    const dewarpRequested = !lossless && experimental.autoDewarp;
     return {
         dpi,
         binarization: 'auto',
         thickness: lossless ? 0 : options.thickness,
-        normalizeIllumination: true,
+        normalizeIllumination: !lossless,
         despeckle: !lossless && outputMode === 'bw' && options.despeckle,
         outputMode,
         ocrMode: false,
         layout: resolveScanCleanupPageLayout(options.layoutMode, pageOverride.layoutOverride),
         manualSplit: pageOverride.manualSplit,
-        manualContentBoxes: pageOverride.manualContentBoxes ?? {},
-        cropContent: options.crop,
+        manualContentBoxes: dewarpRequested ? {} : pageOverride.manualContentBoxes ?? {},
+        cropContent: options.crop && !dewarpRequested,
         matchPageSize: options.matchPageSize,
         pageAlignment: options.pageAlignment,
         placementOverrides: pageOverride.placementOverrides ?? {},
-        margins: {...resolveScanCleanupMarginsMm(options.marginsMm, pageOverride)},
-        experimental: {autoDewarp: !lossless && experimental.autoDewarp},
+        margins: dewarpRequested
+            ? {
+                leftMm: 0,
+                topMm: 0,
+                rightMm: 0,
+                bottomMm: 0,
+            }
+            : {...resolveScanCleanupMarginsMm(options.marginsMm, pageOverride)},
+        experimental: {autoDewarp: dewarpRequested},
         rotationDegrees: pageOverride.rotationDegrees,
         excluded: pageOverride.excluded,
         skipBlankPages: !lossless && options.skipBlankPages,

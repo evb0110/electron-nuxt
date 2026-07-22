@@ -479,6 +479,8 @@ function decodePreviewMetadata(value: unknown): IScanCleanupPreviewMetadata {
             'overflow-intrinsic',
         ].includes(String(value.canvasPolicy)))
         || (value.canvasOverflow !== undefined && typeof value.canvasOverflow !== 'boolean')
+        || (value.illuminationNormalized !== undefined && typeof value.illuminationNormalized !== 'boolean')
+        || (value.despeckleFallback !== undefined && typeof value.despeckleFallback !== 'boolean')
     ) throw new Error('invalid scan-cleanup preview metadata');
     const metadata: IScanCleanupPreviewMetadata = {
         half: value.half as IScanCleanupPreviewMetadata['half'],
@@ -519,6 +521,8 @@ function decodePreviewMetadata(value: unknown): IScanCleanupPreviewMetadata {
             ? 'page'
             : (() => { throw new Error('invalid scan-cleanup preview canvas scope'); })(),
         resamplePasses: decodeNonNegativeInteger(value.resamplePasses, 'resample passes'),
+        illuminationNormalized: value.illuminationNormalized === true,
+        despeckleFallback: value.despeckleFallback === true,
         warnings: value.warnings as string[],
     };
     if (

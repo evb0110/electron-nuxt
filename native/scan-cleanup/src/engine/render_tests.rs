@@ -448,8 +448,66 @@ mod tests {
             grayscale.outputs[0].metadata.forward_transform
         );
         assert_eq!(colored.outputs[0].metadata.resample_passes, 1);
-        let patch = colored.outputs[0].color_image.as_ref().unwrap().get(60, 45);
+        assert!(!colored.outputs[0].metadata.illumination_normalized);
+        let color_image = colored.outputs[0].color_image.as_ref().unwrap();
+        assert_eq!(color_image, &color);
+        let patch = color_image.get(60, 45);
         assert!(patch[0] > 180 && patch[0] > patch[1] * 3 && patch[0] > patch[2] * 3);
+    }
+
+    #[test]
+    fn color_normalization_flattens_gutter_shadow_and_preserves_chroma() {
+        let mut gray = GrayImage::new(180, 120, 240);
+        let mut color = RgbImage::new(180, 120, [240, 168, 96]);
+        for y in 0..gray.height() {
+            for x in 0..gray.width() {
+                let background = 135 + x * 105 / (gray.width() - 1);
+                gray.set(x, y, background as u8);
+                color.set(
+                    x,
+                    y,
+                    [
+                        background as u8,
+                        (background * 7 / 10) as u8,
+                        (background * 2 / 5) as u8,
+                    ],
+                );
+            }
+        }
+        for y in 46..74 {
+            for x in 54..126 {
+                gray.set(x, y, 54);
+                color.set(x, y, [96, 42, 24]);
+            }
+        }
+        let output = clean_page_with_color(
+            &gray,
+            Some(&color),
+            &CleanupOptions {
+                normalize_illumination: true,
+                output_mode: OutputMode::Color,
+                crop_content: false,
+                layout: crate::LayoutMode::Single,
+                match_page_size: false,
+                ..CleanupOptions::default()
+            },
+            0,
+        )
+        .unwrap()
+        .outputs
+        .remove(0);
+        assert!(output.metadata.illumination_normalized);
+        let output = output.color_image.unwrap();
+        let shadow_paper = output.get(12, 20);
+        let bright_paper = output.get(168, 20);
+
+        for channel in 0..3 {
+            assert!(
+                shadow_paper[channel].abs_diff(bright_paper[channel]) <= 12,
+                "channel={channel} shadow={shadow_paper:?} bright={bright_paper:?}"
+            );
+        }
+        assert!(shadow_paper[0] > shadow_paper[1] && shadow_paper[1] > shadow_paper[2]);
     }
 
     #[test]
@@ -581,6 +639,90 @@ mod tests {
                 .iter()
                 .all(|&value| value == 255)
         );
+    }
+
+    #[test]
+    fn dewarp_metadata_does_not_claim_skew_or_crop_that_were_bypassed() {
+        let source = rotated_text_page(3.0);
+        let output = clean_page(
+            &source,
+            &CleanupOptions {
+                dpi: 150.0,
+                normalize_illumination: false,
+                output_mode: OutputMode::Grayscale,
+                crop_content: true,
+                margins_mm: None,
+                margins_pixels: Some([14.0; 4]),
+                layout: crate::LayoutMode::Single,
+                dewarp: Some(crate::DewarpOptions {
+                    top_curve: vec![Point::new(0.0, 0.0), Point::new(360.0, 0.0)],
+                    bottom_curve: vec![Point::new(0.0, 280.0), Point::new(360.0, 280.0)],
+                    depth: 0.0,
+                }),
+                ..CleanupOptions::default()
+            },
+            0,
+        )
+        .unwrap()
+        .outputs
+        .remove(0);
+
+        assert!(output.metadata.detected_skew_degrees.abs() > 2.5);
+        assert!(!output.metadata.skew_applied);
+        assert_eq!(output.metadata.content_box, None);
+        assert_eq!(output.metadata.applied_margins, AppliedMargins::default());
+        assert_eq!((output.image.width(), output.image.height()), (360, 280));
+    }
+
+    #[test]
+    fn analyze_no_crop_reports_full_source_dimensions_above_analysis_caps() {
+        let source = GrayImage::new(3_000, 2_000, 245);
+        let analysis = analyze_page(
+            &source,
+            &CleanupOptions {
+                dpi: 300.0,
+                normalize_illumination: false,
+                crop_content: false,
+                layout: crate::LayoutMode::Single,
+                ..CleanupOptions::default()
+            },
+        )
+        .unwrap();
+
+        assert_eq!(analysis.outputs.len(), 1);
+        assert_eq!(analysis.outputs[0].crop_rect, Rect::new(0.0, 0.0, 3_000.0, 2_000.0));
+    }
+
+    #[test]
+    fn cleanup_metadata_reports_despeckle_fallback_for_seedless_page() {
+        let mut source = GrayImage::new(180, 120, 255);
+        for index in 0..20 {
+            let left = 8 + (index % 10) * 16;
+            let top = 12 + (index / 10) * 55;
+            for y in top..top + 2 + (index % 3) {
+                for x in left..left + 2 + ((index + 1) % 3) {
+                    source.set(x, y, 0);
+                }
+            }
+        }
+        let output = clean_page(
+            &source,
+            &CleanupOptions {
+                dpi: 300.0,
+                normalize_illumination: false,
+                binarization: crate::BinarizationMode::Otsu,
+                crop_content: false,
+                layout: crate::LayoutMode::Single,
+                ..CleanupOptions::default()
+            },
+            0,
+        )
+        .unwrap()
+        .outputs
+        .remove(0);
+
+        assert!(output.metadata.despeckle_fallback);
+        assert!(serde_json::to_value(&output.metadata).unwrap()["despeckleFallback"] == true);
     }
 
     #[test]

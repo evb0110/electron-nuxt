@@ -1,3 +1,4 @@
+use crate::png::RgbImage;
 use rayon::prelude::*;
 use scan_primitives::{morphology::reconstruct_gray, GrayImage};
 
@@ -27,15 +28,24 @@ struct SurfaceFit {
 }
 
 pub fn normalize_illumination(source: &GrayImage, _dpi: f64) -> GrayImage {
+    let model = background_model(source);
+    normalize_with_model(source, &model)
+}
+
+pub fn normalize_illumination_rgb(luminance: &GrayImage, source: &RgbImage, _dpi: f64) -> RgbImage {
+    let model = background_model(luminance);
+    normalize_rgb_with_model(source, &model)
+}
+
+fn background_model(source: &GrayImage) -> BackgroundModel {
     let (small, candidate) = reconstructed_background(source);
-    let model = match fit_masked_surface(&small, &candidate) {
+    match fit_masked_surface(&small, &candidate) {
         Some(fit) => {
             debug_assert!(validate_surface(fit.diagnostics));
             BackgroundModel::Surface(fit.coefficients)
         }
         None => reconstruction_fallback(candidate),
-    };
-    normalize_with_model(source, &model)
+    }
 }
 
 /// Stage-B split calibration is intentionally held against the pre-Stage-F
@@ -102,6 +112,51 @@ fn normalize_with_model(source: &GrayImage, model: &BackgroundModel) -> GrayImag
                 *target = (f64::from(source.get(x, y)) * 240.0 / background)
                     .round()
                     .clamp(0.0, 255.0) as u8;
+            }
+        });
+    normalized
+}
+
+fn normalize_rgb_with_model(source: &RgbImage, model: &BackgroundModel) -> RgbImage {
+    let mut normalized = RgbImage::new(source.width(), source.height(), [255; 3]);
+    let x_basis = precompute_chebyshev::<X_TERMS>(source.width());
+    let y_basis = precompute_chebyshev::<Y_TERMS>(source.height());
+    normalized
+        .data_mut()
+        .par_chunks_mut(source.width() * 3)
+        .enumerate()
+        .for_each(|(y, output_row)| {
+            let mut row_coefficients = [0.0; X_TERMS];
+            if let BackgroundModel::Surface(coefficients) = model {
+                for y_term in 0..Y_TERMS {
+                    for x_term in 0..X_TERMS {
+                        row_coefficients[x_term] +=
+                            coefficients[y_term * X_TERMS + x_term] * y_basis[y][y_term];
+                    }
+                }
+            }
+            for (x, target) in output_row.chunks_exact_mut(3).enumerate() {
+                let background = match model {
+                    BackgroundModel::Surface(_) => row_coefficients
+                        .iter()
+                        .zip(&x_basis[x])
+                        .map(|(coefficient, basis)| coefficient * basis)
+                        .sum::<f64>(),
+                    BackgroundModel::Reconstruction { image, floor } => sample_bilinear(
+                        image,
+                        source_coordinate(x, source.width(), image.width()),
+                        source_coordinate(y, source.height(), image.height()),
+                    )
+                    .max(*floor),
+                }
+                .clamp(32.0, 255.0);
+                let factor = 240.0 / background;
+                let source_pixel = source.get(x, y);
+                for channel in 0..3 {
+                    target[channel] = (f64::from(source_pixel[channel]) * factor)
+                        .round()
+                        .clamp(0.0, 255.0) as u8;
+                }
             }
         });
     normalized
@@ -341,7 +396,12 @@ fn robust_image_percentile(image: &GrayImage, fraction: f64) -> f64 {
 
 fn cholesky_solve_regularized(mut matrix: Vec<Vec<f64>>, rhs: Vec<f64>) -> Option<Vec<f64>> {
     let size = matrix.len();
-    let regularization = 0.0;
+    let trace = matrix
+        .iter()
+        .enumerate()
+        .map(|(index, row)| row[index])
+        .sum::<f64>();
+    let regularization = 1e-4 * trace / size.max(1) as f64;
     for (index, row) in matrix.iter_mut().enumerate() {
         row[index] += regularization;
     }
@@ -586,6 +646,47 @@ mod tests {
         assert!(fit_masked_surface(&sparse, &sparse).is_none());
         let normalized = normalize_illumination(&sparse, 300.0);
         assert!(normalized.data().iter().all(|value| *value >= 230));
+    }
+
+    #[test]
+    fn ridge_keeps_a_quadrant_only_surface_system_bounded() {
+        let mut source = GrayImage::new(120, 80, 0);
+        let candidate = GrayImage::new(120, 80, 220);
+        for y in 0..40 {
+            for x in 0..60 {
+                source.set(x, y, 220);
+            }
+        }
+        let x_basis = precompute_chebyshev::<X_TERMS>(source.width());
+        let y_basis = precompute_chebyshev::<Y_TERMS>(source.height());
+        let mut accepted = 0;
+        let (normal, rhs) =
+            accumulate_surface_system(&source, &candidate, &x_basis, &y_basis, &mut accepted);
+        let coefficients = cholesky_solve_regularized(normal, rhs)
+            .expect("ridge must solve a quadrant-only sample distribution");
+        let (minimum, maximum) = surface_range(&x_basis, &y_basis, &coefficients);
+
+        assert_eq!(accepted, 60 * 40);
+        assert!(minimum.is_finite() && maximum.is_finite());
+        assert!(minimum >= -64.0, "minimum={minimum}");
+        assert!(maximum <= 320.0, "maximum={maximum}");
+    }
+
+    #[test]
+    fn color_normalization_matches_real_gutter_fixture_golden() {
+        let decoded = crate::png::decode_image(
+            include_bytes!("../tests/fixtures/split/spread-luther-soft-gutter-p00001.png"),
+            crate::DEFAULT_MAX_PIXELS,
+            crate::DEFAULT_MAX_DIMENSION,
+        )
+        .unwrap();
+        let normalized = normalize_illumination_rgb(&decoded.gray, &decoded.rgb, 300.0);
+        let mut checksum = crc32fast::Hasher::new();
+        for y in 0..normalized.height() {
+            checksum.update(normalized.row(y));
+        }
+
+        assert_eq!(checksum.finalize(), 2_346_348_409);
     }
 
     #[test]

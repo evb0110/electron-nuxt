@@ -71,6 +71,10 @@ export interface IScanCleanupPreviewMetadata {
     rotationDegrees: TScanCleanupPageRotation;
     canvasScope: TScanCleanupCanvasScope;
     resamplePasses: number;
+    /** True when multiplicative illumination normalization affected the rendered raster. */
+    illuminationNormalized?: boolean;
+    /** True when despeckle was skipped because the page had no substantial component seed. */
+    despeckleFallback?: boolean;
     warnings: string[];
 }
 

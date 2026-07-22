@@ -69,11 +69,12 @@ pub(crate) fn binarize_normalized_with_diagnostics(
     normalized: &GrayImage,
     routing_sample: &GrayImage,
     options: &CleanupOptions,
-) -> (BinaryImage, BinarizationDiagnostics) {
+) -> (BinaryImage, BinarizationDiagnostics, bool) {
     let threshold_input = smooth_for_binarization(normalized, options.dpi);
     let diagnostics = resolve_binarization_diagnostics(routing_sample, options);
-    let binary = binarize_with_mode(&threshold_input, options, diagnostics.route);
-    (binary, diagnostics)
+    let binary = threshold_with_mode(&threshold_input, options, diagnostics.route);
+    let (binary, despeckle_fallback) = postprocess_binary_with_diagnostics(&binary, options);
+    (binary, diagnostics, despeckle_fallback)
 }
 
 fn binarize_with_mode(
@@ -81,9 +82,18 @@ fn binarize_with_mode(
     options: &CleanupOptions,
     mode: BinarizationMode,
 ) -> BinaryImage {
+    let binary = threshold_with_mode(threshold_input, options, mode);
+    postprocess_binary(&binary, options)
+}
+
+fn threshold_with_mode(
+    threshold_input: &GrayImage,
+    options: &CleanupOptions,
+    mode: BinarizationMode,
+) -> BinaryImage {
     let radius = ((options.dpi * 25.5 / 300.0).round() as usize).clamp(8, 64);
     let bias = i16::from(options.thickness) * crate::THICKNESS_GRAY_STEP;
-    let binary = match mode {
+    match mode {
         BinarizationMode::Otsu => {
             threshold_global_biased(threshold_input, otsu_threshold(threshold_input), bias)
         }
@@ -105,17 +115,27 @@ fn binarize_with_mode(
             },
             bias,
         ),
-    };
-    postprocess_binary(&binary, options)
+    }
 }
 
 pub(crate) fn postprocess_binary(binary: &BinaryImage, options: &CleanupOptions) -> BinaryImage {
-    let despeckled = if options.despeckle {
-        despeckle_connected(binary, options.dpi)
+    postprocess_binary_with_diagnostics(binary, options).0
+}
+
+pub(crate) fn postprocess_binary_with_diagnostics(
+    binary: &BinaryImage,
+    options: &CleanupOptions,
+) -> (BinaryImage, bool) {
+    let (despeckled, despeckle_fallback) = if options.despeckle {
+        let outcome = despeckle_connected_impl(binary, options.dpi, true);
+        (outcome.image, outcome.fallback)
     } else {
-        binary.clone()
+        (binary.clone(), false)
     };
-    smooth_edges_for_page(&despeckled, options.dpi)
+    (
+        smooth_edges_for_page(&despeckled, options.dpi),
+        despeckle_fallback,
+    )
 }
 
 pub(crate) fn resolve_binarization_diagnostics(
@@ -512,20 +532,38 @@ fn neighborhood_component_count(pattern: u16, black: bool, eight_connected: bool
 }
 
 pub fn despeckle_connected(source: &BinaryImage, dpi: f64) -> BinaryImage {
-    despeckle_connected_impl(source, dpi, true)
+    despeckle_connected_impl(source, dpi, true).image
+}
+
+struct DespeckleOutcome {
+    image: BinaryImage,
+    fallback: bool,
 }
 
 fn despeckle_connected_impl(
     source: &BinaryImage,
     dpi: f64,
     use_attachment_graph: bool,
-) -> BinaryImage {
+) -> DespeckleOutcome {
     let components = ComponentMap::from_binary(source);
     if components.components().is_empty() {
-        return source.clone();
+        return DespeckleOutcome {
+            image: source.clone(),
+            fallback: false,
+        };
     }
     let scale = (dpi / 300.0).clamp(0.5, 4.0);
     let substantial_area = (32.0 * scale * scale).round().max(16.0) as usize;
+    if !components
+        .components()
+        .iter()
+        .any(|component| component.area >= substantial_area)
+    {
+        return DespeckleOutcome {
+            image: source.clone(),
+            fallback: true,
+        };
+    }
     let expansion_limit = (7.0 * scale).round().max(3.0) as u32 * 4;
     let maximum_attachment_cost = expansion_limit.saturating_mul(2);
     let mut graph = vec![Vec::<AttachmentEdge>::new(); components.components().len() + 1];
@@ -576,7 +614,10 @@ fn despeckle_connected_impl(
             &mut keep,
         );
     }
-    components.retain(|component| keep[component.label as usize])
+    DespeckleOutcome {
+        image: components.retain(|component| keep[component.label as usize]),
+        fallback: false,
+    }
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -792,7 +833,7 @@ mod tests {
             image.set(x, y, true);
         }
         let cleaned = despeckle_connected(&image, 300.0);
-        let graph_disabled = despeckle_connected_impl(&image, 300.0, false);
+        let graph_disabled = despeckle_connected_impl(&image, 300.0, false).image;
         assert!(
             cleaned.get(18, 15),
             "nearby diacritic must remain through attachment graph"
@@ -807,6 +848,25 @@ mod tests {
         );
         assert!(!cleaned.get(2, 2));
         assert!(!cleaned.get(70, 38));
+    }
+
+    #[test]
+    fn despeckle_fallback_preserves_pages_without_a_substantial_seed() {
+        let mut image = BinaryImage::new(120, 80);
+        for index in 0..20 {
+            let left = 4 + (index % 10) * 11;
+            let top = 5 + (index / 10) * 30;
+            let width = 2 + index % 3;
+            let height = 2 + (index / 3) % 3;
+            for y in top..top + height {
+                for x in left..left + width {
+                    image.set(x, y, true);
+                }
+            }
+        }
+        let outcome = despeckle_connected_impl(&image, 300.0, true);
+        assert!(outcome.fallback);
+        assert_eq!(outcome.image, image);
     }
 
     #[test]

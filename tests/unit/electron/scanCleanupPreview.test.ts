@@ -150,6 +150,8 @@ function dependencies(dir: string): IScanCleanupPreviewDependencies {
                 inputHeightPx: 1,
                 rotationDegrees: 0,
                 resamplePasses: 1,
+                illuminationNormalized: true,
+                despeckleFallback: true,
                 forwardTransform: {matrix: [
                     [
                         1,
@@ -409,7 +411,11 @@ describe('scan cleanup preview', () => {
             totalPages: 3,
             rawWidthPx: 1,
             rawHeightPx: 1,
-            outputs: [{metadata: {half: 'full'}}],
+            outputs: [{metadata: {
+                half: 'full',
+                illuminationNormalized: true,
+                despeckleFallback: true,
+            }}],
         });
     });
 
@@ -674,6 +680,22 @@ describe('scan cleanup preview', () => {
                 },
             })),
         })).toThrow('invalid scan-cleanup preview layout confidence');
+    });
+
+    it('rejects malformed cleanup diagnostic flags at the IPC boundary', async () => {
+        const dir = await setup();
+        const result = await createScanCleanupPreviewService(dependencies(dir)).preview(sender(), request);
+
+        expect(() => decodeScanCleanupPreviewResult({
+            ...result,
+            outputs: result.outputs.map(output => ({
+                ...output,
+                metadata: {
+                    ...output.metadata,
+                    despeckleFallback: 'yes',
+                },
+            })),
+        })).toThrow('invalid scan-cleanup preview metadata');
     });
 
     it('requires named finite applied margins at the IPC boundary', async () => {

@@ -56,8 +56,10 @@ export function createScanCleanupPreviewCacheKey(
             thickness: previewOptions.thickness,
             crop: previewOptions.crop,
             matchPageSize: previewOptions.matchPageSize,
+            pageAlignment: previewOptions.pageAlignment,
             marginsMm: previewOptions.marginsMm,
             despeckle: previewOptions.despeckle,
+            readingOrder: previewOptions.readingOrder,
             skipBlankPages: previewOptions.skipBlankPages,
         },
         pageOverride: {
@@ -67,6 +69,7 @@ export function createScanCleanupPreviewCacheKey(
             manualSplit: pageOverride.manualSplit,
             manualContentBoxes: pageOverride.manualContentBoxes ?? {},
             marginsMm: pageOverride.marginsMm,
+            placementOverrides: pageOverride.placementOverrides ?? {},
         },
     });
 }

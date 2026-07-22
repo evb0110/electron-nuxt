@@ -3,8 +3,32 @@ import {
     expect,
     it,
 } from 'vitest';
-import type {IScanCleanupPreviewResult} from '@contracts/electronApiScanCleanup';
+import type {
+    IScanCleanupOptions,
+    IScanCleanupPreviewResult,
+} from '@contracts/electronApiScanCleanup';
+import {createScanCleanupPreviewCacheKey} from '@app/modules/scan-cleanup/composables/useScanCleanupPreviewSession';
 import {createScanCleanupPreviewCache} from '@app/modules/scan-cleanup/runtime/scanCleanupPreviewCache';
+
+const previewOptions: IScanCleanupOptions = {
+    preserveOriginalQuality: false,
+    layoutMode: 'auto',
+    outputMode: 'bw',
+    thickness: 0,
+    crop: true,
+    matchPageSize: true,
+    pageAlignment: 'top-center',
+    marginsMm: {
+        leftMm: 5,
+        topMm: 5,
+        rightMm: 5,
+        bottomMm: 5,
+    },
+    despeckle: true,
+    readingOrder: 'ltr',
+    skipBlankPages: false,
+    pageOverrides: {},
+};
 
 function result(raw: Uint8Array, outputs: Uint8Array[]): IScanCleanupPreviewResult {
     return {
@@ -64,6 +88,35 @@ function result(raw: Uint8Array, outputs: Uint8Array[]): IScanCleanupPreviewResu
 }
 
 describe('scan cleanup renderer preview cache', () => {
+    it('keys every document and page option that changes preview placement or order', () => {
+        const base = createScanCleanupPreviewCacheKey(1, previewOptions, '/tmp/source.pdf');
+        const withAlignment = createScanCleanupPreviewCacheKey(1, {
+            ...previewOptions,
+            pageAlignment: 'bottom-right',
+        }, '/tmp/source.pdf');
+        const withReadingOrder = createScanCleanupPreviewCacheKey(1, {
+            ...previewOptions,
+            readingOrder: 'rtl',
+        }, '/tmp/source.pdf');
+        const withPlacementOverride = createScanCleanupPreviewCacheKey(1, {
+            ...previewOptions,
+            pageOverrides: {1: {
+                rotationDegrees: 0,
+                layoutOverride: 'auto',
+                excluded: false,
+                manualSplit: null,
+                placementOverrides: {left: 'center-left'},
+            }},
+        }, '/tmp/source.pdf');
+
+        expect(new Set([
+            base,
+            withAlignment,
+            withReadingOrder,
+            withPlacementOverride,
+        ])).toHaveLength(4);
+    });
+
     it('evicts by bytes and count while accounting for derivable shared input bytes once', () => {
         const cache = createScanCleanupPreviewCache({
             maxEntries: 2,

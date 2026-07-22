@@ -53,6 +53,8 @@ interface ICleanupMetadata {
     canvasHeightPx: number;
     layoutClassification: 'single-uncut-page' | 'page-with-offcut' | 'two-page-spread';
     skewApplied: boolean;
+    illuminationNormalized?: boolean;
+    despeckleFallback?: boolean;
     contentBox?: unknown;
     warnings?: string[];
 }
