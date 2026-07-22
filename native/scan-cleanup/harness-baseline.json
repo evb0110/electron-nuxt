@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "catastrophes": {
     "binarization": {
       "blankRegionFloods": 0,
@@ -14,7 +14,12 @@
     "despeckle": {
       "erasedPages": 0
     },
-    "dewarp": {},
+    "dewarp": {
+      "catastrophicWarps": 0,
+      "curledNonImprovements": 0,
+      "flatPageModels": 0,
+      "photoSparseModels": 0
+    },
     "split": {
       "classificationErrors": 1,
       "offcutMisclassifications": 1
@@ -229,6 +234,29 @@
       "retainedPunctuationMarkers": 15,
       "retainedPunctuationRate": 1.0
     },
+    "dewarp": {
+      "catastrophicWarps": 0,
+      "curledEvaluated": 1,
+      "curledModelsDetected": 1,
+      "curledNonImprovements": 0,
+      "dewarpedMeanResidualPx": 3.283449,
+      "flatGuardEvaluated": 13,
+      "flatGuardModels": 0,
+      "guardModelIds": [],
+      "identityMeanResidualPx": 4.546266,
+      "photoSparseGuardEvaluated": 3,
+      "photoSparseGuardModels": 0,
+      "residualImprovementFraction": 0.27777,
+      "samples": [
+        {
+          "dewarpedResidualPx": 3.283449,
+          "id": "synthetic-curled-cylindrical",
+          "identityResidualPx": 4.546266,
+          "improvementFraction": 0.27777,
+          "modelDetected": true
+        }
+      ]
+    },
     "split": {
       "accuracy": 0.98,
       "correct": 49,
@@ -277,8 +305,6 @@
     ],
     "curledTruthBaselineCount": 8,
     "curledTruthFixtures": 1,
-    "dewarpCatastrophicWarp": "stub: Jacobian sign-flip evaluation lands with dewarp validity checks",
-    "dewarpResidual": "stub: curled truth retained for the later dewarp stage",
     "ocrProxy": "stub: optional Tesseract CER is deferred"
   }
 }

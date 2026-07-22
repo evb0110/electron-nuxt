@@ -1,6 +1,7 @@
 //! Deterministic image and geometry primitives for scanned-page cleanup.
 
 pub mod binary;
+pub mod blur;
 pub mod components;
 pub mod distance;
 pub mod geometry;

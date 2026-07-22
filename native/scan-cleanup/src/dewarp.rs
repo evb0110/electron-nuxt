@@ -153,6 +153,26 @@ impl DewarpModel {
         Some(best)
     }
 
+    /// Counts non-positive or non-finite samples on the same 17x17 Jacobian
+    /// grid used by C2 model validation. Validated models necessarily return
+    /// zero; the harness keeps this explicit counter as a catastrophic-warp
+    /// regression metric.
+    pub fn sampled_jacobian_failures(&self) -> usize {
+        let mut failures = 0;
+        for row in 0..DEWARP_GRID_SIZE {
+            for column in 0..DEWARP_GRID_SIZE {
+                let u = column as f64 / (DEWARP_GRID_SIZE - 1) as f64;
+                let v = row as f64 / (DEWARP_GRID_SIZE - 1) as f64;
+                if numerical_jacobian(self, u, v)
+                    .is_none_or(|value| !value.is_finite() || value <= 1e-12)
+                {
+                    failures += 1;
+                }
+            }
+        }
+        failures
+    }
+
     fn validate_jacobian(&self) -> Result<(), DewarpModelError> {
         let mut minimum = f64::INFINITY;
         let mut maximum: f64 = 0.0;

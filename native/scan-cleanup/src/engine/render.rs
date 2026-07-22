@@ -5,7 +5,7 @@ use crate::engine::render_plan::{
 };
 use crate::engine::text_axis::{detect_text_axis, TextAxisHint};
 use crate::{
-    auto_dewarp::detect_curves,
+    auto_dewarp::detect_curves_at_dpi,
     background::{
         normalize_illumination, normalize_illumination_for_layout, normalize_illumination_rgb,
         normalize_illumination_rgb_with_picture_mask, normalize_illumination_with_picture_mask,
@@ -838,7 +838,7 @@ fn clean_region(
     let source_rotated_to_deskewed =
         Affine::translation(-region.x, -region.y).then(local_deskew_forward);
     let automatic_dewarp = if options.dewarp.is_none() && options.experimental.auto_dewarp {
-        let mut detected = detect_curves(&working);
+        let mut detected = detect_curves_at_dpi(&working, calibration.effective_dpi);
         detected.model = detected
             .model
             .map(|model| transform_dewarp_options(&model, Affine::translation(region.x, region.y)));

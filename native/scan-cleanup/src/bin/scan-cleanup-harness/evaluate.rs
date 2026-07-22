@@ -1,9 +1,11 @@
 use crate::corpus::{inventory, CorpusEntry, Origin, PixelRect};
 use evb_scan_cleanup::{
+    auto_dewarp::detect_curves_at_dpi,
     bw::{
         clean_black_and_white_with_calibration_config, despeckle_connected_with_calibration_config,
     },
     calibration::CalibrationConfig,
+    dewarp::DewarpModel,
     engine::render::clean_page_with_calibration_config,
     split::LayoutClassification,
     BinarizationMode,
@@ -64,6 +66,8 @@ pub struct MetricReport {
     pub content: ContentMetrics,
     pub despeckle: DespeckleMetrics,
     pub binarization: BinarizationMetrics,
+    #[serde(default)]
+    pub dewarp: DewarpMetrics,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -163,12 +167,38 @@ pub struct BinarizationMetrics {
     pub blank_region_flood_ids: Vec<String>,
 }
 
+#[derive(Debug, Default, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DewarpMetrics {
+    pub curled_evaluated: usize,
+    pub curled_models_detected: usize,
+    pub curled_non_improvements: usize,
+    pub identity_mean_residual_px: f64,
+    pub dewarped_mean_residual_px: f64,
+    pub residual_improvement_fraction: f64,
+    pub flat_guard_evaluated: usize,
+    pub flat_guard_models: usize,
+    pub photo_sparse_guard_evaluated: usize,
+    pub photo_sparse_guard_models: usize,
+    pub catastrophic_warps: usize,
+    pub guard_model_ids: Vec<String>,
+    pub samples: Vec<DewarpSample>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DewarpSample {
+    pub id: String,
+    pub model_detected: bool,
+    pub identity_residual_px: f64,
+    pub dewarped_residual_px: f64,
+    pub improvement_fraction: f64,
+}
+
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct StubHooks {
     pub ocr_proxy: String,
-    pub dewarp_residual: String,
-    pub dewarp_catastrophic_warp: String,
     pub curled_truth_fixtures: usize,
     pub curled_truth_amplitudes_px: Vec<f64>,
     pub curled_truth_baseline_count: usize,
@@ -187,6 +217,15 @@ pub struct PerformanceMetrics {
     pub total_wall_time_ms: f64,
     pub mean_wall_time_ms_per_page: f64,
     pub pages: Vec<PageTiming>,
+    pub auto_dewarp: AutoDewarpTiming,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AutoDewarpTiming {
+    pub pages: usize,
+    pub total_wall_time_ms: f64,
+    pub mean_wall_time_ms_per_page: f64,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -286,12 +325,14 @@ pub fn evaluate_corpus(
     let content_metrics = finish_content(content);
     let despeckle_metrics = finish_despeckle(despeckle);
     let binarization_metrics = finish_binarization(binarization);
+    let (dewarp_metrics, auto_dewarp_timing) = evaluate_dewarp(entries);
     let catastrophes = catastrophe_map(
         &split_metrics,
         &deskew_metrics,
         &content_metrics,
         &despeckle_metrics,
         &binarization_metrics,
+        &dewarp_metrics,
     );
     let total_wall_time_ms = timings
         .iter()
@@ -315,7 +356,7 @@ pub fn evaluate_corpus(
 
     Ok(HarnessReport {
         comparable: ComparableReport {
-            schema_version: 1,
+            schema_version: 2,
             corpus: CorpusInventory {
                 total: entries.len(),
                 real,
@@ -330,12 +371,10 @@ pub fn evaluate_corpus(
                 content: content_metrics,
                 despeckle: despeckle_metrics,
                 binarization: binarization_metrics,
+                dewarp: dewarp_metrics,
             },
             stub_hooks: StubHooks {
                 ocr_proxy: "stub: optional Tesseract CER is deferred".into(),
-                dewarp_residual: "stub: curled truth retained for the later dewarp stage".into(),
-                dewarp_catastrophic_warp:
-                    "stub: Jacobian sign-flip evaluation lands with dewarp validity checks".into(),
                 curled_truth_fixtures: curled_truth_amplitudes_px.len(),
                 curled_truth_amplitudes_px,
                 curled_truth_baseline_count,
@@ -353,6 +392,7 @@ pub fn evaluate_corpus(
                         ..timing
                     })
                     .collect(),
+                auto_dewarp: auto_dewarp_timing,
             },
         },
     })
@@ -684,12 +724,180 @@ fn finish_binarization(accumulator: BinarizationAccumulator) -> BinarizationMetr
     }
 }
 
+fn evaluate_dewarp(entries: &[CorpusEntry]) -> (DewarpMetrics, AutoDewarpTiming) {
+    let mut metrics = DewarpMetrics::default();
+    let mut analysis_pages = 0usize;
+    let mut total_wall_time_ms = 0.0;
+    for entry in entries
+        .iter()
+        .filter(|entry| entry.origin == Origin::Synthetic)
+    {
+        let is_curled = entry.truth.warp.is_some();
+        let is_flat_guard = !is_curled;
+        let is_photo_sparse = entry.categories.iter().any(|category| {
+            matches!(
+                category.as_str(),
+                "halftone-photo" | "sparse-text" | "page-number-only"
+            )
+        });
+        if !is_curled && !is_flat_guard && !is_photo_sparse {
+            continue;
+        }
+
+        let start = Instant::now();
+        let detection = detect_curves_at_dpi(&entry.image, entry.dpi);
+        total_wall_time_ms += start.elapsed().as_secs_f64() * 1_000.0;
+        analysis_pages += 1;
+
+        if is_flat_guard {
+            metrics.flat_guard_evaluated += 1;
+            if detection.model.is_some() {
+                metrics.flat_guard_models += 1;
+                metrics.guard_model_ids.push(entry.id.clone());
+            }
+        }
+        if is_photo_sparse {
+            metrics.photo_sparse_guard_evaluated += 1;
+            if detection.model.is_some() {
+                metrics.photo_sparse_guard_models += 1;
+                if !metrics.guard_model_ids.contains(&entry.id) {
+                    metrics.guard_model_ids.push(entry.id.clone());
+                }
+            }
+        }
+
+        let Some(warp) = entry.truth.warp.as_ref() else {
+            continue;
+        };
+        metrics.curled_evaluated += 1;
+        let source_lines = warp
+            .baseline_rows
+            .iter()
+            .map(|&baseline| {
+                (0..=32)
+                    .map(|step| {
+                        let x = entry.image.width() as f64 * (0.15 + 0.7 * step as f64 / 32.0);
+                        let normalized = (x - entry.image.width() as f64 * 0.5)
+                            / (entry.image.width() as f64 * 0.5);
+                        Point::new(x, baseline + warp.amplitude_px * normalized * normalized)
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .collect::<Vec<_>>();
+        let identity_residual = source_lines
+            .iter()
+            .map(|line| straightness_residual(line))
+            .sum::<f64>()
+            / source_lines.len().max(1) as f64;
+        let mut dewarped_residual = identity_residual;
+        if let Some(options) = detection.model.as_ref() {
+            metrics.curled_models_detected += 1;
+            match DewarpModel::from_options(options) {
+                Ok(model) => {
+                    metrics.catastrophic_warps += model.sampled_jacobian_failures();
+                    let mapped = source_lines
+                        .iter()
+                        .map(|line| {
+                            line.iter()
+                                .filter_map(|&point| model.map_source_to_unit_approx(point))
+                                .map(|point| {
+                                    Point::new(
+                                        point.x * entry.image.width() as f64,
+                                        point.y * entry.image.height() as f64,
+                                    )
+                                })
+                                .collect::<Vec<_>>()
+                        })
+                        .collect::<Vec<_>>();
+                    if mapped
+                        .iter()
+                        .all(|line| line.len() == source_lines[0].len())
+                    {
+                        dewarped_residual = mapped
+                            .iter()
+                            .map(|line| straightness_residual(line))
+                            .sum::<f64>()
+                            / mapped.len().max(1) as f64;
+                    } else {
+                        metrics.catastrophic_warps += 1;
+                    }
+                }
+                Err(_) => metrics.catastrophic_warps += 1,
+            }
+        }
+        let improvement = (identity_residual - dewarped_residual) / identity_residual.max(1e-9);
+        if detection.model.is_none() || improvement <= 0.0 {
+            metrics.curled_non_improvements += 1;
+        }
+        metrics.samples.push(DewarpSample {
+            id: entry.id.clone(),
+            model_detected: detection.model.is_some(),
+            identity_residual_px: round6(identity_residual),
+            dewarped_residual_px: round6(dewarped_residual),
+            improvement_fraction: round6(improvement),
+        });
+    }
+    metrics.guard_model_ids.sort();
+    metrics.identity_mean_residual_px = round6(
+        metrics
+            .samples
+            .iter()
+            .map(|sample| sample.identity_residual_px)
+            .sum::<f64>()
+            / metrics.samples.len().max(1) as f64,
+    );
+    metrics.dewarped_mean_residual_px = round6(
+        metrics
+            .samples
+            .iter()
+            .map(|sample| sample.dewarped_residual_px)
+            .sum::<f64>()
+            / metrics.samples.len().max(1) as f64,
+    );
+    metrics.residual_improvement_fraction = round6(
+        (metrics.identity_mean_residual_px - metrics.dewarped_mean_residual_px)
+            / metrics.identity_mean_residual_px.max(1e-9),
+    );
+    (
+        metrics,
+        AutoDewarpTiming {
+            pages: analysis_pages,
+            total_wall_time_ms: round3(total_wall_time_ms),
+            mean_wall_time_ms_per_page: round3(total_wall_time_ms / analysis_pages.max(1) as f64),
+        },
+    )
+}
+
+fn straightness_residual(points: &[Point]) -> f64 {
+    if points.len() < 2 {
+        return f64::INFINITY;
+    }
+    let mean_x = points.iter().map(|point| point.x).sum::<f64>() / points.len() as f64;
+    let mean_y = points.iter().map(|point| point.y).sum::<f64>() / points.len() as f64;
+    let variance_x = points
+        .iter()
+        .map(|point| (point.x - mean_x).powi(2))
+        .sum::<f64>();
+    let covariance = points
+        .iter()
+        .map(|point| (point.x - mean_x) * (point.y - mean_y))
+        .sum::<f64>();
+    let slope = covariance / variance_x.max(1e-12);
+    let intercept = mean_y - slope * mean_x;
+    points
+        .iter()
+        .map(|point| (point.y - (slope * point.x + intercept)).abs())
+        .sum::<f64>()
+        / points.len() as f64
+}
+
 fn catastrophe_map(
     split: &SplitMetrics,
     deskew: &DeskewMetrics,
     content: &ContentMetrics,
     despeckle: &DespeckleMetrics,
     binarization: &BinarizationMetrics,
+    dewarp: &DewarpMetrics,
 ) -> BTreeMap<String, BTreeMap<String, u64>> {
     BTreeMap::from([
         (
@@ -719,7 +927,21 @@ fn catastrophe_map(
                 deskew.confident_but_wrong as u64,
             )]),
         ),
-        ("dewarp".into(), BTreeMap::new()),
+        (
+            "dewarp".into(),
+            BTreeMap::from([
+                ("catastrophicWarps".into(), dewarp.catastrophic_warps as u64),
+                (
+                    "curledNonImprovements".into(),
+                    dewarp.curled_non_improvements as u64,
+                ),
+                ("flatPageModels".into(), dewarp.flat_guard_models as u64),
+                (
+                    "photoSparseModels".into(),
+                    dewarp.photo_sparse_guard_models as u64,
+                ),
+            ]),
+        ),
         (
             "despeckle".into(),
             BTreeMap::from([("erasedPages".into(), despeckle.erased_pages as u64)]),

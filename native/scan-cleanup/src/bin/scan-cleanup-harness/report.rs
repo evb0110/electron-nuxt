@@ -99,6 +99,20 @@ fn markdown_report(report: &HarnessReport) -> String {
         metrics.binarization.blank_pixels_evaluated,
         metrics.binarization.route_counts
     ));
+    output.push_str(&format!(
+        "- Dewarp: curled residual {:.6} px → {:.6} px ({:.4} improvement; {}/{} models detected, {} non-improvements); {} catastrophic warps, {}/{} flat guards and {}/{} photo/sparse guards emitted a model.\n",
+        metrics.dewarp.identity_mean_residual_px,
+        metrics.dewarp.dewarped_mean_residual_px,
+        metrics.dewarp.residual_improvement_fraction,
+        metrics.dewarp.curled_models_detected,
+        metrics.dewarp.curled_evaluated,
+        metrics.dewarp.curled_non_improvements,
+        metrics.dewarp.catastrophic_warps,
+        metrics.dewarp.flat_guard_models,
+        metrics.dewarp.flat_guard_evaluated,
+        metrics.dewarp.photo_sparse_guard_models,
+        metrics.dewarp.photo_sparse_guard_evaluated,
+    ));
 
     output.push_str("\n## Metric definitions\n\n");
     output.push_str(
@@ -106,7 +120,8 @@ fn markdown_report(report: &HarnessReport) -> String {
          - Deskew error is `abs(detected − annotated)`; confident-but-wrong means confidence ≥ 2.0 and error > 1°.\n\
          - Content IoU compares axis-aligned detected and generated truth boxes. A crop catastrophe means more than `max(4 pixels, 1% of truth ink)` lies outside the detected box.\n\
          - Despeckle runs directly on the annotated binary mask. Marker retention means ink remains within the annotation radius; an erased page has input ink and zero output ink.\n\
-         - Binarization runs normalization + selected threshold + smoothing with despeckle disabled. Broken-stroke delta is `max(output components − truth components, 0)`. Pepper density is black output pixels divided by pixels in generated known-blank regions.\n",
+         - Binarization runs normalization + selected threshold + smoothing with despeckle disabled. Broken-stroke delta is `max(output components − truth components, 0)`. Pepper density is black output pixels divided by pixels in generated known-blank regions.\n\
+         - Dewarp residual is mean absolute distance from each annotated baseline to its fitted straight line, measured in output-height pixels before and after the detected cylindrical mapping. Flat, photo, and sparse guards count any emitted automatic model as catastrophic; Jacobian failures use the same 17×17 grid as C2 validation.\n",
     );
 
     output.push_str("\n## Non-comparable performance\n\n");
@@ -116,15 +131,19 @@ fn markdown_report(report: &HarnessReport) -> String {
         performance.total_wall_time_ms,
         performance.mean_wall_time_ms_per_page
     ));
+    output.push_str(&format!(
+        "Automatic dewarp analysis: {:.3} ms total across {} analysis-scale pages, {:.3} ms/page.\n",
+        performance.auto_dewarp.total_wall_time_ms,
+        performance.auto_dewarp.pages,
+        performance.auto_dewarp.mean_wall_time_ms_per_page,
+    ));
 
     output.push_str("\n## Deferred hooks\n\n");
     output.push_str(&format!(
-        "- OCR proxy: {}.\n- Dewarp residual: {} ({} curled fixture, {} annotated baselines).\n- Catastrophic dewarp: {}.\n",
+        "- OCR proxy: {}.\n- Dewarp truth inventory: {} curled fixture, {} annotated baselines.\n",
         comparable.stub_hooks.ocr_proxy,
-        comparable.stub_hooks.dewarp_residual,
         comparable.stub_hooks.curled_truth_fixtures,
         comparable.stub_hooks.curled_truth_baseline_count,
-        comparable.stub_hooks.dewarp_catastrophic_warp
     ));
     output
 }
