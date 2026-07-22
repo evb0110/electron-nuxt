@@ -11,7 +11,8 @@ use crate::{
         binarize_normalized_with_diagnostics, binary_to_gray, postprocess_binary_with_diagnostics,
         BinarizationDiagnostics,
     },
-    content::detect_content_and_margins,
+    calibration::{CalibrationConfig, PageCalibration},
+    content::detect_content_and_margins_calibrated,
     deskew::{detect_skew, DeskewResult},
     dewarp::{rasterize_inverse_area, rasterize_inverse_area_rgb, DewarpModel},
     png::RgbImage,
@@ -263,7 +264,7 @@ struct PreparedPage {
     analysis_normalized: Option<GrayImage>,
     analysis_scale_x: f64,
     analysis_scale_y: f64,
-    analysis_dpi: f64,
+    calibration: PageCalibration,
     rotated_color: Option<RgbImage>,
     split: SplitResult,
 }
@@ -275,7 +276,7 @@ struct PreparedAnalysis {
     scale_y: f64,
     full_width: usize,
     full_height: usize,
-    dpi: f64,
+    calibration: PageCalibration,
     candidate_cutter_ratio: Option<f64>,
     whitespace_score: f64,
     text_axis: Option<TextAxisHint>,
@@ -294,7 +295,13 @@ pub fn classify_page_with_document_prior(
     document_prior: Option<DocumentPrior>,
 ) -> Result<PageClassificationResult, String> {
     options.validate()?;
-    let prepared = prepare_analysis_page(source, options, false, document_prior);
+    let prepared = prepare_analysis_page(
+        source,
+        options,
+        false,
+        document_prior,
+        CalibrationConfig::default(),
+    );
     Ok(PageClassificationResult {
         classification: prepared.split.classification,
         confidence: prepared.split.confidence,
@@ -343,7 +350,13 @@ pub fn analyze_page_with_document_prior(
             text_axis: None,
         });
     }
-    let prepared = prepare_analysis_page(source, options, true, document_prior);
+    let prepared = prepare_analysis_page(
+        source,
+        options,
+        true,
+        document_prior,
+        CalibrationConfig::default(),
+    );
     let outputs = output_regions(
         prepared.full_width,
         prepared.full_height,
@@ -368,16 +381,22 @@ pub fn analyze_page_with_document_prior(
             let bottom = manual.bottom().clamp(top + 1.0, region.height);
             Some(Rect::new(left, top, right - left, bottom - top))
         } else {
-            detect_content_and_margins(&working, prepared.dpi, None, Some([0.0; 4]))
-                .content
-                .map(|content| {
-                    Rect::new(
-                        content.x / prepared.scale_x,
-                        content.y / prepared.scale_y,
-                        content.width / prepared.scale_x,
-                        content.height / prepared.scale_y,
-                    )
-                })
+            detect_content_and_margins_calibrated(
+                &working,
+                prepared.calibration.effective_dpi,
+                None,
+                Some([0.0; 4]),
+                prepared.calibration,
+            )
+            .content
+            .map(|content| {
+                Rect::new(
+                    content.x / prepared.scale_x,
+                    content.y / prepared.scale_y,
+                    content.width / prepared.scale_x,
+                    content.height / prepared.scale_y,
+                )
+            })
         };
         let content = content_result_for_dimensions(
             region.width.ceil().max(1.0) as usize,
@@ -435,7 +454,29 @@ pub fn clean_page(
     options: &CleanupOptions,
     source_page_index: usize,
 ) -> Result<PageCleanupResult, String> {
-    clean_page_with_color(source, None, options, source_page_index)
+    clean_page_with_color_and_calibration_config(
+        source,
+        None,
+        options,
+        source_page_index,
+        CalibrationConfig::default(),
+    )
+}
+
+#[doc(hidden)]
+pub fn clean_page_with_calibration_config(
+    source: &GrayImage,
+    options: &CleanupOptions,
+    source_page_index: usize,
+    calibration_config: CalibrationConfig,
+) -> Result<PageCleanupResult, String> {
+    clean_page_with_color_and_calibration_config(
+        source,
+        None,
+        options,
+        source_page_index,
+        calibration_config,
+    )
 }
 
 pub fn clean_page_with_color(
@@ -443,6 +484,22 @@ pub fn clean_page_with_color(
     color_source: Option<&RgbImage>,
     options: &CleanupOptions,
     source_page_index: usize,
+) -> Result<PageCleanupResult, String> {
+    clean_page_with_color_and_calibration_config(
+        source,
+        color_source,
+        options,
+        source_page_index,
+        CalibrationConfig::default(),
+    )
+}
+
+fn clean_page_with_color_and_calibration_config(
+    source: &GrayImage,
+    color_source: Option<&RgbImage>,
+    options: &CleanupOptions,
+    source_page_index: usize,
+    calibration_config: CalibrationConfig,
 ) -> Result<PageCleanupResult, String> {
     options.validate()?;
     if options.excluded {
@@ -456,14 +513,14 @@ pub fn clean_page_with_color(
             rotation: options.rotation,
         });
     }
-    let prepared = prepare_page(source, color_source, options);
+    let prepared = prepare_page(source, color_source, options, calibration_config);
     let PreparedPage {
         rotated_source,
         normalized,
         analysis_normalized,
         analysis_scale_x,
         analysis_scale_y,
-        analysis_dpi,
+        calibration,
         rotated_color,
         split,
     } = prepared;
@@ -482,7 +539,7 @@ pub fn clean_page_with_color(
             analysis_normalized.as_ref().unwrap_or(&normalized),
             analysis_scale_x,
             analysis_scale_y,
-            analysis_dpi,
+            calibration,
             rotated_color.as_ref(),
             options,
             source_page_index,
@@ -511,17 +568,18 @@ fn prepare_page(
     source: &GrayImage,
     color_source: Option<&RgbImage>,
     options: &CleanupOptions,
+    calibration_config: CalibrationConfig,
 ) -> PreparedPage {
     let PreparedAnalysis {
         normalized: analysis_normalized,
         split,
         scale_x,
         scale_y,
-        dpi,
+        calibration,
         full_width,
         full_height,
         ..
-    } = prepare_analysis_page(source, options, true, None);
+    } = prepare_analysis_page(source, options, true, None, calibration_config);
     let (rotated_source, _) = rotate_orthogonal(source, options.rotation);
     let rotated_color = color_source
         .map(|image| rotate_rgb_orthogonal(image, options.rotation))
@@ -552,7 +610,7 @@ fn prepare_page(
         analysis_normalized,
         analysis_scale_x: scale_x,
         analysis_scale_y: scale_y,
-        analysis_dpi: dpi,
+        calibration,
         rotated_color,
         split,
     }
@@ -563,10 +621,11 @@ fn prepare_analysis_page(
     options: &CleanupOptions,
     prepare_quality_raster: bool,
     document_prior: Option<DocumentPrior>,
+    calibration_config: CalibrationConfig,
 ) -> PreparedAnalysis {
     let AnalysisLevel {
         image,
-        dpi,
+        effective_dpi,
         scale_x: source_scale_x,
         scale_y: source_scale_y,
     } = build_analysis_level(source, options.dpi, 150.0);
@@ -585,7 +644,7 @@ fn prepare_analysis_page(
     let (normalized, layout_normalized) = if options.normalize_illumination {
         let layout_normalized = normalize_illumination_for_layout(&rotated);
         let normalized = if prepare_quality_raster {
-            normalize_illumination(&rotated, dpi)
+            normalize_illumination(&rotated, effective_dpi)
         } else {
             layout_normalized.clone()
         };
@@ -593,12 +652,14 @@ fn prepare_analysis_page(
     } else {
         (rotated.clone(), rotated)
     };
+    let calibration =
+        PageCalibration::estimate(&layout_normalized, effective_dpi, calibration_config);
     let analysis_threshold = otsu_threshold(&layout_normalized);
     let text_axis = detect_text_axis(&layout_normalized, analysis_threshold);
     let mut split = if options.ocr_mode {
         detect_split_at_analysis_level_with_threshold(
             &layout_normalized,
-            dpi,
+            effective_dpi,
             crate::LayoutMode::Single,
             None,
             analysis_threshold,
@@ -606,7 +667,7 @@ fn prepare_analysis_page(
     } else {
         detect_split_at_analysis_level_with_threshold(
             &layout_normalized,
-            dpi,
+            effective_dpi,
             options.layout,
             options.resolved_manual_split_x(normalized.width()),
             analysis_threshold,
@@ -637,7 +698,7 @@ fn prepare_analysis_page(
         scale_y,
         full_width,
         full_height,
-        dpi,
+        calibration,
         candidate_cutter_ratio,
         whitespace_score,
         text_axis,
@@ -674,7 +735,7 @@ fn clean_region(
     analysis_normalized: &GrayImage,
     analysis_scale_x: f64,
     analysis_scale_y: f64,
-    analysis_dpi: f64,
+    calibration: PageCalibration,
     color_source: Option<&RgbImage>,
     options: &CleanupOptions,
     source_page_index: usize,
@@ -692,7 +753,7 @@ fn clean_region(
     let analysis_working = crop_gray(analysis_normalized, analysis_region);
     let local_scale_x = analysis_working.width() as f64 / working.width().max(1) as f64;
     let local_scale_y = analysis_working.height() as f64 / working.height().max(1) as f64;
-    let deskew = detect_skew(&analysis_working, analysis_dpi);
+    let deskew = detect_skew(&analysis_working, calibration.effective_dpi);
     let local_deskew_forward = deskew_transform(working.width(), working.height(), deskew);
     let local_deskew_inverse = local_deskew_forward
         .inverse()
@@ -736,17 +797,22 @@ fn clean_region(
             Some(source_content),
         )
     } else {
-        let detected =
-            detect_content_and_margins(&deskewed_analysis, analysis_dpi, None, Some([0.0; 4]))
-                .content
-                .map(|rect| {
-                    Rect::new(
-                        rect.x / local_scale_x,
-                        rect.y / local_scale_y,
-                        rect.width / local_scale_x,
-                        rect.height / local_scale_y,
-                    )
-                });
+        let detected = detect_content_and_margins_calibrated(
+            &deskewed_analysis,
+            calibration.effective_dpi,
+            None,
+            Some([0.0; 4]),
+            calibration,
+        )
+        .content
+        .map(|rect| {
+            Rect::new(
+                rect.x / local_scale_x,
+                rect.y / local_scale_y,
+                rect.width / local_scale_x,
+                rect.height / local_scale_y,
+            )
+        });
         let source_content = detected.map(|rect| transform_rect_bounds(rect, local_deskew_inverse));
         (
             content_result_for_dimensions(
@@ -842,6 +908,7 @@ fn clean_region(
                             &rendered_gray,
                             &routing_sample,
                             options,
+                            calibration,
                         );
                     let mode = diagnostics.route;
                     let reusable = split.reusable_binary.as_ref().filter(|binary| {
@@ -858,7 +925,7 @@ fn clean_region(
                             && binary.height() == rendered_gray.height()
                     });
                     let (binary, despeckle_fallback) = if let Some(binary) = reusable {
-                        postprocess_binary_with_diagnostics(binary, options)
+                        postprocess_binary_with_diagnostics(binary, options, calibration)
                     } else {
                         (fresh_binary, fresh_despeckle_fallback)
                     };

@@ -1,7 +1,10 @@
 use crate::corpus::{inventory, CorpusEntry, Origin, PixelRect};
 use evb_scan_cleanup::{
-    bw::{clean_black_and_white, despeckle_connected},
-    engine::render::clean_page,
+    bw::{
+        clean_black_and_white_with_calibration_config, despeckle_connected_with_calibration_config,
+    },
+    calibration::CalibrationConfig,
+    engine::render::clean_page_with_calibration_config,
     split::LayoutClassification,
     BinarizationMode,
 };
@@ -243,6 +246,7 @@ struct BinarizationAccumulator {
 pub fn evaluate_corpus(
     entries: &[CorpusEntry],
     rayon_threads: usize,
+    calibration: CalibrationConfig,
 ) -> Result<HarnessReport, String> {
     let (real_categories, synthetic_categories) = inventory(entries);
     let real = entries
@@ -258,8 +262,9 @@ pub fn evaluate_corpus(
 
     for (index, entry) in entries.iter().enumerate() {
         let start = Instant::now();
-        let rendered = clean_page(&entry.image, &entry.options, index)
-            .map_err(|error| format!("{} pipeline failed: {error}", entry.id))?;
+        let rendered =
+            clean_page_with_calibration_config(&entry.image, &entry.options, index, calibration)
+                .map_err(|error| format!("{} pipeline failed: {error}", entry.id))?;
         timings.push(PageTiming {
             id: entry.id.clone(),
             wall_time_ms: start.elapsed().as_secs_f64() * 1_000.0,
@@ -272,8 +277,8 @@ pub fn evaluate_corpus(
         } else if entry.truth.skew_degrees.is_some() {
             record_missing_deskew(entry, &mut deskew);
         }
-        evaluate_despeckle(entry, &mut despeckle);
-        evaluate_binarization(entry, &mut binarization);
+        evaluate_despeckle(entry, calibration, &mut despeckle);
+        evaluate_binarization(entry, calibration, &mut binarization);
     }
 
     let split_metrics = finish_split(split);
@@ -498,7 +503,11 @@ fn evaluate_content(
     });
 }
 
-fn evaluate_despeckle(entry: &CorpusEntry, accumulator: &mut DespeckleAccumulator) {
+fn evaluate_despeckle(
+    entry: &CorpusEntry,
+    calibration: CalibrationConfig,
+    accumulator: &mut DespeckleAccumulator,
+) {
     let Some(source) = &entry.truth.content_mask else {
         return;
     };
@@ -506,7 +515,7 @@ fn evaluate_despeckle(entry: &CorpusEntry, accumulator: &mut DespeckleAccumulato
         return;
     }
     accumulator.pages_evaluated += 1;
-    let cleaned = despeckle_connected(source, entry.dpi);
+    let cleaned = despeckle_connected_with_calibration_config(source, entry.dpi, calibration);
     if cleaned.count_black() == 0 {
         accumulator.erased_page_ids.push(entry.id.clone());
     }
@@ -520,10 +529,14 @@ fn evaluate_despeckle(entry: &CorpusEntry, accumulator: &mut DespeckleAccumulato
     }
 }
 
-fn evaluate_binarization(entry: &CorpusEntry, accumulator: &mut BinarizationAccumulator) {
+fn evaluate_binarization(
+    entry: &CorpusEntry,
+    calibration: CalibrationConfig,
+    accumulator: &mut BinarizationAccumulator,
+) {
     let mut options = entry.options.clone();
     options.despeckle = false;
-    let result = clean_black_and_white(&entry.image, &options);
+    let result = clean_black_and_white_with_calibration_config(&entry.image, &options, calibration);
     accumulator.pages_evaluated += 1;
     *accumulator
         .route_counts

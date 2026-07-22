@@ -3,6 +3,7 @@ mod evaluate;
 mod report;
 
 use evaluate::{compare_catastrophes, evaluate_corpus};
+use evb_scan_cleanup::calibration::CalibrationConfig;
 use rayon::ThreadPoolBuilder;
 use report::{read_baseline, write_reports};
 use std::{env, path::PathBuf, process::ExitCode};
@@ -13,6 +14,7 @@ const DEFAULT_THREADS: usize = 1;
 struct Arguments {
     out: PathBuf,
     baseline: Option<PathBuf>,
+    calibration: CalibrationConfig,
 }
 
 fn main() -> ExitCode {
@@ -46,7 +48,8 @@ fn run(arguments: Arguments) -> Result<Vec<String>, String> {
         .num_threads(DEFAULT_THREADS)
         .build()
         .map_err(|error| format!("failed to build fixed-size thread pool: {error}"))?;
-    let report = pool.install(|| evaluate_corpus(&corpus, DEFAULT_THREADS))?;
+    let report =
+        pool.install(|| evaluate_corpus(&corpus, DEFAULT_THREADS, arguments.calibration))?;
     write_reports(&arguments.out, &report)?;
 
     println!(
@@ -69,6 +72,7 @@ fn run(arguments: Arguments) -> Result<Vec<String>, String> {
 fn parse_arguments() -> Result<Option<Arguments>, String> {
     let mut out = default_output_directory();
     let mut baseline = None;
+    let mut calibration = CalibrationConfig::default();
     let mut arguments = env::args().skip(1);
     while let Some(argument) = arguments.next() {
         match argument.as_str() {
@@ -86,9 +90,10 @@ fn parse_arguments() -> Result<Option<Arguments>, String> {
                         "--baseline requires a JSON path".to_string()
                     })?));
             }
+            "--legacy-calibration" => calibration = CalibrationConfig::legacy(),
             "--help" | "-h" => {
                 println!(
-                    "Usage: scan-cleanup-harness [--out <directory>] [--baseline <report.json>]\n\
+                    "Usage: scan-cleanup-harness [--out <directory>] [--baseline <report.json>] [--legacy-calibration]\n\
                      Default output: <repository>/.devkit/scratch/scan-cleanup-harness/"
                 );
                 return Ok(None);
@@ -96,7 +101,11 @@ fn parse_arguments() -> Result<Option<Arguments>, String> {
             _ => return Err(format!("unknown argument: {argument}")),
         }
     }
-    Ok(Some(Arguments { out, baseline }))
+    Ok(Some(Arguments {
+        out,
+        baseline,
+        calibration,
+    }))
 }
 
 fn default_output_directory() -> PathBuf {

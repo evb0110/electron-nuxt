@@ -193,7 +193,13 @@ mod tests {
             layout: crate::LayoutMode::Auto,
             ..CleanupOptions::default()
         };
-        let prepared = prepare_analysis_page(&source, &options, true, None);
+        let prepared = prepare_analysis_page(
+            &source,
+            &options,
+            true,
+            None,
+            CalibrationConfig::default(),
+        );
         assert_eq!(
             prepared.split.classification,
             LayoutClassification::SingleUncutPage

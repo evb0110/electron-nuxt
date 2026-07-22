@@ -1,5 +1,6 @@
 use crate::{
     background::{normalize_illumination, smooth_for_binarization},
+    calibration::{CalibrationConfig, PageCalibration},
     BinarizationMode, CleanupOptions,
 };
 use scan_primitives::{
@@ -40,12 +41,22 @@ pub struct BwResult {
 }
 
 pub fn clean_black_and_white(source: &GrayImage, options: &CleanupOptions) -> BwResult {
+    clean_black_and_white_with_calibration_config(source, options, CalibrationConfig::default())
+}
+
+#[doc(hidden)]
+pub fn clean_black_and_white_with_calibration_config(
+    source: &GrayImage,
+    options: &CleanupOptions,
+    calibration_config: CalibrationConfig,
+) -> BwResult {
     let normalized = if options.normalize_illumination {
         normalize_illumination(source, options.dpi)
     } else {
         source.clone()
     };
-    let (binary, mode) = binarize_normalized(&normalized, options);
+    let calibration = PageCalibration::estimate(&normalized, options.dpi, calibration_config);
+    let (binary, mode) = binarize_normalized_calibrated(&normalized, options, calibration);
     BwResult {
         normalized,
         binary,
@@ -59,21 +70,36 @@ pub fn binarize_normalized(
     normalized: &GrayImage,
     options: &CleanupOptions,
 ) -> (BinaryImage, BinarizationMode) {
+    let calibration =
+        PageCalibration::estimate(normalized, options.dpi, CalibrationConfig::default());
+    binarize_normalized_calibrated(normalized, options, calibration)
+}
+
+fn binarize_normalized_calibrated(
+    normalized: &GrayImage,
+    options: &CleanupOptions,
+    calibration: PageCalibration,
+) -> (BinaryImage, BinarizationMode) {
     let threshold_input = smooth_for_binarization(normalized, options.dpi);
     let diagnostics = resolve_binarization_diagnostics(&threshold_input, options);
     let mode = diagnostics.route;
-    (binarize_with_mode(&threshold_input, options, mode), mode)
+    (
+        binarize_with_mode(&threshold_input, options, mode, calibration),
+        mode,
+    )
 }
 
 pub(crate) fn binarize_normalized_with_diagnostics(
     normalized: &GrayImage,
     routing_sample: &GrayImage,
     options: &CleanupOptions,
+    calibration: PageCalibration,
 ) -> (BinaryImage, BinarizationDiagnostics, bool) {
     let threshold_input = smooth_for_binarization(normalized, options.dpi);
     let diagnostics = resolve_binarization_diagnostics(routing_sample, options);
-    let binary = threshold_with_mode(&threshold_input, options, diagnostics.route);
-    let (binary, despeckle_fallback) = postprocess_binary_with_diagnostics(&binary, options);
+    let binary = threshold_with_mode(&threshold_input, options, diagnostics.route, calibration);
+    let (binary, despeckle_fallback) =
+        postprocess_binary_with_diagnostics(&binary, options, calibration);
     (binary, diagnostics, despeckle_fallback)
 }
 
@@ -81,17 +107,19 @@ fn binarize_with_mode(
     threshold_input: &GrayImage,
     options: &CleanupOptions,
     mode: BinarizationMode,
+    calibration: PageCalibration,
 ) -> BinaryImage {
-    let binary = threshold_with_mode(threshold_input, options, mode);
-    postprocess_binary(&binary, options)
+    let binary = threshold_with_mode(threshold_input, options, mode, calibration);
+    postprocess_binary(&binary, options, calibration)
 }
 
 fn threshold_with_mode(
     threshold_input: &GrayImage,
     options: &CleanupOptions,
     mode: BinarizationMode,
+    calibration: PageCalibration,
 ) -> BinaryImage {
-    let radius = ((options.dpi * 25.5 / 300.0).round() as usize).clamp(8, 64);
+    let radius = calibration.threshold_radius(options.dpi);
     let bias = i16::from(options.thickness) * crate::THICKNESS_GRAY_STEP;
     match mode {
         BinarizationMode::Otsu => {
@@ -118,16 +146,21 @@ fn threshold_with_mode(
     }
 }
 
-pub(crate) fn postprocess_binary(binary: &BinaryImage, options: &CleanupOptions) -> BinaryImage {
-    postprocess_binary_with_diagnostics(binary, options).0
+pub(crate) fn postprocess_binary(
+    binary: &BinaryImage,
+    options: &CleanupOptions,
+    calibration: PageCalibration,
+) -> BinaryImage {
+    postprocess_binary_with_diagnostics(binary, options, calibration).0
 }
 
 pub(crate) fn postprocess_binary_with_diagnostics(
     binary: &BinaryImage,
     options: &CleanupOptions,
+    calibration: PageCalibration,
 ) -> (BinaryImage, bool) {
     let (despeckled, despeckle_fallback) = if options.despeckle {
-        let outcome = despeckle_connected_impl(binary, options.dpi, true);
+        let outcome = despeckle_connected_impl(binary, options.dpi, calibration, true);
         (outcome.image, outcome.fallback)
     } else {
         (binary.clone(), false)
@@ -532,7 +565,25 @@ fn neighborhood_component_count(pattern: u16, black: bool, eight_connected: bool
 }
 
 pub fn despeckle_connected(source: &BinaryImage, dpi: f64) -> BinaryImage {
-    despeckle_connected_impl(source, dpi, true).image
+    despeckle_connected_with_calibration_config(source, dpi, CalibrationConfig::default())
+}
+
+#[doc(hidden)]
+pub fn despeckle_connected_with_calibration_config(
+    source: &BinaryImage,
+    dpi: f64,
+    calibration_config: CalibrationConfig,
+) -> BinaryImage {
+    let calibration = PageCalibration::estimate_from_binary(source, dpi, calibration_config);
+    despeckle_connected_impl(source, dpi, calibration, true).image
+}
+
+pub(crate) fn despeckle_connected_calibrated(
+    source: &BinaryImage,
+    dpi: f64,
+    calibration: PageCalibration,
+) -> BinaryImage {
+    despeckle_connected_impl(source, dpi, calibration, true).image
 }
 
 struct DespeckleOutcome {
@@ -543,6 +594,7 @@ struct DespeckleOutcome {
 fn despeckle_connected_impl(
     source: &BinaryImage,
     dpi: f64,
+    calibration: PageCalibration,
     use_attachment_graph: bool,
 ) -> DespeckleOutcome {
     let components = ComponentMap::from_binary(source);
@@ -553,7 +605,7 @@ fn despeckle_connected_impl(
         };
     }
     let scale = (dpi / 300.0).clamp(0.5, 4.0);
-    let substantial_area = (32.0 * scale * scale).round().max(16.0) as usize;
+    let substantial_area = calibration.despeckle_substantial_area(dpi);
     if !components
         .components()
         .iter()
@@ -833,7 +885,9 @@ mod tests {
             image.set(x, y, true);
         }
         let cleaned = despeckle_connected(&image, 300.0);
-        let graph_disabled = despeckle_connected_impl(&image, 300.0, false).image;
+        let calibration =
+            PageCalibration::estimate_from_binary(&image, 300.0, CalibrationConfig::default());
+        let graph_disabled = despeckle_connected_impl(&image, 300.0, calibration, false).image;
         assert!(
             cleaned.get(18, 15),
             "nearby diacritic must remain through attachment graph"
@@ -864,7 +918,9 @@ mod tests {
                 }
             }
         }
-        let outcome = despeckle_connected_impl(&image, 300.0, true);
+        let calibration =
+            PageCalibration::estimate_from_binary(&image, 300.0, CalibrationConfig::default());
+        let outcome = despeckle_connected_impl(&image, 300.0, calibration, true);
         assert!(outcome.fallback);
         assert_eq!(outcome.image, image);
     }

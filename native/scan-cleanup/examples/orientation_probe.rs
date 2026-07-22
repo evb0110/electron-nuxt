@@ -69,7 +69,7 @@ fn run() -> Result<(), String> {
     for path in paths {
         let source = read_gray(&path, DEFAULT_MAX_PIXELS, DEFAULT_MAX_DIMENSION)?;
         let level = build_analysis_level(&source, options.dpi, 150.0);
-        let normalized = normalize_illumination(&level.image, level.dpi);
+        let normalized = normalize_illumination(&level.image, level.effective_dpi);
         let rotations: &[u16] = if options.synthetic_rotations {
             &[0, 90, 180, 270]
         } else {
@@ -94,7 +94,7 @@ fn run() -> Result<(), String> {
                 line_count: evidence.line_count,
                 analysis_width: raster.width(),
                 analysis_height: raster.height(),
-                analysis_dpi: level.dpi,
+                analysis_dpi: level.effective_dpi,
                 synthetic_rotation: options.synthetic_rotations.then_some(rotation),
             };
             println!(

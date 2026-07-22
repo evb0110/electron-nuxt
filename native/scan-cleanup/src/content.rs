@@ -1,4 +1,8 @@
-use crate::{analysis::build_analysis_level, bw::despeckle_connected};
+use crate::{
+    analysis::build_analysis_level,
+    bw::despeckle_connected_calibrated,
+    calibration::{CalibrationConfig, PageCalibration},
+};
 use scan_primitives::{
     distance::squared_euclidean_distance,
     morphology::{dilate, open, reconstruct_binary},
@@ -19,10 +23,54 @@ pub fn detect_content_and_margins(
     margins_mm: Option<[f64; 4]>,
     margins_pixels: Option<[f64; 4]>,
 ) -> ContentResult {
+    detect_content_and_margins_with_calibration_config(
+        source,
+        dpi,
+        margins_mm,
+        margins_pixels,
+        CalibrationConfig::default(),
+    )
+}
+
+#[doc(hidden)]
+pub fn detect_content_and_margins_with_calibration_config(
+    source: &GrayImage,
+    dpi: f64,
+    margins_mm: Option<[f64; 4]>,
+    margins_pixels: Option<[f64; 4]>,
+    calibration_config: CalibrationConfig,
+) -> ContentResult {
     let level = build_analysis_level(source, dpi, 150.0);
-    let working = level.image;
+    let calibration =
+        PageCalibration::estimate(&level.image, level.effective_dpi, calibration_config);
+    let content = detect_content_at_analysis_scale(&level.image, calibration).map(|content| {
+        Rect::new(
+            content.x / level.scale_x,
+            content.y / level.scale_y,
+            content.width / level.scale_x,
+            content.height / level.scale_y,
+        )
+    });
+    content_with_margins(source, dpi, content, margins_mm, margins_pixels)
+}
+
+pub(crate) fn detect_content_and_margins_calibrated(
+    source: &GrayImage,
+    dpi: f64,
+    margins_mm: Option<[f64; 4]>,
+    margins_pixels: Option<[f64; 4]>,
+    calibration: PageCalibration,
+) -> ContentResult {
+    let content = detect_content_at_analysis_scale(source, calibration);
+    content_with_margins(source, dpi, content, margins_mm, margins_pixels)
+}
+
+fn detect_content_at_analysis_scale(
+    working: &GrayImage,
+    calibration: PageCalibration,
+) -> Option<Rect> {
     let binary = threshold_local(
-        &working,
+        working,
         25,
         LocalThreshold::Wolf {
             k: 0.5,
@@ -46,10 +94,16 @@ pub fn detect_content_and_margins(
             || component.bottom + 1 == working.height();
         attached && (width * 2 >= working.width() || height * 2 >= working.height())
     });
-    let cleaned = despeckle_connected(&binary.subtract(&borders), 150.0);
+    let cleaned = despeckle_connected_calibrated(
+        &binary.subtract(&borders),
+        calibration.content_despeckle_dpi(),
+        calibration,
+    );
     let map = ComponentMap::from_binary(&cleaned);
     let distance_to_white = squared_euclidean_distance(&cleaned.invert());
     let mut candidates = Vec::new();
+    let (neighborhood_x, neighborhood_y) = calibration.content_neighborhood();
+    let dirt_radius_squared = calibration.content_dirt_radius_squared();
     for component in map.components() {
         let width = component.right - component.left + 1;
         let height = component.bottom - component.top + 1;
@@ -70,7 +124,8 @@ pub fn detect_content_and_margins(
                 }
                 let other_x = (other.left + other.right) / 2;
                 let other_y = (other.top + other.bottom) / 2;
-                center_x.abs_diff(other_x) <= 40 && center_y.abs_diff(other_y) <= 24
+                center_x.abs_diff(other_x) <= neighborhood_x
+                    && center_y.abs_diff(other_y) <= neighborhood_y
             })
             .count();
         let mut maximum_inscribed_radius_squared = 0u32;
@@ -83,12 +138,12 @@ pub fn detect_content_and_margins(
             }
         }
         let isolated_thick_dirt = nearby_components == 0
-            && maximum_inscribed_radius_squared > 36
+            && maximum_inscribed_radius_squared > dirt_radius_squared
             && component.area < working.width().saturating_mul(working.height()) / 20;
         let border_shadow =
             border_attached && component.area > working.width().max(working.height()) / 3;
-        let grayscale_supported = (solid_rule || isolated_thick_dirt)
-            && grayscale_structure_evidence(&working, component);
+        let grayscale_supported =
+            (solid_rule || isolated_thick_dirt) && grayscale_structure_evidence(working, component);
         if border_shadow || ((solid_rule || isolated_thick_dirt) && !grayscale_supported) {
             continue;
         }
@@ -97,7 +152,7 @@ pub fn detect_content_and_margins(
             grayscale_supported,
         });
     }
-    let retained = cluster_content_blocks(&map, &candidates);
+    let retained = cluster_content_blocks(&map, &candidates, calibration);
     let mut bounds: Option<(usize, usize, usize, usize)> = None;
     for candidate in candidates {
         let component = candidate.component;
@@ -119,15 +174,14 @@ pub fn detect_content_and_margins(
             ),
         });
     }
-    let content = bounds.map(|(left, top, right, bottom)| {
+    bounds.map(|(left, top, right, bottom)| {
         Rect::new(
-            left as f64 / level.scale_x,
-            top as f64 / level.scale_y,
-            (right - left + 1) as f64 / level.scale_x,
-            (bottom - top + 1) as f64 / level.scale_y,
+            left as f64,
+            top as f64,
+            (right - left + 1) as f64,
+            (bottom - top + 1) as f64,
         )
-    });
-    content_with_margins(source, dpi, content, margins_mm, margins_pixels)
+    })
 }
 
 #[derive(Clone, Copy)]
@@ -148,13 +202,18 @@ struct BlockStats {
     grayscale_supported: bool,
 }
 
-fn cluster_content_blocks(map: &ComponentMap, candidates: &[ContentCandidate<'_>]) -> Vec<bool> {
+fn cluster_content_blocks(
+    map: &ComponentMap,
+    candidates: &[ContentCandidate<'_>],
+    calibration: PageCalibration,
+) -> Vec<bool> {
     let mut candidate_labels = vec![false; map.components().len() + 1];
     for candidate in candidates {
         candidate_labels[candidate.component.label as usize] = true;
     }
     let candidate_image = map.retain(|component| candidate_labels[component.label as usize]);
-    let block_map = ComponentMap::from_binary(&dilate(&candidate_image, 18, 8));
+    let (dilation_x, dilation_y) = calibration.content_dilation();
+    let block_map = ComponentMap::from_binary(&dilate(&candidate_image, dilation_x, dilation_y));
     let mut blocks = vec![BlockStats::default(); block_map.components().len() + 1];
     let mut component_blocks = vec![0usize; map.components().len() + 1];
     for candidate in candidates {
@@ -189,12 +248,13 @@ fn cluster_content_blocks(map: &ComponentMap, candidates: &[ContentCandidate<'_>
         .map(|block| block.component_count)
         .max()
         .unwrap_or(0);
+    let minimum_block_area = calibration.content_min_block_area();
     let dominant = blocks
         .iter()
         .map(|block| {
             block.initialized
                 && (block.grayscale_supported
-                    || block.ink_area >= (maximum_area / 12).max(64)
+                    || block.ink_area >= (maximum_area / 12).max(minimum_block_area)
                     || block.component_count >= (maximum_count / 8).max(3))
         })
         .collect::<Vec<_>>();
@@ -209,7 +269,7 @@ fn cluster_content_blocks(map: &ComponentMap, candidates: &[ContentCandidate<'_>
         let supported_marginalia = block.ink_area >= 4
             && blocks.iter().enumerate().any(|(other_label, other)| {
                 dominant.get(other_label).copied().unwrap_or(false)
-                    && block_is_supported_outlier(block, other)
+                    && block_is_supported_outlier(block, other, calibration)
             });
         retained[component.label as usize] =
             dominant[block_label] || block.grayscale_supported || supported_marginalia;
@@ -217,12 +277,17 @@ fn cluster_content_blocks(map: &ComponentMap, candidates: &[ContentCandidate<'_>
     retained
 }
 
-fn block_is_supported_outlier(block: &BlockStats, dominant: &BlockStats) -> bool {
+fn block_is_supported_outlier(
+    block: &BlockStats,
+    dominant: &BlockStats,
+    calibration: PageCalibration,
+) -> bool {
     let x_gap = axis_gap(block.left, block.right, dominant.left, dominant.right);
     let y_gap = axis_gap(block.top, block.bottom, dominant.top, dominant.bottom);
     let x_overlaps = x_gap == 0;
     let y_overlaps = y_gap == 0;
-    (x_overlaps && y_gap <= 96) || (y_overlaps && x_gap <= 128)
+    let (vertical_gap, horizontal_gap) = calibration.content_block_gaps();
+    (x_overlaps && y_gap <= vertical_gap) || (y_overlaps && x_gap <= horizontal_gap)
 }
 
 fn axis_gap(first_start: usize, first_end: usize, second_start: usize, second_end: usize) -> usize {

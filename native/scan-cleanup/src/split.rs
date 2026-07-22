@@ -345,7 +345,7 @@ fn prepare_analysis(
         (Cow::Borrowed(gray), dpi)
     } else {
         let level = build_analysis_level(gray, dpi, SPLIT_ANALYSIS_DPI);
-        (Cow::Owned(level.image), level.dpi)
+        (Cow::Owned(level.image), level.effective_dpi)
     };
     // Portrait sheets are overwhelmingly single-page candidates in this policy,
     // and the fold search already tolerates small line slopes. Reserve the

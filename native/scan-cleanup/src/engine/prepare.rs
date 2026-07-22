@@ -10,7 +10,7 @@ pub struct AnalysisLevel {
     pub image: GrayImage,
     pub scale_x: f64,
     pub scale_y: f64,
-    pub dpi: f64,
+    pub effective_dpi: f64,
 }
 
 pub fn build_analysis_level(source: &GrayImage, source_dpi: f64, target_dpi: f64) -> AnalysisLevel {
@@ -27,7 +27,7 @@ pub fn build_analysis_level(source: &GrayImage, source_dpi: f64, target_dpi: f64
     let scale_x = image.width() as f64 / source.width().max(1) as f64;
     let scale_y = image.height() as f64 / source.height().max(1) as f64;
     AnalysisLevel {
-        dpi: (source_dpi * scale_x.min(scale_y)).clamp(1.0, target_dpi),
+        effective_dpi: (source_dpi * scale_x.min(scale_y)).clamp(1.0, target_dpi),
         image,
         scale_x,
         scale_y,
@@ -46,5 +46,6 @@ mod tests {
         assert!(level.image.height() <= MAX_ANALYSIS_EDGE);
         assert!(level.image.width() * level.image.height() <= MAX_ANALYSIS_PIXELS);
         assert!(level.scale_x < 0.41 && level.scale_y < 0.41);
+        assert!((level.effective_dpi - 60.0).abs() < 0.1);
     }
 }
