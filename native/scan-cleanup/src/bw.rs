@@ -6,9 +6,11 @@ use crate::{
 use scan_primitives::{
     distance::squared_euclidean_distance,
     threshold::{
-        otsu_threshold, threshold_global, threshold_global_biased, threshold_local,
-        threshold_local_biased, threshold_local_biased_with_integrals_for_consensus,
-        IntegralImages, LocalThreshold,
+        otsu_threshold, otsu_threshold_excluding, threshold_global, threshold_global_biased,
+        threshold_local, threshold_local_biased, threshold_local_biased_excluding,
+        threshold_local_biased_excluding_with_integrals_for_consensus,
+        threshold_local_biased_with_integrals_for_consensus, IntegralImages, LocalThreshold,
+        MaskedIntegralImages,
     },
     BinaryImage, ComponentMap, GrayImage,
 };
@@ -112,6 +114,45 @@ pub(crate) fn binarize_normalized_with_diagnostics(
     (binary, diagnostics, despeckle_fallback)
 }
 
+/// Mixed-mode binarization with picture pixels omitted from threshold
+/// statistics and held white through despeckling and morphological smoothing.
+pub(crate) fn binarize_normalized_with_diagnostics_excluding(
+    normalized: &GrayImage,
+    options: &CleanupOptions,
+    calibration: PageCalibration,
+    picture_mask: &BinaryImage,
+) -> (BinaryImage, BinarizationDiagnostics, bool) {
+    assert_eq!(
+        (normalized.width(), normalized.height()),
+        (picture_mask.width(), picture_mask.height())
+    );
+    let mut masked_input = normalized.clone();
+    for y in 0..masked_input.height() {
+        for x in 0..masked_input.width() {
+            if picture_mask.get(x, y) {
+                masked_input.set(x, y, 255);
+            }
+        }
+    }
+    let threshold_input = smooth_for_binarization(&masked_input, options.dpi);
+    let diagnostics = resolve_binarization_diagnostics(&masked_input, options);
+    let binary = threshold_with_mode_excluding(
+        &threshold_input,
+        normalized,
+        options,
+        diagnostics.route,
+        calibration,
+        picture_mask,
+    );
+    let (binary, despeckle_fallback) =
+        postprocess_binary_with_diagnostics(&binary, Some(normalized), options, calibration);
+    (
+        binary.subtract(picture_mask),
+        diagnostics,
+        despeckle_fallback,
+    )
+}
+
 fn binarize_with_mode(
     threshold_input: &GrayImage,
     normalized: &GrayImage,
@@ -161,6 +202,102 @@ fn threshold_with_mode(
             options.dpi,
         ),
     }
+}
+
+fn threshold_with_mode_excluding(
+    threshold_input: &GrayImage,
+    normalized: &GrayImage,
+    options: &CleanupOptions,
+    mode: BinarizationMode,
+    calibration: PageCalibration,
+    picture_mask: &BinaryImage,
+) -> BinaryImage {
+    let radius = calibration.threshold_radius(options.dpi);
+    let bias = i16::from(options.thickness) * crate::THICKNESS_GRAY_STEP;
+    match mode {
+        BinarizationMode::Otsu => threshold_global_biased(
+            threshold_input,
+            otsu_threshold_excluding(threshold_input, picture_mask),
+            bias,
+        )
+        .subtract(picture_mask),
+        BinarizationMode::Sauvola => threshold_local_for_route_excluding(
+            threshold_input,
+            normalized,
+            picture_mask,
+            radius,
+            LocalThreshold::Sauvola { k: SAUVOLA_K },
+            bias,
+            calibration,
+            options.dpi,
+        ),
+        BinarizationMode::Wolf | BinarizationMode::Auto => threshold_local_for_route_excluding(
+            threshold_input,
+            normalized,
+            picture_mask,
+            radius,
+            LocalThreshold::Wolf {
+                k: WOLF_K,
+                deviation_floor: 2.0,
+                minimum_percentile: WOLF_MINIMUM_PERCENTILE,
+                hard_ink: WOLF_HARD_INK,
+                hard_paper: WOLF_HARD_PAPER,
+            },
+            bias,
+            calibration,
+            options.dpi,
+        ),
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn threshold_local_for_route_excluding(
+    threshold_input: &GrayImage,
+    normalized: &GrayImage,
+    picture_mask: &BinaryImage,
+    legacy_radius: usize,
+    method: LocalThreshold,
+    bias: i16,
+    calibration: PageCalibration,
+    raster_dpi: f64,
+) -> BinaryImage {
+    if !calibration.config.multiscale_local_threshold {
+        return threshold_local_biased_excluding(
+            threshold_input,
+            picture_mask,
+            legacy_radius,
+            method,
+            bias,
+        );
+    }
+    let integrals = MaskedIntegralImages::new(threshold_input, picture_mask);
+    let [small_radius, medium_radius, large_radius] =
+        calibration.multiscale_threshold_radii(raster_dpi);
+    let small = threshold_local_biased_excluding_with_integrals_for_consensus(
+        threshold_input,
+        picture_mask,
+        &integrals,
+        small_radius,
+        method,
+        bias,
+    );
+    let medium = threshold_local_biased_excluding_with_integrals_for_consensus(
+        threshold_input,
+        picture_mask,
+        &integrals,
+        medium_radius,
+        method,
+        bias,
+    );
+    let large = threshold_local_biased_excluding_with_integrals_for_consensus(
+        threshold_input,
+        picture_mask,
+        &integrals,
+        large_radius,
+        method,
+        bias,
+    );
+    multiscale_consensus(normalized, &small, &medium, &large).subtract(picture_mask)
 }
 
 fn threshold_local_for_route(

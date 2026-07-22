@@ -303,6 +303,29 @@ describe('scan cleanup preview', () => {
                         heightNormalized: 0.7,
                         rotationDegrees: 270,
                     }},
+                    manualZones: {
+                        picture: [{
+                            polygon: {
+                                points: [
+                                    {
+                                        xNormalized: 0.1,
+                                        yNormalized: 0.2,
+                                    },
+                                    {
+                                        xNormalized: 0.8,
+                                        yNormalized: 0.2,
+                                    },
+                                    {
+                                        xNormalized: 0.8,
+                                        yNormalized: 0.9,
+                                    },
+                                ],
+                                rotationDegrees: 270,
+                            },
+                            layer: 'painter2',
+                        }],
+                        fill: [],
+                    },
                 }},
             },
         };

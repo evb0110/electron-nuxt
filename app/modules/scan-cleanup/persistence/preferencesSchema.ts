@@ -101,6 +101,7 @@ export function decodeScanCleanupGlobalPreferences(value: unknown): IScanCleanup
             : defaults.layoutMode,
         outputMode: [
             'bw',
+            'mixed',
             'grayscale',
             'color',
         ].includes(String(stored.outputMode))

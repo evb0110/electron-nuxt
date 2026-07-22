@@ -8,7 +8,7 @@ import type {
 export type {TScanCleanupPageRotation} from '@contracts/scan-cleanup/geometry';
 
 export type TScanCleanupLayoutMode = 'auto' | 'force-single' | 'force-two-page';
-export type TScanCleanupOutputMode = 'bw' | 'grayscale' | 'color';
+export type TScanCleanupOutputMode = 'bw' | 'mixed' | 'grayscale' | 'color';
 export type TScanCleanupDespeckleLevel = 'off' | 'cautious' | 'normal' | 'aggressive';
 export type TScanCleanupReadingOrder = 'ltr' | 'rtl';
 export type TScanCleanupPageLayoutOverride = 'auto' | 'single' | 'spread' | 'keep-left' | 'keep-right';
@@ -53,8 +53,33 @@ export interface IScanCleanupPageOverride {
     excluded: boolean;
     manualSplit: IScanCleanupNormalizedSplit | null;
     manualContentBoxes?: Partial<Record<TScanCleanupOutputHalf, IScanCleanupNormalizedRect>>;
+    manualZones?: IScanCleanupManualZones;
     marginsMm?: IScanCleanupMarginsMm;
     placementOverrides?: Partial<Record<TScanCleanupOutputHalf, TScanCleanupPageAlignment>>;
+}
+
+export interface IScanCleanupNormalizedZonePoint {
+    xNormalized: number;
+    yNormalized: number;
+}
+
+/** A polygon authored in normalized rotated-page coordinates. */
+export interface IScanCleanupNormalizedZonePolygon {
+    points: IScanCleanupNormalizedZonePoint[];
+    rotationDegrees: TScanCleanupPageRotation;
+}
+
+export type TScanCleanupPictureZoneLayer = 'eraser1' | 'painter2' | 'eraser3';
+
+export interface IScanCleanupPictureZone {
+    polygon: IScanCleanupNormalizedZonePolygon;
+    layer: TScanCleanupPictureZoneLayer;
+}
+
+/** Picture layers apply in eraser1 → painter2 → eraser3 order; fill is binary. */
+export interface IScanCleanupManualZones {
+    picture: IScanCleanupPictureZone[];
+    fill: IScanCleanupNormalizedZonePolygon[];
 }
 
 export type TScanCleanupPageOverrides = Record<string, IScanCleanupPageOverride>;

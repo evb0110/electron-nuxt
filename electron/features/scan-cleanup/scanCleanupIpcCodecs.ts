@@ -5,6 +5,7 @@ import type {
     IScanCleanupDetectionRequest,
     IScanCleanupDocumentPrior,
     IScanCleanupMarginsMm,
+    IScanCleanupManualZones,
     IScanCleanupPageOverride,
     IScanCleanupProgress,
     IScanCleanupPreviewCancelRequest,
@@ -173,6 +174,7 @@ function decodePageOverride(value: unknown): IScanCleanupPageOverride {
         }
         return rect;
     }, 'manual content box');
+    const manualZones = decodeManualZones(value.manualZones, rotationDegrees);
     const placementOverrides = decodeOutputMap(value.placementOverrides, (item, label) => {
         if (!SCAN_CLEANUP_ALIGNMENTS.includes(String(item) as TScanCleanupAlignmentValue)) {
             throw new Error(`invalid scan-cleanup ${label}`);
@@ -188,8 +190,50 @@ function decodePageOverride(value: unknown): IScanCleanupPageOverride {
         excluded: value.excluded,
         manualSplit,
         ...(Object.keys(manualContentBoxes).length > 0 ? {manualContentBoxes} : {}),
+        ...(manualZones === undefined ? {} : {manualZones}),
         ...(marginsMm === undefined ? {} : {marginsMm}),
         ...(Object.keys(placementOverrides).length > 0 ? {placementOverrides} : {}),
+    };
+}
+
+function decodeManualZones(
+    value: unknown,
+    rotationDegrees: IScanCleanupPageOverride['rotationDegrees'],
+): IScanCleanupManualZones | undefined {
+    if (value === undefined) {
+        return undefined;
+    }
+    if (!isRecord(value) || !Array.isArray(value.picture) || !Array.isArray(value.fill)) {
+        throw new Error('invalid scan-cleanup manual zones');
+    }
+    const decodePolygon = (polygon: unknown, label: string) => {
+        if (!isRecord(polygon) || !Array.isArray(polygon.points) || polygon.points.length < 3) {
+            throw new Error(`invalid scan-cleanup ${label}`);
+        }
+        return {
+            points: polygon.points.map((point, index) => {
+                if (!isRecord(point)) throw new Error(`invalid scan-cleanup ${label} point ${index}`);
+                return {
+                    xNormalized: decodeNormalizedValue(point.xNormalized, `${label} point ${index} x`),
+                    yNormalized: decodeNormalizedValue(point.yNormalized, `${label} point ${index} y`),
+                };
+            }),
+            rotationDegrees: decodeGeometryRotation(polygon.rotationDegrees, rotationDegrees, label),
+        };
+    };
+    return {
+        picture: value.picture.map((zone, index) => {
+            if (!isRecord(zone) || ![
+                'eraser1',
+                'painter2',
+                'eraser3',
+            ].includes(String(zone.layer))) throw new Error(`invalid scan-cleanup picture zone ${index}`);
+            return {
+                polygon: decodePolygon(zone.polygon, `picture zone ${index}`),
+                layer: zone.layer as IScanCleanupManualZones['picture'][number]['layer'],
+            };
+        }),
+        fill: value.fill.map((polygon, index) => decodePolygon(polygon, `fill zone ${index}`)),
     };
 }
 
@@ -301,6 +345,7 @@ function decodeOptions(options: unknown): IScanCleanupStartRequest['options'] {
         ].includes(String(options.layoutMode))
         || ![
             'bw',
+            'mixed',
             'grayscale',
             'color',
         ].includes(String(options.outputMode))

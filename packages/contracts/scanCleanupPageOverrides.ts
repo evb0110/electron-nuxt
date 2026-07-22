@@ -22,6 +22,7 @@ export function createScanCleanupPageOverride(
 ): IScanCleanupPageOverride {
     const {
         manualContentBoxes,
+        manualZones,
         marginsMm,
         placementOverrides,
         ...scalarValues
@@ -30,6 +31,7 @@ export function createScanCleanupPageOverride(
         ...DEFAULT_SCAN_CLEANUP_PAGE_OVERRIDE,
         ...scalarValues,
         ...(manualContentBoxes ? {manualContentBoxes: {...manualContentBoxes}} : {}),
+        ...(manualZones ? {manualZones: structuredClone(manualZones)} : {}),
         ...(marginsMm && (!documentMargins || !areScanCleanupMarginsMmEqual(marginsMm, documentMargins))
             ? {marginsMm: {...marginsMm}}
             : {}),
@@ -65,6 +67,8 @@ export function isDefaultScanCleanupPageOverride(value: IScanCleanupPageOverride
         && value.excluded === DEFAULT_SCAN_CLEANUP_PAGE_OVERRIDE.excluded
         && value.manualSplit === DEFAULT_SCAN_CLEANUP_PAGE_OVERRIDE.manualSplit
         && Object.keys(value.manualContentBoxes ?? {}).length === 0
+        && (value.manualZones?.picture.length ?? 0) === 0
+        && (value.manualZones?.fill.length ?? 0) === 0
         && value.marginsMm === undefined
         && Object.keys(value.placementOverrides ?? {}).length === 0;
 }

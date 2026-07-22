@@ -1,6 +1,6 @@
 use super::{
-    CleanupOptions, DespeckleLevel, MarginsMm, NormalizedRect, OrthogonalRotation, PageAlignment,
-    PlacementOverrides,
+    CleanupOptions, DespeckleLevel, MarginsMm, NormalizedRect, OrthogonalRotation, OutputMode,
+    PageAlignment, PictureZoneLayer, PlacementOverrides,
 };
 use crate::domain::geometry::PageHalf;
 use scan_primitives::Rect;
@@ -128,4 +128,44 @@ fn legacy_despeckle_boolean_maps_to_a_default_normal_level() {
 
     let disabled: CleanupOptions = serde_json::from_str(r#"{"despeckle":false}"#).unwrap();
     assert_eq!(disabled.effective_despeckle_level(), DespeckleLevel::Off);
+}
+
+#[test]
+fn mixed_mode_and_zone_schema_are_additive_and_rotation_checked() {
+    let json = r#"{
+        "outputMode":"mixed",
+        "manualZones":{
+            "picture":[{
+                "polygon":{
+                    "points":[
+                        {"xNormalized":0.1,"yNormalized":0.2},
+                        {"xNormalized":0.8,"yNormalized":0.2},
+                        {"xNormalized":0.8,"yNormalized":0.9}
+                    ],
+                    "rotationDegrees":90
+                },
+                "layer":"eraser3"
+            }],
+            "fill":[]
+        },
+        "rotationDegrees":90
+    }"#;
+    let options: CleanupOptions = serde_json::from_str(json).unwrap();
+    assert_eq!(options.output_mode, OutputMode::Mixed);
+    assert_eq!(
+        options.manual_zones.picture[0].layer,
+        PictureZoneLayer::Eraser3
+    );
+    options.validate().unwrap();
+
+    let old: CleanupOptions = serde_json::from_str(r#"{"outputMode":"bw"}"#).unwrap();
+    assert!(old.manual_zones.picture.is_empty());
+    assert!(old.manual_zones.fill.is_empty());
+
+    let wrong_rotation = json.replace(
+        "\"rotationDegrees\":90\n    }",
+        "\"rotationDegrees\":0\n    }",
+    );
+    let invalid: CleanupOptions = serde_json::from_str(&wrong_rotation).unwrap();
+    assert!(invalid.validate().is_err());
 }

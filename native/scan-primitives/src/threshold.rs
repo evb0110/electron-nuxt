@@ -1,3 +1,4 @@
+use crate::morphology::dilate_gray;
 use crate::{BinaryImage, GrayImage};
 use rayon::prelude::*;
 
@@ -14,6 +15,27 @@ pub fn otsu_threshold(image: &GrayImage) -> u8 {
             histogram[value as usize] += 1;
         }
     }
+    otsu_from_histogram(&histogram)
+}
+
+/// Otsu threshold with excluded pixels omitted from the histogram.
+pub fn otsu_threshold_excluding(image: &GrayImage, excluded: &BinaryImage) -> u8 {
+    assert_eq!(
+        (image.width(), image.height()),
+        (excluded.width(), excluded.height())
+    );
+    let mut histogram = [0u64; 256];
+    for y in 0..image.height() {
+        for x in 0..image.width() {
+            if !excluded.get(x, y) {
+                histogram[image.get(x, y) as usize] += 1;
+            }
+        }
+    }
+    otsu_from_histogram(&histogram)
+}
+
+fn otsu_from_histogram(histogram: &[u64; 256]) -> u8 {
     let total: u64 = histogram.iter().sum();
     if total == 0 {
         return 0;
@@ -50,6 +72,46 @@ pub fn otsu_threshold(image: &GrayImage) -> u8 {
         }
     }
     ((u16::from(first_best) + u16::from(last_best)) / 2) as u8
+}
+
+pub const DEFAULT_MOKJI_MAX_EDGE_WIDTH: usize = 5;
+pub const DEFAULT_MOKJI_MIN_EDGE_MAGNITUDE: u8 = 26;
+
+/// Mokji's edge-co-occurrence threshold for dark foreground images.
+///
+/// The dilation uses a square of side `(max_edge_width + 1) * 2 - 1`.
+/// Under the dark-foreground morphology convention this yields the darkest
+/// neighbour. Eligible pairs differ by at least `min_edge_magnitude`, and the
+/// result is the frequency-weighted mean of their midpoints.
+pub fn mokji_threshold(image: &GrayImage, max_edge_width: usize, min_edge_magnitude: u8) -> u8 {
+    assert!(max_edge_width >= 1, "Mokji max edge width must be positive");
+    assert!(
+        min_edge_magnitude >= 1,
+        "Mokji minimum edge magnitude must be positive"
+    );
+    if image.width() <= max_edge_width.saturating_mul(2)
+        || image.height() <= max_edge_width.saturating_mul(2)
+    {
+        return 128;
+    }
+    let darkest = dilate_gray(image, max_edge_width, max_edge_width);
+    let mut midpoint_twice_sum = 0u64;
+    let mut pair_count = 0u64;
+    for y in max_edge_width..image.height() - max_edge_width {
+        for x in max_edge_width..image.width() - max_edge_width {
+            let low = darkest.get(x, y);
+            let high = image.get(x, y);
+            if high.saturating_sub(low) >= min_edge_magnitude {
+                midpoint_twice_sum += u64::from(low) + u64::from(high);
+                pair_count += 1;
+            }
+        }
+    }
+    if pair_count == 0 {
+        128
+    } else {
+        ((midpoint_twice_sum as f64 * 0.5 / pair_count as f64).round() as u16).min(255) as u8
+    }
 }
 
 pub fn threshold_global(image: &GrayImage, threshold: u8) -> BinaryImage {
@@ -94,6 +156,89 @@ pub struct IntegralImages {
     stride: usize,
     sums: Vec<u64>,
     squared_sums: Vec<u64>,
+}
+
+/// Summed-area statistics that omit pixels selected by a binary mask.
+#[derive(Debug)]
+pub struct MaskedIntegralImages {
+    width: usize,
+    height: usize,
+    stride: usize,
+    sums: Vec<u64>,
+    squared_sums: Vec<u64>,
+    counts: Vec<u64>,
+}
+
+impl MaskedIntegralImages {
+    pub fn new(image: &GrayImage, excluded: &BinaryImage) -> Self {
+        assert_eq!(
+            (image.width(), image.height()),
+            (excluded.width(), excluded.height())
+        );
+        let width = image.width();
+        let height = image.height();
+        let stride = width
+            .checked_add(1)
+            .expect("masked integral stride overflow");
+        let len = stride
+            .checked_mul(
+                height
+                    .checked_add(1)
+                    .expect("masked integral height overflow"),
+            )
+            .expect("masked integral dimensions overflow");
+        let mut sums = vec![0u64; len];
+        let mut squared_sums = vec![0u64; len];
+        let mut counts = vec![0u64; len];
+        for y in 0..height {
+            let mut row_sum = 0u64;
+            let mut row_squared_sum = 0u64;
+            let mut row_count = 0u64;
+            for x in 0..width {
+                if !excluded.get(x, y) {
+                    let value = u64::from(image.get(x, y));
+                    row_sum += value;
+                    row_squared_sum += value * value;
+                    row_count += 1;
+                }
+                let index = (y + 1) * stride + x + 1;
+                sums[index] = sums[y * stride + x + 1] + row_sum;
+                squared_sums[index] = squared_sums[y * stride + x + 1] + row_squared_sum;
+                counts[index] = counts[y * stride + x + 1] + row_count;
+            }
+        }
+        Self {
+            width,
+            height,
+            stride,
+            sums,
+            squared_sums,
+            counts,
+        }
+    }
+
+    fn mean_and_deviation(&self, x: usize, y: usize, radius: usize) -> Option<(f64, f64)> {
+        let x0 = x.saturating_sub(radius);
+        let y0 = y.saturating_sub(radius);
+        let x1 = x.saturating_add(radius).min(self.width - 1) + 1;
+        let y1 = y.saturating_add(radius).min(self.height - 1) + 1;
+        let count = self.rectangle_sum(&self.counts, x0, y0, x1, y1);
+        if count == 0 {
+            return None;
+        }
+        let sum = self.rectangle_sum(&self.sums, x0, y0, x1, y1);
+        let squared_sum = self.rectangle_sum(&self.squared_sums, x0, y0, x1, y1);
+        let count = count as f64;
+        let mean = sum as f64 / count;
+        let deviation = (squared_sum as f64 / count - mean * mean).max(0.0).sqrt();
+        Some((mean, deviation))
+    }
+
+    fn rectangle_sum(&self, integral: &[u64], x0: usize, y0: usize, x1: usize, y1: usize) -> u64 {
+        integral[y1 * self.stride + x1] + integral[y0 * self.stride + x0]
+            - integral[y0 * self.stride + x1]
+            - integral[y1 * self.stride + x0]
+    }
 }
 
 impl IntegralImages {
@@ -299,6 +444,115 @@ pub fn threshold_local_biased_with_integrals_for_consensus(
     threshold_local_biased_with_integrals_impl(image, integrals, radius, method, bias, false)
 }
 
+pub fn threshold_local_biased_excluding(
+    image: &GrayImage,
+    excluded: &BinaryImage,
+    radius: usize,
+    method: LocalThreshold,
+    bias: i16,
+) -> BinaryImage {
+    let integrals = MaskedIntegralImages::new(image, excluded);
+    threshold_local_biased_excluding_impl(image, excluded, &integrals, radius, method, bias, true)
+}
+
+pub fn threshold_local_biased_excluding_with_integrals_for_consensus(
+    image: &GrayImage,
+    excluded: &BinaryImage,
+    integrals: &MaskedIntegralImages,
+    radius: usize,
+    method: LocalThreshold,
+    bias: i16,
+) -> BinaryImage {
+    threshold_local_biased_excluding_impl(image, excluded, integrals, radius, method, bias, false)
+}
+
+fn threshold_local_biased_excluding_impl(
+    image: &GrayImage,
+    excluded: &BinaryImage,
+    integrals: &MaskedIntegralImages,
+    radius: usize,
+    method: LocalThreshold,
+    bias: i16,
+    floor_local_wolf_deviation: bool,
+) -> BinaryImage {
+    let width = image.width();
+    let height = image.height();
+    assert_eq!((excluded.width(), excluded.height()), (width, height));
+    assert_eq!((integrals.width, integrals.height), (width, height));
+    if width == 0 || height == 0 {
+        return BinaryImage::new(width, height);
+    }
+    let global_min = match method {
+        LocalThreshold::Wolf {
+            minimum_percentile, ..
+        } => grayscale_percentile_excluding(image, excluded, minimum_percentile),
+        LocalThreshold::Sauvola { .. } => 0,
+    };
+    let max_deviation = match method {
+        LocalThreshold::Wolf { .. } => (0..height)
+            .into_par_iter()
+            .map(|y| {
+                (0..width).fold(1.0f64, |maximum, x| {
+                    maximum.max(
+                        integrals
+                            .mean_and_deviation(x, y, radius)
+                            .map_or(0.0, |statistics| statistics.1),
+                    )
+                })
+            })
+            .reduce(|| 1.0, f64::max),
+        LocalThreshold::Sauvola { .. } => 1.0,
+    };
+    let low_variance_wolf = matches!(
+        method,
+        LocalThreshold::Wolf {
+            deviation_floor,
+            ..
+        } if !floor_local_wolf_deviation && max_deviation <= deviation_floor
+    );
+    let mut output = BinaryImage::new(width, height);
+    let words_per_line = output.words_per_line();
+    output
+        .words_mut()
+        .par_chunks_mut(words_per_line)
+        .enumerate()
+        .for_each(|(y, output_row)| {
+            for x in 0..width {
+                if excluded.get(x, y) {
+                    continue;
+                }
+                let Some((mean, deviation)) = integrals.mean_and_deviation(x, y, radius) else {
+                    continue;
+                };
+                let threshold = match method {
+                    LocalThreshold::Sauvola { k } => mean * (1.0 + k * (deviation / 128.0 - 1.0)),
+                    LocalThreshold::Wolf {
+                        k, deviation_floor, ..
+                    } => {
+                        let local_deviation = if floor_local_wolf_deviation {
+                            deviation.max(deviation_floor)
+                        } else {
+                            deviation
+                        };
+                        let normalized = local_deviation / max_deviation.max(deviation_floor);
+                        mean - k * (1.0 - normalized) * (mean - f64::from(global_min))
+                    }
+                };
+                let value = image.get(x, y);
+                let black = match method {
+                    LocalThreshold::Wolf { hard_ink, .. } if value <= hard_ink => true,
+                    LocalThreshold::Wolf { hard_paper, .. } if value >= hard_paper => false,
+                    LocalThreshold::Wolf { .. } if low_variance_wolf => false,
+                    _ => f64::from(value) < (threshold + f64::from(bias)).clamp(0.0, 255.0),
+                };
+                if black {
+                    output_row[x / 32] |= 1 << (31 - x % 32);
+                }
+            }
+        });
+    output
+}
+
 fn threshold_local_biased_with_integrals_impl(
     image: &GrayImage,
     integrals: &IntegralImages,
@@ -381,6 +635,31 @@ fn grayscale_percentile(image: &GrayImage, fraction: f64) -> u8 {
         histogram[value as usize] += 1;
     }
     let count = image.width().saturating_mul(image.height());
+    if count == 0 {
+        return 255;
+    }
+    let target = ((count - 1) as f64 * fraction.clamp(0.0, 1.0)).round() as usize;
+    let mut cumulative = 0usize;
+    for (value, frequency) in histogram.into_iter().enumerate() {
+        cumulative += frequency;
+        if cumulative > target {
+            return value as u8;
+        }
+    }
+    255
+}
+
+fn grayscale_percentile_excluding(image: &GrayImage, excluded: &BinaryImage, fraction: f64) -> u8 {
+    let mut histogram = [0usize; 256];
+    let mut count = 0usize;
+    for y in 0..image.height() {
+        for x in 0..image.width() {
+            if !excluded.get(x, y) {
+                histogram[image.get(x, y) as usize] += 1;
+                count += 1;
+            }
+        }
+    }
     if count == 0 {
         return 255;
     }
@@ -568,6 +847,27 @@ mod tests {
         let image = GrayImage::from_vec(4, 1, 4, vec![10, 10, 200, 200]).unwrap();
         assert_eq!(otsu_threshold(&image), 105);
         assert_eq!(threshold_global(&image, 10).count_black(), 0);
+    }
+
+    #[test]
+    fn mokji_uses_edge_midpoints_and_falls_back_without_edges() {
+        let flat = GrayImage::new(31, 21, 190);
+        assert_eq!(
+            mokji_threshold(
+                &flat,
+                DEFAULT_MOKJI_MAX_EDGE_WIDTH,
+                DEFAULT_MOKJI_MIN_EDGE_MAGNITUDE
+            ),
+            128
+        );
+
+        let mut edge = GrayImage::new(31, 21, 30);
+        for y in 0..edge.height() {
+            for x in 15..edge.width() {
+                edge.set(x, y, 230);
+            }
+        }
+        assert_eq!(mokji_threshold(&edge, 5, 26), 130);
     }
     #[test]
     fn local_methods_find_dark_center() {

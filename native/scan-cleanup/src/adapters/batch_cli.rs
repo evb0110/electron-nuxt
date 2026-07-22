@@ -692,7 +692,7 @@ fn run_page(
 ) -> Result<PageRunResult, Box<dyn Error>> {
     let options = job.options.as_ref().or(shared).cloned().unwrap_or_default();
     options.validate().map_err(invalid)?;
-    let color_input = if options.output_mode == OutputMode::Color {
+    let color_input = if matches!(options.output_mode, OutputMode::Color | OutputMode::Mixed) {
         Some(
             png::read_image(&job.input_path, options.max_pixels, options.max_dimension)
                 .map_err(map_image_error)?,

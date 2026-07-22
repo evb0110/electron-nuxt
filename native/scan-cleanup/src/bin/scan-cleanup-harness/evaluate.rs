@@ -819,6 +819,7 @@ fn round3(value: f64) -> f64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use evb_scan_cleanup::{engine::render::clean_page, OutputMode};
 
     #[test]
     fn catastrophe_budget_rejects_only_increases() {
@@ -838,5 +839,26 @@ mod tests {
             compare_catastrophes(&regressed, &baseline).unwrap(),
             ["despeckle.erasedPages: 1 > baseline 0"]
         );
+    }
+
+    #[test]
+    fn mixed_mode_probe_uses_the_synthetic_halftone_photo_fixture() {
+        let corpus = crate::corpus::build_corpus().unwrap();
+        let entry = corpus
+            .iter()
+            .find(|entry| entry.id == "synthetic-halftone-photo")
+            .unwrap();
+        let image = entry.image.downscale_to_fit(360, 480);
+        let mut options = entry.options.clone();
+        options.dpi = 150.0;
+        options.output_mode = OutputMode::Mixed;
+        let output = clean_page(&image, &options, 0).unwrap().outputs.remove(0);
+        assert_eq!(output.metadata.output_mode, OutputMode::Mixed);
+        let output_ref = &output.image;
+        let text_picture_pixels = (65..185)
+            .flat_map(|y| (50..310).map(move |x| (x, y)))
+            .filter(|&(x, y)| !matches!(output_ref.get(x, y), 0 | 255))
+            .count();
+        assert_eq!(text_picture_pixels, 0);
     }
 }

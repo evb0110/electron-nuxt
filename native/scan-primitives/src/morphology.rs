@@ -2,6 +2,95 @@ use crate::{BinaryImage, GrayImage};
 use rayon::prelude::*;
 use std::collections::VecDeque;
 
+/// Rectangular grayscale erosion (the local maximum) with black outside.
+///
+/// This follows the dark-foreground convention used by scan cleanup: erosion
+/// shrinks dark structures, while dilation expands them.
+pub fn erode_gray(source: &GrayImage, radius_x: usize, radius_y: usize) -> GrayImage {
+    rectangular_gray(source, radius_x, radius_y, true)
+}
+
+/// Rectangular grayscale dilation (the local minimum) with white outside.
+pub fn dilate_gray(source: &GrayImage, radius_x: usize, radius_y: usize) -> GrayImage {
+    rectangular_gray(source, radius_x, radius_y, false)
+}
+
+fn rectangular_gray(
+    source: &GrayImage,
+    radius_x: usize,
+    radius_y: usize,
+    maximum: bool,
+) -> GrayImage {
+    if source.width() == 0 || source.height() == 0 {
+        return source.clone();
+    }
+    let mut horizontal = GrayImage::new(
+        source.width(),
+        source.height(),
+        if maximum { 0 } else { 255 },
+    );
+    for y in 0..source.height() {
+        sliding_gray_line(
+            source.width(),
+            radius_x,
+            maximum,
+            |x| source.get(x, y),
+            |x, value| horizontal.set(x, y, value),
+        );
+    }
+    let mut output = GrayImage::new(
+        source.width(),
+        source.height(),
+        if maximum { 0 } else { 255 },
+    );
+    for x in 0..source.width() {
+        sliding_gray_line(
+            source.height(),
+            radius_y,
+            maximum,
+            |y| horizontal.get(x, y),
+            |y, value| output.set(x, y, value),
+        );
+    }
+    output
+}
+
+fn sliding_gray_line(
+    length: usize,
+    radius: usize,
+    maximum: bool,
+    mut sample: impl FnMut(usize) -> u8,
+    mut write: impl FnMut(usize, u8),
+) {
+    let mut deque = VecDeque::<(usize, u8)>::new();
+    let mut next = 0usize;
+    for position in 0..length {
+        let last = position.saturating_add(radius).min(length - 1);
+        while next <= last {
+            let value = sample(next);
+            while deque.back().is_some_and(|&(_, queued)| {
+                if maximum {
+                    queued <= value
+                } else {
+                    queued >= value
+                }
+            }) {
+                deque.pop_back();
+            }
+            deque.push_back((next, value));
+            next += 1;
+        }
+        let first = position.saturating_sub(radius);
+        while deque.front().is_some_and(|&(index, _)| index < first) {
+            deque.pop_front();
+        }
+        write(
+            position,
+            deque.front().expect("grayscale window is nonempty").1,
+        );
+    }
+}
+
 /// Rectangular binary dilation with white outside the image.
 pub fn dilate(source: &BinaryImage, radius_x: usize, radius_y: usize) -> BinaryImage {
     rectangular_binary(source, radius_x, radius_y, true)
@@ -224,20 +313,84 @@ pub fn reconstruct_gray(marker: &GrayImage, mask: &GrayImage) -> GrayImage {
             output.set(x, y, output.get(x, y).min(mask.get(x, y)));
         }
     }
-    let mut queue = VecDeque::new();
+    if output.width() == 0 || output.height() == 0 {
+        return output;
+    }
+    // A descending hierarchical queue solves the maximin-path form of
+    // geodesic reconstruction. Each pixel is finalized once, avoiding the
+    // long chains of incremental gray-level updates produced by a FIFO queue.
+    let mut buckets = (0..256).map(|_| Vec::<usize>::new()).collect::<Vec<_>>();
     for y in 0..output.height() {
         for x in 0..output.width() {
-            queue.push_back((x, y));
+            let value = output.get(x, y);
+            if value != 0 {
+                buckets[value as usize].push(y * output.width() + x);
+            }
         }
     }
-    while let Some((x, y)) = queue.pop_front() {
-        let value = output.get(x, y);
-        for (nx, ny) in neighbors4(x, y, output.width(), output.height()) {
-            let candidate = value.min(mask.get(nx, ny));
-            if candidate > output.get(nx, ny) {
-                output.set(nx, ny, candidate);
-                queue.push_back((nx, ny));
+    let mut finalized = vec![false; output.width() * output.height()];
+    for level in (1..=255usize).rev() {
+        while let Some(index) = buckets[level].pop() {
+            if finalized[index] {
+                continue;
             }
+            let x = index % output.width();
+            let y = index / output.width();
+            if output.get(x, y) as usize != level {
+                continue;
+            }
+            finalized[index] = true;
+            for (nx, ny) in neighbors4(x, y, output.width(), output.height()) {
+                let neighbor_index = ny * output.width() + nx;
+                if finalized[neighbor_index] {
+                    continue;
+                }
+                let candidate = (level as u8).min(mask.get(nx, ny));
+                if candidate > output.get(nx, ny) {
+                    output.set(nx, ny, candidate);
+                    buckets[candidate as usize].push(neighbor_index);
+                }
+            }
+        }
+    }
+    output
+}
+
+/// Grayscale reconstruction by erosion, where marker values may only fall to
+/// the mask. Implementing the dual through the dilation reconstruction keeps
+/// both operations bit-exact and shares the established queue propagation.
+pub fn reconstruct_gray_by_erosion(marker: &GrayImage, mask: &GrayImage) -> GrayImage {
+    assert_eq!(
+        (marker.width(), marker.height()),
+        (mask.width(), mask.height())
+    );
+    let inverted_marker = invert_gray(marker);
+    let inverted_mask = invert_gray(mask);
+    invert_gray(&reconstruct_gray(&inverted_marker, &inverted_mask))
+}
+
+/// Fills grayscale minima that are not connected to the image frame.
+pub fn fill_gray_holes(source: &GrayImage) -> GrayImage {
+    if source.width() == 0 || source.height() == 0 {
+        return source.clone();
+    }
+    let mut marker = GrayImage::new(source.width(), source.height(), 255);
+    for x in 0..source.width() {
+        marker.set(x, 0, 0);
+        marker.set(x, source.height() - 1, 0);
+    }
+    for y in 0..source.height() {
+        marker.set(0, y, 0);
+        marker.set(source.width() - 1, y, 0);
+    }
+    reconstruct_gray_by_erosion(&marker, source)
+}
+
+fn invert_gray(source: &GrayImage) -> GrayImage {
+    let mut output = source.clone();
+    for y in 0..source.height() {
+        for (target, &value) in output.row_mut(y).iter_mut().zip(source.row(y)) {
+            *target = 255 - value;
         }
     }
     output
@@ -353,5 +506,68 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn grayscale_morphology_uses_dark_foreground_convention() {
+        let mut image = GrayImage::new(5, 5, 200);
+        image.set(2, 2, 20);
+        let dilated = dilate_gray(&image, 1, 1);
+        let eroded = erode_gray(&image, 1, 1);
+        assert_eq!(dilated.get(1, 1), 20);
+        assert_eq!(dilated.get(3, 3), 20);
+        assert_eq!(eroded.get(2, 2), 200);
+    }
+
+    #[test]
+    fn grayscale_hole_fill_preserves_frame_connected_minima() {
+        let mut image = GrayImage::new(7, 7, 180);
+        image.set(3, 3, 20);
+        image.set(0, 3, 30);
+        image.set(1, 3, 30);
+        let filled = fill_gray_holes(&image);
+        assert_eq!(filled.get(3, 3), 180);
+        assert_eq!(filled.get(0, 3), 30);
+        assert_eq!(filled.get(1, 3), 30);
+    }
+
+    #[test]
+    fn grayscale_reconstruction_matches_naive_fixed_point() {
+        let mut marker = GrayImage::new(19, 13, 0);
+        let mut mask = GrayImage::new(19, 13, 0);
+        let mut state = 0x917c_4ad3_u64;
+        for y in 0..mask.height() {
+            for x in 0..mask.width() {
+                state = state
+                    .wrapping_mul(6_364_136_223_846_793_005)
+                    .wrapping_add(1);
+                let ceiling = (state >> 32) as u8;
+                mask.set(x, y, ceiling);
+                marker.set(x, y, ceiling.saturating_sub((state >> 24) as u8));
+            }
+        }
+        let mut expected = marker.clone();
+        for y in 0..expected.height() {
+            for x in 0..expected.width() {
+                expected.set(x, y, expected.get(x, y).min(mask.get(x, y)));
+            }
+        }
+        loop {
+            let before = expected.clone();
+            for y in 0..expected.height() {
+                for x in 0..expected.width() {
+                    let value = neighbors4(x, y, expected.width(), expected.height())
+                        .fold(expected.get(x, y), |value, (nx, ny)| {
+                            value.max(expected.get(nx, ny))
+                        })
+                        .min(mask.get(x, y));
+                    expected.set(x, y, value);
+                }
+            }
+            if expected == before {
+                break;
+            }
+        }
+        assert_eq!(reconstruct_gray(&marker, &mask), expected);
     }
 }

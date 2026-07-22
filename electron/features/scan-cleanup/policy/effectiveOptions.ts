@@ -34,19 +34,24 @@ export function resolveEffectiveScanCleanupOptions({
 }: IResolveEffectiveScanCleanupOptionsInput): INativeScanCleanupOptionsV2 {
     const lossless = qualityPath === 'lossless';
     const outputMode = lossless ? 'color' : options.outputMode;
+    const hasBinaryLayer = outputMode === 'bw' || outputMode === 'mixed';
     const dewarpRequested = !lossless && experimental.autoDewarp;
     return {
         dpi,
         binarization: 'auto',
         thickness: lossless ? 0 : options.thickness,
         normalizeIllumination: !lossless,
-        despeckle: !lossless && outputMode === 'bw' && options.despeckle,
-        despeckleLevel: !lossless && outputMode === 'bw' && options.despeckle ? 'normal' : 'off',
+        despeckle: !lossless && hasBinaryLayer && options.despeckle,
+        despeckleLevel: !lossless && hasBinaryLayer && options.despeckle ? 'normal' : 'off',
         outputMode,
         ocrMode: false,
         layout: resolveScanCleanupPageLayout(options.layoutMode, pageOverride.layoutOverride),
         manualSplit: pageOverride.manualSplit,
         manualContentBoxes: pageOverride.manualContentBoxes ?? {},
+        manualZones: pageOverride.manualZones ?? {
+            picture: [],
+            fill: [],
+        },
         cropContent: options.crop,
         matchPageSize: options.matchPageSize,
         pageAlignment: options.pageAlignment,

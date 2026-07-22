@@ -68,6 +68,10 @@ export function createScanCleanupPreviewCacheKey(
             excluded: pageOverride.excluded,
             manualSplit: pageOverride.manualSplit,
             manualContentBoxes: pageOverride.manualContentBoxes ?? {},
+            manualZones: pageOverride.manualZones ?? {
+                picture: [],
+                fill: [],
+            },
             marginsMm: pageOverride.marginsMm,
             placementOverrides: pageOverride.placementOverrides ?? {},
         },

@@ -12,6 +12,7 @@ pub mod dewarp;
 pub mod domain;
 pub mod engine;
 pub mod io;
+pub mod picture;
 pub mod pipeline;
 pub mod png;
 pub mod protocol;

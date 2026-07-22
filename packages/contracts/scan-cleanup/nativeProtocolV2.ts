@@ -1,6 +1,7 @@
 import type {TNativeErrorCode} from '@contracts/nativeErrors';
 import type {
     IScanCleanupDocumentPrior,
+    IScanCleanupManualZones,
     IScanCleanupTextAxis,
     TScanCleanupCanvasScope,
     TScanCleanupDespeckleLevel,
@@ -35,6 +36,7 @@ export interface INativeScanCleanupOptionsV2 {
     layout: 'auto' | 'force-single' | 'page-with-offcut' | 'keep-left' | 'keep-right' | 'force-two-page';
     manualSplit: IScanCleanupNormalizedSplit | null;
     manualContentBoxes: Partial<Record<TScanCleanupOutputHalf, IScanCleanupNormalizedRect>>;
+    manualZones: IScanCleanupManualZones;
     cropContent: boolean;
     matchPageSize: boolean;
     pageAlignment: TScanCleanupPageAlignment;

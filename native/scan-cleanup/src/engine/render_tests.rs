@@ -1179,4 +1179,154 @@ mod tests {
         assert!(blank.image.data().iter().all(|&value| value == 255));
         assert!(!blank.image.data().iter().all(|&value| value == 0));
     }
+
+    fn normalized_box_polygon(
+        left: f64,
+        top: f64,
+        right: f64,
+        bottom: f64,
+    ) -> crate::NormalizedZonePolygon {
+        crate::NormalizedZonePolygon {
+            points: vec![
+                crate::NormalizedZonePoint { x: left, y: top },
+                crate::NormalizedZonePoint { x: right, y: top },
+                crate::NormalizedZonePoint {
+                    x: right,
+                    y: bottom,
+                },
+                crate::NormalizedZonePoint { x: left, y: bottom },
+            ],
+            rotation: OrthogonalRotation::None,
+        }
+    }
+
+    #[test]
+    fn mixed_text_only_output_is_pixel_identical_to_bw() {
+        let (source, _) = thin_stroke_fixture();
+        let base = CleanupOptions {
+            dpi: 300.0,
+            crop_content: false,
+            layout: crate::LayoutMode::Single,
+            ..CleanupOptions::default()
+        };
+        let bw = clean_page(&source, &base, 0).unwrap().outputs.remove(0).image;
+        let mixed = clean_page(
+            &source,
+            &CleanupOptions {
+                output_mode: OutputMode::Mixed,
+                ..base
+            },
+            0,
+        )
+        .unwrap()
+        .outputs
+        .remove(0);
+        assert_eq!(mixed.image, bw);
+        assert!(mixed.color_image.is_none());
+    }
+
+    #[test]
+    fn mixed_picture_zone_preserves_tones_and_reserves_layer_endpoints() {
+        let mut gray = GrayImage::new(180, 120, 255);
+        let mut color = RgbImage::new(180, 120, [255; 3]);
+        for y in 20..100 {
+            for x in 85..165 {
+                let value = if (x + y) % 17 == 0 {
+                    0
+                } else if (x + y) % 19 == 0 {
+                    255
+                } else {
+                    30 + ((x * 7 + y * 11) % 190) as u8
+                };
+                gray.set(x, y, value);
+                color.set(
+                    x,
+                    y,
+                    if value == 0 {
+                        [0; 3]
+                    } else {
+                        [value, value.saturating_add(13), value.saturating_add(29)]
+                    },
+                );
+            }
+        }
+        let options = CleanupOptions {
+            output_mode: OutputMode::Mixed,
+            normalize_illumination: false,
+            crop_content: false,
+            layout: crate::LayoutMode::Single,
+            manual_zones: crate::ManualZones {
+                picture: vec![crate::PictureZone {
+                    polygon: normalized_box_polygon(0.45, 0.1, 0.95, 0.9),
+                    layer: crate::PictureZoneLayer::Painter2,
+                }],
+                fill: vec![],
+            },
+            ..CleanupOptions::default()
+        };
+        let output = clean_page_with_color(&gray, Some(&color), &options, 0)
+            .unwrap()
+            .outputs
+            .remove(0);
+        let mixed_color = output.color_image.expect("mixed color keeps source chroma");
+        let mut tonal_pixels = 0usize;
+        for y in 20..100 {
+            for x in 85..165 {
+                let gray_value = output.image.get(x, y);
+                let color_value = mixed_color.get(x, y);
+                assert!(!matches!(gray_value, 0 | 255));
+                assert_ne!(color_value, [0, 0, 0]);
+                assert_ne!(color_value, [255, 255, 255]);
+                if !matches!(gray_value, 1 | 254) {
+                    tonal_pixels += 1;
+                }
+            }
+        }
+        assert!(tonal_pixels > 4_000, "picture tones were not retained");
+        assert!(matches!(output.image.get(20, 20), 0 | 255));
+    }
+
+    #[test]
+    fn mixed_automatic_detector_retains_synthetic_photo_tones() {
+        let mut source = GrayImage::new(260, 180, 242);
+        for row in 0..4 {
+            for column in 0..9 {
+                let left = 15 + column * 18;
+                let top = 18 + row * 28;
+                for y in top..top + 15 {
+                    for x in left..left + 10 {
+                        if x < left + 2 || y < top + 2 || y >= top + 13 {
+                            source.set(x, y, 28);
+                        }
+                    }
+                }
+            }
+        }
+        for y in 35..155 {
+            for x in 185..250 {
+                source.set(x, y, 35 + ((x * 11 + y * 7 + x * y % 41) % 190) as u8);
+            }
+        }
+        let output = clean_page(
+            &source,
+            &CleanupOptions {
+                dpi: 300.0,
+                output_mode: OutputMode::Mixed,
+                normalize_illumination: false,
+                crop_content: false,
+                layout: crate::LayoutMode::Single,
+                ..CleanupOptions::default()
+            },
+            0,
+        )
+        .unwrap()
+        .outputs
+        .remove(0);
+        let output_image = &output.image;
+        let retained_tones = (35..155)
+            .flat_map(|y| (185..250).map(move |x| output_image.get(x, y)))
+            .filter(|value| !matches!(value, 0 | 255))
+            .count();
+        assert!(retained_tones > 2_000, "retained only {retained_tones} photo tones");
+    }
 }

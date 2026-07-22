@@ -50,6 +50,55 @@ describe('effective scan cleanup options', () => {
         }).despeckleLevel).toBe('off');
     });
 
+    it('keeps bw as policy default while passing mixed mode and manual zones through', () => {
+        expect(resolve().outputMode).toBe('bw');
+        expect(resolve().manualZones).toEqual({
+            picture: [],
+            fill: [],
+        });
+        const polygon = {
+            points: [
+                {
+                    xNormalized: 0.1,
+                    yNormalized: 0.1,
+                },
+                {
+                    xNormalized: 0.9,
+                    yNormalized: 0.1,
+                },
+                {
+                    xNormalized: 0.9,
+                    yNormalized: 0.9,
+                },
+            ],
+            rotationDegrees: 0 as const,
+        };
+        const effective = resolveEffectiveScanCleanupOptions({
+            options: {
+                ...options,
+                outputMode: 'mixed',
+            },
+            pageOverride: createScanCleanupPageOverride({manualZones: {
+                picture: [{
+                    polygon,
+                    layer: 'painter2',
+                }],
+                fill: [polygon],
+            }}),
+            dpi: 300,
+            qualityPath: 'raster',
+        });
+        expect(effective.outputMode).toBe('mixed');
+        expect(effective.despeckleLevel).toBe('normal');
+        expect(effective.manualZones).toEqual({
+            picture: [{
+                polygon,
+                layer: 'painter2',
+            }],
+            fill: [polygon],
+        });
+    });
+
     it('passes asymmetric document margins through unchanged', () => {
         expect(resolve().margins).toEqual(options.marginsMm);
     });

@@ -8,10 +8,11 @@ use crate::{
     auto_dewarp::detect_curves,
     background::{
         normalize_illumination, normalize_illumination_for_layout, normalize_illumination_rgb,
+        normalize_illumination_rgb_with_picture_mask, normalize_illumination_with_picture_mask,
     },
     bw::{
-        binarize_normalized_with_diagnostics, binary_to_gray, postprocess_binary_with_diagnostics,
-        BinarizationDiagnostics,
+        binarize_normalized_with_diagnostics, binarize_normalized_with_diagnostics_excluding,
+        binary_to_gray, postprocess_binary_with_diagnostics, BinarizationDiagnostics,
     },
     calibration::{CalibrationConfig, PageCalibration},
     content::detect_content_and_margins_calibrated,
@@ -19,6 +20,7 @@ use crate::{
     dewarp::{
         rasterize_inverse_area_rgb_with, rasterize_inverse_area_with, DewarpModel, DEWARP_GRID_SIZE,
     },
+    picture::{apply_manual_zones, detect_picture_mask},
     png::RgbImage,
     protocol::manifest_v2::ContentDiagnostics,
     split::{
@@ -28,7 +30,9 @@ use crate::{
     CleanupOptions, OrthogonalRotation, OutputMode,
 };
 use rayon::prelude::*;
-use scan_primitives::{threshold::otsu_threshold, Affine, GrayImage, Point, Polygon, Rect};
+use scan_primitives::{
+    threshold::otsu_threshold, Affine, BinaryImage, GrayImage, Point, Polygon, Rect,
+};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -278,6 +282,7 @@ struct PreparedPage {
     analysis_scale_y: f64,
     calibration: PageCalibration,
     rotated_color: Option<RgbImage>,
+    picture_mask: Option<BinaryImage>,
     split: SplitResult,
 }
 
@@ -292,6 +297,7 @@ struct PreparedAnalysis {
     candidate_cutter_ratio: Option<f64>,
     whitespace_score: f64,
     text_axis: Option<TextAxisHint>,
+    picture_mask: Option<BinaryImage>,
 }
 
 pub fn classify_page(
@@ -535,6 +541,7 @@ fn clean_page_with_color_and_calibration_config(
         analysis_scale_y,
         calibration,
         rotated_color,
+        picture_mask,
         split,
     } = prepared;
     let regions = output_regions(
@@ -554,6 +561,7 @@ fn clean_page_with_color_and_calibration_config(
             analysis_scale_y,
             calibration,
             rotated_color.as_ref(),
+            picture_mask.as_ref(),
             options,
             source_page_index,
             &split,
@@ -589,29 +597,54 @@ fn prepare_page(
         scale_x,
         scale_y,
         calibration,
+        picture_mask: analysis_picture_mask,
         full_width,
         full_height,
         ..
     } = prepare_analysis_page(source, options, true, None, calibration_config);
     let (rotated_source, _) = rotate_orthogonal(source, options.rotation);
-    let rotated_color = color_source
-        .map(|image| rotate_rgb_orthogonal(image, options.rotation))
-        .map(|image| {
-            if options.normalize_illumination {
-                normalize_illumination_rgb(&rotated_source, &image, options.dpi)
-            } else {
-                image
-            }
-        });
     let analysis_is_full = analysis_normalized.width() == full_width
         && analysis_normalized.height() == full_height
         && scale_x == 1.0
         && scale_y == 1.0;
+    let mut picture_mask = if options.output_mode == OutputMode::Mixed {
+        if analysis_is_full {
+            analysis_picture_mask
+        } else {
+            let mut mask = detect_picture_mask(&rotated_source, options.dpi, calibration);
+            apply_manual_zones(&mut mask, options);
+            Some(mask)
+        }
+    } else {
+        None
+    };
+    let rotated_color = color_source
+        .map(|image| rotate_rgb_orthogonal(image, options.rotation))
+        .map(|image| {
+            if options.normalize_illumination {
+                if let Some(mask) = picture_mask.as_ref() {
+                    normalize_illumination_rgb_with_picture_mask(
+                        &rotated_source,
+                        &image,
+                        options.dpi,
+                        Some(mask),
+                    )
+                } else {
+                    normalize_illumination_rgb(&rotated_source, &image, options.dpi)
+                }
+            } else {
+                image
+            }
+        });
     let (normalized, analysis_normalized) = if analysis_is_full {
         (analysis_normalized, None)
     } else {
         let normalized = if options.normalize_illumination {
-            normalize_illumination(&rotated_source, options.dpi)
+            if let Some(mask) = picture_mask.as_ref() {
+                normalize_illumination_with_picture_mask(&rotated_source, options.dpi, Some(mask))
+            } else {
+                normalize_illumination(&rotated_source, options.dpi)
+            }
         } else {
             rotated_source.clone()
         };
@@ -625,6 +658,7 @@ fn prepare_page(
         analysis_scale_y: scale_y,
         calibration,
         rotated_color,
+        picture_mask: picture_mask.take(),
         split,
     }
 }
@@ -654,19 +688,33 @@ fn prepare_analysis_page(
     let scale_x = rotated.width() as f64 / full_width.max(1) as f64;
     let scale_y = rotated.height() as f64 / full_height.max(1) as f64;
     debug_assert!((scale_x - source_scale_x.min(source_scale_y)).abs() < 0.01);
-    let (normalized, layout_normalized) = if options.normalize_illumination {
-        let layout_normalized = normalize_illumination_for_layout(&rotated);
-        let normalized = if prepare_quality_raster {
-            normalize_illumination(&rotated, effective_dpi)
-        } else {
-            layout_normalized.clone()
-        };
-        (normalized, layout_normalized)
+    let layout_normalized = if options.normalize_illumination {
+        normalize_illumination_for_layout(&rotated)
     } else {
-        (rotated.clone(), rotated)
+        rotated.clone()
     };
     let calibration =
         PageCalibration::estimate(&layout_normalized, effective_dpi, calibration_config);
+    let picture_mask = if options.output_mode == OutputMode::Mixed && prepare_quality_raster {
+        let mut mask = detect_picture_mask(&rotated, effective_dpi, calibration);
+        apply_manual_zones(&mut mask, options);
+        Some(mask)
+    } else {
+        None
+    };
+    let normalized = if options.normalize_illumination {
+        if prepare_quality_raster {
+            if let Some(mask) = picture_mask.as_ref() {
+                normalize_illumination_with_picture_mask(&rotated, effective_dpi, Some(mask))
+            } else {
+                normalize_illumination(&rotated, effective_dpi)
+            }
+        } else {
+            layout_normalized.clone()
+        }
+    } else {
+        rotated
+    };
     let analysis_threshold = otsu_threshold(&layout_normalized);
     let text_axis = detect_text_axis(&layout_normalized, analysis_threshold);
     let mut split = if options.ocr_mode {
@@ -715,6 +763,7 @@ fn prepare_analysis_page(
         candidate_cutter_ratio,
         whitespace_score,
         text_axis,
+        picture_mask,
     }
 }
 
@@ -750,6 +799,7 @@ fn clean_region(
     analysis_scale_y: f64,
     calibration: PageCalibration,
     color_source: Option<&RgbImage>,
+    source_picture_mask: Option<&BinaryImage>,
     options: &CleanupOptions,
     source_page_index: usize,
     split: &SplitResult,
@@ -954,6 +1004,11 @@ fn clean_region(
                 None,
             )
         };
+    let rendered_picture_mask = source_picture_mask.map(|mask| {
+        render_binary_mask(mask, output_width, output_height, |point| {
+            render_plan.output_to_source(point)
+        })
+    });
     let effectively_blank = is_effectively_blank(&rendered_gray, options.dpi);
     let fail_closed_blank = content.content.is_none() && effectively_blank;
     let (image, color_image, binarization_mode, binarization_diagnostics, despeckle_fallback) =
@@ -1011,6 +1066,51 @@ fn clean_region(
                         Some(diagnostics),
                         despeckle_fallback,
                     )
+                }
+                OutputMode::Mixed => {
+                    let picture_mask = rendered_picture_mask
+                        .as_ref()
+                        .expect("mixed output prepares a picture mask");
+                    if picture_mask.count_black() == 0 {
+                        let routing_sample = crop_gray_to_fit(routing_source, region, 256, 256);
+                        let (binary, diagnostics, despeckle_fallback) =
+                            binarize_normalized_with_diagnostics(
+                                &rendered_gray,
+                                &routing_sample,
+                                options,
+                                calibration,
+                            );
+                        let mode = diagnostics.route;
+                        (
+                            binary_to_gray(&binary),
+                            None,
+                            Some(mode),
+                            Some(diagnostics),
+                            despeckle_fallback,
+                        )
+                    } else {
+                        let (binary, diagnostics, despeckle_fallback) =
+                            binarize_normalized_with_diagnostics_excluding(
+                                &rendered_gray,
+                                options,
+                                calibration,
+                                picture_mask,
+                            );
+                        let mode = diagnostics.route;
+                        let (mixed_gray, mixed_color) = compose_mixed(
+                            &rendered_gray,
+                            rendered_color.as_ref(),
+                            &binary,
+                            picture_mask,
+                        );
+                        (
+                            mixed_gray,
+                            mixed_color,
+                            Some(mode),
+                            Some(diagnostics),
+                            despeckle_fallback,
+                        )
+                    }
                 }
                 OutputMode::Grayscale => (rendered_gray, None, None, None, false),
                 OutputMode::Color => (rendered_gray, rendered_color, None, None, false),
@@ -1089,6 +1189,77 @@ fn clean_region(
             warnings,
         },
     })
+}
+
+fn render_binary_mask(
+    source: &BinaryImage,
+    width: usize,
+    height: usize,
+    map: impl Fn(Point) -> Option<Point>,
+) -> BinaryImage {
+    let mut output = BinaryImage::new(width, height);
+    for y in 0..height {
+        for x in 0..width {
+            let Some(mapped) = map(Point::new(x as f64, y as f64)) else {
+                continue;
+            };
+            let source_x = mapped.x.round() as isize;
+            let source_y = mapped.y.round() as isize;
+            if source_x >= 0
+                && source_y >= 0
+                && source_x < source.width() as isize
+                && source_y < source.height() as isize
+                && source.get(source_x as usize, source_y as usize)
+            {
+                output.set(x, y, true);
+            }
+        }
+    }
+    output
+}
+
+fn compose_mixed(
+    gray: &GrayImage,
+    color: Option<&RgbImage>,
+    binary: &BinaryImage,
+    picture_mask: &BinaryImage,
+) -> (GrayImage, Option<RgbImage>) {
+    let mut mixed_gray = GrayImage::new(gray.width(), gray.height(), 255);
+    let mut mixed_color = color.map(|_| RgbImage::new(gray.width(), gray.height(), [255; 3]));
+    for y in 0..gray.height() {
+        for x in 0..gray.width() {
+            if picture_mask.get(x, y) {
+                let value = reserve_gray_endpoint(gray.get(x, y));
+                mixed_gray.set(x, y, value);
+                if let (Some(source), Some(output)) = (color, mixed_color.as_mut()) {
+                    output.set(x, y, reserve_rgb_endpoints(source.get(x, y)));
+                }
+            } else {
+                let value = if binary.get(x, y) { 0 } else { 255 };
+                mixed_gray.set(x, y, value);
+                if let Some(output) = mixed_color.as_mut() {
+                    output.set(x, y, [value; 3]);
+                }
+            }
+        }
+    }
+    (mixed_gray, mixed_color)
+}
+
+fn reserve_gray_endpoint(value: u8) -> u8 {
+    match value {
+        0 => 1,
+        255 => 254,
+        value => value,
+    }
+}
+
+fn reserve_rgb_endpoints(value: [u8; 3]) -> [u8; 3] {
+    match value {
+        [0, 0, 0] => [1, 1, 1],
+        [255, 255, 255] => [254, 254, 254],
+        value => value,
+    }
 }
 
 fn rotate_rgb_orthogonal(source: &RgbImage, rotation: OrthogonalRotation) -> RgbImage {

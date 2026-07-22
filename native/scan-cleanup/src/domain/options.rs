@@ -110,6 +110,7 @@ impl<'de> Deserialize<'de> for OrthogonalRotation {
 pub enum OutputMode {
     #[default]
     Bw,
+    Mixed,
     Grayscale,
     Color,
 }
@@ -175,6 +176,64 @@ pub struct NormalizedRect {
     pub height: f64,
     #[serde(rename = "rotationDegrees")]
     pub rotation: OrthogonalRotation,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct NormalizedZonePoint {
+    #[serde(rename = "xNormalized")]
+    pub x: f64,
+    #[serde(rename = "yNormalized")]
+    pub y: f64,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct NormalizedZonePolygon {
+    pub points: Vec<NormalizedZonePoint>,
+    #[serde(rename = "rotationDegrees")]
+    pub rotation: OrthogonalRotation,
+}
+
+impl NormalizedZonePolygon {
+    pub fn resolve(&self, width: usize, height: usize) -> scan_primitives::Polygon {
+        scan_primitives::Polygon {
+            points: self
+                .points
+                .iter()
+                .map(|point| {
+                    scan_primitives::Point::new(point.x * width as f64, point.y * height as f64)
+                })
+                .collect(),
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, Deserialize, Serialize, Eq, PartialEq)]
+#[serde(rename_all = "kebab-case")]
+pub enum PictureZoneLayer {
+    Eraser1,
+    #[default]
+    Painter2,
+    Eraser3,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct PictureZone {
+    pub polygon: NormalizedZonePolygon,
+    #[serde(default)]
+    pub layer: PictureZoneLayer,
+}
+
+/// Manual mask overrides use ScanTailor's stable three-pass ordering:
+/// ERASER1 (force binary), PAINTER2 (force picture), then ERASER3 and fill
+/// zones (force binary). Array order therefore cannot change layer priority.
+#[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq)]
+#[serde(default, rename_all = "camelCase", deny_unknown_fields)]
+pub struct ManualZones {
+    pub picture: Vec<PictureZone>,
+    pub fill: Vec<NormalizedZonePolygon>,
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
@@ -245,6 +304,7 @@ pub struct CleanupOptions {
     #[serde(rename = "manualSplit")]
     pub manual_split_x: Option<NormalizedSplit>,
     pub manual_content_boxes: ManualContentBoxes,
+    pub manual_zones: ManualZones,
     pub crop_content: bool,
     pub match_page_size: bool,
     pub page_alignment: PageAlignment,
@@ -279,6 +339,7 @@ impl Default for CleanupOptions {
             layout: LayoutMode::Auto,
             manual_split_x: None,
             manual_content_boxes: ManualContentBoxes::default(),
+            manual_zones: ManualZones::default(),
             crop_content: true,
             match_page_size: true,
             page_alignment: PageAlignment::TopCenter,
@@ -371,6 +432,25 @@ impl CleanupOptions {
                 || rect.rotation != self.rotation
             {
                 return Err("Manual content rectangles must be normalized and authored under the page rotation".into());
+            }
+        }
+        for polygon in self
+            .manual_zones
+            .picture
+            .iter()
+            .map(|zone| &zone.polygon)
+            .chain(&self.manual_zones.fill)
+        {
+            if polygon.points.len() < 3
+                || polygon.rotation != self.rotation
+                || polygon.points.iter().any(|point| {
+                    !point.x.is_finite()
+                        || !point.y.is_finite()
+                        || !(0.0..=1.0).contains(&point.x)
+                        || !(0.0..=1.0).contains(&point.y)
+                })
+            {
+                return Err("Manual zone polygons need at least three normalized points and must be authored under the page rotation".into());
             }
         }
         Ok(())
