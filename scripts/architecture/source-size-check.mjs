@@ -80,9 +80,9 @@ export const SOURCE_SIZE_ALLOWLIST = {
         stage: 'Worker 6 - Diagnostic trace analysis extraction',
     },
     'app/modules/workspace-shell/components/DocumentWorkspace.vue': {
-        maxLines: 1479,
-        reason: 'workspace component after deferred-search, component-binding, and open-surface presentation integration',
-        stage: 'Static audit Stage 15 - workspace binding extraction',
+        maxLines: 1545,
+        reason: 'workspace component after scan-cleanup surface integration and extraction of its session-state ownership',
+        stage: 'Scan cleanup integration - workspace surface extraction follow-up',
     },
     'app/modules/workspace-shell/components/DocumentPageSourceFeaturePack.vue': {
         maxLines: 1408,
@@ -115,7 +115,7 @@ export const SOURCE_SIZE_ALLOWLIST = {
         stage: 'Static audit Stage 15 - OCR admission calculation extraction',
     },
     'app/modules/workspace-shell/components/AppShellRoot.vue': {
-        maxLines: 918,
+        maxLines: 898,
         reason: 'app shell orchestration after scoped presentation styles were extracted',
         stage: 'Static audit Stage 15 - app shell style extraction',
     },

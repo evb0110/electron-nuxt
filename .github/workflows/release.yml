@@ -414,7 +414,9 @@ jobs:
       - name: Checkout target
         uses: actions/checkout@v6
         with:
-          ref: ${{ needs.prepare.outputs.target_sha }}
+          # The mirror publisher belongs to the workflow revision, not the
+          # potentially older release commit whose artifacts are mirrored.
+          ref: ${{ github.workflow_sha }}
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v5

@@ -275,6 +275,7 @@ describe('scan cleanup preview geometry', () => {
 
     it('keeps comparison, spread rendering, cancellation, debounce, and cleaned-cache wiring in the workspace', () => {
         const pane = readFileSync('app/modules/scan-cleanup/components/ScanCleanupPreviewPane.vue', 'utf8');
+        const paneStyles = readFileSync('app/modules/scan-cleanup/components/ScanCleanupPreviewPane.css', 'utf8');
         const workspace = readFileSync('app/modules/scan-cleanup/components/ScanCleanupWorkspace.vue', 'utf8');
         const session = readFileSync('app/modules/scan-cleanup/composables/useScanCleanupWorkspaceSession.ts', 'utf8');
         const tokens = readFileSync('app/assets/css/main.css', 'utf8');
@@ -282,10 +283,10 @@ describe('scan cleanup preview geometry', () => {
         expect(pane).toContain('effectiveViewMode === \'original\'');
         expect(pane).toContain('@keydown.left.prevent');
         expect(pane).toContain('effectiveZoomMode === \'actual\'');
-        expect(pane).toContain('cursor: col-resize');
+        expect(paneStyles).toContain('cursor: col-resize');
         expect(pane).toContain('<Transition name="scan-preview-crossfade">');
-        expect(pane).toContain('.content-overlay:focus-within .content-handle::after');
-        expect(pane).not.toMatch(/\.content-handle\.is-n::after,[\s\S]*?display: none;/u);
+        expect(paneStyles).toContain('.content-overlay:focus-within .content-handle::after');
+        expect(paneStyles).not.toMatch(/\.content-handle\.is-n::after,[\s\S]*?display: none;/u);
         expect(pane).toContain('v-for="(output, index) in renderedOutputs"');
         expect(pane).toContain('transformPreviewContentBox(metadata)');
         expect(pane.match(/<ScanCleanupSegmented/gu)).toHaveLength(2);

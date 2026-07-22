@@ -157,7 +157,7 @@ function emitProgress(
     });
 }
 
-export function pruneLosslessScanCleanupOptions(options: IScanCleanupOptions): IScanCleanupOptions {
+function pruneLosslessScanCleanupOptions(options: IScanCleanupOptions): IScanCleanupOptions {
     return {
         ...options,
         outputMode: 'color',
@@ -252,7 +252,7 @@ function displayPointToPdf(
     };
 }
 
-export function mapLosslessAnalysisRectToPdf(
+function mapLosslessAnalysisRectToPdf(
     rect: IScanCleanupRect,
     inputWidth: number,
     inputHeight: number,

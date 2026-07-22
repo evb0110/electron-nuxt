@@ -14,7 +14,7 @@ export interface IScanCleanupMixedValue<T> {
     value: T | undefined;
 }
 
-export function areScanCleanupSelectionValuesEqual(left: unknown, right: unknown): boolean {
+function areScanCleanupSelectionValuesEqual(left: unknown, right: unknown): boolean {
     if (Object.is(left, right)) {
         return true;
     }

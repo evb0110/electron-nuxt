@@ -376,10 +376,7 @@ import WorkspaceShell from '@app/modules/workspace-shell/components/layout/Works
 import WorkspaceSidebarHost from '@app/modules/workspace-shell/components/layout/WorkspaceSidebarHost.vue';
 import WorkspaceToolbarHost from '@app/modules/workspace-shell/components/layout/WorkspaceToolbarHost.vue';
 import WorkspaceViewerHost from '@app/modules/workspace-shell/components/layout/WorkspaceViewerHost.vue';
-import type {
-    IScanCleanupTabSessionState,
-    TDocumentSurfaceMode,
-} from '@app/modules/workspace-shell/tabs/tabSessionStoreTypes';
+import { useDocumentWorkspaceSurfaceMode } from '@app/modules/workspace-shell/composables/useDocumentWorkspaceSurfaceMode';
 import { useDocumentWorkspaceSplitRestore } from '@app/modules/workspace-shell/composables/useDocumentWorkspaceSplitRestore';
 import { useDocumentWorkspaceOptimizeDialog } from '@app/modules/workspace-shell/composables/useDocumentWorkspaceOptimizeDialog';
 import { useDocumentWorkspaceToolbar } from '@app/modules/workspace-shell/composables/useDocumentWorkspaceToolbar';
@@ -475,28 +472,24 @@ const canUseDjvu = true;
 const toolbarSurface = DESKTOP_EDITOR_READER_COMMAND_SURFACE;
 const isOcrRunning = ref(false);
 const ocrPopupRef = ref<IOcrPopupAgentExpose | null>(null);
-const localSurfaceMode = ref<TDocumentSurfaceMode>(
-    documentSession?.snapshot.value.viewState.surfaceMode ?? initialViewState?.surfaceMode ?? 'reader',
-);
-const surfaceMode = computed<TDocumentSurfaceMode>({
-    get: () => documentSession?.snapshot.value.viewState.surfaceMode ?? localSurfaceMode.value,
-    set: (mode) => {
-        localSurfaceMode.value = mode;
-        if (documentSession) {
-            documentSession.applyViewState({
-                ...documentSession.snapshot.value.viewState,
-                surfaceMode: mode,
-            });
-        }
-    },
+const {
+    closeScanCleanup: closeScanCleanupSurface,
+    openScanCleanup: openScanCleanupSurface,
+    scanCleanupSessionState,
+    surfaceMode,
+    updateScanCleanupSessionState,
+} = useDocumentWorkspaceSurfaceMode({
+    initialScanCleanup: documentSession?.snapshot.value.viewState.scanCleanup ?? initialViewState?.scanCleanup ?? null,
+    initialSurfaceMode: documentSession?.snapshot.value.viewState.surfaceMode ?? initialViewState?.surfaceMode ?? 'reader',
+    applyViewState: documentSession
+        ? updates => documentSession.applyViewState({
+            ...documentSession.snapshot.value.viewState,
+            ...updates,
+        })
+        : undefined,
+    readScanCleanup: documentSession ? () => documentSession.snapshot.value.viewState.scanCleanup ?? null : undefined,
+    readSurfaceMode: documentSession ? () => documentSession.snapshot.value.viewState.surfaceMode : undefined,
 });
-const localScanCleanupSessionState = ref<IScanCleanupTabSessionState | null>(
-    documentSession?.snapshot.value.viewState.scanCleanup ?? initialViewState?.scanCleanup ?? null,
-);
-const scanCleanupSessionState = computed(() => (
-    documentSession?.snapshot.value.viewState.scanCleanup
-    ?? localScanCleanupSessionState.value
-));
 const emit = defineEmits<IDocumentWorkspaceEmits>();
 const workspaceCommandBindings = createDocumentWorkspaceCommandBindings(emit);
 const { t } = useTypedI18n();
@@ -516,25 +509,11 @@ const currentPageTransitionHistory = ref<Array<{
     page: number;
     at: number 
 }>>([]);
-
 function openScanCleanup() {
     closeAllDropdowns();
-    surfaceMode.value = 'scan-cleanup';
+    openScanCleanupSurface();
 }
-
-function closeScanCleanup() {
-    surfaceMode.value = 'reader';
-}
-
-function updateScanCleanupSessionState(state: IScanCleanupTabSessionState) {
-    localScanCleanupSessionState.value = state;
-    if (documentSession) {
-        documentSession.applyViewState({
-            ...documentSession.snapshot.value.viewState,
-            scanCleanup: state,
-        });
-    }
-}
+const closeScanCleanup = closeScanCleanupSurface;
 const navigationFeedbackPage = ref<number | null>(null);
 const {
     pendingDjvuDocumentOpen,

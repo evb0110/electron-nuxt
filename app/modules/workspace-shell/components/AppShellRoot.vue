@@ -147,7 +147,6 @@
 import { useEventListener } from '@vueuse/core';
 import { logicNot } from '@vueuse/math';
 import { guardAsync } from '@app/utils/asyncGuard';
-import { BrowserLogger } from '@app/utils/browserLogger';
 import { resolveAppWindowTitle } from '@app/utils/appWindowTitle';
 import { traceRendererStartup } from '@app/utils/traceRendererStartup';
 import { syncBrowserWindowTitle } from '@app/platform/browserWindowTabs';
@@ -187,6 +186,7 @@ import { useWindowTabTransfers } from '@app/modules/workspace-shell/composables/
 import { useBrowserInstallHint } from '@app/modules/workspace-shell/composables/useBrowserInstallHint';
 import { useDirectOpenAutomationDispatcherShell } from '@app/modules/workspace-shell/automation/directOpenAutomationDispatcher';
 import { resolveTabLifecycleStates } from '@app/modules/workspace-shell/tabs/resolveTabLifecycleStates';
+import { createFallbackToolbarCommandListeners } from '@app/modules/workspace-shell/expose/createFallbackToolbarCommandListeners';
 import { useScanCleanupRunCoordinator } from '@app/modules/workspace-shell/composables/useScanCleanupRunCoordinator';
 import { pruneStartSectionByTabId } from '@app/modules/workspace-shell/tabs/pruneStartSectionByTabId';
 import type { TPdfViewMode } from '@contracts/shared';
@@ -199,12 +199,6 @@ import { getHostCapability } from '@app/utils/getHostCapability';
 import { waitForDesktopPlatformBridge } from '@app/utils/platform';
 import { getDocumentWindowCapability } from '@app/utils/platformDocuments';
 import { resolveDocumentRefBackend } from '@app/utils/documentRef';
-import {
-    invokeWorkspaceExposeCommand,
-    workspaceExposeToolbarCommandDescriptors,
-    WorkspaceExposeCommandUnavailableError,
-    type TWorkspaceExposeMethod,
-} from '@app/modules/workspace-shell/expose/workspaceExposeDescriptors';
 
 traceRendererStartup('index.vue script setup start');
 useDirectOpenAutomationDispatcherShell();
@@ -412,34 +406,13 @@ function handleDocumentRecordUpdate(tabId: string, record: IWorkspaceDocumentRec
     updateTabInState(tabId, sessionRecord.tab);
 }
 
-function runFallbackWorkspaceCommand(commandName: TWorkspaceExposeMethod, args: readonly unknown[] = []) {
-    const workspace = activeWorkspace.value;
-    if (!workspace) {
-        BrowserLogger.error('shell', 'Fallback workspace command unavailable', {error: new WorkspaceExposeCommandUnavailableError(commandName)});
-        return;
-    }
-
-    const result: unknown = invokeWorkspaceExposeCommand(workspace, commandName, args);
-    if (result instanceof Promise) {
-        guardAsync(result, {
-            category: 'user-visible-operation',
-            scope: 'shell',
-            message: `Fallback workspace command failed: ${commandName}`,
-        });
-    }
-}
-
-const fallbackToolbarCommandListeners = Object.fromEntries(
-    workspaceExposeToolbarCommandDescriptors.map(descriptor => [
-        descriptor.toolbar.eventName,
-        (...args: unknown[]) => runFallbackWorkspaceCommand(descriptor.name, args),
-    ]),
-);
-
+const {
+    listeners: fallbackToolbarCommandListeners,
+    run: runFallbackWorkspaceCommand,
+} = createFallbackToolbarCommandListeners(activeWorkspace);
 function activeWorkspaceHasDocument() {
     return shellState.activeWorkspaceHasDocument.value;
 }
-
 function handleToggleFullscreen() {
     if (!fullscreenSupported.value || (!isFullscreen.value && !activeWorkspaceHasDocument())) {
         return;
@@ -447,7 +420,6 @@ function handleToggleFullscreen() {
 
     setZenMode(!isFullscreen.value);
 }
-
 function applyZenModeState(state: IHostZenModeState) {
     fullscreenSupported.value = state.supported;
     isFullscreen.value = state.active;
