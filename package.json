@@ -37,6 +37,7 @@
     "build:pdf-page-ops-wasm": "node scripts/build-pdf-page-ops-wasm.mjs",
     "build:pdf-search": "node scripts/build-pdf-search.mjs",
     "build:scan-cleanup": "node scripts/build-scan-cleanup.mjs",
+    "scan-cleanup:harness": "cargo run --release --manifest-path native/scan-cleanup/Cargo.toml --bin scan-cleanup-harness --",
     "generate:platform-api": "pnpm exec tsx scripts/platform-api/generatePlatformApiArtifacts.ts",
     "generate:fixtures:djvu": "node scripts/generate-djvu-fidelity-corpus.mjs",
     "benchmark:native-release-profiles": "node scripts/benchmark-native-release-profiles.mjs --label current --output docs/benchmarks/native-release-profile-2026-07-10.json",
