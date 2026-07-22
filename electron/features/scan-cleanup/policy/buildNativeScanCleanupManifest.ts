@@ -11,6 +11,7 @@ import {SCAN_CLEANUP_NATIVE_PROTOCOL_VERSION} from '@contracts/electronApiScanCl
 import {getScanCleanupPageOverride} from '@contracts/scanCleanupPageOverrides';
 import {
     resolveEffectiveScanCleanupOptions,
+    type IEffectiveNativeScanCleanupOptionsV2,
     type IScanCleanupExperimentalOptions,
     type TScanCleanupQualityPath,
 } from '@electron/features/scan-cleanup/policy/effectiveOptions';
@@ -34,6 +35,23 @@ export interface IBuildNativeScanCleanupManifestInput {
     experimental?: IScanCleanupExperimentalOptions;
 }
 
+export function serializeNativeScanCleanupOptions(
+    options: IEffectiveNativeScanCleanupOptionsV2,
+): INativeScanCleanupManifestV2['pages'][number]['options'] {
+    const {
+        despeckleLevel,
+        manualZones,
+        ...baselineOptions
+    } = options;
+    const derivedDespeckleLevel = options.despeckle ? 'normal' : 'off';
+    const hasManualZones = manualZones.picture.length > 0 || manualZones.fill.length > 0;
+    return {
+        ...baselineOptions,
+        ...(despeckleLevel === derivedDespeckleLevel ? {} : {despeckleLevel}),
+        ...(hasManualZones ? {manualZones} : {}),
+    };
+}
+
 export function buildNativeScanCleanupManifest({
     operation,
     renderMode,
@@ -52,13 +70,15 @@ export function buildNativeScanCleanupManifest({
             inputPath: page.inputPath,
             sourcePageIndex: page.pageNumber - 1,
             pageMetadataPath: page.pageMetadataPath,
-            options: resolveEffectiveScanCleanupOptions({
-                options,
-                pageOverride: getScanCleanupPageOverride(options.pageOverrides, page.pageNumber),
-                dpi: page.dpi,
-                qualityPath,
-                ...(experimental === undefined ? {} : {experimental}),
-            }),
+            options: serializeNativeScanCleanupOptions(
+                resolveEffectiveScanCleanupOptions({
+                    options,
+                    pageOverride: getScanCleanupPageOverride(options.pageOverrides, page.pageNumber),
+                    dpi: page.dpi,
+                    qualityPath,
+                    ...(experimental === undefined ? {} : {experimental}),
+                }),
+            ),
             outputs: page.outputs ?? [],
             ...(page.documentPrior === undefined ? {} : {documentPrior: page.documentPrior}),
         })),

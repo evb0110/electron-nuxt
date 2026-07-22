@@ -2,12 +2,17 @@ import {readFile} from 'node:fs/promises';
 import {resolve} from 'node:path';
 import type {
     INativeScanCleanupManifestV2,
+    IScanCleanupNormalizedZonePolygon,
     IScanCleanupOptions,
     TNativeScanCleanupOperation,
     TNativeScanCleanupRenderMode,
     TScanCleanupCanvasScope,
 } from '@contracts/electronApiScanCleanup';
-import {buildNativeScanCleanupManifest} from '@electron/features/scan-cleanup/policy/buildNativeScanCleanupManifest';
+import {
+    buildNativeScanCleanupManifest,
+    serializeNativeScanCleanupOptions,
+} from '@electron/features/scan-cleanup/policy/buildNativeScanCleanupManifest';
+import {resolveEffectiveScanCleanupOptions} from '@electron/features/scan-cleanup/policy/effectiveOptions';
 import {
     describe,
     expect,
@@ -101,6 +106,92 @@ describe('native scan-cleanup manifest builder', () => {
             }],
         });
         expect(manifest).toEqual(golden);
+    });
+
+    it('omits additive option keys when they only repeat legacy-derived defaults', () => {
+        for (const despeckle of [
+            false,
+            true,
+        ]) {
+            const manifest = buildNativeScanCleanupManifest({
+                operation: 'analyze',
+                renderMode: 'preview',
+                canvasScope: 'page',
+                qualityPath: 'raster',
+                options: {
+                    ...options,
+                    despeckle,
+                },
+                pages: [{
+                    inputPath: '/fixtures/input/page-1.png',
+                    pageNumber: 1,
+                    dpi: 300,
+                    pageMetadataPath: '/fixtures/output/page-1.json',
+                }],
+            });
+
+            expect(manifest.pages[0]?.options).not.toHaveProperty('despeckleLevel');
+            expect(manifest.pages[0]?.options).not.toHaveProperty('manualZones');
+        }
+    });
+
+    it('includes additive option keys when they carry new behavior', () => {
+        const polygon: IScanCleanupNormalizedZonePolygon = {
+            points: [
+                {
+                    xNormalized: 0.1,
+                    yNormalized: 0.1,
+                },
+                {
+                    xNormalized: 0.9,
+                    yNormalized: 0.1,
+                },
+                {
+                    xNormalized: 0.9,
+                    yNormalized: 0.9,
+                },
+            ],
+            rotationDegrees: 0,
+        };
+        const effective = resolveEffectiveScanCleanupOptions({
+            options: {
+                ...options,
+                outputMode: 'mixed',
+                pageOverrides: {'1': {
+                    rotationDegrees: 0,
+                    layoutOverride: 'auto',
+                    excluded: false,
+                    manualSplit: null,
+                    manualZones: {
+                        picture: [],
+                        fill: [polygon],
+                    },
+                }},
+            },
+            pageOverride: {
+                rotationDegrees: 0,
+                layoutOverride: 'auto',
+                excluded: false,
+                manualSplit: null,
+                manualZones: {
+                    picture: [],
+                    fill: [polygon],
+                },
+            },
+            dpi: 300,
+            qualityPath: 'raster',
+        });
+        const serialized = serializeNativeScanCleanupOptions({
+            ...effective,
+            despeckleLevel: 'aggressive',
+        });
+
+        expect(serialized.despeckleLevel).toBe('aggressive');
+        expect(serialized.manualZones).toEqual({
+            picture: [],
+            fill: [polygon],
+        });
+        expect(serialized.outputMode).toBe('mixed');
     });
 
     it('threads an optional document prior only onto its target preview page', () => {

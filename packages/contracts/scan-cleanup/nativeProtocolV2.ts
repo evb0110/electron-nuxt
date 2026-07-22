@@ -30,13 +30,13 @@ export interface INativeScanCleanupOptionsV2 {
     thickness: number;
     normalizeIllumination: boolean;
     despeckle: boolean;
-    despeckleLevel: TScanCleanupDespeckleLevel;
+    despeckleLevel?: TScanCleanupDespeckleLevel;
     outputMode: TScanCleanupOutputMode;
     ocrMode: boolean;
     layout: 'auto' | 'force-single' | 'page-with-offcut' | 'keep-left' | 'keep-right' | 'force-two-page';
     manualSplit: IScanCleanupNormalizedSplit | null;
     manualContentBoxes: Partial<Record<TScanCleanupOutputHalf, IScanCleanupNormalizedRect>>;
-    manualZones: IScanCleanupManualZones;
+    manualZones?: IScanCleanupManualZones;
     cropContent: boolean;
     matchPageSize: boolean;
     pageAlignment: TScanCleanupPageAlignment;

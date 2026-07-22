@@ -151,4 +151,31 @@ mod tests {
         let page_unknown = json.replace("\"outputs\":[]", "\"unknownPage\":true,\"outputs\":[]");
         assert!(serde_json::from_str::<ManifestV2>(&page_unknown).is_err());
     }
+
+    #[test]
+    fn additive_option_defaults_are_derived_when_new_fields_are_absent() {
+        let json = r#"{
+            "version":2,"operation":"analyze","renderMode":"preview","canvasScope":"page",
+            "pages":[
+              {"inputPath":"enabled.png","sourcePageIndex":0,"pageMetadataPath":"enabled.json",
+               "outputs":[],"options":{"despeckle":true}},
+              {"inputPath":"disabled.png","sourcePageIndex":1,"pageMetadataPath":"disabled.json",
+               "outputs":[],"options":{"despeckle":false}}
+            ]
+        }"#;
+        let manifest: ManifestV2 = serde_json::from_str(json).unwrap();
+
+        assert_eq!(
+            manifest.pages[0].options.effective_despeckle_level(),
+            crate::DespeckleLevel::Normal
+        );
+        assert_eq!(
+            manifest.pages[1].options.effective_despeckle_level(),
+            crate::DespeckleLevel::Off
+        );
+        for page in &manifest.pages {
+            assert!(page.options.manual_zones.picture.is_empty());
+            assert!(page.options.manual_zones.fill.is_empty());
+        }
+    }
 }

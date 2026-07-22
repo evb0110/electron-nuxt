@@ -1,7 +1,9 @@
 import type {
     INativeScanCleanupOptionsV2,
+    IScanCleanupManualZones,
     IScanCleanupOptions,
     IScanCleanupPageOverride,
+    TScanCleanupDespeckleLevel,
 } from '@contracts/electronApiScanCleanup';
 import {
     resolveScanCleanupMarginsMm,
@@ -22,6 +24,11 @@ export interface IResolveEffectiveScanCleanupOptionsInput {
     experimental?: IScanCleanupExperimentalOptions;
 }
 
+export interface IEffectiveNativeScanCleanupOptionsV2 extends INativeScanCleanupOptionsV2 {
+    despeckleLevel: TScanCleanupDespeckleLevel;
+    manualZones: IScanCleanupManualZones;
+}
+
 const MAX_PIXELS = 160_000_000;
 const MAX_DIMENSION_PX = 40_000;
 
@@ -31,7 +38,7 @@ export function resolveEffectiveScanCleanupOptions({
     dpi,
     qualityPath,
     experimental = DEFAULT_SCAN_CLEANUP_EXPERIMENTAL_OPTIONS,
-}: IResolveEffectiveScanCleanupOptionsInput): INativeScanCleanupOptionsV2 {
+}: IResolveEffectiveScanCleanupOptionsInput): IEffectiveNativeScanCleanupOptionsV2 {
     const lossless = qualityPath === 'lossless';
     const outputMode = lossless ? 'color' : options.outputMode;
     const hasBinaryLayer = outputMode === 'bw' || outputMode === 'mixed';
