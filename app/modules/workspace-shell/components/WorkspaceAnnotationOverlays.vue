@@ -1,4 +1,5 @@
 <template>
+    <div v-show="visible" class="workspace-annotation-overlays-root">
     <PdfAnnotationNoteWindow
         v-for="note in visibleAnnotationNoteWindows"
         :key="note.annotationId"
@@ -143,6 +144,7 @@
         @update-color="handleTextMarkupColorUpdate"
         @close="handleTextMarkupClose"
     />
+    </div>
 </template>
 
 <script setup lang="ts">
@@ -212,7 +214,9 @@ const {
     annotationViewportRoot = undefined,
     annotationZoom = undefined,
     sortedAnnotationNoteWindows,
+    visible,
 } = defineProps<{
+    visible: boolean;
     sortedAnnotationNoteWindows: IAnnotationNoteWindowEntry[];
     annotationNotePositions: Record<string, IAnnotationNotePosition>;
     annotationViewportRoot?: HTMLElement | null;
@@ -1095,6 +1099,10 @@ const emit = defineEmits<{
 </script>
 
 <style scoped>
+.workspace-annotation-overlays-root {
+    display: contents;
+}
+
 .pdf-note-minimized-indicator {
     position: absolute;
     width: var(--app-note-anchor-size);

@@ -30,18 +30,25 @@ function decodeProgress(value: unknown): IScanCleanupProgress | null {
             'cleaning',
             'assembling',
             'handoff',
-        ].includes(String(value.progress.phase))
-        || typeof value.progress.processedCount !== 'number'
-        || typeof value.progress.totalPages !== 'number'
+        ].includes(String(value.progress.stage))
+        || typeof value.progress.completedUnits !== 'number'
+        || typeof value.progress.totalUnits !== 'number'
         || typeof value.progress.percent !== 'number'
+        || (value.progress.completedPageNumbers !== undefined && (
+            !Array.isArray(value.progress.completedPageNumbers)
+            || value.progress.completedPageNumbers.some(page => !Number.isSafeInteger(page) || Number(page) < 1)
+        ))
     ) {
         return null;
     }
     return {
-        phase: value.progress.phase as IScanCleanupProgress['phase'],
-        processedCount: value.progress.processedCount,
-        totalPages: value.progress.totalPages,
+        stage: value.progress.stage as IScanCleanupProgress['stage'],
+        completedUnits: value.progress.completedUnits,
+        totalUnits: value.progress.totalUnits,
         percent: value.progress.percent,
+        ...(value.progress.completedPageNumbers === undefined
+            ? {}
+            : {completedPageNumbers: value.progress.completedPageNumbers.map(Number)}),
     };
 }
 
@@ -99,6 +106,9 @@ export async function runScanCleanupWorkerTask(
             stackSizeMb: 4,
         },
         signal,
+        // AbortSignal is the transport. This worker adapter translates abort to
+        // a cooperative message and lets the worker-task harness force terminate
+        // after the grace period. Generation counters are never used to cancel.
         createCancelMessage: () => ({type: 'cancel'}),
         cooperativeCancelDelayMs: 5_000,
         onProgressMessage: value => {

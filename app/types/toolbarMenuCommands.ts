@@ -17,12 +17,16 @@ export type TToolbarAppMenuCommand =
     | 'paste-image-from-clipboard';
 
 export type TToolbarOverflowMenuCommand =
+    | 'open-file'
     | 'save'
     | 'save-as'
     | 'print'
     | 'undo'
     | 'redo'
     | 'open-ocr'
+    | 'open-scan-cleanup'
+    | 'export-docx'
+    | 'toggle-assistant'
     | 'toggle-sidebar'
     | 'fit-width'
     | 'fit-height'

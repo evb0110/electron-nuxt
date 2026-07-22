@@ -14,14 +14,11 @@ import {
 } from 'path';
 import type {
     IScanCleanupOptions,
+    IScanCleanupPixelRect,
     IScanCleanupProgress,
     IScanCleanupSummary,
 } from '@contracts/electronApiScanCleanup';
-import {
-    getScanCleanupPageOverride,
-    resolveScanCleanupPageLayout,
-} from '@contracts/scanCleanupPageOverrides';
-import type { TScanCleanupResolvedPageLayout } from '@contracts/scanCleanupPageOverrides';
+import {getScanCleanupPageOverride} from '@contracts/scanCleanupPageOverrides';
 import { getPdfPageCount } from '@electron/pdf/pdfPageCount';
 import { detectSourceDpiDetails } from '@electron/pdf/sourceDpiDetection';
 import {
@@ -31,6 +28,7 @@ import {
 import { runNativeToolCommand } from '@electron/native-tools/runNativeToolCommand';
 import type { TWorkerLog } from '@electron/ocr/worker/types';
 import { runScanCleanupSidecar } from '@electron/features/scan-cleanup/worker/runScanCleanupSidecar';
+import {buildNativeScanCleanupManifest} from '@electron/features/scan-cleanup/policy/buildNativeScanCleanupManifest';
 
 export interface IScanCleanupWorkerPaths {
     qpdfBinary: string;
@@ -49,8 +47,10 @@ export interface IRunScanCleanupPipelineRequest {
 }
 
 interface ICleanupMetadata {
-    outputWidth: number;
-    outputHeight: number;
+    outputWidthPx: number;
+    outputHeightPx: number;
+    canvasWidthPx: number;
+    canvasHeightPx: number;
     layoutClassification: 'single-uncut-page' | 'page-with-offcut' | 'two-page-spread';
     skewApplied: boolean;
     contentBox?: unknown;
@@ -59,8 +59,9 @@ interface ICleanupMetadata {
 
 interface ICleanupPageMetadata {
     layoutClassification: ICleanupMetadata['layoutClassification'];
-    cutterX: number | null;
-    rotation: IScanCleanupOptions['pageOverrides'][string]['rotation'];
+    cutterXPx: number | null;
+    rotationDegrees: IScanCleanupOptions['pageOverrides'][string]['rotationDegrees'];
+    canvasScope: 'page' | 'document';
     excluded: boolean;
     blankOutputsSkipped: number;
     outputCount: number;
@@ -69,9 +70,9 @@ interface ICleanupPageMetadata {
 
 interface ILosslessAnalysisOutput {
     half: 'full' | 'left' | 'right';
-    cropRect: IScanCleanupRect;
-    inputWidth: number;
-    inputHeight: number;
+    cropRect: IScanCleanupPixelRect;
+    inputWidthPx: number;
+    inputHeightPx: number;
 }
 
 interface IScanCleanupRect {
@@ -88,36 +89,6 @@ interface IPdfPageSize {
     widthPoints: number;
     heightPoints: number;
     rotation: number;
-}
-
-interface ICleanupOutputJob {
-    outputPath: string;
-    metadataPath: string;
-}
-
-interface ICleanupPageJob {
-    inputPath: string;
-    sourcePageIndex: number;
-    pageMetadataPath: string;
-    options: {
-        dpi: number;
-        layout: TScanCleanupResolvedPageLayout;
-        cropContent: boolean;
-        matchPageSize: boolean;
-        pageAlignment: IScanCleanupOptions['pageAlignment'];
-        marginsMm: number[];
-        outputMode: IScanCleanupOptions['outputMode'];
-        thickness: number;
-        despeckle: boolean;
-        rotation: IScanCleanupOptions['pageOverrides'][string]['rotation'];
-        excluded: boolean;
-        skipBlankPages: boolean;
-        experimentalAutoDewarp: boolean;
-        manualSplitX: number | null;
-        manualContentBoxes: IScanCleanupOptions['pageOverrides'][string]['manualContentBoxes'];
-        placementOverrides: IScanCleanupOptions['pageOverrides'][string]['placementOverrides'];
-    };
-    outputs: ICleanupOutputJob[];
 }
 
 export interface IRunScanCleanupPipelineDependencies {
@@ -144,28 +115,19 @@ function clampDpi(value: number | null | undefined) {
 
 function emitProgress(
     callback: (progress: IScanCleanupProgress) => void,
-    phase: IScanCleanupProgress['phase'],
-    processedCount: number,
-    totalPages: number,
+    stage: IScanCleanupProgress['stage'],
+    completedUnits: number,
+    totalUnits: number,
     percent: number,
+    completedPageNumbers?: Iterable<number>,
 ) {
     callback({
-        phase,
-        processedCount,
-        totalPages,
+        stage,
+        completedUnits,
+        totalUnits,
         percent: Math.min(100, Math.max(0, percent)),
+        ...(completedPageNumbers ? {completedPageNumbers: [...completedPageNumbers]} : {}),
     });
-}
-
-function pruneLosslessScanCleanupOptions(options: IScanCleanupOptions): IScanCleanupOptions {
-    return {
-        ...options,
-        outputMode: 'color',
-        thickness: 0,
-        despeckle: false,
-        skipBlankPages: false,
-        straightenCurvedLines: false,
-    };
 }
 
 function rectFromPoints(points: Array<{
@@ -189,25 +151,25 @@ function unrotateAnalysisPoint(
         x: number;
         y: number
     },
-    inputWidth: number,
-    inputHeight: number,
-    rotation: ICleanupPageMetadata['rotation'],
+    inputWidthPx: number,
+    inputHeightPx: number,
+    rotationDegrees: ICleanupPageMetadata['rotationDegrees'],
 ) {
-    if (rotation === 90) {
+    if (rotationDegrees === 90) {
         return {
             x: point.y,
-            y: inputHeight - point.x,
+            y: inputHeightPx - point.x,
         };
     }
-    if (rotation === 180) {
+    if (rotationDegrees === 180) {
         return {
-            x: inputWidth - point.x,
-            y: inputHeight - point.y,
+            x: inputWidthPx - point.x,
+            y: inputHeightPx - point.y,
         };
     }
-    if (rotation === 270) {
+    if (rotationDegrees === 270) {
         return {
-            x: inputWidth - point.y,
+            x: inputWidthPx - point.y,
             y: point.x,
         };
     }
@@ -219,12 +181,12 @@ function displayPointToPdf(
         x: number;
         y: number
     },
-    inputWidth: number,
-    inputHeight: number,
+    inputWidthPx: number,
+    inputHeightPx: number,
     page: IPdfPageSize,
 ) {
-    const markerX = point.x / inputWidth;
-    const markerY = point.y / inputHeight;
+    const markerX = point.x / inputWidthPx;
+    const markerY = point.y / inputHeightPx;
     const x = page.xPoints ?? 0;
     const y = page.yPoints ?? 0;
     const rotation = ((Math.round(page.rotation / 90) * 90 % 360) + 360) % 360;
@@ -253,31 +215,31 @@ function displayPointToPdf(
 }
 
 function mapLosslessAnalysisRectToPdf(
-    rect: IScanCleanupRect,
-    inputWidth: number,
-    inputHeight: number,
-    cleanupRotation: ICleanupPageMetadata['rotation'],
+    rect: IScanCleanupPixelRect,
+    inputWidthPx: number,
+    inputHeightPx: number,
+    cleanupRotation: ICleanupPageMetadata['rotationDegrees'],
     page: IPdfPageSize,
 ) {
     const corners = [
         {
-            x: rect.x,
-            y: rect.y,
+            x: rect.xPx,
+            y: rect.yPx,
         },
         {
-            x: rect.x + rect.width,
-            y: rect.y,
+            x: rect.xPx + rect.widthPx,
+            y: rect.yPx,
         },
         {
-            x: rect.x,
-            y: rect.y + rect.height,
+            x: rect.xPx,
+            y: rect.yPx + rect.heightPx,
         },
         {
-            x: rect.x + rect.width,
-            y: rect.y + rect.height,
+            x: rect.xPx + rect.widthPx,
+            y: rect.yPx + rect.heightPx,
         },
-    ].map(point => unrotateAnalysisPoint(point, inputWidth, inputHeight, cleanupRotation))
-        .map(point => displayPointToPdf(point, inputWidth, inputHeight, page));
+    ].map(point => unrotateAnalysisPoint(point, inputWidthPx, inputHeightPx, cleanupRotation))
+        .map(point => displayPointToPdf(point, inputWidthPx, inputHeightPx, page));
     return rectFromPoints(corners);
 }
 
@@ -335,50 +297,43 @@ async function runLosslessScanCleanup(
     });
     const pageSizes = (JSON.parse(await readFile(pageSizesPath, 'utf8')) as {pages: IPdfPageSize[]}).pages;
     const documentDpi = clampDpi(dpiDetails.documentDpi);
-    const losslessOptions = pruneLosslessScanCleanupOptions(request.options);
     let rasterizedCount = 0;
-    const pages = await mapScanCleanupRasterPages(pageNumbers, 3, async pageNumber => {
+    const rasterizedPageNumbers = new Set<number>();
+    const pageInputs = await mapScanCleanupRasterPages(pageNumbers, 3, async pageNumber => {
         signal.throwIfAborted();
         const dpi = clampDpi(dpiDetails.pageDpiByNumber.get(pageNumber) ?? documentDpi);
         const inputPath = join(scratch, `analysis-${pageNumber}.png`);
         await dependencies.renderPage(paths, log, pageNumber, preparedPdfPath, inputPath, dpi, undefined, signal);
-        const pageOverride = getScanCleanupPageOverride(losslessOptions.pageOverrides, pageNumber);
         rasterizedCount += 1;
-        emitProgress(onProgress, 'rasterizing', rasterizedCount, pageNumbers.length, 5 + (35 * rasterizedCount / pageNumbers.length));
+        rasterizedPageNumbers.add(pageNumber);
+        emitProgress(onProgress, 'rasterizing', rasterizedCount, pageNumbers.length, 5 + (35 * rasterizedCount / pageNumbers.length), rasterizedPageNumbers);
         return {
             inputPath,
-            sourcePageIndex: pageNumber - 1,
+            pageNumber,
+            dpi,
             pageMetadataPath: join(scratch, `analysis-${pageNumber}.json`),
-            options: {
-                dpi,
-                layout: resolveScanCleanupPageLayout(losslessOptions.layoutMode, pageOverride.layoutOverride),
-                cropContent: losslessOptions.crop,
-                marginsMm: [
-                    losslessOptions.marginsMm,
-                    losslessOptions.marginsMm,
-                    losslessOptions.marginsMm,
-                    losslessOptions.marginsMm,
-                ],
-                outputMode: losslessOptions.outputMode,
-                thickness: losslessOptions.thickness,
-                despeckle: losslessOptions.despeckle,
-                rotation: pageOverride.rotation,
-                excluded: pageOverride.excluded,
-                skipBlankPages: false,
-                experimentalAutoDewarp: false,
-                manualSplitX: pageOverride.manualSplitX,
-                manualContentBoxes: pageOverride.manualContentBoxes,
-            },
         };
     });
+    const manifest = buildNativeScanCleanupManifest({
+        operation: 'analyze',
+        renderMode: 'final',
+        canvasScope: 'document',
+        qualityPath: 'lossless',
+        options: request.options,
+        pages: pageInputs,
+    });
+    const pages = manifest.pages;
     const manifestPath = join(scratch, 'lossless-analysis-manifest.json');
-    await writeFile(manifestPath, JSON.stringify({
-        classifyOnly: true,
-        sharedOptions: {},
-        pages,
-    }));
+    await writeFile(manifestPath, JSON.stringify(manifest));
     await dependencies.runSidecar(paths.scanCleanupBinary, manifestPath, signal, log, progress => {
-        emitProgress(onProgress, 'cleaning', progress.page, pageNumbers.length, 40 + (30 * progress.page / pageNumbers.length));
+        emitProgress(
+            onProgress,
+            'cleaning',
+            progress.completedUnits,
+            pageNumbers.length,
+            40 + (30 * progress.completedUnits / pageNumbers.length),
+            progress.completedPageNumbers,
+        );
     });
 
     const summary: IScanCleanupSummary = {
@@ -406,7 +361,7 @@ async function runLosslessScanCleanup(
         page,
     ] of pages.entries()) {
         const metadata = JSON.parse(await readFile(page.pageMetadataPath, 'utf8')) as ICleanupPageMetadata;
-        const pageOverride = getScanCleanupPageOverride(losslessOptions.pageOverrides, index + 1);
+        const pageOverride = getScanCleanupPageOverride(request.options.pageOverrides, index + 1);
         if (metadata.excluded) {
             summary.excludedPages += 1;
             continue;
@@ -419,28 +374,28 @@ async function runLosslessScanCleanup(
             half: output.half,
             cropRect: mapLosslessAnalysisRectToPdf(
                 output.cropRect,
-                output.inputWidth,
-                output.inputHeight,
-                metadata.rotation,
+                output.inputWidthPx,
+                output.inputHeightPx,
+                metadata.rotationDegrees,
                 pageSize,
             ),
         }));
-        if (losslessOptions.readingOrder === 'rtl' && metadata.layoutClassification === 'two-page-spread') outputs.reverse();
+        if (request.options.readingOrder === 'rtl' && metadata.layoutClassification === 'two-page-spread') outputs.reverse();
         analyzedPages.push({
             sourcePageIndex: index,
-            rotationQuarterTurns: pageOverride.rotation / 90,
+            rotationQuarterTurns: pageOverride.rotationDegrees / 90,
             outputs,
             pageOverride,
         });
     }
     const allOutputs = analyzedPages.flatMap(page => page.outputs);
     if (allOutputs.length === 0) throw new Error('evb-scan-cleanup analysis produced no output pages');
-    if (losslessOptions.matchPageSize) {
+    if (request.options.matchPageSize) {
         const width = Math.max(...allOutputs.map(output => output.cropRect.width));
         const height = Math.max(...allOutputs.map(output => output.cropRect.height));
         for (const page of analyzedPages) {
             for (const output of page.outputs) {
-                const alignment = page.pageOverride.placementOverrides?.[output.half] ?? losslessOptions.pageAlignment;
+                const alignment = page.pageOverride.placementOverrides?.[output.half] ?? request.options.pageAlignment;
                 output.cropRect = placeUniformBox(output.cropRect, width, height, alignment);
             }
         }
@@ -452,7 +407,7 @@ async function runLosslessScanCleanup(
         rotationQuarterTurns: page.rotationQuarterTurns,
         outputs: page.outputs.map(output => ({cropRect: output.cropRect})),
     }))}));
-    emitProgress(onProgress, 'assembling', pageNumbers.length, pageNumbers.length, 82);
+    emitProgress(onProgress, 'assembling', pageNumbers.length, pageNumbers.length, 82, pageNumbers);
     await dependencies.runCommand(paths.pdfPageOpsBinary, [
         'split-pages',
         '--input',
@@ -506,7 +461,7 @@ export async function runScanCleanupPipeline(
         return path;
     };
     try {
-        emitProgress(onProgress, 'normalizing', 0, 1, 2);
+        emitProgress(onProgress, 'normalizing', 0, 0, 2, []);
         const prepared = await dependencies.preparePdf(
             paths,
             log,
@@ -542,50 +497,27 @@ export async function runScanCleanupPipeline(
                 dependencies,
             );
             if ((await stat(stagedPdfPath)).size <= 0) throw new Error('Lossless PDF assembler produced an empty file');
-            emitProgress(onProgress, 'handoff', pageCount, pageCount, 98);
+            emitProgress(onProgress, 'handoff', pageCount, pageCount, 98, pageNumbers);
             await copyFile(stagedPdfPath, publishTempPath);
             signal.throwIfAborted();
             await rename(publishTempPath, request.outputPdfPath);
-            emitProgress(onProgress, 'handoff', pageCount, pageCount, 100);
+            emitProgress(onProgress, 'handoff', pageCount, pageCount, 100, pageNumbers);
             return summary;
         }
         const pageDpi = new Map<number, number>();
         let rasterizedCount = 0;
-        const pages = await mapScanCleanupRasterPages(pageNumbers, 3, async pageNumber => {
+        const rasterizedPageNumbers = new Set<number>();
+        const pageInputs = await mapScanCleanupRasterPages(pageNumbers, 3, async pageNumber => {
             if (signal.aborted) throw signal.reason;
             const dpi = clampDpi(dpiDetails.pageDpiByNumber.get(pageNumber) ?? documentDpi);
             pageDpi.set(pageNumber, dpi);
             const inputPath = join(scratch, `source-${pageNumber}.png`);
             await dependencies.renderPage(paths, log, pageNumber, prepared.pdfPath, inputPath, dpi, undefined, signal);
-            const pageOverride = getScanCleanupPageOverride(request.options.pageOverrides, pageNumber);
-            const pageOptions = {
-                dpi,
-                layout: resolveScanCleanupPageLayout(request.options.layoutMode, pageOverride.layoutOverride),
-                cropContent: request.options.crop,
-                matchPageSize: request.options.matchPageSize,
-                pageAlignment: request.options.pageAlignment,
-                marginsMm: [
-                    request.options.marginsMm,
-                    request.options.marginsMm,
-                    request.options.marginsMm,
-                    request.options.marginsMm,
-                ],
-                outputMode: request.options.outputMode,
-                thickness: request.options.thickness,
-                despeckle: request.options.outputMode === 'bw' && request.options.despeckle,
-                rotation: pageOverride.rotation,
-                excluded: pageOverride.excluded,
-                skipBlankPages: request.options.skipBlankPages,
-                experimentalAutoDewarp: request.options.straightenCurvedLines,
-                manualSplitX: pageOverride.manualSplitX,
-                manualContentBoxes: pageOverride.manualContentBoxes,
-                placementOverrides: pageOverride.placementOverrides,
-            };
-            const page: ICleanupPageJob = {
+            const page = {
                 inputPath,
-                sourcePageIndex: pageNumber - 1,
+                pageNumber,
+                dpi,
                 pageMetadataPath: join(scratch, `clean-${pageNumber}-page.json`),
-                options: pageOptions,
                 outputs: [
                     0,
                     1,
@@ -595,16 +527,30 @@ export async function runScanCleanupPipeline(
                 })),
             };
             rasterizedCount += 1;
-            emitProgress(onProgress, 'rasterizing', rasterizedCount, pageCount, 5 + (25 * rasterizedCount / pageCount));
+            rasterizedPageNumbers.add(pageNumber);
+            emitProgress(onProgress, 'rasterizing', rasterizedCount, pageCount, 5 + (25 * rasterizedCount / pageCount), rasterizedPageNumbers);
             return page;
         });
+        const manifest = buildNativeScanCleanupManifest({
+            operation: 'render',
+            renderMode: 'final',
+            canvasScope: 'document',
+            qualityPath: 'raster',
+            options: request.options,
+            pages: pageInputs,
+        });
+        const pages = manifest.pages;
         const manifestPath = join(scratch, 'cleanup-manifest.json');
-        await writeFile(manifestPath, JSON.stringify({
-            sharedOptions: {},
-            pages,
-        }));
+        await writeFile(manifestPath, JSON.stringify(manifest));
         await dependencies.runSidecar(paths.scanCleanupBinary, manifestPath, signal, log, progress => {
-            emitProgress(onProgress, 'cleaning', progress.page, pageCount, 30 + (45 * progress.page / pageCount));
+            emitProgress(
+                onProgress,
+                'cleaning',
+                progress.completedUnits,
+                pageCount,
+                30 + (45 * progress.completedUnits / pageCount),
+                progress.completedPageNumbers,
+            );
         });
         const outputPages: Array<{
             path: string;
@@ -664,11 +610,11 @@ export async function runScanCleanupPipeline(
         const combineManifestPath = join(scratch, 'combine-manifest.tsv');
         await writeFile(combineManifestPath, outputPages.map(output => [
             'image',
-            (output.metadata.outputWidth / output.dpi * 72).toFixed(6),
-            (output.metadata.outputHeight / output.dpi * 72).toFixed(6),
+            (output.metadata.canvasWidthPx / output.dpi * 72).toFixed(6),
+            (output.metadata.canvasHeightPx / output.dpi * 72).toFixed(6),
             output.path,
         ].join('\t')).join('\n') + '\n');
-        emitProgress(onProgress, 'assembling', pageCount, pageCount, 82);
+        emitProgress(onProgress, 'assembling', pageCount, pageCount, 82, pageNumbers);
         await dependencies.runCommand(paths.pdfImageCombineBinary, [
             '--output',
             stagedPdfPath,
@@ -682,11 +628,11 @@ export async function runScanCleanupPipeline(
             log,
         });
         if ((await stat(stagedPdfPath)).size <= 0) throw new Error('PDF assembler produced an empty file');
-        emitProgress(onProgress, 'handoff', pageCount, pageCount, 98);
+        emitProgress(onProgress, 'handoff', pageCount, pageCount, 98, pageNumbers);
         await copyFile(stagedPdfPath, publishTempPath);
         if (signal.aborted) throw signal.reason;
         await rename(publishTempPath, request.outputPdfPath);
-        emitProgress(onProgress, 'handoff', pageCount, pageCount, 100);
+        emitProgress(onProgress, 'handoff', pageCount, pageCount, 100, pageNumbers);
         return summary;
     } finally {
         await rm(publishTempPath, {force: true}).catch(() => undefined);

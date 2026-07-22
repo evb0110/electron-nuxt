@@ -12,6 +12,10 @@ import {
     resolveScanCleanupMixedValue,
     updateScanCleanupPageOverrides,
 } from '@app/modules/scan-cleanup/runtime/scanCleanupSelectionOverrides';
+import {reactive} from 'vue';
+import type {IScanCleanupOptions} from '@contracts/electronApiScanCleanup';
+import {useScanCleanupSelection} from '@app/modules/scan-cleanup/composables/useScanCleanupSelection';
+import {resolveScanCleanupMarginPatch} from '@app/modules/scan-cleanup/runtime/updateScanCleanupMargins';
 
 describe('scan cleanup apply scopes', () => {
     it('resolves all pages and from-here at the first and last page', () => {
@@ -110,6 +114,71 @@ describe('scan cleanup apply scopes', () => {
 });
 
 describe('scan cleanup selection override state', () => {
+    it('updates all four margins while linked and one margin while unlinked', () => {
+        const settings = reactive<IScanCleanupOptions>({
+            preserveOriginalQuality: false,
+            layoutMode: 'auto',
+            outputMode: 'bw',
+            readingOrder: 'ltr',
+            thickness: 0,
+            crop: true,
+            matchPageSize: true,
+            pageAlignment: 'top-center',
+            marginsMm: {
+                leftMm: 5,
+                topMm: 5,
+                rightMm: 5,
+                bottomMm: 5,
+            },
+            despeckle: true,
+            skipBlankPages: false,
+            pageOverrides: {},
+        });
+        const selection = useScanCleanupSelection({
+            initialPage: 1,
+            previewResult: () => null,
+            previewTotalPages: () => 1,
+            settings,
+        });
+
+        expect(selection.marginsLinked.value).toBe(true);
+        selection.updateMargins('leftMm', 7);
+        expect(getScanCleanupPageOverride(settings.pageOverrides, 1).marginsMm).toEqual({
+            leftMm: 7,
+            topMm: 7,
+            rightMm: 7,
+            bottomMm: 7,
+        });
+
+        selection.setMarginsLinked(false);
+        selection.updateMargins('topMm', 3);
+        expect(getScanCleanupPageOverride(settings.pageOverrides, 1).marginsMm).toEqual({
+            leftMm: 7,
+            topMm: 3,
+            rightMm: 7,
+            bottomMm: 7,
+        });
+
+        selection.setMarginsLinked(true);
+        expect(getScanCleanupPageOverride(settings.pageOverrides, 1).marginsMm).toEqual({
+            leftMm: 3,
+            topMm: 3,
+            rightMm: 3,
+            bottomMm: 3,
+        });
+    });
+
+    it('resolves per-side margin patches touching only the edited keys', () => {
+        expect(resolveScanCleanupMarginPatch('topMm', 12)).toEqual({topMm: 12});
+        expect(resolveScanCleanupMarginPatch('all', 30)).toEqual({
+            leftMm: 25,
+            topMm: 25,
+            rightMm: 25,
+            bottomMm: 25,
+        });
+        expect(resolveScanCleanupMarginPatch('leftMm', Number.NaN)).toEqual({});
+    });
+
     it('detects uniform, scalar-mixed, and nested mixed values', () => {
         expect(resolveScanCleanupMixedValue([
             90,
@@ -155,7 +224,7 @@ describe('scan cleanup selection override state', () => {
             layoutMode: 'force-single' as const,
             outputMode: 'color' as const,
             pageAlignment: 'top-left' as const,
-            pageOverrides: {'2': createScanCleanupPageOverride({rotation: 90})},
+            pageOverrides: {'2': createScanCleanupPageOverride({rotationDegrees: 90})},
         };
         const documentDefaults = {
             layoutMode: settings.layoutMode,
@@ -175,12 +244,12 @@ describe('scan cleanup selection override state', () => {
         expect(getScanCleanupPageOverride(settings.pageOverrides, 1)).toMatchObject({
             layoutOverride: 'spread',
             excluded: true,
-            rotation: 0,
+            rotationDegrees: 0,
         });
         expect(getScanCleanupPageOverride(settings.pageOverrides, 2)).toMatchObject({
             layoutOverride: 'spread',
             excluded: true,
-            rotation: 90,
+            rotationDegrees: 90,
         });
         expect({
             layoutMode: settings.layoutMode,
@@ -191,9 +260,12 @@ describe('scan cleanup selection override state', () => {
 
     it('copies the leader override unchanged to a computed scope', () => {
         const overrides = {'2': createScanCleanupPageOverride({
-            rotation: 180,
+            rotationDegrees: 180,
             layoutOverride: 'keep-right',
-            manualSplitX: 420,
+            manualSplit: {
+                xNormalized: 0.5,
+                rotationDegrees: 0,
+            },
             placementOverrides: {right: 'bottom-right'},
         })};
         const leader = getScanCleanupPageOverride(overrides, 2);

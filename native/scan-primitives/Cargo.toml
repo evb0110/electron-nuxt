@@ -6,5 +6,5 @@ license.workspace = true
 rust-version.workspace = true
 
 [dependencies]
+rayon.workspace = true
 serde.workspace = true
-

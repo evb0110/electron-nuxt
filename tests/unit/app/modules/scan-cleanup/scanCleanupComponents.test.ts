@@ -17,7 +17,8 @@ import {
     shallowRef,
 } from 'vue';
 import type {
-    IScanCleanupPreviewRect,
+    IScanCleanupNormalizedRect,
+    IScanCleanupNormalizedSplit,
     IScanCleanupPreviewResult,
     TScanCleanupOutputHalf,
     TScanCleanupPageAlignment,
@@ -28,17 +29,18 @@ import {
     getScanCleanupPageOverride,
 } from '@contracts/scanCleanupPageOverrides';
 import {updateScanCleanupPageOverrides} from '@app/modules/scan-cleanup/runtime/scanCleanupSelectionOverrides';
-import ScanCleanupPreviewPane from '@app/modules/scan-cleanup/components/ScanCleanupPreviewPane.vue';
+import ScanCleanupPreviewPane from '@app/modules/scan-cleanup/components/preview/PreviewShell.vue';
 import ScanCleanupToolbar from '@app/modules/scan-cleanup/components/ScanCleanupToolbar.vue';
 import ScanCleanupWorkspace from '@app/modules/scan-cleanup/components/ScanCleanupWorkspace.vue';
+import ToolbarOverflowMenu from '@app/components/toolbar/ToolbarOverflowMenu.vue';
 import type {IScanCleanupTabSessionState} from '@app/modules/workspace-shell/tabs/tabSessionStoreTypes';
+import type {IDocumentPageSource} from '@app/utils/document-viewer/source/documentPageSource';
 
 const workspaceSession = vi.hoisted(() => ({value: null as Record<string, unknown> | null}));
 const workspaceSessionOptions = vi.hoisted(() => ({value: null as Record<string, () => unknown> | null}));
 const workspaceSessionInitial = vi.hoisted(() => ({value: null as {
     page: unknown;
     viewMode: unknown;
-    zoomMode: unknown;
 } | null}));
 
 vi.mock('@app/modules/scan-cleanup/composables/useScanCleanupWorkspaceSession', () => ({useScanCleanupWorkspaceSession: (
@@ -48,9 +50,103 @@ vi.mock('@app/modules/scan-cleanup/composables/useScanCleanupWorkspaceSession', 
     workspaceSessionInitial.value = {
         page: options.initialPreviewPage?.(),
         viewMode: options.initialPreviewViewMode?.(),
-        zoomMode: options.initialPreviewZoomMode?.(),
     };
-    return workspaceSession.value;
+    const session = workspaceSession.value!;
+    return {
+        settings: {
+            alignmentItems: session.alignmentItems,
+            dismissFirstRunGuidance: session.dismissFirstRunGuidance,
+            handleThicknessInput: session.handleThicknessInput,
+            layoutItems: session.layoutItems,
+            marginsLinked: session.documentMarginsLinked ?? ref(true),
+            setMarginsLinked: session.setDocumentMarginsLinked ?? vi.fn(),
+            outputItems: session.outputItems,
+            readingOrderItems: session.readingOrderItems,
+            resetPageOverrides: session.resetPageOverrides,
+            runOcrAfterCleanup: session.runOcrAfterCleanup,
+            showFirstRunGuidance: session.showFirstRunGuidance,
+            thicknessLabel: session.thicknessLabel,
+            updateMargin: session.updateDocumentMargin ?? vi.fn(),
+            values: session.settings,
+        },
+        selection: {
+            applyLeaderOverrides: session.applyLeaderOverrides,
+            contentBoxes: session.selectionContentBoxes,
+            currentPageOverride: session.currentPageOverride,
+            excluded: session.selectionExcluded,
+            highlightedScope: session.highlightedScope ?? ref(null),
+            layoutOverride: session.selectionLayoutOverride,
+            leader: session.selectionLeader,
+            margins: session.selectionMargins ?? ref({
+                empty: false,
+                mixed: false,
+                value: {
+                    leftMm: 5,
+                    topMm: 5,
+                    rightMm: 5,
+                    bottomMm: 5,
+                },
+            }),
+            marginsLinked: session.selectionMarginsLinked ?? ref(true),
+            setMarginsLinked: session.setSelectionMarginsLinked ?? vi.fn(),
+            manualSplit: session.selectionManualSplit,
+            hasMarginOverrides: session.hasSelectionMarginOverrides ?? ref(false),
+            placementAlignment: session.selectionPlacementAlignment,
+            resetContentBoxes: session.resetSelectionContentBoxes,
+            resetControlOverride: session.resetControlOverride ?? vi.fn(),
+            resetManualSplit: session.resetSelectionManualSplit,
+            resetMargins: session.resetSelectionMargins ?? vi.fn(),
+            resetOverrides: session.resetScopeOverrides ?? vi.fn(),
+            rotation: session.selectionRotation,
+            selectedPages: session.selectedPages,
+            selectPage: session.selectPage,
+            setSettingsScope: session.setSettingsScope ?? vi.fn(),
+            settingsScope: session.settingsScope ?? ref('all'),
+            updateCurrentManualContentBox: session.updateCurrentManualContentBox,
+            updateCurrentManualSplit: session.updateCurrentManualSplit,
+            updateCurrentPlacement: session.updateCurrentPlacement,
+            updateCurrentPlacementAll: session.updateCurrentPlacementAll,
+            updateExcluded: session.updateSelectionExcluded,
+            updateLayoutOverride: session.updateSelectionLayoutOverride,
+            updateMargins: session.updateSelectionMargins ?? vi.fn(),
+            updatePageOverride: session.updatePageOverride,
+            updatePlacement: session.updateSelectionPlacement,
+            updateRotation: session.updateSelectionRotation,
+        },
+        detection: {
+            authoritativeLayoutByPage: session.authoritativeLayoutByPage,
+            canDetectAll: session.canDetectAll,
+            cancel: session.cancelDetection,
+            cancelRequested: session.detectionCancelRequested,
+            confidenceByPage: session.detectedLayoutConfidenceByPage,
+            detectAllPages: session.detectAllPages,
+            error: session.detectionError,
+            outputEstimate: session.outputEstimate,
+            pending: session.detectionPending,
+            progress: session.detectionProgress,
+        },
+        preview: {
+            error: session.previewError,
+            loading: session.previewLoading,
+            navigate: session.navigatePreview,
+            result: session.previewResult,
+            retry: session.retryPreview,
+            totalPages: session.previewTotalPages,
+            viewMode: session.previewViewMode,
+        },
+        run: {
+            cancel: session.cancel,
+            cancelRequested: session.cancelRequested,
+            canRun: session.canRun,
+            inlineError: session.inlineError,
+            isRunning: session.isRunning,
+            ownerId: session.ownerId,
+            processedPages: session.processedPages,
+            progress: session.jobProgress,
+            progressText: session.progressText,
+            run: session.run,
+        },
+    };
 }}));
 
 const translations: Record<string, string> = {
@@ -64,6 +160,7 @@ const translations: Record<string, string> = {
     'scanCleanup.preview.retry': 'Retry',
     'scanCleanup.preview.technicalDetails': 'Technical details',
     'scanCleanup.preview.loadingPage': 'Loading page {page}…',
+    'scanCleanup.preview.loading': 'Building cleanup preview…',
     'scanCleanup.preview.cleanedAlt': 'Cleaned scan preview for page {page}, {half}',
     'scanCleanup.preview.outputHalf.left': 'left half',
     'scanCleanup.preview.outputHalf.right': 'right half',
@@ -74,30 +171,61 @@ const translations: Record<string, string> = {
     'scanCleanup.output.losslessDisabledOptions': 'Raster cleanup options are unavailable in this mode.',
     'scanCleanup.contentPreserved': 'Output preserves original page content.',
     'scanCleanup.workspaceTitle': 'Scan cleanup',
+    'scanCleanup.button': 'Scan cleanup',
+    'scanCleanup.runningLabel': 'Scan cleanup running, {processed} of {total}',
     'scanCleanup.description': 'Clean scanned pages.',
     'scanCleanup.done': 'Done',
-    'scanCleanup.settings.tabsLabel': 'Settings scope',
-    'scanCleanup.settings.document': 'Document',
-    'scanCleanup.settings.selection': 'Selection ({count})',
-    'scanCleanup.settings.selectionDisabled': 'Select pages',
-    'scanCleanup.settings.applyTo': 'Apply to…',
+    'scanCleanup.settings.scope.label': 'Settings scope',
+    'scanCleanup.settings.scope.all': 'All {count} pages',
+    'scanCleanup.settings.scope.page': 'This page (p. {page})',
+    'scanCleanup.settings.scope.pageBadge': 'p. {page}',
+    'scanCleanup.settings.scope.selected': 'Selected: {count} pages',
+    'scanCleanup.settings.applyThisPageTo': 'Apply this page to…',
     'scanCleanup.settings.layoutOverride': 'Page layout override',
     'scanCleanup.settings.rotation': 'Rotation',
     'scanCleanup.settings.rotationDegrees': '{value}°',
     'scanCleanup.settings.inOutput': 'Output inclusion',
     'scanCleanup.settings.mixed': '— Mixed',
+    'scanCleanup.settings.override': 'Override',
+    'scanCleanup.settings.resetToDocument': 'Reset to document',
+    'scanCleanup.settings.overrideCount': '{count} pages override this',
     'scanCleanup.settings.manualSplit': 'Spread cutter',
     'scanCleanup.settings.contentBox': 'Content box',
     'scanCleanup.settings.reset': 'Reset',
     'scanCleanup.settings.automatic': 'Automatic',
     'scanCleanup.settings.manual': 'Manual',
     'scanCleanup.settings.selectionAlignment': 'Content placement for selected pages',
+    'scanCleanup.settings.contentPlacement': 'Content placement',
     'scanCleanup.settings.enableMatchPageSize': 'Enable match page size',
+    'scanCleanup.settings.resetScope.all': 'Reset all overrides…',
+    'scanCleanup.settings.resetScope.page': 'Reset this page…',
+    'scanCleanup.settings.resetScope.selected': 'Reset selected pages…',
+    'scanCleanup.settings.resetScope.confirm': 'Reset matching page overrides?',
+    'scanCleanup.settings.resetScope.allBody': 'Clear all overrides',
+    'scanCleanup.settings.resetScope.pageBody': 'Clear page {page}',
+    'scanCleanup.settings.resetScope.selectedBody': 'Clear {count} selected pages',
     'scanCleanup.settings.applyScopes.allPages': 'All pages',
     'scanCleanup.settings.applyScopes.fromHere': 'From this page on',
     'scanCleanup.settings.applyScopes.selectedPages': 'Selected pages',
     'scanCleanup.settings.applyScopes.everyOther': 'Every other page',
+    'scanCleanup.groups.pageSettings': 'Page settings',
+    'scanCleanup.groups.documentSettings': 'Document settings',
+    'scanCleanup.layout.label': 'Page layout',
+    'scanCleanup.margins.title': 'Margins',
+    'scanCleanup.margins.left': 'Left (mm)',
+    'scanCleanup.margins.top': 'Top (mm)',
+    'scanCleanup.margins.right': 'Right (mm)',
+    'scanCleanup.margins.bottom': 'Bottom (mm)',
+    'scanCleanup.margins.link': 'Link margins',
+    'scanCleanup.margins.linkTooltip': 'Change all four margins together',
+    'scanCleanup.margins.resetToDocument': 'Reset to document settings',
     'common.cancel': 'Cancel',
+    'menu.file': 'File',
+    'menu.edit': 'Edit',
+    'menu.view': 'View',
+    'toolbar.annotations': 'Tools',
+    'toolbar.moreTools': 'More tools',
+    'assistant.toggle': 'Assistant',
     'scanCleanup.cleanUp': 'Clean up',
     'scanCleanup.detectAll.action': 'Detect layout for all pages',
     'scanCleanup.detectAll.redetect': 'Re-detect',
@@ -187,6 +315,44 @@ const SelectStub = defineComponent({
         value: string | number;
     }>).map(item => h('option', {value: item.value}, item.label))),
 });
+const InputStub = defineComponent({
+    inheritAttrs: false,
+    props: {modelValue: {
+        type: [
+            String,
+            Number,
+        ],
+        default: '',
+    }},
+    emits: ['update:modelValue'],
+    setup: (props, {
+        attrs,
+        emit,
+    }) => () => h('input', {
+        ...attrs,
+        value: props.modelValue,
+        onInput: (event: Event) => emit('update:modelValue', (event.target as HTMLInputElement).value),
+    }),
+});
+const InputNumberStub = defineComponent({
+    inheritAttrs: false,
+    props: {modelValue: {
+        type: Number,
+        default: undefined,
+    }},
+    emits: ['update:modelValue'],
+    setup: (props, {
+        attrs,
+        emit,
+    }) => () => h('input', {
+        ...attrs,
+        value: props.modelValue ?? '',
+        onInput: (event: Event) => {
+            const parsed = Number((event.target as HTMLInputElement).value);
+            emit('update:modelValue', Number.isFinite(parsed) ? parsed : undefined);
+        },
+    }),
+});
 const SlotStub = defineComponent({setup: (_props, {slots}) => () => h('span', slots.default?.())});
 const BadgeStub = defineComponent({setup: (_props, {slots}) => () => h('span', {'data-ui-badge': ''}, slots.default?.())});
 const IconStub = defineComponent({setup: () => () => h('span', {'data-ui-icon': ''})});
@@ -228,13 +394,23 @@ const DropdownMenuStub = defineComponent({
     setup: (props, {slots}) => () => h('div', [
         slots.default?.(),
         h('div', {role: 'menu'}, (props.items as Array<{
+            class?: string;
+            disabled?: boolean;
             label: string;
-            onSelect: () => void;
-        }>).map(item => h('button', {
-            role: 'menuitem',
-            type: 'button',
-            onClick: item.onSelect,
-        }, item.label))),
+            onSelect?: () => void;
+            slot?: string;
+        }>).map(item => item.onSelect
+            ? h('button', {
+                class: item.class,
+                disabled: item.disabled,
+                role: 'menuitem',
+                type: 'button',
+                onClick: item.onSelect,
+            }, [
+                ...(item.slot ? slots[`${item.slot}-leading`]?.() ?? [] : []),
+                item.label,
+            ])
+            : h('span', item.label))),
     ]),
 });
 const TabsStub = defineComponent({
@@ -270,24 +446,29 @@ function spreadPreviewResult(pageNumber = 1): IScanCleanupPreviewResult {
     const output = (half: 'left' | 'right', x: number) => ({
         imageData: new Uint8Array([1]),
         metadata: {
+            canvasScope: 'page' as const,
             half,
             layoutClassification: 'two-page-spread' as const,
             layoutConfidence: 0.82,
             sourceRegion: {
-                x,
-                y: 0,
-                width: 500,
-                height: 800,
+                xPx: x,
+                yPx: 0,
+                widthPx: 500,
+                heightPx: 800,
             },
             contentBox: null,
-            appliedMargins: [
-                0,
-                0,
-                0,
-                0,
-            ] as [number, number, number, number],
-            outputWidth: 500,
-            outputHeight: 800,
+            appliedMargins: {
+                leftPx: 0,
+                topPx: 0,
+                rightPx: 0,
+                bottomPx: 0,
+            },
+            outputWidthPx: 500,
+            outputHeightPx: 800,
+            canvasWidthPx: 500,
+            canvasHeightPx: 800,
+            placementOffsetXPx: 0,
+            placementOffsetYPx: 0,
             forwardTransform: {matrix: [
                 [
                     1,
@@ -305,10 +486,10 @@ function spreadPreviewResult(pageNumber = 1): IScanCleanupPreviewResult {
                     1,
                 ],
             ]},
-            cutterX: 500,
-            inputWidth: 1000,
-            inputHeight: 800,
-            rotation: 0 as const,
+            cutterXPx: 500,
+            inputWidthPx: 1000,
+            inputHeightPx: 800,
+            rotationDegrees: 0 as const,
             resamplePasses: 1,
             warnings: [],
         },
@@ -317,19 +498,93 @@ function spreadPreviewResult(pageNumber = 1): IScanCleanupPreviewResult {
         pageNumber,
         totalPages: 3,
         rawImageData: new Uint8Array([1]),
-        rawWidth: 1000,
-        rawHeight: 800,
+        rawWidthPx: 1000,
+        rawHeightPx: 800,
         pageMetadata: {
+            canvasScope: 'page',
             layoutClassification: 'two-page-spread',
-            cutterX: 500,
-            rotation: 0,
+            layoutConfidence: 0.9,
+            cutterXPx: 500,
+            rotationDegrees: 0,
             excluded: false,
             blankOutputsSkipped: 0,
+            tier1Verdict: 'two-page-spread',
+            reconciled: false,
+            clusterAgreement: 0,
         },
         outputs: [
             output('left', 0),
             output('right', 500),
         ],
+    };
+}
+
+function rotatedSinglePreviewResult(): IScanCleanupPreviewResult {
+    const result = spreadPreviewResult();
+    const output = result.outputs[0]!;
+    output.metadata = {
+        ...output.metadata,
+        half: 'full',
+        sourceRegion: {
+            xPx: 0,
+            yPx: 0,
+            widthPx: 400,
+            heightPx: 1000,
+        },
+        outputWidthPx: 400,
+        outputHeightPx: 1000,
+        canvasWidthPx: 400,
+        canvasHeightPx: 1000,
+        inputWidthPx: 1000,
+        inputHeightPx: 800,
+        rotationDegrees: 90,
+        forwardTransform: {matrix: [
+            [
+                1,
+                0,
+                0,
+            ],
+            [
+                0,
+                1,
+                0,
+            ],
+            [
+                0,
+                0,
+                1,
+            ],
+        ]},
+    };
+    return {
+        ...result,
+        pageMetadata: {
+            ...result.pageMetadata,
+            layoutClassification: 'single-uncut-page',
+            rotationDegrees: 90,
+        },
+        outputs: [output],
+    };
+}
+
+function previewPageSource(widthPoints: number, heightPoints: number): IDocumentPageSource {
+    return {
+        kind: 'pdf',
+        documentRef: '/preview.pdf',
+        pageCount: 1,
+        getPageMetrics: vi.fn(async () => ({
+            widthPoints,
+            heightPoints,
+            rotation: 0 as const,
+        })),
+        renderPage: vi.fn(async () => ({
+            widthPx: widthPoints,
+            heightPx: heightPoints,
+            bytes: widthPoints * heightPoints * 4,
+            surface: 'data:image/png;base64,',
+            release: vi.fn(),
+        })),
+        dispose: vi.fn(),
     };
 }
 
@@ -344,7 +599,8 @@ function mount(component: Parameters<typeof createApp>[0]) {
     app.component('UDropdownMenu', DropdownMenuStub);
     app.component('UFormField', SlotStub);
     app.component('UIcon', IconStub);
-    app.component('UInput', SlotStub);
+    app.component('UInput', InputStub);
+    app.component('UInputNumber', InputNumberStub);
     app.component('UPopover', PopoverStub);
     app.component('UProgress', SlotStub);
     app.component('USelect', SelectStub);
@@ -364,33 +620,350 @@ function mount(component: Parameters<typeof createApp>[0]) {
     };
 }
 
+function domRect(left: number, top: number, width: number, height: number): DOMRect {
+    return {
+        left,
+        right: left + width,
+        top,
+        bottom: top + height,
+        width,
+        height,
+        x: left,
+        y: top,
+        toJSON: () => ({}),
+    };
+}
+
+function mockPointerCapture(element: HTMLElement) {
+    const captured = new Set<number>();
+    element.setPointerCapture = vi.fn(pointerId => captured.add(pointerId));
+    element.hasPointerCapture = vi.fn(pointerId => captured.has(pointerId));
+    element.releasePointerCapture = vi.fn(pointerId => captured.delete(pointerId));
+    return {
+        hasPointerCapture: element.hasPointerCapture,
+        releasePointerCapture: element.releasePointerCapture,
+        setPointerCapture: element.setPointerCapture,
+    };
+}
+
+function mockPreviewGeometry(host: HTMLElement, canvasRects: DOMRect[]) {
+    vi.spyOn(host.querySelector<HTMLElement>('.preview-surface')!, 'getBoundingClientRect')
+        .mockReturnValue(domRect(0, 0, 1000, 800));
+    vi.spyOn(host.querySelector<HTMLElement>('.cutter-stage')!, 'getBoundingClientRect')
+        .mockReturnValue(domRect(0, 0, 1000, 800));
+    host.querySelectorAll<HTMLElement>('.uniform-canvas').forEach((canvas, index) => {
+        vi.spyOn(canvas, 'getBoundingClientRect').mockReturnValue(canvasRects[index] ?? domRect(0, 0, 500, 800));
+    });
+}
+
+function installResizeObserverHarness() {
+    const original = globalThis.ResizeObserver;
+    const observers: Array<{
+        callback: ResizeObserverCallback;
+        observer: ResizeObserver;
+    }> = [];
+    class ResizeObserverHarness implements ResizeObserver {
+        constructor(callback: ResizeObserverCallback) {
+            observers.push({
+                callback,
+                observer: this,
+            });
+        }
+
+        disconnect() {}
+
+        observe(_target: Element, _options?: ResizeObserverOptions) {}
+
+        unobserve(_target: Element) {}
+    }
+    Object.defineProperty(globalThis, 'ResizeObserver', {
+        configurable: true,
+        value: ResizeObserverHarness,
+    });
+    return {
+        restore: () => Object.defineProperty(globalThis, 'ResizeObserver', {
+            configurable: true,
+            value: original,
+        }),
+        trigger: () => {
+            for (const {
+                callback,
+                observer,
+            } of observers) callback([], observer);
+        },
+    };
+}
+
+function contentCropRefresh(result: IScanCleanupPreviewResult, factor: number) {
+    return {
+        ...result,
+        rawImageData: new Uint8Array([2]),
+        outputs: result.outputs.map(output => ({
+            ...output,
+            imageData: new Uint8Array([2]),
+            metadata: {
+                ...output.metadata,
+                outputWidthPx: output.metadata.outputWidthPx * factor,
+                outputHeightPx: output.metadata.outputHeightPx * factor,
+                canvasWidthPx: output.metadata.canvasWidthPx * factor,
+                canvasHeightPx: output.metadata.canvasHeightPx * factor,
+            },
+        })),
+    };
+}
+
+function createWorkspaceEntrySession(overrides: Record<string, unknown> = {}) {
+    const previewPage = ref(1);
+    return {
+        ownerId: 'component-entry-owner',
+        alignmentItems: ref([]),
+        applyLeaderOverrides: vi.fn(),
+        authoritativeLayoutByPage: reactive(new Map()),
+        cancel: vi.fn(),
+        cancelDetection: vi.fn(),
+        cancelRequested: ref(false),
+        canDetectAll: ref(false),
+        canRun: ref(false),
+        currentPageOverride: ref({
+            manualSplit: null,
+            manualContentBoxes: {},
+            placementOverrides: {},
+            rotationDegrees: 0,
+        }),
+        detectedLayoutConfidenceByPage: reactive(new Map()),
+        detectAllPages: vi.fn(),
+        detectionCancelRequested: ref(false),
+        detectionError: ref(''),
+        detectionPending: ref(true),
+        detectionProgress: ref({
+            completedUnits: 0,
+            totalUnits: 2,
+        }),
+        dismissFirstRunGuidance: vi.fn(),
+        handleThicknessInput: vi.fn(),
+        inlineError: ref(''),
+        isRunning: ref(false),
+        jobProgress: ref({
+            percent: 0,
+            completedUnits: 0,
+            totalUnits: 2,
+        }),
+        layoutItems: ref([]),
+        navigatePreview: vi.fn(),
+        outputEstimate: ref(''),
+        outputItems: ref([]),
+        previewError: ref(''),
+        previewLoading: ref(true),
+        previewPage,
+        previewResult: shallowRef<IScanCleanupPreviewResult | null>(null),
+        previewTotalPages: ref(2),
+        previewViewMode: ref<'original' | 'cleaned'>('cleaned'),
+        processedPages: ref(new Set<number>()),
+        progressText: ref(''),
+        readingOrderItems: ref([]),
+        resetPageOverrides: vi.fn(),
+        retryPreview: vi.fn(),
+        run: vi.fn(),
+        runOcrAfterCleanup: ref(false),
+        selectedPages: ref<ReadonlySet<number>>(new Set([1])),
+        selectionContentBoxes: ref({
+            empty: false,
+            mixed: false,
+            value: {},
+        }),
+        selectionExcluded: ref({
+            empty: false,
+            mixed: false,
+            value: false,
+        }),
+        selectionLayoutOverride: ref({
+            empty: false,
+            mixed: false,
+            value: 'auto',
+        }),
+        selectionLeader: previewPage,
+        selectionManualSplit: ref({
+            empty: false,
+            mixed: false,
+            value: null,
+        }),
+        selectionPlacementAlignment: ref({
+            empty: false,
+            mixed: false,
+            value: 'top-center',
+        }),
+        selectionRotation: ref({
+            empty: false,
+            mixed: false,
+            value: 0,
+        }),
+        selectPage: vi.fn(),
+        settings: reactive({
+            preserveOriginalQuality: false,
+            layoutMode: 'auto',
+            outputMode: 'color',
+            readingOrder: 'ltr',
+            thickness: 0,
+            crop: false,
+            matchPageSize: true,
+            pageAlignment: 'top-center',
+            marginsMm: {
+                leftMm: 0,
+                topMm: 0,
+                rightMm: 0,
+                bottomMm: 0,
+            },
+            despeckle: false,
+            skipBlankPages: false,
+            pageOverrides: {},
+        }),
+        showFirstRunGuidance: ref(false),
+        thicknessLabel: ref('0'),
+        updateCurrentManualContentBox: vi.fn(),
+        updateCurrentManualSplit: vi.fn(),
+        updateCurrentPlacement: vi.fn(),
+        updateCurrentPlacementAll: vi.fn(),
+        updatePageOverride: vi.fn(),
+        updateSelectionExcluded: vi.fn(),
+        updateSelectionLayoutOverride: vi.fn(),
+        updateSelectionPlacement: vi.fn(),
+        updateSelectionRotation: vi.fn(),
+        ...overrides,
+    };
+}
+
 afterEach(() => {
     for (const unmount of activeUnmounts) unmount();
     document.body.innerHTML = '';
 });
 
 describe('Scan cleanup components', () => {
+    it('keeps a native page frame visible through the real workspace debounce state while metrics resolve', async () => {
+        const source: IDocumentPageSource = {
+            ...previewPageSource(1000, 800),
+            pageCount: 2,
+            getPageMetrics: vi.fn(() => new Promise<never>(() => undefined)),
+        };
+        workspaceSession.value = createWorkspaceEntrySession();
+
+        const harness = mount(defineComponent(() => () => h(ScanCleanupWorkspace, {
+            sourcePath: '/docs/scanned.pdf',
+            currentPage: 1,
+            totalPages: 2,
+            pageSource: source,
+            pageSourcePending: false,
+        })));
+        await nextTick();
+
+        const skeleton = harness.host.querySelector<HTMLElement>('.preview-skeleton-page');
+        expect(skeleton?.tagName).toBe('DIV');
+        expect(skeleton?.style.height).toContain('--app-scan-preview-skeleton-height');
+        expect(skeleton?.style.aspectRatio).not.toBe('');
+        expect(harness.host.querySelector('.preview-viewport-caption')?.textContent)
+            .toBe('Building cleanup preview…');
+    });
+
+    it('relocates the collapsed scan-cleanup and OCR actions into overflow and activates them', async () => {
+        const workspaceOpen = ref(false);
+        const ocrOpen = ref(false);
+        const assistantOpen = ref(false);
+        const collapseTier = ref(1);
+        const scanCleanupDisabled = ref(false);
+        const scanCleanupRunning = ref(false);
+        const harness = mount(defineComponent(() => () => h('div', [
+            h(ToolbarOverflowMenu, {
+                open: true,
+                collapseTier: collapseTier.value,
+                hasPdf: true,
+                canToggleSidebar: true,
+                canCaptureRegion: true,
+                canCrop: true,
+                canQuickNote: true,
+                canUseOcr: true,
+                canUseScanCleanup: true,
+                scanCleanupDisabled: scanCleanupDisabled.value,
+                scanCleanupRunning: scanCleanupRunning.value,
+                scanCleanupLabel: scanCleanupRunning.value
+                    ? 'Scan cleanup running, 0 of 2'
+                    : 'Scan cleanup',
+                canUseAssistant: true,
+                assistantAvailable: true,
+                assistantOpen: assistantOpen.value,
+                assistantLabel: 'Assistant',
+                showSidebar: false,
+                dragMode: false,
+                continuousScroll: false,
+                viewMode: 'single',
+                isDjvuMode: false,
+                isFitWidthActive: false,
+                isFitHeightActive: false,
+                isCapturingRegion: false,
+                isCropSelecting: false,
+                isPlacingPageNote: false,
+                documentBusy: false,
+                triggerIcon: 'i-ph-dots-three',
+                onOpenScanCleanup: () => { workspaceOpen.value = true; },
+                onOpenOcr: () => { ocrOpen.value = true; },
+                onToggleAssistant: () => { assistantOpen.value = !assistantOpen.value; },
+            }),
+            workspaceOpen.value ? h('div', {'data-scan-cleanup-workspace': ''}) : null,
+            ocrOpen.value ? h('div', {'data-ocr-popup': ''}) : null,
+        ])));
+
+        const menuItems = () => Array.from(harness.host.querySelectorAll<HTMLButtonElement>('[role="menuitem"]'));
+        const scanCleanupItem = menuItems().find(item => item.textContent?.includes('Scan cleanup'));
+        const ocrItem = menuItems().find(item => item.textContent?.includes('ocr.button'));
+        expect(scanCleanupItem).not.toBeUndefined();
+        expect(scanCleanupItem?.querySelector('.overflow-menu-scan-cleanup-icon')).not.toBeNull();
+        expect(ocrItem).not.toBeUndefined();
+
+        scanCleanupItem?.click();
+        await nextTick();
+        expect(harness.host.querySelector('[data-scan-cleanup-workspace]')).not.toBeNull();
+
+        scanCleanupRunning.value = true;
+        scanCleanupDisabled.value = true;
+        await nextTick();
+        const runningItem = menuItems().find(item => item.textContent?.includes('Scan cleanup running'));
+        expect(runningItem?.classList.contains('is-active')).toBe(true);
+        expect(runningItem?.disabled).toBe(true);
+        expect(runningItem?.querySelector('.overflow-menu-running-dot')).not.toBeNull();
+
+        menuItems().find(item => item.textContent?.includes('ocr.button'))?.click();
+        await nextTick();
+        expect(harness.host.querySelector('[data-ocr-popup]')).not.toBeNull();
+
+        collapseTier.value = 5;
+        scanCleanupDisabled.value = false;
+        await nextTick();
+        const assistantItem = menuItems().find(item => item.textContent?.includes('Assistant'));
+        expect(assistantItem).not.toBeUndefined();
+        assistantItem?.click();
+        await nextTick();
+        expect(assistantOpen.value).toBe(true);
+    });
+
     it('round-trips the toolbar surface command through Done while Escape keeps the workspace open', async () => {
         const updateCurrentPlacementAll = vi.fn();
         const detectAllPages = vi.fn();
         const cancelDetection = vi.fn();
         const isDetecting = ref(false);
         const detectionProgress = ref({
-            detectedCount: 0,
-            totalPages: 12,
+            completedUnits: 0,
+            totalUnits: 12,
         });
         const selectedPages = ref<ReadonlySet<number>>(new Set([7]));
         const previewPage = ref(7);
         const previewViewMode = ref<'original' | 'cleaned'>('cleaned');
-        const previewZoomMode = ref<'fit' | 'actual'>('fit');
         const isRunning = ref(false);
         const jobProgress = ref({
             percent: 0,
-            processedCount: 0,
-            totalPages: 12,
+            completedUnits: 0,
+            totalUnits: 12,
         });
         const progressText = ref('Processed 0 of 12 source pages');
         workspaceSession.value = {
+            ownerId: 'component-test-owner',
             alignmentItems: ref([{
                 value: 'bottom-right',
                 icon: 'i-ph-arrow-down-right',
@@ -402,7 +975,7 @@ describe('Scan cleanup components', () => {
             canDetectAll: ref(true),
             canRun: ref(false),
             currentPageOverride: ref({
-                manualSplitX: null,
+                manualSplit: null,
                 manualContentBoxes: {},
                 placementOverrides: {},
             }),
@@ -417,7 +990,20 @@ describe('Scan cleanup components', () => {
             isDetecting,
             isRunning,
             jobProgress,
-            layoutItems: ref([]),
+            layoutItems: ref([
+                {
+                    value: 'auto',
+                    label: 'Detect automatically',
+                },
+                {
+                    value: 'force-single',
+                    label: 'Force single pages',
+                },
+                {
+                    value: 'force-two-page',
+                    label: 'Force two-page spreads',
+                },
+            ]),
             navigatePreview: vi.fn(),
             outputEstimate: ref(''),
             outputItems: ref([
@@ -437,8 +1023,8 @@ describe('Scan cleanup components', () => {
                     fullLabel: 'Color',
                 },
             ]),
-            previewClassifications: reactive(new Map()),
-            previewConfidences: reactive(new Map()),
+            authoritativeLayoutByPage: reactive(new Map()),
+            detectedLayoutConfidenceByPage: reactive(new Map()),
             previewError: ref(''),
             previewLoading: ref(false),
             previewPage,
@@ -446,7 +1032,6 @@ describe('Scan cleanup components', () => {
             previewResult: ref(null),
             previewTotalPages: ref(12),
             previewViewMode,
-            previewZoomMode,
             progressText,
             readingOrderItems: ref([]),
             resetPageOverrides: vi.fn(),
@@ -456,7 +1041,7 @@ describe('Scan cleanup components', () => {
             showFirstRunGuidance: ref(false),
             dismissFirstRunGuidance: vi.fn(),
             selectedPages,
-            selectionLeader: ref(7),
+            selectionLeader: previewPage,
             selectPage: vi.fn(),
             settings: reactive({
                 preserveOriginalQuality: false,
@@ -467,10 +1052,14 @@ describe('Scan cleanup components', () => {
                 crop: false,
                 matchPageSize: true,
                 pageAlignment: 'top-center',
-                marginsMm: 0,
+                marginsMm: {
+                    leftMm: 0,
+                    topMm: 0,
+                    rightMm: 0,
+                    bottomMm: 0,
+                },
                 despeckle: false,
                 skipBlankPages: false,
-                straightenCurvedLines: false,
                 pageOverrides: {},
             }),
             thicknessLabel: ref('0'),
@@ -491,7 +1080,6 @@ describe('Scan cleanup components', () => {
         const cleanupSession = ref<IScanCleanupTabSessionState>({
             previewPage: 31,
             previewViewMode: 'original',
-            previewZoomMode: 'actual',
         });
         const harness = mount(defineComponent(() => () => h('div', [
             h('button', {
@@ -539,17 +1127,15 @@ describe('Scan cleanup components', () => {
         expect(workspaceSessionInitial.value).toEqual({
             page: 31,
             viewMode: 'original',
-            zoomMode: 'actual',
         });
 
         previewPage.value = 9;
         previewViewMode.value = 'original';
-        previewZoomMode.value = 'actual';
         await nextTick();
         expect(cleanupSession.value).toEqual({
+            ownerId: expect.any(String),
             previewPage: 9,
             previewViewMode: 'original',
-            previewZoomMode: 'actual',
         });
 
         const detectButton = Array.from(harness.host.querySelectorAll<HTMLButtonElement>('button'))
@@ -559,8 +1145,8 @@ describe('Scan cleanup components', () => {
         expect(detectAllPages).toHaveBeenCalledOnce();
         isDetecting.value = true;
         detectionProgress.value = {
-            detectedCount: 2,
-            totalPages: 12,
+            completedUnits: 2,
+            totalUnits: 12,
         };
         await nextTick();
         expect(harness.host.querySelector('.scan-cleanup-toolbar')?.textContent).toContain('2 / 12');
@@ -577,8 +1163,8 @@ describe('Scan cleanup components', () => {
         isRunning.value = true;
         jobProgress.value = {
             percent: 25,
-            processedCount: 3,
-            totalPages: 12,
+            completedUnits: 3,
+            totalUnits: 12,
         };
         progressText.value = 'Processed 3 of 12 source pages';
         await nextTick();
@@ -607,12 +1193,10 @@ describe('Scan cleanup components', () => {
         expect(workspaceSessionInitial.value).toEqual({
             page: 9,
             viewMode: 'original',
-            zoomMode: 'actual',
         });
-        const selectionTab = Array.from(harness.host.querySelectorAll<HTMLButtonElement>('[role="tab"]'))
-            .find(tab => tab.textContent === 'Selection (0)');
-        expect(selectionTab?.disabled).toBe(true);
-        expect(harness.host.textContent).toContain('Select pages');
+        expect(harness.host.querySelector('[role="tablist"]')).toBeNull();
+        expect(harness.host.querySelector('[role="radiogroup"][aria-label="Settings scope"]')).not.toBeNull();
+        expect(harness.host.querySelector('[data-settings-scope="selected"]')).toBeNull();
         window.dispatchEvent(new KeyboardEvent('keydown', {
             key: 'Escape',
             cancelable: true,
@@ -693,12 +1277,21 @@ describe('Scan cleanup components', () => {
         rectSpy.mockRestore();
     });
 
-    it('switches to selection settings, resolves mixed values on edit, and keeps document defaults isolated', async () => {
+    it('renders one scope-aware panel and routes all, page, and selected writes to their visible targets', async () => {
         const pageOverrides = reactive({
-            '1': createScanCleanupPageOverride({layoutOverride: 'single'}),
+            '1': createScanCleanupPageOverride({
+                layoutOverride: 'single',
+                marginsMm: {
+                    leftMm: 8,
+                    topMm: 8,
+                    rightMm: 8,
+                    bottomMm: 8,
+                },
+            }),
             '2': createScanCleanupPageOverride({layoutOverride: 'spread'}),
         });
         const settings = reactive({
+            preserveOriginalQuality: false,
             layoutMode: 'force-single' as const,
             outputMode: 'color' as const,
             readingOrder: 'ltr' as const,
@@ -706,10 +1299,14 @@ describe('Scan cleanup components', () => {
             crop: true,
             matchPageSize: true,
             pageAlignment: 'top-left' as const,
-            marginsMm: 5,
+            marginsMm: {
+                leftMm: 5,
+                topMm: 5,
+                rightMm: 5,
+                bottomMm: 5,
+            },
             despeckle: false,
             skipBlankPages: false,
-            straightenCurvedLines: false,
             pageOverrides,
         });
         const selectionLayoutOverride = ref<{
@@ -723,7 +1320,45 @@ describe('Scan cleanup components', () => {
         });
         const applyLeaderOverrides = vi.fn();
         const resetPageOverrides = vi.fn();
+        const resetScopeOverrides = vi.fn((pages: Iterable<number>) => {
+            updateScanCleanupPageOverrides(pageOverrides, pages, () => createScanCleanupPageOverride());
+        });
+        const resetControlOverride = vi.fn((control: string, pages: Iterable<number>) => {
+            updateScanCleanupPageOverrides(pageOverrides, pages, current => {
+                if (control === 'margins') {
+                    const {
+                        marginsMm: _marginsMm,
+                        ...withoutMargins
+                    } = current;
+                    return createScanCleanupPageOverride(withoutMargins);
+                }
+                if (control === 'layout') {
+                    return createScanCleanupPageOverride({
+                        ...current,
+                        layoutOverride: 'auto',
+                    });
+                }
+                return current;
+            });
+        });
+        const updateSelectionMargins = vi.fn((
+            _target: string,
+            value: number,
+            pages: Iterable<number>,
+        ) => {
+            updateScanCleanupPageOverrides(pageOverrides, pages, current => ({
+                ...current,
+                marginsMm: {
+                    leftMm: value,
+                    topMm: value,
+                    rightMm: value,
+                    bottomMm: value,
+                },
+            }), settings.marginsMm);
+        });
+        const settingsScope = ref<'all' | 'page' | 'selected'>('all');
         workspaceSession.value = {
+            ownerId: 'component-test-owner',
             alignmentItems: ref([]),
             applyLeaderOverrides,
             cancel: vi.fn(),
@@ -736,8 +1371,8 @@ describe('Scan cleanup components', () => {
             detectionError: ref(''),
             detectionPending: ref(false),
             detectionProgress: ref({
-                detectedCount: 0,
-                totalPages: 3,
+                completedUnits: 0,
+                totalUnits: 3,
             }),
             handleThicknessInput: vi.fn(),
             inlineError: ref(''),
@@ -745,22 +1380,34 @@ describe('Scan cleanup components', () => {
             isRunning: ref(false),
             jobProgress: ref({
                 percent: 0,
-                processedCount: 0,
-                totalPages: 3,
+                completedUnits: 0,
+                totalUnits: 3,
             }),
-            layoutItems: ref([]),
+            layoutItems: ref([
+                {
+                    value: 'auto',
+                    label: 'Detect automatically',
+                },
+                {
+                    value: 'force-single',
+                    label: 'Force single pages',
+                },
+                {
+                    value: 'force-two-page',
+                    label: 'Force two-page spreads',
+                },
+            ]),
             navigatePreview: vi.fn(),
             outputEstimate: ref(''),
             outputItems: ref([]),
-            previewClassifications: reactive(new Map()),
-            previewConfidences: reactive(new Map()),
+            authoritativeLayoutByPage: reactive(new Map()),
+            detectedLayoutConfidenceByPage: reactive(new Map()),
             previewError: ref(''),
             previewLoading: ref(false),
             previewPage: ref(2),
             previewResult: ref(null),
             previewTotalPages: ref(3),
             previewViewMode: ref('cleaned'),
-            previewZoomMode: ref('fit'),
             progressText: ref(''),
             readingOrderItems: ref([]),
             resetPageOverrides,
@@ -803,6 +1450,10 @@ describe('Scan cleanup components', () => {
                 value: 0,
             }),
             selectPage: vi.fn(),
+            setSettingsScope: (value: 'all' | 'page' | 'selected') => { settingsScope.value = value; },
+            settingsScope,
+            resetScopeOverrides,
+            resetControlOverride,
             settings,
             thicknessLabel: ref('0'),
             updateCurrentManualContentBox: vi.fn(),
@@ -811,11 +1462,11 @@ describe('Scan cleanup components', () => {
             updateCurrentPlacementAll: vi.fn(),
             updatePageOverride: vi.fn(),
             updateSelectionExcluded: vi.fn(),
-            updateSelectionLayoutOverride: (value: 'auto' | 'single' | 'spread' | 'keep-left' | 'keep-right') => {
-                updateScanCleanupPageOverrides(pageOverrides, new Set([
-                    1,
-                    2,
-                ]), current => ({
+            updateSelectionLayoutOverride: (
+                value: 'auto' | 'single' | 'spread' | 'keep-left' | 'keep-right',
+                pages: Iterable<number>,
+            ) => {
+                updateScanCleanupPageOverrides(pageOverrides, pages, current => ({
                     ...current,
                     layoutOverride: value,
                 }));
@@ -825,27 +1476,44 @@ describe('Scan cleanup components', () => {
                     value,
                 };
             },
+            updateSelectionMargins,
             updateSelectionPlacement: vi.fn(),
             updateSelectionRotation: vi.fn(),
-        };
-        const documentDefaults = {
-            layoutMode: settings.layoutMode,
-            outputMode: settings.outputMode,
-            pageAlignment: settings.pageAlignment,
         };
         const harness = mount(defineComponent(() => () => h(ScanCleanupWorkspace, {
             sourcePath: null,
             totalPages: 3,
         })));
 
-        const selectionTab = Array.from(harness.host.querySelectorAll<HTMLButtonElement>('[role="tab"]'))
-            .find(tab => tab.textContent === 'Selection (2)');
-        expect(selectionTab?.disabled).toBe(false);
-        selectionTab?.click();
-        await nextTick();
-        expect(harness.host.textContent).toContain('— Mixed');
+        const scopeGroup = harness.host.querySelector('[role="radiogroup"][aria-label="Settings scope"]');
+        expect(scopeGroup).not.toBeNull();
+        expect(harness.host.querySelector('[role="tablist"]')).toBeNull();
+        expect(harness.host.querySelectorAll('[aria-label="Page layout"]')).toHaveLength(1);
+        expect(harness.host.querySelector('[data-override-marker]')).toBeNull();
+        expect(harness.host.querySelector('[data-reset-override]')).toBeNull();
+        expect(harness.host.querySelector('[data-override-count="layout"]')?.textContent).toBe('1');
+        expect(harness.host.querySelector('[data-override-count="margins"]')?.getAttribute('title'))
+            .toBe('1 pages override this');
 
-        const layout = harness.host.querySelector<HTMLSelectElement>('[aria-label="Page layout override"]')!;
+        const layout = harness.host.querySelector<HTMLSelectElement>('[aria-label="Page layout"]')!;
+        layout.value = 'force-two-page';
+        layout.dispatchEvent(new Event('change', {bubbles: true}));
+        await nextTick();
+        expect(settings.layoutMode).toBe('force-two-page');
+        const documentDefaults = {
+            layoutMode: settings.layoutMode,
+            outputMode: settings.outputMode,
+            pageAlignment: settings.pageAlignment,
+        };
+
+        harness.host.querySelector<HTMLButtonElement>('[data-settings-scope="selected"]')?.click();
+        await nextTick();
+        expect(settingsScope.value).toBe('selected');
+        expect(harness.host.textContent).toContain('— Mixed');
+        expect(harness.host.querySelector('[data-override-marker="layout"]')).not.toBeNull();
+        expect(harness.host.querySelector('[data-reset-override="layout"]')?.getAttribute('aria-label'))
+            .toBe('Reset to document');
+
         layout.value = 'keep-right';
         layout.dispatchEvent(new Event('change', {bubbles: true}));
         await nextTick();
@@ -856,18 +1524,50 @@ describe('Scan cleanup components', () => {
             outputMode: settings.outputMode,
             pageAlignment: settings.pageAlignment,
         }).toEqual(documentDefaults);
-        expect(harness.host.textContent).not.toContain('— Mixed');
+        expect(layout.closest('.scan-cleanup-selection-field')?.textContent).not.toContain('— Mixed');
 
+        harness.host.querySelector<HTMLButtonElement>('[data-settings-scope="page"]')?.click();
+        await nextTick();
+        expect(settingsScope.value).toBe('page');
+        layout.value = 'keep-left';
+        layout.dispatchEvent(new Event('change', {bubbles: true}));
+        await nextTick();
+        expect(getScanCleanupPageOverride(pageOverrides, 1).layoutOverride).toBe('keep-right');
+        expect(getScanCleanupPageOverride(pageOverrides, 2).layoutOverride).toBe('keep-left');
+
+        expect(harness.host.querySelectorAll('[data-margin-side]')).toHaveLength(4);
+        const leftMarginField = harness.host.querySelector<HTMLInputElement>('[data-margin-side="leftMm"]')!;
+        expect(harness.host.querySelector('[data-override-marker="margins"]')).toBeNull();
+        leftMarginField.value = '11';
+        leftMarginField.dispatchEvent(new Event('input', {bubbles: true}));
+        leftMarginField.dispatchEvent(new Event('change', {bubbles: true}));
+        await nextTick();
+        expect(updateSelectionMargins).toHaveBeenCalledWith('leftMm', 11, [2]);
+        expect(harness.host.querySelector('[data-override-marker="margins"]')).not.toBeNull();
+        const resetMarginsButton = harness.host.querySelector<HTMLButtonElement>('[data-reset-override="margins"]');
+        expect(resetMarginsButton?.getAttribute('aria-label')).toBe('Reset to document');
+        resetMarginsButton?.click();
+        await nextTick();
+        expect(resetControlOverride).toHaveBeenCalledWith('margins', [2]);
+        expect(harness.host.querySelector('[data-override-marker="margins"]')).toBeNull();
+        expect(harness.host.querySelector('[data-reset-override="margins"]')).toBeNull();
+        expect(harness.host.querySelector<HTMLInputElement>('[data-margin-side="leftMm"]')?.value).toBe('5');
+
+        expect(harness.host.textContent).toContain('Apply this page to…');
         Array.from(harness.host.querySelectorAll<HTMLButtonElement>('[role="menuitem"]'))
             .find(item => item.textContent === 'Every other page')
             ?.click();
         expect(applyLeaderOverrides).toHaveBeenCalledWith('every-other');
         const resetOverridesButton = Array.from(harness.host.querySelectorAll<HTMLButtonElement>('button'))
-            .find(button => button.textContent?.trim() === 'Reset overrides…');
+            .find(button => button.textContent?.trim() === 'Reset this page…');
         expect(resetOverridesButton).not.toBeUndefined();
         expect(resetOverridesButton?.closest('.scan-thumbnail-rail-header')).toBeNull();
         harness.host.querySelector<HTMLButtonElement>('.scan-cleanup-reset-confirmation button:last-child')?.click();
-        expect(resetPageOverrides).toHaveBeenCalledOnce();
+        expect(resetScopeOverrides).toHaveBeenCalledWith([2]);
+        expect(resetPageOverrides).not.toHaveBeenCalled();
+        await nextTick();
+        expect(Array.from(harness.host.querySelectorAll<HTMLButtonElement>('button'))
+            .some(button => button.textContent?.trim() === 'Reset this page…')).toBe(false);
     });
 
     it('shows a friendly retry state with raw details collapsed', () => {
@@ -877,16 +1577,16 @@ describe('Scan cleanup components', () => {
             loading: false,
             error: rawError,
             viewMode: 'cleaned',
-            zoomMode: 'fit',
             matchPageSize: true,
             alignment: 'top-center',
             pageNumber: 1,
             totalPages: 3,
-            manualSplitX: null,
+            manualSplit: null,
             readingOrder: 'ltr',
         })}));
 
         const errorState = harness.host.querySelector('.preview-message.is-error');
+        expect(harness.host.querySelector('.preview-skeleton-page')).toBeNull();
         expect(errorState?.textContent).toContain('Preview isn\'t available. You can still run cleanup.');
         expect(errorState?.querySelector('button')?.textContent).toContain('Retry');
         const details = errorState?.querySelector('details');
@@ -904,12 +1604,11 @@ describe('Scan cleanup components', () => {
             loading: true,
             error: '',
             viewMode: 'cleaned',
-            zoomMode: 'fit',
             matchPageSize: true,
             alignment: 'top-center',
             pageNumber: 1,
             totalPages: 3,
-            manualSplitX: null,
+            manualSplit: null,
             readingOrder: 'ltr',
             showFirstRunGuidance: true,
             onDismissFirstRunGuidance: dismiss,
@@ -930,13 +1629,12 @@ describe('Scan cleanup components', () => {
             loading: true,
             error: '',
             viewMode: 'cleaned',
-            zoomMode: 'fit',
             matchPageSize: true,
             alignment: 'top-center',
             pageNumber: 2,
             totalPages: 3,
             stalePage: true,
-            manualSplitX: null,
+            manualSplit: null,
             readingOrder: 'ltr',
         })}));
 
@@ -952,12 +1650,11 @@ describe('Scan cleanup components', () => {
             loading: false,
             error: '',
             viewMode: 'cleaned',
-            zoomMode: 'fit',
             matchPageSize: true,
             alignment: 'top-center',
             pageNumber: 2,
             totalPages: 3,
-            manualSplitX: null,
+            manualSplit: null,
             readingOrder: 'ltr',
         })}));
         const images = Array.from(harness.host.querySelectorAll<HTMLImageElement>('.cleaned-image'));
@@ -987,12 +1684,11 @@ describe('Scan cleanup components', () => {
                 loading: false,
                 error: '',
                 viewMode: 'cleaned',
-                zoomMode: 'fit',
                 matchPageSize: true,
                 alignment: 'top-center',
                 pageNumber: 2,
                 totalPages: 3,
-                manualSplitX: null,
+                manualSplit: null,
                 readingOrder: 'ltr',
                 lossless: true,
             })}));
@@ -1008,36 +1704,30 @@ describe('Scan cleanup components', () => {
         }
     });
 
-    it('keeps the spread cutter mounted through click and the debounced loading cycle', async () => {
-        const zoomMode = ref<'fit' | 'actual'>('actual');
+    it('keeps the spread cutter mounted through a committed drag and the debounced loading cycle', async () => {
         const loading = ref(false);
-        const manualSplitX = ref<number | null>(null);
+        const manualSplit = ref<IScanCleanupNormalizedSplit | null>(null);
         const result = shallowRef(spreadPreviewResult());
-        const splitUpdates: Array<number | null> = [];
+        const splitUpdates: Array<IScanCleanupNormalizedSplit | null> = [];
         const harness = mount(defineComponent({setup: () => () => h(ScanCleanupPreviewPane, {
             result: result.value,
             loading: loading.value,
             error: '',
             viewMode: 'cleaned',
-            zoomMode: zoomMode.value,
             matchPageSize: true,
             alignment: 'top-center',
             pageNumber: 1,
             totalPages: 3,
             stalePage: false,
-            manualSplitX: manualSplitX.value,
+            manualSplit: manualSplit.value,
             readingOrder: 'ltr',
-            'onUpdate:zoomMode': (value: 'fit' | 'actual') => { zoomMode.value = value; },
-            'onUpdate:manualSplitX': (value: number | null) => {
+            'onUpdate:manualSplit': (value: IScanCleanupNormalizedSplit | null) => {
                 splitUpdates.push(value);
-                manualSplitX.value = value;
+                manualSplit.value = value;
                 loading.value = true;
             },
         })}));
 
-        expect(harness.host.querySelector('.cutter-control')).toBeNull();
-        zoomMode.value = 'fit';
-        await nextTick();
         const cutter = harness.host.querySelector<HTMLButtonElement>('.cutter-control');
         expect(cutter).not.toBeNull();
         expect(cutter?.querySelector('.cutter-grab-handle')).not.toBeNull();
@@ -1054,13 +1744,23 @@ describe('Scan cleanup components', () => {
             y: 0,
             toJSON: () => ({}),
         });
-        cutter!.setPointerCapture = vi.fn();
+        const capture = mockPointerCapture(cutter!);
         cutter!.dispatchEvent(new PointerEvent('pointerdown', {
             bubbles: true,
             clientX: 600,
             pointerId: 1,
         }));
-        expect(splitUpdates.at(-1)).toBeCloseTo(600, 8);
+        expect(splitUpdates).toEqual([]);
+        cutter!.dispatchEvent(new PointerEvent('pointerup', {
+            bubbles: true,
+            clientX: 600,
+            pointerId: 1,
+        }));
+        expect(splitUpdates).toEqual([{
+            xNormalized: 0.6,
+            rotationDegrees: 0,
+        }]);
+        expect(capture.releasePointerCapture).toHaveBeenCalledWith(1);
         await nextTick();
         expect(harness.host.querySelector('.cutter-control')).not.toBeNull();
         expect(harness.host.querySelector('.cutter-control')?.classList.contains('is-refreshing')).toBe(true);
@@ -1076,6 +1776,9 @@ describe('Scan cleanup components', () => {
         await nextTick();
         const persistentCutter = harness.host.querySelector<HTMLButtonElement>('.cutter-control');
         expect(persistentCutter).not.toBeNull();
+        vi.spyOn(harness.host.querySelector<HTMLElement>('.cutter-stage')!, 'getBoundingClientRect')
+            .mockReturnValue(domRect(0, 0, 1000, 800));
+        mockPointerCapture(persistentCutter!);
 
         persistentCutter!.dispatchEvent(new PointerEvent('pointerdown', {
             bubbles: true,
@@ -1099,6 +1802,682 @@ describe('Scan cleanup components', () => {
         expect(splitUpdates.at(-1)).toBeNull();
     });
 
+    it('keeps cutter moves draft-only on the stable source underlay and commits once on release', async () => {
+        const sessionWrites = {
+            override: vi.fn(),
+            localStorage: vi.fn(),
+            previewCache: vi.fn(),
+            classification: vi.fn(),
+            ipc: vi.fn(),
+        };
+        const commitCurrentManualSplit = vi.fn((value: IScanCleanupNormalizedSplit | null) => {
+            sessionWrites.override(value);
+        });
+        const harness = mount(defineComponent({setup: () => () => h(ScanCleanupPreviewPane, {
+            result: spreadPreviewResult(),
+            loading: false,
+            error: '',
+            viewMode: 'cleaned',
+            matchPageSize: true,
+            alignment: 'top-center',
+            pageNumber: 1,
+            totalPages: 3,
+            manualSplit: null,
+            readingOrder: 'ltr',
+            'onUpdate:manualSplit': commitCurrentManualSplit,
+        })}));
+        mockPreviewGeometry(harness.host, [
+            domRect(0, 0, 500, 800),
+            domRect(500, 0, 500, 800),
+        ]);
+
+        const overlay = harness.host.querySelector<HTMLElement>('.drag-overlay-layer')!;
+        const resultLayer = harness.host.querySelector<HTMLElement>('.preview-result-layer')!;
+        expect(overlay.parentElement).toBe(resultLayer.parentElement);
+        expect(resultLayer.contains(overlay)).toBe(false);
+        const cutter = overlay.querySelector<HTMLButtonElement>('.cutter-control')!;
+        mockPointerCapture(cutter);
+        cutter.dispatchEvent(new PointerEvent('pointerdown', {
+            bubbles: true,
+            clientX: 600,
+            clientY: 400,
+            pointerId: 11,
+        }));
+        cutter.dispatchEvent(new PointerEvent('pointermove', {
+            bubbles: true,
+            clientX: 700,
+            clientY: 400,
+            pointerId: 11,
+        }));
+        await nextTick();
+
+        expect(commitCurrentManualSplit).not.toHaveBeenCalled();
+        expect(Object.values(sessionWrites).every(spy => spy.mock.calls.length === 0)).toBe(true);
+        expect(harness.host.querySelector('.cutter-source-underlay')).not.toBeNull();
+        expect(resultLayer.classList.contains('is-cutter-source-dimmed')).toBe(true);
+        expect(cutter.style.insetInlineStart).toBe('700px');
+
+        cutter.dispatchEvent(new PointerEvent('pointerup', {
+            bubbles: true,
+            clientX: 700,
+            clientY: 400,
+            pointerId: 11,
+        }));
+        expect(commitCurrentManualSplit).toHaveBeenCalledOnce();
+        expect(commitCurrentManualSplit).toHaveBeenCalledWith({
+            xNormalized: 0.7,
+            rotationDegrees: 0,
+        });
+        expect(sessionWrites.override).toHaveBeenCalledOnce();
+        expect(sessionWrites.localStorage).not.toHaveBeenCalled();
+        expect(sessionWrites.previewCache).not.toHaveBeenCalled();
+        expect(sessionWrites.classification).not.toHaveBeenCalled();
+        expect(sessionWrites.ipc).not.toHaveBeenCalled();
+    });
+
+    it('rolls an active cutter back on Escape and aborts lost capture without committing', async () => {
+        const commitCurrentManualSplit = vi.fn();
+        const harness = mount(defineComponent({setup: () => () => h(ScanCleanupPreviewPane, {
+            result: spreadPreviewResult(),
+            loading: false,
+            error: '',
+            viewMode: 'original',
+            matchPageSize: true,
+            alignment: 'top-center',
+            pageNumber: 1,
+            totalPages: 3,
+            manualSplit: {
+                xNormalized: 0.4,
+                rotationDegrees: 0,
+            },
+            readingOrder: 'ltr',
+            'onUpdate:manualSplit': commitCurrentManualSplit,
+        })}));
+        mockPreviewGeometry(harness.host, []);
+        const cutter = harness.host.querySelector<HTMLButtonElement>('.cutter-control')!;
+        const capture = mockPointerCapture(cutter);
+
+        cutter.dispatchEvent(new PointerEvent('pointerdown', {
+            bubbles: true,
+            clientX: 400,
+            pointerId: 12,
+        }));
+        cutter.dispatchEvent(new PointerEvent('pointermove', {
+            bubbles: true,
+            clientX: 700,
+            pointerId: 12,
+        }));
+        await nextTick();
+        expect(cutter.style.insetInlineStart).toBe('700px');
+        cutter.dispatchEvent(new KeyboardEvent('keydown', {
+            bubbles: true,
+            cancelable: true,
+            key: 'Escape',
+        }));
+        await nextTick();
+        expect(cutter.style.insetInlineStart).toBe('400px');
+        expect(commitCurrentManualSplit).not.toHaveBeenCalled();
+        expect(capture.releasePointerCapture).toHaveBeenCalledWith(12);
+
+        cutter.dispatchEvent(new PointerEvent('pointerdown', {
+            bubbles: true,
+            clientX: 400,
+            pointerId: 13,
+        }));
+        cutter.dispatchEvent(new PointerEvent('pointermove', {
+            bubbles: true,
+            clientX: 650,
+            pointerId: 13,
+        }));
+        cutter.dispatchEvent(new PointerEvent('lostpointercapture', {
+            bubbles: true,
+            pointerId: 13,
+        }));
+        await nextTick();
+        expect(cutter.style.insetInlineStart).toBe('400px');
+        expect(commitCurrentManualSplit).not.toHaveBeenCalled();
+    });
+
+    it('keeps rotated content-box moves draft-only and commits the rotation-90 normalized rect once', async () => {
+        const sessionWrites = {
+            override: vi.fn(),
+            localStorage: vi.fn(),
+            previewCache: vi.fn(),
+            classification: vi.fn(),
+            ipc: vi.fn(),
+        };
+        const commitCurrentManualContentBox = vi.fn((
+            half: TScanCleanupOutputHalf,
+            value: IScanCleanupNormalizedRect | null,
+        ) => sessionWrites.override(half, value));
+        const manualContentBoxes = {full: {
+            xNormalized: 0.1,
+            yNormalized: 0.1,
+            widthNormalized: 0.3,
+            heightNormalized: 0.4,
+            rotationDegrees: 90 as const,
+        }};
+        const harness = mount(defineComponent({setup: () => () => h(ScanCleanupPreviewPane, {
+            result: rotatedSinglePreviewResult(),
+            loading: false,
+            error: '',
+            viewMode: 'cleaned',
+            matchPageSize: true,
+            alignment: 'top-left',
+            pageNumber: 1,
+            totalPages: 3,
+            manualSplit: null,
+            readingOrder: 'ltr',
+            manualContentBoxes,
+            'onUpdate:manualContentBox': commitCurrentManualContentBox,
+        })}));
+        mockPreviewGeometry(harness.host, [domRect(0, 0, 400, 1000)]);
+        const handle = harness.host.querySelector<HTMLButtonElement>('.content-handle.is-e')!;
+        mockPointerCapture(handle);
+
+        handle.dispatchEvent(new PointerEvent('pointerdown', {
+            bubbles: true,
+            clientX: 320,
+            clientY: 300,
+            pointerId: 14,
+        }));
+        handle.dispatchEvent(new PointerEvent('pointermove', {
+            bubbles: true,
+            clientX: 360,
+            clientY: 300,
+            pointerId: 14,
+        }));
+        await nextTick();
+        expect(commitCurrentManualContentBox).not.toHaveBeenCalled();
+        expect(Object.values(sessionWrites).every(spy => spy.mock.calls.length === 0)).toBe(true);
+        expect(harness.host.querySelector<HTMLElement>('.content-overlay')?.style.width).toBe('70%');
+
+        handle.dispatchEvent(new PointerEvent('pointerup', {
+            bubbles: true,
+            clientX: 360,
+            clientY: 300,
+            pointerId: 14,
+        }));
+        expect(commitCurrentManualContentBox).toHaveBeenCalledOnce();
+        expect(commitCurrentManualContentBox).toHaveBeenCalledWith('full', {
+            xNormalized: 0.1,
+            yNormalized: 0.1,
+            widthNormalized: 0.35,
+            heightNormalized: 0.4,
+            rotationDegrees: 90,
+        });
+        expect(sessionWrites.override).toHaveBeenCalledOnce();
+    });
+
+    it('moves placement continuously without writes and commits the nearest anchor once', async () => {
+        const result = spreadPreviewResult();
+        const first = result.outputs[0]!;
+        first.metadata.outputWidthPx = 300;
+        first.metadata.outputHeightPx = 600;
+        first.metadata.canvasWidthPx = 500;
+        first.metadata.canvasHeightPx = 800;
+        const sessionWrites = {
+            override: vi.fn(),
+            localStorage: vi.fn(),
+            previewCache: vi.fn(),
+            classification: vi.fn(),
+            ipc: vi.fn(),
+        };
+        const commitCurrentPlacement = vi.fn((half: TScanCleanupOutputHalf, value: TScanCleanupPageAlignment) => {
+            sessionWrites.override(half, value);
+        });
+        const harness = mount(defineComponent({setup: () => () => h(ScanCleanupPreviewPane, {
+            result,
+            loading: false,
+            error: '',
+            viewMode: 'cleaned',
+            matchPageSize: true,
+            alignment: 'top-left',
+            pageNumber: 1,
+            totalPages: 3,
+            manualSplit: null,
+            readingOrder: 'ltr',
+            'onUpdate:placement': commitCurrentPlacement,
+        })}));
+        mockPreviewGeometry(harness.host, [
+            domRect(0, 0, 500, 800),
+            domRect(500, 0, 500, 800),
+        ]);
+        const placement = harness.host.querySelector<HTMLElement>('.placement-control')!;
+        mockPointerCapture(placement);
+
+        placement.dispatchEvent(new PointerEvent('pointerdown', {
+            bubbles: true,
+            clientX: 100,
+            clientY: 100,
+            pointerId: 15,
+        }));
+        placement.dispatchEvent(new PointerEvent('pointermove', {
+            bubbles: true,
+            clientX: 300,
+            clientY: 300,
+            pointerId: 15,
+        }));
+        await nextTick();
+        expect(commitCurrentPlacement).not.toHaveBeenCalled();
+        expect(Object.values(sessionWrites).every(spy => spy.mock.calls.length === 0)).toBe(true);
+        expect(placement.style.left).toBe('40%');
+        expect(placement.style.top).toBe('25%');
+        expect(harness.host.querySelectorAll('.placement-snap-anchor')).toHaveLength(9);
+        expect(harness.host.querySelector('.placement-snap-anchor.is-nearest')?.getAttribute('style'))
+            .toContain('100%');
+        expect(harness.host.querySelector('.placed-image')?.classList.contains('is-drag-placeholder')).toBe(true);
+
+        placement.dispatchEvent(new PointerEvent('pointerup', {
+            bubbles: true,
+            clientX: 300,
+            clientY: 300,
+            pointerId: 15,
+        }));
+        expect(commitCurrentPlacement).toHaveBeenCalledOnce();
+        expect(commitCurrentPlacement).toHaveBeenCalledWith('left', 'bottom-right');
+        expect(sessionWrites.override).toHaveBeenCalledOnce();
+        expect(sessionWrites.ipc).not.toHaveBeenCalled();
+    });
+
+    it('re-fits a margin sweep from native paper geometry without letting the raster escape', async () => {
+        const resize = installResizeObserverHarness();
+        const initial = spreadPreviewResult();
+        const initialMetadata = initial.outputs[0]!.metadata;
+        Object.assign(initialMetadata, {
+            contentBox: {
+                xPx: 100,
+                yPx: 100,
+                widthPx: 200,
+                heightPx: 300,
+            },
+            outputWidthPx: 466,
+            outputHeightPx: 766,
+            canvasWidthPx: 500,
+            canvasHeightPx: 800,
+            placementOffsetXPx: 17,
+            placementOffsetYPx: 17,
+        });
+        const result = shallowRef(initial);
+        const harness = mount(defineComponent({setup: () => () => h(ScanCleanupPreviewPane, {
+            result: result.value,
+            loading: false,
+            error: '',
+            viewMode: 'cleaned',
+            matchPageSize: true,
+            alignment: 'bottom-right',
+            pageNumber: 1,
+            totalPages: 3,
+            manualSplit: null,
+            readingOrder: 'ltr',
+        })}));
+        await nextTick();
+
+        const fitAreas = Array.from(harness.host.querySelectorAll<HTMLElement>('.output-fit-area'));
+        fitAreas.forEach((area, index) => vi.spyOn(area, 'getBoundingClientRect')
+            .mockReturnValue(domRect(index * 500, 0, 500, 800)));
+        resize.trigger();
+        await nextTick();
+
+        const beforePaper = harness.host.querySelector<HTMLElement>('.uniform-canvas')!;
+        expect(beforePaper.style.width).toBe('500px');
+        expect(beforePaper.dataset.frameWidth).toBe('500');
+
+        const expanded = structuredClone(result.value);
+        Object.assign(expanded.outputs[0]!.metadata, {
+            outputWidthPx: 594,
+            outputHeightPx: 894,
+            canvasWidthPx: 620,
+            canvasHeightPx: 920,
+            placementOffsetXPx: 13,
+            placementOffsetYPx: 13,
+        });
+        expanded.rawImageData = new Uint8Array([2]);
+        expanded.outputs[0]!.imageData = new Uint8Array([2]);
+        result.value = expanded;
+        await nextTick();
+        resize.trigger();
+        await nextTick();
+
+        const paper = harness.host.querySelector<HTMLElement>('.uniform-canvas')!;
+        const raster = paper.querySelector<HTMLElement>('.placed-image')!;
+        expect(paper.style.width).toBe('500px');
+        expect(Number.parseFloat(paper.style.height)).toBeCloseTo(920 / 620 * 500);
+        expect(paper.dataset.frameWidth).toBe('620');
+        expect(paper.dataset.frameHeight).toBe('920');
+        expect(Number.parseFloat(raster.style.left)).toBeCloseTo(13 / 620 * 100);
+        expect(Number.parseFloat(raster.style.top)).toBeCloseTo(13 / 920 * 100);
+
+        const paperWidth = Number.parseFloat(paper.style.width);
+        const paperHeight = Number.parseFloat(paper.style.height);
+        const rasterRect = {
+            left: Number.parseFloat(raster.style.left) / 100 * paperWidth,
+            top: Number.parseFloat(raster.style.top) / 100 * paperHeight,
+            width: Number.parseFloat(raster.style.width) / 100 * paperWidth,
+            height: Number.parseFloat(raster.style.height) / 100 * paperHeight,
+        };
+        expect(rasterRect.left).toBeCloseTo(13 / 620 * paperWidth);
+        expect(rasterRect.top).toBeCloseTo(13 / 920 * paperHeight);
+        expect(rasterRect.left + rasterRect.width).toBeLessThanOrEqual(paperWidth);
+        expect(rasterRect.top + rasterRect.height).toBeLessThanOrEqual(paperHeight);
+        expect(paper.contains(harness.host.querySelector('.placement-overlay-canvas'))).toBe(true);
+        expect(paper.contains(harness.host.querySelector('.content-overlay'))).toBe(true);
+        resize.restore();
+    });
+
+    it.each([
+        {
+            classification: 'single-uncut-page' as const,
+            label: 'single page',
+            result: rotatedSinglePreviewResult(),
+            rotationDegrees: 90 as const,
+        },
+        {
+            classification: 'two-page-spread' as const,
+            label: 'spread',
+            result: spreadPreviewResult(),
+            rotationDegrees: 0 as const,
+        },
+    ])('replaces the $label source skeleton with the authoritative native paper rectangle', async ({
+        classification,
+        result: resolvedResult,
+        rotationDegrees,
+    }) => {
+        const resize = installResizeObserverHarness();
+        try {
+            const result = shallowRef<IScanCleanupPreviewResult | null>(null);
+            const loading = ref(true);
+            const source = previewPageSource(1000, 800);
+            const harness = mount(defineComponent({setup: () => () => h(ScanCleanupPreviewPane, {
+                result: result.value,
+                loading: loading.value,
+                error: '',
+                source,
+                layoutClassification: classification,
+                rotationDegrees,
+                viewMode: 'cleaned',
+                matchPageSize: false,
+                alignment: 'top-left',
+                pageNumber: 1,
+                totalPages: 1,
+                manualSplit: null,
+                readingOrder: 'ltr',
+            })}));
+            await Promise.resolve();
+            await nextTick();
+
+            const mockFitAreas = () => {
+                const areas = Array.from(harness.host.querySelectorAll<HTMLElement>('.output-fit-area'));
+                areas.forEach((area, index) => vi.spyOn(area, 'getBoundingClientRect').mockReturnValue(domRect(
+                    index * (1000 / areas.length),
+                    0,
+                    1000 / areas.length,
+                    760,
+                )));
+                resize.trigger();
+            };
+            mockFitAreas();
+            await nextTick();
+            const skeletonRects = Array.from(
+                harness.host.querySelectorAll<HTMLElement>('.preview-skeleton-page'),
+            ).map(placeholder => ({
+                height: placeholder.style.height,
+                width: placeholder.style.width,
+            }));
+            expect(harness.host.querySelector('.preview-viewport-caption')?.textContent)
+                .toBe('Building cleanup preview…');
+
+            result.value = resolvedResult;
+            loading.value = false;
+            await nextTick();
+            mockFitAreas();
+            await nextTick();
+            const renderedRects = Array.from(
+                harness.host.querySelectorAll<HTMLElement>('.uniform-canvas'),
+            ).map(canvas => ({
+                height: canvas.style.height,
+                width: canvas.style.width,
+            }));
+
+            if (classification === 'two-page-spread') {
+                expect(renderedRects).toEqual(skeletonRects);
+            } else {
+                expect(skeletonRects).toEqual([{
+                    height: '760px',
+                    width: '608px',
+                }]);
+                expect(renderedRects).toEqual([{
+                    height: '760px',
+                    width: '304px',
+                }]);
+            }
+            expect(renderedRects).toHaveLength(classification === 'two-page-spread' ? 2 : 1);
+        } finally {
+            resize.restore();
+        }
+    });
+
+    it('renders the complete entry sequence from metrics-backed skeleton to content or an exclusive error banner', async () => {
+        const result = shallowRef<IScanCleanupPreviewResult | null>(null);
+        const loading = ref(true);
+        const error = ref('');
+        const source = previewPageSource(1000, 800);
+        const harness = mount(defineComponent({setup: () => () => h(ScanCleanupPreviewPane, {
+            result: result.value,
+            loading: loading.value,
+            error: error.value,
+            source,
+            viewMode: 'cleaned',
+            matchPageSize: false,
+            alignment: 'top-left',
+            pageNumber: 1,
+            totalPages: 3,
+            manualSplit: null,
+            readingOrder: 'ltr',
+        })}));
+
+        expect(harness.host.querySelector('.preview-skeleton-page')).not.toBeNull();
+        expect(harness.host.querySelector('.preview-result-layer')).toBeNull();
+        expect(harness.host.querySelector('[role="alert"]')).toBeNull();
+        await nextTick();
+        expect(harness.host.querySelector<HTMLElement>('.preview-skeleton-page')?.style.aspectRatio)
+            .toBe('1000 / 800');
+
+        result.value = rotatedSinglePreviewResult();
+        loading.value = false;
+        await nextTick();
+        expect(harness.host.querySelector('.preview-skeleton-page')).toBeNull();
+        expect(harness.host.querySelector('.preview-result-layer')).not.toBeNull();
+        expect(harness.host.querySelector('[role="alert"]')).toBeNull();
+
+        result.value = null;
+        loading.value = true;
+        await nextTick();
+        expect(harness.host.querySelector('.preview-skeleton-page')).not.toBeNull();
+
+        loading.value = false;
+        await nextTick();
+        expect(harness.host.querySelector('.preview-skeleton-page')).not.toBeNull();
+
+        error.value = 'preview boundary failed';
+        await nextTick();
+        expect(harness.host.querySelector('.preview-skeleton-page')).toBeNull();
+        expect(harness.host.querySelector('.preview-result-layer')).toBeNull();
+        expect(harness.host.querySelector('.preview-message.is-error')?.textContent)
+            .toContain('Preview isn\'t available. You can still run cleanup.');
+    });
+
+    it('renders a neutral page skeleton immediately while restored-page metrics are pending', () => {
+        const source: IDocumentPageSource = {
+            ...previewPageSource(1000, 800),
+            getPageMetrics: vi.fn(() => new Promise<never>(() => undefined)),
+        };
+        const harness = mount(defineComponent({setup: () => () => h(ScanCleanupPreviewPane, {
+            result: null,
+            loading: true,
+            error: '',
+            source,
+            viewMode: 'cleaned',
+            matchPageSize: false,
+            alignment: 'top-left',
+            pageNumber: 2,
+            totalPages: 3,
+            manualSplit: null,
+            readingOrder: 'ltr',
+        })}));
+
+        const skeleton = harness.host.querySelector<HTMLElement>('.preview-skeleton-page');
+        expect(skeleton).not.toBeNull();
+        expect(skeleton?.tagName).toBe('DIV');
+        expect(skeleton?.style.width).toBe('auto');
+        expect(skeleton?.style.height).toContain('--app-scan-preview-skeleton-height');
+        expect(skeleton?.style.aspectRatio).not.toBe('');
+        expect(harness.host.querySelector('.preview-viewport-caption')?.textContent)
+            .toBe('Building cleanup preview…');
+        harness.unmount();
+    });
+
+    it('recomputes the viewport frame for container resize and layout-classification changes', async () => {
+        const resize = installResizeObserverHarness();
+        try {
+            const result = shallowRef(spreadPreviewResult());
+            const harness = mount(defineComponent({setup: () => () => h(ScanCleanupPreviewPane, {
+                result: result.value,
+                loading: false,
+                error: '',
+                viewMode: 'cleaned',
+                matchPageSize: false,
+                alignment: 'top-left',
+                pageNumber: 1,
+                totalPages: 3,
+                manualSplit: null,
+                readingOrder: 'ltr',
+            })}));
+            let areaWidth = 500;
+            Array.from(harness.host.querySelectorAll<HTMLElement>('.output-fit-area')).forEach((area, index) => {
+                vi.spyOn(area, 'getBoundingClientRect').mockImplementation(() => domRect(
+                    index * areaWidth,
+                    0,
+                    areaWidth,
+                    areaWidth / 500 * 800,
+                ));
+            });
+            resize.trigger();
+            await nextTick();
+            expect(harness.host.querySelector<HTMLElement>('.uniform-canvas')?.style.width).toBe('500px');
+
+            areaWidth = 250;
+            resize.trigger();
+            await nextTick();
+            expect(harness.host.querySelector<HTMLElement>('.uniform-canvas')?.style.width).toBe('250px');
+
+            const single = rotatedSinglePreviewResult();
+            single.pageMetadata.rotationDegrees = 0;
+            single.outputs[0]!.metadata.rotationDegrees = 0;
+            single.outputs[0]!.metadata.inputWidthPx = 1000;
+            single.outputs[0]!.metadata.inputHeightPx = 800;
+            result.value = single;
+            await nextTick();
+            const singleArea = harness.host.querySelector<HTMLElement>('.output-fit-area')!;
+            vi.spyOn(singleArea, 'getBoundingClientRect').mockReturnValue(domRect(0, 0, 1000, 800));
+            resize.trigger();
+            await nextTick();
+
+            const singleCanvas = harness.host.querySelector<HTMLElement>('.uniform-canvas')!;
+            expect(singleCanvas.dataset.frameWidth).toBe('400');
+            expect(singleCanvas.style.width).toBe('320px');
+        } finally {
+            resize.restore();
+        }
+    });
+
+    it('keeps the active draft, frame, overlay, and pointer capture through a preview refresh', async () => {
+        const result = shallowRef(spreadPreviewResult());
+        const commit = vi.fn();
+        const harness = mount(defineComponent({setup: () => () => h(ScanCleanupPreviewPane, {
+            result: result.value,
+            loading: false,
+            error: '',
+            viewMode: 'cleaned',
+            matchPageSize: true,
+            alignment: 'top-left',
+            pageNumber: 1,
+            totalPages: 3,
+            manualSplit: null,
+            readingOrder: 'ltr',
+            'onUpdate:manualSplit': commit,
+        })}));
+        mockPreviewGeometry(harness.host, [
+            domRect(0, 0, 500, 800),
+            domRect(500, 0, 500, 800),
+        ]);
+        const cutter = harness.host.querySelector<HTMLButtonElement>('.cutter-control')!;
+        const capture = mockPointerCapture(cutter);
+        const overlay = harness.host.querySelector<HTMLElement>('.drag-overlay-layer')!;
+        const frameBefore = harness.host.querySelector<HTMLElement>('.uniform-canvas')!.dataset.frameWidth;
+        cutter.dispatchEvent(new PointerEvent('pointerdown', {
+            bubbles: true,
+            clientX: 700,
+            clientY: 400,
+            pointerId: 21,
+        }));
+        cutter.dispatchEvent(new PointerEvent('pointermove', {
+            bubbles: true,
+            clientX: 720,
+            clientY: 400,
+            pointerId: 21,
+        }));
+        await nextTick();
+        const draftPosition = cutter.style.insetInlineStart;
+
+        result.value = contentCropRefresh(result.value, 0.5);
+        await nextTick();
+
+        expect(harness.host.querySelector('.drag-overlay-layer')).toBe(overlay);
+        expect(harness.host.querySelector('.cutter-control')).toBe(cutter);
+        expect(cutter.style.insetInlineStart).toBe(draftPosition);
+        expect(harness.host.querySelector<HTMLElement>('.uniform-canvas')!.dataset.frameWidth).toBe(frameBefore);
+        expect(capture.hasPointerCapture(21)).toBe(true);
+        expect(commit).not.toHaveBeenCalled();
+    });
+
+    it('retains half-keyed fit-area refs across refreshes and observes later resizes', async () => {
+        const resize = installResizeObserverHarness();
+        try {
+            const result = shallowRef(spreadPreviewResult());
+            const harness = mount(defineComponent({setup: () => () => h(ScanCleanupPreviewPane, {
+                result: result.value,
+                loading: false,
+                error: '',
+                viewMode: 'cleaned',
+                matchPageSize: false,
+                alignment: 'top-left',
+                pageNumber: 1,
+                totalPages: 3,
+                manualSplit: null,
+                readingOrder: 'ltr',
+            })}));
+            let width = 500;
+            const leftArea = harness.host.querySelector<HTMLElement>('[data-output-half="left"]')!;
+            vi.spyOn(leftArea, 'getBoundingClientRect').mockImplementation(() => domRect(0, 0, width, 800));
+            const rightArea = harness.host.querySelector<HTMLElement>('[data-output-half="right"]')!;
+            vi.spyOn(rightArea, 'getBoundingClientRect').mockImplementation(() => domRect(width, 0, width, 800));
+            resize.trigger();
+            await nextTick();
+
+            result.value = contentCropRefresh(result.value, 0.75);
+            await nextTick();
+            expect(harness.host.querySelector('[data-output-half="left"]')).toBe(leftArea);
+
+            width = 300;
+            resize.trigger();
+            await nextTick();
+            expect(harness.host.querySelector<HTMLElement>('.uniform-canvas')?.style.width).toBe('300px');
+        } finally {
+            resize.restore();
+        }
+    });
+
     it('supports keyboard content-box resizing/reset and per-output placement nudging', async () => {
         const contentUpdates: Array<{
             half: string;
@@ -1113,23 +2492,23 @@ describe('Scan cleanup components', () => {
             loading: false,
             error: '',
             viewMode: 'cleaned',
-            zoomMode: 'fit',
             matchPageSize: true,
             alignment: 'top-center',
             pageNumber: 1,
             totalPages: 3,
-            manualSplitX: null,
+            manualSplit: null,
             readingOrder: 'ltr',
             manualContentBoxes: {left: {
-                x: 50,
-                y: 60,
-                width: 300,
-                height: 500,
+                xNormalized: 0.05,
+                yNormalized: 0.075,
+                widthNormalized: 0.3,
+                heightNormalized: 0.625,
+                rotationDegrees: 0,
             }},
             placementOverrides: {left: 'top-center'},
             'onUpdate:manualContentBox': (
                 half: TScanCleanupOutputHalf,
-                value: IScanCleanupPreviewRect | null,
+                value: IScanCleanupNormalizedRect | null,
             ) => contentUpdates.push({
                 half,
                 value,
@@ -1151,12 +2530,13 @@ describe('Scan cleanup components', () => {
         expect(contentUpdates.at(-1)).toMatchObject({
             half: 'left',
             value: {
-                x: 50,
-                y: 60,
-                height: 500,
+                xNormalized: 0.05,
+                yNormalized: 0.075,
+                heightNormalized: 0.625,
+                rotationDegrees: 0,
             },
         });
-        expect((contentUpdates.at(-1)?.value as {width: number}).width).toBeGreaterThan(300);
+        expect((contentUpdates.at(-1)?.value as {widthNormalized: number}).widthNormalized).toBeGreaterThan(0.3);
 
         harness.host.querySelector<HTMLElement>('.content-overlay')?.dispatchEvent(new MouseEvent('dblclick', {bubbles: true}));
         expect(contentUpdates.at(-1)).toEqual({
@@ -1164,7 +2544,7 @@ describe('Scan cleanup components', () => {
             value: null,
         });
 
-        harness.host.querySelector<HTMLElement>('.placed-image')?.dispatchEvent(new KeyboardEvent('keydown', {
+        harness.host.querySelector<HTMLElement>('.placement-control')?.dispatchEvent(new KeyboardEvent('keydown', {
             key: 'ArrowDown',
             bubbles: true,
             cancelable: true,
@@ -1173,5 +2553,35 @@ describe('Scan cleanup components', () => {
             half: 'left',
             value: 'center',
         });
+    });
+
+    it('places each intrinsic preview image inside its declared canvas metadata', async () => {
+        const result = spreadPreviewResult();
+        const first = result.outputs[0]!;
+        first.metadata.outputWidthPx = 300;
+        first.metadata.outputHeightPx = 600;
+        first.metadata.canvasWidthPx = 500;
+        first.metadata.canvasHeightPx = 800;
+        first.metadata.placementOffsetXPx = 200;
+        first.metadata.placementOffsetYPx = 200;
+        const harness = mount(defineComponent({setup: () => () => h(ScanCleanupPreviewPane, {
+            result,
+            loading: false,
+            error: '',
+            viewMode: 'cleaned',
+            matchPageSize: true,
+            alignment: 'bottom-right',
+            pageNumber: 1,
+            totalPages: 3,
+            manualSplit: null,
+            readingOrder: 'ltr',
+        })}));
+
+        await nextTick();
+        const placed = harness.host.querySelector<HTMLElement>('.placed-image');
+        expect(placed?.style.left).toBe('40%');
+        expect(placed?.style.top).toBe('25%');
+        expect(placed?.style.width).toBe('60%');
+        expect(placed?.style.height).toBe('75%');
     });
 });

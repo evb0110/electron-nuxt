@@ -113,7 +113,17 @@ export function createCodecIpcInvoker<TMap extends {[TChannel in keyof TMap]: II
         channel: TChannel,
         ...args: TMap[TChannel]['args']
     ) {
-        const result: unknown = await invokeWithChannelContext<unknown>(ipcRenderer, channel, args, options);
+        let encodedArgs: TMap[TChannel]['args'];
+        try {
+            encodedArgs = codecs[channel].encodeArgs?.(args) ?? args;
+        } catch (error) {
+            const details = error instanceof Error ? `: ${error.message}` : '';
+            throw new PlatformIpcInvokeError(
+                channel,
+                new Error(`Invalid IPC request for ${channel}${details}`),
+            );
+        }
+        const result: unknown = await invokeWithChannelContext<unknown>(ipcRenderer, channel, encodedArgs, options);
         try {
             return codecs[channel].decodeResult(result);
         } catch (error) {

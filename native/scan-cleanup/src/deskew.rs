@@ -1,8 +1,12 @@
+use crate::analysis::build_analysis_level;
 use scan_primitives::{
     morphology::{open, reconstruct_binary},
     threshold::{otsu_threshold, threshold_global},
     BinaryImage, GrayImage,
 };
+
+const LOW_SCORE_FLOOR: f64 = 1_000.0;
+const ACCEPTANCE_CONFIDENCE: f64 = 2.0;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct DeskewResult {
@@ -12,10 +16,7 @@ pub struct DeskewResult {
 }
 
 pub fn detect_skew(source: &GrayImage, dpi: f64) -> DeskewResult {
-    let scale = (150.0 / dpi.max(1.0)).min(1.0);
-    let max_width = (source.width() as f64 * scale).round().max(1.0) as usize;
-    let max_height = (source.height() as f64 * scale).round().max(1.0) as usize;
-    let working = source.downscale_to_fit(max_width, max_height);
+    let working = build_analysis_level(source, dpi, 150.0).image;
     let binary = threshold_global(&working, otsu_threshold(&working));
     let shadow_seed = open(&binary, 75, 5);
     let without_shadows = binary.subtract(&reconstruct_binary(&shadow_seed, &binary));
@@ -48,15 +49,16 @@ pub fn score_skew(binary: &BinaryImage) -> DeskewResult {
         }
         step *= 0.5;
     }
-    let confidence = if average > 0.0 {
-        best_score / average
+    let confidence = if best_score > LOW_SCORE_FLOOR && average > 0.0 {
+        best_score / average - 1.0
     } else {
         0.0
     };
+    let accepted = confidence >= ACCEPTANCE_CONFIDENCE;
     DeskewResult {
-        angle_degrees: if confidence >= 2.0 { -best_angle } else { 0.0 },
+        angle_degrees: if accepted { -best_angle } else { 0.0 },
         confidence,
-        accepted: confidence >= 2.0,
+        accepted,
     }
 }
 
@@ -139,19 +141,42 @@ mod tests {
 
     #[test]
     fn recovers_known_rotation_with_high_confidence() {
-        let result = score_skew(&rotate(&text_page(220, 220), 3.25));
+        let page = rotate(&text_page(220, 220), 3.25);
+        let result = score_skew(&page);
         assert!(result.accepted, "confidence={}", result.confidence);
         assert!(
             (result.angle_degrees - 3.25).abs() <= 0.15,
             "angle={}",
             result.angle_degrees
         );
+        let coarse_mean = (-7..=7)
+            .map(|angle| projection_score(&page, f64::from(angle)))
+            .sum::<f64>()
+            / 15.0;
+        let best_score = projection_score(&page, -result.angle_degrees);
+        assert!((result.confidence - (best_score / coarse_mean - 1.0)).abs() < 1e-8);
     }
 
     #[test]
     fn rejects_low_information_page() {
         let result = score_skew(&BinaryImage::new(100, 100));
         assert!(!result.accepted);
+        assert_eq!(result.angle_degrees, 0.0);
+    }
+
+    #[test]
+    fn absolute_score_floor_rejects_a_flat_low_energy_profile() {
+        let mut page = BinaryImage::new(160, 160);
+        for index in 0..40 {
+            page.set(20 + index * 3, 20 + index * 3, true);
+        }
+        let maximum_score = (-7..=7)
+            .map(|angle| projection_score(&page, f64::from(angle)))
+            .fold(0.0, f64::max);
+        assert!(maximum_score <= LOW_SCORE_FLOOR, "score={maximum_score}");
+        let result = score_skew(&page);
+        assert!(!result.accepted);
+        assert_eq!(result.confidence, 0.0);
         assert_eq!(result.angle_degrees, 0.0);
     }
 }

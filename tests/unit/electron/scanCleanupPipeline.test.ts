@@ -27,6 +27,7 @@ import {
     runScanCleanupPipeline,
     type IRunScanCleanupPipelineDependencies,
 } from '@electron/features/scan-cleanup/worker/runScanCleanupPipeline';
+import {NativeScanCleanupError} from '@electron/features/scan-cleanup/worker/runScanCleanupSidecar';
 
 const dirs: string[] = [];
 interface ICleanupOutput {
@@ -35,6 +36,7 @@ interface ICleanupOutput {
 }
 
 const options: IScanCleanupOptions = {
+    preserveOriginalQuality: false,
     layoutMode: 'auto',
     outputMode: 'bw',
     readingOrder: 'ltr',
@@ -42,10 +44,14 @@ const options: IScanCleanupOptions = {
     crop: true,
     matchPageSize: true,
     pageAlignment: 'top-center',
-    marginsMm: 5,
+    marginsMm: {
+        leftMm: 5,
+        topMm: 5,
+        rightMm: 5,
+        bottomMm: 5,
+    },
     despeckle: true,
     skipBlankPages: false,
-    straightenCurvedLines: false,
     pageOverrides: {},
 };
 
@@ -110,8 +116,10 @@ async function writeCleanupOutput(
 ) {
     await writeFile(output.outputPath, 'PNG-CLEAN');
     await writeFile(output.metadataPath, JSON.stringify({
-        outputWidth: 1000,
-        outputHeight: 1400,
+        outputWidthPx: 1000,
+        outputHeightPx: 1400,
+        canvasWidthPx: 1000,
+        canvasHeightPx: 1400,
         layoutClassification: classification,
         skewApplied,
         contentBox: {
@@ -144,19 +152,21 @@ describe('scan cleanup pipeline', () => {
             thickness: 4,
             despeckle: true,
             skipBlankPages: true,
-            straightenCurvedLines: true,
             pageOverrides: {
                 '1': {
-                    rotation: 90,
+                    rotationDegrees: 90,
                     layoutOverride: 'spread',
                     excluded: false,
-                    manualSplitX: 250,
+                    manualSplit: {
+                        xNormalized: 0.5,
+                        rotationDegrees: 90,
+                    },
                 },
                 '2': {
-                    rotation: 0,
+                    rotationDegrees: 0,
                     layoutOverride: 'auto',
                     excluded: true,
-                    manualSplitX: null,
+                    manualSplit: null,
                 },
             },
         };
@@ -179,8 +189,8 @@ describe('scan cleanup pipeline', () => {
             analyzedOptions = manifest.pages[0]!.options;
             await writeFile(manifest.pages[0]!.pageMetadataPath, JSON.stringify({
                 layoutClassification: 'two-page-spread',
-                cutterX: 250,
-                rotation: 90,
+                cutterXPx: 250,
+                rotationDegrees: 90,
                 excluded: false,
                 blankOutputsSkipped: 0,
                 outputCount: 2,
@@ -188,31 +198,31 @@ describe('scan cleanup pipeline', () => {
                     {
                         half: 'left',
                         cropRect: {
-                            x: 0,
-                            y: 0,
-                            width: 250,
-                            height: 1000,
+                            xPx: 0,
+                            yPx: 0,
+                            widthPx: 250,
+                            heightPx: 1000,
                         },
-                        inputWidth: 1000,
-                        inputHeight: 500,
+                        inputWidthPx: 1000,
+                        inputHeightPx: 500,
                     },
                     {
                         half: 'right',
                         cropRect: {
-                            x: 250,
-                            y: 0,
-                            width: 250,
-                            height: 1000,
+                            xPx: 250,
+                            yPx: 0,
+                            widthPx: 250,
+                            heightPx: 1000,
                         },
-                        inputWidth: 1000,
-                        inputHeight: 500,
+                        inputWidthPx: 1000,
+                        inputHeightPx: 500,
                     },
                 ],
             }));
             await writeFile(manifest.pages[1]!.pageMetadataPath, JSON.stringify({
                 layoutClassification: 'single-uncut-page',
-                cutterX: null,
-                rotation: 0,
+                cutterXPx: null,
+                rotationDegrees: 0,
                 excluded: true,
                 blankOutputsSkipped: 0,
                 outputCount: 0,
@@ -230,7 +240,7 @@ describe('scan cleanup pipeline', () => {
                         yPoints: 0,
                         widthPoints: 200,
                         heightPoints: 100,
-                        rotation: 0,
+                        rotationDegrees: 0,
                     },
                     {
                         pageNumber: 2,
@@ -238,7 +248,7 @@ describe('scan cleanup pipeline', () => {
                         yPoints: 0,
                         widthPoints: 200,
                         heightPoints: 100,
-                        rotation: 0,
+                        rotationDegrees: 0,
                     },
                 ]}));
             } else {
@@ -271,7 +281,7 @@ describe('scan cleanup pipeline', () => {
             thickness: 0,
             despeckle: false,
             skipBlankPages: false,
-            experimentalAutoDewarp: false,
+            experimental: {autoDewarp: false},
         });
         expect(splitInstructions).toEqual({pages: [{
             sourcePageIndex: 0,
@@ -365,8 +375,8 @@ describe('scan cleanup pipeline', () => {
             cleanupManifest = manifest;
             await writeFile(manifest.pages[0]!.pageMetadataPath, JSON.stringify({
                 layoutClassification: 'two-page-spread',
-                cutterX: 500,
-                rotation: 0,
+                cutterXPx: 500,
+                rotationDegrees: 0,
                 excluded: false,
                 blankOutputsSkipped: 0,
                 outputCount: 2,
@@ -375,17 +385,24 @@ describe('scan cleanup pipeline', () => {
             await writeCleanupOutput(manifest.pages[0]!.outputs[1]!, 'two-page-spread');
             await writeFile(manifest.pages[1]!.pageMetadataPath, JSON.stringify({
                 layoutClassification: 'single-uncut-page',
-                cutterX: null,
-                rotation: 0,
+                cutterXPx: null,
+                rotationDegrees: 0,
                 excluded: false,
                 blankOutputsSkipped: 0,
                 outputCount: 1,
             }));
             await writeCleanupOutput(manifest.pages[1]!.outputs[0]!, 'single-uncut-page', false);
             onProgress({
-                event: 'page-complete',
-                page: 2,
-                total: 2,
+                stage: 'cleaning',
+                completedUnits: 1,
+                totalUnits: 2,
+                percent: 50,
+                completedPageNumbers: [2],
+            }, {
+                stage: 'page-complete',
+                completedPages: 1,
+                totalPages: 2,
+                pageNumber: 2,
             });
         });
         const pipelineDependencies = dependencies(runSidecar);
@@ -428,7 +445,7 @@ describe('scan cleanup pipeline', () => {
         expect(await readFile(fixture.sourcePdfPath, 'utf8')).toBe('ORIGINAL');
         expect(await readFile(fixture.outputPdfPath, 'utf8')).toContain('%PDF-1.7');
         expect(progress).toHaveBeenCalledWith(expect.objectContaining({
-            phase: 'handoff',
+            stage: 'handoff',
             percent: 100,
         }));
         expect(cleanupManifest).not.toBeNull();
@@ -491,7 +508,7 @@ describe('scan cleanup pipeline', () => {
                     yPoints: 0,
                     widthPoints: 200,
                     heightPoints: 100,
-                    rotation: 0,
+                    rotationDegrees: 0,
                 },
                 {
                     pageNumber: 2,
@@ -499,7 +516,7 @@ describe('scan cleanup pipeline', () => {
                     yPoints: 0,
                     widthPoints: 200,
                     heightPoints: 100,
-                    rotation: 0,
+                    rotationDegrees: 0,
                 },
             ]}));
             return {
@@ -556,10 +573,10 @@ describe('scan cleanup pipeline', () => {
             new AbortController().signal,
             vi.fn(),
             undefined,
-            dependencies(vi.fn(async () => { throw new Error('evb-scan-cleanup failed: fixture'); })),
+            dependencies(vi.fn(async () => { throw new NativeScanCleanupError('native-failure', 'fixture'); })),
         );
-        await expect(result).rejects.toThrow('evb-scan-cleanup failed');
-        expect(classifyScanCleanupError(new Error('evb-scan-cleanup failed'), false)).toBe('sidecar-failed');
+        await expect(result).rejects.toThrow('fixture');
+        expect(classifyScanCleanupError(new NativeScanCleanupError('native-failure', 'fixture'), false)).toBe('native-failure');
         expect(await readFile(fixture.sourcePdfPath, 'utf8')).toBe('ORIGINAL');
         await expect(readFile(fixture.outputPdfPath)).rejects.toMatchObject({code: 'ENOENT'});
     });

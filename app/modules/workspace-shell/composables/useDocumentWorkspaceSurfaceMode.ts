@@ -12,6 +12,7 @@ interface IUseDocumentWorkspaceSurfaceModeOptions {
     }) => void) | undefined;
     readScanCleanup?: (() => IScanCleanupTabSessionState | null) | undefined;
     readSurfaceMode?: (() => TDocumentSurfaceMode) | undefined;
+    clearScanCleanupViewState?: (() => void) | undefined;
 }
 
 export const useDocumentWorkspaceSurfaceMode = (options: IUseDocumentWorkspaceSurfaceModeOptions) => {
@@ -39,8 +40,15 @@ export const useDocumentWorkspaceSurfaceMode = (options: IUseDocumentWorkspaceSu
         options.applyViewState?.({scanCleanup: state});
     }
 
+    /** Forgets the saved scan-cleanup view state so the next entry starts fresh. */
+    function discardScanCleanupSessionState() {
+        localScanCleanupSessionState.value = null;
+        options.clearScanCleanupViewState?.();
+    }
+
     return {
         closeScanCleanup,
+        discardScanCleanupSessionState,
         openScanCleanup,
         scanCleanupSessionState,
         surfaceMode,

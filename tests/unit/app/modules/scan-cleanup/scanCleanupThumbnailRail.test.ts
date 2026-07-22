@@ -26,6 +26,7 @@ import {
     resolveScanCleanupSelection,
     type TScanCleanupSelectionIntent,
 } from '@app/modules/scan-cleanup/runtime/resolveScanCleanupSelection';
+import AppTooltip from '@app/components/AppTooltip.vue';
 import ScanCleanupThumbnailRail from '@app/modules/scan-cleanup/components/ScanCleanupThumbnailRail.vue';
 
 vi.mock('@app/components/document-viewer/DocumentThumbnailList.vue', async () => {
@@ -91,6 +92,7 @@ const messages: Record<string, string> = {
     'scanCleanup.pages.includeInOutput': 'Include in output',
     'scanCleanup.pages.excludedFromOutput': 'Excluded from output',
     'scanCleanup.pages.lowConfidence': 'Low-confidence detection',
+    'scanCleanup.pages.lowConfidenceHint': 'Detected as "{classification}" with low confidence — check this page and set its layout manually if wrong.',
     'scanCleanup.pages.processed': 'Processed',
     'scanCleanup.pages.sourceLoading': 'Loading source pages…',
     'scanCleanup.pages.sourceUnavailable': 'Source pages are unavailable',
@@ -199,7 +201,51 @@ const IconStub = defineComponent({
         'data-icon': props.name,
     }),
 });
-const SlotStub = defineComponent({setup: (_props, {slots}) => () => h('span', slots.default?.())});
+const TooltipStub = defineComponent({
+    inheritAttrs: false,
+    props: {
+        disabled: Boolean,
+        text: {
+            type: String,
+            default: '',
+        },
+    },
+    setup(props, {
+        attrs,
+        slots,
+    }) {
+        const open = ref(false);
+        return () => h('span', {
+            ...attrs,
+            'data-tooltip-root': '',
+            onFocusin: () => { open.value = !props.disabled; },
+            onFocusout: () => { open.value = false; },
+            onPointerenter: () => { open.value = !props.disabled; },
+            onPointerleave: () => { open.value = false; },
+        }, [
+            slots.default?.(),
+            open.value && !props.disabled
+                ? h(Teleport, {to: 'body'}, h('div', {
+                    'data-tooltip-content': '',
+                    role: 'tooltip',
+                }, props.text))
+                : null,
+        ]);
+    },
+});
+const PopoverStub = defineComponent({
+    props: {open: Boolean},
+    emits: ['update:open'],
+    setup: (props, {slots}) => () => h('span', {'data-popover-root': ''}, [
+        slots.default?.(),
+        props.open
+            ? h(Teleport, {to: 'body'}, h('div', {
+                'data-popover-content': '',
+                role: 'dialog',
+            }, slots.content?.()))
+            : null,
+    ]),
+});
 const mountedApps = new Set<() => void>();
 
 function createSource(pageCount = 5): IDocumentPageSource {
@@ -270,12 +316,13 @@ function mountRail(options: {
             value,
         ]),
     })}));
-    app.component('AppTooltip', SlotStub);
+    app.component('AppTooltip', AppTooltip);
     app.component('UBadge', BadgeStub);
     app.component('UButton', ButtonStub);
     app.component('UIcon', IconStub);
-    app.component('UPopover', SlotStub);
+    app.component('UPopover', PopoverStub);
     app.component('USelect', SelectStub);
+    app.component('UTooltip', TooltipStub);
     app.mount(host);
     const unmount = () => {
         app.unmount();
@@ -338,10 +385,10 @@ describe('ScanCleanupThumbnailRail', () => {
 
     it('keeps the rail header limited to source title, count, and sort', () => {
         const overrides: TScanCleanupPageOverrides = {'1': {
-            rotation: 90,
+            rotationDegrees: 90,
             layoutOverride: 'auto',
             excluded: false,
-            manualSplitX: null,
+            manualSplit: null,
         }};
         const harness = mountRail({overrides});
         const header = harness.host.querySelector('.scan-thumbnail-rail-header');
@@ -548,16 +595,16 @@ describe('ScanCleanupThumbnailRail', () => {
             ]),
             overrides: {
                 '2': {
-                    rotation: 90,
+                    rotationDegrees: 90,
                     layoutOverride: 'auto',
                     excluded: false,
-                    manualSplitX: null,
+                    manualSplit: null,
                 },
                 '3': {
-                    rotation: 0,
+                    rotationDegrees: 0,
                     layoutOverride: 'keep-left',
                     excluded: true,
-                    manualSplitX: null,
+                    manualSplit: null,
                 },
             },
         });
@@ -581,7 +628,106 @@ describe('ScanCleanupThumbnailRail', () => {
         await nextTick();
         expect(harness.overrideUpdates.at(-1)).toEqual([
             2,
-            expect.objectContaining({rotation: 180}),
+            expect.objectContaining({rotationDegrees: 180}),
         ]);
+    });
+
+    it('opens the low-confidence explanation and page-local layout override without selecting the row', async () => {
+        const harness = mountRail({
+            leader: 1,
+            classifications: new Map([[
+                2,
+                'two-page-spread',
+            ]]),
+            confidences: new Map([[
+                2,
+                0.4,
+            ]]),
+        });
+        const badge = harness.host.querySelector<HTMLButtonElement>(
+            '[data-page-number="2"] .scan-thumbnail-low-confidence',
+        )!;
+
+        badge.click();
+        await nextTick();
+
+        const popover = document.body.querySelector<HTMLElement>('[data-popover-content]')!;
+        expect(popover.textContent).toContain(
+            'Detected as "Spread" with low confidence — check this page and set its layout manually if wrong.',
+        );
+        const select = popover.querySelector<HTMLSelectElement>('[aria-label="Layout override for page 2"]')!;
+        expect(select).not.toBeNull();
+        expect(Array.from(select.options).map(option => option.textContent)).toEqual([
+            'Auto',
+            'Single page',
+            'Two-page spread',
+            'Keep left half',
+            'Keep right half',
+        ]);
+        expect(harness.leader.value).toBe(1);
+
+        select.value = 'single';
+        select.dispatchEvent(new Event('change', {bubbles: true}));
+        expect(harness.overrideUpdates.at(-1)).toEqual([
+            2,
+            expect.objectContaining({layoutOverride: 'single'}),
+        ]);
+    });
+
+    it('renders the low-confidence hint through AppTooltip on pointer hover and keyboard focus', async () => {
+        const harness = mountRail({
+            classifications: new Map([[
+                2,
+                'single-uncut-page',
+            ]]),
+            confidences: new Map([[
+                2,
+                0.4,
+            ]]),
+        });
+        const badge = harness.host.querySelector<HTMLButtonElement>(
+            '[data-page-number="2"] .scan-thumbnail-low-confidence',
+        )!;
+        const hint = 'Detected as "Single" with low confidence — check this page and set its layout manually if wrong.';
+
+        badge.dispatchEvent(new PointerEvent('pointerenter', {bubbles: true}));
+        await nextTick();
+        expect(document.body.querySelector('[role="tooltip"]')?.textContent).toBe(hint);
+
+        badge.dispatchEvent(new PointerEvent('pointerleave', {bubbles: true}));
+        badge.dispatchEvent(new FocusEvent('focusin', {bubbles: true}));
+        await nextTick();
+        expect(document.body.querySelector('[role="tooltip"]')?.textContent).toBe(hint);
+    });
+
+    it('closes the low-confidence popover on Escape without bubbling to workspace handlers', async () => {
+        const harness = mountRail({
+            classifications: new Map([[
+                2,
+                'single-uncut-page',
+            ]]),
+            confidences: new Map([[
+                2,
+                0.4,
+            ]]),
+        });
+        const badge = harness.host.querySelector<HTMLButtonElement>(
+            '[data-page-number="2"] .scan-thumbnail-low-confidence',
+        )!;
+        const escaped = vi.fn();
+        harness.host.addEventListener('keydown', escaped);
+
+        badge.click();
+        await nextTick();
+        expect(document.body.querySelector('[data-popover-content]')).not.toBeNull();
+
+        badge.dispatchEvent(new KeyboardEvent('keydown', {
+            bubbles: true,
+            cancelable: true,
+            key: 'Escape',
+        }));
+        await nextTick();
+        expect(document.body.querySelector('[data-popover-content]')).toBeNull();
+        expect(escaped).not.toHaveBeenCalled();
     });
 });

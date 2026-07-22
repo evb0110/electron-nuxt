@@ -13,6 +13,7 @@
                     value-key="value"
                     size="xs"
                     portal="body"
+                    :ui="{content: 'min-w-fit'}"
                     :aria-label="t('scanCleanup.pages.sort.label')"
                 />
             </div>
@@ -57,8 +58,12 @@
                     :data-page-number="naturalPage(position)"
                     :data-classification="classificationKind(naturalPage(position))"
                 >
-                    <div class="scan-thumbnail-statuses">
-                        <UBadge color="neutral" variant="soft" size="sm">
+                    <div
+                        class="scan-thumbnail-statuses"
+                        @click.stop
+                        @pointerdown.stop
+                    >
+                        <UBadge class="scan-thumbnail-classification-badge" color="neutral" variant="soft" size="sm">
                             <span
                                 v-if="isDetectionPending(naturalPage(position))"
                                 class="scan-thumbnail-detection-pending"
@@ -69,11 +74,54 @@
                             </span>
                             <template v-else>{{ statusLabel(naturalPage(position)) }}</template>
                         </UBadge>
-                        <span
+                        <AppTooltip
                             v-if="isLowConfidence(naturalPage(position))"
-                            class="scan-thumbnail-low-confidence"
-                            :aria-label="t('scanCleanup.pages.lowConfidence')"
-                        >?</span>
+                            :text="lowConfidenceHint(naturalPage(position))"
+                            usefulness="always"
+                        >
+                            <UPopover
+                                :open="lowConfidencePopoverPage === naturalPage(position)"
+                                portal="body"
+                                :content="{side: 'right', align: 'start'}"
+                                @update:open="updateLowConfidencePopover(naturalPage(position), $event)"
+                            >
+                                <button
+                                    type="button"
+                                    class="scan-thumbnail-low-confidence"
+                                    :aria-label="lowConfidenceHint(naturalPage(position))"
+                                    :aria-expanded="lowConfidencePopoverPage === naturalPage(position)"
+                                    aria-haspopup="dialog"
+                                    :disabled="disabled"
+                                    @click="openLowConfidencePopover(naturalPage(position))"
+                                    @keydown.esc.stop.prevent="closeLowConfidencePopover(naturalPage(position))"
+                                >?</button>
+
+                                <template #content>
+                                    <div
+                                        class="scan-thumbnail-low-confidence-popover"
+                                        @click.stop
+                                        @pointerdown.stop
+                                        @keydown.esc.stop.prevent="closeLowConfidencePopover(naturalPage(position))"
+                                    >
+                                        <p>{{ lowConfidenceHint(naturalPage(position)) }}</p>
+                                        <USelect
+                                            class="scan-thumbnail-popover-override-select"
+                                            :model-value="pageOverride(naturalPage(position)).layoutOverride"
+                                            :items="overrideItems"
+                                            value-key="value"
+                                            size="xs"
+                                            portal="body"
+                                            :content="{position: 'popper', side: 'bottom', align: 'start'}"
+                                            :ui="overrideSelectUi"
+                                            :aria-label="t('scanCleanup.pages.overrideFor', {page: naturalPage(position)})"
+                                            :disabled="disabled"
+                                            @keydown.esc.stop.prevent="closeLowConfidencePopover(naturalPage(position))"
+                                            @update:model-value="updateOverride(naturalPage(position), {layoutOverride: $event})"
+                                        />
+                                    </div>
+                                </template>
+                            </UPopover>
+                        </AppTooltip>
                         <UIcon
                             v-if="pageOverride(naturalPage(position)).excluded"
                             name="i-ph-eye-slash"
@@ -81,11 +129,11 @@
                             :aria-label="t('scanCleanup.pages.excludedFromOutput')"
                         />
                         <span
-                            v-if="pageOverride(naturalPage(position)).rotation !== 0"
+                            v-if="pageOverride(naturalPage(position)).rotationDegrees !== 0"
                             class="scan-thumbnail-rotation"
                         >
                             <UIcon name="i-ph-arrow-clockwise" />
-                            {{ pageOverride(naturalPage(position)).rotation }}°
+                            {{ pageOverride(naturalPage(position)).rotationDegrees }}°
                         </span>
                         <UIcon
                             v-if="processedPages?.has(naturalPage(position))"
@@ -121,7 +169,7 @@
                             :disabled="disabled"
                             @update:model-value="updateOverride(naturalPage(position), {layoutOverride: $event})"
                         />
-                        <AppTooltip :text="t('scanCleanup.pages.rotateCurrent', {rotation: pageOverride(naturalPage(position)).rotation})">
+                        <AppTooltip :text="t('scanCleanup.pages.rotateCurrent', {rotation: pageOverride(naturalPage(position)).rotationDegrees})">
                             <UButton
                                 type="button"
                                 color="neutral"
@@ -129,7 +177,7 @@
                                 size="xs"
                                 square
                                 icon="i-ph-arrow-clockwise"
-                                :aria-label="t('scanCleanup.pages.rotateCurrent', {rotation: pageOverride(naturalPage(position)).rotation})"
+                                :aria-label="t('scanCleanup.pages.rotateCurrent', {rotation: pageOverride(naturalPage(position)).rotationDegrees})"
                                 :disabled="disabled"
                                 @click="rotate(naturalPage(position))"
                             />
@@ -195,6 +243,7 @@ const emit = defineEmits<{
 }>();
 const {t} = useTypedI18n();
 const sortMode = ref<TScanCleanupRailSort>('natural');
+const lowConfidencePopoverPage = ref<number | null>(null);
 const sortItems = computed(() => [
     {
         value: 'natural' as const,
@@ -320,8 +369,8 @@ function rotate(page: number) {
         180,
         270,
     ];
-    const current = pageOverride(page).rotation;
-    updateOverride(page, {rotation: rotations[(rotations.indexOf(current) + 1) % rotations.length] ?? 0});
+    const current = pageOverride(page).rotationDegrees;
+    updateOverride(page, {rotationDegrees: rotations[(rotations.indexOf(current) + 1) % rotations.length] ?? 0});
 }
 
 function classificationKind(page: number) {
@@ -372,6 +421,28 @@ function statusLabel(page: number) {
 function isLowConfidence(page: number) {
     const confidence = props.confidences.get(page);
     return confidence !== undefined && confidence < LOW_CONFIDENCE_THRESHOLD;
+}
+
+function lowConfidenceHint(page: number) {
+    return t('scanCleanup.pages.lowConfidenceHint', {classification: statusLabel(page)});
+}
+
+function openLowConfidencePopover(page: number) {
+    lowConfidencePopoverPage.value = page;
+}
+
+function closeLowConfidencePopover(page: number) {
+    if (lowConfidencePopoverPage.value === page) {
+        lowConfidencePopoverPage.value = null;
+    }
+}
+
+function updateLowConfidencePopover(page: number, open: boolean) {
+    if (open) {
+        lowConfidencePopoverPage.value = page;
+    } else {
+        closeLowConfidencePopover(page);
+    }
 }
 
 function isDetectionPending(page: number) {
@@ -440,10 +511,13 @@ function handleKeydown(event: KeyboardEvent) {
 }
 
 .scan-thumbnail-rail-header {
-    min-height: var(--app-control-height-md);
+    box-sizing: border-box;
+    height: var(--app-scan-header-height);
+    min-height: var(--app-scan-header-height);
+    flex: 0 0 var(--app-scan-header-height);
     justify-content: space-between;
     gap: var(--app-space-sm);
-    padding: var(--app-space-5xl);
+    padding-inline: var(--app-space-5xl);
     border-block-end: var(--app-hairline-height) solid var(--ui-border);
 }
 
@@ -523,10 +597,39 @@ function handleKeydown(event: KeyboardEvent) {
     width: var(--app-control-height-xs);
     height: var(--app-control-height-xs);
     place-items: center;
+    border: 0;
     border-radius: var(--app-radius-full);
     background: var(--ui-warning);
     color: var(--ui-bg);
+    cursor: pointer;
+    font: inherit;
     font-weight: var(--app-font-weight-heading);
+    padding: 0;
+    pointer-events: auto;
+}
+
+.scan-thumbnail-low-confidence:focus-visible {
+    outline: var(--app-hairline-height) solid var(--ui-primary);
+    outline-offset: var(--app-space-xs);
+}
+
+.scan-thumbnail-low-confidence-popover {
+    display: grid;
+    width: var(--app-scan-low-confidence-popover-width);
+    gap: var(--app-space-5xl);
+    padding: var(--app-space-5xl);
+    color: var(--ui-text);
+    font-size: var(--app-text-size-body-sm);
+}
+
+.scan-thumbnail-low-confidence-popover p {
+    margin: 0;
+    color: var(--ui-text-muted);
+    line-height: var(--app-line-height-body);
+}
+
+.scan-thumbnail-popover-override-select {
+    width: 100%;
 }
 
 .scan-thumbnail-excluded-icon,

@@ -1,58 +1,60 @@
 <template>
-    <PdfExportScopeDialog
-        :open="exportScopeDialogOpen"
-        :mode="exportScopeDialogMode"
-        :total-pages="totalPages"
-        :current-page="currentPage"
-        :selected-pages="exportScopeDialogSelectedPages"
-        @submit="handleExportSubmit"
-        @update:open="handleExportOpenChange"
-    />
+    <div v-show="visible" class="workspace-save-dialog-host-root">
+        <PdfExportScopeDialog
+            :open="visible && exportScopeDialogOpen"
+            :mode="exportScopeDialogMode"
+            :total-pages="totalPages"
+            :current-page="currentPage"
+            :selected-pages="exportScopeDialogSelectedPages"
+            @submit="handleExportSubmit"
+            @update:open="handleExportOpenChange"
+        />
 
-    <PdfPrintDialog
-        :open="printDialogOpen"
-        :total-pages="totalPages"
-        :current-page="currentPage"
-        :selected-pages="printDialogSelectedPages"
-        :default-view-mode="viewMode"
-        :is-preparing="isPreparingPrint"
-        :status="printStatus"
-        :error="printError"
-        @submit="handlePrintSubmit"
-        @update:open="handlePrintOpenChange"
-    />
+        <PdfPrintDialog
+            :open="visible && printDialogOpen"
+            :total-pages="totalPages"
+            :current-page="currentPage"
+            :selected-pages="printDialogSelectedPages"
+            :default-view-mode="viewMode"
+            :is-preparing="isPreparingPrint"
+            :status="printStatus"
+            :error="printError"
+            @submit="handlePrintSubmit"
+            @update:open="handlePrintOpenChange"
+        />
 
-    <PdfOptimizeDialog
-        :open="optimizeDialogOpen"
-        :is-running="optimizeDialogRunning"
-        :progress="optimizeDialogProgress"
-        :error="optimizeDialogError"
-        @submit="handleOptimizeSubmit"
-        @update:open="handleOptimizeOpenChange"
-    />
+        <PdfOptimizeDialog
+            :open="visible && optimizeDialogOpen"
+            :is-running="optimizeDialogRunning"
+            :progress="optimizeDialogProgress"
+            :error="optimizeDialogError"
+            @submit="handleOptimizeSubmit"
+            @update:open="handleOptimizeOpenChange"
+        />
 
-    <PdfCropDialog
-        :open="cropDialogOpen"
-        :loading="cropDialogLoading"
-        :total-pages="totalPages"
-        :current-page="cropDialogPageNumber"
-        :selected-pages="selectedThumbnailPages"
-        :initial-margins="cropDialogMargins"
-        :media-box="cropDialogMediaBox"
-        :current-visible-box="cropDialogCurrentBox"
-        :rotation="cropDialogRotation"
-        @apply="handleCropApply"
-        @remove="handleCropRemove"
-        @update:open="handleCropOpenChange"
-    />
+        <PdfCropDialog
+            :open="visible && cropDialogOpen"
+            :loading="cropDialogLoading"
+            :total-pages="totalPages"
+            :current-page="cropDialogPageNumber"
+            :selected-pages="selectedThumbnailPages"
+            :initial-margins="cropDialogMargins"
+            :media-box="cropDialogMediaBox"
+            :current-visible-box="cropDialogCurrentBox"
+            :rotation="cropDialogRotation"
+            @apply="handleCropApply"
+            @remove="handleCropRemove"
+            @update:open="handleCropOpenChange"
+        />
 
-    <DjvuConvertDialog
-        v-if="showDjvuConversionUi"
-        :open="showConvertDialog"
-        :djvu-path="djvuPath"
-        @convert="handleDjvuConvert"
-        @update:open="handleConvertOpenChange"
-    />
+        <DjvuConvertDialog
+            v-if="showDjvuConversionUi"
+            :open="visible && showConvertDialog"
+            :djvu-path="djvuPath"
+            @convert="handleDjvuConvert"
+            @update:open="handleConvertOpenChange"
+        />
+    </div>
 </template>
 
 <script setup lang="ts">
@@ -74,6 +76,7 @@ type TDjvuConvertDialogProps = InstanceType<typeof DjvuConvertDialog>['$props'];
 type TRequiredHandler<T> = NonNullable<T> extends (...args: infer TArgs) => unknown ? TArgs : never;
 
 defineProps<{
+    visible: boolean;
     exportScopeDialogOpen: boolean;
     exportScopeDialogMode: TPdfExportScopeDialogProps['mode'];
     exportScopeDialogSelectedPages: number[];
@@ -160,3 +163,9 @@ function handleConvertOpenChange(value: boolean) {
     emit('convert-open-change', value);
 }
 </script>
+
+<style scoped>
+.workspace-save-dialog-host-root {
+    display: contents;
+}
+</style>

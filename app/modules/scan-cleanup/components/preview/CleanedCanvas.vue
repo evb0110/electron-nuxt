@@ -1,0 +1,76 @@
+<template>
+    <div class="cleaned-outputs" :class="{'is-spread': outputs.length > 1}">
+        <div v-for="output in outputs" :key="output.metadata.half" class="output-column">
+            <div
+                :ref="element => $emit('set-fit-area', output.metadata.half, element)"
+                class="output-fit-area"
+                :data-output-half="output.metadata.half"
+            >
+                <div
+                    :ref="element => $emit('set-canvas', output.metadata.half, element)"
+                    class="uniform-canvas"
+                    :class="{'has-uniform-canvas': matchPageSize}"
+                    :style="output.canvasStyle"
+                    :data-frame-width="output.placement.canvasWidthPx"
+                    :data-frame-height="output.placement.canvasHeightPx"
+                >
+                    <div
+                        class="placed-image"
+                        :class="{
+                            'is-draggable': matchPageSize,
+                            'is-drag-placeholder': activePlacementHalf === output.metadata.half,
+                        }"
+                        :style="output.imageStyle"
+                    >
+                        <img
+                            v-if="output.pixelSwap.outgoingUrl"
+                            :key="output.pixelSwap.outgoingUrl"
+                            class="cleaned-image preview-pixel is-outgoing"
+                            :src="output.pixelSwap.outgoingUrl"
+                            alt=""
+                        >
+                        <img
+                            v-if="output.pixelSwap.currentUrl"
+                            :key="output.pixelSwap.currentUrl"
+                            class="cleaned-image preview-pixel"
+                            :class="{'is-entering': output.pixelSwap.entering}"
+                            :src="output.pixelSwap.currentUrl"
+                            :alt="altByHalf[output.metadata.half] ?? ''"
+                            @transitionend="$emit('complete', output.metadata.half, output.pixelSwap.currentUrl)"
+                        >
+                        <img
+                            v-if="output.pixelSwap.incomingUrl"
+                            :key="output.pixelSwap.incomingUrl"
+                            class="cleaned-image preview-pixel is-incoming"
+                            :src="output.pixelSwap.incomingUrl"
+                            alt=""
+                            @load="$emit('load', output.metadata.half, output.pixelSwap.incomingUrl)"
+                        >
+                        <span class="margin-overlay" aria-hidden="true" />
+                    </div>
+                    <slot name="paper-overlay" :output="output" />
+                </div>
+            </div>
+        </div>
+    </div>
+</template>
+
+<script setup lang="ts">
+import type {ComponentPublicInstance} from 'vue';
+import type {TScanCleanupOutputHalf} from '@contracts/electronApiScanCleanup';
+import type {IRenderedScanCleanupOutput} from '@app/modules/scan-cleanup/runtime/scanCleanupPreviewPresentation';
+
+defineProps<{
+    activePlacementHalf: TScanCleanupOutputHalf | null;
+    altByHalf: Partial<Record<TScanCleanupOutputHalf, string>>;
+    matchPageSize: boolean;
+    outputs: IRenderedScanCleanupOutput[];
+}>();
+defineEmits<{
+    complete: [half: TScanCleanupOutputHalf, url: string];
+    load: [half: TScanCleanupOutputHalf, url: string];
+    'set-canvas': [half: TScanCleanupOutputHalf, element: Element | ComponentPublicInstance | null];
+    'set-fit-area': [half: TScanCleanupOutputHalf, element: Element | ComponentPublicInstance | null];
+}>();
+defineSlots<{'paper-overlay': (props: {output: IRenderedScanCleanupOutput}) => unknown}>();
+</script>

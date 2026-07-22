@@ -81,7 +81,7 @@
             />
         </WorkspaceToolbarHost>
         <WorkspaceDocumentAlerts
-            v-show="surfaceMode === 'reader'"
+            :visible="surfaceMode === 'reader'"
             :pdf-error="pdfError"
             :show-djvu-conversion-ui="showDjvuConversionUi"
             :djvu-error="djvuError"
@@ -215,6 +215,7 @@
             :page-source="documentPageSource"
             :page-source-pending="documentPageSource === null && isLoading"
             :document-key="documentRevisionInfo?.documentRef ?? originalPath ?? workingCopyPath"
+            :document-revision="documentRevisionToken"
             :current-page="currentPage"
             :total-pages="totalPages"
             :session-state="scanCleanupSessionState"
@@ -247,7 +248,7 @@
             />
         </Teleport>
         <WorkspaceAnnotationOverlays
-            v-show="surfaceMode === 'reader'"
+            :visible="surfaceMode === 'reader'"
             :sorted-annotation-note-windows="sortedAnnotationNoteWindows"
             :annotation-note-positions="annotationNotePositions"
             :annotation-viewport-root="pdfViewerRef?.getViewerContainer?.() ?? null"
@@ -311,7 +312,7 @@
             @cancel="handleDjvuCancel"
         />
         <WorkspaceSaveDialogHost
-            v-show="surfaceMode === 'reader'"
+            :visible="surfaceMode === 'reader'"
             :export-scope-dialog-open="exportScopeDialogOpen"
             :export-scope-dialog-mode="exportScopeDialogMode"
             :export-scope-dialog-selected-pages="exportScopeDialogSelectedPages"
@@ -360,6 +361,7 @@ import '@app/assets/css/pdf-comment-ui.scss';
 import '@app/assets/css/pdf-search-highlights.scss';
 import '@app/assets/css/pdf-animations.scss';
 import '@app/assets/css/pdf-debug-overlays.scss';
+import { discardScanCleanupDocumentState } from '@app/modules/scan-cleanup/public/runtime';
 import { PdfEmptyState } from '@app/modules/pdf-viewer/public/component-exports/pdfEmptyState';
 import { PdfSidebar } from '@app/modules/pdf-viewer/public/component-exports/pdfSidebar';
 import { PdfStatusBar } from '@app/modules/pdf-viewer/public/component-exports/pdfStatusBar';
@@ -435,7 +437,7 @@ import {
 } from '@app/modules/workspace-shell/composables/createDocumentWorkspaceCommandBindings';
 const DjvuConversionOverlay = defineAsyncComponent(() => import('@app/modules/djvu-viewer/public').then(componentModule => componentModule.DjvuConversionOverlay));
 const ScanCleanupWorkspace = defineAsyncComponent(
-    () => import('@app/modules/scan-cleanup/public').then(module => module.ScanCleanupWorkspace),
+    () => import('@app/modules/scan-cleanup/public/workspace').then(module => module.ScanCleanupWorkspace),
 );
 const documentOpenSurface = injectDocumentOpenSurfaceSession();
 if (!documentOpenSurface) {
@@ -474,6 +476,7 @@ const isOcrRunning = ref(false);
 const ocrPopupRef = ref<IOcrPopupAgentExpose | null>(null);
 const {
     closeScanCleanup: closeScanCleanupSurface,
+    discardScanCleanupSessionState,
     openScanCleanup: openScanCleanupSurface,
     scanCleanupSessionState,
     surfaceMode,
@@ -489,6 +492,15 @@ const {
         : undefined,
     readScanCleanup: documentSession ? () => documentSession.snapshot.value.viewState.scanCleanup ?? null : undefined,
     readSurfaceMode: documentSession ? () => documentSession.snapshot.value.viewState.surfaceMode : undefined,
+    clearScanCleanupViewState: documentSession
+        ? () => {
+            const {
+                scanCleanup: _scanCleanup,
+                ...viewState
+            } = documentSession.snapshot.value.viewState;
+            documentSession.applyViewState(viewState);
+        }
+        : undefined,
 });
 const emit = defineEmits<IDocumentWorkspaceEmits>();
 const workspaceCommandBindings = createDocumentWorkspaceCommandBindings(emit);
@@ -513,7 +525,18 @@ function openScanCleanup() {
     closeAllDropdowns();
     openScanCleanupSurface();
 }
-const closeScanCleanup = closeScanCleanupSurface;
+
+function closeScanCleanup() {
+    closeScanCleanupSurface();
+    discardScanCleanupState();
+}
+
+function discardScanCleanupState() {
+    // Closing the split UI discards the split session: saved view state and
+    // per-document split data must not survive into the next entry.
+    discardScanCleanupSessionState();
+    discardScanCleanupDocumentState(documentRevisionInfo.value?.documentRef ?? originalPath.value ?? workingCopyPath.value);
+}
 const navigationFeedbackPage = ref<number | null>(null);
 const {
     pendingDjvuDocumentOpen,
@@ -1536,6 +1559,9 @@ onMounted(() => {
     emit('expose-ready', workspaceExpose);
 });
 onBeforeUnmount(() => {
+    if (surfaceMode.value === 'scan-cleanup') {
+        discardScanCleanupState();
+    }
     deferredWorkspaceSearch.dispose();
     unsubscribeOptimizeProgress?.();
     unsubscribeOptimizeProgress = null;

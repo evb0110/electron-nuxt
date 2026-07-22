@@ -1,4 +1,5 @@
 import type {
+    IScanCleanupMarginsMm,
     IScanCleanupPageOverride,
     TScanCleanupPageOverrides,
 } from '@contracts/electronApiScanCleanup';
@@ -61,12 +62,18 @@ export function updateScanCleanupPageOverrides(
     overrides: TScanCleanupPageOverrides,
     pages: Iterable<number>,
     update: (value: IScanCleanupPageOverride, page: number) => IScanCleanupPageOverride,
+    documentMargins?: IScanCleanupMarginsMm,
 ) {
     for (const page of pages) {
         if (!Number.isInteger(page) || page < 1) {
             continue;
         }
         const current = getScanCleanupPageOverride(overrides, page);
-        setScanCleanupPageOverride(overrides, page, createScanCleanupPageOverride(update(current, page)));
+        setScanCleanupPageOverride(
+            overrides,
+            page,
+            createScanCleanupPageOverride(update(current, page)),
+            documentMargins,
+        );
     }
 }

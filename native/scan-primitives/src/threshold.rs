@@ -64,8 +64,16 @@ pub fn threshold_global_biased(image: &GrayImage, threshold: u8, bias: i16) -> B
 
 #[derive(Clone, Copy, Debug)]
 pub enum LocalThreshold {
-    Sauvola { k: f64 },
-    Wolf { k: f64, deviation_floor: f64 },
+    Sauvola {
+        k: f64,
+    },
+    Wolf {
+        k: f64,
+        deviation_floor: f64,
+        minimum_percentile: f64,
+        hard_ink: u8,
+        hard_paper: u8,
+    },
 }
 
 pub fn threshold_local(image: &GrayImage, radius: usize, method: LocalThreshold) -> BinaryImage {
@@ -80,7 +88,12 @@ pub fn threshold_local_biased(
 ) -> BinaryImage {
     let width = image.width();
     let height = image.height();
-    let global_min = image.data().iter().copied().min().unwrap_or(u8::MAX);
+    let global_min = match method {
+        LocalThreshold::Wolf {
+            minimum_percentile, ..
+        } => grayscale_percentile(image, minimum_percentile),
+        LocalThreshold::Sauvola { .. } => 0,
+    };
     let mut max_deviation = 1.0f64;
     for_each_local_stat(image, radius, |_x, _y, _mean, deviation| {
         max_deviation = max_deviation.max(deviation);
@@ -89,19 +102,43 @@ pub fn threshold_local_biased(
     for_each_local_stat(image, radius, |x, y, mean, deviation| {
         let threshold = match method {
             LocalThreshold::Sauvola { k } => mean * (1.0 + k * (deviation / 128.0 - 1.0)),
-            LocalThreshold::Wolf { k, deviation_floor } => {
+            LocalThreshold::Wolf {
+                k, deviation_floor, ..
+            } => {
                 let normalized =
                     deviation.max(deviation_floor) / max_deviation.max(deviation_floor);
                 mean - k * (1.0 - normalized) * (mean - f64::from(global_min))
             }
         };
-        output.set(
-            x,
-            y,
-            f64::from(image.get(x, y)) < (threshold + f64::from(bias)).clamp(0.0, 255.0),
-        );
+        let value = image.get(x, y);
+        let black = match method {
+            LocalThreshold::Wolf { hard_ink, .. } if value <= hard_ink => true,
+            LocalThreshold::Wolf { hard_paper, .. } if value >= hard_paper => false,
+            _ => f64::from(value) < (threshold + f64::from(bias)).clamp(0.0, 255.0),
+        };
+        output.set(x, y, black);
     });
     output
+}
+
+fn grayscale_percentile(image: &GrayImage, fraction: f64) -> u8 {
+    let mut histogram = [0usize; 256];
+    for &value in image.data() {
+        histogram[value as usize] += 1;
+    }
+    let count = image.width().saturating_mul(image.height());
+    if count == 0 {
+        return 255;
+    }
+    let target = ((count - 1) as f64 * fraction.clamp(0.0, 1.0)).round() as usize;
+    let mut cumulative = 0usize;
+    for (value, frequency) in histogram.into_iter().enumerate() {
+        cumulative += frequency;
+        if cumulative > target {
+            return value as u8;
+        }
+    }
+    255
 }
 
 fn horizontal_window_stats(image: &GrayImage, y: usize, radius: usize) -> (Vec<u32>, Vec<u32>) {
@@ -206,9 +243,34 @@ mod tests {
             2,
             LocalThreshold::Wolf {
                 k: 0.5,
-                deviation_floor: 2.0
+                deviation_floor: 2.0,
+                minimum_percentile: 0.01,
+                hard_ink: 48,
+                hard_paper: 248,
             }
         )
         .get(4, 4));
+    }
+
+    #[test]
+    fn wolf_uses_a_robust_minimum_and_hard_ink_paper_bounds() {
+        let mut image = GrayImage::new(20, 20, 220);
+        image.set(0, 0, 0);
+        image.set(1, 1, 40);
+        image.set(2, 2, 252);
+        assert_eq!(grayscale_percentile(&image, 0.01), 220);
+        let binary = threshold_local(
+            &image,
+            3,
+            LocalThreshold::Wolf {
+                k: 0.3,
+                deviation_floor: 2.0,
+                minimum_percentile: 0.01,
+                hard_ink: 48,
+                hard_paper: 248,
+            },
+        );
+        assert!(binary.get(1, 1));
+        assert!(!binary.get(2, 2));
     }
 }

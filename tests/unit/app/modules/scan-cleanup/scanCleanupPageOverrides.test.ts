@@ -8,27 +8,34 @@ import {
     estimateScanCleanupOutputPages,
     getScanCleanupPageOverride,
     resolveScanCleanupPageLayout,
+    resolveScanCleanupMarginsMm,
     resolveScanCleanupOutputPlacement,
     setScanCleanupPageOverride,
     shouldShowScanCleanupOutputEstimate,
-} from '@app/modules/scan-cleanup/runtime/scanCleanupPageOverrides';
+} from '@contracts/scanCleanupPageOverrides';
 
 describe('scan cleanup page overrides', () => {
     it('merges sparse page values over stable defaults and removes reset entries', () => {
         const overrides = {};
         expect(getScanCleanupPageOverride(overrides, 3)).toEqual({
-            rotation: 0,
+            rotationDegrees: 0,
             layoutOverride: 'auto',
             excluded: false,
-            manualSplitX: null,
+            manualSplit: null,
         });
         setScanCleanupPageOverride(overrides, 3, createScanCleanupPageOverride({
-            rotation: 90,
-            manualSplitX: 412.5,
+            rotationDegrees: 90,
+            manualSplit: {
+                xNormalized: 0.5,
+                rotationDegrees: 0,
+            },
         }));
         expect(getScanCleanupPageOverride(overrides, 3)).toMatchObject({
-            rotation: 90,
-            manualSplitX: 412.5,
+            rotationDegrees: 90,
+            manualSplit: {
+                xNormalized: 0.5,
+                rotationDegrees: 0,
+            },
         });
         setScanCleanupPageOverride(overrides, 3, createScanCleanupPageOverride());
         expect(overrides).toEqual({});
@@ -45,6 +52,28 @@ describe('scan cleanup page overrides', () => {
         const override = createScanCleanupPageOverride({placementOverrides: {right: 'bottom-right'}});
         expect(resolveScanCleanupOutputPlacement('top-left', override, 'left')).toBe('top-left');
         expect(resolveScanCleanupOutputPlacement('top-left', override, 'right')).toBe('bottom-right');
+    });
+
+    it('normalizes equal margin overrides away and preserves asymmetric overrides', () => {
+        const documentMargins = {
+            leftMm: 5,
+            topMm: 5,
+            rightMm: 5,
+            bottomMm: 5,
+        };
+        const overrides = {};
+        setScanCleanupPageOverride(overrides, 3, createScanCleanupPageOverride({marginsMm: {...documentMargins}}), documentMargins);
+        expect(overrides).toEqual({});
+
+        const asymmetricMargins = {
+            leftMm: 2,
+            topMm: 4,
+            rightMm: 6,
+            bottomMm: 8,
+        };
+        setScanCleanupPageOverride(overrides, 3, createScanCleanupPageOverride({marginsMm: asymmetricMargins}), documentMargins);
+        expect(resolveScanCleanupMarginsMm(documentMargins, getScanCleanupPageOverride(overrides, 3)))
+            .toEqual(asymmetricMargins);
     });
 
     it('accounts exactly for exclusions and forced output counts', () => {

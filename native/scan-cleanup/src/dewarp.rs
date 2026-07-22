@@ -1,4 +1,4 @@
-use crate::DewarpOptions;
+use crate::{png::RgbImage, DewarpOptions};
 use scan_primitives::{GrayImage, Point, Projective};
 
 #[derive(Clone, Debug)]
@@ -168,6 +168,28 @@ pub fn rasterize_inverse_area(
     output
 }
 
+pub fn rasterize_inverse_area_rgb(
+    source: &RgbImage,
+    model: &DewarpModel,
+    width: usize,
+    height: usize,
+) -> RgbImage {
+    let mut output = RgbImage::new(width, height, [255; 3]);
+    for y in 0..height {
+        for x in 0..width {
+            let u0 = x as f64 / width as f64;
+            let u1 = (x + 1) as f64 / width as f64;
+            let v0 = y as f64 / height as f64;
+            let v1 = (y + 1) as f64 / height as f64;
+            let Some(quad) = mapped_quad(model, u0, v0, u1, v1) else {
+                continue;
+            };
+            output.set(x, y, integrate_quad_rgb(source, &quad));
+        }
+    }
+    output
+}
+
 fn mapped_quad(model: &DewarpModel, u0: f64, v0: f64, u1: f64, v1: f64) -> Option<[Point; 4]> {
     Some([
         model.map_unit_to_source(u0, v0)?,
@@ -224,6 +246,59 @@ fn integrate_quad(source: &GrayImage, quad: &[Point; 4]) -> u8 {
         (weighted / area).round().clamp(0.0, 255.0) as u8
     } else {
         255
+    }
+}
+
+fn integrate_quad_rgb(source: &RgbImage, quad: &[Point; 4]) -> [u8; 3] {
+    let min_x = quad
+        .iter()
+        .map(|point| point.x)
+        .fold(f64::INFINITY, f64::min)
+        .floor()
+        .max(0.0) as usize;
+    let max_x = quad
+        .iter()
+        .map(|point| point.x)
+        .fold(f64::NEG_INFINITY, f64::max)
+        .ceil()
+        .min(source.width() as f64) as usize;
+    let min_y = quad
+        .iter()
+        .map(|point| point.y)
+        .fold(f64::INFINITY, f64::min)
+        .floor()
+        .max(0.0) as usize;
+    let max_y = quad
+        .iter()
+        .map(|point| point.y)
+        .fold(f64::NEG_INFINITY, f64::max)
+        .ceil()
+        .min(source.height() as f64) as usize;
+    let mut weighted = [0.0; 3];
+    let mut area = 0.0;
+    for sy in min_y..max_y {
+        for sx in min_x..max_x {
+            let clipped = clip_to_rect(
+                quad.to_vec(),
+                sx as f64,
+                sy as f64,
+                (sx + 1) as f64,
+                (sy + 1) as f64,
+            );
+            let coverage = polygon_area(&clipped);
+            if coverage > 1e-12 {
+                let pixel = source.get(sx, sy);
+                for channel in 0..3 {
+                    weighted[channel] += coverage * f64::from(pixel[channel]);
+                }
+                area += coverage;
+            }
+        }
+    }
+    if area > 1e-12 {
+        weighted.map(|value| (value / area).round().clamp(0.0, 255.0) as u8)
+    } else {
+        [255; 3]
     }
 }
 

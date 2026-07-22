@@ -96,6 +96,12 @@ describe('workspace PDF toolbar wiring', () => {
         expect(toolbar).toContain('overflow-x: auto');
         expect(toolbar).toContain('isCommandInline(\'settings\') && !isCollapsed(5)');
         expect(toolbar).toContain('<AssistantToolbarToggle v-if="!isCollapsed(5)"');
+
+        const presenter = readWorkspaceFile('app/modules/workspace-shell/components/WorkspacePdfToolbarView.vue');
+        const overflow = readWorkspaceFile('app/components/toolbar/ToolbarOverflowMenu.vue');
+        expect(presenter).toContain(':can-use-assistant="assistantPanelEnabled"');
+        expect(presenter).toContain('@toggle-assistant="toggleAssistantPanel"');
+        expect(overflow).toContain('createCommandItem(\'toggle-assistant\'');
     });
 
     it('reserves scan cleanup and OCR as separate toolbar actions', () => {
@@ -111,6 +117,9 @@ describe('workspace PDF toolbar wiring', () => {
 
     it('routes scan cleanup through the tab-local sibling surface instead of popup ownership', () => {
         const documentWorkspace = readWorkspaceFile('app/modules/workspace-shell/components/DocumentWorkspace.vue');
+        const annotationOverlays = readWorkspaceFile(
+            'app/modules/workspace-shell/components/WorkspaceAnnotationOverlays.vue',
+        );
         const presenter = readWorkspaceFile('app/modules/workspace-shell/components/WorkspacePdfToolbarView.vue');
 
         expect(presenter).toContain('\'open-scan-cleanup\': []');
@@ -119,10 +128,16 @@ describe('workspace PDF toolbar wiring', () => {
         expect(documentWorkspace).toContain('@open-scan-cleanup="openScanCleanup"');
         expect(documentWorkspace).toContain(':is-active="isActive && surfaceMode === \'reader\'"');
         expect(documentWorkspace).toContain('v-show="surfaceMode === \'reader\'"');
+        expect(documentWorkspace).toContain('<WorkspaceAnnotationOverlays\n            :visible="surfaceMode === \'reader\'"');
+        expect(documentWorkspace).not.toContain('<WorkspaceAnnotationOverlays\n            v-show=');
+        expect(annotationOverlays).toContain('<div v-show="visible" class="workspace-annotation-overlays-root">');
+        expect(annotationOverlays).toContain('.workspace-annotation-overlays-root {\n    display: contents;\n}');
         expect(documentWorkspace).toContain('v-if="surfaceMode === \'scan-cleanup\'"');
         expect(documentWorkspace).toContain(':toolbar-active="isActive"');
         expect(documentWorkspace).toContain(':can-teleport-toolbar="canTeleportToolbar"');
         expect(documentWorkspace).toContain('@done="closeScanCleanup"');
+        expect(documentWorkspace).toContain('function discardScanCleanupState()');
+        expect(documentWorkspace).toContain('if (surfaceMode.value === \'scan-cleanup\') {\n        discardScanCleanupState();');
     });
 
     it('keeps one document status teleport present in reader and scan-cleanup modes', () => {

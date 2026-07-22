@@ -1056,7 +1056,7 @@ async function collectDjvuProjectedScrollMetricSamples(session: IElectronE2ESess
 describe('Electron E2E - Viewer Smoke', () => {
     const sessionFixture = createElectronE2ESessionFixture({sessionName: () => `e2e-viewer-smoke-${Date.now()}`});
 
-    it('shows source thumbnails and keeps Scan Cleanup open on Escape', async () => {
+    it('loads Scan Cleanup through its skeleton, detection, and narrow overflow entry', async () => {
         let session = sessionFixture.getSession();
         if (!session) {
             return;
@@ -1064,7 +1064,7 @@ describe('Electron E2E - Viewer Smoke', () => {
 
         session = await sessionFixture.restart({
             clean: true,
-            sessionName: () => `e2e-viewer-scan-cleanup-dialog-${Date.now()}`,
+            sessionName: () => `e2e-viewer-scan-cleanup-workspace-${Date.now()}`,
         });
         if (!session) {
             return;
@@ -1075,30 +1075,217 @@ describe('Electron E2E - Viewer Smoke', () => {
             height: 900,
             width: 1_440,
         });
-        const fixturePath = await createMultiPageTextFixturePdf(
-            `viewer-scan-cleanup-dialog-${Date.now()}.pdf`,
+        const fixturePath = await createLargeScannedFixturePdf(
+            `viewer-scan-cleanup-workspace-${Date.now()}.pdf`,
             2,
+            0,
         );
         await openPdfInApp(session.page, fixturePath, VIEWER_SMOKE_OPEN_TIMEOUT_MS);
         await waitForPdfLoaded(session.page, VIEWER_SMOKE_OPEN_TIMEOUT_MS);
 
         await clickVisibleToolbarButton(session.page, 'Scan cleanup');
-        await session.page.waitForSelector('[role="dialog"]', {
+        await session.page.waitForSelector('.scan-cleanup-surface', {
             timeout: 10_000,
             visible: true,
         });
+        const settingsScopeState = await session.page.evaluate(() => {
+            const group = document.querySelector<HTMLElement>('[role="radiogroup"][aria-label="Settings scope"]');
+            const active = group?.querySelector<HTMLElement>('[role="radio"][aria-checked="true"]');
+            return {
+                activeScope: active?.dataset.settingsScope ?? null,
+                hasTabs: document.querySelector('.scan-cleanup-options-rail [role="tablist"]') !== null,
+            };
+        });
+        expect(settingsScopeState).toEqual({
+            activeScope: 'all',
+            hasTabs: false,
+        });
+        const readPlacementGridY = () => document.querySelector('.scan-cleanup-alignment-grid')
+            ?.getBoundingClientRect().y ?? null;
+        const placementYAllScope = await session.page.evaluate(readPlacementGridY);
+        await session.page.click('[data-settings-scope="page"]');
+        const placementYPageScope = await session.page.evaluate(readPlacementGridY);
+        expect(placementYPageScope).toBe(placementYAllScope);
+        await session.page.click('[data-settings-scope="all"]');
+        const headerBottomEdges = await session.page.$$eval(
+            '.scan-thumbnail-rail-header, .preview-header, .scan-cleanup-settings-header',
+            headers => headers.map(header => header.getBoundingClientRect().bottom),
+        );
+        expect(headerBottomEdges).toHaveLength(3);
+        expect(Math.max(...headerBottomEdges) - Math.min(...headerBottomEdges)).toBeLessThanOrEqual(1);
+        await waitForFunctionInPage(session.page, () => {
+            const skeleton = document.querySelector<HTMLElement>('.preview-skeleton-page');
+            const bounds = skeleton?.getBoundingClientRect();
+            return Boolean(
+                skeleton
+                && bounds
+                && bounds.width > 0
+                && bounds.height > 0
+                && getComputedStyle(skeleton).display !== 'none'
+                && !document.querySelector('.preview-result-layer'),
+            );
+        }, {timeout: 10_000});
+        const initialPreviewState = await session.page.evaluate(() => {
+            const skeleton = document.querySelector<HTMLElement>('.preview-skeleton-page');
+            const bounds = skeleton?.getBoundingClientRect();
+            return {
+                caption: document.querySelector('.preview-viewport-caption')?.textContent ?? '',
+                hasResult: document.querySelector('.preview-result-layer') !== null,
+                skeletonHeight: bounds?.height ?? 0,
+                skeletonWidth: bounds?.width ?? 0,
+            };
+        });
+        expect(initialPreviewState.caption).toContain('Building cleanup preview');
+        expect(initialPreviewState.hasResult).toBe(false);
+        expect(initialPreviewState.skeletonWidth).toBeGreaterThan(0);
+        expect(initialPreviewState.skeletonHeight).toBeGreaterThan(0);
+
+        await session.page.waitForSelector('.preview-result-layer img.preview-pixel', {
+            timeout: 60_000,
+            visible: true,
+        });
+        const previewText = await session.page.evaluate(() => document.body.innerText);
+        expect(previewText).not.toContain('Preview isn\'t available');
+        expect(previewText).not.toContain('could not be cloned');
+        expect(previewText).not.toContain('Could not be cloned');
+
+        const marginControls = await session.page.evaluate(() => Array.from(document.querySelectorAll<HTMLInputElement>('input[data-margin-side]'))
+            .map(input => input.dataset.marginSide));
+        expect([...marginControls].sort()).toEqual([
+            'bottomMm',
+            'leftMm',
+            'rightMm',
+            'topMm',
+        ]);
+
+        const readAllMargins = () => Array.from(document.querySelectorAll<HTMLInputElement>('input[data-margin-side]'))
+            .map(input => Number(input.value));
+        const marginsBefore = await session.page.evaluate(readAllMargins);
+        const incrementCenter = await session.page.evaluate(() => {
+            const input = document.querySelector<HTMLInputElement>('input[data-margin-side="topMm"]');
+            let scope: HTMLElement | null = input;
+            while (scope && !scope.querySelector('[data-slot="increment"] button')) {
+                scope = scope.parentElement;
+            }
+            const button = scope?.querySelector<HTMLButtonElement>('[data-slot="increment"] button');
+            if (!button) {
+                return null;
+            }
+            const bounds = button.getBoundingClientRect();
+            return {
+                x: bounds.x + bounds.width / 2,
+                y: bounds.y + bounds.height / 2,
+            };
+        });
+        expect(incrementCenter).not.toBeNull();
+        for (let click = 0; click < 3; click += 1) {
+            await session.page.mouse.click(incrementCenter!.x, incrementCenter!.y);
+            await new Promise(resolve => setTimeout(resolve, 160));
+        }
+        const marginsAfterClicks = await session.page.evaluate(readAllMargins);
+        expect(marginsAfterClicks).toEqual(marginsBefore.map(value => value + 3));
+        const readPreviewGeometry = () => {
+            const paper = document.querySelector<HTMLElement>('.uniform-canvas');
+            const raster = paper?.querySelector<HTMLElement>('.placed-image');
+            const content = paper?.querySelector<HTMLElement>('.content-overlay');
+            if (!paper || !raster || !content) {
+                return null;
+            }
+            const paperBounds = paper.getBoundingClientRect();
+            const rasterBounds = raster.getBoundingClientRect();
+            const contentBounds = content.getBoundingClientRect();
+            const within = (inner: DOMRect, outer: DOMRect) => inner.left >= outer.left - 1
+                && inner.top >= outer.top - 1
+                && inner.right <= outer.right + 1
+                && inner.bottom <= outer.bottom + 1;
+            return {
+                contained: within(rasterBounds, paperBounds) && within(contentBounds, paperBounds),
+                contentRatio: paperBounds.width > 0 ? contentBounds.width / paperBounds.width : 0,
+            };
+        };
+        const baselineGeometry = await session.page.evaluate(readPreviewGeometry);
+        expect(baselineGeometry).not.toBeNull();
+        expect(baselineGeometry?.contained).toBe(true);
+        await session.page.click('input[data-margin-side="topMm"]', {count: 3});
+        await session.page.type('input[data-margin-side="topMm"]', '25');
+        await session.page.keyboard.press('Enter');
+        await waitForFunctionInPage(session.page, (baselineContentRatio: number) => {
+            const paper = document.querySelector<HTMLElement>('.uniform-canvas');
+            const raster = paper?.querySelector<HTMLElement>('.placed-image');
+            const content = paper?.querySelector<HTMLElement>('.content-overlay');
+            if (!paper || !raster || !content) {
+                return false;
+            }
+            const paperBounds = paper.getBoundingClientRect();
+            const rasterBounds = raster.getBoundingClientRect();
+            const contentBounds = content.getBoundingClientRect();
+            const within = (inner: DOMRect, outer: DOMRect) => inner.left >= outer.left - 1
+                && inner.top >= outer.top - 1
+                && inner.right <= outer.right + 1
+                && inner.bottom <= outer.bottom + 1;
+            const contentRatio = paperBounds.width > 0 ? contentBounds.width / paperBounds.width : 0;
+            return within(rasterBounds, paperBounds)
+                && within(contentBounds, paperBounds)
+                && contentRatio < baselineContentRatio - 0.02;
+        }, {timeout: 60_000}, baselineGeometry?.contentRatio ?? 1);
+        const sweptGeometry = await session.page.evaluate(readPreviewGeometry);
+        expect(sweptGeometry?.contained).toBe(true);
+
+        const railGutter = await session.page.evaluate(() => {
+            const rail = document.querySelector<HTMLElement>('.scan-cleanup-options-rail');
+            return rail ? getComputedStyle(rail).scrollbarGutter : null;
+        });
+        expect(railGutter).toBe('stable both-edges');
+        const readSettingsAnchorX = () => document.querySelector<HTMLElement>('input[data-margin-side]')
+            ?.getBoundingClientRect().x ?? null;
+        const anchorLinked = await session.page.evaluate(readSettingsAnchorX);
+        const fieldCountLinked = await session.page.evaluate(() => document.querySelectorAll('input[data-margin-side]').length);
+        await session.page.click('[data-margins-link]');
+        const fieldCountUnlinked = await session.page.evaluate(() => document.querySelectorAll('input[data-margin-side]').length);
+        expect(fieldCountUnlinked).toBe(fieldCountLinked);
+        const anchorUnlinked = await session.page.evaluate(readSettingsAnchorX);
+        expect(anchorUnlinked).toBe(anchorLinked);
+
+        const documentTopMargin = await session.page.$eval(
+            'input[data-margin-side="topMm"]',
+            input => Number((input as HTMLInputElement).value),
+        );
+        await session.page.click('[data-settings-scope="page"]');
+        await session.page.click('input[data-margin-side="topMm"]', {count: 3});
+        await session.page.type('input[data-margin-side="topMm"]', String(Math.max(0, documentTopMargin - 7)));
+        await session.page.keyboard.press('Enter');
+        await session.page.waitForSelector('[data-override-marker="margins"]', {visible: true});
+        const marginResetLabel = await session.page.$eval(
+            '[data-reset-override="margins"]',
+            button => button.getAttribute('aria-label'),
+        );
+        expect(marginResetLabel).toBe('Reset to document');
+        await session.page.click('[data-reset-override="margins"]');
+        await session.page.waitForSelector('[data-override-marker="margins"]', {hidden: true});
+        const resetTopMargin = await session.page.$eval(
+            'input[data-margin-side="topMm"]',
+            input => Number((input as HTMLInputElement).value),
+        );
+        expect(resetTopMargin).toBe(documentTopMargin);
+        expect(await session.page.$('[data-reset-override="margins"]')).toBeNull();
+
         await session.page.waitForSelector('.scan-thumbnail-rail .document-thumbnail-list__item', {
             timeout: 10_000,
             visible: true,
         });
-        await session.page.evaluate(async () => {
-            await new Promise(resolve => setTimeout(resolve, 600));
-        });
+        await waitForFunctionInPage(session.page, () => Array.from(document.querySelectorAll<HTMLElement>(
+            '.scan-thumbnail-overlay[data-classification]',
+        )).some(item => item.dataset.classification !== 'unclassified'), {timeout: 60_000});
+        const classifiedBadges = await session.page.$$eval(
+            '.scan-thumbnail-overlay:not([data-classification="unclassified"]) .scan-thumbnail-classification-badge',
+            badges => badges.filter(badge => (badge.textContent ?? '').trim() !== '').length,
+        );
+        expect(classifiedBadges).toBeGreaterThan(0);
 
-        const dialogLabel = await session.page.$eval('[role="dialog"]', dialog => dialog.getAttribute('aria-label'));
-        expect(dialogLabel).toBe('Scan cleanup');
+        const workspaceTitle = await session.page.$eval('.scan-cleanup-surface', workspace => workspace.getAttribute('aria-label') ?? '');
+        expect(workspaceTitle).toContain('Scan cleanup');
         await session.page.keyboard.press('Escape');
-        await session.page.waitForSelector('[role="dialog"]', {
+        await session.page.waitForSelector('.scan-cleanup-surface', {
             timeout: 10_000,
             visible: true,
         });
@@ -1109,11 +1296,55 @@ describe('Electron E2E - Viewer Smoke', () => {
         expect(thumbnailRows).toBeGreaterThan(0);
 
         await session.page.$eval('.scan-cleanup-toolbar-done', button => (button as HTMLButtonElement).click());
-        await session.page.waitForSelector('[role="dialog"]', {
+        await session.page.waitForSelector('.scan-cleanup-surface', {
             hidden: true,
             timeout: 10_000,
         });
-    });
+
+        await session.page.setViewport({
+            deviceScaleFactor: 1,
+            height: 900,
+            width: 520,
+        });
+        await waitForFunctionInPage(session.page, () => Array.from(document.querySelectorAll<HTMLElement>('.toolbar[data-collapse-tier]'))
+            .some(toolbar => toolbar.getBoundingClientRect().width > 0
+                && Number(toolbar.dataset.collapseTier ?? 0) >= 1), {timeout: 10_000});
+        await clickVisibleToolbarButton(session.page, 'More tools');
+        await waitForFunctionInPage(session.page, () => Array.from(document.querySelectorAll<HTMLElement>('[role="menuitem"]'))
+            .some(item => (item.textContent ?? '').includes('Scan cleanup')), {timeout: 10_000});
+        const overflowEntry = await session.page.evaluate(() => {
+            const item = Array.from(document.querySelectorAll<HTMLElement>('[role="menuitem"]'))
+                .find(candidate => (candidate.textContent ?? '').includes('Scan cleanup'));
+            const hasScissorsIcon = item?.querySelector('.overflow-menu-scan-cleanup-icon') !== null;
+            item?.click();
+            return {
+                found: Boolean(item),
+                hasScissorsIcon,
+            };
+        });
+        expect(overflowEntry).toEqual({
+            found: true,
+            hasScissorsIcon: true,
+        });
+        await session.page.waitForSelector('.scan-cleanup-surface', {
+            timeout: 10_000,
+            visible: true,
+        });
+
+        const reentryState = await session.page.evaluate(() => ({
+            hasResult: document.querySelector('.preview-result-layer') !== null,
+            classifications: Array.from(document.querySelectorAll<HTMLElement>(
+                '.scan-thumbnail-overlay[data-classification]',
+            )).map(overlay => overlay.dataset.classification),
+        }));
+        expect(reentryState.hasResult).toBe(false);
+        expect(reentryState.classifications.every(classification => classification === 'unclassified')).toBe(true);
+        await waitForFunctionInPage(session.page, () => {
+            const skeleton = document.querySelector<HTMLElement>('.preview-skeleton-page');
+            const bounds = skeleton?.getBoundingClientRect();
+            return Boolean(skeleton && bounds && bounds.width > 0 && bounds.height > 0);
+        }, {timeout: 10_000});
+    }, 150_000);
 
     it('keeps crop and screenshot selection overlays attached to the visible scrolled viewport', async () => {
         let session = sessionFixture.getSession();

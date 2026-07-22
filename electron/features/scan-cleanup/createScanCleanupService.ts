@@ -8,7 +8,8 @@ import { fileURLToPath } from 'url';
 import type { WebContents } from 'electron';
 import type {
     IScanCleanupStartRequest,
-    IScanCleanupStartResult,
+    IScanCleanupOwnerContext,
+    TScanCleanupStartResult,
     TScanCleanupErrorCode,
     TScanCleanupJobState,
 } from '@contracts/electronApiScanCleanup';
@@ -27,6 +28,8 @@ import {
 } from '@electron/features/scan-cleanup/scanCleanupGeneratedOutputs';
 import {allowOpenPath} from '@electron/file-access/openPathCapabilities';
 import {resolveNativePageOpsPath} from '@electron/features/page-ops/public';
+import {hasNativeErrorCode} from '@contracts/nativeErrors';
+import {createOwnerScopedJobRegistry} from '@electron/features/scan-cleanup/ownerScopedJobRegistry';
 
 interface IScanCleanupJob {
     abortController: AbortController;
@@ -34,7 +37,7 @@ interface IScanCleanupJob {
     subscribers: Set<WebContents>;
 }
 
-const jobs = new Map<string, IScanCleanupJob>();
+const jobs = createOwnerScopedJobRegistry<WebContents, IScanCleanupJob>();
 const currentDir = dirname(fileURLToPath(import.meta.url));
 
 export function resolveScanCleanupPath() {
@@ -64,27 +67,34 @@ function publish(job: IScanCleanupJob, state: TScanCleanupJobState) {
     for (const sender of job.subscribers) {
         if (!sender.isDestroyed()) sender.send(SCAN_CLEANUP_EVENT_CHANNELS.state, state);
     }
+    if ([
+        'completed',
+        'failed',
+        'canceled',
+    ].includes(state.status)) jobs.expireTerminal(state.jobId);
 }
 
 export function classifyScanCleanupError(error: unknown, aborted: boolean): TScanCleanupErrorCode {
     if (aborted) {
         return 'canceled';
     }
-    const message = getErrorMessage(error);
-    if (/not found|unavailable|ENOENT/iu.test(message)) {
-        return 'tools-unavailable';
+    if (hasNativeErrorCode(error)) {
+        return error.code;
     }
-    if (/evb-scan-cleanup/iu.test(message)) {
-        return 'sidecar-failed';
+    const errorCode = error && typeof error === 'object' && 'code' in error
+        ? (error as {code?: unknown}).code
+        : undefined;
+    if (errorCode === 'ENOENT') {
+        return 'tools-unavailable';
     }
     return 'internal';
 }
 
 export interface IScanCleanupService {
-    start: (sender: WebContents, request: IScanCleanupStartRequest) => Promise<IScanCleanupStartResult>;
-    cancel: (jobId: string) => boolean;
-    getState: (jobId: string) => TScanCleanupJobState | null;
-    subscribe: (sender: WebContents, jobId: string) => TScanCleanupJobState | null;
+    start: (sender: WebContents, request: IScanCleanupStartRequest) => Promise<TScanCleanupStartResult>;
+    cancel: (sender: WebContents, jobId: string, owner: IScanCleanupOwnerContext) => boolean;
+    getState: (sender: WebContents, jobId: string, owner: IScanCleanupOwnerContext) => TScanCleanupJobState | null;
+    subscribe: (sender: WebContents, jobId: string, owner: IScanCleanupOwnerContext) => TScanCleanupJobState | null;
     pruneGeneratedOutputs: (openPdfPaths: string[]) => Promise<number>;
 }
 
@@ -107,10 +117,11 @@ export function createScanCleanupService(): IScanCleanupService {
             };
             const abortController = new AbortController();
             const progress = {
-                phase: 'queued' as const,
-                processedCount: 0,
-                totalPages: 1,
+                stage: 'queued' as const,
+                completedUnits: 0,
+                totalUnits: 0,
                 percent: 0,
+                completedPageNumbers: [],
             };
             const job: IScanCleanupJob = {
                 abortController,
@@ -120,9 +131,9 @@ export function createScanCleanupService(): IScanCleanupService {
                     progress,
                     updatedAtMs: Date.now(),
                 },
-                subscribers: new Set([sender]),
+                subscribers: new Set<WebContents>(),
             };
-            jobs.set(jobId, job);
+            jobs.add(jobId, sender, request, job);
             documentOutputService.start({
                 operation: 'scan-cleanup',
                 sourceKind: 'pdf',
@@ -169,15 +180,15 @@ export function createScanCleanupService(): IScanCleanupService {
                         nextProgress => {
                             publish(job, {
                                 jobId,
-                                status: nextProgress.phase === 'handoff' ? 'handoff' : 'running',
+                                status: nextProgress.stage === 'handoff' ? 'handoff' : 'running',
                                 progress: nextProgress,
                                 updatedAtMs: Date.now(),
                             });
                             documentOutputService.update(jobId, {
-                                phase: nextProgress.phase,
+                                phase: nextProgress.stage,
                                 percent: nextProgress.percent,
-                                current: nextProgress.processedCount,
-                                total: nextProgress.totalPages,
+                                current: nextProgress.completedUnits,
+                                total: nextProgress.totalUnits,
                             });
                         },
                     );
@@ -188,10 +199,11 @@ export function createScanCleanupService(): IScanCleanupService {
                         summary,
                         runOcrAfterCleanup: request.runOcrAfterCleanup === true,
                         progress: {
-                            phase: 'handoff',
-                            processedCount: summary.inputPages,
-                            totalPages: summary.inputPages,
+                            stage: 'handoff',
+                            completedUnits: summary.inputPages,
+                            totalUnits: summary.inputPages,
                             percent: 100,
+                            completedPageNumbers: Array.from({length: summary.inputPages}, (_, index) => index + 1),
                         },
                         updatedAtMs: Date.now(),
                     };
@@ -233,8 +245,8 @@ export function createScanCleanupService(): IScanCleanupService {
                 outputPdfPath,
             };
         },
-        cancel(jobId) {
-            const job = jobs.get(jobId);
+        cancel(sender, jobId, owner) {
+            const job = jobs.getOwned(jobId, sender, owner);
             if (!job || [
                 'completed',
                 'failed',
@@ -242,19 +254,24 @@ export function createScanCleanupService(): IScanCleanupService {
             ].includes(job.state.status)) {
                 return false;
             }
+            publish(job, {
+                ...job.state,
+                status: 'canceling',
+                updatedAtMs: Date.now(),
+            });
+            // AbortSignal is the sole cancellation transport. The worker adapter
+            // translates it into cooperative cancel and, after its grace period, termination.
             job.abortController.abort(new DOMException('Scan cleanup canceled', 'AbortError'));
-            mainJobBroker.cancelOwner(jobId, 'Scan cleanup canceled');
             return true;
         },
-        getState(jobId) {
-            return jobs.get(jobId)?.state ?? null;
+        getState(sender, jobId, owner) {
+            return jobs.getOwned(jobId, sender, owner)?.state ?? null;
         },
-        subscribe(sender, jobId) {
-            const job = jobs.get(jobId);
+        subscribe(sender, jobId, owner) {
+            const job = jobs.subscribe(jobId, sender, owner);
             if (!job) {
                 return null;
             }
-            job.subscribers.add(sender);
             if (job.state.status === 'completed') {
                 grantScanCleanupOutputAccess(job.state.outputPdfPath, [sender]);
             }

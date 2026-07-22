@@ -13,15 +13,16 @@ import {
 import type {
     IScanCleanupDetectionRequest,
     IScanCleanupDetectionResult,
+    IScanCleanupProgress,
+    IScanCleanupOwnerContext,
     IScanCleanupPreviewMetadata,
+    IScanCleanupPreviewCancelRequest,
     IScanCleanupPreviewRequest,
     IScanCleanupPreviewResult,
+    TScanCleanupDetectionStartResult,
     TScanCleanupDetectionJobState,
 } from '@contracts/electronApiScanCleanup';
-import {
-    getScanCleanupPageOverride,
-    resolveScanCleanupPageLayout,
-} from '@contracts/scanCleanupPageOverrides';
+import {getScanCleanupPageOverride} from '@contracts/scanCleanupPageOverrides';
 import {getPdfPageCount} from '@electron/pdf/pdfPageCount';
 import {getPdfNativeToolPaths} from '@electron/pdf/nativeToolPaths';
 import {renderPdfPageToPng} from '@electron/ocr/worker/popplerStage';
@@ -35,6 +36,11 @@ import {mainJobBroker} from '@electron/resources/jobBroker';
 import {getAppTempDir} from '@electron/utils/appTempDir';
 import {createLogger} from '@electron/utils/createLogger';
 import {getErrorMessage} from '@electron/utils/error';
+import {buildNativeScanCleanupManifest} from '@electron/features/scan-cleanup/policy/buildNativeScanCleanupManifest';
+import {
+    createOwnerScopedJobRegistry,
+    type IScanCleanupJobSubscriber,
+} from '@electron/features/scan-cleanup/ownerScopedJobRegistry';
 
 const PREVIEW_DPI = 150;
 const PREVIEW_MAX_IMAGE_BYTES = 32 * 1024 * 1024;
@@ -45,8 +51,12 @@ const logger = createLogger('scan-cleanup-preview');
 
 interface IRawPreview {
     bytes: Uint8Array;
+    documentRevision: string;
     width: number;
     height: number;
+    mtimeMs: number;
+    pageNumber: number;
+    sourcePdfPath: string;
     totalPages: number;
 }
 
@@ -56,8 +66,8 @@ interface ILosslessPreviewAnalysisOutput {
     contentBox: IScanCleanupPreviewMetadata['contentBox'];
     cropRect: IScanCleanupPreviewMetadata['sourceRegion'];
     appliedMargins: IScanCleanupPreviewMetadata['appliedMargins'];
-    inputWidth: number;
-    inputHeight: number;
+    inputWidthPx: number;
+    inputHeightPx: number;
 }
 
 type ILosslessPreviewPageMetadata = IScanCleanupPreviewResult['pageMetadata'] & {
@@ -77,10 +87,7 @@ interface IDetectionJob {
     subscribers: Set<IScanCleanupDetectionSubscriber>;
 }
 
-export interface IScanCleanupDetectionSubscriber {
-    isDestroyed: () => boolean;
-    send: (channel: string, state: TScanCleanupDetectionJobState) => void;
-}
+export interface IScanCleanupDetectionSubscriber extends IScanCleanupJobSubscriber {send: (channel: string, state: TScanCleanupDetectionJobState) => void;}
 
 export interface IScanCleanupPreviewDependencies {
     getPageCount: typeof getPdfPageCount;
@@ -90,7 +97,7 @@ export interface IScanCleanupPreviewDependencies {
     getTempDir: () => string;
     getPdftoppmBinary: () => string;
     acquireDetectionLease?: (jobId: string, signal: AbortSignal) => Promise<{release: () => boolean}>;
-    cancelDetectionOwner?: (jobId: string) => void;
+    getSourceMtimeMs?: (sourcePdfPath: string) => Promise<number>;
 }
 
 const defaultDependencies: IScanCleanupPreviewDependencies = {
@@ -113,7 +120,7 @@ const defaultDependencies: IScanCleanupPreviewDependencies = {
         perOwnerLimit: 1,
         signal,
     }),
-    cancelDetectionOwner: jobId => mainJobBroker.cancelOwner(jobId, 'Scan cleanup detection canceled'),
+    getSourceMtimeMs: async sourcePdfPath => (await stat(sourcePdfPath)).mtimeMs,
 };
 
 function storeRawPreview(rawCache: Map<string, IRawPreview>, key: string, raw: IRawPreview) {
@@ -132,7 +139,7 @@ function storeRawPreview(rawCache: Map<string, IRawPreview>, key: string, raw: I
 }
 
 async function materializeRawRaster(
-    sourcePdfPath: string,
+    request: Pick<IScanCleanupPreviewRequest, 'sourcePdfPath' | 'documentRevision'>,
     pageNumber: number,
     outputPath: string,
     signal: AbortSignal,
@@ -140,20 +147,38 @@ async function materializeRawRaster(
     dependencies: IScanCleanupPreviewDependencies,
     knownTotalPages?: number,
 ) {
-    const cacheKey = `${sourcePdfPath}\u0000${pageNumber}`;
+    const mtimeMs = await dependencies.getSourceMtimeMs?.(request.sourcePdfPath) ?? 0;
+    for (const [
+        key,
+        entry,
+    ] of rawCache) {
+        if (
+            entry.sourcePdfPath === request.sourcePdfPath
+            && (entry.documentRevision !== request.documentRevision || entry.mtimeMs !== mtimeMs)
+        ) {
+            rawCache.delete(key);
+        }
+    }
+    const cacheKey = JSON.stringify([
+        request.sourcePdfPath,
+        request.documentRevision,
+        mtimeMs,
+        pageNumber,
+        PREVIEW_DPI,
+    ]);
     const cached = rawCache.get(cacheKey);
     if (cached) {
         storeRawPreview(rawCache, cacheKey, cached);
         await writeFile(outputPath, cached.bytes);
         return cached;
     }
-    const totalPages = knownTotalPages ?? await dependencies.getPageCount(sourcePdfPath, {signal});
+    const totalPages = knownTotalPages ?? await dependencies.getPageCount(request.sourcePdfPath, {signal});
     if (pageNumber > totalPages) throw new Error('Scan cleanup preview page is out of range');
     await dependencies.renderPage(
         {pdftoppmBinary: dependencies.getPdftoppmBinary()},
         (level, message) => logger[level](message),
         pageNumber,
-        sourcePdfPath,
+        request.sourcePdfPath,
         outputPath,
         PREVIEW_DPI,
         undefined,
@@ -162,7 +187,11 @@ async function materializeRawRaster(
     const bytes = await readPreviewBytes(outputPath);
     const raw = {
         bytes,
+        documentRevision: request.documentRevision,
         ...readPngDimensions(bytes),
+        mtimeMs,
+        pageNumber,
+        sourcePdfPath: request.sourcePdfPath,
         totalPages,
     };
     storeRawPreview(rawCache, cacheKey, raw);
@@ -217,7 +246,7 @@ async function runPreview(
     try {
         const inputPath = join(scratch, 'source.png');
         const raw = await materializeRawRaster(
-            request.sourcePdfPath,
+            request,
             request.pageNumber,
             inputPath,
             signal,
@@ -238,69 +267,75 @@ async function runPreview(
         const pageMetadataPath = join(scratch, 'page.json');
         const pageOverride = getScanCleanupPageOverride(request.options.pageOverrides, request.pageNumber);
         const lossless = request.options.preserveOriginalQuality === true;
-        await writeFile(manifestPath, JSON.stringify({
-            ...(lossless ? {classifyOnly: true} : {}),
-            sharedOptions: {},
+        const manifest = buildNativeScanCleanupManifest({
+            operation: lossless ? 'analyze' : 'render',
+            renderMode: 'preview',
+            canvasScope: 'page',
+            qualityPath: lossless ? 'lossless' : 'raster',
+            options: request.options,
             pages: [{
                 inputPath,
-                sourcePageIndex: request.pageNumber - 1,
+                pageNumber: request.pageNumber,
+                dpi: PREVIEW_DPI,
                 pageMetadataPath,
-                options: {
-                    dpi: PREVIEW_DPI,
-                    layout: resolveScanCleanupPageLayout(request.options.layoutMode, pageOverride.layoutOverride),
-                    cropContent: request.options.crop,
-                    marginsMm: [
-                        request.options.marginsMm,
-                        request.options.marginsMm,
-                        request.options.marginsMm,
-                        request.options.marginsMm,
-                    ],
-                    outputMode: lossless ? 'color' : request.options.outputMode,
-                    thickness: lossless ? 0 : request.options.thickness,
-                    despeckle: !lossless && request.options.outputMode === 'bw' && request.options.despeckle,
-                    matchPageSize: request.options.matchPageSize,
-                    pageAlignment: request.options.pageAlignment,
-                    rotation: pageOverride.rotation,
-                    excluded: pageOverride.excluded,
-                    skipBlankPages: !lossless && request.options.skipBlankPages,
-                    experimentalAutoDewarp: !lossless && request.options.straightenCurvedLines,
-                    manualSplitX: pageOverride.manualSplitX,
-                    manualContentBoxes: pageOverride.manualContentBoxes,
-                    placementOverrides: pageOverride.placementOverrides,
-                },
                 outputs,
+                ...(request.documentPrior === undefined ? {} : {documentPrior: request.documentPrior}),
             }],
-        }));
+        });
+        await writeFile(manifestPath, JSON.stringify(manifest));
         await dependencies.runSidecar(binary, manifestPath, signal, (level, message) => logger[level](message), () => undefined);
         const pageMetadata = JSON.parse(await readFile(pageMetadataPath, 'utf8')) as ILosslessPreviewPageMetadata;
         if (lossless) {
+            const analyzedOutputs = pageMetadata.outputs ?? [];
+            const canvasWidthPx = request.options.matchPageSize
+                ? Math.max(1, ...analyzedOutputs.map(output => Math.round(output.cropRect.widthPx)))
+                : null;
+            const canvasHeightPx = request.options.matchPageSize
+                ? Math.max(1, ...analyzedOutputs.map(output => Math.round(output.cropRect.heightPx)))
+                : null;
             return {
                 pageNumber: request.pageNumber,
                 totalPages: raw.totalPages,
                 rawImageData: raw.bytes,
-                rawWidth: raw.width,
-                rawHeight: raw.height,
+                rawWidthPx: raw.width,
+                rawHeightPx: raw.height,
                 pageMetadata,
-                outputs: (pageMetadata.outputs ?? []).map(output => ({
-                    imageData: raw.bytes,
-                    metadata: {
-                        half: output.half,
-                        layoutClassification: pageMetadata.layoutClassification,
-                        layoutConfidence: pageMetadata.layoutConfidence,
-                        sourceRegion: output.sourceRegion,
-                        contentBox: output.contentBox,
-                        appliedMargins: output.appliedMargins,
-                        outputWidth: Math.max(1, Math.round(output.cropRect.width)),
-                        outputHeight: Math.max(1, Math.round(output.cropRect.height)),
-                        forwardTransform: null,
-                        cutterX: pageMetadata.cutterX,
-                        inputWidth: output.inputWidth,
-                        inputHeight: output.inputHeight,
-                        rotation: pageMetadata.rotation,
-                        resamplePasses: 0,
-                        warnings: [],
-                    },
-                })),
+                outputs: analyzedOutputs.map(output => {
+                    const outputWidthPx = Math.max(1, Math.round(output.cropRect.widthPx));
+                    const outputHeightPx = Math.max(1, Math.round(output.cropRect.heightPx));
+                    const resolvedCanvasWidth = canvasWidthPx ?? outputWidthPx;
+                    const resolvedCanvasHeight = canvasHeightPx ?? outputHeightPx;
+                    const placement = resolvePreviewPlacementOffset(
+                        resolvedCanvasWidth - outputWidthPx,
+                        resolvedCanvasHeight - outputHeightPx,
+                        pageOverride.placementOverrides?.[output.half] ?? request.options.pageAlignment,
+                    );
+                    return {
+                        imageData: raw.bytes,
+                        metadata: {
+                            half: output.half,
+                            layoutClassification: pageMetadata.layoutClassification,
+                            layoutConfidence: pageMetadata.layoutConfidence,
+                            sourceRegion: output.sourceRegion,
+                            contentBox: output.contentBox,
+                            appliedMargins: output.appliedMargins,
+                            outputWidthPx,
+                            outputHeightPx,
+                            canvasWidthPx: resolvedCanvasWidth,
+                            canvasHeightPx: resolvedCanvasHeight,
+                            placementOffsetXPx: placement.x,
+                            placementOffsetYPx: placement.y,
+                            forwardTransform: null,
+                            cutterXPx: pageMetadata.cutterXPx,
+                            inputWidthPx: output.inputWidthPx,
+                            inputHeightPx: output.inputHeightPx,
+                            rotationDegrees: pageMetadata.rotationDegrees,
+                            canvasScope: 'page',
+                            resamplePasses: 0,
+                            warnings: [],
+                        },
+                    };
+                }),
             };
         }
         const cleaned = [] as IScanCleanupPreviewResult['outputs'];
@@ -318,8 +353,8 @@ async function runPreview(
             pageNumber: request.pageNumber,
             totalPages: raw.totalPages,
             rawImageData: raw.bytes,
-            rawWidth: raw.width,
-            rawHeight: raw.height,
+            rawWidthPx: raw.width,
+            rawHeightPx: raw.height,
             pageMetadata,
             outputs: cleaned,
         };
@@ -329,6 +364,21 @@ async function runPreview(
             force: true,
         });
     }
+}
+
+function resolvePreviewPlacementOffset(
+    availableWidth: number,
+    availableHeight: number,
+    alignment: IScanCleanupPreviewRequest['options']['pageAlignment'],
+) {
+    const [
+        vertical,
+        horizontal = vertical,
+    ] = alignment.split('-');
+    return {
+        x: horizontal === 'left' ? 0 : horizontal === 'right' ? availableWidth : Math.floor(availableWidth / 2),
+        y: vertical === 'top' ? 0 : vertical === 'bottom' ? availableHeight : Math.floor(availableHeight / 2),
+    };
 }
 
 async function mapDetectionPages<T>(
@@ -355,18 +405,24 @@ async function runDetection(
     signal: AbortSignal,
     rawCache: Map<string, IRawPreview>,
     dependencies: IScanCleanupPreviewDependencies,
-    publish: (results: IScanCleanupDetectionResult[], totalPages: number) => void,
+    publish: (results: IScanCleanupDetectionResult[], progress: IScanCleanupProgress) => void,
 ) {
     const scratch = await mkdtemp(join(dependencies.getTempDir(), 'scan-cleanup-detect-'));
     try {
         const totalPages = await dependencies.getPageCount(request.sourcePdfPath, {signal});
         const pageNumbers = Array.from({length: totalPages}, (_, index) => index + 1);
-        publish([], totalPages);
-        const pages = await mapDetectionPages(pageNumbers, async pageNumber => {
+        publish([], {
+            stage: 'detecting',
+            completedUnits: 0,
+            totalUnits: totalPages,
+            percent: 0,
+            completedPageNumbers: [],
+        });
+        const manifestPages = await mapDetectionPages(pageNumbers, async pageNumber => {
             if (signal.aborted) throw signal.reason;
             const inputPath = join(scratch, `source-${pageNumber}.png`);
             await materializeRawRaster(
-                request.sourcePdfPath,
+                request,
                 pageNumber,
                 inputPath,
                 signal,
@@ -374,28 +430,23 @@ async function runDetection(
                 dependencies,
                 totalPages,
             );
-            const pageOverride = getScanCleanupPageOverride(request.options.pageOverrides, pageNumber);
             return {
                 inputPath,
-                sourcePageIndex: pageNumber - 1,
+                pageNumber,
+                dpi: PREVIEW_DPI,
                 pageMetadataPath: join(scratch, `page-${pageNumber}.json`),
-                options: {
-                    dpi: PREVIEW_DPI,
-                    layout: resolveScanCleanupPageLayout(request.options.layoutMode, pageOverride.layoutOverride),
-                    thickness: request.options.thickness,
-                    rotation: pageOverride.rotation,
-                    excluded: pageOverride.excluded,
-                    manualSplitX: pageOverride.manualSplitX,
-                },
             };
         });
         if (signal.aborted) throw signal.reason;
         const manifestPath = join(scratch, 'classify-manifest.json');
-        await writeFile(manifestPath, JSON.stringify({
-            classifyOnly: true,
-            sharedOptions: {},
-            pages,
-        }));
+        await writeFile(manifestPath, JSON.stringify(buildNativeScanCleanupManifest({
+            operation: 'analyze',
+            renderMode: 'preview',
+            canvasScope: 'page',
+            qualityPath: request.options.preserveOriginalQuality ? 'lossless' : 'raster',
+            options: request.options,
+            pages: manifestPages,
+        })));
         const binary = dependencies.resolveBinary();
         if (!binary) throw new Error('Scan cleanup native tool is unavailable');
         const results: IScanCleanupDetectionResult[] = [];
@@ -404,21 +455,25 @@ async function runDetection(
             manifestPath,
             signal,
             (level, message) => logger[level](message),
-            progress => {
+            (progress, nativeProgress) => {
                 if (
-                    progress.event !== 'page-complete'
-                    || progress.classification === undefined
-                    || progress.confidence === undefined
+                    nativeProgress?.stage !== 'page-complete'
+                    || nativeProgress.classification === undefined
+                    || nativeProgress.confidence === undefined
                 ) {
                     return;
                 }
                 results.push({
-                    pageNumber: progress.page,
-                    classification: progress.classification,
-                    confidence: progress.confidence,
-                    cutterX: progress.cutterX ?? null,
+                    pageNumber: nativeProgress.pageNumber!,
+                    classification: nativeProgress.classification,
+                    confidence: nativeProgress.confidence,
+                    cutterXPx: nativeProgress.cutterXPx ?? null,
+                    tier1Verdict: nativeProgress.tier1Verdict ?? nativeProgress.classification,
+                    reconciled: nativeProgress.reconciled ?? false,
+                    clusterAgreement: nativeProgress.clusterAgreement ?? 0,
+                    documentPrior: nativeProgress.documentPrior ?? null,
                 });
-                publish([...results], totalPages);
+                publish([...results], progress);
             },
         );
         if (results.length !== totalPages) {
@@ -434,17 +489,12 @@ async function runDetection(
 }
 
 export interface IScanCleanupPreviewService {
-    preview: (request: IScanCleanupPreviewRequest) => Promise<IScanCleanupPreviewResult>;
-    cancel: (sourcePdfPath: string, invalidateRawCache?: boolean) => boolean;
-    detectAll: (sender: IScanCleanupDetectionSubscriber, request: IScanCleanupDetectionRequest) => Promise<{
-        started: boolean;
-        jobId: string;
-        error?: string;
-        errorCode?: 'invalid-request'
-    }>;
-    cancelDetection: (jobId: string) => boolean;
-    getDetectionJobState: (jobId: string) => TScanCleanupDetectionJobState | null;
-    subscribeDetectionJob: (sender: IScanCleanupDetectionSubscriber, jobId: string) => TScanCleanupDetectionJobState | null;
+    preview: (sender: IScanCleanupDetectionSubscriber, request: IScanCleanupPreviewRequest) => Promise<IScanCleanupPreviewResult>;
+    cancel: (sender: IScanCleanupDetectionSubscriber, request: IScanCleanupPreviewCancelRequest) => boolean;
+    detectAll: (sender: IScanCleanupDetectionSubscriber, request: IScanCleanupDetectionRequest) => Promise<TScanCleanupDetectionStartResult>;
+    cancelDetection: (sender: IScanCleanupDetectionSubscriber, jobId: string, owner: IScanCleanupOwnerContext) => boolean;
+    getDetectionJobState: (sender: IScanCleanupDetectionSubscriber, jobId: string, owner: IScanCleanupOwnerContext) => TScanCleanupDetectionJobState | null;
+    subscribeDetectionJob: (sender: IScanCleanupDetectionSubscriber, jobId: string, owner: IScanCleanupOwnerContext) => TScanCleanupDetectionJobState | null;
 }
 
 export function createScanCleanupPreviewService(
@@ -452,37 +502,58 @@ export function createScanCleanupPreviewService(
 ): IScanCleanupPreviewService {
     const active = new Map<string, IPreviewEntry>();
     const rawCache = new Map<string, IRawPreview>();
-    const detectionJobs = new Map<string, IDetectionJob>();
+    const detectionJobs = createOwnerScopedJobRegistry<IScanCleanupDetectionSubscriber, IDetectionJob>();
     const publishDetection = (job: IDetectionJob, state: TScanCleanupDetectionJobState) => {
         job.state = state;
         for (const sender of job.subscribers) {
             if (!sender.isDestroyed()) sender.send(SCAN_CLEANUP_EVENT_CHANNELS.detectionState, state);
         }
+        if ([
+            'completed',
+            'failed',
+            'canceled',
+        ].includes(state.status)) detectionJobs.expireTerminal(state.jobId);
     };
     return {
-        preview(request) {
-            const previous = active.get(request.sourcePdfPath);
+        preview(sender, request) {
+            const activeKey = `${sender.id}\u0000${request.ownerId}\u0000${request.documentRevision}\u0000${request.sourcePdfPath}`;
+            const ownerPrefix = `${sender.id}\u0000${request.ownerId}\u0000`;
+            for (const [
+                key,
+                activePreview,
+            ] of active) {
+                if (key !== activeKey && key.startsWith(ownerPrefix) && key.endsWith(`\u0000${request.sourcePdfPath}`)) {
+                    activePreview.controller.abort(new DOMException('Stale document revision', 'AbortError'));
+                }
+            }
+            const previous = active.get(activeKey);
             previous?.controller.abort(new DOMException('Superseded scan cleanup preview', 'AbortError'));
             const controller = new AbortController();
             const generation = (previous?.generation ?? 0) + 1;
             const priorTail = previous?.tail.catch(() => undefined) ?? Promise.resolve();
             const tail = priorTail.then(() => runPreview(request, controller.signal, rawCache, dependencies));
-            active.set(request.sourcePdfPath, {
+            active.set(activeKey, {
                 controller,
                 generation,
                 tail,
             });
             void tail.finally(() => {
-                if (active.get(request.sourcePdfPath)?.generation === generation) active.delete(request.sourcePdfPath);
+                if (active.get(activeKey)?.generation === generation) active.delete(activeKey);
             }).catch(() => undefined);
             return tail;
         },
-        cancel(sourcePdfPath, invalidateRawCache = true) {
-            const entry = active.get(sourcePdfPath);
+        cancel(sender, request) {
+            const activeKey = `${sender.id}\u0000${request.ownerId}\u0000${request.documentRevision}\u0000${request.sourcePdfPath}`;
+            const entry = active.get(activeKey);
             entry?.controller.abort(new DOMException('Canceled scan cleanup preview', 'AbortError'));
-            if (invalidateRawCache) {
-                for (const key of rawCache.keys()) {
-                    if (key.startsWith(`${sourcePdfPath}\u0000`)) rawCache.delete(key);
+            if (request.invalidateRawCache !== false) {
+                for (const [
+                    key,
+                    raw,
+                ] of rawCache) {
+                    if (raw.sourcePdfPath === request.sourcePdfPath && raw.documentRevision === request.documentRevision) {
+                        rawCache.delete(key);
+                    }
                 }
             }
             return Boolean(entry);
@@ -504,15 +575,18 @@ export function createScanCleanupPreviewService(
                     jobId,
                     status: 'queued',
                     progress: {
-                        detectedCount: 0,
-                        totalPages: 0,
+                        stage: 'queued',
+                        completedUnits: 0,
+                        totalUnits: 0,
+                        percent: 0,
+                        completedPageNumbers: [],
                     },
                     results: [],
                     updatedAtMs: Date.now(),
                 },
-                subscribers: new Set([sender]),
+                subscribers: new Set<IScanCleanupDetectionSubscriber>(),
             };
-            detectionJobs.set(jobId, job);
+            detectionJobs.add(jobId, sender, request, job);
             void (async () => {
                 let lease: {release: () => boolean} | null = null;
                 try {
@@ -523,13 +597,10 @@ export function createScanCleanupPreviewService(
                         controller.signal,
                         rawCache,
                         dependencies,
-                        (nextResults, totalPages) => publishDetection(job, {
+                        (nextResults, progress) => publishDetection(job, {
                             jobId,
                             status: 'running',
-                            progress: {
-                                detectedCount: nextResults.length,
-                                totalPages,
-                            },
+                            progress,
                             results: nextResults,
                             updatedAtMs: Date.now(),
                         }),
@@ -538,8 +609,11 @@ export function createScanCleanupPreviewService(
                         jobId,
                         status: 'completed',
                         progress: {
-                            detectedCount: results.length,
-                            totalPages: results.length,
+                            stage: 'detecting',
+                            completedUnits: results.length,
+                            totalUnits: results.length,
+                            percent: 100,
+                            completedPageNumbers: results.map(result => result.pageNumber),
                         },
                         results,
                         updatedAtMs: Date.now(),
@@ -570,8 +644,8 @@ export function createScanCleanupPreviewService(
                 jobId,
             });
         },
-        cancelDetection(jobId) {
-            const job = detectionJobs.get(jobId);
+        cancelDetection(sender, jobId, owner) {
+            const job = detectionJobs.getOwned(jobId, sender, owner);
             if (!job || [
                 'completed',
                 'failed',
@@ -579,19 +653,24 @@ export function createScanCleanupPreviewService(
             ].includes(job.state.status)) {
                 return false;
             }
+            publishDetection(job, {
+                ...job.state,
+                status: 'canceling',
+                updatedAtMs: Date.now(),
+            });
+            // AbortSignal is the sole transport. The lease and native adapters
+            // translate it into cooperative cancellation and forced teardown.
             job.controller.abort(new DOMException('Scan cleanup detection canceled', 'AbortError'));
-            (dependencies.cancelDetectionOwner ?? defaultDependencies.cancelDetectionOwner!)(jobId);
             return true;
         },
-        getDetectionJobState(jobId) {
-            return detectionJobs.get(jobId)?.state ?? null;
+        getDetectionJobState(sender, jobId, owner) {
+            return detectionJobs.getOwned(jobId, sender, owner)?.state ?? null;
         },
-        subscribeDetectionJob(sender, jobId) {
-            const job = detectionJobs.get(jobId);
+        subscribeDetectionJob(sender, jobId, owner) {
+            const job = detectionJobs.subscribe(jobId, sender, owner);
             if (!job) {
                 return null;
             }
-            job.subscribers.add(sender);
             return job.state;
         },
     };

@@ -1,4 +1,5 @@
 use crate::{BinaryImage, GrayImage};
+use rayon::prelude::*;
 use std::collections::VecDeque;
 
 /// Rectangular binary dilation with white outside the image.
@@ -20,6 +21,98 @@ pub fn close(source: &BinaryImage, radius_x: usize, radius_y: usize) -> BinaryIm
 }
 
 fn rectangular_binary(
+    source: &BinaryImage,
+    radius_x: usize,
+    radius_y: usize,
+    any: bool,
+) -> BinaryImage {
+    let word_parallel = (radius_x >= 20 && radius_y <= 5) || (radius_y >= 20 && radius_x <= 5);
+    if word_parallel {
+        return rectangular_binary_words(source, radius_x, radius_y, any);
+    }
+    rectangular_binary_scalar(source, radius_x, radius_y, any)
+}
+
+fn rectangular_binary_words(
+    source: &BinaryImage,
+    radius_x: usize,
+    radius_y: usize,
+    any: bool,
+) -> BinaryImage {
+    if source.width() == 0 || source.height() == 0 {
+        return BinaryImage::new(source.width(), source.height());
+    }
+    let words_per_line = source.words_per_line();
+    let mut horizontal = BinaryImage::new(source.width(), source.height());
+    horizontal
+        .words_mut()
+        .par_chunks_mut(words_per_line)
+        .enumerate()
+        .for_each(|(y, output_row)| {
+            for (word_index, target) in output_row.iter_mut().enumerate() {
+                let mut combined = if any { 0 } else { u32::MAX };
+                for offset in -(radius_x as isize)..=radius_x as isize {
+                    let shifted = shifted_row_word(source, y, word_index, offset);
+                    if any {
+                        combined |= shifted;
+                    } else {
+                        combined &= shifted;
+                    }
+                }
+                *target = combined;
+            }
+        });
+    horizontal.clear_padding();
+
+    let mut output = BinaryImage::new(source.width(), source.height());
+    output
+        .words_mut()
+        .par_chunks_mut(words_per_line)
+        .enumerate()
+        .for_each(|(y, output_row)| {
+            for (word_index, target) in output_row.iter_mut().enumerate() {
+                let mut combined = if any { 0 } else { u32::MAX };
+                for offset in -(radius_y as isize)..=radius_y as isize {
+                    let source_y = y as isize + offset;
+                    let word = if source_y < 0 || source_y >= source.height() as isize {
+                        0
+                    } else {
+                        horizontal.words()[source_y as usize * words_per_line + word_index]
+                    };
+                    if any {
+                        combined |= word;
+                    } else {
+                        combined &= word;
+                    }
+                }
+                *target = combined;
+            }
+        });
+    output.clear_padding();
+    output
+}
+
+/// Returns a destination-aligned word whose bit at x comes from source x+offset.
+fn shifted_row_word(source: &BinaryImage, y: usize, output_word: usize, offset: isize) -> u32 {
+    let words_per_line = source.words_per_line();
+    let source_bit = output_word as isize * 32 + offset;
+    let source_word = source_bit.div_euclid(32);
+    let bit_offset = source_bit.rem_euclid(32) as u32;
+    let read = |word: isize| {
+        if word < 0 || word >= words_per_line as isize {
+            0
+        } else {
+            source.words()[y * words_per_line + word as usize]
+        }
+    };
+    if bit_offset == 0 {
+        read(source_word)
+    } else {
+        (read(source_word) << bit_offset) | (read(source_word + 1) >> (32 - bit_offset))
+    }
+}
+
+fn rectangular_binary_scalar(
     source: &BinaryImage,
     radius_x: usize,
     radius_y: usize,
@@ -237,5 +330,28 @@ mod tests {
         assert_eq!(reconstructed.and(&mask), reconstructed);
         assert_eq!(reconstructed.and(&marker), marker);
         assert!(reconstructed.count_black() > marker.count_black());
+    }
+
+    #[test]
+    fn word_parallel_large_bricks_are_bit_exact_to_scalar_morphology() {
+        let mut state = 0x91e1_0da5_u64;
+        let mut image = BinaryImage::new(103, 97);
+        for y in 0..image.height() {
+            for x in 0..image.width() {
+                state = state
+                    .wrapping_mul(6_364_136_223_846_793_005)
+                    .wrapping_add(1_442_695_040_888_963_407);
+                image.set(x, y, state >> 61 == 0);
+            }
+        }
+        for (radius_x, radius_y) in [(40, 2), (2, 40), (75, 5), (5, 75)] {
+            for any in [false, true] {
+                assert_eq!(
+                    rectangular_binary_words(&image, radius_x, radius_y, any),
+                    rectangular_binary_scalar(&image, radius_x, radius_y, any),
+                    "radius=({radius_x},{radius_y}) any={any}"
+                );
+            }
+        }
     }
 }

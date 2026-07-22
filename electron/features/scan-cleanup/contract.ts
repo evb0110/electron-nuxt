@@ -1,6 +1,8 @@
 import type {
     IScanCleanupCapability,
     IScanCleanupDetectionRequest,
+    IScanCleanupOwnerContext,
+    IScanCleanupPreviewCancelRequest,
     IScanCleanupPreviewRequest,
     IScanCleanupStartRequest,
     TScanCleanupJobState,
@@ -33,7 +35,7 @@ export interface IScanCleanupInvokeMap {
         result: Awaited<ReturnType<IScanCleanupCapability['preview']>>;
     };
     [SCAN_CLEANUP_CHANNELS.cancelPreview]: {
-        args: [sourcePdfPath: string, invalidateRawCache?: boolean];
+        args: [request: IScanCleanupPreviewCancelRequest];
         result: boolean;
     };
     [SCAN_CLEANUP_CHANNELS.detectAll]: {
@@ -41,15 +43,15 @@ export interface IScanCleanupInvokeMap {
         result: Awaited<ReturnType<IScanCleanupCapability['detectAll']>>;
     };
     [SCAN_CLEANUP_CHANNELS.cancelDetection]: {
-        args: [jobId: string];
+        args: [jobId: string, owner: IScanCleanupOwnerContext];
         result: boolean;
     };
     [SCAN_CLEANUP_CHANNELS.getDetectionJobState]: {
-        args: [jobId: string];
+        args: [jobId: string, owner: IScanCleanupOwnerContext];
         result: TScanCleanupDetectionJobState | null;
     };
     [SCAN_CLEANUP_CHANNELS.subscribeDetectionJob]: {
-        args: [jobId: string];
+        args: [jobId: string, owner: IScanCleanupOwnerContext];
         result: TScanCleanupDetectionJobState | null;
     };
     [SCAN_CLEANUP_CHANNELS.start]: {
@@ -57,19 +59,19 @@ export interface IScanCleanupInvokeMap {
         result: Awaited<ReturnType<IScanCleanupCapability['start']>>;
     };
     [SCAN_CLEANUP_CHANNELS.cancel]: {
-        args: [jobId: string];
+        args: [jobId: string, owner: IScanCleanupOwnerContext];
         result: boolean;
     };
     [SCAN_CLEANUP_CHANNELS.getJobState]: {
-        args: [jobId: string];
+        args: [jobId: string, owner: IScanCleanupOwnerContext];
         result: TScanCleanupJobState | null;
     };
     [SCAN_CLEANUP_CHANNELS.subscribeJob]: {
-        args: [jobId: string];
+        args: [jobId: string, owner: IScanCleanupOwnerContext];
         result: TScanCleanupJobState | null;
     };
     [SCAN_CLEANUP_CHANNELS.reconnectJob]: {
-        args: [jobId: string];
+        args: [jobId: string, owner: IScanCleanupOwnerContext];
         result: TScanCleanupJobState | null;
     };
     [SCAN_CLEANUP_CHANNELS.pruneGeneratedOutputs]: {

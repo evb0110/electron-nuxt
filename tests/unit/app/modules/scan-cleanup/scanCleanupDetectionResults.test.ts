@@ -7,23 +7,40 @@ import {estimateScanCleanupOutputPages} from '@contracts/scanCleanupPageOverride
 import {applyScanCleanupDetectionResults} from '@app/modules/scan-cleanup/runtime/applyScanCleanupDetectionResults';
 
 describe('scan cleanup detection results', () => {
-    it('fills the same classification and confidence maps used by previews', () => {
+    it('fills the detected classification and confidence stores', () => {
         const classifications = new Map();
         const confidences = new Map();
+        const documentPriors = new Map();
         applyScanCleanupDetectionResults([
             {
                 pageNumber: 1,
                 classification: 'two-page-spread',
                 confidence: 0.82,
-                cutterX: 740,
+                cutterXPx: 740,
+                tier1Verdict: 'single-uncut-page',
+                reconciled: true,
+                clusterAgreement: 0.84,
+                documentPrior: {
+                    dominantLayout: 'two-page-spread',
+                    cutterRatioMedian: 0.52,
+                    clusterDims: {
+                        widthPx: 1400,
+                        heightPx: 1000,
+                    },
+                    agreementStrength: 0.84,
+                },
             },
             {
                 pageNumber: 2,
                 classification: 'single-uncut-page',
                 confidence: 0.94,
-                cutterX: null,
+                cutterXPx: null,
+                tier1Verdict: 'single-uncut-page',
+                reconciled: false,
+                clusterAgreement: 0,
+                documentPrior: null,
             },
-        ], classifications, confidences);
+        ], classifications, confidences, undefined, documentPriors);
 
         expect([...classifications]).toEqual([
             [
@@ -45,6 +62,11 @@ describe('scan cleanup detection results', () => {
                 0.94,
             ],
         ]);
+        expect(documentPriors.get(1)).toMatchObject({
+            dominantLayout: 'two-page-spread',
+            agreementStrength: 0.84,
+        });
+        expect(documentPriors.has(2)).toBe(false);
     });
 
     it('produces an exact estimate with detected layouts, overrides, and exclusions', () => {
@@ -71,16 +93,16 @@ describe('scan cleanup detection results', () => {
             layoutMode: 'auto',
             pageOverrides: {
                 '2': {
-                    rotation: 0,
+                    rotationDegrees: 0,
                     layoutOverride: 'spread',
                     excluded: false,
-                    manualSplitX: null,
+                    manualSplit: null,
                 },
                 '4': {
-                    rotation: 0,
+                    rotationDegrees: 0,
                     layoutOverride: 'auto',
                     excluded: true,
-                    manualSplitX: null,
+                    manualSplit: null,
                 },
             },
         }, classifications)).toEqual({

@@ -37,6 +37,17 @@
             </span>
         </template>
 
+        <template #scan-cleanup-leading>
+            <span class="overflow-menu-icon overflow-menu-scan-cleanup-icon">
+                <ScanCleanupScissorsIcon class="size-[var(--app-toolbar-icon-size)]" />
+                <span
+                    v-if="scanCleanupRunning"
+                    class="overflow-menu-running-dot"
+                    aria-hidden="true"
+                />
+            </span>
+        </template>
+
         <template #item-trailing="{ item }">
             <UIcon
                 v-if="isOverflowMenuItemChecked(item)"
@@ -50,6 +61,7 @@
 <script setup lang="ts">
 import type { TPdfViewMode } from '@contracts/shared';
 import PrintCurrentPageIcon from '@app/components/icons/PrintCurrentPageIcon.vue';
+import { ScanCleanupScissorsIcon } from '@app/modules/scan-cleanup/public/runtime';
 import { isReaderPrintCommandDisabled } from '@app/utils/isReaderPrintCommandDisabled';
 import type { TToolbarOverflowMenuCommand } from '@app/types/toolbarMenuCommands';
 import {
@@ -88,6 +100,17 @@ interface IProps {
     canCrop: boolean
     canQuickNote: boolean
     canUseOcr: boolean
+    canUseScanCleanup?: boolean
+    scanCleanupDisabled?: boolean
+    scanCleanupRunning?: boolean
+    scanCleanupLabel?: string
+    ocrDisabled?: boolean
+    canExportDocx?: boolean
+    isExportingDocx?: boolean
+    canUseAssistant?: boolean
+    assistantAvailable?: boolean
+    assistantOpen?: boolean
+    assistantLabel?: string
     showSidebar: boolean
     dragMode: boolean
     continuousScroll: boolean
@@ -138,6 +161,17 @@ const {
     canToggleContinuousScroll = true,
     canUseViewModes = true,
     canUseOcr,
+    canUseScanCleanup = false,
+    scanCleanupDisabled = false,
+    scanCleanupRunning = false,
+    scanCleanupLabel = '',
+    ocrDisabled = false,
+    canExportDocx = false,
+    isExportingDocx = false,
+    canUseAssistant = false,
+    assistantAvailable = false,
+    assistantOpen = false,
+    assistantLabel = '',
     collapseTier,
     continuousScroll,
     documentBusy,
@@ -166,12 +200,16 @@ const {
 
 const emit = defineEmits<{
     'update:open': [value: boolean];
+    'open-file': [];
     save: [];
     'save-as': [];
     print: [];
     undo: [];
     redo: [];
     'open-ocr': [];
+    'open-scan-cleanup': [];
+    'export-docx': [];
+    'toggle-assistant': [];
     'toggle-sidebar': [];
     'fit-width': [];
     'fit-height': [];
@@ -190,12 +228,16 @@ const emit = defineEmits<{
 }>();
 
 const emitMenuCommand = {
+    'open-file': () => emit('open-file'),
     save: () => emit('save'),
     'save-as': () => emit('save-as'),
     print: () => emit('print'),
     undo: () => emit('undo'),
     redo: () => emit('redo'),
     'open-ocr': () => emit('open-ocr'),
+    'open-scan-cleanup': () => emit('open-scan-cleanup'),
+    'export-docx': () => emit('export-docx'),
+    'toggle-assistant': () => emit('toggle-assistant'),
     'toggle-sidebar': () => emit('toggle-sidebar'),
     'fit-width': () => emit('fit-width'),
     'fit-height': () => emit('fit-height'),
@@ -251,7 +293,8 @@ const hasRelocatedFileItems = computed(() => (
     || shouldShowRelocatedCommand('save-as')
     || shouldShowRelocatedCommand('print')
 ));
-const hasDocumentItems = computed(() => hasRelocatedFileItems.value || (
+const hasDocumentItems = computed(() => shouldShowMenuCommand('open-file', 5)
+    || hasRelocatedFileItems.value || (
     showDocumentSection === true
     && (canCombineFiles === true
         || canPrintCurrentPage === true
@@ -264,22 +307,27 @@ const hasEditItems = computed(() => (
 const hasToolItems = computed(() => (
     (canCaptureRegion && shouldShowMenuCommand('capture-region', 3))
     || (canCrop && shouldShowMenuCommand('crop', 3))
-    || (canQuickNote && shouldShowMenuCommand('quick-note', 4))
-    || (canUseOcr && shouldShowMenuCommand('ocr', 3))
+    || (canQuickNote && shouldShowMenuCommand('quick-note', 3))
+    || (canUseScanCleanup && collapseTier >= 1)
+    || (canUseOcr && shouldShowMenuCommand('ocr', 1))
+    || shouldShowMenuCommand('export-docx', 1)
 ));
 
 const hasViewItems = computed(() => (
-    shouldShowMenuCommand('toggle-sidebar')
+    shouldShowMenuCommand('toggle-sidebar', 5)
     || shouldShowMenuCommand('view-mode', 2)
-    || shouldShowMenuCommand('fit-width', 3)
-    || shouldShowMenuCommand('fit-height', 3)
+    || shouldShowMenuCommand('fit-width', 2)
+    || shouldShowMenuCommand('fit-height', 2)
     || shouldShowMenuCommand('continuous-scroll', 2)
-    || shouldShowMenuCommand('drag-mode', 4)
-    || shouldShowMenuCommand('text-select', 4)
-    || shouldShowMenuCommand('fullscreen')
+    || shouldShowMenuCommand('drag-mode', 3)
+    || shouldShowMenuCommand('text-select', 3)
+    || shouldShowMenuCommand('fullscreen', 5)
 ));
 
-const hasShellItems = computed(() => shouldShowMenuCommand('settings'));
+const hasShellItems = computed(() => (
+    (canUseAssistant && collapseTier >= 5)
+    || shouldShowMenuCommand('settings', 5)
+));
 
 const overflowMenuItems = computed(() => {
     const items: TToolbarOverflowMenuItem[] = [];
@@ -321,6 +369,10 @@ function buildDocumentItems() {
 
     const saveDisabled = !hasInteractiveDocument.value || !canSave || isAnySaving || isHistoryBusy || isDjvuMode;
     const saveAsDisabled = !hasInteractiveDocument.value || !canSaveAs || isAnySaving || isHistoryBusy || isDjvuMode;
+
+    if (shouldShowMenuCommand('open-file', 5)) {
+        items.push(createReaderCommandItem('open-file', 'open-file', t('toolbar.openPdf')));
+    }
 
     if (shouldShowRelocatedCommand('save')) {
         items.push(createReaderCommandItem('save', 'save', t('toolbar.save'), {disabled: saveDisabled || isSaving}));
@@ -391,15 +443,31 @@ function buildToolItems() {
         }));
     }
 
-    if (canQuickNote && shouldShowMenuCommand('quick-note', 4)) {
+    if (canQuickNote && shouldShowMenuCommand('quick-note', 3)) {
         items.push(createReaderCommandItem('quick-note', 'quick-note', t('annotations.createNotes'), {
             checked: isPlacingPageNote,
             disabled: !hasInteractiveDocument.value || isDjvuMode,
         }));
     }
 
-    if (canUseOcr && shouldShowMenuCommand('ocr', 3)) {
-        items.push(createReaderCommandItem('ocr', 'open-ocr', t('ocr.button'), {disabled: !hasInteractiveDocument.value || isDjvuMode}));
+    if (canUseScanCleanup && collapseTier >= 1) {
+        items.push(createCommandItem('open-scan-cleanup', scanCleanupLabel || t('scanCleanup.button'), undefined, {
+            checked: scanCleanupRunning,
+            disabled: scanCleanupDisabled,
+            slot: 'scan-cleanup',
+        }));
+    }
+
+    if (canUseOcr && shouldShowMenuCommand('ocr', 1)) {
+        items.push(createReaderCommandItem('ocr', 'open-ocr', t('ocr.button'), {disabled: ocrDisabled || !hasInteractiveDocument.value || isDjvuMode}));
+    }
+
+    if (shouldShowMenuCommand('export-docx', 1)) {
+        items.push(createReaderCommandItem('export-docx', 'export-docx', t('toolbar.exportDocx'), {disabled: !hasInteractiveDocument.value
+                || !canExportDocx
+                || isAnySaving
+                || isHistoryBusy
+                || isExportingDocx}));
     }
 
     return items;
@@ -412,7 +480,7 @@ function buildViewItems() {
         return items;
     }
 
-    if (shouldShowMenuCommand('toggle-sidebar')) {
+    if (shouldShowMenuCommand('toggle-sidebar', 5)) {
         items.push(createReaderCommandItem('toggle-sidebar', 'toggle-sidebar', t('toolbar.toggleSidebar'), {
             checked: showSidebar,
             disabled: !hasInteractiveDocument.value || canToggleSidebar === false,
@@ -427,14 +495,14 @@ function buildViewItems() {
         );
     }
 
-    if (shouldShowMenuCommand('fit-width', 3)) {
+    if (shouldShowMenuCommand('fit-width', 2)) {
         items.push(createReaderCommandItem('fit-width', 'fit-width', t('zoom.fitWidth'), {
             checked: isFitWidthActive,
             disabled: !hasInteractiveDocument.value,
         }));
     }
 
-    if (shouldShowMenuCommand('fit-height', 3)) {
+    if (shouldShowMenuCommand('fit-height', 2)) {
         items.push(createReaderCommandItem('fit-height', 'fit-height', t('zoom.fitHeight'), {
             checked: isFitHeightActive,
             disabled: !hasInteractiveDocument.value,
@@ -448,21 +516,21 @@ function buildViewItems() {
         }));
     }
 
-    if (shouldShowMenuCommand('drag-mode', 4)) {
+    if (shouldShowMenuCommand('drag-mode', 3)) {
         items.push(createReaderCommandItem('drag-mode', 'enable-drag', t('zoom.handTool'), {
             checked: dragMode && !isPlacingPageNote,
             disabled: !hasInteractiveDocument.value,
         }));
     }
 
-    if (shouldShowMenuCommand('text-select', 4)) {
+    if (shouldShowMenuCommand('text-select', 3)) {
         items.push(createReaderCommandItem('text-select', 'disable-drag', t('zoom.textSelect'), {
             checked: !dragMode && !isPlacingPageNote,
             disabled: !hasInteractiveDocument.value,
         }));
     }
 
-    if (shouldShowMenuCommand('fullscreen')) {
+    if (shouldShowMenuCommand('fullscreen', 5)) {
         items.push(createCommandItem(
             'toggle-fullscreen',
             t('toolbar.fullscreen'),
@@ -479,7 +547,17 @@ function buildShellItems() {
         return [];
     }
 
-    return [createReaderCommandItem('settings', 'open-settings', t('toolbar.settings'))];
+    const items: IToolbarOverflowMenuCommandItem[] = [];
+    if (canUseAssistant && collapseTier >= 5) {
+        items.push(createCommandItem('toggle-assistant', assistantLabel || t('assistant.toggle'), 'i-ph-sparkle', {
+            checked: assistantOpen,
+            disabled: !assistantAvailable,
+        }));
+    }
+    if (shouldShowMenuCommand('settings', 5)) {
+        items.push(createReaderCommandItem('settings', 'open-settings', t('toolbar.settings')));
+    }
+    return items;
 }
 
 function appendMenuSection(
@@ -626,6 +704,29 @@ function shouldShowRelocatedCommand(command: TReaderCommandId) {
 
 .overflow-menu-icon--facing-first-single {
     position: relative;
+}
+
+.overflow-menu-scan-cleanup-icon {
+    position: relative;
+}
+
+.overflow-menu-running-dot {
+    position: absolute;
+    inset-inline-end: calc(-1 * var(--app-space-xs));
+    inset-block-end: calc(-1 * var(--app-space-xs));
+    width: var(--app-space-3xl);
+    height: var(--app-space-3xl);
+    border: 1px solid var(--ui-bg);
+    border-radius: var(--app-radius-full);
+    background: var(--ui-primary);
+    animation: overflow-menu-running-pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes overflow-menu-running-pulse {
+    50% {
+        opacity: 0.45;
+        transform: scale(0.8);
+    }
 }
 
 .overflow-menu-icon-badge {

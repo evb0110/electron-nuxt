@@ -98,7 +98,7 @@
         </template>
         <template v-if="canUseOcr && isDesktopRuntime" #scan-cleanup="{ isCollapsed }">
             <AppTooltip :text="scanCleanupTriggerTooltip" :delay-duration="1200">
-                <span v-if="!isCollapsed(3)" class="scan-cleanup-trigger-wrap">
+                <span v-if="!isCollapsed(1)" class="scan-cleanup-trigger-wrap">
                     <UButton
                         class="scan-cleanup-trigger"
                         :class="{'is-active': isScanCleanupRunning}"
@@ -109,7 +109,7 @@
                         type="button"
                         :aria-label="scanCleanupTriggerTooltip"
                         :aria-pressed="isScanCleanupRunning"
-                        :disabled="toolbarControlsDisabled || snapshot.isAnySaving || snapshot.isHistoryBusy || !ocrWorkingCopyPath"
+                        :disabled="scanCleanupActionDisabled"
                         @click="handleOpenScanCleanup"
                     >
                         <ScanCleanupScissorsIcon class="size-5" />
@@ -129,8 +129,8 @@
                 :open="ocrPopupOpen"
                 :is-exporting-docx="ocrIsExportingDocx"
                 :external-error="ocrExternalError"
-                :disabled="toolbarControlsDisabled || snapshot.isAnySaving || snapshot.isHistoryBusy"
-                :hide-trigger="isCollapsed(3)"
+                :disabled="ocrActionDisabled"
+                :hide-trigger="isCollapsed(1)"
                 @update:open="handleOcrPopupOpenUpdate"
                 @update:running="handleOcrRunningUpdate"
                 @export-docx="handleOcrExportDocx"
@@ -179,6 +179,17 @@
                 :can-quick-note="canQuickNote"
                 :has-pdf="toolbarHasPdf"
                 :can-use-ocr="canUseOcr"
+                :can-use-scan-cleanup="canUseOcr && isDesktopRuntime"
+                :scan-cleanup-disabled="scanCleanupActionDisabled"
+                :scan-cleanup-running="isScanCleanupRunning"
+                :scan-cleanup-label="scanCleanupTriggerTooltip"
+                :ocr-disabled="ocrActionDisabled"
+                :can-export-docx="snapshot.canExportDocx"
+                :is-exporting-docx="snapshot.isExportingDocx"
+                :can-use-assistant="assistantPanelEnabled"
+                :assistant-available="assistantPanelAvailable"
+                :assistant-open="assistantPanelOpen"
+                :assistant-label="t('assistant.toggle')"
                 :can-toggle-continuous-scroll="snapshot.viewerCapabilities.continuousScroll"
                 :can-use-view-modes="snapshot.viewerCapabilities.viewMode"
                 :show-sidebar="snapshot.showSidebar"
@@ -212,6 +223,7 @@
                 :fullscreen-supported="fullscreenSupported"
                 trigger-icon="i-ph-dots-three"
                 @update:open="handleOverflowMenuOpenUpdate"
+                @open-file="handleOpenFile"
                 @save="handleSave"
                 @save-as="handleSaveAs"
                 @print="handlePrint"
@@ -220,6 +232,9 @@
                 @capture-region="handleCaptureRegion"
                 @crop="handleCrop"
                 @open-ocr="handleOpenOcr"
+                @open-scan-cleanup="handleOpenScanCleanup"
+                @export-docx="handleExportDocx"
+                @toggle-assistant="toggleAssistantPanel"
                 @toggle-sidebar="handleToggleSidebar"
                 @fit-width="handleFitWidth"
                 @fit-height="handleFitHeight"
@@ -262,7 +277,7 @@ import {
     isScanCleanupRunning,
     ScanCleanupScissorsIcon,
     scanCleanupRun,
-} from '@app/modules/scan-cleanup/public';
+} from '@app/modules/scan-cleanup/public/runtime';
 
 const OcrPopup = defineAsyncComponent(
     () => import('@app/modules/ocr-panel/public')
@@ -383,6 +398,12 @@ const emit = defineEmits<{
 }>();
 
 const ocrPopupRef = ref<IOcrPopupAgentExpose | null>(null);
+const {
+    isAvailable: assistantPanelAvailable,
+    isEnabled: assistantPanelEnabled,
+    isOpen: assistantPanelOpen,
+    toggle: toggleAssistantPanel,
+} = useAssistantPanel();
 const toolbarHasPdf = computed(() => hasPdf ?? snapshot.hasPdf);
 const toolbarDocumentBusy = computed(() => documentBusy ?? snapshot.isOpeningDocument);
 const toolbarCanToggleSidebar = computed(() => canToggleSidebar ?? true);
@@ -390,14 +411,20 @@ const toolbarControlsDisabled = computed(() => (
     controlsDisabled
     ?? (!toolbarHasPdf.value || toolbarDocumentBusy.value || snapshot.totalPages <= 0)
 ));
+const ocrActionDisabled = computed(() => (
+    toolbarControlsDisabled.value || snapshot.isAnySaving || snapshot.isHistoryBusy
+));
+const scanCleanupActionDisabled = computed(() => (
+    ocrActionDisabled.value || !ocrWorkingCopyPath
+));
 const pageNavigationDisabled = computed(() => (
     toolbarDocumentBusy.value ? false : toolbarControlsDisabled.value
 ));
 const pageDropdownTotalPages = computed(() => pageDropdownTotalPagesProp ?? snapshot.totalPages);
 const ocrIsExportingDocx = computed(() => ocrIsExportingDocxProp ?? snapshot.isExportingDocx);
 const scanCleanupJobProgress = computed(() => scanCleanupRun.jobState?.progress ?? {
-    processedCount: 0,
-    totalPages: Math.max(1, snapshot.totalPages),
+    completedUnits: 0,
+    totalUnits: Math.max(1, snapshot.totalPages),
 });
 const scanCleanupTriggerTooltip = computed(() => {
     if (!ocrWorkingCopyPath) {
@@ -407,8 +434,8 @@ const scanCleanupTriggerTooltip = computed(() => {
         return t('scanCleanup.button');
     }
     return t('scanCleanup.runningLabel', {
-        processed: scanCleanupJobProgress.value.processedCount,
-        total: scanCleanupJobProgress.value.totalPages,
+        processed: scanCleanupJobProgress.value.completedUnits,
+        total: scanCleanupJobProgress.value.totalUnits,
     });
 });
 

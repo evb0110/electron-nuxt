@@ -1,0 +1,30 @@
+[
+  {
+    "id": "hebrew-bhs-p126-niqqud",
+    "source": "Hebrew/BHS_from_text.pdf",
+    "page": 126,
+    "rasterDpi": 300,
+    "crop": { "x": 1000, "y": 250, "width": 1000, "height": 300 },
+    "thresholdPercent": 70,
+    "purpose": "Hebrew niqqud and punctuation retention"
+  },
+  {
+    "id": "arabic-wright-p82-dots",
+    "source": "Arabic/Gram/Wright_Arabic_Grammar_1.pdf",
+    "page": 82,
+    "rasterDpi": 72,
+    "effectiveCleanupDpi": 150,
+    "crop": { "x": 700, "y": 780, "width": 1550, "height": 400 },
+    "thresholdPercent": 70,
+    "purpose": "Arabic consonant dots, vowel marks, and punctuation retention"
+  },
+  {
+    "id": "bedjan-p2-speckles",
+    "source": "Syriac/Editions_Translations/Jacob of Saroug Homilies - Bedjan - Contents _o.pdf",
+    "page": 2,
+    "rasterDpi": 150,
+    "crop": { "x": 0, "y": 0, "width": 880, "height": 600 },
+    "thresholdPercent": 82,
+    "purpose": "Isolated scan speckle removal while retaining table-of-contents dot leaders"
+  }
+]

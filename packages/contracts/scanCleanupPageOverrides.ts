@@ -1,4 +1,5 @@
 import type {
+    IScanCleanupMarginsMm,
     IScanCleanupOptions,
     IScanCleanupPageOverride,
     IScanCleanupPreviewMetadata,
@@ -9,17 +10,19 @@ import type {
 export type TScanCleanupResolvedPageLayout = ReturnType<typeof resolveScanCleanupPageLayout>;
 
 export const DEFAULT_SCAN_CLEANUP_PAGE_OVERRIDE: Readonly<IScanCleanupPageOverride> = Object.freeze({
-    rotation: 0,
+    rotationDegrees: 0,
     layoutOverride: 'auto',
     excluded: false,
-    manualSplitX: null,
+    manualSplit: null,
 });
 
 export function createScanCleanupPageOverride(
     value: Partial<IScanCleanupPageOverride> = {},
+    documentMargins?: IScanCleanupMarginsMm,
 ): IScanCleanupPageOverride {
     const {
         manualContentBoxes,
+        marginsMm,
         placementOverrides,
         ...scalarValues
     } = value;
@@ -27,6 +30,9 @@ export function createScanCleanupPageOverride(
         ...DEFAULT_SCAN_CLEANUP_PAGE_OVERRIDE,
         ...scalarValues,
         ...(manualContentBoxes ? {manualContentBoxes: {...manualContentBoxes}} : {}),
+        ...(marginsMm && (!documentMargins || !areScanCleanupMarginsMmEqual(marginsMm, documentMargins))
+            ? {marginsMm: {...marginsMm}}
+            : {}),
         ...(placementOverrides ? {placementOverrides: {...placementOverrides}} : {}),
     };
 }
@@ -42,22 +48,42 @@ export function setScanCleanupPageOverride(
     overrides: TScanCleanupPageOverrides,
     pageNumber: number,
     value: IScanCleanupPageOverride,
+    documentMargins?: IScanCleanupMarginsMm,
 ) {
     const key = String(pageNumber);
-    if (isDefaultScanCleanupPageOverride(value)) {
+    const normalized = createScanCleanupPageOverride(value, documentMargins);
+    if (isDefaultScanCleanupPageOverride(normalized)) {
         Reflect.deleteProperty(overrides, key);
         return;
     }
-    overrides[key] = createScanCleanupPageOverride(value);
+    overrides[key] = normalized;
 }
 
 export function isDefaultScanCleanupPageOverride(value: IScanCleanupPageOverride) {
-    return value.rotation === DEFAULT_SCAN_CLEANUP_PAGE_OVERRIDE.rotation
+    return value.rotationDegrees === DEFAULT_SCAN_CLEANUP_PAGE_OVERRIDE.rotationDegrees
         && value.layoutOverride === DEFAULT_SCAN_CLEANUP_PAGE_OVERRIDE.layoutOverride
         && value.excluded === DEFAULT_SCAN_CLEANUP_PAGE_OVERRIDE.excluded
-        && value.manualSplitX === DEFAULT_SCAN_CLEANUP_PAGE_OVERRIDE.manualSplitX
+        && value.manualSplit === DEFAULT_SCAN_CLEANUP_PAGE_OVERRIDE.manualSplit
         && Object.keys(value.manualContentBoxes ?? {}).length === 0
+        && value.marginsMm === undefined
         && Object.keys(value.placementOverrides ?? {}).length === 0;
+}
+
+export function areScanCleanupMarginsMmEqual(
+    left: IScanCleanupMarginsMm,
+    right: IScanCleanupMarginsMm,
+) {
+    return left.leftMm === right.leftMm
+        && left.topMm === right.topMm
+        && left.rightMm === right.rightMm
+        && left.bottomMm === right.bottomMm;
+}
+
+export function resolveScanCleanupMarginsMm(
+    documentMargins: IScanCleanupMarginsMm,
+    override: Pick<IScanCleanupPageOverride, 'marginsMm'>,
+) {
+    return override.marginsMm ?? documentMargins;
 }
 
 export function resolveScanCleanupOutputPlacement(

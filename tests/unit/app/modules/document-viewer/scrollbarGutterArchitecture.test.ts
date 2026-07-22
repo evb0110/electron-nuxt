@@ -63,7 +63,6 @@ describe('balanced scrollbar-gutter architecture', () => {
         const balancedByOwningComponent = [
             'app/assets/css/pdf-viewer.scss',
             'app/modules/agent-panel/components/AgentAssistantPanel.shell.css',
-            'app/modules/scan-cleanup/components/ScanCleanupPreviewPane.css',
         ];
         const horizontalOrHidden = [
             'app/components/settings/SettingsAgentPanel.vue',
@@ -94,7 +93,7 @@ describe('balanced scrollbar-gutter architecture', () => {
             .toContain('app-scroll-region--balanced');
         expect(read('app/modules/agent-panel/components/AgentAssistantPanel.vue'))
             .toContain('app-scroll-region--balanced');
-        expect(read('app/modules/scan-cleanup/components/ScanCleanupPreviewPane.vue'))
+        expect(read('app/modules/scan-cleanup/components/settings/ScanCleanupSettingsPanel.vue'))
             .toContain('app-scroll-region--balanced');
         expect(read('app/modules/pdf-viewer/components/PdfThumbnails.vue'))
             .toContain('DocumentThumbnailRail');

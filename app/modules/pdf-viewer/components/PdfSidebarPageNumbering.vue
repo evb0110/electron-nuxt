@@ -98,13 +98,13 @@
                                 :label="t('pageNumbering.startAt')"
                                 :ui="formFieldUi"
                             >
-                                <UInput
+                                <UInputNumber
                                     id="page-label-start-input"
                                     :model-value="pageLabelStartNumber"
                                     class="w-full"
-                                    type="number"
                                     size="xs"
-                                    min="1"
+                                    :min="1"
+                                    :step="1"
                                     :disabled="pageLabelStyle.length === 0"
                                     @update:model-value="handleStartNumberModelUpdate"
                                 />
@@ -403,15 +403,11 @@ function queueRangeSyncSuppression() {
     });
 }
 
-function handleStartNumberModelUpdate(value: string | number | null | undefined) {
-    const parsed = typeof value === 'number'
-        ? value
-        : Number.parseInt(String(value ?? ''), 10);
-    if (!Number.isFinite(parsed) || parsed < 1) {
-        pageLabelStartNumber.value = 1;
+function handleStartNumberModelUpdate(value: number | null | undefined) {
+    if (typeof value !== 'number' || !Number.isFinite(value)) {
         return;
     }
-    pageLabelStartNumber.value = parsed;
+    pageLabelStartNumber.value = Math.max(1, Math.trunc(value));
 }
 
 function buildRangePages(range: IPdfPageRange) {

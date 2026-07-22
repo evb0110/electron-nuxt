@@ -32,6 +32,10 @@ impl BinaryImage {
         &self.words
     }
 
+    pub(crate) fn words_mut(&mut self) -> &mut [u32] {
+        &mut self.words
+    }
+
     pub fn get(&self, x: usize, y: usize) -> bool {
         let word = self.words[y * self.words_per_line + x / 32];
         word & (1 << (31 - x % 32)) != 0
@@ -85,7 +89,7 @@ impl BinaryImage {
         output
     }
 
-    fn clear_padding(&mut self) {
+    pub(crate) fn clear_padding(&mut self) {
         if self.width == 0 || self.width % 32 == 0 {
             return;
         }

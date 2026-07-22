@@ -31,7 +31,7 @@ export const GENERATED_RUST_NATIVE_TOOL_PROTOCOLS = [
     {
         binaryName: 'evb-scan-cleanup',
         crateName: 'scan-cleanup',
-        protocolVersion: 1,
+        protocolVersion: 2,
         resourceFamilyId: 'scan-cleanup',
         stagingName: 'scan-cleanup',
     },

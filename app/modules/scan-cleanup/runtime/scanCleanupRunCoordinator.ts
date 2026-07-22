@@ -1,36 +1,62 @@
 import type {
     IScanCleanupStartRequest,
-    IScanCleanupStartResult,
+    TScanCleanupStartResult,
     TScanCleanupJobState,
 } from '@contracts/electronApiScanCleanup';
 import type {TTranslateFn} from '@i18n-app';
 import {getScanCleanupCapability} from '@app/utils/getScanCleanupCapability';
-import {
-    dismissScanCleanupFirstRunGuidance,
-    toPlainScanCleanupOptions,
-} from '@app/modules/scan-cleanup/runtime/scanCleanupPreferences';
+import {toBridgeSafeScanCleanupPayload} from '@app/modules/scan-cleanup/runtime/toBridgeSafeScanCleanupPayload';
+import {toPlainScanCleanupOptions} from '@app/modules/scan-cleanup/persistence/preferencesRepository';
+import {dismissScanCleanupFirstRunGuidanceInStore} from '@app/modules/scan-cleanup/runtime/scanCleanupPreferencesStore';
 
 const ACTIVE_JOB_KEY = 'evb.scanCleanup.activeJobId';
 const ACTIVE_JOB_DOCUMENT_KEY = 'evb.scanCleanup.activeDocumentRef';
+const ACTIVE_JOB_OWNER_KEY = 'evb.scanCleanup.activeOwnerId';
+const ACTIVE_JOB_REVISION_KEY = 'evb.scanCleanup.activeDocumentRevision';
 const terminalJobs = new Set<string>();
+
+interface IScanCleanupRunError {
+    error: string;
+    ownerId: string;
+}
 
 export const scanCleanupRun = reactive({
     activeJobId: null as string | null,
-    workspaceOpen: false,
+    inFlight: false,
+    workspaceOwnerIds: new Set<string>(),
     jobState: null as TScanCleanupJobState | null,
-    lastError: '',
+    lastError: null as IScanCleanupRunError | null,
     ownerDocumentRef: null as string | null,
+    ownerDocumentRevision: null as string | null,
+    ownerId: null as string | null,
 });
 
 export const isScanCleanupRunning = computed(() => Boolean(
-    scanCleanupRun.activeJobId
-    && scanCleanupRun.jobState
-    && [
-        'queued',
-        'running',
-        'handoff',
-    ].includes(scanCleanupRun.jobState.status),
+    scanCleanupRun.inFlight
+    || (
+        scanCleanupRun.activeJobId
+        && scanCleanupRun.jobState
+        && [
+            'queued',
+            'running',
+            'canceling',
+            'handoff',
+        ].includes(scanCleanupRun.jobState.status)
+    ),
 ));
+
+export function getScanCleanupRunError(ownerId: string) {
+    return scanCleanupRun.lastError?.ownerId === ownerId
+        ? scanCleanupRun.lastError.error
+        : '';
+}
+
+export function setScanCleanupRunError(ownerId: string, error: string) {
+    scanCleanupRun.lastError = error ? {
+        error,
+        ownerId,
+    } : null;
+}
 
 export function resolveScanCleanupProcessedPages(
     state: TScanCleanupJobState | null,
@@ -50,11 +76,8 @@ export function resolveScanCleanupProcessedPages(
     ) {
         return new Set();
     }
-    const processedCount = Math.min(
-        Math.max(0, Math.trunc(totalPages)),
-        Math.max(0, Math.trunc(state.progress.processedCount)),
-    );
-    return new Set(Array.from({length: processedCount}, (_, index) => index + 1));
+    return new Set((state.progress.completedPageNumbers ?? [])
+        .filter(pageNumber => pageNumber <= totalPages));
 }
 
 interface IScanCleanupToast {add: (options: {
@@ -82,6 +105,16 @@ export interface IScanCleanupCoordinatorDependencies {
 let installed = false;
 let unsubscribe: (() => void) | null = null;
 let dependencies: IScanCleanupCoordinatorDependencies | null = null;
+let pendingStart: Pick<IScanCleanupStartRequest, 'documentRevision' | 'ownerId' | 'sourcePdfPath'> | null = null;
+let startRequestPromise: Promise<TScanCleanupStartResult> | null = null;
+let activeStartResult: Extract<TScanCleanupStartResult, {started: true}> | null = null;
+
+function clearRunGuard() {
+    scanCleanupRun.inFlight = false;
+    pendingStart = null;
+    startRequestPromise = null;
+    activeStartResult = null;
+}
 
 function persistActiveJob(jobId: string | null, documentRef: string | null = scanCleanupRun.ownerDocumentRef) {
     if (!import.meta.client) {
@@ -92,9 +125,13 @@ function persistActiveJob(jobId: string | null, documentRef: string | null = sca
         if (documentRef) {
             sessionStorage.setItem(ACTIVE_JOB_DOCUMENT_KEY, documentRef);
         }
+        if (scanCleanupRun.ownerId) sessionStorage.setItem(ACTIVE_JOB_OWNER_KEY, scanCleanupRun.ownerId);
+        if (scanCleanupRun.ownerDocumentRevision) sessionStorage.setItem(ACTIVE_JOB_REVISION_KEY, scanCleanupRun.ownerDocumentRevision);
     } else {
         sessionStorage.removeItem(ACTIVE_JOB_KEY);
         sessionStorage.removeItem(ACTIVE_JOB_DOCUMENT_KEY);
+        sessionStorage.removeItem(ACTIVE_JOB_OWNER_KEY);
+        sessionStorage.removeItem(ACTIVE_JOB_REVISION_KEY);
     }
 }
 
@@ -113,10 +150,11 @@ async function handleTerminalState(state: TScanCleanupJobState) {
     }
     terminalJobs.add(state.jobId);
     scanCleanupRun.activeJobId = null;
+    clearRunGuard();
     persistActiveJob(null);
 
     if (state.status === 'completed') {
-        dismissScanCleanupFirstRunGuidance();
+        dismissScanCleanupFirstRunGuidanceInStore();
         const opened = await dependencies.openGeneratedPdf(state.outputPdfPath).catch(() => false);
         const ocrStarted = opened && state.runOcrAfterCleanup
             ? await dependencies.runOcrOnActiveDocument().catch(() => false)
@@ -138,8 +176,8 @@ async function handleTerminalState(state: TScanCleanupJobState) {
     }
 
     if (state.status === 'failed') {
-        scanCleanupRun.lastError = state.error;
-        if (!scanCleanupRun.workspaceOpen) {
+        if (scanCleanupRun.ownerId) setScanCleanupRunError(scanCleanupRun.ownerId, state.error);
+        if (!scanCleanupRun.ownerId || !scanCleanupRun.workspaceOwnerIds.has(scanCleanupRun.ownerId)) {
             dependencies.toast.add({
                 color: 'error',
                 title: dependencies.t('scanCleanup.failed'),
@@ -155,7 +193,7 @@ async function handleTerminalState(state: TScanCleanupJobState) {
         return;
     }
 
-    if (state.status === 'canceled' && !scanCleanupRun.workspaceOpen) {
+    if (state.status === 'canceled' && (!scanCleanupRun.ownerId || !scanCleanupRun.workspaceOwnerIds.has(scanCleanupRun.ownerId))) {
         dependencies.toast.add({
             color: 'info',
             title: dependencies.t('scanCleanup.canceled'),
@@ -166,6 +204,16 @@ async function handleTerminalState(state: TScanCleanupJobState) {
 function acceptScanCleanupJobState(state: TScanCleanupJobState) {
     if (scanCleanupRun.activeJobId && state.jobId !== scanCleanupRun.activeJobId) {
         return;
+    }
+    if (!scanCleanupRun.activeJobId) {
+        if (!pendingStart) {
+            return;
+        }
+        scanCleanupRun.activeJobId = state.jobId;
+        scanCleanupRun.ownerDocumentRef = pendingStart.sourcePdfPath;
+        scanCleanupRun.ownerId = pendingStart.ownerId;
+        scanCleanupRun.ownerDocumentRevision = pendingStart.documentRevision;
+        persistActiveJob(state.jobId, pendingStart.sourcePdfPath);
     }
     scanCleanupRun.jobState = state;
     if ([
@@ -183,37 +231,93 @@ function requestOwningScanCleanupWorkspace() {
     }
 }
 
-export async function startScanCleanup(request: IScanCleanupStartRequest): Promise<IScanCleanupStartResult> {
+async function startScanCleanupRequest(
+    capability: NonNullable<ReturnType<typeof getScanCleanupCapability>>,
+    request: IScanCleanupStartRequest,
+): Promise<TScanCleanupStartResult> {
+    let result: TScanCleanupStartResult;
+    try {
+        result = await capability.start(toBridgeSafeScanCleanupPayload({
+            ...request,
+            options: toPlainScanCleanupOptions(request.options),
+        }));
+    } catch (error) {
+        clearRunGuard();
+        throw error;
+    }
+    if (!result.started) {
+        clearRunGuard();
+        return result;
+    }
+    if (terminalJobs.has(result.jobId)) {
+        clearRunGuard();
+        return result;
+    }
+    terminalJobs.delete(result.jobId);
+    activeStartResult = result;
+    scanCleanupRun.activeJobId = result.jobId;
+    scanCleanupRun.ownerDocumentRef = request.sourcePdfPath;
+    scanCleanupRun.ownerId = request.ownerId;
+    scanCleanupRun.ownerDocumentRevision = request.documentRevision;
+    pendingStart = null;
+    persistActiveJob(result.jobId, request.sourcePdfPath);
+    const restored = await capability.subscribeJob(result.jobId, {
+        ownerId: request.ownerId,
+        documentRevision: request.documentRevision,
+    });
+    if (restored) acceptScanCleanupJobState(restored);
+    return result;
+}
+
+export function startScanCleanup(request: IScanCleanupStartRequest): Promise<TScanCleanupStartResult> {
+    if (scanCleanupRun.inFlight) {
+        if (startRequestPromise) {
+            return startRequestPromise;
+        }
+        if (activeStartResult) {
+            return Promise.resolve(activeStartResult);
+        }
+        return Promise.resolve({
+            started: false,
+            jobId: scanCleanupRun.activeJobId ?? '',
+            error: 'Scan cleanup is already running',
+            errorCode: 'internal',
+        });
+    }
     const capability = getScanCleanupCapability();
     if (!capability) {
-        return {
+        return Promise.resolve({
             started: false,
             jobId: '',
             error: 'Scan cleanup is unavailable',
             errorCode: 'tools-unavailable',
-        };
+        });
     }
-    scanCleanupRun.lastError = '';
-    const result = await capability.start({
-        ...request,
-        options: toPlainScanCleanupOptions(request.options),
-    });
-    if (!result.started) {
-        return result;
-    }
-    terminalJobs.delete(result.jobId);
-    scanCleanupRun.activeJobId = result.jobId;
-    scanCleanupRun.ownerDocumentRef = request.sourcePdfPath;
-    persistActiveJob(result.jobId, request.sourcePdfPath);
-    const restored = await capability.subscribeJob(result.jobId);
-    if (restored) acceptScanCleanupJobState(restored);
-    return result;
+    scanCleanupRun.lastError = null;
+    scanCleanupRun.inFlight = true;
+    pendingStart = {
+        ownerId: request.ownerId,
+        documentRevision: request.documentRevision,
+        sourcePdfPath: request.sourcePdfPath,
+    };
+    startRequestPromise = startScanCleanupRequest(capability, request);
+    return startRequestPromise;
 }
 
 export async function cancelScanCleanup() {
     const capability = getScanCleanupCapability();
     return Boolean(capability && scanCleanupRun.activeJobId
-        && await capability.cancel(scanCleanupRun.activeJobId));
+        && scanCleanupRun.ownerId
+        && scanCleanupRun.ownerDocumentRevision
+        && await capability.cancel(scanCleanupRun.activeJobId, {
+            ownerId: scanCleanupRun.ownerId,
+            documentRevision: scanCleanupRun.ownerDocumentRevision,
+        }));
+}
+
+export function setScanCleanupWorkspaceOwnerOpen(ownerId: string, open: boolean) {
+    if (open) scanCleanupRun.workspaceOwnerIds.add(ownerId);
+    else scanCleanupRun.workspaceOwnerIds.delete(ownerId);
 }
 
 export async function pruneScanCleanupOutputs() {
@@ -228,23 +332,36 @@ export function installScanCleanupRunCoordinator(nextDependencies: IScanCleanupC
     if (installed) {
         return () => undefined;
     }
-    installed = true;
     const capability = getScanCleanupCapability();
     if (!capability) {
         return () => undefined;
     }
+    installed = true;
     unsubscribe = capability.onJobState(acceptScanCleanupJobState);
     const storedJobId = import.meta.client ? sessionStorage.getItem(ACTIVE_JOB_KEY) : null;
     if (storedJobId) {
         scanCleanupRun.activeJobId = storedJobId;
+        scanCleanupRun.inFlight = true;
         scanCleanupRun.ownerDocumentRef = sessionStorage.getItem(ACTIVE_JOB_DOCUMENT_KEY);
-        void capability.reconnectJob(storedJobId).then(state => {
-            if (state) acceptScanCleanupJobState(state);
-            else {
-                scanCleanupRun.activeJobId = null;
-                persistActiveJob(null);
-            }
-        });
+        scanCleanupRun.ownerId = sessionStorage.getItem(ACTIVE_JOB_OWNER_KEY);
+        scanCleanupRun.ownerDocumentRevision = sessionStorage.getItem(ACTIVE_JOB_REVISION_KEY);
+        if (!scanCleanupRun.ownerId || !scanCleanupRun.ownerDocumentRevision) {
+            scanCleanupRun.activeJobId = null;
+            clearRunGuard();
+            persistActiveJob(null);
+        } else {
+            void capability.reconnectJob(storedJobId, {
+                ownerId: scanCleanupRun.ownerId,
+                documentRevision: scanCleanupRun.ownerDocumentRevision,
+            }).then(state => {
+                if (state) acceptScanCleanupJobState(state);
+                else {
+                    scanCleanupRun.activeJobId = null;
+                    clearRunGuard();
+                    persistActiveJob(null);
+                }
+            });
+        }
     }
     return () => {
         unsubscribe?.();

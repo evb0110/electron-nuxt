@@ -1,9 +1,9 @@
-use crate::bw::despeckle_connected;
+use crate::{analysis::build_analysis_level, bw::despeckle_connected};
 use scan_primitives::{
     distance::squared_euclidean_distance,
-    morphology::{open, reconstruct_binary},
+    morphology::{dilate, open, reconstruct_binary},
     threshold::{threshold_local, LocalThreshold},
-    ComponentMap, GrayImage, Rect,
+    Component, ComponentMap, GrayImage, Rect,
 };
 
 #[derive(Clone, Copy, Debug)]
@@ -19,17 +19,17 @@ pub fn detect_content_and_margins(
     margins_mm: Option<[f64; 4]>,
     margins_pixels: Option<[f64; 4]>,
 ) -> ContentResult {
-    let scale = (150.0 / dpi.max(1.0)).min(1.0);
-    let working = source.downscale_to_fit(
-        (source.width() as f64 * scale).max(1.0) as usize,
-        (source.height() as f64 * scale).max(1.0) as usize,
-    );
+    let level = build_analysis_level(source, dpi, 150.0);
+    let working = level.image;
     let binary = threshold_local(
         &working,
         25,
         LocalThreshold::Wolf {
             k: 0.5,
             deviation_floor: 3.0,
+            minimum_percentile: 0.01,
+            hard_ink: 48,
+            hard_paper: 248,
         },
     );
     let horizontal_seed = open(&binary, 40, 2);
@@ -49,7 +49,7 @@ pub fn detect_content_and_margins(
     let cleaned = despeckle_connected(&binary.subtract(&borders), 150.0);
     let map = ComponentMap::from_binary(&cleaned);
     let distance_to_white = squared_euclidean_distance(&cleaned.invert());
-    let mut bounds: Option<(usize, usize, usize, usize)> = None;
+    let mut candidates = Vec::new();
     for component in map.components() {
         let width = component.right - component.left + 1;
         let height = component.bottom - component.top + 1;
@@ -85,10 +85,23 @@ pub fn detect_content_and_margins(
         let isolated_thick_dirt = nearby_components == 0
             && maximum_inscribed_radius_squared > 36
             && component.area < working.width().saturating_mul(working.height()) / 20;
-        if solid_rule
-            || isolated_thick_dirt
-            || (border_attached && component.area > working.width().max(working.height()) / 3)
-        {
+        let border_shadow =
+            border_attached && component.area > working.width().max(working.height()) / 3;
+        let grayscale_supported = (solid_rule || isolated_thick_dirt)
+            && grayscale_structure_evidence(&working, component);
+        if border_shadow || ((solid_rule || isolated_thick_dirt) && !grayscale_supported) {
+            continue;
+        }
+        candidates.push(ContentCandidate {
+            component,
+            grayscale_supported,
+        });
+    }
+    let retained = cluster_content_blocks(&map, &candidates);
+    let mut bounds: Option<(usize, usize, usize, usize)> = None;
+    for candidate in candidates {
+        let component = candidate.component;
+        if !retained[component.label as usize] {
             continue;
         }
         bounds = Some(match bounds {
@@ -108,13 +121,148 @@ pub fn detect_content_and_margins(
     }
     let content = bounds.map(|(left, top, right, bottom)| {
         Rect::new(
-            left as f64 / scale,
-            top as f64 / scale,
-            (right - left + 1) as f64 / scale,
-            (bottom - top + 1) as f64 / scale,
+            left as f64 / level.scale_x,
+            top as f64 / level.scale_y,
+            (right - left + 1) as f64 / level.scale_x,
+            (bottom - top + 1) as f64 / level.scale_y,
         )
     });
     content_with_margins(source, dpi, content, margins_mm, margins_pixels)
+}
+
+#[derive(Clone, Copy)]
+struct ContentCandidate<'a> {
+    component: &'a Component,
+    grayscale_supported: bool,
+}
+
+#[derive(Clone, Debug, Default)]
+struct BlockStats {
+    component_count: usize,
+    ink_area: usize,
+    left: usize,
+    top: usize,
+    right: usize,
+    bottom: usize,
+    initialized: bool,
+    grayscale_supported: bool,
+}
+
+fn cluster_content_blocks(map: &ComponentMap, candidates: &[ContentCandidate<'_>]) -> Vec<bool> {
+    let mut candidate_labels = vec![false; map.components().len() + 1];
+    for candidate in candidates {
+        candidate_labels[candidate.component.label as usize] = true;
+    }
+    let candidate_image = map.retain(|component| candidate_labels[component.label as usize]);
+    let block_map = ComponentMap::from_binary(&dilate(&candidate_image, 18, 8));
+    let mut blocks = vec![BlockStats::default(); block_map.components().len() + 1];
+    let mut component_blocks = vec![0usize; map.components().len() + 1];
+    for candidate in candidates {
+        let component = candidate.component;
+        let center_x = (component.left + component.right) / 2;
+        let center_y = (component.top + component.bottom) / 2;
+        let block_label = block_map.label_at(center_x, center_y) as usize;
+        component_blocks[component.label as usize] = block_label;
+        if block_label == 0 {
+            continue;
+        }
+        let block = &mut blocks[block_label];
+        if !block.initialized {
+            block.left = component.left;
+            block.top = component.top;
+            block.right = component.right;
+            block.bottom = component.bottom;
+            block.initialized = true;
+        } else {
+            block.left = block.left.min(component.left);
+            block.top = block.top.min(component.top);
+            block.right = block.right.max(component.right);
+            block.bottom = block.bottom.max(component.bottom);
+        }
+        block.component_count += 1;
+        block.ink_area += component.area;
+        block.grayscale_supported |= candidate.grayscale_supported;
+    }
+    let maximum_area = blocks.iter().map(|block| block.ink_area).max().unwrap_or(0);
+    let maximum_count = blocks
+        .iter()
+        .map(|block| block.component_count)
+        .max()
+        .unwrap_or(0);
+    let dominant = blocks
+        .iter()
+        .map(|block| {
+            block.initialized
+                && (block.grayscale_supported
+                    || block.ink_area >= (maximum_area / 12).max(64)
+                    || block.component_count >= (maximum_count / 8).max(3))
+        })
+        .collect::<Vec<_>>();
+    let mut retained = vec![false; map.components().len() + 1];
+    for candidate in candidates {
+        let component = candidate.component;
+        let block_label = component_blocks[component.label as usize];
+        if block_label == 0 {
+            continue;
+        }
+        let block = &blocks[block_label];
+        let supported_marginalia = block.ink_area >= 4
+            && blocks.iter().enumerate().any(|(other_label, other)| {
+                dominant.get(other_label).copied().unwrap_or(false)
+                    && block_is_supported_outlier(block, other)
+            });
+        retained[component.label as usize] =
+            dominant[block_label] || block.grayscale_supported || supported_marginalia;
+    }
+    retained
+}
+
+fn block_is_supported_outlier(block: &BlockStats, dominant: &BlockStats) -> bool {
+    let x_gap = axis_gap(block.left, block.right, dominant.left, dominant.right);
+    let y_gap = axis_gap(block.top, block.bottom, dominant.top, dominant.bottom);
+    let x_overlaps = x_gap == 0;
+    let y_overlaps = y_gap == 0;
+    (x_overlaps && y_gap <= 96) || (y_overlaps && x_gap <= 128)
+}
+
+fn axis_gap(first_start: usize, first_end: usize, second_start: usize, second_end: usize) -> usize {
+    if first_end < second_start {
+        second_start - first_end - 1
+    } else if second_end < first_start {
+        first_start - second_end - 1
+    } else {
+        0
+    }
+}
+
+fn grayscale_structure_evidence(image: &GrayImage, component: &Component) -> bool {
+    let left = component.left.saturating_sub(2);
+    let top = component.top.saturating_sub(2);
+    let right = (component.right + 2).min(image.width() - 1);
+    let bottom = (component.bottom + 2).min(image.height() - 1);
+    let area = (right - left + 1).saturating_mul(bottom - top + 1);
+    if area < 64 {
+        return false;
+    }
+    let mut midtones = 0usize;
+    let mut edges = 0usize;
+    let mut samples = 0usize;
+    for y in top..=bottom {
+        for x in left..=right {
+            let value = image.get(x, y);
+            midtones += usize::from((40..=224).contains(&value));
+            if x > left {
+                edges += usize::from(value.abs_diff(image.get(x - 1, y)) >= 24);
+            }
+            if y > top {
+                edges += usize::from(value.abs_diff(image.get(x, y - 1)) >= 24);
+            }
+            samples += 1;
+        }
+    }
+    let midtone_fraction = midtones as f64 / samples.max(1) as f64;
+    let edge_fraction = edges as f64 / samples.saturating_mul(2).max(1) as f64;
+    (midtone_fraction >= 0.04 && edge_fraction >= 0.03) || edge_fraction >= 0.12
 }
 
 pub fn content_with_margins(
@@ -211,5 +359,32 @@ mod tests {
             bounds.right() < 270.0,
             "isolated dirt expanded crop: {bounds:?}"
         );
+    }
+
+    #[test]
+    fn grayscale_evidence_preserves_table_rules_and_photo_blocks() {
+        let mut image = GrayImage::new(360, 260, 245);
+        for y in (55..155).step_by(14) {
+            for x in 72..245 {
+                if x % 30 < 21 {
+                    image.set(x, y, 18);
+                    image.set(x, y + 1, 18);
+                    image.set(x, y + 2, 18);
+                }
+            }
+        }
+        for x in 48..312 {
+            image.set(x, 205, 35);
+            image.set(x, 206, 35);
+        }
+        for y in 76..143 {
+            for x in 282..337 {
+                image.set(x, y, if (x / 4 + y / 4) % 2 == 0 { 58 } else { 178 });
+            }
+        }
+        let result = detect_content_and_margins(&image, 150.0, None, Some([0.0; 4]));
+        let bounds = result.content.unwrap();
+        assert!(bounds.right() >= 335.0, "photo block was lost: {bounds:?}");
+        assert!(bounds.bottom() >= 206.0, "table rule was lost: {bounds:?}");
     }
 }

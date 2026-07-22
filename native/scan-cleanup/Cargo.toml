@@ -12,8 +12,8 @@ experimental-auto-dewarp = []
 crc32fast = "1.5.0"
 evb-native-support = { version = "0.1.0", path = "../evb-native-support" }
 flate2 = { version = "1.1.9", default-features = false, features = ["zlib-rs"] }
+rayon.workspace = true
 scan-primitives = { version = "0.1.0", path = "../scan-primitives" }
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
-

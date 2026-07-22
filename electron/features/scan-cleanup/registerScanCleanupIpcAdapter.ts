@@ -19,20 +19,16 @@ export function registerScanCleanupIpcAdapter(
     service: IScanCleanupService = createScanCleanupService(),
     previewService: IScanCleanupPreviewService = createScanCleanupPreviewService(),
 ) {
-    registrar.handle(SCAN_CLEANUP_CHANNELS.preview, (_event, request) => previewService.preview(request));
-    registrar.handle(SCAN_CLEANUP_CHANNELS.cancelPreview, (
-        _event,
-        sourcePdfPath,
-        invalidateRawCache,
-    ) => previewService.cancel(sourcePdfPath, invalidateRawCache));
+    registrar.handle(SCAN_CLEANUP_CHANNELS.preview, (event, request) => previewService.preview(event.sender, request));
+    registrar.handle(SCAN_CLEANUP_CHANNELS.cancelPreview, (event, request) => previewService.cancel(event.sender, request));
     registrar.handle(SCAN_CLEANUP_CHANNELS.detectAll, (event, request) => previewService.detectAll(event.sender, request));
-    registrar.handle(SCAN_CLEANUP_CHANNELS.cancelDetection, (_event, jobId) => previewService.cancelDetection(jobId));
-    registrar.handle(SCAN_CLEANUP_CHANNELS.getDetectionJobState, (_event, jobId) => previewService.getDetectionJobState(jobId));
-    registrar.handle(SCAN_CLEANUP_CHANNELS.subscribeDetectionJob, (event, jobId) => previewService.subscribeDetectionJob(event.sender, jobId));
+    registrar.handle(SCAN_CLEANUP_CHANNELS.cancelDetection, (event, jobId, ownerId) => previewService.cancelDetection(event.sender, jobId, ownerId));
+    registrar.handle(SCAN_CLEANUP_CHANNELS.getDetectionJobState, (event, jobId, ownerId) => previewService.getDetectionJobState(event.sender, jobId, ownerId));
+    registrar.handle(SCAN_CLEANUP_CHANNELS.subscribeDetectionJob, (event, jobId, ownerId) => previewService.subscribeDetectionJob(event.sender, jobId, ownerId));
     registrar.handle(SCAN_CLEANUP_CHANNELS.start, (event, request) => service.start(event.sender, request));
-    registrar.handle(SCAN_CLEANUP_CHANNELS.cancel, (_event, jobId) => service.cancel(jobId));
-    registrar.handle(SCAN_CLEANUP_CHANNELS.getJobState, (_event, jobId) => service.getState(jobId));
-    registrar.handle(SCAN_CLEANUP_CHANNELS.subscribeJob, (event, jobId) => service.subscribe(event.sender, jobId));
-    registrar.handle(SCAN_CLEANUP_CHANNELS.reconnectJob, (event, jobId) => service.subscribe(event.sender, jobId));
+    registrar.handle(SCAN_CLEANUP_CHANNELS.cancel, (event, jobId, ownerId) => service.cancel(event.sender, jobId, ownerId));
+    registrar.handle(SCAN_CLEANUP_CHANNELS.getJobState, (event, jobId, ownerId) => service.getState(event.sender, jobId, ownerId));
+    registrar.handle(SCAN_CLEANUP_CHANNELS.subscribeJob, (event, jobId, ownerId) => service.subscribe(event.sender, jobId, ownerId));
+    registrar.handle(SCAN_CLEANUP_CHANNELS.reconnectJob, (event, jobId, ownerId) => service.subscribe(event.sender, jobId, ownerId));
     registrar.handle(SCAN_CLEANUP_CHANNELS.pruneGeneratedOutputs, (_event, openPdfPaths) => service.pruneGeneratedOutputs(openPdfPaths));
 }

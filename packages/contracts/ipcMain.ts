@@ -4,6 +4,11 @@ export interface IIpcInvokeSpec<TArgs extends unknown[] = unknown[], TResult = u
 }
 
 export interface IIpcCodec<TSpec extends IIpcInvokeSpec> {
+    /**
+     * Renderer-side encoder. Implementations must rebuild arguments into values
+     * Electron can structured-clone before they cross the preload boundary.
+     */
+    encodeArgs?: (value: TSpec['args']) => TSpec['args'];
     decodeArgs: (value: readonly unknown[]) => TSpec['args'];
     decodeResult: (value: unknown) => TSpec['result'];
 }

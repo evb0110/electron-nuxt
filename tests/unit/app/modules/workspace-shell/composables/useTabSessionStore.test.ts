@@ -101,7 +101,6 @@ describe('tab session memory policy', () => {
             scanCleanup: {
                 previewPage: 17,
                 previewViewMode: 'original',
-                previewZoomMode: 'actual',
             },
         });
 
@@ -114,7 +113,6 @@ describe('tab session memory policy', () => {
             scanCleanup: {
                 previewPage: 17,
                 previewViewMode: 'original',
-                previewZoomMode: 'actual',
             },
         });
         expect(readerState.surfaceMode).toBe('reader');

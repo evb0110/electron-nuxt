@@ -141,7 +141,8 @@
     --app-scan-preview-skeleton-height: 18rem;
     --app-scan-preview-compact-surface-height: 18rem;
     --app-scan-preview-compact-content-height: 15rem;
-    --app-scan-dialog-rail-width: 17.5rem;
+    --app-scan-dialog-rail-width: 20rem;
+    --app-scan-header-height: 3.5rem;
     --app-scan-page-list-width: 25rem;
     --app-scan-page-list-collapsed-width: 3rem;
     --app-scan-reset-confirmation-width: 17rem;
@@ -156,13 +157,8 @@
     --app-scan-disabled-opacity: 0.58;
     --app-scan-preview-stale-opacity: var(--app-opacity-muted);
     --app-scan-preview-crossfade-duration: var(--app-transition-standard);
+    --app-scan-low-confidence-popover-width: 17rem;
     --app-scan-first-run-guidance-width: 32rem;
-    --app-scan-options-fade-height: var(--app-space-16xl);
-    --app-scan-options-fade-mask: linear-gradient(
-        to bottom,
-        var(--ui-bg) calc(100% - var(--app-scan-options-fade-height)),
-        transparent
-    );
     --app-scan-cutter-handle-width: var(--app-space-16xl);
     --app-scan-cutter-handle-height: var(--app-space-13xl);
     --app-scan-content-handle-size: var(--app-space-9xl);
