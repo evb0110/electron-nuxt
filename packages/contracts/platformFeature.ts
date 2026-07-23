@@ -95,7 +95,57 @@ export const runtimeSchema = {
     declared<T>() {
         return (declaredSchema: IRuntimeSchema<T>) => declaredSchema;
     },
+    trustedDirect<T>(example: () => T) {
+        return schema(value => value as T, example);
+    },
 };
+
+export function defineForwardedPlatformMethod<
+    const TName extends string,
+    const TChannel extends string,
+    const TArgs extends IRuntimeSchema<unknown[]>,
+    const TResult extends IRuntimeSchema<unknown>,
+    const TMain extends string,
+>(definition: {
+    name: TName;
+    channel: TChannel;
+    args: TArgs;
+    result: TResult;
+    main: TMain;
+}) {
+    return {
+        kind: 'async',
+        channel: definition.channel,
+        ipc: {
+            args: definition.args,
+            result: definition.result,
+        },
+        main: {
+            method: definition.main,
+            context: 'sender',
+        },
+        browser: {method: definition.name},
+        lazy: 'forwarded',
+    } as const;
+}
+
+export function defineForwardedPlatformEvent<
+    const TName extends string,
+    const TChannel extends string,
+    const TPayload extends IRuntimeSchema<unknown>,
+>(definition: {
+    name: TName;
+    channel: TChannel;
+    payload: TPayload;
+}) {
+    return {
+        kind: 'event',
+        channel: definition.channel,
+        payload: definition.payload,
+        browser: {method: definition.name},
+        lazy: 'forwarded',
+    } as const;
+}
 
 export interface IPlatformIpcMethodSpec<
     TArgs extends IRuntimeSchema<unknown[]> = IRuntimeSchema<unknown[]>,

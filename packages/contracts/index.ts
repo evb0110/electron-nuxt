@@ -225,6 +225,8 @@ export { SETTINGS_PLATFORM_FEATURE } from '@contracts/settingsPlatformFeature';
 export { SHELL_PLATFORM_FEATURE } from '@contracts/shellPlatformFeature';
 export { UPDATES_PLATFORM_FEATURE } from '@contracts/updatesPlatformFeature';
 export { HOST_PLATFORM_FEATURE } from '@contracts/hostPlatformFeature';
+export { SYSTEM_PLATFORM_FEATURE } from '@contracts/systemPlatformFeature';
+export { WINDOW_TABS_PLATFORM_FEATURE } from '@contracts/windowTabsPlatformFeature';
 
 export type {
     IMarkerRect,

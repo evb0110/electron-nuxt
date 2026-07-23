@@ -15,11 +15,8 @@ vi.mock('@electron/config', () => ({config: {
     isMac: false,
 }}));
 
-interface IRegisteredExternalOpenIpcHandlers {
-    onRendererReady?: (event: { sender: EventEmitter; }) => void;
-    claimPendingExternalOpenPaths?: (event: { sender: EventEmitter; }) => Promise<string[]>;
-    acknowledgePendingExternalOpenPaths?: (event: { sender: EventEmitter; }, failedPaths: string[]) => void;
-}
+type TRegisteredExternalOpenIpcHandlers =
+    Parameters<Parameters<typeof runInitSequence>[0]['registerIpcHandlers']>[0];
 
 describe('runInitSequence external open IPC', () => {
     async function createHarness(options: {
@@ -58,7 +55,7 @@ describe('runInitSequence external open IPC', () => {
             id: 2,
             webContents: Object.assign(new EventEmitter(), otherWebContents),
         });
-        const capturedHandlers: IRegisteredExternalOpenIpcHandlers = {};
+        const capturedHandlers: TRegisteredExternalOpenIpcHandlers = {};
         const externalOpenManager = {
             queueOpenRequestFromArgs: vi.fn(),
             requestMainWindowForExternalOpen: vi.fn(),
@@ -134,7 +131,7 @@ describe('runInitSequence external open IPC', () => {
             markWindowTabTransferWindowClosed: vi.fn(),
             maybePromptForDefaultViewer: vi.fn(),
             readyWindowIds: new Set<number>(),
-            registerIpcHandlers: vi.fn((handlers: IRegisteredExternalOpenIpcHandlers) => {
+            registerIpcHandlers: vi.fn((handlers: TRegisteredExternalOpenIpcHandlers) => {
                 Object.assign(capturedHandlers, handlers);
             }),
             setupAppProtocolHandler: vi.fn(),
@@ -173,7 +170,7 @@ describe('runInitSequence external open IPC', () => {
 
     async function claimStartupPath(harness: Awaited<ReturnType<typeof createHarness>>) {
         await expect(harness.capturedHandlers.claimPendingExternalOpenPaths?.(
-            {sender: harness.mainWindow.webContents},
+            harness.mainWindow.webContents as never,
         )).resolves.toEqual(['/docs/startup.pdf']);
     }
 
@@ -213,7 +210,7 @@ describe('runInitSequence external open IPC', () => {
     it('shows and focuses the main window when its renderer becomes ready', async () => {
         const harness = await createHarness();
 
-        harness.capturedHandlers.onRendererReady?.({sender: harness.mainWindow.webContents});
+        harness.capturedHandlers.onRendererReady?.({sender: harness.mainWindow.webContents} as never);
 
         expect(harness.focusMainWindow).toHaveBeenCalledTimes(1);
     });
@@ -221,8 +218,8 @@ describe('runInitSequence external open IPC', () => {
     it('does not refocus the main window when the existing renderer signals ready after a reload', async () => {
         const harness = await createHarness();
 
-        harness.capturedHandlers.onRendererReady?.({sender: harness.mainWindow.webContents});
-        harness.capturedHandlers.onRendererReady?.({sender: harness.mainWindow.webContents});
+        harness.capturedHandlers.onRendererReady?.({sender: harness.mainWindow.webContents} as never);
+        harness.capturedHandlers.onRendererReady?.({sender: harness.mainWindow.webContents} as never);
 
         expect(harness.focusMainWindow).toHaveBeenCalledTimes(1);
     });
@@ -231,7 +228,7 @@ describe('runInitSequence external open IPC', () => {
         const harness = await createHarness();
 
         await expect(harness.capturedHandlers.claimPendingExternalOpenPaths?.(
-            {sender: harness.mainWindow.webContents},
+            harness.mainWindow.webContents as never,
         )).resolves.toEqual(['/docs/startup.pdf']);
 
         expect(harness.allowOpenPaths).toHaveBeenCalledWith(
@@ -240,18 +237,18 @@ describe('runInitSequence external open IPC', () => {
         );
 
         harness.capturedHandlers.acknowledgePendingExternalOpenPaths?.(
-            {sender: harness.otherWindow.webContents},
+            harness.otherWindow.webContents as never,
             ['/docs/startup.pdf'],
         );
         harness.capturedHandlers.acknowledgePendingExternalOpenPaths?.(
-            {sender: harness.mainWindow.webContents},
+            harness.mainWindow.webContents as never,
             ['/docs/other.pdf'],
         );
 
         expect(harness.externalOpenManager.acknowledgeClaimedOpenPaths).not.toHaveBeenCalled();
 
         harness.capturedHandlers.acknowledgePendingExternalOpenPaths?.(
-            {sender: harness.mainWindow.webContents},
+            harness.mainWindow.webContents as never,
             ['/docs/startup.pdf'],
         );
 
@@ -291,12 +288,12 @@ describe('runInitSequence external open IPC', () => {
         ];
         expect(sweeps.every(sweep => sweep.mock.calls.length === 0)).toBe(true);
 
-        harness.capturedHandlers.onRendererReady?.({sender: harness.otherWindow.webContents});
+        harness.capturedHandlers.onRendererReady?.({sender: harness.otherWindow.webContents} as never);
         await vi.runAllTimersAsync();
         expect(sweeps.every(sweep => sweep.mock.calls.length === 0)).toBe(true);
 
-        harness.capturedHandlers.onRendererReady?.({sender: harness.mainWindow.webContents});
-        harness.capturedHandlers.onRendererReady?.({sender: harness.mainWindow.webContents});
+        harness.capturedHandlers.onRendererReady?.({sender: harness.mainWindow.webContents} as never);
+        harness.capturedHandlers.onRendererReady?.({sender: harness.mainWindow.webContents} as never);
         await vi.runAllTimersAsync();
 
         expect(sweeps.every(sweep => sweep.mock.calls.length === 1)).toBe(true);
@@ -353,7 +350,7 @@ describe('runInitSequence external open IPC', () => {
             };
         });
 
-        harness.capturedHandlers.onRendererReady?.({sender: harness.mainWindow.webContents});
+        harness.capturedHandlers.onRendererReady?.({sender: harness.mainWindow.webContents} as never);
         await vi.runAllTimersAsync();
 
         expect(order).toEqual([

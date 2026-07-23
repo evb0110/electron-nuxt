@@ -43,6 +43,10 @@ import {
     UPDATES_PLATFORM_FEATURE,
     type IUpdatesInvokeMap,
 } from '@contracts/updatesPlatformFeature';
+import {
+    WINDOW_TABS_PLATFORM_FEATURE,
+    type IWindowTabsInvokeMap,
+} from '@contracts/windowTabsPlatformFeature';
 import type {
     TFeatureInvokeMap,
     TFeatureMainBindings,
@@ -318,6 +322,45 @@ describe('in-process preload to validated IPC round trips', () => {
             supported: true,
         });
         expect(snapshotHostZenModeForWindow).toHaveBeenCalledWith(expect.objectContaining({senderId: 7}));
+    });
+
+    it('round-trips window-tab acknowledgements through generated codecs and sender bindings', async () => {
+        const acknowledgeWindowTabTransfer = vi.fn(() => true);
+        type TBindings = TFeatureMainBindings<typeof WINDOW_TABS_PLATFORM_FEATURE, IpcMainInvokeEvent>;
+        const bindings = cast<TBindings>({acknowledgeWindowTabTransfer});
+        const createClient = (ipcRenderer: Electron.IpcRenderer) =>
+            createPlatformFeaturePreloadClient(ipcRenderer, WINDOW_TABS_PLATFORM_FEATURE);
+        const harness = createInProcessIpcRoundTripHarness<
+            IWindowTabsInvokeMap,
+            TBindings,
+            ReturnType<typeof createClient>
+        >({
+            channels: WINDOW_TABS_PLATFORM_FEATURE.invokeChannels,
+            codecs: cast<Parameters<typeof createInProcessIpcRoundTripHarness<
+                IWindowTabsInvokeMap,
+                TBindings,
+                ReturnType<typeof createClient>
+            >>[0]['codecs']>(WINDOW_TABS_PLATFORM_FEATURE.ipcCodecs),
+            createClient,
+            register: (registrar, service) => registerPlatformFeatureHandlers(
+                cast<Parameters<typeof registerPlatformFeatureHandlers>[0]>(registrar),
+                WINDOW_TABS_PLATFORM_FEATURE,
+                service,
+            ),
+            service: bindings,
+        });
+
+        await expect(harness.client.transferAck({
+            transferId: 'transfer-1',
+            success: true,
+        })).resolves.toBe(true);
+        expect(acknowledgeWindowTabTransfer).toHaveBeenCalledWith(
+            expect.objectContaining({senderId: 7}),
+            {
+                transferId: 'transfer-1',
+                success: true,
+            },
+        );
     });
 
     it('round-trips an agent command response and renderer acknowledgement', async () => {

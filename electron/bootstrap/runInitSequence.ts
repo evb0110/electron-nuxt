@@ -3,7 +3,6 @@ import type {
     App,
     BrowserWindow,
     IpcMainEvent,
-    IpcMainInvokeEvent,
     WebContents,
 } from 'electron';
 import { config } from '@electron/config';
@@ -45,8 +44,8 @@ function normalizeAcknowledgedExternalOpenPaths(paths: string[]) {
 
 interface IRegisterIpcHandlersOptions {
     onRendererReady?: (event: IpcMainEvent) => void;
-    claimPendingExternalOpenPaths?: (event: IpcMainInvokeEvent) => Promise<string[]>;
-    acknowledgePendingExternalOpenPaths?: (event: IpcMainInvokeEvent, failedPaths: string[]) => void;
+    claimPendingExternalOpenPaths?: (sender: WebContents) => Promise<string[]>;
+    acknowledgePendingExternalOpenPaths?: (sender: WebContents, failedPaths: string[]) => void;
 }
 
 function shouldWaitForInitialRendererReady() {
@@ -304,8 +303,8 @@ function bootIpc(
                 schedulePostRendererReadyMaintenance();
             }
         },
-        claimPendingExternalOpenPaths: async (event) => {
-            const window = getWindowFromWebContents(event.sender);
+        claimPendingExternalOpenPaths: async (sender) => {
+            const window = getWindowFromWebContents(sender);
             if (!window || window.id !== getMainWindow()?.id) {
                 return [];
             }
@@ -314,17 +313,17 @@ function bootIpc(
             if (paths.length === 0) {
                 return [];
             }
-            startupExternalOpenClaims.track(event.sender, paths);
-            allowOpenPaths(paths, event.sender);
+            startupExternalOpenClaims.track(sender, paths);
+            allowOpenPaths(paths, sender);
             return paths;
         },
-        acknowledgePendingExternalOpenPaths: (event, failedPaths) => {
-            const window = getWindowFromWebContents(event.sender);
+        acknowledgePendingExternalOpenPaths: (sender, failedPaths) => {
+            const window = getWindowFromWebContents(sender);
             if (!window || window.id !== getMainWindow()?.id) {
                 return;
             }
 
-            startupExternalOpenClaims.acknowledge(event.sender, failedPaths);
+            startupExternalOpenClaims.acknowledge(sender, failedPaths);
         },
     });
     logStartupPhase('IPC handlers registered');

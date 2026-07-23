@@ -16,6 +16,7 @@ import { PAGE_OPS_PLATFORM_FEATURE } from '@contracts/pageOpsPlatformFeature';
 import { SEARCH_PLATFORM_FEATURE } from '@contracts/searchPlatformFeature';
 import { HOST_PLATFORM_FEATURE } from '@contracts/hostPlatformFeature';
 import { UPDATES_PLATFORM_FEATURE } from '@contracts/updatesPlatformFeature';
+import { WINDOW_TABS_PLATFORM_FEATURE } from '@contracts/windowTabsPlatformFeature';
 
 const IMAGE_EXPORT_CHANNELS = IMAGE_EXPORT_PLATFORM_FEATURE.invokeChannels;
 const IMAGE_EXPORT_IPC_CODECS = IMAGE_EXPORT_PLATFORM_FEATURE.ipcCodecs;
@@ -27,6 +28,8 @@ const HOST_CHANNELS = HOST_PLATFORM_FEATURE.invokeChannels;
 const HOST_IPC_CODECS = HOST_PLATFORM_FEATURE.ipcCodecs;
 const UPDATES_CHANNELS = UPDATES_PLATFORM_FEATURE.invokeChannels;
 const UPDATES_IPC_CODECS = UPDATES_PLATFORM_FEATURE.ipcCodecs;
+const WINDOW_TABS_CHANNELS = WINDOW_TABS_PLATFORM_FEATURE.invokeChannels;
+const WINDOW_TABS_IPC_CODECS = WINDOW_TABS_PLATFORM_FEATURE.ipcCodecs;
 
 function expectExhaustiveMap(
     channels: Record<string, string>,
@@ -48,6 +51,7 @@ describe('feature IPC codec maps', () => {
         expectExhaustiveMap(SEARCH_CHANNELS, SEARCH_IPC_CODECS);
         expectExhaustiveMap(HOST_CHANNELS, HOST_IPC_CODECS);
         expectExhaustiveMap(UPDATES_CHANNELS, UPDATES_IPC_CODECS);
+        expectExhaustiveMap(WINDOW_TABS_CHANNELS, WINDOW_TABS_IPC_CODECS);
     });
 
     it('reject malformed main-process results at each feature boundary', () => {
@@ -69,6 +73,10 @@ describe('feature IPC codec maps', () => {
             osScaleFactor: 1,
         })).toThrow();
         expect(() => UPDATES_IPC_CODECS[UPDATES_CHANNELS.getState]!.decodeResult({phase: 'future'})).toThrow();
+        expect(() => WINDOW_TABS_IPC_CODECS[WINDOW_TABS_CHANNELS.transferAck]!.decodeArgs([{
+            transferId: '',
+            success: true,
+        }])).toThrow();
     });
 
     it('preserves the source identity needed to validate cached opening geometry', () => {

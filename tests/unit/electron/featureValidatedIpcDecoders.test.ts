@@ -25,6 +25,10 @@ import {
     UPDATES_PLATFORM_FEATURE,
     type IUpdatesInvokeMap,
 } from '@contracts/updatesPlatformFeature';
+import {
+    WINDOW_TABS_PLATFORM_FEATURE,
+    type IWindowTabsInvokeMap,
+} from '@contracts/windowTabsPlatformFeature';
 import type {
     TFeatureInvokeMap,
     TFeatureMainBindings,
@@ -193,6 +197,83 @@ describe('feature validated IPC decoders', () => {
                 {
                     channel: channels.setZenMode,
                     validArgs: [true],
+                },
+            ],
+        });
+    });
+
+    it('exhaustively validates window-tabs registrar tuples', async () => {
+        type TBindings = TFeatureMainBindings<typeof WINDOW_TABS_PLATFORM_FEATURE, IpcMainInvokeEvent>;
+        const channels = WINDOW_TABS_PLATFORM_FEATURE.invokeChannels;
+        await runCases<IWindowTabsInvokeMap, TBindings>({
+            channels,
+            codecs: cast<Parameters<typeof runCases<IWindowTabsInvokeMap, TBindings>>[0]['codecs']>(
+                WINDOW_TABS_PLATFORM_FEATURE.ipcCodecs,
+            ),
+            register: (registrar, bindings) => registerPlatformFeatureHandlers(
+                cast<Parameters<typeof registerPlatformFeatureHandlers>[0]>(registrar),
+                WINDOW_TABS_PLATFORM_FEATURE,
+                bindings,
+            ),
+            cases: [
+                {
+                    channel: channels.transfer,
+                    validArgs: [{
+                        target: {
+                            kind: 'window',
+                            windowId: 2,
+                        },
+                        tab: {
+                            fileName: 'sample.pdf',
+                            originalPath: '/tmp/sample.pdf',
+                            isDirty: false,
+                            isDjvu: false,
+                        },
+                        payload: {kind: 'empty'},
+                    }],
+                },
+                {
+                    channel: channels.transferAck,
+                    validArgs: [{
+                        transferId: 'transfer-1',
+                        success: true,
+                    }],
+                },
+                {
+                    channel: channels.listTargetWindows,
+                    validArgs: [],
+                },
+                {
+                    channel: channels.showContextMenu,
+                    validArgs: ['tab-1'],
+                },
+                {
+                    channel: channels.closeCurrentWindow,
+                    validArgs: [],
+                },
+                {
+                    channel: channels.claimPendingExternalOpenPaths,
+                    validArgs: [],
+                },
+                {
+                    channel: channels.acknowledgePendingExternalOpenPaths,
+                    validArgs: [['/tmp/a.pdf']],
+                },
+                {
+                    channel: channels.saveWorkspaceCheckpoint,
+                    validArgs: [{
+                        version: 1,
+                        capturedAt: 1,
+                        activePaneId: null,
+                        activeTabId: null,
+                        layout: null,
+                        panes: [],
+                        tabs: [],
+                    }],
+                },
+                {
+                    channel: channels.claimWorkspaceCheckpoint,
+                    validArgs: [],
                 },
             ],
         });

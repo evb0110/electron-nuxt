@@ -4,6 +4,11 @@ import {
     sortBy,
 } from 'es-toolkit/array';
 import type { IWindowTabTargetWindow } from '@contracts/windowTabs';
+import {
+    WINDOW_TABS_PLATFORM_FEATURE,
+    type IWindowTabsInvokeMap,
+} from '@contracts/windowTabsPlatformFeature';
+import type { TFeatureMainBindings } from '@contracts/platformFeature';
 import { te } from '@electron/te';
 import {showTabContextMenu} from '@electron/menu';
 import {
@@ -16,12 +21,11 @@ import { isTrustedWebContentsSender } from '@electron/platform-ipc/trustedIpcSen
 import {
     createValidatedIpcMainEventRegistrar,
     createValidatedIpcMainRegistrar,
+    registerPlatformFeatureHandlers,
 } from '@electron/platform-ipc/validatedIpcRegistrar';
-import { CORE_IPC_CODECS } from '@electron/platform-ipc/coreIpcCodecs';
 import {
     CORE_IPC_CHANNELS,
     CORE_IPC_SEND_CHANNELS,
-    type ICoreInvokeMap,
 } from '@electron/platform-ipc/coreContract';
 import {
     claimWorkspaceCheckpoint,
@@ -31,11 +35,10 @@ import { allowOpenPaths } from '@electron/file-access/openPathCapabilities';
 
 export interface ICoreIpcHandlerOptions {
     onRendererReady?: (event: Electron.IpcMainEvent) => void;
-    claimPendingExternalOpenPaths?: (event: Electron.IpcMainInvokeEvent) => Promise<string[]>;
-    acknowledgePendingExternalOpenPaths?: (event: Electron.IpcMainInvokeEvent, failedPaths: string[]) => void;
+    claimPendingExternalOpenPaths?: (sender: Electron.WebContents) => Promise<string[]>;
+    acknowledgePendingExternalOpenPaths?: (sender: Electron.WebContents, failedPaths: string[]) => void;
 }
 
-const CORE_INVOKE_CHANNEL_SET = new Set<string>(Object.keys(CORE_IPC_CODECS));
 const CORE_RAW_EVENT_CHANNEL_SET = new Set<string>([
     CORE_IPC_CHANNELS.rendererReady,
     CORE_IPC_SEND_CHANNELS.rendererLog,
@@ -62,9 +65,9 @@ export function registerCoreIpcHandlers(
     ipcMain: Electron.IpcMain,
     options: ICoreIpcHandlerOptions,
 ) {
-    const registrar = createValidatedIpcMainRegistrar<ICoreInvokeMap>(ipcMain, {
-        allowedChannels: CORE_INVOKE_CHANNEL_SET,
-        codecs: CORE_IPC_CODECS,
+    const windowTabsRegistrar = createValidatedIpcMainRegistrar<IWindowTabsInvokeMap>(ipcMain, {
+        allowedChannels: WINDOW_TABS_PLATFORM_FEATURE.invokeChannelSet,
+        codecs: WINDOW_TABS_PLATFORM_FEATURE.ipcCodecs as never,
     });
     const eventRegistrar = createValidatedIpcMainEventRegistrar(ipcMain, {allowedChannels: CORE_RAW_EVENT_CHANNEL_SET});
     registerRendererLogBridge({
@@ -79,78 +82,69 @@ export function registerCoreIpcHandlers(
         options.onRendererReady?.(event);
     });
 
-    registrar.handle(CORE_IPC_CHANNELS.claimPendingExternalOpenPaths, (event) =>
-        options.claimPendingExternalOpenPaths?.(event) ?? [],
+    const bindings: TFeatureMainBindings<
+        typeof WINDOW_TABS_PLATFORM_FEATURE,
+        Electron.IpcMainInvokeEvent
+    > = {
+        claimPendingExternalOpenPaths: ({sender}) =>
+            options.claimPendingExternalOpenPaths?.(sender) ?? [],
+        acknowledgePendingExternalOpenPaths: ({sender}, failedPaths) => {
+            options.acknowledgePendingExternalOpenPaths?.(sender, failedPaths);
+        },
+        saveWorkspaceCheckpoint: async ({senderId}, checkpoint) => {
+            await saveWorkspaceCheckpoint(checkpoint, senderId);
+        },
+        claimWorkspaceCheckpoint: async ({
+            sender,
+            senderId,
+        }) => {
+            const checkpoint = await claimWorkspaceCheckpoint(senderId);
+            if (checkpoint) {
+                allowOpenPaths(checkpoint.tabs.flatMap(tab => [
+                    tab.sourceRef,
+                    tab.workingCopyRef,
+                ].filter((path): path is string => path !== null)), sender);
+            }
+            return checkpoint;
+        },
+        requestWindowTabTransfer: async ({sender}, request) => {
+            const sourceWindow = BrowserWindow.fromWebContents(sender);
+            if (!sourceWindow) {
+                return {
+                    transferId: '',
+                    success: false,
+                    targetWindowId: request.target.kind === 'window' ? request.target.windowId : -1,
+                    error: 'Source window is not available.',
+                };
+            }
+            return requestWindowTabTransfer(sourceWindow.id, request);
+        },
+        acknowledgeWindowTabTransfer: ({sender}, ack) => {
+            const window = BrowserWindow.fromWebContents(sender);
+            return window ? acknowledgeWindowTabTransfer(window.id, ack) : false;
+        },
+        listWindowTabTargets: ({sender}): IWindowTabTargetWindow[] => {
+            const sourceWindow = BrowserWindow.fromWebContents(sender);
+            return sourceWindow ? buildTabTransferTargetLabels(sourceWindow.id) : [];
+        },
+        showWindowTabContextMenu: ({sender}, tabId) => {
+            const window = BrowserWindow.fromWebContents(sender);
+            if (window) {
+                showTabContextMenu(window, tabId);
+            }
+        },
+        closeCurrentWindow: ({sender}) => {
+            const window = BrowserWindow.fromWebContents(sender);
+            if (!window || window.isDestroyed()) {
+                return false;
+            }
+            window.close();
+            return true;
+        },
+    };
+    registerPlatformFeatureHandlers(
+        windowTabsRegistrar as never,
+        WINDOW_TABS_PLATFORM_FEATURE,
+        bindings,
     );
-
-    registrar.handle(CORE_IPC_CHANNELS.acknowledgePendingExternalOpenPaths, (event, failedPaths) => {
-        options.acknowledgePendingExternalOpenPaths?.(event, failedPaths);
-    });
-
-    registrar.handle(CORE_IPC_CHANNELS.workspaceCheckpointSave, async (event, checkpoint) => {
-        await saveWorkspaceCheckpoint(checkpoint, event.sender.id);
-    });
-
-    registrar.handle(CORE_IPC_CHANNELS.workspaceCheckpointClaim, async (event) => {
-        const checkpoint = await claimWorkspaceCheckpoint(event.sender.id);
-        if (checkpoint) {
-            allowOpenPaths(checkpoint.tabs.flatMap(tab => [
-                tab.sourceRef,
-                tab.workingCopyRef,
-            ].filter((path): path is string => path !== null)), event.sender);
-        }
-        return checkpoint;
-    });
-
-    registrar.handle(CORE_IPC_CHANNELS.tabsTransfer, async (event, request) => {
-        const sourceWindow = BrowserWindow.fromWebContents(event.sender);
-        if (!sourceWindow) {
-            return {
-                transferId: '',
-                success: false,
-                targetWindowId: request.target.kind === 'window' ? request.target.windowId : -1,
-                error: 'Source window is not available.',
-            };
-        }
-
-        return requestWindowTabTransfer(sourceWindow.id, request);
-    });
-
-    registrar.handle(CORE_IPC_CHANNELS.tabsTransferAck, (event, ack) => {
-        const window = BrowserWindow.fromWebContents(event.sender);
-        if (!window) {
-            return false;
-        }
-
-        return acknowledgeWindowTabTransfer(window.id, ack);
-    });
-
-    registrar.handle(CORE_IPC_CHANNELS.tabsListTargets, (event): IWindowTabTargetWindow[] => {
-        const sourceWindow = BrowserWindow.fromWebContents(event.sender);
-        if (!sourceWindow) {
-            return [];
-        }
-
-        return buildTabTransferTargetLabels(sourceWindow.id);
-    });
-
-    registrar.handle(CORE_IPC_CHANNELS.tabsShowContextMenu, (event, tabId) => {
-        const window = BrowserWindow.fromWebContents(event.sender);
-        if (!window) {
-            return;
-        }
-
-        showTabContextMenu(window, tabId);
-    });
-
-    registrar.handle(CORE_IPC_CHANNELS.windowCloseCurrent, (event) => {
-        const window = BrowserWindow.fromWebContents(event.sender);
-        if (!window || window.isDestroyed()) {
-            return false;
-        }
-
-        window.close();
-        return true;
-    });
-
 }

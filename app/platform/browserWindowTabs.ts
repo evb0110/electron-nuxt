@@ -1,6 +1,6 @@
 import {isRecord} from '@contracts/runtimeGuards';
 import type { TMenuEventUnsubscribe } from '@contracts/electronApiCommon';
-import type { IWindowTabsCapability } from '@contracts/electronApiWindowTabs';
+import type { IWindowTabsCapability } from '@contracts/windowTabsPlatformFeature';
 import type {
     IWindowTabIncomingTransfer,
     IWindowTabTargetWindow,

@@ -1,4 +1,4 @@
-import type { ISystemCapability } from '@contracts/electronApiSystem';
+import type { ISystemCapability } from '@contracts/systemPlatformFeature';
 import { getPlatformAPI } from '@app/utils/platform';
 
 const fallbackSystemCapability: ISystemCapability = {

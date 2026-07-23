@@ -10,6 +10,7 @@ import {
     sanitizeSettings,
 } from '@contracts/settings';
 import {
+    defineForwardedPlatformMethod,
     definePlatformFeature,
     runtimeSchema as s,
     type TFeatureCapability,
@@ -85,20 +86,13 @@ export const SETTINGS_PLATFORM_FEATURE = definePlatformFeature({
             browser: {method: 'get'},
             lazy: 'forwarded',
         },
-        save: {
-            kind: 'async',
+        save: defineForwardedPlatformMethod({
+            name: 'save',
             channel: 'settings:save',
-            ipc: {
-                args: s.tuple([settingsPatch]),
-                result: voidResult,
-            },
-            main: {
-                method: 'save',
-                context: 'sender',
-            },
-            browser: {method: 'save'},
-            lazy: 'forwarded',
-        },
+            args: s.tuple([settingsPatch]),
+            result: voidResult,
+            main: 'save',
+        }),
     },
     events: {},
 });

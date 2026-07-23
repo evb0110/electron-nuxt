@@ -2,7 +2,11 @@ import type { IPlatformApi } from '@contracts/platformApi';
 import { BROWSER_PLATFORM_MANIFEST } from '@contracts/platformApi';
 import { inspectAllowedExternalUrl } from '@contracts/externalUrl';
 import type { SHELL_PLATFORM_FEATURE } from '@contracts/shellPlatformFeature';
-import type { TFeatureBrowserBindings } from '@contracts/platformFeature';
+import type {
+    TFeatureBrowserBindings,
+    TFeatureSyncBindings,
+} from '@contracts/platformFeature';
+import type { SYSTEM_PLATFORM_FEATURE } from '@contracts/systemPlatformFeature';
 import { browserWindowTabsCapability } from '@app/platform/browserWindowTabs';
 import {
     browserAgentCapability,
@@ -22,8 +26,9 @@ const {
 } = createBrowserSearchCapability();
 
 const browserDocumentCapabilities = createBrowserDocumentsCapability({clearSearchCaches});
+const browserSystemSyncBindings = {getMemoryInfo: () => null} satisfies TFeatureSyncBindings<typeof SYSTEM_PLATFORM_FEATURE>;
 const browserSystemApi: IPlatformApi['system'] = {
-    getMemoryInfo: () => null,
+    ...browserSystemSyncBindings,
     onShutdownSaveFlushRequest: () => () => {},
 };
 const browserShellApi: IPlatformApi['shell'] = { openExternal(url: string) {

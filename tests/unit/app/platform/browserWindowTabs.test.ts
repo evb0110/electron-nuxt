@@ -6,7 +6,7 @@ import {
     it,
     vi,
 } from 'vitest';
-import type { IWindowTabsCapability } from '@contracts/electronApiWindowTabs';
+import type { IWindowTabsCapability } from '@contracts/windowTabsPlatformFeature';
 import { cast } from '@tests/helpers/cast';
 
 const WINDOW_TABS_CHANNEL = 'evb-viewer:browserWindowTabs';

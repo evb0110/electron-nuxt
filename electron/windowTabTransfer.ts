@@ -7,13 +7,13 @@ import type {
     IWindowTabTransferRequest,
     IWindowTabTransferResult,
 } from '@contracts/windowTabs';
+import { WINDOW_TABS_PLATFORM_FEATURE } from '@contracts/windowTabsPlatformFeature';
 import { createAppWindow } from '@electron/window';
 import { getWindowByIdFromRegistry } from '@electron/window/registry';
 import { createLogger } from '@electron/utils/createLogger';
 import { getErrorMessage } from '@electron/utils/error';
 
 const logger = createLogger('windowTabTransfer');
-const INCOMING_TRANSFER_CHANNEL = 'tabs:incomingTransfer';
 const DEFAULT_TRANSFER_TIMEOUT_MS = 12_000;
 const MAX_TRANSFER_TIMEOUT_MS = 60_000;
 const MAX_PENDING_TRANSFERS_PER_TARGET_WINDOW = 32;
@@ -222,7 +222,10 @@ export class WindowTabTransferBroker {
         }
 
         try {
-            targetWindow.webContents.send(INCOMING_TRANSFER_CHANNEL, pending.payload);
+            targetWindow.webContents.send(
+                WINDOW_TABS_PLATFORM_FEATURE.eventChannels.onIncomingTransfer,
+                pending.payload,
+            );
         } catch (error) {
             this.finishTransfer(transferId, {
                 success: false,

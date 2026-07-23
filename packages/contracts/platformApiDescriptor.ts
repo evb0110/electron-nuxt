@@ -25,12 +25,18 @@ import {
     PAGE_OPS_PLATFORM_FEATURE,
     type IPageOpsCapability,
 } from '@contracts/pageOpsPlatformFeature';
-import type { ISystemCapability } from '@contracts/electronApiSystem';
+import {
+    SYSTEM_PLATFORM_FEATURE,
+    type ISystemCapability,
+} from '@contracts/systemPlatformFeature';
 import {
     UPDATES_PLATFORM_FEATURE,
     type IUpdatesCapability,
 } from '@contracts/updatesPlatformFeature';
-import type { IWindowTabsCapability } from '@contracts/electronApiWindowTabs';
+import {
+    WINDOW_TABS_PLATFORM_FEATURE,
+    type IWindowTabsCapability,
+} from '@contracts/windowTabsPlatformFeature';
 import type {
     TPlatformBackend,
     IPlatformRuntimeManifest,
@@ -206,7 +212,6 @@ function defineDocumentCapabilityMirrors<const TMirrors extends readonly IDocume
 const requiredTopLevelCapabilityPaths = [
     ['ocr'],
     ['djvu'],
-    ['system'],
 ] as const;
 
 const documentCapabilityMirrors = defineDocumentCapabilityMirrors([
@@ -723,10 +728,6 @@ const otherMethodPaths = defineMethodPaths([
     ],
     [
         'system',
-        'getMemoryInfo',
-    ],
-    [
-        'system',
         'onShutdownSaveFlushRequest',
     ],
     [
@@ -735,75 +736,7 @@ const otherMethodPaths = defineMethodPaths([
     ],
     [
         'windowTabs',
-        'transfer',
-    ],
-    [
-        'windowTabs',
-        'transferAck',
-    ],
-    [
-        'windowTabs',
-        'listTargetWindows',
-    ],
-    [
-        'windowTabs',
-        'showContextMenu',
-    ],
-    [
-        'windowTabs',
-        'onIncomingTransfer',
-    ],
-    [
-        'windowTabs',
-        'onWindowAction',
-    ],
-    [
-        'windowTabs',
-        'closeCurrentWindow',
-    ],
-    [
-        'windowTabs',
         'notifyRendererReady',
-    ],
-    [
-        'windowTabs',
-        'claimPendingExternalOpenPaths',
-    ],
-    [
-        'windowTabs',
-        'acknowledgePendingExternalOpenPaths',
-    ],
-    [
-        'windowTabs',
-        'saveWorkspaceCheckpoint',
-    ],
-    [
-        'windowTabs',
-        'claimWorkspaceCheckpoint',
-    ],
-    [
-        'windowTabs',
-        'onMenuNewTab',
-    ],
-    [
-        'windowTabs',
-        'onMenuCloseTab',
-    ],
-    [
-        'windowTabs',
-        'onMenuSplitEditor',
-    ],
-    [
-        'windowTabs',
-        'onMenuFocusEditorPane',
-    ],
-    [
-        'windowTabs',
-        'onMenuMoveTabToPane',
-    ],
-    [
-        'windowTabs',
-        'onMenuCopyTabToPane',
     ],
     [
         'agent',
@@ -926,11 +859,6 @@ export const LEGACY_PLATFORM_API_DESCRIPTOR_WITHOUT_MIGRATED_FEATURES = {
             required: requiredInElectron,
         },
         {
-            path: ['windowTabs'],
-            required: requiredEverywhere,
-            manifestPath: ['windowTabs'],
-        },
-        {
             path: ['agent'],
             required: requiredEverywhere,
             manifestPath: ['agent'],
@@ -1028,6 +956,8 @@ export const PLATFORM_FEATURE_REGISTRY = [
     SHELL_PLATFORM_FEATURE,
     UPDATES_PLATFORM_FEATURE,
     HOST_PLATFORM_FEATURE,
+    SYSTEM_PLATFORM_FEATURE,
+    WINDOW_TABS_PLATFORM_FEATURE,
 ] as const;
 
 interface IMigratedPlatformFeature {

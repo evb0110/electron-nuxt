@@ -4,9 +4,12 @@ import { parseDocumentInstanceId } from '@contracts/documentInstanceId';
 import { parseDocumentRevisionToken } from '@contracts/documentRevision';
 import type {
     ITransferredTabState,
+    IWindowTabTargetWindow,
+    IWindowTabTransferAck,
     IWindowTabTransferSessionState,
     IWindowTabIncomingTransfer,
     IWindowTabTransferRequest,
+    IWindowTabTransferResult,
     TSplitPayload,
     TWindowTabTransferTarget,
     TWindowTabsAction,
@@ -283,4 +286,64 @@ export function decodeWindowTabsAction(value: unknown): TWindowTabsAction | null
             };
     }
     return null;
+}
+
+export function decodeWindowTabTransferAck(value: unknown): IWindowTabTransferAck | null {
+    if (
+        !isRecord(value)
+        || typeof value.transferId !== 'string'
+        || value.transferId.trim().length === 0
+        || typeof value.success !== 'boolean'
+        || (value.error !== undefined && typeof value.error !== 'string')
+    ) {
+        return null;
+    }
+    return {
+        transferId: value.transferId,
+        success: value.success,
+        ...(value.error === undefined ? {} : {error: value.error}),
+    };
+}
+
+export function decodeWindowTabTransferResult(value: unknown): IWindowTabTransferResult | null {
+    if (
+        !isRecord(value)
+        || typeof value.transferId !== 'string'
+        || typeof value.success !== 'boolean'
+        || typeof value.targetWindowId !== 'number'
+        || !Number.isSafeInteger(value.targetWindowId)
+        || (value.error !== undefined && typeof value.error !== 'string')
+    ) {
+        return null;
+    }
+    return {
+        transferId: value.transferId,
+        success: value.success,
+        targetWindowId: value.targetWindowId,
+        ...(value.error === undefined ? {} : {error: value.error}),
+    };
+}
+
+export function decodeWindowTabTargetWindows(value: unknown): IWindowTabTargetWindow[] | null {
+    if (!Array.isArray(value)) {
+        return null;
+    }
+    const targets: IWindowTabTargetWindow[] = [];
+    for (const candidate of value) {
+        if (
+            !isRecord(candidate)
+            || typeof candidate.windowId !== 'number'
+            || !Number.isSafeInteger(candidate.windowId)
+            || candidate.windowId <= 0
+            || typeof candidate.label !== 'string'
+            || candidate.label.trim().length === 0
+        ) {
+            return null;
+        }
+        targets.push({
+            windowId: candidate.windowId,
+            label: candidate.label,
+        });
+    }
+    return targets;
 }

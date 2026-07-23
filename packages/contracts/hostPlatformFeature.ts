@@ -1,8 +1,7 @@
+import type { IHostResourceProfileSnapshot } from '@contracts/hostResourceProfile';
 import {
-    decodeHostResourceProfileSnapshot,
-    type IHostResourceProfileSnapshot,
-} from '@contracts/hostResourceProfile';
-import {
+    defineForwardedPlatformEvent,
+    defineForwardedPlatformMethod,
     definePlatformFeature,
     runtimeSchema as s,
     type TFeatureCapability,
@@ -51,16 +50,7 @@ function decodeHostZenModeState(value: unknown): IHostZenModeState {
     };
 }
 
-const resourceProfile = s.fromParser((value) => {
-    if (value === null) {
-        return null;
-    }
-    const profile = decodeHostResourceProfileSnapshot(value);
-    if (!profile) {
-        throw new Error('invalid host resource profile');
-    }
-    return profile;
-}, (): IHostResourceProfileSnapshot => ({
+const resourceProfile = s.trustedDirect<IHostResourceProfileSnapshot | null>(() => ({
     logicalCpus: 8,
     totalRamBytes: 16 * 1024 ** 3,
     safeMode: false,
@@ -94,64 +84,39 @@ export const HOST_PLATFORM_FEATURE = definePlatformFeature({
             browser: {method: 'getResourceProfile'},
             lazy: 'direct',
         },
-        getEnvironment: {
-            kind: 'async',
+        getEnvironment: defineForwardedPlatformMethod({
+            name: 'getEnvironment',
             channel: 'host:getEnvironment',
-            ipc: {
-                args: s.tuple([]),
-                result: environment,
-            },
-            main: {
-                method: 'snapshotHostEnvironmentForWindow',
-                context: 'sender',
-            },
-            browser: {method: 'getEnvironment'},
-            lazy: 'forwarded',
-        },
-        getZenModeState: {
-            kind: 'async',
+            args: s.tuple([]),
+            result: environment,
+            main: 'snapshotHostEnvironmentForWindow',
+        }),
+        getZenModeState: defineForwardedPlatformMethod({
+            name: 'getZenModeState',
             channel: 'host:getZenModeState',
-            ipc: {
-                args: s.tuple([]),
-                result: zenMode,
-            },
-            main: {
-                method: 'snapshotHostZenModeForWindow',
-                context: 'sender',
-            },
-            browser: {method: 'getZenModeState'},
-            lazy: 'forwarded',
-        },
-        setZenMode: {
-            kind: 'async',
+            args: s.tuple([]),
+            result: zenMode,
+            main: 'snapshotHostZenModeForWindow',
+        }),
+        setZenMode: defineForwardedPlatformMethod({
+            name: 'setZenMode',
             channel: 'host:setZenMode',
-            ipc: {
-                args: s.tuple([s.boolean()]),
-                result: zenMode,
-            },
-            main: {
-                method: 'setHostZenModeForWindow',
-                context: 'sender',
-            },
-            browser: {method: 'setZenMode'},
-            lazy: 'forwarded',
-        },
+            args: s.tuple([s.boolean()]),
+            result: zenMode,
+            main: 'setHostZenModeForWindow',
+        }),
     },
     events: {
-        onEnvironmentChange: {
-            kind: 'event',
+        onEnvironmentChange: defineForwardedPlatformEvent({
+            name: 'onEnvironmentChange',
             channel: 'host:environmentChanged',
             payload: environment,
-            browser: {method: 'onEnvironmentChange'},
-            lazy: 'forwarded',
-        },
-        onZenModeChange: {
-            kind: 'event',
+        }),
+        onZenModeChange: defineForwardedPlatformEvent({
+            name: 'onZenModeChange',
             channel: 'host:zenModeChanged',
             payload: zenMode,
-            browser: {method: 'onZenModeChange'},
-            lazy: 'forwarded',
-        },
+        }),
     },
 });
 

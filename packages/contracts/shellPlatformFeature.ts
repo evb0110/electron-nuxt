@@ -1,5 +1,6 @@
 import { sanitizeAllowedExternalUrl } from '@contracts/externalUrl';
 import {
+    defineForwardedPlatformMethod,
     definePlatformFeature,
     runtimeSchema as s,
     type TFeatureCapability,
@@ -17,20 +18,13 @@ export const SHELL_PLATFORM_FEATURE = definePlatformFeature({
         browser: true,
         electron: true,
     },
-    methods: {openExternal: {
-        kind: 'async',
+    methods: {openExternal: defineForwardedPlatformMethod({
+        name: 'openExternal',
         channel: 'shell:openExternal',
-        ipc: {
-            args: s.tuple([externalUrl]),
-            result: voidResult,
-        },
-        main: {
-            method: 'openExternal',
-            context: 'sender',
-        },
-        browser: {method: 'openExternal'},
-        lazy: 'forwarded',
-    }},
+        args: s.tuple([externalUrl]),
+        result: voidResult,
+        main: 'openExternal',
+    })},
     events: {},
 });
 

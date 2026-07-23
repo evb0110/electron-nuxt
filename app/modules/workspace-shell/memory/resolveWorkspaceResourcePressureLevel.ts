@@ -1,4 +1,4 @@
-import type { ISystemMemoryInfo } from '@contracts/electronApiSystem';
+import type { ISystemMemoryInfo } from '@contracts/systemPlatformFeature';
 import type {
     IWorkspaceSurfaceBudgetSnapshot,
     TWorkspaceResourcePressureLevel,

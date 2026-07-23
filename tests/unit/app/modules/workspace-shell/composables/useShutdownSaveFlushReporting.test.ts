@@ -8,7 +8,7 @@ import {
     effectScope,
     ref,
 } from 'vue';
-import type { IShutdownSaveFlushResponse } from '@contracts/electronApiSystem';
+import type { IShutdownSaveFlushResponse } from '@contracts/systemPlatformFeature';
 import { useShutdownSaveFlushReporting } from '@app/modules/workspace-shell/composables/useShutdownSaveFlushReporting';
 
 vi.mock('@app/utils/browserLogger', () => ({BrowserLogger: {warn: vi.fn()}}));

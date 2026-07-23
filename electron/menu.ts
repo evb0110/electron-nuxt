@@ -13,6 +13,10 @@ import {
 } from 'es-toolkit/array';
 import { basename } from 'path';
 import type { TWindowTabsAction } from '@contracts/windowTabs';
+import {
+    WINDOW_TABS_PLATFORM_FEATURE,
+    type IWindowTabsEventMap,
+} from '@contracts/windowTabsPlatformFeature';
 import type { IUpdatesEventMap } from '@contracts/updatesPlatformFeature';
 import type { IApplicationMenuDocumentState } from '@contracts/electronApiDocuments';
 import { config } from '@electron/config';
@@ -81,13 +85,9 @@ let listenersRegistered = false;
 let menuRebuildTimer: ReturnType<typeof setTimeout> | null = null;
 let menuRebuildPending = false;
 
-type TNativeMenuEventMap = IDocumentsEventMap & IUpdatesEventMap & Pick<
+type TNativeMenuEventMap = IDocumentsEventMap & IUpdatesEventMap & IWindowTabsEventMap & Pick<
     ICoreEventMap,
-    | typeof CORE_IPC_EVENT_CHANNELS.menuCheckForUpdates
-    | typeof CORE_IPC_EVENT_CHANNELS.menuWindowTabsAction
-    | typeof CORE_IPC_EVENT_CHANNELS.menuNewTab
-    | typeof CORE_IPC_EVENT_CHANNELS.menuCloseTab
-    | typeof CORE_IPC_EVENT_CHANNELS.menuSplitEditor
+    typeof CORE_IPC_EVENT_CHANNELS.menuCheckForUpdates
 >;
 type TNativeMenuChannel = Extract<keyof TNativeMenuEventMap, string>;
 type TNativeMenuArgs<TChannel extends TNativeMenuChannel> =
@@ -183,7 +183,7 @@ function sendWindowTabsAction(sourceWindowId: number | null, action: TWindowTabs
         return;
     }
 
-    sendToWindow(sourceWindow, CORE_IPC_EVENT_CHANNELS.menuWindowTabsAction, action);
+    sendToWindow(sourceWindow, WINDOW_TABS_PLATFORM_FEATURE.eventChannels.onWindowAction, action);
 }
 
 function buildMoveToWindowSubmenu(
@@ -425,13 +425,13 @@ function getFileMenu(state: TResolvedApplicationMenuDocumentState): MenuItemCons
             createWindowMenuAction({
                 label: te('menu.newTab'),
                 accelerator: 'CmdOrCtrl+T',
-                channel: CORE_IPC_EVENT_CHANNELS.menuNewTab,
+                channel: WINDOW_TABS_PLATFORM_FEATURE.eventChannels.onMenuNewTab,
             }),
             createWindowMenuAction({
                 label: te('menu.closeTab'),
                 accelerator: 'CmdOrCtrl+W',
                 enabled: state.canCloseTab,
-                channel: CORE_IPC_EVENT_CHANNELS.menuCloseTab,
+                channel: WINDOW_TABS_PLATFORM_FEATURE.eventChannels.onMenuCloseTab,
             }),
             ...(config.isMac ? [] : [
                 { type: 'separator' as const },
@@ -627,14 +627,14 @@ function getViewMenu(state: TResolvedApplicationMenuDocumentState): MenuItemCons
             { type: 'separator' },
             createWindowMenuAction({
                 label: te('menu.newPaneRight'),
-                channel: CORE_IPC_EVENT_CHANNELS.menuSplitEditor,
+                channel: WINDOW_TABS_PLATFORM_FEATURE.eventChannels.onMenuSplitEditor,
                 accelerator: 'CmdOrCtrl+\\',
                 enabled: state.canCreatePane,
                 args: ['right'],
             }),
             createWindowMenuAction({
                 label: te('menu.newPaneDown'),
-                channel: CORE_IPC_EVENT_CHANNELS.menuSplitEditor,
+                channel: WINDOW_TABS_PLATFORM_FEATURE.eventChannels.onMenuSplitEditor,
                 enabled: state.canCreatePane,
                 args: ['down'],
             }),

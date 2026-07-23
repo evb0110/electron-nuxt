@@ -272,26 +272,8 @@ export function createLazyBrowserPlatformApiGenerated({
     const settingsOnDebugLogMethod = lazyEvent(pathDescriptors.settings.onDebugLog.path);
     const settingsRendererLogMethod = lazyVoid(pathDescriptors.settings.rendererLog.path);
     const settingsOnMenuOpenSettingsMethod = lazyEvent(pathDescriptors.settings.onMenuOpenSettings.path);
-    const systemGetMemoryInfoMethod = getMemoryInfo;
     const systemOnShutdownSaveFlushRequestMethod = lazyEvent(pathDescriptors.system.onShutdownSaveFlushRequest.path);
-    const windowTabsTransferMethod = lazyAsync(pathDescriptors.windowTabs.transfer.path);
-    const windowTabsTransferAckMethod = lazyAsync(pathDescriptors.windowTabs.transferAck.path);
-    const windowTabsListTargetWindowsMethod = lazyAsync(pathDescriptors.windowTabs.listTargetWindows.path);
-    const windowTabsShowContextMenuMethod = lazyAsync(pathDescriptors.windowTabs.showContextMenu.path);
-    const windowTabsOnIncomingTransferMethod = lazyEvent(pathDescriptors.windowTabs.onIncomingTransfer.path);
-    const windowTabsOnWindowActionMethod = lazyEvent(pathDescriptors.windowTabs.onWindowAction.path);
-    const windowTabsCloseCurrentWindowMethod = lazyAsync(pathDescriptors.windowTabs.closeCurrentWindow.path);
     const windowTabsNotifyRendererReadyMethod = lazyVoid(pathDescriptors.windowTabs.notifyRendererReady.path);
-    const windowTabsClaimPendingExternalOpenPathsMethod = lazyAsync(pathDescriptors.windowTabs.claimPendingExternalOpenPaths.path);
-    const windowTabsAcknowledgePendingExternalOpenPathsMethod = lazyAsync(pathDescriptors.windowTabs.acknowledgePendingExternalOpenPaths.path);
-    const windowTabsSaveWorkspaceCheckpointMethod = lazyAsync(pathDescriptors.windowTabs.saveWorkspaceCheckpoint.path);
-    const windowTabsClaimWorkspaceCheckpointMethod = lazyAsync(pathDescriptors.windowTabs.claimWorkspaceCheckpoint.path);
-    const windowTabsOnMenuNewTabMethod = lazyEvent(pathDescriptors.windowTabs.onMenuNewTab.path);
-    const windowTabsOnMenuCloseTabMethod = lazyEvent(pathDescriptors.windowTabs.onMenuCloseTab.path);
-    const windowTabsOnMenuSplitEditorMethod = lazyEvent(pathDescriptors.windowTabs.onMenuSplitEditor.path);
-    const windowTabsOnMenuFocusEditorPaneMethod = lazyEvent(pathDescriptors.windowTabs.onMenuFocusEditorPane.path);
-    const windowTabsOnMenuMoveTabToPaneMethod = lazyEvent(pathDescriptors.windowTabs.onMenuMoveTabToPane.path);
-    const windowTabsOnMenuCopyTabToPaneMethod = lazyEvent(pathDescriptors.windowTabs.onMenuCopyTabToPane.path);
     const agentOnWorkspaceSnapshotRequestMethod = lazyEvent(pathDescriptors.agent.onWorkspaceSnapshotRequest.path);
     const agentSubmitWorkspaceSnapshotMethod = lazyAsync(pathDescriptors.agent.submitWorkspaceSnapshot.path);
     const agentOnCommandRequestMethod = lazyEvent(pathDescriptors.agent.onCommandRequest.path);
@@ -333,6 +315,24 @@ export function createLazyBrowserPlatformApiGenerated({
     const hostSetZenModeMethod = lazyAsync(pathDescriptors.host.setZenMode.path);
     const hostOnEnvironmentChangeMethod = lazyEvent(pathDescriptors.host.onEnvironmentChange.path);
     const hostOnZenModeChangeMethod = lazyEvent(pathDescriptors.host.onZenModeChange.path);
+    const systemGetMemoryInfoMethod = getMemoryInfo;
+    const windowTabsTransferMethod = lazyAsync(pathDescriptors.windowTabs.transfer.path);
+    const windowTabsTransferAckMethod = lazyAsync(pathDescriptors.windowTabs.transferAck.path);
+    const windowTabsListTargetWindowsMethod = lazyAsync(pathDescriptors.windowTabs.listTargetWindows.path);
+    const windowTabsShowContextMenuMethod = lazyAsync(pathDescriptors.windowTabs.showContextMenu.path);
+    const windowTabsCloseCurrentWindowMethod = lazyAsync(pathDescriptors.windowTabs.closeCurrentWindow.path);
+    const windowTabsClaimPendingExternalOpenPathsMethod = lazyAsync(pathDescriptors.windowTabs.claimPendingExternalOpenPaths.path);
+    const windowTabsAcknowledgePendingExternalOpenPathsMethod = lazyAsync(pathDescriptors.windowTabs.acknowledgePendingExternalOpenPaths.path);
+    const windowTabsSaveWorkspaceCheckpointMethod = lazyAsync(pathDescriptors.windowTabs.saveWorkspaceCheckpoint.path);
+    const windowTabsClaimWorkspaceCheckpointMethod = lazyAsync(pathDescriptors.windowTabs.claimWorkspaceCheckpoint.path);
+    const windowTabsOnIncomingTransferMethod = lazyEvent(pathDescriptors.windowTabs.onIncomingTransfer.path);
+    const windowTabsOnWindowActionMethod = lazyEvent(pathDescriptors.windowTabs.onWindowAction.path);
+    const windowTabsOnMenuNewTabMethod = lazyEvent(pathDescriptors.windowTabs.onMenuNewTab.path);
+    const windowTabsOnMenuCloseTabMethod = lazyEvent(pathDescriptors.windowTabs.onMenuCloseTab.path);
+    const windowTabsOnMenuSplitEditorMethod = lazyEvent(pathDescriptors.windowTabs.onMenuSplitEditor.path);
+    const windowTabsOnMenuFocusEditorPaneMethod = lazyEvent(pathDescriptors.windowTabs.onMenuFocusEditorPane.path);
+    const windowTabsOnMenuMoveTabToPaneMethod = lazyEvent(pathDescriptors.windowTabs.onMenuMoveTabToPane.path);
+    const windowTabsOnMenuCopyTabToPaneMethod = lazyEvent(pathDescriptors.windowTabs.onMenuCopyTabToPane.path);
 
     return {
     manifest: BROWSER_PLATFORM_MANIFEST,
@@ -602,22 +602,22 @@ export function createLazyBrowserPlatformApiGenerated({
         save: settingsSaveMethod,
     },
     system: {
-        getMemoryInfo: systemGetMemoryInfoMethod,
         onShutdownSaveFlushRequest: systemOnShutdownSaveFlushRequestMethod,
+        getMemoryInfo: systemGetMemoryInfoMethod,
     },
     windowTabs: {
+        notifyRendererReady: windowTabsNotifyRendererReadyMethod,
         transfer: windowTabsTransferMethod,
         transferAck: windowTabsTransferAckMethod,
         listTargetWindows: windowTabsListTargetWindowsMethod,
         showContextMenu: windowTabsShowContextMenuMethod,
-        onIncomingTransfer: windowTabsOnIncomingTransferMethod,
-        onWindowAction: windowTabsOnWindowActionMethod,
         closeCurrentWindow: windowTabsCloseCurrentWindowMethod,
-        notifyRendererReady: windowTabsNotifyRendererReadyMethod,
         claimPendingExternalOpenPaths: windowTabsClaimPendingExternalOpenPathsMethod,
         acknowledgePendingExternalOpenPaths: windowTabsAcknowledgePendingExternalOpenPathsMethod,
         saveWorkspaceCheckpoint: windowTabsSaveWorkspaceCheckpointMethod,
         claimWorkspaceCheckpoint: windowTabsClaimWorkspaceCheckpointMethod,
+        onIncomingTransfer: windowTabsOnIncomingTransferMethod,
+        onWindowAction: windowTabsOnWindowActionMethod,
         onMenuNewTab: windowTabsOnMenuNewTabMethod,
         onMenuCloseTab: windowTabsOnMenuCloseTabMethod,
         onMenuSplitEditor: windowTabsOnMenuSplitEditorMethod,

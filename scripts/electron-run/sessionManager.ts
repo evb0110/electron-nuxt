@@ -17,7 +17,7 @@ import type {
 } from 'puppeteer-core';
 import { delay } from 'es-toolkit/promise';
 import { safeJsonParse } from '@contracts/safeJsonParse';
-import type { IWindowTabsCapability } from '@contracts/electronApiWindowTabs';
+import type { IWindowTabsCapability } from '@contracts/windowTabsPlatformFeature';
 import { createCommandHandler } from '@scripts/electron-run/createCommandHandler';
 import {
     buildElectronAutomationArgs,

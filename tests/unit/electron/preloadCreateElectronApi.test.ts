@@ -16,6 +16,7 @@ import {
 } from '@contracts/hostResourceProfile';
 import { HOST_PLATFORM_FEATURE } from '@contracts/hostPlatformFeature';
 import { UPDATES_PLATFORM_FEATURE } from '@contracts/updatesPlatformFeature';
+import { WINDOW_TABS_PLATFORM_FEATURE } from '@contracts/windowTabsPlatformFeature';
 
 const documentsClientMock = vi.hoisted(() => ({
     openDocumentDialog: vi.fn(async () => null),
@@ -414,7 +415,6 @@ describe('createElectronApi', () => {
             send: vi.fn(),
         };
         const { createElectronApi } = await import('@electron/preload/createElectronApi');
-        const { CORE_IPC_CHANNELS } = await import('@electron/platform-ipc/coreContract');
         const api = createElectronApi(
             ipcRenderer as never,
             { getPathForFile: () => '' },
@@ -422,7 +422,10 @@ describe('createElectronApi', () => {
 
         await api.windowTabs.showContextMenu('tab-1');
 
-        expect(ipcRenderer.invoke).toHaveBeenCalledWith(CORE_IPC_CHANNELS.tabsShowContextMenu, 'tab-1');
+        expect(ipcRenderer.invoke).toHaveBeenCalledWith(
+            WINDOW_TABS_PLATFORM_FEATURE.invokeChannels.showContextMenu,
+            'tab-1',
+        );
     });
 
     it('decodes settings debug-log events before invoking callbacks', async () => {
@@ -648,7 +651,7 @@ describe('createElectronApi', () => {
         const callback = vi.fn();
 
         const unsubscribe = api.windowTabs.onIncomingTransfer(callback);
-        const listener = listeners.get(CORE_IPC_EVENT_CHANNELS.tabsIncomingTransfer);
+        const listener = listeners.get(WINDOW_TABS_PLATFORM_FEATURE.eventChannels.onIncomingTransfer);
         if (!listener) {
             throw new Error('Expected incoming tab transfer listener to be registered');
         }
@@ -707,11 +710,13 @@ describe('createElectronApi', () => {
             },
         });
         expect(ipcRenderer.removeListener).toHaveBeenCalledWith(
-            CORE_IPC_EVENT_CHANNELS.tabsIncomingTransfer,
+            WINDOW_TABS_PLATFORM_FEATURE.eventChannels.onIncomingTransfer,
             listener,
         );
         expect(warningSpy).toHaveBeenCalledWith(
-            `Dropped invalid decoded IPC event payload for ${CORE_IPC_EVENT_CHANNELS.tabsIncomingTransfer}`,
+            `Dropped invalid decoded IPC event payload for ${
+                WINDOW_TABS_PLATFORM_FEATURE.eventChannels.onIncomingTransfer
+            }`,
             expect.objectContaining({ transferId: 'transfer-bad' }),
         );
     });
@@ -777,11 +782,11 @@ describe('createElectronApi', () => {
             platform: 'darwin',
             osScaleFactor: 2,
         });
-        listeners.get(CORE_IPC_EVENT_CHANNELS.menuWindowTabsAction)?.({}, {
+        listeners.get(WINDOW_TABS_PLATFORM_FEATURE.eventChannels.onWindowAction)?.({}, {
             kind: 'move-tab-to-window',
             targetWindowId: -1,
         });
-        listeners.get(CORE_IPC_EVENT_CHANNELS.menuWindowTabsAction)?.({}, {
+        listeners.get(WINDOW_TABS_PLATFORM_FEATURE.eventChannels.onWindowAction)?.({}, {
             kind: 'move-tab-to-window',
             targetWindowId: 3,
             tabId: ' tab-1 ',

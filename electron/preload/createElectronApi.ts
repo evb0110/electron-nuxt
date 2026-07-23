@@ -16,10 +16,6 @@ import type {
 } from '@contracts/electronApiDocuments';
 import type { TMenuEventUnsubscribe } from '@contracts/electronApiCommon';
 import type { IHostResourceProfileSnapshot } from '@contracts/hostResourceProfile';
-import {
-    decodeWindowTabIncomingTransfer,
-    decodeWindowTabsAction,
-} from '@contracts/windowTabsValidation';
 import { IMAGE_EXPORT_PLATFORM_FEATURE } from '@contracts/imageExportPlatformFeature';
 import { PAGE_OPS_PLATFORM_FEATURE } from '@contracts/pageOpsPlatformFeature';
 import { SEARCH_PLATFORM_FEATURE } from '@contracts/searchPlatformFeature';
@@ -27,6 +23,8 @@ import { SETTINGS_PLATFORM_FEATURE } from '@contracts/settingsPlatformFeature';
 import { SHELL_PLATFORM_FEATURE } from '@contracts/shellPlatformFeature';
 import { UPDATES_PLATFORM_FEATURE } from '@contracts/updatesPlatformFeature';
 import { HOST_PLATFORM_FEATURE } from '@contracts/hostPlatformFeature';
+import { SYSTEM_PLATFORM_FEATURE } from '@contracts/systemPlatformFeature';
+import { WINDOW_TABS_PLATFORM_FEATURE } from '@contracts/windowTabsPlatformFeature';
 import { getDebugLogMessages } from '@electron/preload/debugLogBuffer';
 import { decodeDebugLogEntry } from '@electron/preload/installDebugLogListener';
 import { createAgentPreloadClient } from '@electron/features/agent/createAgentPreloadClient';
@@ -50,11 +48,9 @@ import {
     CORE_IPC_EVENT_CHANNELS,
     CORE_IPC_SEND_CHANNELS,
     type ICoreEventMap,
-    type ICoreInvokeMap,
     type IShutdownSaveFlushRequest,
     type IShutdownSaveFlushResult,
 } from '@electron/platform-ipc/coreContract';
-import { CORE_IPC_CODECS } from '@electron/platform-ipc/coreIpcCodecs';
 
 const preloadStartupStart = Date.now();
 const STARTUP_TRACE_ENABLED = process.env.EVB_STARTUP_TRACE === '1';
@@ -149,7 +145,6 @@ export function createElectronApi(
     electronWebUtils: typeof webUtils,
     options: ICreateElectronApiOptions = {},
 ): IElectronAPI {
-    const invokeCore = createCodecIpcInvoker<ICoreInvokeMap>(ipcRenderer, CORE_IPC_CODECS);
     const invokeDocuments = createCodecIpcInvoker<IDocumentsInvokeMap>(ipcRenderer, DOCUMENTS_IPC_CODECS);
     const eventSubscriber = createTypedIpcEventSubscriber<ICoreEventMap>(ipcRenderer);
     const baseDocuments = createDocumentsPreloadClient(ipcRenderer);
@@ -158,6 +153,12 @@ export function createElectronApi(
     const settingsIpc = createPlatformFeaturePreloadClient(ipcRenderer, SETTINGS_PLATFORM_FEATURE);
     const updatesIpc = createPlatformFeaturePreloadClient(ipcRenderer, UPDATES_PLATFORM_FEATURE);
     const hostIpc = createPlatformFeaturePreloadClient(ipcRenderer, HOST_PLATFORM_FEATURE, {getResourceProfile: () => options.resourceProfile ?? null});
+    const systemIpc = createPlatformFeaturePreloadClient(
+        ipcRenderer,
+        SYSTEM_PLATFORM_FEATURE,
+        {getMemoryInfo: readSystemMemoryInfo},
+    );
+    const windowTabsIpc = createPlatformFeaturePreloadClient(ipcRenderer, WINDOW_TABS_PLATFORM_FEATURE);
     const shutdownSaveFlushCallbacks = new Set<() => Promise<{
         dirtyWorkingCopyPaths?: string[];
         flushedWorkingCopyPaths?: string[];
@@ -518,7 +519,7 @@ export function createElectronApi(
         },
 
         system: {
-            getMemoryInfo: readSystemMemoryInfo,
+            ...systemIpc,
             onShutdownSaveFlushRequest: (callback) => {
                 shutdownSaveFlushCallbacks.add(callback);
                 return () => {
@@ -540,52 +541,15 @@ export function createElectronApi(
         agent: createAgentPreloadClient(ipcRenderer),
 
         windowTabs: {
-            closeCurrentWindow: () => invokeCore(CORE_IPC_CHANNELS.windowCloseCurrent),
+            ...windowTabsIpc,
             notifyRendererReady: () => {
                 tracePreloadStartup('app:rendererReady dispatched');
                 ipcRenderer.send(CORE_IPC_CHANNELS.rendererReady);
             },
             claimPendingExternalOpenPaths: () => invokeWithStartupTrace(
                 'app:claimPendingExternalOpenPaths',
-                () => invokeCore(CORE_IPC_CHANNELS.claimPendingExternalOpenPaths),
+                windowTabsIpc.claimPendingExternalOpenPaths,
             ),
-            acknowledgePendingExternalOpenPaths: (failedPaths) => invokeCore(
-                CORE_IPC_CHANNELS.acknowledgePendingExternalOpenPaths,
-                failedPaths,
-            ),
-            saveWorkspaceCheckpoint: checkpoint => invokeCore(
-                CORE_IPC_CHANNELS.workspaceCheckpointSave,
-                checkpoint,
-            ),
-            claimWorkspaceCheckpoint: () => invokeCore(CORE_IPC_CHANNELS.workspaceCheckpointClaim),
-            transfer: (request) => invokeCore(CORE_IPC_CHANNELS.tabsTransfer, request),
-            transferAck: (ack) => invokeCore(CORE_IPC_CHANNELS.tabsTransferAck, ack),
-            listTargetWindows: () => invokeCore(CORE_IPC_CHANNELS.tabsListTargets),
-            showContextMenu: (tabId) => invokeCore(CORE_IPC_CHANNELS.tabsShowContextMenu, tabId),
-            onIncomingTransfer: (callback): TMenuEventUnsubscribe =>
-                eventSubscriber.onDecodedPayload(
-                    CORE_IPC_EVENT_CHANNELS.tabsIncomingTransfer,
-                    decodeWindowTabIncomingTransfer,
-                    callback,
-                ),
-            onWindowAction: (callback): TMenuEventUnsubscribe =>
-                eventSubscriber.onDecodedPayload(
-                    CORE_IPC_EVENT_CHANNELS.menuWindowTabsAction,
-                    decodeWindowTabsAction,
-                    callback,
-                ),
-            onMenuNewTab: (callback): TMenuEventUnsubscribe =>
-                eventSubscriber.onNoArg(CORE_IPC_EVENT_CHANNELS.menuNewTab, callback),
-            onMenuCloseTab: (callback): TMenuEventUnsubscribe =>
-                eventSubscriber.onNoArg(CORE_IPC_EVENT_CHANNELS.menuCloseTab, callback),
-            onMenuSplitEditor: (callback): TMenuEventUnsubscribe =>
-                eventSubscriber.onPayloadUnchecked(CORE_IPC_EVENT_CHANNELS.menuSplitEditor, callback),
-            onMenuFocusEditorPane: (callback): TMenuEventUnsubscribe =>
-                eventSubscriber.onPayloadUnchecked(CORE_IPC_EVENT_CHANNELS.menuFocusEditorPane, callback),
-            onMenuMoveTabToPane: (callback): TMenuEventUnsubscribe =>
-                eventSubscriber.onPayloadUnchecked(CORE_IPC_EVENT_CHANNELS.menuMoveTabToPane, callback),
-            onMenuCopyTabToPane: (callback): TMenuEventUnsubscribe =>
-                eventSubscriber.onPayloadUnchecked(CORE_IPC_EVENT_CHANNELS.menuCopyTabToPane, callback),
         },
     } satisfies IElectronAPI;
 

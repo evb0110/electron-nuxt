@@ -7,7 +7,7 @@ import type { TDocumentRef } from '@contracts/documentRef';
 import type {
     IShutdownSaveFlushResponse,
     ISystemCapability,
-} from '@contracts/electronApiSystem';
+} from '@contracts/systemPlatformFeature';
 import { getSystemCapability } from '@app/utils/getSystemCapability';
 import { BrowserLogger } from '@app/utils/browserLogger';
 

@@ -1,4 +1,4 @@
-import type { IWindowTabsCapability } from '@contracts/electronApiWindowTabs';
+import type { IWindowTabsCapability } from '@contracts/windowTabsPlatformFeature';
 import {
     getPlatformAPI,
     hasElectronAPI,
