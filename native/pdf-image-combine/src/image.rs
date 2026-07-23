@@ -6,7 +6,9 @@ use std::{
     path::Path,
 };
 
-use evb_raster_io::{read_png_passthrough, PassthroughLimits, PngColorType};
+use evb_raster_io::{
+    decode_png, read_png_passthrough, CompressedPng, DecodeLimits, PassthroughLimits, PngColorType,
+};
 
 use crate::{
     flate::{deflate_up_filtered_rgb_grayscale, deflate_up_filtered_slices},
@@ -33,6 +35,7 @@ pub struct JpegSizeGuardrail {
 pub(crate) enum PdfImageCompression {
     Auto,
     Jpeg { quality: u8 },
+    JpegWithFlateFallback { quality: u8 },
 }
 
 fn image_extension(path: &Path) -> String {
@@ -92,15 +95,46 @@ pub(crate) fn read_image_page_from_file(
 ) -> Result<ImagePage> {
     let extension = image_extension(path);
     match (extension.as_str(), compression) {
-        ("pgm" | "ppm", PdfImageCompression::Jpeg { quality }) => read_netpbm_jpeg_page(
-            &read_file(file)?,
-            options.max_pixels,
-            options.default_dpi.unwrap_or(DEFAULT_DPI),
-            quality,
-            processing,
-            page_size,
-            size_guardrail,
-        ),
+        (
+            "pgm" | "ppm",
+            PdfImageCompression::Jpeg { quality }
+            | PdfImageCompression::JpegWithFlateFallback { quality },
+        ) => {
+            let use_flate_fallback = matches!(
+                compression,
+                PdfImageCompression::JpegWithFlateFallback { .. }
+            );
+            read_netpbm_jpeg_page(
+                &read_file(file)?,
+                options.max_pixels,
+                options.default_dpi.unwrap_or(DEFAULT_DPI),
+                quality,
+                processing,
+                page_size,
+                size_guardrail,
+                use_flate_fallback,
+            )
+        }
+        (
+            "png",
+            PdfImageCompression::Jpeg { quality }
+            | PdfImageCompression::JpegWithFlateFallback { quality },
+        ) => {
+            let use_flate_fallback = matches!(
+                compression,
+                PdfImageCompression::JpegWithFlateFallback { .. }
+            );
+            read_png_jpeg_page(
+                &read_file(file)?,
+                options.max_pixels,
+                options.default_dpi,
+                quality,
+                processing,
+                page_size,
+                size_guardrail,
+                use_flate_fallback,
+            )
+        }
         ("jpg" | "jpeg", _) => {
             read_jpeg_page(read_file(file)?, options.max_pixels, options.default_dpi)
         }
@@ -109,7 +143,7 @@ pub(crate) fn read_image_page_from_file(
             options.max_pixels,
             options.default_dpi.unwrap_or(DEFAULT_DPI),
         ),
-        ("png", _) => read_png_page_from_reader(
+        ("png", PdfImageCompression::Auto) => read_png_page_from_reader(
             BufReader::new(file),
             options.max_pixels,
             options.default_dpi,
@@ -166,15 +200,46 @@ pub(crate) fn read_image_page_from_bytes(
         .unwrap_or("")
         .to_ascii_lowercase();
     match (extension.as_str(), compression) {
-        ("pgm" | "ppm", PdfImageCompression::Jpeg { quality }) => read_netpbm_jpeg_page(
-            bytes,
-            options.max_pixels,
-            options.default_dpi.unwrap_or(DEFAULT_DPI),
-            quality,
-            processing,
-            page_size,
-            size_guardrail,
-        ),
+        (
+            "pgm" | "ppm",
+            PdfImageCompression::Jpeg { quality }
+            | PdfImageCompression::JpegWithFlateFallback { quality },
+        ) => {
+            let use_flate_fallback = matches!(
+                compression,
+                PdfImageCompression::JpegWithFlateFallback { .. }
+            );
+            read_netpbm_jpeg_page(
+                bytes,
+                options.max_pixels,
+                options.default_dpi.unwrap_or(DEFAULT_DPI),
+                quality,
+                processing,
+                page_size,
+                size_guardrail,
+                use_flate_fallback,
+            )
+        }
+        (
+            "png",
+            PdfImageCompression::Jpeg { quality }
+            | PdfImageCompression::JpegWithFlateFallback { quality },
+        ) => {
+            let use_flate_fallback = matches!(
+                compression,
+                PdfImageCompression::JpegWithFlateFallback { .. }
+            );
+            read_png_jpeg_page(
+                bytes,
+                options.max_pixels,
+                options.default_dpi,
+                quality,
+                processing,
+                page_size,
+                size_guardrail,
+                use_flate_fallback,
+            )
+        }
         ("pgm" | "ppm", PdfImageCompression::Auto)
             if matches!(processing, ImageProcessing::None) =>
         {
@@ -190,7 +255,7 @@ pub(crate) fn read_image_page_from_bytes(
         (_, _) if !matches!(processing, ImageProcessing::None) => {
             Err("WASM byte-input processing currently supports PGM/PPM Netpbm inputs only".into())
         }
-        ("png", _) => {
+        ("png", PdfImageCompression::Auto) => {
             read_png_page_from_reader(Cursor::new(bytes), options.max_pixels, options.default_dpi)
         }
         ("jpg" | "jpeg", _) => {
@@ -219,6 +284,10 @@ fn read_png_page_from_reader<R: std::io::Read>(
         },
     )?;
 
+    Ok(png_flate_page(png, default_dpi))
+}
+
+fn png_flate_page(png: CompressedPng, default_dpi: Option<u32>) -> ImagePage {
     let (colors, color_space) = match png.color_type {
         PngColorType::Gray8 => (1, "DeviceGray"),
         PngColorType::Rgb8 => (3, "DeviceRGB"),
@@ -232,7 +301,7 @@ fn read_png_page_from_reader<R: std::io::Read>(
         png.width
     );
 
-    Ok(ImagePage {
+    ImagePage {
         width: png.width,
         height: png.height,
         dpi: png.dpi.or(default_dpi).unwrap_or(DEFAULT_DPI),
@@ -242,7 +311,7 @@ fn read_png_page_from_reader<R: std::io::Read>(
             data: png.idat,
             decode_params,
         },
-    })
+    }
 }
 
 fn read_jpeg_page(bytes: Vec<u8>, max_pixels: u64, default_dpi: Option<u32>) -> Result<ImagePage> {
@@ -265,6 +334,70 @@ fn read_jpeg_page(bytes: Vec<u8>, max_pixels: u64, default_dpi: Option<u32>) -> 
         color_space,
         icc_profile: metadata.icc_profile,
         payload: ImagePayload::Jpeg { data: bytes },
+    })
+}
+
+fn read_png_jpeg_page(
+    bytes: &[u8],
+    max_pixels: u64,
+    default_dpi: Option<u32>,
+    quality: u8,
+    processing: ImageProcessing,
+    page_size: Option<PdfPageSize>,
+    size_guardrail: Option<JpegSizeGuardrail>,
+    use_flate_fallback: bool,
+) -> Result<ImagePage> {
+    let png = read_png_passthrough(
+        bytes,
+        PassthroughLimits {
+            max_pixels,
+            max_icc_profile_bytes: MAX_PNG_ICC_PROFILE_BYTES,
+        },
+    )?;
+    let decoded = decode_png(
+        bytes,
+        DecodeLimits {
+            max_pixels,
+            max_dimension: png.width.max(png.height),
+            max_compressed_bytes: bytes.len(),
+        },
+    )?;
+    let channels = match png.color_type {
+        PngColorType::Gray8 => 1,
+        PngColorType::Rgb8 => 3,
+        PngColorType::GrayAlpha8 | PngColorType::Rgba8 => {
+            unreachable!("the passthrough reader rejects alpha-bearing PNG color types")
+        }
+    };
+    let pixels = if channels == 1 {
+        decoded.gray.into_data()
+    } else {
+        decoded.rgb.into_data()
+    };
+    let prepared = apply_jpeg_processing(
+        PreparedNetpbmPixels {
+            width: png.width,
+            height: png.height,
+            channels,
+            pixels: Cow::Owned(pixels),
+        },
+        max_pixels,
+        processing,
+        page_size,
+    )?;
+    let (prepared, quality) =
+        encode_with_size_guardrail(prepared, max_pixels, quality, page_size, size_guardrail)?;
+    let (data, color_space) = encode_prepared_netpbm_as_jpeg(&prepared, quality)?;
+    if use_flate_fallback && png.idat.len() < data.len() {
+        return Ok(png_flate_page(png, default_dpi));
+    }
+    Ok(ImagePage {
+        width: prepared.width,
+        height: prepared.height,
+        dpi: png.dpi.or(default_dpi).unwrap_or(DEFAULT_DPI),
+        color_space,
+        icc_profile: None,
+        payload: ImagePayload::Jpeg { data },
     })
 }
 
@@ -311,6 +444,52 @@ fn read_netpbm_page(bytes: &[u8], max_pixels: u64, dpi: u32) -> Result<ImagePage
     })
 }
 
+struct FlateCandidate {
+    data: Vec<u8>,
+    decode_params: String,
+    color_space: &'static str,
+}
+
+fn encode_prepared_netpbm_as_flate(prepared: &PreparedNetpbmPixels<'_>) -> Result<FlateCandidate> {
+    let total_pixels = prepared.width as usize * prepared.height as usize;
+    let height = prepared.height as usize;
+    let (colors, color_space, data) = if prepared.channels == 1 {
+        (
+            1,
+            "DeviceGray",
+            deflate_up_filtered_slices(prepared.pixels.as_ref(), prepared.width as usize, height)?,
+        )
+    } else if is_rgb_data_grayscale(prepared.pixels.as_ref(), total_pixels) {
+        (
+            1,
+            "DeviceGray",
+            deflate_up_filtered_rgb_grayscale(
+                prepared.pixels.as_ref(),
+                prepared.width as usize,
+                height,
+            )?,
+        )
+    } else {
+        (
+            3,
+            "DeviceRGB",
+            deflate_up_filtered_slices(
+                prepared.pixels.as_ref(),
+                prepared.width as usize * 3,
+                height,
+            )?,
+        )
+    };
+    Ok(FlateCandidate {
+        data,
+        decode_params: format!(
+            "<< /Predictor 12 /Colors {colors} /BitsPerComponent 8 /Columns {} >>",
+            prepared.width
+        ),
+        color_space,
+    })
+}
+
 fn read_netpbm_jpeg_page(
     bytes: &[u8],
     max_pixels: u64,
@@ -319,20 +498,37 @@ fn read_netpbm_jpeg_page(
     processing: ImageProcessing,
     page_size: Option<PdfPageSize>,
     size_guardrail: Option<JpegSizeGuardrail>,
+    use_flate_fallback: bool,
 ) -> Result<ImagePage> {
     let netpbm = parse_netpbm(bytes, max_pixels)?;
     let prepared = prepare_netpbm_for_jpeg(&netpbm, max_pixels, processing, page_size)?;
     let (prepared, quality) =
         encode_with_size_guardrail(prepared, max_pixels, quality, page_size, size_guardrail)?;
 
-    let (data, color_space) = encode_prepared_netpbm_as_jpeg(&prepared, quality)?;
+    let (jpeg_data, jpeg_color_space) = encode_prepared_netpbm_as_jpeg(&prepared, quality)?;
+    if use_flate_fallback {
+        let flate = encode_prepared_netpbm_as_flate(&prepared)?;
+        if flate.data.len() < jpeg_data.len() {
+            return Ok(ImagePage {
+                width: prepared.width,
+                height: prepared.height,
+                dpi,
+                color_space: flate.color_space,
+                icc_profile: None,
+                payload: ImagePayload::RawFlate {
+                    data: flate.data,
+                    decode_params: flate.decode_params,
+                },
+            });
+        }
+    }
     Ok(ImagePage {
         width: prepared.width,
         height: prepared.height,
         dpi,
-        color_space,
+        color_space: jpeg_color_space,
         icc_profile: None,
-        payload: ImagePayload::Jpeg { data },
+        payload: ImagePayload::Jpeg { data: jpeg_data },
     })
 }
 
@@ -448,13 +644,25 @@ fn prepare_netpbm_for_jpeg<'a>(
     processing: ImageProcessing,
     page_size: Option<PdfPageSize>,
 ) -> Result<PreparedNetpbmPixels<'a>> {
-    let prepared = PreparedNetpbmPixels {
-        width: netpbm.width,
-        height: netpbm.height,
-        channels: netpbm.channels,
-        pixels: Cow::Borrowed(netpbm.pixels),
-    };
+    apply_jpeg_processing(
+        PreparedNetpbmPixels {
+            width: netpbm.width,
+            height: netpbm.height,
+            channels: netpbm.channels,
+            pixels: Cow::Borrowed(netpbm.pixels),
+        },
+        max_pixels,
+        processing,
+        page_size,
+    )
+}
 
+fn apply_jpeg_processing<'a>(
+    prepared: PreparedNetpbmPixels<'a>,
+    max_pixels: u64,
+    processing: ImageProcessing,
+    page_size: Option<PdfPageSize>,
+) -> Result<PreparedNetpbmPixels<'a>> {
     match processing {
         ImageProcessing::None => Ok(prepared),
         ImageProcessing::DownscaleToPpi { ppi_cap } => {
@@ -745,9 +953,17 @@ mod tests {
     #[test]
     fn encodes_grayscale_netpbm_as_jpeg_payload() {
         let data = b"P6\n2 1\n255\n\x07\x07\x07\x09\x09\x09";
-        let page =
-            read_netpbm_jpeg_page(data, 1_000_000, 300, 75, ImageProcessing::None, None, None)
-                .unwrap();
+        let page = read_netpbm_jpeg_page(
+            data,
+            1_000_000,
+            300,
+            75,
+            ImageProcessing::None,
+            None,
+            None,
+            false,
+        )
+        .unwrap();
 
         assert_eq!(page.width, 2);
         assert_eq!(page.height, 1);
@@ -777,6 +993,7 @@ mod tests {
                 height_points: 72.0,
             }),
             None,
+            false,
         )
         .unwrap();
 

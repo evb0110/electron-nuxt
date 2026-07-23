@@ -138,6 +138,21 @@ const defaultDependencies: IRunScanCleanupPipelineDependencies = {
 const SCAN_CLEANUP_MAX_DIMENSION_PX = 40_000;
 const MODE_ANALYSIS_DPI = 150;
 const SIZE_PROBE_DPI = 72;
+// Rome p1/p7/p49 at source DPI retained scan texture, fine text, and mixed
+// illustration edges at these settings. Color gets two extra quality points
+// for chroma detail; grayscale and mixed pages do not spend bytes on it.
+const SCAN_CLEANUP_GRAYSCALE_JPEG_QUALITY = 85;
+const SCAN_CLEANUP_COLOR_JPEG_QUALITY = 87;
+
+function resolveTonalJpegQuality(mode: TScanCleanupOutputMode) {
+    if (mode === 'color') {
+        return SCAN_CLEANUP_COLOR_JPEG_QUALITY;
+    }
+    if (mode === 'grayscale' || mode === 'mixed') {
+        return SCAN_CLEANUP_GRAYSCALE_JPEG_QUALITY;
+    }
+    return undefined;
+}
 
 function resolveSourceDpi(value: number | null | undefined, fallback = 300) {
     const candidate = value ?? fallback;
@@ -793,6 +808,7 @@ export async function runScanCleanupPipeline(
             path: string;
             bilevelPath?: string;
             dpi: number;
+            resolvedOutputMode: TScanCleanupOutputMode;
             metadata: ICleanupMetadata
         }> = [];
         const summary: IScanCleanupSummary = {
@@ -851,6 +867,7 @@ export async function runScanCleanupPipeline(
                     dpi: metadata.renderDpi
                         ?? pageDpi.get(pageIndex + 1)
                         ?? documentDpi,
+                    resolvedOutputMode: resolvedOutputModeByPage.get(pageIndex + 1) ?? 'color',
                     metadata,
                 });
                 if (!metadata.skewApplied) summary.deskewSkipped += 1;
@@ -867,14 +884,36 @@ export async function runScanCleanupPipeline(
         summary.outputPages = outputPages.length;
         if (outputPages.length === 0) throw new Error('evb-scan-cleanup produced no output pages');
         const combineManifestPath = join(scratch, 'combine-manifest.tsv');
-        await writeFile(combineManifestPath, outputPages.map(output => [
-            output.bilevelPath === undefined ? 'image' : 'image-bilevel',
-            (output.metadata.matchedCanvasTargetWidthPoints
+        await writeFile(combineManifestPath, outputPages.map(output => {
+            const pageSize = [
+                (output.metadata.matchedCanvasTargetWidthPoints
                 ?? output.metadata.canvasWidthPx / output.dpi * 72).toFixed(6),
-            (output.metadata.matchedCanvasTargetHeightPoints
+                (output.metadata.matchedCanvasTargetHeightPoints
                 ?? output.metadata.canvasHeightPx / output.dpi * 72).toFixed(6),
-            output.bilevelPath ?? output.path,
-        ].join('\t')).join('\n') + '\n');
+            ];
+            if (output.bilevelPath !== undefined) {
+                return [
+                    'image-bilevel',
+                    ...pageSize,
+                    output.bilevelPath,
+                ].join('\t');
+            }
+            const jpegQuality = output.metadata.bilevelWritten
+                ? undefined
+                : resolveTonalJpegQuality(output.resolvedOutputMode);
+            return jpegQuality === undefined
+                ? [
+                    'image',
+                    ...pageSize,
+                    output.path,
+                ].join('\t')
+                : [
+                    'image-jpeg',
+                    ...pageSize,
+                    jpegQuality,
+                    output.path,
+                ].join('\t');
+        }).join('\n') + '\n');
         emitProgress(onProgress, 'assembling', pageCount, pageCount, 82, pageNumbers);
         await dependencies.runCommand(paths.pdfImageCombineBinary, [
             '--output',

@@ -519,11 +519,12 @@ describe('scan cleanup pipeline', () => {
         expect(recordKinds).toEqual([
             'image-bilevel',
             'image-bilevel',
-            'image',
+            'image-jpeg',
         ]);
-        const recordPaths = combineManifest.trim().split('\n').map(line => line.split('\t')[3]);
+        const recordPaths = combineManifest.trim().split('\n').map(line => line.split('\t').at(-1));
         expect(recordPaths[0]).toMatch(/clean-1-0\.pbm$/u);
         expect(recordPaths[2]).toMatch(/clean-2-0\.png$/u);
+        expect(combineManifest.trim().split('\n')[2]!.split('\t')[3]).toBe('85');
         const pageSizes = combineManifest.trim().split('\n').map(line => line.split('\t').slice(1, 3));
         expect(new Set(pageSizes.map(size => size.join('x')))).toEqual(new Set(['240.000000x336.000000']));
     });
@@ -667,10 +668,11 @@ describe('scan cleanup pipeline', () => {
 
         const records = combineManifest.trim().split('\n').map(line => line.split('\t'));
         expect(records.map(record => record[0])).toEqual([
-            'image',
+            'image-jpeg',
             'image-bilevel',
         ]);
-        expect(records[0]![3]).toMatch(/clean-1-0\.png$/u);
+        expect(records[0]![3]).toBe('85');
+        expect(records[0]![4]).toMatch(/clean-1-0\.png$/u);
         expect(records[1]![3]).toMatch(/clean-2-0\.pbm$/u);
     });
 
@@ -844,6 +846,7 @@ describe('scan cleanup pipeline', () => {
     it('reuses detect-all tonal recommendations in one pass without supersampling', async () => {
         const fixture = await setup();
         const renderedDpis: number[] = [];
+        let combineManifest = '';
         let finalOptions: Array<{
             dpi: number;
             requestedRenderDpi: number;
@@ -874,6 +877,15 @@ describe('scan cleanup pipeline', () => {
                 );
             }
         }));
+        pipelineDependencies.runCommand = vi.fn(async (_command, args) => {
+            combineManifest = await readFile(args[args.indexOf('--compact-manifest') + 1]!, 'utf8');
+            await writeFile(args[args.indexOf('--output') + 1]!, '%PDF-1.7\n%%EOF\n');
+            return {
+                exitCode: 0,
+                stdout: '',
+                stderr: '',
+            };
+        });
         pipelineDependencies.detectSourceDpi = vi.fn(async () => ({
             documentDpi: 720,
             pageDpiByNumber: new Map([
@@ -933,6 +945,22 @@ describe('scan cleanup pipeline', () => {
                 requestedRenderDpi: 640,
                 outputMode: 'color',
             }),
+        ]);
+        expect(combineManifest.trim().split('\n').map(line => {
+            const record = line.split('\t');
+            return [
+                record[0],
+                record[3],
+            ];
+        })).toEqual([
+            [
+                'image-jpeg',
+                '85',
+            ],
+            [
+                'image-jpeg',
+                '87',
+            ],
         ]);
         expect(pipelineDependencies.runSidecar).toHaveBeenCalledOnce();
     });
