@@ -336,6 +336,8 @@ async function verifyFixture(fixture, expectedFixture, workRoot) {
             outputPath: join(fixtureDir, `clean-${page.pageNumber}-${index}.png`),
             metadataPath: join(fixtureDir, `clean-${page.pageNumber}-${index}.json`),
             bilevelOutputPath: join(fixtureDir, `clean-${page.pageNumber}-${index}.pbm`),
+            backgroundOutputPath: join(fixtureDir, `clean-${page.pageNumber}-${index}-background.png`),
+            foregroundMaskOutputPath: join(fixtureDir, `clean-${page.pageNumber}-${index}-mask.pbm`),
         })),
     }));
     const renderManifestPath = join(fixtureDir, 'render-manifest.json');
@@ -363,13 +365,22 @@ async function verifyFixture(fixture, expectedFixture, workRoot) {
             const bilevelPath = metadata.bilevelWritten && await readableFile(output.bilevelOutputPath)
                 ? output.bilevelOutputPath
                 : null;
+            const layered = metadata.layeredWritten
+                && await readableFile(output.backgroundOutputPath)
+                && await readableFile(output.foregroundMaskOutputPath);
+            const backgroundPath = layered ? output.backgroundOutputPath : null;
+            const foregroundMaskPath = layered ? output.foregroundMaskOutputPath : null;
             outputFiles.push({
+                backgroundPath,
                 bilevelPath,
+                foregroundMaskPath,
                 metadata,
                 outputPath: output.outputPath,
             });
             combinedPages.push({
+                backgroundPath,
                 bilevelPath,
+                foregroundMaskPath,
                 metadata,
                 mode: page.analysis.recommendedOutputMode,
                 outputPath: output.outputPath,
@@ -416,6 +427,15 @@ async function verifyFixture(fixture, expectedFixture, workRoot) {
                 page.bilevelPath,
             ].join('\t');
         }
+        if (page.backgroundPath && page.foregroundMaskPath) {
+            return [
+                'layered-jpeg',
+                ...pageSize,
+                85,
+                page.backgroundPath,
+                page.foregroundMaskPath,
+            ].join('\t');
+        }
         const jpegQuality = page.metadata.bilevelWritten ? null : tonalJpegQuality(page.mode);
         return jpegQuality === null
             ? [
@@ -452,6 +472,16 @@ async function verifyFixture(fixture, expectedFixture, workRoot) {
             pdfPage: index + 1,
         }))
         .filter(page => page.bilevelPath);
+    const layeredPages = combinedPages
+        .map((page, index) => ({
+            ...page,
+            pdfPage: index + 1,
+        }))
+        .filter(page => page.foregroundMaskPath);
+    const maskPages = [
+        ...bilevelPages,
+        ...layeredPages,
+    ];
     const imageListing = parsePdfImages((await run('pdfimages', [
         '-list',
         outputPdfPath,
@@ -462,6 +492,17 @@ async function verifyFixture(fixture, expectedFixture, workRoot) {
             `output page ${page.pdfPage} is 1-bit JBIG2`,
             image?.bitsPerComponent === 1 && image.encoding === 'jbig2',
             image ? `${image.bitsPerComponent}-bit ${image.encoding}` : 'no image found',
+        );
+    }
+    for (const page of layeredPages) {
+        const mask = imageListing.find(candidate =>
+            candidate.page === page.pdfPage
+            && candidate.type === 'stencil',
+        );
+        report.add(
+            `output page ${page.pdfPage} foreground mask is 1-bit JBIG2`,
+            mask?.bitsPerComponent === 1 && mask.encoding === 'jbig2',
+            mask ? `${mask.bitsPerComponent}-bit ${mask.encoding}` : 'no mask found',
         );
     }
 
@@ -517,7 +558,7 @@ async function verifyFixture(fixture, expectedFixture, workRoot) {
     const stats = timingStats(timings);
     report.add(
         'JBIG2 encode timing coverage',
-        timings.length === bilevelPages.length
+        timings.length === maskPages.length
             && timings.every(record => Number.isFinite(record.elapsedMs) && record.elapsedMs >= 0),
         `${stats.count} records; total=${stats.totalMs.toFixed(1)}ms mean=${stats.meanMs.toFixed(1)}ms max=${stats.maxMs.toFixed(1)}ms`,
     );

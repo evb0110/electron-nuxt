@@ -25,11 +25,21 @@ optional: mark them with `"optional": true` and they are reported as skipped whe
 their absolute path is absent. The checked-in expectations cover the Luther p6–9
 session fixture and Rome pages 1, 2, and 49.
 
-Tonal scan-cleanup outputs use plain `image-jpeg` records because their raster is
-already at final DPI; unlike `photo-jpeg`, this does not apply another PPI cap.
-Grayscale and mixed composites use quality 85, while color uses 87 to retain
-chroma detail. These settings were checked at source DPI on Rome pages 1, 7, and
-49; the combiner keeps the lossless Flate candidate whenever it is smaller.
+Grayscale and color scan-cleanup outputs use plain `image-jpeg` records because
+their raster is already at final DPI; unlike `photo-jpeg`, this does not apply
+another PPI cap. Mixed pages use `layered-jpeg`: a quality-85 tonal background
+under a full-render-DPI 1-bit text mask. The background is capped at source DPI
+(`min(source DPI, render DPI)`), so supersampling sharpens the JBIG2 text layer
+without spending JPEG bytes on invented picture detail. Text pixels are removed
+from the tonal layer before JPEG encoding, and the existing 3 mm distance feather
+blends picture-mask boundaries without preserving dark text ghosts. Grayscale
+uses quality 85 and color uses 87; the combiner keeps the lossless Flate
+candidate whenever it is smaller.
+
+The July 2026 MRC follow-up changed the `rome-selected` three-page corpus
+expectation from 3,247,404 B to 2,135,347 B. Luther p6–9 remains byte-identical
+at 727,236 B; the Rome reduction comes from page 49 moving from a flattened
+mixed JPEG to a JPEG background plus JBIG2 text stencil.
 
 ## Navigation blink trace
 

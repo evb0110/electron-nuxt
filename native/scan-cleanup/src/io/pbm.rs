@@ -20,6 +20,61 @@ pub fn write_p4_atomic(path: &Path, image: &GrayImage) -> Result<(), String> {
     result
 }
 
+pub fn read_p4(path: &Path, max_pixels: u64, max_dimension: u32) -> Result<GrayImage, String> {
+    let bytes = fs::read(path).map_err(|error| error.to_string())?;
+    decode_p4(&bytes, max_pixels, max_dimension)
+}
+
+pub fn decode_p4(bytes: &[u8], max_pixels: u64, max_dimension: u32) -> Result<GrayImage, String> {
+    if bytes.get(..3) != Some(b"P4\n") {
+        return Err("Invalid PBM P4 signature".into());
+    }
+    let dimensions_end = bytes[3..]
+        .iter()
+        .position(|byte| *byte == b'\n')
+        .map(|offset| offset + 3)
+        .ok_or("Truncated PBM P4 header")?;
+    let dimensions = std::str::from_utf8(&bytes[3..dimensions_end])
+        .map_err(|_| "Invalid PBM P4 dimensions")?
+        .split_ascii_whitespace()
+        .map(|value| {
+            value
+                .parse::<usize>()
+                .map_err(|_| "Invalid PBM P4 dimensions")
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    if dimensions.len() != 2 {
+        return Err("Invalid PBM P4 dimensions".into());
+    }
+    let (width, height) = (dimensions[0], dimensions[1]);
+    if width == 0
+        || height == 0
+        || width > max_dimension as usize
+        || height > max_dimension as usize
+        || (width as u64).saturating_mul(height as u64) > max_pixels
+    {
+        return Err(format!(
+            "PBM P4 dimensions exceed cleanup guardrails: {width}x{height}"
+        ));
+    }
+    let row_stride = width.div_ceil(8);
+    let bitmap = bytes
+        .get(dimensions_end + 1..)
+        .ok_or("Truncated PBM P4 payload")?;
+    if bitmap.len() != row_stride.saturating_mul(height) {
+        return Err("PBM P4 payload length mismatch".into());
+    }
+    let mut image = GrayImage::new(width, height, 255);
+    for y in 0..height {
+        for x in 0..width {
+            if bitmap[y * row_stride + x / 8] & (1 << (7 - x % 8)) != 0 {
+                image.set(x, y, 0);
+            }
+        }
+    }
+    Ok(image)
+}
+
 pub fn encode_p4(image: &GrayImage) -> Result<Vec<u8>, String> {
     if image.width() == 0 || image.height() == 0 {
         return Err("PBM P4 dimensions must be positive".into());
@@ -85,5 +140,24 @@ mod tests {
         assert!(encode_p4(&image)
             .unwrap_err()
             .contains("non-binary sample 127"));
+    }
+
+    #[test]
+    fn roundtrips_p4_pixels_and_dimensions() {
+        let source = GrayImage::from_vec(
+            10,
+            2,
+            10,
+            vec![
+                0, 255, 255, 255, 255, 255, 255, 255, 255, 0, 255, 0, 255, 0, 255, 0, 255, 0, 255,
+                0,
+            ],
+        )
+        .unwrap();
+
+        assert_eq!(
+            decode_p4(&encode_p4(&source).unwrap(), 100, 20).unwrap(),
+            source
+        );
     }
 }

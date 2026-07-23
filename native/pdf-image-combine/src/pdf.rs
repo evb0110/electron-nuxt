@@ -778,6 +778,36 @@ mod tests {
     }
 
     #[test]
+    fn layered_jpeg_uses_jbig2_when_it_is_the_smallest_verified_mask_payload() {
+        let foreground_mask = crate::netpbm::parse_pbm_p4(include_bytes!(
+            "../../jbig2-codec/tests/fixtures/scan-page-000-body.pbm"
+        ))
+        .unwrap();
+        let page = LayeredPdfPage {
+            page_size: PdfPageSize {
+                width_points: 612.0,
+                height_points: 792.0,
+            },
+            background: LayeredPdfImage {
+                width: 1,
+                height: 1,
+                color_space: "DeviceGray",
+                payload: LayeredImagePayload::Jpeg {
+                    data: vec![0xff, 0xd8, 0xff, 0xd9],
+                },
+            },
+            foreground_mask,
+            foreground_color: None,
+        };
+
+        let pdf = build_layered_pdf_page(&page).unwrap();
+        let text = String::from_utf8_lossy(&pdf);
+
+        assert!(text.contains("/Filter /DCTDecode"));
+        assert!(mask_object_dictionary(&text).contains("/Filter /JBIG2Decode"));
+    }
+
+    #[test]
     fn writes_layered_color_page_with_rgb_fill_and_image_mask() {
         let mut page = sample_layered_page(LayeredImagePayload::Jpeg {
             data: vec![0xff, 0xd8, 0xff, 0xd9],

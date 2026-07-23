@@ -103,7 +103,11 @@ describe('native scan-cleanup manifest builder', () => {
                     outputPath: '/fixtures/output/page-1.png',
                     metadataPath: '/fixtures/output/page-1-output.json',
                     ...(testCase.renderMode === 'final'
-                        ? {bilevelOutputPath: '/fixtures/output/page-1.pbm'}
+                        ? {
+                            bilevelOutputPath: '/fixtures/output/page-1.pbm',
+                            backgroundOutputPath: '/fixtures/output/page-1-background.png',
+                            foregroundMaskOutputPath: '/fixtures/output/page-1-mask.pbm',
+                        }
                         : {}),
                 }] : [],
             }],
@@ -275,6 +279,8 @@ describe('native scan-cleanup manifest builder', () => {
                     outputPath: '/fixtures/output/page-1.png',
                     metadataPath: '/fixtures/output/page-1-output.json',
                     bilevelOutputPath: '/fixtures/output/page-1.pbm',
+                    backgroundOutputPath: '/fixtures/output/page-1-background.png',
+                    foregroundMaskOutputPath: '/fixtures/output/page-1-mask.pbm',
                 }],
             }],
         });

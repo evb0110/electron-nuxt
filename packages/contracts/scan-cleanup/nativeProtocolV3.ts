@@ -65,6 +65,8 @@ export interface INativeScanCleanupOutputV3 {
     outputPath: string;
     metadataPath: string;
     bilevelOutputPath?: string;
+    backgroundOutputPath?: string;
+    foregroundMaskOutputPath?: string;
 }
 
 /** Additive geometry returned in page/output metadata by protocol-v3 sidecars. */

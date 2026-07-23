@@ -1498,6 +1498,7 @@ mod tests {
         .remove(0);
         assert_eq!(mixed.image, bw);
         assert!(mixed.color_image.is_none());
+        assert!(mixed.mixed_layers.is_none());
     }
 
     #[test]
@@ -1543,7 +1544,14 @@ mod tests {
             .unwrap()
             .outputs
             .remove(0);
-        let mixed_color = output.color_image.expect("mixed color keeps source chroma");
+        let mixed_color = output
+            .color_image
+            .as_ref()
+            .expect("mixed color keeps source chroma");
+        let layers = output
+            .mixed_layers
+            .as_ref()
+            .expect("mixed picture output retains separable layers");
         let mut tonal_pixels = 0usize;
         for y in 20..100 {
             for x in 85..165 {
@@ -1559,6 +1567,9 @@ mod tests {
         }
         assert!(tonal_pixels > 4_000, "picture tones were not retained");
         assert!(matches!(output.image.get(20, 20), 0 | 255));
+        assert_eq!(layers.foreground_mask.get(20, 20), output.image.get(20, 20));
+        assert_eq!(layers.background.get(20, 20), 255);
+        assert!(layers.color_background.is_some());
     }
 
     #[test]
@@ -1612,7 +1623,12 @@ mod tests {
     fn mixed_composite_feathers_light_mask_blocks_without_losing_dark_picture_edges() {
         let mut gray = GrayImage::new(120, 80, 255);
         let mut mask = BinaryImage::new(120, 80);
-        let binary = BinaryImage::new(120, 80);
+        let mut binary = BinaryImage::new(120, 80);
+        for y in 35..39 {
+            for x in 8..24 {
+                binary.set(x, y, true);
+            }
+        }
         for y in 15..65 {
             for x in 30..90 {
                 mask.set(x, y, true);
@@ -1623,7 +1639,7 @@ mod tests {
             gray.set(x, 24, 54);
         }
 
-        let (mixed, _) = compose_mixed(&gray, None, &binary, &mask, 300.0);
+        let (mixed, _, layers) = compose_mixed(&gray, None, &binary, &mask, 300.0);
 
         assert!(
             (30..90).all(|x| mixed.get(x, 15) >= 248),
@@ -1635,6 +1651,13 @@ mod tests {
         );
         assert_eq!(mixed.get(60, 40), 112);
         assert_eq!(mixed.get(29, 40), 255);
+        assert_eq!(mixed.get(12, 36), 0);
+        assert_eq!(layers.foreground_mask.get(12, 36), 0);
+        assert_eq!(
+            layers.background.get(12, 36),
+            255,
+            "text pixels are filled from the normalized background instead of leaking into JPEG"
+        );
     }
 
     #[test]

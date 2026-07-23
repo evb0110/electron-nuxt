@@ -1,7 +1,7 @@
 use crate::adapters::single_ocr_cli::{invalid, optional_value, parse_options, required_path};
 use crate::engine::render::{
     analyze_page_with_color_and_document_prior_cached,
-    clean_page_with_color_and_document_prior_cached,
+    clean_page_with_color_and_document_prior_cached, downscale_rgb_to_dimensions,
 };
 use crate::mode_select::OutputModeRecommendationReason;
 use crate::{
@@ -59,6 +59,10 @@ struct PageOutputJob {
     metadata_path: PathBuf,
     #[serde(default)]
     bilevel_output_path: Option<PathBuf>,
+    #[serde(default)]
+    background_output_path: Option<PathBuf>,
+    #[serde(default)]
+    foreground_mask_output_path: Option<PathBuf>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -103,6 +107,8 @@ impl From<ManifestV3> for BatchManifest {
                             output_path: output.output_path,
                             metadata_path: output.metadata_path,
                             bilevel_output_path: output.bilevel_output_path,
+                            background_output_path: output.background_output_path,
+                            foreground_mask_output_path: output.foreground_mask_output_path,
                         })
                         .collect(),
                     source_page_index: Some(page.source_page_index),
@@ -120,6 +126,8 @@ struct WrittenOutput {
     output_path: PathBuf,
     metadata_path: PathBuf,
     bilevel_output_path: Option<PathBuf>,
+    background_output_path: Option<PathBuf>,
+    foreground_mask_output_path: Option<PathBuf>,
     options: CleanupOptions,
     is_color: bool,
     half: crate::pipeline::PageHalf,
@@ -247,7 +255,7 @@ pub fn run(args: impl IntoIterator<Item = String>) -> Result<(), Box<dyn Error>>
     };
     let cache = manifest_cache();
     let page_cache = page_cache_for(&job, 0, &cache)?;
-    run_page(&job, None, 0, CanvasScope::Page, &page_cache).map(|_| ())
+    run_page(&job, None, 0, CanvasScope::Page, false, &page_cache).map(|_| ())
 }
 
 fn run_manifest(path: &Path, allow_v1: bool) -> Result<(), Box<dyn Error>> {
@@ -511,6 +519,12 @@ fn run_manifest_inner(manifest: &BatchManifest) -> Result<(), Box<dyn Error>> {
                     let _ = fs::remove_file(&output.metadata_path);
                     if let Some(bilevel_path) = &output.bilevel_output_path {
                         let _ = fs::remove_file(bilevel_path);
+                    }
+                    if let Some(background_path) = &output.background_output_path {
+                        let _ = fs::remove_file(background_path);
+                    }
+                    if let Some(mask_path) = &output.foreground_mask_output_path {
+                        let _ = fs::remove_file(mask_path);
                     }
                 }
                 let _ = fs::remove_file(path);
@@ -879,6 +893,7 @@ fn run_manifest_page(
             Some(&manifest.shared_options),
             index,
             manifest.canvas_scope,
+            !manifest.preview_mode,
             cache,
         )
     }
@@ -897,6 +912,8 @@ fn pages_have_disjoint_destinations(manifest: &BatchManifest) -> bool {
                     Some(&output.output_path),
                     Some(&output.metadata_path),
                     output.bilevel_output_path.as_ref(),
+                    output.background_output_path.as_ref(),
+                    output.foreground_mask_output_path.as_ref(),
                 ]
                 .into_iter()
                 .flatten()
@@ -1000,6 +1017,7 @@ fn run_page(
     shared: Option<&CleanupOptions>,
     fallback_page_index: usize,
     canvas_scope: CanvasScope,
+    final_render: bool,
     cache: &PageCache,
 ) -> Result<PageRunResult, Box<dyn Error>> {
     let options = job.options.as_ref().or(shared).cloned().unwrap_or_default();
@@ -1150,6 +1168,7 @@ fn run_page(
                 output.metadata.output_mode,
                 OutputMode::Bw | OutputMode::Mixed
             ) && output.color_image.is_none()
+                && output.mixed_layers.is_none()
             {
                 if let Some(path) = &destination.bilevel_output_path {
                     pbm::write_p4_atomic(path, &output.image)
@@ -1162,11 +1181,72 @@ fn run_page(
             } else {
                 None
             };
+            let layer_paths = final_render.then(|| {
+                destination
+                    .background_output_path
+                    .as_ref()
+                    .zip(destination.foreground_mask_output_path.as_ref())
+            });
+            let (background_output_path, foreground_mask_output_path) = if let (
+                Some(layers),
+                Some(Some((background_path, mask_path))),
+            ) =
+                (output.mixed_layers.as_ref(), layer_paths)
+            {
+                let layer_result = (|| -> Result<(), String> {
+                    let background_dpi = options.source_dpi().min(options.dpi);
+                    let background_width = ((layers.background.width() as f64 * background_dpi
+                        / options.dpi)
+                        .round() as usize)
+                        .max(1);
+                    let background_height = ((layers.background.height() as f64 * background_dpi
+                        / options.dpi)
+                        .round() as usize)
+                        .max(1);
+                    if let Some(color) = &layers.color_background {
+                        if !options.match_page_size && background_dpi < options.dpi {
+                            let background = downscale_rgb_to_dimensions(
+                                color,
+                                background_width,
+                                background_height,
+                            );
+                            png::write_rgb_atomic(background_path, &background)?;
+                        } else {
+                            png::write_rgb_atomic(background_path, color)?;
+                        }
+                    } else if !options.match_page_size && background_dpi < options.dpi {
+                        let background = layers
+                            .background
+                            .downscale_to_fit(background_width, background_height);
+                        png::write_gray_atomic(background_path, &background)?;
+                    } else {
+                        png::write_gray_atomic(background_path, &layers.background)?;
+                    }
+                    pbm::write_p4_atomic(mask_path, &layers.foreground_mask)
+                })();
+                if let Err(error) = layer_result {
+                    let _ = fs::remove_file(background_path);
+                    let _ = fs::remove_file(mask_path);
+                    output.metadata.warnings.push(format!(
+                            "Mixed layers were not written; the composite fallback remains available: {error}"
+                        ));
+                    (None, None)
+                } else {
+                    output.metadata.layered_written = true;
+                    output.metadata.layered_background_dpi =
+                        Some(options.source_dpi().min(options.dpi));
+                    (Some(background_path.clone()), Some(mask_path.clone()))
+                }
+            } else {
+                (None, None)
+            };
             write_json_atomic(&destination.metadata_path, &output.metadata)?;
             written.push(WrittenOutput {
                 output_path: destination.output_path.clone(),
                 metadata_path: destination.metadata_path.clone(),
                 bilevel_output_path,
+                background_output_path,
+                foreground_mask_output_path,
                 options: options.clone(),
                 is_color: output.color_image.is_some(),
                 half: output.metadata.half,
@@ -1180,6 +1260,12 @@ fn run_page(
             let _ = fs::remove_file(&destination.metadata_path);
             if let Some(bilevel_path) = &destination.bilevel_output_path {
                 let _ = fs::remove_file(bilevel_path);
+            }
+            if let Some(background_path) = &destination.background_output_path {
+                let _ = fs::remove_file(background_path);
+            }
+            if let Some(mask_path) = &destination.foreground_mask_output_path {
+                let _ = fs::remove_file(mask_path);
             }
         }
         if let Some(page_metadata_path) = &job.page_metadata_path {
@@ -1446,6 +1532,107 @@ fn match_page_sizes(
                     }
                 }
             }
+            if !preview_mode && metadata.layered_written {
+                let layer_result = (|| -> Result<(), Box<dyn Error>> {
+                    let background_path =
+                        output.background_output_path.as_ref().ok_or_else(|| {
+                            invalid(
+                                "Layered cleanup metadata is missing its background destination",
+                            )
+                        })?;
+                    let mask_path =
+                        output.foreground_mask_output_path.as_ref().ok_or_else(|| {
+                            invalid("Layered cleanup metadata is missing its mask destination")
+                        })?;
+                    let mask = pbm::read_p4(
+                        mask_path,
+                        output.options.max_pixels,
+                        output.options.max_dimension,
+                    )
+                    .map_err(map_image_error)?;
+                    let mask = if available_width == 0 && available_height == 0 {
+                        mask
+                    } else {
+                        place_on_white_canvas(&mask, target_width, target_height, left, top)
+                    };
+                    pbm::write_p4_atomic(mask_path, &mask)
+                        .map_err(|message| NativeError::new(NativeErrorCode::Io, message))?;
+
+                    let background_dpi = metadata
+                        .layered_background_dpi
+                        .unwrap_or(output.options.source_dpi().min(output.options.dpi));
+                    let background_width = ((target_width as f64 * background_dpi
+                        / output.options.dpi)
+                        .round() as usize)
+                        .max(1);
+                    let background_height = ((target_height as f64 * background_dpi
+                        / output.options.dpi)
+                        .round() as usize)
+                        .max(1);
+                    if output.is_color {
+                        let background = png::read_image(
+                            background_path,
+                            output.options.max_pixels,
+                            output.options.max_dimension,
+                        )?
+                        .rgb;
+                        let background = if available_width == 0 && available_height == 0 {
+                            background
+                        } else {
+                            place_rgb_on_white_canvas(
+                                &background,
+                                target_width,
+                                target_height,
+                                left,
+                                top,
+                            )
+                        };
+                        let background = downscale_rgb_to_dimensions(
+                            &background,
+                            background_width,
+                            background_height,
+                        );
+                        png::write_rgb_atomic(background_path, &background)
+                            .map_err(|message| NativeError::new(NativeErrorCode::Io, message))?;
+                    } else {
+                        let background = png::read_gray(
+                            background_path,
+                            output.options.max_pixels,
+                            output.options.max_dimension,
+                        )
+                        .map_err(map_image_error)?;
+                        let background = if available_width == 0 && available_height == 0 {
+                            background
+                        } else {
+                            place_on_white_canvas(
+                                &background,
+                                target_width,
+                                target_height,
+                                left,
+                                top,
+                            )
+                        };
+                        let background =
+                            background.downscale_to_fit(background_width, background_height);
+                        png::write_gray_atomic(background_path, &background)
+                            .map_err(|message| NativeError::new(NativeErrorCode::Io, message))?;
+                    }
+                    Ok(())
+                })();
+                if let Err(error) = layer_result {
+                    if let Some(background_path) = &output.background_output_path {
+                        let _ = fs::remove_file(background_path);
+                    }
+                    if let Some(mask_path) = &output.foreground_mask_output_path {
+                        let _ = fs::remove_file(mask_path);
+                    }
+                    metadata.layered_written = false;
+                    metadata.layered_background_dpi = None;
+                    metadata.warnings.push(format!(
+                        "Mixed layers could not be finalized; the composite fallback remains available: {error}"
+                    ));
+                }
+            }
             write_json_atomic(&output.metadata_path, &metadata)?;
             Ok(())
         })();
@@ -1454,6 +1641,12 @@ fn match_page_sizes(
             let _ = fs::remove_file(&output.metadata_path);
             if let Some(bilevel_path) = &output.bilevel_output_path {
                 let _ = fs::remove_file(bilevel_path);
+            }
+            if let Some(background_path) = &output.background_output_path {
+                let _ = fs::remove_file(background_path);
+            }
+            if let Some(mask_path) = &output.foreground_mask_output_path {
+                let _ = fs::remove_file(mask_path);
             }
             return Err(error);
         }
@@ -1534,6 +1727,8 @@ fn resolve_destinations(
                 output_path: output.output_path.clone(),
                 metadata_path: output.metadata_path.clone(),
                 bilevel_output_path: output.bilevel_output_path.clone(),
+                background_output_path: output.background_output_path.clone(),
+                foreground_mask_output_path: output.foreground_mask_output_path.clone(),
             })
             .collect());
     }
@@ -1550,6 +1745,8 @@ fn resolve_destinations(
             output_path: output.clone(),
             metadata_path: metadata.clone(),
             bilevel_output_path: None,
+            background_output_path: None,
+            foreground_mask_output_path: None,
         }]);
     }
     Ok((0..output_count)
@@ -1557,6 +1754,8 @@ fn resolve_destinations(
             output_path: suffixed_path(output, index),
             metadata_path: suffixed_path(metadata, index),
             bilevel_output_path: None,
+            background_output_path: None,
+            foreground_mask_output_path: None,
         })
         .collect())
 }

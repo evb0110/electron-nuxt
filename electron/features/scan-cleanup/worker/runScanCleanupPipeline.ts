@@ -68,6 +68,8 @@ interface ICleanupMetadata {
     skewApplied: boolean;
     manualSkew?: boolean;
     bilevelWritten?: boolean;
+    layeredWritten?: boolean;
+    layeredBackgroundDpi?: number;
     illuminationNormalized?: boolean;
     binarizationMode?: IScanCleanupOptions['binarization'] | null;
     binarizationDiagnostics?: INativeScanCleanupBinarizationDiagnosticsV3 | null;
@@ -831,6 +833,8 @@ export async function runScanCleanupPipeline(
                     outputPath: join(scratch, `clean-${pageNumber}-${outputIndex}.png`),
                     metadataPath: join(scratch, `clean-${pageNumber}-${outputIndex}.json`),
                     bilevelOutputPath: join(scratch, `clean-${pageNumber}-${outputIndex}.pbm`),
+                    backgroundOutputPath: join(scratch, `clean-${pageNumber}-${outputIndex}-background.png`),
+                    foregroundMaskOutputPath: join(scratch, `clean-${pageNumber}-${outputIndex}-mask.pbm`),
                 })),
             };
             rasterizedCount += 1;
@@ -905,6 +909,8 @@ export async function runScanCleanupPipeline(
         const outputPages: Array<{
             path: string;
             bilevelPath?: string;
+            backgroundPath?: string;
+            foregroundMaskPath?: string;
             dpi: number;
             resolvedOutputMode: TScanCleanupOutputMode;
             metadata: ICleanupMetadata
@@ -959,9 +965,44 @@ export async function runScanCleanupPipeline(
                         );
                     }
                 }
+                let backgroundPath: string | undefined;
+                let foregroundMaskPath: string | undefined;
+                if (metadata.layeredWritten) {
+                    try {
+                        if (
+                            output.backgroundOutputPath === undefined
+                            || output.foregroundMaskOutputPath === undefined
+                        ) {
+                            throw new Error('no mixed layer output paths were declared');
+                        }
+                        const [
+                            backgroundStats,
+                            maskStats,
+                        ] = await Promise.all([
+                            stat(output.backgroundOutputPath),
+                            stat(output.foregroundMaskOutputPath),
+                        ]);
+                        if (!backgroundStats.isFile() || !maskStats.isFile()) {
+                            throw new Error('a mixed layer output path is not a file');
+                        }
+                        await Promise.all([
+                            access(output.backgroundOutputPath, fsConstants.R_OK),
+                            access(output.foregroundMaskOutputPath, fsConstants.R_OK),
+                        ]);
+                        backgroundPath = output.backgroundOutputPath;
+                        foregroundMaskPath = output.foregroundMaskOutputPath;
+                    } catch (error) {
+                        log(
+                            'warn',
+                            `Page ${pageIndex + 1} mixed layers are missing or unreadable; using composite JPEG fallback: ${(error as Error).message}`,
+                        );
+                    }
+                }
                 pageOutputPages.push({
                     path: output.outputPath,
                     ...(bilevelPath === undefined ? {} : {bilevelPath}),
+                    ...(backgroundPath === undefined ? {} : {backgroundPath}),
+                    ...(foregroundMaskPath === undefined ? {} : {foregroundMaskPath}),
                     dpi: metadata.renderDpi
                         ?? pageDpi.get(pageNumbers[pageIndex]!)
                         ?? documentDpi,
@@ -994,6 +1035,18 @@ export async function runScanCleanupPipeline(
                     'image-bilevel',
                     ...pageSize,
                     output.bilevelPath,
+                ].join('\t');
+            }
+            if (
+                output.backgroundPath !== undefined
+                && output.foregroundMaskPath !== undefined
+            ) {
+                return [
+                    'layered-jpeg',
+                    ...pageSize,
+                    SCAN_CLEANUP_GRAYSCALE_JPEG_QUALITY,
+                    output.backgroundPath,
+                    output.foregroundMaskPath,
                 ].join('\t');
             }
             const jpegQuality = output.metadata.bilevelWritten

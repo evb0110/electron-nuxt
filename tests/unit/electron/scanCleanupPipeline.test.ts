@@ -59,6 +59,8 @@ interface ICleanupOutput {
     outputPath: string;
     metadataPath: string;
     bilevelOutputPath?: string;
+    backgroundOutputPath?: string;
+    foregroundMaskOutputPath?: string;
 }
 
 const options: IScanCleanupOptions = {
@@ -139,11 +141,22 @@ async function writeCleanupOutput(
     bilevelWritten = false,
     renderDpi = 300,
     matchedPageSize = false,
+    layeredWritten = false,
 ) {
     await writeFile(output.outputPath, 'PNG-CLEAN');
     if (bilevelWritten) {
         if (output.bilevelOutputPath === undefined) throw new Error('Missing test bilevel output path');
         await writeFile(output.bilevelOutputPath, 'P4\n1 1\n\x80');
+    }
+    if (layeredWritten) {
+        if (
+            output.backgroundOutputPath === undefined
+            || output.foregroundMaskOutputPath === undefined
+        ) {
+            throw new Error('Missing test mixed layer output paths');
+        }
+        await writeFile(output.backgroundOutputPath, PNG);
+        await writeFile(output.foregroundMaskOutputPath, 'P4\n1 1\n\x80');
     }
     await writeFile(output.metadataPath, JSON.stringify({
         outputWidthPx: Math.round(renderDpi / 72 * 240),
@@ -158,6 +171,7 @@ async function writeCleanupOutput(
         layoutClassification: classification,
         skewApplied,
         bilevelWritten,
+        layeredWritten,
         contentBox: {
             x: 1,
             y: 1,
@@ -517,6 +531,8 @@ describe('scan cleanup pipeline', () => {
         expect(cleanupManifest!.pages[0]!.outputs[0]).toMatchObject({
             outputPath: expect.stringMatching(/clean-1-0\.png$/u),
             bilevelOutputPath: expect.stringMatching(/clean-1-0\.pbm$/u),
+            backgroundOutputPath: expect.stringMatching(/clean-1-0-background\.png$/u),
+            foregroundMaskOutputPath: expect.stringMatching(/clean-1-0-mask\.pbm$/u),
         });
         const recordKinds = combineManifest.trim().split('\n').map(line => line.split('\t')[0]);
         expect(recordKinds).toEqual([
@@ -755,7 +771,7 @@ describe('scan cleanup pipeline', () => {
         );
     });
 
-    it('routes mixed color pages as PNG and mixed text-only pages as bilevel records', async () => {
+    it('routes mixed picture pages as layered JPEG and mixed text-only pages as bilevel records', async () => {
         const fixture = await setup();
         let combineManifest = '';
         const runSidecar: IRunScanCleanupPipelineDependencies['runSidecar'] = vi.fn(async (_binary, manifestPath) => {
@@ -782,6 +798,8 @@ describe('scan cleanup pipeline', () => {
                     true,
                     pageIndex === 1,
                     page.options.dpi,
+                    false,
+                    pageIndex === 0,
                 );
             }
         });
@@ -820,12 +838,87 @@ describe('scan cleanup pipeline', () => {
 
         const records = combineManifest.trim().split('\n').map(line => line.split('\t'));
         expect(records.map(record => record[0])).toEqual([
-            'image-jpeg',
+            'layered-jpeg',
             'image-bilevel',
         ]);
         expect(records[0]![3]).toBe('85');
-        expect(records[0]![4]).toMatch(/clean-1-0\.png$/u);
+        expect(records[0]![4]).toMatch(/clean-1-0-background\.png$/u);
+        expect(records[0]![5]).toMatch(/clean-1-0-mask\.pbm$/u);
         expect(records[1]![3]).toMatch(/clean-2-0\.pbm$/u);
+    });
+
+    it('falls back to composite JPEG when declared mixed layers are missing', async () => {
+        const fixture = await setup();
+        let combineManifest = '';
+        const runSidecar: IRunScanCleanupPipelineDependencies['runSidecar'] = vi.fn(async (_binary, manifestPath) => {
+            const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as {pages: Array<{
+                pageMetadataPath: string;
+                options: {dpi: number};
+                outputs: ICleanupOutput[]
+            }>};
+            for (const page of manifest.pages) {
+                await writeFile(page.pageMetadataPath, JSON.stringify({
+                    layoutClassification: 'single-uncut-page',
+                    cutterXPx: null,
+                    rotationDegrees: 0,
+                    excluded: false,
+                    blankOutputsSkipped: 0,
+                    outputCount: 1,
+                }));
+                await writeCleanupOutput(
+                    page.outputs[0]!,
+                    'single-uncut-page',
+                    true,
+                    false,
+                    page.options.dpi,
+                    false,
+                    true,
+                );
+            }
+            await unlink(manifest.pages[0]!.outputs[0]!.backgroundOutputPath!);
+        });
+        const pipelineDependencies = dependencies(runSidecar);
+        pipelineDependencies.runCommand = vi.fn(async (_command, args) => {
+            combineManifest = await readFile(args[args.indexOf('--compact-manifest') + 1]!, 'utf8');
+            await writeFile(args[args.indexOf('--output') + 1]!, '%PDF-1.7\n%%EOF\n');
+            return {
+                exitCode: 0,
+                stdout: '',
+                stderr: '',
+            };
+        });
+        const log = vi.fn();
+
+        await runScanCleanupPipeline(
+            {
+                sourcePdfPath: fixture.sourcePdfPath,
+                outputPdfPath: fixture.outputPdfPath,
+                options: {
+                    ...options,
+                    outputMode: 'mixed',
+                },
+            },
+            {
+                qpdfBinary: '/qpdf',
+                pdftoppmBinary: '/pdftoppm',
+                scanCleanupBinary: '/cleanup',
+                pdfImageCombineBinary: '/combine',
+                tempDir: fixture.dir,
+            },
+            new AbortController().signal,
+            vi.fn(),
+            log,
+            pipelineDependencies,
+        );
+
+        expect(combineManifest.trim().split('\n').map(line => line.split('\t')[0])).toEqual([
+            'image-jpeg',
+            'layered-jpeg',
+        ]);
+        expect(log).toHaveBeenCalledWith(
+            'warn',
+            expect.stringContaining('Page 1 mixed layers are missing or unreadable; using composite JPEG fallback'),
+        );
     });
 
     it('renders BW pages above 600 DPI at 2x source with unchanged physical page size', async () => {

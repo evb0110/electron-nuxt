@@ -115,6 +115,10 @@ pub struct PageOutput {
     pub metadata_path: PathBuf,
     #[serde(default)]
     pub bilevel_output_path: Option<PathBuf>,
+    #[serde(default)]
+    pub background_output_path: Option<PathBuf>,
+    #[serde(default)]
+    pub foreground_mask_output_path: Option<PathBuf>,
 }
 
 #[derive(Clone, Debug, Deserialize)]

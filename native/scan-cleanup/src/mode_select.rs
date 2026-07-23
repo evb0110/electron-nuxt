@@ -85,29 +85,6 @@ pub(crate) fn recommend_output_mode(
             .largest_component_pixels
             .saturating_add(CHROMA_COMPONENT_HYSTERESIS_PIXELS)
             >= SIGNIFICANT_CHROMA_COMPONENT_PIXELS;
-    if significant_color {
-        let fraction_margin = ((chroma.colored_fraction + COLOR_PIXEL_FRACTION_HYSTERESIS)
-            / COLOR_PIXEL_FRACTION_FLOOR)
-            .clamp(0.0, 1.0);
-        let component_margin = (chroma
-            .largest_component_pixels
-            .saturating_add(CHROMA_COMPONENT_HYSTERESIS_PIXELS)
-            as f64
-            / SIGNIFICANT_CHROMA_COMPONENT_PIXELS as f64)
-            .clamp(0.0, 1.0);
-        let saturation_margin =
-            (chroma.mean_saturation / (CHROMA_SATURATION_FLOOR * 3.0)).clamp(0.0, 1.0);
-        return OutputModeRecommendation {
-            mode: OutputMode::Color,
-            confidence: (0.68
-                + 0.12 * fraction_margin
-                + 0.12 * component_margin
-                + 0.08 * saturation_margin)
-                .clamp(0.0, 1.0),
-            reason: OutputModeRecommendationReason::ColorChroma,
-        };
-    }
-
     let pixel_count = evidence
         .analysis
         .width()
@@ -135,6 +112,39 @@ pub(crate) fn recommend_output_mode(
     let significant_picture = picture_fraction >= PICTURE_NOISE_FLOOR;
     let has_text = evidence.text_line_count >= MIN_TEXT_LINES;
     let luminance = luminance_evidence(evidence.analysis);
+
+    if significant_color && significant_picture && has_text {
+        let picture_margin = (picture_fraction / PICTURE_BALANCE_FRACTION).clamp(0.0, 1.0);
+        let text_margin = (evidence.text_line_count as f64 / 8.0).clamp(0.0, 1.0);
+        return OutputModeRecommendation {
+            mode: OutputMode::Mixed,
+            confidence: (0.72 + 0.16 * picture_margin + 0.12 * text_margin).clamp(0.0, 1.0),
+            reason: OutputModeRecommendationReason::TextWithPictures,
+        };
+    }
+
+    if significant_color {
+        let fraction_margin = ((chroma.colored_fraction + COLOR_PIXEL_FRACTION_HYSTERESIS)
+            / COLOR_PIXEL_FRACTION_FLOOR)
+            .clamp(0.0, 1.0);
+        let component_margin = (chroma
+            .largest_component_pixels
+            .saturating_add(CHROMA_COMPONENT_HYSTERESIS_PIXELS)
+            as f64
+            / SIGNIFICANT_CHROMA_COMPONENT_PIXELS as f64)
+            .clamp(0.0, 1.0);
+        let saturation_margin =
+            (chroma.mean_saturation / (CHROMA_SATURATION_FLOOR * 3.0)).clamp(0.0, 1.0);
+        return OutputModeRecommendation {
+            mode: OutputMode::Color,
+            confidence: (0.68
+                + 0.12 * fraction_margin
+                + 0.12 * component_margin
+                + 0.08 * saturation_margin)
+                .clamp(0.0, 1.0),
+            reason: OutputModeRecommendationReason::ColorChroma,
+        };
+    }
 
     if luminance.ink_fraction <= BLANK_MAX_INK_FRACTION
         && luminance.edge_fraction <= BLANK_MAX_EDGE_FRACTION
@@ -786,6 +796,56 @@ mod tests {
         assert_eq!(
             recommendation.reason,
             OutputModeRecommendationReason::TextWithPictures
+        );
+    }
+
+    #[test]
+    fn color_plate_with_caption_routes_to_mixed_while_a_color_cover_stays_color() {
+        let (_, mut plate_page) = text_page([245; 3]);
+        for y in 125..235 {
+            for x in 225..345 {
+                let red = 35 + ((x * 11 + y * 7) % 190) as u8;
+                let green = 25 + ((x * 3 + y * 17) % 150) as u8;
+                let blue = 80 + ((x * 19 + y * 5) % 170) as u8;
+                plate_page.set(x, y, [red, green, blue]);
+            }
+        }
+        let plate_recommendation = classify(&rgb_to_gray(&plate_page), Some(&plate_page));
+        report("color-plate-with-caption", plate_recommendation);
+        assert_eq!(
+            plate_recommendation.mode,
+            OutputMode::Mixed,
+            "{plate_recommendation:?}"
+        );
+        assert_eq!(
+            plate_recommendation.reason,
+            OutputModeRecommendationReason::TextWithPictures
+        );
+
+        let mut cover = RgbImage::new(360, 260, [28, 74, 132]);
+        for y in 0..cover.height() {
+            for x in 0..cover.width() {
+                cover.set(
+                    x,
+                    y,
+                    [
+                        20 + ((x * 5 + y * 3) % 210) as u8,
+                        35 + ((x * 7 + y * 11) % 180) as u8,
+                        45 + ((x * 13 + y * 17) % 170) as u8,
+                    ],
+                );
+            }
+        }
+        let cover_recommendation = classify(&rgb_to_gray(&cover), Some(&cover));
+        report("pure-color-cover", cover_recommendation);
+        assert_eq!(
+            cover_recommendation.mode,
+            OutputMode::Color,
+            "{cover_recommendation:?}"
+        );
+        assert_eq!(
+            cover_recommendation.reason,
+            OutputModeRecommendationReason::ColorChroma
         );
     }
 

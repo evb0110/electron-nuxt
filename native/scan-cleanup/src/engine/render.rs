@@ -96,6 +96,10 @@ pub struct CleanupMetadata {
     pub output_mode: OutputMode,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub bilevel_written: bool,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub layered_written: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub layered_background_dpi: Option<f64>,
     #[serde(default)]
     pub illumination_normalized: bool,
     pub binarization_mode: Option<crate::BinarizationMode>,
@@ -150,7 +154,14 @@ pub struct CleanupResult {
     pub image: GrayImage,
     pub color_image: Option<RgbImage>,
     pub metadata: CleanupMetadata,
+    pub(crate) mixed_layers: Option<MixedLayers>,
     effectively_blank: bool,
+}
+
+pub(crate) struct MixedLayers {
+    pub foreground_mask: GrayImage,
+    pub background: GrayImage,
+    pub color_background: Option<RgbImage>,
 }
 
 pub struct PageCleanupResult {
@@ -1533,24 +1544,77 @@ fn clean_region(
     });
     let effectively_blank = is_effectively_blank(&rendered_gray, options.dpi);
     let fail_closed_blank = content.content.is_none() && effectively_blank;
-    let (image, color_image, binarization_mode, binarization_diagnostics, despeckle_fallback) =
-        if fail_closed_blank {
-            (
-                GrayImage::new(output_width, output_height, 255),
-                if options.output_mode == OutputMode::Color && rendered_color.is_some() {
-                    Some(RgbImage::new(output_width, output_height, [255; 3]))
+    let (
+        image,
+        color_image,
+        binarization_mode,
+        binarization_diagnostics,
+        despeckle_fallback,
+        mixed_layers,
+    ) = if fail_closed_blank {
+        (
+            GrayImage::new(output_width, output_height, 255),
+            if options.output_mode == OutputMode::Color && rendered_color.is_some() {
+                Some(RgbImage::new(output_width, output_height, [255; 3]))
+            } else {
+                None
+            },
+            None,
+            None,
+            false,
+            None,
+        )
+    } else {
+        match options.output_mode {
+            OutputMode::Bw => {
+                let routing_sample = crop_gray_to_fit(routing_source, region, 256, 256);
+                let (fresh_binary, diagnostics, fresh_despeckle_fallback) =
+                    binarize_normalized_with_diagnostics(
+                        &rendered_gray,
+                        &routing_sample,
+                        options,
+                        calibration,
+                    );
+                let mode = diagnostics.route;
+                let reusable = split.reusable_binary.as_ref().filter(|binary| {
+                    mode == crate::BinarizationMode::Otsu
+                        && options.thickness == 0
+                        && !deskew.accepted
+                        && effective_dewarp.is_none()
+                        && !crop_enabled
+                        && region.x == 0.0
+                        && region.y == 0.0
+                        && region.width == normalized.width() as f64
+                        && region.height == normalized.height() as f64
+                        && binary.width() == rendered_gray.width()
+                        && binary.height() == rendered_gray.height()
+                });
+                let (binary, despeckle_fallback) = if let Some(binary) = reusable {
+                    postprocess_binary_with_diagnostics(
+                        binary,
+                        Some(&rendered_gray),
+                        options,
+                        calibration,
+                    )
                 } else {
-                    None
-                },
-                None,
-                None,
-                false,
-            )
-        } else {
-            match options.output_mode {
-                OutputMode::Bw => {
+                    (fresh_binary, fresh_despeckle_fallback)
+                };
+                (
+                    binary_to_gray(&binary),
+                    None,
+                    Some(mode),
+                    Some(diagnostics),
+                    despeckle_fallback,
+                    None,
+                )
+            }
+            OutputMode::Mixed => {
+                let picture_mask = rendered_picture_mask
+                    .as_ref()
+                    .expect("mixed output prepares a picture mask");
+                if picture_mask.count_black() == 0 {
                     let routing_sample = crop_gray_to_fit(routing_source, region, 256, 256);
-                    let (fresh_binary, diagnostics, fresh_despeckle_fallback) =
+                    let (binary, diagnostics, despeckle_fallback) =
                         binarize_normalized_with_diagnostics(
                             &rendered_gray,
                             &routing_sample,
@@ -1558,88 +1622,45 @@ fn clean_region(
                             calibration,
                         );
                     let mode = diagnostics.route;
-                    let reusable = split.reusable_binary.as_ref().filter(|binary| {
-                        mode == crate::BinarizationMode::Otsu
-                            && options.thickness == 0
-                            && !deskew.accepted
-                            && effective_dewarp.is_none()
-                            && !crop_enabled
-                            && region.x == 0.0
-                            && region.y == 0.0
-                            && region.width == normalized.width() as f64
-                            && region.height == normalized.height() as f64
-                            && binary.width() == rendered_gray.width()
-                            && binary.height() == rendered_gray.height()
-                    });
-                    let (binary, despeckle_fallback) = if let Some(binary) = reusable {
-                        postprocess_binary_with_diagnostics(
-                            binary,
-                            Some(&rendered_gray),
-                            options,
-                            calibration,
-                        )
-                    } else {
-                        (fresh_binary, fresh_despeckle_fallback)
-                    };
                     (
                         binary_to_gray(&binary),
                         None,
                         Some(mode),
                         Some(diagnostics),
                         despeckle_fallback,
+                        None,
+                    )
+                } else {
+                    let (binary, diagnostics, despeckle_fallback) =
+                        binarize_normalized_with_diagnostics_excluding(
+                            &rendered_gray,
+                            options,
+                            calibration,
+                            picture_mask,
+                        );
+                    let mode = diagnostics.route;
+                    let (mixed_gray, mixed_color, layers) = compose_mixed(
+                        &rendered_gray,
+                        rendered_color.as_ref(),
+                        &binary,
+                        picture_mask,
+                        options.dpi,
+                    );
+                    (
+                        mixed_gray,
+                        mixed_color,
+                        Some(mode),
+                        Some(diagnostics),
+                        despeckle_fallback,
+                        Some(layers),
                     )
                 }
-                OutputMode::Mixed => {
-                    let picture_mask = rendered_picture_mask
-                        .as_ref()
-                        .expect("mixed output prepares a picture mask");
-                    if picture_mask.count_black() == 0 {
-                        let routing_sample = crop_gray_to_fit(routing_source, region, 256, 256);
-                        let (binary, diagnostics, despeckle_fallback) =
-                            binarize_normalized_with_diagnostics(
-                                &rendered_gray,
-                                &routing_sample,
-                                options,
-                                calibration,
-                            );
-                        let mode = diagnostics.route;
-                        (
-                            binary_to_gray(&binary),
-                            None,
-                            Some(mode),
-                            Some(diagnostics),
-                            despeckle_fallback,
-                        )
-                    } else {
-                        let (binary, diagnostics, despeckle_fallback) =
-                            binarize_normalized_with_diagnostics_excluding(
-                                &rendered_gray,
-                                options,
-                                calibration,
-                                picture_mask,
-                            );
-                        let mode = diagnostics.route;
-                        let (mixed_gray, mixed_color) = compose_mixed(
-                            &rendered_gray,
-                            rendered_color.as_ref(),
-                            &binary,
-                            picture_mask,
-                            options.dpi,
-                        );
-                        (
-                            mixed_gray,
-                            mixed_color,
-                            Some(mode),
-                            Some(diagnostics),
-                            despeckle_fallback,
-                        )
-                    }
-                }
-                OutputMode::Grayscale => (rendered_gray, None, None, None, false),
-                OutputMode::Color => (rendered_gray, rendered_color, None, None, false),
-                OutputMode::Auto => unreachable!("automatic output mode is resolved before render"),
             }
-        };
+            OutputMode::Grayscale => (rendered_gray, None, None, None, false, None),
+            OutputMode::Color => (rendered_gray, rendered_color, None, None, false, None),
+            OutputMode::Auto => unreachable!("automatic output mode is resolved before render"),
+        }
+    };
     timings.render_ms += render_started.elapsed().as_secs_f64() * 1_000.0;
     let mut warnings = if deskew.accepted || effective_dewarp.is_some() {
         Vec::new()
@@ -1672,6 +1693,7 @@ fn clean_region(
     Ok(CleanupResult {
         image,
         color_image,
+        mixed_layers,
         effectively_blank,
         metadata: CleanupMetadata {
             source_page_index,
@@ -1705,6 +1727,8 @@ fn clean_region(
             matched_canvas_target_height_points: None,
             output_mode: options.output_mode,
             bilevel_written: false,
+            layered_written: false,
+            layered_background_dpi: None,
             illumination_normalized: options.normalize_illumination,
             binarization_mode,
             binarization_diagnostics,
@@ -1767,9 +1791,9 @@ fn compose_mixed(
     binary: &BinaryImage,
     picture_mask: &BinaryImage,
     dpi: f64,
-) -> (GrayImage, Option<RgbImage>) {
-    let mut mixed_gray = GrayImage::new(gray.width(), gray.height(), 255);
-    let mut mixed_color = color.map(|_| RgbImage::new(gray.width(), gray.height(), [255; 3]));
+) -> (GrayImage, Option<RgbImage>, MixedLayers) {
+    let mut background = GrayImage::new(gray.width(), gray.height(), 255);
+    let mut color_background = color.map(|_| RgbImage::new(gray.width(), gray.height(), [255; 3]));
     let feather_radius = (dpi * 3.0 / 25.4).round().clamp(4.0, 48.0) as usize;
     let distance_to_binary = squared_euclidean_distance(&picture_mask.invert());
     for y in 0..gray.height() {
@@ -1786,8 +1810,8 @@ fn compose_mixed(
                         .round()
                         .clamp(0.0, 255.0) as u8,
                 );
-                mixed_gray.set(x, y, value);
-                if let (Some(source), Some(output)) = (color, mixed_color.as_mut()) {
+                background.set(x, y, value);
+                if let (Some(source), Some(output)) = (color, color_background.as_mut()) {
                     output.set(
                         x,
                         y,
@@ -1798,16 +1822,31 @@ fn compose_mixed(
                         })),
                     );
                 }
-            } else {
-                let value = if binary.get(x, y) { 0 } else { 255 };
-                mixed_gray.set(x, y, value);
+            }
+        }
+    }
+    let foreground_mask = binary_to_gray(binary);
+    let mut mixed_gray = background.clone();
+    let mut mixed_color = color_background.clone();
+    for y in 0..gray.height() {
+        for x in 0..gray.width() {
+            if foreground_mask.get(x, y) == 0 {
+                mixed_gray.set(x, y, 0);
                 if let Some(output) = mixed_color.as_mut() {
-                    output.set(x, y, [value; 3]);
+                    output.set(x, y, [0; 3]);
                 }
             }
         }
     }
-    (mixed_gray, mixed_color)
+    (
+        mixed_gray,
+        mixed_color,
+        MixedLayers {
+            foreground_mask,
+            background,
+            color_background,
+        },
+    )
 }
 
 fn reserve_gray_endpoint(value: u8) -> u8 {
@@ -1826,7 +1865,11 @@ fn reserve_rgb_endpoints(value: [u8; 3]) -> [u8; 3] {
     }
 }
 
-fn downscale_rgb_to_dimensions(source: &RgbImage, width: usize, height: usize) -> RgbImage {
+pub(crate) fn downscale_rgb_to_dimensions(
+    source: &RgbImage,
+    width: usize,
+    height: usize,
+) -> RgbImage {
     if source.width() == width && source.height() == height {
         return source.clone();
     }
