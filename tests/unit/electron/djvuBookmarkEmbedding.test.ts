@@ -30,7 +30,7 @@ vi.mock('fs/promises', () => ({
 }));
 vi.mock('pdf-lib', () => ({PDFDocument: {load: vi.fn()}}));
 vi.mock('@pdf-core', () => ({writePdfBookmarkOutlines: vi.fn()}));
-vi.mock('@electron/features/page-ops/publicNative', () => ({
+vi.mock('@electron/features/page-ops/public/nativePageOpsPath', () => ({
     isNativePageOpsDisabled: (...args: unknown[]) => mocks.isNativePageOpsDisabled(...args),
     resolveNativePageOpsPath: (...args: unknown[]) => mocks.resolveNativePageOpsPath(...args),
 }));

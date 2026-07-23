@@ -1,8 +1,4 @@
 export {
-    isNativePageOpsDisabled,
-    resolveNativePageOpsPath,
-} from '@electron/features/page-ops/main/nativePageOpsPath';
-export {
     assertNonEmptyPdfOutput,
     getPdfPageCount,
     QPDF_OUTPUT_SUCCESS_EXIT_CODES,

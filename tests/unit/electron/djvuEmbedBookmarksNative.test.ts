@@ -67,7 +67,7 @@ vi.mock('@pdf-core', () => ({writePdfBookmarkOutlines: mocks.writePdfBookmarkOut
 
 vi.mock('@electron/native-tools/runNativeToolCommand', () => ({runNativeToolCommand: mocks.runNativeToolCommand}));
 
-vi.mock('@electron/features/page-ops/publicNative', () => ({
+vi.mock('@electron/features/page-ops/public/nativePageOpsPath', () => ({
     isNativePageOpsDisabled: mocks.isNativePageOpsDisabled,
     resolveNativePageOpsPath: mocks.resolveNativePageOpsPath,
 }));

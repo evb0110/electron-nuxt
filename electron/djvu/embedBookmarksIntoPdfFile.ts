@@ -13,7 +13,7 @@ import { runNativeToolCommand } from '@electron/native-tools/runNativeToolComman
 import {
     isNativePageOpsDisabled,
     resolveNativePageOpsPath,
-} from '@electron/features/page-ops/publicNative';
+} from '@electron/features/page-ops/public/nativePageOpsPath';
 import { getPdfNativeToolPaths } from '@electron/pdf/nativeToolPaths';
 import { embedBookmarksIntoPdfFileWithPdfLib } from '@electron/djvu/embedBookmarksIntoPdfFileWithPdfLib';
 import { isAbortError } from '@electron/utils/abort';

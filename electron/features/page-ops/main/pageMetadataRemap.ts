@@ -14,7 +14,7 @@ import type {IPdfBookmarkEntry} from '@contracts/pdfBookmarkEntry';
 import {
     isNativePageOpsDisabled,
     resolveNativePageOpsPath,
-} from '@electron/features/page-ops/publicNative';
+} from '@electron/features/page-ops/main/nativePageOpsPath';
 import {runNativeToolCommand} from '@electron/native-tools/runNativeToolCommand';
 
 const PAGE_METADATA_REMAP_TIMEOUT_MS = 2 * 60 * 1000;
