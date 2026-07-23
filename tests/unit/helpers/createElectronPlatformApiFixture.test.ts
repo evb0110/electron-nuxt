@@ -8,6 +8,7 @@ import {
     getPlatformDocumentCapabilityMirrors,
     PLATFORM_API_DESCRIPTOR,
 } from '@contracts/platformApi';
+import { createDefaultPlatformApiFixtureMethod } from '@tests/helpers/createDefaultPlatformApiFixtureMethod';
 import { createElectronPlatformApiFixture } from '@tests/helpers/createElectronPlatformApiFixture';
 import type { TPlatformApiFixtureOverrides } from '@tests/helpers/createPlatformApiFixture';
 
@@ -99,9 +100,20 @@ describe('createElectronPlatformApiFixture', () => {
     });
 
     it('rejects unsupported default calls instead of silently resolving undefined', async () => {
-        const api = createElectronPlatformApiFixture();
+        const method = createDefaultPlatformApiFixtureMethod({
+            path: [
+                'shell',
+                'unsupportedProbe',
+            ],
+            kind: 'async',
+            required: {
+                electron: false,
+                browser: false,
+            },
+            browserLazy: 'direct',
+        });
 
-        await expect(api.shell.openExternal('https://example.test'))
-            .rejects.toThrow('Unsupported platform API fixture call: shell.openExternal');
+        await expect((method as () => Promise<unknown>)())
+            .rejects.toThrow('Unsupported platform API fixture call: shell.unsupportedProbe');
     });
 });
