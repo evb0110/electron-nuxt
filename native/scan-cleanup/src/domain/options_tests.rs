@@ -112,6 +112,46 @@ fn validation_rejects_nonfinite_dpi_and_margins() {
 }
 
 #[test]
+fn advanced_control_ranges_are_validated_and_serialize_additively() {
+    for angle in [f64::NEG_INFINITY, -15.1, 15.1, f64::INFINITY, f64::NAN] {
+        assert!(CleanupOptions {
+            manual_skew_degrees: Some(angle),
+            ..CleanupOptions::default()
+        }
+        .validate()
+        .is_err());
+    }
+    for depth in [f64::NEG_INFINITY, 0.49, 4.01, f64::INFINITY, f64::NAN] {
+        assert!(CleanupOptions {
+            experimental: super::ExperimentalOptions {
+                auto_dewarp: true,
+                auto_dewarp_depth: Some(depth),
+            },
+            ..CleanupOptions::default()
+        }
+        .validate()
+        .is_err());
+    }
+
+    let defaults = serde_json::to_value(CleanupOptions::default()).unwrap();
+    assert!(defaults.get("manualSkewDegrees").is_none());
+    assert!(defaults["experimental"].get("autoDewarpDepth").is_none());
+
+    let options = CleanupOptions {
+        manual_skew_degrees: Some(-2.4),
+        experimental: super::ExperimentalOptions {
+            auto_dewarp: true,
+            auto_dewarp_depth: Some(1.7),
+        },
+        ..CleanupOptions::default()
+    };
+    options.validate().unwrap();
+    let encoded = serde_json::to_value(options).unwrap();
+    assert_eq!(encoded["manualSkewDegrees"], -2.4);
+    assert_eq!(encoded["experimental"]["autoDewarpDepth"], 1.7);
+}
+
+#[test]
 fn option_objects_reject_unknown_fields() {
     assert!(serde_json::from_str::<CleanupOptions>(r#"{"unknown":true}"#).is_err());
     assert!(serde_json::from_str::<CleanupOptions>(

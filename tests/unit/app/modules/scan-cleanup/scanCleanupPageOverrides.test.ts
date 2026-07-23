@@ -41,6 +41,15 @@ describe('scan cleanup page overrides', () => {
         expect(overrides).toEqual({});
     });
 
+    it('preserves and resets a per-page manual deskew angle', () => {
+        const overrides = {};
+        setScanCleanupPageOverride(overrides, 2, createScanCleanupPageOverride({manualSkewDegrees: -2.3}));
+        expect(getScanCleanupPageOverride(overrides, 2).manualSkewDegrees).toBe(-2.3);
+
+        setScanCleanupPageOverride(overrides, 2, createScanCleanupPageOverride());
+        expect(overrides).toEqual({});
+    });
+
     it('maps authoritative layout overrides onto document defaults', () => {
         expect(resolveScanCleanupPageLayout('auto', 'spread')).toBe('force-two-page');
         expect(resolveScanCleanupPageLayout('force-two-page', 'single')).toBe('force-single');

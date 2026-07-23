@@ -124,6 +124,21 @@ describe('scan cleanup renderer preview cache', () => {
             ...previewOptions,
             autoDewarp: true,
         }, '/tmp/source.pdf');
+        const withFixedDewarpDepth = createScanCleanupPreviewCacheKey(1, {
+            ...previewOptions,
+            autoDewarp: true,
+            autoDewarpDepth: 1.8,
+        }, '/tmp/source.pdf');
+        const withManualSkew = createScanCleanupPreviewCacheKey(1, {
+            ...previewOptions,
+            pageOverrides: {1: {
+                rotationDegrees: 0,
+                layoutOverride: 'auto',
+                excluded: false,
+                manualSplit: null,
+                manualSkewDegrees: -2.3,
+            }},
+        }, '/tmp/source.pdf');
         const withManualZones = createScanCleanupPreviewCacheKey(1, {
             ...previewOptions,
             pageOverrides: {1: {
@@ -170,8 +185,10 @@ describe('scan cleanup renderer preview cache', () => {
             withoutIlluminationNormalization,
             withCautiousDespeckle,
             withAutoDewarp,
+            withFixedDewarpDepth,
+            withManualSkew,
             withManualZones,
-        ])).toHaveLength(9);
+        ])).toHaveLength(11);
     });
 
     it('evicts by bytes and count while accounting for derivable shared input bytes once', () => {

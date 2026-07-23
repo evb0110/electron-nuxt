@@ -59,6 +59,7 @@ interface ICleanupMetadata {
     detectedSkewDegrees?: number;
     skewConfidence?: number;
     skewApplied: boolean;
+    manualSkew?: boolean;
     illuminationNormalized?: boolean;
     binarizationMode?: IScanCleanupOptions['binarization'] | null;
     binarizationDiagnostics?: INativeScanCleanupBinarizationDiagnosticsV2 | null;
@@ -334,7 +335,12 @@ async function runLosslessScanCleanup(
         canvasScope: 'document',
         qualityPath: 'lossless',
         options: request.options,
-        experimental: {autoDewarp: request.options.autoDewarp ?? false},
+        experimental: {
+            autoDewarp: request.options.autoDewarp ?? false,
+            ...(request.options.autoDewarpDepth === undefined
+                ? {}
+                : {autoDewarpDepth: request.options.autoDewarpDepth}),
+        },
         pages: pageInputs,
     });
     const pages = manifest.pages;
@@ -552,7 +558,12 @@ export async function runScanCleanupPipeline(
             canvasScope: 'document',
             qualityPath: 'raster',
             options: request.options,
-            experimental: {autoDewarp: request.options.autoDewarp ?? false},
+            experimental: {
+                autoDewarp: request.options.autoDewarp ?? false,
+                ...(request.options.autoDewarpDepth === undefined
+                    ? {}
+                    : {autoDewarpDepth: request.options.autoDewarpDepth}),
+            },
             pages: pageInputs,
         });
         const pages = manifest.pages;

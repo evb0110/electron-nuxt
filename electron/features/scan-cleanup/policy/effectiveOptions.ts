@@ -10,7 +10,10 @@ import {
     resolveScanCleanupPageLayout,
 } from '@contracts/scanCleanupPageOverrides';
 
-export interface IScanCleanupExperimentalOptions {autoDewarp: boolean;}
+export interface IScanCleanupExperimentalOptions {
+    autoDewarp: boolean;
+    autoDewarpDepth?: number;
+}
 
 export const DEFAULT_SCAN_CLEANUP_EXPERIMENTAL_OPTIONS: Readonly<IScanCleanupExperimentalOptions> = Object.freeze({autoDewarp: false});
 
@@ -64,6 +67,9 @@ export function resolveEffectiveScanCleanupOptions({
         ocrMode: false,
         layout: resolveScanCleanupPageLayout(options.layoutMode, pageOverride.layoutOverride),
         manualSplit: pageOverride.manualSplit,
+        ...(pageOverride.manualSkewDegrees === undefined
+            ? {}
+            : {manualSkewDegrees: pageOverride.manualSkewDegrees}),
         manualContentBoxes: pageOverride.manualContentBoxes ?? {},
         manualZones: pageOverride.manualZones ?? {
             picture: [],
@@ -74,7 +80,12 @@ export function resolveEffectiveScanCleanupOptions({
         pageAlignment: options.pageAlignment,
         placementOverrides: pageOverride.placementOverrides ?? {},
         margins: {...resolveScanCleanupMarginsMm(options.marginsMm, pageOverride)},
-        experimental: {autoDewarp: dewarpRequested},
+        experimental: {
+            autoDewarp: dewarpRequested,
+            ...(dewarpRequested && experimental.autoDewarpDepth !== undefined
+                ? {autoDewarpDepth: experimental.autoDewarpDepth}
+                : {}),
+        },
         rotationDegrees: pageOverride.rotationDegrees,
         excluded: pageOverride.excluded,
         skipBlankPages: !lossless && options.skipBlankPages,

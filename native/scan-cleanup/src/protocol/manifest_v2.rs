@@ -194,7 +194,31 @@ mod tests {
         for page in &manifest.pages {
             assert!(page.options.manual_zones.picture.is_empty());
             assert!(page.options.manual_zones.fill.is_empty());
+            assert_eq!(page.options.manual_skew_degrees, None);
+            assert_eq!(page.options.experimental.auto_dewarp_depth, None);
         }
+    }
+
+    #[test]
+    fn advanced_controls_parse_additively_and_validate() {
+        let json = r#"{
+            "version":2,"operation":"render","renderMode":"preview","canvasScope":"page",
+            "pages":[{
+                "inputPath":"in.png","sourcePageIndex":0,"pageMetadataPath":"page.json",
+                "outputs":[{"outputPath":"out.png","metadataPath":"out.json"}],
+                "options":{
+                    "manualSkewDegrees":-2.5,
+                    "experimental":{"autoDewarp":true,"autoDewarpDepth":1.75}
+                }
+            }]
+        }"#;
+        let manifest: ManifestV2 = serde_json::from_str(json).unwrap();
+        manifest.validate().unwrap();
+        assert_eq!(manifest.pages[0].options.manual_skew_degrees, Some(-2.5));
+        assert_eq!(
+            manifest.pages[0].options.experimental.auto_dewarp_depth,
+            Some(1.75)
+        );
     }
 
     #[test]

@@ -256,6 +256,38 @@
             </div>
 
             <div class="scan-cleanup-selection-reset-row">
+                <div class="scan-cleanup-selection-field scan-cleanup-deskew-control">
+                    <UFormField :label="t('scanCleanup.settings.manualSkew')">
+                        <UInputNumber
+                            :model-value="manualSkew.mixed ? null : manualSkew.value ?? null"
+                            :min="SCAN_CLEANUP_MANUAL_SKEW_MIN_DEGREES"
+                            :max="SCAN_CLEANUP_MANUAL_SKEW_MAX_DEGREES"
+                            :step="0.1"
+                            :placeholder="t('scanCleanup.settings.automatic')"
+                            :disabled="settings.preserveOriginalQuality === true"
+                            @update:model-value="emitManualSkew"
+                        />
+                    </UFormField>
+                    <p
+                        v-if="!manualSkew.mixed
+                            && manualSkew.value === undefined
+                            && detectedSkewDegrees !== undefined"
+                        class="scan-cleanup-selection-hint"
+                    >
+                        {{ t('scanCleanup.settings.detectedSkew', {angle: detectedSkewDegrees.toFixed(1)}) }}
+                    </p>
+                </div>
+                <UButton
+                    type="button"
+                    color="neutral"
+                    variant="outline"
+                    size="xs"
+                    :label="t('scanCleanup.settings.resetToAutomatic')"
+                    :disabled="!manualSkew.mixed && manualSkew.value === undefined"
+                    @click="$emit('reset-manual-skew')"
+                />
+            </div>
+            <div class="scan-cleanup-selection-reset-row">
                 <div>
                     <span>{{ t('scanCleanup.settings.manualSplit') }}</span>
                     <UBadge color="neutral" variant="soft" size="sm">{{ manualSplitLabel }}</UBadge>
@@ -466,6 +498,29 @@
                             :disabled="settings.preserveOriginalQuality === true"
                             @update:model-value="updateDocument('autoDewarp', $event === true)"
                         />
+                        <div class="scan-cleanup-selection-reset-row">
+                            <UFormField :label="t('scanCleanup.advanced.autoDewarpDepth')">
+                                <UInputNumber
+                                    :model-value="settings.autoDewarpDepth ?? null"
+                                    :min="SCAN_CLEANUP_AUTO_DEWARP_DEPTH_MIN"
+                                    :max="SCAN_CLEANUP_AUTO_DEWARP_DEPTH_MAX"
+                                    :step="0.1"
+                                    :placeholder="t('scanCleanup.advanced.autoDewarpDepthAutomatic')"
+                                    :disabled="settings.preserveOriginalQuality === true
+                                        || !(settings.autoDewarp ?? false)"
+                                    @update:model-value="emitAutoDewarpDepth"
+                                />
+                            </UFormField>
+                            <UButton
+                                type="button"
+                                color="neutral"
+                                variant="outline"
+                                size="xs"
+                                :label="t('scanCleanup.settings.reset')"
+                                :disabled="settings.autoDewarpDepth === undefined"
+                                @click="updateDocument('autoDewarpDepth', undefined)"
+                            />
+                        </div>
                         <p v-if="settings.preserveOriginalQuality" class="scan-cleanup-selection-hint">
                             {{ t('scanCleanup.advanced.losslessDisabled') }}
                         </p>
@@ -514,7 +569,13 @@ import type {
     TScanCleanupPageLayoutOverride,
     TScanCleanupPageRotation,
 } from '@contracts/electronApiScanCleanup';
-import {SCAN_CLEANUP_MARGIN_MAX_MM} from '@contracts/electronApiScanCleanup';
+import {
+    SCAN_CLEANUP_AUTO_DEWARP_DEPTH_MAX,
+    SCAN_CLEANUP_AUTO_DEWARP_DEPTH_MIN,
+    SCAN_CLEANUP_MANUAL_SKEW_MAX_DEGREES,
+    SCAN_CLEANUP_MANUAL_SKEW_MIN_DEGREES,
+    SCAN_CLEANUP_MARGIN_MAX_MM,
+} from '@contracts/electronApiScanCleanup';
 import ScanCleanupScopeSelector from '@app/modules/scan-cleanup/components/settings/ScanCleanupScopeSelector.vue';
 import ScanCleanupSegmented from '@app/modules/scan-cleanup/components/ScanCleanupSegmented.vue';
 import type {
@@ -550,6 +611,7 @@ const props = defineProps<{
         onSelect: () => void;
     }>;
     contentBoxes: IScanCleanupMixedValue<Partial<Record<TScanCleanupOutputHalf, IScanCleanupNormalizedRect>>>;
+    detectedSkewDegrees: number | undefined;
     excluded: IScanCleanupMixedValue<boolean>;
     hasScopeOverrides: boolean;
     highlightedScope: TScanCleanupSettingsScope | null;
@@ -558,6 +620,7 @@ const props = defineProps<{
     layout: IScanCleanupMixedValue<IScanCleanupOptions['layoutMode'] | TScanCleanupPageLayoutOverride>;
     layoutItems: ISelectItem[];
     manualSplit: IScanCleanupMixedValue<IScanCleanupNormalizedSplit | null>;
+    manualSkew: IScanCleanupMixedValue<number | undefined>;
     margins: IScanCleanupMixedValue<IScanCleanupMarginsMm>;
     marginsLinked: boolean;
     outputItems: Array<ISelectItem<IScanCleanupOptions['outputMode']> & {fullLabel: string}>;
@@ -577,11 +640,13 @@ const emit = defineEmits<{
     'reset-control-override': [control: TScanCleanupOverrideControl];
     'reset-content-boxes': [];
     'reset-manual-split': [];
+    'reset-manual-skew': [];
     'reset-scope-overrides': [];
     'thickness-input': [value: number | number[]];
     'update-inclusion': [value: string | number];
     'update-layout': [value: string | number];
     'update-margin': [target: TScanCleanupMarginTarget, value: number];
+    'update-manual-skew': [value: number | undefined];
     'update:margins-linked': [value: boolean];
     'update-placement': [value: TScanCleanupPageAlignment];
     'update-rotation': [value: string | number];
@@ -640,6 +705,18 @@ function confirmReset() {
 function emitMargin(target: TScanCleanupMarginTarget, value: number | null | undefined) {
     if (typeof value === 'number' && Number.isFinite(value)) {
         emit('update-margin', target, value);
+    }
+}
+
+function emitManualSkew(value: number | null | undefined) {
+    if (typeof value === 'number' && Number.isFinite(value)) {
+        emit('update-manual-skew', value);
+    }
+}
+
+function emitAutoDewarpDepth(value: number | null | undefined) {
+    if (typeof value === 'number' && Number.isFinite(value)) {
+        updateDocument('autoDewarpDepth', value);
     }
 }
 

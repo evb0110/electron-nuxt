@@ -25,7 +25,10 @@ export const SCAN_CLEANUP_NATIVE_PROTOCOL_VERSION = 2 as const;
 export type TNativeScanCleanupOperation = 'analyze' | 'render';
 export type TNativeScanCleanupRenderMode = 'preview' | 'final';
 
-export interface INativeScanCleanupExperimentalOptionsV2 {autoDewarp: boolean;}
+export interface INativeScanCleanupExperimentalOptionsV2 {
+    autoDewarp: boolean;
+    autoDewarpDepth?: number;
+}
 
 export interface INativeScanCleanupOptionsV2 {
     dpi: number;
@@ -38,6 +41,7 @@ export interface INativeScanCleanupOptionsV2 {
     ocrMode: boolean;
     layout: 'auto' | 'force-single' | 'page-with-offcut' | 'keep-left' | 'keep-right' | 'force-two-page';
     manualSplit: IScanCleanupNormalizedSplit | null;
+    manualSkewDegrees?: number;
     manualContentBoxes: Partial<Record<TScanCleanupOutputHalf, IScanCleanupNormalizedRect>>;
     manualZones?: IScanCleanupManualZones;
     cropContent: boolean;
@@ -92,6 +96,7 @@ export interface INativeScanCleanupRenderDiagnosticsV2 {
     detectedSkewDegrees?: number;
     skewConfidence?: number;
     skewApplied?: boolean;
+    manualSkew?: boolean;
     layoutConfidence?: number;
     /** Additive split detector abstention signal when supplied by the native implementation. */
     splitAbstained?: boolean;

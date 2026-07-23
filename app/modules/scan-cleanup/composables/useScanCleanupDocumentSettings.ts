@@ -88,6 +88,7 @@ export const useScanCleanupDocumentSettings = (options: IUseScanCleanupDocumentS
         marginsMm: {...preferences.marginsMm},
         despeckleLevel: toRef(preferences, 'despeckleLevel'),
         autoDewarp: toRef(preferences, 'autoDewarp'),
+        autoDewarpDepth: toRef(preferences, 'autoDewarpDepth'),
         skipBlankPages: toRef(preferences, 'skipBlankPages'),
         pageOverrides: {},
     });

@@ -4,13 +4,18 @@ import type {
     TScanCleanupBinarizationMethod,
     TScanCleanupDespeckleLevel,
 } from '@contracts/electronApiScanCleanup';
-import {SCAN_CLEANUP_MARGIN_MAX_MM} from '@contracts/electronApiScanCleanup';
+import {
+    SCAN_CLEANUP_AUTO_DEWARP_DEPTH_MAX,
+    SCAN_CLEANUP_AUTO_DEWARP_DEPTH_MIN,
+    SCAN_CLEANUP_MARGIN_MAX_MM,
+} from '@contracts/electronApiScanCleanup';
 
 export interface IScanCleanupGlobalPreferences extends Omit<
     IScanCleanupOptions,
-    'autoDewarp' | 'binarization' | 'despeckle' | 'despeckleLevel' | 'normalizeIllumination' | 'pageOverrides'
+    'autoDewarp' | 'autoDewarpDepth' | 'binarization' | 'despeckle' | 'despeckleLevel' | 'normalizeIllumination' | 'pageOverrides'
 > {
     autoDewarp: boolean;
+    autoDewarpDepth: number | undefined;
     binarization: TScanCleanupBinarizationMethod;
     despeckleLevel: TScanCleanupDespeckleLevel;
     normalizeIllumination: boolean;
@@ -37,6 +42,7 @@ export const DEFAULT_SCAN_CLEANUP_PREFERENCES: Readonly<IScanCleanupGlobalPrefer
     }),
     despeckleLevel: 'normal',
     autoDewarp: false,
+    autoDewarpDepth: undefined,
     skipBlankPages: false,
     firstRunGuidanceDismissed: false,
     runOcrAfterCleanup: false,
@@ -161,6 +167,12 @@ export function decodeScanCleanupGlobalPreferences(value: unknown): IScanCleanup
                 ? stored.despeckle ? 'normal' : 'off'
                 : defaults.despeckleLevel,
         autoDewarp: typeof stored.autoDewarp === 'boolean' ? stored.autoDewarp : defaults.autoDewarp,
+        autoDewarpDepth: typeof stored.autoDewarpDepth === 'number'
+            && Number.isFinite(stored.autoDewarpDepth)
+            && stored.autoDewarpDepth >= SCAN_CLEANUP_AUTO_DEWARP_DEPTH_MIN
+            && stored.autoDewarpDepth <= SCAN_CLEANUP_AUTO_DEWARP_DEPTH_MAX
+            ? stored.autoDewarpDepth
+            : defaults.autoDewarpDepth,
         skipBlankPages: typeof stored.skipBlankPages === 'boolean' ? stored.skipBlankPages : defaults.skipBlankPages,
         firstRunGuidanceDismissed: typeof stored.firstRunGuidanceDismissed === 'boolean'
             ? stored.firstRunGuidanceDismissed
@@ -174,6 +186,7 @@ export function decodeScanCleanupGlobalPreferences(value: unknown): IScanCleanup
 export function assertFiniteScanCleanupPreferences(value: IScanCleanupGlobalPreferences) {
     if (
         !Number.isFinite(value.thickness)
+        || (value.autoDewarpDepth !== undefined && !Number.isFinite(value.autoDewarpDepth))
         || Object.values(value.marginsMm).some(margin => !Number.isFinite(margin))
     ) {
         throw new TypeError('Scan cleanup preferences require finite numeric values');

@@ -69,6 +69,9 @@ export const useScanCleanupSelection = (options: IUseScanCleanupSelectionOptions
     const manualSplit = computed(() => resolveScanCleanupMixedValue(
         selectedPageOverrides.value.map(override => override.manualSplit),
     ));
+    const manualSkew = computed(() => resolveScanCleanupMixedValue(
+        selectedPageOverrides.value.map(override => override.manualSkewDegrees),
+    ));
     const contentBoxes = computed(() => resolveScanCleanupMixedValue(
         selectedPageOverrides.value.map(override => override.manualContentBoxes ?? {}),
     ));
@@ -116,6 +119,7 @@ export const useScanCleanupSelection = (options: IUseScanCleanupSelectionOptions
             : {
                 ...value,
                 manualSplit: null,
+                manualSkewDegrees: undefined,
                 manualContentBoxes: {},
                 manualZones: {
                     picture: [],
@@ -142,6 +146,7 @@ export const useScanCleanupSelection = (options: IUseScanCleanupSelectionOptions
             ...current,
             rotationDegrees: value,
             manualSplit: current.rotationDegrees === value ? current.manualSplit : null,
+            manualSkewDegrees: current.rotationDegrees === value ? current.manualSkewDegrees : undefined,
             manualContentBoxes: current.rotationDegrees === value ? current.manualContentBoxes ?? {} : {},
             manualZones: current.rotationDegrees === value ? current.manualZones ?? {
                 picture: [],
@@ -165,6 +170,20 @@ export const useScanCleanupSelection = (options: IUseScanCleanupSelectionOptions
             ...current,
             manualSplit: null,
         }));
+    }
+
+    function updateManualSkew(
+        value: number | undefined,
+        pages: Iterable<number> = selectedPages.value,
+    ) {
+        updateOverrides(pages, current => ({
+            ...current,
+            manualSkewDegrees: value,
+        }));
+    }
+
+    function resetManualSkew(pages: Iterable<number> = selectedPages.value) {
+        updateManualSkew(undefined, pages);
     }
 
     function resetContentBoxes(pages: Iterable<number> = selectedPages.value) {
@@ -231,6 +250,7 @@ export const useScanCleanupSelection = (options: IUseScanCleanupSelectionOptions
                     ...current,
                     rotationDegrees: DEFAULT_SCAN_CLEANUP_PAGE_OVERRIDE.rotationDegrees,
                     manualSplit: rotationChanged ? null : current.manualSplit,
+                    manualSkewDegrees: rotationChanged ? undefined : current.manualSkewDegrees,
                     manualContentBoxes: rotationChanged ? {} : current.manualContentBoxes ?? {},
                     manualZones: rotationChanged ? {
                         picture: [],
@@ -415,6 +435,7 @@ export const useScanCleanupSelection = (options: IUseScanCleanupSelectionOptions
         margins,
         marginsLinked,
         manualSplit,
+        manualSkew,
         hasMarginOverrides,
         highlightedScope,
         placementAlignment,
@@ -422,6 +443,7 @@ export const useScanCleanupSelection = (options: IUseScanCleanupSelectionOptions
         resetControlOverride,
         resetMargins,
         resetManualSplit,
+        resetManualSkew,
         resetOverrides,
         resetToLeader,
         rotation,
@@ -438,6 +460,7 @@ export const useScanCleanupSelection = (options: IUseScanCleanupSelectionOptions
         updateExcluded,
         updateLayoutOverride,
         updateMargins,
+        updateManualSkew,
         updatePageOverride,
         updatePlacement,
         updateRotation,

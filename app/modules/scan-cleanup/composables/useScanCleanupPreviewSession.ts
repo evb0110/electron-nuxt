@@ -63,6 +63,7 @@ export function createScanCleanupPreviewCacheKey(
             despeckleLevel: previewOptions.despeckleLevel
                 ?? ((previewOptions.despeckle ?? true) ? 'normal' : 'off'),
             autoDewarp: previewOptions.autoDewarp ?? false,
+            autoDewarpDepth: previewOptions.autoDewarpDepth,
             readingOrder: previewOptions.readingOrder,
             skipBlankPages: previewOptions.skipBlankPages,
         },
@@ -71,6 +72,7 @@ export function createScanCleanupPreviewCacheKey(
             layoutOverride: pageOverride.layoutOverride,
             excluded: pageOverride.excluded,
             manualSplit: pageOverride.manualSplit,
+            manualSkewDegrees: pageOverride.manualSkewDegrees,
             manualContentBoxes: pageOverride.manualContentBoxes ?? {},
             manualZones: pageOverride.manualZones ?? {
                 picture: [],

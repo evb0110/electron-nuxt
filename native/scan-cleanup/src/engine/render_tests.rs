@@ -651,6 +651,38 @@ mod tests {
     }
 
     #[test]
+    fn manual_skew_bypasses_detection_and_is_reported_additively() {
+        let source = GrayImage::new(240, 180, 255);
+        let output = clean_page(
+            &source,
+            &CleanupOptions {
+                dpi: 150.0,
+                normalize_illumination: false,
+                output_mode: OutputMode::Grayscale,
+                crop_content: false,
+                match_page_size: false,
+                margins_mm: None,
+                margins_pixels: Some([0.0; 4]),
+                layout: crate::LayoutMode::Single,
+                manual_skew_degrees: Some(4.2),
+                ..CleanupOptions::default()
+            },
+            0,
+        )
+        .unwrap()
+        .outputs
+        .remove(0);
+
+        assert_eq!(output.metadata.detected_skew_degrees, 4.2);
+        assert!(output.metadata.skew_applied);
+        assert!(output.metadata.manual_skew);
+        assert_eq!(
+            serde_json::to_value(&output.metadata).unwrap()["manualSkew"],
+            true
+        );
+    }
+
+    #[test]
     fn deskew_dewarp_and_crop_share_one_composed_mapping() {
         let source = rotated_text_page(3.0);
         let output = clean_page(

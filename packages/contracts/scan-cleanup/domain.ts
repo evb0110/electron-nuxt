@@ -24,6 +24,11 @@ export type TScanCleanupLayoutClassification =
     | 'page-with-offcut'
     | 'two-page-spread';
 
+export const SCAN_CLEANUP_MANUAL_SKEW_MIN_DEGREES = -15;
+export const SCAN_CLEANUP_MANUAL_SKEW_MAX_DEGREES = 15;
+export const SCAN_CLEANUP_AUTO_DEWARP_DEPTH_MIN = 0.5;
+export const SCAN_CLEANUP_AUTO_DEWARP_DEPTH_MAX = 4;
+
 export interface IScanCleanupClusterDimensions {
     widthPx: number;
     heightPx: number;
@@ -53,6 +58,7 @@ export interface IScanCleanupPageOverride {
     layoutOverride: TScanCleanupPageLayoutOverride;
     excluded: boolean;
     manualSplit: IScanCleanupNormalizedSplit | null;
+    manualSkewDegrees?: number | undefined;
     manualContentBoxes?: Partial<Record<TScanCleanupOutputHalf, IScanCleanupNormalizedRect>>;
     manualZones?: IScanCleanupManualZones;
     marginsMm?: IScanCleanupMarginsMm;
@@ -105,6 +111,8 @@ export interface IScanCleanupOptions {
     despeckle?: boolean;
     /** Experimental automatic page-curvature correction. */
     autoDewarp?: boolean;
+    /** Fixed automatic dewarp model depth; absent means automatic depth selection. */
+    autoDewarpDepth?: number | undefined;
     readingOrder: TScanCleanupReadingOrder;
     skipBlankPages: boolean;
     pageOverrides: TScanCleanupPageOverrides;

@@ -273,7 +273,12 @@ async function runPreview(
             canvasScope: 'page',
             qualityPath: lossless ? 'lossless' : 'raster',
             options: request.options,
-            experimental: {autoDewarp: request.options.autoDewarp ?? false},
+            experimental: {
+                autoDewarp: request.options.autoDewarp ?? false,
+                ...(request.options.autoDewarpDepth === undefined
+                    ? {}
+                    : {autoDewarpDepth: request.options.autoDewarpDepth}),
+            },
             pages: [{
                 inputPath,
                 pageNumber: request.pageNumber,
@@ -377,6 +382,9 @@ async function runPreview(
                 ...(diagnosticMetadata?.skewConfidence === undefined
                     ? {}
                     : {skewConfidence: diagnosticMetadata.skewConfidence}),
+                ...(diagnosticMetadata?.manualSkew === undefined
+                    ? {}
+                    : {manualSkew: diagnosticMetadata.manualSkew}),
                 ...(diagnosticMetadata?.binarizationMode === undefined
                     ? {}
                     : {binarizationMode: diagnosticMetadata.binarizationMode}),
@@ -486,7 +494,12 @@ async function runDetection(
             canvasScope: 'page',
             qualityPath: request.options.preserveOriginalQuality ? 'lossless' : 'raster',
             options: request.options,
-            experimental: {autoDewarp: request.options.autoDewarp ?? false},
+            experimental: {
+                autoDewarp: request.options.autoDewarp ?? false,
+                ...(request.options.autoDewarpDepth === undefined
+                    ? {}
+                    : {autoDewarpDepth: request.options.autoDewarpDepth}),
+            },
             pages: manifestPages,
         })));
         const binary = dependencies.resolveBinary();

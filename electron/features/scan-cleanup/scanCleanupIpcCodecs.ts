@@ -19,7 +19,13 @@ import type {
     TScanCleanupDetectionJobState,
     TScanCleanupJobState,
 } from '@contracts/electronApiScanCleanup';
-import { SCAN_CLEANUP_MARGIN_MAX_MM } from '@contracts/electronApiScanCleanup';
+import {
+    SCAN_CLEANUP_AUTO_DEWARP_DEPTH_MAX,
+    SCAN_CLEANUP_AUTO_DEWARP_DEPTH_MIN,
+    SCAN_CLEANUP_MARGIN_MAX_MM,
+    SCAN_CLEANUP_MANUAL_SKEW_MAX_DEGREES,
+    SCAN_CLEANUP_MANUAL_SKEW_MIN_DEGREES,
+} from '@contracts/electronApiScanCleanup';
 import {
     SCAN_CLEANUP_CHANNELS,
     type IScanCleanupInvokeMap,
@@ -184,11 +190,20 @@ function decodePageOverride(value: unknown): IScanCleanupPageOverride {
     const marginsMm = value.marginsMm === undefined
         ? undefined
         : decodeMarginsMm(value.marginsMm, 'page override margins');
+    const manualSkewDegrees = value.manualSkewDegrees === undefined
+        ? undefined
+        : decodeFiniteNumber(value.manualSkewDegrees, 'manual skew');
+    if (
+        manualSkewDegrees !== undefined
+        && (manualSkewDegrees < SCAN_CLEANUP_MANUAL_SKEW_MIN_DEGREES
+            || manualSkewDegrees > SCAN_CLEANUP_MANUAL_SKEW_MAX_DEGREES)
+    ) throw new Error('invalid scan-cleanup manual skew');
     return {
         rotationDegrees,
         layoutOverride: value.layoutOverride as IScanCleanupPageOverride['layoutOverride'],
         excluded: value.excluded,
         manualSplit,
+        ...(manualSkewDegrees === undefined ? {} : {manualSkewDegrees}),
         ...(Object.keys(manualContentBoxes).length > 0 ? {manualContentBoxes} : {}),
         ...(manualZones === undefined ? {} : {manualZones}),
         ...(marginsMm === undefined ? {} : {marginsMm}),
@@ -343,6 +358,9 @@ function decodeOptions(options: unknown): IScanCleanupStartRequest['options'] {
     const despeckleLevel = options.despeckleLevel
         ?? (legacyDespeckle === false ? 'off' : 'normal');
     const autoDewarp = options.autoDewarp ?? false;
+    const autoDewarpDepth = options.autoDewarpDepth === undefined
+        ? undefined
+        : decodeFiniteNumber(options.autoDewarpDepth, 'automatic dewarp depth');
     if (
         ![
             'auto',
@@ -377,6 +395,9 @@ function decodeOptions(options: unknown): IScanCleanupStartRequest['options'] {
             'aggressive',
         ].includes(String(despeckleLevel))
         || typeof autoDewarp !== 'boolean'
+        || (autoDewarpDepth !== undefined
+            && (autoDewarpDepth < SCAN_CLEANUP_AUTO_DEWARP_DEPTH_MIN
+                || autoDewarpDepth > SCAN_CLEANUP_AUTO_DEWARP_DEPTH_MAX))
         || ![
             'ltr',
             'rtl',
@@ -399,6 +420,7 @@ function decodeOptions(options: unknown): IScanCleanupStartRequest['options'] {
         ...(options.despeckleLevel === undefined ? {} : {despeckleLevel: despeckleLevel as NonNullable<IScanCleanupStartRequest['options']['despeckleLevel']>}),
         ...(legacyDespeckle === undefined ? {} : {despeckle: legacyDespeckle}),
         ...(options.autoDewarp === undefined ? {} : {autoDewarp}),
+        ...(autoDewarpDepth === undefined ? {} : {autoDewarpDepth}),
         readingOrder: options.readingOrder as IScanCleanupStartRequest['options']['readingOrder'],
         skipBlankPages: options.skipBlankPages,
         pageOverrides: decodePageOverrides(options.pageOverrides),
@@ -618,6 +640,7 @@ function decodePreviewMetadata(value: unknown): IScanCleanupPreviewMetadata {
         || (value.illuminationNormalized !== undefined && typeof value.illuminationNormalized !== 'boolean')
         || (value.despeckleFallback !== undefined && typeof value.despeckleFallback !== 'boolean')
         || (value.skewApplied !== undefined && typeof value.skewApplied !== 'boolean')
+        || (value.manualSkew !== undefined && typeof value.manualSkew !== 'boolean')
         || (value.splitAbstained !== undefined && typeof value.splitAbstained !== 'boolean')
         || (value.dewarpApplied !== undefined && typeof value.dewarpApplied !== 'boolean')
         || (value.binarizationMode !== undefined
@@ -642,6 +665,7 @@ function decodePreviewMetadata(value: unknown): IScanCleanupPreviewMetadata {
             ? {}
             : {skewConfidence: decodeUnitInterval(value.skewConfidence, 'skew confidence')}),
         ...(value.skewApplied === undefined ? {} : {skewApplied: value.skewApplied}),
+        ...(value.manualSkew === undefined ? {} : {manualSkew: value.manualSkew}),
         sourceRegion: decodePreviewRect(value.sourceRegion, 'source region'),
         contentBox: value.contentBox === null ? null : decodePreviewRect(value.contentBox, 'content box'),
         cropRect: value.cropRect === undefined
@@ -796,6 +820,7 @@ function decodePreviewPageMetadata(value: unknown): IScanCleanupPreviewResult['p
         || (value.splitAbstained !== undefined && typeof value.splitAbstained !== 'boolean')
         || (value.despeckleFallback !== undefined && typeof value.despeckleFallback !== 'boolean')
         || (value.autoDewarpAttempted !== undefined && typeof value.autoDewarpAttempted !== 'boolean')
+        || (value.manualSkew !== undefined && typeof value.manualSkew !== 'boolean')
         || (value.dewarpApplied !== undefined && typeof value.dewarpApplied !== 'boolean')
         || (value.binarizationMode !== undefined
             && value.binarizationMode !== null
@@ -837,6 +862,7 @@ function decodePreviewPageMetadata(value: unknown): IScanCleanupPreviewResult['p
         ...(value.skewConfidence === undefined
             ? {}
             : {skewConfidence: decodeUnitInterval(value.skewConfidence, 'page skew confidence')}),
+        ...(value.manualSkew === undefined ? {} : {manualSkew: value.manualSkew}),
         ...(value.binarizationMode === undefined
             ? {}
             : {binarizationMode: value.binarizationMode as NonNullable<

@@ -58,11 +58,15 @@ describe('effective scan cleanup options', () => {
                 normalizeIllumination: false,
                 despeckleLevel: 'aggressive',
                 autoDewarp: true,
+                autoDewarpDepth: 1.8,
             },
-            pageOverride: createScanCleanupPageOverride(),
+            pageOverride: createScanCleanupPageOverride({manualSkewDegrees: -2.3}),
             dpi: 300,
             qualityPath: 'raster',
-            experimental: {autoDewarp: true},
+            experimental: {
+                autoDewarp: true,
+                autoDewarpDepth: 1.8,
+            },
         });
 
         expect(effective).toMatchObject({
@@ -70,7 +74,11 @@ describe('effective scan cleanup options', () => {
             normalizeIllumination: false,
             despeckle: true,
             despeckleLevel: 'aggressive',
-            experimental: {autoDewarp: true},
+            manualSkewDegrees: -2.3,
+            experimental: {
+                autoDewarp: true,
+                autoDewarpDepth: 1.8,
+            },
         });
     });
 
@@ -179,5 +187,6 @@ describe('effective scan cleanup options', () => {
         expect(effective.despeckle).toBe(false);
         expect(effective.despeckleLevel).toBe('off');
         expect(effective.experimental.autoDewarp).toBe(false);
+        expect(effective.experimental.autoDewarpDepth).toBeUndefined();
     });
 });

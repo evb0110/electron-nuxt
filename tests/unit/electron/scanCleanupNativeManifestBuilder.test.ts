@@ -173,6 +173,7 @@ describe('native scan-cleanup manifest builder', () => {
                 layoutOverride: 'auto',
                 excluded: false,
                 manualSplit: null,
+                manualSkewDegrees: -2.3,
                 manualZones: {
                     picture: [],
                     fill: [polygon],
@@ -180,6 +181,10 @@ describe('native scan-cleanup manifest builder', () => {
             },
             dpi: 300,
             qualityPath: 'raster',
+            experimental: {
+                autoDewarp: true,
+                autoDewarpDepth: 1.8,
+            },
         });
         const serialized = serializeNativeScanCleanupOptions({
             ...effective,
@@ -192,6 +197,8 @@ describe('native scan-cleanup manifest builder', () => {
             fill: [polygon],
         });
         expect(serialized.outputMode).toBe('mixed');
+        expect(serialized.manualSkewDegrees).toBe(-2.3);
+        expect(serialized.experimental.autoDewarpDepth).toBe(1.8);
     });
 
     it('threads an optional document prior only onto its target preview page', () => {

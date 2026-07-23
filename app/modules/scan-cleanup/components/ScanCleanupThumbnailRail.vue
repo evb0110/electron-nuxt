@@ -603,6 +603,9 @@ function diagnosticDeskew(page: number) {
     if (diagnostics?.detectedSkewDegrees === undefined) {
         return t('scanCleanup.pages.diagnostics.unavailable');
     }
+    if (diagnostics.manualSkew === true) {
+        return t('scanCleanup.pages.diagnostics.deskewManualValue', {angle: diagnostics.detectedSkewDegrees.toFixed(2)});
+    }
     return t('scanCleanup.pages.diagnostics.deskewValue', {
         angle: diagnostics.detectedSkewDegrees.toFixed(2),
         confidence: formatConfidence(diagnostics.skewConfidence),

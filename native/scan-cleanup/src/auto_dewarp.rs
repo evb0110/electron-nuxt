@@ -75,6 +75,14 @@ pub fn detect_curves(source: &GrayImage) -> AutoDewarpResult {
 }
 
 pub fn detect_curves_at_dpi(source: &GrayImage, effective_dpi: f64) -> AutoDewarpResult {
+    detect_curves_at_dpi_with_depth(source, effective_dpi, None)
+}
+
+pub fn detect_curves_at_dpi_with_depth(
+    source: &GrayImage,
+    effective_dpi: f64,
+    fixed_depth: Option<f64>,
+) -> AutoDewarpResult {
     if source.width() < 80 || source.height() < 80 {
         return no_model(0.0);
     }
@@ -126,7 +134,7 @@ pub fn detect_curves_at_dpi(source: &GrayImage, effective_dpi: f64) -> AutoDewar
     }
 
     let identity_score = score_identity(&lines, &geometry);
-    let Some((working_options, model_score)) = select_model(&lines, &geometry) else {
+    let Some((working_options, model_score)) = select_model(&lines, &geometry, fixed_depth) else {
         return no_model(0.0);
     };
     let absolute_improvement = identity_score - model_score;
@@ -886,7 +894,11 @@ fn deduplicate_lines(lines: &mut Vec<TracedLine>) {
     *lines = retained;
 }
 
-fn select_model(lines: &[TracedLine], geometry: &ContentGeometry) -> Option<(DewarpOptions, f64)> {
+fn select_model(
+    lines: &[TracedLine],
+    geometry: &ContentGeometry,
+    fixed_depth: Option<f64>,
+) -> Option<(DewarpOptions, f64)> {
     let count = lines.len();
     let mut pairs = BTreeSet::new();
     for top in 0..count.min(3) {
@@ -916,7 +928,15 @@ fn select_model(lines: &[TracedLine], geometry: &ContentGeometry) -> Option<(Dew
     }
     let (top_index, bottom_index, _) = best_pair?;
     let mut best = None::<(DewarpOptions, f64)>;
-    for depth in DEPTHS {
+    for depth in fixed_depth
+        .into_iter()
+        .chain(DEPTHS)
+        .take(if fixed_depth.is_some() {
+            1
+        } else {
+            DEPTHS.len()
+        })
+    {
         let options = pair_options(&lines[top_index], &lines[bottom_index], geometry, depth);
         let Ok(model) = DewarpModel::from_options(&options) else {
             continue;
@@ -1143,6 +1163,18 @@ mod tests {
         assert_eq!(
             first.model.unwrap().top_curve,
             second.model.unwrap().top_curve
+        );
+    }
+
+    #[test]
+    fn fixed_depth_is_respected_by_the_automatic_model_builder() {
+        let image = text_page(20.0, 7);
+        let result = detect_curves_at_dpi_with_depth(&image, 200.0, Some(0.75));
+        assert_eq!(
+            result.model.as_ref().map(|model| model.depth),
+            Some(0.75),
+            "confidence={}",
+            result.confidence
         );
     }
 

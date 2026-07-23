@@ -71,6 +71,7 @@ export interface IScanCleanupBinarizationDiagnostics extends INativeScanCleanupB
 export interface IScanCleanupPageDiagnostics {
     detectedSkewDegrees?: number;
     skewConfidence?: number;
+    manualSkew?: boolean;
     binarizationMode?: TScanCleanupBinarizationMethod | null;
     binarizationDiagnostics?: IScanCleanupBinarizationDiagnostics | null;
     despeckleFallback?: boolean;
@@ -87,6 +88,7 @@ export interface IScanCleanupPreviewMetadata {
     detectedSkewDegrees?: number;
     skewConfidence?: number;
     skewApplied?: boolean;
+    manualSkew?: boolean;
     sourceRegion: IScanCleanupPixelRect;
     contentBox: IScanCleanupPixelRect | null;
     /** Applied crop in deskewed/dewarped page-region coordinates; absent in older metadata. */

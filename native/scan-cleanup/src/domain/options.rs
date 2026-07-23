@@ -285,6 +285,8 @@ impl MarginsMm {
 #[serde(default, rename_all = "camelCase", deny_unknown_fields)]
 pub struct ExperimentalOptions {
     pub auto_dewarp: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub auto_dewarp_depth: Option<f64>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -303,6 +305,8 @@ pub struct CleanupOptions {
     pub layout: LayoutMode,
     #[serde(rename = "manualSplit")]
     pub manual_split_x: Option<NormalizedSplit>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub manual_skew_degrees: Option<f64>,
     pub manual_content_boxes: ManualContentBoxes,
     pub manual_zones: ManualZones,
     pub crop_content: bool,
@@ -338,6 +342,7 @@ impl Default for CleanupOptions {
             ocr_mode: false,
             layout: LayoutMode::Auto,
             manual_split_x: None,
+            manual_skew_degrees: None,
             manual_content_boxes: ManualContentBoxes::default(),
             manual_zones: ManualZones::default(),
             crop_content: true,
@@ -410,6 +415,18 @@ impl CleanupOptions {
                 return Err(
                     "Manual split must be normalized and authored under the page rotation".into(),
                 );
+            }
+        }
+        if let Some(angle) = self.manual_skew_degrees {
+            if !angle.is_finite() || !(-15.0..=15.0).contains(&angle) {
+                return Err(
+                    "Manual skew angle must be finite and between -15 and 15 degrees".into(),
+                );
+            }
+        }
+        if let Some(depth) = self.experimental.auto_dewarp_depth {
+            if !depth.is_finite() || !(0.5..=4.0).contains(&depth) {
+                return Err("Automatic dewarp depth must be finite and between 0.5 and 4.0".into());
             }
         }
         for rect in [

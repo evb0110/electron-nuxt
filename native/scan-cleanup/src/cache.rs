@@ -141,7 +141,12 @@ impl StageCacheKey {
         Self {
             source: source.clone(),
             stage: CacheStage::Deskew,
-            options: serialized(&(&split_key.options, rect_key(region), options.dpi.to_bits())),
+            options: serialized(&(
+                &split_key.options,
+                rect_key(region),
+                options.dpi.to_bits(),
+                options.manual_skew_degrees.map(f64::to_bits),
+            )),
         }
     }
 
@@ -165,6 +170,7 @@ impl StageCacheKey {
                 &options.manual_content_boxes,
                 &options.dewarp,
                 options.experimental.auto_dewarp,
+                options.experimental.auto_dewarp_depth.map(f64::to_bits),
             )),
         }
     }

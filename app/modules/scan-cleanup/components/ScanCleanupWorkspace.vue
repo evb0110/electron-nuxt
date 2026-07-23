@@ -51,6 +51,8 @@
                     :layout="scopeLayout"
                     :layout-items="scopeLayoutItems"
                     :manual-split="scopeManualSplit"
+                    :manual-skew="scopeManualSkew"
+                    :detected-skew-degrees="scopeDetectedSkewDegrees"
                     :margins="scopeMargins"
                     :margins-linked="scopeMarginsLinked"
                     :output-items="outputItems"
@@ -68,11 +70,13 @@
                     @reset-content-boxes="resetScopeContentBoxes"
                     @reset-control-override="resetScopeControlOverride"
                     @reset-manual-split="resetScopeManualSplit"
+                    @reset-manual-skew="resetScopeManualSkew"
                     @reset-scope-overrides="resetScopeOverrides"
                     @thickness-input="handleThicknessInput"
                     @update-inclusion="handleScopeInclusion"
                     @update-layout="handleScopeLayout"
                     @update-margin="updateScopeMargin"
+                    @update-manual-skew="updateScopeManualSkew"
                     @update:margins-linked="setScopeMarginsLinked"
                     @update-placement="updateScopePlacement"
                     @update-rotation="handleScopeRotation"
@@ -229,6 +233,7 @@ const {
     resetContentBoxes,
     resetControlOverride,
     resetManualSplit,
+    resetManualSkew,
     resetOverrides,
     selectedPages,
     selectPage,
@@ -244,6 +249,7 @@ const {
     updateExcluded: updateSelectionExcluded,
     updateLayoutOverride: updateSelectionLayoutOverride,
     updateMargins: updateSelectionMargins,
+    updateManualSkew: updateSelectionManualSkew,
     updateCurrentPlacement,
 } = workspaceSession.selection;
 const previewPage = selectionLeader;
@@ -309,6 +315,12 @@ const scopeExcluded = computed(() => settingsScope.value === 'all'
 const scopeManualSplit = computed(() => resolveScanCleanupMixedValue(
     scopePageOverrides.value.map(override => override.manualSplit),
 ));
+const scopeManualSkew = computed(() => resolveScanCleanupMixedValue(
+    scopePageOverrides.value.map(override => override.manualSkewDegrees),
+));
+const scopeDetectedSkewDegrees = computed(() => settingsScope.value === 'page'
+    ? previewMetadataByPage?.get(selectionLeader.value)?.detectedSkewDegrees
+    : undefined);
 const scopeContentBoxes = computed(() => resolveScanCleanupMixedValue(
     scopePageOverrides.value.map(override => override.manualContentBoxes ?? {}),
 ));
@@ -538,6 +550,14 @@ function updateScopePlacement(value: Parameters<typeof updateCurrentPlacementAll
 
 function resetScopeManualSplit() {
     resetManualSplit(scopePageNumbers.value);
+}
+
+function resetScopeManualSkew() {
+    resetManualSkew(scopePageNumbers.value);
+}
+
+function updateScopeManualSkew(value: number | undefined) {
+    updateSelectionManualSkew(value, scopePageNumbers.value);
 }
 
 function resetScopeContentBoxes() {

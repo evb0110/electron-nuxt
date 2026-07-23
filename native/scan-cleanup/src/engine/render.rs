@@ -5,7 +5,7 @@ use crate::engine::render_plan::{
 };
 use crate::engine::text_axis::{detect_text_axis, TextAxisHint};
 use crate::{
-    auto_dewarp::detect_curves_at_dpi,
+    auto_dewarp::detect_curves_at_dpi_with_depth,
     background::{
         normalize_illumination, normalize_illumination_for_layout, normalize_illumination_rgb,
         normalize_illumination_rgb_with_picture_mask, normalize_illumination_with_picture_mask,
@@ -57,6 +57,8 @@ pub struct CleanupMetadata {
     pub detected_skew_degrees: f64,
     pub skew_confidence: f64,
     pub skew_applied: bool,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub manual_skew: bool,
     pub layout_classification: LayoutClassification,
     pub layout_confidence: f64,
     #[serde(rename = "cutterXPx")]
@@ -1104,21 +1106,33 @@ fn clean_region(
         .zip(split_cache_key)
         .map(|(cache, split_key)| StageCacheKey::deskew(&cache.source, options, split_key, region));
     let deskew_started = Instant::now();
-    let deskew = cache
-        .zip(deskew_key.as_ref())
-        .and_then(|(cache, key)| cache.shared.lock().ok()?.get::<DeskewResult>(key))
-        .map_or_else(
-            || {
-                let result = detect_skew(&analysis_working, calibration.effective_dpi);
-                if let (Some(cache), Some(key)) = (cache, deskew_key.clone()) {
-                    if let Ok(mut shared) = cache.shared.lock() {
-                        shared.insert(key, Arc::new(result), std::mem::size_of::<DeskewResult>());
+    let deskew = if let Some(angle_degrees) = options.manual_skew_degrees {
+        DeskewResult {
+            angle_degrees,
+            confidence: 1.0,
+            accepted: true,
+        }
+    } else {
+        cache
+            .zip(deskew_key.as_ref())
+            .and_then(|(cache, key)| cache.shared.lock().ok()?.get::<DeskewResult>(key))
+            .map_or_else(
+                || {
+                    let result = detect_skew(&analysis_working, calibration.effective_dpi);
+                    if let (Some(cache), Some(key)) = (cache, deskew_key.clone()) {
+                        if let Ok(mut shared) = cache.shared.lock() {
+                            shared.insert(
+                                key,
+                                Arc::new(result),
+                                std::mem::size_of::<DeskewResult>(),
+                            );
+                        }
                     }
-                }
-                result
-            },
-            |cached| *cached,
-        );
+                    result
+                },
+                |cached| *cached,
+            )
+    };
     timings.deskew_ms += deskew_started.elapsed().as_secs_f64() * 1_000.0;
     let local_deskew_forward = deskew_transform(working.width(), working.height(), deskew);
     let local_deskew_inverse = local_deskew_forward
@@ -1141,7 +1155,11 @@ fn clean_region(
     let source_rotated_to_deskewed =
         Affine::translation(-region.x, -region.y).then(local_deskew_forward);
     let automatic_dewarp = if options.dewarp.is_none() && options.experimental.auto_dewarp {
-        let mut detected = detect_curves_at_dpi(&working, calibration.effective_dpi);
+        let mut detected = detect_curves_at_dpi_with_depth(
+            &working,
+            calibration.effective_dpi,
+            options.experimental.auto_dewarp_depth,
+        );
         detected.model = detected
             .model
             .map(|model| transform_dewarp_options(&model, Affine::translation(region.x, region.y)));
@@ -1468,6 +1486,7 @@ fn clean_region(
             detected_skew_degrees: deskew.angle_degrees,
             skew_confidence: deskew.confidence,
             skew_applied: deskew.accepted,
+            manual_skew: options.manual_skew_degrees.is_some(),
             layout_classification: split.classification,
             layout_confidence: split.confidence,
             cutter_x: split.cutter_x,

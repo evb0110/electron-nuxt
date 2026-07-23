@@ -7,6 +7,10 @@ import type {
     TScanCleanupPageOverrides,
     TScanCleanupPageRotation,
 } from '@contracts/electronApiScanCleanup';
+import {
+    SCAN_CLEANUP_MANUAL_SKEW_MAX_DEGREES,
+    SCAN_CLEANUP_MANUAL_SKEW_MIN_DEGREES,
+} from '@contracts/electronApiScanCleanup';
 import {createScanCleanupPageOverride} from '@contracts/scanCleanupPageOverrides';
 import {BrowserLogger} from '@app/utils/browserLogger';
 import {
@@ -258,12 +262,19 @@ export function migrateScanCleanupDocumentOverridesV1(
         const manualContentBoxes = migrateManualContentBoxes(value.manualContentBoxes, rotationDegrees, dimensions);
         const placementOverrides = decodePlacementOverrides(value.placementOverrides);
         const marginsMm = decodeMarginsMm(value.marginsMm);
+        const manualSkewDegrees = typeof value.manualSkewDegrees === 'number'
+            && Number.isFinite(value.manualSkewDegrees)
+            && value.manualSkewDegrees >= SCAN_CLEANUP_MANUAL_SKEW_MIN_DEGREES
+            && value.manualSkewDegrees <= SCAN_CLEANUP_MANUAL_SKEW_MAX_DEGREES
+            ? value.manualSkewDegrees
+            : undefined;
         legacyGeometryFound ||= manualSplit.legacy || manualContentBoxes.legacy;
         migrated[String(pageNumber)] = createScanCleanupPageOverride({
             rotationDegrees,
             layoutOverride: decodeLayoutOverride(value.layoutOverride),
             excluded: value.excluded === true,
             manualSplit: manualSplit.value,
+            ...(manualSkewDegrees === undefined ? {} : {manualSkewDegrees}),
             ...(Object.keys(manualContentBoxes.value).length > 0
                 ? {manualContentBoxes: manualContentBoxes.value}
                 : {}),
