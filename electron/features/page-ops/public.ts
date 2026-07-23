@@ -10,4 +10,4 @@ export {
     isNativePageOpsDisabled,
     resolveNativePageOpsPath,
 } from '@electron/features/page-ops/main/nativePageOpsPath';
-export { pageOpsMainBindings } from '@electron/features/page-ops/main/pageOpsOperations';
+export { pageOpsMainBindings } from '@electron/features/page-ops/main/pageOpsMainBindings';

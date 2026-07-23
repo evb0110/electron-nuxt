@@ -55,7 +55,7 @@ import {
     validateReorderPermutation,
 } from '@electron/features/page-ops/domain/pageNumbers';
 import { insertPagesFromSourcePaths } from '@electron/features/page-ops/main/insertPagesFromSourcePaths.service';
-import { assertOpenInputPathCount } from '@electron/features/documents/public';
+import { assertOpenInputPathCount } from '@electron/features/documents/public/assertOpenInputPathCount';
 import {enqueueWorkingCopyMutation} from '@electron/file-access/workingCopyMutationQueue';
 import type { IWorkingCopyMutationOperation } from '@electron/file-access/workingCopyMutationQueue';
 import { transitionWorkingCopyContentRevision } from '@electron/file-access/documentRevisionStore';
@@ -76,7 +76,7 @@ import { createIpcProgressPump } from '@electron/utils/createIpcProgressPump';
 import type { ICreatePdfFromInputPathsProgress } from '@electron/image/pdfConversion';
 import {applyPageMetadataRemap} from '@electron/features/page-ops/main/pageMetadataRemap';
 
-export interface IPageOpsOperationContext {
+interface IPageOpsOperationContext {
     sender: WebContents;
     senderId: number;
     parentWindow: BrowserWindow | null;
@@ -235,7 +235,7 @@ function validateExpectedTotalPages(totalPages: unknown) {
     return totalPages;
 }
 
-export async function handlePageOpsDelete(
+async function handlePageOpsDelete(
     context: IPageOpsOperationContext,
     workingCopyPath: string,
     pages: number[],
@@ -277,7 +277,7 @@ export async function handlePageOpsDelete(
     };
 }
 
-export async function handlePageOpsExtract(
+async function handlePageOpsExtract(
     context: IPageOpsOperationContext,
     workingCopyPath: string,
     pages: number[],
@@ -323,7 +323,7 @@ export async function handlePageOpsExtract(
     };
 }
 
-export async function handlePageOpsReorder(
+async function handlePageOpsReorder(
     context: IPageOpsOperationContext,
     workingCopyPath: string,
     newOrder: number[],
@@ -363,7 +363,7 @@ export async function handlePageOpsReorder(
     };
 }
 
-export async function handlePageOpsInsert(
+async function handlePageOpsInsert(
     context: IPageOpsOperationContext,
     workingCopyPath: string,
     totalPages: number,
@@ -430,7 +430,7 @@ export async function handlePageOpsInsert(
     };
 }
 
-export async function handlePageOpsRotate(
+async function handlePageOpsRotate(
     context: IPageOpsOperationContext,
     workingCopyPath: string,
     pages: number[],
@@ -484,7 +484,7 @@ export async function handlePageOpsRotate(
     };
 }
 
-export async function handlePageOpsInsertFile(
+async function handlePageOpsInsertFile(
     context: IPageOpsOperationContext,
     workingCopyPath: string,
     totalPages: number,
@@ -533,7 +533,7 @@ export async function handlePageOpsInsertFile(
     };
 }
 
-export async function handlePageOpsCrop(
+async function handlePageOpsCrop(
     context: IPageOpsOperationContext,
     workingCopyPath: string,
     pages: number[],
@@ -580,7 +580,7 @@ export async function handlePageOpsCrop(
     };
 }
 
-export async function handlePageOpsRemoveCrop(
+async function handlePageOpsRemoveCrop(
     context: IPageOpsOperationContext,
     workingCopyPath: string,
     pages: number[],
@@ -625,7 +625,7 @@ export async function handlePageOpsRemoveCrop(
     };
 }
 
-export async function handlePageOpsGetPageGeometry(
+async function handlePageOpsGetPageGeometry(
     context: IPageOpsOperationContext,
     workingCopyPath: string,
     pageNumber: number,

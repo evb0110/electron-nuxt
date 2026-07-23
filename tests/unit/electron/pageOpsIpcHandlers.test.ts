@@ -171,7 +171,7 @@ vi.mock('@electron/utils/createLogger', () => ({createLogger: () => ({
     error: vi.fn(),
 })}));
 
-const { pageOpsMainBindings } = await import('@electron/features/page-ops/main/pageOpsOperations');
+const { pageOpsMainBindings } = await import('@electron/features/page-ops/main/pageOpsMainBindings');
 const {
     cancelAllMainOperations,
     resetMainOperationLifecycleForTests,

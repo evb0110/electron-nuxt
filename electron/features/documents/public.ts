@@ -10,7 +10,7 @@ export {
     shutdownSerializedPdfPersistence,
 } from '@electron/features/documents/main/serializedPdfPersistence';
 export { closeCachedRangeReadHandles } from '@electron/features/documents/main/documentFileReadHandlers';
-export { assertOpenInputPathCount } from '@electron/features/documents/main/openInputPaths.service';
+export { assertOpenInputPathCount } from '@electron/features/documents/public/assertOpenInputPathCount';
 export { sweepStaleDefaultAppTempPdfs } from '@electron/features/documents/main/print';
 export { sweepStaleOcrTempArtifacts } from '@electron/features/documents/main/sweepStaleOcrTempArtifacts';
 export { registerDocumentRevisionEventBridge } from '@electron/features/documents/main/registerDocumentRevisionEventBridge';

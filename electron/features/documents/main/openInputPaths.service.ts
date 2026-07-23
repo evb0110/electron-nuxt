@@ -35,9 +35,9 @@ import type { TOpenPathOwner } from '@electron/features/documents/main/openPathO
 import { registerMainOperation } from '@electron/operation-lifecycle/mainOperationLifecycle';
 import { abortErrorFromSignal } from '@electron/utils/abort';
 import { mainJobBroker } from '@electron/resources/jobBroker';
+import { assertOpenInputPathCount } from '@electron/features/documents/public/assertOpenInputPathCount';
 
 const logger = createLogger('documents-open-service');
-const MAX_OPEN_INPUT_PATHS = 512;
 
 interface IOpenInputPathsOptions {
     onCombineProgress?: (progress: ICreatePdfFromInputPathsProgress) => void;
@@ -48,12 +48,6 @@ interface IOpenInputPathsOptions {
 interface IOpenInputPathsAbortLifecycle {
     signal: AbortSignal;
     cleanup: () => void;
-}
-
-export function assertOpenInputPathCount(paths: readonly unknown[]) {
-    if (paths.length > MAX_OPEN_INPUT_PATHS) {
-        throw new Error(te('errors.file.invalid'));
-    }
 }
 
 function formatPathListForLog(paths: string[]) {

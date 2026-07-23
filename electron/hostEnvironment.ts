@@ -68,7 +68,7 @@ function readScaleFactorForWindow(window: BrowserWindow | null) {
     }
 }
 
-export function snapshotHostEnvironmentForWindow(window: BrowserWindow | null): IHostEnvironmentSnapshot {
+function snapshotHostEnvironmentForWindow(window: BrowserWindow | null): IHostEnvironmentSnapshot {
     return {
         platform: resolvePlatform(),
         osScaleFactor: readScaleFactorForWindow(window),
@@ -184,7 +184,7 @@ async function waitForHostZenModeState(window: BrowserWindow, active: boolean) {
     });
 }
 
-export function snapshotHostZenModeForWindow(window: BrowserWindow | null): IHostZenModeState {
+function snapshotHostZenModeForWindow(window: BrowserWindow | null): IHostZenModeState {
     if (!window || window.isDestroyed()) {
         return {
             active: false,

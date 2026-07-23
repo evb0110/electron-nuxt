@@ -87,7 +87,7 @@ const imageExportJobs = createMainJobRegistry<IImageExportProgress, IImageExport
     },
 });
 
-export function subscribeImageExportProgress(sender: Electron.WebContents) {
+function subscribeImageExportProgress(sender: Electron.WebContents) {
     imageExportJobs.subscribeOwner({sender});
 }
 

@@ -932,6 +932,7 @@ export async function triggerManualUpdateCheck() {
     return { started: true };
 }
 
+// fallow-ignore-next-line unused-export
 export function getUpdateStatus() {
     return status;
 }
@@ -1018,6 +1019,7 @@ export async function installDownloadedUpdate() {
     return { started: true };
 }
 
+// fallow-ignore-next-line unused-export
 export function deferDownloadedUpdate() {
     const candidateVersion = downloadedVersion ?? pendingVersion;
     if (!candidateVersion) {
@@ -1035,6 +1037,7 @@ export function deferDownloadedUpdate() {
     });
 }
 
+// fallow-ignore-next-line unused-export
 export async function skipUpdateVersion(version: string) {
     const normalized = normalizeVersion(version);
     if (!normalized) {

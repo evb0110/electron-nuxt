@@ -1,4 +1,3 @@
-import { isRecord } from '@contracts/runtimeGuards';
 import { IPC_DIRECT_BINARY_PAYLOAD_MAX_BYTES } from '@contracts/electronApiDocuments';
 
 // fallow-ignore-next-line unused-export
@@ -90,24 +89,4 @@ export function decodeStringArrayArg(args: readonly unknown[], index: number, fi
         throw new Error(`${fieldName} must be an array of non-empty strings`);
     }
     return items as string[];
-}
-
-export function decodeOptionalObjectWithKeys(
-    value: unknown,
-    fieldName: string,
-    allowedKeys: readonly string[],
-) {
-    if (value === undefined || value === null) {
-        return undefined;
-    }
-    if (!isRecord(value)) {
-        throw new Error(`${fieldName} must be an object`);
-    }
-    const allowed = new Set(allowedKeys);
-    for (const key of Object.keys(value)) {
-        if (!allowed.has(key)) {
-            throw new Error(`${fieldName} contains unsupported key "${key}"`);
-        }
-    }
-    return value;
 }
