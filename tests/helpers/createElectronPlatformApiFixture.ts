@@ -4,8 +4,8 @@ import {
     type TPlatformApiFixtureOverrides,
 } from '@tests/helpers/createPlatformApiFixture';
 
-export function createElectronPlatformApiFixture(
-    overrides: TPlatformApiFixtureOverrides = {},
+export function createElectronPlatformApiFixture<TOverrides extends TPlatformApiFixtureOverrides = TPlatformApiFixtureOverrides>(
+    overrides: TOverrides = {} as TOverrides,
 ) {
     return createPlatformApiFixture({
         backend: 'electron',

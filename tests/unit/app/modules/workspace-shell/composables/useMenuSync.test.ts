@@ -13,6 +13,7 @@ import { useMenuSync } from '@app/modules/workspace-shell/composables/useMenuSyn
 import { workspaceHasPdf } from '@app/modules/workspace-shell/state/workspaceHasPdf';
 import { createWorkspaceDocumentRecord } from '@app/modules/workspace-shell/state/workspaceDocumentRecord';
 import { createDefaultWorkspaceViewerCapabilities } from '@app/types/workspaceExpose';
+import { createElectronPlatformApiFixture } from '@tests/helpers/createElectronPlatformApiFixture';
 
 const mocks = vi.hoisted(() => ({
     setMenuDocumentState: vi.fn(async () => {}),
@@ -20,7 +21,7 @@ const mocks = vi.hoisted(() => ({
     legacySetMenuDocumentState: vi.fn(async () => {}),
     legacySetMenuTabCount: vi.fn(async () => {}),
 }));
-const mockPlatformApi = {
+const mockPlatformApi = createElectronPlatformApiFixture({
     documents: {
         setMenuDocumentState: mocks.legacySetMenuDocumentState,
         setMenuTabCount: mocks.legacySetMenuTabCount,
@@ -29,7 +30,7 @@ const mockPlatformApi = {
         setMenuDocumentState: mocks.setMenuDocumentState,
         setMenuTabCount: mocks.setMenuTabCount,
     },
-};
+});
 
 vi.mock('@app/utils/platform', () => ({ getPlatformAPI: () => mockPlatformApi }));
 

@@ -12,6 +12,7 @@ import {
     getRegisteredPdfRasterDisplayProfileCountForTests,
 } from '@app/types/pdfRasterDisplayProfile';
 import type { IDjvuProgress } from '@contracts/electronApiDjvu';
+import { createElectronPlatformApiFixture } from '@tests/helpers/createElectronPlatformApiFixture';
 
 vi.mock('vue', async (importOriginal) => {
     const actual = await importOriginal<typeof TVueModule>();
@@ -21,7 +22,9 @@ vi.mock('vue', async (importOriginal) => {
     };
 });
 
-const mockElectronAPI = {
+const mockDocumentFilesCapability = vi.hoisted(() => ({savePdfDialog: vi.fn()}));
+const mockDocumentWorkingCopyCapability = vi.hoisted(() => ({cleanupFile: vi.fn()}));
+const mockElectronAPI = createElectronPlatformApiFixture({
     djvu: {
         startOpenForViewing: vi.fn(),
         awaitOpenJob: vi.fn(),
@@ -47,11 +50,11 @@ const mockElectronAPI = {
             throw new Error('Legacy documents.cleanupFile should not be used for DjVu export');
         }),
     },
-};
+    documentFiles: mockDocumentFilesCapability,
+    documentWorkingCopy: mockDocumentWorkingCopyCapability,
+});
 const pendingOpenJobs = new Map<string, Promise<unknown>>();
 const pendingConvertJobs = new Map<string, Promise<unknown>>();
-const mockDocumentFilesCapability = vi.hoisted(() => ({savePdfDialog: vi.fn()}));
-const mockDocumentWorkingCopyCapability = vi.hoisted(() => ({cleanupFile: vi.fn()}));
 const toastAddMock = vi.hoisted(() => vi.fn());
 
 const mockDjvuModeState = {
@@ -71,8 +74,8 @@ vi.mock('@app/utils/platformDocuments', () => ({
     getDocumentsCapability: () => {
         throw new Error('Legacy documents facade should not be used for DjVu export');
     },
-    getDocumentFilesCapability: () => mockDocumentFilesCapability,
-    getDocumentWorkingCopyCapability: () => mockDocumentWorkingCopyCapability,
+    getDocumentFilesCapability: () => mockElectronAPI.documentFiles,
+    getDocumentWorkingCopyCapability: () => mockElectronAPI.documentWorkingCopy,
 }));
 vi.stubGlobal('useToast', () => ({add: toastAddMock}));
 

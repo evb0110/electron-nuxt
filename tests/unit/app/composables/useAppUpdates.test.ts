@@ -5,12 +5,12 @@ import {
     it,
     vi,
 } from 'vitest';
-import type {
-    IAppUpdateStatus,
-    IUpdatesCapability,
-} from '@contracts/electronApiUpdates';
+import type { IAppUpdateStatus } from '@contracts/electronApiUpdates';
+import { createElectronPlatformApiFixture } from '@tests/helpers/createElectronPlatformApiFixture';
 
-const getUpdatesCapabilityMock = vi.hoisted(() => vi.fn<() => IUpdatesCapability>());
+type TUpdatesCapability = ReturnType<typeof createElectronPlatformApiFixture>['updates'];
+
+const getUpdatesCapabilityMock = vi.hoisted(() => vi.fn<() => TUpdatesCapability>());
 const isUpdatesCapabilitySupportedMock = vi.hoisted(() => vi.fn((status: IAppUpdateStatus) => status.phase !== 'unsupported'));
 const browserLoggerErrorMock = vi.hoisted(() => vi.fn());
 
@@ -25,66 +25,11 @@ vi.mock('@app/utils/browserLogger', () => ({ BrowserLogger: {
     error: browserLoggerErrorMock,
 } }));
 
-function createDeferred<T>() {
-    let resolve!: (value: T | PromiseLike<T>) => void;
-    let reject!: (reason?: unknown) => void;
-    const promise = new Promise<T>((promiseResolve, promiseReject) => {
-        resolve = promiseResolve;
-        reject = promiseReject;
-    });
-
-    return {
-        promise,
-        resolve,
-        reject,
-    };
-}
-
 function requireStatusListener(listener: ((status: IAppUpdateStatus) => void) | null) {
     if (!listener) {
         throw new Error('Expected update status listener to be registered');
     }
     return listener;
-}
-
-function createUpdatesCapability(overrides: Partial<IUpdatesCapability> = {}): IUpdatesCapability {
-    const listeners = new Set<(status: IAppUpdateStatus) => void>();
-    const unsupportedStatus: IAppUpdateStatus = {
-        phase: 'unsupported',
-        origin: 'auto',
-        version: null,
-        percent: null,
-        message: null,
-    };
-    const manualUnsupportedStatus: IAppUpdateStatus = {
-        phase: 'unsupported',
-        origin: 'manual',
-        version: null,
-        percent: null,
-        message: null,
-    };
-
-    return {
-        getState: vi.fn(async () => unsupportedStatus),
-        check: vi.fn(async () => {
-            listeners.forEach((listener) => {
-                listener(manualUnsupportedStatus);
-            });
-            return { started: false };
-        }),
-        download: vi.fn(async () => ({ started: false })),
-        install: vi.fn(async () => ({ started: false })),
-        defer: vi.fn(async () => {}),
-        skipVersion: vi.fn(async () => {}),
-        onStatus: vi.fn((callback: (status: IAppUpdateStatus) => void) => {
-            listeners.add(callback);
-            return () => {
-                listeners.delete(callback);
-            };
-        }),
-        onMenuCheckForUpdates: vi.fn(() => () => {}),
-        ...overrides,
-    };
 }
 
 describe('useAppUpdates', () => {
@@ -94,7 +39,7 @@ describe('useAppUpdates', () => {
     });
 
     it('treats unsupported browser updates as a valid platform capability state', async () => {
-        const updatesCapability = createUpdatesCapability();
+        const updatesCapability = createElectronPlatformApiFixture().updates;
         getUpdatesCapabilityMock.mockReturnValue(updatesCapability);
 
         const { useAppUpdates } = await import('@app/composables/useAppUpdates');
@@ -109,6 +54,7 @@ describe('useAppUpdates', () => {
     });
 
     it('routes manual check requests through the shared updates capability', async () => {
+        let statusListener: ((status: IAppUpdateStatus) => void) | null = null;
         const idleStatus: IAppUpdateStatus = {
             phase: 'idle',
             origin: 'auto',
@@ -116,7 +62,21 @@ describe('useAppUpdates', () => {
             percent: null,
             message: null,
         };
-        const updatesCapability = createUpdatesCapability({ getState: vi.fn(async () => idleStatus) });
+        const updatesCapability = createElectronPlatformApiFixture({updates: {
+            getState: vi.fn(async () => idleStatus),
+            check: vi.fn(async () => {
+                statusListener?.({
+                    ...idleStatus,
+                    phase: 'unsupported',
+                    origin: 'manual',
+                });
+                return {started: false};
+            }),
+            onStatus: vi.fn((callback: (status: IAppUpdateStatus) => void) => {
+                statusListener = callback;
+                return () => {};
+            }),
+        }}).updates;
         getUpdatesCapabilityMock.mockReturnValue(updatesCapability);
 
         const { useAppUpdates } = await import('@app/composables/useAppUpdates');
@@ -133,7 +93,7 @@ describe('useAppUpdates', () => {
     });
 
     it('keeps pushed update status when it arrives before the initial state fetch resolves', async () => {
-        const initialState = createDeferred<IAppUpdateStatus>();
+        const initialState = Promise.withResolvers<IAppUpdateStatus>();
         let statusListener: ((status: IAppUpdateStatus) => void) | null = null;
         const idleStatus: IAppUpdateStatus = {
             phase: 'idle',
@@ -149,13 +109,13 @@ describe('useAppUpdates', () => {
             percent: 100,
             message: null,
         };
-        const updatesCapability = createUpdatesCapability({
+        const updatesCapability = createElectronPlatformApiFixture({updates: {
             getState: vi.fn(() => initialState.promise),
             onStatus: vi.fn((callback: (status: IAppUpdateStatus) => void) => {
                 statusListener = callback;
                 return () => {};
             }),
-        });
+        }}).updates;
         getUpdatesCapabilityMock.mockReturnValue(updatesCapability);
 
         const { useAppUpdates } = await import('@app/composables/useAppUpdates');
@@ -180,13 +140,13 @@ describe('useAppUpdates', () => {
     it('prompts before an automatic download and starts it only on request', async () => {
         let statusListener: ((status: IAppUpdateStatus) => void) | null = null;
         const download = vi.fn(async () => ({ started: true }));
-        const updatesCapability = createUpdatesCapability({
+        const updatesCapability = createElectronPlatformApiFixture({updates: {
             download,
             onStatus: vi.fn((callback: (status: IAppUpdateStatus) => void) => {
                 statusListener = callback;
                 return () => {};
             }),
-        });
+        }}).updates;
         getUpdatesCapabilityMock.mockReturnValue(updatesCapability);
 
         const { useAppUpdates } = await import('@app/composables/useAppUpdates');
@@ -224,7 +184,7 @@ describe('useAppUpdates', () => {
         const getState = vi.fn()
             .mockRejectedValueOnce(new Error('first failure'))
             .mockResolvedValueOnce(unsupportedStatus);
-        const updatesCapability = createUpdatesCapability({ getState });
+        const updatesCapability = createElectronPlatformApiFixture({updates: {getState}}).updates;
         getUpdatesCapabilityMock.mockReturnValue(updatesCapability);
 
         const { useAppUpdates } = await import('@app/composables/useAppUpdates');

@@ -8,6 +8,7 @@ import {
 import { effectScope } from 'vue';
 import { retry } from 'es-toolkit/function';
 import { withTimeout } from 'es-toolkit/promise';
+import { createElectronPlatformApiFixture } from '@tests/helpers/createElectronPlatformApiFixture';
 
 const loadDocumentTextCatalogPagesMock = vi.hoisted(() => vi.fn<() => Promise<unknown>>(async () => null));
 const extractPdfTextMock = vi.hoisted(() => vi.fn<() => Promise<string | null>>(async () => null));
@@ -32,16 +33,18 @@ const mockDocuments = {
     cleanupOcrTemp: vi.fn(),
     getDocumentRevision: vi.fn(),
 };
-const mockElectronAPI = {
+const mockElectronAPI = createElectronPlatformApiFixture({
     ocr: mockOcr,
     documents: mockDocuments,
-};
+    documentFiles: mockDocuments,
+    documentWorkingCopy: mockDocuments,
+});
 
 vi.mock('@app/utils/getOcrCapability', () => ({ getOcrCapability: () => mockElectronAPI.ocr }));
 vi.mock('@app/utils/platformDocuments', () => ({
     getDocumentsCapability: () => mockElectronAPI.documents,
-    getDocumentFilesCapability: () => mockElectronAPI.documents,
-    getDocumentWorkingCopyCapability: () => mockElectronAPI.documents,
+    getDocumentFilesCapability: () => mockElectronAPI.documentFiles,
+    getDocumentWorkingCopyCapability: () => mockElectronAPI.documentWorkingCopy,
 }));
 vi.mock('@app/utils/ocr/loadOcrText', () => ({loadDocumentTextCatalogPages: loadDocumentTextCatalogPagesMock}));
 vi.mock('@app/utils/ocr/extractPdfText', () => ({ extractPdfText: extractPdfTextMock }));

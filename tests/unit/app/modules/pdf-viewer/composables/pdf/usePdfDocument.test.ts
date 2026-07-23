@@ -5,6 +5,7 @@ import {
     it,
     vi,
 } from 'vitest';
+import { createElectronPlatformApiFixture } from '@tests/helpers/createElectronPlatformApiFixture';
 
 const loggerError = vi.fn();
 const loggerDebug = vi.fn();
@@ -53,10 +54,10 @@ const pdfjsState: {
 
 vi.mock('pdfjs-dist', () => pdfjsState);
 
-const electronApi = {
+const electronApi = createElectronPlatformApiFixture({
     documents: {readFileRange: vi.fn()},
     documentFiles: {readFileRange: vi.fn()},
-};
+});
 
 vi.mock('@app/utils/platform', () => ({getPlatformAPI: () => electronApi}));
 
@@ -73,7 +74,7 @@ describe('usePdfDocument range loading', () => {
         vi.clearAllMocks();
         electronApi.documentFiles.readFileRange.mockReset();
         electronApi.documents.readFileRange.mockReset();
-        electronApi.documents.readFileRange.mockRejectedValue(new Error('Legacy documents readFileRange should not be used'));
+        electronApi.documents.readFileRange.mockRejectedValue(new Error('Legacy documents electronApi.documentFiles.readFileRange should not be used'));
         vi.stubGlobal('URL', {
             ...URL,
             createObjectURL: createObjectURLMock,

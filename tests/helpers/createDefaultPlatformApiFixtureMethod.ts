@@ -2,6 +2,18 @@ import { vi } from 'vitest';
 import type { IPlatformMethodDescriptor } from '@contracts/platformApiDescriptor';
 
 function createAsyncDefault(path: string) {
+    if (path === 'updates.getState') {
+        return vi.fn(async () => ({
+            phase: 'unsupported',
+            origin: 'auto',
+            version: null,
+            percent: null,
+            message: null,
+        }));
+    }
+    if (path === 'updates.check' || path === 'updates.download' || path === 'updates.install') {
+        return vi.fn(async () => ({started: false}));
+    }
     if (path.endsWith('.get')) {
         return vi.fn(async () => ({}));
     }
@@ -65,7 +77,7 @@ function createAsyncDefault(path: string) {
 export function createDefaultPlatformApiFixtureMethod(descriptor: IPlatformMethodDescriptor) {
     const path = descriptor.path.join('.');
     if (descriptor.kind === 'event') {
-        return vi.fn(() => {});
+        return vi.fn(() => () => {});
     }
     if (descriptor.kind === 'sync') {
         if (path.endsWith('.getMemoryInfo')) {

@@ -21,10 +21,10 @@ type TDeepPartial<T> = {
 
 export type TPlatformApiFixtureOverrides = TDeepPartial<IPlatformApi>;
 
-export interface ICreatePlatformApiFixtureOptions {
+export interface ICreatePlatformApiFixtureOptions<TOverrides extends TPlatformApiFixtureOverrides = TPlatformApiFixtureOverrides> {
     backend: TPlatformBackend;
     manifest: IPlatformRuntimeManifest;
-    overrides?: TPlatformApiFixtureOverrides;
+    overrides?: TOverrides;
 }
 
 function setPath(root: Record<string, unknown>, path: readonly string[], value: unknown) {
@@ -146,13 +146,13 @@ function assertPlatformApiFixture(api: Record<string, unknown>): asserts api is 
     }
 }
 
-export function createPlatformApiFixture({
+export function createPlatformApiFixture<TOverrides extends TPlatformApiFixtureOverrides = TPlatformApiFixtureOverrides>({
     manifest,
-    overrides = {},
-}: ICreatePlatformApiFixtureOptions): IPlatformApi {
+    overrides = {} as TOverrides,
+}: ICreatePlatformApiFixtureOptions<TOverrides>): IPlatformApi & TOverrides {
     const api = createBasePlatformApiFixture(manifest);
     deepMerge(api, overrides);
     mirrorDocumentOverrides(api, overrides);
     assertPlatformApiFixture(api);
-    return api;
+    return api as IPlatformApi & TOverrides;
 }

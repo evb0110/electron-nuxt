@@ -10,7 +10,11 @@ import {
     effectScope,
     ref,
 } from 'vue';
+import { BROWSER_PLATFORM_MANIFEST } from '@contracts/platformApi';
+import type { TOpenFileResult } from '@contracts/electronApiDocuments';
 import type { IRecentFile } from '@contracts/shared';
+import { createElectronPlatformApiFixture } from '@tests/helpers/createElectronPlatformApiFixture';
+import { createPlatformApiFixture } from '@tests/helpers/createPlatformApiFixture';
 import { installNuxtStateTestStubs } from '@tests/unit/app/composables/installNuxtStateTestStubs';
 
 const cookieStore = new Map<string, ReturnType<typeof ref>>();
@@ -24,45 +28,45 @@ const electronRecentFilesClear = vi.fn<() => Promise<void>>();
 const legacyElectronRecentFilesGet = vi.fn<() => Promise<IRecentFile[]>>();
 const legacyElectronRecentFilesRemove = vi.fn<(path: string) => Promise<void>>();
 const legacyElectronRecentFilesClear = vi.fn<() => Promise<void>>();
-const electronOpenDocumentDirect = vi.fn<(path: string) => Promise<void>>();
-const legacyElectronOpenDocumentDirect = vi.fn<(path: string) => Promise<void>>();
+const electronOpenDocumentDirect = vi.fn<(path: string) => Promise<TOpenFileResult | null>>();
+const legacyElectronOpenDocumentDirect = vi.fn<(path: string) => Promise<TOpenFileResult | null>>();
 const browserRecentFilesGet = vi.fn<() => Promise<IRecentFile[]>>();
 const legacyBrowserRecentFilesGet = vi.fn<() => Promise<IRecentFile[]>>();
+const electronRecentFiles = {
+    get: electronRecentFilesGet,
+    remove: electronRecentFilesRemove,
+    clear: electronRecentFilesClear,
+};
+const legacyElectronRecentFiles = {
+    get: legacyElectronRecentFilesGet,
+    remove: legacyElectronRecentFilesRemove,
+    clear: legacyElectronRecentFilesClear,
+};
+const electronPlatformApi = createElectronPlatformApiFixture({
+    documents: {
+        recentFiles: legacyElectronRecentFiles,
+        openDocumentDirect: legacyElectronOpenDocumentDirect,
+    },
+    documentOpen: {openDocumentDirect: electronOpenDocumentDirect},
+    documentRecentFiles: {recentFiles: electronRecentFiles},
+});
+const browserPlatformApi = createPlatformApiFixture({
+    backend: 'browser',
+    manifest: BROWSER_PLATFORM_MANIFEST,
+    overrides: {
+        documents: {
+            recentFiles: {get: legacyBrowserRecentFilesGet},
+            openDocumentDirect: vi.fn(),
+        },
+        documentRecentFiles: {recentFiles: {get: browserRecentFilesGet}},
+    },
+});
 
 vi.mock('@app/utils/platform', () => ({
     isDesktopPlatformActive: (electronApiAvailable = electronBridgeReady.value) => electronApiAvailable,
     getPlatformAPI: () => electronBridgeReady.value
-        ? {
-            documents: {
-                recentFiles: {
-                    get: legacyElectronRecentFilesGet,
-                    remove: legacyElectronRecentFilesRemove,
-                    clear: legacyElectronRecentFilesClear,
-                },
-                openDocumentDirect: legacyElectronOpenDocumentDirect,
-            },
-            documentOpen: {openDocumentDirect: electronOpenDocumentDirect},
-            documentRecentFiles: {recentFiles: {
-                get: electronRecentFilesGet,
-                remove: electronRecentFilesRemove,
-                clear: electronRecentFilesClear,
-            }},
-        }
-        : {
-            documents: {
-                recentFiles: {
-                    get: legacyBrowserRecentFilesGet,
-                    remove: vi.fn(),
-                    clear: vi.fn(),
-                },
-                openDocumentDirect: vi.fn(),
-            },
-            documentRecentFiles: {recentFiles: {
-                get: browserRecentFilesGet,
-                remove: vi.fn(),
-                clear: vi.fn(),
-            }},
-        },
+        ? electronPlatformApi
+        : browserPlatformApi,
     hasElectronAPI: () => electronBridgeReady.value,
     isElectronRoutePath: (path: string | null | undefined) => path === '/electron' || path?.startsWith('/electron/') === true,
     shouldPreferDesktopPlatform: (
@@ -131,7 +135,7 @@ describe('useRecentFiles', () => {
         legacyElectronRecentFilesGet.mockRejectedValue(new Error('legacy documents recent files get should not be used'));
         legacyElectronRecentFilesRemove.mockRejectedValue(new Error('legacy documents recent files remove should not be used'));
         legacyElectronRecentFilesClear.mockRejectedValue(new Error('legacy documents recent files clear should not be used'));
-        electronOpenDocumentDirect.mockResolvedValue();
+        electronOpenDocumentDirect.mockResolvedValue(null);
         legacyElectronOpenDocumentDirect.mockRejectedValue(new Error('legacy documents direct open should not be used'));
         browserRecentFilesGet.mockResolvedValue([]);
         legacyBrowserRecentFilesGet.mockRejectedValue(new Error('legacy browser documents recent files get should not be used'));

@@ -7,16 +7,17 @@ import {
 } from 'vitest';
 import type { Ref } from 'vue';
 import type { ISettingsData } from '@contracts/shared';
+import { createElectronPlatformApiFixture } from '@tests/helpers/createElectronPlatformApiFixture';
 import { installNuxtStateTestStubs } from '@tests/unit/app/composables/installNuxtStateTestStubs';
 
 const mockGet = vi.fn<() => Promise<ISettingsData>>();
 const mockSave = vi.fn<(settings: Partial<ISettingsData>) => Promise<void>>();
 const cookieStore = new Map<string, Ref<unknown>>();
 const stateStore = new Map<string, Ref<unknown>>();
-const mockPlatformApi = { settings: {
+const mockPlatformApi = createElectronPlatformApiFixture({settings: {
     get: mockGet,
     save: mockSave,
-} };
+}});
 
 vi.mock('@app/utils/platform', () => ({ getPlatformAPI: () => mockPlatformApi }));
 

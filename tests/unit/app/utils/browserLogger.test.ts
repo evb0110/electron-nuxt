@@ -6,6 +6,7 @@ import {
     it,
     vi,
 } from 'vitest';
+import { createElectronPlatformApiFixture } from '@tests/helpers/createElectronPlatformApiFixture';
 
 const LOG_LEVEL_STORAGE_KEY = 'evb-viewer:log-level';
 interface IWindowStubOptions {
@@ -20,7 +21,7 @@ function createWindowStub(options: IWindowStubOptions = {}) {
         localStorage: {getItem: vi.fn((key: string) => (
             key === LOG_LEVEL_STORAGE_KEY ? options.logLevel ?? null : null
         ))},
-        electronAPI: {settings: {rendererLog}},
+        electronAPI: createElectronPlatformApiFixture({settings: {rendererLog}}),
     };
     if (options.diagnosticWarnAsWarn !== undefined) {
         windowStub.__diagnosticWarnAsWarn = options.diagnosticWarnAsWarn;
