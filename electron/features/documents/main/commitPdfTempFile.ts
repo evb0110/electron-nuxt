@@ -11,6 +11,9 @@ import type { IJobBrokerLease } from '@electron/resources/jobBroker';
 import { decodeDocumentSaveUtilityResult } from '@electron/features/documents/main/documentSaveUtilityProtocol';
 import { documentOutputService } from '@electron/output/documentOutputService';
 import { getPdfNativeToolPaths } from '@electron/pdf/nativeToolPaths';
+import type {ITypedStagedArtifact} from '@contracts/stagedArtifacts';
+import type {IDocumentsSenderIdContext} from '@electron/features/documents/documentsService';
+import {resolveTypedStagedArtifact} from '@electron/features/documents/main/managedTempFileHandles';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const DEFAULT_THRESHOLD = 64 * 1024 * 1024;
@@ -28,6 +31,10 @@ export async function commitPdfTempFile(sourcePath: string, targetPath: string, 
     signal?: AbortSignal;
     ownerId?: string;
     changedObjectRefs?: string[];
+    receipt?: {
+        artifact: ITypedStagedArtifact;
+        context: IDocumentsSenderIdContext;
+    };
 } = {}) {
     const outputJob = documentOutputService.start({
         operation: 'save-as-pdf',
@@ -42,7 +49,25 @@ export async function commitPdfTempFile(sourcePath: string, targetPath: string, 
         : outputJob.signal;
     let lease: IJobBrokerLease | undefined;
     try {
-        const expectedBytes = options.expectedBytes ?? (await stat(sourcePath)).size;
+        const stagedArtifact = options.receipt === undefined
+            ? undefined
+            : await resolveTypedStagedArtifact(
+                options.receipt.context,
+                options.receipt.artifact,
+            );
+        if (stagedArtifact !== undefined && stagedArtifact.path !== sourcePath) {
+            throw new Error('Staged artifact receipt does not identify the PDF commit source');
+        }
+        if (
+            stagedArtifact !== undefined
+            && options.expectedBytes !== undefined
+            && options.expectedBytes !== stagedArtifact.size
+        ) {
+            throw new Error('Staged artifact receipt size does not match the PDF commit request');
+        }
+        const expectedBytes = options.expectedBytes
+            ?? stagedArtifact?.size
+            ?? (await stat(sourcePath)).size;
         if (!shouldUseDocumentSaveUtility(expectedBytes) && !options.changedObjectRefs?.length) {
             const {atomicReplace} = await import('@electron/utils/atomicReplace');
             await atomicReplace(sourcePath, targetPath);
@@ -104,6 +129,7 @@ export async function commitPdfTempFile(sourcePath: string, targetPath: string, 
                 expectedBytes,
                 validationBinary: getPdfNativeToolPaths().qpdf,
                 ...(options.changedObjectRefs?.length ? {changedObjectRefs: options.changedObjectRefs} : {}),
+                ...(stagedArtifact === undefined ? {} : {stagedArtifact}),
             }));
             child.once('message', (value) => {
                 const result = decodeDocumentSaveUtilityResult(value);

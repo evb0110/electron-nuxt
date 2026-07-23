@@ -1,8 +1,13 @@
+import {createHash} from 'node:crypto';
 import {
     isAbsolute,
     dirname,
 } from 'node:path';
 import { isRecord } from '@contracts/runtimeGuards';
+import {
+    decodeTypedStagedArtifact,
+    type ITypedStagedArtifact,
+} from '@contracts/stagedArtifacts';
 
 export interface IDocumentSaveUtilityCommitRequest {
     type: 'commit';
@@ -11,6 +16,7 @@ export interface IDocumentSaveUtilityCommitRequest {
     expectedBytes: number;
     validationBinary?: string;
     changedObjectRefs?: string[];
+    stagedArtifact?: ITypedStagedArtifact;
 }
 
 export interface IDocumentSaveUtilityInspectRequest {
@@ -25,6 +31,14 @@ export type TDocumentSaveUtilityRequest =
 
 const PDF_OBJECT_REF_PATTERN = /^\d+ \d+ R$/u;
 const MAX_CHANGED_OBJECT_REFS = 128;
+
+export interface IDocumentSaveUtilityReusePlan {
+    fingerprint: boolean;
+    tailCheck: boolean;
+    qpdfCheck: boolean;
+    changedObjectRefsCheck: boolean;
+    fileSync: boolean;
+}
 
 export type TDocumentSaveUtilityResult =
     | {
@@ -72,6 +86,19 @@ export function decodeDocumentSaveUtilityRequest(value: unknown): TDocumentSaveU
         || value.expectedBytes <= 0) {
         return null;
     }
+    const stagedArtifact = value.stagedArtifact === undefined
+        ? undefined
+        : decodeTypedStagedArtifact(value.stagedArtifact);
+    if (value.stagedArtifact !== undefined) {
+        if (
+            stagedArtifact === undefined
+            || stagedArtifact === null
+            || stagedArtifact.path !== value.sourcePath
+            || stagedArtifact.size !== value.expectedBytes
+        ) {
+            return null;
+        }
+    }
     return {
         type: 'commit',
         sourcePath: value.sourcePath,
@@ -82,6 +109,35 @@ export function decodeDocumentSaveUtilityRequest(value: unknown): TDocumentSaveU
             && value.changedObjectRefs.every((entry): entry is string => typeof entry === 'string')
             ? {changedObjectRefs: [...value.changedObjectRefs]}
             : {}),
+        ...(stagedArtifact === undefined || stagedArtifact === null
+            ? {}
+            : {stagedArtifact}),
+    };
+}
+
+export function createChangedObjectRefsSha256(changedObjectRefs: readonly string[]) {
+    const normalizedRefs = [...new Set(changedObjectRefs)].sort();
+    return createHash('sha256')
+        .update(JSON.stringify(normalizedRefs))
+        .digest('hex');
+}
+
+export function getDocumentSaveUtilityReusePlan(
+    request: IDocumentSaveUtilityCommitRequest,
+): IDocumentSaveUtilityReusePlan {
+    const artifact = request.stagedArtifact;
+    const receiptReuseEnabled = process.platform !== 'win32'
+        && artifact?.fileIdentity.platform === 'posix';
+    const changedObjectRefs = request.changedObjectRefs ?? [];
+    return {
+        fingerprint: receiptReuseEnabled,
+        tailCheck: receiptReuseEnabled && artifact?.validations.tailCheck === true,
+        qpdfCheck: receiptReuseEnabled && artifact?.validations.qpdfCheck === true,
+        changedObjectRefsCheck: receiptReuseEnabled
+            && changedObjectRefs.length > 0
+            && artifact?.validations.changedObjectRefsSha256
+                === createChangedObjectRefsSha256(changedObjectRefs),
+        fileSync: receiptReuseEnabled && artifact?.validations.fsynced === true,
     };
 }
 

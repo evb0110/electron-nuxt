@@ -1,16 +1,17 @@
 import {randomUUID} from 'node:crypto';
 import {
+    lstat,
     rm,
-    stat,
 } from 'node:fs/promises';
 import type { BigIntStats } from 'node:fs';
 import {isDeepStrictEqual} from 'node:util';
 import type { IManagedTempFileHandle } from '@contracts/electronApiDocuments';
 import {decodeManagedTempFileHandle} from '@contracts/electronApiDocuments';
-import type {
-    IStagedArtifactValidations,
-    ITypedStagedArtifact,
-    TArtifactFileIdentity,
+import {
+    decodeTypedStagedArtifact,
+    type IStagedArtifactValidations,
+    type ITypedStagedArtifact,
+    type TArtifactFileIdentity,
 } from '@contracts/stagedArtifacts';
 import type { IDocumentsSenderIdContext } from '@electron/features/documents/documentsService';
 import { resolveExistingReadableBinaryPath } from '@electron/features/documents/main/documentFilePathResolution';
@@ -28,16 +29,35 @@ interface IMainManagedTempFileLease {
 
 interface IMainStagedArtifactLease extends IMainManagedTempFileLease {
     artifact: ITypedStagedArtifact;
-    statWitness: {
-        size: bigint;
-        mtimeNs: bigint;
-        ctimeNs: bigint;
-    };
+    statWitness: IArtifactStatWitness;
     immutable: true;
+}
+
+interface IArtifactStatWitness {
+    size: bigint;
+    mtimeNs: bigint;
+    ctimeNs: bigint;
 }
 
 const leases = new Map<string, IMainManagedTempFileLease | IMainStagedArtifactLease>();
 let leaseSweepTimer: ReturnType<typeof setTimeout> | null = null;
+
+function cloneTypedStagedArtifact(artifact: ITypedStagedArtifact): ITypedStagedArtifact {
+    return {
+        ...artifact,
+        fileIdentity: {...artifact.fileIdentity},
+        validations: {
+            ...artifact.validations,
+            ...(artifact.validations.qpdfResult === undefined
+                ? {}
+                : {qpdfResult: {
+                    ...artifact.validations.qpdfResult,
+                    errors: [...artifact.validations.qpdfResult.errors],
+                    warnings: [...artifact.validations.qpdfResult.warnings],
+                }}),
+        },
+    };
+}
 
 function createArtifactFileIdentity(fileStat: BigIntStats): TArtifactFileIdentity {
     return process.platform === 'win32'
@@ -51,6 +71,36 @@ function createArtifactFileIdentity(fileStat: BigIntStats): TArtifactFileIdentit
             deviceId: fileStat.dev.toString(),
             inode: fileStat.ino.toString(),
         };
+}
+
+function createArtifactStatWitness(fileStat: BigIntStats): IArtifactStatWitness {
+    return {
+        size: fileStat.size,
+        mtimeNs: fileStat.mtimeNs,
+        ctimeNs: fileStat.ctimeNs,
+    };
+}
+
+function isSameArtifactStatWitness(
+    left: IArtifactStatWitness,
+    right: IArtifactStatWitness,
+) {
+    return left.size === right.size
+        && left.mtimeNs === right.mtimeNs
+        && left.ctimeNs === right.ctimeNs;
+}
+
+async function statRegularArtifact(path: string) {
+    const fileStat = await lstat(path, {bigint: true});
+    if (!fileStat.isFile()) {
+        throw new Error('Staged artifact path no longer identifies a regular file');
+    }
+    return fileStat;
+}
+
+function invalidateStagedArtifactLease(leaseId: string) {
+    leases.delete(leaseId);
+    sweepExpiredLeases();
 }
 
 function sweepExpiredLeases() {
@@ -112,15 +162,28 @@ export async function createTypedStagedArtifact(
     options: {cleanupOnRelease?: boolean} = {},
 ): Promise<ITypedStagedArtifact> {
     const path = await resolveExistingReadableBinaryPath(filePath, context.senderId);
+    const beforeStat = await statRegularArtifact(path);
     const [
         inspection,
         revisionSidecar,
-        fileStat,
     ] = await Promise.all([
         fingerprintFileWithUtilityProcess(path),
         readWorkingCopyRevisionSidecar(path),
-        stat(path, {bigint: true}),
     ]);
+    const fileStat = await statRegularArtifact(path);
+    if (
+        BigInt(inspection.bytes) !== fileStat.size
+        || !isDeepStrictEqual(
+            createArtifactFileIdentity(beforeStat),
+            createArtifactFileIdentity(fileStat),
+        )
+        || !isSameArtifactStatWitness(
+            createArtifactStatWitness(beforeStat),
+            createArtifactStatWitness(fileStat),
+        )
+    ) {
+        throw new Error('Staged artifact changed while its receipt was being created');
+    }
     const leaseId = randomUUID();
     const artifact: ITypedStagedArtifact = {
         receiptVersion: 1,
@@ -129,25 +192,35 @@ export async function createTypedStagedArtifact(
         size: inspection.bytes,
         sha256: inspection.sha256,
         fileIdentity: createArtifactFileIdentity(fileStat),
-        validations,
+        validations: {
+            ...validations,
+            ...(validations.qpdfResult === undefined
+                ? {}
+                : {qpdfResult: {
+                    ...validations.qpdfResult,
+                    errors: [...validations.qpdfResult.errors],
+                    warnings: [...validations.qpdfResult.warnings],
+                }}),
+        },
         leaseId,
         revision: revisionSidecar?.token ?? null,
     };
+    const decodedArtifact = decodeTypedStagedArtifact(artifact);
+    if (decodedArtifact === null) {
+        throw new Error('Invalid staged artifact validation receipt');
+    }
+    const authoritativeArtifact = cloneTypedStagedArtifact(decodedArtifact);
     leases.set(leaseId, {
         ownerId: context.senderId,
         path,
         expiresAt: Date.now() + MANAGED_HANDLE_TTL_MS,
         cleanupOnRelease: options.cleanupOnRelease === true,
-        artifact,
-        statWitness: {
-            size: fileStat.size,
-            mtimeNs: fileStat.mtimeNs,
-            ctimeNs: fileStat.ctimeNs,
-        },
+        artifact: authoritativeArtifact,
+        statWitness: createArtifactStatWitness(fileStat),
         immutable: true,
     });
     ensureLeaseSweep();
-    return artifact;
+    return cloneTypedStagedArtifact(authoritativeArtifact);
 }
 
 export function releaseManagedTempFileHandle(
@@ -209,31 +282,90 @@ export async function resolveTypedStagedArtifact(
     ) {
         throw new Error('Staged artifact lease is missing, expired, altered, or belongs to another renderer');
     }
-    const [
-        inspection,
-        revisionSidecar,
-        fileStat,
-    ] = await Promise.all([
-        fingerprintFileWithUtilityProcess(artifact.path),
-        readWorkingCopyRevisionSidecar(artifact.path),
-        stat(artifact.path, {bigint: true}),
-    ]);
-    const revision = revisionSidecar?.token ?? null;
-    if (
-        inspection.bytes !== artifact.size
-        || inspection.sha256 !== artifact.sha256
-        || revision !== artifact.revision
-        || !isDeepStrictEqual(createArtifactFileIdentity(fileStat), artifact.fileIdentity)
-    ) {
+    let fileStat: BigIntStats;
+    try {
+        fileStat = await statRegularArtifact(lease.path);
+    } catch {
+        invalidateStagedArtifactLease(artifact.leaseId);
         throw new Error('Staged artifact content, identity, or revision changed after staging');
     }
-    lease.statWitness = {
-        size: fileStat.size,
-        mtimeNs: fileStat.mtimeNs,
-        ctimeNs: fileStat.ctimeNs,
-    };
+    const statWitness = createArtifactStatWitness(fileStat);
+    const identityMatches = isDeepStrictEqual(
+        createArtifactFileIdentity(fileStat),
+        lease.artifact.fileIdentity,
+    );
+    const witnessMatches = isSameArtifactStatWitness(statWitness, lease.statWitness);
+    const revisionSidecar = await readWorkingCopyRevisionSidecar(lease.path);
+    const revisionMatches = (revisionSidecar?.token ?? null) === lease.artifact.revision;
+    if (!identityMatches || !witnessMatches || !revisionMatches) {
+        invalidateStagedArtifactLease(artifact.leaseId);
+        throw new Error('Staged artifact content, identity, or revision changed after staging');
+    }
+    if (process.platform === 'win32') {
+        const inspection = await fingerprintFileWithUtilityProcess(lease.path);
+        if (
+            inspection.bytes !== lease.artifact.size
+            || inspection.sha256 !== lease.artifact.sha256
+        ) {
+            invalidateStagedArtifactLease(artifact.leaseId);
+            throw new Error('Staged artifact content, identity, or revision changed after staging');
+        }
+    }
     lease.expiresAt = Date.now() + MANAGED_HANDLE_TTL_MS;
-    return lease.artifact;
+    return cloneTypedStagedArtifact(lease.artifact);
+}
+
+export async function rebindTypedStagedArtifactPath(
+    context: IDocumentsSenderIdContext,
+    artifact: ITypedStagedArtifact,
+    nextFilePath: unknown,
+): Promise<ITypedStagedArtifact> {
+    sweepExpiredLeases();
+    const lease = leases.get(artifact.leaseId);
+    if (
+        !lease
+        || !('artifact' in lease)
+        || lease.ownerId !== context.senderId
+        || !isDeepStrictEqual(artifact, lease.artifact)
+    ) {
+        throw new Error('Staged artifact lease is missing, expired, altered, or belongs to another renderer');
+    }
+    const nextPath = await resolveExistingReadableBinaryPath(nextFilePath, context.senderId);
+    const [
+        fileStat,
+        revisionSidecar,
+    ] = await Promise.all([
+        statRegularArtifact(nextPath),
+        readWorkingCopyRevisionSidecar(nextPath),
+    ]);
+    const statWitness = createArtifactStatWitness(fileStat);
+    const witnessMatches = isSameArtifactStatWitness(statWitness, lease.statWitness);
+    if (
+        !isDeepStrictEqual(createArtifactFileIdentity(fileStat), lease.artifact.fileIdentity)
+        || (revisionSidecar?.token ?? null) !== lease.artifact.revision
+    ) {
+        invalidateStagedArtifactLease(artifact.leaseId);
+        throw new Error('Renamed staged artifact no longer matches its authoritative receipt');
+    }
+    if (!witnessMatches || process.platform === 'win32') {
+        const inspection = await fingerprintFileWithUtilityProcess(nextPath);
+        if (
+            inspection.bytes !== lease.artifact.size
+            || inspection.sha256 !== lease.artifact.sha256
+        ) {
+            invalidateStagedArtifactLease(artifact.leaseId);
+            throw new Error('Renamed staged artifact no longer matches its authoritative receipt');
+        }
+    }
+    const reboundArtifact = cloneTypedStagedArtifact({
+        ...lease.artifact,
+        path: nextPath,
+    });
+    lease.path = nextPath;
+    lease.artifact = cloneTypedStagedArtifact(reboundArtifact);
+    lease.statWitness = statWitness;
+    lease.expiresAt = Date.now() + MANAGED_HANDLE_TTL_MS;
+    return reboundArtifact;
 }
 
 export function clearManagedTempFileHandlesForTests() {
