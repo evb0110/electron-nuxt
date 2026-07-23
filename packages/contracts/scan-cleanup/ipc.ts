@@ -41,6 +41,19 @@ export interface IScanCleanupPreviewRequest extends IScanCleanupOwnerContext {
     documentCanvasPlan?: IScanCleanupDocumentCanvasPlan;
 }
 
+export interface IScanCleanupRawPreviewRequest extends IScanCleanupOwnerContext {
+    sourcePdfPath: string;
+    pageNumber: number;
+}
+
+export interface IScanCleanupRawPreviewResult {
+    pageNumber: number;
+    totalPages: number;
+    rawImageData: Uint8Array;
+    rawWidthPx: number;
+    rawHeightPx: number;
+}
+
 export interface IScanCleanupPreviewCancelRequest extends IScanCleanupOwnerContext {
     sourcePdfPath: string;
     invalidateRawCache?: boolean;
@@ -244,8 +257,9 @@ export type TScanCleanupDetectionStartResult =
 export interface IScanCleanupStartRequest extends IScanCleanupOwnerContext {
     sourcePdfPath: string;
     options: IScanCleanupOptions;
+    /** Ordered one-based source pages included in this output. Omitted means the full document. */
+    sourcePageNumbers?: number[];
     outputModeRecommendations?: Partial<Record<string, TScanCleanupOutputMode>>;
-    runOcrAfterCleanup?: boolean;
 }
 
 export interface IScanCleanupSummary {
@@ -272,7 +286,7 @@ export type TScanCleanupJobState =
         status: 'completed';
         outputPdfPath: string;
         summary: IScanCleanupSummary;
-        runOcrAfterCleanup: boolean
+        partial: boolean
     }
     | IScanCleanupJobBase & {status: 'canceled'}
     | IScanCleanupJobBase & {
@@ -295,6 +309,7 @@ export type TScanCleanupStartResult =
     };
 
 export interface IScanCleanupCapability {
+    previewRaw: (request: IScanCleanupRawPreviewRequest) => Promise<IScanCleanupRawPreviewResult>;
     preview: (request: IScanCleanupPreviewRequest) => Promise<IScanCleanupPreviewResult>;
     cancelPreview: (request: IScanCleanupPreviewCancelRequest) => Promise<boolean>;
     detectAll: (request: IScanCleanupDetectionRequest) => Promise<TScanCleanupDetectionStartResult>;

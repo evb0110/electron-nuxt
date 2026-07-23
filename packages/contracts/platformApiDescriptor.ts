@@ -141,6 +141,10 @@ const legacyMethodPaths = defineMethodPaths([
     ],
     [
         'scanCleanup',
+        'previewRaw',
+    ],
+    [
+        'scanCleanup',
         'cancelPreview',
     ],
     [

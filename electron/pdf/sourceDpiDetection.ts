@@ -9,6 +9,7 @@ export type TSourceDpiLog = (level: 'debug' | 'warn' | 'error', message: string)
 
 const PDFIMAGES_TIMEOUT_MS = 30 * 1000;
 const PDFIMAGES_MAX_CONTIGUOUS_PROBE_SPAN = 48;
+const PDFIMAGES_PROBE_CONCURRENCY = 4;
 
 export interface ISourceDpiDetectionResult {
     documentDpi: number | null;
@@ -20,6 +21,7 @@ interface IPdfImagesProbe {
     timeoutMs: number;
     label: string;
     contributesDocumentDpi: boolean;
+    pageUnits: number;
 }
 
 function getUniqueValidPages(pages: readonly number[] | undefined) {
@@ -93,6 +95,7 @@ function buildPdfImagesProbes(pdfPath: string, pages: readonly number[] | undefi
             timeoutMs: PDFIMAGES_TIMEOUT_MS,
             label: 'full-document',
             contributesDocumentDpi: true,
+            pageUnits: 1,
         }];
     }
 
@@ -108,6 +111,7 @@ function buildPdfImagesProbes(pdfPath: string, pages: readonly number[] | undefi
             timeoutMs: PDFIMAGES_TIMEOUT_MS,
             label: `${pageRange.firstPage}-${pageRange.lastPage}`,
             contributesDocumentDpi: true,
+            pageUnits: validPages.length,
         }];
     }
 
@@ -118,6 +122,7 @@ function buildPdfImagesProbes(pdfPath: string, pages: readonly number[] | undefi
             ? String(probeRange.firstPage)
             : `${probeRange.firstPage}-${probeRange.lastPage}`,
         contributesDocumentDpi: true,
+        pageUnits: probeRange.lastPage - probeRange.firstPage + 1,
     }));
 }
 
@@ -178,6 +183,7 @@ export async function detectSourceDpiDetails(
     commandEnv?: NodeJS.ProcessEnv,
     signal?: AbortSignal,
     pages?: readonly number[],
+    onProgress?: (completedPages: number, totalPages: number) => void,
 ): Promise<ISourceDpiDetectionResult> {
     if (!pdfimagesBinary) {
         return {
@@ -195,7 +201,10 @@ export async function detectSourceDpiDetails(
             pageDpiByNumber: new Map(),
         };
         const probes = buildPdfImagesProbes(pdfPath, pages);
-        for (const probe of probes) {
+        const totalPages = probes.reduce((total, probe) => total + probe.pageUnits, 0);
+        let nextProbeIndex = 0;
+        let completedPages = 0;
+        const runProbe = async (probe: IPdfImagesProbe) => {
             const commandOptions: IRunNativeToolCommandOptions = {
                 commandLabel: 'pdfimages(-list)',
                 timeoutMs: probe.timeoutMs,
@@ -224,8 +233,21 @@ export async function detectSourceDpiDetails(
                     throw signal.reason instanceof Error ? signal.reason : err;
                 }
                 log('debug', `pdfimages detection failed for pages ${probe.label}: ${getErrorMessage(err)}`);
+            } finally {
+                completedPages += probe.pageUnits;
+                onProgress?.(completedPages, totalPages);
             }
-        }
+        };
+        await Promise.all(Array.from(
+            {length: Math.min(PDFIMAGES_PROBE_CONCURRENCY, probes.length)},
+            async () => {
+                while (nextProbeIndex < probes.length) {
+                    const probeIndex = nextProbeIndex;
+                    nextProbeIndex += 1;
+                    await runProbe(probes[probeIndex]!);
+                }
+            },
+        ));
         return combinedResult;
     } catch (err) {
         if (signal?.aborted) {

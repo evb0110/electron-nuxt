@@ -16,7 +16,7 @@ vi.mock('@app/utils/getScanCleanupCapability', () => ({getScanCleanupCapability:
 
 function progress(processedCount = 0, totalPages = 4) {
     return {
-        stage: 'cleaning' as const,
+        stage: 'rendering' as const,
         completedUnits: processedCount,
         totalUnits: totalPages,
         percent: processedCount / totalPages * 100,
@@ -42,6 +42,7 @@ describe('scan cleanup run coordinator', () => {
         }>();
         capability.value = {
             preview: vi.fn(),
+            previewRaw: vi.fn(),
             cancelPreview: vi.fn(),
             detectAll: vi.fn(),
             cancelDetection: vi.fn(),
@@ -95,6 +96,7 @@ describe('scan cleanup run coordinator', () => {
         const toastAdd = vi.fn();
         capability.value = {
             preview: vi.fn(),
+            previewRaw: vi.fn(),
             cancelPreview: vi.fn(),
             detectAll: vi.fn(),
             cancelDetection: vi.fn(),
@@ -112,7 +114,6 @@ describe('scan cleanup run coordinator', () => {
         const coordinator = await import('@app/modules/scan-cleanup/runtime/scanCleanupRunCoordinator');
         const cleanup = coordinator.installScanCleanupRunCoordinator({
             openGeneratedPdf: vi.fn(),
-            runOcrOnActiveDocument: vi.fn(),
             saveActiveDocumentAs: vi.fn(),
             openScanCleanupForDocument: vi.fn(),
             getOpenPdfPaths: () => [],
@@ -140,6 +141,7 @@ describe('scan cleanup run coordinator', () => {
         let nextJob = 0;
         capability.value = {
             preview: vi.fn(),
+            previewRaw: vi.fn(),
             cancelPreview: vi.fn(),
             detectAll: vi.fn(),
             cancelDetection: vi.fn(),
@@ -167,14 +169,12 @@ describe('scan cleanup run coordinator', () => {
             onDetectionJobState: vi.fn(() => () => undefined),
         };
         const openGeneratedPdf = vi.fn(async () => true);
-        const runOcrOnActiveDocument = vi.fn(async () => true);
         const saveActiveDocumentAs = vi.fn(async () => true);
         const openScanCleanupForDocument = vi.fn(async () => true);
         const toastAdd = vi.fn();
         const coordinator = await import('@app/modules/scan-cleanup/runtime/scanCleanupRunCoordinator');
         const cleanup = coordinator.installScanCleanupRunCoordinator({
             openGeneratedPdf,
-            runOcrOnActiveDocument,
             saveActiveDocumentAs,
             openScanCleanupForDocument,
             getOpenPdfPaths: () => ['/managed/already-open.pdf'],
@@ -221,7 +221,7 @@ describe('scan cleanup run coordinator', () => {
                 blankPagesSkipped: 0,
                 warnings: [],
             },
-            runOcrAfterCleanup: false,
+            partial: false,
             progress: progress(4),
             updatedAtMs: Date.now(),
         });
@@ -266,7 +266,6 @@ describe('scan cleanup run coordinator', () => {
         });
         await vi.waitFor(() => expect(toastAdd).toHaveBeenCalledWith(expect.objectContaining({color: 'info'})));
         expect(openGeneratedPdf).toHaveBeenCalledOnce();
-        expect(runOcrOnActiveDocument).not.toHaveBeenCalled();
         cleanup();
     });
 
@@ -308,10 +307,11 @@ describe('scan cleanup run coordinator', () => {
         }, '/source/book.pdf', '/source/book.pdf', 6).size).toBe(0);
     });
 
-    it('starts OCR only after the cleaned document opens and reports the combined result', async () => {
+    it('makes partial-scope completion explicit in the result toast', async () => {
         let listener: (state: TScanCleanupJobState) => void = () => undefined;
         capability.value = {
             preview: vi.fn(),
+            previewRaw: vi.fn(),
             cancelPreview: vi.fn(),
             detectAll: vi.fn(),
             cancelDetection: vi.fn(),
@@ -319,8 +319,8 @@ describe('scan cleanup run coordinator', () => {
             subscribeDetectionJob: vi.fn(),
             start: vi.fn(async () => ({
                 started: true as const,
-                jobId: 'job-ocr',
-                outputPdfPath: '/managed/job-ocr.pdf',
+                jobId: 'job-partial',
+                outputPdfPath: '/managed/job-partial.pdf',
             })),
             cancel: vi.fn(async () => true),
             getJobState: vi.fn(async () => null),
@@ -338,18 +338,10 @@ describe('scan cleanup run coordinator', () => {
             }),
             onDetectionJobState: vi.fn(() => () => undefined),
         };
-        const order: string[] = [];
         const toastAdd = vi.fn();
         const coordinator = await import('@app/modules/scan-cleanup/runtime/scanCleanupRunCoordinator');
         const cleanup = coordinator.installScanCleanupRunCoordinator({
-            openGeneratedPdf: vi.fn(async () => {
-                order.push('open');
-                return true;
-            }),
-            runOcrOnActiveDocument: vi.fn(async () => {
-                order.push('ocr');
-                return true;
-            }),
+            openGeneratedPdf: vi.fn(async () => true),
             saveActiveDocumentAs: vi.fn(),
             getOpenPdfPaths: () => [],
             t: ((key: string) => key) as never,
@@ -359,10 +351,10 @@ describe('scan cleanup run coordinator', () => {
             ...ownerContext,
             sourcePdfPath: '/source/book.pdf',
             options: expect.anything() as never,
-            runOcrAfterCleanup: true,
+            sourcePageNumbers: [3],
         });
         listener({
-            jobId: 'job-ocr',
+            jobId: 'job-partial',
             status: 'completed',
             outputPdfPath: '/managed/book-cleaned.pdf',
             summary: {
@@ -376,22 +368,21 @@ describe('scan cleanup run coordinator', () => {
                 blankPagesSkipped: 0,
                 warnings: [],
             },
-            runOcrAfterCleanup: true,
+            partial: true,
             progress: progress(1, 1),
             updatedAtMs: Date.now(),
         });
-        await vi.waitFor(() => expect(toastAdd).toHaveBeenCalledWith(expect.objectContaining({title: 'scanCleanup.completedAndOcrTitle'})));
-        expect(order).toEqual([
-            'open',
-            'ocr',
-        ]);
+        await vi.waitFor(() => expect(toastAdd).toHaveBeenCalledWith(
+            expect.objectContaining({title: 'scanCleanup.completedPartialTitle'}),
+        ));
         cleanup();
     });
 
-    it('contains generated-document open failures and reports them without starting OCR', async () => {
+    it('contains generated-document open failures and reports them', async () => {
         let listener: (state: TScanCleanupJobState) => void = () => undefined;
         capability.value = {
             preview: vi.fn(),
+            previewRaw: vi.fn(),
             cancelPreview: vi.fn(),
             detectAll: vi.fn(),
             cancelDetection: vi.fn(),
@@ -421,12 +412,10 @@ describe('scan cleanup run coordinator', () => {
         const openGeneratedPdf = vi.fn(async () => {
             throw new Error('Invalid or non-existent file');
         });
-        const runOcrOnActiveDocument = vi.fn(async () => true);
         const toastAdd = vi.fn();
         const coordinator = await import('@app/modules/scan-cleanup/runtime/scanCleanupRunCoordinator');
         const cleanup = coordinator.installScanCleanupRunCoordinator({
             openGeneratedPdf,
-            runOcrOnActiveDocument,
             saveActiveDocumentAs: vi.fn(),
             getOpenPdfPaths: () => [],
             t: ((key: string) => key) as never,
@@ -436,7 +425,6 @@ describe('scan cleanup run coordinator', () => {
             ...ownerContext,
             sourcePdfPath: '/source/book.pdf',
             options: expect.anything() as never,
-            runOcrAfterCleanup: true,
         });
         listener({
             jobId: 'job-open-failure',
@@ -453,7 +441,7 @@ describe('scan cleanup run coordinator', () => {
                 blankPagesSkipped: 0,
                 warnings: [],
             },
-            runOcrAfterCleanup: true,
+            partial: false,
             progress: progress(1, 1),
             updatedAtMs: Date.now(),
         });
@@ -463,7 +451,6 @@ describe('scan cleanup run coordinator', () => {
             title: 'scanCleanup.openResultFailed',
         })));
         expect(openGeneratedPdf).toHaveBeenCalledWith('/managed/missing.pdf');
-        expect(runOcrOnActiveDocument).not.toHaveBeenCalled();
         cleanup();
     });
 
@@ -484,13 +471,14 @@ describe('scan cleanup run coordinator', () => {
                 blankPagesSkipped: 0,
                 warnings: [],
             },
-            runOcrAfterCleanup: false,
+            partial: false,
             progress: progress(1, 1),
             updatedAtMs: Date.now(),
         };
         const subscribeJob = vi.fn(async () => completed);
         capability.value = {
             preview: vi.fn(),
+            previewRaw: vi.fn(),
             cancelPreview: vi.fn(),
             detectAll: vi.fn(),
             cancelDetection: vi.fn(),
@@ -519,7 +507,6 @@ describe('scan cleanup run coordinator', () => {
         const coordinator = await import('@app/modules/scan-cleanup/runtime/scanCleanupRunCoordinator');
         const cleanup = coordinator.installScanCleanupRunCoordinator({
             openGeneratedPdf,
-            runOcrOnActiveDocument: vi.fn(async () => false),
             saveActiveDocumentAs: vi.fn(),
             getOpenPdfPaths: () => [],
             t: ((key: string) => key) as never,
@@ -543,7 +530,6 @@ describe('scan cleanup run coordinator', () => {
         const coordinator = await import('@app/modules/scan-cleanup/runtime/scanCleanupRunCoordinator');
         const dependencies = {
             openGeneratedPdf: vi.fn(async () => true),
-            runOcrOnActiveDocument: vi.fn(async () => false),
             saveActiveDocumentAs: vi.fn(),
             getOpenPdfPaths: () => [],
             t: ((key: string) => key) as never,
@@ -553,6 +539,7 @@ describe('scan cleanup run coordinator', () => {
         const onJobState = vi.fn(() => () => undefined);
         capability.value = {
             preview: vi.fn(),
+            previewRaw: vi.fn(),
             cancelPreview: vi.fn(),
             detectAll: vi.fn(),
             cancelDetection: vi.fn(),

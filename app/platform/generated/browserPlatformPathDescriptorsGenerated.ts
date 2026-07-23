@@ -24,6 +24,7 @@ export const browserPlatformPathDescriptorsGenerated = {
     },
     scanCleanup: {
         preview: {kind: 'async', path: ["scanCleanup","preview"]},
+        previewRaw: {kind: 'async', path: ["scanCleanup","previewRaw"]},
         cancelPreview: {kind: 'async', path: ["scanCleanup","cancelPreview"]},
         detectAll: {kind: 'async', path: ["scanCleanup","detectAll"]},
         cancelDetection: {kind: 'async', path: ["scanCleanup","cancelDetection"]},

@@ -64,7 +64,6 @@ vi.mock('@app/modules/scan-cleanup/composables/useScanCleanupWorkspaceSession', 
             outputItems: session.outputItems,
             readingOrderItems: session.readingOrderItems,
             resetPageOverrides: session.resetPageOverrides,
-            runOcrAfterCleanup: session.runOcrAfterCleanup,
             showFirstRunGuidance: session.showFirstRunGuidance,
             thicknessLabel: session.thicknessLabel,
             updateMargin: session.updateDocumentMargin ?? vi.fn(),
@@ -147,6 +146,7 @@ vi.mock('@app/modules/scan-cleanup/composables/useScanCleanupWorkspaceSession', 
             error: session.previewError,
             loading: session.previewLoading,
             navigate: session.navigatePreview,
+            rawResult: session.previewRawResult ?? ref(null),
             result: session.previewResult,
             retry: session.retryPreview,
             totalPages: session.previewTotalPages,
@@ -162,6 +162,7 @@ vi.mock('@app/modules/scan-cleanup/composables/useScanCleanupWorkspaceSession', 
             processedPages: session.processedPages,
             progress: session.jobProgress,
             progressText: session.progressText,
+            runLabel: session.runLabel ?? ref('Clean up'),
             runDisabledReason: session.runDisabledReason ?? ref(''),
             run: session.run,
             transitionText: session.transitionText ?? ref(''),
@@ -207,7 +208,6 @@ const translations: Record<string, string> = {
     'scanCleanup.contentPreserved': 'Output preserves original page content.',
     'scanCleanup.workspaceTitle': 'Scan cleanup',
     'scanCleanup.button': 'Scan cleanup',
-    'scanCleanup.runningLabel': 'Scan cleanup running, {processed} of {total}',
     'scanCleanup.description': 'Clean scanned pages.',
     'scanCleanup.done': 'Done',
     'scanCleanup.settings.scope.label': 'Settings scope',
@@ -856,7 +856,7 @@ function createWorkspaceEntrySession(overrides: Record<string, unknown> = {}) {
         resetPageOverrides: vi.fn(),
         retryPreview: vi.fn(),
         run: vi.fn(),
-        runOcrAfterCleanup: ref(false),
+        runLabel: ref('Clean up'),
         selectedPages: ref<ReadonlySet<number>>(new Set([1])),
         selectionContentBoxes: ref({
             empty: false,
@@ -1198,7 +1198,7 @@ describe('Scan cleanup components', () => {
             resetPageOverrides: vi.fn(),
             retryPreview: vi.fn(),
             run: vi.fn(),
-            runOcrAfterCleanup: ref(false),
+            runLabel: ref('Clean up'),
             showFirstRunGuidance: ref(false),
             dismissFirstRunGuidance: vi.fn(),
             selectedPages,
@@ -1330,7 +1330,8 @@ describe('Scan cleanup components', () => {
         };
         progressText.value = 'Processed 3 of 12 source pages';
         await nextTick();
-        expect(harness.host.querySelector('.scan-cleanup-toolbar')?.textContent).toContain('3 / 12');
+        expect(harness.host.querySelector('.scan-cleanup-toolbar')?.textContent)
+            .toContain('Processed 3 of 12 source pages');
         expect(harness.host.querySelector('.scan-cleanup-toolbar-progress')).not.toBeNull();
         expect(harness.host.querySelector('.scan-cleanup-header')).toBeNull();
         expect(harness.host.querySelector('.scan-cleanup-footer')).toBeNull();
@@ -1404,7 +1405,6 @@ describe('Scan cleanup components', () => {
             canDetectAll: !state.detecting,
             canRun: true,
             cancelRequested: false,
-            cleanupTotal: 120,
             detectionCancelRequested: false,
             detectionError: '',
             detectionProgressText: 'Analyzing 17 / 120',
@@ -1412,10 +1412,9 @@ describe('Scan cleanup components', () => {
             isRunning: state.running,
             outputEstimate: '120 source pages → about 145 output pages',
             percent: 42,
-            processedCount: 51,
-            progressText: 'Processed 51 of 120 source pages',
+            progressText: 'Rendering 51 / 120',
+            runLabel: 'Clean up',
             runDisabledReason: '',
-            runOcrAfterCleanup: false,
             transitionText: '',
         })));
         const widths = () => Array.from(harness.host.querySelectorAll<HTMLElement>('.scan-cleanup-toolbar-zone'))
@@ -1583,7 +1582,7 @@ describe('Scan cleanup components', () => {
             resetSelectionManualSplit: vi.fn(),
             retryPreview: vi.fn(),
             run: vi.fn(),
-            runOcrAfterCleanup: ref(false),
+            runLabel: ref('Clean up'),
             showFirstRunGuidance: ref(false),
             dismissFirstRunGuidance: vi.fn(),
             selectedPages: ref(new Set([
@@ -1786,6 +1785,44 @@ describe('Scan cleanup components', () => {
         expect(Array.from(errorState?.children ?? [])
             .filter(child => child.tagName !== 'DETAILS')
             .some(child => child.textContent?.includes(rawError))).toBe(false);
+    });
+
+    it('keeps Original renderable and confines a cleaned-preview failure to Cleaned', async () => {
+        const viewMode = ref<'original' | 'cleaned'>('original');
+        const harness = mount(defineComponent({setup: () => () => h(ScanCleanupPreviewPane, {
+            result: null,
+            rawResult: {
+                pageNumber: 1,
+                totalPages: 3,
+                rawImageData: new Uint8Array([1]),
+                rawWidthPx: 100,
+                rawHeightPx: 150,
+            },
+            loading: false,
+            error: 'invalid cleaned preview metadata',
+            viewMode: viewMode.value,
+            matchPageSize: true,
+            alignment: 'top-center',
+            pageNumber: 1,
+            totalPages: 3,
+            manualSplit: null,
+            readingOrder: 'ltr',
+        })}));
+
+        expect(harness.host.querySelector('[data-testid="scan-cleanup-original-only"]')).not.toBeNull();
+        expect(harness.host.querySelector('[role="alert"]')).toBeNull();
+        const reservedLegend = harness.host.querySelector('.overlay-legend');
+        expect(reservedLegend?.classList).toContain('is-space-reserved');
+
+        viewMode.value = 'cleaned';
+        await nextTick();
+
+        expect(harness.host.querySelector('[data-testid="scan-cleanup-original-only"]')).toBeNull();
+        expect(harness.host.querySelector('[role="alert"]')?.textContent)
+            .toContain('Preview isn\'t available. You can still run cleanup.');
+        const visibleLegend = harness.host.querySelector('.overlay-legend');
+        expect(visibleLegend).toBe(reservedLegend);
+        expect(visibleLegend?.classList).not.toContain('is-space-reserved');
     });
 
     it('shows dismissible first-run guidance inline over the reserved preview surface', () => {

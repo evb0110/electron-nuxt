@@ -127,6 +127,13 @@ function capabilityHarness() {
     let detectionListener: (state: TScanCleanupDetectionJobState) => void = () => undefined;
     let runListener: (state: TScanCleanupJobState) => void = () => undefined;
     const value: IScanCleanupCapability = {
+        previewRaw: vi.fn(async request => ({
+            pageNumber: request.pageNumber,
+            totalPages: 3,
+            rawImageData: new Uint8Array([1]),
+            rawWidthPx: 1,
+            rawHeightPx: 1,
+        })),
         preview: vi.fn(async () => {
             throw new DOMException('Superseded', 'AbortError');
         }),
@@ -217,6 +224,7 @@ describe('scan cleanup workspace session detection guidance', () => {
         const mounted = mountSession(`scope-selection-${Date.now()}`);
 
         expect(mounted.session.selection.settingsScope.value).toBe('all');
+        expect(mounted.session.run.runLabel.value).toBe('scanCleanup.cleanUp');
         mounted.session.selection.selectPage(2, 'single', [
             1,
             2,
@@ -235,6 +243,7 @@ describe('scan cleanup workspace session detection guidance', () => {
         ]));
         expect(mounted.session.selection.settingsScope.value).toBe('selected');
         expect(mounted.session.selection.highlightedScope.value).toBe('selected');
+        expect(mounted.session.run.runLabel.value).toBe('scanCleanup.cleanUpPages');
 
         mounted.session.selection.selectPage(2, 'single', [
             1,
@@ -244,6 +253,7 @@ describe('scan cleanup workspace session detection guidance', () => {
         expect(mounted.session.selection.selectedPages.value).toEqual(new Set([2]));
         expect(mounted.session.selection.settingsScope.value).toBe('page');
         expect(mounted.session.selection.highlightedScope.value).toBe('page');
+        expect(mounted.session.run.runLabel.value).toBe('scanCleanup.cleanUpPage');
 
         mounted.session.selection.setSettingsScope('all');
         mounted.session.selection.selectPage(1, 'single', [
@@ -500,7 +510,7 @@ describe('scan cleanup workspace session detection guidance', () => {
         mounted.session.settings.values.outputMode = 'mixed';
         mounted.session.settings.values.thickness = 2;
         mounted.session.settings.values.marginsMm.leftMm = 7;
-        mounted.session.settings.runOcrAfterCleanup.value = true;
+        mounted.session.selection.setSettingsScope('page');
         const canceling = {
             ...detectionState('detect-1', 'queued'),
             status: 'canceling' as const,
@@ -530,7 +540,6 @@ describe('scan cleanup workspace session detection guidance', () => {
         mounted.session.settings.values.outputMode = 'color';
         mounted.session.settings.values.thickness = -3;
         mounted.session.settings.values.marginsMm.leftMm = 12;
-        mounted.session.settings.runOcrAfterCleanup.value = false;
         harness.emitDetection({
             ...detectionState('detect-1', 'canceled'),
             results: [],
@@ -547,7 +556,7 @@ describe('scan cleanup workspace session detection guidance', () => {
                 thickness: 2,
                 marginsMm: expect.objectContaining({leftMm: 7}),
             }),
-            runOcrAfterCleanup: true,
+            sourcePageNumbers: [1],
         }));
         mounted.unmount();
     });

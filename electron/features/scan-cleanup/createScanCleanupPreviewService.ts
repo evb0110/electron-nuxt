@@ -17,6 +17,8 @@ import type {
     IScanCleanupOwnerContext,
     IScanCleanupPreviewMetadata,
     IScanCleanupPreviewCancelRequest,
+    IScanCleanupRawPreviewRequest,
+    IScanCleanupRawPreviewResult,
     IScanCleanupPreviewRequest,
     IScanCleanupPreviewResult,
     TScanCleanupDetectionStartResult,
@@ -82,6 +84,12 @@ interface IPreviewEntry {
     controller: AbortController;
     generation: number;
     tail: Promise<IScanCleanupPreviewResult>;
+}
+
+interface IRawPreviewEntry {
+    controller: AbortController;
+    generation: number;
+    tail: Promise<IScanCleanupRawPreviewResult>;
 }
 
 interface IDetectionJob {
@@ -438,6 +446,39 @@ async function runPreview(
     }
 }
 
+async function runRawPreview(
+    request: IScanCleanupRawPreviewRequest,
+    signal: AbortSignal,
+    rawCache: Map<string, IRawPreview>,
+    dependencies: IScanCleanupPreviewDependencies,
+): Promise<IScanCleanupRawPreviewResult> {
+    if (!isAbsolute(request.sourcePdfPath)) throw new Error('Scan cleanup preview requires an absolute source path');
+    if (signal.aborted) throw signal.reason;
+    const scratch = await mkdtemp(join(dependencies.getTempDir(), 'scan-cleanup-raw-preview-'));
+    try {
+        const raw = await materializeRawRaster(
+            request,
+            request.pageNumber,
+            join(scratch, 'source.png'),
+            signal,
+            rawCache,
+            dependencies,
+        );
+        return {
+            pageNumber: request.pageNumber,
+            totalPages: raw.totalPages,
+            rawImageData: raw.bytes,
+            rawWidthPx: raw.width,
+            rawHeightPx: raw.height,
+        };
+    } finally {
+        await rm(scratch, {
+            recursive: true,
+            force: true,
+        });
+    }
+}
+
 async function mapDetectionPages<T>(
     pages: readonly number[],
     task: (pageNumber: number) => Promise<T>,
@@ -613,6 +654,7 @@ async function runDetection(
 }
 
 export interface IScanCleanupPreviewService {
+    previewRaw: (sender: IScanCleanupDetectionSubscriber, request: IScanCleanupRawPreviewRequest) => Promise<IScanCleanupRawPreviewResult>;
     preview: (sender: IScanCleanupDetectionSubscriber, request: IScanCleanupPreviewRequest) => Promise<IScanCleanupPreviewResult>;
     cancel: (sender: IScanCleanupDetectionSubscriber, request: IScanCleanupPreviewCancelRequest) => boolean;
     detectAll: (sender: IScanCleanupDetectionSubscriber, request: IScanCleanupDetectionRequest) => Promise<TScanCleanupDetectionStartResult>;
@@ -625,6 +667,7 @@ export function createScanCleanupPreviewService(
     dependencies: IScanCleanupPreviewDependencies = defaultDependencies,
 ): IScanCleanupPreviewService {
     const active = new Map<string, IPreviewEntry>();
+    const activeRaw = new Map<string, IRawPreviewEntry>();
     const rawCache = new Map<string, IRawPreview>();
     const detectionJobs = createOwnerScopedJobRegistry<IScanCleanupDetectionSubscriber, IDetectionJob>();
     const publishDetection = (job: IDetectionJob, state: TScanCleanupDetectionJobState) => {
@@ -639,6 +682,24 @@ export function createScanCleanupPreviewService(
         ].includes(state.status)) detectionJobs.expireTerminal(state.jobId);
     };
     return {
+        previewRaw(sender, request) {
+            const activeKey = `${sender.id}\u0000${request.ownerId}\u0000${request.documentRevision}\u0000${request.sourcePdfPath}`;
+            const previous = activeRaw.get(activeKey);
+            previous?.controller.abort(new DOMException('Superseded scan cleanup raw preview', 'AbortError'));
+            const controller = new AbortController();
+            const generation = (previous?.generation ?? 0) + 1;
+            const priorTail = previous?.tail.catch(() => undefined) ?? Promise.resolve();
+            const tail = priorTail.then(() => runRawPreview(request, controller.signal, rawCache, dependencies));
+            activeRaw.set(activeKey, {
+                controller,
+                generation,
+                tail,
+            });
+            void tail.finally(() => {
+                if (activeRaw.get(activeKey)?.generation === generation) activeRaw.delete(activeKey);
+            }).catch(() => undefined);
+            return tail;
+        },
         preview(sender, request) {
             const activeKey = `${sender.id}\u0000${request.ownerId}\u0000${request.documentRevision}\u0000${request.sourcePdfPath}`;
             const ownerPrefix = `${sender.id}\u0000${request.ownerId}\u0000`;
@@ -670,6 +731,8 @@ export function createScanCleanupPreviewService(
             const activeKey = `${sender.id}\u0000${request.ownerId}\u0000${request.documentRevision}\u0000${request.sourcePdfPath}`;
             const entry = active.get(activeKey);
             entry?.controller.abort(new DOMException('Canceled scan cleanup preview', 'AbortError'));
+            const rawEntry = activeRaw.get(activeKey);
+            rawEntry?.controller.abort(new DOMException('Canceled scan cleanup raw preview', 'AbortError'));
             if (request.invalidateRawCache !== false) {
                 for (const [
                     key,
@@ -680,7 +743,7 @@ export function createScanCleanupPreviewService(
                     }
                 }
             }
-            return Boolean(entry);
+            return Boolean(entry ?? rawEntry);
         },
         detectAll(sender, request) {
             const jobId = `scan-cleanup-detect-${randomUUID()}`;

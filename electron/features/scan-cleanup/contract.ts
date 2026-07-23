@@ -3,6 +3,7 @@ import type {
     IScanCleanupDetectionRequest,
     IScanCleanupOwnerContext,
     IScanCleanupPreviewCancelRequest,
+    IScanCleanupRawPreviewRequest,
     IScanCleanupPreviewRequest,
     IScanCleanupStartRequest,
     TScanCleanupJobState,
@@ -10,6 +11,7 @@ import type {
 } from '@contracts/electronApiScanCleanup';
 
 export const SCAN_CLEANUP_CHANNELS = {
+    previewRaw: 'scan-cleanup:preview:raw',
     preview: 'scan-cleanup:preview',
     cancelPreview: 'scan-cleanup:preview:cancel',
     detectAll: 'scan-cleanup:detect-all',
@@ -30,6 +32,10 @@ export const SCAN_CLEANUP_EVENT_CHANNELS = {
 } as const;
 
 export interface IScanCleanupInvokeMap {
+    [SCAN_CLEANUP_CHANNELS.previewRaw]: {
+        args: [request: IScanCleanupRawPreviewRequest];
+        result: Awaited<ReturnType<IScanCleanupCapability['previewRaw']>>;
+    };
     [SCAN_CLEANUP_CHANNELS.preview]: {
         args: [request: IScanCleanupPreviewRequest];
         result: Awaited<ReturnType<IScanCleanupCapability['preview']>>;

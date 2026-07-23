@@ -110,6 +110,8 @@ function dependencies(dir: string): IScanCleanupPreviewDependencies {
             await writeFile(page.pageMetadataPath, JSON.stringify({
                 canvasScope: 'page',
                 layoutClassification: 'single-uncut-page',
+                detectedSkewDegrees: 0.4,
+                skewConfidence: 2.4,
                 cutterXPx: null,
                 rotationDegrees: 0,
                 excluded: false,
@@ -122,6 +124,9 @@ function dependencies(dir: string): IScanCleanupPreviewDependencies {
                 half: 'full',
                 layoutClassification: 'single-uncut-page',
                 layoutConfidence: 0.9,
+                detectedSkewDegrees: 0.4,
+                skewConfidence: 2.4,
+                skewApplied: true,
                 sourceRegion: {
                     xPx: 0,
                     yPx: 0,
@@ -423,7 +428,10 @@ describe('scan cleanup preview', () => {
             documentRevision: request.documentRevision,
             sourcePdfPath: request.sourcePdfPath,
             options,
-            runOcrAfterCleanup: true,
+            sourcePageNumbers: [
+                1,
+                3,
+            ],
         };
 
         expect(() => structuredClone(previewRequest)).not.toThrow();
@@ -467,7 +475,7 @@ describe('scan cleanup preview', () => {
             jobId: 'job-1',
             status: 'running',
             progress: {
-                stage: 'cleaning',
+                stage: 'rendering',
                 completedUnits: 2,
                 totalUnits: 1,
                 percent: 50,
@@ -515,6 +523,7 @@ describe('scan cleanup preview', () => {
             rawHeightPx: 1,
             outputs: [{metadata: {
                 half: 'full',
+                skewConfidence: 2.4,
                 illuminationNormalized: true,
                 despeckleFallback: true,
                 contentDiagnostics: {
@@ -531,7 +540,41 @@ describe('scan cleanup preview', () => {
                     }],
                 },
             }}],
+            pageMetadata: {skewConfidence: 2.4},
         });
+    });
+
+    it('accepts unbounded nonnegative skew evidence and rejects invalid values at both metadata boundaries', async () => {
+        const dir = await setup();
+        const result = await createScanCleanupPreviewService(dependencies(dir)).preview(sender(), request);
+        expect(decodeScanCleanupPreviewResult(result)).toMatchObject({
+            outputs: [{metadata: {skewConfidence: 2.4}}],
+            pageMetadata: {skewConfidence: 2.4},
+        });
+
+        for (const invalid of [
+            -0.01,
+            Number.NaN,
+            Number.POSITIVE_INFINITY,
+        ]) {
+            expect(() => decodeScanCleanupPreviewResult({
+                ...result,
+                outputs: result.outputs.map(output => ({
+                    ...output,
+                    metadata: {
+                        ...output.metadata,
+                        skewConfidence: invalid,
+                    },
+                })),
+            })).toThrow('invalid scan-cleanup preview skew confidence');
+            expect(() => decodeScanCleanupPreviewResult({
+                ...result,
+                pageMetadata: {
+                    ...result.pageMetadata,
+                    skewConfidence: invalid,
+                },
+            })).toThrow('invalid scan-cleanup preview page skew confidence');
+        }
     });
 
     it('uses an intrinsic provisional frame before detect-all supplies a canvas plan', async () => {
@@ -739,6 +782,24 @@ describe('scan cleanup preview', () => {
             },
         });
         expect(deps.renderPage).toHaveBeenCalledTimes(2);
+    });
+
+    it('keeps the independently cached raw preview available when cleaned rendering fails', async () => {
+        const dir = await setup();
+        const deps = dependencies(dir);
+        deps.runSidecar = vi.fn(async () => {
+            throw new Error('invalid cleaned preview');
+        });
+        const service = createScanCleanupPreviewService(deps);
+
+        await expect(service.previewRaw(sender(), request)).resolves.toMatchObject({
+            pageNumber: 1,
+            totalPages: 3,
+            rawWidthPx: 1,
+            rawHeightPx: 1,
+        });
+        await expect(service.preview(sender(), request)).rejects.toThrow('invalid cleaned preview');
+        expect(deps.renderPage).toHaveBeenCalledOnce();
     });
 
     it('invalidates a stale raw raster when the document revision changes', async () => {
@@ -1006,7 +1067,7 @@ describe('scan cleanup preview', () => {
                 3,
             ]) {
                 onProgress({
-                    stage: 'cleaning',
+                    stage: 'rendering',
                     completedUnits: pageNumber,
                     totalUnits: 3,
                     percent: pageNumber / 3 * 100,

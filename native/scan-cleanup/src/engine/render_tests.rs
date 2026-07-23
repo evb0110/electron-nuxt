@@ -813,6 +813,39 @@ mod tests {
     }
 
     #[test]
+    fn no_deskew_evidence_serializes_zeroes_and_omits_manual_skew() {
+        let source = GrayImage::new(240, 180, 255);
+        let output = clean_page(
+            &source,
+            &CleanupOptions {
+                dpi: 150.0,
+                normalize_illumination: false,
+                output_mode: OutputMode::Grayscale,
+                crop_content: false,
+                match_page_size: false,
+                margins_mm: None,
+                margins_pixels: Some([0.0; 4]),
+                layout: crate::LayoutMode::Single,
+                ..CleanupOptions::default()
+            },
+            0,
+        )
+        .unwrap()
+        .outputs
+        .remove(0);
+
+        assert_eq!(output.metadata.detected_skew_degrees, 0.0);
+        assert_eq!(output.metadata.skew_confidence, 0.0);
+        assert!(!output.metadata.skew_applied);
+        assert!(!output.metadata.manual_skew);
+        let serialized = serde_json::to_value(&output.metadata).unwrap();
+        assert_eq!(serialized["detectedSkewDegrees"], 0.0);
+        assert_eq!(serialized["skewConfidence"], 0.0);
+        assert_eq!(serialized["skewApplied"], false);
+        assert!(serialized.get("manualSkew").is_none());
+    }
+
+    #[test]
     fn deskew_dewarp_and_crop_share_one_composed_mapping() {
         let source = rotated_text_page(3.0);
         let output = clean_page(

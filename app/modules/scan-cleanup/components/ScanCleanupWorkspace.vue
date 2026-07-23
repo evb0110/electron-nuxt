@@ -8,7 +8,6 @@
             :can-detect-all="canDetectAll"
             :can-run="canRun"
             :cancel-requested="cancelRequested"
-            :cleanup-total="cleanupProgressTotal"
             :detection-cancel-requested="detectionCancelRequested"
             :detection-error="detectionError"
             :detection-progress-text="detectionProgressText"
@@ -16,10 +15,9 @@
             :is-running="isRunning"
             :output-estimate="outputEstimate"
             :percent="jobProgress.percent"
-            :processed-count="jobProgress.completedUnits"
             :progress-text="progressText"
+            :run-label="runLabel"
             :run-disabled-reason="runDisabledReason"
-            :run-ocr-after-cleanup="runOcrAfterCleanup"
             :zone-editing="zoneEditing"
             :transition-text="transitionText"
             @cancel="cancel"
@@ -27,7 +25,6 @@
             @detect-all="detectAllPages"
             @done="done"
             @run="run"
-            @update:run-ocr-after-cleanup="runOcrAfterCleanup = $event"
             @update:zone-editing="zoneEditing = $event"
         />
     </Teleport>
@@ -145,6 +142,7 @@
             <div class="scan-cleanup-preview-hero">
                 <ScanCleanupPreviewPane
                     :result="previewResult"
+                    :raw-result="previewRawResult"
                     :loading="previewLoading"
                     :error="previewError"
                     :source="pageSource"
@@ -256,7 +254,6 @@ const {
     outputItems,
     readingOrderItems,
     resetPageOverrides,
-    runOcrAfterCleanup,
     showFirstRunGuidance,
     dismissFirstRunGuidance,
     thicknessLabel,
@@ -316,6 +313,7 @@ const {
     metadataByPage: previewMetadataByPage,
     navigate: navigatePreview,
     result: previewResult,
+    rawResult: previewRawResult,
     resultCurrent: previewResultCurrent = computed(() => true),
     retry: retryPreview,
     totalPages: previewTotalPages,
@@ -331,6 +329,7 @@ const {
     processedPages,
     progress: jobProgress,
     progressText,
+    runLabel,
     runDisabledReason,
     run,
     transitionText,
@@ -354,7 +353,6 @@ watch(() => [
 ], () => {
     blankPageHintDismissed.value = false;
 });
-const cleanupProgressTotal = computed(() => Math.max(jobProgress.value.totalUnits, previewTotalPages.value));
 const allPageNumbers = computed(() => Array.from(
     {length: Math.max(1, previewTotalPages.value)},
     (_, index) => index + 1,

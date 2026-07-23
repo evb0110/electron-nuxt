@@ -1,9 +1,6 @@
 import type {IScanCleanupOptions} from '@contracts/electronApiScanCleanup';
 import type {TDocumentRef} from '@contracts/documentRef';
-import type {
-    ComputedRef,
-    Ref,
-} from 'vue';
+import type {ComputedRef} from 'vue';
 import {getScanCleanupPageOverride} from '@contracts/scanCleanupPageOverrides';
 import {
     cancelScanCleanup,
@@ -28,7 +25,7 @@ interface IUseScanCleanupRunSessionOptions {
     onCompleted: () => void;
     ownerId: string;
     previewTotalPages: () => number;
-    runOcrAfterCleanup: ComputedRef<boolean> | Ref<boolean>;
+    sourcePageNumbers: ComputedRef<number[] | null>;
     settings: IScanCleanupOptions;
     recommendedOutputModeByPage: ReadonlyMap<number, 'bw' | 'mixed' | 'grayscale' | 'color'>;
     sourcePath: ComputedRef<TDocumentRef | null>;
@@ -42,10 +39,13 @@ export const useScanCleanupRunSession = (options: IUseScanCleanupRunSessionOptio
     const cancelRequested = computed(() => scanCleanupRun.ownerId === options.ownerId
         && scanCleanupRun.jobState?.status === 'canceling');
     const inlineError = computed(() => options.active() ? getScanCleanupRunError(options.ownerId) : '');
-    const hasIncludedPage = computed(() => Array.from(
-        {length: Math.max(1, options.totalPages.value)},
-        (_, index) => index + 1,
-    ).some(page => !getScanCleanupPageOverride(options.settings.pageOverrides, page).excluded));
+    const runPageNumbers = computed(() => options.sourcePageNumbers.value
+        ?? Array.from(
+            {length: Math.max(1, options.totalPages.value)},
+            (_, index) => index + 1,
+        ));
+    const hasIncludedPage = computed(() => runPageNumbers.value
+        .some(page => !getScanCleanupPageOverride(options.settings.pageOverrides, page).excluded));
     const marginsAreValid = computed(() => Object.values(options.settings.marginsMm).every(margin => (
         Number.isFinite(margin)
         && margin >= 0
@@ -54,7 +54,7 @@ export const useScanCleanupRunSession = (options: IUseScanCleanupRunSessionOptio
     const progress = computed(() => scanCleanupRun.jobState?.progress ?? {
         stage: 'queued' as const,
         completedUnits: 0,
-        totalUnits: Math.max(1, options.totalPages.value),
+        totalUnits: runPageNumbers.value.length,
         percent: 0,
         completedPageNumbers: [],
     });
@@ -93,10 +93,15 @@ export const useScanCleanupRunSession = (options: IUseScanCleanupRunSessionOptio
         }
         return '';
     });
-    const progressText = computed(() => t('scanCleanup.progress', {
-        processed: progress.value.completedUnits,
-        total: Math.max(progress.value.totalUnits, options.previewTotalPages()),
+    const progressText = computed(() => t(`scanCleanup.runProgress.${progress.value.stage}`, {
+        completed: progress.value.completedUnits,
+        total: progress.value.totalUnits,
     }));
+    const runLabel = computed(() => options.sourcePageNumbers.value === null
+        ? t('scanCleanup.cleanUp')
+        : options.sourcePageNumbers.value.length === 1
+            ? t('scanCleanup.cleanUpPage', {page: options.sourcePageNumbers.value[0] ?? 1})
+            : t('scanCleanup.cleanUpPages', {count: options.sourcePageNumbers.value.length}));
 
     async function run() {
         if (!options.sourcePath.value || !canRun.value) {
@@ -107,10 +112,12 @@ export const useScanCleanupRunSession = (options: IUseScanCleanupRunSessionOptio
             ownerId: options.ownerId,
             documentRevision: options.documentRevision.value,
             options: toPlainScanCleanupOptions(options.settings),
+            ...(options.sourcePageNumbers.value === null
+                ? {}
+                : {sourcePageNumbers: [...options.sourcePageNumbers.value]}),
             ...(options.recommendedOutputModeByPage.size === 0 ? {} : {outputModeRecommendations: Object.fromEntries(
                 options.recommendedOutputModeByPage,
             )}),
-            runOcrAfterCleanup: options.runOcrAfterCleanup.value,
         };
         try {
             if (options.detectionPending.value) {
@@ -170,6 +177,7 @@ export const useScanCleanupRunSession = (options: IUseScanCleanupRunSessionOptio
         processedPages,
         progress,
         progressText,
+        runLabel,
         runDisabledReason,
         run,
         transitionText,

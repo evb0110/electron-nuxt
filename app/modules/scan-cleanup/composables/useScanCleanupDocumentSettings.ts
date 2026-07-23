@@ -75,7 +75,6 @@ export const useScanCleanupDocumentSettings = (options: IUseScanCleanupDocumentS
     const {t} = useTypedI18n();
     const preferences = getScanCleanupPreferencesStore();
     const firstRunGuidanceDismissed = toRef(preferences, 'firstRunGuidanceDismissed');
-    const runOcrAfterCleanup = toRef(preferences, 'runOcrAfterCleanup');
     const marginsLinked = ref(true);
     const values: IScanCleanupOptions = reactive({
         preserveOriginalQuality: toRef(preferences, 'preserveOriginalQuality'),
@@ -225,7 +224,6 @@ export const useScanCleanupDocumentSettings = (options: IUseScanCleanupDocumentS
         outputItems,
         readingOrderItems,
         resetPageOverrides,
-        runOcrAfterCleanup,
         setMarginsLinked,
         showFirstRunGuidance,
         thicknessLabel,

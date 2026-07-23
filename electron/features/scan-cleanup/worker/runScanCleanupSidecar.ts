@@ -70,7 +70,7 @@ export async function runScanCleanupSidecar(
                     completedPageNumbers.add(nativeProgress.pageNumber);
                 }
                 onProgress({
-                    stage: nativeProgress.stage === 'page-analyzed' ? 'detecting' : 'cleaning',
+                    stage: nativeProgress.stage === 'page-analyzed' ? 'classifying' : 'rendering',
                     completedUnits: nativeProgress.completedPages,
                     totalUnits: nativeProgress.totalPages,
                     percent: nativeProgress.totalPages === 0

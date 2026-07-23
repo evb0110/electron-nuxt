@@ -1,4 +1,5 @@
 import type {
+    IScanCleanupRawPreviewResult,
     IScanCleanupPreviewResult,
     TScanCleanupOutputHalf,
 } from '@contracts/electronApiScanCleanup';
@@ -79,6 +80,7 @@ function pngUrl(bytes: Uint8Array) {
 export const useScanCleanupPreviewImages = (
     result: MaybeRefOrGetter<IScanCleanupPreviewResult | null>,
     onImagesChanged?: (hadPreviousResult: boolean) => void,
+    rawResult: MaybeRefOrGetter<IScanCleanupRawPreviewResult | null> = result,
 ) => {
     const rawPixelSwap = ref(createPreviewImageSwap());
     const cleanedPixelSwaps = reactive<Partial<Record<TScanCleanupOutputHalf, IScanCleanupPreviewImageSwap>>>({});
@@ -115,12 +117,24 @@ export const useScanCleanupPreviewImages = (
         if (state) cleanedPixelSwaps[half] = completePreviewImageSwap(state, url, revokeBlobUrl);
     }
 
-    watch(() => toValue(result), (nextResult, previousResult) => {
+    watch(() => toValue(rawResult), (nextResult) => {
         if (!nextResult) {
-            revokeUrls();
+            disposePreviewImageSwap(rawPixelSwap.value, revokeBlobUrl);
+            rawPixelSwap.value = createPreviewImageSwap();
             return;
         }
         rawPixelSwap.value = queuePreviewImageSwap(rawPixelSwap.value, pngUrl(nextResult.rawImageData), revokeBlobUrl);
+    }, {immediate: true});
+
+    watch(() => toValue(result), (nextResult, previousResult) => {
+        if (!nextResult) {
+            for (const half of Object.keys(cleanedPixelSwaps) as TScanCleanupOutputHalf[]) {
+                const state = cleanedPixelSwaps[half];
+                if (state) disposePreviewImageSwap(state, revokeBlobUrl);
+                Reflect.deleteProperty(cleanedPixelSwaps, half);
+            }
+            return;
+        }
         const activeHalves = new Set<TScanCleanupOutputHalf>();
         for (const output of nextResult.outputs) {
             const half = output.metadata.half;

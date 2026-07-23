@@ -49,7 +49,8 @@ describe('scan cleanup preferences', () => {
             outputMode: 'bw' as const,
         };
         saveScanCleanupPreferences(preferencesWithLegacyField, storage);
-        expect(loadScanCleanupPreferences(storage)).toMatchObject({
+        const loaded = loadScanCleanupPreferences(storage);
+        expect(loaded).toMatchObject({
             readingOrder: 'rtl',
             marginsMm: {
                 leftMm: 6,
@@ -57,10 +58,11 @@ describe('scan cleanup preferences', () => {
                 rightMm: 8,
                 bottomMm: 9,
             },
-            runOcrAfterCleanup: true,
         });
-        expect(loadScanCleanupPreferences(storage)).not.toHaveProperty('outputMode');
+        expect(loaded).not.toHaveProperty('runOcrAfterCleanup');
+        expect(loaded).not.toHaveProperty('outputMode');
         expect(JSON.parse(storage.get('evb.scanCleanup.settings.v1') ?? '{}')).not.toHaveProperty('outputMode');
+        expect(JSON.parse(storage.get('evb.scanCleanup.settings.v1') ?? '{}')).not.toHaveProperty('runOcrAfterCleanup');
     });
 
     it('ignores a legacy global output mode and starts an unseen document at Auto', () => {

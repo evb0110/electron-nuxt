@@ -19,6 +19,7 @@ export function registerScanCleanupIpcAdapter(
     service: IScanCleanupService = createScanCleanupService(),
     previewService: IScanCleanupPreviewService = createScanCleanupPreviewService(),
 ) {
+    registrar.handle(SCAN_CLEANUP_CHANNELS.previewRaw, (event, request) => previewService.previewRaw(event.sender, request));
     registrar.handle(SCAN_CLEANUP_CHANNELS.preview, (event, request) => previewService.preview(event.sender, request));
     registrar.handle(SCAN_CLEANUP_CHANNELS.cancelPreview, (event, request) => previewService.cancel(event.sender, request));
     registrar.handle(SCAN_CLEANUP_CHANNELS.detectAll, (event, request) => previewService.detectAll(event.sender, request));

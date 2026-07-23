@@ -43,6 +43,7 @@ export function createLazyBrowserPlatformApiGenerated({
 }: ILazyBrowserPlatformApiFactoryDeps) {
     const ocrInstallLanguagesMethod = lazyAsync(pathDescriptors.ocr.installLanguages.path);
     const scanCleanupPreviewMethod = lazyAsync(pathDescriptors.scanCleanup.preview.path);
+    const scanCleanupPreviewRawMethod = lazyAsync(pathDescriptors.scanCleanup.previewRaw.path);
     const scanCleanupCancelPreviewMethod = lazyAsync(pathDescriptors.scanCleanup.cancelPreview.path);
     const scanCleanupDetectAllMethod = lazyAsync(pathDescriptors.scanCleanup.detectAll.path);
     const scanCleanupCancelDetectionMethod = lazyAsync(pathDescriptors.scanCleanup.cancelDetection.path);
@@ -360,6 +361,7 @@ export function createLazyBrowserPlatformApiGenerated({
     },
     scanCleanup: {
         preview: scanCleanupPreviewMethod,
+        previewRaw: scanCleanupPreviewRawMethod,
         cancelPreview: scanCleanupCancelPreviewMethod,
         detectAll: scanCleanupDetectAllMethod,
         cancelDetection: scanCleanupCancelDetectionMethod,

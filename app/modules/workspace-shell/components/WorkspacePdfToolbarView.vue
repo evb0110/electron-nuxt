@@ -423,6 +423,7 @@ const pageNavigationDisabled = computed(() => (
 const pageDropdownTotalPages = computed(() => pageDropdownTotalPagesProp ?? snapshot.totalPages);
 const ocrIsExportingDocx = computed(() => ocrIsExportingDocxProp ?? snapshot.isExportingDocx);
 const scanCleanupJobProgress = computed(() => scanCleanupRun.jobState?.progress ?? {
+    stage: 'queued' as const,
     completedUnits: 0,
     totalUnits: Math.max(1, snapshot.totalPages),
 });
@@ -433,8 +434,8 @@ const scanCleanupTriggerTooltip = computed(() => {
     if (!isScanCleanupRunning.value) {
         return t('scanCleanup.button');
     }
-    return t('scanCleanup.runningLabel', {
-        processed: scanCleanupJobProgress.value.completedUnits,
+    return t(`scanCleanup.runProgress.${scanCleanupJobProgress.value.stage}`, {
+        completed: scanCleanupJobProgress.value.completedUnits,
         total: scanCleanupJobProgress.value.totalUnits,
     });
 });

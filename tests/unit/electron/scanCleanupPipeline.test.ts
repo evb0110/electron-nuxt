@@ -14,7 +14,10 @@ import {
     vi,
 } from 'vitest';
 import type {WebContents} from 'electron';
-import type { IScanCleanupOptions } from '@contracts/electronApiScanCleanup';
+import type {
+    IScanCleanupOptions,
+    IScanCleanupProgress,
+} from '@contracts/electronApiScanCleanup';
 import {
     classifyScanCleanupError,
     grantScanCleanupOutputAccess,
@@ -437,7 +440,7 @@ describe('scan cleanup pipeline', () => {
             }));
             await writeCleanupOutput(manifest.pages[1]!.outputs[0]!, 'single-uncut-page', false, false, Number(manifest.pages[1]!.options.dpi));
             onProgress({
-                stage: 'cleaning',
+                stage: 'rendering',
                 completedUnits: 1,
                 totalUnits: 2,
                 percent: 50,
@@ -527,6 +530,155 @@ describe('scan cleanup pipeline', () => {
         expect(combineManifest.trim().split('\n')[2]!.split('\t')[3]).toBe('85');
         const pageSizes = combineManifest.trim().split('\n').map(line => line.split('\t').slice(1, 3));
         expect(new Set(pageSizes.map(size => size.join('x')))).toEqual(new Set(['240.000000x336.000000']));
+    });
+
+    it('processes and assembles only scoped source pages with scoped progress totals', async () => {
+        const fixture = await setup();
+        const renderedSourcePages: number[] = [];
+        let manifestSourceIndexes: number[] = [];
+        let combineManifest = '';
+        const runSidecar: IRunScanCleanupPipelineDependencies['runSidecar'] = vi.fn(
+            async (_binary, manifestPath, _signal, _log, onProgress) => {
+                const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as {pages: Array<{
+                    sourcePageIndex: number;
+                    pageMetadataPath: string;
+                    outputs: ICleanupOutput[];
+                }>};
+                manifestSourceIndexes = manifest.pages.map(page => page.sourcePageIndex);
+                for (const [
+                    index,
+                    page,
+                ] of manifest.pages.entries()) {
+                    await writeFile(page.pageMetadataPath, JSON.stringify({
+                        layoutClassification: 'single-uncut-page',
+                        cutterXPx: null,
+                        rotationDegrees: 0,
+                        excluded: false,
+                        blankOutputsSkipped: 0,
+                        outputCount: 1,
+                    }));
+                    await writeCleanupOutput(page.outputs[0]!, 'single-uncut-page');
+                    onProgress({
+                        stage: 'rendering',
+                        completedUnits: index + 1,
+                        totalUnits: manifest.pages.length,
+                        percent: (index + 1) / manifest.pages.length * 100,
+                        completedPageNumbers: Array.from({length: index + 1}, (_, pageIndex) => pageIndex + 1),
+                    }, {
+                        stage: 'page-analyzed',
+                        completedPages: index + 1,
+                        totalPages: manifest.pages.length,
+                        pageNumber: index + 1,
+                    });
+                    onProgress({
+                        stage: 'rendering',
+                        completedUnits: index + 1,
+                        totalUnits: manifest.pages.length,
+                        percent: (index + 1) / manifest.pages.length * 100,
+                        completedPageNumbers: Array.from({length: index + 1}, (_, pageIndex) => pageIndex + 1),
+                    }, {
+                        stage: 'page-complete',
+                        completedPages: index + 1,
+                        totalPages: manifest.pages.length,
+                        pageNumber: index + 1,
+                    });
+                }
+            },
+        );
+        const pipelineDependencies = dependencies(runSidecar);
+        pipelineDependencies.getPageCount = vi.fn(async () => 4);
+        pipelineDependencies.detectSourceDpi = vi.fn(async (
+            _path,
+            _binary,
+            _log,
+            _environment,
+            _signal,
+            _pages,
+            onProgress,
+        ) => {
+            onProgress?.(2, 2);
+            return {
+                documentDpi: 300,
+                pageDpiByNumber: new Map([
+                    [
+                        2,
+                        300,
+                    ],
+                    [
+                        4,
+                        300,
+                    ],
+                ]),
+            };
+        });
+        pipelineDependencies.renderPage = vi.fn(async (_paths, _log, pageNumber, _source, outputPath) => {
+            renderedSourcePages.push(pageNumber);
+            await writeFile(outputPath, PNG);
+        });
+        pipelineDependencies.runCommand = vi.fn(async (_command, args) => {
+            const manifestIndex = args.indexOf('--compact-manifest');
+            combineManifest = await readFile(args[manifestIndex + 1]!, 'utf8');
+            const outputIndex = args.indexOf('--output');
+            await writeFile(args[outputIndex + 1]!, '%PDF-1.7\n%%EOF\n');
+            return {
+                exitCode: 0,
+                stdout: '',
+                stderr: '',
+            };
+        });
+        const progress: IScanCleanupProgress[] = [];
+
+        const summary = await runScanCleanupPipeline({
+            sourcePdfPath: fixture.sourcePdfPath,
+            outputPdfPath: fixture.outputPdfPath,
+            sourcePageNumbers: [
+                2,
+                4,
+            ],
+            options: {
+                ...options,
+                outputMode: 'color',
+            },
+        }, {
+            qpdfBinary: '/qpdf',
+            pdftoppmBinary: '/pdftoppm',
+            scanCleanupBinary: '/cleanup',
+            pdfImageCombineBinary: '/combine',
+            tempDir: fixture.dir,
+        }, new AbortController().signal, value => progress.push(value), undefined, pipelineDependencies);
+
+        expect(summary).toMatchObject({
+            inputPages: 2,
+            outputPages: 2,
+        });
+        expect(renderedSourcePages).toEqual([
+            2,
+            4,
+        ]);
+        expect(manifestSourceIndexes).toEqual([
+            1,
+            3,
+        ]);
+        expect(combineManifest.trim().split('\n')).toHaveLength(2);
+        for (const stage of [
+            'probing',
+            'rasterizing',
+            'classifying',
+            'rendering',
+        ] as const) {
+            expect(progress).toContainEqual(expect.objectContaining({
+                stage,
+                totalUnits: 2,
+            }));
+        }
+        expect(progress.at(-1)).toMatchObject({
+            stage: 'handoff',
+            completedPageNumbers: [
+                2,
+                4,
+            ],
+            totalUnits: 2,
+        });
     });
 
     it('falls back to the PNG record with a warning when bilevel metadata points to a missing PBM', async () => {
@@ -841,6 +993,63 @@ describe('scan cleanup pipeline', () => {
         expect(finalDpi).toBe(970);
         expect(800 * 1_100 * (finalDpi / 72) ** 2).toBeLessThanOrEqual(160_000_000);
         expect(800 * 1_100 * (requestedRenderDpi / 72) ** 2).toBeGreaterThan(160_000_000);
+    });
+
+    it('floors BW render DPI at 600 for low-DPI sources', async () => {
+        const fixture = await setup();
+        let finalDpi = 0;
+        let requestedRenderDpi = 0;
+        const pipelineDependencies = dependencies(vi.fn(async (_binary, manifestPath) => {
+            const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as {pages: Array<{
+                pageMetadataPath: string;
+                options: {
+                    dpi: number;
+                    requestedRenderDpi: number
+                };
+                outputs: ICleanupOutput[]
+            }>};
+            finalDpi = manifest.pages[0]!.options.dpi;
+            requestedRenderDpi = manifest.pages[0]!.options.requestedRenderDpi;
+            await writeFile(manifest.pages[0]!.pageMetadataPath, JSON.stringify({
+                layoutClassification: 'single-uncut-page',
+                cutterXPx: null,
+                rotationDegrees: 0,
+                excluded: false,
+                blankOutputsSkipped: 0,
+                outputCount: 1,
+            }));
+            await writeCleanupOutput(
+                manifest.pages[0]!.outputs[0]!,
+                'single-uncut-page',
+                true,
+                true,
+                finalDpi,
+                true,
+            );
+        }));
+        pipelineDependencies.getPageCount = vi.fn(async () => 1);
+        pipelineDependencies.detectSourceDpi = vi.fn(async () => ({
+            documentDpi: 200,
+            pageDpiByNumber: new Map([[
+                1,
+                200,
+            ]]),
+        }));
+
+        await runScanCleanupPipeline({
+            sourcePdfPath: fixture.sourcePdfPath,
+            outputPdfPath: fixture.outputPdfPath,
+            options,
+        }, {
+            qpdfBinary: '/qpdf',
+            pdftoppmBinary: '/pdftoppm',
+            scanCleanupBinary: '/cleanup',
+            pdfImageCombineBinary: '/combine',
+            tempDir: fixture.dir,
+        }, new AbortController().signal, vi.fn(), undefined, pipelineDependencies);
+
+        expect(requestedRenderDpi).toBe(600);
+        expect(finalDpi).toBe(600);
     });
 
     it('reuses detect-all tonal recommendations in one pass without supersampling', async () => {

@@ -241,6 +241,27 @@ fn final_manifest_writes_pbm_only_for_binary_outputs_and_marks_metadata() {
         String::from_utf8_lossy(&result.stdout),
         String::from_utf8_lossy(&result.stderr)
     );
+    let progress = String::from_utf8(result.stdout)
+        .unwrap()
+        .lines()
+        .map(|line| serde_json::from_str::<Value>(line).unwrap())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        progress
+            .iter()
+            .filter(|event| event["progress"]["stage"] == "page-analyzed")
+            .count(),
+        2
+    );
+    let analyzed_index = progress
+        .iter()
+        .rposition(|event| event["progress"]["stage"] == "page-analyzed")
+        .unwrap();
+    let completed_index = progress
+        .iter()
+        .position(|event| event["progress"]["stage"] == "page-complete")
+        .unwrap();
+    assert!(analyzed_index < completed_index);
     assert!(fs::read(&bw_pbm).unwrap().starts_with(b"P4\n"));
     assert!(bw_output.exists());
     assert_eq!(
@@ -478,8 +499,12 @@ fn auto_resolved_bw_writes_bilevel_output_and_reports_recommendation() {
         .lines()
         .map(|line| serde_json::from_str::<Value>(line).unwrap())
         .collect::<Vec<_>>();
-    assert_eq!(envelopes[1]["progress"]["recommendedOutputMode"], "bw");
-    assert!(envelopes[1]["progress"]["recommendedOutputModeConfidence"]
+    let completed = envelopes
+        .iter()
+        .find(|envelope| envelope["progress"]["stage"] == "page-complete")
+        .unwrap();
+    assert_eq!(completed["progress"]["recommendedOutputMode"], "bw");
+    assert!(completed["progress"]["recommendedOutputModeConfidence"]
         .as_f64()
         .is_some_and(|confidence| confidence >= 0.75));
     let page: Value = serde_json::from_slice(&fs::read(&page_metadata).unwrap()).unwrap();
