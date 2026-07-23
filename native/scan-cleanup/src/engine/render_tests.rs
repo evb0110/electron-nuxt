@@ -753,6 +753,70 @@ mod tests {
     }
 
     #[test]
+    fn document_prior_is_gated_at_full_resolution_before_analysis_downscaling() {
+        let mut source = GrayImage::new(3_000, 2_100, 245);
+        let gutter_x = 1_410;
+        for y in (240..1_860).step_by(92) {
+            for word in 0..12 {
+                let left = 180 + word * 92;
+                for row in y..y + 8 {
+                    for x in left..left + 58 {
+                        source.set(x, row, 24);
+                    }
+                }
+            }
+            for word in 0..12 {
+                let left = 1_650 + word * 92;
+                for row in y..y + 8 {
+                    for x in left..left + 58 {
+                        source.set(x, row, 28);
+                    }
+                }
+            }
+        }
+        for y in 30..2_070 {
+            source.set(gutter_x, y, 55);
+            source.set(gutter_x + 1, y, 150);
+        }
+        let options = CleanupOptions {
+            dpi: 300.0,
+            normalize_illumination: false,
+            crop_content: false,
+            ..CleanupOptions::default()
+        };
+        let no_prior = analyze_page(&source, &options).unwrap();
+        let matching_prior = DocumentPrior {
+            dominant_layout: LayoutClassification::TwoPageSpread,
+            cutter_ratio_median: Some(gutter_x as f64 / source.width() as f64),
+            cluster_dims: crate::split::ClusterDimensions {
+                width: source.width() as f64,
+                height: source.height() as f64,
+            },
+            agreement_strength: 0.9,
+        };
+        let with_prior =
+            analyze_page_with_document_prior(&source, &options, Some(matching_prior)).unwrap();
+        assert!(
+            with_prior.reconciliation.cluster_agreement > 0.0,
+            "{:?}",
+            with_prior.reconciliation
+        );
+
+        let inapplicable_prior = DocumentPrior {
+            cluster_dims: crate::split::ClusterDimensions {
+                width: (source.width() * 2) as f64,
+                height: (source.height() * 2) as f64,
+            },
+            cutter_ratio_median: Some(0.35),
+            ..matching_prior
+        };
+        let inapplicable =
+            analyze_page_with_document_prior(&source, &options, Some(inapplicable_prior)).unwrap();
+        assert_eq!(inapplicable.classification, no_prior.classification);
+        assert_eq!(inapplicable.reconciliation.cluster_agreement, 0.0);
+    }
+
+    #[test]
     fn cleanup_metadata_reports_despeckle_fallback_for_seedless_page() {
         let mut source = GrayImage::new(180, 120, 255);
         for index in 0..20 {

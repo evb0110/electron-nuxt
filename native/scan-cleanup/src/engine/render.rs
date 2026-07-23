@@ -60,6 +60,8 @@ pub struct CleanupMetadata {
     #[serde(rename = "cutterXPx")]
     pub cutter_x: Option<f64>,
     pub split_geometry: Vec<Polygon>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub split_seam: Option<crate::protocol::manifest_v2::SplitSeamPolyline>,
     #[serde(with = "pixel_rect_serde")]
     pub source_region: Rect,
     #[serde(with = "optional_pixel_rect_serde")]
@@ -141,6 +143,8 @@ pub struct PageCleanupResult {
     pub classification: LayoutClassification,
     pub layout_confidence: f64,
     pub cutter_x: Option<f64>,
+    pub split_seam: Option<crate::protocol::manifest_v2::SplitSeamPolyline>,
+    pub reconciliation: ReconciliationMetadata,
     pub blank_outputs_skipped: usize,
     pub excluded: bool,
     pub rotation: OrthogonalRotation,
@@ -150,6 +154,7 @@ pub struct PageClassificationResult {
     pub classification: LayoutClassification,
     pub confidence: f64,
     pub cutter_x: Option<f64>,
+    pub split_seam: Option<crate::protocol::manifest_v2::SplitSeamPolyline>,
     pub excluded: bool,
     pub rotation: OrthogonalRotation,
     pub reconciliation: ReconciliationMetadata,
@@ -264,6 +269,7 @@ pub struct PageAnalysisResult {
     pub classification: LayoutClassification,
     pub confidence: f64,
     pub cutter_x: Option<f64>,
+    pub split_seam: Option<crate::protocol::manifest_v2::SplitSeamPolyline>,
     pub excluded: bool,
     pub rotation: OrthogonalRotation,
     pub reconciliation: ReconciliationMetadata,
@@ -324,6 +330,7 @@ pub fn classify_page_with_document_prior(
         classification: prepared.split.classification,
         confidence: prepared.split.confidence,
         cutter_x: prepared.split.cutter_x,
+        split_seam: prepared.split.split_seam,
         excluded: options.excluded,
         rotation: options.rotation,
         reconciliation: prepared.split.reconciliation,
@@ -354,6 +361,7 @@ pub fn analyze_page_with_document_prior(
             classification: LayoutClassification::SingleUncutPage,
             confidence: 1.0,
             cutter_x: None,
+            split_seam: None,
             excluded: true,
             rotation: options.rotation,
             reconciliation: ReconciliationMetadata {
@@ -457,6 +465,7 @@ pub fn analyze_page_with_document_prior(
         classification: prepared.split.classification,
         confidence: prepared.split.confidence,
         cutter_x: prepared.split.cutter_x,
+        split_seam: prepared.split.split_seam,
         excluded: false,
         rotation: options.rotation,
         reconciliation: prepared.split.reconciliation,
@@ -479,6 +488,7 @@ pub fn clean_page(
         options,
         source_page_index,
         CalibrationConfig::default(),
+        None,
     )
 }
 
@@ -495,6 +505,7 @@ pub fn clean_page_with_calibration_config(
         options,
         source_page_index,
         calibration_config,
+        None,
     )
 }
 
@@ -510,6 +521,24 @@ pub fn clean_page_with_color(
         options,
         source_page_index,
         CalibrationConfig::default(),
+        None,
+    )
+}
+
+pub fn clean_page_with_color_and_document_prior(
+    source: &GrayImage,
+    color_source: Option<&RgbImage>,
+    options: &CleanupOptions,
+    source_page_index: usize,
+    document_prior: Option<DocumentPrior>,
+) -> Result<PageCleanupResult, String> {
+    clean_page_with_color_and_calibration_config(
+        source,
+        color_source,
+        options,
+        source_page_index,
+        CalibrationConfig::default(),
+        document_prior,
     )
 }
 
@@ -519,6 +548,7 @@ fn clean_page_with_color_and_calibration_config(
     options: &CleanupOptions,
     source_page_index: usize,
     calibration_config: CalibrationConfig,
+    document_prior: Option<DocumentPrior>,
 ) -> Result<PageCleanupResult, String> {
     options.validate()?;
     if options.excluded {
@@ -527,12 +557,24 @@ fn clean_page_with_color_and_calibration_config(
             classification: LayoutClassification::SingleUncutPage,
             layout_confidence: 1.0,
             cutter_x: None,
+            split_seam: None,
+            reconciliation: ReconciliationMetadata {
+                tier1_verdict: LayoutClassification::SingleUncutPage,
+                reconciled: false,
+                cluster_agreement: 0.0,
+            },
             blank_outputs_skipped: 0,
             excluded: true,
             rotation: options.rotation,
         });
     }
-    let prepared = prepare_page(source, color_source, options, calibration_config);
+    let prepared = prepare_page(
+        source,
+        color_source,
+        options,
+        calibration_config,
+        document_prior,
+    );
     let PreparedPage {
         rotated_source,
         normalized,
@@ -579,6 +621,8 @@ fn clean_page_with_color_and_calibration_config(
         classification: split.classification,
         layout_confidence: split.confidence,
         cutter_x: split.cutter_x,
+        split_seam: split.split_seam.clone(),
+        reconciliation: split.reconciliation,
         blank_outputs_skipped,
         excluded: false,
         rotation: options.rotation,
@@ -590,6 +634,7 @@ fn prepare_page(
     color_source: Option<&RgbImage>,
     options: &CleanupOptions,
     calibration_config: CalibrationConfig,
+    document_prior: Option<DocumentPrior>,
 ) -> PreparedPage {
     let PreparedAnalysis {
         normalized: analysis_normalized,
@@ -601,7 +646,7 @@ fn prepare_page(
         full_width,
         full_height,
         ..
-    } = prepare_analysis_page(source, options, true, None, calibration_config);
+    } = prepare_analysis_page(source, options, true, document_prior, calibration_config);
     let (rotated_source, _) = rotate_orthogonal(source, options.rotation);
     let analysis_is_full = analysis_normalized.width() == full_width
         && analysis_normalized.height() == full_height
@@ -685,6 +730,8 @@ fn prepare_analysis_page(
             (source.height(), source.width())
         }
     };
+    let applicable_prior =
+        document_prior.filter(|prior| prior.applies_to_dimensions(full_width, full_height));
     let scale_x = rotated.width() as f64 / full_width.max(1) as f64;
     let scale_y = rotated.height() as f64 / full_height.max(1) as f64;
     debug_assert!((scale_x - source_scale_x.min(source_scale_y)).abs() < 0.01);
@@ -724,6 +771,7 @@ fn prepare_analysis_page(
             crate::LayoutMode::Single,
             None,
             analysis_threshold,
+            None,
         )
     } else {
         detect_split_at_analysis_level_with_threshold(
@@ -732,14 +780,19 @@ fn prepare_analysis_page(
             options.layout,
             options.resolved_manual_split_x(normalized.width()),
             analysis_threshold,
+            applicable_prior,
         )
     };
     let candidate_cutter_ratio = (split.diagnostics.decision_x > 0.0)
         .then_some(split.diagnostics.decision_x / normalized.width().max(1) as f64);
     let whitespace_score = split.diagnostics.whitespace_score;
     if matches!(options.layout, crate::LayoutMode::Auto) && options.manual_split_x.is_none() {
-        if let Some(prior) = document_prior {
-            split.apply_document_prior(normalized.width(), normalized.height(), prior);
+        if let Some(prior) = applicable_prior {
+            split.apply_document_prior(
+                normalized.width(),
+                normalized.height(),
+                prior.with_cluster_dimensions(normalized.width(), normalized.height()),
+            );
         }
     }
     if prepare_quality_raster && options.normalize_illumination {
@@ -775,6 +828,12 @@ fn scale_split_result(
     full_height: usize,
 ) {
     split.cutter_x = split.cutter_x.map(|x| x / scale_x);
+    if let Some(seam) = &mut split.split_seam {
+        for point in &mut seam.points {
+            point.x = (point.x / scale_x).clamp(0.0, full_width as f64);
+            point.y = (point.y / scale_y).clamp(0.0, full_height as f64);
+        }
+    }
     for page in &mut split.pages {
         for point in &mut page.points {
             point.x /= scale_x;
@@ -1149,6 +1208,7 @@ fn clean_region(
             layout_confidence: split.confidence,
             cutter_x: split.cutter_x,
             split_geometry: split.pages.clone(),
+            split_seam: split.split_seam.clone(),
             source_region: region,
             content_box: source_content_box,
             crop_rect: output_rect,

@@ -1,9 +1,19 @@
 use crate::{split::DocumentPrior, CleanupOptions};
 use evb_native_support::{NativeError, NativeErrorCode};
+use scan_primitives::Point;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
 pub const VERSION: u32 = 2;
+
+/// Optional diagnostic geometry for a non-straight page seam. The existing
+/// cutter and page polygons remain the rendering contract; consumers that do
+/// not know about this additive field continue to cut at `cutterXPx`.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SplitSeamPolyline {
+    pub points: Vec<Point>,
+}
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -122,6 +132,14 @@ fn invalid(message: impl Into<String>) -> NativeError {
 mod tests {
     use super::*;
 
+    #[derive(Serialize)]
+    #[serde(rename_all = "camelCase")]
+    struct SplitGeometryResult {
+        cutter_x_px: Option<f64>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        split_seam: Option<SplitSeamPolyline>,
+    }
+
     #[test]
     fn shared_golden_manifests_deserialize_and_validate() {
         let fixture_dir =
@@ -177,5 +195,24 @@ mod tests {
             assert!(page.options.manual_zones.picture.is_empty());
             assert!(page.options.manual_zones.fill.is_empty());
         }
+    }
+
+    #[test]
+    fn optional_split_seam_is_omitted_when_absent_and_additive_when_present() {
+        let straight = serde_json::to_value(SplitGeometryResult {
+            cutter_x_px: Some(120.0),
+            split_seam: None,
+        })
+        .unwrap();
+        assert_eq!(straight, serde_json::json!({"cutterXPx": 120.0}));
+
+        let curved = serde_json::to_value(SplitGeometryResult {
+            cutter_x_px: Some(120.0),
+            split_seam: Some(SplitSeamPolyline {
+                points: vec![Point::new(119.0, 0.5), Point::new(121.0, 9.5)],
+            }),
+        })
+        .unwrap();
+        assert_eq!(curved["splitSeam"]["points"].as_array().unwrap().len(), 2);
     }
 }

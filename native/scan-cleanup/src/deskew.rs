@@ -24,11 +24,22 @@ pub fn detect_skew(source: &GrayImage, dpi: f64) -> DeskewResult {
 }
 
 pub fn score_skew(binary: &BinaryImage) -> DeskewResult {
-    if binary.count_black() < 32 {
+    let ink_points = collect_ink_points(binary);
+    if ink_points.len() < 32 {
         return DeskewResult::default();
     }
     let coarse: Vec<(f64, f64)> = (-7..=7)
-        .map(|angle| (f64::from(angle), projection_score(binary, f64::from(angle))))
+        .map(|angle| {
+            (
+                f64::from(angle),
+                projection_score_points(
+                    binary.width(),
+                    binary.height(),
+                    &ink_points,
+                    f64::from(angle),
+                ),
+            )
+        })
         .collect();
     let average = coarse.iter().map(|entry| entry.1).sum::<f64>() / coarse.len() as f64;
     let &(mut best_angle, mut best_score) = coarse
@@ -41,7 +52,8 @@ pub fn score_skew(binary: &BinaryImage) -> DeskewResult {
             if !(-7.0..=7.0).contains(&candidate) {
                 continue;
             }
-            let score = projection_score(binary, candidate);
+            let score =
+                projection_score_points(binary.width(), binary.height(), &ink_points, candidate);
             if score > best_score {
                 best_angle = candidate;
                 best_score = score;
@@ -62,20 +74,50 @@ pub fn score_skew(binary: &BinaryImage) -> DeskewResult {
     }
 }
 
+#[cfg(test)]
 fn projection_score(binary: &BinaryImage, correction_degrees: f64) -> f64 {
-    let tangent = correction_degrees.to_radians().tan();
-    let center_x = binary.width() as f64 * 0.5;
-    let padding = (binary.width() as f64 * 7.0f64.to_radians().tan()).ceil() as isize + 2;
-    let mut profile = vec![0u32; binary.height() + (padding * 2) as usize];
+    let ink_points = collect_ink_points(binary);
+    projection_score_points(
+        binary.width(),
+        binary.height(),
+        &ink_points,
+        correction_degrees,
+    )
+}
+
+fn collect_ink_points(binary: &BinaryImage) -> Vec<(usize, usize)> {
+    let mut points = Vec::with_capacity(binary.count_black());
     for y in 0..binary.height() {
-        for x in 0..binary.width() {
-            if binary.get(x, y) {
-                let shifted =
-                    (y as f64 + tangent * (x as f64 - center_x)).round() as isize + padding;
-                if shifted >= 0 && shifted < profile.len() as isize {
-                    profile[shifted as usize] += 1;
-                }
+        let row_start = y * binary.words_per_line();
+        for (word_x, &packed) in binary.words()[row_start..row_start + binary.words_per_line()]
+            .iter()
+            .enumerate()
+        {
+            let mut remaining = packed;
+            while remaining != 0 {
+                let bit_x = remaining.leading_zeros() as usize;
+                points.push((word_x * 32 + bit_x, y));
+                remaining &= !(1 << (31 - bit_x));
             }
+        }
+    }
+    points
+}
+
+fn projection_score_points(
+    width: usize,
+    height: usize,
+    ink_points: &[(usize, usize)],
+    correction_degrees: f64,
+) -> f64 {
+    let tangent = correction_degrees.to_radians().tan();
+    let center_x = width as f64 * 0.5;
+    let padding = (width as f64 * 7.0f64.to_radians().tan()).ceil() as isize + 2;
+    let mut profile = vec![0u32; height + (padding * 2) as usize];
+    for &(x, y) in ink_points {
+        let shifted = (y as f64 + tangent * (x as f64 - center_x)).round() as isize + padding;
+        if shifted >= 0 && shifted < profile.len() as isize {
+            profile[shifted as usize] += 1;
         }
     }
     profile

@@ -1,8 +1,8 @@
 use crate::adapters::single_ocr_cli::{invalid, optional_value, parse_options, required_path};
 use crate::{
     pipeline::{
-        analyze_page_with_document_prior, clean_page_with_color, AnalysisOutputMetadata,
-        CleanupMetadata, MatchedCanvasPolicy,
+        analyze_page_with_document_prior, clean_page_with_color_and_document_prior,
+        AnalysisOutputMetadata, CleanupMetadata, MatchedCanvasPolicy,
     },
     png::{self, RgbImage},
     protocol::{
@@ -116,6 +116,8 @@ struct PageResultMetadata {
     layout_classification: crate::split::LayoutClassification,
     layout_confidence: f64,
     cutter_x_px: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    split_seam: Option<crate::protocol::manifest_v2::SplitSeamPolyline>,
     rotation_degrees: OrthogonalRotation,
     canvas_scope: CanvasScope,
     excluded: bool,
@@ -149,6 +151,14 @@ struct PageRunResult {
     metadata: PageResultMetadata,
     page_metadata_path: Option<PathBuf>,
     classification_only: bool,
+}
+
+#[derive(Clone, Copy)]
+struct Tier1Provenance {
+    verdict: LayoutClassification,
+    confidence: f64,
+    candidate_cutter_ratio: Option<f64>,
+    whitespace_score: f64,
 }
 
 pub fn run(args: impl IntoIterator<Item = String>) -> Result<(), Box<dyn Error>> {
@@ -402,7 +412,7 @@ fn run_manifest_inner(manifest: &BatchManifest) -> Result<(), Box<dyn Error>> {
     };
 
     let mut page_results = page_results.into_iter().collect::<Result<Vec<_>, _>>()?;
-    reconcile_classification_batch(&mut page_results);
+    reconcile_classification_batch(manifest, &mut page_results)?;
     let mut written_outputs = Vec::new();
     for (index, page_result) in page_results.into_iter().enumerate() {
         if let Some(path) = &page_result.page_metadata_path {
@@ -452,7 +462,10 @@ fn run_manifest_inner(manifest: &BatchManifest) -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-fn reconcile_classification_batch(results: &mut [PageRunResult]) {
+fn reconcile_classification_batch(
+    manifest: &BatchManifest,
+    results: &mut [PageRunResult],
+) -> Result<(), Box<dyn Error>> {
     let eligible = results
         .iter()
         .enumerate()
@@ -561,6 +574,35 @@ fn reconcile_classification_batch(results: &mut [PageRunResult]) {
         };
 
         for index in cluster {
+            let metadata = &results[index].metadata;
+            let candidate_is_off_prior = prior
+                .cutter_ratio_median
+                .zip(metadata.candidate_cutter_ratio)
+                .is_some_and(|(prior_ratio, candidate_ratio)| {
+                    (prior_ratio - candidate_ratio).abs() > 0.015
+                });
+            let rerun_with_prior = prior.dominant_layout == LayoutClassification::TwoPageSpread
+                && (metadata.tier1_verdict != prior.dominant_layout
+                    || metadata.tier1_confidence < 0.60
+                    || candidate_is_off_prior);
+            if rerun_with_prior {
+                let tier1 = Tier1Provenance {
+                    verdict: metadata.tier1_verdict,
+                    confidence: metadata.tier1_confidence,
+                    candidate_cutter_ratio: metadata.candidate_cutter_ratio,
+                    whitespace_score: metadata.whitespace_score,
+                };
+                results[index] = run_classification(
+                    &manifest.pages[index],
+                    Some(&manifest.shared_options),
+                    index,
+                    manifest.canvas_scope,
+                    Some(prior),
+                )?;
+                preserve_tier1_provenance_after_rerun(&mut results[index].metadata, tier1, prior);
+                continue;
+            }
+
             let metadata = &mut results[index].metadata;
             let tier1_cutter = (metadata.tier1_verdict == LayoutClassification::TwoPageSpread)
                 .then_some(metadata.cutter_x_px)
@@ -589,11 +631,33 @@ fn reconcile_classification_batch(results: &mut [PageRunResult]) {
             } else {
                 1
             };
+            if decision.classification != LayoutClassification::TwoPageSpread {
+                metadata.split_seam = None;
+            }
             if decision.reconciliation.reconciled {
                 metadata.outputs.clear();
             }
         }
     }
+    Ok(())
+}
+
+fn preserve_tier1_provenance_after_rerun(
+    metadata: &mut PageResultMetadata,
+    tier1: Tier1Provenance,
+    prior: crate::split::DocumentPrior,
+) {
+    metadata.tier1_verdict = tier1.verdict;
+    metadata.tier1_confidence = tier1.confidence;
+    metadata.candidate_cutter_ratio = tier1.candidate_cutter_ratio;
+    metadata.whitespace_score = tier1.whitespace_score;
+    metadata.reconciled = metadata.layout_classification != tier1.verdict;
+    metadata.cluster_agreement = if metadata.layout_classification == prior.dominant_layout {
+        prior.agreement_strength
+    } else {
+        -prior.agreement_strength
+    };
+    metadata.document_prior = Some(prior);
 }
 
 fn dimensions_within_tolerance(left: usize, right: usize) -> bool {
@@ -654,6 +718,7 @@ fn run_manifest_page(
             Some(&manifest.shared_options),
             index,
             manifest.canvas_scope,
+            page.document_prior,
         )
     } else {
         run_page(
@@ -713,11 +778,12 @@ fn run_page(
         .map(|input| &input.gray)
         .or(gray_input.as_ref())
         .expect("cleanup input is initialized");
-    let mut result = clean_page_with_color(
+    let mut result = clean_page_with_color_and_document_prior(
         input_gray,
         color_input.as_ref().map(|input| &input.rgb),
         &options,
         job.source_page_index.unwrap_or(fallback_page_index),
+        job.document_prior,
     )
     .map_err(invalid)?;
     for output in &mut result.outputs {
@@ -735,16 +801,17 @@ fn run_page(
         layout_classification: result.classification,
         layout_confidence: result.layout_confidence,
         cutter_x_px: result.cutter_x,
+        split_seam: result.split_seam,
         rotation_degrees: result.rotation,
         canvas_scope,
         excluded: result.excluded,
         blank_outputs_skipped: result.blank_outputs_skipped,
         output_count: result.outputs.len(),
         outputs: Vec::new(),
-        tier1_verdict: result.classification,
-        reconciled: false,
-        cluster_agreement: 0.0,
-        document_prior: None,
+        tier1_verdict: result.reconciliation.tier1_verdict,
+        reconciled: result.reconciliation.reconciled,
+        cluster_agreement: result.reconciliation.cluster_agreement,
+        document_prior: job.document_prior,
         text_axis: None,
         rotated_width: if matches!(
             options.rotation,
@@ -801,18 +868,20 @@ fn run_classification(
     shared: Option<&CleanupOptions>,
     fallback_page_index: usize,
     canvas_scope: CanvasScope,
+    document_prior: Option<crate::split::DocumentPrior>,
 ) -> Result<PageRunResult, Box<dyn Error>> {
     let options = job.options.as_ref().or(shared).cloned().unwrap_or_default();
     options.validate().map_err(invalid)?;
     let input = png::read_gray(&job.input_path, options.max_pixels, options.max_dimension)
         .map_err(map_image_error)?;
     let result =
-        analyze_page_with_document_prior(&input, &options, job.document_prior).map_err(invalid)?;
+        analyze_page_with_document_prior(&input, &options, document_prior).map_err(invalid)?;
     let page_metadata = PageResultMetadata {
         source_page_index: job.source_page_index.unwrap_or(fallback_page_index),
         layout_classification: result.classification,
         layout_confidence: result.confidence,
         cutter_x_px: result.cutter_x,
+        split_seam: result.split_seam,
         rotation_degrees: result.rotation,
         canvas_scope,
         excluded: result.excluded,
@@ -828,7 +897,7 @@ fn run_classification(
         tier1_verdict: result.reconciliation.tier1_verdict,
         reconciled: result.reconciliation.reconciled,
         cluster_agreement: result.reconciliation.cluster_agreement,
-        document_prior: job.document_prior,
+        document_prior,
         text_axis: result.text_axis,
         rotated_width: result.rotated_width,
         rotated_height: result.rotated_height,
@@ -1101,7 +1170,16 @@ fn map_image_error(message: String) -> NativeError {
 
 #[cfg(test)]
 mod tests {
-    use super::robust_quantile_dimension;
+    use super::{
+        preserve_tier1_provenance_after_rerun, robust_quantile_dimension, PageResultMetadata,
+        Tier1Provenance,
+    };
+    use crate::{
+        protocol::manifest_v2::{CanvasScope, SplitSeamPolyline},
+        split::{ClusterDimensions, DocumentPrior, LayoutClassification},
+        OrthogonalRotation,
+    };
+    use scan_primitives::Point;
 
     #[test]
     fn matched_canvas_dimension_uses_nearest_rank_ninetieth_percentile() {
@@ -1110,5 +1188,66 @@ mod tests {
             robust_quantile_dimension([80, 80, 80, 80, 80, 80, 80, 80, 80, 140].into_iter()),
             80
         );
+    }
+
+    #[test]
+    fn prior_rerun_preserves_unbiased_tier1_provenance() {
+        let seam = SplitSeamPolyline {
+            points: vec![Point::new(120.0, 0.0), Point::new(121.0, 200.0)],
+        };
+        let mut metadata = PageResultMetadata {
+            source_page_index: 3,
+            layout_classification: LayoutClassification::TwoPageSpread,
+            layout_confidence: 0.92,
+            cutter_x_px: Some(121.0),
+            split_seam: Some(seam.clone()),
+            rotation_degrees: OrthogonalRotation::None,
+            canvas_scope: CanvasScope::default(),
+            excluded: false,
+            blank_outputs_skipped: 0,
+            output_count: 2,
+            outputs: Vec::new(),
+            tier1_verdict: LayoutClassification::TwoPageSpread,
+            reconciled: false,
+            cluster_agreement: 0.9,
+            document_prior: None,
+            text_axis: None,
+            rotated_width: 240,
+            rotated_height: 200,
+            candidate_cutter_ratio: Some(0.505),
+            whitespace_score: 0.8,
+            reconciliation_eligible: true,
+            tier1_confidence: 0.0,
+        };
+        let tier1 = Tier1Provenance {
+            verdict: LayoutClassification::SingleUncutPage,
+            confidence: 0.47,
+            candidate_cutter_ratio: Some(0.49),
+            whitespace_score: 0.18,
+        };
+        let prior = DocumentPrior {
+            dominant_layout: LayoutClassification::TwoPageSpread,
+            cutter_ratio_median: Some(0.5),
+            cluster_dims: ClusterDimensions {
+                width: 240.0,
+                height: 200.0,
+            },
+            agreement_strength: 0.9,
+        };
+
+        preserve_tier1_provenance_after_rerun(&mut metadata, tier1, prior);
+
+        assert_eq!(
+            metadata.tier1_verdict,
+            LayoutClassification::SingleUncutPage
+        );
+        assert_eq!(metadata.tier1_confidence, 0.47);
+        assert_eq!(metadata.candidate_cutter_ratio, Some(0.49));
+        assert_eq!(metadata.whitespace_score, 0.18);
+        assert!(metadata.reconciled);
+        assert_eq!(metadata.cluster_agreement, 0.9);
+        assert_eq!(metadata.document_prior, Some(prior));
+        assert_eq!(metadata.output_count, 2);
+        assert_eq!(metadata.split_seam, Some(seam));
     }
 }

@@ -1,4 +1,9 @@
-use crate::{analysis::build_analysis_level, deskew::detect_skew, LayoutMode};
+use crate::{
+    analysis::build_analysis_level,
+    deskew::{detect_skew, score_skew},
+    protocol::manifest_v2::SplitSeamPolyline,
+    LayoutMode,
+};
 use scan_primitives::{
     morphology::{open, reconstruct_binary},
     threshold::{otsu_threshold, threshold_global},
@@ -10,6 +15,12 @@ use std::borrow::Cow;
 const SPLIT_ANALYSIS_DPI: f64 = 150.0;
 const MAX_EVIDENCE_DISAGREEMENT: f64 = 0.04;
 const MAX_OFFCUT_WIDTH_FRACTION: f64 = 0.18;
+const MIN_CUTTER_ANGLE_DEGREES: f64 = -7.0;
+const MAX_CUTTER_ANGLE_DEGREES: f64 = 7.0;
+const CUTTER_ANGLE_STEP_DEGREES: f64 = 0.5;
+const TOP_CUTTER_CANDIDATES: usize = 8;
+const TOP_DESKEW_CANDIDATE_GROUPS: usize = 2;
+const CURVED_SEAM_BAND_WIDTH_FRACTION: f64 = 0.015;
 
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
@@ -62,6 +73,20 @@ impl DocumentPrior {
         }
         Ok(())
     }
+
+    pub(crate) fn applies_to_dimensions(self, width: usize, height: usize) -> bool {
+        self.validate().is_ok()
+            && dimension_matches(width, self.cluster_dims.width)
+            && dimension_matches(height, self.cluster_dims.height)
+    }
+
+    pub(crate) fn with_cluster_dimensions(mut self, width: usize, height: usize) -> Self {
+        self.cluster_dims = ClusterDimensions {
+            width: width as f64,
+            height: height as f64,
+        };
+        self
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Serialize)]
@@ -85,6 +110,11 @@ pub struct SplitDiagnostics {
     pub analysis_dpi: f64,
     pub deskew_angle_degrees: f64,
     pub deskew_confidence: f64,
+    pub cutter_slope: f64,
+    pub left_deskew_angle_degrees: f64,
+    pub right_deskew_angle_degrees: f64,
+    pub left_deskew_confidence: f64,
+    pub right_deskew_confidence: f64,
     pub whitespace_x: f64,
     pub fold_x: f64,
     pub decision_x: f64,
@@ -122,6 +152,7 @@ pub struct SplitResult {
     pub confidence: f64,
     pub cutter_x: Option<f64>,
     pub pages: Vec<Polygon>,
+    pub split_seam: Option<SplitSeamPolyline>,
     pub diagnostics: SplitDiagnostics,
     pub reconciliation: ReconciliationMetadata,
     pub(crate) reusable_binary: Option<BinaryImage>,
@@ -158,6 +189,9 @@ impl SplitResult {
             ],
             None => vec![page_polygon(0.0, width as f64, height)],
         };
+        if decision.classification != LayoutClassification::TwoPageSpread {
+            self.split_seam = None;
+        }
     }
 
     /// A lossy analysis level may still prove a spread from independent bilateral
@@ -188,6 +222,7 @@ impl SplitResult {
             .map(|point| point.y)
             .fold(0.0, f64::max);
         self.pages = vec![page_polygon(0.0, width, height.ceil() as usize)];
+        self.split_seam = None;
     }
 }
 
@@ -202,8 +237,14 @@ struct Candidate {
 #[derive(Clone, Copy, Debug, Default)]
 struct FoldCandidate {
     x: f64,
+    slope: f64,
     score: f64,
     vertical_coverage: f64,
+    left_deskew_angle_degrees: f64,
+    right_deskew_angle_degrees: f64,
+    left_deskew_confidence: f64,
+    right_deskew_confidence: f64,
+    joint_deskew_score: f64,
 }
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -228,7 +269,7 @@ pub fn detect_split(
     mode: LayoutMode,
     manual_split_x: Option<f64>,
 ) -> SplitResult {
-    detect_split_impl(gray, dpi, mode, manual_split_x, false, None)
+    detect_split_impl(gray, dpi, mode, manual_split_x, false, None, None)
 }
 
 pub(crate) fn detect_split_at_analysis_level_with_threshold(
@@ -237,8 +278,17 @@ pub(crate) fn detect_split_at_analysis_level_with_threshold(
     mode: LayoutMode,
     manual_split_x: Option<f64>,
     threshold: u8,
+    document_prior: Option<DocumentPrior>,
 ) -> SplitResult {
-    detect_split_impl(gray, dpi, mode, manual_split_x, true, Some(threshold))
+    detect_split_impl(
+        gray,
+        dpi,
+        mode,
+        manual_split_x,
+        true,
+        Some(threshold),
+        document_prior,
+    )
 }
 
 fn detect_split_impl(
@@ -248,6 +298,7 @@ fn detect_split_impl(
     manual_split_x: Option<f64>,
     already_bounded: bool,
     threshold: Option<u8>,
+    document_prior: Option<DocumentPrior>,
 ) -> SplitResult {
     if let Some(cutter) = manual_split_x {
         // A manually positioned cutter in Auto mode is an explicit spread
@@ -288,11 +339,12 @@ fn detect_split_impl(
     }
 
     let analysis = prepare_analysis(gray, dpi, already_bounded, threshold);
-    let whitespace = whitespace_candidate(&analysis.cleaned, true);
-    let offcut_whitespace = whitespace_candidate(&analysis.cleaned, false);
+    let prior_ratio = candidate_prior_ratio(document_prior);
+    let whitespace = whitespace_candidate(&analysis.cleaned, true, prior_ratio);
+    let offcut_whitespace = whitespace_candidate(&analysis.cleaned, false, None);
     let aspect_ratio = analysis.gray.width() as f64 / analysis.gray.height().max(1) as f64;
     let fold = (aspect_ratio >= 1.0)
-        .then(|| fold_line_candidate(&analysis.gray))
+        .then(|| fold_line_candidate(&analysis.gray, prior_ratio))
         .flatten();
     let mut diagnostics = SplitDiagnostics {
         analysis_dpi: analysis.dpi,
@@ -390,7 +442,7 @@ fn spread_decision(
         return None;
     }
 
-    let local_fold = fold_candidate_near_whitespace(&analysis.gray, whitespace);
+    let local_fold = fold_candidate_near_whitespace(&analysis.gray, &analysis.cleaned, whitespace);
     let agrees = fold.is_some_and(|candidate| {
         let distance = (candidate.x - whitespace.x).abs() / analysis.gray.width().max(1) as f64;
         distance <= MAX_EVIDENCE_DISAGREEMENT
@@ -414,6 +466,7 @@ fn spread_decision(
     let decision_x = soft_gutter
         .filter(|candidate| candidate.score > gutter_darkness.max(fold_score))
         .map_or(line_decision_x, |candidate| candidate.x);
+    let decision_slope = selected_fold.map_or(0.0, |candidate| candidate.slope);
     let agreement_score = if fold.is_some() && !agrees { 0.65 } else { 1.0 };
     let soft_gutter_score = soft_gutter.map_or(0.0, |candidate| candidate.score);
     let gutter_score = gutter_darkness.max(fold_score).max(soft_gutter_score) * agreement_score;
@@ -432,6 +485,13 @@ fn spread_decision(
     diagnostics.whitespace_x = whitespace.x;
     diagnostics.fold_x = selected_fold.map_or(diagnostics.fold_x, |candidate| candidate.x);
     diagnostics.decision_x = decision_x;
+    diagnostics.cutter_slope = decision_slope;
+    if let Some(candidate) = selected_fold {
+        diagnostics.left_deskew_angle_degrees = candidate.left_deskew_angle_degrees;
+        diagnostics.right_deskew_angle_degrees = candidate.right_deskew_angle_degrees;
+        diagnostics.left_deskew_confidence = candidate.left_deskew_confidence;
+        diagnostics.right_deskew_confidence = candidate.right_deskew_confidence;
+    }
     diagnostics.bilateral_score = bilateral.score;
     diagnostics.left_page_score = bilateral.left.page_score;
     diagnostics.right_page_score = bilateral.right.page_score;
@@ -467,14 +527,19 @@ fn spread_decision(
     }
 
     let cutter = scale_x(decision_x, analysis.gray.width(), original.width());
-    Some(split_at(
+    let mut result = split_at(
         original.width(),
         original.height(),
         cutter,
         LayoutClassification::TwoPageSpread,
         confidence,
         *diagnostics,
-    ))
+    );
+    result.split_seam =
+        refine_curved_seam(&analysis.gray, &analysis.binary, decision_x, decision_slope).map(
+            |seam| seam_in_source_coordinates(seam, analysis, original.width(), original.height()),
+        );
+    Some(result)
 }
 
 fn offcut_decision(
@@ -487,8 +552,9 @@ fn offcut_decision(
         let position = candidate.x / analysis.gray.width().max(1) as f64;
         !(0.28..=0.72).contains(&position)
     });
-    let fold = edge_whitespace
-        .and_then(|candidate| fold_candidate_near_whitespace(&analysis.gray, candidate))?;
+    let fold = edge_whitespace.and_then(|candidate| {
+        fold_candidate_near_whitespace(&analysis.gray, &analysis.cleaned, candidate)
+    })?;
     let position = fold.x / analysis.gray.width().max(1) as f64;
     let discarded_fraction = position.min(1.0 - position);
     if discarded_fraction >= MAX_OFFCUT_WIDTH_FRACTION || fold.vertical_coverage < 0.52 {
@@ -596,7 +662,27 @@ fn shadow_cleaned_binary(binary: &BinaryImage, dpi: f64) -> BinaryImage {
     })
 }
 
-fn whitespace_candidate(cleaned: &BinaryImage, central: bool) -> Option<Candidate> {
+fn candidate_prior_ratio(prior: Option<DocumentPrior>) -> Option<(f64, f64)> {
+    // Callers must gate the prior against the full-resolution page dimensions
+    // before the ratio narrows analysis-scale candidate searches.
+    prior
+        .filter(|prior| {
+            prior.validate().is_ok()
+                && prior.dominant_layout == LayoutClassification::TwoPageSpread
+                && prior.agreement_strength > 0.0
+        })
+        .and_then(|prior| {
+            prior
+                .cutter_ratio_median
+                .map(|ratio| (ratio, prior.agreement_strength))
+        })
+}
+
+fn whitespace_candidate(
+    cleaned: &BinaryImage,
+    central: bool,
+    prior: Option<(f64, f64)>,
+) -> Option<Candidate> {
     if cleaned.width() < 8 || cleaned.height() < 8 {
         return None;
     }
@@ -623,7 +709,12 @@ fn whitespace_candidate(cleaned: &BinaryImage, central: bool) -> Option<Candidat
                 let score = width_score * (0.65 + 0.35 * quietness);
                 let position = midpoint / cleaned.width() as f64;
                 let eligible = if central {
-                    (0.20..=0.80).contains(&position)
+                    let base_window = (0.20..=0.80).contains(&position);
+                    let prior_window = prior.is_none_or(|(ratio, strength)| {
+                        let half_width = 0.16 - 0.08 * strength.clamp(0.0, 1.0);
+                        (position - ratio).abs() <= half_width
+                    });
+                    base_window && prior_window
                 } else {
                     !(0.28..=0.72).contains(&position)
                 };
@@ -636,7 +727,8 @@ fn whitespace_candidate(cleaned: &BinaryImage, central: bool) -> Option<Candidat
                     start: run_start,
                     end: x,
                 };
-                let centrality = 1.0 - ((position - 0.5).abs() / 0.30).min(1.0);
+                let preferred_center = prior.map_or(0.5, |(ratio, _)| ratio);
+                let centrality = 1.0 - ((position - preferred_center).abs() / 0.30).min(1.0);
                 let ranking = if central {
                     candidate.score * (0.25 + 0.75 * centrality)
                 } else {
@@ -644,7 +736,8 @@ fn whitespace_candidate(cleaned: &BinaryImage, central: bool) -> Option<Candidat
                 };
                 let current_ranking = best.map_or(-1.0, |current| {
                     let current_position = current.x / cleaned.width() as f64;
-                    let current_centrality = 1.0 - ((current_position - 0.5).abs() / 0.30).min(1.0);
+                    let current_centrality =
+                        1.0 - ((current_position - preferred_center).abs() / 0.30).min(1.0);
                     if central {
                         current.score * (0.25 + 0.75 * current_centrality)
                     } else {
@@ -984,23 +1077,46 @@ fn prefixed_mean_luminance(prefix: &[u32], left: usize, right: usize) -> f64 {
     f64::from(prefix[right] - prefix[left]) / (right - left) as f64
 }
 
-fn fold_line_candidate(gray: &GrayImage) -> Option<FoldCandidate> {
-    fold_line_candidate_in_range(gray, gray.width() / 4, gray.width() * 3 / 4)
+fn fold_line_candidate(gray: &GrayImage, prior: Option<(f64, f64)>) -> Option<FoldCandidate> {
+    let (search_left, search_right) = prior.map_or(
+        (gray.width() / 4, gray.width() * 3 / 4),
+        |(ratio, strength)| {
+            let half_width = 0.16 - 0.08 * strength.clamp(0.0, 1.0);
+            (
+                ((ratio - half_width) * gray.width() as f64).round() as usize,
+                ((ratio + half_width) * gray.width() as f64).round() as usize,
+            )
+        },
+    );
+    let candidates = fold_line_candidates_in_range(gray, search_left, search_right);
+    candidates.into_iter().max_by(|left, right| {
+        left.score
+            .total_cmp(&right.score)
+            .then_with(|| right.x.total_cmp(&left.x))
+            .then_with(|| right.slope.total_cmp(&left.slope))
+    })
 }
 
-fn fold_line_candidate_in_range(
+fn fold_line_candidates_in_range(
     gray: &GrayImage,
     search_left: usize,
     search_right: usize,
-) -> Option<FoldCandidate> {
+) -> Vec<FoldCandidate> {
     if gray.width() < 8 || gray.height() < 8 {
-        return None;
+        return Vec::new();
     }
-    const ANGLE_STEPS: usize = 29;
-    let slopes = (0..ANGLE_STEPS)
-        .map(|index| (-7.0 + index as f64 * 0.5).to_radians().tan())
+    let angle_steps = ((MAX_CUTTER_ANGLE_DEGREES - MIN_CUTTER_ANGLE_DEGREES)
+        / CUTTER_ANGLE_STEP_DEGREES)
+        .round() as usize
+        + 1;
+    let slopes = (0..angle_steps)
+        .map(|index| {
+            (MIN_CUTTER_ANGLE_DEGREES + index as f64 * CUTTER_ANGLE_STEP_DEGREES)
+                .to_radians()
+                .tan()
+        })
         .collect::<Vec<_>>();
-    let mut accumulator = vec![0u64; ANGLE_STEPS * gray.width()];
+    let mut accumulator = vec![0u64; angle_steps * gray.width()];
     let center_y = gray.height() as f64 * 0.5;
     for y in 1..gray.height() - 1 {
         for x in 2..gray.width() - 2 {
@@ -1021,41 +1137,68 @@ fn fold_line_candidate_in_range(
     }
     let search_left = search_left.clamp(2, gray.width().saturating_sub(3));
     let search_right = search_right.clamp(search_left + 1, gray.width().saturating_sub(2));
-    let mut best = (0usize, 0usize, 0u64);
     let mut total = 0u64;
-    let mut candidates = 0usize;
-    for angle_index in 0..ANGLE_STEPS {
+    let mut bin_count = 0usize;
+    let mut responses = Vec::with_capacity(angle_steps * (search_right - search_left));
+    for angle_index in 0..angle_steps {
         for x in search_left..search_right {
             let score = accumulator[angle_index * gray.width() + x];
             total += score;
-            candidates += 1;
-            if score > best.2 {
-                best = (angle_index, x, score);
-            }
+            bin_count += 1;
+            responses.push((angle_index, x, score));
         }
     }
-    let average = total as f64 / candidates.max(1) as f64;
-    let coherence = if average > 0.0 {
-        best.2 as f64 / average
-    } else {
-        0.0
-    };
-    let line_strength = best.2 as f64 / (gray.height() as f64 * 48.0);
-    let coverage = vertical_gradient_coverage(gray, best.1 as f64, slopes[best.0]);
-    let score =
-        ramp(coherence, 3.0, 14.0) * ramp(line_strength, 0.12, 0.75) * ramp(coverage, 0.04, 0.42);
-    (score >= 0.04).then_some(FoldCandidate {
-        x: best.1 as f64,
-        score,
-        vertical_coverage: coverage,
-    })
+    let average = total as f64 / bin_count.max(1) as f64;
+    responses.sort_by(|left, right| {
+        right
+            .2
+            .cmp(&left.2)
+            .then_with(|| left.0.cmp(&right.0))
+            .then_with(|| left.1.cmp(&right.1))
+    });
+    let suppression_x = (gray.width() as f64 * 0.003).round().max(2.0);
+    let suppression_slope = 0.75_f64.to_radians().tan();
+    let mut candidates: Vec<FoldCandidate> = Vec::with_capacity(TOP_CUTTER_CANDIDATES);
+    for (angle_index, x, response) in responses {
+        if response == 0 || candidates.len() >= TOP_CUTTER_CANDIDATES {
+            break;
+        }
+        let slope = slopes[angle_index];
+        if candidates.iter().any(|candidate| {
+            (candidate.x - x as f64).abs() <= suppression_x
+                && (candidate.slope - slope).abs() <= suppression_slope
+        }) {
+            continue;
+        }
+        let coherence = if average > 0.0 {
+            response as f64 / average
+        } else {
+            0.0
+        };
+        let line_strength = response as f64 / (gray.height() as f64 * 48.0);
+        let coverage = vertical_gradient_coverage(gray, x as f64, slope);
+        let score = ramp(coherence, 3.0, 14.0)
+            * ramp(line_strength, 0.12, 0.75)
+            * ramp(coverage, 0.04, 0.42);
+        if score >= 0.04 {
+            candidates.push(FoldCandidate {
+                x: x as f64,
+                slope,
+                score,
+                vertical_coverage: coverage,
+                ..FoldCandidate::default()
+            });
+        }
+    }
+    candidates
 }
 
 fn fold_candidate_near_whitespace(
     gray: &GrayImage,
+    cleaned: &BinaryImage,
     whitespace: Candidate,
 ) -> Option<FoldCandidate> {
-    let hough = fold_line_candidate_in_range(
+    let mut candidates = fold_line_candidates_in_range(
         gray,
         whitespace.start.saturating_sub(4),
         (whitespace.end + 4).min(gray.width()),
@@ -1066,11 +1209,118 @@ fn fold_candidate_near_whitespace(
         .map(|x| x as f64)
         .filter_map(|x| vertical_boundary_candidate_at(gray, x))
         .max_by(|left, right| left.score.total_cmp(&right.score));
-    match (hough, vertical) {
-        (Some(hough), Some(vertical)) if vertical.score > hough.score => Some(vertical),
-        (Some(hough), _) => Some(hough),
-        (None, vertical) => vertical,
+    if let Some(vertical) = vertical {
+        candidates.push(vertical);
     }
+    select_fold_candidate(cleaned, candidates)
+}
+
+fn select_fold_candidate(
+    cleaned: &BinaryImage,
+    mut candidates: Vec<FoldCandidate>,
+) -> Option<FoldCandidate> {
+    candidates.sort_by(|left, right| {
+        right
+            .score
+            .total_cmp(&left.score)
+            .then_with(|| left.x.total_cmp(&right.x))
+            .then_with(|| left.slope.total_cmp(&right.slope))
+    });
+    let group_radius = (cleaned.width() as f64 * 0.01).round().max(3.0);
+    let mut scored_groups: Vec<FoldCandidate> = Vec::with_capacity(TOP_DESKEW_CANDIDATE_GROUPS);
+    for candidate in &mut candidates {
+        if let Some(group) = scored_groups
+            .iter()
+            .find(|group| (group.x - candidate.x).abs() <= group_radius)
+        {
+            copy_leaf_deskew_score(candidate, *group);
+        } else if scored_groups.len() < TOP_DESKEW_CANDIDATE_GROUPS {
+            *candidate = score_candidate_leaf_deskew(cleaned, *candidate);
+            scored_groups.push(*candidate);
+        }
+    }
+    candidates.into_iter().max_by(|left, right| {
+        fold_candidate_rank(*left)
+            .total_cmp(&fold_candidate_rank(*right))
+            .then_with(|| right.x.total_cmp(&left.x))
+            .then_with(|| right.slope.total_cmp(&left.slope))
+    })
+}
+
+fn copy_leaf_deskew_score(target: &mut FoldCandidate, source: FoldCandidate) {
+    target.left_deskew_angle_degrees = source.left_deskew_angle_degrees;
+    target.right_deskew_angle_degrees = source.right_deskew_angle_degrees;
+    target.left_deskew_confidence = source.left_deskew_confidence;
+    target.right_deskew_confidence = source.right_deskew_confidence;
+    target.joint_deskew_score = source.joint_deskew_score;
+}
+
+fn fold_candidate_rank(candidate: FoldCandidate) -> f64 {
+    candidate.score * (1.0 + 0.12 * candidate.joint_deskew_score)
+}
+
+fn score_candidate_leaf_deskew(
+    cleaned: &BinaryImage,
+    mut candidate: FoldCandidate,
+) -> FoldCandidate {
+    let left = half_binary_for_cutter(cleaned, candidate, true);
+    let right = half_binary_for_cutter(cleaned, candidate, false);
+    let left_deskew = score_skew(&left);
+    let right_deskew = score_skew(&right);
+    candidate.left_deskew_angle_degrees = left_deskew.angle_degrees;
+    candidate.right_deskew_angle_degrees = right_deskew.angle_degrees;
+    candidate.left_deskew_confidence = left_deskew.confidence;
+    candidate.right_deskew_confidence = right_deskew.confidence;
+    candidate.joint_deskew_score = if left_deskew.accepted && right_deskew.accepted {
+        0.5 + 0.5
+            * ramp(
+                left_deskew.confidence.min(right_deskew.confidence),
+                2.0,
+                6.0,
+            )
+    } else {
+        0.0
+    };
+    candidate
+}
+
+fn half_binary_for_cutter(
+    source: &BinaryImage,
+    candidate: FoldCandidate,
+    keep_left: bool,
+) -> BinaryImage {
+    let center_y = source.height() as f64 * 0.5;
+    let boundary_at = |y: usize| candidate.x + candidate.slope * (y as f64 - center_y);
+    let top = boundary_at(0);
+    let bottom = boundary_at(source.height().saturating_sub(1));
+    let source_left = if keep_left {
+        0
+    } else {
+        top.min(bottom).floor().max(0.0) as usize
+    };
+    let source_right = if keep_left {
+        top.max(bottom).ceil().min(source.width() as f64) as usize
+    } else {
+        source.width()
+    };
+    let mut half = BinaryImage::new(
+        source_right.saturating_sub(source_left).max(1),
+        source.height(),
+    );
+    for y in 0..source.height() {
+        let boundary = boundary_at(y);
+        for x in source_left..source_right {
+            let retained = if keep_left {
+                x as f64 + 0.5 < boundary
+            } else {
+                x as f64 + 0.5 >= boundary
+            };
+            if retained && source.get(x, y) {
+                half.set(x - source_left, y, true);
+            }
+        }
+    }
+    half
 }
 
 fn vertical_boundary_candidate_at(gray: &GrayImage, x: f64) -> Option<FoldCandidate> {
@@ -1104,6 +1354,7 @@ fn vertical_boundary_candidate_at(gray: &GrayImage, x: f64) -> Option<FoldCandid
         x,
         score,
         vertical_coverage: coverage,
+        ..FoldCandidate::default()
     })
 }
 
@@ -1127,6 +1378,151 @@ fn vertical_gradient_coverage(gray: &GrayImage, center_x: f64, slope: f64) -> f6
         covered += usize::from(present);
     }
     covered as f64 / gray.height().saturating_sub(2).max(1) as f64
+}
+
+fn refine_curved_seam(
+    gray: &GrayImage,
+    binary: &BinaryImage,
+    center_x: f64,
+    slope: f64,
+) -> Option<SplitSeamPolyline> {
+    if gray.width() < 8 || gray.height() < 2 || gray.width() != binary.width() {
+        return None;
+    }
+    let band = (gray.width() as f64 * CURVED_SEAM_BAND_WIDTH_FRACTION)
+        .ceil()
+        .max(2.0) as usize;
+    let center_y = gray.height() as f64 * 0.5;
+    let ranges = (0..gray.height())
+        .map(|y| {
+            let predicted = center_x + slope * (y as f64 - center_y);
+            let start = (predicted.floor() as isize - band as isize)
+                .clamp(1, gray.width().saturating_sub(2) as isize) as usize;
+            let end = (predicted.ceil() as isize + band as isize + 1)
+                .clamp(start as isize + 1, gray.width().saturating_sub(1) as isize)
+                as usize;
+            (start, end, predicted)
+        })
+        .collect::<Vec<_>>();
+    let (first_start, first_end, first_predicted) = ranges[0];
+    let mut previous = (first_start..first_end)
+        .map(|x| seam_evidence_cost(gray, binary, x, 0, first_predicted, band))
+        .collect::<Vec<_>>();
+    let mut predecessors = Vec::with_capacity(gray.height().saturating_sub(1));
+    for y in 1..gray.height() {
+        let (start, end, predicted) = ranges[y];
+        let (previous_start, previous_end, _) = ranges[y - 1];
+        let mut current = vec![f64::INFINITY; end - start];
+        let mut row_predecessors = vec![previous_start; end - start];
+        for x in start..end {
+            let transition_start = x.saturating_sub(2).max(previous_start);
+            let transition_end = (x + 3).min(previous_end);
+            for previous_x in transition_start..transition_end {
+                let smoothness = 0.10 * x.abs_diff(previous_x) as f64;
+                let total = previous[previous_x - previous_start] + smoothness;
+                let index = x - start;
+                if total < current[index]
+                    || (total == current[index] && previous_x < row_predecessors[index])
+                {
+                    current[index] = total;
+                    row_predecessors[index] = previous_x;
+                }
+            }
+            current[x - start] += seam_evidence_cost(gray, binary, x, y, predicted, band);
+        }
+        previous = current;
+        predecessors.push(row_predecessors);
+    }
+    let (last_start, _, _) = ranges[gray.height() - 1];
+    let mut x = previous
+        .iter()
+        .enumerate()
+        .min_by(|left, right| left.1.total_cmp(right.1).then_with(|| left.0.cmp(&right.0)))
+        .map(|(index, _)| last_start + index)?;
+    let mut points = vec![Point::new(0.0, 0.0); gray.height()];
+    for y in (0..gray.height()).rev() {
+        points[y] = Point::new(x as f64 + 0.5, y as f64 + 0.5);
+        if y > 0 {
+            let (start, _, _) = ranges[y];
+            x = predecessors[y - 1][x - start];
+        }
+    }
+    Some(SplitSeamPolyline { points })
+}
+
+fn seam_evidence_cost(
+    gray: &GrayImage,
+    binary: &BinaryImage,
+    x: usize,
+    y: usize,
+    predicted_x: f64,
+    band: usize,
+) -> f64 {
+    let core_left = x.saturating_sub(1);
+    let core_right = (x + 2).min(gray.width());
+    let core = row_mean_luminance(gray, y, core_left, core_right);
+    let shoulder_offset = (gray.width() as f64 * 0.010).round().max(3.0) as usize;
+    let left = row_mean_luminance(
+        gray,
+        y,
+        x.saturating_sub(shoulder_offset + 2),
+        x.saturating_sub(shoulder_offset.saturating_sub(1)),
+    );
+    let right = row_mean_luminance(
+        gray,
+        y,
+        (x + shoulder_offset.saturating_sub(1)).min(gray.width()),
+        (x + shoulder_offset + 2).min(gray.width()),
+    );
+    let dark_evidence = ramp((left + right) * 0.5 - core, 2.0, 28.0);
+    let ink_left = x.saturating_sub(2);
+    let ink_right = (x + 3).min(binary.width());
+    let ink_fraction = (ink_left..ink_right)
+        .filter(|&sample_x| binary.get(sample_x, y))
+        .count() as f64
+        / ink_right.saturating_sub(ink_left).max(1) as f64;
+    let whitespace_evidence = ramp(core, 210.0, 250.0) * (1.0 - ink_fraction);
+    let evidence = dark_evidence.max(whitespace_evidence);
+    let ink_penalty = 0.35 * ink_fraction * (1.0 - dark_evidence);
+    let center_penalty = 0.02 * ((x as f64 - predicted_x).abs() / band.max(1) as f64);
+    1.0 - evidence + ink_penalty + center_penalty
+}
+
+fn row_mean_luminance(gray: &GrayImage, y: usize, left: usize, right: usize) -> f64 {
+    if left >= right || right > gray.width() {
+        return 255.0;
+    }
+    let sum = (left..right)
+        .map(|x| u64::from(gray.get(x, y)))
+        .sum::<u64>();
+    sum as f64 / (right - left) as f64
+}
+
+fn seam_in_source_coordinates(
+    mut seam: SplitSeamPolyline,
+    analysis: &AnalysisImage<'_>,
+    source_width: usize,
+    source_height: usize,
+) -> SplitSeamPolyline {
+    let inverse_deskew = (analysis.deskew_angle_degrees != 0.0).then(|| {
+        let cx = analysis.gray.width() as f64 * 0.5;
+        let cy = analysis.gray.height() as f64 * 0.5;
+        Affine::translation(-cx, -cy)
+            .then(Affine::rotation_radians(
+                analysis.deskew_angle_degrees.to_radians(),
+            ))
+            .then(Affine::translation(cx, cy))
+    });
+    let scale_x = source_width as f64 / analysis.gray.width().max(1) as f64;
+    let scale_y = source_height as f64 / analysis.gray.height().max(1) as f64;
+    for point in &mut seam.points {
+        if let Some(transform) = inverse_deskew {
+            *point = transform.apply(*point);
+        }
+        point.x = (point.x * scale_x).clamp(0.0, source_width as f64);
+        point.y = (point.y * scale_y).clamp(0.0, source_height as f64);
+    }
+    seam
 }
 
 fn smaller_side_empty_score(cleaned: &BinaryImage, cutter_x: f64, dpi: f64) -> f64 {
@@ -1376,6 +1772,7 @@ fn single(
         confidence,
         cutter_x: None,
         pages: vec![page_polygon(0.0, width as f64, height)],
+        split_seam: None,
         diagnostics,
         reconciliation,
         reusable_binary: None,
@@ -1403,6 +1800,7 @@ fn split_at(
             page_polygon(0.0, x, height),
             page_polygon(x, width as f64, height),
         ],
+        split_seam: None,
         diagnostics,
         reconciliation,
         reusable_binary: None,
@@ -1452,6 +1850,39 @@ mod tests {
         }
     }
 
+    fn add_sloped_fold(gray: &mut GrayImage, center_x: f64, angle_degrees: f64, value: u8) {
+        let slope = angle_degrees.to_radians().tan();
+        let center_y = gray.height() as f64 * 0.5;
+        for y in 4..gray.height().saturating_sub(4) {
+            let x = (center_x + slope * (y as f64 - center_y)).round() as usize;
+            if x > 0 && x + 1 < gray.width() {
+                gray.set(x, y, value);
+                gray.set(x + 1, y, value.saturating_add(70));
+            }
+        }
+    }
+
+    fn add_slanted_binary_lines(
+        binary: &mut BinaryImage,
+        left: usize,
+        right: usize,
+        angle_degrees: f64,
+    ) {
+        let slope = angle_degrees.to_radians().tan();
+        let center_x = (left + right) as f64 * 0.5;
+        for base_y in (24..binary.height().saturating_sub(24)).step_by(18) {
+            for x in left..right {
+                let y = (base_y as f64 + slope * (x as f64 - center_x)).round() as isize;
+                for offset in 0..3 {
+                    let sample_y = y + offset;
+                    if sample_y >= 0 && sample_y < binary.height() as isize {
+                        binary.set(x, sample_y as usize, true);
+                    }
+                }
+            }
+        }
+    }
+
     #[test]
     fn locates_known_two_page_gutter() {
         let mut gray = GrayImage::new(360, 240, 245);
@@ -1465,6 +1896,9 @@ mod tests {
             "{result:?}"
         );
         assert!(result.confidence > 0.0);
+        let seam = result.split_seam.as_ref().unwrap();
+        assert!(seam.points.len() >= gray.height() / 3);
+        assert!(seam.points.last().unwrap().y >= gray.height() as f64 - 3.0);
         assert_eq!(result.confidence, result.diagnostics.evidence_product);
         if result.confidence == 1.0 {
             let agreeing = [
@@ -1487,6 +1921,87 @@ mod tests {
         assert_eq!(result.classification, LayoutClassification::TwoPageSpread);
         assert_eq!(result.cutter_x, Some(151.0));
         assert_eq!(result.pages.len(), 2);
+        assert!(result.split_seam.is_none());
+    }
+
+    #[test]
+    fn fold_candidates_retain_their_direct_slope_response() {
+        let mut gray = GrayImage::new(480, 320, 245);
+        add_sloped_fold(&mut gray, 240.0, 4.0, 65);
+        let candidates = fold_line_candidates_in_range(&gray, 200, 280);
+        let best = candidates
+            .into_iter()
+            .max_by(|left, right| left.score.total_cmp(&right.score))
+            .unwrap();
+        assert!((best.x - 240.0).abs() <= 3.0, "{best:?}");
+        assert!(
+            (best.slope - 4.0_f64.to_radians().tan()).abs()
+                <= CUTTER_ANGLE_STEP_DEGREES.to_radians().tan(),
+            "{best:?}"
+        );
+    }
+
+    #[test]
+    fn document_prior_biases_the_fold_search_window() {
+        let mut gray = GrayImage::new(500, 320, 245);
+        for y in (4..gray.height().saturating_sub(4)).step_by(4) {
+            gray.set(200, y, 115);
+            gray.set(201, y, 185);
+        }
+        add_sloped_fold(&mut gray, 300.0, 0.0, 35);
+        let unconstrained = fold_line_candidate(&gray, None).unwrap();
+        let prior_guided = fold_line_candidate(&gray, Some((0.40, 1.0))).unwrap();
+        assert!((unconstrained.x - 300.0).abs() <= 4.0, "{unconstrained:?}");
+        assert!((prior_guided.x - 200.0).abs() <= 4.0, "{prior_guided:?}");
+    }
+
+    #[test]
+    fn per_leaf_deskew_scores_opposing_leaf_angles() {
+        let mut binary = BinaryImage::new(420, 300);
+        add_slanted_binary_lines(&mut binary, 18, 190, 3.0);
+        add_slanted_binary_lines(&mut binary, 230, 402, -3.0);
+        let candidate = score_candidate_leaf_deskew(
+            &binary,
+            FoldCandidate {
+                x: 210.0,
+                score: 1.0,
+                ..FoldCandidate::default()
+            },
+        );
+        assert!(candidate.joint_deskew_score >= 0.5, "{candidate:?}");
+        assert!(
+            candidate.left_deskew_angle_degrees * candidate.right_deskew_angle_degrees < 0.0,
+            "{candidate:?}"
+        );
+    }
+
+    #[test]
+    fn curved_seam_dynamic_program_tracks_a_non_vertical_gutter() {
+        let mut gray = GrayImage::new(320, 220, 238);
+        let mut binary = BinaryImage::new(320, 220);
+        let expected = (0..gray.height())
+            .map(|y| 160.0 + 4.0 * (std::f64::consts::TAU * y as f64 / gray.height() as f64).sin())
+            .collect::<Vec<_>>();
+        for (y, &x) in expected.iter().enumerate() {
+            let x = x.round() as usize;
+            gray.set(x, y, 45);
+            binary.set(x, y, true);
+        }
+        let seam = refine_curved_seam(&gray, &binary, 160.0, 0.0).unwrap();
+        let seam_error = seam
+            .points
+            .iter()
+            .zip(&expected)
+            .map(|(point, expected_x)| (point.x - expected_x).abs())
+            .sum::<f64>()
+            / expected.len() as f64;
+        let straight_error = expected
+            .iter()
+            .map(|expected_x| (160.0 - expected_x).abs())
+            .sum::<f64>()
+            / expected.len() as f64;
+        assert!(seam_error < 1.0, "seam error {seam_error}");
+        assert!(seam_error < straight_error * 0.5);
     }
 
     #[test]
