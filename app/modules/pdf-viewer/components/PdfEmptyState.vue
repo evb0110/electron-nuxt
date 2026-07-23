@@ -318,7 +318,6 @@ const {
     recentFilesResolved = true,
     openBatchProgress = null,
     openInProgress = false,
-    recentOpenDisabled = false,
     isRecentOpenReady = () => true,
     isRecentOpenExactFrameReady = () => false,
     canCombineFiles = false,
@@ -329,7 +328,6 @@ const {
     recentFilesResolved?: boolean | undefined;
     openBatchProgress?: IPdfOpenBatchProgress | null | undefined;
     openInProgress?: boolean | undefined;
-    recentOpenDisabled?: boolean | undefined;
     isRecentOpenReady?: ((file: IRecentFile) => boolean) | undefined;
     isRecentOpenExactFrameReady?: ((file: IRecentFile) => boolean) | undefined;
     canCombineFiles?: boolean | undefined;
@@ -434,9 +432,10 @@ function openRecentFromRow(file: IRecentFile) {
 
 function isRecentRowDisabled(file: IRecentFile) {
     // `openInProgress` drives the picker CTA, not Recent command eligibility.
-    // The host's row-specific predicate owns transaction conflicts; missing
-    // prewarmed geometry is a cold-path concern, never a disabled-command gate.
-    return recentOpenDisabled || !isRecentOpenReady(file);
+    // The host's row-specific predicate owns transaction conflicts; owner
+    // readiness and prewarmed geometry are open-path concerns, never a
+    // disabled-command gate.
+    return !isRecentOpenReady(file);
 }
 
 function revealRecent(file: IRecentFile) {

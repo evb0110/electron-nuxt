@@ -47,7 +47,6 @@
                 :recent-files-resolved="isResolved"
                 :open-batch-progress="null"
                 :open-in-progress="isOpenUiBusy"
-                :recent-open-disabled="!isRecentOpenOwnerReady"
                 :is-recent-open-ready="isRecentFileOpenReady"
                 :is-recent-open-exact-frame-ready="isRecentFileExactFrameReady"
                 :start-section="startSection"
@@ -274,7 +273,6 @@ function isRecentFileOpenReady(file: IRecentFile) {
     return isRecentOpenCommandEligible({
         activeOpenDocumentRef: activeDocumentOpenTransaction.value?.documentRef ?? null,
         documentRef: file.originalPath,
-        ownerReady: isRecentOpenOwnerReady.value,
     });
 }
 function isRecentFileExactFrameReady(file: IRecentFile) {
