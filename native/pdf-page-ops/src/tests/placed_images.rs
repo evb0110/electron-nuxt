@@ -45,21 +45,27 @@
         write(&output_path, &original_bytes).unwrap();
         let placed_image = placed_jpeg_mutation();
         let modified_at = "D:20260609123456+03'00'";
+        let mutations = NativeMutationsFile {
+            updates: Vec::new(),
+            free_text_notes: Vec::new(),
+            deletes: Vec::new(),
+            page_labels: None,
+            bookmarks: None,
+            shapes: None,
+            markup: None,
+            placed_images: vec![placed_image],
+        };
+        assert!(should_run_full_native_mutation_validation(
+            IncrementalValidationMode::TailOnly,
+            &mutations,
+        ));
 
         append_native_mutations(
             &input_path,
             &output_path,
-            &NativeMutationsFile {
-                updates: Vec::new(),
-                free_text_notes: Vec::new(),
-                deletes: Vec::new(),
-                page_labels: None,
-                bookmarks: None,
-                shapes: None,
-                markup: None,
-                placed_images: vec![placed_image],
-            },
+            &mutations,
             modified_at,
+            IncrementalValidationMode::TailOnly,
         )
         .unwrap();
 

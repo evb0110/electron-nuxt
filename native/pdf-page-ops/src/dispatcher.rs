@@ -5,6 +5,7 @@ pub(crate) fn mutate_pdf(config: Config) -> Result<()> {
         updates_file,
         modified_at,
         append: true,
+        incremental_validation,
     } = &config.operation
     {
         let updates = read_note_text_updates(updates_file)
@@ -14,6 +15,7 @@ pub(crate) fn mutate_pdf(config: Config) -> Result<()> {
             &config.output_path,
             &updates,
             modified_at,
+            *incremental_validation,
         )?;
         return Ok(());
     }
@@ -21,6 +23,7 @@ pub(crate) fn mutate_pdf(config: Config) -> Result<()> {
         changes_file,
         modified_at,
         append: true,
+        incremental_validation,
     } = &config.operation
     {
         let changes = read_note_changes(changes_file)
@@ -30,6 +33,7 @@ pub(crate) fn mutate_pdf(config: Config) -> Result<()> {
             &config.output_path,
             &changes,
             modified_at,
+            *incremental_validation,
         )?;
         return Ok(());
     }
@@ -37,6 +41,7 @@ pub(crate) fn mutate_pdf(config: Config) -> Result<()> {
         mutations_file,
         modified_at,
         append: true,
+        incremental_validation,
     } = &config.operation
     {
         let mutations = read_native_mutations(mutations_file)
@@ -46,6 +51,7 @@ pub(crate) fn mutate_pdf(config: Config) -> Result<()> {
             &config.output_path,
             &mutations,
             modified_at,
+            *incremental_validation,
         )?;
         return Ok(());
     }
@@ -87,6 +93,7 @@ pub(crate) fn mutate_pdf(config: Config) -> Result<()> {
             updates_file,
             modified_at,
             append: _,
+            incremental_validation: _,
         } => {
             let updates = read_note_text_updates(&updates_file)
                 .map_err(|error| reclassify_domain_error(error, NativeErrorCode::InvalidRequest))?;
@@ -96,6 +103,7 @@ pub(crate) fn mutate_pdf(config: Config) -> Result<()> {
             changes_file,
             modified_at,
             append: _,
+            incremental_validation: _,
         } => {
             let changes = read_note_changes(&changes_file)
                 .map_err(|error| reclassify_domain_error(error, NativeErrorCode::InvalidRequest))?;
@@ -107,6 +115,7 @@ pub(crate) fn mutate_pdf(config: Config) -> Result<()> {
             mutations_file,
             modified_at,
             append: _,
+            incremental_validation: _,
         } => {
             let mutations = read_native_mutations(&mutations_file)
                 .map_err(|error| reclassify_domain_error(error, NativeErrorCode::InvalidRequest))?;

@@ -90,6 +90,7 @@
                 text: "incremental hello".to_string(),
             }],
             "D:20260609123456+03'00'",
+            IncrementalValidationMode::Full,
         )
         .unwrap();
 
@@ -134,6 +135,7 @@
                 text: "tail validation".to_string(),
             }],
             "D:20260609123456+03'00'",
+            IncrementalValidationMode::Full,
         )
         .unwrap();
 
@@ -150,12 +152,105 @@
     }
 
     #[test]
-    fn semantic_incremental_post_save_validation_runs_by_default() {
-        assert!(should_run_full_incremental_post_save_validation_for(None));
-        assert!(should_run_full_incremental_post_save_validation_for(Some("1")));
-        assert!(!should_run_full_incremental_post_save_validation_for(Some("0")));
-        assert!(!should_run_full_incremental_post_save_validation_for(Some("false")));
-        assert!(!should_run_full_incremental_post_save_validation_for(Some("no")));
+    fn incremental_validation_mode_defaults_to_full_with_environment_fallback() {
+        assert_eq!(
+            incremental_validation_mode_from_environment_value(None),
+            IncrementalValidationMode::Full
+        );
+        assert_eq!(
+            incremental_validation_mode_from_environment_value(Some("1")),
+            IncrementalValidationMode::Full
+        );
+        assert_eq!(
+            incremental_validation_mode_from_environment_value(Some("0")),
+            IncrementalValidationMode::TailOnly
+        );
+        assert_eq!(
+            incremental_validation_mode_from_environment_value(Some("false")),
+            IncrementalValidationMode::TailOnly
+        );
+        assert_eq!(
+            incremental_validation_mode_from_environment_value(Some("no")),
+            IncrementalValidationMode::TailOnly
+        );
+    }
+
+    #[test]
+    fn parses_explicit_append_incremental_validation_mode() {
+        let config = parse_args(
+            [
+                "save-mutations",
+                "--input",
+                "input.pdf",
+                "--output",
+                "output.pdf",
+                "--mutations-file",
+                "mutations.json",
+                "--modified-at",
+                "D:20260609123456Z",
+                "--append",
+                "--incremental-validation",
+                "tail-only",
+            ]
+            .into_iter()
+            .map(String::from),
+        )
+        .unwrap();
+        assert!(matches!(
+            config.operation,
+            Operation::SaveMutations {
+                append: true,
+                incremental_validation: IncrementalValidationMode::TailOnly,
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn rejects_incremental_validation_for_non_append_operations() {
+        let error = parse_args(
+            [
+                "page-sizes",
+                "--input",
+                "input.pdf",
+                "--output",
+                "output.json",
+                "--incremental-validation",
+                "tail-only",
+            ]
+            .into_iter()
+            .map(String::from),
+        )
+        .err()
+        .unwrap()
+        .to_string();
+        assert!(error.contains("requires an append operation"));
+    }
+
+    #[test]
+    fn rejects_invalid_incremental_validation_mode() {
+        let error = parse_args(
+            [
+                "save-mutations",
+                "--input",
+                "input.pdf",
+                "--output",
+                "output.pdf",
+                "--mutations-file",
+                "mutations.json",
+                "--modified-at",
+                "D:20260609123456Z",
+                "--append",
+                "--incremental-validation",
+                "fast",
+            ]
+            .into_iter()
+            .map(String::from),
+        )
+        .err()
+        .unwrap()
+        .to_string();
+        assert!(error.contains("Invalid --incremental-validation value"));
     }
 
     #[test]
@@ -179,6 +274,7 @@
                 text: "tail corruption".to_string(),
             }],
             "D:20260609123456+03'00'",
+            IncrementalValidationMode::Full,
         )
         .unwrap();
 
@@ -228,6 +324,7 @@
                 text: "incremental hello".to_string(),
             }],
             "D:20260609123456+03'00'",
+            IncrementalValidationMode::Full,
         )
         .unwrap_err()
         .to_string();
@@ -275,6 +372,7 @@
                 text: "same path update".to_string(),
             }],
             "D:20260609123456+03'00'",
+            IncrementalValidationMode::Full,
         )
         .unwrap();
 
@@ -341,6 +439,7 @@
                 }],
             },
             "D:20260609123456+03'00'",
+            IncrementalValidationMode::Full,
         )
         .unwrap();
 
@@ -392,6 +491,7 @@
                 deletes: Vec::new(),
             },
             "D:20260609123456+03'00'",
+            IncrementalValidationMode::Full,
         )
         .unwrap();
 
@@ -410,6 +510,7 @@
                 }],
             },
             "D:20260609123500+03'00'",
+            IncrementalValidationMode::Full,
         )
         .unwrap();
 
@@ -469,6 +570,7 @@
                 deletes: Vec::new(),
             },
             "D:20260609123456+03'00'",
+            IncrementalValidationMode::Full,
         )
         .unwrap();
 
@@ -559,6 +661,7 @@
                 deletes: Vec::new(),
             },
             "D:20260609123456+03'00'",
+            IncrementalValidationMode::Full,
         )
         .unwrap();
         append_note_changes(
@@ -583,6 +686,7 @@
                 deletes: Vec::new(),
             },
             "D:20260609123500+03'00'",
+            IncrementalValidationMode::Full,
         )
         .unwrap();
 

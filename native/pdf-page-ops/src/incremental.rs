@@ -63,6 +63,7 @@ pub(crate) fn append_note_text_update(
     output_path: &PathBuf,
     updates: &[NoteTextUpdate],
     modified_at: &str,
+    _incremental_validation: IncrementalValidationMode,
 ) -> Result<()> {
     let mut incremental = IncrementalDocument::load(input_path)?;
     if incremental.get_prev_documents().is_encrypted() {
@@ -93,10 +94,8 @@ pub(crate) fn append_note_text_update(
         &expected_object_ids,
     )
     .map_err(|error| reclassify_domain_error(error, NativeErrorCode::CorruptXref))?;
-    if should_run_full_incremental_post_save_validation() {
-        let output_document = Document::load(output_path)?;
-        validate_note_text_document_postconditions(&output_document, updates, modified_at)?;
-    }
+    let output_document = Document::load(output_path)?;
+    validate_note_text_document_postconditions(&output_document, updates, modified_at)?;
     Ok(())
 }
 
@@ -105,6 +104,7 @@ pub(crate) fn append_note_changes(
     output_path: &PathBuf,
     changes: &NoteChangesFile,
     modified_at: &str,
+    _incremental_validation: IncrementalValidationMode,
 ) -> Result<()> {
     let mut incremental = IncrementalDocument::load(input_path)?;
     if incremental.get_prev_documents().is_encrypted() {
@@ -147,20 +147,14 @@ pub(crate) fn append_note_changes(
         &expected_object_ids,
     )
     .map_err(|error| reclassify_domain_error(error, NativeErrorCode::CorruptXref))?;
-    if should_run_full_incremental_post_save_validation() {
-        let output_document = Document::load(output_path)?;
-        validate_note_text_document_postconditions(
-            &output_document,
-            &changes.updates,
-            modified_at,
-        )?;
-        validate_free_text_note_document_postconditions(
-            &output_document,
-            &changes.free_text_notes,
-            modified_at,
-        )?;
-        validate_annotation_delete_document_postconditions(&output_document, &changes.deletes)?;
-    }
+    let output_document = Document::load(output_path)?;
+    validate_note_text_document_postconditions(&output_document, &changes.updates, modified_at)?;
+    validate_free_text_note_document_postconditions(
+        &output_document,
+        &changes.free_text_notes,
+        modified_at,
+    )?;
+    validate_annotation_delete_document_postconditions(&output_document, &changes.deletes)?;
     Ok(())
 }
 
@@ -233,6 +227,7 @@ pub(crate) fn append_native_mutations(
     output_path: &PathBuf,
     mutations: &NativeMutationsFile,
     modified_at: &str,
+    incremental_validation: IncrementalValidationMode,
 ) -> Result<()> {
     let mut incremental = IncrementalDocument::load(input_path)?;
     if incremental.get_prev_documents().is_encrypted() {
@@ -263,7 +258,7 @@ pub(crate) fn append_native_mutations(
         &expected_object_ids,
     )
     .map_err(|error| reclassify_domain_error(error, NativeErrorCode::CorruptXref))?;
-    if should_run_full_incremental_post_save_validation() {
+    if should_run_full_native_mutation_validation(incremental_validation, mutations) {
         let output_document = Document::load(output_path)?;
         validate_note_text_document_postconditions(
             &output_document,
@@ -293,6 +288,8 @@ pub(crate) fn append_native_mutations(
             &mutations.placed_images,
             modified_at,
         )?;
+    } else {
+        validate_incremental_metadata_postconditions(&incremental, mutations)?;
     }
     Ok(())
 }
@@ -328,18 +325,242 @@ pub(crate) fn should_write_incremental_object(object: &Object) -> bool {
         .unwrap_or(true)
 }
 
-pub(crate) fn should_run_full_incremental_post_save_validation_for(value: Option<&str>) -> bool {
+pub(crate) fn validate_incremental_metadata_postconditions(
+    incremental: &IncrementalDocument,
+    mutations: &NativeMutationsFile,
+) -> Result<()> {
+    if let Some(page_labels) = &mutations.page_labels {
+        validate_incremental_page_labels_postconditions(incremental, page_labels)?;
+    }
+    if let Some(bookmarks) = &mutations.bookmarks {
+        validate_incremental_bookmarks_postconditions(incremental, bookmarks)?;
+    }
+    Ok(())
+}
+
+fn validate_incremental_page_labels_postconditions(
+    incremental: &IncrementalDocument,
+    page_labels: &PageLabelsMutation,
+) -> Result<()> {
+    let catalog_id = catalog_id(incremental.get_prev_documents())?;
+    let catalog = incremental.new_document.get_dictionary(catalog_id)?;
+    if is_implicit_default_page_labels(&page_labels.ranges, page_labels.total_pages) {
+        if catalog.get(b"PageLabels").is_ok() {
+            return Err("PageLabels should be removed for implicit default labels".into());
+        }
+        return Ok(());
+    }
+
+    let page_labels_dict = catalog.get(b"PageLabels")?.as_dict()?;
+    let nums = page_labels_dict.get(b"Nums")?.as_array()?;
+    let expected_ranges = normalize_page_label_ranges(&page_labels.ranges, page_labels.total_pages);
+    if nums.len() != expected_ranges.len() * 2 {
+        return Err("PageLabels Nums length did not match requested ranges".into());
+    }
+    for (objects, expected) in nums.chunks_exact(2).zip(expected_ranges) {
+        if objects[0].as_i64()? != i64::from(expected.start_page.saturating_sub(1)) {
+            return Err("PageLabels range start did not match the requested page".into());
+        }
+        let range = objects[1].as_dict()?;
+        match expected.style.as_deref() {
+            Some(style) if range.get(b"S")?.as_name()? == style.as_bytes() => {}
+            Some(_) => return Err("PageLabels range style did not match the request".into()),
+            None if range.get(b"S").is_err() => {}
+            None => return Err("PageLabels range unexpectedly retained a style".into()),
+        }
+        if expected.prefix.is_empty() {
+            if range.get(b"P").is_ok() {
+                return Err("PageLabels range unexpectedly retained a prefix".into());
+            }
+        } else if range.get(b"P")?.as_str()? != encode_pdf_text_string(&expected.prefix) {
+            return Err("PageLabels range prefix did not match the request".into());
+        }
+        if expected.style.is_some() && expected.start_number > 1 {
+            if range.get(b"St")?.as_i64()? != i64::from(expected.start_number) {
+                return Err("PageLabels range start number did not match the request".into());
+            }
+        } else if range.get(b"St").is_ok() {
+            return Err("PageLabels range unexpectedly retained a start number".into());
+        }
+    }
+    Ok(())
+}
+
+fn validate_incremental_bookmarks_postconditions(
+    incremental: &IncrementalDocument,
+    bookmarks: &BookmarksMutation,
+) -> Result<()> {
+    let catalog_id = catalog_id(incremental.get_prev_documents())?;
+    let catalog = incremental.new_document.get_dictionary(catalog_id)?;
+    let normalized = normalize_bookmark_entries(
+        &bookmarks.items,
+        bookmarks.total_pages,
+        &bookmarks.untitled_label,
+    );
+    if normalized.is_empty() {
+        if catalog.get(b"Outlines").is_ok() {
+            return Err("Outlines should be removed for an empty bookmark mutation".into());
+        }
+        return Ok(());
+    }
+
+    let outlines_id = catalog.get(b"Outlines")?.as_reference()?;
+    let outlines = incremental.new_document.get_dictionary(outlines_id)?;
+    if outlines.get(b"Count")?.as_i64()? != i64::try_from(count_bookmark_items(&normalized))? {
+        return Err("Outlines Count did not match requested bookmarks".into());
+    }
+    let first = outlines.get(b"First")?.as_reference()?;
+    let last = outlines.get(b"Last")?.as_reference()?;
+    let page_map = incremental.get_prev_documents().get_pages();
+    validate_incremental_bookmark_level(
+        incremental,
+        &page_map,
+        &normalized,
+        outlines_id,
+        first,
+        last,
+    )
+}
+
+fn validate_incremental_bookmark_level(
+    incremental: &IncrementalDocument,
+    page_map: &std::collections::BTreeMap<u32, ObjectId>,
+    items: &[BookmarkEntry],
+    parent_id: ObjectId,
+    first: ObjectId,
+    last: ObjectId,
+) -> Result<()> {
+    let mut current = Some(first);
+    let mut previous = None;
+    for item in items {
+        let object_id = current.ok_or("Outline chain ended before all bookmarks were validated")?;
+        let bookmark = incremental.new_document.get_dictionary(object_id)?;
+        if bookmark.get(b"Parent")?.as_reference()? != parent_id {
+            return Err("Bookmark parent did not match its outline level".into());
+        }
+        match previous {
+            Some(previous_id) if bookmark.get(b"Prev")?.as_reference()? == previous_id => {}
+            Some(_) => return Err("Bookmark Prev link did not match its sibling".into()),
+            None if bookmark.get(b"Prev").is_err() => {}
+            None => return Err("First bookmark unexpectedly contained a Prev link".into()),
+        }
+        if bookmark.get(b"Title")?.as_str()? != encode_pdf_text_string(&item.title) {
+            return Err("Bookmark title did not match the request".into());
+        }
+        validate_incremental_bookmark_destination(
+            incremental.get_prev_documents(),
+            page_map,
+            bookmark,
+            item,
+        )?;
+
+        if item.items.is_empty() {
+            if bookmark.get(b"First").is_ok()
+                || bookmark.get(b"Last").is_ok()
+                || bookmark.get(b"Count").is_ok()
+            {
+                return Err("Leaf bookmark unexpectedly contained child links".into());
+            }
+        } else {
+            let child_first = bookmark.get(b"First")?.as_reference()?;
+            let child_last = bookmark.get(b"Last")?.as_reference()?;
+            if bookmark.get(b"Count")?.as_i64()?
+                != i64::try_from(count_bookmark_items(&item.items))?
+            {
+                return Err("Bookmark child count did not match the request".into());
+            }
+            validate_incremental_bookmark_level(
+                incremental,
+                page_map,
+                &item.items,
+                object_id,
+                child_first,
+                child_last,
+            )?;
+        }
+
+        previous = Some(object_id);
+        current = bookmark.get(b"Next").and_then(Object::as_reference).ok();
+    }
+    if current.is_some() {
+        return Err("Outline chain contained more bookmarks than requested".into());
+    }
+    if previous != Some(last) {
+        return Err("Outline Last link did not match the final requested bookmark".into());
+    }
+    Ok(())
+}
+
+fn validate_incremental_bookmark_destination(
+    base_document: &Document,
+    page_map: &std::collections::BTreeMap<u32, ObjectId>,
+    bookmark: &Dictionary,
+    item: &BookmarkEntry,
+) -> Result<()> {
+    if let Some(page_index) = item.page_index {
+        let page_id = resolve_page_id(
+            page_map,
+            page_index
+                .checked_add(1)
+                .ok_or("Invalid bookmark page index")?,
+        )?;
+        let page_view = resolve_page_view(base_document, page_id)?;
+        let expected_top = resolve_bookmark_destination_top(&page_view, item.page_y_ratio);
+        let destination = bookmark.get(b"Dest")?.as_array()?;
+        if destination.len() != 5
+            || destination[0].as_reference()? != page_id
+            || destination[1].as_name()? != b"XYZ"
+            || !destination[2].is_null()
+            || (f64::from(destination[3].as_float()?) - expected_top).abs() > 0.01
+            || !destination[4].is_null()
+        {
+            return Err("Bookmark destination did not match the requested page position".into());
+        }
+        return Ok(());
+    }
+
+    if let Some(named_dest) = item.named_dest.as_deref() {
+        if bookmark.get(b"Dest")?.as_str()? != named_dest.as_bytes() {
+            return Err("Bookmark named destination did not match the request".into());
+        }
+    } else if bookmark.get(b"Dest").is_ok() {
+        return Err("Bookmark unexpectedly retained a destination".into());
+    }
+    Ok(())
+}
+
+pub(crate) fn incremental_validation_mode_from_environment_value(
+    value: Option<&str>,
+) -> IncrementalValidationMode {
     match value.map(str::trim) {
-        Some("0") => false,
-        Some(value) if value.eq_ignore_ascii_case("false") => false,
-        Some(value) if value.eq_ignore_ascii_case("no") => false,
-        _ => true,
+        Some("0") => IncrementalValidationMode::TailOnly,
+        Some(value) if value.eq_ignore_ascii_case("false") => IncrementalValidationMode::TailOnly,
+        Some(value) if value.eq_ignore_ascii_case("no") => IncrementalValidationMode::TailOnly,
+        _ => IncrementalValidationMode::Full,
     }
 }
 
-pub(crate) fn should_run_full_incremental_post_save_validation() -> bool {
-    let value = env::var("EVB_PDF_PAGE_OPS_FULL_INCREMENTAL_VALIDATE").ok();
-    should_run_full_incremental_post_save_validation_for(value.as_deref())
+pub(crate) fn resolve_incremental_validation_mode(
+    explicit: Option<IncrementalValidationMode>,
+) -> IncrementalValidationMode {
+    explicit.unwrap_or_else(|| {
+        let value = env::var("EVB_PDF_PAGE_OPS_FULL_INCREMENTAL_VALIDATE").ok();
+        incremental_validation_mode_from_environment_value(value.as_deref())
+    })
+}
+
+pub(crate) fn should_run_full_native_mutation_validation(
+    mode: IncrementalValidationMode,
+    mutations: &NativeMutationsFile,
+) -> bool {
+    mode == IncrementalValidationMode::Full
+        || mutations.page_labels.is_none() && mutations.bookmarks.is_none()
+        || !mutations.updates.is_empty()
+        || !mutations.free_text_notes.is_empty()
+        || !mutations.deletes.is_empty()
+        || mutations.shapes.is_some()
+        || mutations.markup.is_some()
+        || !mutations.placed_images.is_empty()
 }
 
 pub(crate) fn validate_incremental_append_output(

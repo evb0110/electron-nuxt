@@ -43,6 +43,12 @@ impl PdfRect {
     }
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum IncrementalValidationMode {
+    Full,
+    TailOnly,
+}
+
 pub(crate) enum Operation {
     SplitPages {
         instructions_file: PathBuf,
@@ -58,16 +64,19 @@ pub(crate) enum Operation {
         updates_file: PathBuf,
         modified_at: String,
         append: bool,
+        incremental_validation: IncrementalValidationMode,
     },
     SaveNoteChanges {
         changes_file: PathBuf,
         modified_at: String,
         append: bool,
+        incremental_validation: IncrementalValidationMode,
     },
     SaveMutations {
         mutations_file: PathBuf,
         modified_at: String,
         append: bool,
+        incremental_validation: IncrementalValidationMode,
     },
     PageSizes,
 }

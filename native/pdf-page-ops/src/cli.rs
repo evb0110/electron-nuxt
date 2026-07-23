@@ -21,6 +21,7 @@ pub(crate) fn parse_args(mut args: impl Iterator<Item = String>) -> Result<Confi
     let mut left = None;
     let mut right = None;
     let mut append = false;
+    let mut incremental_validation = None;
 
     while let Some(arg) = args.next() {
         match arg.as_str() {
@@ -85,9 +86,35 @@ pub(crate) fn parse_args(mut args: impl Iterator<Item = String>) -> Result<Confi
             "--append" => {
                 append = true;
             }
+            "--incremental-validation" => {
+                incremental_validation = Some(
+                    match args
+                        .next()
+                        .ok_or("Missing --incremental-validation value")?
+                        .as_str()
+                    {
+                        "full" => IncrementalValidationMode::Full,
+                        "tail-only" => IncrementalValidationMode::TailOnly,
+                        value => {
+                            return Err(
+                                format!("Invalid --incremental-validation value: {value}").into()
+                            );
+                        }
+                    },
+                );
+            }
             _ => return Err(format!("Unknown argument: {arg}").into()),
         }
     }
+
+    let supports_append = matches!(
+        command.as_str(),
+        "update-note-text" | "save-note-changes" | "save-mutations"
+    );
+    if incremental_validation.is_some() && (!supports_append || !append) {
+        return Err("--incremental-validation requires an append operation".into());
+    }
+    let incremental_validation = resolve_incremental_validation_mode(incremental_validation);
 
     let operation = match command.as_str() {
         "split-pages" => Operation::SplitPages {
@@ -109,16 +136,19 @@ pub(crate) fn parse_args(mut args: impl Iterator<Item = String>) -> Result<Confi
             updates_file: updates_file.ok_or("Missing --updates-file value")?,
             modified_at: modified_at.ok_or("Missing --modified-at value")?,
             append,
+            incremental_validation,
         },
         "save-note-changes" => Operation::SaveNoteChanges {
             changes_file: changes_file.ok_or("Missing --changes-file value")?,
             modified_at: modified_at.ok_or("Missing --modified-at value")?,
             append,
+            incremental_validation,
         },
         "save-mutations" => Operation::SaveMutations {
             mutations_file: mutations_file.ok_or("Missing --mutations-file value")?,
             modified_at: modified_at.ok_or("Missing --modified-at value")?,
             append,
+            incremental_validation,
         },
         "page-sizes" => Operation::PageSizes,
         _ => return Err(format!("Unknown command: {command}").into()),
