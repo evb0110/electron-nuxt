@@ -592,7 +592,11 @@ function shouldSeedPendingTabHint(target: TTabUpdate | null | undefined) {
     });
 }
 
-let pendingPreOwnerGoToPage: number | null = null;
+let pendingPreOwnerGoToPage: {
+    page: number;
+    attempt: number;
+} | null = null;
+let documentOpenAttemptCounter = 0;
 
 function beginDocumentOpenTransaction(intent: IDocumentOpenIntent) {
     const target = intent.target ?? null;
@@ -677,7 +681,9 @@ function beginDocumentOpenTransaction(intent: IDocumentOpenIntent) {
             openingPageFrameAuthority.value?.prepareOpeningPageFrame(generation);
         }
         if (pendingPreOwnerGoToPage !== null) {
-            documentOpenSurface.requestNavigation(pendingPreOwnerGoToPage);
+            if (pendingPreOwnerGoToPage.attempt === documentOpenAttemptCounter) {
+                documentOpenSurface.requestNavigation(pendingPreOwnerGoToPage.page);
+            }
             pendingPreOwnerGoToPage = null;
         }
     }
@@ -841,6 +847,7 @@ async function runWithDocumentOpenInFlight<T>(
     // that gap the Recent empty state remains the visual owner and rapid page
     // commands can overtake the open transaction.
     const preparedOpeningGeometryAvailable = hasPreparedOpeningGeometry(intent);
+    documentOpenAttemptCounter += 1;
     if (
         !canBeginDocumentOpenSynchronously(
             intent.action,
@@ -852,10 +859,12 @@ async function runWithDocumentOpenInFlight<T>(
             preparedOpeningGeometryAvailable,
         )
     ) {
+        pendingPreOwnerGoToPage = null;
         return false;
     }
     const transaction = beginDocumentOpenTransaction(intent);
     if (!transaction) {
+        pendingPreOwnerGoToPage = null;
         return false;
     }
     let opened = false;
@@ -1056,7 +1065,10 @@ const workspaceExpose: IWorkspaceExpose = createDeferredWorkspaceExposeProxy({
         // user command and replays it when the generation begins.
         handleGoToPage: page => {
             if (documentOpenSurface.viewportSession.value.identity === null) {
-                pendingPreOwnerGoToPage = page;
+                pendingPreOwnerGoToPage = {
+                    page,
+                    attempt: documentOpenAttemptCounter,
+                };
                 return;
             }
             documentOpenSurface.requestNavigation(page);

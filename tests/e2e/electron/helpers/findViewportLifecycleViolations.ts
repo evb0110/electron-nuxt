@@ -61,6 +61,8 @@ function findVisibleOwnerViolation(frame: ICommittedSurfaceFrame) {
     return null;
 }
 
+const SKELETON_DEBOUNCE_ALLOWANCE_MS = 250;
+
 /**
  * Release contract for a single interaction generation. It deliberately
  * consumes RAF evidence rather than internal renderer state so stale commits,
@@ -94,14 +96,27 @@ export function findViewportLifecycleViolations(
         && frame.pageNumber === contract.expectedFinalPage
         && frame.skeletonCount > 0
     ));
-    const targetCommittedWithoutShell = frames.some(frame => (
+    // A resident-canvas or warm reopen commits the target page without any
+    // render delay; the skeleton contract only applies when the target page
+    // actually had to wait for its render. The skeleton is deliberately
+    // debounced, so a bare shell that commits within the debounce allowance
+    // owes no skeleton, while a long bare wait remains a violation even if
+    // the canvas eventually commits.
+    const firstTargetShellFrame = frames.find(frame => (
+        frame.kind === 'page-shell'
+        && frame.pageNumber === contract.expectedFinalPage
+    ));
+    const firstTargetCanvasFrame = frames.find(frame => (
         frame.kind === 'committed-canvas'
         && frame.pageNumber === contract.expectedFinalPage
     ));
-    // A resident-canvas or warm reopen commits the target page without any
-    // render delay; the skeleton contract only applies when the page actually
-    // had to wait for its render.
-    if (contract.requireSkeleton && skeletonFrames.length === 0 && !targetCommittedWithoutShell) {
+    const bareShellWaitMs = firstTargetShellFrame
+        ? firstTargetCanvasFrame
+            ? Math.max(0, firstTargetCanvasFrame.elapsedMs - firstTargetShellFrame.elapsedMs)
+            : Number.POSITIVE_INFINITY
+        : 0;
+    const warmTargetCommit = bareShellWaitMs <= SKELETON_DEBOUNCE_ALLOWANCE_MS;
+    if (contract.requireSkeleton && skeletonFrames.length === 0 && !warmTargetCommit) {
         violations.push('the controlled slow render never exposed its delayed page skeleton');
     }
 

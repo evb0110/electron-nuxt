@@ -566,6 +566,15 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         return true;
     }
 
+    // A failed open never reaches the pdfSrc transition that normally resets
+    // navigation state, so a target set by early commands would contaminate
+    // the next document and reject its legitimate page updates.
+    watch(pdfError, (error) => {
+        if (error && programmaticPageNavigationTarget.value !== null) {
+            clearProgrammaticPageNavigationTarget('open-error');
+        }
+    });
+
     tryOnScopeDispose(clearProgrammaticPageNavigationTarget);
 
     const viewState = useWorkspaceViewState({

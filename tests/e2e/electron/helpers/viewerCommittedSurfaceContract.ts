@@ -256,11 +256,15 @@ export function findCommittedSurfaceContractViolations(trace: ICommittedSurfaceT
 
     // The opening shell may present with fallback dimensions before the
     // document's real geometry is known; geometry stability is only
-    // meaningful for shells that already carry committed surface geometry.
-    const shellFrames = frames.slice(0, firstCanvasIndex).filter(frame => (
-        frame.kind === 'page-shell'
-        && frame.openSurfaceDiagnostic?.openSurfaceHasGeometry !== 'false'
+    // meaningful once the surface first reports committed geometry. Only the
+    // leading provisional frames are exempt: a geometry flap after the first
+    // valid report must remain a violation.
+    const allShellFrames = frames.slice(0, firstCanvasIndex)
+        .filter(frame => frame.kind === 'page-shell');
+    const firstGeometryIndex = allShellFrames.findIndex(frame => (
+        frame.openSurfaceDiagnostic?.openSurfaceHasGeometry !== 'false'
     ));
+    const shellFrames = firstGeometryIndex < 0 ? [] : allShellFrames.slice(firstGeometryIndex);
     const firstShell = shellFrames[0];
     if (firstShell) {
         for (const shell of shellFrames.slice(1)) {
@@ -974,12 +978,23 @@ export async function installCommittedSurfaceSampler(page: Page) {
                 const exactSkeletons = viewportSkeletons.filter(candidate => pageCanvas?.contains(candidate));
                 // A neighbor page's skeleton sliver can intersect the viewport
                 // edge in continuous scroll; it belongs to that page's own
-                // container. Out-of-frame counts only true orphans that no
-                // page container owns.
-                const orphanSkeletons = viewportSkeletons.filter(candidate => (
-                    !pageCanvas?.contains(candidate)
-                    && !candidate.closest('.page_container, [data-testid="document-page-source-page"], .document-source-viewer__page')
-                ));
+                // container. Out-of-frame counts true orphans that no page
+                // container owns, plus strays that claim the tracked page
+                // from a foreign container (a duplicate skeleton owner).
+                const trackedPageNumber = page
+                    ? Number(page.dataset.page ?? page.dataset.pageNumber ?? 0) || null
+                    : null;
+                const orphanSkeletons = viewportSkeletons.filter((candidate) => {
+                    if (pageCanvas?.contains(candidate)) {
+                        return false;
+                    }
+                    const owner = candidate.closest<HTMLElement>('.page_container, [data-testid="document-page-source-page"], .document-source-viewer__page');
+                    if (!owner) {
+                        return true;
+                    }
+                    const ownerPageNumber = Number(owner.dataset.page ?? owner.dataset.pageNumber ?? 0) || null;
+                    return trackedPageNumber !== null && ownerPageNumber === trackedPageNumber;
+                });
                 const skeleton = exactSkeletons[0] ?? null;
                 const canvasNonblank = canvasHasNonblankPixels(canvas);
                 // `page_container--rendered` is applied by the render coordinator only
