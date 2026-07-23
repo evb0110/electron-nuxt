@@ -270,18 +270,28 @@ async function runPreview(
         const pageMetadataPath = join(scratch, 'page.json');
         const pageOverride = getScanCleanupPageOverride(request.options.pageOverrides, request.pageNumber);
         const lossless = request.options.preserveOriginalQuality === true;
+        const documentCanvas = request.options.matchPageSize
+            ? request.documentCanvasPlan
+            : undefined;
+        const effectiveOptions = documentCanvas === undefined && request.options.matchPageSize
+            ? {
+                ...request.options,
+                matchPageSize: false,
+            }
+            : request.options;
         const manifest = buildNativeScanCleanupManifest({
             operation: lossless ? 'analyze' : 'render',
             renderMode: 'preview',
             canvasScope: 'page',
             qualityPath: lossless ? 'lossless' : 'raster',
-            options: request.options,
+            options: effectiveOptions,
             experimental: {
                 autoDewarp: request.options.autoDewarp ?? false,
                 ...(request.options.autoDewarpDepth === undefined
                     ? {}
                     : {autoDewarpDepth: request.options.autoDewarpDepth}),
             },
+            ...(documentCanvas === undefined ? {} : {documentCanvas}),
             pages: [{
                 inputPath,
                 pageNumber: request.pageNumber,
@@ -296,12 +306,12 @@ async function runPreview(
         const pageMetadata = JSON.parse(await readFile(pageMetadataPath, 'utf8')) as ILosslessPreviewPageMetadata;
         if (lossless) {
             const analyzedOutputs = pageMetadata.outputs ?? [];
-            const canvasWidthPx = request.options.matchPageSize
-                ? Math.max(1, ...analyzedOutputs.map(output => Math.round(output.cropRect.widthPx)))
-                : null;
-            const canvasHeightPx = request.options.matchPageSize
-                ? Math.max(1, ...analyzedOutputs.map(output => Math.round(output.cropRect.heightPx)))
-                : null;
+            const canvasWidthPx = documentCanvas === undefined
+                ? null
+                : Math.max(1, Math.ceil(documentCanvas.widthPoints / 72 * PREVIEW_DPI));
+            const canvasHeightPx = documentCanvas === undefined
+                ? null
+                : Math.max(1, Math.ceil(documentCanvas.heightPoints / 72 * PREVIEW_DPI));
             return {
                 pageNumber: request.pageNumber,
                 totalPages: raw.totalPages,
@@ -312,8 +322,8 @@ async function runPreview(
                 outputs: analyzedOutputs.map(output => {
                     const outputWidthPx = Math.max(1, Math.round(output.cropRect.widthPx));
                     const outputHeightPx = Math.max(1, Math.round(output.cropRect.heightPx));
-                    const resolvedCanvasWidth = canvasWidthPx ?? outputWidthPx;
-                    const resolvedCanvasHeight = canvasHeightPx ?? outputHeightPx;
+                    const resolvedCanvasWidth = Math.max(canvasWidthPx ?? outputWidthPx, outputWidthPx);
+                    const resolvedCanvasHeight = Math.max(canvasHeightPx ?? outputHeightPx, outputHeightPx);
                     const placement = resolveScanCleanupPlacementOffset(
                         resolvedCanvasWidth - outputWidthPx,
                         resolvedCanvasHeight - outputHeightPx,
@@ -345,6 +355,16 @@ async function runPreview(
                             rotationDegrees: pageMetadata.rotationDegrees,
                             canvasScope: 'page',
                             resamplePasses: 0,
+                            sourceDpi: PREVIEW_DPI,
+                            renderDpi: PREVIEW_DPI,
+                            requestedRenderDpi: PREVIEW_DPI,
+                            rasterScaleLimited: false,
+                            canvasPolicy: documentCanvas === undefined ? 'intrinsic' : 'strict-maximum',
+                            canvasOverflow: false,
+                            matchedCanvasTargetWidthPx: canvasWidthPx,
+                            matchedCanvasTargetHeightPx: canvasHeightPx,
+                            matchedCanvasTargetWidthPoints: documentCanvas?.widthPoints ?? null,
+                            matchedCanvasTargetHeightPoints: documentCanvas?.heightPoints ?? null,
                             warnings: [],
                         },
                     };
@@ -421,14 +441,18 @@ async function runPreview(
 async function mapDetectionPages<T>(
     pages: readonly number[],
     task: (pageNumber: number) => Promise<T>,
+    onCompleted?: (pageNumber: number, completedPages: number) => void,
 ) {
     const results = new Array<T>(pages.length);
     let nextIndex = 0;
+    let completedPages = 0;
     const workers = Array.from({length: Math.min(DETECTION_RASTER_CONCURRENCY, pages.length)}, async () => {
         while (nextIndex < pages.length) {
             const index = nextIndex;
             nextIndex += 1;
             results[index] = await task(pages[index]!);
+            completedPages += 1;
+            onCompleted?.(pages[index]!, completedPages);
         }
     });
     const settled = await Promise.allSettled(workers);
@@ -449,12 +473,13 @@ async function runDetection(
         const totalPages = await dependencies.getPageCount(request.sourcePdfPath, {signal});
         const pageNumbers = Array.from({length: totalPages}, (_, index) => index + 1);
         publish([], {
-            stage: 'detecting',
+            stage: 'rasterizing',
             completedUnits: 0,
             totalUnits: totalPages,
             percent: 0,
             completedPageNumbers: [],
         });
+        const rasterizedPageNumbers = new Set<number>();
         const manifestPages = await mapDetectionPages(pageNumbers, async pageNumber => {
             if (signal.aborted) throw signal.reason;
             const inputPath = join(scratch, `source-${pageNumber}.png`);
@@ -473,6 +498,15 @@ async function runDetection(
                 dpi: PREVIEW_DPI,
                 pageMetadataPath: join(scratch, `page-${pageNumber}.json`),
             };
+        }, (pageNumber, completedPages) => {
+            rasterizedPageNumbers.add(pageNumber);
+            publish([], {
+                stage: 'rasterizing',
+                completedUnits: completedPages,
+                totalUnits: totalPages,
+                percent: totalPages === 0 ? 100 : completedPages / totalPages * 100,
+                completedPageNumbers: [...rasterizedPageNumbers],
+            });
         });
         if (signal.aborted) throw signal.reason;
         const manifestPath = join(scratch, 'classify-manifest.json');
@@ -493,14 +527,25 @@ async function runDetection(
         const binary = dependencies.resolveBinary();
         if (!binary) throw new Error('Scan cleanup native tool is unavailable');
         const results: IScanCleanupDetectionResult[] = [];
+        let analyzedPages = 0;
         await dependencies.runSidecar(
             binary,
             manifestPath,
             signal,
             (level, message) => logger[level](message),
             (progress, nativeProgress) => {
+                if (nativeProgress.stage === 'page-analyzed') {
+                    analyzedPages = Math.max(analyzedPages, progress.completedUnits);
+                    publish([...results], {
+                        ...progress,
+                        stage: 'detecting',
+                        completedUnits: analyzedPages,
+                        percent: progress.totalUnits === 0 ? 100 : analyzedPages / progress.totalUnits * 100,
+                    });
+                    return;
+                }
                 if (
-                    nativeProgress?.stage !== 'page-complete'
+                    nativeProgress.stage !== 'page-complete'
                     || nativeProgress.classification === undefined
                     || nativeProgress.confidence === undefined
                 ) {
@@ -516,14 +561,46 @@ async function runDetection(
                     clusterAgreement: nativeProgress.clusterAgreement ?? 0,
                     documentPrior: nativeProgress.documentPrior ?? null,
                     ...(nativeProgress.textAxis === undefined ? {} : {textAxis: nativeProgress.textAxis}),
+                    ...(nativeProgress.recommendedOutputMode === undefined
+                        ? {}
+                        : {recommendedOutputMode: nativeProgress.recommendedOutputMode}),
+                    ...(nativeProgress.recommendedOutputModeConfidence === undefined
+                        ? {}
+                        : {recommendedOutputModeConfidence: nativeProgress.recommendedOutputModeConfidence}),
                 });
-                publish([...results], progress);
+                const completedUnits = Math.max(analyzedPages, progress.completedUnits);
+                publish([...results], {
+                    ...progress,
+                    stage: 'detecting',
+                    completedUnits,
+                    percent: progress.totalUnits === 0 ? 100 : completedUnits / progress.totalUnits * 100,
+                });
             },
         );
         if (results.length !== totalPages) {
             throw new Error(`evb-scan-cleanup returned ${results.length} classifications for ${totalPages} pages`);
         }
-        return results;
+        const cropDimensions = (
+            await Promise.all(manifestPages.map(async page => {
+                const metadata = JSON.parse(
+                    await readFile(page.pageMetadataPath, 'utf8'),
+                ) as ILosslessPreviewPageMetadata;
+                return (metadata.outputs ?? []).map(output => ({
+                    widthPoints: output.cropRect.widthPx / PREVIEW_DPI * 72,
+                    heightPoints: output.cropRect.heightPx / PREVIEW_DPI * 72,
+                }));
+            }))
+        ).flat();
+        const documentCanvasPlan = cropDimensions.length === 0
+            ? undefined
+            : {
+                widthPoints: Math.max(...cropDimensions.map(dimension => dimension.widthPoints)),
+                heightPoints: Math.max(...cropDimensions.map(dimension => dimension.heightPoints)),
+            };
+        return {
+            results,
+            ...(documentCanvasPlan === undefined ? {} : {documentCanvasPlan}),
+        };
     } finally {
         await rm(scratch, {
             recursive: true,
@@ -633,10 +710,11 @@ export function createScanCleanupPreviewService(
             detectionJobs.add(jobId, sender, request, job);
             void (async () => {
                 let lease: {release: () => boolean} | null = null;
+                let canceled = false;
                 try {
                     const acquire = dependencies.acquireDetectionLease ?? defaultDependencies.acquireDetectionLease!;
                     lease = await acquire(jobId, controller.signal);
-                    const results = await runDetection(
+                    const detection = await runDetection(
                         request,
                         controller.signal,
                         rawCache,
@@ -654,22 +732,21 @@ export function createScanCleanupPreviewService(
                         status: 'completed',
                         progress: {
                             stage: 'detecting',
-                            completedUnits: results.length,
-                            totalUnits: results.length,
+                            completedUnits: detection.results.length,
+                            totalUnits: detection.results.length,
                             percent: 100,
-                            completedPageNumbers: results.map(result => result.pageNumber),
+                            completedPageNumbers: detection.results.map(result => result.pageNumber),
                         },
-                        results,
+                        results: detection.results,
+                        ...(detection.documentCanvasPlan === undefined
+                            ? {}
+                            : {documentCanvasPlan: detection.documentCanvasPlan}),
                         updatedAtMs: Date.now(),
                     });
                 } catch (error) {
                     const aborted = controller.signal.aborted;
                     if (aborted) {
-                        publishDetection(job, {
-                            ...job.state,
-                            status: 'canceled',
-                            updatedAtMs: Date.now(),
-                        });
+                        canceled = true;
                     } else {
                         publishDetection(job, {
                             ...job.state,
@@ -681,6 +758,13 @@ export function createScanCleanupPreviewService(
                     }
                 } finally {
                     lease?.release();
+                    if (canceled) {
+                        publishDetection(job, {
+                            ...job.state,
+                            status: 'canceled',
+                            updatedAtMs: Date.now(),
+                        });
+                    }
                 }
             })();
             return Promise.resolve({

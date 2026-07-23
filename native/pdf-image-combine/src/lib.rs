@@ -113,6 +113,10 @@ pub enum MixedPdfPageSpec {
         image_processing: MixedPdfImageProcessing,
         size_guardrail: bool,
     },
+    Bilevel {
+        page_size: PdfPageSize,
+        image_path: PathBuf,
+    },
     Layered {
         page_size: PdfPageSize,
         background_path: PathBuf,
@@ -526,6 +530,18 @@ pub fn write_mixed_pdf_from_page_specs_with_progress(
                         input_index += 1;
                         pdf.add_page_with_size(&page, page_size)?;
                     }
+                    MixedPdfPageSpec::Bilevel {
+                        page_size,
+                        image_path: _,
+                    } => {
+                        let image = parse_processed_pbm_mask_from_file(
+                            validated_inputs.file(input_index)?,
+                            options.max_pixels,
+                        )?;
+                        input_index += 1;
+                        let page = bilevel_image_page(image)?;
+                        pdf.add_page_with_size(&page, page_size)?;
+                    }
                     MixedPdfPageSpec::Layered {
                         page_size,
                         background_path,
@@ -603,6 +619,7 @@ fn mixed_pdf_input_paths(page_specs: &[MixedPdfPageSpec]) -> Vec<PathBuf> {
     for spec in page_specs {
         match spec {
             MixedPdfPageSpec::FullImage { image_path, .. } => paths.push(image_path.clone()),
+            MixedPdfPageSpec::Bilevel { image_path, .. } => paths.push(image_path.clone()),
             MixedPdfPageSpec::Layered {
                 background_path,
                 foreground_mask_path,
@@ -789,6 +806,28 @@ fn parse_processed_pbm_mask_from_file(mut file: File, max_pixels: u64) -> Result
     Ok(foreground_mask)
 }
 
+fn bilevel_image_page(mut image: PbmP4Image) -> Result<ImagePage> {
+    if image.width % 8 != 0 {
+        let used_bits = image.width % 8;
+        let padding_mask = (1u8 << (8 - used_bits)) - 1;
+        let last_byte = image.row_stride - 1;
+        for row in image.bitmap.chunks_exact_mut(image.row_stride) {
+            row[last_byte] &= !padding_mask;
+        }
+    }
+    Ok(ImagePage {
+        width: image.width,
+        height: image.height,
+        dpi: DEFAULT_DPI,
+        color_space: "DeviceGray",
+        icc_profile: None,
+        payload: ImagePayload::Bilevel {
+            bitmap: image.bitmap,
+            row_stride: image.row_stride,
+        },
+    })
+}
+
 fn image_compression_to_reader(compression: MixedPdfImageCompression) -> PdfImageCompression {
     match compression {
         MixedPdfImageCompression::Auto => PdfImageCompression::Auto,
@@ -810,6 +849,9 @@ fn image_page_to_layered_image(page: ImagePage) -> LayeredPdfImage {
                 decode_params,
             },
             ImagePayload::Jpeg { data } => LayeredImagePayload::Jpeg { data },
+            ImagePayload::Bilevel { .. } => {
+                unreachable!("bilevel base images cannot be layered backgrounds")
+            }
         },
     }
 }
@@ -1163,6 +1205,77 @@ mod tests {
         let _ = fs::remove_file(mask_path);
         let _ = fs::remove_file(fallback_path);
         let _ = fs::remove_file(output_path);
+    }
+
+    #[test]
+    fn bilevel_page_uses_jbig2_and_is_smaller_than_equivalent_eight_bit_page() {
+        let pbm_path = temp_path("bilevel-base").with_extension("pbm");
+        let pgm_path = temp_path("bilevel-eight-bit").with_extension("pgm");
+        let bilevel_output_path = temp_path("bilevel-output").with_extension("pdf");
+        let grayscale_output_path = temp_path("bilevel-grayscale-output").with_extension("pdf");
+        let pbm =
+            include_bytes!("../../jbig2-codec/tests/fixtures/scan-page-000-body.pbm").to_vec();
+        let parsed = parse_pbm_p4(&pbm).unwrap();
+        let width = parsed.width as usize;
+        let height = parsed.height as usize;
+        let mut grayscale = vec![255u8; width * height];
+        for y in 0..height {
+            for x in 0..width {
+                if parsed.bitmap[y * parsed.row_stride + x / 8] & (1 << (7 - x % 8)) != 0 {
+                    grayscale[y * width + x] = 0;
+                }
+            }
+        }
+        fs::write(&pbm_path, pbm).unwrap();
+        let mut pgm = format!("P5\n{width} {height}\n255\n").into_bytes();
+        pgm.extend_from_slice(&grayscale);
+        fs::write(&pgm_path, pgm).unwrap();
+        let page_size = PdfPageSize {
+            width_points: 144.0,
+            height_points: 144.0,
+        };
+
+        write_mixed_pdf_from_page_specs_with_progress(
+            &[MixedPdfPageSpec::Bilevel {
+                page_size,
+                image_path: pbm_path.clone(),
+            }],
+            &bilevel_output_path,
+            &PdfBuildOptions::default(),
+            |_| {},
+        )
+        .unwrap();
+        write_mixed_pdf_from_page_specs_with_progress(
+            &[MixedPdfPageSpec::FullImage {
+                page_size,
+                image_path: pgm_path.clone(),
+                compression: MixedPdfImageCompression::Auto,
+                image_processing: MixedPdfImageProcessing::None,
+                size_guardrail: false,
+            }],
+            &grayscale_output_path,
+            &PdfBuildOptions::default(),
+            |_| {},
+        )
+        .unwrap();
+
+        let bilevel_pdf = fs::read(&bilevel_output_path).unwrap();
+        let grayscale_pdf = fs::read(&grayscale_output_path).unwrap();
+        assert!(bilevel_pdf
+            .windows(b"/Filter /JBIG2Decode".len())
+            .any(|window| window == b"/Filter /JBIG2Decode"));
+        assert!(bilevel_pdf
+            .windows(b"/BitsPerComponent 1".len())
+            .any(|window| window == b"/BitsPerComponent 1"));
+        assert!(!bilevel_pdf
+            .windows(b"/Decode [1 0]".len())
+            .any(|window| window == b"/Decode [1 0]"));
+        assert!(bilevel_pdf.len() < grayscale_pdf.len());
+
+        let _ = fs::remove_file(pbm_path);
+        let _ = fs::remove_file(pgm_path);
+        let _ = fs::remove_file(bilevel_output_path);
+        let _ = fs::remove_file(grayscale_output_path);
     }
 
     #[test]

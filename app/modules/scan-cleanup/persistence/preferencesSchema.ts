@@ -12,7 +12,7 @@ import {
 
 export interface IScanCleanupGlobalPreferences extends Omit<
     IScanCleanupOptions,
-    'autoDewarp' | 'autoDewarpDepth' | 'binarization' | 'despeckle' | 'despeckleLevel' | 'normalizeIllumination' | 'pageOverrides'
+    'autoDewarp' | 'autoDewarpDepth' | 'binarization' | 'despeckle' | 'despeckleLevel' | 'normalizeIllumination' | 'outputMode' | 'pageOverrides'
 > {
     autoDewarp: boolean;
     autoDewarpDepth: number | undefined;
@@ -26,7 +26,6 @@ export interface IScanCleanupGlobalPreferences extends Omit<
 export const DEFAULT_SCAN_CLEANUP_PREFERENCES: Readonly<IScanCleanupGlobalPreferences> = Object.freeze({
     preserveOriginalQuality: false,
     layoutMode: 'auto',
-    outputMode: 'bw',
     binarization: 'auto',
     normalizeIllumination: true,
     readingOrder: 'ltr',
@@ -117,14 +116,6 @@ export function decodeScanCleanupGlobalPreferences(value: unknown): IScanCleanup
         ].includes(String(stored.layoutMode))
             ? stored.layoutMode as IScanCleanupGlobalPreferences['layoutMode']
             : defaults.layoutMode,
-        outputMode: [
-            'bw',
-            'mixed',
-            'grayscale',
-            'color',
-        ].includes(String(stored.outputMode))
-            ? stored.outputMode as IScanCleanupGlobalPreferences['outputMode']
-            : defaults.outputMode,
         binarization: [
             'auto',
             'otsu',

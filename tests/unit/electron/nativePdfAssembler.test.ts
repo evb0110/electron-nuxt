@@ -114,7 +114,7 @@ vi.mock('@electron/utils/atomicReplace', () => ({
     makeSiblingTempPath: (...args: [string]) => mocks.makeSiblingTempPath(...args),
 }));
 
-vi.mock('@electron/features/page-ops/public', () => ({
+vi.mock('@electron/features/page-ops/publicNative', () => ({
     assertNonEmptyPdfOutput: mocks.assertNonEmptyPdfOutput,
     getPdfPageCount: mocks.getPdfPageCount,
     QPDF_OUTPUT_SUCCESS_EXIT_CODES: [

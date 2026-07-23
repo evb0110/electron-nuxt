@@ -9,6 +9,7 @@ import type {
     TScanCleanupLayoutClassification,
     TScanCleanupOutputHalf,
     TScanCleanupOutputMode,
+    TScanCleanupOutputModeSetting,
     TScanCleanupPageAlignment,
     TScanCleanupPageRotation,
 } from '@contracts/scan-cleanup/domain';
@@ -20,24 +21,26 @@ import type {
     IScanCleanupSplitSeamPolyline,
 } from '@contracts/scan-cleanup/geometry';
 
-export const SCAN_CLEANUP_NATIVE_PROTOCOL_VERSION = 2 as const;
+export const SCAN_CLEANUP_NATIVE_PROTOCOL_VERSION = 3 as const;
 
 export type TNativeScanCleanupOperation = 'analyze' | 'render';
 export type TNativeScanCleanupRenderMode = 'preview' | 'final';
 
-export interface INativeScanCleanupExperimentalOptionsV2 {
+export interface INativeScanCleanupExperimentalOptionsV3 {
     autoDewarp: boolean;
     autoDewarpDepth?: number;
 }
 
-export interface INativeScanCleanupOptionsV2 {
+export interface INativeScanCleanupOptionsV3 {
     dpi: number;
+    sourceDpi: number;
+    requestedRenderDpi: number;
     binarization: TScanCleanupBinarizationMethod;
     thickness: number;
     normalizeIllumination: boolean;
     despeckle: boolean;
     despeckleLevel?: TScanCleanupDespeckleLevel;
-    outputMode: TScanCleanupOutputMode;
+    outputMode: TScanCleanupOutputModeSetting;
     ocrMode: boolean;
     layout: 'auto' | 'force-single' | 'page-with-offcut' | 'keep-left' | 'keep-right' | 'force-two-page';
     manualSplit: IScanCleanupNormalizedSplit | null;
@@ -49,7 +52,7 @@ export interface INativeScanCleanupOptionsV2 {
     pageAlignment: TScanCleanupPageAlignment;
     placementOverrides: Partial<Record<TScanCleanupOutputHalf, TScanCleanupPageAlignment>>;
     margins: IScanCleanupMarginsMm;
-    experimental: INativeScanCleanupExperimentalOptionsV2;
+    experimental: INativeScanCleanupExperimentalOptionsV3;
     rotationDegrees: TScanCleanupPageRotation;
     excluded: boolean;
     skipBlankPages: boolean;
@@ -57,13 +60,14 @@ export interface INativeScanCleanupOptionsV2 {
     maxDimensionPx: number;
 }
 
-export interface INativeScanCleanupOutputV2 {
+export interface INativeScanCleanupOutputV3 {
     outputPath: string;
     metadataPath: string;
+    bilevelOutputPath?: string;
 }
 
-/** Additive geometry returned in page/output metadata by protocol-v2 sidecars. */
-export interface INativeScanCleanupSplitResultGeometryV2 {
+/** Additive geometry returned in page/output metadata by protocol-v3 sidecars. */
+export interface INativeScanCleanupSplitResultGeometryV3 {
     cutterXPx: number | null;
     /** Existing straight-cut page polygons. Output metadata always supplies these. */
     splitGeometry?: IScanCleanupPixelPolygon[];
@@ -71,7 +75,7 @@ export interface INativeScanCleanupSplitResultGeometryV2 {
     splitSeam?: IScanCleanupSplitSeamPolyline;
 }
 
-export interface INativeScanCleanupBinarizationDiagnosticsV2 {
+export interface INativeScanCleanupBinarizationDiagnosticsV3 {
     route: TScanCleanupBinarizationMethod;
     robustContrast: number;
     illuminationDeviation: number;
@@ -81,15 +85,15 @@ export interface INativeScanCleanupBinarizationDiagnosticsV2 {
     otsuAdaptiveAgreement: number;
 }
 
-export interface INativeScanCleanupContentSideConfidenceV2 {
+export interface INativeScanCleanupContentSideConfidenceV3 {
     left: number;
     top: number;
     right: number;
     bottom: number;
 }
 
-/** Optional diagnostics written by render metadata. Older protocol-v2 sidecars omit some fields. */
-export interface INativeScanCleanupRenderDiagnosticsV2 {
+/** Optional diagnostics written by render metadata. */
+export interface INativeScanCleanupRenderDiagnosticsV3 {
     cutterXPx?: number | null;
     splitGeometry?: IScanCleanupPixelPolygon[];
     splitSeam?: IScanCleanupSplitSeamPolyline;
@@ -101,14 +105,14 @@ export interface INativeScanCleanupRenderDiagnosticsV2 {
     /** Additive split detector abstention signal when supplied by the native implementation. */
     splitAbstained?: boolean;
     binarizationMode?: TScanCleanupBinarizationMethod | null;
-    binarizationDiagnostics?: INativeScanCleanupBinarizationDiagnosticsV2 | null;
+    binarizationDiagnostics?: INativeScanCleanupBinarizationDiagnosticsV3 | null;
     despeckleFallback?: boolean;
     dewarpConfidence?: number | null;
-    contentDiagnostics?: {sideConfidence: INativeScanCleanupContentSideConfidenceV2};
+    contentDiagnostics?: {sideConfidence: INativeScanCleanupContentSideConfidenceV3};
 }
 
 /** Optional diagnostics written beside each analyzed page. */
-export interface INativeScanCleanupPageDiagnosticsV2 {
+export interface INativeScanCleanupPageDiagnosticsV3 {
     cutterXPx?: number | null;
     splitGeometry?: IScanCleanupPixelPolygon[];
     splitSeam?: IScanCleanupSplitSeamPolyline;
@@ -119,26 +123,45 @@ export interface INativeScanCleanupPageDiagnosticsV2 {
     clusterAgreement?: number;
 }
 
-export interface INativeScanCleanupPageV2 {
+export interface INativeScanCleanupPageV3 {
     inputPath: string;
     sourcePageIndex: number;
     pageMetadataPath: string;
-    options: INativeScanCleanupOptionsV2;
-    outputs: INativeScanCleanupOutputV2[];
+    options: INativeScanCleanupOptionsV3;
+    outputs: INativeScanCleanupOutputV3[];
     documentPrior?: IScanCleanupDocumentPrior;
 }
 
-export interface INativeScanCleanupManifestV2 {
+export interface INativeScanCleanupManifestV3 {
     version: typeof SCAN_CLEANUP_NATIVE_PROTOCOL_VERSION;
     operation: TNativeScanCleanupOperation;
     renderMode: TNativeScanCleanupRenderMode;
     canvasScope: TScanCleanupCanvasScope;
-    pages: INativeScanCleanupPageV2[];
+    documentCanvas?: {
+        widthPoints: number;
+        heightPoints: number;
+    };
+    pages: INativeScanCleanupPageV3[];
 }
 
-export type TNativeScanCleanupProgressStage = 'started' | 'page-complete' | 'completed';
+export type TNativeScanCleanupProgressStage =
+    | 'started'
+    | 'page-analyzed'
+    | 'page-complete'
+    | 'completed';
 
-export interface INativeScanCleanupProgressV2 {
+export interface INativeScanCleanupPageStageTimingsV3 {
+    decodeMs?: number;
+    analysisLevelMs?: number;
+    normalizationMs?: number;
+    splitMs?: number;
+    deskewMs?: number;
+    contentMs?: number;
+    renderMs?: number;
+    writeMs?: number;
+}
+
+export interface INativeScanCleanupProgressV3 {
     stage: TNativeScanCleanupProgressStage;
     completedPages: number;
     totalPages: number;
@@ -152,15 +175,18 @@ export interface INativeScanCleanupProgressV2 {
     clusterAgreement?: number;
     documentPrior?: IScanCleanupDocumentPrior;
     textAxis?: IScanCleanupTextAxis;
+    stageTimings?: INativeScanCleanupPageStageTimingsV3;
+    recommendedOutputMode?: TScanCleanupOutputMode;
+    recommendedOutputModeConfidence?: number;
 }
 
-export interface INativeScanCleanupProgressEnvelopeV2 {
+export interface INativeScanCleanupProgressEnvelopeV3 {
     version: typeof SCAN_CLEANUP_NATIVE_PROTOCOL_VERSION;
     type: 'progress';
-    progress: INativeScanCleanupProgressV2;
+    progress: INativeScanCleanupProgressV3;
 }
 
-export type TNativeScanCleanupResultV2 =
+export type TNativeScanCleanupResultV3 =
     | {
         status: 'success';
         completedPages: number;
@@ -172,12 +198,12 @@ export type TNativeScanCleanupResultV2 =
         message: string
     };
 
-export interface INativeScanCleanupResultEnvelopeV2 {
+export interface INativeScanCleanupResultEnvelopeV3 {
     version: typeof SCAN_CLEANUP_NATIVE_PROTOCOL_VERSION;
     type: 'result';
-    result: TNativeScanCleanupResultV2;
+    result: TNativeScanCleanupResultV3;
 }
 
-export type TNativeScanCleanupEnvelopeV2 =
-    | INativeScanCleanupProgressEnvelopeV2
-    | INativeScanCleanupResultEnvelopeV2;
+export type TNativeScanCleanupEnvelopeV3 =
+    | INativeScanCleanupProgressEnvelopeV3
+    | INativeScanCleanupResultEnvelopeV3;

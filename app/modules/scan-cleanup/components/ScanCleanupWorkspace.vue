@@ -10,17 +10,18 @@
             :cancel-requested="cancelRequested"
             :cleanup-total="cleanupProgressTotal"
             :detection-cancel-requested="detectionCancelRequested"
-            :detection-detected="detectionProgress.completedUnits"
             :detection-error="detectionError"
-            :detection-total="detectionProgress.totalUnits"
+            :detection-progress-text="detectionProgressText"
             :is-detecting="detectionPending"
             :is-running="isRunning"
             :output-estimate="outputEstimate"
             :percent="jobProgress.percent"
             :processed-count="jobProgress.completedUnits"
             :progress-text="progressText"
+            :run-disabled-reason="runDisabledReason"
             :run-ocr-after-cleanup="runOcrAfterCleanup"
             :zone-editing="zoneEditing"
+            :transition-text="transitionText"
             @cancel="cancel"
             @cancel-detection="cancelDetection"
             @detect-all="detectAllPages"
@@ -56,6 +57,8 @@
                     :margins="scopeMargins"
                     :margins-linked="scopeMarginsLinked"
                     :output-items="outputItems"
+                    :output-mode-override="scopeOutputModeOverride"
+                    :output-mode-override-items="scopeOutputModeOverrideItems"
                     :override-counts="scopeOverrideCounts"
                     :page-number="selectionLeader"
                     :placement-alignment="scopePlacementAlignment"
@@ -77,6 +80,7 @@
                     @update-layout="handleScopeLayout"
                     @update-margin="updateScopeMargin"
                     @update-manual-skew="updateScopeManualSkew"
+                    @update-output-mode="handleScopeOutputMode"
                     @update:margins-linked="setScopeMarginsLinked"
                     @update-placement="updateScopePlacement"
                     @update-rotation="handleScopeRotation"
@@ -95,6 +99,10 @@
                 :classifications="authoritativeLayoutByPage"
                 :confidences="detectedLayoutConfidenceByPage"
                 :diagnostics="previewMetadataByPage"
+                :document-output-mode="settings.outputMode"
+                :preserve-original-quality="settings.preserveOriginalQuality === true"
+                :recommended-output-modes="recommendedOutputModeByPage"
+                :recommended-output-mode-confidences="recommendedOutputModeConfidenceByPage"
                 :text-axes="detectedTextAxisByPage"
                 :disabled="isRunning"
                 :processed-pages="processedPages"
@@ -121,7 +129,7 @@
                     :reading-order="settings.readingOrder"
                     :manual-content-boxes="currentPageOverride.manualContentBoxes ?? {}"
                     :manual-zones="currentPageOverride.manualZones"
-                    :output-mode="settings.outputMode"
+                    :output-mode="previewOutputMode"
                     :placement-overrides="currentPageOverride.placementOverrides ?? {}"
                     :lossless="settings.preserveOriginalQuality === true"
                     :show-first-run-guidance="showFirstRunGuidance"
@@ -147,6 +155,7 @@
 import type {TDocumentRef} from '@contracts/documentRef';
 import type {
     IScanCleanupOptions,
+    TScanCleanupOutputMode,
     TScanCleanupPageLayoutOverride,
     TScanCleanupPageRotation,
 } from '@contracts/electronApiScanCleanup';
@@ -250,6 +259,7 @@ const {
     updateLayoutOverride: updateSelectionLayoutOverride,
     updateMargins: updateSelectionMargins,
     updateManualSkew: updateSelectionManualSkew,
+    updateOutputModeOverride: updateSelectionOutputModeOverride,
     updateCurrentPlacement,
 } = workspaceSession.selection;
 const previewPage = selectionLeader;
@@ -263,7 +273,9 @@ const {
     error: detectionError,
     outputEstimate,
     pending: detectionPending,
-    progress: detectionProgress,
+    progressText: detectionProgressText,
+    recommendedOutputModeByPage: detectedRecommendedOutputModeByPage,
+    recommendedOutputModeConfidenceByPage: detectedRecommendedOutputModeConfidenceByPage,
     textAxisByPage: detectedTextAxisByPage,
 } = workspaceSession.detection;
 const {
@@ -272,6 +284,7 @@ const {
     metadataByPage: previewMetadataByPage,
     navigate: navigatePreview,
     result: previewResult,
+    resultCurrent: previewResultCurrent = computed(() => true),
     retry: retryPreview,
     totalPages: previewTotalPages,
     viewMode: previewViewMode,
@@ -286,7 +299,9 @@ const {
     processedPages,
     progress: jobProgress,
     progressText,
+    runDisabledReason,
     run,
+    transitionText,
 } = workspaceSession.run;
 const allScopeRotation = ref<TScanCleanupPageRotation>(0);
 const allScopeExcluded = ref(false);
@@ -309,6 +324,9 @@ const scopeLayout = computed(() => settingsScope.value === 'all'
 const scopeRotation = computed(() => settingsScope.value === 'all'
     ? resolveScanCleanupMixedValue([allScopeRotation.value])
     : resolveScanCleanupMixedValue(scopePageOverrides.value.map(override => override.rotationDegrees)));
+const scopeOutputModeOverride = computed(() => resolveScanCleanupMixedValue(
+    scopePageOverrides.value.map(override => override.outputModeOverride),
+));
 const scopeExcluded = computed(() => settingsScope.value === 'all'
     ? resolveScanCleanupMixedValue([allScopeExcluded.value])
     : resolveScanCleanupMixedValue(scopePageOverrides.value.map(override => override.excluded)));
@@ -343,6 +361,7 @@ const scopeOverrideCounts = computed(() => {
         inclusion: 0,
         layout: 0,
         margins: 0,
+        outputMode: 0,
         placement: 0,
         rotation: 0,
     };
@@ -353,6 +372,9 @@ const scopeOverrideCounts = computed(() => {
         }
         if (override.rotationDegrees !== DEFAULT_SCAN_CLEANUP_PAGE_OVERRIDE.rotationDegrees) {
             counts.rotation += 1;
+        }
+        if (override.outputModeOverride !== undefined) {
+            counts.outputMode += 1;
         }
         if (override.excluded !== DEFAULT_SCAN_CLEANUP_PAGE_OVERRIDE.excluded) {
             counts.inclusion += 1;
@@ -418,6 +440,71 @@ const scopeRotationItems = computed(() => [
         label: t('scanCleanup.settings.rotationDegrees', {value}),
     })),
 ]);
+const scopeOutputModeOverrideItems = computed(() => [
+    ...(scopeOutputModeOverride.value.mixed ? [{
+        value: 'mixed-values' as const,
+        label: t('scanCleanup.settings.mixed'),
+        disabled: true,
+    }] : []),
+    {
+        value: 'auto' as const,
+        label: t('scanCleanup.pages.outputModeFollowDocument'),
+    },
+    {
+        value: 'bw' as const,
+        label: t('scanCleanup.output.bw'),
+    },
+    {
+        value: 'grayscale' as const,
+        label: t('scanCleanup.output.grayscale'),
+    },
+    {
+        value: 'color' as const,
+        label: t('scanCleanup.output.color'),
+    },
+    {
+        value: 'mixed' as const,
+        label: t('scanCleanup.output.mixed'),
+    },
+]);
+const recommendedOutputModeByPage = computed(() => {
+    if (settings.preserveOriginalQuality === true || settings.outputMode !== 'auto') {
+        return new Map<number, TScanCleanupOutputMode>();
+    }
+    const modes = new Map(detectedRecommendedOutputModeByPage);
+    const preview = previewResultCurrent.value ? previewResult.value : null;
+    if (preview?.pageMetadata.recommendedOutputMode !== undefined) {
+        modes.set(preview.pageNumber, preview.pageMetadata.recommendedOutputMode);
+    }
+    return modes;
+});
+const recommendedOutputModeConfidenceByPage = computed(() => {
+    if (settings.preserveOriginalQuality === true || settings.outputMode !== 'auto') {
+        return new Map<number, number>();
+    }
+    const confidences = new Map(detectedRecommendedOutputModeConfidenceByPage);
+    const preview = previewResultCurrent.value ? previewResult.value : null;
+    if (preview?.pageMetadata.recommendedOutputModeConfidence !== undefined) {
+        confidences.set(
+            preview.pageNumber,
+            preview.pageMetadata.recommendedOutputModeConfidence,
+        );
+    }
+    return confidences;
+});
+const previewOutputMode = computed<TScanCleanupOutputMode>(() => {
+    if (settings.preserveOriginalQuality === true) {
+        return 'color';
+    }
+    const pageOverride = currentPageOverride.value.outputModeOverride;
+    if (pageOverride !== undefined) {
+        return pageOverride;
+    }
+    if (settings.outputMode !== 'auto') {
+        return settings.outputMode;
+    }
+    return recommendedOutputModeByPage.value.get(previewPage.value) ?? 'bw';
+});
 const scopeInclusionItems = computed(() => [
     ...(scopeExcluded.value.mixed ? [{
         value: 'mixed' as const,
@@ -496,6 +583,25 @@ function handleScopeLayout(value: string | number) {
     const layout = String(value) as TScanCleanupPageLayoutOverride;
     if (scopeLayoutItems.value.some(item => item.value === layout && !('disabled' in item && item.disabled === true))) {
         updateSelectionLayoutOverride(layout, scopePageNumbers.value);
+    }
+}
+
+function handleScopeOutputMode(value: string | number) {
+    if (settingsScope.value === 'all') {
+        return;
+    }
+    const outputMode = String(value);
+    if ([
+        'auto',
+        'bw',
+        'mixed',
+        'grayscale',
+        'color',
+    ].includes(outputMode)) {
+        updateSelectionOutputModeOverride(
+            outputMode as TScanCleanupOutputMode | 'auto',
+            scopePageNumbers.value,
+        );
     }
 }
 

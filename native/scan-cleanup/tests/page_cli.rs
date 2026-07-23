@@ -1,6 +1,6 @@
 use evb_scan_cleanup::{
     png::{decode_gray, encode_gray},
-    CleanupOptions,
+    CleanupOptions, LayoutMode, OutputMode,
 };
 use scan_primitives::GrayImage;
 use serde_json::Value;
@@ -24,13 +24,13 @@ fn temp_path(label: &str, extension: &str) -> PathBuf {
 }
 
 #[test]
-fn manifest_v2_emits_typed_progress_and_terminal_result() {
-    let input = temp_path("v2-input", "png");
-    let page_metadata = temp_path("v2-page", "json");
-    let manifest = temp_path("v2-manifest", "json");
+fn manifest_v3_emits_typed_progress_and_terminal_result() {
+    let input = temp_path("v3-input", "png");
+    let page_metadata = temp_path("v3-page", "json");
+    let manifest = temp_path("v3-manifest", "json");
     fs::write(&input, encode_gray(&GrayImage::new(80, 60, 255)).unwrap()).unwrap();
     let payload = serde_json::json!({
-        "version": 2,
+        "version": 3,
         "operation": "analyze",
         "renderMode": "preview",
         "canvasScope": "page",
@@ -68,6 +68,547 @@ fn manifest_v2_emits_typed_progress_and_terminal_result() {
     let _ = fs::remove_file(input);
     let _ = fs::remove_file(page_metadata);
     let _ = fs::remove_file(manifest);
+}
+
+#[cfg(unix)]
+#[test]
+fn gated_multi_page_analysis_reports_progress_before_reconciliation_completes() {
+    let input = temp_path("analysis-progress-input", "png");
+    let gated_input = temp_path("analysis-progress-gate", "fifo");
+    let manifest = temp_path("analysis-progress-manifest", "json");
+    let metadata_paths = [
+        temp_path("analysis-progress-page-1", "json"),
+        temp_path("analysis-progress-page-2", "json"),
+    ];
+    let encoded = encode_gray(&GrayImage::new(320, 240, 245)).unwrap();
+    fs::write(&input, &encoded).unwrap();
+    assert!(Command::new("mkfifo")
+        .arg(&gated_input)
+        .status()
+        .unwrap()
+        .success());
+    let payload = serde_json::json!({
+        "version": 3,
+        "operation": "analyze",
+        "renderMode": "preview",
+        "canvasScope": "page",
+        "pages": [
+            {
+                "inputPath": input,
+                "sourcePageIndex": 0,
+                "pageMetadataPath": metadata_paths[0],
+                "options": CleanupOptions::default(),
+                "outputs": [],
+            },
+            {
+                "inputPath": gated_input,
+                "sourcePageIndex": 1,
+                "pageMetadataPath": metadata_paths[1],
+                "options": CleanupOptions::default(),
+                "outputs": [],
+            },
+        ],
+    });
+    fs::write(&manifest, serde_json::to_vec_pretty(&payload).unwrap()).unwrap();
+
+    let mut child = Command::new(env!("CARGO_BIN_EXE_evb-scan-cleanup"))
+        .args(["--manifest", manifest.to_str().unwrap()])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .unwrap();
+    let stdout = child.stdout.take().unwrap();
+    let (sender, receiver) = std::sync::mpsc::channel();
+    let reader = std::thread::spawn(move || {
+        let mut events = Vec::new();
+        for line in BufReader::new(stdout).lines() {
+            let event = serde_json::from_str::<Value>(&line.unwrap()).unwrap();
+            sender.send(event.clone()).unwrap();
+            events.push(event);
+        }
+        events
+    });
+
+    let first_analyzed = loop {
+        match receiver.recv_timeout(Duration::from_secs(10)) {
+            Ok(event) if event["progress"]["stage"] == "page-analyzed" => break event,
+            Ok(event) => assert_ne!(event["progress"]["stage"], "page-complete"),
+            Err(error) => {
+                let _ = child.kill();
+                panic!("analysis progress did not arrive while the second page was gated: {error}");
+            }
+        }
+    };
+    assert_eq!(first_analyzed["progress"]["completedPages"], 1);
+    assert_eq!(first_analyzed["progress"]["pageNumber"], 1);
+    assert!(first_analyzed["progress"].get("classification").is_none());
+    assert!(
+        child.try_wait().unwrap().is_none(),
+        "the gated second page should keep batch reconciliation pending"
+    );
+
+    fs::write(&gated_input, encoded).unwrap();
+    let status = child.wait().unwrap();
+    let events = reader.join().unwrap();
+    assert!(status.success());
+    let first_analysis_index = events
+        .iter()
+        .position(|event| event["progress"]["stage"] == "page-analyzed")
+        .unwrap();
+    let last_page_index = events
+        .iter()
+        .rposition(|event| event["progress"]["stage"] == "page-complete")
+        .unwrap();
+    assert!(first_analysis_index < last_page_index);
+
+    for path in [
+        input,
+        gated_input,
+        manifest,
+        metadata_paths[0].clone(),
+        metadata_paths[1].clone(),
+    ] {
+        let _ = fs::remove_file(path);
+    }
+}
+
+#[test]
+fn final_manifest_writes_pbm_only_for_binary_outputs_and_marks_metadata() {
+    let input = temp_path("bilevel-input", "png");
+    let manifest = temp_path("bilevel-manifest", "json");
+    let bw_output = temp_path("bilevel-bw", "png");
+    let bw_metadata = temp_path("bilevel-bw", "json");
+    let bw_pbm = temp_path("bilevel-bw", "pbm");
+    let gray_output = temp_path("bilevel-gray", "png");
+    let gray_metadata = temp_path("bilevel-gray", "json");
+    let gray_pbm = temp_path("bilevel-gray", "pbm");
+    let bw_page_metadata = temp_path("bilevel-bw-page", "json");
+    let gray_page_metadata = temp_path("bilevel-gray-page", "json");
+    fs::write(&input, encode_gray(&GrayImage::new(80, 60, 255)).unwrap()).unwrap();
+    let grayscale_options = CleanupOptions {
+        output_mode: evb_scan_cleanup::OutputMode::Grayscale,
+        ..CleanupOptions::default()
+    };
+    let payload = serde_json::json!({
+        "version": 3,
+        "operation": "render",
+        "renderMode": "final",
+        "canvasScope": "document",
+        "pages": [
+            {
+                "inputPath": input,
+                "sourcePageIndex": 0,
+                "pageMetadataPath": bw_page_metadata,
+                "options": CleanupOptions::default(),
+                "outputs": [{
+                    "outputPath": bw_output,
+                    "metadataPath": bw_metadata,
+                    "bilevelOutputPath": bw_pbm,
+                }],
+            },
+            {
+                "inputPath": input,
+                "sourcePageIndex": 1,
+                "pageMetadataPath": gray_page_metadata,
+                "options": grayscale_options,
+                "outputs": [{
+                    "outputPath": gray_output,
+                    "metadataPath": gray_metadata,
+                    "bilevelOutputPath": gray_pbm,
+                }],
+            },
+        ],
+    });
+    fs::write(&manifest, serde_json::to_vec_pretty(&payload).unwrap()).unwrap();
+
+    let result = Command::new(env!("CARGO_BIN_EXE_evb-scan-cleanup"))
+        .args(["--manifest", manifest.to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(
+        result.status.success(),
+        "stdout={}\nstderr={}",
+        String::from_utf8_lossy(&result.stdout),
+        String::from_utf8_lossy(&result.stderr)
+    );
+    assert!(fs::read(&bw_pbm).unwrap().starts_with(b"P4\n"));
+    assert!(bw_output.exists());
+    assert_eq!(
+        serde_json::from_slice::<Value>(&fs::read(&bw_metadata).unwrap()).unwrap()
+            ["bilevelWritten"],
+        true
+    );
+    assert!(gray_output.exists());
+    assert!(!gray_pbm.exists());
+    assert!(
+        serde_json::from_slice::<Value>(&fs::read(&gray_metadata).unwrap())
+            .unwrap()
+            .get("bilevelWritten")
+            .is_none()
+    );
+
+    for path in [
+        input,
+        manifest,
+        bw_output,
+        bw_metadata,
+        bw_pbm,
+        gray_output,
+        gray_metadata,
+        gray_pbm,
+        bw_page_metadata,
+        gray_page_metadata,
+    ] {
+        let _ = fs::remove_file(path);
+    }
+}
+
+#[test]
+fn matched_canvas_repadding_keeps_png_and_pbm_pixel_identical() {
+    let small_input = temp_path("matched-bilevel-small-input", "png");
+    let large_input = temp_path("matched-bilevel-large-input", "png");
+    let small_output = temp_path("matched-bilevel-small-output", "png");
+    let large_output = temp_path("matched-bilevel-large-output", "png");
+    let small_metadata = temp_path("matched-bilevel-small-output", "json");
+    let large_metadata = temp_path("matched-bilevel-large-output", "json");
+    let small_pbm = temp_path("matched-bilevel-small-output", "pbm");
+    let large_pbm = temp_path("matched-bilevel-large-output", "pbm");
+    let small_page_metadata = temp_path("matched-bilevel-small-page", "json");
+    let large_page_metadata = temp_path("matched-bilevel-large-page", "json");
+    let manifest = temp_path("matched-bilevel-manifest", "json");
+    let mut small = GrayImage::new(80, 60, 255);
+    for y in [10, 24, 38] {
+        for x in 12..58 {
+            small.set(x, y, 0);
+            small.set(x, y + 1, 0);
+        }
+    }
+    let mut large = GrayImage::new(100, 90, 255);
+    for y in [12, 30, 48, 66] {
+        for x in 16..76 {
+            large.set(x, y, 0);
+            large.set(x, y + 1, 0);
+        }
+    }
+    fs::write(&small_input, encode_gray(&small).unwrap()).unwrap();
+    fs::write(&large_input, encode_gray(&large).unwrap()).unwrap();
+    let cleanup_options = CleanupOptions {
+        output_mode: OutputMode::Bw,
+        layout: LayoutMode::Single,
+        normalize_illumination: false,
+        crop_content: false,
+        match_page_size: true,
+        ..CleanupOptions::default()
+    };
+    let payload = serde_json::json!({
+        "version": 3,
+        "operation": "render",
+        "renderMode": "final",
+        "canvasScope": "document",
+        "pages": [
+            {
+                "inputPath": small_input,
+                "sourcePageIndex": 0,
+                "pageMetadataPath": small_page_metadata,
+                "options": cleanup_options,
+                "outputs": [{
+                    "outputPath": small_output,
+                    "metadataPath": small_metadata,
+                    "bilevelOutputPath": small_pbm,
+                }],
+            },
+            {
+                "inputPath": large_input,
+                "sourcePageIndex": 1,
+                "pageMetadataPath": large_page_metadata,
+                "options": cleanup_options,
+                "outputs": [{
+                    "outputPath": large_output,
+                    "metadataPath": large_metadata,
+                    "bilevelOutputPath": large_pbm,
+                }],
+            },
+        ],
+    });
+    fs::write(&manifest, serde_json::to_vec_pretty(&payload).unwrap()).unwrap();
+
+    let result = Command::new(env!("CARGO_BIN_EXE_evb-scan-cleanup"))
+        .args(["--manifest", manifest.to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(
+        result.status.success(),
+        "stdout={}\nstderr={}",
+        String::from_utf8_lossy(&result.stdout),
+        String::from_utf8_lossy(&result.stderr)
+    );
+
+    let png = decode_gray(&fs::read(&small_output).unwrap(), 20_000, 200).unwrap();
+    assert_eq!((png.width(), png.height()), (100, 90));
+    let pbm = fs::read(&small_pbm).unwrap();
+    let header_end = pbm
+        .iter()
+        .enumerate()
+        .filter_map(|(index, byte)| (*byte == b'\n').then_some(index))
+        .nth(1)
+        .unwrap()
+        + 1;
+    let dimensions = std::str::from_utf8(&pbm[3..header_end - 1])
+        .unwrap()
+        .split_ascii_whitespace()
+        .map(|value| value.parse::<usize>().unwrap())
+        .collect::<Vec<_>>();
+    assert_eq!(dimensions, [png.width(), png.height()]);
+    let row_stride = png.width().div_ceil(8);
+    let bitmap = &pbm[header_end..];
+    assert_eq!(bitmap.len(), row_stride * png.height());
+    for y in 0..png.height() {
+        for x in 0..png.width() {
+            let black = bitmap[y * row_stride + x / 8] & (1 << (7 - x % 8)) != 0;
+            assert_eq!(
+                png.get(x, y),
+                if black { 0 } else { 255 },
+                "pixel ({x}, {y})"
+            );
+        }
+    }
+
+    for path in [
+        small_input,
+        large_input,
+        small_output,
+        large_output,
+        small_metadata,
+        large_metadata,
+        small_pbm,
+        large_pbm,
+        small_page_metadata,
+        large_page_metadata,
+        manifest,
+    ] {
+        let _ = fs::remove_file(path);
+    }
+}
+
+#[test]
+fn failed_bilevel_publication_removes_that_pages_png_and_metadata() {
+    let input = temp_path("failed-bilevel-input", "png");
+    let output = temp_path("failed-bilevel-output", "png");
+    let metadata = temp_path("failed-bilevel-output", "json");
+    let bilevel_output = temp_path("failed-bilevel-output", "pbm");
+    let page_metadata = temp_path("failed-bilevel-page", "json");
+    let manifest = temp_path("failed-bilevel-manifest", "json");
+    fs::write(&input, encode_gray(&GrayImage::new(80, 60, 255)).unwrap()).unwrap();
+    fs::create_dir(&bilevel_output).unwrap();
+    let payload = serde_json::json!({
+        "version": 3,
+        "operation": "render",
+        "renderMode": "final",
+        "canvasScope": "document",
+        "pages": [{
+            "inputPath": input,
+            "sourcePageIndex": 0,
+            "pageMetadataPath": page_metadata,
+            "options": CleanupOptions::default(),
+            "outputs": [{
+                "outputPath": output,
+                "metadataPath": metadata,
+                "bilevelOutputPath": bilevel_output,
+            }],
+        }],
+    });
+    fs::write(&manifest, serde_json::to_vec_pretty(&payload).unwrap()).unwrap();
+
+    let result = Command::new(env!("CARGO_BIN_EXE_evb-scan-cleanup"))
+        .args(["--manifest", manifest.to_str().unwrap()])
+        .output()
+        .unwrap();
+
+    assert!(!result.status.success());
+    assert!(!output.exists());
+    assert!(!metadata.exists());
+    assert!(!page_metadata.exists());
+    assert!(bilevel_output.is_dir());
+
+    for path in [input, output, metadata, page_metadata, manifest] {
+        let _ = fs::remove_file(path);
+    }
+    let _ = fs::remove_dir(bilevel_output);
+}
+
+#[test]
+fn auto_resolved_bw_writes_bilevel_output_and_reports_recommendation() {
+    let input = temp_path("auto-bw-input", "png");
+    let manifest = temp_path("auto-bw-manifest", "json");
+    let output = temp_path("auto-bw-output", "png");
+    let output_metadata = temp_path("auto-bw-output", "json");
+    let bilevel_output = temp_path("auto-bw-output", "pbm");
+    let page_metadata = temp_path("auto-bw-page", "json");
+    let mut image = GrayImage::new(360, 260, 245);
+    for row in 0..8 {
+        for column in 0..14 {
+            let left = 18 + column * 22;
+            let top = 18 + row * 28;
+            for y in top..top + 14 {
+                for x in left..left + 12 {
+                    if x < left + 2 || y < top + 2 || y >= top + 12 {
+                        image.set(x, y, 28);
+                    }
+                }
+            }
+        }
+    }
+    fs::write(&input, encode_gray(&image).unwrap()).unwrap();
+    let options = CleanupOptions {
+        output_mode: OutputMode::Auto,
+        dpi: 150.0,
+        normalize_illumination: false,
+        crop_content: false,
+        layout: evb_scan_cleanup::LayoutMode::Single,
+        ..CleanupOptions::default()
+    };
+    let payload = serde_json::json!({
+        "version": 3,
+        "operation": "render",
+        "renderMode": "final",
+        "canvasScope": "document",
+        "pages": [{
+            "inputPath": input,
+            "sourcePageIndex": 0,
+            "pageMetadataPath": page_metadata,
+            "options": options,
+            "outputs": [{
+                "outputPath": output,
+                "metadataPath": output_metadata,
+                "bilevelOutputPath": bilevel_output,
+            }],
+        }],
+    });
+    fs::write(&manifest, serde_json::to_vec_pretty(&payload).unwrap()).unwrap();
+
+    let result = Command::new(env!("CARGO_BIN_EXE_evb-scan-cleanup"))
+        .args(["--manifest", manifest.to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(
+        result.status.success(),
+        "stdout={}\nstderr={}",
+        String::from_utf8_lossy(&result.stdout),
+        String::from_utf8_lossy(&result.stderr)
+    );
+    let envelopes = String::from_utf8(result.stdout)
+        .unwrap()
+        .lines()
+        .map(|line| serde_json::from_str::<Value>(line).unwrap())
+        .collect::<Vec<_>>();
+    assert_eq!(envelopes[1]["progress"]["recommendedOutputMode"], "bw");
+    assert!(envelopes[1]["progress"]["recommendedOutputModeConfidence"]
+        .as_f64()
+        .is_some_and(|confidence| confidence >= 0.75));
+    let page: Value = serde_json::from_slice(&fs::read(&page_metadata).unwrap()).unwrap();
+    assert_eq!(page["recommendedOutputMode"], "bw");
+    assert_eq!(page["recommendedOutputModeReason"], "bimodal-text");
+    let metadata: Value = serde_json::from_slice(&fs::read(&output_metadata).unwrap()).unwrap();
+    assert_eq!(metadata["outputMode"], "bw");
+    assert_eq!(metadata["bilevelWritten"], true);
+    assert!(fs::read(&bilevel_output).unwrap().starts_with(b"P4\n"));
+
+    for path in [
+        input,
+        manifest,
+        output,
+        output_metadata,
+        bilevel_output,
+        page_metadata,
+    ] {
+        let _ = fs::remove_file(path);
+    }
+}
+
+#[test]
+fn analyze_auto_emits_recommendation_but_concrete_mode_omits_it() {
+    let input = temp_path("auto-analyze-input", "png");
+    let auto_metadata = temp_path("auto-analyze-page", "json");
+    let concrete_metadata = temp_path("concrete-analyze-page", "json");
+    let manifest = temp_path("auto-analyze-manifest", "json");
+    let mut image = GrayImage::new(360, 260, 245);
+    for y in (24..236).step_by(24) {
+        for x in 24..336 {
+            if x % 19 < 13 {
+                image.set(x, y, 24);
+                image.set(x, y + 1, 24);
+            }
+        }
+    }
+    fs::write(&input, encode_gray(&image).unwrap()).unwrap();
+    let auto = CleanupOptions {
+        output_mode: OutputMode::Auto,
+        dpi: 150.0,
+        normalize_illumination: false,
+        crop_content: false,
+        ..CleanupOptions::default()
+    };
+    let concrete = CleanupOptions {
+        output_mode: OutputMode::Grayscale,
+        ..auto.clone()
+    };
+    let payload = serde_json::json!({
+        "version": 3,
+        "operation": "analyze",
+        "renderMode": "preview",
+        "canvasScope": "page",
+        "pages": [
+            {
+                "inputPath": input,
+                "sourcePageIndex": 0,
+                "pageMetadataPath": auto_metadata,
+                "options": auto,
+                "outputs": [],
+            },
+            {
+                "inputPath": input,
+                "sourcePageIndex": 1,
+                "pageMetadataPath": concrete_metadata,
+                "options": concrete,
+                "outputs": [],
+            },
+        ],
+    });
+    fs::write(&manifest, serde_json::to_vec_pretty(&payload).unwrap()).unwrap();
+
+    let result = Command::new(env!("CARGO_BIN_EXE_evb-scan-cleanup"))
+        .args(["--manifest", manifest.to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(
+        result.status.success(),
+        "stdout={}\nstderr={}",
+        String::from_utf8_lossy(&result.stdout),
+        String::from_utf8_lossy(&result.stderr)
+    );
+    let progress = String::from_utf8(result.stdout)
+        .unwrap()
+        .lines()
+        .map(|line| serde_json::from_str::<Value>(line).unwrap())
+        .filter(|envelope| envelope["progress"]["stage"] == "page-complete")
+        .collect::<Vec<_>>();
+    assert!(progress[0]["progress"]["recommendedOutputMode"].is_string());
+    assert!(progress[0]["progress"]["recommendedOutputModeConfidence"].is_number());
+    assert!(progress[1]["progress"]
+        .get("recommendedOutputMode")
+        .is_none());
+    assert!(progress[1]["progress"]
+        .get("recommendedOutputModeConfidence")
+        .is_none());
+    let auto_page: Value = serde_json::from_slice(&fs::read(&auto_metadata).unwrap()).unwrap();
+    let concrete_page: Value =
+        serde_json::from_slice(&fs::read(&concrete_metadata).unwrap()).unwrap();
+    assert!(auto_page["recommendedOutputMode"].is_string());
+    assert!(concrete_page.get("recommendedOutputMode").is_none());
+
+    for path in [input, manifest, auto_metadata, concrete_metadata] {
+        let _ = fs::remove_file(path);
+    }
 }
 
 #[test]
@@ -281,15 +822,16 @@ fn classify_only_batch_writes_metadata_and_ndjson_but_no_output_images() {
     let lines = progress
         .lines()
         .map(|line| serde_json::from_str::<Value>(line).unwrap())
+        .filter(|line| line["progress"]["stage"] == "page-complete")
         .collect::<Vec<_>>();
-    assert_eq!(lines[1]["progress"]["classification"], "two-page-spread");
-    assert!(lines[1]["progress"]["confidence"].as_f64().is_some());
-    assert!(lines[1]["progress"]["cutterXPx"].as_f64().is_some());
-    assert_eq!(lines[2]["progress"]["classification"], "single-uncut-page");
-    assert_eq!(lines[2]["progress"]["confidence"], 1.0);
-    assert!(lines[2]["progress"].get("cutterXPx").is_none());
-    assert_eq!(lines[2]["progress"]["textAxis"]["sideways"], false);
-    assert!(lines[2]["progress"]["textAxis"]["confidence"]
+    assert_eq!(lines[0]["progress"]["classification"], "two-page-spread");
+    assert!(lines[0]["progress"]["confidence"].as_f64().is_some());
+    assert!(lines[0]["progress"]["cutterXPx"].as_f64().is_some());
+    assert_eq!(lines[1]["progress"]["classification"], "single-uncut-page");
+    assert_eq!(lines[1]["progress"]["confidence"], 1.0);
+    assert!(lines[1]["progress"].get("cutterXPx").is_none());
+    assert_eq!(lines[1]["progress"]["textAxis"]["sideways"], false);
+    assert!(lines[1]["progress"]["textAxis"]["confidence"]
         .as_f64()
         .is_some_and(|confidence| (0.0..=1.0).contains(&confidence)));
 
@@ -301,7 +843,7 @@ fn classify_only_batch_writes_metadata_and_ndjson_but_no_output_images() {
     assert_eq!(single_metadata["layoutClassification"], "single-uncut-page");
     assert_eq!(
         single_metadata["textAxis"],
-        lines[2]["progress"]["textAxis"]
+        lines[1]["progress"]["textAxis"]
     );
     for output in [
         &spread_output,
@@ -763,7 +1305,7 @@ fn batch_applies_per_output_placement_over_document_default() {
 }
 
 #[test]
-fn matched_canvas_uses_robust_quantile_and_reports_intrinsic_overflow() {
+fn matched_canvas_strictly_uses_the_largest_outlier() {
     let manifest = temp_path("matched-quantile-manifest", "json");
     let mut cleanup_paths = vec![manifest.clone()];
     let mut pages = Vec::new();
@@ -825,26 +1367,83 @@ fn matched_canvas_uses_robust_quantile_and_reports_intrinsic_overflow() {
         let image = decode_gray(&fs::read(&output_paths[index]).unwrap(), 20_000, 200).unwrap();
         let metadata: Value =
             serde_json::from_slice(&fs::read(&metadata_paths[index]).unwrap()).unwrap();
-        assert_eq!(metadata["matchedCanvasTargetWidthPx"], 80);
-        assert_eq!(metadata["matchedCanvasTargetHeightPx"], 60);
-        if index == 9 {
-            assert_eq!((image.width(), image.height()), (140, 100));
-            assert_eq!(metadata["canvasPolicy"], "overflow-intrinsic");
-            assert_eq!(metadata["canvasOverflow"], true);
-            assert_eq!(metadata["uniformCanvas"], false);
-            assert_eq!(metadata["canvasWidthPx"], 140);
-            assert_eq!(metadata["canvasHeightPx"], 100);
-            assert!(metadata["warnings"]
-                .as_array()
-                .unwrap()
-                .iter()
-                .any(|warning| warning.as_str().unwrap().contains("would clip")));
-        } else {
-            assert_eq!((image.width(), image.height()), (80, 60));
-            assert_eq!(metadata["canvasPolicy"], "robust-quantile");
-            assert_eq!(metadata["canvasOverflow"], false);
-            assert_eq!(metadata["uniformCanvas"], true);
+        assert_eq!((image.width(), image.height()), (140, 100));
+        assert_eq!(metadata["matchedCanvasTargetWidthPx"], 140);
+        assert_eq!(metadata["matchedCanvasTargetHeightPx"], 100);
+        assert_eq!(metadata["canvasPolicy"], "strict-maximum");
+        assert_eq!(metadata["canvasOverflow"], false);
+        assert_eq!(metadata["uniformCanvas"], true);
+        assert_eq!(metadata["canvasWidthPx"], 140);
+        assert_eq!(metadata["canvasHeightPx"], 100);
+    }
+
+    for path in cleanup_paths {
+        let _ = fs::remove_file(path);
+    }
+}
+
+#[test]
+fn matched_canvas_normalizes_equal_physical_pages_by_per_page_dpi() {
+    let manifest = temp_path("matched-physical-manifest", "json");
+    let mut cleanup_paths = vec![manifest.clone()];
+    let mut pages = Vec::new();
+    let mut outputs = Vec::new();
+    let mut metadata_paths = Vec::new();
+    for (index, (dimension, dpi)) in [(100, 100), (200, 200)].into_iter().enumerate() {
+        let input = temp_path(&format!("matched-physical-input-{index}"), "png");
+        let output = temp_path(&format!("matched-physical-output-{index}"), "png");
+        let metadata = temp_path(&format!("matched-physical-metadata-{index}"), "json");
+        let mut image = GrayImage::new(dimension, dimension, 255);
+        for coordinate in 10..dimension.saturating_sub(10) {
+            image.set(coordinate, dimension / 2, 0);
         }
+        fs::write(&input, encode_gray(&image).unwrap()).unwrap();
+        pages.push(serde_json::json!({
+            "inputPath": input,
+            "outputPath": output,
+            "metadataPath": metadata,
+            "options": {
+                "dpi": dpi,
+                "layout": "force-single",
+                "normalizeIllumination": false,
+                "cropContent": false,
+                "outputMode": "grayscale",
+                "matchPageSize": true
+            }
+        }));
+        cleanup_paths.extend([input, output.clone(), metadata.clone()]);
+        outputs.push(output);
+        metadata_paths.push(metadata);
+    }
+    fs::write(
+        &manifest,
+        serde_json::to_vec_pretty(&serde_json::json!({"pages": pages})).unwrap(),
+    )
+    .unwrap();
+    let result = Command::new(env!("CARGO_BIN_EXE_evb-scan-cleanup"))
+        .args([
+            "--allow-manifest-v1",
+            "--manifest",
+            manifest.to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        result.status.success(),
+        "stderr={}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+
+    for (index, expected_dimension) in [100, 200].into_iter().enumerate() {
+        let image = decode_gray(&fs::read(&outputs[index]).unwrap(), 50_000, 300).unwrap();
+        let metadata: Value =
+            serde_json::from_slice(&fs::read(&metadata_paths[index]).unwrap()).unwrap();
+        assert_eq!(
+            (image.width(), image.height()),
+            (expected_dimension, expected_dimension)
+        );
+        assert_eq!(metadata["canvasPolicy"], "strict-maximum");
+        assert_eq!(metadata["canvasOverflow"], false);
     }
 
     for path in cleanup_paths {

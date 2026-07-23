@@ -113,6 +113,7 @@ pub enum OutputMode {
     Mixed,
     Grayscale,
     Color,
+    Auto,
 }
 
 #[derive(Clone, Copy, Debug, Default, Deserialize, Serialize, PartialEq)]
@@ -293,6 +294,8 @@ pub struct ExperimentalOptions {
 #[serde(default, rename_all = "camelCase", deny_unknown_fields)]
 pub struct CleanupOptions {
     pub dpi: f64,
+    pub source_dpi: Option<f64>,
+    pub requested_render_dpi: Option<f64>,
     #[serde(skip)]
     pub classify_only: Option<bool>,
     pub binarization: BinarizationMode,
@@ -332,6 +335,8 @@ impl Default for CleanupOptions {
     fn default() -> Self {
         Self {
             dpi: 300.0,
+            source_dpi: None,
+            requested_render_dpi: None,
             classify_only: None,
             binarization: BinarizationMode::Auto,
             thickness: 0,
@@ -374,6 +379,15 @@ impl CleanupOptions {
     pub fn validate(&self) -> Result<(), String> {
         if !self.dpi.is_finite() || self.dpi <= 0.0 {
             return Err("DPI must be positive and finite".into());
+        }
+        if self
+            .source_dpi
+            .is_some_and(|dpi| !dpi.is_finite() || dpi <= 0.0)
+            || self
+                .requested_render_dpi
+                .is_some_and(|dpi| !dpi.is_finite() || dpi <= 0.0)
+        {
+            return Err("Source and requested render DPI must be positive and finite".into());
         }
         if !(MIN_THICKNESS..=MAX_THICKNESS).contains(&self.thickness) {
             return Err(format!(
@@ -471,6 +485,14 @@ impl CleanupOptions {
             }
         }
         Ok(())
+    }
+
+    pub fn source_dpi(&self) -> f64 {
+        self.source_dpi.unwrap_or(self.dpi)
+    }
+
+    pub fn requested_render_dpi(&self) -> f64 {
+        self.requested_render_dpi.unwrap_or(self.dpi)
     }
 
     pub fn placement_for(&self, half: PageHalf) -> PageAlignment {

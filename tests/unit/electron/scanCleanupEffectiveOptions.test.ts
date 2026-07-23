@@ -131,6 +131,28 @@ describe('effective scan cleanup options', () => {
         });
     });
 
+    it('passes auto through and gives a concrete page override precedence', () => {
+        expect(resolveEffectiveScanCleanupOptions({
+            options: {
+                ...options,
+                outputMode: 'auto',
+            },
+            pageOverride: createScanCleanupPageOverride(),
+            dpi: 300,
+            qualityPath: 'raster',
+        }).outputMode).toBe('auto');
+
+        expect(resolveEffectiveScanCleanupOptions({
+            options: {
+                ...options,
+                outputMode: 'auto',
+            },
+            pageOverride: createScanCleanupPageOverride({outputModeOverride: 'grayscale'}),
+            dpi: 300,
+            qualityPath: 'raster',
+        }).outputMode).toBe('grayscale');
+    });
+
     it('passes asymmetric document margins through unchanged', () => {
         expect(resolve().margins).toEqual(options.marginsMm);
     });

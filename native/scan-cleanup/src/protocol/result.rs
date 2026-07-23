@@ -1,4 +1,4 @@
-use crate::protocol::manifest_v2::VERSION;
+use crate::protocol::manifest_v3::VERSION;
 use evb_native_support::{NativeErrorCode, NativeErrorEnvelope};
 use serde::Serialize;
 

@@ -13,6 +13,7 @@ pub mod dewarp;
 pub mod domain;
 pub mod engine;
 pub mod io;
+pub mod mode_select;
 pub mod picture;
 pub mod pipeline;
 pub mod png;
@@ -20,4 +21,4 @@ pub mod protocol;
 pub mod split;
 
 pub use domain::options::*;
-pub const PROTOCOL_VERSION: u32 = 2;
+pub const PROTOCOL_VERSION: u32 = 3;

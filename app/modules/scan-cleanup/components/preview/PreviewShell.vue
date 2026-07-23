@@ -32,6 +32,48 @@
                 />
             </div>
             <div class="preview-controls">
+                <div
+                    v-if="result"
+                    class="preview-zoom-controls"
+                    role="group"
+                    :aria-label="t('scanCleanup.preview.zoomControls')"
+                >
+                    <button
+                        type="button"
+                        class="preview-zoom-button"
+                        :aria-label="t('scanCleanup.preview.zoomOut')"
+                        :disabled="!canZoomOut"
+                        @click="stepPreviewZoom(-1)"
+                    >
+                        <UIcon name="i-ph-minus" class="preview-zoom-icon" />
+                    </button>
+                    <button
+                        type="button"
+                        class="preview-zoom-value"
+                        :aria-label="t('scanCleanup.preview.toggleZoom', {zoom: previewZoomLabel})"
+                        @click="toggleFitAndActualSize"
+                    >
+                        {{ previewZoomLabel }}
+                    </button>
+                    <button
+                        type="button"
+                        class="preview-zoom-button"
+                        :aria-label="t('scanCleanup.preview.zoomIn')"
+                        :disabled="!canZoomIn"
+                        @click="stepPreviewZoom(1)"
+                    >
+                        <UIcon name="i-ph-plus" class="preview-zoom-icon" />
+                    </button>
+                    <button
+                        type="button"
+                        class="preview-zoom-button"
+                        :class="{'is-active': previewZoomMode === 'fit'}"
+                        :aria-label="t('scanCleanup.preview.fit')"
+                        @click="fitPreview"
+                    >
+                        <UIcon name="i-ph-arrows-out" class="preview-zoom-icon" />
+                    </button>
+                </div>
                 <ScanCleanupSegmented
                     :model-value="effectiveViewMode"
                     :items="viewModes"
@@ -44,8 +86,22 @@
         <div
             ref="previewSurface"
             class="preview-surface"
-            :class="{'is-stale-page': isStalePage}"
+            :class="{
+                'is-stale-page': isStalePage,
+                'can-pan-preview': canPanPreview,
+                'is-panning-preview': panGesture !== null,
+                'is-pixelated-preview': previewUsesPixelatedRendering,
+            }"
+            :data-preview-zoom-mode="previewZoomMode"
+            :data-preview-zoom-percent="Math.round(previewEffectiveZoom * 100)"
             aria-live="polite"
+            @dblclick="handlePreviewDoubleClick"
+            @pointercancel="finishPreviewPan"
+            @pointerdown="startPreviewPan"
+            @pointermove="movePreviewPan"
+            @pointerup="finishPreviewPan"
+            @lostpointercapture="finishPreviewPan"
+            @wheel="handlePreviewWheel"
         >
             <div
                 v-if="result"
@@ -65,7 +121,12 @@
                         : t('scanCleanup.preview.blankSkipped') }}</span>
                 </div>
                 <div v-else class="preview-viewport-layout">
-                    <div ref="cutterStage" class="cutter-stage" :class="{'is-stale-content': isStalePage}">
+                    <div
+                        ref="cutterStage"
+                        class="cutter-stage"
+                        :class="{'is-stale-content': isStalePage}"
+                        :style="previewTransformStyle"
+                    >
                         <OriginalCanvas
                             v-if="effectiveViewMode === 'original'"
                             :alt="t('scanCleanup.preview.originalAlt', {page: result.pageNumber})"
@@ -193,7 +254,7 @@
             <div
                 v-if="result"
                 class="drag-overlay-layer"
-                :style="dragOverlayStyle"
+                :style="[dragOverlayStyle, previewTransformStyle]"
             >
                 <div
                     v-if="sourceUnderlayVisible"
@@ -283,10 +344,7 @@ import type {
     TScanCleanupPageAlignment,
     TScanCleanupPageRotation,
 } from '@contracts/electronApiScanCleanup';
-import type {
-    ComponentPublicInstance,
-    CSSProperties,
-} from 'vue';
+import type {CSSProperties} from 'vue';
 import type {IDocumentPageSource} from '@app/utils/document-viewer/source/documentPageSource';
 import ScanCleanupSegmented from '@app/modules/scan-cleanup/components/ScanCleanupSegmented.vue';
 import CleanedCanvas from '@app/modules/scan-cleanup/components/preview/CleanedCanvas.vue';
@@ -337,6 +395,8 @@ import {
     createPreviewImageSwap,
     useScanCleanupPreviewImages,
 } from '@app/modules/scan-cleanup/composables/useScanCleanupPreviewImages';
+import {useScanCleanupPreviewZoom} from '@app/modules/scan-cleanup/composables/useScanCleanupPreviewZoom';
+import {useScanCleanupPreviewOverlayGeometry} from '@app/modules/scan-cleanup/composables/useScanCleanupPreviewOverlayGeometry';
 
 interface ICutterDragGeometry {
     kind: 'cutter';
@@ -400,16 +460,6 @@ const {t} = useTypedI18n();
 const previewSurface = ref<HTMLElement | null>(null);
 const cutterStage = ref<HTMLElement | null>(null);
 const dragTransaction = useScanCleanupDragTransaction<TScanCleanupDragGeometry>();
-const outputFitAreas = new Map<TScanCleanupOutputHalf, HTMLElement>();
-const outputCanvases = new Map<TScanCleanupOutputHalf, HTMLElement>();
-const outputFitAreaSizes = reactive<Partial<Record<TScanCleanupOutputHalf, {
-    left: number;
-    top: number;
-    width: number;
-    height: number
-}>>>({});
-const outputCanvasRects = reactive<Partial<Record<TScanCleanupOutputHalf, IScanCleanupDragRect>>>({});
-let outputResizeObserver: ResizeObserver | null = null;
 const contentHandles: readonly TScanCleanupContentHandle[] = [
     'n',
     'ne',
@@ -430,7 +480,59 @@ const dragOverlayBounds = reactive<IScanCleanupDragRect>({
     width: 0,
     height: 0,
 });
-let cutterResizeObserver: ResizeObserver | null = null;
+const {
+    canPanPreview,
+    canZoomIn,
+    canZoomOut,
+    clampPreviewPan,
+    finishPreviewPan,
+    fitPreview,
+    handlePreviewDoubleClick,
+    handlePreviewWheel,
+    movePreviewPan,
+    panGesture,
+    previewEffectiveZoom,
+    previewPan,
+    previewTransformScale,
+    previewTransformStyle,
+    previewUsesPixelatedRendering,
+    previewZoomLabel,
+    previewZoomMode,
+    startPreviewPan,
+    stepPreviewZoom,
+    toggleFitAndActualSize,
+} = useScanCleanupPreviewZoom({
+    dragActive: dragTransaction.active,
+    formatFitLabel: () => t('scanCleanup.preview.zoomFit'),
+    formatZoomLabel: zoom => t('scanCleanup.preview.zoomValue', {zoom}),
+    overlayBounds: dragOverlayBounds,
+    result: () => props.result,
+    stageSize: cutterStageSize,
+    surface: previewSurface,
+    updateGeometry: () => updateOverlayGeometry(),
+});
+const {
+    currentStageRect,
+    observeCutterStage,
+    outputCanvasRects,
+    outputFitAreaSizes,
+    placementAnchors,
+    pruneOutputElementRefs,
+    setOutputCanvas,
+    setOutputFitArea,
+    updateOutputFitAreaSizes,
+    updateOverlayGeometry,
+} = useScanCleanupPreviewOverlayGeometry({
+    activeDrag: dragTransaction.active,
+    clampPan: clampPreviewPan,
+    cutterStage,
+    dragOverlayBounds,
+    previewPan,
+    previewSurface,
+    result: () => props.result,
+    stageSize: cutterStageSize,
+    transformScale: previewTransformScale,
+});
 const effectiveViewMode = computed(() => props.lossless
     ? 'original'
     : props.viewMode ?? 'cleaned');
@@ -587,74 +689,6 @@ const cutterSourceImageStyle = computed<CSSProperties>(() => {
         transform: `translate(-50%, -50%) rotate(${rotation}deg)`,
     };
 });
-const placementAnchors: Array<{
-    alignment: TScanCleanupPageAlignment;
-    style: CSSProperties;
-}> = [
-    {
-        alignment: 'top-left',
-        style: {
-            left: '0%',
-            top: '0%',
-        },
-    },
-    {
-        alignment: 'top-center',
-        style: {
-            left: '50%',
-            top: '0%',
-        },
-    },
-    {
-        alignment: 'top-right',
-        style: {
-            left: '100%',
-            top: '0%',
-        },
-    },
-    {
-        alignment: 'center-left',
-        style: {
-            left: '0%',
-            top: '50%',
-        },
-    },
-    {
-        alignment: 'center',
-        style: {
-            left: '50%',
-            top: '50%',
-        },
-    },
-    {
-        alignment: 'center-right',
-        style: {
-            left: '100%',
-            top: '50%',
-        },
-    },
-    {
-        alignment: 'bottom-left',
-        style: {
-            left: '0%',
-            top: '100%',
-        },
-    },
-    {
-        alignment: 'bottom-center',
-        style: {
-            left: '50%',
-            top: '100%',
-        },
-    },
-    {
-        alignment: 'bottom-right',
-        style: {
-            left: '100%',
-            top: '100%',
-        },
-    },
-];
 const losslessCropOverlayStyles = computed(() => {
     if (!props.lossless || !props.result || originalFitPlacement.value.width <= 0) {
         return [];
@@ -798,6 +832,7 @@ function startCutterDrag(event: PointerEvent) {
         return;
     }
     const rotation = props.result?.pageMetadata.rotationDegrees ?? 0;
+    const transformScale = Math.max(0.001, previewTransformScale.value);
     const canonicalGeometry: ICutterDragGeometry = {
         kind: 'cutter',
         value: props.manualSplit
@@ -807,9 +842,12 @@ function startCutterDrag(event: PointerEvent) {
     const started = dragTransaction.start(event, {
         canonicalGeometry,
         stageRect,
-        fitScale: sourceFrame.width / Math.max(1, analysisWidth.value),
+        fitScale: sourceFrame.width * transformScale / Math.max(1, analysisWidth.value),
         update: (pointerEvent, snapshot) => {
-            const ratio = (pointerEvent.clientX - snapshot.stageRect.x - sourceFrame.left) / sourceFrame.width;
+            const ratio = (
+                (pointerEvent.clientX - snapshot.stageRect.x) / transformScale
+                - sourceFrame.left
+            ) / sourceFrame.width;
             return {
                 kind: 'cutter',
                 value: normalizeManualSplitX(
@@ -837,146 +875,6 @@ function nudgeCutter(direction: -1 | 1, coarse: boolean) {
         analysisWidth.value * 0.98,
         Math.max(analysisWidth.value * 0.02, cutterXPx.value + direction * step),
     ), analysisWidth.value, props.result?.pageMetadata.rotationDegrees ?? 0));
-}
-
-function setOutputFitArea(half: TScanCleanupOutputHalf, element: Element | ComponentPublicInstance | null) {
-    const htmlElement = element instanceof HTMLElement ? element : null;
-    const previous = outputFitAreas.get(half);
-    if (previous === htmlElement) {
-        return;
-    }
-    if (previous && previous !== htmlElement) outputResizeObserver?.unobserve(previous);
-    if (!htmlElement) {
-        return;
-    }
-    outputFitAreas.set(half, htmlElement);
-    outputResizeObserver?.observe(htmlElement);
-    updateOutputFitAreaSizes();
-}
-
-function setOutputCanvas(half: TScanCleanupOutputHalf, element: Element | ComponentPublicInstance | null) {
-    const htmlElement = element instanceof HTMLElement ? element : null;
-    if (!htmlElement) {
-        return;
-    }
-    if (outputCanvases.get(half) === htmlElement) {
-        return;
-    }
-    outputCanvases.set(half, htmlElement);
-    const rect = htmlElement.getBoundingClientRect();
-    outputCanvasRects[half] = {
-        x: rect.left,
-        y: rect.top,
-        width: rect.width,
-        height: rect.height,
-    };
-    outputResizeObserver?.observe(htmlElement);
-    updateOverlayGeometry();
-}
-
-function currentStageRect(): IScanCleanupDragRect | null {
-    const rect = cutterStage.value?.getBoundingClientRect();
-    if (!rect) {
-        return null;
-    }
-    return {
-        x: rect.left,
-        y: rect.top,
-        width: rect.width,
-        height: rect.height,
-    };
-}
-
-function updateOverlayGeometry(force = false) {
-    if (dragTransaction.active.value && !force) {
-        return;
-    }
-    const stageRect = currentStageRect();
-    const surfaceRect = previewSurface.value?.getBoundingClientRect();
-    if (!stageRect || !surfaceRect) {
-        return;
-    }
-    dragOverlayBounds.x = stageRect.x - surfaceRect.left;
-    dragOverlayBounds.y = stageRect.y - surfaceRect.top;
-    dragOverlayBounds.width = stageRect.width;
-    dragOverlayBounds.height = stageRect.height;
-    cutterStageSize.width = stageRect.width;
-    cutterStageSize.height = stageRect.height;
-    for (const [
-        half,
-        canvas,
-    ] of outputCanvases) {
-        const rect = canvas.getBoundingClientRect();
-        outputCanvasRects[half] = {
-            x: rect.left,
-            y: rect.top,
-            width: rect.width,
-            height: rect.height,
-        };
-    }
-}
-
-function updateOutputFitAreaSizes() {
-    const stageRect = cutterStage.value?.getBoundingClientRect();
-    for (const [
-        half,
-        element,
-    ] of outputFitAreas) {
-        const rect = element.getBoundingClientRect();
-        const current = outputFitAreaSizes[half];
-        const left = rect.left - (stageRect?.left ?? 0);
-        const top = rect.top - (stageRect?.top ?? 0);
-        if (
-            current?.left !== left
-            || current.top !== top
-            || current.width !== rect.width
-            || current.height !== rect.height
-        ) {
-            outputFitAreaSizes[half] = {
-                left,
-                top,
-                width: rect.width,
-                height: rect.height,
-            };
-        }
-    }
-    updateOverlayGeometry();
-}
-
-function pruneOutputElementRefs() {
-    const activeHalves = new Set(props.result?.outputs.map(output => output.metadata.half) ?? []);
-    for (const [
-        half,
-        element,
-    ] of outputFitAreas) {
-        if (!activeHalves.has(half)) {
-            outputResizeObserver?.unobserve(element);
-            outputFitAreas.delete(half);
-            Reflect.deleteProperty(outputFitAreaSizes, half);
-        }
-    }
-    for (const [
-        half,
-        element,
-    ] of outputCanvases) {
-        if (!activeHalves.has(half)) {
-            outputResizeObserver?.unobserve(element);
-            outputCanvases.delete(half);
-            Reflect.deleteProperty(outputCanvasRects, half);
-        }
-    }
-}
-
-function observeOutputFitAreas() {
-    outputResizeObserver?.disconnect();
-    if (typeof ResizeObserver === 'undefined') {
-        updateOutputFitAreaSizes();
-        return;
-    }
-    outputResizeObserver = new ResizeObserver(updateOutputFitAreaSizes);
-    for (const element of outputFitAreas.values()) outputResizeObserver.observe(element);
-    for (const element of outputCanvases.values()) outputResizeObserver.observe(element);
-    updateOutputFitAreaSizes();
 }
 
 function sourcePointFromClient(
@@ -1198,20 +1096,6 @@ function nudgePlacement(event: KeyboardEvent, output: IRenderedScanCleanupOutput
     emit('update:placement', output.metadata.half, next as TScanCleanupPageAlignment);
 }
 
-function updateCutterStageSize() {
-    updateOverlayGeometry();
-}
-
-function observeCutterStage() {
-    cutterResizeObserver?.disconnect();
-    updateCutterStageSize();
-    if (typeof ResizeObserver === 'undefined' || !cutterStage.value) {
-        return;
-    }
-    cutterResizeObserver ??= new ResizeObserver(updateCutterStageSize);
-    cutterResizeObserver.observe(cutterStage.value);
-}
-
 const {
     cleanedPixelSwaps,
     completeCleanedPixelSwap,
@@ -1229,10 +1113,6 @@ const {
     });
 });
 
-onMounted(() => {
-    observeCutterStage();
-    observeOutputFitAreas();
-});
 watch(() => dragTransaction.active.value, active => {
     if (!active) {
         dragOutputSnapshot.value = null;
@@ -1242,11 +1122,18 @@ watch(() => dragTransaction.active.value, active => {
         });
     }
 });
-onBeforeUnmount(() => {
-    cutterResizeObserver?.disconnect();
-    outputResizeObserver?.disconnect();
+watch(previewTransformScale, () => {
+    void nextTick(() => {
+        updateOverlayGeometry();
+        updateOutputFitAreaSizes();
+    });
 });
-
+watch(() => props.result?.pageNumber, () => {
+    void nextTick(() => {
+        updateOverlayGeometry();
+        clampPreviewPan();
+    });
+});
 const renderedOutputs = computed(() => {
     if (dragTransaction.active.value && dragOutputSnapshot.value) {
         return dragOutputSnapshot.value;

@@ -5,6 +5,10 @@ use scan_primitives::{morphology::reconstruct_gray, BinaryImage, GrayImage};
 const X_TERMS: usize = 8;
 const Y_TERMS: usize = 5;
 const SURFACE_TERMS: usize = X_TERMS * Y_TERMS;
+const MIN_PAPER_BACKGROUND_LUMINANCE: f64 = 128.0;
+const MIN_PAPER_LIKE_COVERAGE: f64 = 0.18;
+const PAPER_MODEL_TOLERANCE: f64 = 18.0;
+const CONSERVATIVE_LEVELS_BLEND: f64 = 0.2;
 
 #[derive(Clone, Debug)]
 enum BackgroundModel {
@@ -52,7 +56,11 @@ pub fn normalize_illumination_rgb_with_picture_mask(
     picture_mask: Option<&BinaryImage>,
 ) -> RgbImage {
     let model = background_model(luminance, picture_mask);
-    normalize_rgb_with_model(source, &model)
+    if paper_background_plausible(luminance, &model) {
+        normalize_rgb_with_model(source, &model)
+    } else {
+        conservative_luminance_levels(luminance, source)
+    }
 }
 
 fn background_model(source: &GrayImage, picture_mask: Option<&BinaryImage>) -> BackgroundModel {
@@ -178,6 +186,92 @@ fn normalize_rgb_with_model(source: &RgbImage, model: &BackgroundModel) -> RgbIm
             }
         });
     normalized
+}
+
+fn paper_background_plausible(source: &GrayImage, model: &BackgroundModel) -> bool {
+    let sample = source.downscale_to_fit(300, 300);
+    let x_basis = precompute_chebyshev::<X_TERMS>(sample.width());
+    let y_basis = precompute_chebyshev::<Y_TERMS>(sample.height());
+    let mut modeled_luminance = Vec::with_capacity(sample.width() * sample.height());
+    let mut paper_like = 0usize;
+    for (y, y_values) in y_basis.iter().enumerate() {
+        let mut row_coefficients = [0.0; X_TERMS];
+        if let BackgroundModel::Surface(coefficients) = model {
+            for y_term in 0..Y_TERMS {
+                for x_term in 0..X_TERMS {
+                    row_coefficients[x_term] +=
+                        coefficients[y_term * X_TERMS + x_term] * y_values[y_term];
+                }
+            }
+        }
+        for (x, x_values) in x_basis.iter().enumerate() {
+            let background = match model {
+                BackgroundModel::Surface(_) => row_coefficients
+                    .iter()
+                    .zip(x_values)
+                    .map(|(coefficient, basis)| coefficient * basis)
+                    .sum::<f64>(),
+                BackgroundModel::Reconstruction { image, floor } => sample_bilinear(
+                    image,
+                    source_coordinate(x, sample.width(), image.width()),
+                    source_coordinate(y, sample.height(), image.height()),
+                )
+                .max(*floor),
+            }
+            .clamp(0.0, 255.0);
+            modeled_luminance.push(background);
+            if background >= MIN_PAPER_BACKGROUND_LUMINANCE
+                && f64::from(sample.get(x, y)) >= MIN_PAPER_BACKGROUND_LUMINANCE
+                && f64::from(sample.get(x, y)) + PAPER_MODEL_TOLERANCE >= background
+            {
+                paper_like += 1;
+            }
+        }
+    }
+    let background_floor = percentile(&mut modeled_luminance, 0.2);
+    let paper_like_coverage = paper_like as f64 / modeled_luminance.len().max(1) as f64;
+    background_floor >= MIN_PAPER_BACKGROUND_LUMINANCE
+        && paper_like_coverage >= MIN_PAPER_LIKE_COVERAGE
+}
+
+fn conservative_luminance_levels(luminance: &GrayImage, source: &RgbImage) -> RgbImage {
+    let mut values = luminance
+        .data()
+        .iter()
+        .map(|&value| f64::from(value))
+        .collect::<Vec<_>>();
+    let low = percentile(&mut values, 0.02);
+    let high = percentile(&mut values, 0.98);
+    if high - low < 48.0 || (low <= 12.0 && high >= 243.0) {
+        return source.clone();
+    }
+    let mut output = source.clone();
+    for y in 0..source.height() {
+        for x in 0..source.width() {
+            let source_luminance = f64::from(luminance.get(x, y));
+            if source_luminance <= f64::EPSILON {
+                continue;
+            }
+            let stretched =
+                (12.0 + (source_luminance - low) * 231.0 / (high - low)).clamp(0.0, 255.0);
+            let target_luminance = (source_luminance * (1.0 - CONSERVATIVE_LEVELS_BLEND)
+                + stretched * CONSERVATIVE_LEVELS_BLEND)
+                .clamp(0.0, 255.0);
+            let source_pixel = source.get(x, y);
+            let maximum_channel = f64::from(*source_pixel.iter().max().unwrap_or(&0));
+            if maximum_channel <= f64::EPSILON {
+                continue;
+            }
+            let scale = (target_luminance / source_luminance).min(255.0 / maximum_channel);
+            output.set(
+                x,
+                y,
+                source_pixel
+                    .map(|channel| (f64::from(channel) * scale).round().clamp(0.0, 255.0) as u8),
+            );
+        }
+    }
+    output
 }
 
 fn invert(image: &GrayImage) -> GrayImage {
@@ -1039,6 +1133,80 @@ mod tests {
         }
 
         assert_eq!(checksum.finalize(), 2_052_257_257);
+    }
+
+    #[test]
+    fn full_bleed_color_uses_ratio_preserving_conservative_levels() {
+        let mut rgb = RgbImage::new(240, 180, [72, 19, 16]);
+        for y in 0..rgb.height() {
+            for x in 0..rgb.width() {
+                let texture = ((x * 17 + y * 11 + x * y % 31) % 35) as u8;
+                rgb.set(
+                    x,
+                    y,
+                    [
+                        62_u8.saturating_add(texture),
+                        15_u8.saturating_add(texture / 4),
+                        13_u8.saturating_add(texture / 5),
+                    ],
+                );
+            }
+        }
+        for y in 35..65 {
+            for x in 40..200 {
+                rgb.set(x, y, [175, 145, 78]);
+            }
+        }
+        let mut luminance = GrayImage::new(rgb.width(), rgb.height(), 0);
+        for y in 0..rgb.height() {
+            for x in 0..rgb.width() {
+                let pixel = rgb.get(x, y);
+                luminance.set(
+                    x,
+                    y,
+                    ((u32::from(pixel[0]) * 77
+                        + u32::from(pixel[1]) * 150
+                        + u32::from(pixel[2]) * 29
+                        + 128)
+                        >> 8) as u8,
+                );
+            }
+        }
+
+        let model = background_model(&luminance, None);
+        assert!(!paper_background_plausible(&luminance, &model));
+        let normalized = normalize_illumination_rgb(&luminance, &rgb, 300.0);
+        let mut maximum_ratio_error = 0.0_f64;
+        let mut source_luminance_sum = 0_u64;
+        let mut output_luminance_sum = 0_u64;
+        for y in 0..rgb.height() {
+            for x in 0..rgb.width() {
+                let before = rgb.get(x, y);
+                let after = normalized.get(x, y);
+                source_luminance_sum += u64::from(luminance.get(x, y));
+                output_luminance_sum += u64::from(
+                    ((u32::from(after[0]) * 77
+                        + u32::from(after[1]) * 150
+                        + u32::from(after[2]) * 29
+                        + 128)
+                        >> 8) as u8,
+                );
+                for channel in 1..3 {
+                    let before_ratio = f64::from(before[channel]) / f64::from(before[0]).max(1.0);
+                    let after_ratio = f64::from(after[channel]) / f64::from(after[0]).max(1.0);
+                    maximum_ratio_error =
+                        maximum_ratio_error.max((before_ratio - after_ratio).abs());
+                }
+            }
+        }
+        assert!(
+            maximum_ratio_error < 0.025,
+            "channel ratio changed by {maximum_ratio_error}"
+        );
+        assert!(
+            output_luminance_sum < source_luminance_sum * 13 / 10,
+            "full-bleed fixture was washed out"
+        );
     }
 
     #[test]

@@ -7,6 +7,7 @@ import type {
     IScanCleanupPageOverride,
     IScanCleanupPreviewResult,
     TScanCleanupOutputHalf,
+    TScanCleanupOutputMode,
     TScanCleanupPageAlignment,
     TScanCleanupPageLayoutOverride,
     TScanCleanupPageRotation,
@@ -43,7 +44,13 @@ interface IUseScanCleanupSelectionOptions {
 }
 
 export type TScanCleanupSettingsScope = 'all' | 'page' | 'selected';
-export type TScanCleanupOverrideControl = 'layout' | 'rotation' | 'inclusion' | 'margins' | 'placement';
+export type TScanCleanupOverrideControl =
+    | 'layout'
+    | 'output-mode'
+    | 'rotation'
+    | 'inclusion'
+    | 'margins'
+    | 'placement';
 
 export const useScanCleanupSelection = (options: IUseScanCleanupSelectionOptions) => {
     const leader = ref(options.initialPage);
@@ -62,6 +69,9 @@ export const useScanCleanupSelection = (options: IUseScanCleanupSelectionOptions
     ));
     const rotation = computed(() => resolveScanCleanupMixedValue(
         selectedPageOverrides.value.map(override => override.rotationDegrees),
+    ));
+    const outputModeOverride = computed(() => resolveScanCleanupMixedValue(
+        selectedPageOverrides.value.map(override => override.outputModeOverride),
     ));
     const excluded = computed(() => resolveScanCleanupMixedValue(
         selectedPageOverrides.value.map(override => override.excluded),
@@ -165,6 +175,25 @@ export const useScanCleanupSelection = (options: IUseScanCleanupSelectionOptions
         }));
     }
 
+    function updateOutputModeOverride(
+        value: TScanCleanupOutputMode | 'auto',
+        pages: Iterable<number> = selectedPages.value,
+    ) {
+        updateOverrides(pages, current => {
+            if (value === 'auto') {
+                const {
+                    outputModeOverride: _outputModeOverride,
+                    ...withoutOutputMode
+                } = current;
+                return withoutOutputMode;
+            }
+            return {
+                ...current,
+                outputModeOverride: value,
+            };
+        });
+    }
+
     function resetManualSplit(pages: Iterable<number> = selectedPages.value) {
         updateOverrides(pages, current => ({
             ...current,
@@ -260,6 +289,13 @@ export const useScanCleanupSelection = (options: IUseScanCleanupSelectionOptions
                         fill: [],
                     },
                 };
+            }
+            if (control === 'output-mode') {
+                const {
+                    outputModeOverride: _outputModeOverride,
+                    ...withoutOutputMode
+                } = current;
+                return withoutOutputMode;
             }
             if (control === 'inclusion') {
                 return {
@@ -436,6 +472,7 @@ export const useScanCleanupSelection = (options: IUseScanCleanupSelectionOptions
         marginsLinked,
         manualSplit,
         manualSkew,
+        outputModeOverride,
         hasMarginOverrides,
         highlightedScope,
         placementAlignment,
@@ -461,6 +498,7 @@ export const useScanCleanupSelection = (options: IUseScanCleanupSelectionOptions
         updateLayoutOverride,
         updateMargins,
         updateManualSkew,
+        updateOutputModeOverride,
         updatePageOverride,
         updatePlacement,
         updateRotation,

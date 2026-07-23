@@ -112,7 +112,7 @@ function previewResult(): IScanCleanupPreviewResult {
                 outputHeightPx: 1700,
                 canvasWidthPx: 1224,
                 canvasHeightPx: 1700,
-                canvasPolicy: 'robust-quantile',
+                canvasPolicy: 'strict-maximum',
                 canvasOverflow: false,
                 matchedCanvasTargetWidthPx: 1224,
                 matchedCanvasTargetHeightPx: 1700,

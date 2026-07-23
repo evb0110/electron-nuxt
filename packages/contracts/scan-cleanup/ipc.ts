@@ -7,6 +7,7 @@ import type {
     TScanCleanupBinarizationMethod,
     TScanCleanupCanvasScope,
     TScanCleanupLayoutClassification,
+    TScanCleanupOutputMode,
     TScanCleanupPageRotation,
 } from '@contracts/scan-cleanup/domain';
 import type {
@@ -15,7 +16,7 @@ import type {
     IScanCleanupPreviewAffine,
     IScanCleanupSplitSeamPolyline,
 } from '@contracts/scan-cleanup/geometry';
-import type {INativeScanCleanupBinarizationDiagnosticsV2} from '@contracts/scan-cleanup/nativeProtocolV2';
+import type {INativeScanCleanupBinarizationDiagnosticsV3} from '@contracts/scan-cleanup/nativeProtocolV3';
 import type {IScanCleanupProgress} from '@contracts/scan-cleanup/progress';
 
 export interface IScanCleanupOwnerContext {
@@ -36,6 +37,7 @@ export interface IScanCleanupPreviewRequest extends IScanCleanupOwnerContext {
     pageNumber: number;
     options: IScanCleanupOptions;
     documentPrior?: IScanCleanupDocumentPrior;
+    documentCanvasPlan?: IScanCleanupDocumentCanvasPlan;
 }
 
 export interface IScanCleanupPreviewCancelRequest extends IScanCleanupOwnerContext {
@@ -43,7 +45,12 @@ export interface IScanCleanupPreviewCancelRequest extends IScanCleanupOwnerConte
     invalidateRawCache?: boolean;
 }
 
-export type TScanCleanupCanvasPolicy = 'intrinsic' | 'robust-quantile' | 'overflow-intrinsic';
+export type TScanCleanupCanvasPolicy = 'intrinsic' | 'strict-maximum';
+
+export interface IScanCleanupDocumentCanvasPlan {
+    widthPoints: number;
+    heightPoints: number;
+}
 
 export interface IScanCleanupContentSideConfidence {
     left: number;
@@ -60,12 +67,33 @@ export interface IScanCleanupContentTextMaskSummary {
     bounds?: IScanCleanupPixelRect;
 }
 
+export type TScanCleanupContentTrimSide = 'left' | 'top' | 'right' | 'bottom';
+
+export interface IScanCleanupContentBlockEvidence {
+    bounds: IScanCleanupPixelRect;
+    pictureMaskOverlapPixels: number;
+    headingEvidence: boolean;
+    grayscaleEvidence: boolean;
+}
+
+export interface IScanCleanupContentAcceptedTrim {
+    side: TScanCleanupContentTrimSide;
+    iteration: number;
+    score: number;
+    threshold: number;
+    contentDistanceSum: number;
+    garbageDistanceSum: number;
+    removedBlocks: IScanCleanupContentBlockEvidence[];
+}
+
 export interface IScanCleanupContentDiagnostics {
     sideConfidence: IScanCleanupContentSideConfidence;
     textMask: IScanCleanupContentTextMaskSummary;
+    acceptedTrims?: IScanCleanupContentAcceptedTrim[];
+    protectedBlocks?: IScanCleanupContentBlockEvidence[];
 }
 
-export interface IScanCleanupBinarizationDiagnostics extends INativeScanCleanupBinarizationDiagnosticsV2 {}
+export interface IScanCleanupBinarizationDiagnostics extends INativeScanCleanupBinarizationDiagnosticsV3 {}
 
 /** Renderer-facing per-page diagnostic summary assembled from page and first-output metadata. */
 export interface IScanCleanupPageDiagnostics {
@@ -107,6 +135,8 @@ export interface IScanCleanupPreviewMetadata {
     canvasOverflow?: boolean;
     matchedCanvasTargetWidthPx?: number | null;
     matchedCanvasTargetHeightPx?: number | null;
+    matchedCanvasTargetWidthPoints?: number | null;
+    matchedCanvasTargetHeightPoints?: number | null;
     /** Intrinsic raster origin within the logical canvas. */
     placementOffsetXPx: number;
     placementOffsetYPx: number;
@@ -120,6 +150,10 @@ export interface IScanCleanupPreviewMetadata {
     rotationDegrees: TScanCleanupPageRotation;
     canvasScope: TScanCleanupCanvasScope;
     resamplePasses: number;
+    sourceDpi?: number;
+    renderDpi?: number;
+    requestedRenderDpi?: number;
+    rasterScaleLimited?: boolean;
     /** True when multiplicative illumination normalization affected the rendered raster. */
     illuminationNormalized?: boolean;
     binarizationMode?: TScanCleanupBinarizationMethod | null;
@@ -142,6 +176,8 @@ export interface IScanCleanupPreviewPageMetadata extends IScanCleanupReconciliat
     canvasScope: TScanCleanupCanvasScope;
     excluded: boolean;
     blankOutputsSkipped: number;
+    recommendedOutputMode?: TScanCleanupOutputMode;
+    recommendedOutputModeConfidence?: number;
 }
 
 export interface IScanCleanupPreviewOutput {
@@ -171,12 +207,15 @@ export interface IScanCleanupDetectionResult extends IScanCleanupReconciliationM
     cutterXPx: number | null;
     documentPrior: IScanCleanupDocumentPrior | null;
     textAxis?: IScanCleanupTextAxis;
+    recommendedOutputMode?: TScanCleanupOutputMode;
+    recommendedOutputModeConfidence?: number;
 }
 
 interface IScanCleanupDetectionJobBase {
     jobId: string;
     progress: IScanCleanupProgress;
     results: IScanCleanupDetectionResult[];
+    documentCanvasPlan?: IScanCleanupDocumentCanvasPlan;
     updatedAtMs: number;
 }
 
@@ -203,6 +242,7 @@ export type TScanCleanupDetectionStartResult =
 export interface IScanCleanupStartRequest extends IScanCleanupOwnerContext {
     sourcePdfPath: string;
     options: IScanCleanupOptions;
+    outputModeRecommendations?: Partial<Record<string, TScanCleanupOutputMode>>;
     runOcrAfterCleanup?: boolean;
 }
 

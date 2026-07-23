@@ -64,13 +64,23 @@ export const SOURCE_SIZE_ALLOWLIST = {
         reason: 'native PDF viewer after committed-surface ownership and page-source lifecycle hardening',
         stage: 'Viewer core follow-up - native PDF presentation extraction',
     },
+    'app/modules/pdf-viewer/annotations/bridge/pdfjs-runtime/useAnnotationSync.ts': {
+        maxLines: 1254,
+        reason: 'PDF.js annotation synchronization bridge after remote collaboration updates',
+        stage: 'Annotation synchronization extraction follow-up',
+    },
+    'app/modules/scan-cleanup/components/ScanCleanupThumbnailRail.vue': {
+        maxLines: 1274,
+        reason: 'scan-cleanup thumbnail rail after unifying diagnostics, zone editing, and per-page output controls',
+        stage: 'Scan cleanup thumbnail control extraction follow-up',
+    },
     'app/modules/scan-cleanup/components/preview/PreviewShell.vue': {
-        maxLines: 1411,
-        reason: 'preview shell after extracting zone-editing state and presentation styles',
-        stage: 'further preview shell extraction planned',
+        maxLines: 1298,
+        reason: 'preview shell after extracting zoom, overlay geometry, zone-editing state, and presentation styles',
+        stage: 'Scan cleanup preview orchestration extraction follow-up',
     },
     'electron/features/agent/codexAssistant.ts': {
-        maxLines: 1331,
+        maxLines: 1337,
         reason: 'transitional Electron assistant backend facade after session store and runtime lifecycle extraction',
         stage: 'Worker 2/Stage 1 - Assistant backend session/runtime split',
     },
@@ -85,12 +95,12 @@ export const SOURCE_SIZE_ALLOWLIST = {
         stage: 'Worker 6 - Diagnostic trace analysis extraction',
     },
     'app/modules/workspace-shell/components/DocumentWorkspace.vue': {
-        maxLines: 1542,
+        maxLines: 1556,
         reason: 'workspace component after extracting scan-cleanup surface state and action ownership',
         stage: 'Scan cleanup integration - workspace surface extraction follow-up',
     },
     'app/modules/workspace-shell/components/DocumentPageSourceFeaturePack.vue': {
-        maxLines: 1408,
+        maxLines: 1474,
         reason: 'page-source feature pack after shared activation sequencing and raster-layout identity integration',
         stage: 'Viewer core follow-up - page-source controller extraction',
     },

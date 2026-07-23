@@ -5,13 +5,16 @@ import {
 } from 'vitest';
 import {reactive} from 'vue';
 import {
+    DEFAULT_SCAN_CLEANUP_DOCUMENT_OUTPUT_MODE,
     dismissScanCleanupFirstRunGuidance,
     loadScanCleanupDocumentMargins,
+    loadScanCleanupDocumentOutputMode,
     loadScanCleanupDocumentOverrides,
     loadScanCleanupPreferences,
     resetScanCleanupDocumentOverrides,
     saveScanCleanupDocumentOverrides,
     saveScanCleanupDocumentMargins,
+    saveScanCleanupDocumentOutputMode,
     saveScanCleanupPreferences,
     toPlainScanCleanupOptions,
     type IScanCleanupPreferenceStorage,
@@ -27,11 +30,15 @@ function memoryStorage(): IScanCleanupPreferenceStorage {
 }
 
 describe('scan cleanup preferences', () => {
-    it('saves and restores global settings independently of page overrides', () => {
+    it('defaults the document output mode to automatic recommendation', () => {
+        expect(DEFAULT_SCAN_CLEANUP_DOCUMENT_OUTPUT_MODE).toBe('auto');
+    });
+
+    it('saves and restores global settings without persisting document output mode', () => {
         const storage = memoryStorage();
-        saveScanCleanupPreferences({
+        const preferencesWithLegacyField = {
             ...DEFAULT_SCAN_CLEANUP_PREFERENCES,
-            readingOrder: 'rtl',
+            readingOrder: 'rtl' as const,
             marginsMm: {
                 leftMm: 6,
                 topMm: 7,
@@ -39,7 +46,9 @@ describe('scan cleanup preferences', () => {
                 bottomMm: 9,
             },
             runOcrAfterCleanup: true,
-        }, storage);
+            outputMode: 'bw' as const,
+        };
+        saveScanCleanupPreferences(preferencesWithLegacyField, storage);
         expect(loadScanCleanupPreferences(storage)).toMatchObject({
             readingOrder: 'rtl',
             marginsMm: {
@@ -50,6 +59,28 @@ describe('scan cleanup preferences', () => {
             },
             runOcrAfterCleanup: true,
         });
+        expect(loadScanCleanupPreferences(storage)).not.toHaveProperty('outputMode');
+        expect(JSON.parse(storage.get('evb.scanCleanup.settings.v1') ?? '{}')).not.toHaveProperty('outputMode');
+    });
+
+    it('ignores a legacy global output mode and starts an unseen document at Auto', () => {
+        const storage = memoryStorage();
+        storage.set('evb.scanCleanup.settings.v1', JSON.stringify({
+            ...DEFAULT_SCAN_CLEANUP_PREFERENCES,
+            outputMode: 'bw',
+        }));
+
+        expect(loadScanCleanupPreferences(storage)).not.toHaveProperty('outputMode');
+        expect(loadScanCleanupDocumentOutputMode('new-document', storage)).toBe('auto');
+    });
+
+    it('restores output mode only for the same document', () => {
+        const storage = memoryStorage();
+
+        saveScanCleanupDocumentOutputMode('document-a', 'grayscale', storage);
+
+        expect(loadScanCleanupDocumentOutputMode('document-a', storage)).toBe('grayscale');
+        expect(loadScanCleanupDocumentOutputMode('document-b', storage)).toBe('auto');
     });
 
     it('migrates the legacy scalar preference to four equal margins', () => {
@@ -94,6 +125,7 @@ describe('scan cleanup preferences', () => {
             bottomMm: 4,
         };
         saveScanCleanupDocumentMargins('document-a', marginsMm, storage);
+        saveScanCleanupDocumentOutputMode('document-a', 'color', storage);
         saveScanCleanupDocumentOverrides('document-a', {'2': {
             rotationDegrees: 90,
             layoutOverride: 'auto',
@@ -120,6 +152,7 @@ describe('scan cleanup preferences', () => {
         resetScanCleanupDocumentOverrides('document-a', storage);
         expect(loadScanCleanupDocumentOverrides('document-a', storage)).toEqual({});
         expect(loadScanCleanupDocumentMargins('document-a', storage)).toEqual(marginsMm);
+        expect(loadScanCleanupDocumentOutputMode('document-a', storage)).toBe('color');
     });
 
     it('isolates per-document overrides and removes them on reset', () => {
@@ -137,6 +170,29 @@ describe('scan cleanup preferences', () => {
         expect(loadScanCleanupDocumentOverrides('document-b', storage)).toEqual({});
         resetScanCleanupDocumentOverrides('document-a', storage);
         expect(loadScanCleanupDocumentOverrides('document-a', storage)).toEqual({});
+    });
+
+    it('persists concrete page output-mode overrides and prunes Auto', () => {
+        const storage = memoryStorage();
+        saveScanCleanupDocumentOverrides('document-a', {
+            '1': {
+                rotationDegrees: 0,
+                layoutOverride: 'auto',
+                excluded: false,
+                manualSplit: null,
+                outputModeOverride: 'mixed',
+            },
+            '2': {
+                rotationDegrees: 0,
+                layoutOverride: 'auto',
+                excluded: false,
+                manualSplit: null,
+            },
+        }, storage);
+
+        const restored = loadScanCleanupDocumentOverrides('document-a', storage);
+        expect(restored['1']).toEqual(expect.objectContaining({outputModeOverride: 'mixed'}));
+        expect(restored['2']).not.toHaveProperty('outputModeOverride');
     });
 
     it('persists first-run guidance dismissal with the existing preferences', () => {
@@ -241,6 +297,7 @@ describe('scan cleanup preferences', () => {
     it('converts reactive cleanup options into structured-clone-safe data', () => {
         const options = reactive({
             ...DEFAULT_SCAN_CLEANUP_PREFERENCES,
+            outputMode: DEFAULT_SCAN_CLEANUP_DOCUMENT_OUTPUT_MODE,
             pageOverrides: {'2': {
                 rotationDegrees: 90 as const,
                 layoutOverride: 'spread' as const,

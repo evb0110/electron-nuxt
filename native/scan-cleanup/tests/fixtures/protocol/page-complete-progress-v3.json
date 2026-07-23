@@ -1,0 +1,39 @@
+{
+  "version": 3,
+  "type": "progress",
+  "progress": {
+    "stage": "page-complete",
+    "completedPages": 2,
+    "totalPages": 4,
+    "pageNumber": 2,
+    "outputPaths": [
+      "/fixtures/output/page-2-left.png",
+      "/fixtures/output/page-2-right.png"
+    ],
+    "classification": "two-page-spread",
+    "confidence": 0.984,
+    "cutterXPx": 1180.0,
+    "tier1Verdict": "single-uncut-page",
+    "reconciled": true,
+    "clusterAgreement": 0.885,
+    "documentPrior": {
+      "dominantLayout": "two-page-spread",
+      "cutterRatioMedian": 0.535,
+      "clusterDims": {
+        "widthPx": 2203.0,
+        "heightPx": 1600.0
+      },
+      "agreementStrength": 0.885
+    },
+    "textAxis": {
+      "sideways": true,
+      "confidence": 0.97
+    },
+    "stageTimings": {
+      "splitMs": 12.5,
+      "renderMs": 24.0
+    },
+    "recommendedOutputMode": "mixed",
+    "recommendedOutputModeConfidence": 0.91
+  }
+}

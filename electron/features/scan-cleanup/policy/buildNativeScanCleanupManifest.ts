@@ -1,17 +1,19 @@
 import type {
-    INativeScanCleanupManifestV2,
-    INativeScanCleanupOutputV2,
+    INativeScanCleanupManifestV3,
+    INativeScanCleanupOutputV3,
+    IScanCleanupDocumentCanvasPlan,
     IScanCleanupDocumentPrior,
     IScanCleanupOptions,
     TNativeScanCleanupOperation,
     TNativeScanCleanupRenderMode,
     TScanCleanupCanvasScope,
+    TScanCleanupOutputMode,
 } from '@contracts/electronApiScanCleanup';
 import {SCAN_CLEANUP_NATIVE_PROTOCOL_VERSION} from '@contracts/electronApiScanCleanup';
 import {getScanCleanupPageOverride} from '@contracts/scanCleanupPageOverrides';
 import {
     resolveEffectiveScanCleanupOptions,
-    type IEffectiveNativeScanCleanupOptionsV2,
+    type IEffectiveNativeScanCleanupOptionsV3,
     type IScanCleanupExperimentalOptions,
     type TScanCleanupQualityPath,
 } from '@electron/features/scan-cleanup/policy/effectiveOptions';
@@ -20,8 +22,11 @@ export interface IScanCleanupManifestPageInput {
     inputPath: string;
     pageNumber: number;
     dpi: number;
+    sourceDpi?: number;
+    requestedRenderDpi?: number;
+    resolvedOutputMode?: TScanCleanupOutputMode;
     pageMetadataPath: string;
-    outputs?: INativeScanCleanupOutputV2[];
+    outputs?: INativeScanCleanupOutputV3[];
     documentPrior?: IScanCleanupDocumentPrior;
 }
 
@@ -32,12 +37,13 @@ export interface IBuildNativeScanCleanupManifestInput {
     qualityPath: TScanCleanupQualityPath;
     options: IScanCleanupOptions;
     pages: IScanCleanupManifestPageInput[];
+    documentCanvas?: IScanCleanupDocumentCanvasPlan;
     experimental?: IScanCleanupExperimentalOptions;
 }
 
 export function serializeNativeScanCleanupOptions(
-    options: IEffectiveNativeScanCleanupOptionsV2,
-): INativeScanCleanupManifestV2['pages'][number]['options'] {
+    options: IEffectiveNativeScanCleanupOptionsV3,
+): INativeScanCleanupManifestV3['pages'][number]['options'] {
     const {
         despeckleLevel,
         manualZones,
@@ -59,13 +65,15 @@ export function buildNativeScanCleanupManifest({
     qualityPath,
     options,
     pages,
+    documentCanvas,
     experimental,
-}: IBuildNativeScanCleanupManifestInput): INativeScanCleanupManifestV2 {
+}: IBuildNativeScanCleanupManifestInput): INativeScanCleanupManifestV3 {
     return {
         version: SCAN_CLEANUP_NATIVE_PROTOCOL_VERSION,
         operation,
         renderMode,
         canvasScope,
+        ...(documentCanvas === undefined ? {} : {documentCanvas}),
         pages: pages.map(page => ({
             inputPath: page.inputPath,
             sourcePageIndex: page.pageNumber - 1,
@@ -75,6 +83,13 @@ export function buildNativeScanCleanupManifest({
                     options,
                     pageOverride: getScanCleanupPageOverride(options.pageOverrides, page.pageNumber),
                     dpi: page.dpi,
+                    ...(page.sourceDpi === undefined ? {} : {sourceDpi: page.sourceDpi}),
+                    ...(page.requestedRenderDpi === undefined
+                        ? {}
+                        : {requestedRenderDpi: page.requestedRenderDpi}),
+                    ...(page.resolvedOutputMode === undefined
+                        ? {}
+                        : {resolvedOutputMode: page.resolvedOutputMode}),
                     qualityPath,
                     ...(experimental === undefined ? {} : {experimental}),
                 }),

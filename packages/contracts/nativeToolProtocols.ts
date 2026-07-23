@@ -10,7 +10,7 @@ export const GENERATED_RUST_NATIVE_TOOL_PROTOCOLS = [
     {
         binaryName: 'evb-pdf-image-combine',
         crateName: 'pdf-image-combine',
-        protocolVersion: 3,
+        protocolVersion: 4,
         resourceFamilyId: 'pdf-image-combine',
         stagingName: 'pdf-image-combine',
     },
@@ -31,7 +31,7 @@ export const GENERATED_RUST_NATIVE_TOOL_PROTOCOLS = [
     {
         binaryName: 'evb-scan-cleanup',
         crateName: 'scan-cleanup',
-        protocolVersion: 2,
+        protocolVersion: 3,
         resourceFamilyId: 'scan-cleanup',
         stagingName: 'scan-cleanup',
     },

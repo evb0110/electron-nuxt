@@ -1,7 +1,7 @@
 import {readFile} from 'node:fs/promises';
 import {resolve} from 'node:path';
 import type {
-    INativeScanCleanupManifestV2,
+    INativeScanCleanupManifestV3,
     IScanCleanupNormalizedZonePolygon,
     IScanCleanupOptions,
     TNativeScanCleanupOperation,
@@ -24,7 +24,7 @@ const fixtureDirectory = resolve('native/scan-cleanup/tests/fixtures/protocol');
 const options: IScanCleanupOptions = {
     preserveOriginalQuality: false,
     layoutMode: 'auto',
-    outputMode: 'bw',
+    outputMode: 'auto',
     thickness: 0,
     crop: true,
     matchPageSize: true,
@@ -52,7 +52,7 @@ interface IGoldenCase {
 
 const cases: IGoldenCase[] = [
     {
-        name: 'preview-raster-v2.json',
+        name: 'preview-raster-v3.json',
         operation: 'render',
         renderMode: 'preview',
         canvasScope: 'page',
@@ -60,7 +60,7 @@ const cases: IGoldenCase[] = [
         withOutput: true,
     },
     {
-        name: 'detect-all-v2.json',
+        name: 'detect-all-v3.json',
         operation: 'analyze',
         renderMode: 'preview',
         canvasScope: 'page',
@@ -68,7 +68,7 @@ const cases: IGoldenCase[] = [
         withOutput: false,
     },
     {
-        name: 'raster-final-v2.json',
+        name: 'raster-final-v3.json',
         operation: 'render',
         renderMode: 'final',
         canvasScope: 'document',
@@ -76,7 +76,7 @@ const cases: IGoldenCase[] = [
         withOutput: true,
     },
     {
-        name: 'lossless-final-v2.json',
+        name: 'lossless-final-v3.json',
         operation: 'analyze',
         renderMode: 'final',
         canvasScope: 'document',
@@ -87,7 +87,7 @@ const cases: IGoldenCase[] = [
 
 describe('native scan-cleanup manifest builder', () => {
     it.each(cases)('matches the shared $name golden', async testCase => {
-        const golden = JSON.parse(await readFile(resolve(fixtureDirectory, testCase.name), 'utf8')) as INativeScanCleanupManifestV2;
+        const golden = JSON.parse(await readFile(resolve(fixtureDirectory, testCase.name), 'utf8')) as INativeScanCleanupManifestV3;
         const manifest = buildNativeScanCleanupManifest({
             operation: testCase.operation,
             renderMode: testCase.renderMode,
@@ -102,6 +102,9 @@ describe('native scan-cleanup manifest builder', () => {
                 outputs: testCase.withOutput ? [{
                     outputPath: '/fixtures/output/page-1.png',
                     metadataPath: '/fixtures/output/page-1-output.json',
+                    ...(testCase.renderMode === 'final'
+                        ? {bilevelOutputPath: '/fixtures/output/page-1.pbm'}
+                        : {}),
                 }] : [],
             }],
         });
@@ -201,6 +204,97 @@ describe('native scan-cleanup manifest builder', () => {
         expect(serialized.experimental.autoDewarpDepth).toBe(1.8);
     });
 
+    it('matches the populated shared manifest golden', async () => {
+        const picturePolygon: IScanCleanupNormalizedZonePolygon = {
+            points: [
+                {
+                    xNormalized: 0.1,
+                    yNormalized: 0.1,
+                },
+                {
+                    xNormalized: 0.9,
+                    yNormalized: 0.1,
+                },
+                {
+                    xNormalized: 0.9,
+                    yNormalized: 0.9,
+                },
+            ],
+            rotationDegrees: 0,
+        };
+        const fillPolygon: IScanCleanupNormalizedZonePolygon = {
+            points: [
+                {
+                    xNormalized: 0.2,
+                    yNormalized: 0.2,
+                },
+                {
+                    xNormalized: 0.4,
+                    yNormalized: 0.2,
+                },
+                {
+                    xNormalized: 0.4,
+                    yNormalized: 0.4,
+                },
+            ],
+            rotationDegrees: 0,
+        };
+        const populatedOptions: IScanCleanupOptions = {
+            ...options,
+            outputMode: 'mixed',
+            pageOverrides: {'1': {
+                rotationDegrees: 0,
+                layoutOverride: 'auto',
+                excluded: false,
+                manualSplit: null,
+                manualZones: {
+                    picture: [{
+                        polygon: picturePolygon,
+                        layer: 'painter2',
+                    }],
+                    fill: [fillPolygon],
+                },
+            }},
+        };
+        const manifest = buildNativeScanCleanupManifest({
+            operation: 'render',
+            renderMode: 'final',
+            canvasScope: 'document',
+            qualityPath: 'raster',
+            documentCanvas: {
+                widthPoints: 420.25,
+                heightPoints: 612.5,
+            },
+            options: populatedOptions,
+            pages: [{
+                inputPath: '/fixtures/input/page-1.png',
+                pageNumber: 1,
+                dpi: 300,
+                pageMetadataPath: '/fixtures/output/page-1.json',
+                outputs: [{
+                    outputPath: '/fixtures/output/page-1.png',
+                    metadataPath: '/fixtures/output/page-1-output.json',
+                    bilevelOutputPath: '/fixtures/output/page-1.pbm',
+                }],
+            }],
+        });
+        manifest.pages[0]!.options = serializeNativeScanCleanupOptions({
+            ...resolveEffectiveScanCleanupOptions({
+                options: populatedOptions,
+                pageOverride: populatedOptions.pageOverrides['1']!,
+                dpi: 300,
+                qualityPath: 'raster',
+            }),
+            despeckleLevel: 'aggressive',
+        });
+        const golden = JSON.parse(await readFile(
+            resolve(fixtureDirectory, 'populated-raster-v3.json'),
+            'utf8',
+        )) as INativeScanCleanupManifestV3;
+
+        expect(manifest).toEqual(golden);
+    });
+
     it('threads an optional document prior only onto its target preview page', () => {
         const documentPrior = {
             dominantLayout: 'two-page-spread' as const,
@@ -236,5 +330,37 @@ describe('native scan-cleanup manifest builder', () => {
 
         expect(manifest.pages[0]?.documentPrior).toEqual(documentPrior);
         expect(manifest.pages[1]).not.toHaveProperty('documentPrior');
+    });
+
+    it('carries an explicit physical document canvas while canvas scope stays page-local', () => {
+        const manifest = buildNativeScanCleanupManifest({
+            operation: 'render',
+            renderMode: 'preview',
+            canvasScope: 'page',
+            documentCanvas: {
+                widthPoints: 420.25,
+                heightPoints: 612.5,
+            },
+            qualityPath: 'raster',
+            options,
+            pages: [{
+                inputPath: '/fixtures/input/page-1.png',
+                pageNumber: 1,
+                dpi: 150,
+                pageMetadataPath: '/fixtures/output/page-1.json',
+                outputs: [{
+                    outputPath: '/fixtures/output/page-1.png',
+                    metadataPath: '/fixtures/output/page-1-output.json',
+                }],
+            }],
+        });
+
+        expect(manifest).toMatchObject({
+            canvasScope: 'page',
+            documentCanvas: {
+                widthPoints: 420.25,
+                heightPoints: 612.5,
+            },
+        });
     });
 });

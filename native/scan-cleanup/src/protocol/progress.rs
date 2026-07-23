@@ -1,7 +1,8 @@
 use crate::{
     engine::text_axis::TextAxisHint,
-    protocol::manifest_v2::VERSION,
+    protocol::manifest_v3::VERSION,
     split::{DocumentPrior, LayoutClassification},
+    OutputMode,
 };
 use serde::Serialize;
 use std::path::PathBuf;
@@ -41,6 +42,7 @@ impl PageStageTimings {
 #[serde(rename_all = "kebab-case")]
 pub enum ProgressStage {
     Started,
+    PageAnalyzed,
     PageComplete,
     Completed,
 }
@@ -73,6 +75,10 @@ pub struct Progress {
     pub text_axis: Option<TextAxisHint>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub stage_timings: Option<PageStageTimings>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub recommended_output_mode: Option<OutputMode>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub recommended_output_mode_confidence: Option<f64>,
 }
 
 #[derive(Serialize)]
@@ -95,7 +101,7 @@ impl ProgressEnvelope {
 
 #[cfg(test)]
 mod tests {
-    use super::PageStageTimings;
+    use super::*;
 
     #[test]
     fn stage_timings_are_additive_and_omit_default_fields() {
@@ -111,5 +117,81 @@ mod tests {
             .unwrap(),
             serde_json::json!({"splitMs": 12.5})
         );
+    }
+
+    #[test]
+    fn analysis_progress_matches_shared_v3_golden() {
+        let fixture = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/fixtures/protocol/analysis-progress-v3.json");
+        let expected: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(fixture).unwrap()).unwrap();
+        let actual = serde_json::to_value(ProgressEnvelope::new(Progress {
+            stage: ProgressStage::PageAnalyzed,
+            completed_pages: 2,
+            total_pages: 4,
+            page_number: Some(3),
+            output_paths: None,
+            classification: None,
+            confidence: None,
+            cutter_x_px: None,
+            tier1_verdict: None,
+            reconciled: None,
+            cluster_agreement: None,
+            document_prior: None,
+            text_axis: None,
+            stage_timings: None,
+            recommended_output_mode: None,
+            recommended_output_mode_confidence: None,
+        }))
+        .unwrap();
+
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn page_complete_progress_matches_populated_shared_v3_golden() {
+        let fixture = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/fixtures/protocol/page-complete-progress-v3.json");
+        let expected: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(fixture).unwrap()).unwrap();
+        let actual = serde_json::to_value(ProgressEnvelope::new(Progress {
+            stage: ProgressStage::PageComplete,
+            completed_pages: 2,
+            total_pages: 4,
+            page_number: Some(2),
+            output_paths: Some(vec![
+                PathBuf::from("/fixtures/output/page-2-left.png"),
+                PathBuf::from("/fixtures/output/page-2-right.png"),
+            ]),
+            classification: Some(LayoutClassification::TwoPageSpread),
+            confidence: Some(0.984),
+            cutter_x_px: Some(1180.0),
+            tier1_verdict: Some(LayoutClassification::SingleUncutPage),
+            reconciled: Some(true),
+            cluster_agreement: Some(0.885),
+            document_prior: Some(DocumentPrior {
+                dominant_layout: LayoutClassification::TwoPageSpread,
+                cutter_ratio_median: Some(0.535),
+                cluster_dims: crate::split::ClusterDimensions {
+                    width: 2203.0,
+                    height: 1600.0,
+                },
+                agreement_strength: 0.885,
+            }),
+            text_axis: Some(TextAxisHint {
+                sideways: true,
+                confidence: 0.97,
+            }),
+            stage_timings: Some(PageStageTimings {
+                split_ms: 12.5,
+                render_ms: 24.0,
+                ..PageStageTimings::default()
+            }),
+            recommended_output_mode: Some(OutputMode::Mixed),
+            recommended_output_mode_confidence: Some(0.91),
+        }))
+        .unwrap();
+
+        assert_eq!(actual, expected);
     }
 }

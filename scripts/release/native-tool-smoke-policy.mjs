@@ -5,7 +5,7 @@ const MAC_PACKAGED_TOOL_SMOKE_POLICY = {
     },
     'evb-pdf-image-combine-protocol': {
         allowedExitCodes: new Set([0]),
-        expectedOutputTokens: ['3'],
+        expectedOutputTokens: ['4'],
     },
     'evb-pdf-image-combine-compact-manifest': {
         allowedExitCodes: new Set([1]),
@@ -25,7 +25,7 @@ const MAC_PACKAGED_TOOL_SMOKE_POLICY = {
     },
     'evb-scan-cleanup-protocol': {
         allowedExitCodes: new Set([0]),
-        expectedOutputTokens: ['2'],
+        expectedOutputTokens: ['3'],
     },
     ddjvu: {
         allowedExitCodes: new Set([

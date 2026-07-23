@@ -91,6 +91,50 @@ describe('scan cleanup run coordinator', () => {
         expect(coordinator.getScanCleanupRunError('owner-b')).toBe('');
     });
 
+    it('falls back to a coordinator toast when a thrown start error has no open owning surface', async () => {
+        const toastAdd = vi.fn();
+        capability.value = {
+            preview: vi.fn(),
+            cancelPreview: vi.fn(),
+            detectAll: vi.fn(),
+            cancelDetection: vi.fn(),
+            getDetectionJobState: vi.fn(),
+            subscribeDetectionJob: vi.fn(),
+            start: vi.fn(),
+            cancel: vi.fn(),
+            getJobState: vi.fn(),
+            subscribeJob: vi.fn(),
+            reconnectJob: vi.fn(),
+            pruneGeneratedOutputs: vi.fn(),
+            onJobState: vi.fn(() => () => undefined),
+            onDetectionJobState: vi.fn(() => () => undefined),
+        };
+        const coordinator = await import('@app/modules/scan-cleanup/runtime/scanCleanupRunCoordinator');
+        const cleanup = coordinator.installScanCleanupRunCoordinator({
+            openGeneratedPdf: vi.fn(),
+            runOcrOnActiveDocument: vi.fn(),
+            saveActiveDocumentAs: vi.fn(),
+            openScanCleanupForDocument: vi.fn(),
+            getOpenPdfPaths: () => [],
+            t: ((key: string) => key) as never,
+            toast: {add: toastAdd},
+        });
+
+        coordinator.reportScanCleanupRunError(
+            'closed-owner',
+            'scan-cleanup IPC codec failed',
+            '/source/book.pdf',
+        );
+
+        expect(coordinator.getScanCleanupRunError('closed-owner')).toBe('scan-cleanup IPC codec failed');
+        expect(toastAdd).toHaveBeenCalledWith(expect.objectContaining({
+            color: 'error',
+            title: 'scanCleanup.failed',
+            description: 'scan-cleanup IPC codec failed',
+        }));
+        cleanup();
+    });
+
     it('keeps runs global and routes completed, failed, and canceled terminal states', async () => {
         let listener: (state: TScanCleanupJobState) => void = () => undefined;
         let nextJob = 0;

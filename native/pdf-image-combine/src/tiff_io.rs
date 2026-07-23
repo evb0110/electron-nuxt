@@ -372,7 +372,9 @@ mod tests {
                 assert!(decode_params.contains("/Colors 3"));
                 assert!(decode_params.contains("/Columns 2"));
             }
-            ImagePayload::Jpeg { .. } => panic!("expected flate payload"),
+            ImagePayload::Jpeg { .. } | ImagePayload::Bilevel { .. } => {
+                panic!("expected flate payload")
+            }
         }
 
         let _ = fs::remove_file(input_path);

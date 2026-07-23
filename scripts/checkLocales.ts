@@ -10,7 +10,10 @@ import {
     uniq,
 } from 'es-toolkit/array';
 import { isEqual } from 'es-toolkit/predicate';
-import { readdirSync } from 'node:fs';
+import {
+    readdirSync,
+    readFileSync,
+} from 'node:fs';
 import path from 'node:path';
 import {
     fileURLToPath,
@@ -23,7 +26,17 @@ interface ILocaleDefinitionLike {
     file: string;
 }
 
+export interface ILocaleKeyAllowance {
+    extra?: readonly string[];
+    missing?: readonly string[];
+}
+
 type TLocaleTarget = 'app' | 'landing' | 'all';
+type TLocaleKeyAllowlist = Readonly<Record<string, ILocaleKeyAllowance>>;
+
+// Locale schema deviations must be reviewed individually. Keep this empty unless a
+// deliberately staged rollout needs a short-lived, path-specific exception.
+export const LOCALE_KEY_ALLOWLIST = {} satisfies TLocaleKeyAllowlist;
 
 
 function collectLeafPaths(node: unknown, prefix = ''): string[] {
@@ -122,6 +135,7 @@ function assertParity(
     schema: unknown,
     localeMessages: Record<string, unknown>,
     errors: string[],
+    allowlist: TLocaleKeyAllowlist,
 ) {
     const expectedPaths = new Set(collectLeafPaths(schema));
 
@@ -134,11 +148,20 @@ function assertParity(
             missing,
             extra,
         } = diffKeys(expectedPaths, actualPaths);
+        const allowance = allowlist[locale];
+        const allowedMissing = new Set(allowance?.missing ?? []);
+        const allowedExtra = new Set(allowance?.extra ?? []);
 
-        if (missing.length > 0 || extra.length > 0) {
-            errors.push(
-                `${label} locale "${locale}" mismatch: missing=${formatKeyList(missing)}; extra=${formatKeyList(extra)}`,
-            );
+        for (const dottedPath of missing) {
+            if (!allowedMissing.has(dottedPath)) {
+                errors.push(`${label} locale "${locale}" missing key "${dottedPath}"`);
+            }
+        }
+
+        for (const dottedPath of extra) {
+            if (!allowedExtra.has(dottedPath)) {
+                errors.push(`${label} locale "${locale}" extra key "${dottedPath}"`);
+            }
         }
     }
 }
@@ -179,6 +202,7 @@ function assertLocaleMetadataParity(
     label: string,
     localeCodes: readonly string[],
     localeDefinitions: readonly ILocaleDefinitionLike[],
+    localeFiles: readonly string[],
     errors: string[],
 ) {
     const definitionCodes = localeDefinitions.map((definition) => definition.code);
@@ -190,17 +214,32 @@ function assertLocaleMetadataParity(
             `${label} locale metadata mismatch: missing definitions=${formatKeyList(missingDefinitions)}; extra definitions=${formatKeyList(extraDefinitions)}`,
         );
     }
+
+    const definitionFiles = localeDefinitions.map((definition) => definition.file);
+    const missingFiles = difference(definitionFiles, Array.from(localeFiles)).sort();
+    const unregisteredFiles = difference(Array.from(localeFiles), definitionFiles).sort();
+
+    for (const fileName of missingFiles) {
+        errors.push(`${label} locale file missing for registered locale: "${fileName}"`);
+    }
+
+    for (const fileName of unregisteredFiles) {
+        errors.push(`${label} locale file is not registered in locale metadata: "${fileName}"`);
+    }
 }
 
 const scriptDirectory = path.dirname(fileURLToPath(import.meta.url));
 const projectRoot = path.resolve(scriptDirectory, '..');
 
 async function loadLocaleMessages(relativeDirectory: string): Promise<Record<string, unknown>> {
-    const entries = await Promise.all(LOCALE_DEFINITIONS.map(async (localeDefinition) => {
-        const localePath = path.join(projectRoot, relativeDirectory, localeDefinition.file);
+    const fileNames = listLocaleFileNames(relativeDirectory);
+    const entries = await Promise.all(fileNames.map(async (fileName) => {
+        const localePath = path.join(projectRoot, relativeDirectory, fileName);
         const localeModule = await import(pathToFileURL(localePath).href) as {default?: unknown;};
+        const localeDefinition = LOCALE_DEFINITIONS.find(definition => definition.file === fileName);
+
         return [
-            localeDefinition.code,
+            localeDefinition?.code ?? path.basename(fileName, '.ts'),
             localeModule.default,
         ] as const;
     }));
@@ -219,6 +258,36 @@ function listLocaleFileNames(relativeDirectory: string): string[] {
     return readdirSync(absoluteDirectory)
         .filter((entry) => entry.endsWith('.ts') && entry !== 'index.ts')
         .sort();
+}
+
+function assertNoEnglishSchemaFallbackImports(relativeDirectory: string, errors: string[]) {
+    for (const fileName of listLocaleFileNames(relativeDirectory)) {
+        if (fileName === 'en.ts') {
+            continue;
+        }
+
+        const localePath = path.join(projectRoot, relativeDirectory, fileName);
+        const source = readFileSync(localePath, 'utf8');
+        const importsEnglishSchema = /from\s+['"](?:@evb\/i18n-app\/messages\/en|\.\/en)(?:\.ts)?['"]/u.test(source);
+
+        if (importsEnglishSchema) {
+            errors.push(
+                `desktop locale file "${fileName}" imports the English schema as a fallback; define its keys explicitly`,
+            );
+        }
+    }
+}
+
+export function checkLocaleParity(
+    label: string,
+    schema: unknown,
+    localeMessages: Record<string, unknown>,
+    allowlist: TLocaleKeyAllowlist = LOCALE_KEY_ALLOWLIST,
+): string[] {
+    const errors: string[] = [];
+    assertParity(label, schema, localeMessages, errors, allowlist);
+    assertPlaceholderParity(label, schema, localeMessages, errors);
+    return errors;
 }
 
 function assertRuntimeLocaleParity(errors: string[]) {
@@ -270,16 +339,17 @@ async function main() {
 
     if (target === 'app' || target === 'all') {
         assertRuntimeLocaleParity(errors);
+        assertNoEnglishSchemaFallbackImports('packages/i18n-app/messages', errors);
         const desktopLocaleMessages = await loadLocaleMessages('packages/i18n-app/messages');
+        const desktopLocaleFiles = listLocaleFileNames('packages/i18n-app/messages');
 
-        assertLocaleMetadataParity('desktop', LOCALE_CODES, LOCALE_DEFINITIONS, errors);
+        assertLocaleMetadataParity('desktop', LOCALE_CODES, LOCALE_DEFINITIONS, desktopLocaleFiles, errors);
 
         if (!hasLeafPath(desktopSchema, 'contextMenu.copySelectionToClipboard')) {
             errors.push('Desktop schema is missing required key "contextMenu.copySelectionToClipboard"');
         }
 
-        assertParity('desktop', desktopSchema, desktopLocaleMessages, errors);
-        assertPlaceholderParity('desktop', desktopSchema, desktopLocaleMessages, errors);
+        errors.push(...checkLocaleParity('desktop', desktopSchema, desktopLocaleMessages));
     }
 
     if (target === 'landing' || target === 'all') {
@@ -290,10 +360,10 @@ async function main() {
             loadDefaultExport('landing/app/locales/en.ts'),
             loadLocaleMessages('landing/app/locales'),
         ]);
+        const landingLocaleFiles = listLocaleFileNames('landing/app/locales');
 
-        assertLocaleMetadataParity('landing', LOCALE_CODES, LOCALE_DEFINITIONS, errors);
-        assertParity('landing', landingSchema, landingLocaleMessages, errors);
-        assertPlaceholderParity('landing', landingSchema, landingLocaleMessages, errors);
+        assertLocaleMetadataParity('landing', LOCALE_CODES, LOCALE_DEFINITIONS, landingLocaleFiles, errors);
+        errors.push(...checkLocaleParity('landing', landingSchema, landingLocaleMessages));
     }
 
     if (errors.length > 0) {
@@ -307,7 +377,9 @@ async function main() {
     console.log(`Locale parity check passed for ${formatTarget(target)}.`);
 }
 
-main().catch((error) => {
-    console.error('Failed to check locale parity:', error);
-    process.exit(1);
-});
+if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {
+    main().catch((error) => {
+        console.error('Failed to check locale parity:', error);
+        process.exit(1);
+    });
+}

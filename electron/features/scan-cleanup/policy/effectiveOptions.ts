@@ -1,9 +1,10 @@
 import type {
-    INativeScanCleanupOptionsV2,
+    INativeScanCleanupOptionsV3,
     IScanCleanupManualZones,
     IScanCleanupOptions,
     IScanCleanupPageOverride,
     TScanCleanupDespeckleLevel,
+    TScanCleanupOutputMode,
 } from '@contracts/electronApiScanCleanup';
 import {
     resolveScanCleanupMarginsMm,
@@ -23,11 +24,14 @@ export interface IResolveEffectiveScanCleanupOptionsInput {
     options: IScanCleanupOptions;
     pageOverride: IScanCleanupPageOverride;
     dpi: number;
+    sourceDpi?: number;
+    requestedRenderDpi?: number;
+    resolvedOutputMode?: TScanCleanupOutputMode;
     qualityPath: TScanCleanupQualityPath;
     experimental?: IScanCleanupExperimentalOptions;
 }
 
-export interface IEffectiveNativeScanCleanupOptionsV2 extends INativeScanCleanupOptionsV2 {
+export interface IEffectiveNativeScanCleanupOptionsV3 extends INativeScanCleanupOptionsV3 {
     despeckleLevel: TScanCleanupDespeckleLevel;
     manualZones: IScanCleanupManualZones;
 }
@@ -46,18 +50,25 @@ export function resolveEffectiveScanCleanupOptions({
     options,
     pageOverride,
     dpi,
+    sourceDpi = dpi,
+    requestedRenderDpi = dpi,
+    resolvedOutputMode,
     qualityPath,
     experimental = DEFAULT_SCAN_CLEANUP_EXPERIMENTAL_OPTIONS,
-}: IResolveEffectiveScanCleanupOptionsInput): IEffectiveNativeScanCleanupOptionsV2 {
+}: IResolveEffectiveScanCleanupOptionsInput): IEffectiveNativeScanCleanupOptionsV3 {
     const lossless = qualityPath === 'lossless';
-    const outputMode = lossless ? 'color' : options.outputMode;
-    const hasBinaryLayer = outputMode === 'bw' || outputMode === 'mixed';
+    const outputMode = lossless
+        ? 'color'
+        : resolvedOutputMode ?? pageOverride.outputModeOverride ?? options.outputMode;
+    const hasBinaryLayer = outputMode === 'auto' || outputMode === 'bw' || outputMode === 'mixed';
     const dewarpRequested = !lossless && experimental.autoDewarp;
     const despeckleLevel = !lossless && hasBinaryLayer
         ? resolveScanCleanupDespeckleLevel(options)
         : 'off';
     return {
         dpi,
+        sourceDpi,
+        requestedRenderDpi,
         binarization: options.binarization ?? 'auto',
         thickness: lossless ? 0 : options.thickness,
         normalizeIllumination: !lossless && (options.normalizeIllumination ?? true),

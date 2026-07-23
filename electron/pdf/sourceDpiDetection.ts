@@ -8,9 +8,7 @@ import { getErrorMessage } from '@electron/utils/error';
 export type TSourceDpiLog = (level: 'debug' | 'warn' | 'error', message: string) => void;
 
 const PDFIMAGES_TIMEOUT_MS = 30 * 1000;
-const PDFIMAGES_SAMPLE_TIMEOUT_MS = 5 * 1000;
 const PDFIMAGES_MAX_CONTIGUOUS_PROBE_SPAN = 48;
-const PDFIMAGES_MAX_SAMPLED_PAGES = 12;
 
 export interface ISourceDpiDetectionResult {
     documentDpi: number | null;
@@ -41,21 +39,36 @@ function getPageProbeRange(pages: readonly number[]) {
     };
 }
 
-function getEvenlySpacedSample(pages: readonly number[]) {
-    if (pages.length <= PDFIMAGES_MAX_SAMPLED_PAGES) {
-        return [...pages];
+function getBoundedPageProbeRanges(pages: readonly number[]) {
+    const ranges: Array<{
+        firstPage: number;
+        lastPage: number
+    }> = [];
+    let firstPage = pages[0];
+    let lastPage = firstPage;
+    if (firstPage === undefined) {
+        return ranges;
     }
-
-    const lastIndex = pages.length - 1;
-    const sampledPages = new Set<number>();
-    for (let sampleIndex = 0; sampleIndex < PDFIMAGES_MAX_SAMPLED_PAGES; sampleIndex += 1) {
-        const pageIndex = Math.round((sampleIndex / (PDFIMAGES_MAX_SAMPLED_PAGES - 1)) * lastIndex);
-        const pageNumber = pages[pageIndex];
-        if (pageNumber !== undefined) {
-            sampledPages.add(pageNumber);
+    for (const page of pages.slice(1)) {
+        if (
+            page === lastPage! + 1
+            && page - firstPage + 1 <= PDFIMAGES_MAX_CONTIGUOUS_PROBE_SPAN
+        ) {
+            lastPage = page;
+            continue;
         }
+        ranges.push({
+            firstPage,
+            lastPage: lastPage!,
+        });
+        firstPage = page;
+        lastPage = page;
     }
-    return Array.from(sampledPages).sort((a, b) => a - b);
+    ranges.push({
+        firstPage,
+        lastPage: lastPage!,
+    });
+    return ranges;
 }
 
 function buildPdfImagesListArgs(pdfPath: string, firstPage: number, lastPage: number) {
@@ -98,11 +111,13 @@ function buildPdfImagesProbes(pdfPath: string, pages: readonly number[] | undefi
         }];
     }
 
-    return getEvenlySpacedSample(validPages).map(pageNumber => ({
-        args: buildPdfImagesListArgs(pdfPath, pageNumber, pageNumber),
-        timeoutMs: PDFIMAGES_SAMPLE_TIMEOUT_MS,
-        label: String(pageNumber),
-        contributesDocumentDpi: false,
+    return getBoundedPageProbeRanges(validPages).map(probeRange => ({
+        args: buildPdfImagesListArgs(pdfPath, probeRange.firstPage, probeRange.lastPage),
+        timeoutMs: PDFIMAGES_TIMEOUT_MS,
+        label: probeRange.firstPage === probeRange.lastPage
+            ? String(probeRange.firstPage)
+            : `${probeRange.firstPage}-${probeRange.lastPage}`,
+        contributesDocumentDpi: true,
     }));
 }
 

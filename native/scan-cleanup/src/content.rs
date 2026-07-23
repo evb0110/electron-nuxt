@@ -2,8 +2,9 @@ use crate::{
     analysis::build_analysis_level,
     bw::despeckle_connected_calibrated,
     calibration::{CalibrationConfig, PageCalibration},
-    protocol::manifest_v2::{
-        ContentDiagnosticRect, ContentDiagnostics, ContentSideConfidence, ContentTextMaskSummary,
+    protocol::manifest_v3::{
+        ContentAcceptedTrim, ContentBlockEvidence, ContentDiagnosticRect, ContentDiagnostics,
+        ContentSideConfidence, ContentTextMaskSummary, ContentTrimSide,
     },
 };
 use scan_primitives::{
@@ -13,7 +14,7 @@ use scan_primitives::{
     BinaryImage, Component, ComponentMap, GrayImage, Rect,
 };
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Debug)]
 pub struct ContentResult {
     pub content: Option<Rect>,
     pub output_rect: Rect,
@@ -47,7 +48,7 @@ pub fn detect_content_and_margins_with_calibration_config(
     let level = build_analysis_level(source, dpi, 150.0);
     let calibration =
         PageCalibration::estimate(&level.image, level.effective_dpi, calibration_config);
-    let (detected, diagnostics) = detect_content_at_analysis_scale(&level.image, calibration);
+    let (detected, diagnostics) = detect_content_at_analysis_scale(&level.image, None, calibration);
     let content = detected.map(|content| {
         Rect::new(
             content.x / level.scale_x,
@@ -63,12 +64,14 @@ pub fn detect_content_and_margins_with_calibration_config(
 
 pub(crate) fn detect_content_and_margins_calibrated(
     source: &GrayImage,
+    picture_mask: Option<&BinaryImage>,
     dpi: f64,
     margins_mm: Option<[f64; 4]>,
     margins_pixels: Option<[f64; 4]>,
     calibration: PageCalibration,
 ) -> ContentResult {
-    let (content, diagnostics) = detect_content_at_analysis_scale(source, calibration);
+    let (content, diagnostics) =
+        detect_content_at_analysis_scale(source, picture_mask, calibration);
     let mut result = content_with_margins(source, dpi, content, margins_mm, margins_pixels);
     result.diagnostics = Some(diagnostics);
     result
@@ -76,8 +79,15 @@ pub(crate) fn detect_content_and_margins_calibrated(
 
 fn detect_content_at_analysis_scale(
     working: &GrayImage,
+    picture_mask: Option<&BinaryImage>,
     calibration: PageCalibration,
 ) -> (Option<Rect>, ContentDiagnostics) {
+    if let Some(mask) = picture_mask {
+        assert_eq!(
+            (working.width(), working.height()),
+            (mask.width(), mask.height())
+        );
+    }
     let binary = threshold_local(
         working,
         25,
@@ -151,31 +161,45 @@ fn detect_content_at_analysis_scale(
             && component.area < working.width().saturating_mul(working.height()) / 20;
         let border_shadow =
             border_attached && component.area > working.width().max(working.height()) / 3;
+        let picture_mask_overlap_pixels = component_mask_overlap(&map, component, picture_mask);
         let grayscale_supported =
             (solid_rule || isolated_thick_dirt) && grayscale_structure_evidence(working, component);
-        if border_shadow || ((solid_rule || isolated_thick_dirt) && !grayscale_supported) {
+        let picture_supported = picture_mask_overlap_pixels != 0;
+        if (border_shadow || ((solid_rule || isolated_thick_dirt) && !grayscale_supported))
+            && !picture_supported
+        {
             continue;
         }
         candidates.push(ContentCandidate {
             component,
             grayscale_supported,
+            picture_mask_overlap_pixels,
         });
     }
-    let retained = cluster_content_blocks(&map, &candidates, calibration);
+    let retained = cluster_content_blocks(&map, &candidates, picture_mask, calibration);
     let candidate_image = map.retain(|component| retained[component.label as usize]);
-    let (blocks, component_blocks) =
-        retained_content_blocks(&map, &candidates, &retained, calibration);
+    let (mut blocks, component_blocks) =
+        retained_content_blocks(&map, &candidates, &retained, picture_mask, calibration);
+    annotate_heading_evidence(&map, &mut blocks, calibration);
     let text = build_text_line_mask(&candidate_image, &blocks, &distance_to_white, calibration);
-    let garbage = garbage_seed_labels(&borders, &cleaned, calibration);
-    let (bounds, side_confidence) = trim_content_bounds(
+    let protected_mask =
+        build_protected_mask(working.width(), working.height(), picture_mask, &blocks);
+    let garbage = garbage_seed_labels(&borders, &cleaned, &protected_mask, calibration);
+    let (bounds, side_confidence, accepted_trims) = trim_content_bounds(
         &candidate_image,
         &map,
         &blocks,
         &component_blocks,
         &text.mask,
+        &protected_mask,
         garbage,
         calibration,
     );
+    let protected_blocks = blocks
+        .iter()
+        .filter(|block| block.initialized && block.protected())
+        .map(block_evidence)
+        .collect();
     let diagnostics = ContentDiagnostics {
         side_confidence: ContentSideConfidence {
             left: side_confidence[0],
@@ -184,6 +208,8 @@ fn detect_content_at_analysis_scale(
             bottom: side_confidence[3],
         },
         text_mask: text.summary,
+        accepted_trims,
+        protected_blocks,
     };
     (
         bounds.map(|bounds| {
@@ -202,6 +228,7 @@ fn detect_content_at_analysis_scale(
 struct ContentCandidate<'a> {
     component: &'a Component,
     grayscale_supported: bool,
+    picture_mask_overlap_pixels: usize,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -214,12 +241,29 @@ struct BlockStats {
     bottom: usize,
     initialized: bool,
     grayscale_supported: bool,
+    picture_mask_overlap_pixels: usize,
+    heading_evidence: bool,
     labels: Vec<u32>,
+}
+
+impl BlockStats {
+    fn protected(&self) -> bool {
+        self.grayscale_supported || self.picture_mask_overlap_pixels != 0 || self.heading_evidence
+    }
+
+    fn width(&self) -> usize {
+        self.right - self.left + 1
+    }
+
+    fn height(&self) -> usize {
+        self.bottom - self.top + 1
+    }
 }
 
 fn cluster_content_blocks(
     map: &ComponentMap,
     candidates: &[ContentCandidate<'_>],
+    picture_mask: Option<&BinaryImage>,
     calibration: PageCalibration,
 ) -> Vec<bool> {
     let mut candidate_labels = vec![false; map.components().len() + 1];
@@ -256,7 +300,9 @@ fn cluster_content_blocks(
         block.component_count += 1;
         block.ink_area += component.area;
         block.grayscale_supported |= candidate.grayscale_supported;
+        block.picture_mask_overlap_pixels += candidate.picture_mask_overlap_pixels;
     }
+    annotate_picture_overlap(&mut blocks, picture_mask);
     let maximum_area = blocks.iter().map(|block| block.ink_area).max().unwrap_or(0);
     let maximum_count = blocks
         .iter()
@@ -268,7 +314,7 @@ fn cluster_content_blocks(
         .iter()
         .map(|block| {
             block.initialized
-                && (block.grayscale_supported
+                && (block.protected()
                     || block.ink_area >= (maximum_area / 12).max(minimum_block_area)
                     || block.component_count >= (maximum_count / 8).max(3))
         })
@@ -287,7 +333,7 @@ fn cluster_content_blocks(
                     && block_is_supported_outlier(block, other, calibration)
             });
         retained[component.label as usize] =
-            dominant[block_label] || block.grayscale_supported || supported_marginalia;
+            dominant[block_label] || block.protected() || supported_marginalia;
     }
     retained
 }
@@ -296,6 +342,7 @@ fn retained_content_blocks(
     map: &ComponentMap,
     candidates: &[ContentCandidate<'_>],
     retained: &[bool],
+    picture_mask: Option<&BinaryImage>,
     calibration: PageCalibration,
 ) -> (Vec<BlockStats>, Vec<usize>) {
     let retained_image = map.retain(|component| retained[component.label as usize]);
@@ -331,9 +378,158 @@ fn retained_content_blocks(
         block.component_count += 1;
         block.ink_area += component.area;
         block.grayscale_supported |= candidate.grayscale_supported;
+        block.picture_mask_overlap_pixels += candidate.picture_mask_overlap_pixels;
         block.labels.push(component.label);
     }
+    annotate_picture_overlap(&mut blocks, picture_mask);
     (blocks, component_blocks)
+}
+
+fn annotate_picture_overlap(blocks: &mut [BlockStats], picture_mask: Option<&BinaryImage>) {
+    let Some(mask) = picture_mask else {
+        return;
+    };
+    for block in blocks.iter_mut().filter(|block| block.initialized) {
+        block.picture_mask_overlap_pixels = (block.top..=block.bottom)
+            .flat_map(|y| (block.left..=block.right).map(move |x| (x, y)))
+            .filter(|&(x, y)| mask.get(x, y))
+            .count();
+    }
+}
+
+fn component_mask_overlap(
+    map: &ComponentMap,
+    component: &Component,
+    mask: Option<&BinaryImage>,
+) -> usize {
+    let Some(mask) = mask else {
+        return 0;
+    };
+    let mut overlap = 0usize;
+    for y in component.top..=component.bottom {
+        for x in component.left..=component.right {
+            overlap += usize::from(map.label_at(x, y) == component.label && mask.get(x, y));
+        }
+    }
+    overlap
+}
+
+fn annotate_heading_evidence(
+    map: &ComponentMap,
+    blocks: &mut [BlockStats],
+    calibration: PageCalibration,
+) {
+    let nominal_height = if calibration.valid {
+        calibration.x_height_px.max(1.0)
+    } else {
+        (8.0 * calibration.effective_dpi / 150.0).max(4.0)
+    };
+    let maximum_gap = (12.0 * nominal_height).round().max(12.0) as usize;
+    let alignment_tolerance = (2.0 * nominal_height).round().max(4.0) as usize;
+    let heading_flags = blocks
+        .iter()
+        .map(|candidate| {
+            if !candidate.initialized
+                || candidate.component_count < 3
+                || candidate.component_count > 64
+                || candidate.height() as f64 > 5.0 * nominal_height
+            {
+                return false;
+            }
+            let mut component_heights = Vec::new();
+            let mut glyph_like = 0usize;
+            for component in map
+                .components()
+                .iter()
+                .filter(|component| candidate.labels.contains(&component.label))
+            {
+                let width = component.right - component.left + 1;
+                let height = component.bottom - component.top + 1;
+                let height_f64 = height as f64;
+                component_heights.push(height);
+                if height_f64 >= 0.7 * nominal_height
+                    && height_f64 <= 4.0 * nominal_height
+                    && width as f64 <= 4.0 * height_f64
+                    && component.area >= 3
+                {
+                    glyph_like += 1;
+                }
+            }
+            if component_heights.is_empty() || glyph_like * 2 < component_heights.len() {
+                return false;
+            }
+            component_heights.sort_unstable();
+            let median_height = component_heights[component_heights.len() / 2] as f64;
+            if median_height < 1.15 * nominal_height || median_height > 4.0 * nominal_height {
+                return false;
+            }
+            let candidate_center = (candidate.left + candidate.right) / 2;
+            let body_envelope = blocks
+                .iter()
+                .filter(|body| {
+                    body.initialized
+                        && body.top > candidate.bottom
+                        && body.component_count >= 8
+                        && (body.height() as f64) >= 2.0 * nominal_height
+                        && body.top - candidate.bottom - 1 <= maximum_gap
+                })
+                .fold(None, |envelope: Option<(usize, usize)>, body| {
+                    Some(match envelope {
+                        None => (body.left, body.right),
+                        Some((left, right)) => (left.min(body.left), right.max(body.right)),
+                    })
+                });
+            body_envelope.is_some_and(|(body_left, body_right)| {
+                let overlap = candidate
+                    .right
+                    .min(body_right)
+                    .saturating_sub(candidate.left.max(body_left));
+                let aligned_center = candidate_center.saturating_add(alignment_tolerance)
+                    >= body_left
+                    && candidate_center <= body_right.saturating_add(alignment_tolerance);
+                aligned_center || overlap.saturating_mul(4) >= candidate.width()
+            })
+        })
+        .collect::<Vec<_>>();
+    for (block, heading_evidence) in blocks.iter_mut().zip(heading_flags) {
+        block.heading_evidence = heading_evidence;
+    }
+}
+
+fn build_protected_mask(
+    width: usize,
+    height: usize,
+    picture_mask: Option<&BinaryImage>,
+    blocks: &[BlockStats],
+) -> BinaryImage {
+    let mut protected = picture_mask
+        .cloned()
+        .unwrap_or_else(|| BinaryImage::new(width, height));
+    for block in blocks
+        .iter()
+        .filter(|block| block.initialized && block.protected())
+    {
+        for y in block.top..=block.bottom {
+            for x in block.left..=block.right {
+                protected.set(x, y, true);
+            }
+        }
+    }
+    protected
+}
+
+fn block_evidence(block: &BlockStats) -> ContentBlockEvidence {
+    ContentBlockEvidence {
+        bounds: ContentDiagnosticRect {
+            x_px: block.left,
+            y_px: block.top,
+            width_px: block.width(),
+            height_px: block.height(),
+        },
+        picture_mask_overlap_pixels: block.picture_mask_overlap_pixels,
+        heading_evidence: block.heading_evidence,
+        grayscale_evidence: block.grayscale_supported,
+    }
 }
 
 struct TextLineMask {
@@ -478,6 +674,7 @@ const REMOVED_GARBAGE: u32 = 3;
 fn garbage_seed_labels(
     borders: &BinaryImage,
     cleaned: &BinaryImage,
+    protected: &BinaryImage,
     calibration: PageCalibration,
 ) -> Vec<u32> {
     let width = cleaned.width();
@@ -485,8 +682,8 @@ fn garbage_seed_labels(
     let (long_size, thin_size) = calibration.content_long_opening_size();
     let long_radius = long_size.saturating_sub(1) / 2;
     let thin_radius = thin_size.saturating_sub(1) / 2;
-    let horizontal = open(cleaned, long_radius, thin_radius);
-    let vertical = open(cleaned, thin_radius, long_radius);
+    let horizontal = border_zone_long_lines(&open(cleaned, long_radius, thin_radius), true);
+    let vertical = border_zone_long_lines(&open(cleaned, thin_radius, long_radius), false);
     let border_map = ComponentMap::from_binary(borders);
     let mut border_labels = vec![0u32; border_map.components().len() + 1];
     for component in border_map.components() {
@@ -502,6 +699,9 @@ fn garbage_seed_labels(
     for y in 0..height {
         for x in 0..width {
             let index = y * width + x;
+            if protected.get(x, y) {
+                continue;
+            }
             let border_label = border_map.label_at(x, y) as usize;
             if border_label != 0 {
                 labels[index] = border_labels[border_label];
@@ -515,6 +715,21 @@ fn garbage_seed_labels(
         }
     }
     labels
+}
+
+fn border_zone_long_lines(source: &BinaryImage, horizontal: bool) -> BinaryImage {
+    let map = ComponentMap::from_binary(source);
+    let horizontal_zone = source.height().div_ceil(10).max(1);
+    let vertical_zone = source.width().div_ceil(10).max(1);
+    map.retain(|component| {
+        if horizontal {
+            component.top < horizontal_zone
+                || component.bottom.saturating_add(horizontal_zone) >= source.height()
+        } else {
+            component.left < vertical_zone
+                || component.right.saturating_add(vertical_zone) >= source.width()
+        }
+    })
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -563,6 +778,15 @@ impl TrimSide {
             Self::Bottom => current.bottom.saturating_sub(next.bottom),
         }
     }
+
+    fn diagnostic(self) -> ContentTrimSide {
+        match self {
+            Self::Left => ContentTrimSide::Left,
+            Self::Top => ContentTrimSide::Top,
+            Self::Right => ContentTrimSide::Right,
+            Self::Bottom => ContentTrimSide::Bottom,
+        }
+    }
 }
 
 struct TrimProposal {
@@ -571,6 +795,8 @@ struct TrimProposal {
     next_bounds: PixelBounds,
     score: f64,
     threshold: f64,
+    content_distance_sum: f64,
+    garbage_distance_sum: f64,
 }
 
 struct TrimGeometry {
@@ -585,9 +811,10 @@ fn trim_content_bounds(
     blocks: &[BlockStats],
     component_blocks: &[usize],
     text_mask: &BinaryImage,
+    protected_mask: &BinaryImage,
     mut garbage_labels: Vec<u32>,
     calibration: PageCalibration,
-) -> (Option<PixelBounds>, [f64; 4]) {
+) -> (Option<PixelBounds>, [f64; 4], Vec<ContentAcceptedTrim>) {
     let mut active = blocks
         .iter()
         .map(|block| block.initialized)
@@ -596,9 +823,11 @@ fn trim_content_bounds(
         *first = false;
     }
     let Some(mut bounds) = bounds_for_active_blocks(blocks, &active) else {
-        return (None, [0.0; 4]);
+        return (None, [0.0; 4], Vec::new());
     };
     let mut confidence = [0.0f64; 4];
+    let mut accepted_trims = Vec::new();
+    let mut iteration = 1usize;
     loop {
         if active.iter().filter(|&&is_active| is_active).count() <= 1 {
             break;
@@ -656,11 +885,27 @@ fn trim_content_bounds(
             bounds,
             proposal.next_bounds,
             proposal.side,
+            protected_mask,
         );
+        accepted_trims.push(ContentAcceptedTrim {
+            side: proposal.side.diagnostic(),
+            iteration,
+            score: proposal.score,
+            threshold: proposal.threshold,
+            content_distance_sum: proposal.content_distance_sum,
+            garbage_distance_sum: proposal.garbage_distance_sum,
+            removed_blocks: blocks
+                .iter()
+                .enumerate()
+                .filter(|(label, _)| proposal.removed_blocks[*label])
+                .map(|(_, block)| block_evidence(block))
+                .collect(),
+        });
+        iteration += 1;
         bounds = bounds_for_active_blocks(blocks, &active)
             .expect("an accepted trim proposal retains at least one content block");
     }
-    (Some(bounds), confidence)
+    (Some(bounds), confidence, accepted_trims)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -715,6 +960,8 @@ fn build_trim_proposal(
         next_bounds: next,
         score,
         threshold,
+        content_distance_sum,
+        garbage_distance_sum,
     })
 }
 
@@ -742,7 +989,7 @@ fn build_trim_geometry(
         || blocks
             .iter()
             .enumerate()
-            .any(|(label, block)| removed_blocks[label] && block.grayscale_supported)
+            .any(|(label, block)| removed_blocks[label] && block.protected())
     {
         return None;
     }
@@ -816,6 +1063,7 @@ fn mark_removed_strip(
     previous: PixelBounds,
     next: PixelBounds,
     side: TrimSide,
+    protected: &BinaryImage,
 ) {
     let (left, top, right, bottom) = match side {
         TrimSide::Left => (previous.left, previous.top, next.left - 1, previous.bottom),
@@ -833,9 +1081,46 @@ fn mark_removed_strip(
             previous.bottom,
         ),
     };
-    for y in top..=bottom {
-        for x in left..=right {
-            labels[y * width + x] = REMOVED_GARBAGE;
+    match side {
+        TrimSide::Left => {
+            for y in top..=bottom {
+                for x in left..=right {
+                    if protected.get(x, y) {
+                        break;
+                    }
+                    labels[y * width + x] = REMOVED_GARBAGE;
+                }
+            }
+        }
+        TrimSide::Top => {
+            for x in left..=right {
+                for y in top..=bottom {
+                    if protected.get(x, y) {
+                        break;
+                    }
+                    labels[y * width + x] = REMOVED_GARBAGE;
+                }
+            }
+        }
+        TrimSide::Right => {
+            for y in top..=bottom {
+                for x in (left..=right).rev() {
+                    if protected.get(x, y) {
+                        break;
+                    }
+                    labels[y * width + x] = REMOVED_GARBAGE;
+                }
+            }
+        }
+        TrimSide::Bottom => {
+            for x in left..=right {
+                for y in (top..=bottom).rev() {
+                    if protected.get(x, y) {
+                        break;
+                    }
+                    labels[y * width + x] = REMOVED_GARBAGE;
+                }
+            }
         }
     }
 }
@@ -972,6 +1257,32 @@ pub fn content_with_margins(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn draw_glyph_line(
+        image: &mut GrayImage,
+        left: usize,
+        top: usize,
+        glyphs: usize,
+        glyph_width: usize,
+        glyph_height: usize,
+        gap: usize,
+    ) {
+        for glyph in 0..glyphs {
+            let glyph_left = left + glyph * (glyph_width + gap);
+            for y in top..top + glyph_height {
+                for x in glyph_left..glyph_left + glyph_width {
+                    if x == glyph_left
+                        || x + 1 == glyph_left + glyph_width
+                        || y == top
+                        || y + 1 == top + glyph_height
+                    {
+                        image.set(x, y, 24);
+                    }
+                }
+            }
+        }
+    }
+
     fn iou(left: Rect, right: Rect) -> f64 {
         let x0 = left.x.max(right.x);
         let y0 = left.y.max(right.y);
@@ -1099,5 +1410,103 @@ mod tests {
         let bounds = result.content.unwrap();
         assert!(bounds.right() >= 335.0, "photo block was lost: {bounds:?}");
         assert!(bounds.bottom() >= 206.0, "table rule was lost: {bounds:?}");
+    }
+
+    #[test]
+    fn display_heading_is_hard_protected_above_body_text() {
+        let mut image = GrayImage::new(520, 560, 245);
+        for x in 30..490 {
+            image.set(x, 24, 18);
+            image.set(x, 25, 18);
+        }
+        draw_glyph_line(&mut image, 196, 116, 8, 11, 24, 6);
+        for row in 0..14 {
+            let top = 210 + row * 19;
+            draw_glyph_line(&mut image, 62, top, 13, 6, 10, 4);
+            draw_glyph_line(&mut image, 292, top, 13, 6, 10, 4);
+        }
+
+        let result = detect_content_and_margins(&image, 150.0, None, Some([0.0; 4]));
+        let bounds = result.content.unwrap();
+        assert!(bounds.y <= 116.0, "display heading was trimmed: {bounds:?}");
+        let diagnostics = result.diagnostics.unwrap();
+        assert!(
+            diagnostics
+                .protected_blocks
+                .iter()
+                .any(|block| block.heading_evidence && block.bounds.y_px <= 116),
+            "heading evidence was not recorded: {diagnostics:?}"
+        );
+    }
+
+    #[test]
+    fn accepted_artifact_trim_cannot_cascade_through_picture_or_heading() {
+        let mut image = GrayImage::new(620, 760, 245);
+        for y in 28..38 {
+            for x in 32..588 {
+                image.set(x, y, 16);
+            }
+        }
+        for y in 44..62 {
+            for x in 286..304 {
+                image.set(x, y, 20);
+            }
+        }
+        for panel in 0..4 {
+            let left = 150 + panel * 74;
+            for y in 132..280 {
+                for x in left..left + 52 {
+                    image.set(x, y, 45 + ((x * 17 + y * 11 + panel * 23) % 165) as u8);
+                }
+            }
+        }
+        draw_glyph_line(&mut image, 226, 342, 8, 11, 24, 6);
+        for row in 0..16 {
+            let top = 408 + row * 19;
+            draw_glyph_line(&mut image, 62, top, 14, 6, 10, 4);
+            draw_glyph_line(&mut image, 330, top, 14, 6, 10, 4);
+        }
+        let mut picture_mask = BinaryImage::new(image.width(), image.height());
+        for y in 126..286 {
+            for x in 144..430 {
+                picture_mask.set(x, y, true);
+            }
+        }
+        let calibration = PageCalibration::estimate(&image, 150.0, CalibrationConfig::default());
+        let result = detect_content_and_margins_calibrated(
+            &image,
+            Some(&picture_mask),
+            150.0,
+            None,
+            Some([0.0; 4]),
+            calibration,
+        );
+        let bounds = result.content.unwrap();
+        assert!(
+            bounds.y <= 132.0 && bounds.bottom() >= 695.0,
+            "protected content was lost after artifact trimming: {bounds:?}"
+        );
+        let diagnostics = result.diagnostics.unwrap();
+        assert!(
+            diagnostics
+                .accepted_trims
+                .iter()
+                .any(|trim| trim.side == ContentTrimSide::Top && trim.iteration == 1),
+            "top artifact was not removed first: {diagnostics:?}"
+        );
+        assert!(
+            diagnostics
+                .protected_blocks
+                .iter()
+                .any(|block| { block.picture_mask_overlap_pixels > 0 && block.bounds.y_px <= 132 }),
+            "picture evidence was not retained: {diagnostics:?}"
+        );
+        assert!(
+            diagnostics
+                .protected_blocks
+                .iter()
+                .any(|block| block.heading_evidence),
+            "heading evidence was not retained: {diagnostics:?}"
+        );
     }
 }

@@ -720,7 +720,9 @@ mod tests {
                 assert!(decode_params.contains("/Colors 1"));
                 assert!(decode_params.contains("/Columns 2"));
             }
-            ImagePayload::Jpeg { .. } => panic!("expected flate payload"),
+            ImagePayload::Jpeg { .. } | ImagePayload::Bilevel { .. } => {
+                panic!("expected flate payload")
+            }
         }
     }
 
@@ -739,7 +741,9 @@ mod tests {
             ImagePayload::RawFlate { decode_params, .. } => {
                 assert!(decode_params.contains("/Colors 3"));
             }
-            ImagePayload::Jpeg { .. } => panic!("expected flate payload"),
+            ImagePayload::Jpeg { .. } | ImagePayload::Bilevel { .. } => {
+                panic!("expected flate payload")
+            }
         }
     }
 
@@ -764,7 +768,9 @@ mod tests {
             ImagePayload::Jpeg { data } => {
                 assert!(data.starts_with(&[0xff, 0xd8]));
             }
-            ImagePayload::RawFlate { .. } => panic!("expected jpeg payload"),
+            ImagePayload::RawFlate { .. } | ImagePayload::Bilevel { .. } => {
+                panic!("expected jpeg payload")
+            }
         }
     }
 
@@ -795,7 +801,9 @@ mod tests {
                 assert_eq!(metadata.width, 2);
                 assert_eq!(metadata.height, 2);
             }
-            ImagePayload::RawFlate { .. } => panic!("expected jpeg payload"),
+            ImagePayload::RawFlate { .. } | ImagePayload::Bilevel { .. } => {
+                panic!("expected jpeg payload")
+            }
         }
     }
 

@@ -10,6 +10,7 @@ export type {TScanCleanupPageRotation} from '@contracts/scan-cleanup/geometry';
 export type TScanCleanupLayoutMode = 'auto' | 'force-single' | 'force-two-page';
 export type TScanCleanupOutputMode = 'bw' | 'mixed' | 'grayscale' | 'color';
 export type TScanCleanupBinarizationMethod = 'auto' | 'otsu' | 'sauvola' | 'wolf';
+export type TScanCleanupOutputModeSetting = 'auto' | TScanCleanupOutputMode;
 export type TScanCleanupDespeckleLevel = 'off' | 'cautious' | 'normal' | 'aggressive';
 export type TScanCleanupReadingOrder = 'ltr' | 'rtl';
 export type TScanCleanupPageLayoutOverride = 'auto' | 'single' | 'spread' | 'keep-left' | 'keep-right';
@@ -59,6 +60,7 @@ export interface IScanCleanupPageOverride {
     excluded: boolean;
     manualSplit: IScanCleanupNormalizedSplit | null;
     manualSkewDegrees?: number | undefined;
+    outputModeOverride?: TScanCleanupOutputMode;
     manualContentBoxes?: Partial<Record<TScanCleanupOutputHalf, IScanCleanupNormalizedRect>>;
     manualZones?: IScanCleanupManualZones;
     marginsMm?: IScanCleanupMarginsMm;
@@ -95,7 +97,7 @@ export type TScanCleanupPageOverrides = Record<string, IScanCleanupPageOverride>
 export interface IScanCleanupOptions {
     preserveOriginalQuality: boolean;
     layoutMode: TScanCleanupLayoutMode;
-    outputMode: TScanCleanupOutputMode;
+    outputMode: TScanCleanupOutputModeSetting;
     /** Optional only for bridge compatibility with settings created before advanced output controls. */
     binarization?: TScanCleanupBinarizationMethod;
     /** Optional only for bridge compatibility with settings created before advanced output controls. */

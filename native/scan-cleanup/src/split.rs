@@ -1,7 +1,7 @@
 use crate::{
     analysis::build_analysis_level,
     deskew::{detect_skew, score_skew},
-    protocol::manifest_v2::SplitSeamPolyline,
+    protocol::manifest_v3::SplitSeamPolyline,
     LayoutMode,
 };
 use scan_primitives::{

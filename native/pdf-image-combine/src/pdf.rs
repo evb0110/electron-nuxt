@@ -1,5 +1,6 @@
 use fax::{encoder::Encoder as FaxEncoder, slice_bits, Color, VecWriter};
 use flate2::{write::ZlibEncoder, Compression};
+use jbig2_codec::Bilevel;
 use std::{fmt::Write as FmtWrite, io::Write as IoWrite};
 
 use crate::{netpbm::PbmP4Image, Result};
@@ -11,6 +12,10 @@ pub(crate) enum ImagePayload {
     },
     Jpeg {
         data: Vec<u8>,
+    },
+    Bilevel {
+        bitmap: Vec<u8>,
+        row_stride: usize,
     },
 }
 
@@ -365,6 +370,11 @@ impl<W: IoWrite> PdfWriter<W> {
                 );
                 self.push_stream_object(object_number, dict.as_bytes(), data)
             }
+            ColorImagePayloadRef::Bilevel { bitmap, row_stride } => {
+                let payload = encode_bilevel_payload(width, height, row_stride, bitmap)?;
+                let dict = bilevel_image_dictionary(width, height, &payload);
+                self.push_stream_object(object_number, dict.as_bytes(), payload.data())
+            }
         }
     }
 
@@ -492,6 +502,94 @@ enum ImageMaskPayload {
     CcittG4(Vec<u8>),
 }
 
+#[derive(Debug, Eq, PartialEq)]
+enum BilevelImagePayload {
+    Jbig2(Vec<u8>),
+    CcittG4(Vec<u8>),
+    Flate(Vec<u8>),
+}
+
+impl BilevelImagePayload {
+    fn data(&self) -> &[u8] {
+        match self {
+            Self::Jbig2(data) | Self::CcittG4(data) | Self::Flate(data) => data,
+        }
+    }
+}
+
+fn encode_bilevel_payload(
+    width: u32,
+    height: u32,
+    row_stride: usize,
+    bitmap: &[u8],
+) -> Result<BilevelImagePayload> {
+    let image = PbmP4Image {
+        width,
+        height,
+        row_stride,
+        bitmap: bitmap.to_vec(),
+    };
+    validate_image_mask(&image)?;
+    let jbig2 = match jbig2_codec::encode_pdf_generic_verified(Bilevel {
+        width,
+        height,
+        rows: bitmap,
+    }) {
+        Ok(data) => Some(data),
+        Err(error) => {
+            eprintln!(
+                "warning: verified JBIG2 encoding failed for {width}x{height} bilevel image; falling back: {error}"
+            );
+            None
+        }
+    };
+    let flate = deflate_bytes(bitmap)?;
+    let ccitt = match encode_mask_ccitt_g4(&image) {
+        Ok(data) => data,
+        Err(error) => {
+            eprintln!(
+                "warning: CCITT Group 4 encoding failed for {width}x{height} bilevel image; falling back: {error}"
+            );
+            None
+        }
+    };
+    Ok(select_bilevel_payload(jbig2, ccitt, flate))
+}
+
+fn select_bilevel_payload(
+    jbig2: Option<Vec<u8>>,
+    ccitt: Option<Vec<u8>>,
+    flate: Vec<u8>,
+) -> BilevelImagePayload {
+    let mut selected = jbig2
+        .map(BilevelImagePayload::Jbig2)
+        .or_else(|| ccitt.clone().map(BilevelImagePayload::CcittG4))
+        .unwrap_or_else(|| BilevelImagePayload::Flate(flate.clone()));
+    if let Some(data) = ccitt {
+        if data.len() < selected.data().len() {
+            selected = BilevelImagePayload::CcittG4(data);
+        }
+    }
+    if flate.len() < selected.data().len() {
+        selected = BilevelImagePayload::Flate(flate);
+    }
+    selected
+}
+
+fn bilevel_image_dictionary(width: u32, height: u32, payload: &BilevelImagePayload) -> String {
+    let filter = match payload {
+        BilevelImagePayload::Jbig2(_) => "/Filter /JBIG2Decode".to_string(),
+        BilevelImagePayload::CcittG4(_) => format!(
+            "/Decode [1 0] /Filter /CCITTFaxDecode /DecodeParms << /K -1 /Columns {width} /Rows {height} /BlackIs1 true >>"
+        ),
+        BilevelImagePayload::Flate(_) => "/Decode [1 0] /Filter /FlateDecode".to_string(),
+    };
+    format!(
+        "<< /Type /XObject /Subtype /Image /Width {width} /Height {height} /ColorSpace /DeviceGray /BitsPerComponent 1 {filter} /Length {} >>",
+        payload.data().len()
+    )
+}
+
 fn encode_mask_payload(mask: &PbmP4Image) -> Result<ImageMaskPayload> {
     let flate = deflate_bytes(&mask.bitmap)?;
     let Some(ccitt) = encode_mask_ccitt_g4(mask)? else {
@@ -540,6 +638,10 @@ enum ColorImagePayloadRef<'a> {
     Jpeg {
         data: &'a [u8],
     },
+    Bilevel {
+        bitmap: &'a [u8],
+        row_stride: usize,
+    },
 }
 
 impl<'a> From<&'a ImagePayload> for ColorImagePayloadRef<'a> {
@@ -553,6 +655,10 @@ impl<'a> From<&'a ImagePayload> for ColorImagePayloadRef<'a> {
                 decode_params,
             },
             ImagePayload::Jpeg { data } => Self::Jpeg { data },
+            ImagePayload::Bilevel { bitmap, row_stride } => Self::Bilevel {
+                bitmap,
+                row_stride: *row_stride,
+            },
         }
     }
 }
@@ -755,6 +861,71 @@ mod tests {
         });
         page.foreground_mask.bitmap.pop();
         assert!(build_layered_pdf_page(&page).is_err());
+    }
+
+    #[test]
+    fn selects_the_smallest_successful_bilevel_candidate() {
+        assert!(matches!(
+            select_bilevel_payload(Some(vec![1]), Some(vec![2; 2]), vec![3; 3]),
+            BilevelImagePayload::Jbig2(_)
+        ));
+        assert!(matches!(
+            select_bilevel_payload(Some(vec![1; 3]), Some(vec![2]), vec![3; 2]),
+            BilevelImagePayload::CcittG4(_)
+        ));
+        assert!(matches!(
+            select_bilevel_payload(Some(vec![1; 3]), Some(vec![2; 2]), vec![3]),
+            BilevelImagePayload::Flate(_)
+        ));
+        assert!(matches!(
+            select_bilevel_payload(None, None, vec![3]),
+            BilevelImagePayload::Flate(_)
+        ));
+    }
+
+    #[test]
+    fn ccitt_failure_path_retains_the_flate_candidate() {
+        // fax 0.2.7's VecWriter has Infallible as its error type, so a validated
+        // PBM cannot construct a real encoder failure. None models the caught
+        // error after encode_bilevel_payload logs it.
+        assert_eq!(
+            select_bilevel_payload(None, None, vec![1, 2, 3]),
+            BilevelImagePayload::Flate(vec![1, 2, 3])
+        );
+    }
+
+    #[test]
+    fn writes_bilevel_base_image_dictionaries_for_every_filter() {
+        for (payload, expected_filter) in [
+            (
+                BilevelImagePayload::Jbig2(vec![1, 2]),
+                "/Filter /JBIG2Decode",
+            ),
+            (
+                BilevelImagePayload::CcittG4(vec![1, 2]),
+                "/Filter /CCITTFaxDecode",
+            ),
+            (
+                BilevelImagePayload::Flate(vec![1, 2]),
+                "/Filter /FlateDecode",
+            ),
+        ] {
+            let dictionary = bilevel_image_dictionary(13, 7, &payload);
+            assert!(dictionary.contains("/ColorSpace /DeviceGray"));
+            assert!(dictionary.contains("/BitsPerComponent 1"));
+            assert_eq!(
+                dictionary.contains("/Decode [1 0]"),
+                !matches!(payload, BilevelImagePayload::Jbig2(_))
+            );
+            assert!(dictionary.contains(expected_filter));
+            assert!(!dictionary.contains("/ImageMask true"));
+            if matches!(payload, BilevelImagePayload::CcittG4(_)) {
+                assert!(dictionary
+                    .contains("/DecodeParms << /K -1 /Columns 13 /Rows 7 /BlackIs1 true >>"));
+            } else {
+                assert!(!dictionary.contains("/DecodeParms"));
+            }
+        }
     }
 
     fn sample_layered_page(payload: LayeredImagePayload) -> LayeredPdfPage {

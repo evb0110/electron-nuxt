@@ -88,7 +88,7 @@ function result(raw: Uint8Array, outputs: Uint8Array[]): IScanCleanupPreviewResu
 }
 
 describe('scan cleanup renderer preview cache', () => {
-    it('keys every document and page option that changes preview placement or order', () => {
+    it('keys sidecar-rendered placement and order options but ignores renderer-only placement overrides', () => {
         const base = createScanCleanupPreviewCacheKey(1, previewOptions, '/tmp/source.pdf');
         const withAlignment = createScanCleanupPreviewCacheKey(1, {
             ...previewOptions,
@@ -180,7 +180,6 @@ describe('scan cleanup renderer preview cache', () => {
             base,
             withAlignment,
             withReadingOrder,
-            withPlacementOverride,
             withBinarization,
             withoutIlluminationNormalization,
             withCautiousDespeckle,
@@ -188,7 +187,27 @@ describe('scan cleanup renderer preview cache', () => {
             withFixedDewarpDepth,
             withManualSkew,
             withManualZones,
-        ])).toHaveLength(11);
+        ])).toHaveLength(10);
+        expect(withPlacementOverride).toBe(base);
+    });
+
+    it('invalidates a page when its output-mode override changes', () => {
+        const base = createScanCleanupPreviewCacheKey(1, {
+            ...previewOptions,
+            outputMode: 'auto',
+        }, '/tmp/source.pdf');
+        const withOutputModeOverride = createScanCleanupPreviewCacheKey(1, {
+            ...previewOptions,
+            outputMode: 'auto',
+            pageOverrides: {'1': {
+                rotationDegrees: 0,
+                layoutOverride: 'auto',
+                excluded: false,
+                manualSplit: null,
+                outputModeOverride: 'color',
+            }},
+        }, '/tmp/source.pdf');
+        expect(withOutputModeOverride).not.toBe(base);
     });
 
     it('evicts by bytes and count while accounting for derivable shared input bytes once', () => {

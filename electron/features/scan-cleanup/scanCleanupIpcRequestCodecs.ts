@@ -18,6 +18,7 @@ import {
     SCAN_CLEANUP_MANUAL_SKEW_MAX_DEGREES,
     SCAN_CLEANUP_MANUAL_SKEW_MIN_DEGREES,
 } from '@contracts/electronApiScanCleanup';
+import {isScanCleanupOutputMode} from '@electron/features/scan-cleanup/scanCleanupMetadataCodecs';
 import {requireIpcArgumentCount} from '@electron/platform-ipc/ipcCodecValidation';
 
 export function decodePreviewCancelArgs(args: readonly unknown[]) {
@@ -183,12 +184,18 @@ function decodePageOverride(value: unknown): IScanCleanupPageOverride {
         && (manualSkewDegrees < SCAN_CLEANUP_MANUAL_SKEW_MIN_DEGREES
             || manualSkewDegrees > SCAN_CLEANUP_MANUAL_SKEW_MAX_DEGREES)
     ) throw new Error('invalid scan-cleanup manual skew');
+    const outputModeOverride = value.outputModeOverride === undefined
+        ? undefined
+        : isScanCleanupOutputMode(value.outputModeOverride)
+            ? value.outputModeOverride
+            : (() => { throw new Error('invalid scan-cleanup page output mode override'); })();
     return {
         rotationDegrees,
         layoutOverride: value.layoutOverride as IScanCleanupPageOverride['layoutOverride'],
         excluded: value.excluded,
         manualSplit,
         ...(manualSkewDegrees === undefined ? {} : {manualSkewDegrees}),
+        ...(outputModeOverride === undefined ? {} : {outputModeOverride}),
         ...(Object.keys(manualContentBoxes).length > 0 ? {manualContentBoxes} : {}),
         ...(manualZones === undefined ? {} : {manualZones}),
         ...(marginsMm === undefined ? {} : {marginsMm}),
@@ -353,6 +360,7 @@ function decodeOptions(options: unknown): IScanCleanupStartRequest['options'] {
             'force-two-page',
         ].includes(String(options.layoutMode))
         || ![
+            'auto',
             'bw',
             'mixed',
             'grayscale',
@@ -416,11 +424,41 @@ function decodeStartRequest(value: unknown): IScanCleanupStartRequest {
     if (!isRecord(value) || typeof value.sourcePdfPath !== 'string' || value.sourcePdfPath.trim().length === 0) {
         throw new Error('invalid scan-cleanup request');
     }
+    const outputModeRecommendations = value.outputModeRecommendations === undefined
+        ? undefined
+        : (() => {
+            if (
+                !isRecord(value.outputModeRecommendations)
+                || Object.entries(value.outputModeRecommendations).some(([
+                    pageNumber,
+                    mode,
+                ]) => !/^[1-9]\d*$/u.test(pageNumber) || !isScanCleanupOutputMode(mode))
+            ) {
+                throw new Error('invalid scan-cleanup output-mode recommendations');
+            }
+            return value.outputModeRecommendations as NonNullable<
+                IScanCleanupStartRequest['outputModeRecommendations']
+            >;
+        })();
     return {
         sourcePdfPath: value.sourcePdfPath,
         ...decodeOwnerContext(value),
         options: decodeOptions(value.options),
+        ...(outputModeRecommendations === undefined ? {} : {outputModeRecommendations}),
         ...(typeof value.runOcrAfterCleanup === 'boolean' ? {runOcrAfterCleanup: value.runOcrAfterCleanup} : {}),
+    };
+}
+
+export function decodeDocumentCanvasPlan(value: unknown) {
+    if (!isRecord(value)) throw new Error('invalid scan-cleanup document canvas plan');
+    const widthPoints = decodeFiniteNumber(value.widthPoints, 'document canvas width');
+    const heightPoints = decodeFiniteNumber(value.heightPoints, 'document canvas height');
+    if (widthPoints <= 0 || heightPoints <= 0) {
+        throw new Error('invalid scan-cleanup document canvas plan');
+    }
+    return {
+        widthPoints,
+        heightPoints,
     };
 }
 
@@ -438,6 +476,9 @@ function decodePreviewRequest(value: unknown): IScanCleanupPreviewRequest {
         pageNumber: Number(value.pageNumber),
         options: decodeOptions(value.options),
         ...(value.documentPrior === undefined ? {} : {documentPrior: decodeDocumentPrior(value.documentPrior)}),
+        ...(value.documentCanvasPlan === undefined
+            ? {}
+            : {documentCanvasPlan: decodeDocumentCanvasPlan(value.documentCanvasPlan)}),
     };
 }
 

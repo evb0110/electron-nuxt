@@ -1,6 +1,7 @@
 import type {
     IScanCleanupOptions,
     IScanCleanupDocumentPrior,
+    IScanCleanupDocumentCanvasPlan,
     IScanCleanupPreviewRequest,
     IScanCleanupPreviewResult,
 } from '@contracts/electronApiScanCleanup';
@@ -24,6 +25,7 @@ interface IUseScanCleanupPreviewSessionOptions {
     authoritativeLayoutByPage: ComputedRef<ReadonlyMap<number, TScanCleanupLayoutClassification>>;
     documentRevision: ComputedRef<string>;
     documentPriorByPage: ReadonlyMap<number, IScanCleanupDocumentPrior>;
+    documentCanvasPlan: ComputedRef<IScanCleanupDocumentCanvasPlan | undefined>;
     initialViewMode?: 'original' | 'cleaned' | undefined;
     isRunning: ComputedRef<boolean>;
     lifecycleDocumentKey: ComputedRef<string | null>;
@@ -42,12 +44,14 @@ export function createScanCleanupPreviewCacheKey(
     previewSourcePath: TDocumentRef | null,
     documentRevision: string | null = null,
     documentPrior: IScanCleanupDocumentPrior | null = null,
+    documentCanvasPlan: IScanCleanupDocumentCanvasPlan | null = null,
 ) {
     const pageOverride = getScanCleanupPageOverride(previewOptions.pageOverrides, pageNumber);
     return JSON.stringify({
         sourcePath: previewSourcePath,
         documentRevision,
         documentPrior,
+        documentCanvasPlan,
         page: pageNumber,
         documentOptions: {
             preserveOriginalQuality: previewOptions.preserveOriginalQuality === true,
@@ -78,8 +82,8 @@ export function createScanCleanupPreviewCacheKey(
                 picture: [],
                 fill: [],
             },
+            outputModeOverride: pageOverride.outputModeOverride,
             marginsMm: pageOverride.marginsMm,
-            placementOverrides: pageOverride.placementOverrides ?? {},
         },
     });
 }
@@ -87,6 +91,7 @@ export function createScanCleanupPreviewCacheKey(
 export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSessionOptions) => {
     const {t} = useTypedI18n();
     const result = shallowRef<IScanCleanupPreviewResult | null>(null);
+    const resultKey = shallowRef<string | null>(null);
     const loading = ref(false);
     const error = ref('');
     const viewMode = ref<'original' | 'cleaned'>(options.initialViewMode ?? 'cleaned');
@@ -96,6 +101,7 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
     let timer: ReturnType<typeof setTimeout> | null = null;
 
     const totalPages = computed(() => result.value?.totalPages ?? Math.max(1, options.totalPages.value));
+    const resultCurrent = computed(() => result.value !== null && resultKey.value === cacheKey());
     const classificationDiffersByPage = computed<ReadonlyMap<number, boolean>>(() => {
         const differences = new Map<number, boolean>();
         for (const [
@@ -139,6 +145,7 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
             previewSourcePath,
             options.documentRevision.value,
             options.documentPriorByPage.get(pageNumber) ?? null,
+            options.documentCanvasPlan.value ?? null,
         );
     }
 
@@ -193,6 +200,9 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
                     pageNumber,
                     options: previewOptions,
                     ...(documentPrior === undefined ? {} : {documentPrior}),
+                    ...(options.documentCanvasPlan.value === undefined
+                        ? {}
+                        : {documentCanvasPlan: options.documentCanvasPlan.value}),
                 },
             };
         }));
@@ -224,6 +234,7 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
         const cached = cache.get(key);
         if (cached) {
             result.value = cached;
+            resultKey.value = key;
             loading.value = false;
             error.value = '';
             scheduleAdjacentPrefetch(cached, requestOptions, requestSourcePath);
@@ -241,12 +252,16 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
                     pageNumber: requestPage,
                     options: requestOptions,
                     ...(documentPrior === undefined ? {} : {documentPrior}),
+                    ...(options.documentCanvasPlan.value === undefined
+                        ? {}
+                        : {documentCanvasPlan: options.documentCanvasPlan.value}),
                 }));
                 if (requestSequence !== sequence) {
                     return;
                 }
                 cachePreview(key, previewResult);
                 result.value = previewResult;
+                resultKey.value = key;
                 scheduleAdjacentPrefetch(previewResult, requestOptions, requestSourcePath);
             } catch (caught) {
                 if (requestSequence !== sequence || (caught instanceof Error && caught.name === 'AbortError')) {
@@ -278,6 +293,7 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
         cache.clear();
         metadataByPage.clear();
         result.value = null;
+        resultKey.value = null;
     });
     watch(cacheKey, schedule);
     watch(options.isRunning, running => {
@@ -296,6 +312,7 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
         metadataByPage,
         navigate,
         result,
+        resultCurrent,
         retry,
         schedule,
         totalPages,

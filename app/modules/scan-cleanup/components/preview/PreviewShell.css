@@ -613,6 +613,97 @@
     gap: var(--app-space-sm);
 }
 
+.preview-zoom-controls {
+    display: inline-flex;
+    align-items: center;
+    overflow: hidden;
+    border: var(--app-hairline-height) solid var(--app-toolbar-group-border);
+    border-radius: var(--app-toolbar-segmented-radius);
+    background: var(--app-toolbar-group-bg);
+}
+
+.preview-zoom-button,
+.preview-zoom-value {
+    display: inline-grid;
+    height: var(--app-control-height-sm);
+    place-items: center;
+    border: 0;
+    border-inline-start: var(--app-hairline-height) solid var(--app-toolbar-group-border);
+    background: transparent;
+    color: var(--app-toolbar-control-inactive-fg);
+    cursor: pointer;
+    font: inherit;
+    transition:
+        background-color var(--app-transition-fast),
+        color var(--app-transition-fast);
+}
+
+.preview-zoom-button:first-child {
+    border-inline-start: 0;
+}
+
+.preview-zoom-button {
+    width: var(--app-control-height-sm);
+}
+
+.preview-zoom-value {
+    min-width: calc(var(--app-control-height-sm) * 2);
+    padding-inline: var(--app-space-3xl);
+    color: var(--ui-text);
+    font-family: var(--app-font-mono);
+    font-size: var(--app-text-size-body-sm);
+    font-variant-numeric: tabular-nums;
+}
+
+.preview-zoom-button:hover:not(:disabled),
+.preview-zoom-value:hover {
+    background: var(--app-toolbar-control-hover-bg);
+    color: var(--app-toolbar-control-hover-fg);
+}
+
+.preview-zoom-button.is-active {
+    background: var(--app-toolbar-control-active-bg);
+    color: var(--ui-primary);
+}
+
+.preview-zoom-button:focus-visible,
+.preview-zoom-value:focus-visible {
+    z-index: var(--app-z-local-raised);
+    outline: 0;
+    box-shadow: inset 0 0 0 var(--app-hairline-height) var(--app-toolbar-focus-ring);
+}
+
+.preview-zoom-button:disabled {
+    color: var(--app-toolbar-control-disabled-fg);
+    cursor: default;
+    opacity: var(--app-toolbar-control-disabled-opacity);
+}
+
+.preview-zoom-icon {
+    width: var(--app-toolbar-icon-size);
+    height: var(--app-toolbar-icon-size);
+}
+
+.cutter-stage,
+.drag-overlay-layer {
+    transform-origin: center;
+    will-change: transform;
+}
+
+.preview-surface.can-pan-preview {
+    cursor: grab;
+    touch-action: none;
+}
+
+.preview-surface.is-panning-preview {
+    cursor: grabbing;
+    user-select: none;
+}
+
+.preview-surface.is-pixelated-preview .preview-pixel {
+    image-rendering: pixelated;
+}
+
 .legend-swatch {
     display: inline-block;
     width: var(--app-space-9xl);

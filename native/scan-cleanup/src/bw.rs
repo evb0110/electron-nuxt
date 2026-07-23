@@ -5,6 +5,7 @@ use crate::{
 };
 use scan_primitives::{
     distance::squared_euclidean_distance,
+    morphology::dilate,
     threshold::{
         otsu_threshold, otsu_threshold_excluding, threshold_global, threshold_global_biased,
         threshold_local, threshold_local_biased, threshold_local_biased_excluding,
@@ -126,10 +127,12 @@ pub(crate) fn binarize_normalized_with_diagnostics_excluding(
         (normalized.width(), normalized.height()),
         (picture_mask.width(), picture_mask.height())
     );
+    let protection_radius = (options.dpi * 0.35 / 25.4).round().clamp(1.0, 12.0) as usize;
+    let protected_picture_mask = dilate(picture_mask, protection_radius, protection_radius);
     let mut masked_input = normalized.clone();
     for y in 0..masked_input.height() {
         for x in 0..masked_input.width() {
-            if picture_mask.get(x, y) {
+            if protected_picture_mask.get(x, y) {
                 masked_input.set(x, y, 255);
             }
         }
@@ -142,12 +145,12 @@ pub(crate) fn binarize_normalized_with_diagnostics_excluding(
         options,
         diagnostics.route,
         calibration,
-        picture_mask,
+        &protected_picture_mask,
     );
     let (binary, despeckle_fallback) =
         postprocess_binary_with_diagnostics(&binary, Some(normalized), options, calibration);
     (
-        binary.subtract(picture_mask),
+        binary.subtract(&protected_picture_mask),
         diagnostics,
         despeckle_fallback,
     )

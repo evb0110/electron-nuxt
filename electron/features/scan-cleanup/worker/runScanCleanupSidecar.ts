@@ -2,7 +2,7 @@ import {spawn} from 'child_process';
 import {createInterface} from 'readline';
 import type {TNativeErrorCode} from '@contracts/nativeErrors';
 import type {
-    INativeScanCleanupProgressV2,
+    INativeScanCleanupProgressV3,
     IScanCleanupProgress,
 } from '@contracts/electronApiScanCleanup';
 import type {TWorkerLog} from '@electron/ocr/worker/types';
@@ -34,7 +34,7 @@ export async function runScanCleanupSidecar(
     manifestPath: string,
     signal: AbortSignal,
     log: TWorkerLog,
-    onProgress: (progress: IScanCleanupProgress, nativeProgress: INativeScanCleanupProgressV2) => void,
+    onProgress: (progress: IScanCleanupProgress, nativeProgress: INativeScanCleanupProgressV3) => void,
 ) {
     if (signal.aborted) throw abortErrorFromSignal(signal);
     const child = spawn(binaryPath, [
@@ -63,11 +63,14 @@ export async function runScanCleanupSidecar(
             const envelope = decodeNativeScanCleanupEnvelope(line);
             if (envelope.type === 'progress') {
                 const nativeProgress = envelope.progress;
-                if (nativeProgress.stage === 'page-complete' && nativeProgress.pageNumber !== undefined) {
+                if (
+                    (nativeProgress.stage === 'page-analyzed' || nativeProgress.stage === 'page-complete')
+                    && nativeProgress.pageNumber !== undefined
+                ) {
                     completedPageNumbers.add(nativeProgress.pageNumber);
                 }
                 onProgress({
-                    stage: 'cleaning',
+                    stage: nativeProgress.stage === 'page-analyzed' ? 'detecting' : 'cleaning',
                     completedUnits: nativeProgress.completedPages,
                     totalUnits: nativeProgress.totalPages,
                     percent: nativeProgress.totalPages === 0

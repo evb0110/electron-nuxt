@@ -16,6 +16,7 @@ import {
 } from '@electron/features/scan-cleanup/contract';
 import {
     decodeDetectionArgs,
+    decodeDocumentCanvasPlan,
     decodeDocumentPrior,
     decodeFiniteNumber,
     decodeOpenPdfPaths,
@@ -25,6 +26,9 @@ import {
     decodeStartArgs,
     isLayoutClassification,
 } from '@electron/features/scan-cleanup/scanCleanupIpcRequestCodecs';
+import {
+    isScanCleanupOutputMode,
+} from '@electron/features/scan-cleanup/scanCleanupMetadataCodecs';
 
 const PREVIEW_MAX_IMAGE_BYTES = 32 * 1024 * 1024;
 const PREVIEW_MAX_TOTAL_BYTES = 96 * 1024 * 1024;
@@ -41,6 +45,12 @@ function decodePositiveInteger(value: unknown, label: string) {
         throw new Error(`invalid scan-cleanup preview ${label}`);
     }
     return value;
+}
+
+function decodePositiveFiniteNumber(value: unknown, label: string) {
+    const decoded = decodeFiniteNumber(value, label);
+    if (decoded <= 0) throw new Error(`invalid scan-cleanup preview ${label}`);
+    return decoded;
 }
 
 function decodeNonNegativeFiniteNumber(value: unknown, label: string) {
@@ -86,6 +96,72 @@ function decodeContentDiagnostics(
         throw new Error('invalid scan-cleanup preview content diagnostics');
     }
     const textMask = value.textMask;
+    const decodeBlockEvidence = (block: unknown, label: string) => {
+        if (
+            !isRecord(block)
+            || typeof block.headingEvidence !== 'boolean'
+            || typeof block.grayscaleEvidence !== 'boolean'
+        ) {
+            throw new Error(`invalid scan-cleanup preview ${label}`);
+        }
+        return {
+            bounds: decodePreviewRect(block.bounds, `${label} bounds`),
+            pictureMaskOverlapPixels: decodeNonNegativeInteger(
+                block.pictureMaskOverlapPixels,
+                `${label} picture-mask overlap`,
+            ),
+            headingEvidence: block.headingEvidence,
+            grayscaleEvidence: block.grayscaleEvidence,
+        };
+    };
+    const acceptedTrims = value.acceptedTrims === undefined
+        ? undefined
+        : (() => {
+            if (!Array.isArray(value.acceptedTrims)) {
+                throw new Error('invalid scan-cleanup preview accepted trims');
+            }
+            return value.acceptedTrims.map((trim, index) => {
+                if (
+                    !isRecord(trim)
+                    || ![
+                        'left',
+                        'top',
+                        'right',
+                        'bottom',
+                    ].includes(String(trim.side))
+                    || !Array.isArray(trim.removedBlocks)
+                ) {
+                    throw new Error(`invalid scan-cleanup preview accepted trim ${index}`);
+                }
+                return {
+                    side: trim.side as 'left' | 'top' | 'right' | 'bottom',
+                    iteration: decodePositiveInteger(trim.iteration, `accepted trim ${index} iteration`),
+                    score: decodeUnitInterval(trim.score, `accepted trim ${index} score`),
+                    threshold: decodeUnitInterval(trim.threshold, `accepted trim ${index} threshold`),
+                    contentDistanceSum: decodeNonNegativeFiniteNumber(
+                        trim.contentDistanceSum,
+                        `accepted trim ${index} content distance`,
+                    ),
+                    garbageDistanceSum: decodeNonNegativeFiniteNumber(
+                        trim.garbageDistanceSum,
+                        `accepted trim ${index} garbage distance`,
+                    ),
+                    removedBlocks: trim.removedBlocks.map((block, blockIndex) => (
+                        decodeBlockEvidence(block, `accepted trim ${index} block ${blockIndex}`)
+                    )),
+                };
+            });
+        })();
+    const protectedBlocks = value.protectedBlocks === undefined
+        ? undefined
+        : (() => {
+            if (!Array.isArray(value.protectedBlocks)) {
+                throw new Error('invalid scan-cleanup preview protected blocks');
+            }
+            return value.protectedBlocks.map((block, index) => (
+                decodeBlockEvidence(block, `protected block ${index}`)
+            ));
+        })();
     return {
         sideConfidence: decodeContentSideConfidence(value.sideConfidence),
         textMask: {
@@ -97,6 +173,8 @@ function decodeContentDiagnostics(
                 ? {}
                 : {bounds: decodePreviewRect(textMask.bounds, 'text-mask bounds')}),
         },
+        ...(acceptedTrims === undefined ? {} : {acceptedTrims}),
+        ...(protectedBlocks === undefined ? {} : {protectedBlocks}),
     };
 }
 
@@ -170,8 +248,7 @@ function decodePreviewMetadata(value: unknown): IScanCleanupPreviewMetadata {
         ].includes(Number(value.rotationDegrees))
         || (value.canvasPolicy !== undefined && ![
             'intrinsic',
-            'robust-quantile',
-            'overflow-intrinsic',
+            'strict-maximum',
         ].includes(String(value.canvasPolicy)))
         || (value.canvasOverflow !== undefined && typeof value.canvasOverflow !== 'boolean')
         || (value.illuminationNormalized !== undefined && typeof value.illuminationNormalized !== 'boolean')
@@ -188,6 +265,7 @@ function decodePreviewMetadata(value: unknown): IScanCleanupPreviewMetadata {
                 'sauvola',
                 'wolf',
             ].includes(String(value.binarizationMode)))
+        || (value.rasterScaleLimited !== undefined && typeof value.rasterScaleLimited !== 'boolean')
     ) throw new Error('invalid scan-cleanup preview metadata');
     const metadata: IScanCleanupPreviewMetadata = {
         half: value.half as IScanCleanupPreviewMetadata['half'],
@@ -238,6 +316,14 @@ function decodePreviewMetadata(value: unknown): IScanCleanupPreviewMetadata {
             || value.matchedCanvasTargetHeightPx === undefined
             ? null
             : decodePositiveInteger(value.matchedCanvasTargetHeightPx, 'matched canvas target height'),
+        matchedCanvasTargetWidthPoints: value.matchedCanvasTargetWidthPoints === null
+            || value.matchedCanvasTargetWidthPoints === undefined
+            ? null
+            : decodePositiveFiniteNumber(value.matchedCanvasTargetWidthPoints, 'matched canvas target width points'),
+        matchedCanvasTargetHeightPoints: value.matchedCanvasTargetHeightPoints === null
+            || value.matchedCanvasTargetHeightPoints === undefined
+            ? null
+            : decodePositiveFiniteNumber(value.matchedCanvasTargetHeightPoints, 'matched canvas target height points'),
         placementOffsetXPx: decodeNonNegativeInteger(value.placementOffsetXPx, 'placement offset x'),
         placementOffsetYPx: decodeNonNegativeInteger(value.placementOffsetYPx, 'placement offset y'),
         forwardTransform: decodePreviewAffine(value.forwardTransform),
@@ -273,6 +359,16 @@ function decodePreviewMetadata(value: unknown): IScanCleanupPreviewMetadata {
                 ? null
                 : decodeUnitInterval(value.dewarpConfidence, 'dewarp confidence')}),
         ...(value.dewarpApplied === undefined ? {} : {dewarpApplied: value.dewarpApplied}),
+        ...(value.sourceDpi === undefined
+            ? {}
+            : {sourceDpi: decodePositiveFiniteNumber(value.sourceDpi, 'source dpi')}),
+        ...(value.renderDpi === undefined
+            ? {}
+            : {renderDpi: decodePositiveFiniteNumber(value.renderDpi, 'render dpi')}),
+        ...(value.requestedRenderDpi === undefined
+            ? {}
+            : {requestedRenderDpi: decodePositiveFiniteNumber(value.requestedRenderDpi, 'requested render dpi')}),
+        rasterScaleLimited: value.rasterScaleLimited === true,
         warnings: value.warnings as string[],
     };
     if (
@@ -367,6 +463,14 @@ function decodePreviewPageMetadata(value: unknown): IScanCleanupPreviewResult['p
                 'sauvola',
                 'wolf',
             ].includes(String(value.binarizationMode)))
+        || (value.recommendedOutputMode !== undefined
+            && !isScanCleanupOutputMode(value.recommendedOutputMode))
+        || (value.recommendedOutputModeConfidence !== undefined && (
+            typeof value.recommendedOutputModeConfidence !== 'number'
+            || !Number.isFinite(value.recommendedOutputModeConfidence)
+            || value.recommendedOutputModeConfidence < 0
+            || value.recommendedOutputModeConfidence > 1
+        ))
     ) throw new Error('invalid scan-cleanup preview page metadata');
     return {
         layoutClassification: value.layoutClassification as IScanCleanupPreviewResult['pageMetadata']['layoutClassification'],
@@ -427,6 +531,12 @@ function decodePreviewPageMetadata(value: unknown): IScanCleanupPreviewResult['p
         ...(value.contentSideConfidence === undefined
             ? {}
             : {contentSideConfidence: decodeContentSideConfidence(value.contentSideConfidence)}),
+        ...(isScanCleanupOutputMode(value.recommendedOutputMode)
+            ? {recommendedOutputMode: value.recommendedOutputMode}
+            : {}),
+        ...(typeof value.recommendedOutputModeConfidence === 'number'
+            ? {recommendedOutputModeConfidence: value.recommendedOutputModeConfidence}
+            : {}),
     };
 }
 
@@ -635,6 +745,14 @@ export function decodeScanCleanupDetectionJobState(value: unknown): TScanCleanup
                 || result.textAxis.confidence < 0
                 || result.textAxis.confidence > 1
             ))
+            || (result.recommendedOutputMode !== undefined
+                && !isScanCleanupOutputMode(result.recommendedOutputMode))
+            || (result.recommendedOutputModeConfidence !== undefined && (
+                typeof result.recommendedOutputModeConfidence !== 'number'
+                || !Number.isFinite(result.recommendedOutputModeConfidence)
+                || result.recommendedOutputModeConfidence < 0
+                || result.recommendedOutputModeConfidence > 1
+            ))
         ) throw new Error('invalid scan-cleanup detection result');
         return {
             pageNumber: decodePositiveInteger(result.pageNumber, 'detection page number'),
@@ -659,13 +777,25 @@ export function decodeScanCleanupDetectionJobState(value: unknown): TScanCleanup
                 sideways: result.textAxis.sideways as boolean,
                 confidence: result.textAxis.confidence as number,
             }} : {}),
+            ...(isScanCleanupOutputMode(result.recommendedOutputMode)
+                ? {recommendedOutputMode: result.recommendedOutputMode}
+                : {}),
+            ...(typeof result.recommendedOutputModeConfidence === 'number'
+                ? {recommendedOutputModeConfidence: result.recommendedOutputModeConfidence}
+                : {}),
         };
     });
-    if (results.length !== progress.completedUnits) throw new Error('invalid scan-cleanup detection result count');
+    if (
+        results.length > progress.totalUnits
+        || (value.status === 'completed' && results.length !== progress.completedUnits)
+    ) throw new Error('invalid scan-cleanup detection result count');
     const base = {
         jobId: value.jobId,
         progress,
         results,
+        ...(value.documentCanvasPlan === undefined
+            ? {}
+            : {documentCanvasPlan: decodeDocumentCanvasPlan(value.documentCanvasPlan)}),
         updatedAtMs: value.updatedAtMs,
     };
     if (value.status === 'queued' || value.status === 'running' || value.status === 'canceling' || value.status === 'completed' || value.status === 'canceled') {

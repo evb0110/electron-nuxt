@@ -102,6 +102,51 @@
                     @update:model-value="$emit('update-layout', $event)"
                 />
             </div>
+            <div v-if="scope !== 'all'" class="scan-cleanup-selection-field">
+                <div class="scan-cleanup-selection-field-label">
+                    <div class="scan-cleanup-control-label">
+                        <span>{{ t('scanCleanup.output.pageLabel') }}</span>
+                        <span
+                            v-if="overrideCounts.outputMode > 0"
+                            class="scan-cleanup-override-marker"
+                            data-override-marker="output-mode"
+                        ><span aria-hidden="true" />{{ t('scanCleanup.settings.override') }}</span>
+                    </div>
+                    <div class="scan-cleanup-control-affordances">
+                        <UBadge v-if="outputModeOverride.mixed" color="neutral" variant="soft" size="sm">
+                            {{ t('scanCleanup.settings.mixed') }}
+                        </UBadge>
+                        <UButton
+                            v-if="overrideCounts.outputMode > 0"
+                            type="button"
+                            color="primary"
+                            variant="ghost"
+                            size="xs"
+                            square
+                            icon="i-ph-arrow-u-up-left"
+                            data-reset-override="output-mode"
+                            :aria-label="t('scanCleanup.settings.resetToDocument')"
+                            @click="$emit('reset-control-override', 'output-mode')"
+                        />
+                    </div>
+                </div>
+                <USelect
+                    :model-value="outputModeOverrideModelValue"
+                    :items="outputModeOverrideItems"
+                    value-key="value"
+                    class="w-full"
+                    :aria-label="t('scanCleanup.output.pageLabel')"
+                    :title="settings.preserveOriginalQuality
+                        ? t('scanCleanup.pages.outputModeLosslessControlHint')
+                        : undefined"
+                    :disabled="settings.preserveOriginalQuality === true"
+                    @update:model-value="$emit('update-output-mode', $event)"
+                />
+                <p
+                    v-if="settings.preserveOriginalQuality"
+                    class="scan-cleanup-lossless-explanation"
+                >{{ t('scanCleanup.pages.outputModeLosslessControlHint') }}</p>
+            </div>
             <div class="scan-cleanup-selection-field">
                 <div class="scan-cleanup-selection-field-label">
                     <div class="scan-cleanup-control-label">
@@ -412,7 +457,7 @@
                 @update:model-value="updateDocument('outputMode', $event)"
             />
             <UFormField
-                v-if="settings.outputMode === 'bw' || settings.outputMode === 'mixed'"
+                v-if="settings.outputMode === 'auto' || settings.outputMode === 'bw' || settings.outputMode === 'mixed'"
                 :label="t('scanCleanup.thickness.label', {value: thicknessLabel})"
             >
                 <USlider
@@ -565,6 +610,7 @@ import type {
     IScanCleanupNormalizedSplit,
     IScanCleanupOptions,
     TScanCleanupOutputHalf,
+    TScanCleanupOutputMode,
     TScanCleanupPageAlignment,
     TScanCleanupPageLayoutOverride,
     TScanCleanupPageRotation,
@@ -596,6 +642,7 @@ interface IScanCleanupOverrideCounts {
     inclusion: number;
     layout: number;
     margins: number;
+    outputMode: number;
     placement: number;
     rotation: number;
 }
@@ -624,6 +671,8 @@ const props = defineProps<{
     margins: IScanCleanupMixedValue<IScanCleanupMarginsMm>;
     marginsLinked: boolean;
     outputItems: Array<ISelectItem<IScanCleanupOptions['outputMode']> & {fullLabel: string}>;
+    outputModeOverride: IScanCleanupMixedValue<TScanCleanupOutputMode | undefined>;
+    outputModeOverrideItems: ISelectItem[];
     overrideCounts: IScanCleanupOverrideCounts;
     pageNumber: number;
     placementAlignment: IScanCleanupMixedValue<TScanCleanupPageAlignment>;
@@ -647,6 +696,7 @@ const emit = defineEmits<{
     'update-layout': [value: string | number];
     'update-margin': [target: TScanCleanupMarginTarget, value: number];
     'update-manual-skew': [value: number | undefined];
+    'update-output-mode': [value: string | number];
     'update:margins-linked': [value: boolean];
     'update-placement': [value: TScanCleanupPageAlignment];
     'update-rotation': [value: string | number];
@@ -676,6 +726,9 @@ const despeckleItems = computed(() => ([
 
 const layoutModelValue = computed(() => props.layout.mixed ? 'mixed' : props.layout.value ?? 'auto');
 const rotationModelValue = computed(() => props.rotation.mixed ? 'mixed' : String(props.rotation.value ?? 0));
+const outputModeOverrideModelValue = computed(() => props.outputModeOverride.mixed
+    ? 'mixed-values'
+    : props.outputModeOverride.value ?? 'auto');
 const inclusionModelValue = computed(() => props.excluded.mixed
     ? 'mixed'
     : props.excluded.value ? 'excluded' : 'included');
