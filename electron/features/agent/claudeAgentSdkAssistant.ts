@@ -897,6 +897,7 @@ export class ClaudeAgentAssistantSession {
         return this.currentModel;
     }
 
+    // fallow-ignore-next-line unused-class-member
     get effort() {
         return this.currentEffort;
     }
@@ -906,6 +907,7 @@ export class ClaudeAgentAssistantSession {
         return this.currentSpeedMode;
     }
 
+    // fallow-ignore-next-line unused-class-member
     get fastMode() {
         return this.queryFastMode;
     }
@@ -925,6 +927,7 @@ export class ClaudeAgentAssistantSession {
         return turnId;
     }
 
+    // fallow-ignore-next-line unused-class-member
     async interrupt() {
         if (!this.query || !this.currentTurnId) {
             return;

@@ -26,9 +26,7 @@ import {
     decodeStartArgs,
     isLayoutClassification,
 } from '@electron/features/scan-cleanup/scanCleanupIpcRequestCodecs';
-import {
-    isScanCleanupOutputMode,
-} from '@electron/features/scan-cleanup/scanCleanupMetadataCodecs';
+import {isScanCleanupOutputMode} from '@electron/features/scan-cleanup/scanCleanupMetadataCodecs';
 
 const PREVIEW_MAX_IMAGE_BYTES = 32 * 1024 * 1024;
 const PREVIEW_MAX_TOTAL_BYTES = 96 * 1024 * 1024;
