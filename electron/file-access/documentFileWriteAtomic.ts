@@ -3,7 +3,6 @@ import {
     realpathSync,
 } from 'fs';
 import {
-    copyFile,
     open as openFileHandle,
     rename,
     unlink,
@@ -16,6 +15,7 @@ import {
 } from 'path';
 import { randomUUID } from 'crypto';
 import { isErrnoException } from '@contracts/runtimeGuards';
+import {copyFileCopyOnWrite} from '@electron/file-access/workingCopyDirectory';
 import {syncFileHandleForDurability} from '@electron/utils/syncFileHandleForDurability';
 
 const MAX_IPC_WRITE_BYTES = (() => {
@@ -147,7 +147,7 @@ export async function copyFileAtomic(resolvedSourcePath: string, resolvedTargetP
     );
 
     try {
-        await copyFile(resolvedSourcePath, temporaryPath);
+        await copyFileCopyOnWrite(resolvedSourcePath, temporaryPath);
         const handle = await openFileHandle(temporaryPath, 'r');
         try {
             await syncFileHandleForDurability(handle);

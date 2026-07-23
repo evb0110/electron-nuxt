@@ -12,6 +12,19 @@ import {join} from 'path';
 import { isErrnoException } from '@contracts/runtimeGuards';
 import { getAppTempDir } from '@electron/utils/appTempDir';
 
+const COPY_ON_WRITE_FALLBACK_CODES = new Set([
+    'ENOTSUP',
+    'ENOSYS',
+    'EINVAL',
+    'EXDEV',
+]);
+
+function isCopyOnWriteUnavailable(error: unknown) {
+    return isErrnoException(error)
+        && typeof error.code === 'string'
+        && COPY_ON_WRITE_FALLBACK_CODES.has(error.code);
+}
+
 export function createWorkingDirectory() {
     const tempDir = getAppTempDir();
     const workDir = join(tempDir, `pdf-work-${randomUUID()}`);
@@ -44,14 +57,7 @@ export async function copyFileCopyOnWrite(sourcePath: string, targetPath: string
         await copyFile(sourcePath, targetPath, fsConstants.COPYFILE_FICLONE);
         return;
     } catch (error) {
-        const shouldFallback = isErrnoException(error)
-            && (
-                error.code === 'ENOTSUP'
-                || error.code === 'ENOSYS'
-                || error.code === 'EINVAL'
-                || error.code === 'EXDEV'
-            );
-        if (!shouldFallback) {
+        if (!isCopyOnWriteUnavailable(error)) {
             throw error;
         }
     }

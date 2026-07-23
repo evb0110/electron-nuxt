@@ -29,8 +29,13 @@ describe('workingCopyDirectory', () => {
         expect(copyFile).not.toHaveBeenCalledWith('/source.pdf', '/target.pdf', fsConstants.COPYFILE_FICLONE_FORCE);
     });
 
-    it('falls back to a plain copy when clone support is unavailable', async () => {
-        const error = Object.assign(new Error('clone unsupported'), {code: 'ENOSYS'});
+    it.each([
+        'ENOTSUP',
+        'ENOSYS',
+        'EINVAL',
+        'EXDEV',
+    ])('falls back to a plain copy for %s clone failures', async code => {
+        const error = Object.assign(new Error('clone unsupported'), {code});
         const copyFile = vi.fn()
             .mockRejectedValueOnce(error)
             .mockResolvedValueOnce(undefined);
@@ -46,5 +51,19 @@ describe('workingCopyDirectory', () => {
         expect(copyFile).toHaveBeenCalledTimes(2);
         expect(copyFile).toHaveBeenNthCalledWith(1, '/source.pdf', '/target.pdf', fsConstants.COPYFILE_FICLONE);
         expect(copyFile).toHaveBeenNthCalledWith(2, '/source.pdf', '/target.pdf');
+    });
+
+    it('does not hide unexpected clone failures with a plain copy', async () => {
+        const error = Object.assign(new Error('clone read failed'), {code: 'EIO'});
+        const copyFile = vi.fn().mockRejectedValueOnce(error);
+        vi.doMock('fs/promises', async (importOriginal) => ({
+            ...await importOriginal(),
+            copyFile,
+        }));
+
+        const { copyFileCopyOnWrite } = await import('@electron/file-access/workingCopyDirectory');
+
+        await expect(copyFileCopyOnWrite('/source.pdf', '/target.pdf')).rejects.toBe(error);
+        expect(copyFile).toHaveBeenCalledOnce();
     });
 });
