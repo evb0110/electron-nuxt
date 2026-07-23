@@ -5,7 +5,7 @@
         data-document-page-visual="pending"
     />
     <div
-        v-if="presentation.skeleton"
+        v-if="presentation.skeleton && !hostOwnsSkeleton"
         class="document-source-viewer__skeleton"
         data-document-page-visual="skeleton"
         aria-hidden="true"
@@ -62,6 +62,7 @@ const {
     currentSearchResultIndex,
     documentLoadGeneration,
     errorMessage,
+    hostOwnsSkeleton = false,
     openSurfaceGeneration,
     pageNumber,
     renderGeneration,
@@ -73,6 +74,7 @@ const {
     currentSearchResultIndex: number;
     documentLoadGeneration: number;
     errorMessage: string;
+    hostOwnsSkeleton?: boolean;
     openSurfaceGeneration: number | null;
     pageNumber: number;
     renderGeneration: number | '';

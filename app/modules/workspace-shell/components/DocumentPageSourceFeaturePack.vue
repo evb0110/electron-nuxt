@@ -21,6 +21,7 @@
                         :current-search-result-index="currentSearchResultIndex"
                         :document-load-generation="loadGeneration"
                         :error-message="getVisualError(pageNumber)"
+                        host-owns-skeleton
                         :open-surface-generation="activeOpenSurfaceGeneration"
                         :page-number="pageNumber"
                         :render-generation="getRenderGeneration(pageNumber)"
