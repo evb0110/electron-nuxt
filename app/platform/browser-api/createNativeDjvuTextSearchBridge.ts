@@ -1,4 +1,4 @@
-import type { IDjvuCapability } from '@contracts/electronApiDjvu';
+import type { IDjvuCapability } from '@contracts/djvuPlatformFeature';
 import type { TDocumentRef } from '@contracts/documentRef';
 import { isBrowserDocumentRef } from '@app/platform/browserDocumentStore';
 import { getValidatedElectronPlatformApi } from '@app/utils/electronPlatformBridge';

@@ -10,7 +10,7 @@ import type {
     IWorkspaceViewPort,
 } from '@app/types/workspaceExpose';
 import type { IDocumentsMenuCapability } from '@contracts/electronApiDocuments';
-import type { IDjvuCapability } from '@contracts/electronApiDjvu';
+import type { IDjvuCapability } from '@contracts/djvuPlatformFeature';
 import type { TPdfViewMode } from '@contracts/shared';
 
 export type TWorkspaceExposeMethod = keyof Omit<IWorkspaceExpose, 'hasPdf'>;

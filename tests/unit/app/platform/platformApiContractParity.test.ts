@@ -86,7 +86,6 @@ async function createMockedElectronApi() {
     const fixture = createElectronPlatformApiFixture();
     vi.doMock('@electron/features/documents/createDocumentsPreloadClient', () => ({createDocumentsPreloadClient: () => fixture.documents}));
     vi.doMock('@electron/features/ocr/createOcrPreloadClient', () => ({createOcrPreloadClient: () => fixture.ocr}));
-    vi.doMock('@electron/features/djvu/createDjvuPreloadClient', () => ({createDjvuPreloadClient: () => fixture.djvu}));
     vi.doMock('@electron/features/agent/createAgentPreloadClient', () => ({createAgentPreloadClient: () => fixture.agent}));
     vi.doMock('@electron/preload/debugLogBuffer', () => ({getDebugLogMessages: () => []}));
 

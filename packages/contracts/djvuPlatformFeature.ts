@@ -1,0 +1,1328 @@
+import type {
+    IDjvuConvertResult,
+    IDjvuConvertOptions,
+    IDjvuInfo,
+    IDjvuJobStartHandle,
+    IDjvuOpenResult,
+    IDjvuPagePreview,
+    IDjvuPagePreviewOptions,
+    IDjvuPageSize,
+    IDjvuPageSourceInfo,
+    IDjvuPrintResult,
+    IDjvuPrintOptions,
+    IDjvuProgress,
+    IDjvuSizeEstimate,
+    IDjvuTextSearchOptions,
+    IDjvuTextSearchProgress,
+    TDocumentOutputJobState,
+} from '@contracts/electronApiDjvu';
+import {isDjvuDocumentOutputOperation} from '@contracts/electronApiDjvu';
+import type { TDocumentRef } from '@contracts/documentRef';
+import {
+    SEARCH_PAGE_COUNT_DEFAULT_MAX,
+    SEARCH_WIRE_CODEC,
+} from '@contracts/search';
+import {
+    definePlatformFeature,
+    runtimeSchema as s,
+    type IRuntimeSchema,
+    type TFeatureCapability,
+    type TFeatureEventMap,
+    type TFeatureInvokeMap,
+} from '@contracts/platformFeature';
+import {
+    isFiniteNumber,
+    isRecord,
+} from '@contracts/runtimeGuards';
+
+const MAX_COLLECTION_ITEMS = 100_000;
+const IPC_REQUEST_ID_MAX_LENGTH = 128;
+const DJVU_NATIVE_IPC_TIMEOUT_MS = 30 * 60 * 1_000;
+type TVoidResult = ReturnType<() => void>;
+
+function requireArgs(args: readonly unknown[], count: number | {
+    min: number;
+    max: number
+}) {
+    const min = typeof count === 'number' ? count : count.min;
+    const max = typeof count === 'number' ? count : count.max;
+    if (args.length < min || args.length > max) {
+        const expectedLabel = min === max ? String(min) : `${min}-${max}`;
+        throw new Error(`expected ${expectedLabel} arguments, received ${args.length}`);
+    }
+    return args;
+}
+
+function decodeStringArg(args: readonly unknown[], index: number, fieldName: string): string {
+    const value = args[index];
+    if (typeof value !== 'string' || value.trim().length === 0) {
+        throw new Error(`${fieldName} must be a non-empty string`);
+    }
+    return value;
+}
+
+function decodeSafeIntegerArg(
+    args: readonly unknown[],
+    index: number,
+    fieldName: string,
+    min = 0,
+) {
+    const value = args[index];
+    if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < min) {
+        throw new Error(`${fieldName} must be a safe integer >= ${min}`);
+    }
+    return value;
+}
+
+function decodeUint8ArrayResult(value: unknown) {
+    if (!(value instanceof Uint8Array)) {
+        throw new Error('expected a Uint8Array IPC result');
+    }
+    return value;
+}
+
+function normalizeOptionalRequestId(value: unknown, fieldName = 'requestId') {
+    if (value === null || value === undefined) {
+        return undefined;
+    }
+    if (typeof value === 'string' && value.trim().length === 0) {
+        return undefined;
+    }
+    if (typeof value !== 'string') {
+        throw new Error(`${fieldName} must be a string`);
+    }
+    const normalized = value.trim();
+    if (normalized.length > IPC_REQUEST_ID_MAX_LENGTH) {
+        throw new Error(`${fieldName} exceeds maximum length (${IPC_REQUEST_ID_MAX_LENGTH})`);
+    }
+    return normalized;
+}
+
+function decodeOptionalPositiveInteger(value: unknown, fieldName: string) {
+    if (value === undefined) {
+        return undefined;
+    }
+    if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 1) {
+        throw new Error(`${fieldName} must be a positive safe integer`);
+    }
+    return value;
+}
+
+function decodeOptionalString(value: unknown, fieldName: string) {
+    if (value === undefined) {
+        return undefined;
+    }
+    if (typeof value !== 'string') {
+        throw new Error(`${fieldName} must be a string`);
+    }
+    return value;
+}
+
+function normalizeDjvuTextSearchOptions(options: IDjvuTextSearchOptions) {
+    if (!options || typeof options !== 'object') {
+        throw new TypeError('searchText.options must be an object');
+    }
+    const requestId = normalizeOptionalRequestId(
+        options.requestId,
+        'searchText.options.requestId',
+    );
+    if (!requestId) {
+        throw new TypeError('searchText.options.requestId is required');
+    }
+    if (!Number.isSafeInteger(options.pageCount) || options.pageCount < 1) {
+        throw new TypeError('searchText.options.pageCount must be a positive safe integer');
+    }
+    return {
+        requestId,
+        pageCount: options.pageCount,
+        matchCase: Boolean(options.matchCase),
+        wholeWord: Boolean(options.wholeWord),
+        useRegex: Boolean(options.useRegex),
+    };
+}
+
+function normalizeDjvuPagePreviewOptions(options: IDjvuPagePreviewOptions | undefined) {
+    if (options === undefined) {
+        return undefined;
+    }
+    if (!isRecord(options)) {
+        throw new TypeError('renderPagePreview.options must be an object');
+    }
+
+    const normalizedOptions: IDjvuPagePreviewOptions = {};
+    const subsample = options.subsample;
+    if (subsample !== undefined) {
+        if (typeof subsample !== 'number' || !Number.isInteger(subsample) || subsample < 1) {
+            throw new TypeError('renderPagePreview.options.subsample must be a positive integer');
+        }
+        normalizedOptions.subsample = subsample;
+    }
+    const targetWidthPx = options.targetWidthPx;
+    if (targetWidthPx !== undefined) {
+        if (typeof targetWidthPx !== 'number' || !Number.isInteger(targetWidthPx) || targetWidthPx < 1) {
+            throw new TypeError('renderPagePreview.options.targetWidthPx must be a positive integer');
+        }
+        normalizedOptions.targetWidthPx = targetWidthPx;
+    }
+    const previewRequestId = options.previewRequestId;
+    if (previewRequestId !== undefined) {
+        const normalizedPreviewRequestId = normalizeOptionalRequestId(
+            previewRequestId,
+            'renderPagePreview.options.previewRequestId',
+        );
+        if (normalizedPreviewRequestId === undefined) {
+            throw new TypeError('renderPagePreview.options.previewRequestId must be a non-empty string');
+        }
+        normalizedOptions.previewRequestId = normalizedPreviewRequestId;
+    }
+    const previewPriority = options.previewPriority;
+    if (previewPriority !== undefined) {
+        if (!isFiniteNumber(previewPriority)) {
+            throw new TypeError('renderPagePreview.options.previewPriority must be a finite number');
+        }
+        normalizedOptions.previewPriority = previewPriority;
+    }
+    return normalizedOptions;
+}
+
+function normalizePrintPageNumbers(pageNumbers: unknown) {
+    if (!Array.isArray(pageNumbers)) {
+        throw new TypeError('printDjvuPath.options.pageNumbers must be an array');
+    }
+    return pageNumbers.map((pageNumber) => {
+        if (typeof pageNumber !== 'number' || !Number.isInteger(pageNumber) || pageNumber < 1) {
+            throw new TypeError('printDjvuPath.options.pageNumbers must contain positive integers');
+        }
+        return pageNumber;
+    });
+}
+
+function normalizeDjvuConvertOptions(
+    options: IDjvuConvertOptions,
+    requestIdFieldName = 'convertToPdf.options.requestId',
+) {
+    if (!isRecord(options)) {
+        throw new TypeError('convertToPdf.options must be an object');
+    }
+
+    const normalizedOptions: IDjvuConvertOptions = {};
+    if (options.jobId !== undefined) {
+        const jobId = normalizeOptionalRequestId(options.jobId, 'convertToPdf.options.jobId');
+        if (jobId === undefined) {
+            throw new TypeError('convertToPdf.options.jobId must be a non-empty string');
+        }
+        normalizedOptions.jobId = jobId;
+    }
+    if (options.subsample !== undefined) {
+        if (
+            typeof options.subsample !== 'number'
+            || !Number.isSafeInteger(options.subsample)
+            || options.subsample < 1
+        ) {
+            throw new TypeError('convertToPdf.options.subsample must be a positive integer');
+        }
+        normalizedOptions.subsample = options.subsample;
+    }
+    if (options.preserveBookmarks !== undefined) {
+        if (typeof options.preserveBookmarks !== 'boolean') {
+            throw new TypeError('convertToPdf.options.preserveBookmarks must be a boolean');
+        }
+        normalizedOptions.preserveBookmarks = options.preserveBookmarks;
+    }
+    if (
+        options.pdfStrategy !== undefined
+        && options.pdfStrategy !== 'direct'
+        && options.pdfStrategy !== 'compact-djvu-aware'
+        && options.pdfStrategy !== 'auto'
+    ) {
+        throw new TypeError('convertToPdf.options.pdfStrategy is invalid');
+    }
+    if (options.pdfStrategy !== undefined) {
+        normalizedOptions.pdfStrategy = options.pdfStrategy;
+    }
+    if (options.requestId !== undefined) {
+        const requestId = normalizeOptionalRequestId(
+            options.requestId,
+            requestIdFieldName,
+        );
+        if (requestId === undefined) {
+            throw new TypeError(`${requestIdFieldName} must be a non-empty string`);
+        }
+        normalizedOptions.requestId = requestId;
+    }
+    if (options.documentRef !== undefined) {
+        if (typeof options.documentRef !== 'string' || options.documentRef.trim() === '') {
+            throw new TypeError('convertToPdf.options.documentRef must be a non-empty string');
+        }
+        normalizedOptions.documentRef = options.documentRef.trim();
+    }
+    return normalizedOptions;
+}
+
+function normalizeDjvuPrintOptions(options: IDjvuPrintOptions) {
+    if (!isRecord(options)) {
+        throw new TypeError('printDjvuPath.options must be an object');
+    }
+    if (
+        options.viewMode !== 'single'
+        && options.viewMode !== 'facing'
+        && options.viewMode !== 'facing-first-single'
+    ) {
+        throw new TypeError('printDjvuPath.options.viewMode is invalid');
+    }
+    if (
+        options.orientation !== 'auto'
+        && options.orientation !== 'portrait'
+        && options.orientation !== 'landscape'
+    ) {
+        throw new TypeError('printDjvuPath.options.orientation is invalid');
+    }
+    if (
+        options.pdfStrategy !== undefined
+        && options.pdfStrategy !== 'direct'
+        && options.pdfStrategy !== 'compact-djvu-aware'
+        && options.pdfStrategy !== 'auto'
+    ) {
+        throw new TypeError('printDjvuPath.options.pdfStrategy is invalid');
+    }
+    if (
+        options.subsample !== undefined
+        && (
+            typeof options.subsample !== 'number'
+            || !Number.isSafeInteger(options.subsample)
+            || options.subsample < 1
+        )
+    ) {
+        throw new TypeError('printDjvuPath.options.subsample must be a positive integer');
+    }
+    const fileName = options.fileName;
+    if (fileName !== undefined && typeof fileName !== 'string') {
+        throw new TypeError('printDjvuPath.options.fileName must be a string');
+    }
+    const requestId = normalizeOptionalRequestId(
+        options.requestId,
+        'printDjvuPath.options.requestId',
+    );
+
+    const normalizedOptions: IDjvuPrintOptions = {
+        viewMode: options.viewMode,
+        orientation: options.orientation,
+    };
+    if (fileName !== undefined) {
+        normalizedOptions.fileName = fileName;
+    }
+    if (options.pageNumbers !== undefined) {
+        normalizedOptions.pageNumbers = normalizePrintPageNumbers(options.pageNumbers);
+    }
+    if (requestId !== undefined) {
+        normalizedOptions.requestId = requestId;
+    }
+    if (options.subsample !== undefined) {
+        normalizedOptions.subsample = options.subsample;
+    }
+    if (options.pdfStrategy !== undefined) {
+        normalizedOptions.pdfStrategy = options.pdfStrategy;
+    }
+    return normalizedOptions;
+}
+
+function decodeConvertOptions(
+    value: unknown,
+    requestIdFieldName = 'convertToPdf.options.requestId',
+) {
+    return normalizeDjvuConvertOptions(
+        value as IDjvuConvertOptions,
+        requestIdFieldName,
+    );
+}
+
+function decodePrintOptions(value: unknown) {
+    if (isRecord(value) && value.pageNumbers !== undefined) {
+        if (!Array.isArray(value.pageNumbers) || value.pageNumbers.length === 0) {
+            throw new Error('pageNumbers must be a non-empty array');
+        }
+        if (value.pageNumbers.length > MAX_COLLECTION_ITEMS) {
+            throw new Error(`pageNumbers exceeds maximum item count (${MAX_COLLECTION_ITEMS})`);
+        }
+    }
+    return normalizeDjvuPrintOptions(value as IDjvuPrintOptions);
+}
+
+function decodePreviewOptions(value: unknown) {
+    return normalizeDjvuPagePreviewOptions(value as IDjvuPagePreviewOptions | undefined);
+}
+
+function decodeTextSearchOptions(value: unknown) {
+    if (isRecord(value)) {
+        for (const field of [
+            'matchCase',
+            'wholeWord',
+            'useRegex',
+        ] as const) {
+            if (value[field] !== undefined && typeof value[field] !== 'boolean') {
+                throw new Error(`${field} must be a boolean`);
+            }
+        }
+    }
+    const options = normalizeDjvuTextSearchOptions(value as IDjvuTextSearchOptions);
+    if (options.pageCount > SEARCH_PAGE_COUNT_DEFAULT_MAX) {
+        throw new Error('text search options require a valid requestId and pageCount');
+    }
+    return options;
+}
+
+function decodeOptionalNonNegativeInteger(value: unknown) {
+    if (value === undefined) {
+        return undefined;
+    }
+    return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0
+        ? value
+        : null;
+}
+
+function decodeTextSearchResponse(value: unknown) {
+    const response = SEARCH_WIRE_CODEC.decodeResponse(value);
+    if (!response) {
+        throw new Error('DjVu text search result is invalid');
+    }
+    return response;
+}
+
+export function decodeDjvuTextSearchProgress(value: unknown): IDjvuTextSearchProgress | null {
+    const resultsStartIndex = isRecord(value)
+        ? decodeOptionalNonNegativeInteger(value.resultsStartIndex)
+        : null;
+    if (
+        !isRecord(value)
+        || typeof value.requestId !== 'string'
+        || typeof value.processed !== 'number'
+        || !Number.isSafeInteger(value.processed)
+        || value.processed < 0
+        || typeof value.total !== 'number'
+        || !Number.isSafeInteger(value.total)
+        || value.total < 0
+        || resultsStartIndex === null
+        || (value.truncated !== undefined && typeof value.truncated !== 'boolean')
+        || (value.canceled !== undefined && typeof value.canceled !== 'boolean')
+        || (value.error !== undefined && typeof value.error !== 'string')
+        || (
+            value.status !== undefined
+            && value.status !== 'running'
+            && value.status !== 'success'
+            && value.status !== 'canceled'
+            && value.status !== 'failed'
+        )
+    ) {
+        return null;
+    }
+    const results = value.results === undefined
+        ? undefined
+        : SEARCH_WIRE_CODEC.decodeResponse({
+            results: value.results,
+            truncated: Boolean(value.truncated),
+        })?.results;
+    if (value.results !== undefined && !results) {
+        return null;
+    }
+    return {
+        requestId: value.requestId,
+        processed: value.processed,
+        total: value.total,
+        ...(results === undefined ? {} : {results}),
+        ...(resultsStartIndex === undefined ? {} : {resultsStartIndex}),
+        ...(value.truncated === undefined ? {} : {truncated: value.truncated}),
+        ...(value.canceled === undefined ? {} : {canceled: value.canceled}),
+        ...(value.status === undefined ? {} : {status: value.status}),
+        ...(value.error === undefined ? {} : {error: value.error}),
+    };
+}
+
+function decodeDjvuProgress(payload: unknown): IDjvuProgress | null {
+    if (
+        !isRecord(payload)
+        || typeof payload.jobId !== 'string'
+        || !isFiniteNumber(payload.percent)
+        || (
+            payload.phase !== 'converting'
+            && payload.phase !== 'bookmarks'
+            && payload.phase !== 'optimizing'
+            && payload.phase !== 'loading'
+            && payload.phase !== 'printing'
+        )
+        || (payload.current !== undefined && !isFiniteNumber(payload.current))
+        || (payload.total !== undefined && !isFiniteNumber(payload.total))
+        || (payload.requestId !== undefined && typeof payload.requestId !== 'string')
+        || (payload.documentRef !== undefined && typeof payload.documentRef !== 'string')
+        || (
+            payload.status !== undefined
+            && payload.status !== 'running'
+            && payload.status !== 'success'
+            && payload.status !== 'canceled'
+            && payload.status !== 'failed'
+        )
+        || (payload.error !== undefined && typeof payload.error !== 'string')
+    ) {
+        return null;
+    }
+
+    return {
+        jobId: payload.jobId,
+        ...(payload.requestId === undefined ? {} : {requestId: payload.requestId}),
+        ...(payload.documentRef === undefined ? {} : {documentRef: payload.documentRef}),
+        phase: payload.phase,
+        percent: payload.percent,
+        ...(payload.status === undefined ? {} : {status: payload.status}),
+        ...(payload.current === undefined ? {} : {current: payload.current}),
+        ...(payload.total === undefined ? {} : {total: payload.total}),
+        ...(payload.error === undefined ? {} : {error: payload.error}),
+    };
+}
+
+function decodeOptionalResultString(value: unknown, fieldName: string) {
+    return decodeOptionalString(value, fieldName);
+}
+
+function decodeSuccessResult(value: unknown): Record<PropertyKey, unknown> & {success: boolean} {
+    if (!isRecord(value) || typeof value.success !== 'boolean') {
+        throw new Error('result must include success');
+    }
+    return {
+        ...value,
+        success: value.success,
+    };
+}
+
+function decodeOpenResult(value: unknown) {
+    const result = decodeSuccessResult(value);
+    const jobId = decodeOptionalResultString(result.jobId, 'jobId');
+    const error = decodeOptionalResultString(result.error, 'error');
+    const pageCount = decodeOptionalPositiveInteger(result.pageCount, 'pageCount');
+    const pageSourceInfo = result.pageSourceInfo === undefined
+        ? undefined
+        : decodePageSourceInfoResult(result.pageSourceInfo);
+    return {
+        success: result.success,
+        ...(pageCount === undefined ? {} : {pageCount}),
+        ...(pageSourceInfo === undefined ? {} : {pageSourceInfo}),
+        ...(jobId === undefined ? {} : {jobId}),
+        ...(error === undefined ? {} : {error}),
+    };
+}
+
+function decodeJobStartHandle(value: unknown) {
+    if (!isRecord(value) || typeof value.jobId !== 'string' || typeof value.requestId !== 'string') {
+        throw new Error('invalid DjVu job start handle');
+    }
+    return {
+        jobId: value.jobId,
+        requestId: value.requestId,
+    };
+}
+
+function decodeConvertResult(value: unknown) {
+    const result = decodeSuccessResult(value);
+    const pdfPath = decodeOptionalResultString(result.pdfPath, 'pdfPath');
+    const jobId = decodeOptionalResultString(result.jobId, 'jobId');
+    const requestId = decodeOptionalResultString(result.requestId, 'requestId');
+    const documentRef = decodeOptionalResultString(result.documentRef, 'documentRef');
+    const error = decodeOptionalResultString(result.error, 'error');
+    return {
+        success: result.success,
+        ...(pdfPath === undefined ? {} : {pdfPath}),
+        ...(jobId === undefined ? {} : {jobId}),
+        ...(requestId === undefined ? {} : {requestId}),
+        ...(documentRef === undefined ? {} : {documentRef}),
+        ...(error === undefined ? {} : {error}),
+    };
+}
+
+function decodePrintResult(value: unknown) {
+    const result = decodeSuccessResult(value);
+    const jobId = decodeOptionalResultString(result.jobId, 'jobId');
+    const error = decodeOptionalResultString(result.error, 'error');
+    if (result.canceled !== undefined && typeof result.canceled !== 'boolean') {
+        throw new Error('canceled must be a boolean');
+    }
+    return {
+        success: result.success,
+        ...(result.canceled === undefined ? {} : {canceled: result.canceled}),
+        ...(jobId === undefined ? {} : {jobId}),
+        ...(error === undefined ? {} : {error}),
+    };
+}
+
+function decodeCanceledResult(value: unknown) {
+    if (!isRecord(value) || typeof value.canceled !== 'boolean') {
+        throw new Error('result must include canceled');
+    }
+    return {canceled: value.canceled};
+}
+
+function decodeJobProgress(value: unknown): IDjvuProgress {
+    if (
+        !isRecord(value)
+        || typeof value.jobId !== 'string'
+        || !isFiniteNumber(value.percent)
+        || ![
+            'converting',
+            'bookmarks',
+            'optimizing',
+            'loading',
+            'printing',
+        ].includes(String(value.phase))
+    ) {
+        throw new Error('invalid document output progress');
+    }
+    return {
+        jobId: value.jobId,
+        phase: value.phase as IDjvuProgress['phase'],
+        percent: value.percent,
+        ...(typeof value.requestId === 'string' ? {requestId: value.requestId} : {}),
+        ...(typeof value.documentRef === 'string' ? {documentRef: value.documentRef} : {}),
+        ...(isFiniteNumber(value.current) ? {current: value.current} : {}),
+        ...(isFiniteNumber(value.total) ? {total: value.total} : {}),
+        ...(value.status === 'running' || value.status === 'success' || value.status === 'canceled' || value.status === 'failed'
+            ? {status: value.status}
+            : {}),
+        ...(typeof value.error === 'string' ? {error: value.error} : {}),
+    };
+}
+
+function decodeJobState(value: unknown): TDocumentOutputJobState | null {
+    if (value === null) {
+        return null;
+    }
+    if (!isRecord(value)) {
+        throw new Error('invalid document output job state');
+    }
+    const operation = value.operation;
+    if (
+        typeof value.jobId !== 'string'
+        || !isDjvuDocumentOutputOperation(operation)
+        || ![
+            'queued',
+            'running',
+            'handoff',
+            'completed',
+            'canceled',
+            'failed',
+        ].includes(String(value.status))
+        || !isFiniteNumber(value.updatedAtMs)
+    ) {
+        throw new Error('invalid document output job state');
+    }
+    const progress = decodeJobProgress(value.progress);
+    if (value.status === 'handoff') {
+        if (typeof value.artifactPath !== 'string') throw new Error('handoff state requires artifactPath');
+        return {
+            jobId: value.jobId,
+            operation,
+            status: 'handoff',
+            artifactPath: value.artifactPath,
+            progress,
+            updatedAtMs: value.updatedAtMs,
+        };
+    }
+    if (value.status === 'completed') {
+        return {
+            jobId: value.jobId,
+            operation,
+            status: 'completed',
+            ...(typeof value.artifactPath === 'string' ? {artifactPath: value.artifactPath} : {}),
+            progress,
+            updatedAtMs: value.updatedAtMs,
+        };
+    }
+    if (value.status === 'failed' || value.status === 'canceled') {
+        return {
+            jobId: value.jobId,
+            operation,
+            status: value.status,
+            ...(typeof value.error === 'string' ? {error: value.error} : {}),
+            progress,
+            updatedAtMs: value.updatedAtMs,
+        };
+    }
+    return {
+        jobId: value.jobId,
+        operation,
+        status: value.status === 'queued' ? 'queued' : 'running',
+        progress,
+        updatedAtMs: value.updatedAtMs,
+    };
+}
+
+function decodeInfoResult(value: unknown) {
+    if (
+        !isRecord(value)
+        || typeof value.pageCount !== 'number'
+        || !Number.isSafeInteger(value.pageCount)
+        || value.pageCount < 0
+        || !isFiniteNumber(value.sourceDpi)
+        || typeof value.hasBookmarks !== 'boolean'
+        || typeof value.hasText !== 'boolean'
+        || !isRecord(value.metadata)
+        || Object.values(value.metadata).some(item => typeof item !== 'string')
+    ) {
+        throw new Error('invalid DjVu info result');
+    }
+    const metadata: Record<string, string> = {};
+    for (const [
+        key,
+        item,
+    ] of Object.entries(value.metadata)) {
+        if (typeof item !== 'string') {
+            throw new Error('invalid DjVu metadata');
+        }
+        metadata[key] = item;
+    }
+    return {
+        pageCount: value.pageCount,
+        sourceDpi: value.sourceDpi,
+        hasBookmarks: value.hasBookmarks,
+        hasText: value.hasText,
+        metadata,
+    };
+}
+
+function decodePageSize(value: unknown) {
+    if (!isRecord(value) || !isFiniteNumber(value.width) || !isFiniteNumber(value.height) || !isFiniteNumber(value.dpi)) {
+        throw new Error('invalid DjVu page size');
+    }
+    return {
+        width: value.width,
+        height: value.height,
+        dpi: value.dpi,
+    };
+}
+
+function decodePageSizesResult(value: unknown) {
+    if (!Array.isArray(value)) {
+        throw new Error('page sizes must be an array');
+    }
+    return value.map(decodePageSize);
+}
+
+function decodePageSourceInfoResult(value: unknown) {
+    if (
+        !isRecord(value)
+        || !Number.isSafeInteger(value.pageCount)
+        || Number(value.pageCount) < 1
+        || !Number.isSafeInteger(value.pageNumber)
+        || Number(value.pageNumber) < 1
+        || Number(value.pageNumber) > Number(value.pageCount)
+    ) {
+        throw new Error('invalid DjVu page source info');
+    }
+    return {
+        pageCount: Number(value.pageCount),
+        pageNumber: Number(value.pageNumber),
+        pageSize: decodePageSize(value.pageSize),
+        ...(Number.isSafeInteger(value.sourceSize) && Number(value.sourceSize) >= 0
+            ? {sourceSize: Number(value.sourceSize)}
+            : {}),
+        ...(Number.isSafeInteger(value.sourceModifiedAt) && Number(value.sourceModifiedAt) >= 0
+            ? {sourceModifiedAt: Number(value.sourceModifiedAt)}
+            : {}),
+    };
+}
+
+function decodePagePreviewResult(value: unknown) {
+    if (!isRecord(value) || !isFiniteNumber(value.width) || !isFiniteNumber(value.height)) {
+        throw new Error('invalid DjVu page preview');
+    }
+    return {
+        bytes: decodeUint8ArrayResult(value.bytes),
+        width: value.width,
+        height: value.height,
+    };
+}
+
+function decodeSizeEstimate(value: unknown) {
+    if (
+        !isRecord(value)
+        || typeof value.subsample !== 'number'
+        || !Number.isSafeInteger(value.subsample)
+        || value.subsample < 1
+        || typeof value.label !== 'string'
+        || typeof value.description !== 'string'
+        || !isFiniteNumber(value.resultingDpi)
+        || typeof value.estimatedBytes !== 'number'
+        || !Number.isSafeInteger(value.estimatedBytes)
+        || value.estimatedBytes < 0
+    ) {
+        throw new Error('invalid DjVu size estimate');
+    }
+    return {
+        subsample: value.subsample,
+        label: value.label,
+        description: value.description,
+        resultingDpi: value.resultingDpi,
+        estimatedBytes: value.estimatedBytes,
+    };
+}
+
+function decodeSizeEstimatesResult(value: unknown) {
+    if (!Array.isArray(value)) {
+        throw new Error('size estimates must be an array');
+    }
+    return value.map(decodeSizeEstimate);
+}
+
+function argsSchema<TArgs extends unknown[]>(
+    decode: (value: readonly unknown[]) => TArgs,
+    example: () => TArgs,
+): IRuntimeSchema<TArgs> {
+    return {
+        decode: value => decode(Array.isArray(value) ? value : []),
+        encode: value => value,
+        example,
+    };
+}
+
+function resultSchema<TResult>(
+    decode: (value: unknown) => TResult,
+    example: () => TResult,
+) {
+    return s.declared<TResult>()(s.fromParser(decode, example));
+}
+
+function singleStringArgs<TValue extends string>(
+    fieldName: string,
+    example: TValue,
+) {
+    return argsSchema<[TValue]>(
+        args => [decodeStringArg(requireArgs(args, 1), 0, fieldName) as TValue],
+        () => [example],
+    );
+}
+
+function singleRequestIdArgs(fieldName: string, example: string) {
+    return argsSchema<[string]>(
+        (args) => {
+            const value = decodeStringArg(requireArgs(args, 1), 0, fieldName);
+            return [normalizeOptionalRequestId(value, fieldName) ?? ''];
+        },
+        () => [example],
+    );
+}
+
+const documentArgs = singleStringArgs<TDocumentRef>('djvuPath', '/tmp/fixture.djvu');
+const jobArgs = singleStringArgs<string>('jobId', 'djvu-convert-fixture');
+const cancelPreviewArgs = singleRequestIdArgs(
+    'cancelPagePreview.requestId',
+    'djvu-preview-fixture',
+);
+const cancelTextSearchArgs = singleRequestIdArgs(
+    'cancelTextSearch.requestId',
+    'djvu-search-fixture',
+);
+const tempPathArgs = singleStringArgs<TDocumentRef>('tempPdfPath', '/tmp/djvu-fixture.pdf');
+const startOpenArgs = argsSchema<[TDocumentRef, string]>(
+    (args) => {
+        requireArgs(args, 2);
+        return [
+            decodeStringArg(args, 0, 'djvuPath'),
+            normalizeOptionalRequestId(
+                decodeStringArg(args, 1, 'requestId'),
+                'startOpenForViewing.requestId',
+            ) ?? '',
+        ];
+    },
+    () => [
+        '/tmp/fixture.djvu',
+        'djvu-open-fixture',
+    ],
+);
+const convertArgs = argsSchema<[TDocumentRef, string, IDjvuConvertOptions]>(
+    (args) => {
+        requireArgs(args, 3);
+        return [
+            decodeStringArg(args, 0, 'djvuPath'),
+            decodeStringArg(args, 1, 'outputPath'),
+            decodeConvertOptions(args[2]),
+        ];
+    },
+    () => [
+        '/tmp/fixture.djvu',
+        '/tmp/fixture.pdf',
+        {
+            preserveBookmarks: true,
+            requestId: 'djvu-convert-fixture',
+        },
+    ],
+);
+const startConvertArgs = argsSchema<[TDocumentRef, string, IDjvuConvertOptions]>(
+    (args) => {
+        requireArgs(args, 3);
+        const options = decodeConvertOptions(
+            args[2],
+            'startConvertToPdf.options.requestId',
+        );
+        if (!options.requestId) {
+            throw new Error('startConvertToPdf.options.requestId is required');
+        }
+        return [
+            decodeStringArg(args, 0, 'djvuPath'),
+            decodeStringArg(args, 1, 'outputPath'),
+            options,
+        ];
+    },
+    () => [
+        '/tmp/fixture.djvu',
+        '/tmp/fixture.pdf',
+        {
+            preserveBookmarks: true,
+            requestId: 'djvu-convert-fixture',
+        },
+    ],
+);
+const printArgs = argsSchema<[TDocumentRef, IDjvuPrintOptions]>(
+    (args) => {
+        requireArgs(args, 2);
+        return [
+            decodeStringArg(args, 0, 'djvuPath'),
+            decodePrintOptions(args[1]),
+        ];
+    },
+    () => [
+        '/tmp/fixture.djvu',
+        {
+            viewMode: 'single',
+            orientation: 'auto',
+        },
+    ],
+);
+const searchTextArgs = argsSchema<[TDocumentRef, string, IDjvuTextSearchOptions]>(
+    (args) => {
+        requireArgs(args, 3);
+        return [
+            decodeStringArg(args, 0, 'djvuPath'),
+            decodeStringArg(args, 1, 'query'),
+            decodeTextSearchOptions(args[2]),
+        ];
+    },
+    () => [
+        '/tmp/fixture.djvu',
+        'needle',
+        {
+            requestId: 'djvu-search-fixture',
+            pageCount: 1,
+        },
+    ],
+);
+const pageSourceInfoArgs = argsSchema<[TDocumentRef, number]>(
+    args => [
+        decodeStringArg(requireArgs(args, 2), 0, 'djvuPath'),
+        decodeSafeIntegerArg(args, 1, 'pageNumber', 1),
+    ],
+    () => [
+        '/tmp/fixture.djvu',
+        1,
+    ],
+);
+const previewArgs = argsSchema<[
+    TDocumentRef,
+    number,
+    IDjvuPagePreviewOptions | undefined,
+]>(
+    (args) => {
+        requireArgs(args, {
+            min: 2,
+            max: 3,
+        });
+        return [
+            decodeStringArg(args, 0, 'djvuPath'),
+            decodeSafeIntegerArg(args, 1, 'pageNumber', 1),
+            decodePreviewOptions(args[2]),
+        ];
+    },
+    () => [
+        '/tmp/fixture.djvu',
+        1,
+        {targetWidthPx: 800},
+    ],
+);
+
+const openResult = resultSchema<IDjvuOpenResult>(
+    decodeOpenResult,
+    () => ({
+        success: true,
+        pageCount: 1,
+    }),
+);
+const convertResult = resultSchema<IDjvuConvertResult>(
+    decodeConvertResult,
+    () => ({
+        success: true,
+        pdfPath: '/tmp/fixture.pdf',
+        jobId: 'djvu-convert-fixture',
+    }),
+);
+const jobStartResult = resultSchema<IDjvuJobStartHandle>(
+    decodeJobStartHandle,
+    () => ({
+        jobId: 'djvu-job-fixture',
+        requestId: 'djvu-request-fixture',
+    }),
+);
+const canceledResult = resultSchema(
+    decodeCanceledResult,
+    () => ({canceled: false}),
+);
+const jobStateResult = resultSchema<TDocumentOutputJobState | null>(
+    decodeJobState,
+    () => null,
+);
+const progress = s.declared<IDjvuProgress>()(
+    s.fromNullableDecoder(decodeDjvuProgress, 'DjVu progress', () => ({
+        jobId: 'djvu-job-fixture',
+        phase: 'converting',
+        percent: 0,
+        status: 'running',
+    })),
+);
+const textSearchProgress = s.declared<IDjvuTextSearchProgress>()(
+    s.fromNullableDecoder(
+        decodeDjvuTextSearchProgress,
+        'DjVu text search progress',
+        () => ({
+            requestId: 'djvu-search-fixture',
+            processed: 0,
+            total: 1,
+            status: 'running',
+        }),
+    ),
+);
+const voidResult = s.declared<TVoidResult>()(s.undefined());
+const progressReplay = {
+    owner: 'ipc-progress-pump',
+    mode: 'latest-per-key',
+    key: (payload: IDjvuProgress) => `${payload.jobId}:${payload.phase}`,
+    terminal: (payload: IDjvuProgress) =>
+        payload.status === 'success'
+        || payload.status === 'canceled'
+        || payload.status === 'failed',
+    intervalMs: 50,
+    terminalRetentionMs: 30_000,
+} as const;
+
+function defineDjvuMethod<
+    const TName extends string,
+    const TChannel extends string,
+    const TArgs extends IRuntimeSchema<unknown[]>,
+    const TResult extends IRuntimeSchema<unknown>,
+>(definition: {
+    name: TName;
+    channel: TChannel;
+    args: TArgs;
+    result: TResult;
+    timeout?: boolean;
+}) {
+    return {
+        kind: 'async',
+        channel: definition.channel,
+        ipc: {
+            args: definition.args,
+            result: definition.result,
+            ...(definition.timeout ? {timeoutMs: DJVU_NATIVE_IPC_TIMEOUT_MS} : {}),
+        },
+        main: {
+            method: definition.name,
+            context: 'sender',
+        },
+        browser: {method: definition.name},
+        lazy: 'forwarded',
+    } as const;
+}
+
+function defineDjvuClientMethod<
+    const TName extends string,
+    const TChannel extends string,
+    const TArgs extends IRuntimeSchema<unknown[]>,
+    const TResult extends IRuntimeSchema<unknown>,
+    const TMapArgs extends (...args: never[]) => ReturnType<TArgs['decode']>,
+>(definition: {
+    name: TName;
+    channel: TChannel;
+    args: TArgs;
+    result: TResult;
+    mapArgs: TMapArgs;
+    timeout?: boolean;
+}) {
+    return {
+        ...defineDjvuMethod(definition),
+        client: {mapArgs: definition.mapArgs},
+    } as const;
+}
+
+export const DJVU_PLATFORM_FEATURE = definePlatformFeature({
+    path: ['djvu'],
+    required: {
+        browser: true,
+        electron: true,
+    },
+    methods: {
+        startOpenForViewing: defineDjvuClientMethod({
+            name: 'startOpenForViewing',
+            channel: 'djvu:open:start',
+            args: startOpenArgs,
+            result: jobStartResult,
+            timeout: true,
+            mapArgs: (
+                djvuPath: TDocumentRef,
+                requestId: string,
+            ): [TDocumentRef, string] => [
+                djvuPath,
+                normalizeOptionalRequestId(requestId, 'startOpenForViewing.requestId') ?? '',
+            ],
+        }),
+        awaitOpenJob: defineDjvuMethod({
+            name: 'awaitOpenJob',
+            channel: 'djvu:open:await',
+            args: jobArgs,
+            result: openResult,
+            timeout: true,
+        }),
+        openForViewing: defineDjvuMethod({
+            name: 'openForViewing',
+            channel: 'djvu:openForViewing',
+            args: documentArgs,
+            result: openResult,
+            timeout: true,
+        }),
+        releaseViewingPath: defineDjvuMethod({
+            name: 'releaseViewingPath',
+            channel: 'djvu:releaseViewingPath',
+            args: documentArgs,
+            result: voidResult,
+        }),
+        convertToPdf: defineDjvuClientMethod({
+            name: 'convertToPdf',
+            channel: 'djvu:convertToPdf',
+            args: convertArgs,
+            result: convertResult,
+            timeout: true,
+            mapArgs: (
+                djvuPath: TDocumentRef,
+                outputPath: string,
+                options: IDjvuConvertOptions,
+            ): [TDocumentRef, string, IDjvuConvertOptions] => [
+                djvuPath,
+                outputPath,
+                normalizeDjvuConvertOptions(options),
+            ],
+        }),
+        startConvertToPdf: defineDjvuClientMethod({
+            name: 'startConvertToPdf',
+            channel: 'djvu:convert:start',
+            args: startConvertArgs,
+            result: jobStartResult,
+            timeout: true,
+            mapArgs: (
+                djvuPath: TDocumentRef,
+                outputPath: string,
+                options: IDjvuConvertOptions,
+            ): [TDocumentRef, string, IDjvuConvertOptions] => [
+                djvuPath,
+                outputPath,
+                normalizeDjvuConvertOptions(options),
+            ],
+        }),
+        awaitConvertJob: defineDjvuMethod({
+            name: 'awaitConvertJob',
+            channel: 'djvu:convert:await',
+            args: jobArgs,
+            result: convertResult,
+            timeout: true,
+        }),
+        printDjvuPath: defineDjvuClientMethod({
+            name: 'printDjvuPath',
+            channel: 'djvu:printDjvuPath',
+            args: printArgs,
+            result: resultSchema<IDjvuPrintResult>(
+                decodePrintResult,
+                () => ({success: true}),
+            ),
+            timeout: true,
+            mapArgs: (
+                djvuPath: TDocumentRef,
+                options: IDjvuPrintOptions,
+            ): [TDocumentRef, IDjvuPrintOptions] => [
+                djvuPath,
+                normalizeDjvuPrintOptions(options),
+            ],
+        }),
+        cancel: defineDjvuMethod({
+            name: 'cancel',
+            channel: 'djvu:cancel',
+            args: jobArgs,
+            result: canceledResult,
+        }),
+        getJobState: defineDjvuMethod({
+            name: 'getJobState',
+            channel: 'djvu:job:getState',
+            args: jobArgs,
+            result: jobStateResult,
+        }),
+        subscribeJob: defineDjvuMethod({
+            name: 'subscribeJob',
+            channel: 'djvu:job:subscribe',
+            args: jobArgs,
+            result: jobStateResult,
+        }),
+        cancelPagePreview: defineDjvuClientMethod({
+            name: 'cancelPagePreview',
+            channel: 'djvu:cancelPagePreview',
+            args: cancelPreviewArgs,
+            result: canceledResult,
+            mapArgs: (requestId: string): [string] => [normalizeOptionalRequestId(requestId, 'cancelPagePreview.requestId') ?? ''],
+        }),
+        searchText: defineDjvuClientMethod({
+            name: 'searchText',
+            channel: 'djvu:text:search',
+            args: searchTextArgs,
+            result: resultSchema(
+                decodeTextSearchResponse,
+                () => ({
+                    results: [],
+                    truncated: false,
+                }),
+            ),
+            timeout: true,
+            mapArgs: (
+                djvuPath: TDocumentRef,
+                query: string,
+                options: IDjvuTextSearchOptions,
+            ): [TDocumentRef, string, IDjvuTextSearchOptions] => [
+                djvuPath,
+                query,
+                normalizeDjvuTextSearchOptions(options),
+            ],
+        }),
+        cancelTextSearch: defineDjvuClientMethod({
+            name: 'cancelTextSearch',
+            channel: 'djvu:text:cancel',
+            args: cancelTextSearchArgs,
+            result: canceledResult,
+            mapArgs: (requestId: string): [string] => [normalizeOptionalRequestId(requestId, 'cancelTextSearch.requestId') ?? ''],
+        }),
+        getInfo: defineDjvuMethod({
+            name: 'getInfo',
+            channel: 'djvu:getInfo',
+            args: documentArgs,
+            result: resultSchema<IDjvuInfo>(decodeInfoResult, () => ({
+                pageCount: 1,
+                sourceDpi: 300,
+                hasBookmarks: false,
+                hasText: false,
+                metadata: {},
+            })),
+            timeout: true,
+        }),
+        getPageSourceInfo: defineDjvuMethod({
+            name: 'getPageSourceInfo',
+            channel: 'djvu:getPageSourceInfo',
+            args: pageSourceInfoArgs,
+            result: resultSchema<IDjvuPageSourceInfo>(decodePageSourceInfoResult, () => ({
+                pageCount: 1,
+                pageNumber: 1,
+                pageSize: {
+                    width: 600,
+                    height: 800,
+                    dpi: 300,
+                },
+            })),
+            timeout: true,
+        }),
+        getPageSizes: defineDjvuMethod({
+            name: 'getPageSizes',
+            channel: 'djvu:getPageSizes',
+            args: documentArgs,
+            result: resultSchema<IDjvuPageSize[]>(decodePageSizesResult, () => [{
+                width: 600,
+                height: 800,
+                dpi: 300,
+            }]),
+            timeout: true,
+        }),
+        renderPagePreview: defineDjvuClientMethod({
+            name: 'renderPagePreview',
+            channel: 'djvu:renderPagePreview',
+            args: previewArgs,
+            result: resultSchema<IDjvuPagePreview>(
+                decodePagePreviewResult,
+                () => ({
+                    bytes: new Uint8Array([1]),
+                    width: 600,
+                    height: 800,
+                }),
+            ),
+            timeout: true,
+            mapArgs: (
+                djvuPath: TDocumentRef,
+                pageNumber: number,
+                options?: IDjvuPagePreviewOptions,
+            ): [TDocumentRef, number, IDjvuPagePreviewOptions | undefined] => [
+                djvuPath,
+                pageNumber,
+                normalizeDjvuPagePreviewOptions(options),
+            ],
+        }),
+        estimateSizes: defineDjvuMethod({
+            name: 'estimateSizes',
+            channel: 'djvu:estimateSizes',
+            args: documentArgs,
+            result: resultSchema<IDjvuSizeEstimate[]>(decodeSizeEstimatesResult, () => [{
+                subsample: 1,
+                label: 'Original',
+                description: 'Original resolution',
+                resultingDpi: 300,
+                estimatedBytes: 1,
+            }]),
+            timeout: true,
+        }),
+        cleanupTemp: defineDjvuMethod({
+            name: 'cleanupTemp',
+            channel: 'djvu:cleanupTemp',
+            args: tempPathArgs,
+            result: voidResult,
+        }),
+    },
+    events: {
+        onProgress: {
+            kind: 'event',
+            channel: 'djvu:progress',
+            payload: progress,
+            subscription: {
+                channel: 'djvu:progress:subscribe',
+                request: 'once-per-preload-event-channel',
+                main: {
+                    method: 'subscribeProgress',
+                    context: 'sender',
+                },
+                replay: progressReplay,
+            },
+            browser: {method: 'onProgress'},
+            lazy: 'forwarded',
+        },
+        onTextSearchProgress: {
+            kind: 'event',
+            channel: 'djvu:text:progress',
+            payload: textSearchProgress,
+            browser: {method: 'onTextSearchProgress'},
+            lazy: 'forwarded',
+        },
+        onMenuConvertToPdf: {
+            kind: 'event',
+            channel: 'menu:convertToPdf',
+            payload: s.undefined(),
+            browser: {method: 'onMenuConvertToPdf'},
+            lazy: 'forwarded',
+        },
+    },
+});
+
+export type IDjvuCapability = TFeatureCapability<typeof DJVU_PLATFORM_FEATURE>;
+export type IDjvuInvokeMap = TFeatureInvokeMap<typeof DJVU_PLATFORM_FEATURE>;
+export type IDjvuEventMap = TFeatureEventMap<typeof DJVU_PLATFORM_FEATURE>;

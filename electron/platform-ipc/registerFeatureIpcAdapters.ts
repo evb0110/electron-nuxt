@@ -22,9 +22,8 @@ import { SETTINGS_PLATFORM_FEATURE } from '@contracts/settingsPlatformFeature';
 import { SHELL_PLATFORM_FEATURE } from '@contracts/shellPlatformFeature';
 import { UPDATES_PLATFORM_FEATURE } from '@contracts/updatesPlatformFeature';
 import { HOST_PLATFORM_FEATURE } from '@contracts/hostPlatformFeature';
+import { DJVU_PLATFORM_FEATURE } from '@contracts/djvuPlatformFeature';
 import type { TAnyDefinedPlatformFeature } from '@contracts/platformFeature';
-import {DJVU_CHANNELS} from '@electron/features/djvu/contract';
-import { DJVU_IPC_CODECS } from '@electron/features/djvu/djvuIpcCodecs';
 import {
     createChannelSet,
     createValidatedIpcMainEventRegistrar,
@@ -139,8 +138,9 @@ export function registerFeatureIpcAdapters(
         const {prepareSearchMainBindings} = await import('@electron/features/search/public');
         return prepareSearchMainBindings();
     });
-    registerLazyValidatedFeature(ipcMain, DJVU_CHANNELS, DJVU_IPC_CODECS, async registrar => {
-        const {registerDjvuIpcAdapter} = await import('@electron/features/djvu/registerDjvuIpcAdapter');
-        registerDjvuIpcAdapter(registrar as never);
+    registerLazyPlatformFeature(ipcMain, DJVU_PLATFORM_FEATURE, async () => {
+        const {prepareDjvuMainBindings} =
+            await import('@electron/features/djvu/mainBindings');
+        return prepareDjvuMainBindings();
     });
 }

@@ -1,5 +1,8 @@
 import type { IAgentCapability } from '@contracts/agentCapability';
-import type { IDjvuCapability } from '@contracts/electronApiDjvu';
+import {
+    DJVU_PLATFORM_FEATURE,
+    type IDjvuCapability,
+} from '@contracts/djvuPlatformFeature';
 import type {
     IDocumentsCapability,
     IDocumentsFileIoCapability,
@@ -209,10 +212,7 @@ function defineDocumentCapabilityMirrors<const TMirrors extends readonly IDocume
     return mirrors;
 }
 
-const requiredTopLevelCapabilityPaths = [
-    ['ocr'],
-    ['djvu'],
-] as const;
+const requiredTopLevelCapabilityPaths = [['ocr']] as const;
 
 const documentCapabilityMirrors = defineDocumentCapabilityMirrors([
     {
@@ -619,98 +619,6 @@ const otherMethodPaths = defineMethodPaths([
         'onDetectionJobState',
     ],
     [
-        'djvu',
-        'startOpenForViewing',
-    ],
-    [
-        'djvu',
-        'awaitOpenJob',
-    ],
-    [
-        'djvu',
-        'openForViewing',
-    ],
-    [
-        'djvu',
-        'releaseViewingPath',
-    ],
-    [
-        'djvu',
-        'startConvertToPdf',
-    ],
-    [
-        'djvu',
-        'awaitConvertJob',
-    ],
-    [
-        'djvu',
-        'convertToPdf',
-    ],
-    [
-        'djvu',
-        'printDjvuPath',
-    ],
-    [
-        'djvu',
-        'cancel',
-    ],
-    [
-        'djvu',
-        'getJobState',
-    ],
-    [
-        'djvu',
-        'subscribeJob',
-    ],
-    [
-        'djvu',
-        'cancelPagePreview',
-    ],
-    [
-        'djvu',
-        'searchText',
-    ],
-    [
-        'djvu',
-        'cancelTextSearch',
-    ],
-    [
-        'djvu',
-        'getInfo',
-    ],
-    [
-        'djvu',
-        'getPageSourceInfo',
-    ],
-    [
-        'djvu',
-        'getPageSizes',
-    ],
-    [
-        'djvu',
-        'renderPagePreview',
-    ],
-    [
-        'djvu',
-        'estimateSizes',
-    ],
-    [
-        'djvu',
-        'cleanupTemp',
-    ],
-    [
-        'djvu',
-        'onProgress',
-    ],
-    [
-        'djvu',
-        'onTextSearchProgress',
-    ],
-    [
-        'djvu',
-        'onMenuConvertToPdf',
-    ],
-    [
         'settings',
         'getDebugLogs',
     ],
@@ -950,6 +858,7 @@ export const LEGACY_PLATFORM_API_DESCRIPTOR_WITHOUT_MIGRATED_FEATURES = {
 
 export const PLATFORM_FEATURE_REGISTRY = [
     SEARCH_PLATFORM_FEATURE,
+    DJVU_PLATFORM_FEATURE,
     IMAGE_EXPORT_PLATFORM_FEATURE,
     PAGE_OPS_PLATFORM_FEATURE,
     SETTINGS_PLATFORM_FEATURE,

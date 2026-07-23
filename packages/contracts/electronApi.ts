@@ -12,6 +12,7 @@ export type * from '@contracts/electronApiScanCleanup';
 export type * from '@contracts/updatesPlatformFeature';
 export type * from '@contracts/windowTabsPlatformFeature';
 export type * from '@contracts/electronApiDjvu';
+export type * from '@contracts/djvuPlatformFeature';
 export type * from '@contracts/electronApiPageOps';
 export type * from '@contracts/hostPlatformFeature';
 export * from '@contracts/hostResourceProfile';

@@ -40,10 +40,10 @@ import {
 } from '@electron/file-access/openPathCapabilities';
 import { normalizePossiblyEncodedExistingPath } from '@electron/utils/normalizePossiblyEncodedExistingPath';
 import { getRecentFiles } from '@electron/recentFiles';
-import type { IDjvuOperationContext } from '@electron/features/djvu/ports';
+import type {IPlatformMainSenderContext} from '@contracts/platformFeature';
 import { cancelConversion } from '@electron/features/djvu/main/ddjvuConversion';
 import { searchDjvuText } from '@electron/djvu/textSearch';
-import { DJVU_EVENT_CHANNELS } from '@electron/features/djvu/contract';
+import { DJVU_PLATFORM_FEATURE } from '@contracts/djvuPlatformFeature';
 import { isAbortError } from '@electron/utils/abort';
 import { registerMainOperation } from '@electron/operation-lifecycle/mainOperationLifecycle';
 import type {
@@ -53,11 +53,11 @@ import type {
     IDjvuTextSearchOptions,
     IDjvuTextSearchProgress,
 } from '@contracts/electronApiDjvu';
-import { normalizeOptionalIpcRequestId } from '@electron/utils/ipcLimits';
 import { mainJobBroker } from '@electron/resources/jobBroker';
 
 const logger = createLogger('djvu-operations');
 const DJVU_PREVIEW_MAX_IN_FLIGHT_PER_SENDER = 2;
+export interface IDjvuOperationContext extends IPlatformMainSenderContext<WebContents> {}
 
 interface IDjvuPreviewSenderState {
     latestGenerationsByDocument: Map<string, number>;
@@ -108,7 +108,7 @@ function sendDjvuTextSearchProgress(
         // Search progress belongs to the exact WebContents that invoked the
         // operation. BrowserWindow lookup is neither required nor reliable for
         // request-scoped events (for example, during isolated Electron E2E).
-        context.sender.send(DJVU_EVENT_CHANNELS.textSearchProgress, progress);
+        context.sender.send(DJVU_PLATFORM_FEATURE.eventChannels.onTextSearchProgress, progress);
     } catch (error) {
         logger.debug(`Failed to send DjVu text search progress: ${String(error)}`);
     }
@@ -178,11 +178,7 @@ function parsePreviewRequestGeneration(requestId: string | undefined) {
 }
 
 function createPreviewRequestId(requestId: string | undefined) {
-    const normalizedRequestId = normalizeOptionalIpcRequestId(
-        requestId,
-        'renderPagePreview.options.previewRequestId',
-    );
-    return normalizedRequestId ?? `djvu-preview-${randomUUID()}`;
+    return requestId ?? `djvu-preview-${randomUUID()}`;
 }
 
 function normalizePreviewPriority(priority: number | undefined) {
@@ -608,12 +604,8 @@ export function handleDjvuStartOpenForViewingOperation(
     djvuPath: string,
     requestId: string,
 ) {
-    const checkedRequestId = normalizeOptionalIpcRequestId(requestId, 'startOpenForViewing.requestId');
-    if (!checkedRequestId) {
-        throw new Error('startOpenForViewing.requestId is required');
-    }
     const path = requireDjvuOpenPath(djvuPath, context.sender);
-    const jobId = `djvu-open-${context.senderId}-${checkedRequestId}`;
+    const jobId = `djvu-open-${context.senderId}-${requestId}`;
     startDurableDjvuOpenJob(
         context,
         jobId,
@@ -622,7 +614,7 @@ export function handleDjvuStartOpenForViewingOperation(
     );
     return Promise.resolve({
         jobId,
-        requestId: checkedRequestId,
+        requestId,
     });
 }
 
@@ -660,10 +652,7 @@ export function handleDjvuStartConvertToPdfOperation(
     outputPath: string,
     options: IDjvuConvertOptions,
 ) {
-    const requestId = normalizeOptionalIpcRequestId(options.requestId, 'startConvertToPdf.options.requestId');
-    if (!requestId) {
-        throw new Error('startConvertToPdf.options.requestId is required');
-    }
+    const requestId = options.requestId!;
     const jobId = `djvu-convert-${context.senderId}-${requestId}`;
     const path = requireDjvuOpenPath(djvuPath, context.sender);
     startDurableDjvuConvertJob(
@@ -708,26 +697,21 @@ export async function handleDjvuCancelPagePreview(
     context: IDjvuOperationContext,
     requestId: string,
 ) {
-    const normalizedRequestId = normalizeOptionalIpcRequestId(requestId, 'cancelPagePreview.requestId') ?? '';
-    if (!normalizedRequestId) {
-        return { canceled: false };
-    }
-
-    const pending = previewStateBySender.get(context.senderId)?.pendingRequests.get(normalizedRequestId);
+    const pending = previewStateBySender.get(context.senderId)?.pendingRequests.get(requestId);
     if (pending && !pending.abortController.signal.aborted) {
         pending.abortController.abort(new Error('DjVu preview request canceled'));
         return {canceled: true};
     }
 
     const active = activePreviewOperationsBySenderRequestKey.get(
-        getActivePreviewOperationKey(context.senderId, normalizedRequestId),
+        getActivePreviewOperationKey(context.senderId, requestId),
     );
     if (!active) {
         return { canceled: false };
     }
     const canceled = await cancelPreviewOperation(
         context.senderId,
-        normalizedRequestId,
+        requestId,
         'DjVu preview request canceled',
     );
     return { canceled };
@@ -739,10 +723,7 @@ export async function handleDjvuSearchText(
     query: string,
     options: IDjvuTextSearchOptions,
 ) {
-    const requestId = normalizeOptionalIpcRequestId(options.requestId, 'searchText.options.requestId');
-    if (!requestId) {
-        throw new Error('searchText.options.requestId is required');
-    }
+    const requestId = options.requestId;
     const normalizedDjvuPath = requireDjvuOpenPath(djvuPath, context.sender);
     const operationKey = getActiveTextSearchKey(context.senderId, requestId);
     const previous = activeTextSearchesBySenderRequestKey.get(operationKey);
@@ -846,12 +827,8 @@ export function handleDjvuCancelTextSearch(
     context: IDjvuOperationContext,
     requestId: string,
 ) {
-    const normalizedRequestId = normalizeOptionalIpcRequestId(requestId, 'cancelTextSearch.requestId');
-    if (!normalizedRequestId) {
-        return Promise.resolve({canceled: false});
-    }
     const operation = activeTextSearchesBySenderRequestKey.get(
-        getActiveTextSearchKey(context.senderId, normalizedRequestId),
+        getActiveTextSearchKey(context.senderId, requestId),
     );
     if (!operation || operation.abortController.signal.aborted) {
         return Promise.resolve({canceled: false});

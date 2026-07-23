@@ -17,6 +17,7 @@ import type {
 import type { TMenuEventUnsubscribe } from '@contracts/electronApiCommon';
 import type { IHostResourceProfileSnapshot } from '@contracts/hostResourceProfile';
 import { IMAGE_EXPORT_PLATFORM_FEATURE } from '@contracts/imageExportPlatformFeature';
+import { DJVU_PLATFORM_FEATURE } from '@contracts/djvuPlatformFeature';
 import { PAGE_OPS_PLATFORM_FEATURE } from '@contracts/pageOpsPlatformFeature';
 import { SEARCH_PLATFORM_FEATURE } from '@contracts/searchPlatformFeature';
 import { SETTINGS_PLATFORM_FEATURE } from '@contracts/settingsPlatformFeature';
@@ -36,7 +37,6 @@ import {
 } from '@electron/features/documents/contract';
 import {createOcrPreloadClient} from '@electron/features/ocr/createOcrPreloadClient';
 import {createScanCleanupPreloadClient} from '@electron/features/scan-cleanup/createScanCleanupPreloadClient';
-import {createDjvuPreloadClient} from '@electron/features/djvu/createDjvuPreloadClient';
 import {
     createCodecIpcInvoker,
     createPlatformFeaturePreloadClient,
@@ -502,7 +502,7 @@ export function createElectronApi(
 
         search: createPlatformFeaturePreloadClient(ipcRenderer, SEARCH_PLATFORM_FEATURE),
 
-        djvu: createDjvuPreloadClient(ipcRenderer),
+        djvu: createPlatformFeaturePreloadClient(ipcRenderer, DJVU_PLATFORM_FEATURE),
 
         settings: {
             ...settingsIpc,

@@ -161,7 +161,6 @@ const documentsClientMock = vi.hoisted(() => ({
 }));
 vi.mock('@electron/features/documents/createDocumentsPreloadClient', () => ({createDocumentsPreloadClient: () => documentsClientMock}));
 vi.mock('@electron/features/ocr/createOcrPreloadClient', () => ({ createOcrPreloadClient: () => ({}) }));
-vi.mock('@electron/features/djvu/createDjvuPreloadClient', () => ({ createDjvuPreloadClient: () => ({}) }));
 vi.mock('@electron/preload/debugLogBuffer', () => ({ getDebugLogMessages: () => [] }));
 
 const splitDocumentCapabilityMirrors = getPlatformDocumentCapabilityMirrors();

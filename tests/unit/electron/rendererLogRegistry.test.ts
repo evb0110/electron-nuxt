@@ -46,7 +46,6 @@ vi.mock('@contracts/externalUrl', () => ({sanitizeAllowedExternalUrl: (value: un
 vi.mock('@electron/features/agent/createAgentService', () => ({createAgentService: mocks.createAgentService}));
 vi.mock('@electron/features/agent/registerAgentIpcAdapter', () => ({registerAgentIpcAdapter: vi.fn()}));
 vi.mock('@electron/features/documents/registerDocumentsIpcAdapter', () => ({registerDocumentsIpcAdapter: vi.fn()}));
-vi.mock('@electron/features/djvu/registerDjvuIpcAdapter', () => ({registerDjvuIpcAdapter: vi.fn()}));
 vi.mock('@electron/features/image-export/public', () => ({imageExportMainBindings: new Proxy({}, {get: () => vi.fn()})}));
 vi.mock('@electron/features/ocr/registerOcrIpcAdapter', () => ({registerOcrIpcAdapter: vi.fn()}));
 vi.mock('@electron/features/page-ops/public', () => ({pageOpsMainBindings: new Proxy({}, {get: () => vi.fn()})}));

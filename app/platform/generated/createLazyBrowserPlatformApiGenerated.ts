@@ -245,29 +245,6 @@ export function createLazyBrowserPlatformApiGenerated({
     const scanCleanupPruneGeneratedOutputsMethod = lazyAsync(pathDescriptors.scanCleanup.pruneGeneratedOutputs.path);
     const scanCleanupOnJobStateMethod = lazyEvent(pathDescriptors.scanCleanup.onJobState.path);
     const scanCleanupOnDetectionJobStateMethod = lazyEvent(pathDescriptors.scanCleanup.onDetectionJobState.path);
-    const djvuStartOpenForViewingMethod = lazyAsync(pathDescriptors.djvu.startOpenForViewing.path);
-    const djvuAwaitOpenJobMethod = lazyAsync(pathDescriptors.djvu.awaitOpenJob.path);
-    const djvuOpenForViewingMethod = lazyAsync(pathDescriptors.djvu.openForViewing.path);
-    const djvuReleaseViewingPathMethod = lazyAsync(pathDescriptors.djvu.releaseViewingPath.path);
-    const djvuStartConvertToPdfMethod = lazyAsync(pathDescriptors.djvu.startConvertToPdf.path);
-    const djvuAwaitConvertJobMethod = lazyAsync(pathDescriptors.djvu.awaitConvertJob.path);
-    const djvuConvertToPdfMethod = lazyAsync(pathDescriptors.djvu.convertToPdf.path);
-    const djvuPrintDjvuPathMethod = lazyAsync(pathDescriptors.djvu.printDjvuPath.path);
-    const djvuCancelMethod = lazyAsync(pathDescriptors.djvu.cancel.path);
-    const djvuGetJobStateMethod = lazyAsync(pathDescriptors.djvu.getJobState.path);
-    const djvuSubscribeJobMethod = lazyAsync(pathDescriptors.djvu.subscribeJob.path);
-    const djvuCancelPagePreviewMethod = lazyAsync(pathDescriptors.djvu.cancelPagePreview.path);
-    const djvuSearchTextMethod = lazyAsync(pathDescriptors.djvu.searchText.path);
-    const djvuCancelTextSearchMethod = lazyAsync(pathDescriptors.djvu.cancelTextSearch.path);
-    const djvuGetInfoMethod = lazyAsync(pathDescriptors.djvu.getInfo.path);
-    const djvuGetPageSourceInfoMethod = lazyAsync(pathDescriptors.djvu.getPageSourceInfo.path);
-    const djvuGetPageSizesMethod = lazyAsync(pathDescriptors.djvu.getPageSizes.path);
-    const djvuRenderPagePreviewMethod = lazyAsync(pathDescriptors.djvu.renderPagePreview.path);
-    const djvuEstimateSizesMethod = lazyAsync(pathDescriptors.djvu.estimateSizes.path);
-    const djvuCleanupTempMethod = lazyAsync(pathDescriptors.djvu.cleanupTemp.path);
-    const djvuOnProgressMethod = lazyEvent(pathDescriptors.djvu.onProgress.path);
-    const djvuOnTextSearchProgressMethod = lazyEvent(pathDescriptors.djvu.onTextSearchProgress.path);
-    const djvuOnMenuConvertToPdfMethod = lazyEvent(pathDescriptors.djvu.onMenuConvertToPdf.path);
     const settingsGetDebugLogsMethod = lazyAsync(pathDescriptors.settings.getDebugLogs.path);
     const settingsOnDebugLogMethod = lazyEvent(pathDescriptors.settings.onDebugLog.path);
     const settingsRendererLogMethod = lazyVoid(pathDescriptors.settings.rendererLog.path);
@@ -294,6 +271,29 @@ export function createLazyBrowserPlatformApiGenerated({
     const searchCancelMethod = lazyAsync(pathDescriptors.search.cancel.path);
     const searchResetCacheMethod = lazyAsync(pathDescriptors.search.resetCache.path);
     const searchOnProgressMethod = lazyEvent(pathDescriptors.search.onProgress.path);
+    const djvuStartOpenForViewingMethod = lazyAsync(pathDescriptors.djvu.startOpenForViewing.path);
+    const djvuAwaitOpenJobMethod = lazyAsync(pathDescriptors.djvu.awaitOpenJob.path);
+    const djvuOpenForViewingMethod = lazyAsync(pathDescriptors.djvu.openForViewing.path);
+    const djvuReleaseViewingPathMethod = lazyAsync(pathDescriptors.djvu.releaseViewingPath.path);
+    const djvuConvertToPdfMethod = lazyAsync(pathDescriptors.djvu.convertToPdf.path);
+    const djvuStartConvertToPdfMethod = lazyAsync(pathDescriptors.djvu.startConvertToPdf.path);
+    const djvuAwaitConvertJobMethod = lazyAsync(pathDescriptors.djvu.awaitConvertJob.path);
+    const djvuPrintDjvuPathMethod = lazyAsync(pathDescriptors.djvu.printDjvuPath.path);
+    const djvuCancelMethod = lazyAsync(pathDescriptors.djvu.cancel.path);
+    const djvuGetJobStateMethod = lazyAsync(pathDescriptors.djvu.getJobState.path);
+    const djvuSubscribeJobMethod = lazyAsync(pathDescriptors.djvu.subscribeJob.path);
+    const djvuCancelPagePreviewMethod = lazyAsync(pathDescriptors.djvu.cancelPagePreview.path);
+    const djvuSearchTextMethod = lazyAsync(pathDescriptors.djvu.searchText.path);
+    const djvuCancelTextSearchMethod = lazyAsync(pathDescriptors.djvu.cancelTextSearch.path);
+    const djvuGetInfoMethod = lazyAsync(pathDescriptors.djvu.getInfo.path);
+    const djvuGetPageSourceInfoMethod = lazyAsync(pathDescriptors.djvu.getPageSourceInfo.path);
+    const djvuGetPageSizesMethod = lazyAsync(pathDescriptors.djvu.getPageSizes.path);
+    const djvuRenderPagePreviewMethod = lazyAsync(pathDescriptors.djvu.renderPagePreview.path);
+    const djvuEstimateSizesMethod = lazyAsync(pathDescriptors.djvu.estimateSizes.path);
+    const djvuCleanupTempMethod = lazyAsync(pathDescriptors.djvu.cleanupTemp.path);
+    const djvuOnProgressMethod = lazyEvent(pathDescriptors.djvu.onProgress.path);
+    const djvuOnTextSearchProgressMethod = lazyEvent(pathDescriptors.djvu.onTextSearchProgress.path);
+    const djvuOnMenuConvertToPdfMethod = lazyEvent(pathDescriptors.djvu.onMenuConvertToPdf.path);
     const imageExportExportPdfToImagesMethod = lazyAsync(pathDescriptors.imageExport.exportPdfToImages.path);
     const imageExportExportPdfToMultiPageTiffMethod = lazyAsync(pathDescriptors.imageExport.exportPdfToMultiPageTiff.path);
     const imageExportOnProgressMethod = lazyEvent(pathDescriptors.imageExport.onProgress.path);
@@ -568,31 +568,6 @@ export function createLazyBrowserPlatformApiGenerated({
         onJobState: scanCleanupOnJobStateMethod,
         onDetectionJobState: scanCleanupOnDetectionJobStateMethod,
     },
-    djvu: {
-        startOpenForViewing: djvuStartOpenForViewingMethod,
-        awaitOpenJob: djvuAwaitOpenJobMethod,
-        openForViewing: djvuOpenForViewingMethod,
-        releaseViewingPath: djvuReleaseViewingPathMethod,
-        startConvertToPdf: djvuStartConvertToPdfMethod,
-        awaitConvertJob: djvuAwaitConvertJobMethod,
-        convertToPdf: djvuConvertToPdfMethod,
-        printDjvuPath: djvuPrintDjvuPathMethod,
-        cancel: djvuCancelMethod,
-        getJobState: djvuGetJobStateMethod,
-        subscribeJob: djvuSubscribeJobMethod,
-        cancelPagePreview: djvuCancelPagePreviewMethod,
-        searchText: djvuSearchTextMethod,
-        cancelTextSearch: djvuCancelTextSearchMethod,
-        getInfo: djvuGetInfoMethod,
-        getPageSourceInfo: djvuGetPageSourceInfoMethod,
-        getPageSizes: djvuGetPageSizesMethod,
-        renderPagePreview: djvuRenderPagePreviewMethod,
-        estimateSizes: djvuEstimateSizesMethod,
-        cleanupTemp: djvuCleanupTempMethod,
-        onProgress: djvuOnProgressMethod,
-        onTextSearchProgress: djvuOnTextSearchProgressMethod,
-        onMenuConvertToPdf: djvuOnMenuConvertToPdfMethod,
-    },
     settings: {
         getDebugLogs: settingsGetDebugLogsMethod,
         onDebugLog: settingsOnDebugLogMethod,
@@ -648,6 +623,31 @@ export function createLazyBrowserPlatformApiGenerated({
         cancel: searchCancelMethod,
         resetCache: searchResetCacheMethod,
         onProgress: searchOnProgressMethod,
+    },
+    djvu: {
+        startOpenForViewing: djvuStartOpenForViewingMethod,
+        awaitOpenJob: djvuAwaitOpenJobMethod,
+        openForViewing: djvuOpenForViewingMethod,
+        releaseViewingPath: djvuReleaseViewingPathMethod,
+        convertToPdf: djvuConvertToPdfMethod,
+        startConvertToPdf: djvuStartConvertToPdfMethod,
+        awaitConvertJob: djvuAwaitConvertJobMethod,
+        printDjvuPath: djvuPrintDjvuPathMethod,
+        cancel: djvuCancelMethod,
+        getJobState: djvuGetJobStateMethod,
+        subscribeJob: djvuSubscribeJobMethod,
+        cancelPagePreview: djvuCancelPagePreviewMethod,
+        searchText: djvuSearchTextMethod,
+        cancelTextSearch: djvuCancelTextSearchMethod,
+        getInfo: djvuGetInfoMethod,
+        getPageSourceInfo: djvuGetPageSourceInfoMethod,
+        getPageSizes: djvuGetPageSizesMethod,
+        renderPagePreview: djvuRenderPagePreviewMethod,
+        estimateSizes: djvuEstimateSizesMethod,
+        cleanupTemp: djvuCleanupTempMethod,
+        onProgress: djvuOnProgressMethod,
+        onTextSearchProgress: djvuOnTextSearchProgressMethod,
+        onMenuConvertToPdf: djvuOnMenuConvertToPdfMethod,
     },
     imageExport: {
         exportPdfToImages: imageExportExportPdfToImagesMethod,

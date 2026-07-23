@@ -4,8 +4,10 @@ import {
     vi,
 } from 'vitest';
 import type { IpcMainInvokeEvent } from 'electron';
-import type { IDjvuInvokeMap } from '@electron/features/djvu/contract';
-import type { IDjvuService } from '@electron/features/djvu/ports';
+import {
+    DJVU_PLATFORM_FEATURE,
+    type IDjvuInvokeMap,
+} from '@contracts/djvuPlatformFeature';
 import {
     IMAGE_EXPORT_PLATFORM_FEATURE,
     type IImageExportInvokeMap,
@@ -53,8 +55,6 @@ vi.mock('electron', () => ({
     ipcMain: {handle: vi.fn()},
 }));
 vi.mock('@electron/platform-ipc/trustedIpcSender', () => mocks);
-vi.mock('@electron/features/djvu/createDjvuService', () => ({createDjvuService: vi.fn()}));
-vi.mock('@electron/features/djvu/main/djvuArtifactManifest', () => ({pruneStaleDjvuArtifactJobs: vi.fn(async () => undefined)}));
 vi.mock('@electron/features/ocr/createOcrService', () => ({createOcrService: vi.fn()}));
 
 function createServiceDouble<T>() {
@@ -426,59 +426,70 @@ describe('feature validated IPC decoders', () => {
     });
 
     it('exhaustively validates DjVu registrar tuples', async () => {
-        const { DJVU_CHANNELS } = await import('@electron/features/djvu/contract');
-        const { DJVU_IPC_CODECS } = await import('@electron/features/djvu/djvuIpcCodecs');
-        const { registerDjvuIpcAdapter } = await import('@electron/features/djvu/registerDjvuIpcAdapter');
+        type TBindings = TFeatureMainBindings<typeof DJVU_PLATFORM_FEATURE, IpcMainInvokeEvent>;
+        const channels = DJVU_PLATFORM_FEATURE.invokeChannels;
         const convertOptions = {
             preserveBookmarks: true,
             pdfStrategy: 'auto',
         };
-        await runCases<IDjvuInvokeMap, IDjvuService>({
-            channels: DJVU_CHANNELS,
-            codecs: DJVU_IPC_CODECS,
-            register: registerDjvuIpcAdapter,
+        await runCases<IDjvuInvokeMap, TBindings>({
+            channels,
+            codecs: cast<Parameters<typeof runCases<IDjvuInvokeMap, TBindings>>[0]['codecs']>(
+                DJVU_PLATFORM_FEATURE.ipcCodecs,
+            ),
+            register: (registrar, bindings) => registerPlatformFeatureHandlers(
+                cast<Parameters<typeof registerPlatformFeatureHandlers>[0]>(registrar),
+                DJVU_PLATFORM_FEATURE,
+                bindings,
+            ),
             cases: [
                 {
-                    channel: DJVU_CHANNELS.startOpenForViewing,
+                    channel: channels.startOpenForViewing,
                     validArgs: [
                         '/tmp/a.djvu',
                         'request-1',
                     ],
                 },
                 {
-                    channel: DJVU_CHANNELS.awaitOpenJob,
+                    channel: channels.awaitOpenJob,
                     validArgs: ['job-1'],
                 },
                 {
-                    channel: DJVU_CHANNELS.openForViewing,
+                    channel: channels.openForViewing,
                     validArgs: ['/tmp/a.djvu'],
                 },
                 {
-                    channel: DJVU_CHANNELS.releaseViewingPath,
+                    channel: channels.releaseViewingPath,
                     validArgs: ['/tmp/a.djvu'],
                 },
                 {
-                    channel: DJVU_CHANNELS.convertToPdf,
+                    channel: channels.convertToPdf,
                     validArgs: [
                         '/tmp/a.djvu',
                         '/tmp/a.pdf',
-                        convertOptions,
+                        {
+                            ...convertOptions,
+                            requestId: 'request-1',
+                        },
                     ],
                 },
                 {
-                    channel: DJVU_CHANNELS.startConvertToPdf,
+                    channel: channels.startConvertToPdf,
                     validArgs: [
                         '/tmp/a.djvu',
                         '/tmp/a.pdf',
-                        convertOptions,
+                        {
+                            ...convertOptions,
+                            requestId: 'request-1',
+                        },
                     ],
                 },
                 {
-                    channel: DJVU_CHANNELS.awaitConvertJob,
+                    channel: channels.awaitConvertJob,
                     validArgs: ['job-1'],
                 },
                 {
-                    channel: DJVU_CHANNELS.printDjvuPath,
+                    channel: channels.printDjvuPath,
                     validArgs: [
                         '/tmp/a.djvu',
                         {
@@ -488,23 +499,23 @@ describe('feature validated IPC decoders', () => {
                     ],
                 },
                 {
-                    channel: DJVU_CHANNELS.cancel,
+                    channel: channels.cancel,
                     validArgs: ['job-1'],
                 },
                 {
-                    channel: DJVU_CHANNELS.getJobState,
+                    channel: channels.getJobState,
                     validArgs: ['job-1'],
                 },
                 {
-                    channel: DJVU_CHANNELS.subscribeJob,
+                    channel: channels.subscribeJob,
                     validArgs: ['job-1'],
                 },
                 {
-                    channel: DJVU_CHANNELS.cancelPagePreview,
+                    channel: channels.cancelPagePreview,
                     validArgs: ['request-1'],
                 },
                 {
-                    channel: DJVU_CHANNELS.searchText,
+                    channel: channels.searchText,
                     validArgs: [
                         '/tmp/a.djvu',
                         'needle',
@@ -515,26 +526,26 @@ describe('feature validated IPC decoders', () => {
                     ],
                 },
                 {
-                    channel: DJVU_CHANNELS.cancelTextSearch,
+                    channel: channels.cancelTextSearch,
                     validArgs: ['request-1'],
                 },
                 {
-                    channel: DJVU_CHANNELS.getInfo,
+                    channel: channels.getInfo,
                     validArgs: ['/tmp/a.djvu'],
                 },
                 {
-                    channel: DJVU_CHANNELS.getPageSourceInfo,
+                    channel: channels.getPageSourceInfo,
                     validArgs: [
                         '/tmp/a.djvu',
                         1,
                     ],
                 },
                 {
-                    channel: DJVU_CHANNELS.getPageSizes,
+                    channel: channels.getPageSizes,
                     validArgs: ['/tmp/a.djvu'],
                 },
                 {
-                    channel: DJVU_CHANNELS.renderPagePreview,
+                    channel: channels.renderPagePreview,
                     validArgs: [
                         '/tmp/a.djvu',
                         1,
@@ -542,15 +553,15 @@ describe('feature validated IPC decoders', () => {
                     ],
                 },
                 {
-                    channel: DJVU_CHANNELS.estimateSizes,
+                    channel: channels.estimateSizes,
                     validArgs: ['/tmp/a.djvu'],
                 },
                 {
-                    channel: DJVU_CHANNELS.cleanupTemp,
+                    channel: channels.cleanupTemp,
                     validArgs: ['/tmp/a.pdf'],
                 },
                 {
-                    channel: DJVU_CHANNELS.subscribeProgress,
+                    channel: channels.subscribeProgress,
                     validArgs: [],
                 },
             ],
