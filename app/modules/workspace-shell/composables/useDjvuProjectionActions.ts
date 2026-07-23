@@ -1,16 +1,7 @@
 import type { Ref } from 'vue';
 import type { IDocumentViewerExpose } from '@app/modules/pdf-viewer/public';
-import type { IWorkspaceViewerAdapter } from '@app/modules/workspace-shell/viewers/workspaceViewerAdapterTypes';
+import type { IWorkspaceDocumentDriver } from '@app/modules/workspace-shell/viewers/workspaceDocumentDriver';
 import type { IDocumentSourceCapabilities } from '@app/utils/document-viewer/source/documentPageSource';
-
-const PDF_SOURCE_CAPABILITIES: IDocumentSourceCapabilities = {
-    annotations: true,
-    directImageExport: true,
-    outline: true,
-    pageEdits: true,
-    search: true,
-    text: true,
-};
 
 const EMPTY_SOURCE_CAPABILITIES: IDocumentSourceCapabilities = {
     annotations: false,
@@ -22,14 +13,14 @@ const EMPTY_SOURCE_CAPABILITIES: IDocumentSourceCapabilities = {
 };
 
 export const useWorkspaceSourceCapabilityProjection = (
-    activeViewerAdapter: Ref<IWorkspaceViewerAdapter | null>,
+    activeDocumentDriver: Ref<IWorkspaceDocumentDriver | null>,
     capabilities: Ref<IDocumentSourceCapabilities>,
 ) => {
-    watch(activeViewerAdapter, (adapter) => {
-        if (!adapter) {
+    watch(activeDocumentDriver, (driver) => {
+        if (!driver) {
             capabilities.value = EMPTY_SOURCE_CAPABILITIES;
-        } else if (adapter.id === 'pdf') {
-            capabilities.value = PDF_SOURCE_CAPABILITIES;
+        } else if (driver.view.defaultSourceCapabilities) {
+            capabilities.value = driver.view.defaultSourceCapabilities;
         }
     }, {immediate: true});
 };

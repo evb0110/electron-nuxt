@@ -14,10 +14,11 @@ import {
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../../../../../..');
 const documentWorkspacePath = 'app/modules/workspace-shell/components/DocumentWorkspace.vue';
 const deferredWorkspaceSearchPath = 'app/modules/workspace-shell/composables/createDeferredWorkspaceSearch.ts';
-const workspaceOrchestrationPath = 'app/modules/workspace-shell/useWorkspaceOrchestration.ts';
+const workspaceDocumentDriverPath = 'app/modules/workspace-shell/viewers/workspaceDocumentDriver.ts';
 
 const expectedOrchestrationGroups = new Set([
     'annotationSession',
+    'documentDriver',
     'documentControls',
     'exportWorkflow',
     'fileLifecycle',
@@ -189,9 +190,9 @@ describe('DocumentWorkspace orchestration grouping', () => {
     });
 
     it('routes DjVu print through a PDF projection and waits for output-service handoff', () => {
-        const source = readWorkspaceFile(workspaceOrchestrationPath);
-        const printStart = source.indexOf('async function printDjvuSource(');
-        const printEnd = source.indexOf('\n    const workspacePrint = useWorkspacePrint(', printStart);
+        const source = readWorkspaceFile(workspaceDocumentDriverPath);
+        const printStart = source.indexOf('async function prepareDjvuPrint(');
+        const printEnd = source.indexOf('\nexport function createWorkspaceDocumentDriverForAdapter(', printStart);
         const printSource = source.slice(printStart, printEnd);
         const projectionIndex = printSource.indexOf('ensurePdfProjection(printSession');
         const reasonIndex = printSource.indexOf('}, \'print\', projectionSignal)');
