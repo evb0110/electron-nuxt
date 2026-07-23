@@ -18,8 +18,8 @@ describe('DocumentOutputService', () => {
     it('keeps source-neutral state through progress, handoff, and completion', () => {
         const handle = service.start({
             jobId: 'output-1',
-            operation: 'multipage-tiff',
-            sourceKind: 'djvu',
+            operation: 'scan-cleanup',
+            sourceKind: 'pdf',
         });
         const listener = vi.fn();
         service.subscribe(handle.jobId, listener);
@@ -34,8 +34,8 @@ describe('DocumentOutputService', () => {
 
         expect(listener).toHaveBeenCalledTimes(3);
         expect(service.getState(handle.jobId)).toMatchObject({
-            operation: 'multipage-tiff',
-            sourceKind: 'djvu',
+            operation: 'scan-cleanup',
+            sourceKind: 'pdf',
             status: 'completed',
             artifactPath: '/tmp/output.tiff',
         });
@@ -54,8 +54,8 @@ describe('DocumentOutputService', () => {
     it('does not let late completion overwrite cancellation', () => {
         const handle = service.start({
             jobId: 'cancel-race',
-            operation: 'djvu-open',
-            sourceKind: 'djvu',
+            operation: 'scan-cleanup',
+            sourceKind: 'pdf',
         });
         service.cancel(handle.jobId, 'superseded');
         service.finish(handle.jobId, 'completed');
@@ -71,8 +71,8 @@ describe('DocumentOutputService', () => {
         const shortRetentionService = new DocumentOutputService(100);
         const first = shortRetentionService.start({
             jobId: 'reused-output',
-            operation: 'djvu-open',
-            sourceKind: 'djvu',
+            operation: 'scan-cleanup',
+            sourceKind: 'pdf',
         });
         shortRetentionService.finish(first.jobId, 'completed');
         vi.advanceTimersByTime(50);

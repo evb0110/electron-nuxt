@@ -35,6 +35,7 @@ interface IRetainedProgress<TPayload> {
 
 export function createIpcProgressPump<TPayload>(options: IIpcProgressPumpOptions<TPayload>) {
     const pendingByKey = new Map<string, TPayload>();
+    const pendingTargetsByKey = new Map<string, IProgressPumpTarget<TPayload> | null | undefined>();
     const timersByKey = new Map<string, ReturnType<typeof setTimeout>>();
     const keyedSubscribers = new Map<string, IProgressPumpTarget<TPayload>>();
     const unkeyedSubscribers = new Set<IProgressPumpTarget<TPayload>>();
@@ -67,8 +68,10 @@ export function createIpcProgressPump<TPayload>(options: IIpcProgressPumpOptions
             : null;
     }
 
-    function send(payload: TPayload) {
-        const primaryTarget = options.getTarget();
+    function send(
+        payload: TPayload,
+        primaryTarget: IProgressPumpTarget<TPayload> | null | undefined = options.getTarget(),
+    ) {
         const primaryTargetKey = getTargetKey(primaryTarget);
         sendToTarget(primaryTarget, payload);
         for (const subscriber of keyedSubscribers.values()) {
@@ -127,9 +130,11 @@ export function createIpcProgressPump<TPayload>(options: IIpcProgressPumpOptions
         if (payload === undefined) {
             return;
         }
+        const target = pendingTargetsByKey.get(key);
         pendingByKey.delete(key);
+        pendingTargetsByKey.delete(key);
         retain(key, payload);
-        send(payload);
+        send(payload, target);
         if (pendingByKey.has(key)) {
             scheduleFlush(key);
         }
@@ -143,29 +148,36 @@ export function createIpcProgressPump<TPayload>(options: IIpcProgressPumpOptions
         timersByKey.set(key, timer);
     }
 
-    function enqueue(payload: TPayload) {
+    function enqueue(
+        payload: TPayload,
+        target: IProgressPumpTarget<TPayload> | null | undefined = options.getTarget(),
+    ) {
         const key = options.getKey(payload);
         if (options.isTerminal?.(payload) === true) {
             pendingByKey.delete(key);
+            pendingTargetsByKey.delete(key);
             clearTimer(key);
             retain(key, payload);
-            send(payload);
+            send(payload, target);
             return;
         }
 
         pendingByKey.set(key, payload);
+        pendingTargetsByKey.set(key, target);
         if (timersByKey.has(key)) {
             retain(key, payload);
             return;
         }
         pendingByKey.delete(key);
+        pendingTargetsByKey.delete(key);
         retain(key, payload);
-        send(payload);
+        send(payload, target);
         scheduleFlush(key);
     }
 
     function clearKey(key: string) {
         pendingByKey.delete(key);
+        pendingTargetsByKey.delete(key);
         clearTimer(key);
         const retained = retainedByKey.get(key);
         if (retained && !retained.terminal) {
@@ -181,6 +193,7 @@ export function createIpcProgressPump<TPayload>(options: IIpcProgressPumpOptions
         }
         timersByKey.clear();
         pendingByKey.clear();
+        pendingTargetsByKey.clear();
         keyedSubscribers.clear();
         unkeyedSubscribers.clear();
         for (const [

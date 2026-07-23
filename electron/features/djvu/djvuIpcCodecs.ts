@@ -7,12 +7,12 @@ import type {
     IDjvuTextSearchProgress,
     TDocumentOutputJobState,
 } from '@contracts/electronApiDjvu';
+import {isDjvuDocumentOutputOperation} from '@contracts/electronApiDjvu';
 import {
     SEARCH_PAGE_COUNT_DEFAULT_MAX,
     SEARCH_WIRE_CODEC,
 } from '@contracts/search';
 import type { TIpcCodecMap } from '@contracts/ipcMain';
-import { isDjvuDocumentOutputOperation } from '@contracts/documentOutput';
 import {
     isFiniteNumber,
     isRecord,

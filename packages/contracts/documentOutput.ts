@@ -1,19 +1,6 @@
 import type { TDocumentRef } from '@contracts/documentRef';
 
-export const DJVU_DOCUMENT_OUTPUT_OPERATIONS = [
-    'djvu-convert',
-    'djvu-open',
-    'djvu-print',
-] as const;
-
-export type TDjvuDocumentOutputOperation = typeof DJVU_DOCUMENT_OUTPUT_OPERATIONS[number];
-
-export function isDjvuDocumentOutputOperation(value: unknown): value is TDjvuDocumentOutputOperation {
-    return DJVU_DOCUMENT_OUTPUT_OPERATIONS.some(operation => value === operation);
-}
-
 export type TDocumentOutputOperation =
-    | TDjvuDocumentOutputOperation
     | 'image-export'
     | 'multipage-tiff'
     | 'ocr-projection'

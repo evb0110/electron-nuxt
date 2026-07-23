@@ -13,9 +13,13 @@ import {
 } from '@electron/djvu/metadata';
 import { parseDjvuOutline } from '@electron/djvu/parseDjvuOutline';
 import {
+    awaitDurableDjvuConvertJob,
+    awaitDurableDjvuOpenJob,
     handleDjvuCancel,
     handleDjvuConvertToPdf,
     handleDjvuPrintPath,
+    startDurableDjvuConvertJob,
+    startDurableDjvuOpenJob,
 } from '@electron/features/djvu/main/pdfExport';
 import { createLogger } from '@electron/utils/createLogger';
 import {
@@ -51,13 +55,6 @@ import type {
 } from '@contracts/electronApiDjvu';
 import { normalizeOptionalIpcRequestId } from '@electron/utils/ipcLimits';
 import { mainJobBroker } from '@electron/resources/jobBroker';
-import {
-    awaitDurableDjvuConvertJob,
-    awaitDurableDjvuOpenJob,
-    cancelDurableDjvuJob,
-    startDurableDjvuConvertJob,
-    startDurableDjvuOpenJob,
-} from '@electron/features/djvu/main/durableDjvuJobs';
 
 const logger = createLogger('djvu-operations');
 const DJVU_PREVIEW_MAX_IN_FLIGHT_PER_SENDER = 2;
@@ -618,6 +615,7 @@ export function handleDjvuStartOpenForViewingOperation(
     const path = requireDjvuOpenPath(djvuPath, context.sender);
     const jobId = `djvu-open-${context.senderId}-${checkedRequestId}`;
     startDurableDjvuOpenJob(
+        context,
         jobId,
         path,
         signal => handleDjvuOpenForViewing(context, path, signal, false),
@@ -669,11 +667,13 @@ export function handleDjvuStartConvertToPdfOperation(
     const jobId = `djvu-convert-${context.senderId}-${requestId}`;
     const path = requireDjvuOpenPath(djvuPath, context.sender);
     startDurableDjvuConvertJob(
-        jobId,
-        () => handleDjvuConvertToPdf(context, path, outputPath, {
+        context,
+        path,
+        outputPath,
+        {
             ...options,
             jobId,
-        }, {cancelOnSenderGone: false}),
+        },
     );
     return Promise.resolve({
         jobId,
@@ -701,9 +701,7 @@ export async function handleDjvuCancelOperation(
     context: IDjvuOperationContext,
     jobId: string,
 ) {
-    const durableCanceled = cancelDurableDjvuJob(jobId.trim());
-    const activeResult = await handleDjvuCancel(context, jobId);
-    return { canceled: durableCanceled || activeResult.canceled };
+    return handleDjvuCancel(context, jobId);
 }
 
 export async function handleDjvuCancelPagePreview(

@@ -60,7 +60,8 @@ const mocks = vi.hoisted(() => {
         loggerInfo: vi.fn(),
         loggerWarn: vi.fn(),
         loggerError: vi.fn(),
-        recordDocumentOutputHandoff: vi.fn(),
+        adoptDjvuViewingPath: vi.fn(),
+        allowOpenPath: vi.fn(),
     };
 });
 
@@ -108,6 +109,8 @@ vi.mock('@electron/utils/printHandoff', () => ({
 }));
 vi.mock('@electron/utils/appTempDir', () => ({getAppTempDir: () => mocks.getAppTempDir()}));
 vi.mock('@electron/djvu/exportPaths', () => ({consumeAllowedDjvuWritePath: mocks.consumeAllowedDjvuWritePath}));
+vi.mock('@electron/file-access/openPathCapabilities', () => ({allowOpenPath: mocks.allowOpenPath}));
+vi.mock('@electron/features/djvu/main/viewing', () => ({adoptDjvuViewingPath: mocks.adoptDjvuViewingPath}));
 vi.mock('@electron/djvu/safeSendToWindow', () => ({safeSendToWindow: mocks.safeSendToWindow}));
 vi.mock('@electron/utils/createLogger', () => ({createLogger: () => ({
     info: mocks.loggerInfo,
@@ -121,31 +124,51 @@ vi.mock('@electron/utils/atomicReplace', () => ({
     makeSiblingTempPath: mocks.makeSiblingTempPath,
 }));
 
-vi.mock('@electron/features/djvu/main/documentOutputJobStore', () => ({
-    getDocumentOutputJobState: vi.fn(() => null),
-    recordDocumentOutputHandoff: mocks.recordDocumentOutputHandoff,
-    recordDocumentOutputProgress: vi.fn(),
-    subscribeDocumentOutputJob: vi.fn(() => () => undefined),
-}));
-
 vi.mock('@electron/features/djvu/main/pdfWorkerClient', () => ({
     createDjvuPdfBookmarkTask: mocks.createDjvuPdfBookmarkTask,
     DjvuPdfWorkerStartupError: mocks.StartupError,
 }));
 
 const {
+    awaitDurableDjvuConvertJob,
+    awaitDurableDjvuOpenJob,
+    clearDjvuJobsForTests,
+    getDjvuOutputJobState,
     handleDjvuCancel,
     handleDjvuConvertToPdf,
     handleDjvuPrintPath,
     shutdownDjvuConversions,
+    startDurableDjvuConvertJob,
+    startDurableDjvuOpenJob,
+    subscribeDjvuOutputJob,
+    subscribeDjvuProgress,
 } = await import('@electron/features/djvu/main/pdfExport');
 
 const trustedDjvuPath = '/tmp/input.djvu' as TOpenPath;
+
+function deferred<T>() {
+    let resolve!: (value: T) => void;
+    const promise = new Promise<T>((resolvePromise) => {
+        resolve = resolvePromise;
+    });
+    return {
+        promise,
+        resolve,
+    };
+}
 
 function createEvent(senderId: number) {
     const listeners = new Map<string, Array<(...args: unknown[]) => void>>();
     const sender = {
         id: senderId,
+        send: vi.fn(),
+        isDestroyed: vi.fn(() => false),
+        on: vi.fn((event: string, listener: (...args: unknown[]) => void) => {
+            const eventListeners = listeners.get(event) ?? [];
+            eventListeners.push(listener);
+            listeners.set(event, eventListeners);
+            return sender;
+        }),
         once: vi.fn((event: string, listener: (...args: unknown[]) => void) => {
             const eventListeners = listeners.get(event) ?? [];
             eventListeners.push(listener);
@@ -311,6 +334,7 @@ describe('handleDjvuConvertToPdf', () => {
 
     afterEach(async () => {
         await shutdownDjvuConversions();
+        await clearDjvuJobsForTests();
     });
 
     it('falls back to in-process bookmark embedding only for small PDFs when worker startup fails', async () => {
@@ -666,8 +690,8 @@ describe('handleDjvuConvertToPdf', () => {
             {preserveBookmarks: true},
         );
 
-        for (let attempt = 0; attempt < 5 && mocks.getDjvuPageCount.mock.calls.length === 0; attempt += 1) {
-            await Promise.resolve();
+        for (let attempt = 0; attempt < 50 && mocks.getDjvuPageCount.mock.calls.length === 0; attempt += 1) {
+            await delay(0);
         }
         const metadataOptions = mocks.getDjvuPageCount.mock.calls[0]?.[1] as { signal?: AbortSignal } | undefined;
         const cancelResult = await handleDjvuCancel(
@@ -756,8 +780,8 @@ describe('handleDjvuConvertToPdf', () => {
             percent: 0,
         }));
         expect(mocks.convertDjvuToPdfFile).not.toHaveBeenCalled();
-        for (let attempt = 0; attempt < 5 && mocks.getDjvuPageCount.mock.calls.length === 0; attempt += 1) {
-            await Promise.resolve();
+        for (let attempt = 0; attempt < 50 && mocks.getDjvuPageCount.mock.calls.length === 0; attempt += 1) {
+            await delay(0);
         }
         expect(mocks.getDjvuPageCount).toHaveBeenCalledTimes(1);
 
@@ -856,7 +880,12 @@ describe('handleDjvuConvertToPdf', () => {
             },
         );
         expect(mocks.printManagedTempPdfPath.mock.invocationCallOrder[0])
-            .toBeLessThan(mocks.recordDocumentOutputHandoff.mock.invocationCallOrder[0]!);
+            .toBeLessThan(mocks.safeSendToWindow.mock.invocationCallOrder.at(-1)!);
+        expect(getDjvuOutputJobState(event as never, 'djvu-print-print-req')).toMatchObject({
+            operation: 'djvu-print',
+            status: 'completed',
+            artifactPath: expectedFinalPath,
+        });
     });
 
     it('adds the selected DjVu page number to the native print save title', async () => {
@@ -1009,8 +1038,8 @@ describe('handleDjvuConvertToPdf', () => {
             },
         );
 
-        for (let attempt = 0; attempt < 5 && mocks.getDjvuPageCount.mock.calls.length === 0; attempt += 1) {
-            await Promise.resolve();
+        for (let attempt = 0; attempt < 50 && mocks.getDjvuPageCount.mock.calls.length === 0; attempt += 1) {
+            await delay(0);
         }
         const cancelResult = await handleDjvuCancel(
             event as never,
@@ -1049,8 +1078,8 @@ describe('handleDjvuConvertToPdf', () => {
             {preserveBookmarks: true},
         );
 
-        for (let attempt = 0; attempt < 5 && mocks.getDjvuPageCount.mock.calls.length === 0; attempt += 1) {
-            await Promise.resolve();
+        for (let attempt = 0; attempt < 50 && mocks.getDjvuPageCount.mock.calls.length === 0; attempt += 1) {
+            await delay(0);
         }
         const metadataOptions = mocks.getDjvuPageCount.mock.calls[0]?.[1] as { signal?: AbortSignal } | undefined;
         event.sender.emit('destroyed');
@@ -1083,8 +1112,8 @@ describe('handleDjvuConvertToPdf', () => {
             {preserveBookmarks: false},
         );
 
-        for (let attempt = 0; attempt < 10 && mocks.convertDjvuToPdfFile.mock.calls.length === 0; attempt += 1) {
-            await Promise.resolve();
+        for (let attempt = 0; attempt < 50 && mocks.convertDjvuToPdfFile.mock.calls.length === 0; attempt += 1) {
+            await delay(0);
         }
         expect(mocks.convertDjvuToPdfFile).toHaveBeenCalledTimes(1);
 
@@ -1109,5 +1138,154 @@ describe('handleDjvuConvertToPdf', () => {
             success: true,
             jobId: 'djvu-convert-convert-123',
         });
+    });
+
+    it('retains a durable open across reload in its originating WebContents', async () => {
+        const context = createOperationContext(21);
+        const work = deferred<{
+            success: true;
+            pageCount: number
+        }>();
+        startDurableDjvuOpenJob(
+            context as never,
+            'djvu-open-21-reload',
+            trustedDjvuPath,
+            () => work.promise,
+        );
+        expect(getDjvuOutputJobState(context as never, 'djvu-open-21-reload')).toMatchObject({
+            operation: 'djvu-open',
+            status: 'queued',
+        });
+        expect(subscribeDjvuOutputJob(context as never, 'djvu-open-21-reload')).toMatchObject({status: 'queued'});
+        mocks.safeSendToWindow.mockClear();
+
+        context.sender.emit('did-start-navigation', {}, 'app://reload', false, true);
+        work.resolve({
+            success: true,
+            pageCount: 3,
+        });
+        await expect(awaitDurableDjvuOpenJob(context as never, 'djvu-open-21-reload')).resolves.toMatchObject({
+            success: true,
+            jobId: 'djvu-open-21-reload',
+            pageCount: 3,
+        });
+        expect(mocks.adoptDjvuViewingPath).toHaveBeenCalledWith(context, trustedDjvuPath);
+        expect(getDjvuOutputJobState(context as never, 'djvu-open-21-reload')).toMatchObject({status: 'completed'});
+        expect(mocks.safeSendToWindow.mock.calls.filter(([
+            , , progress,
+        ]) => (
+            (progress as {jobId?: string}).jobId === 'djvu-open-21-reload'
+        ))).toHaveLength(1);
+    });
+
+    it('does not grant a durable job to another WebContents', async () => {
+        const owner = createOperationContext(22);
+        const stranger = createOperationContext(23);
+        startDurableDjvuOpenJob(
+            owner as never,
+            'djvu-open-22-private',
+            trustedDjvuPath,
+            async () => ({
+                success: true,
+                pageCount: 1,
+            }),
+        );
+
+        await expect(awaitDurableDjvuOpenJob(stranger as never, 'djvu-open-22-private'))
+            .rejects.toThrow('Unknown or expired DjVu open job');
+        expect(getDjvuOutputJobState(stranger as never, 'djvu-open-22-private')).toBeNull();
+        await expect(handleDjvuCancel(stranger as never, 'djvu-open-22-private'))
+            .resolves.toEqual({canceled: false});
+        expect(subscribeDjvuOutputJob(stranger as never, 'djvu-open-22-private')).toBeNull();
+    });
+
+    it('cancels durable open metadata through the registry signal', async () => {
+        const context = createOperationContext(24);
+        let receivedSignal: AbortSignal | undefined;
+        startDurableDjvuOpenJob(
+            context as never,
+            'djvu-open-24-cancel',
+            trustedDjvuPath,
+            async (signal) => {
+                receivedSignal = signal;
+                await new Promise<void>(resolve => signal.addEventListener('abort', () => resolve(), {once: true}));
+                return {
+                    success: true,
+                    pageCount: 1,
+                };
+            },
+        );
+        await vi.waitFor(() => expect(receivedSignal).toBeDefined());
+
+        await expect(handleDjvuCancel(context as never, 'djvu-open-24-cancel'))
+            .resolves.toEqual({canceled: true});
+        await expect(awaitDurableDjvuOpenJob(context as never, 'djvu-open-24-cancel')).resolves.toMatchObject({
+            success: false,
+            error: 'DjVu operation canceled',
+        });
+        expect(receivedSignal?.aborted).toBe(true);
+        expect(getDjvuOutputJobState(context as never, 'djvu-open-24-cancel')).toMatchObject({status: 'canceled'});
+        expect(mocks.adoptDjvuViewingPath).not.toHaveBeenCalled();
+    });
+
+    it('retains durable conversion output and replays terminal progress', async () => {
+        const context = createOperationContext(25);
+        startDurableDjvuConvertJob(
+            context as never,
+            trustedDjvuPath,
+            '/tmp/durable-output.pdf',
+            {
+                jobId: 'djvu-convert-25-reload',
+                preserveBookmarks: false,
+                pdfStrategy: 'direct',
+                requestId: 'reload',
+            },
+        );
+
+        await expect(awaitDurableDjvuConvertJob(context as never, 'djvu-convert-25-reload')).resolves.toMatchObject({
+            success: true,
+            jobId: 'djvu-convert-25-reload',
+            pdfPath: '/tmp/durable-output.pdf',
+        });
+        expect(mocks.allowOpenPath).toHaveBeenLastCalledWith('/tmp/durable-output.pdf', context.sender);
+        expect(getDjvuOutputJobState(context as never, 'djvu-convert-25-reload')).toMatchObject({
+            operation: 'djvu-convert',
+            status: 'completed',
+            artifactPath: '/tmp/durable-output.pdf',
+        });
+
+        mocks.safeSendToWindow.mockClear();
+        subscribeDjvuProgress(context as never);
+        expect(mocks.safeSendToWindow).toHaveBeenCalledWith(
+            null,
+            'djvu:progress',
+            expect.objectContaining({
+                jobId: 'djvu-convert-25-reload',
+                status: 'success',
+            }),
+        );
+        expect(subscribeDjvuOutputJob(context as never, 'djvu-convert-25-reload')).toMatchObject({
+            status: 'completed',
+            artifactPath: '/tmp/durable-output.pdf',
+        });
+    });
+
+    it('retains at most 64 terminal DjVu records', async () => {
+        const context = createOperationContext(26);
+        for (let index = 0; index < 65; index += 1) {
+            startDurableDjvuOpenJob(
+                context as never,
+                `djvu-open-26-bounded-${index}`,
+                trustedDjvuPath,
+                async () => ({
+                    success: true,
+                    pageCount: 1,
+                }),
+            );
+        }
+        await new Promise(resolve => setImmediate(resolve));
+
+        expect(getDjvuOutputJobState(context as never, 'djvu-open-26-bounded-0')).toBeNull();
+        expect(getDjvuOutputJobState(context as never, 'djvu-open-26-bounded-64')).toMatchObject({status: 'completed'});
     });
 });

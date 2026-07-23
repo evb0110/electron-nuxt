@@ -55,7 +55,8 @@ export type TMainJobSnapshot<TProgress, TResult, TError extends IMainJobErrorEnv
     }
     | IMainJobSnapshotBase<TProgress> & {
         status: 'completed';
-        result: TResult
+        result: TResult;
+        handoffResult?: TResult
     }
     | IMainJobSnapshotBase<TProgress> & {
         status: 'canceled' | 'failed';
@@ -195,7 +196,7 @@ export function createMainJobRegistry<TProgress, TResult, TError extends IMainJo
         },
     }) : null;
     function notify(record: IRecord) { for (const listener of record.subscribers) listener(record.snapshot); }
-    function emit(record: IRecord, terminal = false) {
+    function emit(record: IRecord, terminal = false, flushKey?: string) {
         if (!pump || options.progress?.getEventKey(record.snapshot.progress) === null) {
             return;
         }
@@ -206,7 +207,9 @@ export function createMainJobRegistry<TProgress, TResult, TError extends IMainJo
                 ? options.progress.send(record.actor.sender, channel, progress)
                 : record.actor.sender.send(channel, progress),
         };
-        publishingTerminal = terminal; pump.enqueue(record.snapshot.progress);
+        publishingTerminal = terminal;
+        if (flushKey) pump.flush(flushKey);
+        pump.enqueue(record.snapshot.progress, deliveryTarget);
         publishingTerminal = false; deliveryTarget = null;
     }
     function unbind(record: IRecord) {
@@ -236,7 +239,10 @@ export function createMainJobRegistry<TProgress, TResult, TError extends IMainJo
             return false;
         }
         const effective = record.snapshot.status === 'canceling' ? 'canceled' : status;
-        const error = effective === 'completed' ? null : options.toError(value, effective); const latest = progress ?? record.snapshot.progress;
+        const cause: unknown = effective === 'canceled' && record.controller.signal.aborted
+            ? record.controller.signal.reason
+            : value;
+        const error = effective === 'completed' ? null : options.toError(cause, effective); const latest = progress ?? record.snapshot.progress;
         const terminalProgress = effective === 'completed' ? options.terminalProgress.completed(latest, value as TResult)
             : effective === 'canceled'
                 ? options.terminalProgress.canceled(latest, error as TError)
@@ -267,7 +273,11 @@ export function createMainJobRegistry<TProgress, TResult, TError extends IMainJo
         return true;
     }
     function ownerEnd(record: IRecord, action: TMainJobOwnerEndAction | undefined, reason: string) {
-        if (action === 'cancel') requestCancel(record, reason); else if (action === 'detach') unbind(record);
+        record.subscribers.clear();
+        if (action === 'cancel') {
+            requestCancel(record, reason);
+            unbind(record);
+        } else if (action === 'detach') unbind(record);
     }
     function bind(record: IRecord) {
         let binding = bindings.get(record.owner.webContentsId);
@@ -339,7 +349,7 @@ export function createMainJobRegistry<TProgress, TResult, TError extends IMainJo
             cancel: reason => requestCancel(record, reason),
         };
         recordRef.current = record; records.set(jobId, record);
-        cancelHooks.set(record, startOptions.onCancel); bind(record);
+        cancelHooks.set(record, startOptions.onCancel); bind(record); emit(record);
         for (const signal of [
             operation.signal,
             ...(startOptions.signals ?? []),
@@ -354,10 +364,17 @@ export function createMainJobRegistry<TProgress, TResult, TError extends IMainJo
             jobId,
             signal: controller.signal,
             scratch: {using: usingManagedScratchScope},
-            publish: progress => { if (record.terminalAtMs === null) { update(record, {
-                progress,
-                ...(record.snapshot.status === 'queued' ? {status: 'running'} : {}),
-            }); emit(record); } },
+            publish: progress => { if (record.terminalAtMs === null) {
+                const previousKey = options.progress?.getEventKey(record.snapshot.progress);
+                const nextKey = options.progress?.getEventKey(progress);
+                const flushKey = previousKey && nextKey && previousKey !== nextKey
+                    ? previousKey
+                    : undefined;
+                update(record, {
+                    progress,
+                    ...(record.snapshot.status === 'queued' ? {status: 'running'} : {}),
+                }); emit(record, false, flushKey);
+            } },
             handoff: (result, progress) => {
                 if (record.terminalAtMs === null && record.snapshot.status !== 'canceling') update(record, {
                     status: 'handoff',
@@ -398,6 +415,7 @@ export function createMainJobRegistry<TProgress, TResult, TError extends IMainJo
             const record = authorized(jobId, actor); if (!record) {
                 return null;
             }
+            bind(record);
             record.subscribers.add(listener); listener(record.snapshot);
             return () => record.subscribers.delete(listener);
         },
@@ -411,7 +429,20 @@ export function createMainJobRegistry<TProgress, TResult, TError extends IMainJo
                 send: (channel, progress) => options.progress?.send ? options.progress.send(actor.sender, channel, progress)
                     : actor.sender.send(channel, progress),
             };
-            return pump.subscribe(target) ?? (() => {});
+            const unsubscribe = pump.subscribe(target) ?? (() => {});
+            const navigation = (_event: Event, _url: string, isInPlace: boolean, isMainFrame: boolean) => {
+                if (isMainFrame && !isInPlace) cleanup();
+            };
+            const cleanup = () => {
+                unsubscribe();
+                actor.sender.removeListener('destroyed', cleanup);
+                actor.sender.removeListener('render-process-gone', cleanup);
+                actor.sender.removeListener('did-start-navigation', navigation);
+            };
+            actor.sender.once('destroyed', cleanup);
+            actor.sender.once('render-process-gone', cleanup);
+            actor.sender.on('did-start-navigation', navigation);
+            return cleanup;
         },
         cancel: (jobId, actor, reason) => {
             const record = authorized(jobId, actor); return record ? requestCancel(record, reason) : false;

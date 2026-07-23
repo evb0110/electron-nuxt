@@ -1,6 +1,5 @@
 import type { TDocumentRef } from '@contracts/documentRef';
 import type { TDjvuPdfExportStrategy } from '@contracts/djvuConversionPolicy';
-import type { TDjvuDocumentOutputOperation } from '@contracts/documentOutput';
 import type {
     TPdfViewMode,
     TPrintOrientation,
@@ -27,6 +26,18 @@ export interface IDjvuProgress {
     total?: number;
     percent: number;
     error?: string;
+}
+
+export const DJVU_DOCUMENT_OUTPUT_OPERATIONS = [
+    'djvu-convert',
+    'djvu-open',
+    'djvu-print',
+] as const;
+
+export type TDjvuDocumentOutputOperation = typeof DJVU_DOCUMENT_OUTPUT_OPERATIONS[number];
+
+export function isDjvuDocumentOutputOperation(value: unknown): value is TDjvuDocumentOutputOperation {
+    return DJVU_DOCUMENT_OUTPUT_OPERATIONS.some(operation => value === operation);
 }
 
 export type TDocumentOutputOperation = TDjvuDocumentOutputOperation;

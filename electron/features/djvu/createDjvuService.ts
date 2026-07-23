@@ -39,7 +39,7 @@ export function createDjvuService(): IDjvuService {
         awaitConvertJob: handleDjvuAwaitConvertJobOperation,
         printDjvuPath: handleDjvuPrintPathOperation,
         cancel: handleDjvuCancelOperation,
-        getJobState: (_context, jobId) => Promise.resolve(getDjvuOutputJobState(jobId)),
+        getJobState: (context, jobId) => Promise.resolve(getDjvuOutputJobState(context, jobId)),
         subscribeJob: (context, jobId) => Promise.resolve(subscribeDjvuOutputJob(context, jobId)),
         cancelPagePreview: handleDjvuCancelPagePreview,
         searchText: handleDjvuSearchText,
