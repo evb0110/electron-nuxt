@@ -6,12 +6,13 @@ use std::{
     path::Path,
 };
 
+use evb_raster_io::{read_png_passthrough, PassthroughLimits, PngColorType};
+
 use crate::{
     flate::{deflate_up_filtered_rgb_grayscale, deflate_up_filtered_slices},
     jpeg::parse_jpeg_metadata,
     netpbm::{is_rgb_data_grayscale, parse_netpbm},
     pdf::{ImagePage, ImagePayload},
-    png::parse_png_reader,
     tiff_io::{read_tiff_pdf_pages_from_bytes, visit_tiff_pdf_pages_from_file},
     MixedPdfImageProcessing, PdfPageSize, Result, DEFAULT_DPI,
 };
@@ -20,6 +21,7 @@ const JPEG_GUARDRAIL_QUALITY_FLOOR: u8 = 75;
 const JPEG_GUARDRAIL_PPI_CAP: f64 = 300.0;
 const JPEG_GUARDRAIL_GRAYSCALE_BPP: f64 = 1.5;
 const JPEG_GUARDRAIL_COLOR_BPP: f64 = 2.25;
+const MAX_PNG_ICC_PROFILE_BYTES: usize = 16 * 1024 * 1024;
 
 #[derive(Clone, Copy)]
 pub struct JpegSizeGuardrail {
@@ -222,13 +224,19 @@ fn read_png_page_from_reader<R: std::io::Read>(
     max_pixels: u64,
     default_dpi: Option<u32>,
 ) -> Result<ImagePage> {
-    let png = parse_png_reader(reader, max_pixels)?;
+    let png = read_png_passthrough(
+        reader,
+        PassthroughLimits {
+            max_pixels,
+            max_icc_profile_bytes: MAX_PNG_ICC_PROFILE_BYTES,
+        },
+    )?;
 
     let (colors, color_space) = match png.color_type {
-        0 => (1, "DeviceGray"),
-        2 => (3, "DeviceRGB"),
-        _ => {
-            return Err(format!("Unsupported PNG color type: {}", png.color_type).into());
+        PngColorType::Gray8 => (1, "DeviceGray"),
+        PngColorType::Rgb8 => (3, "DeviceRGB"),
+        PngColorType::GrayAlpha8 | PngColorType::Rgba8 => {
+            unreachable!("the passthrough reader rejects alpha-bearing PNG color types")
         }
     };
 

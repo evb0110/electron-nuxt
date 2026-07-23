@@ -4,14 +4,13 @@ mod image;
 mod jpeg;
 mod netpbm;
 mod pdf;
-mod png;
-mod png_encode;
 mod tiff_io;
 
 #[cfg(all(target_family = "wasm", target_os = "unknown"))]
 mod wasm;
 
 use std::{
+    borrow::Cow,
     error::Error,
     fs::File,
     io::{BufWriter, Read, Write},
@@ -19,6 +18,7 @@ use std::{
 };
 
 use evb_native_support::output::{AtomicOutput, ValidatedInputFiles};
+use evb_raster_io::{write_png, PixelBuffer};
 
 use crate::{
     image::{
@@ -26,12 +26,11 @@ use crate::{
         read_image_pages, read_image_pages_from_bytes, visit_image_pages_from_file,
         PdfImageCompression,
     },
-    netpbm::parse_pbm_p4,
+    netpbm::{is_rgb_data_grayscale, parse_netpbm, parse_pbm_p4},
     pdf::{
         build_layered_pdf_page, build_mask_pdf_page, build_pdf, write_pdf_to_writer, ImagePage,
         ImagePayload,
     },
-    png_encode::encode_netpbm_file_as_png,
     tiff_io::combine_tiff_pages,
 };
 
@@ -46,15 +45,9 @@ pub use crate::netpbm::probe_netpbm_path;
 pub const DEFAULT_DPI: u32 = 72;
 pub const DEFAULT_MAX_IMAGE_PIXELS: u64 = 80_000_000;
 pub const DEFAULT_MAX_BILEVEL_PIXELS: u64 = 160_000_000;
-pub(crate) const METERS_PER_INCH: f64 = 0.0254;
 pub(crate) const CM_PER_INCH: f64 = 2.54;
 
 pub type Result<T> = std::result::Result<T, Box<dyn Error>>;
-
-#[doc(hidden)]
-pub fn fuzz_parse_png(data: &[u8]) {
-    let _ = png::parse_png_reader(std::io::Cursor::new(data), 80_000_000);
-}
 
 #[doc(hidden)]
 pub fn fuzz_parse_jpeg(data: &[u8]) {
@@ -646,7 +639,44 @@ pub fn encode_netpbm_path_as_png(
     output_path: &Path,
     max_pixels: u64,
 ) -> Result<()> {
-    encode_netpbm_file_as_png(input_path, output_path, max_pixels)
+    let validated_inputs = ValidatedInputFiles::open(&[input_path.to_path_buf()], output_path)?;
+    let mut input = validated_inputs.clone_file(0)?;
+    let mut data = Vec::new();
+    input.read_to_end(&mut data)?;
+    let netpbm = parse_netpbm(&data, max_pixels)?;
+    let total_pixels = netpbm.width as usize * netpbm.height as usize;
+    let mut channels = netpbm.channels as usize;
+    let pixels = if channels == 3 && is_rgb_data_grayscale(netpbm.pixels, total_pixels) {
+        channels = 1;
+        Cow::Owned(
+            netpbm
+                .pixels
+                .chunks_exact(3)
+                .map(|pixel| pixel[0])
+                .collect(),
+        )
+    } else {
+        Cow::Borrowed(netpbm.pixels)
+    };
+    let buffer = match channels {
+        1 => PixelBuffer::Gray {
+            width: netpbm.width as usize,
+            height: netpbm.height as usize,
+            stride: netpbm.width as usize,
+            data: &pixels,
+        },
+        3 => PixelBuffer::Rgb {
+            width: netpbm.width as usize,
+            height: netpbm.height as usize,
+            stride: netpbm.width as usize * 3,
+            data: &pixels,
+        },
+        _ => unreachable!("the Netpbm parser only returns gray or RGB pixels"),
+    };
+    let mut output = AtomicOutput::create(output_path)?;
+    write_png(output.file_mut()?, buffer)?;
+    output.publish()?;
+    Ok(())
 }
 
 pub fn combine_tiff_paths(
@@ -905,6 +935,28 @@ mod tests {
         assert!(pdf
             .windows(b"/Subtype /Image".len())
             .any(|window| window == b"/Subtype /Image"));
+    }
+
+    #[test]
+    fn preserves_png_icc_profile_bytes_in_pdf_embedding() {
+        let png = include_bytes!("../../evb-raster-io/tests/fixtures/iccp.png");
+        let profile = include_bytes!("../../evb-raster-io/tests/fixtures/iccp-profile.bin");
+
+        let pdf = build_pdf_from_image_bytes_inputs(
+            &[ImageBytesInput {
+                file_name: "profile.png",
+                data: png,
+            }],
+            &PdfBuildOptions::default(),
+        )
+        .unwrap();
+
+        assert!(pdf
+            .windows(b"/ColorSpace [/ICCBased".len())
+            .any(|window| window == b"/ColorSpace [/ICCBased"));
+        assert!(pdf
+            .windows(profile.len())
+            .any(|window| window == profile.as_slice()));
     }
 
     #[test]
@@ -1283,49 +1335,6 @@ mod tests {
     }
 
     #[test]
-    fn accepts_bilevel_page_above_the_eight_bit_pixel_limit() {
-        const WIDTH: usize = 8_192;
-        const HEIGHT: usize = 10_000;
-        assert!(WIDTH * HEIGHT > DEFAULT_MAX_IMAGE_PIXELS as usize);
-        assert!(WIDTH * HEIGHT <= DEFAULT_MAX_BILEVEL_PIXELS as usize);
-
-        let pbm_path = temp_path("large-bilevel").with_extension("pbm");
-        let output_path = temp_path("large-bilevel-output").with_extension("pdf");
-        let mut pbm = format!("P4\n{WIDTH} {HEIGHT}\n").into_bytes();
-        pbm.resize(pbm.len() + WIDTH.div_ceil(8) * HEIGHT, 0);
-        fs::write(&pbm_path, pbm).unwrap();
-
-        write_mixed_pdf_from_page_specs_with_progress(
-            &[MixedPdfPageSpec::Bilevel {
-                page_size: PdfPageSize {
-                    width_points: 491.52,
-                    height_points: 600.0,
-                },
-                image_path: pbm_path.clone(),
-            }],
-            &output_path,
-            &PdfBuildOptions::default(),
-            |_| {},
-        )
-        .unwrap();
-
-        let pdf = fs::read(&output_path).unwrap();
-        assert!(pdf.starts_with(b"%PDF-1.4"));
-        assert!(pdf
-            .windows(b"/BitsPerComponent 1".len())
-            .any(|window| window == b"/BitsPerComponent 1"));
-        assert!(pdf
-            .windows(b"/Width 8192".len())
-            .any(|window| window == b"/Width 8192"));
-        assert!(pdf
-            .windows(b"/Height 10000".len())
-            .any(|window| window == b"/Height 10000"));
-
-        let _ = fs::remove_file(pbm_path);
-        let _ = fs::remove_file(output_path);
-    }
-
-    #[test]
     fn keeps_existing_mixed_pdf_on_late_page_failure() {
         let valid_path = temp_path("mixed-atomic-valid").with_extension("ppm");
         let invalid_path = temp_path("mixed-atomic-invalid").with_extension("ppm");
@@ -1394,6 +1403,49 @@ mod tests {
         assert_eq!(fs::read(&mask_path).unwrap(), original);
         assert_eq!(fs::read(&output_path).unwrap(), original);
         let _ = fs::remove_file(mask_path);
+        let _ = fs::remove_file(output_path);
+    }
+
+    #[test]
+    fn accepts_bilevel_page_above_the_eight_bit_pixel_limit() {
+        const WIDTH: usize = 8_192;
+        const HEIGHT: usize = 10_000;
+        assert!(WIDTH * HEIGHT > DEFAULT_MAX_IMAGE_PIXELS as usize);
+        assert!(WIDTH * HEIGHT <= DEFAULT_MAX_BILEVEL_PIXELS as usize);
+
+        let pbm_path = temp_path("large-bilevel").with_extension("pbm");
+        let output_path = temp_path("large-bilevel-output").with_extension("pdf");
+        let mut pbm = format!("P4\n{WIDTH} {HEIGHT}\n").into_bytes();
+        pbm.resize(pbm.len() + WIDTH.div_ceil(8) * HEIGHT, 0);
+        fs::write(&pbm_path, pbm).unwrap();
+
+        write_mixed_pdf_from_page_specs_with_progress(
+            &[MixedPdfPageSpec::Bilevel {
+                page_size: PdfPageSize {
+                    width_points: 491.52,
+                    height_points: 600.0,
+                },
+                image_path: pbm_path.clone(),
+            }],
+            &output_path,
+            &PdfBuildOptions::default(),
+            |_| {},
+        )
+        .unwrap();
+
+        let pdf = fs::read(&output_path).unwrap();
+        assert!(pdf.starts_with(b"%PDF-1.4"));
+        assert!(pdf
+            .windows(b"/BitsPerComponent 1".len())
+            .any(|window| window == b"/BitsPerComponent 1"));
+        assert!(pdf
+            .windows(b"/Width 8192".len())
+            .any(|window| window == b"/Width 8192"));
+        assert!(pdf
+            .windows(b"/Height 10000".len())
+            .any(|window| window == b"/Height 10000"));
+
+        let _ = fs::remove_file(pbm_path);
         let _ = fs::remove_file(output_path);
     }
 
