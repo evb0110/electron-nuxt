@@ -9,7 +9,7 @@ use evb_pdf_image_combine::{
     combine_tiff_paths, encode_netpbm_path_as_png, probe_netpbm_path,
     write_mixed_pdf_from_page_specs_with_progress, write_pdf_from_image_paths_with_progress,
     MixedPdfImageCompression, MixedPdfImageProcessing, MixedPdfPageSpec, PdfBuildOptions,
-    PdfPageSize, Result,
+    PdfPageSize, Result, DEFAULT_MAX_BILEVEL_PIXELS, DEFAULT_MAX_IMAGE_PIXELS,
 };
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -46,7 +46,7 @@ fn run() -> Result<()> {
             Path::new(input_path),
             read_limit(
                 "EVB_PDF_COMBINE_MAX_IMAGE_PIXELS",
-                80_000_000,
+                DEFAULT_MAX_IMAGE_PIXELS,
                 1_000_000,
                 u64::MAX,
             ),
@@ -67,7 +67,7 @@ fn run() -> Result<()> {
     let config = parse_args()?;
     let max_pixels = read_limit(
         "EVB_PDF_COMBINE_MAX_IMAGE_PIXELS",
-        80_000_000,
+        DEFAULT_MAX_IMAGE_PIXELS,
         1_000_000,
         u64::MAX,
     );
@@ -106,6 +106,7 @@ fn run() -> Result<()> {
                 default_dpi: config.dpi,
                 max_pages: read_limit("EVB_PDF_COMBINE_MAX_PAGES", 500, 1, 10_000) as usize,
                 max_pixels,
+                max_bilevel_pixels: DEFAULT_MAX_BILEVEL_PIXELS,
                 max_total_pixels,
                 max_output_bytes: read_limit(
                     "EVB_PDF_COMBINE_MAX_OUTPUT_BYTES",
@@ -133,6 +134,7 @@ fn run() -> Result<()> {
             default_dpi: config.dpi,
             max_pages: read_limit("EVB_PDF_COMBINE_MAX_PAGES", 500, 1, 10_000) as usize,
             max_pixels,
+            max_bilevel_pixels: DEFAULT_MAX_BILEVEL_PIXELS,
             max_total_pixels,
             max_output_bytes: read_limit(
                 "EVB_PDF_COMBINE_MAX_OUTPUT_BYTES",

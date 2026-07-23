@@ -44,6 +44,8 @@ pub use crate::{
 pub use crate::netpbm::probe_netpbm_path;
 
 pub const DEFAULT_DPI: u32 = 72;
+pub const DEFAULT_MAX_IMAGE_PIXELS: u64 = 80_000_000;
+pub const DEFAULT_MAX_BILEVEL_PIXELS: u64 = 160_000_000;
 pub(crate) const METERS_PER_INCH: f64 = 0.0254;
 pub(crate) const CM_PER_INCH: f64 = 2.54;
 
@@ -87,6 +89,7 @@ pub struct PdfBuildOptions {
     pub default_dpi: Option<u32>,
     pub max_pages: usize,
     pub max_pixels: u64,
+    pub max_bilevel_pixels: u64,
     pub max_total_pixels: u64,
     pub max_output_bytes: u64,
     pub max_tiff_frames: usize,
@@ -97,7 +100,8 @@ impl Default for PdfBuildOptions {
         Self {
             default_dpi: None,
             max_pages: 500,
-            max_pixels: 80_000_000,
+            max_pixels: DEFAULT_MAX_IMAGE_PIXELS,
+            max_bilevel_pixels: DEFAULT_MAX_BILEVEL_PIXELS,
             max_total_pixels: 512_000_000,
             max_output_bytes: 512 * 1024 * 1024,
             max_tiff_frames: 250,
@@ -446,7 +450,7 @@ pub fn build_mixed_pdf_from_bytes_page_specs(
                     assert_pixel_limit(
                         foreground_mask.width,
                         foreground_mask.height,
-                        options.max_pixels,
+                        options.max_bilevel_pixels,
                     )?;
                     pdf.add_layered_page(&LayeredPdfPage {
                         page_size: *page_size,
@@ -463,7 +467,7 @@ pub fn build_mixed_pdf_from_bytes_page_specs(
                     assert_pixel_limit(
                         foreground_mask.width,
                         foreground_mask.height,
-                        options.max_pixels,
+                        options.max_bilevel_pixels,
                     )?;
                     pdf.add_mask_page(&MaskPdfPage {
                         page_size: *page_size,
@@ -535,8 +539,8 @@ pub fn write_mixed_pdf_from_page_specs_with_progress(
                         image_path: _,
                     } => {
                         let image = parse_processed_pbm_mask_from_file(
-                            validated_inputs.file(input_index)?,
-                            options.max_pixels,
+                            validated_inputs.clone_file(input_index)?,
+                            options.max_bilevel_pixels,
                         )?;
                         input_index += 1;
                         let page = bilevel_image_page(image)?;
@@ -563,13 +567,13 @@ pub fn write_mixed_pdf_from_page_specs_with_progress(
                         input_index += 1;
                         let foreground_mask = parse_processed_pbm_mask_from_file(
                             validated_inputs.clone_file(input_index)?,
-                            options.max_pixels,
+                            options.max_bilevel_pixels,
                         )?;
                         input_index += 1;
                         assert_pixel_limit(
                             foreground_mask.width,
                             foreground_mask.height,
-                            options.max_pixels,
+                            options.max_bilevel_pixels,
                         )?;
                         pdf.add_layered_page(&LayeredPdfPage {
                             page_size: PdfPageSize {
@@ -587,13 +591,13 @@ pub fn write_mixed_pdf_from_page_specs_with_progress(
                     } => {
                         let foreground_mask = parse_processed_pbm_mask_from_file(
                             validated_inputs.clone_file(input_index)?,
-                            options.max_pixels,
+                            options.max_bilevel_pixels,
                         )?;
                         input_index += 1;
                         assert_pixel_limit(
                             foreground_mask.width,
                             foreground_mask.height,
-                            options.max_pixels,
+                            options.max_bilevel_pixels,
                         )?;
                         pdf.add_mask_page(&MaskPdfPage {
                             page_size: PdfPageSize {
@@ -1276,6 +1280,49 @@ mod tests {
         let _ = fs::remove_file(pgm_path);
         let _ = fs::remove_file(bilevel_output_path);
         let _ = fs::remove_file(grayscale_output_path);
+    }
+
+    #[test]
+    fn accepts_bilevel_page_above_the_eight_bit_pixel_limit() {
+        const WIDTH: usize = 8_192;
+        const HEIGHT: usize = 10_000;
+        assert!(WIDTH * HEIGHT > DEFAULT_MAX_IMAGE_PIXELS as usize);
+        assert!(WIDTH * HEIGHT <= DEFAULT_MAX_BILEVEL_PIXELS as usize);
+
+        let pbm_path = temp_path("large-bilevel").with_extension("pbm");
+        let output_path = temp_path("large-bilevel-output").with_extension("pdf");
+        let mut pbm = format!("P4\n{WIDTH} {HEIGHT}\n").into_bytes();
+        pbm.resize(pbm.len() + WIDTH.div_ceil(8) * HEIGHT, 0);
+        fs::write(&pbm_path, pbm).unwrap();
+
+        write_mixed_pdf_from_page_specs_with_progress(
+            &[MixedPdfPageSpec::Bilevel {
+                page_size: PdfPageSize {
+                    width_points: 491.52,
+                    height_points: 600.0,
+                },
+                image_path: pbm_path.clone(),
+            }],
+            &output_path,
+            &PdfBuildOptions::default(),
+            |_| {},
+        )
+        .unwrap();
+
+        let pdf = fs::read(&output_path).unwrap();
+        assert!(pdf.starts_with(b"%PDF-1.4"));
+        assert!(pdf
+            .windows(b"/BitsPerComponent 1".len())
+            .any(|window| window == b"/BitsPerComponent 1"));
+        assert!(pdf
+            .windows(b"/Width 8192".len())
+            .any(|window| window == b"/Width 8192"));
+        assert!(pdf
+            .windows(b"/Height 10000".len())
+            .any(|window| window == b"/Height 10000"));
+
+        let _ = fs::remove_file(pbm_path);
+        let _ = fs::remove_file(output_path);
     }
 
     #[test]

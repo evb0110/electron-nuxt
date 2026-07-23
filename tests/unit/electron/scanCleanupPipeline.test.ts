@@ -35,6 +35,23 @@ const PNG = Uint8Array.from(Buffer.from(
     'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
     'base64',
 ));
+
+function pngHeader(width: number, height: number) {
+    const header = Buffer.alloc(24);
+    Buffer.from([
+        0x89,
+        0x50,
+        0x4e,
+        0x47,
+        0x0d,
+        0x0a,
+        0x1a,
+        0x0a,
+    ]).copy(header);
+    header.writeUInt32BE(width, 16);
+    header.writeUInt32BE(height, 20);
+    return header;
+}
 interface ICleanupOutput {
     outputPath: string;
     metadataPath: string;
@@ -749,6 +766,79 @@ describe('scan cleanup pipeline', () => {
         ]);
         expect(new Set(records.map(record => `${record[1]}x${record[2]}`)))
             .toEqual(new Set(['240.000000x336.000000']));
+    });
+
+    it('caps BW supersampling at the shared 160 MP bilevel handoff limit', async () => {
+        const fixture = await setup();
+        let finalDpi = 0;
+        let requestedRenderDpi = 0;
+        const pipelineDependencies = dependencies(vi.fn(async (_binary, manifestPath) => {
+            const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as {pages: Array<{
+                pageMetadataPath: string;
+                options: {
+                    dpi: number;
+                    requestedRenderDpi: number
+                };
+                outputs: ICleanupOutput[]
+            }>};
+            finalDpi = manifest.pages[0]!.options.dpi;
+            requestedRenderDpi = manifest.pages[0]!.options.requestedRenderDpi;
+            await writeFile(manifest.pages[0]!.pageMetadataPath, JSON.stringify({
+                layoutClassification: 'single-uncut-page',
+                cutterXPx: null,
+                rotationDegrees: 0,
+                excluded: false,
+                blankOutputsSkipped: 0,
+                outputCount: 1,
+            }));
+            await writeCleanupOutput(
+                manifest.pages[0]!.outputs[0]!,
+                'single-uncut-page',
+                true,
+                true,
+                finalDpi,
+                true,
+            );
+        }));
+        pipelineDependencies.getPageCount = vi.fn(async () => 1);
+        pipelineDependencies.detectSourceDpi = vi.fn(async () => ({
+            documentDpi: 600,
+            pageDpiByNumber: new Map([[
+                1,
+                600,
+            ]]),
+        }));
+        pipelineDependencies.renderPage = vi.fn(async (
+            _paths,
+            _log,
+            _pageNumber,
+            _source,
+            outputPath,
+            dpi,
+        ) => {
+            const scale = dpi / 72;
+            await writeFile(outputPath, pngHeader(
+                Math.round(800 * scale),
+                Math.round(1_100 * scale),
+            ));
+        });
+
+        await runScanCleanupPipeline({
+            sourcePdfPath: fixture.sourcePdfPath,
+            outputPdfPath: fixture.outputPdfPath,
+            options,
+        }, {
+            qpdfBinary: '/qpdf',
+            pdftoppmBinary: '/pdftoppm',
+            scanCleanupBinary: '/cleanup',
+            pdfImageCombineBinary: '/combine',
+            tempDir: fixture.dir,
+        }, new AbortController().signal, vi.fn(), undefined, pipelineDependencies);
+
+        expect(requestedRenderDpi).toBe(1_200);
+        expect(finalDpi).toBe(970);
+        expect(800 * 1_100 * (finalDpi / 72) ** 2).toBeLessThanOrEqual(160_000_000);
+        expect(800 * 1_100 * (requestedRenderDpi / 72) ** 2).toBeGreaterThan(160_000_000);
     });
 
     it('reuses detect-all tonal recommendations in one pass without supersampling', async () => {

@@ -36,8 +36,17 @@ export interface IEffectiveNativeScanCleanupOptionsV3 extends INativeScanCleanup
     manualZones: IScanCleanupManualZones;
 }
 
-const MAX_PIXELS = 160_000_000;
+const MAX_BILEVEL_PIXELS = 160_000_000;
+const MAX_CONTINUOUS_TONE_PIXELS = 80_000_000;
 const MAX_DIMENSION_PX = 40_000;
+
+export function resolveScanCleanupPipelineMaxPixels(
+    outputMode: TScanCleanupOutputMode,
+) {
+    return outputMode === 'bw'
+        ? MAX_BILEVEL_PIXELS
+        : MAX_CONTINUOUS_TONE_PIXELS;
+}
 
 function resolveScanCleanupDespeckleLevel(
     options: IScanCleanupOptions,
@@ -100,7 +109,9 @@ export function resolveEffectiveScanCleanupOptions({
         rotationDegrees: pageOverride.rotationDegrees,
         excluded: pageOverride.excluded,
         skipBlankPages: !lossless && options.skipBlankPages,
-        maxPixels: MAX_PIXELS,
+        maxPixels: resolvedOutputMode === undefined
+            ? MAX_BILEVEL_PIXELS
+            : resolveScanCleanupPipelineMaxPixels(resolvedOutputMode),
         maxDimensionPx: MAX_DIMENSION_PX,
     };
 }

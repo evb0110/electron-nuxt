@@ -35,6 +35,7 @@ import { runNativeToolCommand } from '@electron/native-tools/runNativeToolComman
 import type { TWorkerLog } from '@electron/ocr/worker/types';
 import { runScanCleanupSidecar } from '@electron/features/scan-cleanup/worker/runScanCleanupSidecar';
 import {buildNativeScanCleanupManifest} from '@electron/features/scan-cleanup/policy/buildNativeScanCleanupManifest';
+import {resolveScanCleanupPipelineMaxPixels} from '@electron/features/scan-cleanup/policy/effectiveOptions';
 
 export interface IScanCleanupWorkerPaths {
     qpdfBinary: string;
@@ -134,7 +135,6 @@ const defaultDependencies: IRunScanCleanupPipelineDependencies = {
     runCommand: runNativeToolCommand,
 };
 
-const SCAN_CLEANUP_MAX_PIXELS = 160_000_000;
 const SCAN_CLEANUP_MAX_DIMENSION_PX = 40_000;
 const MODE_ANALYSIS_DPI = 150;
 const SIZE_PROBE_DPI = 72;
@@ -176,8 +176,8 @@ async function readPngDimensions(path: string) {
 }
 
 function resolveSafeRenderDpi(
-    sourceDpi: number,
     requestedRenderDpi: number,
+    maxPixels: number,
     probe: {
         dpi: number;
         width: number;
@@ -189,7 +189,7 @@ function resolveSafeRenderDpi(
         SCAN_CLEANUP_MAX_DIMENSION_PX / probe.height,
     );
     const maxPixelDpi = probe.dpi * Math.sqrt(
-        SCAN_CLEANUP_MAX_PIXELS / (probe.width * probe.height),
+        maxPixels / (probe.width * probe.height),
     );
     return Math.max(1, Math.floor(Math.min(
         requestedRenderDpi,
@@ -732,8 +732,8 @@ export async function runScanCleanupPipeline(
             const requestedRenderDpi = resolvedOutputMode === 'bw' ? sourceDpi * 2 : sourceDpi;
             const dpi = resolvedOutputMode === 'bw'
                 ? resolveSafeRenderDpi(
-                    sourceDpi,
                     requestedRenderDpi,
+                    resolveScanCleanupPipelineMaxPixels(resolvedOutputMode),
                     probeDimensionsByPage.get(pageNumber)!,
                 )
                 : sourceDpi;
