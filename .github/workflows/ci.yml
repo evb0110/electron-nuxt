@@ -42,15 +42,10 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: pnpm
-          cache-dependency-path: |
-            pnpm-lock.yaml
-            landing/pnpm-lock.yaml
+          cache-dependency-path: pnpm-lock.yaml
 
       - name: Install dependencies
         run: node scripts/ci-install-dependencies.mjs --frozen-lockfile
-
-      - name: Install landing test dependencies
-        run: pnpm --dir landing install --frozen-lockfile
 
       - name: Lint
         run: pnpm run lint
@@ -238,13 +233,10 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: pnpm
-          cache-dependency-path: landing/pnpm-lock.yaml
+          cache-dependency-path: pnpm-lock.yaml
 
-      - name: Install landing dependencies
-        run: pnpm --dir landing install --frozen-lockfile
-
-      - name: Landing vendor check
-        run: pnpm --dir landing run check:vendor
+      - name: Install dependencies
+        run: node scripts/ci-install-dependencies.mjs --frozen-lockfile
 
       - name: Landing lint
         run: pnpm --dir landing run lint
@@ -273,15 +265,10 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: pnpm
-          cache-dependency-path: |
-            pnpm-lock.yaml
-            landing/pnpm-lock.yaml
+          cache-dependency-path: pnpm-lock.yaml
 
       - name: Install dependencies
         run: node scripts/ci-install-dependencies.mjs --frozen-lockfile
-
-      - name: Install landing test dependencies
-        run: pnpm --dir landing install --frozen-lockfile
 
       - name: Install Rust WASM target
         run: rustup target add wasm32-unknown-unknown
@@ -396,13 +383,10 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: pnpm
-          cache-dependency-path: landing/pnpm-lock.yaml
+          cache-dependency-path: pnpm-lock.yaml
 
-      - name: Install landing dependencies
-        run: pnpm --dir landing install --frozen-lockfile
-
-      - name: Landing vendor check
-        run: pnpm --dir landing run check:vendor
+      - name: Install dependencies
+        run: node scripts/ci-install-dependencies.mjs --frozen-lockfile
 
       - name: Landing lint
         run: pnpm --dir landing run lint
@@ -431,15 +415,10 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: pnpm
-          cache-dependency-path: |
-            pnpm-lock.yaml
-            landing/pnpm-lock.yaml
+          cache-dependency-path: pnpm-lock.yaml
 
       - name: Install dependencies
         run: node scripts/ci-install-dependencies.mjs --frozen-lockfile
-
-      - name: Install landing test dependencies
-        run: pnpm --dir landing install --frozen-lockfile
 
       - name: Install OCR native smoke tools
         run: sudo apt-get update && sudo apt-get install -y --no-install-recommends tesseract-ocr tesseract-ocr-eng poppler-utils

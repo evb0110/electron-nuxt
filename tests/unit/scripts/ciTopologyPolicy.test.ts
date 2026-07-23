@@ -124,7 +124,8 @@ describe('CI topology policy', () => {
         expect(workflow).toContain('name: Quality Gates');
         expect(prQuality).toContain('if: ${{ github.event_name == \'pull_request\' || github.event_name == \'push\' }}');
         expect(prQuality).toContain('run: node scripts/ci-install-dependencies.mjs --frozen-lockfile');
-        expect(prQuality).toContain('run: pnpm --dir landing install --frozen-lockfile');
+        expect(workflow).not.toContain('landing/pnpm-lock.yaml');
+        expect(workflow).not.toContain('pnpm --dir landing install');
         expect(prQuality).not.toContain('playwright install');
         expect(prQuality).toContain('run: pnpm run lint');
         expect(prQuality).not.toContain('run: pnpm run check:static:reports');
@@ -136,7 +137,7 @@ describe('CI topology policy', () => {
         expect(packageJson).toContain('"check:github-actions-syntax": "node --import tsx scripts/checkGithubActionsSyntax.ts"');
         expect(packageJson).toContain('pnpm run check:native-tool-protocols');
         expect(packageJson).toContain('"check:static:reports": "pnpm run check:platform-manifest-consumers"');
-        expect(packageJson).toContain('"check:static:assets": "pnpm run check:web-deploy-source && pnpm run check:ocr-language-model-registry && pnpm run check:vendor-sync"');
+        expect(packageJson).toContain('"check:static:assets": "pnpm run check:web-deploy-source && pnpm run check:ocr-language-model-registry"');
         expect(prQuality).toContain('run: pnpm run typecheck');
         expect(prQuality).toContain('run: pnpm run test:unit');
         expect(packageJson).toContain('"test:unit": "vitest run --project unit-core --project unit-app --project unit-electron --project unit-scripts --project unit-policy"');
@@ -161,7 +162,7 @@ describe('CI topology policy', () => {
         expect(workflowJob(workflow, 'manual_quality')).toContain('run: pnpm run check:wasm:portable');
         expectSplitQualitySteps(workflowJob(workflow, 'manual_quality'));
         expect(workflowJob(workflow, 'manual_quality')).toContain('run: pnpm run test:coverage');
-        expect(workflowJob(workflow, 'manual_quality')).toContain('run: pnpm --dir landing install --frozen-lockfile');
+        expect(workflowJob(workflow, 'manual_quality')).toContain('run: node scripts/ci-install-dependencies.mjs --frozen-lockfile');
         expect(workflowJob(workflow, 'manual_quality')).not.toContain('playwright install');
         expect(releaseWorkflow).not.toContain('test:coverage');
         expect(packageJson).not.toMatch(/"gate:commit":\s*"[^"]*coverage/u);
@@ -199,7 +200,8 @@ describe('CI topology policy', () => {
         expect(workflow).toContain('name: Landing Quality Gates');
         expect(workflow).toContain('name: Landing Quality Gates For Changed Sources');
         expect(workflowJob(workflow, 'pr_landing_quality')).toContain('needs.pr_changed_areas.outputs.landing == \'true\'');
-        expect(workflowJob(workflow, 'pr_landing_quality')).toContain('run: pnpm --dir landing run check:vendor');
+        expect(workflowJob(workflow, 'pr_landing_quality')).toContain('run: node scripts/ci-install-dependencies.mjs --frozen-lockfile');
+        expect(workflowJob(workflow, 'pr_landing_quality')).not.toContain('check:vendor');
         expect(workflowJob(workflow, 'pr_landing_quality')).toContain('run: pnpm --dir landing run lint');
         expect(workflowJob(workflow, 'pr_landing_quality')).toContain('run: pnpm --dir landing run typecheck');
         expect(workflowJob(workflow, 'pr_landing_quality')).toContain('run: pnpm --dir landing run build');
@@ -282,7 +284,7 @@ describe('CI topology policy', () => {
         expect(releaseWorkflow).toContain('git checkout --detach "$target_sha"');
         expect(qualityJob).toContain('run: rustup target add wasm32-unknown-unknown');
         expect(qualityJob).toContain('EVB_NATIVE_TOOLS_ALLOW_HOST_CI_GEN: \'1\'');
-        expect(qualityJob).toContain('run: pnpm --dir landing install --frozen-lockfile');
+        expect(qualityJob).not.toContain('pnpm --dir landing install');
         expect(qualityJob).toContain('run: pnpm exec playwright install --with-deps chromium');
         expect(qualityJob).toContain('run: pnpm run release:verify:checks');
         const publishJob = workflowJob(releaseWorkflow, 'publish');
@@ -304,7 +306,7 @@ describe('CI topology policy', () => {
         expect(workflow).toContain('git rev-parse --verify "${DISPATCH_TARGET_REF}^{commit}"');
         expect(workflow).toContain('"repos/${GITHUB_REPOSITORY}/commits/${DISPATCH_TARGET_REF}"');
         expect(qualityJob).toContain('run: pnpm run release:verify:checks');
-        expect(qualityJob).toContain('run: pnpm --dir landing install --frozen-lockfile');
+        expect(qualityJob).not.toContain('pnpm --dir landing install');
         expect(qualityJob).toContain('run: pnpm exec playwright install --with-deps chromium');
         expect(workflowJob(workflow, 'build_artifacts')).toContain('uses: ./.github/workflows/build.yml');
         expect(workflowJob(workflow, 'build_mac_intel')).toContain('uses: ./.github/workflows/build-mac-intel.yml');
@@ -348,7 +350,7 @@ describe('CI topology policy', () => {
         expect(workflow).toContain('run: pnpm run test:coverage');
         expect(workflowJob(workflow, 'nightly_maintenance')).toContain('run: pnpm run check:static:assets');
         expect(workflowJob(workflow, 'nightly_maintenance')).toContain('run: pnpm run check:production-dependency-audit');
-        expect(workflowJob(workflow, 'nightly_maintenance')).toContain('run: pnpm --dir landing install --frozen-lockfile');
+        expect(workflowJob(workflow, 'nightly_maintenance')).not.toContain('pnpm --dir landing install');
         expect(workflowJob(workflow, 'nightly_maintenance')).not.toContain('playwright install');
         expect(workflowJob(workflow, 'manual_quality')).not.toContain('run: pnpm run check:production-dependency-audit');
         expect(nvmrc.trim()).toBe('24.11.1');

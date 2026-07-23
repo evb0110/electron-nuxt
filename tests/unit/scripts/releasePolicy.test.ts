@@ -873,6 +873,8 @@ describe('release policy', () => {
         expect(changedAreas.landing.paths).toEqual(expect.arrayContaining([
             '.github/workflows/**',
             'landing/**',
+            'pnpm-lock.yaml',
+            'pnpm-workspace.yaml',
             'packages/release-selection/**',
             'scripts/ci/classify-changed-areas.mjs',
             'scripts/release/policy.mjs',
@@ -970,7 +972,7 @@ describe('release policy', () => {
     it('can ignore landing-only worktree changes for main app releases', () => {
         expect(filterIgnoredFiles([
             'package.json',
-            'landing/vendor/contracts/index.ts',
+            'landing/app/pages/index.vue',
             'landing/package.json',
             'app/app.vue',
         ], [ 'landing' ])).toEqual([

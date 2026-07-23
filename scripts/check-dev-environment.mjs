@@ -157,14 +157,6 @@ addCheck({
     status: statusFromBoolean(isDir(join(projectRoot, 'node_modules', '.pnpm'))),
 });
 
-addCheck({
-    detail: isDir(join(projectRoot, 'landing', 'node_modules', '.pnpm')) ? 'landing/node_modules/.pnpm' : '',
-    name: 'Landing workspace dependencies',
-    remedy: 'Run pnpm --dir landing install --frozen-lockfile.',
-    required: true,
-    status: statusFromBoolean(isDir(join(projectRoot, 'landing', 'node_modules', '.pnpm'))),
-});
-
 const electronResult = run(process.execPath, ['scripts/check-electron-install.mjs']);
 addCheck({
     detail: electronResult.ok ? electronResult.stdout.split('\n').at(-1) : electronResult.stderr || electronResult.error,

@@ -6,7 +6,7 @@ import {
     DEFAULT_LOCALE,
     LOCALE_CODES,
     LOCALE_DEFINITIONS,
-} from './vendor/i18n-core';
+} from '../packages/i18n-core';
 
 // Nuxt 4.4.7's config declaration currently loses the helper call signature.
 const defineNuxtConfig = defineNuxtConfigBase as <T extends Record<string, unknown>>(config: T) => T;
@@ -43,9 +43,9 @@ export default defineNuxtConfig({
     css: ['~/assets/css/main.css'],
 
     alias: {
-        '@contracts': fileURLToPath(new URL('./vendor/contracts', import.meta.url)),
-        '@i18n-core': fileURLToPath(new URL('./vendor/i18n-core', import.meta.url)),
-        '@releaseSelection': fileURLToPath(new URL('./vendor/release-selection', import.meta.url)),
+        '@contracts': fileURLToPath(new URL('../packages/contracts', import.meta.url)),
+        '@i18n-core': fileURLToPath(new URL('../packages/i18n-core', import.meta.url)),
+        '@releaseSelection': fileURLToPath(new URL('../packages/release-selection', import.meta.url)),
     },
 
     runtimeConfig: {

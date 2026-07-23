@@ -22,20 +22,23 @@ The release API reads these environment variables at runtime:
 
 ## Local development
 
+From the repository root:
+
 ```bash
 pnpm install
-pnpm dev
+pnpm --dir landing run dev
 ```
 
-## Deploy with Vercel CLI
+## Vercel deployment
 
-From `landing/`:
+The landing app is part of the root pnpm workspace. Configure its Vercel
+project with `landing` as the Root Directory while keeping the repository root
+as the source context, so `pnpm-lock.yaml`, `pnpm-workspace.yaml`, and the
+shared packages under `packages/` are available during installation and build.
 
 ```bash
-pnpm install
-pnpm build
-vercel deploy
-vercel deploy --prod
+pnpm install --frozen-lockfile
+pnpm --dir landing run build
 ```
 
 Optional environment variables on Vercel:

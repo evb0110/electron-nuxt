@@ -207,7 +207,6 @@ describe('package scripts', () => {
             'check:pdfjs-viewer-css',
             'check:locales',
             'check:icons:bundle',
-            'check:dependency-lockstep',
             'check:native-tool-protocols',
             'check:architecture:imports',
         ]));
@@ -222,7 +221,6 @@ describe('package scripts', () => {
         expect(scriptRunTargets(packageJson, 'check:static:assets')).toEqual([
             'check:web-deploy-source',
             'check:ocr-language-model-registry',
-            'check:vendor-sync',
         ]);
         expect(scriptRunTargets(packageJson, 'check:static:reports')).toEqual(['check:platform-manifest-consumers']);
         expect(lintCommandText).not.toContain('|| true');

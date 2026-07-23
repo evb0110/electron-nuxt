@@ -76,6 +76,28 @@ function sanitizeVercelIgnore(sourceRoot) {
     writeFileSync(vercelIgnorePath, filteredLines.join('\n'), 'utf8');
 }
 
+function sanitizePnpmWorkspace(sourceRoot) {
+    const workspacePath = path.join(sourceRoot, 'pnpm-workspace.yaml');
+
+    if (!existsSync(workspacePath)) {
+        return;
+    }
+
+    const content = readFileSync(workspacePath, 'utf8');
+    const lines = content.split(/\r?\n/u);
+    const filteredLines = lines.filter((line) => {
+        const packageEntry = line.match(/^\s*-\s*['"]([^'"]+)['"]\s*$/u)?.[1];
+
+        if (!packageEntry || /[*?[{]/u.test(packageEntry)) {
+            return true;
+        }
+
+        return existsSync(path.join(sourceRoot, packageEntry));
+    });
+
+    writeFileSync(workspacePath, filteredLines.join('\n'), 'utf8');
+}
+
 export function preparePrivateDeploySource({projectRoot = defaultProjectRoot} = {}) {
     const projectJson = path.join(projectRoot, '.vercel', 'project.json');
 
@@ -94,6 +116,7 @@ export function preparePrivateDeploySource({projectRoot = defaultProjectRoot} = 
     });
     mkdirSync(path.join(sourceRoot, '.vercel'), {recursive: true});
     cpSync(projectJson, path.join(sourceRoot, '.vercel', 'project.json'));
+    sanitizePnpmWorkspace(sourceRoot);
     sanitizeVercelIgnore(sourceRoot);
 
     return {

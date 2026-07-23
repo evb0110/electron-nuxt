@@ -13,7 +13,6 @@ export default withNuxt(
         '.output/**',
         'dist/**',
         'node_modules/**',
-        'vendor/**',
     ] },
     {
         plugins: { '@stylistic': stylistic },

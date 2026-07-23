@@ -87,9 +87,6 @@ rustup target add wasm32-unknown-unknown --toolchain "$RUST_TOOLCHAIN"
 echo "Installing root workspace dependencies..."
 node scripts/ci-install-dependencies.mjs --frozen-lockfile
 
-echo "Installing landing workspace dependencies..."
-pnpm --dir landing install --frozen-lockfile
-
 echo "Installing Playwright Chromium..."
 pnpm exec playwright install chromium
 

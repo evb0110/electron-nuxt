@@ -1,5 +1,6 @@
 packages:
   - '.'
+  - 'landing'
   - 'packages/*'
 
 # Release automation and Electron smoke need the real Electron binary on every
