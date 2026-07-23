@@ -1,6 +1,6 @@
 # PDF diagnostics
 
-The three PDF diagnostics are scenarios on `pdfDiagnosticsEngine.ts`, which owns
+The three PDF diagnostics are scenarios on `runPdfDiagnosticScenario.ts`, which owns
 isolated Electron sessions, diagnostic trace buffers, timed sampling, optional frame
 capture, artifact writes, and cleanup. Their package commands, acceptance thresholds,
 and JSON schemas remain scenario-specific.

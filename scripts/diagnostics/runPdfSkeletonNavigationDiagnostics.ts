@@ -18,7 +18,7 @@ import {
 import {
     type IPdfDiagnosticsContext,
     runPdfDiagnosticScenario,
-} from '@scripts/diagnostics/pdfDiagnosticsEngine';
+} from '@scripts/diagnostics/runPdfDiagnosticScenario';
 
 const TARGET_PDF_PATH = [
     process.env.EVB_E2E_NAVIGATION_PDF_PATH,

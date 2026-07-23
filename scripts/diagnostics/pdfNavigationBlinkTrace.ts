@@ -14,7 +14,7 @@ import type { IEvbTestApi } from '@app/types/evbTestApi';
 import {
     type IPdfDiagnosticsContext,
     runPdfDiagnosticScenario,
-} from '@scripts/diagnostics/pdfDiagnosticsEngine';
+} from '@scripts/diagnostics/runPdfDiagnosticScenario';
 
 const DEFAULT_TARGET_PDF_PATH = process.env.EVB_DIAGNOSTIC_PDF_PATH?.length
     ? process.env.EVB_DIAGNOSTIC_PDF_PATH

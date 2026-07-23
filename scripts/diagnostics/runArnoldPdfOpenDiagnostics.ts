@@ -23,7 +23,7 @@ import {
 import {
     type IPdfDiagnosticsContext,
     runPdfDiagnosticScenario,
-} from '@scripts/diagnostics/pdfDiagnosticsEngine';
+} from '@scripts/diagnostics/runPdfDiagnosticScenario';
 import {
     installCommittedSurfaceSampler,
     stopCommittedSurfaceSampler,

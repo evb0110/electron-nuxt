@@ -84,15 +84,20 @@ export const SOURCE_SIZE_ALLOWLIST = {
         reason: 'transitional Electron assistant backend facade after session store and runtime lifecycle extraction',
         stage: 'Worker 2/Stage 1 - Assistant backend session/runtime split',
     },
+    'electron/features/djvu/main/pdfExport.ts': {
+        maxLines: 1287,
+        reason: 'DjVu PDF export after adopting shared job ownership and platform-feature progress replay',
+        stage: 'DjVu follow-up - PDF export orchestration extraction',
+    },
     'app/modules/workspace-shell/composables/file-operations/useFileOperationsSaveController.ts': {
         maxLines: 441,
         reason: 'transitional workspace save orchestration hotspot',
         stage: 'Finding 4 Stage D - Save controller port alignment',
     },
     'scripts/diagnostics/pdfNavigationBlinkTrace.ts': {
-        maxLines: 1719,
-        reason: 'transitional PDF navigation diagnostic hotspot',
-        stage: 'Worker 6 - Diagnostic trace analysis extraction',
+        maxLines: 1530,
+        reason: 'navigation trace after extracting the shared PDF diagnostics engine',
+        stage: 'PDF diagnostics follow-up - navigation trace analysis extraction',
     },
     'app/modules/workspace-shell/components/DocumentWorkspace.vue': {
         maxLines: 1556,
@@ -114,6 +119,11 @@ export const SOURCE_SIZE_ALLOWLIST = {
         reason: 'browser repository after persistence fallback and memory-only source lifetime hardening',
         stage: 'Browser resilience overhaul - transient source retention',
     },
+    'app/platform/browser-api/browserDjvuCapability.ts': {
+        maxLines: 1202,
+        reason: 'browser DjVu capability after binding it to the canonical platform-feature contract',
+        stage: 'DjVu follow-up - browser capability decomposition',
+    },
     'app/modules/pdf-viewer/runtime/composables/pdf/usePdfTextLayerRenderer.ts': {
         maxLines: 1264,
         reason: 'transitional PDF text layer renderer hotspot',
@@ -125,8 +135,8 @@ export const SOURCE_SIZE_ALLOWLIST = {
         stage: 'Viewer core follow-up - opening and render-demand orchestration extraction',
     },
     'electron/ocr/jobManager.ts': {
-        maxLines: 993,
-        reason: 'OCR job manager facade after request-work estimation extraction',
+        maxLines: 1022,
+        reason: 'OCR job manager after migrating durable job ownership onto the shared main-process registry',
         stage: 'Static audit Stage 15 - OCR admission calculation extraction',
     },
     'app/modules/workspace-shell/components/AppShellRoot.vue': {
@@ -148,6 +158,11 @@ export const SOURCE_SIZE_ALLOWLIST = {
         maxLines: 979,
         reason: 'agent MCP server core after result encoding and public option-contract extraction',
         stage: 'Static audit Stage 15 - MCP core contract extraction',
+    },
+    'packages/contracts/djvuPlatformFeature.ts': {
+        maxLines: 1328,
+        reason: 'canonical DjVu platform feature co-locating invoke, event, codec, and lifecycle metadata',
+        stage: 'Platform feature rollout - generate contract boilerplate from the feature spec',
     },
     'scripts/architecture/boundary-check.mjs': {
         maxLines: 1232,
