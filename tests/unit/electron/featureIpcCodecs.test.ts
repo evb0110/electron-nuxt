@@ -5,13 +5,14 @@ import {
 } from 'vitest';
 import { AGENT_CHANNELS } from '@electron/features/agent/contract';
 import { AGENT_IPC_CODECS } from '@electron/features/agent/agentIpcCodecs';
-import { DJVU_CHANNELS } from '@electron/features/djvu/contract';
-import { DJVU_IPC_CODECS } from '@electron/features/djvu/djvuIpcCodecs';
+import { DJVU_PLATFORM_FEATURE } from '@contracts/djvuPlatformFeature';
 import { DOCUMENTS_CHANNELS } from '@electron/features/documents/contract';
 import { DOCUMENTS_IPC_CODECS } from '@electron/features/documents/documentsIpcCodecs';
 import { IMAGE_EXPORT_PLATFORM_FEATURE } from '@contracts/imageExportPlatformFeature';
-import { OCR_CHANNELS } from '@electron/features/ocr/contract';
-import { OCR_IPC_CODECS } from '@electron/features/ocr/ocrIpcCodecs';
+import {
+    OCR_PLATFORM_FEATURE,
+    OCR_PREPROCESSING_PLATFORM_FEATURE,
+} from '@contracts/ocrPlatformFeature';
 import { PAGE_OPS_PLATFORM_FEATURE } from '@contracts/pageOpsPlatformFeature';
 import { SEARCH_PLATFORM_FEATURE } from '@contracts/searchPlatformFeature';
 import { HOST_PLATFORM_FEATURE } from '@contracts/hostPlatformFeature';
@@ -30,6 +31,20 @@ const UPDATES_CHANNELS = UPDATES_PLATFORM_FEATURE.invokeChannels;
 const UPDATES_IPC_CODECS = UPDATES_PLATFORM_FEATURE.ipcCodecs;
 const WINDOW_TABS_CHANNELS = WINDOW_TABS_PLATFORM_FEATURE.invokeChannels;
 const WINDOW_TABS_IPC_CODECS = WINDOW_TABS_PLATFORM_FEATURE.ipcCodecs;
+const DJVU_CHANNELS = DJVU_PLATFORM_FEATURE.invokeChannels;
+const DJVU_IPC_CODECS = DJVU_PLATFORM_FEATURE.ipcCodecs;
+const OCR_CHANNELS = {
+    ...OCR_PLATFORM_FEATURE.invokeChannels,
+    preprocessingValidate: OCR_PREPROCESSING_PLATFORM_FEATURE.invokeChannels.validate,
+    preprocessingPreprocessPage:
+        OCR_PREPROCESSING_PLATFORM_FEATURE.invokeChannels.preprocessPage,
+};
+const OCR_IPC_CODECS = {
+    ...OCR_PLATFORM_FEATURE.ipcCodecs,
+    ...OCR_PREPROCESSING_PLATFORM_FEATURE.ipcCodecs,
+};
+const djvuCodec = (channel: string) => DJVU_IPC_CODECS[channel]!;
+const ocrCodec = (channel: string) => OCR_IPC_CODECS[channel]!;
 
 function expectExhaustiveMap(
     channels: Record<string, string>,
@@ -56,10 +71,10 @@ describe('feature IPC codec maps', () => {
 
     it('reject malformed main-process results at each feature boundary', () => {
         expect(() => AGENT_IPC_CODECS[AGENT_CHANNELS.getMcpIntegrationStatus].decodeResult({enabled: 'yes'})).toThrow();
-        expect(() => DJVU_IPC_CODECS[DJVU_CHANNELS.getInfo].decodeResult({pageCount: 'one'})).toThrow();
+        expect(() => djvuCodec(DJVU_CHANNELS.getInfo).decodeResult({pageCount: 'one'})).toThrow();
         expect(() => DOCUMENTS_IPC_CODECS[DOCUMENTS_CHANNELS.fileRead].decodeResult('bytes')).toThrow();
         expect(() => IMAGE_EXPORT_IPC_CODECS[IMAGE_EXPORT_CHANNELS.exportPdfToImages]!.decodeResult({success: 'yes'})).toThrow();
-        expect(() => OCR_IPC_CODECS[OCR_CHANNELS.recognize].decodeResult({
+        expect(() => ocrCodec(OCR_CHANNELS.recognize).decodeResult({
             pageNumber: 1,
             success: true,
         })).toThrow();
@@ -91,7 +106,7 @@ describe('feature IPC codec maps', () => {
             size: 28_000_000,
             modifiedAt: -1,
         })).toThrow('invalid file modification time');
-        expect(DJVU_IPC_CODECS[DJVU_CHANNELS.getPageSourceInfo].decodeResult({
+        expect(djvuCodec(DJVU_CHANNELS.getPageSourceInfo).decodeResult({
             pageCount: 431,
             pageNumber: 1,
             pageSize: {
@@ -112,7 +127,7 @@ describe('feature IPC codec maps', () => {
             sourceSize: 28_000_000,
             sourceModifiedAt: 1_720_000_000_000,
         });
-        expect(DJVU_IPC_CODECS[DJVU_CHANNELS.awaitOpenJob].decodeResult({
+        expect(djvuCodec(DJVU_CHANNELS.awaitOpenJob).decodeResult({
             success: true,
             pageCount: 431,
             pageSourceInfo: {
@@ -136,7 +151,7 @@ describe('feature IPC codec maps', () => {
     });
 
     it('validates streamed DjVu text-search options and word geometry', () => {
-        expect(DJVU_IPC_CODECS[DJVU_CHANNELS.searchText].decodeArgs([
+        expect(djvuCodec(DJVU_CHANNELS.searchText).decodeArgs([
             '/tmp/book.djvu',
             'needle',
             {
@@ -157,7 +172,7 @@ describe('feature IPC codec maps', () => {
                 useRegex: false,
             },
         ]);
-        expect(DJVU_IPC_CODECS[DJVU_CHANNELS.searchText].decodeResult({
+        expect(djvuCodec(DJVU_CHANNELS.searchText).decodeResult({
             truncated: false,
             results: [{
                 pageNumber: 9,
@@ -187,7 +202,7 @@ describe('feature IPC codec maps', () => {
             pageNumber: 9,
             words: [{y: 400}],
         }]});
-        expect(() => DJVU_IPC_CODECS[DJVU_CHANNELS.searchText].decodeArgs([
+        expect(() => djvuCodec(DJVU_CHANNELS.searchText).decodeArgs([
             '/tmp/book.djvu',
             'needle',
             {
@@ -195,7 +210,7 @@ describe('feature IPC codec maps', () => {
                 pageCount: 20_001,
             },
         ])).toThrow('valid requestId and pageCount');
-        expect(() => DJVU_IPC_CODECS[DJVU_CHANNELS.searchText].decodeResult({
+        expect(() => djvuCodec(DJVU_CHANNELS.searchText).decodeResult({
             truncated: false,
             results: [{
                 pageNumber: 9,
@@ -251,7 +266,7 @@ describe('feature IPC codec maps', () => {
         'djvu-open',
         'djvu-print',
     ] as const)('decodes %s document-output job state', (operation) => {
-        expect(DJVU_IPC_CODECS[DJVU_CHANNELS.subscribeJob].decodeResult({
+        expect(djvuCodec(DJVU_CHANNELS.subscribeJob).decodeResult({
             jobId: `${operation}-job`,
             operation,
             status: 'queued',
@@ -269,7 +284,7 @@ describe('feature IPC codec maps', () => {
 
     it('reject malformed renderer arguments before handler dispatch', () => {
         expect(() => AGENT_IPC_CODECS[AGENT_CHANNELS.setMcpIntegrationEnabled].decodeArgs(['yes'])).toThrow();
-        expect(() => DJVU_IPC_CODECS[DJVU_CHANNELS.getInfo].decodeArgs([''])).toThrow();
+        expect(() => djvuCodec(DJVU_CHANNELS.getInfo).decodeArgs([''])).toThrow();
         expect(() => DOCUMENTS_IPC_CODECS[DOCUMENTS_CHANNELS.fileReadRange].decodeArgs([
             '/tmp/a.pdf',
             -1,
@@ -286,8 +301,8 @@ describe('feature IPC codec maps', () => {
             45,
             undefined,
         ])).toThrow();
-        expect(() => OCR_IPC_CODECS[OCR_CHANNELS.recognize].decodeArgs([{pageNumber: 0}])).toThrow();
-        expect(() => OCR_IPC_CODECS[OCR_CHANNELS.resolveDocumentOcrPage].decodeArgs([
+        expect(() => ocrCodec(OCR_CHANNELS.recognize).decodeArgs([{pageNumber: 0}])).toThrow();
+        expect(() => ocrCodec(OCR_CHANNELS.resolveDocumentOcrPage).decodeArgs([
             '/tmp/a.pdf',
             'drt1:test',
             0,
@@ -305,7 +320,7 @@ describe('feature IPC codec maps', () => {
             [Array.from({length: 4_097}, () => ({}))],
         )).toThrow('requests exceeds maximum item count (4096)');
 
-        expect(() => DJVU_IPC_CODECS[DJVU_CHANNELS.printDjvuPath].decodeArgs([
+        expect(() => djvuCodec(DJVU_CHANNELS.printDjvuPath).decodeArgs([
             '/tmp/a.djvu',
             {
                 orientation: 'auto',
@@ -314,11 +329,11 @@ describe('feature IPC codec maps', () => {
             },
         ])).toThrow('pageNumbers exceeds maximum item count (100000)');
 
-        expect(() => OCR_IPC_CODECS[OCR_CHANNELS.recognizeBatch].decodeArgs([
+        expect(() => ocrCodec(OCR_CHANNELS.recognizeBatch).decodeArgs([
             Array.from({length: 100_001}),
             'request-1',
         ])).toThrow('OCR pages exceeds maximum item count (100000)');
-        expect(() => OCR_IPC_CODECS[OCR_CHANNELS.createSearchablePdf].decodeArgs([
+        expect(() => ocrCodec(OCR_CHANNELS.createSearchablePdf).decodeArgs([
             '/tmp/a.pdf',
             Array.from({length: 100_001}),
             'request-1',

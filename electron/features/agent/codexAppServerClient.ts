@@ -195,6 +195,7 @@ export class CodexAppServerClient {
         });
     }
 
+    // fallow-ignore-next-line unused-class-member
     async requestDecoded<T>(
         method: string,
         params: unknown,

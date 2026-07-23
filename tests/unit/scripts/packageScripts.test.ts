@@ -157,6 +157,20 @@ describe('package scripts', () => {
             'build:pdf-search',
             'build:scan-cleanup',
         ]);
+        for (const tool of [
+            'pdf-image-combine',
+            'pdf-page-ops',
+            'pdf-search',
+            'scan-cleanup',
+        ]) {
+            expect(scripts[`build:${tool}`]).toBe(`node scripts/build-native-tool.mjs ${tool}`);
+        }
+        expect(scripts['build:pdf-image-combine-wasm']).toBe(
+            'node scripts/build-wasm-tool.mjs pdf-image-combine',
+        );
+        expect(scripts['build:pdf-page-ops-wasm']).toBe(
+            'node scripts/build-wasm-tool.mjs pdf-page-ops',
+        );
         expect(scripts['build:strict']).toBe('node scripts/run-build-strict.mjs');
         expect(scripts['build:strict:no-wasm-check']).toBe('node scripts/run-build-strict.mjs --skip-wasm-check');
     });

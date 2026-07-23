@@ -9,11 +9,11 @@ use evb_pdf_image_combine::{
     combine_tiff_paths, encode_netpbm_path_as_png, probe_netpbm_path,
     write_mixed_pdf_from_page_specs_with_progress, write_pdf_from_image_paths_with_progress,
     MixedPdfImageCompression, MixedPdfImageProcessing, MixedPdfPageSpec, PdfBuildOptions,
-    PdfPageSize, Result,
+    PdfPageSize, Result, DEFAULT_MAX_BILEVEL_PIXELS, DEFAULT_MAX_IMAGE_PIXELS,
 };
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
-const PROTOCOL_VERSION: u32 = 3;
+const PROTOCOL_VERSION: u32 = 4;
 
 struct Config {
     output_path: PathBuf,
@@ -46,7 +46,7 @@ fn run() -> Result<()> {
             Path::new(input_path),
             read_limit(
                 "EVB_PDF_COMBINE_MAX_IMAGE_PIXELS",
-                80_000_000,
+                DEFAULT_MAX_IMAGE_PIXELS,
                 1_000_000,
                 u64::MAX,
             ),
@@ -67,7 +67,7 @@ fn run() -> Result<()> {
     let config = parse_args()?;
     let max_pixels = read_limit(
         "EVB_PDF_COMBINE_MAX_IMAGE_PIXELS",
-        80_000_000,
+        DEFAULT_MAX_IMAGE_PIXELS,
         1_000_000,
         u64::MAX,
     );
@@ -106,6 +106,7 @@ fn run() -> Result<()> {
                 default_dpi: config.dpi,
                 max_pages: read_limit("EVB_PDF_COMBINE_MAX_PAGES", 500, 1, 10_000) as usize,
                 max_pixels,
+                max_bilevel_pixels: DEFAULT_MAX_BILEVEL_PIXELS,
                 max_total_pixels,
                 max_output_bytes: read_limit(
                     "EVB_PDF_COMBINE_MAX_OUTPUT_BYTES",
@@ -133,6 +134,7 @@ fn run() -> Result<()> {
             default_dpi: config.dpi,
             max_pages: read_limit("EVB_PDF_COMBINE_MAX_PAGES", 500, 1, 10_000) as usize,
             max_pixels,
+            max_bilevel_pixels: DEFAULT_MAX_BILEVEL_PIXELS,
             max_total_pixels,
             max_output_bytes: read_limit(
                 "EVB_PDF_COMBINE_MAX_OUTPUT_BYTES",
@@ -269,6 +271,10 @@ fn parse_compact_manifest_line(line: &str, line_number: usize) -> Result<MixedPd
             image_processing: MixedPdfImageProcessing::None,
             size_guardrail: false,
         }),
+        "image-bilevel" if parts.len() == 4 => Ok(MixedPdfPageSpec::Bilevel {
+            page_size,
+            image_path: parse_manifest_path(parts[3], line_number)?,
+        }),
         "image-jpeg" if parts.len() == 5 => Ok(MixedPdfPageSpec::FullImage {
             page_size,
             compression: MixedPdfImageCompression::Jpeg {
@@ -334,7 +340,7 @@ fn parse_compact_manifest_line(line: &str, line_number: usize) -> Result<MixedPd
             page_size,
             foreground_mask_path: parse_manifest_path(parts[3], line_number)?,
         }),
-        "image" | "image-jpeg" | "photo-jpeg" | "layered" | "layered-jpeg"
+        "image" | "image-bilevel" | "image-jpeg" | "photo-jpeg" | "layered" | "layered-jpeg"
         | "layered-color-jpeg" | "mask" => {
             Err(format!("Invalid compact manifest field count on line {line_number}").into())
         }
@@ -447,7 +453,9 @@ mod tests {
                 assert_eq!(background_path, PathBuf::from("/tmp/background.ppm"));
                 assert_eq!(foreground_mask_path, PathBuf::from("/tmp/mask.pbm"));
             }
-            MixedPdfPageSpec::FullImage { .. } | MixedPdfPageSpec::MaskOnly { .. } => {
+            MixedPdfPageSpec::FullImage { .. }
+            | MixedPdfPageSpec::Bilevel { .. }
+            | MixedPdfPageSpec::MaskOnly { .. } => {
                 panic!("expected layered page")
             }
         }
@@ -463,12 +471,30 @@ mod tests {
                 assert_eq!(page_size.height_points, 144.0);
                 assert_eq!(image_path, PathBuf::from("/tmp/page.ppm"));
             }
-            MixedPdfPageSpec::Layered { .. } | MixedPdfPageSpec::MaskOnly { .. } => {
+            MixedPdfPageSpec::Bilevel { .. }
+            | MixedPdfPageSpec::Layered { .. }
+            | MixedPdfPageSpec::MaskOnly { .. } => {
                 panic!("expected image page")
             }
         }
 
-        let mask = parse_compact_manifest_line("mask\t72\t144\t/tmp/mask.pbm", 3).unwrap();
+        let bilevel =
+            parse_compact_manifest_line("image-bilevel\t72\t144\t/tmp/page.pbm", 3).unwrap();
+        match bilevel {
+            MixedPdfPageSpec::Bilevel {
+                page_size,
+                image_path,
+            } => {
+                assert_eq!(page_size.width_points, 72.0);
+                assert_eq!(page_size.height_points, 144.0);
+                assert_eq!(image_path, PathBuf::from("/tmp/page.pbm"));
+            }
+            MixedPdfPageSpec::FullImage { .. }
+            | MixedPdfPageSpec::Layered { .. }
+            | MixedPdfPageSpec::MaskOnly { .. } => panic!("expected bilevel page"),
+        }
+
+        let mask = parse_compact_manifest_line("mask\t72\t144\t/tmp/mask.pbm", 4).unwrap();
         match mask {
             MixedPdfPageSpec::MaskOnly {
                 page_size,
@@ -479,7 +505,9 @@ mod tests {
                 assert_eq!(page_size.height_points, 144.0);
                 assert_eq!(foreground_mask_path, PathBuf::from("/tmp/mask.pbm"));
             }
-            MixedPdfPageSpec::FullImage { .. } | MixedPdfPageSpec::Layered { .. } => {
+            MixedPdfPageSpec::FullImage { .. }
+            | MixedPdfPageSpec::Bilevel { .. }
+            | MixedPdfPageSpec::Layered { .. } => {
                 panic!("expected mask page")
             }
         }
@@ -495,7 +523,9 @@ mod tests {
                 MixedPdfImageCompression::Jpeg { quality } => assert_eq!(quality, 82),
                 MixedPdfImageCompression::Auto => panic!("expected jpeg compression"),
             },
-            MixedPdfPageSpec::FullImage { .. } | MixedPdfPageSpec::MaskOnly { .. } => {
+            MixedPdfPageSpec::FullImage { .. }
+            | MixedPdfPageSpec::Bilevel { .. }
+            | MixedPdfPageSpec::MaskOnly { .. } => {
                 panic!("expected layered jpeg page")
             }
         }
@@ -511,7 +541,9 @@ mod tests {
             } => {
                 assert_eq!(foreground_color, Some([128, 16, 16]));
             }
-            MixedPdfPageSpec::FullImage { .. } | MixedPdfPageSpec::MaskOnly { .. } => {
+            MixedPdfPageSpec::FullImage { .. }
+            | MixedPdfPageSpec::Bilevel { .. }
+            | MixedPdfPageSpec::MaskOnly { .. } => {
                 panic!("expected layered color jpeg page")
             }
         }
@@ -537,7 +569,9 @@ mod tests {
                 assert!(size_guardrail);
                 assert_eq!(image_path, PathBuf::from("/tmp/photo.ppm"));
             }
-            MixedPdfPageSpec::Layered { .. } | MixedPdfPageSpec::MaskOnly { .. } => {
+            MixedPdfPageSpec::Bilevel { .. }
+            | MixedPdfPageSpec::Layered { .. }
+            | MixedPdfPageSpec::MaskOnly { .. } => {
                 panic!("expected photo jpeg page")
             }
         }

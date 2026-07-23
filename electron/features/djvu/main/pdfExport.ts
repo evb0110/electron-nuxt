@@ -1,6 +1,7 @@
 import {
     app,
     BrowserWindow,
+    type WebContents,
 } from 'electron';
 import { randomUUID } from 'node:crypto';
 import type { Worker } from 'worker_threads';
@@ -33,6 +34,8 @@ import type {
     TDocumentOutputOperation,
 } from '@contracts/electronApiDjvu';
 import type {TDocumentRef} from '@contracts/documentRef';
+import { DJVU_PLATFORM_FEATURE } from '@contracts/djvuPlatformFeature';
+import type { IPlatformMainSenderContext } from '@contracts/platformFeature';
 import {
     cancelConversion,
     convertDjvuToPdfFile,
@@ -79,8 +82,6 @@ import {
     printManagedTempPdfPath,
 } from '@electron/utils/printHandoff';
 import { getAppTempDir } from '@electron/utils/appTempDir';
-import { DJVU_EVENT_CHANNELS } from '@electron/features/djvu/contract';
-import type { IDjvuOperationContext } from '@electron/features/djvu/ports';
 import { getDjvuPageSizesForViewing } from '@electron/features/djvu/main/pagePreview';
 import {
     buildPrintablePdfData,
@@ -98,11 +99,12 @@ import { mainJobBroker } from '@electron/resources/jobBroker';
 import {adoptDjvuViewingPath} from '@electron/features/djvu/main/viewing';
 
 const logger = createLogger('djvu-pdfExport');
+interface IDjvuOperationContext extends IPlatformMainSenderContext<WebContents> {}
 const activePdfWorkerByJobId = new Map<string, Worker>();
 const activeNativeJobCancels = new Map<string, (reason: string) => boolean>();
 const DJVU_TERMINAL_RECORD_RETENTION_MS = 60 * 60 * 1_000;
-const DJVU_TERMINAL_EVENT_RETENTION_MS = 30_000;
 const DJVU_MAX_TERMINAL_RECORDS = 64;
+const djvuProgressReplay = DJVU_PLATFORM_FEATURE.events.onProgress.subscription.replay;
 const DJVU_SUBSAMPLE_MAX = (() => {
     const parsed = Number.parseInt(process.env.EVB_DJVU_SUBSAMPLE_MAX ?? '16', 10);
     if (!Number.isFinite(parsed) || parsed < 1) {
@@ -405,17 +407,18 @@ function getDjvuOperation(jobId: string): TDocumentOutputOperation {
 
 const djvuJobs = createMainJobRegistry<IDjvuProgress, TDjvuPublicJobResult, TDjvuJobError>({
     retention: {
-        eventReplayTtlMs: DJVU_TERMINAL_EVENT_RETENTION_MS,
+        eventReplayTtlMs: djvuProgressReplay.terminalRetentionMs,
         terminalRecordTtlMs: DJVU_TERMINAL_RECORD_RETENTION_MS,
         maxTerminalRecords: DJVU_MAX_TERMINAL_RECORDS,
     },
     progress: {
-        channel: DJVU_EVENT_CHANNELS.progress,
-        getEventKey: progress => `${progress.jobId}:${progress.phase}`,
+        channel: DJVU_PLATFORM_FEATURE.eventChannels.onProgress,
+        intervalMs: djvuProgressReplay.intervalMs,
+        getEventKey: djvuProgressReplay.key,
         send: (sender, _channel, progress) => {
             safeSendToWindow(
                 BrowserWindow.fromWebContents(sender),
-                DJVU_EVENT_CHANNELS.progress,
+                DJVU_PLATFORM_FEATURE.eventChannels.onProgress,
                 progress,
             );
         },
@@ -590,7 +593,11 @@ export function subscribeDjvuOutputJob(context: IDjvuOperationContext, jobId: st
         return null;
     }
     const unsubscribe = djvuJobs.subscribe(normalizedJobId, {sender: context.sender}, (snapshot) => {
-        safeSendToWindow(context.parentWindow, DJVU_EVENT_CHANNELS.progress, snapshot.progress);
+        safeSendToWindow(
+            BrowserWindow.fromWebContents(context.sender),
+            DJVU_PLATFORM_FEATURE.eventChannels.onProgress,
+            snapshot.progress,
+        );
     });
     return unsubscribe
         ? getDjvuOutputJobState(context, normalizedJobId)
@@ -808,7 +815,7 @@ async function runDjvuPrintPath(
                 percent: 100,
             });
             const printResult = await printManagedTempPdfPath(
-                {window: context.parentWindow},
+                {window: BrowserWindow.fromWebContents(context.sender)},
                 printablePdfPath,
                 resolveDjvuPrintDocumentTitle(djvuPath, options.fileName, selectedPages),
                 {

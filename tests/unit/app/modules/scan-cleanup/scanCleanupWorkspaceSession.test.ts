@@ -12,12 +12,15 @@ import {
     createApp,
     defineComponent,
     h,
+    nextTick,
+    ref,
 } from 'vue';
 import type {
     IScanCleanupCapability,
     IScanCleanupOptions,
     IScanCleanupPreviewResult,
     TScanCleanupDetectionJobState,
+    TScanCleanupJobState,
 } from '@contracts/electronApiScanCleanup';
 import {useScanCleanupWorkspaceSession} from '@app/modules/scan-cleanup/composables/useScanCleanupWorkspaceSession';
 import {createScanCleanupPreviewCacheKey} from '@app/modules/scan-cleanup/composables/useScanCleanupPreviewSession';
@@ -29,6 +32,7 @@ import {
     getScanCleanupPreferencesStore,
     resetScanCleanupPreferencesStore,
 } from '@app/modules/scan-cleanup/runtime/scanCleanupPreferencesStore';
+import {scanCleanupRun} from '@app/modules/scan-cleanup/runtime/scanCleanupRunCoordinator';
 
 const capability = vi.hoisted(() => ({value: null as IScanCleanupCapability | null}));
 
@@ -121,6 +125,7 @@ function detectionState(
 function capabilityHarness() {
     let nextJob = 0;
     let detectionListener: (state: TScanCleanupDetectionJobState) => void = () => undefined;
+    let runListener: (state: TScanCleanupJobState) => void = () => undefined;
     const value: IScanCleanupCapability = {
         preview: vi.fn(async () => {
             throw new DOMException('Superseded', 'AbortError');
@@ -139,7 +144,10 @@ function capabilityHarness() {
         subscribeJob: vi.fn(),
         reconnectJob: vi.fn(),
         pruneGeneratedOutputs: vi.fn(),
-        onJobState: vi.fn(() => () => undefined),
+        onJobState: vi.fn(listener => {
+            runListener = listener;
+            return () => { runListener = () => undefined; };
+        }),
         onDetectionJobState: vi.fn(listener => {
             detectionListener = listener;
             return () => { detectionListener = () => undefined; };
@@ -147,19 +155,26 @@ function capabilityHarness() {
     };
     return {
         emitDetection: (state: TScanCleanupDetectionJobState) => detectionListener(state),
+        emitRun: (state: TScanCleanupJobState) => runListener(state),
         value,
     };
 }
 
-function mountSession(documentKey: string) {
+function mountSession(documentKey: string, overrides: {
+    documentRevision?: () => string | null;
+    sourcePath?: () => string | null;
+} = {}) {
     let session: ReturnType<typeof useScanCleanupWorkspaceSession> | null = null;
     const host = document.createElement('div');
     document.body.append(host);
     const app = createApp(defineComponent({setup() {
         session = useScanCleanupWorkspaceSession({
             active: () => true,
-            sourcePath: () => `/docs/${documentKey}.pdf`,
+            sourcePath: overrides.sourcePath ?? (() => `/docs/${documentKey}.pdf`),
             documentKey: () => documentKey,
+            ...(overrides.documentRevision === undefined
+                ? {}
+                : {documentRevision: overrides.documentRevision}),
             currentPage: () => 1,
             totalPages: () => 3,
         });
@@ -183,6 +198,14 @@ describe('scan cleanup workspace session detection guidance', () => {
         localStorage.clear();
         scanCleanupAutoDetectionCanceledDocuments.clear();
         scanCleanupDetectionSessionCache.clear();
+        scanCleanupRun.activeJobId = null;
+        scanCleanupRun.inFlight = false;
+        scanCleanupRun.workspaceOwnerIds.clear();
+        scanCleanupRun.jobState = null;
+        scanCleanupRun.lastError = null;
+        scanCleanupRun.ownerDocumentRef = null;
+        scanCleanupRun.ownerDocumentRevision = null;
+        scanCleanupRun.ownerId = null;
     });
 
     afterEach(() => {
@@ -291,25 +314,33 @@ describe('scan cleanup workspace session detection guidance', () => {
         reopened.unmount();
     });
 
-    it('shares global preference edits across mounted surfaces and persists their merged latest state', async () => {
+    it('shares global preferences while keeping output mode scoped to its document', async () => {
         const harness = capabilityHarness();
         capability.value = harness.value;
-        const first = mountSession(`preferences-a-${Date.now()}`);
-        const second = mountSession(`preferences-b-${Date.now()}`);
+        const firstKey = `preferences-a-${Date.now()}`;
+        const secondKey = `preferences-b-${Date.now()}`;
+        const first = mountSession(firstKey);
+        const second = mountSession(secondKey);
 
         first.session.settings.values.outputMode = 'color';
-        expect(second.session.settings.values.outputMode).toBe('color');
+        expect(second.session.settings.values.outputMode).toBe('auto');
         second.session.settings.values.readingOrder = 'rtl';
         expect(first.session.settings.values.readingOrder).toBe('rtl');
 
         await vi.waitFor(() => expect(JSON.parse(
             localStorage.getItem('evb.scanCleanup.settings.v1') ?? '{}',
-        )).toMatchObject({
-            outputMode: 'color',
-            readingOrder: 'rtl',
-        }));
+        )).toMatchObject({readingOrder: 'rtl'}));
+        expect(JSON.parse(localStorage.getItem('evb.scanCleanup.settings.v1') ?? '{}'))
+            .not.toHaveProperty('outputMode');
+        await vi.waitFor(() => expect(JSON.parse(
+            localStorage.getItem('evb.scanCleanup.documentOverrides.v1') ?? '{}',
+        )[firstKey]).toMatchObject({outputMode: 'color'}));
         first.unmount();
         second.unmount();
+
+        const reopened = mountSession(firstKey);
+        expect(reopened.session.settings.values.outputMode).toBe('color');
+        reopened.unmount();
     });
 
     it('does not restore a detection result that resolves after the surface is disposed', async () => {
@@ -326,6 +357,225 @@ describe('scan cleanup workspace session detection guidance', () => {
         await Promise.resolve();
 
         expect(scanCleanupDetectionSessionCache.size).toBe(0);
+    });
+
+    it('rejects an older subscribe response after a newer detection event without regressing progress or maps', async () => {
+        const harness = capabilityHarness();
+        const subscription = Promise.withResolvers<TScanCleanupDetectionJobState | null>();
+        vi.mocked(harness.value.subscribeDetectionJob).mockImplementation(() => subscription.promise);
+        capability.value = harness.value;
+        const mounted = mountSession(`monotonic-detection-${Date.now()}`);
+
+        await vi.waitFor(() => expect(harness.value.subscribeDetectionJob).toHaveBeenCalledOnce());
+        const newerUpdatedAt = Date.now() + 1_000;
+        const newer = detectionState('detect-1', 'completed');
+        newer.status = 'running';
+        newer.results = newer.results.slice(0, 2);
+        newer.results[0] = {
+            ...newer.results[0]!,
+            classification: 'two-page-spread',
+            recommendedOutputMode: 'color',
+            recommendedOutputModeConfidence: 0.93,
+        };
+        newer.progress = {
+            stage: 'detecting',
+            completedUnits: 2,
+            totalUnits: 3,
+            percent: 200 / 3,
+            completedPageNumbers: [
+                1,
+                2,
+            ],
+        };
+        newer.updatedAtMs = newerUpdatedAt;
+        harness.emitDetection(newer);
+        await vi.waitFor(() => expect(mounted.session.detection.progress.value.completedUnits).toBe(2));
+        expect(mounted.session.detection.authoritativeLayoutByPage.value.get(1)).toBe('two-page-spread');
+        expect(mounted.session.detection.recommendedOutputModeByPage.get(1)).toBe('color');
+
+        subscription.resolve({
+            ...detectionState('detect-1', 'queued'),
+            updatedAtMs: newerUpdatedAt - 1,
+        });
+        await subscription.promise;
+        await nextTick();
+
+        expect(mounted.session.detection.progress.value.completedUnits).toBe(2);
+        expect(mounted.session.detection.authoritativeLayoutByPage.value.get(1)).toBe('two-page-spread');
+        expect(mounted.session.detection.recommendedOutputModeByPage.get(1)).toBe('color');
+        mounted.unmount();
+    });
+
+    it('cancels active detection, waits for its terminal state, and starts cleanup exactly once', async () => {
+        const harness = capabilityHarness();
+        capability.value = harness.value;
+        const mounted = mountSession(`detection-to-run-${Date.now()}`);
+        await vi.waitFor(() => expect(mounted.session.detection.isDetecting.value).toBe(true));
+        const canceling = {
+            ...detectionState('detect-1', 'queued'),
+            status: 'canceling' as const,
+            updatedAtMs: Date.now() + 1,
+        };
+        vi.mocked(harness.value.getDetectionJobState).mockResolvedValue(canceling);
+        vi.mocked(harness.value.start).mockResolvedValue({
+            started: true,
+            jobId: 'cleanup-after-detection',
+            outputPdfPath: '/managed/cleanup-after-detection.pdf',
+        });
+        vi.mocked(harness.value.subscribeJob).mockResolvedValue({
+            jobId: 'cleanup-after-detection',
+            status: 'canceled',
+            progress: {
+                stage: 'queued',
+                completedUnits: 0,
+                totalUnits: 3,
+                percent: 0,
+                completedPageNumbers: [],
+            },
+            updatedAtMs: Date.now() + 3,
+        });
+
+        expect(mounted.session.run.canRun.value).toBe(true);
+        const firstRun = mounted.session.run.run();
+        const secondRun = mounted.session.run.run();
+        await vi.waitFor(() => expect(harness.value.cancelDetection).toHaveBeenCalledOnce());
+        expect(harness.value.start).not.toHaveBeenCalled();
+        expect(mounted.session.run.transitionText.value).toBe('scanCleanup.cancelingDetection');
+
+        harness.emitDetection({
+            ...detectionState('detect-1', 'canceled'),
+            results: [],
+            progress: canceling.progress,
+            updatedAtMs: canceling.updatedAtMs + 1,
+        });
+        await Promise.all([
+            firstRun,
+            secondRun,
+        ]);
+
+        expect(harness.value.cancelDetection).toHaveBeenCalledOnce();
+        expect(harness.value.start).toHaveBeenCalledOnce();
+        mounted.unmount();
+    });
+
+    it('settles cancellation after the lifecycle clears the job id and aborts a revision-changed run', async () => {
+        const harness = capabilityHarness();
+        const revision = ref('revision-1');
+        capability.value = harness.value;
+        const mounted = mountSession(
+            `revision-during-cancel-${Date.now()}`,
+            {documentRevision: () => revision.value},
+        );
+        await vi.waitFor(() => expect(mounted.session.detection.isDetecting.value).toBe(true));
+        const canceling = {
+            ...detectionState('detect-1', 'queued'),
+            status: 'canceling' as const,
+            updatedAtMs: Date.now() + 1,
+        };
+        vi.mocked(harness.value.getDetectionJobState).mockResolvedValue(canceling);
+
+        const run = mounted.session.run.run();
+        await vi.waitFor(() => expect(harness.value.cancelDetection).toHaveBeenCalledOnce());
+        revision.value = 'revision-2';
+        await nextTick();
+        harness.emitDetection({
+            ...detectionState('detect-1', 'canceled'),
+            results: [],
+            progress: canceling.progress,
+            updatedAtMs: canceling.updatedAtMs + 1,
+        });
+        await run;
+
+        expect(harness.value.start).not.toHaveBeenCalled();
+        expect(mounted.session.run.inlineError.value)
+            .toBe('scanCleanup.documentChangedBeforeRun');
+        mounted.unmount();
+    });
+
+    it('starts cleanup from one atomic click-time request after detection cancellation', async () => {
+        const harness = capabilityHarness();
+        capability.value = harness.value;
+        const mounted = mountSession(`atomic-run-request-${Date.now()}`);
+        await vi.waitFor(() => expect(mounted.session.detection.isDetecting.value).toBe(true));
+        mounted.session.settings.values.outputMode = 'mixed';
+        mounted.session.settings.values.thickness = 2;
+        mounted.session.settings.values.marginsMm.leftMm = 7;
+        mounted.session.settings.runOcrAfterCleanup.value = true;
+        const canceling = {
+            ...detectionState('detect-1', 'queued'),
+            status: 'canceling' as const,
+            updatedAtMs: Date.now() + 1,
+        };
+        vi.mocked(harness.value.getDetectionJobState).mockResolvedValue(canceling);
+        vi.mocked(harness.value.start).mockResolvedValue({
+            started: true,
+            jobId: 'atomic-cleanup',
+            outputPdfPath: '/managed/atomic-cleanup.pdf',
+        });
+        vi.mocked(harness.value.subscribeJob).mockResolvedValue({
+            jobId: 'atomic-cleanup',
+            status: 'canceled',
+            progress: {
+                stage: 'queued',
+                completedUnits: 0,
+                totalUnits: 3,
+                percent: 0,
+                completedPageNumbers: [],
+            },
+            updatedAtMs: Date.now() + 3,
+        });
+
+        const run = mounted.session.run.run();
+        await vi.waitFor(() => expect(harness.value.cancelDetection).toHaveBeenCalledOnce());
+        mounted.session.settings.values.outputMode = 'color';
+        mounted.session.settings.values.thickness = -3;
+        mounted.session.settings.values.marginsMm.leftMm = 12;
+        mounted.session.settings.runOcrAfterCleanup.value = false;
+        harness.emitDetection({
+            ...detectionState('detect-1', 'canceled'),
+            results: [],
+            progress: canceling.progress,
+            updatedAtMs: canceling.updatedAtMs + 1,
+        });
+        await run;
+
+        expect(harness.value.start).toHaveBeenCalledWith(expect.objectContaining({
+            documentRevision: expect.any(String),
+            sourcePdfPath: expect.stringContaining('atomic-run-request'),
+            options: expect.objectContaining({
+                outputMode: 'mixed',
+                thickness: 2,
+                marginsMm: expect.objectContaining({leftMm: 7}),
+            }),
+            runOcrAfterCleanup: true,
+        }));
+        mounted.unmount();
+    });
+
+    it('surfaces a thrown cleanup bridge error through the owning workspace inline error', async () => {
+        const harness = capabilityHarness();
+        capability.value = harness.value;
+        const mounted = mountSession(`run-bridge-error-${Date.now()}`);
+        await vi.waitFor(() => expect(mounted.session.detection.isDetecting.value).toBe(true));
+        harness.emitDetection({
+            ...detectionState('detect-1', 'canceled'),
+            results: [],
+            progress: {
+                stage: 'detecting',
+                completedUnits: 0,
+                totalUnits: 3,
+                percent: 0,
+                completedPageNumbers: [],
+            },
+            updatedAtMs: Date.now() + 1,
+        });
+        await vi.waitFor(() => expect(mounted.session.detection.pending.value).toBe(false));
+        vi.mocked(harness.value.start).mockRejectedValue(new Error('scan-cleanup IPC codec failed'));
+
+        await mounted.session.run.run();
+
+        expect(mounted.session.run.inlineError.value).toBe('scan-cleanup IPC codec failed');
+        mounted.unmount();
     });
 
     it('does not suppress auto-detection when cancellation resolves after disposal', async () => {
@@ -387,6 +637,123 @@ describe('scan cleanup workspace session detection guidance', () => {
 
         harness.emitDetection(completed);
         expect(mounted.session.detection.textAxisByPage.size).toBe(0);
+        mounted.unmount();
+    });
+
+    it('clears auto-mode recommendations when the document output mode changes', async () => {
+        const harness = capabilityHarness();
+        capability.value = harness.value;
+        const mounted = mountSession(`output-mode-recommendation-${Date.now()}`);
+
+        await vi.waitFor(() => expect(harness.value.detectAll).toHaveBeenCalledOnce());
+        const completed = detectionState('detect-1', 'completed');
+        completed.results[0] = {
+            ...completed.results[0]!,
+            recommendedOutputMode: 'color',
+            recommendedOutputModeConfidence: 0.94,
+        };
+        harness.emitDetection(completed);
+        await vi.waitFor(() => expect(
+            mounted.session.detection.recommendedOutputModeByPage.get(1),
+        ).toBe('color'));
+
+        mounted.session.settings.values.outputMode = 'bw';
+        await nextTick();
+        expect(mounted.session.detection.recommendedOutputModeByPage.size).toBe(0);
+        expect(mounted.session.detection.recommendedOutputModeConfidenceByPage.size).toBe(0);
+
+        harness.emitDetection(completed);
+        expect(mounted.session.detection.recommendedOutputModeByPage.size).toBe(0);
+        mounted.unmount();
+    });
+
+    it('clears only the page recommendation whose picture or fill zones changed', async () => {
+        const harness = capabilityHarness();
+        capability.value = harness.value;
+        const mounted = mountSession(`zone-recommendation-${Date.now()}`);
+
+        await vi.waitFor(() => expect(harness.value.detectAll).toHaveBeenCalledOnce());
+        const completed = detectionState('detect-1', 'completed');
+        completed.results[0] = {
+            ...completed.results[0]!,
+            recommendedOutputMode: 'mixed',
+            recommendedOutputModeConfidence: 0.91,
+        };
+        completed.results[1] = {
+            ...completed.results[1]!,
+            recommendedOutputMode: 'bw',
+            recommendedOutputModeConfidence: 0.87,
+        };
+        harness.emitDetection(completed);
+        await vi.waitFor(() => expect(
+            mounted.session.detection.recommendedOutputModeByPage.size,
+        ).toBe(2));
+
+        mounted.session.settings.values.pageOverrides['1'] = {
+            rotationDegrees: 0,
+            layoutOverride: 'auto',
+            excluded: false,
+            manualSplit: null,
+            manualZones: {
+                picture: [],
+                fill: [{
+                    rotationDegrees: 0,
+                    points: [
+                        {
+                            xNormalized: 0.1,
+                            yNormalized: 0.1,
+                        },
+                        {
+                            xNormalized: 0.2,
+                            yNormalized: 0.1,
+                        },
+                        {
+                            xNormalized: 0.2,
+                            yNormalized: 0.2,
+                        },
+                    ],
+                }],
+            },
+        };
+        await nextTick();
+
+        expect(mounted.session.detection.recommendedOutputModeByPage.has(1)).toBe(false);
+        expect(mounted.session.detection.recommendedOutputModeConfidenceByPage.has(1)).toBe(false);
+        expect(mounted.session.detection.recommendedOutputModeByPage.get(2)).toBe('bw');
+        expect(mounted.session.detection.recommendedOutputModeConfidenceByPage.get(2)).toBe(0.87);
+        mounted.unmount();
+    });
+
+    it('invalidates the detected document canvas when layout or quality mode changes', async () => {
+        const harness = capabilityHarness();
+        capability.value = harness.value;
+        const mounted = mountSession(`canvas-plan-invalidation-${Date.now()}`);
+
+        await vi.waitFor(() => expect(harness.value.detectAll).toHaveBeenCalledOnce());
+        const completed = {
+            ...detectionState('detect-1', 'completed'),
+            documentCanvasPlan: {
+                widthPoints: 420,
+                heightPoints: 612,
+            },
+        };
+        harness.emitDetection(completed);
+        await vi.waitFor(() => expect(mounted.session.detection.documentCanvasPlan.value)
+            .toEqual(completed.documentCanvasPlan));
+
+        mounted.session.settings.values.layoutMode = 'force-single';
+        await nextTick();
+        expect(mounted.session.detection.documentCanvasPlan.value).toBeUndefined();
+
+        harness.emitDetection({
+            ...completed,
+            updatedAtMs: completed.updatedAtMs + 1,
+        });
+        await vi.waitFor(() => expect(mounted.session.detection.documentCanvasPlan.value)
+            .toEqual(completed.documentCanvasPlan));
+        mounted.session.settings.values.preserveOriginalQuality = true;
+        await nextTick();
+        expect(mounted.session.detection.documentCanvasPlan.value).toBeUndefined();
         mounted.unmount();
     });
 

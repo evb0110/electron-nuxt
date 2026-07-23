@@ -265,10 +265,13 @@ export type TFeatureEventMap<T> = T extends IDefinedPlatformFeature<any, infer E
     ? {[K in keyof E as E[K]['channel']]: TInferSchema<E[K]['payload']>}
     : never;
 
-type TSender<TEvent> = TEvent extends {sender: infer S} ? {
-    sender: S;
-    senderId: number
-} : never;
+export interface IPlatformMainSenderContext<TSender> {
+    sender: TSender;
+    senderId: number;
+}
+
+type TSender<TEvent> = TEvent extends {sender: infer S} ? IPlatformMainSenderContext<S>
+    : never;
 
 type TMainMethod<TSpec extends IPlatformIpcMethodSpec, TEvent> = (
     ...args: TSpec['main']['context'] extends 'sender'

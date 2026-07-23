@@ -1,0 +1,100 @@
+{
+  "version": 3,
+  "operation": "render",
+  "renderMode": "final",
+  "canvasScope": "document",
+  "documentCanvas": {
+    "widthPoints": 420.25,
+    "heightPoints": 612.5
+  },
+  "pages": [
+    {
+      "inputPath": "/fixtures/input/page-1.png",
+      "sourcePageIndex": 0,
+      "pageMetadataPath": "/fixtures/output/page-1.json",
+      "options": {
+        "dpi": 300,
+        "sourceDpi": 300,
+        "requestedRenderDpi": 300,
+        "binarization": "auto",
+        "thickness": 0,
+        "normalizeIllumination": true,
+        "despeckle": true,
+        "outputMode": "mixed",
+        "ocrMode": false,
+        "layout": "auto",
+        "manualSplit": null,
+        "manualContentBoxes": {},
+        "cropContent": true,
+        "matchPageSize": true,
+        "pageAlignment": "top-center",
+        "placementOverrides": {},
+        "margins": {
+          "leftMm": 5,
+          "topMm": 5,
+          "rightMm": 5,
+          "bottomMm": 5
+        },
+        "experimental": {
+          "autoDewarp": false
+        },
+        "rotationDegrees": 0,
+        "excluded": false,
+        "skipBlankPages": false,
+        "maxPixels": 160000000,
+        "maxDimensionPx": 40000,
+        "despeckleLevel": "aggressive",
+        "manualZones": {
+          "picture": [
+            {
+              "polygon": {
+                "points": [
+                  {
+                    "xNormalized": 0.1,
+                    "yNormalized": 0.1
+                  },
+                  {
+                    "xNormalized": 0.9,
+                    "yNormalized": 0.1
+                  },
+                  {
+                    "xNormalized": 0.9,
+                    "yNormalized": 0.9
+                  }
+                ],
+                "rotationDegrees": 0
+              },
+              "layer": "painter2"
+            }
+          ],
+          "fill": [
+            {
+              "points": [
+                {
+                  "xNormalized": 0.2,
+                  "yNormalized": 0.2
+                },
+                {
+                  "xNormalized": 0.4,
+                  "yNormalized": 0.2
+                },
+                {
+                  "xNormalized": 0.4,
+                  "yNormalized": 0.4
+                }
+              ],
+              "rotationDegrees": 0
+            }
+          ]
+        }
+      },
+      "outputs": [
+        {
+          "outputPath": "/fixtures/output/page-1.png",
+          "metadataPath": "/fixtures/output/page-1-output.json",
+          "bilevelOutputPath": "/fixtures/output/page-1.pbm"
+        }
+      ]
+    }
+  ]
+}

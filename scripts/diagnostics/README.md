@@ -1,49 +1,49 @@
-# Diagnostics
+# PDF diagnostics
 
-## PDF Navigation Blink Trace
+The three PDF diagnostics are scenarios on `runPdfDiagnosticScenario.ts`, which owns
+isolated Electron sessions, diagnostic trace buffers, timed sampling, optional frame
+capture, artifact writes, and cleanup. Their package commands, acceptance thresholds,
+and JSON schemas remain scenario-specific.
 
-Use `pdfNavigationBlinkTrace.ts` when PDF page navigation shows blank frames, delayed skeletons, or canvas/skeleton flicker.
+## Navigation blink trace
+
+Use the blink trace for blank frames, delayed skeletons, or canvas/skeleton flicker:
 
 ```bash
-pnpm exec tsx scripts/diagnostics/pdfNavigationBlinkTrace.ts --pdf /path/to/source.pdf --out .devkit/pdf-navigation-blink-trace.json
+pnpm run diag:pdf-navigation-blink-trace -- --pdf /path/to/source.pdf --out .devkit/pdf-navigation-blink-trace.json
 ```
 
-Add `--video` when a visual blink needs frame-by-frame review:
+The PDF defaults to `EVB_DIAGNOSTIC_PDF_PATH`, then
+`.devkit/manual-pdf-fixtures/page-jump-source.pdf`. Add `--video` or
+`--video-dir <dir>` for timestamped JPEG frames, `trace.mp4`, and
+`contact-sheet.jpg`. Capture uses CDP screencasting and falls back to Puppeteer
+screenshots; ffmpeg artifacts are optional. The JSON preserves `video.artifactPaths`
+and `summary.frameAnalysis`; `skeletonAfterCanvasObserved` identifies a skeleton seen
+after canvas ownership.
 
-```bash
-pnpm exec tsx scripts/diagnostics/pdfNavigationBlinkTrace.ts --video --out .devkit/pdf-navigation-blink-trace.json
-```
+## Skeleton navigation scenarios
 
-If `--pdf` is omitted, the script reads `EVB_DIAGNOSTIC_PDF_PATH` and otherwise falls back to `.devkit/manual-pdf-fixtures/page-jump-source.pdf`.
-
-Use `--video-dir <dir>` to control where visual artifacts go. The recorder writes timestamped JPEG frames under `<dir>/frames`, then creates `trace.mp4` and `contact-sheet.jpg` when `ffmpeg` is available. Capture uses CDP `Page.startScreencast` so macOS screen-recording permission is not required; if CDP screencast startup fails, it falls back to timestamped Puppeteer screenshots.
-
-The JSON output includes `video.artifactPaths` and `summary.frameAnalysis`. `summary.frameAnalysis.skeletonAfterCanvasObserved` is the quick flag to check when debugging whether skeleton UI appeared again after a canvas had already been observed during the trace window.
-
-## PDF Skeleton Navigation Diagnostics
-
-Use `runPdfSkeletonNavigationDiagnostics.ts` for the Girgas/manual navigation PDF scenarios that write the legacy skeleton diagnostics reports:
+Run the high-zoom next-page, toolbar direct-jump, and rapid next-to-last scenarios:
 
 ```bash
 EVB_E2E_NAVIGATION_PDF_PATH=/path/to/navigation-source.pdf pnpm run diag:pdf-skeleton-navigation
 ```
 
-If `EVB_E2E_NAVIGATION_PDF_PATH` is omitted, the script reads `EVB_DIAGNOSTIC_PDF_PATH` and otherwise falls back to `.devkit/manual-pdf-fixtures/navigation-source.pdf`.
-
-Artifacts are written to:
+The path falls back through `EVB_DIAGNOSTIC_PDF_PATH` to
+`.devkit/manual-pdf-fixtures/navigation-source.pdf`. Outputs remain:
 
 - `.devkit/girgas-page-navigation-skeleton-diagnostics.json`
 - `.devkit/girgas-page-500-input-skeleton-diagnostics.json`
 - `.devkit/girgas-rapid-next-to-last-skeleton-diagnostics.json`
 
-## Arnold PDF Open Diagnostics
+## Arnold PDF open
 
-Use `runArnoldPdfOpenDiagnostics.ts` for the personal Arnold lexicon PDF open/settle trace:
+Run the open, settle, scroll, and high-zoom acceptance scenario with:
 
 ```bash
 EVB_E2E_ARNOLD_PDF_PATH=/path/to/arnold-grammar.pdf pnpm run diag:arnold-pdf-open
 ```
 
-If `EVB_E2E_ARNOLD_PDF_PATH` is omitted, the script falls back to `.devkit/manual-pdf-fixtures/arnold-grammar.pdf`.
-
-Artifacts are written to `.devkit/arnold-pdf-open-diagnostics.json` and `.devkit/arnold-pdf-open-console.log`.
+The default fixture is `.devkit/manual-pdf-fixtures/arnold-grammar.pdf`. Artifacts
+remain `.devkit/arnold-pdf-open-diagnostics.json` and
+`.devkit/arnold-pdf-open-console.log`.

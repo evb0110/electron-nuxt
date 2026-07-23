@@ -1,5 +1,5 @@
 import type { BrowserWindow } from 'electron';
-import type { IDjvuEventMap } from '@electron/features/djvu/contract';
+import type { IDjvuEventMap } from '@contracts/djvuPlatformFeature';
 import { createLogger } from '@electron/utils/createLogger';
 import { sendPlatformEvent } from '@electron/utils/sendPlatformEvent';
 

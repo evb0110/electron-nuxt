@@ -89,6 +89,7 @@ function createSender(id: number): Electron.WebContents {
         on: vi.fn(),
         once: vi.fn(),
         removeListener: vi.fn(),
+        send: electronMocks.send,
     };
     return sender as Electron.WebContents;
 }
@@ -355,14 +356,16 @@ describe('SearchWorkerService', () => {
             truncated: false,
         });
 
-        expect(electronMocks.send).toHaveBeenCalledWith(
-            SEARCH_PLATFORM_FEATURE.eventChannels.onProgress,
-            expect.objectContaining({
-                requestId: 'search-1',
-                resultsStartIndex: 1,
-                results: [expect.objectContaining({matchIndex: 1})],
-            }),
-        );
+        await vi.waitFor(() => {
+            expect(electronMocks.send).toHaveBeenCalledWith(
+                SEARCH_PLATFORM_FEATURE.eventChannels.onProgress,
+                expect.objectContaining({
+                    requestId: 'search-1',
+                    resultsStartIndex: 1,
+                    results: [expect.objectContaining({matchIndex: 1})],
+                }),
+            );
+        });
 
         emitWorkerComplete(0, 'search-1');
         await expect(searchPromise).resolves.toEqual({
@@ -371,7 +374,7 @@ describe('SearchWorkerService', () => {
         });
     });
 
-    it('disposes the old sender cleanup when re-keying an idle worker under cap pressure', async () => {
+    it('leaves renderer lifecycle ownership with the registry when re-keying an idle worker', async () => {
         process.env.EVB_SEARCH_WORKER_MAX_ACTIVE = '1';
         const { SearchWorkerService } = await import('@electron/features/search/main/searchWorkerService');
         const service = new SearchWorkerService(() => '/tmp/search-worker.js');
@@ -392,9 +395,7 @@ describe('SearchWorkerService', () => {
 
         expect(workerMocks.instances).toHaveLength(1);
         expect(workerMocks.instances[0]?.postMessage).toHaveBeenCalledWith({type: 'reset-state'});
-        expect(firstSender.removeListener).toHaveBeenCalledWith('destroyed', expect.any(Function));
-        expect(firstSender.removeListener).toHaveBeenCalledWith('render-process-gone', expect.any(Function));
-        expect(firstSender.removeListener).toHaveBeenCalledWith('did-start-navigation', expect.any(Function));
+        expect(firstSender.removeListener).not.toHaveBeenCalled();
 
         emitWorkerComplete(0, 'search-2');
         await expect(secondSearch).resolves.toEqual({

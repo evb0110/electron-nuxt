@@ -267,6 +267,14 @@ export function migrateScanCleanupDocumentOverridesV1(
             && value.manualSkewDegrees <= SCAN_CLEANUP_MANUAL_SKEW_MAX_DEGREES
             ? value.manualSkewDegrees
             : undefined;
+        const outputModeOverride = [
+            'bw',
+            'mixed',
+            'grayscale',
+            'color',
+        ].includes(String(value.outputModeOverride))
+            ? value.outputModeOverride as IScanCleanupPageOverride['outputModeOverride']
+            : undefined;
         legacyGeometryFound ||= manualSplit.legacy || manualContentBoxes.legacy;
         migrated[String(pageNumber)] = createScanCleanupPageOverride({
             rotationDegrees,
@@ -274,6 +282,7 @@ export function migrateScanCleanupDocumentOverridesV1(
             excluded: value.excluded === true,
             manualSplit: manualSplit.value,
             ...(manualSkewDegrees === undefined ? {} : {manualSkewDegrees}),
+            ...(outputModeOverride === undefined ? {} : {outputModeOverride}),
             ...(Object.keys(manualContentBoxes.value).length > 0
                 ? {manualContentBoxes: manualContentBoxes.value}
                 : {}),

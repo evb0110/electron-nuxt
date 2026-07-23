@@ -25,6 +25,8 @@ import {toBridgeSafeScanCleanupPayload} from '@app/modules/scan-cleanup/runtime/
 
 type TScanCleanupLayoutClassification = IScanCleanupPreviewResult['pageMetadata']['layoutClassification'];
 
+const DETECTION_CANCELLATION_TIMEOUT_MS = 10_000;
+
 interface IUseScanCleanupDetectionSessionOptions {
     active: () => boolean;
     documentRevision: ComputedRef<string>;
@@ -55,6 +57,24 @@ function resolveManualLayoutClassification(
     return pageOverride.manualSplit === null ? undefined : 'two-page-spread';
 }
 
+function detectionPhaseRank(stage: TScanCleanupDetectionJobState['progress']['stage']) {
+    if (stage === 'queued') {
+        return 0;
+    }
+    if (stage === 'rasterizing') {
+        return 1;
+    }
+    return 2;
+}
+
+function detectionIsTerminal(state: TScanCleanupDetectionJobState | null) {
+    return state !== null && [
+        'completed',
+        'failed',
+        'canceled',
+    ].includes(state.status);
+}
+
 export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetectionSessionOptions) => {
     const {t} = useTypedI18n();
     const starting = ref(false);
@@ -65,12 +85,23 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
     const detectedLayoutByPage = reactive(new Map<number, TScanCleanupLayoutClassification>());
     const confidenceByPage = reactive(new Map<number, number>());
     const documentPriorByPage = reactive(new Map<number, NonNullable<IScanCleanupDetectionResult['documentPrior']>>());
+    const documentCanvasPlan = shallowRef<TScanCleanupDetectionJobState['documentCanvasPlan']>();
     const textAxisByPage = reactive(new Map<number, NonNullable<IScanCleanupDetectionResult['textAxis']>>());
+    const recommendedOutputModeByPage = reactive(
+        new Map<number, NonNullable<IScanCleanupDetectionResult['recommendedOutputMode']>>(),
+    );
+    const recommendedOutputModeConfidenceByPage = reactive(new Map<number, number>());
     let jobId: string | null = null;
     let jobDocumentKey: string | null = null;
     let jobDocumentRevision: string | null = null;
     let stopSubscription: (() => void) | null = null;
     let disposed = false;
+    const terminalWaiters = new Map<string, Set<() => void>>();
+
+    function clearOutputModeRecommendations() {
+        recommendedOutputModeByPage.clear();
+        recommendedOutputModeConfidenceByPage.clear();
+    }
 
     const manualLayoutOverrideByPage = computed<ReadonlyMap<number, TScanCleanupLayoutClassification>>(() => {
         const layouts = new Map<number, TScanCleanupLayoutClassification>();
@@ -111,6 +142,15 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
         percent: 0,
         completedPageNumbers: [],
     });
+    const progressText = computed(() => t(
+        progress.value.stage === 'rasterizing'
+            ? 'scanCleanup.detectAll.rasterizingProgress'
+            : 'scanCleanup.detectAll.analyzingProgress',
+        {
+            completed: progress.value.completedUnits,
+            total: progress.value.totalUnits,
+        },
+    ));
     const outputEstimate = computed(() => {
         const estimate = estimateScanCleanupOutputPages(
             options.totalPages.value,
@@ -133,15 +173,18 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
     function signature(pageNumber: number) {
         const pageOverride = getScanCleanupPageOverride(options.settings.pageOverrides, pageNumber);
         const lossless = options.settings.preserveOriginalQuality === true;
+        const outputMode = lossless
+            ? 'color'
+            : pageOverride.outputModeOverride ?? options.settings.outputMode;
         return JSON.stringify({
             layoutMode: options.settings.layoutMode,
             layoutOverride: pageOverride.layoutOverride,
-            outputMode: lossless ? 'color' : options.settings.outputMode,
+            outputMode,
             binarization: options.settings.binarization ?? 'auto',
             normalizeIllumination: !lossless && (options.settings.normalizeIllumination ?? true),
             thickness: lossless ? 0 : options.settings.thickness,
             despeckleLevel: !lossless
-                && (options.settings.outputMode === 'bw' || options.settings.outputMode === 'mixed')
+                && (outputMode === 'auto' || outputMode === 'bw' || outputMode === 'mixed')
                 ? options.settings.despeckleLevel
                     ?? ((options.settings.despeckle ?? true) ? 'normal' : 'off')
                 : 'off',
@@ -157,10 +200,32 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
     }
 
     function applyState(state: TScanCleanupDetectionJobState) {
+        if (detectionIsTerminal(state)) {
+            for (const settle of terminalWaiters.get(state.jobId) ?? []) settle();
+            terminalWaiters.delete(state.jobId);
+        }
         if (disposed || state.jobId !== jobId) {
             return;
         }
+        const current = jobState.value;
+        if (current?.jobId === state.jobId) {
+            const currentPhase = detectionPhaseRank(current.progress.stage);
+            const nextPhase = detectionPhaseRank(state.progress.stage);
+            if (
+                state.updatedAtMs < current.updatedAtMs
+                || nextPhase < currentPhase
+                || (
+                    nextPhase === currentPhase
+                    && state.progress.completedUnits < current.progress.completedUnits
+                )
+            ) {
+                return;
+            }
+        }
         jobState.value = state;
+        if (state.status === 'completed') {
+            documentCanvasPlan.value = state.documentCanvasPlan;
+        }
         applyScanCleanupDetectionResults(
             state.results,
             detectedLayoutByPage,
@@ -168,6 +233,8 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
             pageNumber => signatures.get(pageNumber) === signature(pageNumber),
             documentPriorByPage,
             textAxisByPage,
+            recommendedOutputModeByPage,
+            recommendedOutputModeConfidenceByPage,
         );
         if (state.status === 'failed') error.value = state.error;
         if (!disposed && jobDocumentKey && state.status === 'completed') {
@@ -232,7 +299,9 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
         detectedLayoutByPage.clear();
         confidenceByPage.clear();
         documentPriorByPage.clear();
+        documentCanvasPlan.value = undefined;
         textAxisByPage.clear();
+        clearOutputModeRecommendations();
         jobId = result.jobId;
         jobState.value = {
             jobId: result.jobId,
@@ -245,7 +314,7 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
                 completedPageNumbers: [],
             },
             results: [],
-            updatedAtMs: Date.now(),
+            updatedAtMs: 0,
         };
         const state = await capability.subscribeDetectionJob(result.jobId, {
             ownerId: options.ownerId,
@@ -273,6 +342,98 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
         }
     }
 
+    async function cancelAndWaitForTerminal() {
+        return new Promise<void>((resolve, reject) => {
+            let settled = false;
+            let stopStarting: (() => void) | null = null;
+            let targetJobId: string | null = null;
+            let terminalWaiter: (() => void) | null = null;
+            const timeout = setTimeout(() => {
+                finish(new Error(t('scanCleanup.detectAll.cancelTimeout')));
+            }, DETECTION_CANCELLATION_TIMEOUT_MS);
+
+            function cleanup() {
+                clearTimeout(timeout);
+                stopStarting?.();
+                if (targetJobId && terminalWaiter) {
+                    const waiters = terminalWaiters.get(targetJobId);
+                    waiters?.delete(terminalWaiter);
+                    if (waiters?.size === 0) terminalWaiters.delete(targetJobId);
+                }
+            }
+
+            function finish(caught?: unknown) {
+                if (settled) {
+                    return;
+                }
+                settled = true;
+                cleanup();
+                if (caught === undefined) {
+                    resolve();
+                } else {
+                    reject(caught);
+                }
+            }
+
+            void (async () => {
+                if (starting.value) {
+                    await new Promise<void>(resolveStarting => {
+                        stopStarting = watch(starting, value => {
+                            if (!value) resolveStarting();
+                        }, {flush: 'sync'});
+                    });
+                    const stopAfterStarting = stopStarting as (() => void) | null;
+                    stopAfterStarting?.();
+                    stopStarting = null;
+                    if (settled) {
+                        return;
+                    }
+                    await nextTick();
+                }
+                targetJobId = jobId;
+                const targetJobRevision = jobDocumentRevision ?? options.documentRevision.value;
+                const targetDocumentKey = jobDocumentKey;
+                if (!targetJobId || detectionIsTerminal(jobState.value)) {
+                    finish();
+                    return;
+                }
+                const capability = getScanCleanupCapability();
+                if (!capability) {
+                    finish();
+                    return;
+                }
+                terminalWaiter = () => finish();
+                const waiters = terminalWaiters.get(targetJobId) ?? new Set<() => void>();
+                waiters.add(terminalWaiter);
+                terminalWaiters.set(targetJobId, waiters);
+                if (!cancelRequested.value) {
+                    const canceled = await capability.cancelDetection(targetJobId, {
+                        ownerId: options.ownerId,
+                        documentRevision: targetJobRevision,
+                    });
+                    if (settled) {
+                        return;
+                    }
+                    if (canceled && !disposed && targetDocumentKey) {
+                        autoDetectionCanceledDocuments.add(targetDocumentKey);
+                    }
+                }
+                const latest = await capability.getDetectionJobState(targetJobId, {
+                    ownerId: options.ownerId,
+                    documentRevision: targetJobRevision,
+                });
+                if (settled) {
+                    return;
+                }
+                if (!latest) {
+                    finish();
+                    return;
+                }
+                applyState(latest);
+            })().catch(finish);
+        });
+    }
+
     function cacheIsFresh(entry: IDetectionSessionCacheEntry) {
         if (entry.totalPages !== options.totalPages.value || entry.signatures.size !== options.totalPages.value) {
             return false;
@@ -291,6 +452,7 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
             return false;
         }
         jobState.value = structuredClone(cached.state);
+        documentCanvasPlan.value = cached.state.documentCanvasPlan;
         signatures.clear();
         for (const [
             pageNumber,
@@ -303,6 +465,8 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
             undefined,
             documentPriorByPage,
             textAxisByPage,
+            recommendedOutputModeByPage,
+            recommendedOutputModeConfidenceByPage,
         );
         return true;
     }
@@ -348,7 +512,9 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
         detectedLayoutByPage.clear();
         confidenceByPage.clear();
         documentPriorByPage.clear();
+        documentCanvasPlan.value = undefined;
         textAxisByPage.clear();
+        clearOutputModeRecommendations();
         autoPending.value = Boolean(options.active() && options.sourcePath.value);
         // The mounted hook owns the initial auto-detect; scheduling it here too
         // would race a just-started or just-completed job on the same document.
@@ -359,6 +525,41 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
     watch(options.active, active => {
         if (active) void nextTick(maybeAutoDetect);
     });
+    watch(
+        () => [
+            options.settings.outputMode,
+            options.settings.preserveOriginalQuality === true,
+        ] as const,
+        clearOutputModeRecommendations,
+    );
+    watch(
+        () => Array.from(
+            {length: options.totalPages.value},
+            (_, index) => JSON.stringify(options.settings.pageOverrides[String(index + 1)]?.manualZones ?? null),
+        ),
+        (currentZones, previousZones) => {
+            for (let index = 0; index < currentZones.length; index += 1) {
+                if (currentZones[index] !== previousZones[index]) {
+                    recommendedOutputModeByPage.delete(index + 1);
+                    recommendedOutputModeConfidenceByPage.delete(index + 1);
+                }
+            }
+        },
+    );
+    watch(
+        () => JSON.stringify({
+            crop: options.settings.crop,
+            layoutMode: options.settings.layoutMode,
+            marginsMm: options.settings.marginsMm,
+            pageOverrides: options.settings.pageOverrides,
+            preserveOriginalQuality: options.settings.preserveOriginalQuality === true,
+        }),
+        () => {
+            if (jobState.value?.status === 'completed') {
+                documentCanvasPlan.value = undefined;
+            }
+        },
+    );
     onBeforeUnmount(() => {
         disposed = true;
         stopSubscription?.();
@@ -374,9 +575,11 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
         authoritativeLayoutByPage,
         canDetectAll,
         cancel,
+        cancelAndWaitForTerminal,
         cancelRequested,
         confidenceByPage,
         detectAllPages,
+        documentCanvasPlan,
         documentPriorByPage,
         error,
         isDetecting,
@@ -384,6 +587,9 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
         outputEstimate,
         pending,
         progress,
+        progressText,
+        recommendedOutputModeByPage,
+        recommendedOutputModeConfidenceByPage,
         textAxisByPage,
     };
 };

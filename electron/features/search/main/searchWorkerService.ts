@@ -1,8 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import {
-    webContents,
-    type WebContents,
-} from 'electron';
+import type { WebContents } from 'electron';
 import { Worker } from 'worker_threads';
 import { minBy } from 'es-toolkit/array';
 import { clamp } from 'es-toolkit/math';
@@ -19,9 +16,12 @@ import {
     SearchIpcError,
     toSearchIpcError,
 } from '@electron/features/search/main/searchErrors';
-import { createIpcProgressPump } from '@electron/utils/createIpcProgressPump';
 import type { TDocumentRevisionToken } from '@contracts/documentRevision';
-import type { IPdfSearchProgress } from '@contracts/search';
+import {
+    isSearchErrorEnvelope,
+    type IPdfSearchProgress,
+    type ISearchErrorEnvelope,
+} from '@contracts/search';
 import { SEARCH_PLATFORM_FEATURE } from '@contracts/searchPlatformFeature';
 import { normalizePathForLookup } from '@electron/file-access/workingCopyStore';
 import {
@@ -29,15 +29,16 @@ import {
     getSearchWorkerOutboundRequestId,
     parseSearchWorkerOutboundMessage,
 } from '@electron/features/search/main/searchWorkerMessageCodec';
+import {
+    createMainJobRegistry,
+    type IMainJobHandle,
+    type IMainJobRunContext,
+    type TMainJobErrorKind,
+} from '@electron/operation-lifecycle/createMainJobRegistry';
 
-interface IPendingSearchRequest {
-    resolve: (response: ISearchResponse) => void;
-    reject: (error: Error) => void;
-}
-
-type TPendingSearchSettler = (pending: IPendingSearchRequest) => void;
 type TSearchMatch = ISearchResponse['results'][number];
-type TSearchProgressPayload = IPdfSearchProgress;
+type TSearchJobContext = IMainJobRunContext<IPdfSearchProgress, ISearchResponse, ISearchErrorEnvelope>;
+type TSearchJobHandle = IMainJobHandle<IPdfSearchProgress, ISearchResponse, ISearchErrorEnvelope>;
 
 export interface ISearchOperationContext {
     sender: WebContents;
@@ -49,16 +50,24 @@ export interface ISearchSenderContext {
     senderId?: number;
 }
 
+interface IWorkerSearchRequest {
+    requestId: string;
+    pdfPath: string;
+    pageCount: number | undefined;
+    registry: TSearchJobContext | null;
+    queuedProgress: IPdfSearchProgress | null;
+    cancellationFallbackTimeout: NodeJS.Timeout | null;
+    resolve: (response: ISearchResponse) => void;
+    reject: (error: Error) => void;
+    settlement: Promise<ISearchResponse>;
+    handle: TSearchJobHandle | null;
+}
+
 interface ISenderSearchState {
     senderId: number;
     worker: Worker;
     activeRequestId: string | null;
-    pendingByRequestId: Map<string, IPendingSearchRequest>;
-    pdfPathsByRequestId: Map<string, string>;
-    pageCountsByRequestId: Map<string, number>;
-    requestTimeouts: Map<string, NodeJS.Timeout>;
-    cancellationFallbackTimeouts: Map<string, NodeJS.Timeout>;
-    cancelPendingRequestIds: Set<string>;
+    requests: Map<string, IWorkerSearchRequest>;
     idleCleanupTimer: NodeJS.Timeout | null;
     lastActivityAtMs: number;
 }
@@ -109,11 +118,85 @@ function getSearchDocumentBuildKey(pdfPath: string, documentRevision: TDocumentR
     return `${getSearchPdfPathKey(pdfPath)}\0${documentRevision}`;
 }
 
-const log = createLogger('search-ipc');
-const SEARCH_PROGRESS_EVENT = SEARCH_PLATFORM_FEATURE.events.onProgress;
-const SEARCH_PROGRESS_REPLAY = SEARCH_PROGRESS_EVENT.subscription.replay;
+function toSearchRegistryError(cause: unknown, kind: TMainJobErrorKind) {
+    if (cause instanceof SearchIpcError) {
+        return cause.errorEnvelope;
+    }
+    if (isSearchErrorEnvelope(cause)) {
+        return cause;
+    }
+    const message = getErrorMessage(cause) || 'Search failed';
+    if (kind === 'duplicate-job-id') {
+        return buildSearchErrorEnvelope('SEARCH_INVALID_PAYLOAD', message);
+    }
+    return buildSearchErrorEnvelope('SEARCH_INTERNAL', message);
+}
 
-const DEFAULT_SEARCH_REQUEST_TIMEOUT_MS = 2 * 60 * 1000;
+function createSearchJobRegistry() {
+    const replay = SEARCH_PLATFORM_FEATURE.events.onProgress.subscription.replay;
+    return createMainJobRegistry<IPdfSearchProgress, ISearchResponse, ISearchErrorEnvelope>({
+        retention: {
+            eventReplayTtlMs: replay.terminalRetentionMs,
+            terminalRecordTtlMs: replay.terminalRetentionMs,
+        },
+        progress: {
+            channel: SEARCH_PLATFORM_FEATURE.eventChannels.onProgress,
+            intervalMs: replay.intervalMs,
+            getEventKey: progress => replay.key(progress) || null,
+        },
+        toError: toSearchRegistryError,
+        terminalProgress: {
+            completed: latest => ({
+                requestId: latest.requestId,
+                processed: latest.total,
+                total: latest.total,
+                status: 'success',
+            }),
+            canceled: latest => ({
+                requestId: latest.requestId,
+                processed: 0,
+                total: latest.total,
+                canceled: true,
+                status: 'canceled',
+            }),
+            failed: (latest, error) => ({
+                requestId: latest.requestId,
+                processed: 0,
+                total: latest.total,
+                status: 'failed',
+                error: error.message,
+            }),
+        },
+    });
+}
+
+function createWorkerSettlement(
+    requestId: string,
+    pdfPath: string,
+    pageCount: number | undefined,
+): IWorkerSearchRequest {
+    let resolve!: (response: ISearchResponse) => void;
+    let reject!: (error: Error) => void;
+    const settlement = new Promise<ISearchResponse>((resolvePromise, rejectPromise) => {
+        resolve = resolvePromise;
+        reject = rejectPromise;
+    });
+    return {
+        requestId,
+        pdfPath,
+        pageCount,
+        registry: null,
+        queuedProgress: null,
+        cancellationFallbackTimeout: null,
+        resolve,
+        reject,
+        settlement,
+        handle: null,
+    };
+}
+
+const log = createLogger('search-ipc');
+const DEFAULT_SEARCH_REQUEST_TIMEOUT_MS = SEARCH_PLATFORM_FEATURE.methods.run.ipc.timeoutMs;
 const MIN_SEARCH_REQUEST_TIMEOUT_MS = 5_000;
 const DEFAULT_SEARCH_WORKER_MAX_ACTIVE = 2;
 const MAX_SEARCH_WORKER_ACTIVE = 256;
@@ -175,10 +258,9 @@ export function getSearchWorkerServiceConfig() {
 }
 
 export class SearchWorkerService {
+    private readonly searchJobs = createSearchJobRegistry();
     private readonly senderSearchStates = new Map<number, ISenderSearchState>();
-    private readonly senderCleanupDisposers = new Map<number, () => void>();
     private readonly workerTerminationPromises = new Map<Worker, Promise<void>>();
-    private readonly progressPumpsBySenderId = new Map<number, ReturnType<typeof createIpcProgressPump<TSearchProgressPayload>>>();
     private readonly warmupSingleflightsByDocument = new Map<string, IWarmupSingleflight>();
 
     constructor(private readonly resolveWorkerPath: () => string) {}
@@ -192,11 +274,7 @@ export class SearchWorkerService {
 
     subscribeProgress(context: ISearchSenderContext) {
         const operationContext = this.normalizeOperationContext(context);
-        this.progressPumpsBySenderId.get(operationContext.senderId)?.subscribe({
-            key: `web-contents:${operationContext.senderId}`,
-            isDestroyed: () => operationContext.sender.isDestroyed(),
-            send: (channel: string, payload: TSearchProgressPayload) => operationContext.sender.send(channel, payload),
-        });
+        this.searchJobs.subscribeOwner({sender: operationContext.sender});
     }
 
     dispatchSearchRequest(
@@ -204,7 +282,6 @@ export class SearchWorkerService {
         payload: IDispatchSearchRequestPayload,
     ): Promise<ISearchResponse> {
         const operationContext = this.normalizeOperationContext(context);
-        const senderId = operationContext.senderId;
         const requestId = payload.requestId && payload.requestId.length > 0
             ? payload.requestId
             : `${payload.requestIdPrefix}-${randomUUID()}`;
@@ -216,84 +293,58 @@ export class SearchWorkerService {
             }
         }
 
-        const state = this.ensureSenderState(operationContext);
-        if (state.pendingByRequestId.has(requestId)) {
-            throw new SearchIpcError(buildSearchErrorEnvelope(
-                'SEARCH_INVALID_PAYLOAD',
-                `Search request with id "${requestId}" is already in progress`,
-            ));
-        }
+        const request = createWorkerSettlement(requestId, payload.resolvedPdfPath, payload.pageCount);
+        const handle = this.searchJobs.start({
+            jobId: requestId,
+            owner: {sender: operationContext.sender},
+            operation: {
+                kind: 'abortable-work',
+                workingCopyPath: payload.resolvedPdfPath,
+            },
+            ownerLifecycle: {
+                destroyed: 'detach',
+                renderProcessGone: 'detach',
+                mainFrameNavigation: 'detach',
+            },
+            initialProgress: {
+                requestId,
+                processed: 0,
+                total: payload.pageCount ?? 0,
+                status: 'running',
+            },
+            onCancel: reason => this.requestWorkerCancellation(request, reason),
+            run: registry => this.runWorkerRequest(request, registry),
+        });
+        request.handle = handle;
 
-        if (!payload.warmup && state.activeRequestId && state.activeRequestId !== requestId) {
-            this.cancelRequest(state, state.activeRequestId);
-        }
-
-        if (!payload.warmup) {
-            this.activateRequest(state, requestId);
-        } else {
+        try {
+            const state = this.ensureSenderState(operationContext.senderId);
+            if (!payload.warmup && state.activeRequestId && state.activeRequestId !== requestId) {
+                state.requests.get(state.activeRequestId)?.handle?.cancel('Superseded by a newer search request');
+            }
+            state.requests.set(requestId, request);
+            if (!payload.warmup) {
+                state.activeRequestId = requestId;
+            }
             this.markStateActivity(state);
+            this.clearIdleCleanupTimer(state);
+            state.worker.postMessage(buildSearchWorkerRequest(payload, requestId));
+        } catch (error) {
+            request.reject(toSearchIpcError(error));
         }
-        this.clearIdleCleanupTimer(state);
 
-        const requestPromise = new Promise<ISearchResponse>((resolve, reject) => {
-            state.pendingByRequestId.set(requestId, {
-                resolve,
-                reject,
-            });
-            state.pdfPathsByRequestId.set(requestId, payload.resolvedPdfPath);
-            if (payload.pageCount !== undefined) {
-                state.pageCountsByRequestId.set(requestId, payload.pageCount);
+        const requestPromise = handle.terminal.then((terminal) => {
+            if (terminal.status === 'completed') {
+                return terminal.result;
             }
-            const requestTimeout = setTimeout(() => {
-                try {
-                    state.worker.postMessage({
-                        type: 'cancel',
-                        requestId,
-                    } satisfies TSearchWorkerInboundMessage);
-                } catch {
-                    // Ignore cancellation transport errors when timing out.
-                }
-
-                if (state.activeRequestId === requestId) {
-                    state.activeRequestId = null;
-                }
-                this.sendSearchTerminalProgress(
-                    state,
-                    requestId,
-                    'failed',
-                    {error: `Search request timed out after ${SEARCH_REQUEST_TIMEOUT_MS}ms`},
-                );
-                this.rejectPendingRequest(
-                    state,
-                    requestId,
-                    new SearchIpcError(buildSearchErrorEnvelope(
-                        'SEARCH_TIMEOUT',
-                        `Search request timed out after ${SEARCH_REQUEST_TIMEOUT_MS}ms`,
-                        {retryable: true},
-                    )),
-                );
-                this.cleanupSenderState(senderId, {
-                    terminateWorker: true,
-                    reason: `Search request ${requestId} timed out`,
-                    expectedState: state,
-                });
-            }, SEARCH_REQUEST_TIMEOUT_MS);
-            requestTimeout.unref?.();
-            state.requestTimeouts.set(requestId, requestTimeout);
-
-            try {
-                state.worker.postMessage(buildSearchWorkerRequest(payload, requestId));
-            } catch (error) {
-                this.clearRequestTimeout(state, requestId);
-                state.pendingByRequestId.delete(requestId);
-                state.pdfPathsByRequestId.delete(requestId);
-                state.pageCountsByRequestId.delete(requestId);
-                if (state.activeRequestId === requestId) {
-                    state.activeRequestId = null;
-                }
-                reject(new Error(getErrorMessage(error)));
-                this.scheduleIdleCleanup(state);
+            if (terminal.status === 'canceled') {
+                return {
+                    results: [],
+                    truncated: false,
+                    canceled: true,
+                };
             }
+            throw new SearchIpcError(terminal.error);
         });
         if (payload.warmup) {
             this.warmupSingleflightsByDocument.set(documentBuildKey, {
@@ -312,41 +363,28 @@ export class SearchWorkerService {
     }
 
     cancel(context: ISearchOperationContext, requestId?: string) {
-        const senderId = context.senderId;
-        const state = this.senderSearchStates.get(senderId);
-        if (!state) {
-            return { canceled: false };
-        }
-
-        const targetRequestId = requestId ?? state.activeRequestId;
+        const state = this.senderSearchStates.get(context.senderId);
+        const targetRequestId = requestId ?? state?.activeRequestId;
         if (!targetRequestId) {
             return { canceled: false };
         }
-
-        return { canceled: this.cancelRequest(state, targetRequestId) };
+        return {canceled: this.searchJobs.cancel(
+            targetRequestId,
+            {sender: context.sender},
+            'explicit cancel request',
+        )};
     }
 
     cancelRequestsForPdfPath(pdfPath: string, reason: string) {
         const targetPathKey = getSearchPdfPathKey(pdfPath);
         let canceledCount = 0;
-
         for (const state of this.senderSearchStates.values()) {
-            const requestIds = Array.from(state.pdfPathsByRequestId.entries())
-                .filter(([
-                    , requestPdfPath,
-                ]) => getSearchPdfPathKey(requestPdfPath) === targetPathKey)
-                .map(([requestId]) => requestId);
-
-            for (const requestId of requestIds) {
-                if (!state.pendingByRequestId.has(requestId)) {
-                    continue;
-                }
-                if (this.cancelRequest(state, requestId)) {
+            for (const request of state.requests.values()) {
+                if (getSearchPdfPathKey(request.pdfPath) === targetPathKey && request.handle?.cancel(reason)) {
                     canceledCount += 1;
                 }
             }
         }
-
         if (canceledCount > 0) {
             log.info(`Cancelled ${canceledCount} search request(s) for stale PDF path "${pdfPath}": ${reason}`);
         }
@@ -365,7 +403,7 @@ export class SearchWorkerService {
     }
 
     cleanupAll(reason: string, options: { cooperativeStop?: boolean } = {}) {
-        for (const senderId of this.senderSearchStates.keys()) {
+        for (const senderId of [...this.senderSearchStates.keys()]) {
             this.cleanupSenderState(senderId, {
                 terminateWorker: true,
                 reason,
@@ -377,65 +415,75 @@ export class SearchWorkerService {
     }
 
     async shutdown(reason: string) {
+        const settlements = [...this.senderSearchStates.values()]
+            .flatMap(state => [...state.requests.values()])
+            .flatMap(request => request.handle ? [request.handle.settled] : []);
         this.cleanupAll(reason, {cooperativeStop: false});
+        await Promise.allSettled(settlements);
         while (this.workerTerminationPromises.size > 0) {
             await Promise.all(Array.from(this.workerTerminationPromises.values()));
         }
     }
 
-    private sendSearchProgress(
-        senderId: number,
-        progress: TSearchProgressPayload,
+    private async runWorkerRequest(
+        request: IWorkerSearchRequest,
+        registry: TSearchJobContext,
     ) {
-        let pump = this.progressPumpsBySenderId.get(senderId);
-        if (!pump) {
-            pump = createIpcProgressPump<TSearchProgressPayload>({
-                channel: SEARCH_PROGRESS_EVENT.channel,
-                getTarget: () => {
-                    const sender = webContents.fromId(senderId);
-                    if (!sender) {
-                        return null;
-                    }
-                    return {
-                        key: `web-contents:${senderId}`,
-                        isDestroyed: () => sender.isDestroyed(),
-                        send: (channel: string, payload: TSearchProgressPayload) => sender.send(channel, payload),
-                    };
-                },
-                getKey: SEARCH_PROGRESS_REPLAY.key,
-                isTerminal: SEARCH_PROGRESS_REPLAY.terminal,
-                intervalMs: SEARCH_PROGRESS_REPLAY.intervalMs,
-                terminalRetentionMs: SEARCH_PROGRESS_REPLAY.terminalRetentionMs,
-                onError: (err: unknown) => {
-                    log.debug(`Failed to send search progress: ${getErrorMessage(err)}`);
-                },
-                onIdle: () => {
-                    this.progressPumpsBySenderId.delete(senderId);
-                },
-            });
-            this.progressPumpsBySenderId.set(senderId, pump);
+        request.registry = registry;
+        if (request.queuedProgress) {
+            registry.publish(request.queuedProgress);
+            request.queuedProgress = null;
         }
-        pump.enqueue(progress);
+        const timeout = setTimeout(() => {
+            const error = new SearchIpcError(buildSearchErrorEnvelope(
+                'SEARCH_TIMEOUT',
+                `Search request timed out after ${SEARCH_REQUEST_TIMEOUT_MS}ms`,
+                {retryable: true},
+            ));
+            if (!registry.terminal.fail(error)) {
+                return;
+            }
+            const state = this.findRequestState(request);
+            if (state) {
+                this.postCancelMessage(state, request.requestId);
+                this.cleanupSenderState(state.senderId, {
+                    cooperativeStop: false,
+                    terminateWorker: true,
+                    reason: `Search request ${request.requestId} timed out`,
+                    rejectionError: error,
+                    expectedState: state,
+                });
+            } else {
+                request.reject(error);
+            }
+        }, SEARCH_REQUEST_TIMEOUT_MS);
+        timeout.unref?.();
+        try {
+            return await request.settlement;
+        } finally {
+            clearTimeout(timeout);
+            const state = this.findRequestState(request);
+            if (state) {
+                this.removeWorkerRequest(state, request);
+            }
+        }
     }
 
-    private sendSearchTerminalProgress(
-        state: ISenderSearchState,
-        requestId: string,
-        status: 'success' | 'canceled' | 'failed',
-        options: {
-            error?: string;
-            canceled?: boolean;
-        } = {},
-    ) {
-        const total = state.pageCountsByRequestId.get(requestId) ?? 0;
-        this.sendSearchProgress(state.senderId, {
-            requestId,
-            processed: status === 'success' ? total : 0,
-            total,
-            ...(options.canceled === true ? {canceled: true} : {}),
-            status,
-            ...(options.error === undefined ? {} : {error: options.error}),
-        });
+    private findRequestState(request: IWorkerSearchRequest) {
+        for (const state of this.senderSearchStates.values()) {
+            if (state.requests.get(request.requestId) === request) {
+                return state;
+            }
+        }
+        return null;
+    }
+
+    private publishWorkerProgress(request: IWorkerSearchRequest, progress: IPdfSearchProgress) {
+        if (request.registry) {
+            request.registry.publish(progress);
+        } else {
+            request.queuedProgress = progress;
+        }
     }
 
     private markStateActivity(state: ISenderSearchState) {
@@ -443,68 +491,34 @@ export class SearchWorkerService {
     }
 
     private isStateIdle(state: ISenderSearchState) {
-        return !state.activeRequestId && state.pendingByRequestId.size === 0;
+        return !state.activeRequestId && state.requests.size === 0;
     }
 
     private clearIdleCleanupTimer(state: ISenderSearchState) {
-        if (!state.idleCleanupTimer) {
-            return;
+        if (state.idleCleanupTimer) {
+            clearTimeout(state.idleCleanupTimer);
+            state.idleCleanupTimer = null;
         }
-
-        clearTimeout(state.idleCleanupTimer);
-        state.idleCleanupTimer = null;
     }
 
-    private activateRequest(state: ISenderSearchState, requestId: string) {
-        state.activeRequestId = requestId;
-        this.markStateActivity(state);
-    }
-
-    private clearRequestTimeout(
-        state: ISenderSearchState,
-        requestId: string,
-    ) {
-        const timeout = state.requestTimeouts.get(requestId);
-        if (!timeout) {
-            return;
+    private clearCancellationFallbackTimeout(request: IWorkerSearchRequest) {
+        if (request.cancellationFallbackTimeout) {
+            clearTimeout(request.cancellationFallbackTimeout);
+            request.cancellationFallbackTimeout = null;
         }
-
-        clearTimeout(timeout);
-        state.requestTimeouts.delete(requestId);
     }
 
-    private clearCancellationFallbackTimeout(
-        state: ISenderSearchState,
-        requestId: string,
-    ) {
-        const timeout = state.cancellationFallbackTimeouts.get(requestId);
-        if (!timeout) {
-            return;
-        }
-
-        clearTimeout(timeout);
-        state.cancellationFallbackTimeouts.delete(requestId);
-    }
-
-    private scheduleIdleCleanup(
-        state: ISenderSearchState,
-    ) {
+    private scheduleIdleCleanup(state: ISenderSearchState) {
         this.clearIdleCleanupTimer(state);
         if (!this.isStateIdle(state)) {
             return;
         }
-
         state.idleCleanupTimer = setTimeout(() => {
-            const senderId = state.senderId;
-            const currentState = this.senderSearchStates.get(senderId);
-            if (currentState !== state) {
+            if (this.senderSearchStates.get(state.senderId) !== state || !this.isStateIdle(state)) {
                 return;
             }
-            if (!this.isStateIdle(currentState)) {
-                return;
-            }
-            log.info(`Search worker lifecycle: sender ${senderId} idle TTL elapsed; terminating worker`);
-            this.cleanupSenderState(senderId, {
+            log.info(`Search worker lifecycle: sender ${state.senderId} idle TTL elapsed; terminating worker`);
+            this.cleanupSenderState(state.senderId, {
                 terminateWorker: true,
                 reason: 'Search worker idle timeout',
             });
@@ -513,62 +527,33 @@ export class SearchWorkerService {
         log.debug(`Search worker lifecycle: sender ${state.senderId} scheduled idle cleanup in ${SEARCH_WORKER_IDLE_TTL_MS}ms`);
     }
 
-    private resolvePendingRequest(
-        state: ISenderSearchState,
-        requestId: string,
-        response: ISearchResponse,
-    ) {
-        this.settlePendingRequest(state, requestId, pending => pending.resolve(response));
-    }
-
-    private rejectPendingRequest(
-        state: ISenderSearchState,
-        requestId: string,
-        error: Error,
-    ) {
-        this.settlePendingRequest(state, requestId, pending => pending.reject(error));
-    }
-
-    private settlePendingRequest(
-        state: ISenderSearchState,
-        requestId: string,
-        settle: TPendingSearchSettler,
-    ) {
-        const pending = state.pendingByRequestId.get(requestId);
-        if (!pending) {
+    private removeWorkerRequest(state: ISenderSearchState, request: IWorkerSearchRequest) {
+        if (state.requests.get(request.requestId) !== request) {
             return;
         }
-
-        this.clearRequestTimeout(state, requestId);
-        this.clearCancellationFallbackTimeout(state, requestId);
+        this.clearCancellationFallbackTimeout(request);
+        state.requests.delete(request.requestId);
+        if (state.activeRequestId === request.requestId) {
+            state.activeRequestId = null;
+        }
         this.markStateActivity(state);
-        state.pendingByRequestId.delete(requestId);
-        state.pdfPathsByRequestId.delete(requestId);
-        state.pageCountsByRequestId.delete(requestId);
-        state.cancelPendingRequestIds.delete(requestId);
-        settle(pending);
         this.scheduleIdleCleanup(state);
     }
 
-    private settleCancelledRequest(
+    private settleWorkerRequest(
         state: ISenderSearchState,
         requestId: string,
+        settle: (request: IWorkerSearchRequest) => void,
     ) {
-        if (state.activeRequestId === requestId) {
-            state.activeRequestId = null;
+        const request = state.requests.get(requestId);
+        if (!request) {
+            return;
         }
-        this.sendSearchTerminalProgress(state, requestId, 'canceled', {canceled: true});
-        this.resolvePendingRequest(state, requestId, {
-            results: [],
-            truncated: false,
-            canceled: true,
-        });
+        this.removeWorkerRequest(state, request);
+        settle(request);
     }
 
-    private postCancelMessage(
-        state: ISenderSearchState,
-        requestId: string,
-    ) {
+    private postCancelMessage(state: ISenderSearchState, requestId: string) {
         try {
             state.worker.postMessage({
                 type: 'cancel',
@@ -580,53 +565,61 @@ export class SearchWorkerService {
         }
     }
 
-    private postCancelMessagesForPendingRequests(state: ISenderSearchState) {
+    private requestWorkerCancellation(request: IWorkerSearchRequest, _reason: string) {
+        const state = this.findRequestState(request);
+        if (!state || request.cancellationFallbackTimeout) {
+            return;
+        }
+        this.postCancelMessage(state, request.requestId);
+        if (state.activeRequestId === request.requestId) {
+            state.activeRequestId = null;
+        }
+        request.cancellationFallbackTimeout = setTimeout(() => {
+            if (this.findRequestState(request) !== state) {
+                return;
+            }
+            log.warn(
+                `Search worker lifecycle: cancellation for request ${request.requestId} was not acknowledged within ${
+                    SEARCH_CANCEL_ACK_TIMEOUT_MS
+                }ms; forcing worker cleanup`,
+            );
+            this.settleWorkerRequest(state, request.requestId, pending => pending.resolve({
+                results: [],
+                truncated: false,
+                canceled: true,
+            }));
+            this.cleanupSenderState(state.senderId, {
+                terminateWorker: true,
+                reason: `Search worker did not acknowledge cancellation for request ${request.requestId}`,
+                expectedState: state,
+            });
+        }, SEARCH_CANCEL_ACK_TIMEOUT_MS);
+        request.cancellationFallbackTimeout.unref?.();
+    }
+
+    private postCancelMessagesForRequests(state: ISenderSearchState) {
         let sentAny = false;
-        for (const requestId of state.pendingByRequestId.keys()) {
+        for (const requestId of state.requests.keys()) {
             sentAny = this.postCancelMessage(state, requestId) || sentAny;
         }
         return sentAny;
     }
 
-    private clearProgressPump(senderId: number) {
-        const pump = this.progressPumpsBySenderId.get(senderId);
-        if (!pump) {
-            return;
-        }
-
-        pump.clear();
-        this.progressPumpsBySenderId.delete(senderId);
-    }
-
-    private disposeSenderCleanup(senderId: number) {
-        const dispose = this.senderCleanupDisposers.get(senderId);
-        if (!dispose) {
-            return;
-        }
-
-        this.senderCleanupDisposers.delete(senderId);
-        dispose();
-    }
-
     private waitForWorkerExit(worker: Worker, timeoutMs: number) {
         return new Promise<boolean>((resolve) => {
-            const cleanup = {
-                timeout: null as NodeJS.Timeout | null,
-                handleExit: () => {
-                    if (cleanup.timeout) {
-                        clearTimeout(cleanup.timeout);
-                    }
-                    resolve(true);
-                },
+            let timeout: NodeJS.Timeout | null = null;
+            const handleExit = () => {
+                if (timeout) {
+                    clearTimeout(timeout);
+                }
+                resolve(true);
             };
-
-            cleanup.timeout = setTimeout(() => {
-                worker.removeListener('exit', cleanup.handleExit);
+            timeout = setTimeout(() => {
+                worker.removeListener('exit', handleExit);
                 resolve(false);
             }, timeoutMs);
-            cleanup.timeout.unref?.();
-
-            worker.once('exit', cleanup.handleExit);
+            timeout.unref?.();
+            worker.once('exit', handleExit);
         });
     }
 
@@ -636,17 +629,14 @@ export class SearchWorkerService {
         reason: string,
         cooperativeStopRequested: boolean,
     ) {
-        const existingTermination = this.workerTerminationPromises.get(state.worker);
-        if (existingTermination) {
+        if (this.workerTerminationPromises.has(state.worker)) {
             return;
         }
-
         const terminationPromise = (async () => {
             if (cooperativeStopRequested && await this.waitForWorkerExit(state.worker, SEARCH_WORKER_TERMINATE_TIMEOUT_MS)) {
                 log.debug(`Search worker lifecycle: sender ${senderId} worker exited after cooperative stop`);
                 return;
             }
-
             await withTimeout(
                 () => state.worker.terminate(),
                 SEARCH_WORKER_TERMINATE_TIMEOUT_MS,
@@ -669,170 +659,58 @@ export class SearchWorkerService {
 
     private cleanupSenderState(
         senderId: number,
-        options?: {
+        options: {
             cooperativeStop?: boolean;
             terminateWorker?: boolean;
             reason?: string;
             rejectionError?: Error;
             expectedState?: ISenderSearchState;
-        },
+        } = {},
     ) {
         const state = this.senderSearchStates.get(senderId);
-        if (!state) {
+        if (!state || (options.expectedState && state !== options.expectedState)) {
             return;
         }
-        if (options?.expectedState && state !== options.expectedState) {
-            return;
-        }
-
-        log.info(`Search worker lifecycle: cleaning sender ${senderId} state (${options?.reason ?? 'Search worker stopped'})`);
+        const reason = options.reason ?? 'Search worker stopped';
+        log.info(`Search worker lifecycle: cleaning sender ${senderId} state (${reason})`);
         this.senderSearchStates.delete(senderId);
-        this.clearProgressPump(senderId);
-        this.disposeSenderCleanup(senderId);
         this.clearIdleCleanupTimer(state);
-        for (const timeout of state.requestTimeouts.values()) {
-            clearTimeout(timeout);
-        }
-        state.requestTimeouts.clear();
-        for (const timeout of state.cancellationFallbackTimeouts.values()) {
-            clearTimeout(timeout);
-        }
-        state.cancellationFallbackTimeouts.clear();
         for (const [
             documentBuildKey,
             warmup,
         ] of this.warmupSingleflightsByDocument.entries()) {
-            if (state.pendingByRequestId.has(warmup.requestId)) {
+            if (state.requests.has(warmup.requestId)) {
                 this.warmupSingleflightsByDocument.delete(documentBuildKey);
             }
         }
-
-        const reason = options?.reason ?? 'Search worker stopped';
-        const terminalError = options?.rejectionError ? getErrorMessage(options.rejectionError) : reason;
-        const cooperativeStopRequested = options?.cooperativeStop !== false
-            && options?.terminateWorker !== false
-            && this.postCancelMessagesForPendingRequests(state);
-        for (const [
-            requestId,
-            pending,
-        ] of state.pendingByRequestId.entries()) {
-            if (state.cancelPendingRequestIds.has(requestId)) {
-                this.sendSearchTerminalProgress(state, requestId, 'canceled', {canceled: true});
-                pending.resolve({
-                    results: [],
-                    truncated: false,
-                    canceled: true,
-                });
-                continue;
-            }
-
-            this.sendSearchTerminalProgress(state, requestId, 'failed', {error: terminalError});
-            pending.reject(options?.rejectionError ?? new Error(reason));
+        const cooperativeStopRequested = options.cooperativeStop !== false
+            && options.terminateWorker !== false
+            && this.postCancelMessagesForRequests(state);
+        const error = options.rejectionError ?? new Error(reason);
+        for (const request of state.requests.values()) {
+            this.clearCancellationFallbackTimeout(request);
+            request.registry?.terminal.fail(error);
+            request.reject(error);
         }
-        state.pendingByRequestId.clear();
-        state.pdfPathsByRequestId.clear();
-        state.pageCountsByRequestId.clear();
-        state.cancelPendingRequestIds.clear();
+        state.requests.clear();
         state.activeRequestId = null;
-
-        if (options?.terminateWorker !== false) {
+        if (options.terminateWorker !== false) {
             this.terminateWorkerAfterCooperativeStop(senderId, state, reason, cooperativeStopRequested);
         }
-    }
-
-    private cancelRequest(
-        state: ISenderSearchState,
-        requestId: string,
-    ) {
-        if (!state.pendingByRequestId.has(requestId)) {
-            return false;
-        }
-        if (state.cancelPendingRequestIds.has(requestId)) {
-            return true;
-        }
-
-        state.cancelPendingRequestIds.add(requestId);
-        this.clearRequestTimeout(state, requestId);
-        this.postCancelMessage(state, requestId);
-        if (state.activeRequestId === requestId) {
-            state.activeRequestId = null;
-        }
-
-        const fallbackTimeout = setTimeout(() => {
-            if (this.senderSearchStates.get(state.senderId) !== state || !state.pendingByRequestId.has(requestId)) {
-                return;
-            }
-
-            log.warn(
-                `Search worker lifecycle: cancellation for request ${requestId} was not acknowledged within ${
-                    SEARCH_CANCEL_ACK_TIMEOUT_MS
-                }ms; forcing worker cleanup`,
-            );
-            this.settleCancelledRequest(state, requestId);
-            this.cleanupSenderState(state.senderId, {
-                terminateWorker: true,
-                reason: `Search worker did not acknowledge cancellation for request ${requestId}`,
-                expectedState: state,
-            });
-        }, SEARCH_CANCEL_ACK_TIMEOUT_MS);
-        fallbackTimeout.unref?.();
-        state.cancellationFallbackTimeouts.set(requestId, fallbackTimeout);
-        return true;
-    }
-
-    private registerSenderCleanup(context: ISearchOperationContext) {
-        const {
-            sender,
-            senderId,
-        } = context;
-        if (this.senderCleanupDisposers.has(senderId)) {
-            return;
-        }
-
-        const cleanup = (reason: string) => {
-            this.cleanupSenderState(senderId, {
-                terminateWorker: true,
-                reason,
-            });
-            this.disposeSenderCleanup(senderId);
-        };
-        const handleDestroyed = () => {
-            cleanup('Renderer destroyed');
-        };
-        const handleRenderProcessGone = () => {
-            cleanup('Renderer process gone');
-        };
-        const handleNavigation = (
-            _event: Electron.Event,
-            _url: string,
-            isInPlace: boolean,
-            isMainFrame: boolean,
-        ) => {
-            if (isMainFrame && !isInPlace) {
-                cleanup('Renderer navigated');
-            }
-        };
-
-        sender.once('destroyed', handleDestroyed);
-        sender.once('render-process-gone', handleRenderProcessGone);
-        sender.on('did-start-navigation', handleNavigation);
-        this.senderCleanupDisposers.set(senderId, () => {
-            sender.removeListener('destroyed', handleDestroyed);
-            sender.removeListener('render-process-gone', handleRenderProcessGone);
-            sender.removeListener('did-start-navigation', handleNavigation);
-        });
     }
 
     private handleWorkerMessage(
         state: ISenderSearchState,
         message: TSearchWorkerOutboundMessage,
     ) {
-        const senderId = state.senderId;
-        if (this.senderSearchStates.get(senderId) !== state) {
+        if (this.senderSearchStates.get(state.senderId) !== state) {
+            return;
+        }
+        const request = state.requests.get(message.requestId);
+        if (!request) {
             return;
         }
         this.markStateActivity(state);
-
         switch (message.type) {
             case 'progress': {
                 const progress: {
@@ -857,36 +735,32 @@ export class SearchWorkerService {
                 if (message.truncated !== undefined) {
                     progress.truncated = message.truncated;
                 }
-                this.sendSearchProgress(senderId, progress);
+                this.publishWorkerProgress(request, progress);
                 return;
             }
             case 'complete':
-                if (state.activeRequestId === message.requestId) {
-                    state.activeRequestId = null;
-                }
-                this.sendSearchTerminalProgress(state, message.requestId, 'success');
-                this.resolvePendingRequest(state, message.requestId, capSearchResponse(message.response));
+                this.settleWorkerRequest(
+                    state,
+                    message.requestId,
+                    pending => pending.resolve(capSearchResponse(message.response)),
+                );
                 return;
             case 'cancelled':
-                if (state.activeRequestId === message.requestId) {
-                    state.activeRequestId = null;
-                }
-                this.sendSearchTerminalProgress(state, message.requestId, 'canceled', {canceled: true});
-                this.resolvePendingRequest(state, message.requestId, {
+                this.settleWorkerRequest(state, message.requestId, pending => pending.resolve({
                     results: [],
                     truncated: false,
                     canceled: true,
-                });
+                }));
                 return;
             case 'error':
-                if (state.activeRequestId === message.requestId) {
-                    state.activeRequestId = null;
-                }
-                this.sendSearchTerminalProgress(state, message.requestId, 'failed', {error: message.error});
-                this.rejectPendingRequest(
+                this.settleWorkerRequest(
                     state,
                     message.requestId,
-                    new SearchIpcError(buildSearchErrorEnvelope('SEARCH_WORKER_ERROR', message.error, {retryable: true})),
+                    pending => pending.reject(new SearchIpcError(buildSearchErrorEnvelope(
+                        'SEARCH_WORKER_ERROR',
+                        message.error,
+                        {retryable: true},
+                    ))),
                 );
                 return;
         }
@@ -896,30 +770,16 @@ export class SearchWorkerService {
         state: ISenderSearchState,
         requestId: string | null,
     ) {
-        const senderId = state.senderId;
-        log.warn(`Search worker sent malformed message for sender ${senderId}`);
-        if (requestId === null || !state.pendingByRequestId.has(requestId)) {
+        log.warn(`Search worker sent malformed message for sender ${state.senderId}`);
+        if (requestId === null || !state.requests.has(requestId)) {
             return;
         }
-
-        if (state.activeRequestId === requestId) {
-            state.activeRequestId = null;
-        }
-        this.sendSearchTerminalProgress(
-            state,
-            requestId,
-            'failed',
-            {error: `Search worker sent malformed message for request "${requestId}"`},
-        );
-        this.rejectPendingRequest(
-            state,
-            requestId,
-            new SearchIpcError(buildSearchErrorEnvelope(
-                'SEARCH_WORKER_PROTOCOL',
-                `Search worker sent malformed message for request "${requestId}"`,
-            )),
-        );
-        this.cleanupSenderState(senderId, {
+        const error = new SearchIpcError(buildSearchErrorEnvelope(
+            'SEARCH_WORKER_PROTOCOL',
+            `Search worker sent malformed message for request "${requestId}"`,
+        ));
+        this.settleWorkerRequest(state, requestId, request => request.reject(error));
+        this.cleanupSenderState(state.senderId, {
             terminateWorker: true,
             reason: `Search worker protocol error for request ${requestId}`,
             expectedState: state,
@@ -927,32 +787,24 @@ export class SearchWorkerService {
     }
 
     private createSenderSearchState(senderId: number): ISenderSearchState {
-        const workerPath = this.resolveWorkerPath();
-        const worker = new Worker(workerPath);
+        const worker = new Worker(this.resolveWorkerPath());
         const state: ISenderSearchState = {
             senderId,
             worker,
             activeRequestId: null,
-            pendingByRequestId: new Map(),
-            pdfPathsByRequestId: new Map(),
-            pageCountsByRequestId: new Map(),
-            requestTimeouts: new Map(),
-            cancellationFallbackTimeouts: new Map(),
-            cancelPendingRequestIds: new Set(),
+            requests: new Map(),
             idleCleanupTimer: null,
             lastActivityAtMs: Date.now(),
         };
         log.info(`Search worker lifecycle: created worker for sender ${senderId}`);
-
         worker.on('message', (message: unknown) => {
             const requestId = getSearchWorkerOutboundRequestId(message);
-            if (requestId !== null && !state.pendingByRequestId.has(requestId)) {
+            if (requestId !== null && !state.requests.has(requestId)) {
                 return;
             }
-
             const parsedMessage = parseSearchWorkerOutboundMessage(
                 message,
-                requestId => state.pageCountsByRequestId.get(requestId),
+                candidateRequestId => state.requests.get(candidateRequestId)?.pageCount,
             );
             if (!parsedMessage) {
                 this.handleMalformedWorkerMessage(state, requestId);
@@ -960,33 +812,32 @@ export class SearchWorkerService {
             }
             this.handleWorkerMessage(state, parsedMessage);
         });
-
         worker.on('error', (error: Error) => {
-            const currentSenderId = state.senderId;
-            log.error(`Search worker error for sender ${currentSenderId}: ${error.message}`);
-            this.cleanupSenderState(currentSenderId, {
+            log.error(`Search worker error for sender ${state.senderId}: ${error.message}`);
+            this.cleanupSenderState(state.senderId, {
                 terminateWorker: true,
                 reason: `Search worker error: ${error.message}`,
                 rejectionError: toSearchIpcError(error, 'SEARCH_WORKER_ERROR', true),
                 expectedState: state,
             });
         });
-
         worker.on('exit', (code) => {
-            const currentSenderId = state.senderId;
             const reason = code === 0
                 ? 'Search worker exited'
                 : `Search worker exited unexpectedly with code ${code}`;
-            this.cleanupSenderState(currentSenderId, {
+            this.cleanupSenderState(state.senderId, {
                 terminateWorker: false,
                 reason,
                 ...(code === 0
                     ? {}
-                    : {rejectionError: new SearchIpcError(buildSearchErrorEnvelope('SEARCH_WORKER_ERROR', reason, {retryable: true}))}),
+                    : {rejectionError: new SearchIpcError(buildSearchErrorEnvelope(
+                        'SEARCH_WORKER_ERROR',
+                        reason,
+                        {retryable: true},
+                    ))}),
                 expectedState: state,
             });
         });
-
         this.scheduleIdleCleanup(state);
         return state;
     }
@@ -997,25 +848,19 @@ export class SearchWorkerService {
         return minBy(idleStates, state => state.lastActivityAtMs) ?? null;
     }
 
-    private ensureSenderState(context: ISearchOperationContext) {
-        const senderId = context.senderId;
-        this.registerSenderCleanup(context);
-
+    private ensureSenderState(senderId: number) {
         let state = this.senderSearchStates.get(senderId);
         if (state) {
             this.markStateActivity(state);
             this.clearIdleCleanupTimer(state);
             return state;
         }
-
         if (this.senderSearchStates.size >= SEARCH_WORKER_MAX_ACTIVE) {
             const reusableState = this.findReusableIdleState();
             if (reusableState) {
                 const previousSenderId = reusableState.senderId;
                 reusableState.worker.postMessage({type: 'reset-state'} satisfies TSearchWorkerInboundMessage);
                 this.senderSearchStates.delete(previousSenderId);
-                this.clearProgressPump(previousSenderId);
-                this.disposeSenderCleanup(previousSenderId);
                 reusableState.senderId = senderId;
                 this.markStateActivity(reusableState);
                 this.clearIdleCleanupTimer(reusableState);
@@ -1026,7 +871,6 @@ export class SearchWorkerService {
                 );
                 return reusableState;
             }
-
             log.warn(
                 `Search worker cap pressure: rejecting sender ${senderId}; no idle workers available `
                 + `(max active: ${SEARCH_WORKER_MAX_ACTIVE})`,
@@ -1037,7 +881,6 @@ export class SearchWorkerService {
                 {retryable: true},
             ));
         }
-
         state = this.createSenderSearchState(senderId);
         this.senderSearchStates.set(senderId, state);
         log.info(

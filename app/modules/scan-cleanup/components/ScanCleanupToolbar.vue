@@ -81,11 +81,8 @@
                             class="scan-cleanup-toolbar-count"
                             role="status"
                             aria-live="polite"
-                            :aria-label="t('scanCleanup.detectAll.progressAria', {
-                                detected: detectionDetected,
-                                total: detectionTotal,
-                            })"
-                        >{{ detectionDetected }} / {{ detectionTotal }}</span>
+                            :aria-label="detectionProgressText"
+                        >{{ detectionProgressText }}</span>
                         <UButton
                             class="scan-cleanup-toolbar-cancel-detection"
                             type="button"
@@ -130,17 +127,22 @@
                         :disabled="cancelRequested"
                         @click="emit('cancel')"
                     />
-                    <UButton
+                    <AppTooltip
                         v-else
-                        class="scan-cleanup-toolbar-primary-action"
-                        type="button"
-                        color="primary"
-                        size="sm"
-                        icon="i-ph-play"
-                        :label="t('scanCleanup.cleanUp')"
-                        :disabled="!canRun"
-                        @click="emit('run')"
-                    />
+                        :text="runDisabledReason || t('scanCleanup.cleanUp')"
+                        usefulness="always"
+                    >
+                        <UButton
+                            class="scan-cleanup-toolbar-primary-action"
+                            type="button"
+                            color="primary"
+                            size="sm"
+                            icon="i-ph-play"
+                            :label="transitionText || t('scanCleanup.cleanUp')"
+                            :disabled="!canRun"
+                            @click="emit('run')"
+                        />
+                    </AppTooltip>
                 </div>
             </div>
         </header>
@@ -165,34 +167,36 @@ const {
     cancelRequested,
     cleanupTotal,
     detectionCancelRequested,
-    detectionDetected,
     detectionError,
-    detectionTotal,
+    detectionProgressText,
     isDetecting,
     isRunning,
     outputEstimate,
     percent,
     processedCount,
     progressText,
+    runDisabledReason,
     runOcrAfterCleanup,
     zoneEditing,
+    transitionText,
 } = defineProps<{
     canDetectAll: boolean;
     canRun: boolean;
     cancelRequested: boolean;
     cleanupTotal: number;
     detectionCancelRequested: boolean;
-    detectionDetected: number;
     detectionError: string;
-    detectionTotal: number;
+    detectionProgressText: string;
     isDetecting: boolean;
     isRunning: boolean;
     outputEstimate: string;
     percent: number;
     processedCount: number;
     progressText: string;
+    runDisabledReason: string;
     runOcrAfterCleanup: boolean;
     zoneEditing?: boolean;
+    transitionText: string;
 }>();
 const emit = defineEmits<{
     cancel: [];

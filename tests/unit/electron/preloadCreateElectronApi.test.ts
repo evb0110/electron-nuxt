@@ -15,6 +15,7 @@ import {
     type IHostResourceProfileSnapshot,
 } from '@contracts/hostResourceProfile';
 import { HOST_PLATFORM_FEATURE } from '@contracts/hostPlatformFeature';
+import { OCR_PLATFORM_FEATURE } from '@contracts/ocrPlatformFeature';
 import { UPDATES_PLATFORM_FEATURE } from '@contracts/updatesPlatformFeature';
 import { WINDOW_TABS_PLATFORM_FEATURE } from '@contracts/windowTabsPlatformFeature';
 
@@ -160,8 +161,6 @@ const documentsClientMock = vi.hoisted(() => ({
     onOpenPdfDirectBatchProgress: vi.fn(),
 }));
 vi.mock('@electron/features/documents/createDocumentsPreloadClient', () => ({createDocumentsPreloadClient: () => documentsClientMock}));
-vi.mock('@electron/features/ocr/createOcrPreloadClient', () => ({ createOcrPreloadClient: () => ({}) }));
-vi.mock('@electron/features/djvu/createDjvuPreloadClient', () => ({ createDjvuPreloadClient: () => ({}) }));
 vi.mock('@electron/preload/debugLogBuffer', () => ({ getDebugLogMessages: () => [] }));
 
 const splitDocumentCapabilityMirrors = getPlatformDocumentCapabilityMirrors();
@@ -250,6 +249,69 @@ describe('createElectronApi', () => {
         expect(typeof api.pageOps.rotate).toBe('function');
         expect(typeof api.imageExport.exportPdfToImages).toBe('function');
         expect(typeof api.system.getMemoryInfo).toBe('function');
+    });
+
+    it('keeps derived OCR language installation on validateTools', async () => {
+        const validation = {
+            valid: false,
+            tools: {
+                tesseract: {
+                    found: true,
+                    path: '/tools/tesseract',
+                },
+                tessdata: {
+                    found: true,
+                    path: '/tools/tessdata',
+                    languages: ['eng'],
+                },
+                pdftoppm: {
+                    found: true,
+                    path: '/tools/pdftoppm',
+                },
+                pdftotext: {
+                    found: true,
+                    path: '/tools/pdftotext',
+                },
+                popplerRuntime: {
+                    dataDirFound: true,
+                    fontConfigDirFound: true,
+                },
+                qpdf: {
+                    found: true,
+                    path: '/tools/qpdf',
+                },
+            },
+            errors: ['Language installation is unavailable'],
+        };
+        const ipcRenderer = {
+            invoke: vi.fn(async (channel: string) => {
+                if (channel === OCR_PLATFORM_FEATURE.invokeChannels.validateTools) {
+                    return validation;
+                }
+                return undefined;
+            }),
+            on: vi.fn(),
+            send: vi.fn(),
+        };
+        const { createElectronApi } = await import('@electron/preload/createElectronApi');
+        const api = createElectronApi(
+            ipcRenderer as never,
+            {getPathForFile: () => ''},
+        );
+
+        await expect(api.ocr.installLanguages(['eng'], 'request-1')).resolves.toMatchObject({
+            started: false,
+            jobId: 'request-1',
+            installed: [],
+            errors: [
+                'OCR language installation is not available from the renderer; validateTools only reports installed languages.',
+                'Language installation is unavailable',
+            ],
+            error: 'OCR language installation is not available from the renderer; validateTools only reports installed languages.',
+        });
+        expect(ipcRenderer.invoke).toHaveBeenCalledWith(
+            OCR_PLATFORM_FEATURE.invokeChannels.validateTools,
+        );
     });
 
     it('includes reclaimable macOS memory in the available host headroom', async () => {

@@ -1,11 +1,15 @@
 import { uniq } from 'es-toolkit/array';
 import type { IPdfBookmarkEntry } from '@contracts/pdfBookmarkEntry';
 import type {
-    IDjvuCapability,
     IDjvuInfo,
     IDjvuProgress,
     IDjvuSizeEstimate,
 } from '@contracts/electronApiDjvu';
+import type {
+    DJVU_PLATFORM_FEATURE,
+    IDjvuCapability,
+} from '@contracts/djvuPlatformFeature';
+import type { TFeatureBrowserBindings } from '@contracts/platformFeature';
 import type { TDocumentRef } from '@contracts/documentRef';
 import {
     browserDocumentStore,
@@ -1195,4 +1199,4 @@ export const browserDjvuCapability: IDjvuCapability = {
         };
     },
     onMenuConvertToPdf: noopUnsubscribe,
-};
+} satisfies TFeatureBrowserBindings<typeof DJVU_PLATFORM_FEATURE>;

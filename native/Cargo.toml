@@ -1,6 +1,8 @@
 [workspace]
 members = [
     "evb-native-support",
+    "evb-raster-io",
+    "jbig2-codec",
     "pdf-image-combine",
     "pdf-page-ops",
     "pdf-search",

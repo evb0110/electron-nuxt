@@ -1,4 +1,7 @@
-import type { WebContents } from 'electron';
+import {
+    BrowserWindow,
+    type WebContents,
+} from 'electron';
 import { extname } from 'path';
 import type {
     IOcrCancelResult,
@@ -8,7 +11,8 @@ import type {
     IOcrRecognizeResult,
     IOcrToolValidationResult,
 } from '@contracts/electronApiOcr';
-import { OCR_EVENT_CHANNELS } from '@electron/features/ocr/contract';
+import { OCR_PROGRESS_EVENT_CHANNEL } from '@contracts/electronApiOcr';
+import type { IPlatformMainSenderContext } from '@contracts/platformFeature';
 import {AVAILABLE_OCR_LANGUAGES} from '@electron/ocr/availableLanguages';
 import {
     buildOcrErrorEnvelope,
@@ -50,15 +54,9 @@ import { resolveAllowedReadPath } from '@electron/utils/pathValidator';
 import { requireManagedWorkingCopyPath } from '@electron/file-access/workingCopyCreation';
 import { getErrorMessage } from '@electron/utils/error';
 import { createIpcProgressPump } from '@electron/utils/createIpcProgressPump';
-import type { IOcrOperationContext } from '@electron/features/ocr/ports';
-import {
-    registerOcrJobProjectionPolicy,
-    getOcrJobProjection,
-    subscribeOcrJobProjection,
-} from '@electron/ocr/ocrJobProjection';
-import {toScopedOcrJobId} from '@electron/ocr/jobManagerProtocol';
 
 const log = createLogger('ocr-ipc');
+type TOcrOperationContext = IPlatformMainSenderContext<WebContents>;
 
 class PlainOcrBackpressureError extends Error {
     constructor(message: string) {
@@ -96,28 +94,24 @@ const plainOcrBatchControllers = new Map<string, AbortController>();
 const plainOcrProgressPumpsBySenderId = new Map<number, ReturnType<typeof createIpcProgressPump<IOcrProgress>>>();
 const plainOcrProgressCleanupSenderIds = new Set<number>();
 
-type TOcrJobManagerContext = Parameters<typeof handleOcrCreateSearchablePdfAsync>[0];
-type TOcrJobManagerSender = TOcrJobManagerContext['sender'];
-type TOcrSenderLifecycleListener = Parameters<TOcrJobManagerSender['once']>[1];
-
 function toScopedPlainOcrBatchId(senderId: number, requestId: string) {
     return `${senderId}:${requestId}`;
 }
 
-function getPlainOcrProgressPump(context: IOcrOperationContext) {
+function getPlainOcrProgressPump(context: TOcrOperationContext) {
     let pump = plainOcrProgressPumpsBySenderId.get(context.senderId);
     if (pump) {
         return pump;
     }
 
     pump = createIpcProgressPump<IOcrProgress>({
-        channel: OCR_EVENT_CHANNELS.progress,
+        channel: OCR_PROGRESS_EVENT_CHANNEL,
         getTarget: () => ({
             key: `web-contents:${context.senderId}`,
             isDestroyed: () => context.sender.isDestroyed(),
             send: (channel: string, payload: IOcrProgress) => safeSendToWindow(
-                context.parentWindow,
-                channel as typeof OCR_EVENT_CHANNELS.progress,
+                BrowserWindow.fromWebContents(context.sender),
+                channel as typeof OCR_PROGRESS_EVENT_CHANNEL,
                 payload,
             ),
         }),
@@ -147,72 +141,16 @@ function getPlainOcrProgressPump(context: IOcrOperationContext) {
     return pump;
 }
 
-export function subscribePlainOcrProgress(context: IOcrOperationContext) {
+export function subscribePlainOcrProgress(context: TOcrOperationContext) {
     plainOcrProgressPumpsBySenderId.get(context.senderId)?.subscribe({
         key: `web-contents:${context.senderId}`,
         isDestroyed: () => context.sender.isDestroyed(),
         send: (channel: string, payload: IOcrProgress) => safeSendToWindow(
-            context.parentWindow,
-            channel as typeof OCR_EVENT_CHANNELS.progress,
+            BrowserWindow.fromWebContents(context.sender),
+            channel as typeof OCR_PROGRESS_EVENT_CHANNEL,
             payload,
         ),
     });
-}
-
-export function handleGetOcrJobState(context: IOcrOperationContext, requestId: string) {
-    return getOcrJobProjection(context.senderId, validateCancelRequestId(requestId));
-}
-
-export function handleSubscribeOcrJob(context: IOcrOperationContext, requestId: string) {
-    const checkedRequestId = validateCancelRequestId(requestId);
-    const unsubscribe = subscribeOcrJobProjection(context.senderId, checkedRequestId, (state) => {
-        context.sender.send(OCR_EVENT_CHANNELS.progress, {
-            requestId: checkedRequestId,
-            currentPage: 0,
-            processedCount: state.current ?? 0,
-            totalPages: state.total ?? 0,
-            status: state.status === 'completed'
-                ? 'success'
-                : state.status === 'canceled'
-                    ? 'canceled'
-                    : state.status === 'failed'
-                        ? 'failed'
-                        : 'running',
-            ...(state.error ? {error: state.error} : {}),
-        });
-    });
-    context.sender.once('destroyed', unsubscribe);
-    return getOcrJobProjection(context.senderId, checkedRequestId);
-}
-
-function createOcrJobManagerContext(context: IOcrOperationContext): TOcrJobManagerContext {
-    const {sender} = context;
-    const once: TOcrJobManagerSender['once'] = (event, listener) => {
-        if (event === 'destroyed') {
-            return sender.once('destroyed', listener);
-        }
-        return sender.once('render-process-gone', listener);
-    };
-    const on: TOcrJobManagerSender['on'] = (event, listener) => sender.on(event, listener);
-    const removeListener: TOcrJobManagerSender['removeListener'] = (event, listener) => {
-        if (event === 'destroyed') {
-            return sender.removeListener('destroyed', listener as TOcrSenderLifecycleListener);
-        }
-        if (event === 'render-process-gone') {
-            return sender.removeListener('render-process-gone', listener as TOcrSenderLifecycleListener);
-        }
-        return sender.removeListener('did-start-navigation', listener);
-    };
-
-    return {
-        senderId: context.senderId,
-        sender: {
-            isDestroyed: () => sender.isDestroyed(),
-            once,
-            on,
-            removeListener,
-        },
-    };
 }
 
 function toPlainOcrErrorEnvelope(error: unknown): IOcrErrorEnvelope {
@@ -266,7 +204,7 @@ function createSenderAbortSignal(sender: WebContents) {
 }
 
 export async function handleOcrRecognize(
-    context: IOcrOperationContext,
+    context: TOcrOperationContext,
     requestPayload: unknown,
 ): Promise<IOcrRecognizeResult> {
     let pageNumber = 0;
@@ -311,7 +249,7 @@ export async function handleOcrRecognize(
 }
 
 export async function handleOcrRecognizeBatch(
-    context: IOcrOperationContext,
+    context: TOcrOperationContext,
     pagesPayload: unknown,
     requestIdPayload: unknown,
 ) {
@@ -435,7 +373,7 @@ export async function handleOcrGetLanguages() {
 }
 
 export async function handleResolveDocumentTextCatalog(
-    context: IOcrOperationContext,
+    context: TOcrOperationContext,
     workingCopyPath: string,
     documentRevision: TDocumentRevisionToken,
     pageCount?: number,
@@ -445,7 +383,7 @@ export async function handleResolveDocumentTextCatalog(
 }
 
 export async function handleResolveDocumentOcrAvailability(
-    context: IOcrOperationContext,
+    context: TOcrOperationContext,
     workingCopyPath: string,
     documentRevision: TDocumentRevisionToken,
 ) {
@@ -454,7 +392,7 @@ export async function handleResolveDocumentOcrAvailability(
 }
 
 export async function handleResolveDocumentOcrPage(
-    context: IOcrOperationContext,
+    context: TOcrOperationContext,
     workingCopyPath: string,
     documentRevision: TDocumentRevisionToken,
     pageNumber: number,
@@ -533,7 +471,7 @@ async function validateOcrSourcePdfPath(sourcePdfPath: string, senderWebContents
 }
 
 export async function handleOcrCreateSearchablePdf(
-    context: IOcrOperationContext,
+    context: TOcrOperationContext,
     sourcePdfPathPayload: unknown,
     pagesPayload: unknown,
     requestIdPayload: unknown,
@@ -556,14 +494,8 @@ export async function handleOcrCreateSearchablePdf(
 
         jobId = payload.requestId;
         const validatedSourcePdfPath = await validateOcrSourcePdfPath(payload.sourcePdfPath, context.senderId);
-        const jobManagerContext = createOcrJobManagerContext(context);
-        registerOcrJobProjectionPolicy(
-            toScopedOcrJobId(context.senderId, payload.requestId),
-            payload.options.supersessionPolicy ?? 'missing-only',
-            payload.options.replaceAllAcknowledged === true,
-        );
         const result = await handleOcrCreateSearchablePdfAsync(
-            jobManagerContext,
+            context,
             validatedSourcePdfPath,
             payload.pages,
             payload.requestId,
@@ -599,7 +531,7 @@ export async function handleOcrCreateSearchablePdf(
 }
 
 export function handleOcrCancelValidated(
-    context: IOcrOperationContext,
+    context: TOcrOperationContext,
     requestIdPayload: unknown,
 ): IOcrCancelResult {
     try {
@@ -611,7 +543,7 @@ export function handleOcrCancelValidated(
             plainOcrBatchControllers.delete(scopedBatchId);
             return { canceled: true };
         }
-        return handleOcrCancel(createOcrJobManagerContext(context), requestId);
+        return handleOcrCancel(context, requestId);
     } catch (error) {
         const envelope = toOcrErrorEnvelope(error);
         log.warn(`ocr:cancel rejected: ${envelope.message}`);
@@ -625,13 +557,13 @@ export function handleOcrCancelValidated(
 }
 
 export async function handleOcrAcknowledgeResultFileValidated(
-    context: IOcrOperationContext,
+    context: TOcrOperationContext,
     requestIdPayload: unknown,
     pdfPathPayload?: unknown,
 ) {
     try {
         return await handleOcrAcknowledgeResultFile(
-            createOcrJobManagerContext(context),
+            context,
             requestIdPayload,
             pdfPathPayload,
         );

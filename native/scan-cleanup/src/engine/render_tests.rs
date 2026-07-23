@@ -196,6 +196,7 @@ mod tests {
         let mut timings = PageStageTimings::default();
         let prepared = prepare_analysis_page(
             &source,
+            None,
             &options,
             true,
             None,
@@ -240,6 +241,135 @@ mod tests {
             source.set(160, y, 175);
         }
         source
+    }
+
+    fn draw_display_glyphs(
+        image: &mut GrayImage,
+        left: usize,
+        top: usize,
+        glyphs: usize,
+        width: usize,
+        height: usize,
+        gap: usize,
+    ) {
+        for glyph in 0..glyphs {
+            let glyph_left = left + glyph * (width + gap);
+            for y in top..top + height {
+                for x in glyph_left..glyph_left + width {
+                    if x < glyph_left + 3
+                        || x + 3 >= glyph_left + width
+                        || y < top + 3
+                        || y + 3 >= top + height
+                    {
+                        image.set(x, y, 24);
+                    }
+                }
+            }
+        }
+    }
+
+    fn page_seven_trim_twin() -> GrayImage {
+        let mut source = GrayImage::new(620, 760, 245);
+        for y in 28..38 {
+            for x in 32..588 {
+                source.set(x, y, 16);
+            }
+        }
+        for y in 44..62 {
+            for x in 286..304 {
+                source.set(x, y, 20);
+            }
+        }
+        for panel in 0..4 {
+            let left = 150 + panel * 74;
+            for y in 132..280 {
+                for x in left..left + 52 {
+                    let texture = (x * 17 + y * 11 + panel * 23 + x * y % 47) % 165;
+                    source.set(x, y, 45 + texture as u8);
+                }
+            }
+        }
+        draw_display_glyphs(&mut source, 226, 342, 8, 11, 24, 6);
+        for row in 0..16 {
+            let top = 408 + row * 19;
+            draw_display_glyphs(&mut source, 62, top, 14, 6, 10, 4);
+            draw_display_glyphs(&mut source, 330, top, 14, 6, 10, 4);
+        }
+        source
+    }
+
+    fn dark_pixels_in_source_rect(output: &CleanupResult, source_rect: Rect) -> usize {
+        let crop = output.metadata.crop_rect;
+        let left = (source_rect.x - crop.x).floor().max(0.0) as usize;
+        let top = (source_rect.y - crop.y).floor().max(0.0) as usize;
+        let right = (source_rect.right() - crop.x)
+            .ceil()
+            .clamp(0.0, output.image.width() as f64) as usize;
+        let bottom = (source_rect.bottom() - crop.y)
+            .ceil()
+            .clamp(0.0, output.image.height() as f64) as usize;
+        (top..bottom)
+            .flat_map(|y| (left..right).map(move |x| (x, y)))
+            .filter(|&(x, y)| output.image.get(x, y) < 224)
+            .count()
+    }
+
+    #[test]
+    fn page_seven_twin_protects_picture_and_heading_in_every_output_mode() {
+        let source = page_seven_trim_twin();
+        for output_mode in [OutputMode::Auto, OutputMode::Mixed, OutputMode::Bw] {
+            let output = clean_page(
+                &source,
+                &CleanupOptions {
+                    dpi: 150.0,
+                    output_mode,
+                    crop_content: true,
+                    normalize_illumination: false,
+                    layout: crate::LayoutMode::Single,
+                    margins_mm: None,
+                    margins_pixels: Some([0.0; 4]),
+                    ..CleanupOptions::default()
+                },
+                6,
+            )
+            .unwrap()
+            .outputs
+            .remove(0);
+            let content = output.metadata.content_box.unwrap();
+            assert!(
+                content.y <= 132.0 && content.bottom() >= 703.0,
+                "mode={output_mode:?} content={content:?} diagnostics={:?}",
+                output.metadata.content_diagnostics
+            );
+            assert!(
+                output.metadata.crop_rect.y <= 132.0,
+                "mode={output_mode:?} crop={:?}",
+                output.metadata.crop_rect
+            );
+            let diagnostics = output.metadata.content_diagnostics.as_ref().unwrap();
+            assert!(
+                diagnostics
+                    .protected_blocks
+                    .iter()
+                    .any(|block| block.picture_mask_overlap_pixels > 0),
+                "mode={output_mode:?} missing picture evidence: {diagnostics:?}"
+            );
+            assert!(
+                diagnostics
+                    .protected_blocks
+                    .iter()
+                    .any(|block| block.heading_evidence),
+                "mode={output_mode:?} missing heading evidence: {diagnostics:?}"
+            );
+            assert!(
+                dark_pixels_in_source_rect(&output, Rect::new(150.0, 132.0, 274.0, 148.0),) > 2_500,
+                "mode={output_mode:?} illustration pixels were cropped"
+            );
+            assert!(
+                dark_pixels_in_source_rect(&output, Rect::new(226.0, 342.0, 130.0, 24.0),) > 250,
+                "mode={output_mode:?} heading pixels were cropped"
+            );
+        }
     }
 
     fn single_page_fixture() -> GrayImage {
@@ -732,8 +862,14 @@ mod tests {
         assert!(grid.output_origin.x > 0.0 && grid.output_origin.y > 0.0);
         assert_eq!(grid.output_origin.x, output.metadata.crop_rect.x);
         assert_eq!(grid.output_origin.y, output.metadata.crop_rect.y);
-        assert_eq!(grid.output_width, output.metadata.crop_rect.width.ceil() as usize);
-        assert_eq!(grid.output_height, output.metadata.crop_rect.height.ceil() as usize);
+        assert_eq!(
+            grid.output_width,
+            output.metadata.crop_rect.width.ceil() as usize
+        );
+        assert_eq!(
+            grid.output_height,
+            output.metadata.crop_rect.height.ceil() as usize
+        );
         let first_source = grid.output_to_source[0];
         assert!(first_source.x > 0.0 && first_source.y > 0.0);
         let center_source = grid.output_to_source[8 * 17 + 8];
@@ -784,7 +920,10 @@ mod tests {
         .unwrap();
 
         assert_eq!(analysis.outputs.len(), 1);
-        assert_eq!(analysis.outputs[0].crop_rect, Rect::new(0.0, 0.0, 3_000.0, 2_000.0));
+        assert_eq!(
+            analysis.outputs[0].crop_rect,
+            Rect::new(0.0, 0.0, 3_000.0, 2_000.0)
+        );
     }
 
     #[test]
@@ -1308,7 +1447,11 @@ mod tests {
             layout: crate::LayoutMode::Single,
             ..CleanupOptions::default()
         };
-        let bw = clean_page(&source, &base, 0).unwrap().outputs.remove(0).image;
+        let bw = clean_page(&source, &base, 0)
+            .unwrap()
+            .outputs
+            .remove(0)
+            .image;
         let mixed = clean_page(
             &source,
             &CleanupOptions {
@@ -1426,6 +1569,70 @@ mod tests {
             .flat_map(|y| (185..250).map(move |x| output_image.get(x, y)))
             .filter(|value| !matches!(value, 0 | 255))
             .count();
-        assert!(retained_tones > 2_000, "retained only {retained_tones} photo tones");
+        assert!(
+            retained_tones > 2_000,
+            "retained only {retained_tones} photo tones"
+        );
+    }
+
+    #[test]
+    fn mixed_composite_feathers_light_mask_blocks_without_losing_dark_picture_edges() {
+        let mut gray = GrayImage::new(120, 80, 255);
+        let mut mask = BinaryImage::new(120, 80);
+        let binary = BinaryImage::new(120, 80);
+        for y in 15..65 {
+            for x in 30..90 {
+                mask.set(x, y, true);
+                gray.set(x, y, if y < 23 { 235 } else { 112 });
+            }
+        }
+        for x in 30..90 {
+            gray.set(x, 24, 54);
+        }
+
+        let (mixed, _) = compose_mixed(&gray, None, &binary, &mask, 300.0);
+
+        assert!(
+            (30..90).all(|x| mixed.get(x, 15) >= 248),
+            "light block boundary was not feathered"
+        );
+        assert!(
+            (30..90).all(|x| mixed.get(x, 24) <= 60),
+            "dark engraving edge was washed out"
+        );
+        assert_eq!(mixed.get(60, 40), 112);
+        assert_eq!(mixed.get(29, 40), 255);
+    }
+
+    #[test]
+    fn metadata_records_a_guardrail_limited_bw_supersample() {
+        let source = GrayImage::new(120, 90, 255);
+        let output = clean_page(
+            &source,
+            &CleanupOptions {
+                dpi: 875.0,
+                source_dpi: Some(600.0),
+                requested_render_dpi: Some(1_200.0),
+                output_mode: OutputMode::Bw,
+                normalize_illumination: false,
+                crop_content: false,
+                layout: crate::LayoutMode::Single,
+                ..CleanupOptions::default()
+            },
+            0,
+        )
+        .unwrap()
+        .outputs
+        .remove(0);
+
+        assert_eq!(output.metadata.source_dpi, 600.0);
+        assert_eq!(output.metadata.render_dpi, 875.0);
+        assert_eq!(output.metadata.requested_render_dpi, 1_200.0);
+        assert!(output.metadata.raster_scale_limited);
+        assert!(output
+            .metadata
+            .warnings
+            .iter()
+            .any(|warning| warning.contains("limited to 875.000")));
     }
 }

@@ -17,6 +17,24 @@ import {
 } from '@tests/unit/app/platform/browserPlatformTestDoubles';
 import {onBrowserDocumentPersistenceWarning} from '@app/platform/browser/browserDocumentPersistenceWarnings';
 
+const PDF_SOURCE_OPTIONS = {
+    mimeType: 'application/pdf',
+    kind: 'source',
+    saveKind: 'pdf',
+} as const;
+
+function createStoredPdf(
+    store: BrowserDocumentStore,
+    fileName: string,
+    data: Uint8Array,
+    options: Partial<Parameters<BrowserDocumentStore['createStoredDocument']>[2]> = {},
+) {
+    return store.createStoredDocument(fileName, data, {
+        ...PDF_SOURCE_OPTIONS,
+        ...options,
+    });
+}
+
 describe('BrowserDocumentStore', () => {
     let indexedDbFactory: FakeIndexedDbFactory;
     let localStorage: MemoryStorage;
@@ -39,15 +57,9 @@ describe('BrowserDocumentStore', () => {
         const store = new BrowserDocumentStore();
         const ref = await store.createStoredDocument(
             'report.pdf',
-            new Uint8Array([
-                1,
-                2,
-                3,
-            ]),
+            Uint8Array.of(1, 2, 3),
             {
-                mimeType: 'application/pdf',
-                kind: 'source',
-                saveKind: 'pdf',
+                ...PDF_SOURCE_OPTIONS,
                 saveHandle: handle,
             },
         );
@@ -71,15 +83,9 @@ describe('BrowserDocumentStore', () => {
         const store = new BrowserDocumentStore();
         const ref = await store.createStoredDocument(
             'report.pdf',
-            new Uint8Array([
-                1,
-                2,
-                3,
-            ]),
+            Uint8Array.of(1, 2, 3),
             {
-                mimeType: 'application/pdf',
-                kind: 'source',
-                saveKind: 'pdf',
+                ...PDF_SOURCE_OPTIONS,
                 saveHandle: handle,
             },
         );
@@ -95,15 +101,7 @@ describe('BrowserDocumentStore', () => {
 
     it('dedupes stored recent files by original path', async () => {
         const store = new BrowserDocumentStore();
-        const ref = await store.createStoredDocument(
-            'report.pdf',
-            new Uint8Array([1]),
-            {
-                mimeType: 'application/pdf',
-                kind: 'source',
-                saveKind: 'pdf',
-            },
-        );
+        const ref = await createStoredPdf(store, 'report.pdf', Uint8Array.of(1));
         localStorage.setItem('evb-viewer:browser:recentFiles', JSON.stringify([
             {
                 originalPath: ref,
@@ -129,38 +127,18 @@ describe('BrowserDocumentStore', () => {
         const store = new BrowserDocumentStore();
         const ref = await store.createStoredDocument(
             'report.pdf',
-            new Uint8Array([
-                4,
-                5,
-                6,
-            ]),
-            {
-                mimeType: 'application/pdf',
-                kind: 'source',
-                saveKind: 'pdf',
-            },
+            Uint8Array.of(4, 5, 6),
+            {...PDF_SOURCE_OPTIONS},
         );
 
         store.unload(ref);
 
-        await expect(store.read(ref)).resolves.toEqual(new Uint8Array([
-            4,
-            5,
-            6,
-        ]));
+        await expect(store.read(ref)).resolves.toEqual(Uint8Array.of(4, 5, 6));
     });
 
     it('reports unavailable storage separately from a missing persisted record', async () => {
         const store = new BrowserDocumentStore();
-        const ref = await store.createStoredDocument(
-            'unavailable.pdf',
-            new Uint8Array([1]),
-            {
-                mimeType: 'application/pdf',
-                kind: 'source',
-                saveKind: 'pdf',
-            },
-        );
+        const ref = await createStoredPdf(store, 'unavailable.pdf', Uint8Array.of(1));
 
         store.unload(ref);
         vi.stubGlobal('indexedDB', undefined);
@@ -176,42 +154,18 @@ describe('BrowserDocumentStore', () => {
         const store = new BrowserDocumentStore();
         const ref = await store.createStoredDocument(
             'report.pdf',
-            new Uint8Array([
-                1,
-                1,
-                1,
-            ]),
-            {
-                mimeType: 'application/pdf',
-                kind: 'source',
-                saveKind: 'pdf',
-            },
+            Uint8Array.of(1, 1, 1),
+            {...PDF_SOURCE_OPTIONS},
         );
 
-        await store.write(ref, new Uint8Array([
-            7,
-            8,
-            9,
-        ]), { unloadAfterPersist: true });
+        await store.write(ref, Uint8Array.of(7, 8, 9), { unloadAfterPersist: true });
 
-        await expect(store.read(ref)).resolves.toEqual(new Uint8Array([
-            7,
-            8,
-            9,
-        ]));
+        await expect(store.read(ref)).resolves.toEqual(Uint8Array.of(7, 8, 9));
     });
 
     it('does not reuse a stale source ref for a different file with the same name and size', async () => {
-        const firstFile = new File([new Uint8Array([
-            1,
-            2,
-            3,
-        ])], 'same.pdf', { type: 'application/pdf' });
-        const secondFile = new File([new Uint8Array([
-            4,
-            5,
-            6,
-        ])], 'same.pdf', { type: 'application/pdf' });
+        const firstFile = new File([Uint8Array.of(1, 2, 3)], 'same.pdf', { type: 'application/pdf' });
+        const secondFile = new File([Uint8Array.of(4, 5, 6)], 'same.pdf', { type: 'application/pdf' });
         const store = new BrowserDocumentStore();
 
         const firstRef = store.getRefForFile(firstFile);
@@ -220,31 +174,15 @@ describe('BrowserDocumentStore', () => {
 
         expect(sameInstanceRef).toBe(firstRef);
         expect(secondRef).not.toBe(firstRef);
-        await expect(store.read(firstRef)).resolves.toEqual(new Uint8Array([
-            1,
-            2,
-            3,
-        ]));
-        await expect(store.read(secondRef)).resolves.toEqual(new Uint8Array([
-            4,
-            5,
-            6,
-        ]));
+        await expect(store.read(firstRef)).resolves.toEqual(Uint8Array.of(1, 2, 3));
+        await expect(store.read(secondRef)).resolves.toEqual(Uint8Array.of(4, 5, 6));
     });
 
     it('rejects document creation when durable IndexedDB writes cannot commit', async () => {
         vi.stubGlobal('indexedDB', undefined);
         const store = new BrowserDocumentStore();
 
-        await expect(store.createStoredDocument(
-            'failed.pdf',
-            new Uint8Array([1]),
-            {
-                mimeType: 'application/pdf',
-                kind: 'source',
-                saveKind: 'pdf',
-            },
-        )).rejects.toThrow('IndexedDB document write did not commit');
+        await expect(createStoredPdf(store, 'failed.pdf', Uint8Array.of(1))).rejects.toThrow('IndexedDB document write did not commit');
 
         expect(store.getRecentFiles()).toEqual([]);
     });
@@ -256,11 +194,7 @@ describe('BrowserDocumentStore', () => {
             warnings.push(fileName);
         });
         const store = new BrowserDocumentStore();
-        const bytes = new Uint8Array([
-            7,
-            4,
-            1,
-        ]);
+        const bytes = Uint8Array.of(7, 4, 1);
 
         const ref = await store.registerFile(new File(
             [bytes],
@@ -277,11 +211,7 @@ describe('BrowserDocumentStore', () => {
     });
 
     it('does not unload a picked source when persistence falls back to memory', async () => {
-        const bytes = new Uint8Array([
-            7,
-            4,
-            1,
-        ]);
+        const bytes = Uint8Array.of(7, 4, 1);
         const store = new BrowserDocumentStore();
         vi.stubGlobal('indexedDB', undefined);
         const sourceRef = await store.registerFile(
@@ -305,11 +235,7 @@ describe('BrowserDocumentStore', () => {
         const store = new BrowserDocumentStore();
         const ref = await store.createStoredDocument(
             'rollback.pdf',
-            new Uint8Array([
-                1,
-                2,
-                3,
-            ]),
+            Uint8Array.of(1, 2, 3),
             {
                 mimeType: 'application/pdf',
                 kind: 'working',
@@ -321,16 +247,8 @@ describe('BrowserDocumentStore', () => {
 
         const revision = await store.getDocumentRevision(ref);
 
-        await expect(store.write(ref, new Uint8Array([
-            9,
-            8,
-            7,
-        ]), {expectedDocumentRevisionToken: revision.token})).rejects.toThrow('IndexedDB document write did not commit');
-        await expect(store.read(ref)).resolves.toEqual(new Uint8Array([
-            1,
-            2,
-            3,
-        ]));
+        await expect(store.write(ref, Uint8Array.of(9, 8, 7), {expectedDocumentRevisionToken: revision.token})).rejects.toThrow('IndexedDB document write did not commit');
+        await expect(store.read(ref)).resolves.toEqual(Uint8Array.of(1, 2, 3));
     });
 
     it('clears failed pending file loads instead of keeping a poisoned pendingLoad', async () => {
@@ -352,20 +270,12 @@ describe('BrowserDocumentStore', () => {
 
     it('sweeps stale working copies and detached records on the next session', async () => {
         const store = new BrowserDocumentStore();
-        const recentSourceRef = await store.createStoredDocument(
-            'recent.pdf',
-            new Uint8Array([1]),
-            {
-                mimeType: 'application/pdf',
-                kind: 'source',
-                saveKind: 'pdf',
-            },
-        );
+        const recentSourceRef = await createStoredPdf(store, 'recent.pdf', Uint8Array.of(1));
         await store.touchRecentFile(recentSourceRef);
         const staleWorkingRef = await store.cloneAsWorkingCopy(recentSourceRef);
         const orphanSourceRef = await store.createStoredDocument(
             'orphan.pdf',
-            new Uint8Array([2]),
+            Uint8Array.of(2),
             {
                 mimeType: 'application/pdf',
                 kind: 'source',
@@ -375,7 +285,7 @@ describe('BrowserDocumentStore', () => {
         );
         const orphanOutputRef = await store.createStoredDocument(
             'orphan-output.pdf',
-            new Uint8Array([3]),
+            Uint8Array.of(3),
             {
                 mimeType: 'application/pdf',
                 kind: 'output',
@@ -394,24 +304,8 @@ describe('BrowserDocumentStore', () => {
 
     it('sweeps durable non-recent source blobs on the next session', async () => {
         const store = new BrowserDocumentStore();
-        const recentSourceRef = await store.createStoredDocument(
-            'recent.pdf',
-            new Uint8Array([1]),
-            {
-                mimeType: 'application/pdf',
-                kind: 'source',
-                saveKind: 'pdf',
-            },
-        );
-        const staleDurableRef = await store.createStoredDocument(
-            'stale.pdf',
-            new Uint8Array([2]),
-            {
-                mimeType: 'application/pdf',
-                kind: 'source',
-                saveKind: 'pdf',
-            },
-        );
+        const recentSourceRef = await createStoredPdf(store, 'recent.pdf', Uint8Array.of(1));
+        const staleDurableRef = await createStoredPdf(store, 'stale.pdf', Uint8Array.of(2));
 
         await store.touchRecentFile(recentSourceRef);
 
@@ -423,24 +317,8 @@ describe('BrowserDocumentStore', () => {
 
     it('recovers recent files from durable persisted documents when browser recent storage is missing', async () => {
         const store = new BrowserDocumentStore();
-        const firstRef = await store.createStoredDocument(
-            'first.pdf',
-            new Uint8Array([1]),
-            {
-                mimeType: 'application/pdf',
-                kind: 'source',
-                saveKind: 'pdf',
-            },
-        );
-        const secondRef = await store.createStoredDocument(
-            'second.pdf',
-            new Uint8Array([2]),
-            {
-                mimeType: 'application/pdf',
-                kind: 'source',
-                saveKind: 'pdf',
-            },
-        );
+        const firstRef = await createStoredPdf(store, 'first.pdf', Uint8Array.of(1));
+        const secondRef = await createStoredPdf(store, 'second.pdf', Uint8Array.of(2));
         await store.touchRecentFile(firstRef);
         await store.touchRecentFile(secondRef);
         localStorage.clear();
@@ -458,15 +336,7 @@ describe('BrowserDocumentStore', () => {
 
     it('does not recover persisted documents after recent files are intentionally cleared', async () => {
         const store = new BrowserDocumentStore();
-        const ref = await store.createStoredDocument(
-            'cleared.pdf',
-            new Uint8Array([1]),
-            {
-                mimeType: 'application/pdf',
-                kind: 'source',
-                saveKind: 'pdf',
-            },
-        );
+        const ref = await createStoredPdf(store, 'cleared.pdf', Uint8Array.of(1));
         await store.touchRecentFile(ref);
         await store.clearRecentFiles();
 
@@ -496,9 +366,7 @@ describe('BrowserDocumentStore', () => {
             'first.pdf',
             new Uint8Array(),
             {
-                mimeType: 'application/pdf',
-                kind: 'source',
-                saveKind: 'pdf',
+                ...PDF_SOURCE_OPTIONS,
                 saveHandle: firstHandle,
                 storageMode: 'handle',
             },
@@ -514,9 +382,7 @@ describe('BrowserDocumentStore', () => {
             'second.pdf',
             new Uint8Array(),
             {
-                mimeType: 'application/pdf',
-                kind: 'source',
-                saveKind: 'pdf',
+                ...PDF_SOURCE_OPTIONS,
                 saveHandle: secondHandle,
                 storageMode: 'handle',
             },
@@ -532,9 +398,7 @@ describe('BrowserDocumentStore', () => {
             'third.pdf',
             new Uint8Array(),
             {
-                mimeType: 'application/pdf',
-                kind: 'source',
-                saveKind: 'pdf',
+                ...PDF_SOURCE_OPTIONS,
                 saveHandle: thirdHandle,
                 storageMode: 'handle',
             },
@@ -556,10 +420,7 @@ describe('BrowserDocumentStore', () => {
         const store = new BrowserDocumentStore();
         const generatedSourceRef = await store.createStoredDocument(
             'generated.pdf',
-            new Uint8Array([
-                4,
-                5,
-            ]),
+            Uint8Array.of(4, 5),
             {
                 mimeType: 'application/pdf',
                 kind: 'source',
@@ -578,15 +439,8 @@ describe('BrowserDocumentStore', () => {
         const store = new BrowserDocumentStore();
         const sourceRef = await store.createStoredDocument(
             'saved.pdf',
-            new Uint8Array([
-                7,
-                8,
-            ]),
-            {
-                mimeType: 'application/pdf',
-                kind: 'source',
-                saveKind: 'pdf',
-            },
+            Uint8Array.of(7, 8),
+            {...PDF_SOURCE_OPTIONS},
         );
         const workingRef = await store.cloneAsWorkingCopy(sourceRef);
 
@@ -602,7 +456,7 @@ describe('BrowserDocumentStore', () => {
         const store = new BrowserDocumentStore();
         const sourceRef = await store.createStoredDocument(
             'source.pdf',
-            new Uint8Array([9]),
+            Uint8Array.of(9),
             {
                 mimeType: 'application/pdf',
                 kind: 'source',
@@ -670,11 +524,7 @@ describe('BrowserDocumentStore', () => {
         const store = new BrowserDocumentStore();
         const sourceRef = await store.createStoredDocument(
             'clone-source.pdf',
-            new Uint8Array([
-                1,
-                2,
-                3,
-            ]),
+            Uint8Array.of(1, 2, 3),
             {
                 mimeType: 'application/pdf',
                 kind: 'source',
@@ -699,27 +549,12 @@ describe('BrowserDocumentStore', () => {
         const store = new BrowserDocumentStore();
         const sourceRef = await store.createStoredDocument(
             'large.pdf',
-            new Uint8Array([
-                1,
-                2,
-                3,
-                4,
-                5,
-                6,
-            ]),
-            {
-                mimeType: 'application/pdf',
-                kind: 'source',
-                saveKind: 'pdf',
-            },
+            Uint8Array.of(1, 2, 3, 4, 5, 6),
+            {...PDF_SOURCE_OPTIONS},
         );
         const workingRef = await store.cloneAsWorkingCopy(sourceRef);
 
-        await expect(store.readRange(workingRef, 2, 3)).resolves.toEqual(new Uint8Array([
-            3,
-            4,
-            5,
-        ]));
+        await expect(store.readRange(workingRef, 2, 3)).resolves.toEqual(Uint8Array.of(3, 4, 5));
         await expect(store.stat(workingRef)).resolves.toEqual({
             size: 6,
             modifiedAt: expect.any(Number),
@@ -728,15 +563,7 @@ describe('BrowserDocumentStore', () => {
 
     it('returns browser document revisions that follow source-proxy content changes', async () => {
         const store = new BrowserDocumentStore();
-        const sourceRef = await store.createStoredDocument(
-            'revision-source.pdf',
-            new Uint8Array([1]),
-            {
-                mimeType: 'application/pdf',
-                kind: 'source',
-                saveKind: 'pdf',
-            },
-        );
+        const sourceRef = await createStoredPdf(store, 'revision-source.pdf', Uint8Array.of(1));
         const workingRef = await store.cloneAsWorkingCopy(sourceRef);
         const events: Array<{
             documentRef: string;
@@ -759,7 +586,7 @@ describe('BrowserDocumentStore', () => {
         });
 
         const initialRevision = await store.getDocumentRevision(workingRef);
-        await store.write(sourceRef, new Uint8Array([2]));
+        await store.write(sourceRef, Uint8Array.of(2));
         const nextRevision = await store.getDocumentRevision(workingRef);
         unsubscribe();
 
@@ -801,37 +628,16 @@ describe('BrowserDocumentStore', () => {
         );
 
         await store.prepareChunkedDocument(ref, { chunkSize: 4 });
-        await store.writeChunk(ref, 0, new Uint8Array([
-            1,
-            2,
-            3,
-            4,
-        ]));
-        await store.writeChunk(ref, 1, new Uint8Array([
-            5,
-            6,
-            7,
-        ]));
+        await store.writeChunk(ref, 0, Uint8Array.of(1, 2, 3, 4));
+        await store.writeChunk(ref, 1, Uint8Array.of(5, 6, 7));
         await store.finalizeChunkedDocument(ref, {
             fileSize: 7,
             chunkCount: 2,
             chunkSize: 4,
         });
 
-        await expect(store.readRange(ref, 3, 3)).resolves.toEqual(new Uint8Array([
-            4,
-            5,
-            6,
-        ]));
-        await expect(store.read(ref)).resolves.toEqual(new Uint8Array([
-            1,
-            2,
-            3,
-            4,
-            5,
-            6,
-            7,
-        ]));
+        await expect(store.readRange(ref, 3, 3)).resolves.toEqual(Uint8Array.of(4, 5, 6));
+        await expect(store.read(ref)).resolves.toEqual(Uint8Array.of(1, 2, 3, 4, 5, 6, 7));
     });
 
     it('clones chunked documents without materializing them into inline storage', async () => {
@@ -848,18 +654,8 @@ describe('BrowserDocumentStore', () => {
         );
 
         await store.prepareChunkedDocument(ref, { chunkSize: 4 });
-        await store.writeChunk(ref, 0, new Uint8Array([
-            1,
-            2,
-            3,
-            4,
-        ]));
-        await store.writeChunk(ref, 1, new Uint8Array([
-            5,
-            6,
-            7,
-            8,
-        ]));
+        await store.writeChunk(ref, 0, Uint8Array.of(1, 2, 3, 4));
+        await store.writeChunk(ref, 1, Uint8Array.of(5, 6, 7, 8));
         await store.finalizeChunkedDocument(ref, {
             fileSize: 8,
             chunkCount: 2,
@@ -876,12 +672,7 @@ describe('BrowserDocumentStore', () => {
 
         expect(cloneEntry.storageMode).toBe('chunked');
         expect(cloneEntry.chunkCount).toBe(2);
-        await expect(store.readRange(cloneRef, 2, 4)).resolves.toEqual(new Uint8Array([
-            3,
-            4,
-            5,
-            6,
-        ]));
+        await expect(store.readRange(cloneRef, 2, 4)).resolves.toEqual(Uint8Array.of(3, 4, 5, 6));
     });
 
     it('removes partial chunked clone records when source chunk copy fails', async () => {
@@ -898,18 +689,8 @@ describe('BrowserDocumentStore', () => {
         );
 
         await store.prepareChunkedDocument(ref, { chunkSize: 4 });
-        await store.writeChunk(ref, 0, new Uint8Array([
-            1,
-            2,
-            3,
-            4,
-        ]));
-        await store.writeChunk(ref, 1, new Uint8Array([
-            5,
-            6,
-            7,
-            8,
-        ]));
+        await store.writeChunk(ref, 0, Uint8Array.of(1, 2, 3, 4));
+        await store.writeChunk(ref, 1, Uint8Array.of(5, 6, 7, 8));
         await store.finalizeChunkedDocument(ref, {
             fileSize: 8,
             chunkCount: 2,
@@ -950,13 +731,7 @@ describe('BrowserDocumentStore', () => {
     });
 
     it('reads handle-backed documents lazily', async () => {
-        const bytes = new Uint8Array([
-            9,
-            8,
-            7,
-            6,
-            5,
-        ]);
+        const bytes = Uint8Array.of(9, 8, 7, 6, 5);
         const handle = cast<FileSystemFileHandle>({
             kind: 'file',
             name: 'lazy.pdf',
@@ -981,11 +756,7 @@ describe('BrowserDocumentStore', () => {
             saveName: 'lazy.pdf',
         });
 
-        await expect(store.readRange(ref, 1, 3)).resolves.toEqual(new Uint8Array([
-            8,
-            7,
-            6,
-        ]));
+        await expect(store.readRange(ref, 1, 3)).resolves.toEqual(Uint8Array.of(8, 7, 6));
         await expect(store.stat(ref)).resolves.toEqual({
             size: 5,
             modifiedAt: expect.any(Number),
@@ -993,11 +764,7 @@ describe('BrowserDocumentStore', () => {
     });
 
     it('mirrors picked source bytes even when a save handle is present', async () => {
-        const bytes = new Uint8Array([
-            3,
-            1,
-            4,
-        ]);
+        const bytes = Uint8Array.of(3, 1, 4);
         const handle = cast<FileSystemFileHandle>({
             kind: 'file',
             name: 'picked.pdf',
@@ -1023,11 +790,7 @@ describe('BrowserDocumentStore', () => {
     });
 
     it('keeps source bytes readable after save-handle-backed source creation', async () => {
-        const bytes = new Uint8Array([
-            6,
-            2,
-            5,
-        ]);
+        const bytes = Uint8Array.of(6, 2, 5);
         const handle = cast<FileSystemFileHandle>({
             kind: 'file',
             name: 'saved.pdf',
@@ -1040,9 +803,7 @@ describe('BrowserDocumentStore', () => {
             'saved.pdf',
             bytes,
             {
-                mimeType: 'application/pdf',
-                kind: 'source',
-                saveKind: 'pdf',
+                ...PDF_SOURCE_OPTIONS,
                 saveHandle: handle,
                 storageMode: 'handle',
             },
@@ -1058,11 +819,7 @@ describe('BrowserDocumentStore', () => {
     });
 
     it('hydrates legacy handle-backed sources before reopening them', async () => {
-        const bytes = new Uint8Array([
-            8,
-            9,
-            7,
-        ]);
+        const bytes = Uint8Array.of(8, 9, 7);
         const getFile = vi.fn(async () => new File([bytes], 'legacy.pdf', { type: 'application/pdf' }));
         const handle = cast<FileSystemFileHandle>({
             kind: 'file',
@@ -1074,9 +831,7 @@ describe('BrowserDocumentStore', () => {
             'legacy.pdf',
             new Uint8Array(),
             {
-                mimeType: 'application/pdf',
-                kind: 'source',
-                saveKind: 'pdf',
+                ...PDF_SOURCE_OPTIONS,
                 saveHandle: handle,
                 storageMode: 'handle',
             },
@@ -1109,15 +864,15 @@ describe('BrowserDocumentStore', () => {
 
         expect(entry.storageMode).toBe('chunked');
         expect(entry.data.byteLength).toBe(0);
-        await expect(store.readRange(ref, 0, 1)).resolves.toEqual(new Uint8Array([4]));
-        await expect(store.readRange(ref, bytes.byteLength - 1, 1)).resolves.toEqual(new Uint8Array([9]));
+        await expect(store.readRange(ref, 0, 1)).resolves.toEqual(Uint8Array.of(4));
+        await expect(store.readRange(ref, bytes.byteLength - 1, 1)).resolves.toEqual(Uint8Array.of(9));
     });
 
     it('keeps large writes chunked instead of collapsing back to inline storage', async () => {
         const store = new BrowserDocumentStore();
         const ref = await store.createStoredDocument(
             'rewrite.pdf',
-            new Uint8Array([1]),
+            Uint8Array.of(1),
             {
                 mimeType: 'application/pdf',
                 kind: 'working',
@@ -1134,8 +889,8 @@ describe('BrowserDocumentStore', () => {
         const entry = await store.requireEntry(ref);
         expect(entry.storageMode).toBe('chunked');
         expect(entry.data.byteLength).toBe(0);
-        await expect(store.readRange(ref, 0, 1)).resolves.toEqual(new Uint8Array([3]));
-        await expect(store.readRange(ref, largeBytes.byteLength - 1, 1)).resolves.toEqual(new Uint8Array([7]));
+        await expect(store.readRange(ref, 0, 1)).resolves.toEqual(Uint8Array.of(3));
+        await expect(store.readRange(ref, largeBytes.byteLength - 1, 1)).resolves.toEqual(Uint8Array.of(7));
     });
 
     it('replaces chunk generations after a large rewrite and removes superseded chunks', async () => {
@@ -1160,8 +915,8 @@ describe('BrowserDocumentStore', () => {
         const secondChunkKeys = Array.from(database?.getStoreRecords('document-chunks').keys() ?? []);
         expect(secondChunkKeys).not.toEqual(firstChunkKeys);
         expect(secondChunkKeys.some(key => firstChunkKeys.includes(key))).toBe(false);
-        await expect(store.readRange(ref, 0, 1)).resolves.toEqual(new Uint8Array([3]));
-        await expect(store.readRange(ref, secondBytes.byteLength - 1, 1)).resolves.toEqual(new Uint8Array([4]));
+        await expect(store.readRange(ref, 0, 1)).resolves.toEqual(Uint8Array.of(3));
+        await expect(store.readRange(ref, secondBytes.byteLength - 1, 1)).resolves.toEqual(Uint8Array.of(4));
     });
 
     it('keeps the previous chunk generation readable when a large rewrite is interrupted', async () => {
@@ -1185,25 +940,20 @@ describe('BrowserDocumentStore', () => {
             .toThrow('IndexedDB document chunk write did not commit');
         vi.stubGlobal('indexedDB', indexedDbFactory);
 
-        await expect(store.readRange(ref, 0, 1)).resolves.toEqual(new Uint8Array([1]));
-        await expect(store.readRange(ref, firstBytes.byteLength - 1, 1)).resolves.toEqual(new Uint8Array([2]));
+        await expect(store.readRange(ref, 0, 1)).resolves.toEqual(Uint8Array.of(1));
+        await expect(store.readRange(ref, firstBytes.byteLength - 1, 1)).resolves.toEqual(Uint8Array.of(2));
 
         store.unload(ref);
 
-        await expect(store.readRange(ref, 0, 1)).resolves.toEqual(new Uint8Array([1]));
-        await expect(store.readRange(ref, firstBytes.byteLength - 1, 1)).resolves.toEqual(new Uint8Array([2]));
+        await expect(store.readRange(ref, 0, 1)).resolves.toEqual(Uint8Array.of(1));
+        await expect(store.readRange(ref, firstBytes.byteLength - 1, 1)).resolves.toEqual(Uint8Array.of(2));
     });
 
     it('does not publish manually written chunks until finalize succeeds', async () => {
         const store = new BrowserDocumentStore();
         const ref = await store.createStoredDocument(
             'manual-output.pdf',
-            new Uint8Array([
-                9,
-                9,
-                9,
-                9,
-            ]),
+            Uint8Array.of(9, 9, 9, 9),
             {
                 mimeType: 'application/pdf',
                 kind: 'output',
@@ -1213,48 +963,23 @@ describe('BrowserDocumentStore', () => {
         );
 
         await store.prepareChunkedDocument(ref, { chunkSize: 4 });
-        await store.writeChunk(ref, 0, new Uint8Array([
-            1,
-            2,
-            3,
-            4,
-        ]));
+        await store.writeChunk(ref, 0, Uint8Array.of(1, 2, 3, 4));
 
-        await expect(store.read(ref)).resolves.toEqual(new Uint8Array([
-            9,
-            9,
-            9,
-            9,
-        ]));
+        await expect(store.read(ref)).resolves.toEqual(Uint8Array.of(9, 9, 9, 9));
         await store.touchRecentFile(ref);
 
         const rehydratedStore = new BrowserDocumentStore();
-        await expect(rehydratedStore.read(ref)).resolves.toEqual(new Uint8Array([
-            9,
-            9,
-            9,
-            9,
-        ]));
+        await expect(rehydratedStore.read(ref)).resolves.toEqual(Uint8Array.of(9, 9, 9, 9));
 
         await store.prepareChunkedDocument(ref, { chunkSize: 4 });
-        await store.writeChunk(ref, 0, new Uint8Array([
-            1,
-            2,
-            3,
-            4,
-        ]));
+        await store.writeChunk(ref, 0, Uint8Array.of(1, 2, 3, 4));
         await store.finalizeChunkedDocument(ref, {
             fileSize: 4,
             chunkCount: 1,
             chunkSize: 4,
         });
 
-        await expect(store.read(ref)).resolves.toEqual(new Uint8Array([
-            1,
-            2,
-            3,
-            4,
-        ]));
+        await expect(store.read(ref)).resolves.toEqual(Uint8Array.of(1, 2, 3, 4));
     });
 
     it('rejects full reads for browser documents above the in-memory safety limit', async () => {
@@ -1262,19 +987,11 @@ describe('BrowserDocumentStore', () => {
         bytes[0] = 5;
         bytes[bytes.byteLength - 1] = 8;
         const store = new BrowserDocumentStore();
-        const ref = await store.createStoredDocument(
-            'huge.pdf',
-            bytes,
-            {
-                mimeType: 'application/pdf',
-                kind: 'source',
-                saveKind: 'pdf',
-            },
-        );
+        const ref = await createStoredPdf(store, 'huge.pdf', bytes);
 
         await expect(store.read(ref)).rejects.toThrow('Browser document is too large to load fully into memory');
-        await expect(store.readRange(ref, 0, 1)).resolves.toEqual(new Uint8Array([5]));
-        await expect(store.readRange(ref, bytes.byteLength - 1, 1)).resolves.toEqual(new Uint8Array([8]));
+        await expect(store.readRange(ref, 0, 1)).resolves.toEqual(Uint8Array.of(5));
+        await expect(store.readRange(ref, bytes.byteLength - 1, 1)).resolves.toEqual(Uint8Array.of(8));
     });
 
     it('clears partial chunk records when chunked output is aborted', async () => {
@@ -1291,12 +1008,7 @@ describe('BrowserDocumentStore', () => {
         );
 
         await store.prepareChunkedDocument(ref, { chunkSize: 4 });
-        await store.writeChunk(ref, 0, new Uint8Array([
-            1,
-            2,
-            3,
-            4,
-        ]));
+        await store.writeChunk(ref, 0, Uint8Array.of(1, 2, 3, 4));
         await store.clearChunkedDocument(ref);
 
         const database = indexedDbFactory.getDatabase('evb-viewer-browser-documents');
@@ -1319,21 +1031,11 @@ describe('BrowserDocumentStore', () => {
         const database = indexedDbFactory.getDatabase('evb-viewer-browser-documents');
 
         await store.prepareChunkedDocument(ref, { chunkSize: 4 });
-        await store.writeChunk(ref, 0, new Uint8Array([
-            1,
-            2,
-            3,
-            4,
-        ]));
+        await store.writeChunk(ref, 0, Uint8Array.of(1, 2, 3, 4));
         const firstChunkKeys = Array.from(database?.getStoreRecords('document-chunks').keys() ?? []);
         await store.clearChunkedDocument(ref);
         await store.prepareChunkedDocument(ref, { chunkSize: 4 });
-        await store.writeChunk(ref, 0, new Uint8Array([
-            5,
-            6,
-            7,
-            8,
-        ]));
+        await store.writeChunk(ref, 0, Uint8Array.of(5, 6, 7, 8));
         await store.finalizeChunkedDocument(ref, {
             fileSize: 4,
             chunkCount: 1,
@@ -1343,12 +1045,7 @@ describe('BrowserDocumentStore', () => {
         const secondChunkKeys = Array.from(database?.getStoreRecords('document-chunks').keys() ?? []);
         expect(secondChunkKeys).toHaveLength(1);
         expect(secondChunkKeys[0]).not.toBe(firstChunkKeys[0]);
-        await expect(store.readRange(ref, 0, 4)).resolves.toEqual(new Uint8Array([
-            5,
-            6,
-            7,
-            8,
-        ]));
+        await expect(store.readRange(ref, 0, 4)).resolves.toEqual(Uint8Array.of(5, 6, 7, 8));
     });
 
     it('does not sweep a chunked source while file ingestion is still in progress', async () => {
@@ -1379,22 +1076,22 @@ describe('BrowserDocumentStore', () => {
             expect(file.slice).toHaveBeenCalled();
         });
 
-        await store.createStoredDocument('maintenance-trigger.pdf', new Uint8Array([1]), {
+        await store.createStoredDocument('maintenance-trigger.pdf', Uint8Array.of(1), {
             mimeType: 'application/pdf',
             kind: 'working',
             saveKind: 'pdf',
         });
         releaseFirstChunk();
 
-        await expect(store.readRange(ref, 0, 1)).resolves.toEqual(new Uint8Array([7]));
-        await expect(store.readRange(ref, bytes.byteLength - 1, 1)).resolves.toEqual(new Uint8Array([8]));
+        await expect(store.readRange(ref, 0, 1)).resolves.toEqual(Uint8Array.of(7));
+        await expect(store.readRange(ref, bytes.byteLength - 1, 1)).resolves.toEqual(Uint8Array.of(8));
     });
 
     it('retries document maintenance after a failed sweep', async () => {
         const sourceStore = new BrowserDocumentStore();
         const staleRef = await sourceStore.createStoredDocument(
             'stale-working.pdf',
-            new Uint8Array([1]),
+            Uint8Array.of(1),
             {
                 mimeType: 'application/pdf',
                 kind: 'working',
@@ -1417,7 +1114,7 @@ describe('BrowserDocumentStore', () => {
 
         await expect(rehydratedStore.createStoredDocument(
             'first-trigger.pdf',
-            new Uint8Array([2]),
+            Uint8Array.of(2),
             {
                 mimeType: 'application/pdf',
                 kind: 'working',
@@ -1428,7 +1125,7 @@ describe('BrowserDocumentStore', () => {
         transactionSpy.mockRestore();
         await expect(rehydratedStore.createStoredDocument(
             'retry-trigger.pdf',
-            new Uint8Array([3]),
+            Uint8Array.of(3),
             {
                 mimeType: 'application/pdf',
                 kind: 'working',
@@ -1440,15 +1137,7 @@ describe('BrowserDocumentStore', () => {
 
     it('sweeps corrupt recent chunked documents with positive size and no chunk records', async () => {
         const store = new BrowserDocumentStore();
-        const ref = await store.createStoredDocument(
-            'corrupt.pdf',
-            new Uint8Array([1]),
-            {
-                mimeType: 'application/pdf',
-                kind: 'source',
-                saveKind: 'pdf',
-            },
-        );
+        const ref = await createStoredPdf(store, 'corrupt.pdf', Uint8Array.of(1));
         await store.touchRecentFile(ref);
 
         const database = indexedDbFactory.getDatabase('evb-viewer-browser-documents');

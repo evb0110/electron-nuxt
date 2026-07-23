@@ -16,6 +16,7 @@ import {
     ref,
     Teleport,
 } from 'vue';
+import {readFileSync} from 'node:fs';
 import type {
     IScanCleanupPageOverride,
     IScanCleanupPreviewMetadata,
@@ -29,6 +30,11 @@ import {
 } from '@app/modules/scan-cleanup/runtime/resolveScanCleanupSelection';
 import AppTooltip from '@app/components/AppTooltip.vue';
 import ScanCleanupThumbnailRail from '@app/modules/scan-cleanup/components/ScanCleanupThumbnailRail.vue';
+
+const scanCleanupThumbnailRailSource = readFileSync(
+    'app/modules/scan-cleanup/components/ScanCleanupThumbnailRail.vue',
+    'utf8',
+);
 
 vi.mock('@app/components/document-viewer/DocumentThumbnailList.vue', async () => {
     const vue = await import('vue');
@@ -96,12 +102,31 @@ const messages: Record<string, string> = {
     'scanCleanup.pages.lowConfidenceHint': 'Detected as "{classification}" with low confidence — check this page and set its layout manually if wrong.',
     'scanCleanup.pages.textAxisHint': 'Text appears sideways — set rotation (90° or 270°).',
     'scanCleanup.pages.textAxisAria': 'Sideways text hint for page {page}',
+    'scanCleanup.pages.outputModeFor': 'Output mode for page {page}',
+    'scanCleanup.pages.outputModeAria': 'Output mode for page {page}: {hint}',
+    'scanCleanup.pages.outputModeFollowDocument': 'Follow document setting',
+    'scanCleanup.pages.outputModeRecommendationHintKnown': 'Recommended: {mode} — {confidence} confidence. Choose a mode to override it.',
+    'scanCleanup.pages.outputModeRecommendationHintUnknown': 'Recommended: {mode}. Choose a mode to override it.',
+    'scanCleanup.pages.outputModeRecommendationPending': 'Automatic output-mode recommendation is pending.',
+    'scanCleanup.pages.outputModeOverrideHint': 'Page override: {mode}. Choose Follow document setting to use the document setting.',
+    'scanCleanup.pages.outputModeDocumentHint': 'Effective mode: {mode} — follows the document setting.',
+    'scanCleanup.pages.outputModeLosslessHint': 'Effective mode: {mode} — preserving original quality forces color.',
+    'scanCleanup.pages.outputModeLosslessControlHint': 'Per-page output mode is unavailable because preserving original quality forces color.',
     'scanCleanup.pages.rotationFor': 'Rotation for page {page}',
     'scanCleanup.pages.processed': 'Processed',
     'scanCleanup.pages.sourceLoading': 'Loading source pages…',
     'scanCleanup.pages.sourceUnavailable': 'Source pages are unavailable',
     'scanCleanup.pages.sourceUnavailableHint': 'Reopen Scan Cleanup',
     'scanCleanup.pages.detectionPending': 'Detecting page {page}',
+    'scanCleanup.output.auto': 'Auto',
+    'scanCleanup.output.bw': 'Black and white',
+    'scanCleanup.output.bwShort': 'B&W',
+    'scanCleanup.output.grayscale': 'Grayscale',
+    'scanCleanup.output.grayscaleShort': 'Gray',
+    'scanCleanup.output.color': 'Color',
+    'scanCleanup.output.colorShort': 'Color',
+    'scanCleanup.output.mixed': 'Text + pictures',
+    'scanCleanup.output.mixedShort': 'Mixed',
 };
 
 vi.mock('@app/composables/useTypedI18n', () => ({useTypedI18n: () => ({t: (
@@ -284,6 +309,10 @@ function mountRail(options: {
     detectionActive?: boolean;
     classifications?: ReadonlyMap<number, IScanCleanupPreviewMetadata['layoutClassification']>;
     confidences?: ReadonlyMap<number, number>;
+    recommendedOutputModes?: ReadonlyMap<number, 'bw' | 'mixed' | 'grayscale' | 'color'>;
+    recommendedOutputModeConfidences?: ReadonlyMap<number, number>;
+    documentOutputMode?: 'auto' | 'bw' | 'grayscale' | 'color';
+    preserveOriginalQuality?: boolean;
     textAxes?: ReadonlyMap<number, IScanCleanupTextAxis>;
     overrides?: TScanCleanupPageOverrides;
     leader?: number;
@@ -307,6 +336,10 @@ function mountRail(options: {
         overrides: options.overrides ?? {},
         classifications: options.classifications ?? new Map(),
         confidences: options.confidences ?? new Map(),
+        documentOutputMode: options.documentOutputMode ?? 'auto',
+        preserveOriginalQuality: options.preserveOriginalQuality ?? false,
+        recommendedOutputModes: options.recommendedOutputModes ?? new Map(),
+        recommendedOutputModeConfidences: options.recommendedOutputModeConfidences ?? new Map(),
         textAxes: options.textAxes ?? new Map(),
         processedPages: options.processed ?? new Set(),
         disabled: false,
@@ -681,6 +714,134 @@ describe('ScanCleanupThumbnailRail', () => {
             2,
             expect.objectContaining({layoutOverride: 'single'}),
         ]);
+    });
+
+    it('shows per-page recommendations and applies or clears a local output override', async () => {
+        const harness = mountRail({
+            leader: 1,
+            recommendedOutputModes: new Map([[
+                2,
+                'bw',
+            ]]),
+            recommendedOutputModeConfidences: new Map([[
+                2,
+                0.93,
+            ]]),
+        });
+        const badge = harness.host.querySelector<HTMLButtonElement>(
+            '[data-page-number="2"] .scan-thumbnail-output-mode',
+        )!;
+        expect(badge.textContent?.trim()).toBe('B&W');
+        expect(badge.classList).toContain('is-recommendation');
+        expect(badge.classList).not.toContain('is-effective');
+        expect(badge.getAttribute('aria-label')).toContain(
+            'Recommended: Black and white — 93% confidence.',
+        );
+
+        badge.click();
+        await nextTick();
+        const popover = document.body.querySelector<HTMLElement>('[data-popover-content]')!;
+        const select = popover.querySelector<HTMLSelectElement>('[aria-label="Output mode for page 2"]')!;
+        expect(Array.from(select.options).map(option => option.textContent)).toEqual([
+            'Follow document setting',
+            'Black and white',
+            'Grayscale',
+            'Color',
+            'Text + pictures',
+        ]);
+
+        select.value = 'color';
+        select.dispatchEvent(new Event('change', {bubbles: true}));
+        expect(harness.overrideUpdates.at(-1)).toEqual([
+            2,
+            expect.objectContaining({outputModeOverride: 'color'}),
+        ]);
+
+        const overridden = mountRail({
+            overrides: {'2': {
+                rotationDegrees: 0,
+                layoutOverride: 'auto',
+                excluded: false,
+                manualSplit: null,
+                outputModeOverride: 'color',
+            }},
+            recommendedOutputModes: new Map([[
+                2,
+                'bw',
+            ]]),
+        });
+        const overrideBadge = overridden.host.querySelector<HTMLButtonElement>(
+            '[data-page-number="2"] .scan-thumbnail-output-mode',
+        )!;
+        expect(overrideBadge.textContent?.trim()).toBe('Color');
+        expect(overrideBadge.classList).toContain('is-override');
+        expect(overrideBadge.querySelector('.scan-thumbnail-output-mode-marker')).not.toBeNull();
+        overrideBadge.click();
+        await nextTick();
+        const overrideSelect = document.body.querySelector<HTMLSelectElement>(
+            '[aria-label="Output mode for page 2"]',
+        )!;
+        overrideSelect.value = 'auto';
+        overrideSelect.dispatchEvent(new Event('change', {bubbles: true}));
+        expect(overridden.overrideUpdates.at(-1)?.[1]).not.toHaveProperty('outputModeOverride');
+
+        const unknownConfidence = mountRail({recommendedOutputModes: new Map([[
+            2,
+            'grayscale',
+        ]])});
+        const unknownBadge = unknownConfidence.host.querySelector<HTMLButtonElement>(
+            '[data-page-number="2"] .scan-thumbnail-output-mode',
+        )!;
+        expect(unknownBadge.getAttribute('aria-label')).toContain(
+            'Recommended: Grayscale. Choose a mode to override it.',
+        );
+        expect(unknownBadge.getAttribute('aria-label')).not.toContain('confidence');
+    });
+
+    it('shows effective fixed and lossless modes without stale recommendation styling', () => {
+        const fixed = mountRail({
+            documentOutputMode: 'bw',
+            recommendedOutputModes: new Map([[
+                2,
+                'color',
+            ]]),
+        });
+        const fixedBadge = fixed.host.querySelector<HTMLButtonElement>(
+            '[data-page-number="2"] .scan-thumbnail-output-mode',
+        )!;
+        expect(fixedBadge.textContent?.trim()).toBe('B&W');
+        expect(fixedBadge.classList).toContain('is-effective');
+        expect(fixedBadge.classList).not.toContain('is-recommendation');
+        expect(fixedBadge.getAttribute('aria-label')).toContain(
+            'Effective mode: Black and white — follows the document setting.',
+        );
+        expect(scanCleanupThumbnailRailSource).toMatch(
+            /\.scan-thumbnail-output-mode\.is-recommendation\s*\{[^}]*var\(--ui-text-muted\)/s,
+        );
+        expect(scanCleanupThumbnailRailSource).toMatch(
+            /\.scan-thumbnail-output-mode\.is-effective\s*\{[^}]*color-mix/s,
+        );
+
+        const lossless = mountRail({
+            documentOutputMode: 'bw',
+            preserveOriginalQuality: true,
+            overrides: {'2': {
+                rotationDegrees: 0,
+                layoutOverride: 'auto',
+                excluded: false,
+                manualSplit: null,
+                outputModeOverride: 'bw',
+            }},
+        });
+        const losslessBadge = lossless.host.querySelector<HTMLButtonElement>(
+            '[data-page-number="2"] .scan-thumbnail-output-mode',
+        )!;
+        expect(losslessBadge.textContent?.trim()).toBe('Color');
+        expect(losslessBadge.disabled).toBe(true);
+        expect(losslessBadge.classList).not.toContain('is-override');
+        expect(losslessBadge.getAttribute('aria-label')).toContain(
+            'preserving original quality forces color',
+        );
     });
 
     it('shows the sideways-text hint and wires its page-local rotation selector', async () => {

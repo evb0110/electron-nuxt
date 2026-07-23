@@ -9,6 +9,7 @@ import {
 } from 'vitest';
 import {
     createApp,
+    computed,
     defineComponent,
     h,
     nextTick,
@@ -90,6 +91,11 @@ vi.mock('@app/modules/scan-cleanup/composables/useScanCleanupWorkspaceSession', 
             marginsLinked: session.selectionMarginsLinked ?? ref(true),
             setMarginsLinked: session.setSelectionMarginsLinked ?? vi.fn(),
             manualSplit: session.selectionManualSplit,
+            outputModeOverride: session.selectionOutputModeOverride ?? ref({
+                empty: false,
+                mixed: false,
+                value: undefined,
+            }),
             hasMarginOverrides: session.hasSelectionMarginOverrides ?? ref(false),
             placementAlignment: session.selectionPlacementAlignment,
             resetContentBoxes: session.resetSelectionContentBoxes,
@@ -109,6 +115,7 @@ vi.mock('@app/modules/scan-cleanup/composables/useScanCleanupWorkspaceSession', 
             updateExcluded: session.updateSelectionExcluded,
             updateLayoutOverride: session.updateSelectionLayoutOverride,
             updateMargins: session.updateSelectionMargins ?? vi.fn(),
+            updateOutputModeOverride: session.updateSelectionOutputModeOverride ?? vi.fn(),
             updatePageOverride: session.updatePageOverride,
             updatePlacement: session.updateSelectionPlacement,
             updateRotation: session.updateSelectionRotation,
@@ -124,6 +131,16 @@ vi.mock('@app/modules/scan-cleanup/composables/useScanCleanupWorkspaceSession', 
             outputEstimate: session.outputEstimate,
             pending: session.detectionPending,
             progress: session.detectionProgress,
+            progressText: session.detectionProgressText ?? computed(() => {
+                const progress = (session.detectionProgress as {value: {
+                    completedUnits: number;
+                    totalUnits: number
+                }}).value;
+                return `Analyzing ${String(progress.completedUnits)} / ${String(progress.totalUnits)}`;
+            }),
+            recommendedOutputModeByPage: session.recommendedOutputModeByPage ?? reactive(new Map()),
+            recommendedOutputModeConfidenceByPage: session.recommendedOutputModeConfidenceByPage ?? reactive(new Map()),
+            textAxisByPage: session.detectedTextAxisByPage ?? reactive(new Map()),
         },
         preview: {
             error: session.previewError,
@@ -144,7 +161,9 @@ vi.mock('@app/modules/scan-cleanup/composables/useScanCleanupWorkspaceSession', 
             processedPages: session.processedPages,
             progress: session.jobProgress,
             progressText: session.progressText,
+            runDisabledReason: session.runDisabledReason ?? ref(''),
             run: session.run,
+            transitionText: session.transitionText ?? ref(''),
         },
     };
 }}));
@@ -166,9 +185,24 @@ const translations: Record<string, string> = {
     'scanCleanup.preview.outputHalf.right': 'right half',
     'scanCleanup.preview.outputHalf.full': 'full page',
     'scanCleanup.preview.preview': 'Preview',
+    'scanCleanup.preview.zoomControls': 'Preview zoom',
+    'scanCleanup.preview.zoomIn': 'Zoom in',
+    'scanCleanup.preview.zoomOut': 'Zoom out',
+    'scanCleanup.preview.zoomFit': 'Fit',
+    'scanCleanup.preview.zoomValue': '{zoom}%',
+    'scanCleanup.preview.fit': 'Fit preview',
+    'scanCleanup.preview.toggleZoom': 'Zoom {zoom}, toggle fit and 100%',
     'scanCleanup.output.label': 'Output mode',
+    'scanCleanup.output.pageLabel': 'Output mode for pages',
+    'scanCleanup.output.auto': 'Auto',
+    'scanCleanup.output.bw': 'Black and white',
+    'scanCleanup.output.grayscale': 'Grayscale',
+    'scanCleanup.output.color': 'Color',
+    'scanCleanup.output.mixed': 'Text + pictures',
     'scanCleanup.output.preserveOriginalQuality': 'Preserve original quality (no rasterization)',
     'scanCleanup.output.losslessDisabledOptions': 'Raster cleanup options are unavailable in this mode.',
+    'scanCleanup.pages.outputModeFollowDocument': 'Follow document setting',
+    'scanCleanup.pages.outputModeLosslessControlHint': 'Per-page output mode is unavailable because preserving original quality forces color.',
     'scanCleanup.contentPreserved': 'Output preserves original page content.',
     'scanCleanup.workspaceTitle': 'Scan cleanup',
     'scanCleanup.button': 'Scan cleanup',
@@ -656,6 +690,59 @@ function mockPreviewGeometry(host: HTMLElement, canvasRects: DOMRect[]) {
     });
 }
 
+function mountPreviewZoomHarness() {
+    const viewMode = ref<'original' | 'cleaned'>('original');
+    const splitUpdates: IScanCleanupNormalizedSplit[] = [];
+    const harness = mount(defineComponent({setup: () => () => h(ScanCleanupPreviewPane, {
+        result: spreadPreviewResult(),
+        loading: false,
+        error: '',
+        viewMode: viewMode.value,
+        matchPageSize: true,
+        alignment: 'top-center',
+        pageNumber: 1,
+        totalPages: 3,
+        manualSplit: null,
+        readingOrder: 'ltr',
+        'onUpdate:manualSplit': (value: IScanCleanupNormalizedSplit | null) => {
+            if (value) splitUpdates.push(value);
+        },
+    })}));
+    const surface = harness.host.querySelector<HTMLElement>('.preview-surface')!;
+    const stage = harness.host.querySelector<HTMLElement>('.cutter-stage')!;
+    Object.defineProperties(stage, {
+        clientHeight: {
+            configurable: true,
+            value: 400,
+        },
+        clientWidth: {
+            configurable: true,
+            value: 500,
+        },
+    });
+    vi.spyOn(surface, 'getBoundingClientRect').mockReturnValue(domRect(0, 0, 500, 400));
+    vi.spyOn(stage, 'getBoundingClientRect').mockImplementation(() => {
+        const scale = Number(stage.style.transform.match(/scale\(([^)]+)\)/)?.[1] ?? 1);
+        const translation = stage.style.transform.match(/translate3d\(([^p]+)px, ([^p]+)px/);
+        const panX = Number(translation?.[1] ?? 0);
+        const panY = Number(translation?.[2] ?? 0);
+        return domRect(
+            panX - 500 * (scale - 1) / 2,
+            panY - 400 * (scale - 1) / 2,
+            500 * scale,
+            400 * scale,
+        );
+    });
+    mockPointerCapture(surface);
+    return {
+        ...harness,
+        stage,
+        splitUpdates,
+        surface,
+        viewMode,
+    };
+}
+
 function installResizeObserverHarness() {
     const original = globalThis.ResizeObserver;
     const observers: Array<{
@@ -1008,6 +1095,11 @@ describe('Scan cleanup components', () => {
             outputEstimate: ref(''),
             outputItems: ref([
                 {
+                    value: 'auto',
+                    label: 'Auto',
+                    fullLabel: 'Auto — recommended per page',
+                },
+                {
                     value: 'bw',
                     label: 'B&W',
                     fullLabel: 'Black and white',
@@ -1117,7 +1209,8 @@ describe('Scan cleanup components', () => {
         losslessToggle!.dispatchEvent(new Event('change', {bubbles: true}));
         await nextTick();
         const outputModeOptions = Array.from(harness.host.querySelectorAll<HTMLButtonElement>('[aria-label="Output mode"] [role="radio"]'));
-        expect(outputModeOptions).toHaveLength(3);
+        expect(outputModeOptions).toHaveLength(4);
+        expect(outputModeOptions[0]?.textContent).toContain('Auto');
         expect(outputModeOptions.every(option => option.disabled)).toBe(true);
         expect(harness.host.textContent).toContain('Raster cleanup options are unavailable in this mode.');
         expect(harness.host.textContent).toContain('Output preserves original page content.');
@@ -1244,16 +1337,17 @@ describe('Scan cleanup components', () => {
             cancelRequested: false,
             cleanupTotal: 120,
             detectionCancelRequested: false,
-            detectionDetected: 17,
             detectionError: '',
-            detectionTotal: 120,
+            detectionProgressText: 'Analyzing 17 / 120',
             isDetecting: state.detecting,
             isRunning: state.running,
             outputEstimate: '120 source pages → about 145 output pages',
             percent: 42,
             processedCount: 51,
             progressText: 'Processed 51 of 120 source pages',
+            runDisabledReason: '',
             runOcrAfterCleanup: false,
+            transitionText: '',
         })));
         const widths = () => Array.from(harness.host.querySelectorAll<HTMLElement>('.scan-cleanup-toolbar-zone'))
             .map(zone => zone.getBoundingClientRect().width);
@@ -1265,7 +1359,8 @@ describe('Scan cleanup components', () => {
         await nextTick();
         expect(widths()).toEqual(reviewWidths);
         expect(harness.host.querySelector('[aria-current="step"]')?.textContent).toContain('Detect');
-        expect(harness.host.querySelector('.scan-cleanup-toolbar-status-slot')?.textContent).toContain('17 / 120');
+        expect(harness.host.querySelector('.scan-cleanup-toolbar-status-slot')?.textContent)
+            .toContain('Analyzing 17 / 120');
 
         state.detecting = false;
         state.running = true;
@@ -1281,6 +1376,7 @@ describe('Scan cleanup components', () => {
         const pageOverrides = reactive({
             '1': createScanCleanupPageOverride({
                 layoutOverride: 'single',
+                outputModeOverride: 'bw',
                 marginsMm: {
                     leftMm: 8,
                     topMm: 8,
@@ -1288,7 +1384,10 @@ describe('Scan cleanup components', () => {
                     bottomMm: 8,
                 },
             }),
-            '2': createScanCleanupPageOverride({layoutOverride: 'spread'}),
+            '2': createScanCleanupPageOverride({
+                layoutOverride: 'spread',
+                outputModeOverride: 'color',
+            }),
         });
         const settings = reactive({
             preserveOriginalQuality: false,
@@ -1510,6 +1609,19 @@ describe('Scan cleanup components', () => {
         await nextTick();
         expect(settingsScope.value).toBe('selected');
         expect(harness.host.textContent).toContain('— Mixed');
+        const outputMode = harness.host.querySelector<HTMLSelectElement>(
+            '[aria-label="Output mode for pages"]',
+        )!;
+        expect(Array.from(outputMode.options).map(option => option.value)).toEqual([
+            'mixed-values',
+            'auto',
+            'bw',
+            'grayscale',
+            'color',
+            'mixed',
+        ]);
+        expect(new Set(Array.from(outputMode.options).map(option => option.value)).size)
+            .toBe(outputMode.options.length);
         expect(harness.host.querySelector('[data-override-marker="layout"]')).not.toBeNull();
         expect(harness.host.querySelector('[data-reset-override="layout"]')?.getAttribute('aria-label'))
             .toBe('Reset to document');
@@ -1534,6 +1646,16 @@ describe('Scan cleanup components', () => {
         await nextTick();
         expect(getScanCleanupPageOverride(pageOverrides, 1).layoutOverride).toBe('keep-right');
         expect(getScanCleanupPageOverride(pageOverrides, 2).layoutOverride).toBe('keep-left');
+        settings.preserveOriginalQuality = true;
+        await nextTick();
+        expect(harness.host.querySelector<HTMLSelectElement>(
+            '[aria-label="Output mode for pages"]',
+        )?.disabled).toBe(true);
+        expect(harness.host.textContent).toContain(
+            'Per-page output mode is unavailable because preserving original quality forces color.',
+        );
+        settings.preserveOriginalQuality = false;
+        await nextTick();
 
         expect(harness.host.querySelectorAll('[data-margin-side]')).toHaveLength(4);
         const leftMarginField = harness.host.querySelector<HTMLInputElement>('[data-margin-side="leftMm"]')!;
@@ -1702,6 +1824,206 @@ describe('Scan cleanup components', () => {
         } finally {
             rect.mockRestore();
         }
+    });
+
+    it('zooms a 150-DPI preview around the wheel cursor', async () => {
+        const harness = mountPreviewZoomHarness();
+        expect(harness.host.querySelector('.preview-zoom-value')?.getAttribute('aria-label'))
+            .toBe('Zoom Fit, toggle fit and 100%');
+        const wheel = new WheelEvent('wheel', {
+            bubbles: true,
+            cancelable: true,
+            clientX: 400,
+            clientY: 200,
+            deltaY: -240,
+        });
+        Object.defineProperties(wheel, {
+            clientX: {value: 400},
+            clientY: {value: 200},
+        });
+
+        harness.surface.dispatchEvent(wheel);
+        await nextTick();
+
+        expect(wheel.defaultPrevented).toBe(true);
+        expect(harness.surface.dataset.previewZoomMode).toBe('custom');
+        expect(Number(harness.surface.dataset.previewZoomPercent)).toBeGreaterThan(50);
+        expect(harness.stage.style.transform).toMatch(/translate3d\(-\d/);
+        expect(harness.stage.style.transform).toMatch(/scale\(1\.\d+/);
+        expect(harness.surface.classList).not.toContain('is-pixelated-preview');
+
+        const zoomPastActualSize = new WheelEvent('wheel', {
+            bubbles: true,
+            cancelable: true,
+            clientX: 400,
+            clientY: 200,
+            deltaY: -400,
+        });
+        Object.defineProperties(zoomPastActualSize, {
+            clientX: {value: 400},
+            clientY: {value: 200},
+        });
+        harness.surface.dispatchEvent(zoomPastActualSize);
+        await nextTick();
+        expect(Number(harness.surface.dataset.previewZoomPercent)).toBeGreaterThan(100);
+        expect(harness.surface.classList).toContain('is-pixelated-preview');
+    });
+
+    it('maps cutter dragging through 2x preview zoom and pan', async () => {
+        const harness = mountPreviewZoomHarness();
+        harness.surface.dispatchEvent(new MouseEvent('dblclick', {
+            bubbles: true,
+            cancelable: true,
+            clientX: 250,
+            clientY: 200,
+        }));
+        await nextTick();
+        harness.surface.dispatchEvent(new PointerEvent('pointerdown', {
+            bubbles: true,
+            cancelable: true,
+            button: 0,
+            clientX: 250,
+            clientY: 200,
+            pointerId: 45,
+        }));
+        harness.surface.dispatchEvent(new PointerEvent('pointermove', {
+            bubbles: true,
+            cancelable: true,
+            clientX: 300,
+            clientY: 200,
+            pointerId: 45,
+        }));
+        harness.surface.dispatchEvent(new PointerEvent('pointerup', {
+            bubbles: true,
+            pointerId: 45,
+        }));
+        await nextTick();
+        expect(harness.stage.style.transform).toContain('translate3d(50px, 0px, 0) scale(2)');
+
+        const cutter = harness.host.querySelector<HTMLButtonElement>('.cutter-control')!;
+        mockPointerCapture(cutter);
+        cutter.dispatchEvent(new PointerEvent('pointerdown', {
+            bubbles: true,
+            button: 0,
+            clientX: 300,
+            clientY: 200,
+            pointerId: 46,
+        }));
+        cutter.dispatchEvent(new PointerEvent('pointerup', {
+            bubbles: true,
+            clientX: 400,
+            clientY: 200,
+            pointerId: 46,
+        }));
+
+        expect(harness.splitUpdates).toEqual([{
+            xNormalized: 0.6,
+            rotationDegrees: 0,
+        }]);
+    });
+
+    it('clamps preview panning to the zoomed stage bounds', async () => {
+        const harness = mountPreviewZoomHarness();
+        harness.surface.dispatchEvent(new MouseEvent('dblclick', {
+            bubbles: true,
+            cancelable: true,
+            clientX: 250,
+            clientY: 200,
+        }));
+        await nextTick();
+
+        harness.surface.dispatchEvent(new PointerEvent('pointerdown', {
+            bubbles: true,
+            cancelable: true,
+            button: 0,
+            clientX: 250,
+            clientY: 200,
+            pointerId: 41,
+        }));
+        harness.surface.dispatchEvent(new PointerEvent('pointermove', {
+            bubbles: true,
+            cancelable: true,
+            clientX: 2_000,
+            clientY: 2_000,
+            pointerId: 41,
+        }));
+        await nextTick();
+
+        expect(harness.stage.style.transform).toContain('translate3d(250px, 200px, 0) scale(2)');
+        expect(harness.surface.classList).toContain('is-panning-preview');
+        harness.surface.dispatchEvent(new PointerEvent('pointerup', {
+            bubbles: true,
+            pointerId: 41,
+        }));
+        await nextTick();
+        expect(harness.surface.classList).not.toContain('is-panning-preview');
+    });
+
+    it('toggles preview zoom between fit and bitmap 100% on double-click', async () => {
+        const harness = mountPreviewZoomHarness();
+
+        harness.surface.dispatchEvent(new MouseEvent('dblclick', {
+            bubbles: true,
+            cancelable: true,
+            clientX: 250,
+            clientY: 200,
+        }));
+        await nextTick();
+        expect(harness.surface.dataset.previewZoomMode).toBe('custom');
+        expect(harness.surface.dataset.previewZoomPercent).toBe('100');
+        expect(harness.stage.style.transform).toContain('scale(2)');
+        expect(harness.surface.classList).not.toContain('is-pixelated-preview');
+
+        harness.surface.dispatchEvent(new MouseEvent('dblclick', {
+            bubbles: true,
+            cancelable: true,
+            clientX: 250,
+            clientY: 200,
+        }));
+        await nextTick();
+        expect(harness.surface.dataset.previewZoomMode).toBe('fit');
+        expect(harness.surface.dataset.previewZoomPercent).toBe('50');
+        expect(harness.stage.style.transform).toContain('translate3d(0px, 0px, 0) scale(1)');
+    });
+
+    it('keeps zoom and pan aligned when switching between original and cleaned views', async () => {
+        const harness = mountPreviewZoomHarness();
+        harness.surface.dispatchEvent(new MouseEvent('dblclick', {
+            bubbles: true,
+            cancelable: true,
+            clientX: 250,
+            clientY: 200,
+        }));
+        await nextTick();
+        harness.surface.dispatchEvent(new PointerEvent('pointerdown', {
+            bubbles: true,
+            cancelable: true,
+            button: 0,
+            clientX: 250,
+            clientY: 200,
+            pointerId: 42,
+        }));
+        harness.surface.dispatchEvent(new PointerEvent('pointermove', {
+            bubbles: true,
+            cancelable: true,
+            clientX: 300,
+            clientY: 225,
+            pointerId: 42,
+        }));
+        harness.surface.dispatchEvent(new PointerEvent('pointerup', {
+            bubbles: true,
+            pointerId: 42,
+        }));
+        await nextTick();
+        const originalTransform = harness.stage.style.transform;
+        const originalZoom = harness.surface.dataset.previewZoomPercent;
+
+        harness.viewMode.value = 'cleaned';
+        await nextTick();
+
+        expect(harness.host.querySelector('.cleaned-outputs')).not.toBeNull();
+        expect(harness.stage.style.transform).toBe(originalTransform);
+        expect(harness.surface.dataset.previewZoomPercent).toBe(originalZoom);
     });
 
     it('keeps the spread cutter mounted through a committed drag and the debounced loading cycle', async () => {

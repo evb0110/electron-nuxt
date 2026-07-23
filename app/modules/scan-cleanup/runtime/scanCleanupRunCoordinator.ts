@@ -58,6 +58,28 @@ export function setScanCleanupRunError(ownerId: string, error: string) {
     } : null;
 }
 
+export function reportScanCleanupRunError(
+    ownerId: string,
+    error: string,
+    sourceDocumentRef: string | null = scanCleanupRun.ownerDocumentRef,
+) {
+    setScanCleanupRunError(ownerId, error);
+    if (!dependencies || scanCleanupRun.workspaceOwnerIds.has(ownerId)) {
+        return;
+    }
+    dependencies.toast.add({
+        color: 'error',
+        title: dependencies.t('scanCleanup.failed'),
+        description: error,
+        ...(sourceDocumentRef ? {actions: [{
+            label: dependencies.t('scanCleanup.details'),
+            color: 'neutral' as const,
+            variant: 'outline' as const,
+            onClick: () => { void dependencies?.openScanCleanupForDocument?.(sourceDocumentRef); },
+        }]} : {}),
+    });
+}
+
 export function resolveScanCleanupProcessedPages(
     state: TScanCleanupJobState | null,
     ownerDocumentRef: string | null,
@@ -176,8 +198,13 @@ async function handleTerminalState(state: TScanCleanupJobState) {
     }
 
     if (state.status === 'failed') {
-        if (scanCleanupRun.ownerId) setScanCleanupRunError(scanCleanupRun.ownerId, state.error);
-        if (!scanCleanupRun.ownerId || !scanCleanupRun.workspaceOwnerIds.has(scanCleanupRun.ownerId)) {
+        if (scanCleanupRun.ownerId) {
+            reportScanCleanupRunError(
+                scanCleanupRun.ownerId,
+                state.error,
+                scanCleanupRun.ownerDocumentRef,
+            );
+        } else {
             dependencies.toast.add({
                 color: 'error',
                 title: dependencies.t('scanCleanup.failed'),

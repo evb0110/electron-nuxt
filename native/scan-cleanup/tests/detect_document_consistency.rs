@@ -5,6 +5,7 @@ use std::{
     fs,
     path::{Path, PathBuf},
     process::Command,
+    sync::atomic::{AtomicU64, Ordering},
     time::{SystemTime, UNIX_EPOCH},
 };
 
@@ -55,13 +56,16 @@ fn page_options() -> serde_json::Value {
 }
 
 fn unique_scratch() -> PathBuf {
+    static NEXT_SCRATCH_ID: AtomicU64 = AtomicU64::new(0);
+
     let nonce = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap()
         .as_nanos();
+    let sequence = NEXT_SCRATCH_ID.fetch_add(1, Ordering::Relaxed);
     std::env::temp_dir().join(format!(
-        "evb-scan-cleanup-document-consistency-{}-{nonce}",
-        std::process::id()
+        "evb-scan-cleanup-document-consistency-{}-{nonce}-{sequence}",
+        std::process::id(),
     ))
 }
 
@@ -86,7 +90,7 @@ fn luther_soft_gutter_batch_is_consistently_high_confidence() {
     fs::write(
         &manifest,
         serde_json::to_vec_pretty(&json!({
-            "version": 2,
+            "version": 3,
             "operation": "analyze",
             "renderMode": "preview",
             "canvasScope": "page",
@@ -163,7 +167,7 @@ fn document_reconciliation_never_touches_manual_layouts() {
     fs::write(
         &manifest,
         serde_json::to_vec_pretty(&json!({
-            "version": 2,
+            "version": 3,
             "operation": "analyze",
             "renderMode": "preview",
             "canvasScope": "page",

@@ -5,6 +5,7 @@ use crate::{
 };
 use scan_primitives::{
     distance::squared_euclidean_distance,
+    morphology::dilate,
     threshold::{
         otsu_threshold, otsu_threshold_excluding, threshold_global, threshold_global_biased,
         threshold_local, threshold_local_biased, threshold_local_biased_excluding,
@@ -126,10 +127,12 @@ pub(crate) fn binarize_normalized_with_diagnostics_excluding(
         (normalized.width(), normalized.height()),
         (picture_mask.width(), picture_mask.height())
     );
+    let protection_radius = (options.dpi * 0.35 / 25.4).round().clamp(1.0, 12.0) as usize;
+    let protected_picture_mask = dilate(picture_mask, protection_radius, protection_radius);
     let mut masked_input = normalized.clone();
     for y in 0..masked_input.height() {
         for x in 0..masked_input.width() {
-            if picture_mask.get(x, y) {
+            if protected_picture_mask.get(x, y) {
                 masked_input.set(x, y, 255);
             }
         }
@@ -142,12 +145,12 @@ pub(crate) fn binarize_normalized_with_diagnostics_excluding(
         options,
         diagnostics.route,
         calibration,
-        picture_mask,
+        &protected_picture_mask,
     );
     let (binary, despeckle_fallback) =
         postprocess_binary_with_diagnostics(&binary, Some(normalized), options, calibration);
     (
-        binary.subtract(picture_mask),
+        binary.subtract(&protected_picture_mask),
         diagnostics,
         despeckle_fallback,
     )
@@ -655,7 +658,7 @@ fn smooth_edges_for_page(source: &BinaryImage, dpi: f64) -> BinaryImage {
 
 fn resolve_smooth_profile(source: &BinaryImage, dpi: f64) -> SmoothProfile {
     let stroke_width = estimated_stroke_width(source);
-    if (120.0..=600.0).contains(&dpi) && (1.0..=12.0).contains(&stroke_width) {
+    if dpi >= 120.0 && (1.0..=12.0).contains(&stroke_width) {
         SmoothProfile::TopologySafe
     } else {
         SmoothProfile::Legacy
@@ -868,6 +871,14 @@ fn despeckle_connected_impl(
         };
     }
     let component_radii = component_maximum_inscribed_radius_squared(source, &components);
+    let pixel_count = source.width().saturating_mul(source.height()).max(1);
+    let calibration = PageCalibration::estimate_from_components(
+        components.components(),
+        &component_radii,
+        source.count_black() as f64 / pixel_count as f64,
+        dpi,
+        calibration.config,
+    );
     let mut graph = vec![Vec::<AttachmentEdge>::new(); components.components().len() + 1];
     if use_attachment_graph {
         populate_attachment_graph(components.components(), &mut graph);
@@ -1033,7 +1044,7 @@ fn despeckle_seed_thresholds(
             * stroke_width.powi(2))
         .round()
         .max(16.0) as usize;
-        let minimum_radius_squared = (stroke_width * 0.5).powi(2).ceil().max(1.0) as u32;
+        let minimum_radius_squared = (stroke_width * 0.5).powi(2).round().max(1.0) as u32;
         (area, minimum_radius_squared)
     } else {
         (
@@ -1728,6 +1739,69 @@ mod tests {
                 retention * 100.0
             );
         }
+    }
+
+    #[test]
+    fn supersampled_thin_strokes_use_final_raster_calibration() {
+        let mut binary = BinaryImage::new(1_200, 400);
+        for y in 40..80 {
+            for x in 40..80 {
+                binary.set(x, y, true);
+            }
+        }
+        let mut protected_endpoints = Vec::new();
+        for column in 0..12 {
+            let left = 650 + column * 35;
+            let top = 120;
+            protected_endpoints.push((left, top));
+            for y in top..top + 20 {
+                for x in left..left + 2 {
+                    binary.set(x, y, true);
+                }
+                for x in left + 10..left + 12 {
+                    binary.set(x, y, true);
+                }
+            }
+            for y in top + 18..top + 20 {
+                for x in left..left + 12 {
+                    binary.set(x, y, true);
+                }
+            }
+        }
+        let normalized = binary_to_gray(&binary);
+        let analysis_calibration = PageCalibration {
+            effective_dpi: 150.0,
+            stroke_width_px: 4.0,
+            x_height_px: 18.0,
+            valid: true,
+            config: CalibrationConfig::default(),
+        };
+        let options = CleanupOptions {
+            dpi: 1_200.0,
+            despeckle: true,
+            despeckle_level: DespeckleLevel::Normal,
+            ..CleanupOptions::default()
+        };
+
+        let (cleaned, fallback) = postprocess_binary_with_diagnostics(
+            &binary,
+            Some(&normalized),
+            &options,
+            analysis_calibration,
+        );
+
+        assert!(!fallback);
+        for endpoint in protected_endpoints {
+            assert!(
+                cleaned.get(endpoint.0, endpoint.1),
+                "supersampled two-pixel stroke endpoint was erased at {endpoint:?}"
+            );
+        }
+        let retention = black_count(&cleaned) as f64 / black_count(&binary) as f64;
+        assert!(
+            retention >= 0.99,
+            "supersampled thin-stroke retention was only {retention:.4}"
+        );
     }
 
     #[test]

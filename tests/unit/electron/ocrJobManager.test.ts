@@ -529,6 +529,107 @@ describe('ocr job manager preparing-stage robustness', () => {
         vi.useRealTimers();
     });
 
+    it('replays retained OCR projections only to the owning sender', async () => {
+        mocks.ensureTessdataLanguages.mockResolvedValueOnce(undefined);
+        const owner = createContext(41);
+        const otherSender = createContext(42);
+        const {
+            getOcrJobProjection,
+            handleOcrCancel,
+            handleOcrCreateSearchablePdfAsync,
+            subscribeOcrJobProjection,
+        } = await import('@electron/ocr/jobManager');
+
+        await handleOcrCreateSearchablePdfAsync(
+            owner,
+            '/tmp/work-projection.pdf',
+            [
+                {
+                    pageNumber: 1,
+                    languages: ['eng'],
+                },
+                {
+                    pageNumber: 2,
+                    languages: ['eng'],
+                },
+            ],
+            'ocr-reload',
+            {
+                supersessionPolicy: 'replace-all',
+                replaceAllAcknowledged: true,
+            },
+        );
+        await expect(handleOcrCreateSearchablePdfAsync(
+            otherSender,
+            '/tmp/work-projection-other.pdf',
+            [{
+                pageNumber: 1,
+                languages: ['eng'],
+            }],
+            'ocr-reload',
+        )).resolves.toMatchObject({
+            started: false,
+            errorCode: 'OCR_QUEUE_BACKPRESSURE',
+        });
+
+        const listener = vi.fn();
+        const unsubscribe = subscribeOcrJobProjection(owner, 'ocr-reload', listener);
+        const unauthorizedListener = vi.fn();
+        subscribeOcrJobProjection(otherSender, 'ocr-reload', unauthorizedListener);
+        const worker = mocks.workerInstances[0];
+        worker?.emit('message', {
+            type: 'progress',
+            jobId: 'ocr-reload',
+            progress: {
+                requestId: 'ocr-reload',
+                currentPage: 2,
+                processedCount: 1,
+                totalPages: 2,
+                phase: 'processing',
+                phaseProgress: 50,
+            },
+        });
+
+        expect(listener).toHaveBeenLastCalledWith(expect.objectContaining({
+            jobId: '41:ocr-reload',
+            phase: 'processing',
+            percent: 50,
+            current: 1,
+            total: 2,
+            supersessionPolicy: 'replace-all',
+            replaceAllAcknowledged: true,
+        }));
+        expect(unauthorizedListener).not.toHaveBeenCalled();
+        expect(getOcrJobProjection(otherSender, 'ocr-reload')).toBeNull();
+        expect(handleOcrCancel(otherSender, 'ocr-reload')).toEqual({
+            canceled: false,
+            reason: 'not-found',
+        });
+        unsubscribe();
+
+        worker?.emit('message', {
+            type: 'complete',
+            jobId: 'ocr-reload',
+            result: {
+                success: true,
+                pdfPath: '/tmp/work-projection-ocr.pdf',
+                sourceDocumentRevisionToken: 'source-revision-token',
+                resultSha256: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+                requiresCleanupAck: true,
+                errors: [],
+            },
+        });
+        expect(getOcrJobProjection(createContext(41), 'ocr-reload')).toMatchObject({
+            status: 'completed',
+            percent: 100,
+            supersessionPolicy: 'replace-all',
+        });
+        worker?.emit('message', {
+            type: 'cleanup-complete',
+            jobId: 'ocr-reload',
+        });
+    });
+
     it('ignores progress and completion messages emitted after active cancellation', async () => {
         mocks.ensureTessdataLanguages.mockResolvedValueOnce(undefined);
 
@@ -601,6 +702,7 @@ describe('ocr job manager preparing-stage robustness', () => {
         const {
             handleOcrCancel,
             handleOcrCreateSearchablePdfAsync,
+            subscribeManagedOcrProgress,
         } = await import('@electron/ocr/jobManager');
 
         await expect(handleOcrCreateSearchablePdfAsync(
@@ -616,8 +718,9 @@ describe('ocr job manager preparing-stage robustness', () => {
             jobId: 'job-69',
         });
 
+        const queuedOwner = createContext(70);
         await expect(handleOcrCreateSearchablePdfAsync(
-            createContext(70),
+            queuedOwner,
             '/tmp/work-70.pdf',
             [{
                 pageNumber: 1,
@@ -629,9 +732,10 @@ describe('ocr job manager preparing-stage robustness', () => {
             jobId: 'job-70',
         });
         expect(mocks.workerInstances).toHaveLength(1);
+        subscribeManagedOcrProgress(queuedOwner);
         mocks.sendPlatformEvent.mockClear();
 
-        expect(handleOcrCancel(createContext(70), 'job-70')).toEqual({ canceled: true });
+        expect(handleOcrCancel(queuedOwner, 'job-70')).toEqual({ canceled: true });
         expect(getOcrCompleteCalls()).toHaveLength(1);
         expect(getOcrCompleteCalls()[0]?.[2]).toEqual(expect.objectContaining({
             requestId: 'job-70',
@@ -639,6 +743,15 @@ describe('ocr job manager preparing-stage robustness', () => {
             errors: ['OCR job was cancelled'],
             errorEnvelope: expect.objectContaining({details: 'explicit cancel request'}),
         }));
+        expect(mocks.sendPlatformEvent).toHaveBeenCalledWith(
+            undefined,
+            'ocr:progress',
+            expect.objectContaining({
+                requestId: 'job-70',
+                status: 'canceled',
+            }),
+            expect.any(Function),
+        );
         expect(mocks.workerInstances).toHaveLength(1);
     });
 
@@ -1194,7 +1307,7 @@ describe('ocr job manager preparing-stage robustness', () => {
         expect(mocks.unlink).not.toHaveBeenCalledWith('/tmp/work-78-ocr.pdf');
     });
 
-    it('clears preparing progress pump timers when canceling before queueing', async () => {
+    it('retains only the registry terminal record after canceling before queueing', async () => {
         vi.useFakeTimers();
         const context = createContext(80);
 
@@ -1232,9 +1345,7 @@ describe('ocr job manager preparing-stage robustness', () => {
             error: 'OCR job was cancelled before it started',
         });
 
-        // The reconnectable DocumentOutputService retains the terminal OCR
-        // state for one hour in addition to the progress pump's own timer.
-        expect(vi.getTimerCount()).toBe(2);
+        expect(vi.getTimerCount()).toBe(1);
         vi.useRealTimers();
     });
 

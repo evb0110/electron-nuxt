@@ -153,6 +153,36 @@ function dependencies(dir: string): IScanCleanupPreviewDependencies {
                             heightPx: 1,
                         },
                     },
+                    acceptedTrims: [{
+                        side: 'top',
+                        iteration: 1,
+                        score: 0.9,
+                        threshold: 0.4,
+                        contentDistanceSum: 90,
+                        garbageDistanceSum: 10,
+                        removedBlocks: [{
+                            bounds: {
+                                xPx: 0,
+                                yPx: 0,
+                                widthPx: 1,
+                                heightPx: 1,
+                            },
+                            pictureMaskOverlapPixels: 0,
+                            headingEvidence: false,
+                            grayscaleEvidence: false,
+                        }],
+                    }],
+                    protectedBlocks: [{
+                        bounds: {
+                            xPx: 0,
+                            yPx: 0,
+                            widthPx: 1,
+                            heightPx: 1,
+                        },
+                        pictureMaskOverlapPixels: 1,
+                        headingEvidence: true,
+                        grayscaleEvidence: false,
+                    }],
                 },
                 appliedMargins: {
                     leftPx: 0,
@@ -197,6 +227,19 @@ function dependencies(dir: string): IScanCleanupPreviewDependencies {
         getTempDir: () => dir,
         getPdftoppmBinary: () => '/pdftoppm',
     };
+}
+
+async function writeDetectionMetadata(manifestPath: string) {
+    const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as {pages: Array<{
+        pageMetadataPath: string;
+        sourcePageIndex: number;
+    }>};
+    await Promise.all(manifest.pages.map(page => writeFile(page.pageMetadataPath, JSON.stringify({outputs: [{cropRect: {
+        xPx: 0,
+        yPx: 0,
+        widthPx: 100 + page.sourcePageIndex * 10,
+        heightPx: 200 + page.sourcePageIndex * 10,
+    }}]}))));
 }
 
 afterEach(async () => {
@@ -338,23 +381,34 @@ describe('scan cleanup preview', () => {
     it('serializes nested reactive page overrides for every IPC request', () => {
         const reactiveOptions = reactive({
             ...request.options,
-            pageOverrides: {'2': {
-                rotationDegrees: 90 as const,
-                layoutOverride: 'spread' as const,
-                excluded: false,
-                manualSplit: {
-                    xNormalized: 0.4,
+            outputMode: 'auto' as const,
+            pageOverrides: {
+                '2': {
                     rotationDegrees: 90 as const,
+                    layoutOverride: 'spread' as const,
+                    excluded: false,
+                    outputModeOverride: 'mixed' as const,
+                    manualSplit: {
+                        xNormalized: 0.4,
+                        rotationDegrees: 90 as const,
+                    },
+                    manualContentBoxes: {left: {
+                        xNormalized: 0.01,
+                        yNormalized: 0.02,
+                        widthNormalized: 0.32,
+                        heightNormalized: 0.54,
+                        rotationDegrees: 90 as const,
+                    }},
+                    placementOverrides: {left: 'bottom-right' as const},
                 },
-                manualContentBoxes: {left: {
-                    xNormalized: 0.01,
-                    yNormalized: 0.02,
-                    widthNormalized: 0.32,
-                    heightNormalized: 0.54,
-                    rotationDegrees: 90 as const,
-                }},
-                placementOverrides: {left: 'bottom-right' as const},
-            }},
+                '3': {
+                    rotationDegrees: 0 as const,
+                    layoutOverride: 'auto' as const,
+                    excluded: false,
+                    outputModeOverride: 'color' as const,
+                    manualSplit: null,
+                },
+            },
         });
         const options = toPlainScanCleanupOptions(reactiveOptions);
         const previewRequest = {
@@ -445,6 +499,10 @@ describe('scan cleanup preview', () => {
         const result = await createScanCleanupPreviewService(deps).preview(sender(), {
             ...request,
             documentPrior,
+            documentCanvasPlan: {
+                widthPoints: 1,
+                heightPoints: 1,
+            },
         });
         expect(deps.runSidecar).toHaveBeenCalledOnce();
         expect(previewMatchPageSize).toBe(true);
@@ -462,8 +520,43 @@ describe('scan cleanup preview', () => {
                 contentDiagnostics: {
                     sideConfidence: {left: 0.7},
                     textMask: {lineCount: 1},
+                    acceptedTrims: [{
+                        side: 'top',
+                        iteration: 1,
+                        removedBlocks: [{pictureMaskOverlapPixels: 0}],
+                    }],
+                    protectedBlocks: [{
+                        pictureMaskOverlapPixels: 1,
+                        headingEvidence: true,
+                    }],
                 },
             }}],
+        });
+    });
+
+    it('uses an intrinsic provisional frame before detect-all supplies a canvas plan', async () => {
+        const dir = await setup();
+        const deps = dependencies(dir);
+        const originalSidecar = deps.runSidecar;
+        let matchPageSize: boolean | undefined;
+        let documentCanvas: unknown;
+        deps.runSidecar = vi.fn(async (binary, manifestPath, signal, log, onProgress) => {
+            const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as {
+                documentCanvas?: unknown;
+                pages: Array<{options: {matchPageSize: boolean}}>;
+            };
+            matchPageSize = manifest.pages[0]?.options.matchPageSize;
+            documentCanvas = manifest.documentCanvas;
+            await originalSidecar(binary, manifestPath, signal, log, onProgress);
+        });
+
+        const result = await createScanCleanupPreviewService(deps).preview(sender(), request);
+
+        expect(matchPageSize).toBe(false);
+        expect(documentCanvas).toBeUndefined();
+        expect(result.outputs[0]?.metadata).toMatchObject({
+            canvasWidthPx: 1,
+            canvasHeightPx: 1,
         });
     });
 
@@ -497,20 +590,20 @@ describe('scan cleanup preview', () => {
                         sourceRegion: {
                             xPx: 0,
                             yPx: 0,
-                            widthPx: 1,
-                            heightPx: 1,
+                            widthPx: 120,
+                            heightPx: 80,
                         },
                         contentBox: {
                             xPx: 0,
                             yPx: 0,
-                            widthPx: 1,
-                            heightPx: 1,
+                            widthPx: 120,
+                            heightPx: 80,
                         },
                         cropRect: {
                             xPx: 0,
                             yPx: 0,
-                            widthPx: 1,
-                            heightPx: 1,
+                            widthPx: 120,
+                            heightPx: 80,
                         },
                         appliedMargins: {
                             leftPx: 0,
@@ -518,8 +611,8 @@ describe('scan cleanup preview', () => {
                             rightPx: 0,
                             bottomPx: 0,
                         },
-                        inputWidthPx: 1,
-                        inputHeightPx: 1,
+                        inputWidthPx: 120,
+                        inputHeightPx: 80,
                     },
                     {
                         half: 'right',
@@ -551,6 +644,10 @@ describe('scan cleanup preview', () => {
 
         const result = await createScanCleanupPreviewService(deps).preview(sender(), {
             ...request,
+            documentCanvasPlan: {
+                widthPoints: 0.1,
+                heightPoints: 0.1,
+            },
             options: {
                 ...request.options,
                 preserveOriginalQuality: true,
@@ -570,6 +667,10 @@ describe('scan cleanup preview', () => {
         expect(decodeScanCleanupPreviewResult(result)).toMatchObject({outputs: [
             {metadata: {
                 half: 'left',
+                canvasWidthPx: 120,
+                canvasHeightPx: 80,
+                outputWidthPx: 120,
+                outputHeightPx: 80,
                 resamplePasses: 0,
             }},
             {metadata: {
@@ -839,6 +940,140 @@ describe('scan cleanup preview', () => {
         expect(() => decodeScanCleanupDetectionJobState(malformed)).toThrow('detection result');
     });
 
+    it('publishes incremental rasterization and analysis progress before reconciled results', async () => {
+        const dir = await setup();
+        const deps = dependencies(dir);
+        const originalRenderPage = deps.renderPage;
+        const remainingRasters = Promise.withResolvers<undefined>();
+        deps.renderPage = vi.fn(async (...args) => {
+            if (args[2] > 1) await remainingRasters.promise;
+            await originalRenderPage(
+                args[0],
+                args[1],
+                args[2],
+                args[3],
+                args[4],
+                args[5],
+                args[6],
+                args[7],
+            );
+        });
+        deps.acquireDetectionLease = vi.fn(async () => ({release: vi.fn(() => true)}));
+        const analysisEntered = Promise.withResolvers<undefined>();
+        const remainingAnalysis = Promise.withResolvers<undefined>();
+        deps.runSidecar = vi.fn(async (_binary, manifestPath, _signal, _log, onProgress) => {
+            await writeDetectionMetadata(manifestPath);
+            onProgress({
+                stage: 'detecting',
+                completedUnits: 1,
+                totalUnits: 3,
+                percent: 100 / 3,
+                completedPageNumbers: [1],
+            }, {
+                stage: 'page-analyzed',
+                completedPages: 1,
+                totalPages: 3,
+                pageNumber: 1,
+            });
+            analysisEntered.resolve(undefined);
+            await remainingAnalysis.promise;
+            for (const pageNumber of [
+                2,
+                3,
+            ]) {
+                onProgress({
+                    stage: 'detecting',
+                    completedUnits: pageNumber,
+                    totalUnits: 3,
+                    percent: pageNumber / 3 * 100,
+                    completedPageNumbers: Array.from({length: pageNumber}, (_, index) => index + 1),
+                }, {
+                    stage: 'page-analyzed',
+                    completedPages: pageNumber,
+                    totalPages: 3,
+                    pageNumber,
+                });
+            }
+            for (const pageNumber of [
+                1,
+                2,
+                3,
+            ]) {
+                onProgress({
+                    stage: 'cleaning',
+                    completedUnits: pageNumber,
+                    totalUnits: 3,
+                    percent: pageNumber / 3 * 100,
+                    completedPageNumbers: [
+                        1,
+                        2,
+                        3,
+                    ],
+                }, {
+                    stage: 'page-complete',
+                    completedPages: pageNumber,
+                    totalPages: 3,
+                    pageNumber,
+                    classification: 'single-uncut-page',
+                    confidence: 0.9,
+                });
+            }
+        });
+        const service = createScanCleanupPreviewService(deps);
+        const owner = sender();
+        const started = await service.detectAll(owner, detectionRequest);
+        service.subscribeDetectionJob(owner, started.jobId, detectionRequest);
+
+        await vi.waitFor(() => expect(service.getDetectionJobState(
+            owner,
+            started.jobId,
+            detectionRequest,
+        )?.progress).toMatchObject({
+            stage: 'rasterizing',
+            completedUnits: 1,
+            totalUnits: 3,
+        }));
+        expect(service.getDetectionJobState(owner, started.jobId, detectionRequest)?.results).toEqual([]);
+
+        remainingRasters.resolve(undefined);
+        await analysisEntered.promise;
+        await vi.waitFor(() => expect(service.getDetectionJobState(
+            owner,
+            started.jobId,
+            detectionRequest,
+        )?.progress).toMatchObject({
+            stage: 'detecting',
+            completedUnits: 1,
+            totalUnits: 3,
+        }));
+        const analyzing = service.getDetectionJobState(owner, started.jobId, detectionRequest);
+        expect(analyzing?.results).toEqual([]);
+        expect(decodeScanCleanupDetectionJobState(analyzing)).toEqual(analyzing);
+
+        remainingAnalysis.resolve(undefined);
+        await vi.waitFor(() => expect(service.getDetectionJobState(
+            owner,
+            started.jobId,
+            detectionRequest,
+        )?.status).toBe('completed'));
+        expect(service.getDetectionJobState(owner, started.jobId, detectionRequest)).toMatchObject({
+            documentCanvasPlan: {
+                widthPoints: 57.6,
+                heightPoints: 105.6,
+            },
+            progress: {
+                stage: 'detecting',
+                completedUnits: 3,
+                totalUnits: 3,
+            },
+            results: [
+                {pageNumber: 1},
+                {pageNumber: 2},
+                {pageNumber: 3},
+            ],
+        });
+    });
+
     it('streams a brokered detect-all lifecycle and reuses preview rasters', async () => {
         const dir = await setup();
         const deps = dependencies(dir);
@@ -887,6 +1122,7 @@ describe('scan cleanup preview', () => {
                 await originalSidecar(binary, manifestPath, signal, log, onProgress);
                 return;
             }
+            await writeDetectionMetadata(manifestPath);
             expect(manifest.pages.every(page => Array.isArray(page.outputs) && page.outputs.length === 0)).toBe(true);
             expect(manifest.pages[1]?.options.layout).toBe('force-two-page');
             for (const page of manifest.pages) {
@@ -992,11 +1228,199 @@ describe('scan cleanup preview', () => {
         expect(peakRasters).toBe(2);
     });
 
+    it.each([
+        {
+            label: 'raster',
+            lossless: false,
+        },
+        {
+            label: 'lossless',
+            lossless: true,
+        },
+    ])('uses one cache-order-independent document canvas for $label previews', async ({lossless}) => {
+        const dir = await setup();
+        const deps = dependencies(dir);
+        deps.getPageCount = vi.fn(async () => 2);
+        const originalSidecar = deps.runSidecar;
+        const previewManifests: Array<{
+            canvasScope: string;
+            documentCanvas?: unknown
+        }> = [];
+        deps.runSidecar = vi.fn(async (binary, manifestPath, signal, log, onProgress) => {
+            const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as {
+                operation: string;
+                canvasScope: string;
+                documentCanvas?: {
+                    widthPoints: number;
+                    heightPoints: number
+                };
+                pages: Array<{
+                    sourcePageIndex: number;
+                    pageMetadataPath: string;
+                    outputs: Array<{
+                        outputPath: string;
+                        metadataPath: string
+                    }>;
+                }>;
+            };
+            if (manifest.pages.length === 2) {
+                for (const page of manifest.pages) {
+                    const pageNumber = page.sourcePageIndex + 1;
+                    await writeFile(page.pageMetadataPath, JSON.stringify({outputs: [{cropRect: {
+                        xPx: 0,
+                        yPx: 0,
+                        widthPx: pageNumber === 1 ? 60 : 100,
+                        heightPx: pageNumber === 1 ? 120 : 140,
+                    }}]}));
+                    onProgress({
+                        stage: 'detecting',
+                        completedUnits: pageNumber,
+                        totalUnits: 2,
+                        percent: pageNumber * 50,
+                        completedPageNumbers: Array.from({length: pageNumber}, (_value, index) => index + 1),
+                    }, {
+                        stage: 'page-complete',
+                        completedPages: pageNumber,
+                        totalPages: 2,
+                        pageNumber,
+                        classification: 'single-uncut-page',
+                        confidence: 0.9,
+                    });
+                }
+                return;
+            }
+            previewManifests.push({
+                canvasScope: manifest.canvasScope,
+                documentCanvas: manifest.documentCanvas,
+            });
+            const page = manifest.pages[0]!;
+            const intrinsicWidth = page.sourcePageIndex === 0 ? 60 : 100;
+            const intrinsicHeight = page.sourcePageIndex === 0 ? 120 : 140;
+            if (lossless) {
+                await writeFile(page.pageMetadataPath, JSON.stringify({
+                    canvasScope: 'page',
+                    layoutClassification: 'single-uncut-page',
+                    layoutConfidence: 0.9,
+                    cutterXPx: null,
+                    rotationDegrees: 0,
+                    excluded: false,
+                    blankOutputsSkipped: 0,
+                    outputCount: 1,
+                    outputs: [{
+                        half: 'full',
+                        sourceRegion: {
+                            xPx: 0,
+                            yPx: 0,
+                            widthPx: intrinsicWidth,
+                            heightPx: intrinsicHeight,
+                        },
+                        contentBox: null,
+                        cropRect: {
+                            xPx: 0,
+                            yPx: 0,
+                            widthPx: intrinsicWidth,
+                            heightPx: intrinsicHeight,
+                        },
+                        appliedMargins: {
+                            leftPx: 0,
+                            topPx: 0,
+                            rightPx: 0,
+                            bottomPx: 0,
+                        },
+                        inputWidthPx: intrinsicWidth,
+                        inputHeightPx: intrinsicHeight,
+                    }],
+                }));
+                return;
+            }
+            await originalSidecar(binary, manifestPath, signal, log, onProgress);
+            const output = page.outputs[0]!;
+            const metadata = JSON.parse(await readFile(output.metadataPath, 'utf8'));
+            await writeFile(output.metadataPath, JSON.stringify({
+                ...metadata,
+                outputWidthPx: intrinsicWidth,
+                outputHeightPx: intrinsicHeight,
+                canvasWidthPx: 100,
+                canvasHeightPx: 140,
+                matchedCanvasTargetWidthPx: 100,
+                matchedCanvasTargetHeightPx: 140,
+                canvasPolicy: 'strict-maximum',
+            }));
+        });
+        const service = createScanCleanupPreviewService(deps);
+        const owner = sender();
+        const detectRequest = {
+            ...detectionRequest,
+            options: {
+                ...detectionRequest.options,
+                preserveOriginalQuality: lossless,
+            },
+        };
+        const started = await service.detectAll(owner, detectRequest);
+        await vi.waitFor(() => expect(service.getDetectionJobState(
+            owner,
+            started.jobId,
+            detectRequest,
+        )?.status).toBe('completed'));
+        const documentCanvasPlan = service.getDetectionJobState(
+            owner,
+            started.jobId,
+            detectRequest,
+        )?.documentCanvasPlan;
+        expect(documentCanvasPlan).toEqual({
+            widthPoints: 48,
+            heightPoints: 67.2,
+        });
+        if (!documentCanvasPlan) {
+            throw new Error('Expected detect-all to publish a document canvas plan');
+        }
+
+        const second = await service.preview(owner, {
+            ...request,
+            pageNumber: 2,
+            documentCanvasPlan,
+            options: detectRequest.options,
+        });
+        const first = await service.preview(owner, {
+            ...request,
+            pageNumber: 1,
+            documentCanvasPlan,
+            options: detectRequest.options,
+        });
+
+        expect([
+            first.outputs[0]?.metadata,
+            second.outputs[0]?.metadata,
+        ]).toEqual([
+            expect.objectContaining({
+                canvasWidthPx: 100,
+                canvasHeightPx: 140,
+                canvasScope: 'page',
+            }),
+            expect.objectContaining({
+                canvasWidthPx: 100,
+                canvasHeightPx: 140,
+                canvasScope: 'page',
+            }),
+        ]);
+        expect(previewManifests).toEqual([
+            {
+                canvasScope: 'page',
+                documentCanvas: documentCanvasPlan,
+            },
+            {
+                canvasScope: 'page',
+                documentCanvas: documentCanvasPlan,
+            },
+        ]);
+    });
+
     it('cancels detect-all through its signal and removes its scratch artifacts', async () => {
         const dir = await setup();
         const deps = dependencies(dir);
         const entered = Promise.withResolvers<string>();
-        deps.acquireDetectionLease = vi.fn(async () => ({release: vi.fn(() => true)}));
+        const releaseLease = vi.fn(() => true);
+        deps.acquireDetectionLease = vi.fn(async () => ({release: releaseLease}));
         deps.runSidecar = vi.fn(async (_binary, manifestPath, signal) => {
             entered.resolve(manifestPath);
             await new Promise<void>((_resolve, reject) => signal.addEventListener('abort', () => reject(signal.reason), {once: true}));
@@ -1012,6 +1436,7 @@ describe('scan cleanup preview', () => {
         })).toBe(false);
         expect(service.cancelDetection(sender(), started.jobId, request)).toBe(true);
         await vi.waitFor(() => expect(service.getDetectionJobState(sender(), started.jobId, request)?.status).toBe('canceled'));
+        expect(releaseLease).toHaveBeenCalledOnce();
         await expect(stat(join(manifestPath, '..'))).rejects.toMatchObject({code: 'ENOENT'});
         expect(service.cancelDetection(sender(), started.jobId, request)).toBe(false);
     });

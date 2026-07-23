@@ -4,6 +4,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
+use evb_native_support::output::{AtomicOutput, ValidatedInputFiles};
 use tiff::{
     decoder::{ifd::Value as TiffIfdValue, Decoder, DecodingResult},
     encoder::{colortype, Rational, TiffEncoder},
@@ -14,7 +15,6 @@ use tiff::{
 use crate::{
     flate::deflate_up_filtered_slices,
     image::assert_pixel_limit,
-    output::{validate_output_inputs, write_atomically},
     pdf::{ImagePage, ImagePayload},
     Result, CM_PER_INCH, DEFAULT_DPI,
 };
@@ -233,7 +233,7 @@ pub(crate) fn combine_tiff_pages(
         return Err(format!("TIFF export is capped at {max_pages} pages").into());
     }
 
-    let validated_inputs = validate_output_inputs(input_paths, output_path)?;
+    let validated_inputs = ValidatedInputFiles::open(input_paths, output_path)?;
     combine_validated_tiff_pages(input_paths, output_path, max_pixels, &validated_inputs)
 }
 
@@ -241,22 +241,25 @@ fn combine_validated_tiff_pages(
     input_paths: &[PathBuf],
     output_path: &Path,
     max_pixels: u64,
-    validated_inputs: &crate::output::ValidatedInputs,
+    validated_inputs: &ValidatedInputFiles,
 ) -> Result<()> {
-    write_atomically(output_path, |output| {
-        let mut writer = BufWriter::new(output);
+    let mut output = AtomicOutput::create(output_path)?;
+    {
+        let mut writer = BufWriter::new(output.file_mut()?);
         {
             let mut encoder = TiffEncoder::new(&mut writer)?;
             for (index, _input_path) in input_paths.iter().enumerate() {
-                let page = read_first_tiff_rgba_page(validated_inputs.file(index)?, max_pixels)?;
+                let page =
+                    read_first_tiff_rgba_page(validated_inputs.clone_file(index)?, max_pixels)?;
                 let mut image = encoder.new_image::<colortype::RGBA8>(page.width, page.height)?;
                 image.resolution(ResolutionUnit::None, Rational { n: 1, d: 1 });
                 image.write_data(&page.rgba)?;
             }
         }
         writer.flush()?;
-        Ok(())
-    })
+    }
+    output.publish()?;
+    Ok(())
 }
 
 fn read_first_tiff_rgba_page(file: File, max_pixels: u64) -> Result<RgbaTiffPage> {
@@ -369,7 +372,9 @@ mod tests {
                 assert!(decode_params.contains("/Colors 3"));
                 assert!(decode_params.contains("/Columns 2"));
             }
-            ImagePayload::Jpeg { .. } => panic!("expected flate payload"),
+            ImagePayload::Jpeg { .. } | ImagePayload::Bilevel { .. } => {
+                panic!("expected flate payload")
+            }
         }
 
         let _ = fs::remove_file(input_path);
@@ -405,75 +410,6 @@ mod tests {
 
         let _ = fs::remove_file(first_path);
         let _ = fs::remove_file(second_path);
-        let _ = fs::remove_file(output_path);
-    }
-
-    #[test]
-    fn tiff_writer_decodes_validated_descriptor_after_path_becomes_output_alias() {
-        let input_path = temp_tiff_path("descriptor-input");
-        let displaced_path = temp_tiff_path("descriptor-original");
-        let output_path = temp_tiff_path("descriptor-output");
-        write_rgb_tiff(&input_path, 1, 1, &[17, 34, 51], 72);
-        fs::write(&output_path, b"old-tiff-output").unwrap();
-        let input_paths = vec![input_path.clone()];
-
-        let validated_inputs = validate_output_inputs(&input_paths, &output_path).unwrap();
-        fs::rename(&input_path, &displaced_path).unwrap();
-        fs::hard_link(&output_path, &input_path).unwrap();
-
-        combine_validated_tiff_pages(&input_paths, &output_path, 1_000_000, &validated_inputs)
-            .unwrap();
-
-        let mut decoder = Decoder::new(BufReader::new(File::open(&output_path).unwrap())).unwrap();
-        assert_eq!(
-            decode_u8(decoder.read_image().unwrap()),
-            vec![17, 34, 51, 255]
-        );
-        assert_eq!(fs::read(&input_path).unwrap(), b"old-tiff-output");
-        let _ = fs::remove_file(input_path);
-        let _ = fs::remove_file(displaced_path);
-        let _ = fs::remove_file(output_path);
-    }
-
-    #[test]
-    fn rejects_tiff_output_that_aliases_an_input_without_modifying_it() {
-        let input_path = temp_tiff_path("same-input-output");
-        write_rgb_tiff(&input_path, 1, 1, &[255, 0, 0], 72);
-        let original = fs::read(&input_path).unwrap();
-
-        let error = combine_tiff_pages(
-            std::slice::from_ref(&input_path),
-            &input_path,
-            1_000_000,
-            10,
-        )
-        .unwrap_err();
-
-        assert!(error.to_string().contains("Output aliases an input"));
-        assert_eq!(fs::read(&input_path).unwrap(), original);
-        let _ = fs::remove_file(input_path);
-    }
-
-    #[test]
-    fn rejects_tiff_output_hardlink_to_input() {
-        let input_path = temp_tiff_path("hardlink-input");
-        let output_path = temp_tiff_path("hardlink-output");
-        write_rgb_tiff(&input_path, 1, 1, &[255, 0, 0], 72);
-        fs::hard_link(&input_path, &output_path).unwrap();
-        let original = fs::read(&input_path).unwrap();
-
-        let error = combine_tiff_pages(
-            std::slice::from_ref(&input_path),
-            &output_path,
-            1_000_000,
-            10,
-        )
-        .unwrap_err();
-
-        assert!(error.to_string().contains("Output aliases an input"));
-        assert_eq!(fs::read(&input_path).unwrap(), original);
-        assert_eq!(fs::read(&output_path).unwrap(), original);
-        let _ = fs::remove_file(input_path);
         let _ = fs::remove_file(output_path);
     }
 

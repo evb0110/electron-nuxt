@@ -144,6 +144,61 @@
                                 </div>
                             </template>
                         </UPopover>
+                        <UPopover
+                            v-if="displayedOutputMode(naturalPage(position))"
+                            :open="outputModePopoverPage === naturalPage(position)"
+                            portal="body"
+                            :content="{side: 'right', align: 'start'}"
+                            @update:open="updateOutputModePopover(naturalPage(position), $event)"
+                        >
+                            <button
+                                type="button"
+                                class="scan-thumbnail-output-mode"
+                                :class="{
+                                    'is-override': isOutputModeOverride(naturalPage(position)),
+                                    'is-recommendation': outputModeBadgeKind(naturalPage(position)) === 'recommendation',
+                                    'is-effective': outputModeBadgeKind(naturalPage(position)) === 'effective',
+                                }"
+                                :aria-label="outputModeAriaLabel(naturalPage(position))"
+                                :aria-expanded="outputModePopoverPage === naturalPage(position)"
+                                aria-haspopup="dialog"
+                                :disabled="disabled || preserveOriginalQuality"
+                                @click="openOutputModePopover(naturalPage(position))"
+                                @keydown.esc.stop.prevent="closeOutputModePopover(naturalPage(position))"
+                            >
+                                <span
+                                    v-if="isOutputModeOverride(naturalPage(position))"
+                                    class="scan-thumbnail-output-mode-marker"
+                                    aria-hidden="true"
+                                />
+                                {{ outputModeShortLabel(displayedOutputMode(naturalPage(position))) }}
+                            </button>
+
+                            <template #content>
+                                <div
+                                    class="scan-thumbnail-output-mode-popover"
+                                    @click.stop
+                                    @pointerdown.stop
+                                    @keydown.esc.stop.prevent="closeOutputModePopover(naturalPage(position))"
+                                >
+                                    <p>{{ outputModeHint(naturalPage(position)) }}</p>
+                                    <USelect
+                                        class="scan-thumbnail-popover-output-mode-select"
+                                        :model-value="pageOverride(naturalPage(position)).outputModeOverride ?? 'auto'"
+                                        :items="outputModeItems"
+                                        value-key="value"
+                                        size="xs"
+                                        portal="body"
+                                        :content="{position: 'popper', side: 'bottom', align: 'start'}"
+                                        :ui="overrideSelectUi"
+                                        :aria-label="t('scanCleanup.pages.outputModeFor', {page: naturalPage(position)})"
+                                        :disabled="disabled || preserveOriginalQuality"
+                                        @keydown.esc.stop.prevent="closeOutputModePopover(naturalPage(position))"
+                                        @update:model-value="updateOutputModeOverride(naturalPage(position), $event)"
+                                    />
+                                </div>
+                            </template>
+                        </UPopover>
                         <AppTooltip
                             v-if="isLowConfidence(naturalPage(position))"
                             :text="lowConfidenceHint(naturalPage(position))"
@@ -332,6 +387,8 @@ import type {
     TScanCleanupPageLayoutOverride,
     TScanCleanupPageOverrides,
     TScanCleanupPageRotation,
+    TScanCleanupOutputMode,
+    TScanCleanupOutputModeSetting,
     IScanCleanupTextAxis,
 } from '@contracts/electronApiScanCleanup';
 import {
@@ -355,6 +412,10 @@ const props = defineProps<{
     classifications: ReadonlyMap<number, IScanCleanupPreviewMetadata['layoutClassification']>;
     confidences: ReadonlyMap<number, number>;
     diagnostics?: ReadonlyMap<number, IScanCleanupPreviewPageMetadata>;
+    documentOutputMode: TScanCleanupOutputModeSetting;
+    preserveOriginalQuality: boolean;
+    recommendedOutputModes?: ReadonlyMap<number, TScanCleanupOutputMode>;
+    recommendedOutputModeConfidences?: ReadonlyMap<number, number>;
     textAxes?: ReadonlyMap<number, IScanCleanupTextAxis>;
     disabled: boolean;
     processedPages?: ReadonlySet<number>;
@@ -370,6 +431,7 @@ const sortMode = ref<TScanCleanupRailSort>('natural');
 const lowConfidencePopoverPage = ref<number | null>(null);
 const textAxisPopoverPage = ref<number | null>(null);
 const diagnosticsPopoverPage = ref<number | null>(null);
+const outputModePopoverPage = ref<number | null>(null);
 const sortItems = computed(() => [
     {
         value: 'natural' as const,
@@ -421,6 +483,31 @@ const rotationItems = computed<Array<{
     value: value as TScanCleanupPageRotation,
     label: `${value}°`,
 })));
+const outputModeItems = computed<Array<{
+    label: string;
+    value: TScanCleanupOutputMode | 'auto'
+}>>(() => [
+    {
+        value: 'auto',
+        label: t('scanCleanup.pages.outputModeFollowDocument'),
+    },
+    {
+        value: 'bw',
+        label: t('scanCleanup.output.bw'),
+    },
+    {
+        value: 'grayscale',
+        label: t('scanCleanup.output.grayscale'),
+    },
+    {
+        value: 'color',
+        label: t('scanCleanup.output.color'),
+    },
+    {
+        value: 'mixed',
+        label: t('scanCleanup.output.mixed'),
+    },
+]);
 const overrideSelectUi = {
     content: 'scan-thumbnail-override-menu w-auto min-w-(--reka-select-trigger-width)',
     itemLabel: 'overflow-visible whitespace-nowrap text-clip',
@@ -523,6 +610,133 @@ function updateRotationOverride(page: number, value: unknown) {
     }
     updateOverride(page, {rotationDegrees: rotation as TScanCleanupPageRotation});
     closeTextAxisPopover(page);
+}
+
+function displayedOutputMode(page: number) {
+    if (props.preserveOriginalQuality) {
+        return 'color';
+    }
+    const override = pageOverride(page).outputModeOverride;
+    if (override !== undefined) {
+        return override;
+    }
+    if (props.documentOutputMode !== 'auto') {
+        return props.documentOutputMode;
+    }
+    return props.recommendedOutputModes?.get(page);
+}
+
+function isOutputModeOverride(page: number) {
+    return !props.preserveOriginalQuality
+        && pageOverride(page).outputModeOverride !== undefined;
+}
+
+function outputModeBadgeKind(page: number) {
+    return !props.preserveOriginalQuality
+        && props.documentOutputMode === 'auto'
+        && pageOverride(page).outputModeOverride === undefined
+        ? 'recommendation'
+        : 'effective';
+}
+
+function outputModeShortLabel(mode: TScanCleanupOutputMode | undefined) {
+    if (mode === undefined) {
+        return '';
+    }
+    if (mode === 'bw') {
+        return t('scanCleanup.output.bwShort');
+    }
+    if (mode === 'grayscale') {
+        return t('scanCleanup.output.grayscaleShort');
+    }
+    if (mode === 'color') {
+        return t('scanCleanup.output.colorShort');
+    }
+    return t('scanCleanup.output.mixedShort');
+}
+
+function outputModeHint(page: number) {
+    if (props.preserveOriginalQuality) {
+        return t('scanCleanup.pages.outputModeLosslessHint', {mode: outputModeLabel('color')});
+    }
+    const override = pageOverride(page).outputModeOverride;
+    if (override !== undefined) {
+        return t('scanCleanup.pages.outputModeOverrideHint', {mode: outputModeLabel(override)});
+    }
+    if (props.documentOutputMode !== 'auto') {
+        return t('scanCleanup.pages.outputModeDocumentHint', {mode: outputModeLabel(props.documentOutputMode)});
+    }
+    const recommended = props.recommendedOutputModes?.get(page);
+    const confidence = props.recommendedOutputModeConfidences?.get(page);
+    if (recommended === undefined) {
+        return t('scanCleanup.pages.outputModeRecommendationPending');
+    }
+    if (confidence === undefined) {
+        return t('scanCleanup.pages.outputModeRecommendationHintUnknown', {mode: outputModeLabel(recommended)});
+    }
+    return t('scanCleanup.pages.outputModeRecommendationHintKnown', {
+        mode: outputModeLabel(recommended),
+        confidence: `${Math.round(confidence * 100)}%`,
+    });
+}
+
+function outputModeLabel(mode: TScanCleanupOutputMode) {
+    if (mode === 'bw') {
+        return t('scanCleanup.output.bw');
+    }
+    if (mode === 'grayscale') {
+        return t('scanCleanup.output.grayscale');
+    }
+    if (mode === 'color') {
+        return t('scanCleanup.output.color');
+    }
+    return t('scanCleanup.output.mixed');
+}
+
+function outputModeAriaLabel(page: number) {
+    return t('scanCleanup.pages.outputModeAria', {
+        page,
+        hint: outputModeHint(page),
+    });
+}
+
+function updateOutputModeOverride(page: number, value: unknown) {
+    if (value === 'auto') {
+        const {
+            outputModeOverride: _outputModeOverride,
+            ...withoutOutputMode
+        } = pageOverride(page);
+        emit('update:override', page, createScanCleanupPageOverride(withoutOutputMode));
+        closeOutputModePopover(page);
+        return;
+    }
+    if ([
+        'bw',
+        'mixed',
+        'grayscale',
+        'color',
+    ].includes(String(value))) {
+        updateOverride(page, {outputModeOverride: value as TScanCleanupOutputMode});
+        closeOutputModePopover(page);
+    }
+}
+
+function openOutputModePopover(page: number) {
+    outputModePopoverPage.value = page;
+}
+
+function closeOutputModePopover(page: number) {
+    if (outputModePopoverPage.value === page) {
+        outputModePopoverPage.value = null;
+    }
+}
+
+function updateOutputModePopover(page: number, open: boolean) {
+    if (open) {
+        outputModePopoverPage.value = page;
+    } else {
+        closeOutputModePopover(page);
+    }
 }
 
 function classificationKind(page: number) {
@@ -912,7 +1126,8 @@ function handleKeydown(event: KeyboardEvent) {
 }
 
 .scan-thumbnail-low-confidence:focus-visible,
-.scan-thumbnail-text-axis:focus-visible {
+.scan-thumbnail-text-axis:focus-visible,
+.scan-thumbnail-output-mode:focus-visible {
     outline: var(--app-hairline-height) solid var(--ui-primary);
     outline-offset: var(--app-space-xs);
 }
@@ -926,7 +1141,8 @@ function handleKeydown(event: KeyboardEvent) {
     font-size: var(--app-text-size-body-sm);
 }
 
-.scan-thumbnail-text-axis-popover {
+.scan-thumbnail-text-axis-popover,
+.scan-thumbnail-output-mode-popover {
     display: grid;
     width: var(--app-scan-low-confidence-popover-width);
     gap: var(--app-space-5xl);
@@ -936,7 +1152,8 @@ function handleKeydown(event: KeyboardEvent) {
 }
 
 .scan-thumbnail-low-confidence-popover p,
-.scan-thumbnail-text-axis-popover p {
+.scan-thumbnail-text-axis-popover p,
+.scan-thumbnail-output-mode-popover p {
     margin: 0;
     color: var(--ui-text-muted);
     line-height: var(--app-line-height-body);
@@ -948,6 +1165,50 @@ function handleKeydown(event: KeyboardEvent) {
 
 .scan-thumbnail-popover-rotation-select {
     width: 100%;
+}
+
+.scan-thumbnail-popover-output-mode-select {
+    width: 100%;
+}
+
+.scan-thumbnail-output-mode {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--app-space-sm);
+    border: var(--app-hairline-height) solid var(--ui-border);
+    border-radius: var(--app-radius-full);
+    background: var(--ui-bg-elevated);
+    color: var(--ui-text);
+    cursor: pointer;
+    font-size: var(--app-text-size-kicker);
+    font-weight: var(--app-font-weight-heading);
+    padding: var(--app-space-xs) var(--app-space-xl);
+    pointer-events: auto;
+}
+
+.scan-thumbnail-output-mode.is-recommendation {
+    border-color: var(--ui-border);
+    background: var(--ui-bg-elevated);
+    color: var(--ui-text-muted);
+}
+
+.scan-thumbnail-output-mode.is-effective {
+    border-color: color-mix(in srgb, var(--ui-primary) 28%, var(--ui-border));
+    background: color-mix(in srgb, var(--ui-primary) 8%, var(--ui-bg));
+    color: var(--ui-text);
+}
+
+.scan-thumbnail-output-mode.is-override {
+    border-color: var(--ui-primary);
+    color: var(--ui-primary);
+}
+
+.scan-thumbnail-output-mode-marker {
+    width: var(--app-space-3xl);
+    height: var(--app-space-3xl);
+    flex: none;
+    border-radius: var(--app-radius-full);
+    background: var(--ui-primary);
 }
 
 .scan-thumbnail-excluded-icon,

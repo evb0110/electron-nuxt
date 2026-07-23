@@ -6,17 +6,12 @@ import {
     vi,
 } from 'vitest';
 import { requireDocumentRevisionToken } from '@contracts/documentRevision';
-import { createDjvuPreloadClient } from '@electron/features/djvu/createDjvuPreloadClient';
-import {
-    DJVU_CHANNELS,
-    DJVU_EVENT_CHANNELS,
-} from '@electron/features/djvu/contract';
+import { DJVU_PLATFORM_FEATURE } from '@contracts/djvuPlatformFeature';
 import { createDocumentsPreloadFileClient } from '@electron/features/documents/createDocumentsPreloadFileClient';
 import { createDocumentsPreloadMenuClient } from '@electron/features/documents/createDocumentsPreloadMenuClient';
 import { DOCUMENTS_EVENT_CHANNELS } from '@electron/features/documents/contract';
 import { IMAGE_EXPORT_PLATFORM_FEATURE } from '@contracts/imageExportPlatformFeature';
-import { createOcrPreloadClient } from '@electron/features/ocr/createOcrPreloadClient';
-import { OCR_CHANNELS } from '@electron/features/ocr/contract';
+import { OCR_PLATFORM_FEATURE } from '@contracts/ocrPlatformFeature';
 import { SEARCH_PLATFORM_FEATURE } from '@contracts/searchPlatformFeature';
 import { UPDATES_PLATFORM_FEATURE } from '@contracts/updatesPlatformFeature';
 import { createPlatformFeaturePreloadClient } from '@electron/preload/ipcClient';
@@ -111,14 +106,16 @@ describe('preload global event fan-out', () => {
             ipcRenderer,
             listeners,
         } = createIpcRendererHarness();
-        const client = createDjvuPreloadClient(ipcRenderer);
+        const client = createPlatformFeaturePreloadClient(ipcRenderer, DJVU_PLATFORM_FEATURE);
         const callbacks = Array.from({length: 24}, () => vi.fn());
         const unsubscribes = callbacks.map(callback => client.onProgress(callback));
 
         expect(ipcRenderer.on).toHaveBeenCalledTimes(1);
         expect(ipcRenderer.invoke).toHaveBeenCalledTimes(1);
-        expect(ipcRenderer.invoke).toHaveBeenCalledWith(DJVU_CHANNELS.subscribeProgress);
-        listeners.get(DJVU_EVENT_CHANNELS.progress)?.({}, {
+        expect(ipcRenderer.invoke).toHaveBeenCalledWith(
+            DJVU_PLATFORM_FEATURE.invokeChannels.subscribeProgress,
+        );
+        listeners.get(DJVU_PLATFORM_FEATURE.eventChannels.onProgress)?.({}, {
             jobId: 'djvu-1',
             phase: 'converting',
             percent: 25,
@@ -134,12 +131,12 @@ describe('preload global event fan-out', () => {
             ipcRenderer,
             listeners,
         } = createIpcRendererHarness();
-        const client = createDjvuPreloadClient(ipcRenderer);
+        const client = createPlatformFeaturePreloadClient(ipcRenderer, DJVU_PLATFORM_FEATURE);
         const callbacks = Array.from({length: 24}, () => vi.fn());
         const unsubscribes = callbacks.map(callback => client.onTextSearchProgress(callback));
 
         expect(ipcRenderer.on).toHaveBeenCalledOnce();
-        listeners.get(DJVU_EVENT_CHANNELS.textSearchProgress)?.({}, {
+        listeners.get(DJVU_PLATFORM_FEATURE.eventChannels.onTextSearchProgress)?.({}, {
             requestId: 'djvu-search-1',
             processed: 8,
             total: 431,
@@ -158,27 +155,33 @@ describe('preload global event fan-out', () => {
             ipcRenderer,
             invoke,
         } = createIpcRendererHarness();
-        const ocr = createOcrPreloadClient(ipcRenderer);
+        const ocr = createPlatformFeaturePreloadClient(
+            ipcRenderer,
+            OCR_PLATFORM_FEATURE,
+        );
+        const djvu = createPlatformFeaturePreloadClient(ipcRenderer, DJVU_PLATFORM_FEATURE);
         const search = createPlatformFeaturePreloadClient(ipcRenderer, SEARCH_PLATFORM_FEATURE);
         const imageExport = createPlatformFeaturePreloadClient(ipcRenderer, IMAGE_EXPORT_PLATFORM_FEATURE);
         const unsubscribes = [
             ...Array.from({length: 24}, () => ocr.onProgress(vi.fn())),
+            ...Array.from({length: 24}, () => djvu.onProgress(vi.fn())),
             ...Array.from({length: 24}, () => search.onProgress(vi.fn())),
             ...Array.from({length: 24}, () => imageExport.onProgress(vi.fn())),
         ];
 
         for (const channel of [
-            OCR_CHANNELS.subscribeProgress,
+            OCR_PLATFORM_FEATURE.invokeChannels.subscribeProgress,
+            DJVU_PLATFORM_FEATURE.invokeChannels.subscribeProgress,
             SEARCH_PLATFORM_FEATURE.invokeChannels.subscribeProgress,
             IMAGE_EXPORT_PLATFORM_FEATURE.invokeChannels.subscribeProgress,
         ]) {
             expect(invoke).toHaveBeenCalledWith(channel);
             expect(invoke.mock.calls.filter(call => call[0] === channel)).toHaveLength(1);
         }
-        expect(ipcRenderer.on).toHaveBeenCalledTimes(3);
+        expect(ipcRenderer.on).toHaveBeenCalledTimes(4);
 
         unsubscribes.forEach(unsubscribe => unsubscribe());
-        expect(ipcRenderer.removeListener).toHaveBeenCalledTimes(3);
+        expect(ipcRenderer.removeListener).toHaveBeenCalledTimes(4);
     });
 
     it('fans out decoded update status through one native listener', () => {

@@ -5,10 +5,6 @@ import type {
     TPrintOrientation,
 } from '@contracts/shared';
 import type {
-    TMenuEventCallback,
-    TMenuEventUnsubscribe,
-} from '@contracts/electronApiCommon';
-import type {
     IPdfSearchProgress,
     IPdfSearchResponse,
     ISearchMatchOptions,
@@ -175,38 +171,3 @@ export interface IDjvuPrintResult {
     jobId?: string;
     error?: string;
 }
-
-export interface IDjvuAPI {
-    startOpenForViewing: (djvuPath: TDocumentRef, requestId: string) => Promise<IDjvuJobStartHandle>;
-    awaitOpenJob: (jobId: string) => Promise<IDjvuOpenResult>;
-    openForViewing: (djvuPath: TDocumentRef) => Promise<IDjvuOpenResult>;
-    releaseViewingPath: (djvuPath: TDocumentRef) => Promise<void>;
-    convertToPdf: (djvuPath: TDocumentRef, outputPath: string, options: IDjvuConvertOptions) => Promise<IDjvuConvertResult>;
-    startConvertToPdf: (djvuPath: TDocumentRef, outputPath: string, options: IDjvuConvertOptions) => Promise<IDjvuJobStartHandle>;
-    awaitConvertJob: (jobId: string) => Promise<IDjvuConvertResult>;
-    printDjvuPath: (djvuPath: TDocumentRef, options: IDjvuPrintOptions) => Promise<IDjvuPrintResult>;
-    cancel: (jobId: string) => Promise<{ canceled: boolean }>;
-    getJobState: (jobId: string) => Promise<TDocumentOutputJobState | null>;
-    subscribeJob: (jobId: string) => Promise<TDocumentOutputJobState | null>;
-    cancelPagePreview: (requestId: string) => Promise<{ canceled: boolean }>;
-    searchText: (
-        djvuPath: TDocumentRef,
-        query: string,
-        options: IDjvuTextSearchOptions,
-    ) => Promise<IDjvuTextSearchResponse>;
-    cancelTextSearch: (requestId: string) => Promise<{ canceled: boolean }>;
-    getInfo: (djvuPath: TDocumentRef) => Promise<IDjvuInfo>;
-    getPageSourceInfo: (djvuPath: TDocumentRef, pageNumber: number) => Promise<IDjvuPageSourceInfo>;
-    getPageSizes: (djvuPath: TDocumentRef) => Promise<IDjvuPageSize[]>;
-    renderPagePreview: (
-        djvuPath: TDocumentRef,
-        pageNumber: number,
-        options?: IDjvuPagePreviewOptions,
-    ) => Promise<IDjvuPagePreview>;
-    estimateSizes: (djvuPath: TDocumentRef) => Promise<IDjvuSizeEstimate[]>;
-    cleanupTemp: (tempPdfPath: TDocumentRef) => Promise<void>;
-    onProgress: (callback: (progress: IDjvuProgress) => void) => () => void;
-    onTextSearchProgress: (callback: (progress: IDjvuTextSearchProgress) => void) => () => void;
-}
-
-export interface IDjvuCapability extends IDjvuAPI {onMenuConvertToPdf: (callback: TMenuEventCallback) => TMenuEventUnsubscribe;}

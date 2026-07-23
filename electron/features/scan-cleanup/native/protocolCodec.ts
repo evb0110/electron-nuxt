@@ -6,10 +6,10 @@ import {isRecord} from '@contracts/runtimeGuards';
 import type {
     IScanCleanupDocumentPrior,
     IScanCleanupTextAxis,
-    INativeScanCleanupProgressEnvelopeV2,
-    INativeScanCleanupProgressV2,
-    INativeScanCleanupResultEnvelopeV2,
-    TNativeScanCleanupEnvelopeV2,
+    INativeScanCleanupProgressEnvelopeV3,
+    INativeScanCleanupProgressV3,
+    INativeScanCleanupResultEnvelopeV3,
+    TNativeScanCleanupEnvelopeV3,
 } from '@contracts/electronApiScanCleanup';
 import {SCAN_CLEANUP_NATIVE_PROTOCOL_VERSION} from '@contracts/electronApiScanCleanup';
 
@@ -17,14 +17,21 @@ function isNonNegativeInteger(value: unknown) {
     return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0;
 }
 
-function isProgressStage(value: unknown): value is INativeScanCleanupProgressV2['stage'] {
-    return value === 'started' || value === 'page-complete' || value === 'completed';
+function isProgressStage(value: unknown): value is INativeScanCleanupProgressV3['stage'] {
+    return value === 'started'
+        || value === 'page-analyzed'
+        || value === 'page-complete'
+        || value === 'completed';
 }
 
-function isClassification(value: unknown): value is NonNullable<INativeScanCleanupProgressV2['classification']> {
+function isClassification(value: unknown): value is NonNullable<INativeScanCleanupProgressV3['classification']> {
     return value === 'single-uncut-page'
         || value === 'page-with-offcut'
         || value === 'two-page-spread';
+}
+
+function isOutputMode(value: unknown): value is NonNullable<INativeScanCleanupProgressV3['recommendedOutputMode']> {
+    return value === 'bw' || value === 'mixed' || value === 'grayscale' || value === 'color';
 }
 
 function decodeDocumentPrior(value: unknown): IScanCleanupDocumentPrior {
@@ -77,7 +84,7 @@ function decodeTextAxis(value: unknown): IScanCleanupTextAxis {
     };
 }
 
-function decodeProgress(value: unknown): INativeScanCleanupProgressV2 {
+function decodeProgress(value: unknown): INativeScanCleanupProgressV3 {
     if (
         !isRecord(value)
         || !isProgressStage(value.stage)
@@ -86,7 +93,7 @@ function decodeProgress(value: unknown): INativeScanCleanupProgressV2 {
         || Number(value.completedPages) > Number(value.totalPages)
     ) throw new Error('Invalid evb-scan-cleanup progress envelope');
     if (
-        (value.stage === 'page-complete' && value.pageNumber === undefined)
+        ((value.stage === 'page-analyzed' || value.stage === 'page-complete') && value.pageNumber === undefined)
         || (value.pageNumber !== undefined && (
             !Number.isSafeInteger(value.pageNumber)
             || Number(value.pageNumber) < 1
@@ -119,6 +126,30 @@ function decodeProgress(value: unknown): INativeScanCleanupProgressV2 {
         || value.clusterAgreement < -1
         || value.clusterAgreement > 1
     )) throw new Error('Invalid evb-scan-cleanup cluster agreement');
+    if (value.recommendedOutputMode !== undefined && !isOutputMode(value.recommendedOutputMode)) {
+        throw new Error('Invalid evb-scan-cleanup recommended output mode');
+    }
+    if (value.recommendedOutputModeConfidence !== undefined && (
+        typeof value.recommendedOutputModeConfidence !== 'number'
+        || !Number.isFinite(value.recommendedOutputModeConfidence)
+        || value.recommendedOutputModeConfidence < 0
+        || value.recommendedOutputModeConfidence > 1
+    )) throw new Error('Invalid evb-scan-cleanup output mode confidence');
+    if (
+        value.stage === 'page-analyzed'
+        && [
+            value.classification,
+            value.confidence,
+            value.cutterXPx,
+            value.tier1Verdict,
+            value.reconciled,
+            value.clusterAgreement,
+            value.documentPrior,
+            value.textAxis,
+            value.recommendedOutputMode,
+            value.recommendedOutputModeConfidence,
+        ].some(item => item !== undefined)
+    ) throw new Error('Invalid evb-scan-cleanup pre-reconciliation analysis progress');
     const documentPrior = value.documentPrior === undefined ? undefined : decodeDocumentPrior(value.documentPrior);
     const textAxis = value.textAxis === undefined ? undefined : decodeTextAxis(value.textAxis);
     return {
@@ -135,10 +166,16 @@ function decodeProgress(value: unknown): INativeScanCleanupProgressV2 {
         ...(typeof value.clusterAgreement === 'number' ? {clusterAgreement: value.clusterAgreement} : {}),
         ...(documentPrior === undefined ? {} : {documentPrior}),
         ...(textAxis === undefined ? {} : {textAxis}),
+        ...(isOutputMode(value.recommendedOutputMode)
+            ? {recommendedOutputMode: value.recommendedOutputMode}
+            : {}),
+        ...(typeof value.recommendedOutputModeConfidence === 'number'
+            ? {recommendedOutputModeConfidence: value.recommendedOutputModeConfidence}
+            : {}),
     };
 }
 
-function decodeResult(value: unknown): INativeScanCleanupResultEnvelopeV2['result'] {
+function decodeResult(value: unknown): INativeScanCleanupResultEnvelopeV3['result'] {
     if (!isRecord(value)) throw new Error('Invalid evb-scan-cleanup result envelope');
     if (value.status === 'success') {
         if (!isNonNegativeInteger(value.completedPages) || !isNonNegativeInteger(value.totalPages)) {
@@ -160,7 +197,7 @@ function decodeResult(value: unknown): INativeScanCleanupResultEnvelopeV2['resul
     throw new Error('Invalid evb-scan-cleanup failure result');
 }
 
-export function decodeNativeScanCleanupEnvelope(line: string): TNativeScanCleanupEnvelopeV2 {
+export function decodeNativeScanCleanupEnvelope(line: string): TNativeScanCleanupEnvelopeV3 {
     const value: unknown = JSON.parse(line);
     if (!isRecord(value) || value.version !== SCAN_CLEANUP_NATIVE_PROTOCOL_VERSION) {
         throw new Error('Unsupported evb-scan-cleanup NDJSON protocol version');
@@ -170,14 +207,14 @@ export function decodeNativeScanCleanupEnvelope(line: string): TNativeScanCleanu
             version: SCAN_CLEANUP_NATIVE_PROTOCOL_VERSION,
             type: 'progress',
             progress: decodeProgress(value.progress),
-        } satisfies INativeScanCleanupProgressEnvelopeV2;
+        } satisfies INativeScanCleanupProgressEnvelopeV3;
     }
     if (value.type === 'result') {
         return {
             version: SCAN_CLEANUP_NATIVE_PROTOCOL_VERSION,
             type: 'result',
             result: decodeResult(value.result),
-        } satisfies INativeScanCleanupResultEnvelopeV2;
+        } satisfies INativeScanCleanupResultEnvelopeV3;
     }
     throw new Error('Unknown evb-scan-cleanup NDJSON envelope type');
 }

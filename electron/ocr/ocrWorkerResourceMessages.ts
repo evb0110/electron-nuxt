@@ -2,7 +2,7 @@ import type { Worker } from 'worker_threads';
 import { isRecord } from '@contracts/runtimeGuards';
 import { createLogger } from '@electron/utils/createLogger';
 import { getErrorMessage } from '@electron/utils/error';
-import { getOcrWorkerMessageDisposition } from '@electron/ocr/ocrJobLifecycle';
+import { getOcrWorkerMessageDisposition } from '@electron/ocr/getOcrWorkerMessageDisposition';
 import type { IOcrActiveJob } from '@electron/ocr/jobManager.types';
 import {
     ocrResourceGovernor,

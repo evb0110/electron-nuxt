@@ -8,10 +8,13 @@ import {
     setScanCleanupPageOverride,
 } from '@contracts/scanCleanupPageOverrides';
 import {
+    DEFAULT_SCAN_CLEANUP_DOCUMENT_OUTPUT_MODE,
     loadScanCleanupDocumentMargins,
+    loadScanCleanupDocumentOutputMode,
     loadScanCleanupDocumentOverrides,
     resetScanCleanupDocumentOverrides,
     saveScanCleanupDocumentMargins,
+    saveScanCleanupDocumentOutputMode,
     saveScanCleanupDocumentOverrides,
 } from '@app/modules/scan-cleanup/persistence/preferencesRepository';
 import {getScanCleanupPreferencesStore} from '@app/modules/scan-cleanup/runtime/scanCleanupPreferencesStore';
@@ -77,7 +80,7 @@ export const useScanCleanupDocumentSettings = (options: IUseScanCleanupDocumentS
     const values: IScanCleanupOptions = reactive({
         preserveOriginalQuality: toRef(preferences, 'preserveOriginalQuality'),
         layoutMode: toRef(preferences, 'layoutMode'),
-        outputMode: toRef(preferences, 'outputMode'),
+        outputMode: DEFAULT_SCAN_CLEANUP_DOCUMENT_OUTPUT_MODE,
         binarization: toRef(preferences, 'binarization'),
         normalizeIllumination: toRef(preferences, 'normalizeIllumination'),
         readingOrder: toRef(preferences, 'readingOrder'),
@@ -117,6 +120,11 @@ export const useScanCleanupDocumentSettings = (options: IUseScanCleanupDocumentS
         },
     ]);
     const outputItems = computed(() => [
+        {
+            value: 'auto' as const,
+            label: t('scanCleanup.output.autoShort'),
+            fullLabel: t('scanCleanup.output.autoDescription'),
+        },
         {
             value: 'bw' as const,
             label: t('scanCleanup.output.bwShort'),
@@ -192,6 +200,7 @@ export const useScanCleanupDocumentSettings = (options: IUseScanCleanupDocumentS
 
     watch(options.documentLifecycleKey, () => {
         values.pageOverrides = loadScanCleanupDocumentOverrides(options.preferenceDocumentKey.value);
+        values.outputMode = loadScanCleanupDocumentOutputMode(options.preferenceDocumentKey.value);
         Object.assign(values.marginsMm, loadScanCleanupDocumentMargins(options.preferenceDocumentKey.value)
             ?? preferences.marginsMm);
         marginsLinked.value = scanCleanupMarginsUniform(values.marginsMm);
@@ -203,6 +212,9 @@ export const useScanCleanupDocumentSettings = (options: IUseScanCleanupDocumentS
         Object.assign(preferences.marginsMm, marginsMm);
         saveScanCleanupDocumentMargins(options.preferenceDocumentKey.value, marginsMm);
     }, {deep: true});
+    watch(() => values.outputMode, outputMode => {
+        saveScanCleanupDocumentOutputMode(options.preferenceDocumentKey.value, outputMode);
+    });
 
     return {
         alignmentItems,

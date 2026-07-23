@@ -6,7 +6,7 @@ import type { TWindowTabsAction } from '@contracts/windowTabs';
 import type { IDocumentsMenuCapability } from '@contracts/electronApiDocuments';
 import type { ISettingsCapability } from '@contracts/settingsPlatformFeature';
 import type { IUpdatesCapability } from '@contracts/updatesPlatformFeature';
-import type { IDjvuCapability } from '@contracts/electronApiDjvu';
+import type { IDjvuCapability } from '@contracts/djvuPlatformFeature';
 import type { IWindowTabsCapability } from '@contracts/windowTabsPlatformFeature';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import {

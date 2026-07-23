@@ -1,18 +1,8 @@
 import assert from 'node:assert/strict';
-import {
-    existsSync,
-    mkdirSync,
-    writeFileSync,
-} from 'node:fs';
-import {
-    dirname,
-    resolve,
-} from 'node:path';
+import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { delay } from 'es-toolkit/promise';
-import { startElectronE2ESession } from '@tests/e2e/electron/helpers/startElectronE2ESession';
 import type { IElectronE2ESession } from '@tests/e2e/electron/helpers/startElectronE2ESession';
-import { openPdfInApp } from '@tests/e2e/electron/helpers/viewerCore';
 import {
     callWorkspaceCommand,
     getWorkspaceToolbarSnapshot,
@@ -26,9 +16,9 @@ import {
     toPdfRenderTraceEntries,
 } from '@scripts/diagnostics/pdfTraceEntryGuards';
 import {
-    disablePdfDiagnosticSession,
-    enablePdfDiagnosticSession,
-} from '@tests/e2e/electron/helpers/pdfDiagnosticSession';
+    type IPdfDiagnosticsContext,
+    runPdfDiagnosticScenario,
+} from '@scripts/diagnostics/runPdfDiagnosticScenario';
 
 const TARGET_PDF_PATH = [
     process.env.EVB_E2E_NAVIGATION_PDF_PATH,
@@ -119,44 +109,12 @@ async function setContinuousScrollMode(
     throw new Error(`Unable to set continuous scroll mode to ${String(continuousScroll)}; current=${String(snapshot?.continuousScroll)}`);
 }
 
-function writeDiagnosticArtifact(payload: unknown) {
-    mkdirSync(dirname(DIAGNOSTIC_OUTPUT_PATH), { recursive: true });
-    writeFileSync(DIAGNOSTIC_OUTPUT_PATH, `${JSON.stringify(payload, null, 2)}\n`);
+async function collectPdfNavLog(context: IPdfDiagnosticsContext) {
+    return toPdfNavLogEntries(await context.trace.collectNavigation());
 }
 
-function writeDirectJumpDiagnosticArtifact(payload: unknown) {
-    mkdirSync(dirname(DIRECT_JUMP_DIAGNOSTIC_OUTPUT_PATH), { recursive: true });
-    writeFileSync(DIRECT_JUMP_DIAGNOSTIC_OUTPUT_PATH, `${JSON.stringify(payload, null, 2)}\n`);
-}
-
-function writeRapidNextToLastDiagnosticArtifact(payload: unknown) {
-    mkdirSync(dirname(RAPID_NEXT_TO_LAST_DIAGNOSTIC_OUTPUT_PATH), { recursive: true });
-    writeFileSync(RAPID_NEXT_TO_LAST_DIAGNOSTIC_OUTPUT_PATH, `${JSON.stringify(payload, null, 2)}\n`);
-}
-
-async function enablePdfNavLog(session: IElectronE2ESession) {
-    await enablePdfDiagnosticSession(session.page, {
-        navigation: true,
-        render: true,
-    });
-}
-
-async function collectPdfNavLog(session: IElectronE2ESession) {
-    const entries: unknown = await session.page.evaluate(() => {
-        const logWindow = window as Window & { __getPdfNavLog?: () => unknown[]; };
-        const logEntries = logWindow.__getPdfNavLog?.();
-        return Array.isArray(logEntries) ? Array.from(logEntries as readonly unknown[]) : [];
-    });
-    return toPdfNavLogEntries(entries);
-}
-
-async function collectPdfRenderTrace(session: IElectronE2ESession) {
-    const entries: unknown = await session.page.evaluate(() => {
-        const traceWindow = window as Window & { __getPdfRenderTrace?: () => unknown[]; };
-        const traceEntries = traceWindow.__getPdfRenderTrace?.();
-        return Array.isArray(traceEntries) ? Array.from(traceEntries as readonly unknown[]) : [];
-    });
-    return toPdfRenderTraceEntries(entries);
+async function collectPdfRenderTrace(context: IPdfDiagnosticsContext) {
+    return toPdfRenderTraceEntries(await context.trace.collectRender());
 }
 
 async function goToPageViaWorkspace(session: IElectronE2ESession, pageNumber: number) {
@@ -360,114 +318,10 @@ async function waitForToolbarPageAtLeast(session: IElectronE2ESession, pageNumbe
     }
 }
 
-async function clickPageNavigationButton(session: IElectronE2ESession, label: string) {
-    await session.page.waitForFunction((targetLabel: string) => {
-        return Array.from(document.querySelectorAll<HTMLButtonElement>('.page-controls button[aria-label]'))
-            .some(button => {
-                const ariaLabel = button.getAttribute('aria-label')?.trim() ?? '';
-                const rect = button.getBoundingClientRect();
-                const style = window.getComputedStyle(button);
-                return (ariaLabel === targetLabel || ariaLabel.startsWith(`${targetLabel} (`))
-                    && !button.disabled
-                    && button.getAttribute('aria-disabled') !== 'true'
-                    && rect.width > 8
-                    && rect.height > 8
-                    && style.display !== 'none'
-                    && style.visibility !== 'hidden';
-            });
-    }, { timeout: 30_000 }, label);
-
-    const clicked = await session.page.evaluate((targetLabel: string) => {
-        const button = Array.from(document.querySelectorAll<HTMLButtonElement>('.page-controls button[aria-label]'))
-            .find((candidate) => {
-                const ariaLabel = candidate.getAttribute('aria-label')?.trim() ?? '';
-                const rect = candidate.getBoundingClientRect();
-                const style = window.getComputedStyle(candidate);
-                return (ariaLabel === targetLabel || ariaLabel.startsWith(`${targetLabel} (`))
-                    && !candidate.disabled
-                    && candidate.getAttribute('aria-disabled') !== 'true'
-                    && rect.width > 8
-                    && rect.height > 8
-                    && style.display !== 'none'
-                    && style.visibility !== 'hidden';
-            });
-        button?.click();
-        return Boolean(button);
-    }, label);
-
-    if (!clicked) {
-        throw new Error(`Unable to click the ${label} toolbar button`);
-    }
-}
-
-async function clickNextPage(session: IElectronE2ESession) {
-    await session.page.waitForFunction(() => {
-        return Array.from(document.querySelectorAll<HTMLButtonElement>('.page-controls button'))
-            .some(button => {
-                const label = button.getAttribute('aria-label') ?? '';
-                const rect = button.getBoundingClientRect();
-                const style = window.getComputedStyle(button);
-                return label === 'Next Page'
-                    && !button.disabled
-                    && rect.width > 8
-                    && rect.height > 8
-                    && style.display !== 'none'
-                    && style.visibility !== 'hidden';
-            });
-    }, { timeout: 30_000 });
-    const clicked = await session.page.evaluate(() => {
-        const candidates = Array.from(document.querySelectorAll<HTMLButtonElement>('.page-controls button'));
-        const isVisibleEnabled = (candidate: HTMLButtonElement) => {
-            const rect = candidate.getBoundingClientRect();
-            const style = window.getComputedStyle(candidate);
-            return !candidate.disabled
-                && rect.width > 8
-                && rect.height > 8
-                && style.display !== 'none'
-                && style.visibility !== 'hidden';
-        };
-        const button = candidates.find((candidate) => {
-            const label = candidate.getAttribute('aria-label') ?? '';
-            const hasNextIcon = Boolean(candidate.querySelector('.i-ph-caret-right, .iconify.i-ph-caret-right'));
-            return (label.startsWith('Next Page') || hasNextIcon) && isVisibleEnabled(candidate);
-        })
-            ?? candidates.filter(isVisibleEnabled)[0]
-            ?? null;
-        button?.click();
-        return Boolean(button);
-    });
-    if (!clicked) {
-        const state = await session.page.evaluate(() => ({
-            pageControlsCount: document.querySelectorAll('.page-controls').length,
-            pageControlsHtml: Array.from(document.querySelectorAll<HTMLElement>('.page-controls'))
-                .map(element => element.outerHTML.slice(0, 1000)),
-            buttonLabels: Array.from(document.querySelectorAll<HTMLButtonElement>('button'))
-                .map(button => ({
-                    className: button.className,
-                    label: button.getAttribute('aria-label'),
-                    disabled: button.disabled,
-                    text: button.textContent?.trim() ?? '',
-                }))
-                .slice(0, 50),
-        }));
-        throw new Error(`Unable to click the Next Page toolbar button: ${JSON.stringify(state)}`);
-    }
-}
-
-async function rapidClickNextPages(session: IElectronE2ESession, count: number) {
+async function rapidClickNextPages(context: IPdfDiagnosticsContext, count: number) {
     for (let index = 0; index < count; index += 1) {
-        await clickPageNavigationButton(session, 'Next Page');
+        await context.navigation.clickToolbarButton('Next Page');
     }
-}
-
-async function waitForPageCanvas(session: IElectronE2ESession, pageNumber: number) {
-    await session.page.waitForFunction((targetPage: number) => {
-        const container = document.querySelector<HTMLElement>(`.page_container[data-page="${targetPage}"]`);
-        return Boolean(
-            container?.classList.contains('page_container--rendered')
-            && container.querySelector('.page_canvas canvas'),
-        );
-    }, { timeout: 20_000 }, pageNumber);
 }
 
 async function enterPageInToolbar(session: IElectronE2ESession, pageInput: string) {
@@ -536,13 +390,14 @@ async function enterPageInToolbar(session: IElectronE2ESession, pageInput: strin
     await session.page.keyboard.press('Enter');
 }
 
-async function navigateForwardWithNextButton(session: IElectronE2ESession, steps: number) {
+async function navigateForwardWithNextButton(context: IPdfDiagnosticsContext, steps: number) {
+    const { session } = context;
     for (let step = 0; step < steps; step += 1) {
         const currentPage = await session.page.evaluate(() => {
             const text = document.querySelector<HTMLElement>('.page-controls-current-primary')?.textContent?.trim() ?? '';
             return Number.parseInt(text, 10);
         });
-        await clickNextPage(session);
+        await context.navigation.clickToolbarButton('Next Page', {nextButtonFallback: true});
         if (Number.isFinite(currentPage)) {
             await waitForToolbarPageAtLeast(session, currentPage + 1);
         }
@@ -550,69 +405,54 @@ async function navigateForwardWithNextButton(session: IElectronE2ESession, steps
 }
 
 async function sampleNavigation(
-    session: IElectronE2ESession,
+    context: IPdfDiagnosticsContext,
     options: {
         count?: number;
         delayMs?: number;
     } = {},
 ) {
-    const samples: INavigationSample[] = [];
-    const startedAt = Date.now();
     const count = options.count ?? 180;
     const delayMs = options.delayMs ?? 10;
-    for (let index = 0; index < count; index += 1) {
-        samples.push(await session.page.evaluate((startedAtMs: number): INavigationSample => {
-            const pageContainers = Array.from(document.querySelectorAll<HTMLElement>('.page_container'));
-            const visiblePageContainers = pageContainers.filter((container) => {
-                const rect = container.getBoundingClientRect();
-                return rect.bottom > 0 && rect.top < window.innerHeight;
-            });
-            const pageNumber = (container: HTMLElement) => Number(container.dataset.page) || 0;
-            const skeletonPages = visiblePageContainers
-                .filter(container => Boolean(container.querySelector('.document-page-skeleton')))
-                .map(pageNumber);
-            const renderedPages = visiblePageContainers
-                .filter(container => container.classList.contains('page_container--rendered'))
-                .map(pageNumber);
-            const canvasPages = visiblePageContainers
-                .filter(container => Boolean(container.querySelector('.page_canvas canvas, .page_preview canvas')))
-                .map(pageNumber);
-            const visibleCurrentPageLabel = Array.from(document.querySelectorAll<HTMLElement>('.page-controls-current-primary'))
-                .find((element) => {
-                    const rect = element.getBoundingClientRect();
-                    const style = window.getComputedStyle(element);
-                    return rect.width > 0
+    return context.sampling.repeat({
+        count,
+        delayMs,
+    }, async startedAtMs => context.page.evaluate((sampleStartedAtMs: number): INavigationSample => {
+        const pageContainers = Array.from(document.querySelectorAll<HTMLElement>('.page_container'));
+        const visiblePageContainers = pageContainers.filter((container) => {
+            const rect = container.getBoundingClientRect();
+            return rect.bottom > 0 && rect.top < window.innerHeight;
+        });
+        const pageNumber = (container: HTMLElement) => Number(container.dataset.page) || 0;
+        const skeletonPages = visiblePageContainers
+            .filter(container => Boolean(container.querySelector('.document-page-skeleton')))
+            .map(pageNumber);
+        const renderedPages = visiblePageContainers
+            .filter(container => container.classList.contains('page_container--rendered'))
+            .map(pageNumber);
+        const canvasPages = visiblePageContainers
+            .filter(container => Boolean(container.querySelector('.page_canvas canvas, .page_preview canvas')))
+            .map(pageNumber);
+        const visibleCurrentPageLabel = Array.from(document.querySelectorAll<HTMLElement>('.page-controls-current-primary'))
+            .find((element) => {
+                const rect = element.getBoundingClientRect();
+                const style = window.getComputedStyle(element);
+                return rect.width > 0
                         && rect.height > 0
                         && style.display !== 'none'
                         && style.visibility !== 'hidden';
-                });
-            return {
-                sampledAtMs: Date.now() - startedAtMs,
-                currentPageText: visibleCurrentPageLabel?.textContent?.trim() ?? null,
-                skeletonPages,
-                renderedPages,
-                canvasPages,
-            };
-        }, startedAt));
-        await delay(delayMs);
-    }
-    return samples;
+            });
+        return {
+            sampledAtMs: Date.now() - sampleStartedAtMs,
+            currentPageText: visibleCurrentPageLabel?.textContent?.trim() ?? null,
+            skeletonPages,
+            renderedPages,
+            canvasPages,
+        };
+    }, startedAtMs));
 }
 
-function assertTargetPdfExists() {
-    if (existsSync(TARGET_PDF_PATH)) {
-        return;
-    }
-
-    throw new Error(
-        [
-            `PDF navigation diagnostic fixture not found: ${TARGET_PDF_PATH}`,
-            'Set EVB_E2E_NAVIGATION_PDF_PATH or EVB_DIAGNOSTIC_PDF_PATH to a local PDF before running this diagnostic.',
-        ].join('\n'),
-    );
-}
-
-async function runHighZoomNextPageDiagnostic(session: IElectronE2ESession) {
+async function runHighZoomNextPageDiagnostic(context: IPdfDiagnosticsContext) {
+    const { session } = context;
     let samples: INavigationSample[] = [];
     let navLog: IPdfNavLogEntry[] = [];
     let renderTrace: IPdfRenderTraceEntry[] = [];
@@ -623,24 +463,24 @@ async function runHighZoomNextPageDiagnostic(session: IElectronE2ESession) {
         await configureHighZoom(session);
         await goToPageViaWorkspace(session, startPage);
         await waitForToolbarPage(session, startPage);
-        await waitForPageCanvas(session, startPage);
+        await context.navigation.waitForPageCanvas(startPage, 20_000);
         await delay(500);
-        await enablePdfNavLog(session);
-        await clickNextPage(session);
-        samples = await sampleNavigation(session);
-        navLog = await collectPdfNavLog(session);
-        renderTrace = await collectPdfRenderTrace(session);
+        await context.trace.reset();
+        await context.navigation.clickToolbarButton('Next Page', {nextButtonFallback: true});
+        samples = await sampleNavigation(context);
+        navLog = await collectPdfNavLog(context);
+        renderTrace = await collectPdfRenderTrace(context);
     } finally {
         if (samples.length === 0) {
-            samples = await sampleNavigation(session).catch(() => []);
+            samples = await sampleNavigation(context).catch(() => []);
         }
         if (navLog.length === 0) {
-            navLog = await collectPdfNavLog(session).catch(() => []);
+            navLog = await collectPdfNavLog(context).catch(() => []);
         }
         if (renderTrace.length === 0) {
-            renderTrace = await collectPdfRenderTrace(session).catch(() => []);
+            renderTrace = await collectPdfRenderTrace(context).catch(() => []);
         }
-        writeDiagnosticArtifact({
+        context.artifacts.writeJson(DIAGNOSTIC_OUTPUT_PATH, {
             pdfPath: TARGET_PDF_PATH,
             scenario: `page-${startPage}-next-to-${nextPage}-zoom-344`,
             samples,
@@ -658,31 +498,32 @@ async function runHighZoomNextPageDiagnostic(session: IElectronE2ESession) {
     assert.deepEqual(skeletonLogEntries, []);
 }
 
-async function runToolbarPageInputDiagnostic(session: IElectronE2ESession) {
+async function runToolbarPageInputDiagnostic(context: IPdfDiagnosticsContext) {
+    const { session } = context;
     let samples: INavigationSample[] = [];
     let navLog: IPdfNavLogEntry[] = [];
     let renderTrace: IPdfRenderTraceEntry[] = [];
     const totalPages = await getToolbarTotalPages(session);
     const targetPage = Math.min(500, totalPages);
     try {
-        await navigateForwardWithNextButton(session, 3);
+        await navigateForwardWithNextButton(context, 3);
         await configureHighZoom(session, { continuousScroll: true });
-        await enablePdfNavLog(session);
+        await context.trace.reset();
         await enterPageInToolbar(session, String(targetPage));
-        samples = await sampleNavigation(session);
-        navLog = await collectPdfNavLog(session);
-        renderTrace = await collectPdfRenderTrace(session);
+        samples = await sampleNavigation(context);
+        navLog = await collectPdfNavLog(context);
+        renderTrace = await collectPdfRenderTrace(context);
     } finally {
         if (samples.length === 0) {
-            samples = await sampleNavigation(session).catch(() => []);
+            samples = await sampleNavigation(context).catch(() => []);
         }
         if (navLog.length === 0) {
-            navLog = await collectPdfNavLog(session).catch(() => []);
+            navLog = await collectPdfNavLog(context).catch(() => []);
         }
         if (renderTrace.length === 0) {
-            renderTrace = await collectPdfRenderTrace(session).catch(() => []);
+            renderTrace = await collectPdfRenderTrace(context).catch(() => []);
         }
-        writeDirectJumpDiagnosticArtifact({
+        context.artifacts.writeJson(DIRECT_JUMP_DIAGNOSTIC_OUTPUT_PATH, {
             pdfPath: TARGET_PDF_PATH,
             scenario: `toolbar-enter-page-${targetPage}-after-navigation-zoom-344`,
             samples,
@@ -700,7 +541,8 @@ async function runToolbarPageInputDiagnostic(session: IElectronE2ESession) {
     assert.ok((lastSample?.canvasPages.length ?? 0) > 0);
 }
 
-async function runRapidNextToLastPageDiagnostic(session: IElectronE2ESession) {
+async function runRapidNextToLastPageDiagnostic(context: IPdfDiagnosticsContext) {
+    const { session } = context;
     let samples: INavigationSample[] = [];
     let navLog: IPdfNavLogEntry[] = [];
     let renderTrace: IPdfRenderTraceEntry[] = [];
@@ -715,37 +557,36 @@ async function runRapidNextToLastPageDiagnostic(session: IElectronE2ESession) {
         await configureSinglePagedFitHeightMode(session);
         await waitForToolbarPage(session, 1);
         await delay(500);
-        await enablePdfNavLog(session);
-
-        await rapidClickNextPages(session, rapidClickCount);
+        await context.trace.reset();
+        await rapidClickNextPages(context, rapidClickCount);
         await waitForToolbarPage(session, rapidTargetPage);
         if (rapidTargetPage < totalPages) {
-            await clickPageNavigationButton(session, 'Last Page');
+            await context.navigation.clickToolbarButton('Last Page');
             await waitForToolbarPage(session, totalPages);
         }
 
-        samples = await sampleNavigation(session, {
+        samples = await sampleNavigation(context, {
             count: 500,
             delayMs: 25,
         });
         finalSnapshot = await collectNavigationDiagnosticsSnapshot(session);
-        navLog = await collectPdfNavLog(session);
-        renderTrace = await collectPdfRenderTrace(session);
+        navLog = await collectPdfNavLog(context);
+        renderTrace = await collectPdfRenderTrace(context);
     } finally {
         if (samples.length === 0) {
-            samples = await sampleNavigation(session, {
+            samples = await sampleNavigation(context, {
                 count: 120,
                 delayMs: 25,
             }).catch(() => []);
         }
         finalSnapshot ??= await collectNavigationDiagnosticsSnapshot(session).catch(() => null);
         if (navLog.length === 0) {
-            navLog = await collectPdfNavLog(session).catch(() => []);
+            navLog = await collectPdfNavLog(context).catch(() => []);
         }
         if (renderTrace.length === 0) {
-            renderTrace = await collectPdfRenderTrace(session).catch(() => []);
+            renderTrace = await collectPdfRenderTrace(context).catch(() => []);
         }
-        writeRapidNextToLastDiagnosticArtifact({
+        context.artifacts.writeJson(RAPID_NEXT_TO_LAST_DIAGNOSTIC_OUTPUT_PATH, {
             pdfPath: TARGET_PDF_PATH,
             scenario: `fit-height-rapid-next-1-to-${rapidTargetPage}-then-page-${totalPages}`,
             samples,
@@ -767,23 +608,28 @@ async function runRapidNextToLastPageDiagnostic(session: IElectronE2ESession) {
     assert.equal(finalSnapshot?.visiblePages.some(page => page.page === totalPages && page.hasCanvas), true);
 }
 
-export async function runPdfSkeletonNavigationDiagnostics() {
-    assertTargetPdfExists();
+export const pdfSkeletonNavigationScenario = {
+    name: 'diagnostic-girgas-skeleton',
+    pdfPath: TARGET_PDF_PATH,
+    fixtureError: [
+        `PDF navigation diagnostic fixture not found: ${TARGET_PDF_PATH}`,
+        'Set EVB_E2E_NAVIGATION_PDF_PATH or EVB_DIAGNOSTIC_PDF_PATH to a local PDF before running this diagnostic.',
+    ].join('\n'),
+    diagnostics: {
+        navigation: true,
+        render: true,
+    },
+    run: async (context: IPdfDiagnosticsContext) => {
+        await context.trace.reset();
+        await runHighZoomNextPageDiagnostic(context);
+        await runToolbarPageInputDiagnostic(context);
+        await runRapidNextToLastPageDiagnostic(context);
+    },
+};
 
-    const session = await startElectronE2ESession(`diagnostic-girgas-skeleton-${Date.now()}`);
-    try {
-        await enablePdfNavLog(session);
-        await openPdfInApp(session.page, TARGET_PDF_PATH, 60_000);
-        await enablePdfNavLog(session);
-
-        await runHighZoomNextPageDiagnostic(session);
-        await runToolbarPageInputDiagnostic(session);
-        await runRapidNextToLastPageDiagnostic(session);
-    } finally {
-        await disablePdfDiagnosticSession(session.page).catch(() => {});
-        await session.stop();
-    }
-}
+export const runPdfSkeletonNavigationDiagnostics = () => (
+    runPdfDiagnosticScenario(pdfSkeletonNavigationScenario)
+);
 
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
     await runPdfSkeletonNavigationDiagnostics().catch((error: unknown) => {

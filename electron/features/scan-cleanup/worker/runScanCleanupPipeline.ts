@@ -1,24 +1,28 @@
 import {
+    access,
     copyFile,
     mkdtemp,
+    open,
     readFile,
     rename,
     rm,
     stat,
     writeFile,
 } from 'fs/promises';
+import {constants as fsConstants} from 'fs';
 import { randomUUID } from 'crypto';
 import {
     dirname,
     join,
 } from 'path';
 import type {
-    INativeScanCleanupBinarizationDiagnosticsV2,
+    INativeScanCleanupBinarizationDiagnosticsV3,
     IScanCleanupOptions,
     IScanCleanupPixelRect,
     IScanCleanupProgress,
     IScanCleanupSplitSeamPolyline,
     IScanCleanupSummary,
+    TScanCleanupOutputMode,
 } from '@contracts/electronApiScanCleanup';
 import {getScanCleanupPageOverride} from '@contracts/scanCleanupPageOverrides';
 import { getPdfPageCount } from '@electron/pdf/pdfPageCount';
@@ -31,6 +35,7 @@ import { runNativeToolCommand } from '@electron/native-tools/runNativeToolComman
 import type { TWorkerLog } from '@electron/ocr/worker/types';
 import { runScanCleanupSidecar } from '@electron/features/scan-cleanup/worker/runScanCleanupSidecar';
 import {buildNativeScanCleanupManifest} from '@electron/features/scan-cleanup/policy/buildNativeScanCleanupManifest';
+import {resolveScanCleanupPipelineMaxPixels} from '@electron/features/scan-cleanup/policy/effectiveOptions';
 
 export interface IScanCleanupWorkerPaths {
     qpdfBinary: string;
@@ -46,6 +51,7 @@ export interface IRunScanCleanupPipelineRequest {
     sourcePdfPath: string;
     outputPdfPath: string;
     options: IScanCleanupOptions;
+    outputModeRecommendations?: Partial<Record<string, TScanCleanupOutputMode>>;
 }
 
 interface ICleanupMetadata {
@@ -60,13 +66,17 @@ interface ICleanupMetadata {
     skewConfidence?: number;
     skewApplied: boolean;
     manualSkew?: boolean;
+    bilevelWritten?: boolean;
     illuminationNormalized?: boolean;
     binarizationMode?: IScanCleanupOptions['binarization'] | null;
-    binarizationDiagnostics?: INativeScanCleanupBinarizationDiagnosticsV2 | null;
+    binarizationDiagnostics?: INativeScanCleanupBinarizationDiagnosticsV3 | null;
     despeckleFallback?: boolean;
     dewarpConfidence?: number | null;
     contentBox?: unknown;
     warnings?: string[];
+    renderDpi?: number;
+    matchedCanvasTargetWidthPoints?: number | null;
+    matchedCanvasTargetHeightPoints?: number | null;
 }
 
 interface ICleanupPageMetadata {
@@ -81,6 +91,7 @@ interface ICleanupPageMetadata {
     blankOutputsSkipped: number;
     outputCount: number;
     outputs?: ILosslessAnalysisOutput[];
+    recommendedOutputMode?: TScanCleanupOutputMode;
 }
 
 interface ILosslessAnalysisOutput {
@@ -124,8 +135,67 @@ const defaultDependencies: IRunScanCleanupPipelineDependencies = {
     runCommand: runNativeToolCommand,
 };
 
-function clampDpi(value: number | null | undefined) {
-    return Math.min(600, Math.max(150, Math.round(value ?? 300)));
+const SCAN_CLEANUP_MAX_DIMENSION_PX = 40_000;
+const MODE_ANALYSIS_DPI = 150;
+const SIZE_PROBE_DPI = 72;
+
+function resolveSourceDpi(value: number | null | undefined, fallback = 300) {
+    const candidate = value ?? fallback;
+    return Number.isFinite(candidate) && candidate > 0
+        ? Math.max(1, Math.round(candidate))
+        : fallback;
+}
+
+async function readPngDimensions(path: string) {
+    const handle = await open(path, 'r');
+    try {
+        const header = Buffer.alloc(24);
+        const {bytesRead} = await handle.read(header, 0, header.byteLength, 0);
+        if (
+            bytesRead !== header.byteLength
+            || header.subarray(0, 8).compare(Buffer.from([
+                0x89,
+                0x50,
+                0x4e,
+                0x47,
+                0x0d,
+                0x0a,
+                0x1a,
+                0x0a,
+            ])) !== 0
+        ) {
+            throw new Error(`Unable to inspect raster dimensions for ${path}`);
+        }
+        return {
+            width: header.readUInt32BE(16),
+            height: header.readUInt32BE(20),
+        };
+    } finally {
+        await handle.close();
+    }
+}
+
+function resolveSafeRenderDpi(
+    requestedRenderDpi: number,
+    maxPixels: number,
+    probe: {
+        dpi: number;
+        width: number;
+        height: number
+    },
+) {
+    const maxDimensionDpi = probe.dpi * Math.min(
+        SCAN_CLEANUP_MAX_DIMENSION_PX / probe.width,
+        SCAN_CLEANUP_MAX_DIMENSION_PX / probe.height,
+    );
+    const maxPixelDpi = probe.dpi * Math.sqrt(
+        maxPixels / (probe.width * probe.height),
+    );
+    return Math.max(1, Math.floor(Math.min(
+        requestedRenderDpi,
+        maxDimensionDpi,
+        maxPixelDpi,
+    )));
 }
 
 function emitProgress(
@@ -311,12 +381,12 @@ async function runLosslessScanCleanup(
         log,
     });
     const pageSizes = (JSON.parse(await readFile(pageSizesPath, 'utf8')) as {pages: IPdfPageSize[]}).pages;
-    const documentDpi = clampDpi(dpiDetails.documentDpi);
+    const documentDpi = resolveSourceDpi(dpiDetails.documentDpi);
     let rasterizedCount = 0;
     const rasterizedPageNumbers = new Set<number>();
     const pageInputs = await mapScanCleanupRasterPages(pageNumbers, 3, async pageNumber => {
         signal.throwIfAborted();
-        const dpi = clampDpi(dpiDetails.pageDpiByNumber.get(pageNumber) ?? documentDpi);
+        const dpi = resolveSourceDpi(dpiDetails.pageDpiByNumber.get(pageNumber), documentDpi);
         const inputPath = join(scratch, `analysis-${pageNumber}.png`);
         await dependencies.renderPage(paths, log, pageNumber, preparedPdfPath, inputPath, dpi, undefined, signal);
         rasterizedCount += 1;
@@ -501,7 +571,7 @@ export async function runScanCleanupPipeline(
             signal,
             pageNumbers,
         );
-        const documentDpi = clampDpi(dpiDetails.documentDpi);
+        const documentDpi = resolveSourceDpi(dpiDetails.documentDpi);
         if (request.options.preserveOriginalQuality) {
             const summary = await runLosslessScanCleanup(
                 request,
@@ -525,12 +595,148 @@ export async function runScanCleanupPipeline(
             emitProgress(onProgress, 'handoff', pageCount, pageCount, 100, pageNumbers);
             return summary;
         }
+        const sourceDpiByPage = new Map(pageNumbers.map(pageNumber => [
+            pageNumber,
+            resolveSourceDpi(dpiDetails.pageDpiByNumber.get(pageNumber), documentDpi),
+        ]));
+        const resolvedOutputModeByPage = new Map<number, TScanCleanupOutputMode>();
+        const unresolvedAutoPages: number[] = [];
+        for (const pageNumber of pageNumbers) {
+            const pageOverride = getScanCleanupPageOverride(request.options.pageOverrides, pageNumber);
+            if (pageOverride.excluded) {
+                resolvedOutputModeByPage.set(pageNumber, 'color');
+                continue;
+            }
+            const configuredMode = pageOverride.outputModeOverride ?? request.options.outputMode;
+            if (configuredMode !== 'auto') {
+                resolvedOutputModeByPage.set(pageNumber, configuredMode);
+                continue;
+            }
+            const recommendation = request.outputModeRecommendations?.[String(pageNumber)];
+            if (recommendation === undefined) {
+                unresolvedAutoPages.push(pageNumber);
+            } else {
+                resolvedOutputModeByPage.set(pageNumber, recommendation);
+            }
+        }
+        const probeDimensionsByPage = new Map<number, {
+            dpi: number;
+            width: number;
+            height: number
+        }>();
+        if (unresolvedAutoPages.length > 0) {
+            let analyzedRasterCount = 0;
+            const analysisInputs = await mapScanCleanupRasterPages(
+                unresolvedAutoPages,
+                3,
+                async pageNumber => {
+                    signal.throwIfAborted();
+                    const inputPath = join(scratch, `mode-analysis-${pageNumber}.png`);
+                    await dependencies.renderPage(
+                        paths,
+                        log,
+                        pageNumber,
+                        prepared.pdfPath,
+                        inputPath,
+                        MODE_ANALYSIS_DPI,
+                        undefined,
+                        signal,
+                    );
+                    const dimensions = await readPngDimensions(inputPath);
+                    probeDimensionsByPage.set(pageNumber, {
+                        dpi: MODE_ANALYSIS_DPI,
+                        ...dimensions,
+                    });
+                    analyzedRasterCount += 1;
+                    emitProgress(
+                        onProgress,
+                        'rasterizing',
+                        analyzedRasterCount,
+                        unresolvedAutoPages.length,
+                        5 + (10 * analyzedRasterCount / unresolvedAutoPages.length),
+                    );
+                    return {
+                        inputPath,
+                        pageNumber,
+                        dpi: MODE_ANALYSIS_DPI,
+                        sourceDpi: sourceDpiByPage.get(pageNumber)!,
+                        requestedRenderDpi: MODE_ANALYSIS_DPI,
+                        pageMetadataPath: join(scratch, `mode-analysis-${pageNumber}.json`),
+                    };
+                },
+            );
+            const analysisManifest = buildNativeScanCleanupManifest({
+                operation: 'analyze',
+                renderMode: 'final',
+                canvasScope: 'page',
+                qualityPath: 'raster',
+                options: request.options,
+                pages: analysisInputs,
+            });
+            const analysisManifestPath = join(scratch, 'mode-analysis-manifest.json');
+            await writeFile(analysisManifestPath, JSON.stringify(analysisManifest));
+            await dependencies.runSidecar(
+                paths.scanCleanupBinary,
+                analysisManifestPath,
+                signal,
+                log,
+                () => undefined,
+            );
+            for (const page of analysisManifest.pages) {
+                const metadata = JSON.parse(
+                    await readFile(page.pageMetadataPath, 'utf8'),
+                ) as ICleanupPageMetadata;
+                if (metadata.recommendedOutputMode === undefined) {
+                    throw new Error(
+                        `Automatic output-mode analysis returned no recommendation for page ${page.sourcePageIndex + 1}`,
+                    );
+                }
+                resolvedOutputModeByPage.set(
+                    page.sourcePageIndex + 1,
+                    metadata.recommendedOutputMode,
+                );
+            }
+        }
+        const bwPages = pageNumbers.filter(
+            pageNumber => resolvedOutputModeByPage.get(pageNumber) === 'bw',
+        );
+        await mapScanCleanupRasterPages(
+            bwPages.filter(pageNumber => !probeDimensionsByPage.has(pageNumber)),
+            3,
+            async pageNumber => {
+                signal.throwIfAborted();
+                const inputPath = join(scratch, `size-probe-${pageNumber}.png`);
+                await dependencies.renderPage(
+                    paths,
+                    log,
+                    pageNumber,
+                    prepared.pdfPath,
+                    inputPath,
+                    SIZE_PROBE_DPI,
+                    undefined,
+                    signal,
+                );
+                probeDimensionsByPage.set(pageNumber, {
+                    dpi: SIZE_PROBE_DPI,
+                    ...await readPngDimensions(inputPath),
+                });
+            },
+        );
         const pageDpi = new Map<number, number>();
         let rasterizedCount = 0;
         const rasterizedPageNumbers = new Set<number>();
         const pageInputs = await mapScanCleanupRasterPages(pageNumbers, 3, async pageNumber => {
-            if (signal.aborted) throw signal.reason;
-            const dpi = clampDpi(dpiDetails.pageDpiByNumber.get(pageNumber) ?? documentDpi);
+            signal.throwIfAborted();
+            const sourceDpi = sourceDpiByPage.get(pageNumber)!;
+            const resolvedOutputMode = resolvedOutputModeByPage.get(pageNumber) ?? 'color';
+            const requestedRenderDpi = resolvedOutputMode === 'bw' ? sourceDpi * 2 : sourceDpi;
+            const dpi = resolvedOutputMode === 'bw'
+                ? resolveSafeRenderDpi(
+                    requestedRenderDpi,
+                    resolveScanCleanupPipelineMaxPixels(resolvedOutputMode),
+                    probeDimensionsByPage.get(pageNumber)!,
+                )
+                : sourceDpi;
             pageDpi.set(pageNumber, dpi);
             const inputPath = join(scratch, `source-${pageNumber}.png`);
             await dependencies.renderPage(paths, log, pageNumber, prepared.pdfPath, inputPath, dpi, undefined, signal);
@@ -538,6 +744,9 @@ export async function runScanCleanupPipeline(
                 inputPath,
                 pageNumber,
                 dpi,
+                sourceDpi,
+                requestedRenderDpi,
+                resolvedOutputMode,
                 pageMetadataPath: join(scratch, `clean-${pageNumber}-page.json`),
                 outputs: [
                     0,
@@ -545,11 +754,12 @@ export async function runScanCleanupPipeline(
                 ].map(outputIndex => ({
                     outputPath: join(scratch, `clean-${pageNumber}-${outputIndex}.png`),
                     metadataPath: join(scratch, `clean-${pageNumber}-${outputIndex}.json`),
+                    bilevelOutputPath: join(scratch, `clean-${pageNumber}-${outputIndex}.pbm`),
                 })),
             };
             rasterizedCount += 1;
             rasterizedPageNumbers.add(pageNumber);
-            emitProgress(onProgress, 'rasterizing', rasterizedCount, pageCount, 5 + (25 * rasterizedCount / pageCount), rasterizedPageNumbers);
+            emitProgress(onProgress, 'rasterizing', rasterizedCount, pageCount, 15 + (20 * rasterizedCount / pageCount), rasterizedPageNumbers);
             return page;
         });
         const manifest = buildNativeScanCleanupManifest({
@@ -575,12 +785,13 @@ export async function runScanCleanupPipeline(
                 'cleaning',
                 progress.completedUnits,
                 pageCount,
-                30 + (45 * progress.completedUnits / pageCount),
+                35 + (40 * progress.completedUnits / pageCount),
                 progress.completedPageNumbers,
             );
         });
         const outputPages: Array<{
             path: string;
+            bilevelPath?: string;
             dpi: number;
             metadata: ICleanupMetadata
         }> = [];
@@ -609,21 +820,42 @@ export async function runScanCleanupPipeline(
             const pageOutputPages: typeof outputPages = [];
             for (const output of outputs) {
                 try {
-                    const metadata = JSON.parse(await readFile(output.metadataPath, 'utf8')) as ICleanupMetadata;
                     await stat(output.outputPath);
-                    pageOutputPages.push({
-                        path: output.outputPath,
-                        dpi: request.options.matchPageSize
-                            ? documentDpi
-                            : pageDpi.get(pageIndex + 1) ?? documentDpi,
-                        metadata,
-                    });
-                    if (!metadata.skewApplied) summary.deskewSkipped += 1;
-                    if (request.options.crop && metadata.contentBox == null) summary.cropSkipped += 1;
-                    summary.warnings.push(...(metadata.warnings ?? []).map(warning => `Page ${pageIndex + 1}: ${warning}`));
                 } catch (error) {
                     if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+                    continue;
                 }
+                const metadata = JSON.parse(await readFile(output.metadataPath, 'utf8')) as ICleanupMetadata;
+                let bilevelPath: string | undefined;
+                if (metadata.bilevelWritten) {
+                    try {
+                        if (output.bilevelOutputPath === undefined) {
+                            throw new Error('no bilevel output path was declared');
+                        }
+                        const bilevelStats = await stat(output.bilevelOutputPath);
+                        if (!bilevelStats.isFile()) {
+                            throw new Error('bilevel output path is not a file');
+                        }
+                        await access(output.bilevelOutputPath, fsConstants.R_OK);
+                        bilevelPath = output.bilevelOutputPath;
+                    } catch (error) {
+                        log(
+                            'warn',
+                            `Page ${pageIndex + 1} bilevel output is missing or unreadable; using PNG fallback: ${(error as Error).message}`,
+                        );
+                    }
+                }
+                pageOutputPages.push({
+                    path: output.outputPath,
+                    ...(bilevelPath === undefined ? {} : {bilevelPath}),
+                    dpi: metadata.renderDpi
+                        ?? pageDpi.get(pageIndex + 1)
+                        ?? documentDpi,
+                    metadata,
+                });
+                if (!metadata.skewApplied) summary.deskewSkipped += 1;
+                if (request.options.crop && metadata.contentBox == null) summary.cropSkipped += 1;
+                summary.warnings.push(...(metadata.warnings ?? []).map(warning => `Page ${pageIndex + 1}: ${warning}`));
             }
             if (request.options.readingOrder === 'rtl' && pageMetadata.layoutClassification === 'two-page-spread') {
                 pageOutputPages.reverse();
@@ -636,10 +868,12 @@ export async function runScanCleanupPipeline(
         if (outputPages.length === 0) throw new Error('evb-scan-cleanup produced no output pages');
         const combineManifestPath = join(scratch, 'combine-manifest.tsv');
         await writeFile(combineManifestPath, outputPages.map(output => [
-            'image',
-            (output.metadata.canvasWidthPx / output.dpi * 72).toFixed(6),
-            (output.metadata.canvasHeightPx / output.dpi * 72).toFixed(6),
-            output.path,
+            output.bilevelPath === undefined ? 'image' : 'image-bilevel',
+            (output.metadata.matchedCanvasTargetWidthPoints
+                ?? output.metadata.canvasWidthPx / output.dpi * 72).toFixed(6),
+            (output.metadata.matchedCanvasTargetHeightPoints
+                ?? output.metadata.canvasHeightPx / output.dpi * 72).toFixed(6),
+            output.bilevelPath ?? output.path,
         ].join('\t')).join('\n') + '\n');
         emitProgress(onProgress, 'assembling', pageCount, pageCount, 82, pageNumbers);
         await dependencies.runCommand(paths.pdfImageCombineBinary, [

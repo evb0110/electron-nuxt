@@ -218,6 +218,17 @@ export type {
     ISearchMatchOptions,
     TPdfSearchUtf16Offset,
 } from '@contracts/search';
+export {
+    DJVU_PLATFORM_FEATURE,
+    type IDjvuEventMap,
+    type IDjvuInvokeMap,
+} from '@contracts/djvuPlatformFeature';
+export {
+    OCR_PLATFORM_FEATURE,
+    OCR_PREPROCESSING_PLATFORM_FEATURE,
+    type IOcrEventMap,
+    type IOcrInvokeMap,
+} from '@contracts/ocrPlatformFeature';
 export { IMAGE_EXPORT_PLATFORM_FEATURE } from '@contracts/imageExportPlatformFeature';
 export { PAGE_OPS_PLATFORM_FEATURE } from '@contracts/pageOpsPlatformFeature';
 export { SEARCH_PLATFORM_FEATURE } from '@contracts/searchPlatformFeature';

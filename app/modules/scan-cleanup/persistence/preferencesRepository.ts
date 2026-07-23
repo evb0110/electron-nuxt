@@ -1,6 +1,7 @@
 import type {
     IScanCleanupMarginsMm,
     IScanCleanupOptions,
+    TScanCleanupOutputModeSetting,
     TScanCleanupPageOverrides,
 } from '@contracts/electronApiScanCleanup';
 import {
@@ -24,6 +25,7 @@ import {
 const SETTINGS_KEY = 'evb.scanCleanup.settings.v1';
 const OVERRIDES_KEY = 'evb.scanCleanup.documentOverrides.v1';
 const MAX_DOCUMENTS = 50;
+export const DEFAULT_SCAN_CLEANUP_DOCUMENT_OUTPUT_MODE: TScanCleanupOutputModeSetting = 'auto';
 
 export interface IScanCleanupPreferenceStorage {
     get: (key: string) => string | null;
@@ -61,8 +63,12 @@ export function saveScanCleanupPreferences(
     storage: IScanCleanupPreferenceStorage = browserStorage,
 ) {
     assertFiniteScanCleanupPreferences(value);
+    const {
+        outputMode: _ignoredLegacyOutputMode,
+        ...globalPreferences
+    } = value as IScanCleanupGlobalPreferences & {outputMode?: unknown};
     storage.set(SETTINGS_KEY, JSON.stringify({
-        ...value,
+        ...globalPreferences,
         marginsMm: decodeScanCleanupMarginsMm(value.marginsMm),
     }));
 }
@@ -119,6 +125,25 @@ export function loadScanCleanupDocumentMargins(
     return decodeScanCleanupMarginsMm(marginsMm);
 }
 
+export function loadScanCleanupDocumentOutputMode(
+    documentKey: string | null | undefined,
+    storage: IScanCleanupPreferenceStorage = browserStorage,
+): TScanCleanupOutputModeSetting {
+    if (!documentKey) {
+        return DEFAULT_SCAN_CLEANUP_DOCUMENT_OUTPUT_MODE;
+    }
+    const entry = scanCleanupPreferenceRecord(loadDocumentEntries(storage)[documentKey]);
+    return [
+        'auto',
+        'bw',
+        'mixed',
+        'grayscale',
+        'color',
+    ].includes(String(entry?.outputMode))
+        ? entry?.outputMode as TScanCleanupOutputModeSetting
+        : DEFAULT_SCAN_CLEANUP_DOCUMENT_OUTPUT_MODE;
+}
+
 export function saveScanCleanupDocumentOverrides(
     documentKey: string | null | undefined,
     overrides: TScanCleanupPageOverrides,
@@ -158,6 +183,29 @@ export function saveScanCleanupDocumentMargins(
     storage.set(OVERRIDES_KEY, JSON.stringify(boundedDocumentEntries(entries)));
 }
 
+export function saveScanCleanupDocumentOutputMode(
+    documentKey: string | null | undefined,
+    outputMode: TScanCleanupOutputModeSetting,
+    storage: IScanCleanupPreferenceStorage = browserStorage,
+) {
+    if (!documentKey || ![
+        'auto',
+        'bw',
+        'mixed',
+        'grayscale',
+        'color',
+    ].includes(outputMode)) {
+        return;
+    }
+    const entries = loadDocumentEntries(storage);
+    entries[documentKey] = {
+        ...scanCleanupPreferenceRecord(entries[documentKey]),
+        updatedAt: Date.now(),
+        outputMode,
+    };
+    storage.set(OVERRIDES_KEY, JSON.stringify(boundedDocumentEntries(entries)));
+}
+
 export function resetScanCleanupDocumentOverrides(
     documentKey: string | null | undefined,
     storage: IScanCleanupPreferenceStorage = browserStorage,
@@ -167,7 +215,7 @@ export function resetScanCleanupDocumentOverrides(
     }
     const entries = loadDocumentEntries(storage);
     const entry = scanCleanupPreferenceRecord(entries[documentKey]);
-    if (entry?.marginsMm !== undefined) {
+    if (entry?.marginsMm !== undefined || entry?.outputMode !== undefined) {
         Reflect.deleteProperty(entry, 'overrides');
         entries[documentKey] = entry;
     } else {

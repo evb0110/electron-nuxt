@@ -16,6 +16,8 @@ import {
     vi,
 } from 'vitest';
 import type {ISearchDjvuTextOptions} from '@electron/djvu/textSearch';
+import { DJVU_PLATFORM_FEATURE } from '@contracts/djvuPlatformFeature';
+import { registerPlatformFeatureHandlers } from '@electron/platform-ipc/validatedIpcRegistrar';
 
 
 const mocks = vi.hoisted(() => ({
@@ -31,6 +33,9 @@ const mocks = vi.hoisted(() => ({
     handleDjvuConvertToPdf: vi.fn(),
     handleDjvuCancel: vi.fn(),
     handleDjvuOpenForViewing: vi.fn(),
+    getDjvuOutputJobState: vi.fn(),
+    subscribeDjvuOutputJob: vi.fn(),
+    subscribeDjvuProgress: vi.fn(),
     cancelConversion: vi.fn(),
     isAllowedDjvuViewingPath: vi.fn(),
     getDjvuPageSizesForViewing: vi.fn(),
@@ -69,6 +74,9 @@ vi.mock('@electron/djvu/parseDjvuOutline', () => ({parseDjvuOutline: mocks.parse
 vi.mock('@electron/features/djvu/main/pdfExport', () => ({
     handleDjvuConvertToPdf: mocks.handleDjvuConvertToPdf,
     handleDjvuCancel: mocks.handleDjvuCancel,
+    getDjvuOutputJobState: mocks.getDjvuOutputJobState,
+    subscribeDjvuOutputJob: mocks.subscribeDjvuOutputJob,
+    subscribeDjvuProgress: mocks.subscribeDjvuProgress,
 }));
 vi.mock('@electron/features/djvu/main/viewing', () => ({
     handleDjvuOpenForViewing: mocks.handleDjvuOpenForViewing,
@@ -92,10 +100,20 @@ vi.mock('@electron/utils/createLogger', () => ({createLogger: () => ({
     warn: vi.fn(),
     error: vi.fn(),
 })}));
-
-const { registerDjvuIpcAdapter } = await import('@electron/features/djvu/registerDjvuIpcAdapter');
-const { resolveDjvuPreviewBrokerPriority } = await import('@electron/features/djvu/main/djvuOperations');
+const {resolveDjvuPreviewBrokerPriority} = await import('@electron/features/djvu/main/djvuOperations');
+const {prepareDjvuMainBindings} = await import('@electron/features/djvu/mainBindings');
 const { configureMainJobBroker } = await import('@electron/resources/jobBroker');
+
+function registerDjvuIpcAdapter() {
+    registerPlatformFeatureHandlers(
+        {handle: (channel: string, handler: TRegisteredHandler) => {
+            mocks.ipcHandle(channel, handler);
+            mocks.handlers.set(channel, handler);
+        }} as never,
+        DJVU_PLATFORM_FEATURE,
+        prepareDjvuMainBindings(),
+    );
+}
 
 configureMainJobBroker({
     logicalCpus: 8,
@@ -569,7 +587,6 @@ describe('registerDjvuIpcAdapter', () => {
             expect.objectContaining({
                 sender: event.sender,
                 senderId: 1,
-                parentWindow: null,
             }),
             '/tmp/missing.djvu',
         );
@@ -596,7 +613,6 @@ describe('registerDjvuIpcAdapter', () => {
                 expect.objectContaining({
                     sender: event.sender,
                     senderId: 1,
-                    parentWindow: null,
                 }),
                 canonicalRealPath,
             );
@@ -631,7 +647,6 @@ describe('registerDjvuIpcAdapter', () => {
                 expect.objectContaining({
                     sender: event.sender,
                     senderId: 1,
-                    parentWindow: null,
                 }),
                 canonicalRealPath,
                 '/tmp/output.pdf',
@@ -938,28 +953,16 @@ describe('registerDjvuIpcAdapter', () => {
         }
     });
 
-    it('rejects oversized preview request ids in main before starting native work', async () => {
-        const tempRoot = mkdtempSync(join(tmpdir(), 'evb-djvu-preview-id-limit-test-'));
-        try {
-            const realPath = join(tempRoot, 'real.djvu');
-            writeFileSync(realPath, new Uint8Array([1]));
-
-            const { allowOpenPath } = await import('@electron/file-access/openPathCapabilities');
-            const event = createIpcEvent(23);
-            allowOpenPath(realPath, event.sender as never);
-            registerDjvuIpcAdapter();
-            const handler = getHandler('djvu:renderPagePreview');
-
-            await expect(handler(event, realPath, 1, {previewRequestId: 'x'.repeat(129)}))
-                .rejects.toThrow('renderPagePreview.options.previewRequestId exceeds maximum length (128)');
-
-            expect(mocks.renderDjvuPagePreview).not.toHaveBeenCalled();
-        } finally {
-            rmSync(tempRoot, {
-                force: true,
-                recursive: true,
-            });
-        }
+    it('rejects oversized preview request ids at the boundary before starting native work', () => {
+        const codec = DJVU_PLATFORM_FEATURE.ipcCodecs[
+            DJVU_PLATFORM_FEATURE.invokeChannels.renderPagePreview
+        ]!;
+        expect(() => codec.decodeArgs([
+            '/tmp/book.djvu',
+            1,
+            {previewRequestId: 'x'.repeat(129)},
+        ])).toThrow('renderPagePreview.options.previewRequestId exceeds maximum length (128)');
+        expect(mocks.renderDjvuPagePreview).not.toHaveBeenCalled();
     });
 
     it('drops superseded queued native preview requests per sender before spawning conversion', async () => {

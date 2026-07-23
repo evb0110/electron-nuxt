@@ -1,5 +1,5 @@
 import type { IAgentCapability } from '@contracts/agentCapability';
-import type { IDjvuCapability } from '@contracts/electronApiDjvu';
+import type { IDjvuCapability } from '@contracts/djvuPlatformFeature';
 import type {
     IDocumentsCapability,
     IDocumentsFileIoCapability,
@@ -12,7 +12,7 @@ import type {
     IDocumentsWorkingCopyCapability,
 } from '@contracts/electronApiDocuments';
 import type { IHostCapability } from '@contracts/hostPlatformFeature';
-import type { IOcrCapability } from '@contracts/electronApiOcr';
+import type { IOcrCapability } from '@contracts/ocrPlatformFeature';
 import type { IScanCleanupCapability } from '@contracts/electronApiScanCleanup';
 import type { IImageExportCapability } from '@contracts/imageExportPlatformFeature';
 import type { IPageOpsCapability } from '@contracts/pageOpsPlatformFeature';
@@ -24,6 +24,8 @@ import type { IUpdatesCapability } from '@contracts/updatesPlatformFeature';
 import type { IWindowTabsCapability } from '@contracts/windowTabsPlatformFeature';
 import type { IPlatformRuntimeManifest } from '@contracts/platformManifest';
 export type { IImageExportCapability } from '@contracts/imageExportPlatformFeature';
+export type { IDjvuCapability } from '@contracts/djvuPlatformFeature';
+export type { IOcrCapability } from '@contracts/ocrPlatformFeature';
 export type { IPageOpsCapability } from '@contracts/pageOpsPlatformFeature';
 export type * from '@contracts/platformManifest';
 export type * from '@contracts/platformApiDescriptor';
@@ -80,6 +82,7 @@ export type * from '@contracts/electronApiDocuments';
 export type * from '@contracts/electronApiDjvu';
 export type * from '@contracts/hostPlatformFeature';
 export type * from '@contracts/electronApiOcr';
+export type * from '@contracts/ocrPlatformFeature';
 export type * from '@contracts/electronApiScanCleanup';
 export type * from '@contracts/electronApiPageOps';
 export type * from '@contracts/systemPlatformFeature';

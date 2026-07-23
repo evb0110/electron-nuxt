@@ -1,4 +1,7 @@
-import { app } from 'electron';
+import {
+    app,
+    type WebContents,
+} from 'electron';
 import {
     stat,
     unlink,
@@ -11,9 +14,10 @@ import { createLogger } from '@electron/utils/createLogger';
 import { getErrorMessage } from '@electron/utils/error';
 import { isErrnoException } from '@contracts/runtimeGuards';
 import type { TOpenPath } from '@electron/file-access/openPathCapabilities';
-import type { IDjvuOperationContext } from '@electron/features/djvu/ports';
+import type { IPlatformMainSenderContext } from '@contracts/platformFeature';
 
 const logger = createLogger('djvu-viewing');
+interface IDjvuOperationContext extends IPlatformMainSenderContext<WebContents> {}
 const allowedDjvuViewingPathsBySender = new Map<number, Map<string, number>>();
 const senderCleanupRegistered = new Set<number>();
 

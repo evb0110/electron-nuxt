@@ -123,6 +123,8 @@ function mountWorkspaceChain(openInitially: boolean) {
                     classifications: new Map(),
                     confidences: new Map(),
                     textAxes: new Map(),
+                    documentOutputMode: 'auto',
+                    preserveOriginalQuality: false,
                     disabled: false,
                 })
                 : null,

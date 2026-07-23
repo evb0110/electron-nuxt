@@ -131,6 +131,44 @@ describe('effective scan cleanup options', () => {
         });
     });
 
+    it('passes auto through and gives a concrete page override precedence', () => {
+        expect(resolveEffectiveScanCleanupOptions({
+            options: {
+                ...options,
+                outputMode: 'auto',
+            },
+            pageOverride: createScanCleanupPageOverride(),
+            dpi: 300,
+            qualityPath: 'raster',
+        }).outputMode).toBe('auto');
+
+        expect(resolveEffectiveScanCleanupOptions({
+            options: {
+                ...options,
+                outputMode: 'auto',
+            },
+            pageOverride: createScanCleanupPageOverride({outputModeOverride: 'grayscale'}),
+            dpi: 300,
+            qualityPath: 'raster',
+        }).outputMode).toBe('grayscale');
+    });
+
+    it('matches native raster limits to the combiner payload depth', () => {
+        const resolveMode = (resolvedOutputMode: 'bw' | 'grayscale' | 'color' | 'mixed') =>
+            resolveEffectiveScanCleanupOptions({
+                options,
+                pageOverride: createScanCleanupPageOverride(),
+                dpi: 300,
+                resolvedOutputMode,
+                qualityPath: 'raster',
+            }).maxPixels;
+
+        expect(resolveMode('bw')).toBe(160_000_000);
+        expect(resolveMode('grayscale')).toBe(80_000_000);
+        expect(resolveMode('color')).toBe(80_000_000);
+        expect(resolveMode('mixed')).toBe(80_000_000);
+    });
+
     it('passes asymmetric document margins through unchanged', () => {
         expect(resolve().margins).toEqual(options.marginsMm);
     });

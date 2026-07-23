@@ -3,7 +3,7 @@ use crate::{
 };
 use scan_primitives::{
     distance::squared_euclidean_distance,
-    morphology::{dilate_gray, erode_gray, fill_gray_holes, reconstruct_gray_by_erosion},
+    morphology::{dilate, dilate_gray, erode_gray, fill_gray_holes, reconstruct_gray_by_erosion},
     threshold::{
         mokji_threshold, otsu_threshold, threshold_global, DEFAULT_MOKJI_MAX_EDGE_WIDTH,
         DEFAULT_MOKJI_MIN_EDGE_MAGNITUDE,
@@ -53,6 +53,62 @@ pub(crate) fn detect_picture_mask(
     let threshold = mokji_threshold(&filled, edge_width, DEFAULT_MOKJI_MIN_EDGE_MAGNITUDE);
     let candidate = threshold_global(&filled, threshold).invert();
     veto_text_like_regions(source, candidate, raster_dpi, calibration)
+}
+
+pub(crate) fn extend_picture_mask_for_content(
+    source: &GrayImage,
+    picture_mask: &BinaryImage,
+    calibration: PageCalibration,
+) -> BinaryImage {
+    let threshold = otsu_threshold(source);
+    let binary = threshold_global(source, threshold);
+    let component_map = ComponentMap::from_binary(&binary);
+    let nominal_height = if calibration.valid {
+        calibration.x_height_px.max(1.0)
+    } else {
+        (8.0 * calibration.effective_dpi / 150.0).max(4.0)
+    };
+    let long_span = (8.0 * nominal_height).round().max(24.0) as usize;
+    let anchors = component_map.retain(|component| {
+        let width = component.right - component.left + 1;
+        let height = component.bottom - component.top + 1;
+        width >= long_span || height >= long_span
+    });
+    let cluster_radius = (3.0 * nominal_height).round().max(8.0) as usize;
+    let cluster_map = ComponentMap::from_binary(&dilate(&anchors, cluster_radius, cluster_radius));
+    let minimum_width = (12.0 * nominal_height).round().max(48.0) as usize;
+    let minimum_height = (8.0 * nominal_height).round().max(32.0) as usize;
+    let mut structural = BinaryImage::new(source.width(), source.height());
+    for cluster in cluster_map.components() {
+        let width = cluster.right - cluster.left + 1;
+        let height = cluster.bottom - cluster.top + 1;
+        if width < minimum_width
+            || height < minimum_height
+            || width > height.saturating_mul(7)
+            || height > width.saturating_mul(7)
+        {
+            continue;
+        }
+        let supporting_components = component_map
+            .components()
+            .iter()
+            .filter(|component| {
+                let center_x = (component.left + component.right) / 2;
+                let center_y = (component.top + component.bottom) / 2;
+                (cluster.left..=cluster.right).contains(&center_x)
+                    && (cluster.top..=cluster.bottom).contains(&center_y)
+            })
+            .count();
+        if supporting_components < 8 {
+            continue;
+        }
+        for y in cluster.top..=cluster.bottom {
+            for x in cluster.left..=cluster.right {
+                structural.set(x, y, true);
+            }
+        }
+    }
+    picture_mask.or(&structural)
 }
 
 pub(crate) fn apply_manual_zones(mask: &mut BinaryImage, options: &CleanupOptions) {
@@ -343,6 +399,54 @@ mod tests {
             text_area_pictures < 200,
             "halftone detector leaked into {text_area_pictures} body-text pixels"
         );
+    }
+
+    #[test]
+    fn content_picture_mask_extends_across_large_line_art_structure() {
+        let mut image = GrayImage::new(420, 260, 242);
+        for row in 0..8 {
+            for column in 0..10 {
+                let left = 15 + column * 15;
+                let top = 18 + row * 27;
+                for y in top..top + 14 {
+                    for x in left..left + 8 {
+                        if x < left + 2 || y < top + 2 || y >= top + 12 {
+                            image.set(x, y, 28);
+                        }
+                    }
+                }
+            }
+        }
+        for x in 190..390 {
+            image.set(x, 22, 24);
+            image.set(x, 224, 24);
+        }
+        for y in 22..225 {
+            image.set(190, y, 24);
+            image.set(389, y, 24);
+        }
+        for row in 0..11 {
+            let top = 42 + row * 14;
+            for stroke in 0..7 {
+                let left = 204 + stroke * 24 + row % 3;
+                for offset in 0..14 {
+                    image.set(left + offset, top + offset % 3, 28);
+                    image.set(left + offset, top + 1 + offset % 3, 28);
+                }
+            }
+        }
+        let calibration = PageCalibration::estimate(&image, 300.0, CalibrationConfig::default());
+        let base = detect_picture_mask(&image, 300.0, calibration);
+        let content = extend_picture_mask_for_content(&image, &base, calibration);
+        let line_art_pixels = (22..225)
+            .flat_map(|y| (190..390).map(move |x| (x, y)))
+            .filter(|&(x, y)| content.get(x, y))
+            .count();
+        assert!(
+            line_art_pixels > 30_000,
+            "line-art picture mask covered only {line_art_pixels} pixels"
+        );
+        assert!(!content.get(20, 20), "unrelated body text was protected");
     }
 
     fn polygon(left: f64, top: f64, right: f64, bottom: f64) -> NormalizedZonePolygon {

@@ -6,11 +6,15 @@ import {
     it,
     vi,
 } from 'vitest';
-
+import {
+    OCR_PLATFORM_FEATURE,
+    OCR_PREPROCESSING_PLATFORM_FEATURE,
+} from '@contracts/ocrPlatformFeature';
+import { registerPlatformFeatureHandlers } from '@electron/platform-ipc/validatedIpcRegistrar';
+import { cast } from '@tests/helpers/cast';
 
 const mocks = vi.hoisted(() => ({
     handlers: new Map<string, TRegisteredHandler>(),
-    ipcHandle: vi.fn<(channel: string, handler: TRegisteredHandler) => void>(),
     runOcr: vi.fn(),
     handleOcrCreateSearchablePdfAsync: vi.fn(),
     handleOcrCancel: vi.fn(),
@@ -31,10 +35,7 @@ const mocks = vi.hoisted(() => ({
 vi.mock('electron', () => ({
     app: { isPackaged: false },
     BrowserWindow: { fromWebContents: vi.fn(() => null) },
-    ipcMain: { handle: (channel: string, handler: TRegisteredHandler) => {
-        mocks.ipcHandle(channel, handler);
-        mocks.handlers.set(channel, handler);
-    } },
+    ipcMain: { handle: vi.fn() },
 }));
 vi.mock('@electron/ocr/runOcr', () => ({runOcr: mocks.runOcr}));
 
@@ -63,7 +64,10 @@ vi.mock('@electron/ocr/jobManager', () => ({
     handleOcrCreateSearchablePdfAsync: mocks.handleOcrCreateSearchablePdfAsync,
     handleOcrCancel: mocks.handleOcrCancel,
     handleOcrAcknowledgeResultFile: mocks.handleOcrAcknowledgeResultFile,
+    getOcrJobState: vi.fn(),
     safeSendToWindow: mocks.safeSendToWindow,
+    subscribeManagedOcrProgress: vi.fn(),
+    subscribeOcrJob: vi.fn(),
 }));
 
 vi.mock('@electron/ocr/preprocessingHandlers', () => ({
@@ -71,7 +75,26 @@ vi.mock('@electron/ocr/preprocessingHandlers', () => ({
     handlePreprocessPage: mocks.handlePreprocessPage,
 }));
 
-const { registerOcrIpcAdapter } = await import('@electron/features/ocr/registerOcrIpcAdapter');
+const {
+    ocrMainBindings,
+    ocrPreprocessingMainBindings,
+} = await import('@electron/features/ocr/mainBindings');
+
+function registerOcrFeatureHandlers() {
+    const registrar = {handle: (channel: string, handler: TRegisteredHandler) => {
+        mocks.handlers.set(channel, handler);
+    }};
+    registerPlatformFeatureHandlers(
+        cast<Parameters<typeof registerPlatformFeatureHandlers>[0]>(registrar),
+        OCR_PLATFORM_FEATURE,
+        ocrMainBindings,
+    );
+    registerPlatformFeatureHandlers(
+        cast<Parameters<typeof registerPlatformFeatureHandlers>[0]>(registrar),
+        OCR_PREPROCESSING_PLATFORM_FEATURE,
+        ocrPreprocessingMainBindings,
+    );
+}
 
 function createMockSender(id: number) {
     return {
@@ -91,7 +114,7 @@ function getHandler(channel: string) {
     return handler;
 }
 
-describe('registerOcrIpcAdapter', () => {
+describe('OCR platform feature main bindings', () => {
     beforeEach(() => {
         mocks.handlers.clear();
         vi.clearAllMocks();
@@ -128,7 +151,7 @@ describe('registerOcrIpcAdapter', () => {
         });
         mocks.handleOcrCancel.mockReturnValue({ canceled: true });
         mocks.handleOcrAcknowledgeResultFile.mockResolvedValue({ cleaned: true });
-        registerOcrIpcAdapter();
+        registerOcrFeatureHandlers();
     });
 
     it('rejects malformed OCR batch payloads with stable typed envelope', async () => {

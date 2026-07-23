@@ -86,14 +86,21 @@ describe('ocr dpi detection', () => {
         );
     });
 
-    it('samples large selected page spans instead of probing the full range', async () => {
-        mocks.runOcrCommand.mockResolvedValue({
-            stdout: [
-                'page   num  type   width height color comp bpc  enc interp  object ID x-ppi y-ppi size ratio',
-                '   1     0 image    1000  1000  rgb     3   8  image  no      3421  0   600   600 1.0K 1.0%',
-            ].join('\n'),
-            stderr: '',
-            exitCode: 0,
+    it('probes every page in bounded chunks for long documents', async () => {
+        mocks.runOcrCommand.mockImplementation(async (_binary, args: string[]) => {
+            const firstPage = Number(args[args.indexOf('-f') + 1]);
+            const lastPage = Number(args[args.indexOf('-l') + 1]);
+            return {
+                stdout: [
+                    'page   num  type   width height color comp bpc  enc interp  object ID x-ppi y-ppi size ratio',
+                    ...Array.from({length: lastPage - firstPage + 1}, (_value, index) => {
+                        const page = firstPage + index;
+                        return `   ${page}     0 image    1800  2700  gray    1   8  image  no      3421  0   360   360 1.0K 1.0%`;
+                    }),
+                ].join('\n'),
+                stderr: '',
+                exitCode: 0,
+            };
         });
 
         const result = await detectSourceDpiDetails(
@@ -105,18 +112,18 @@ describe('ocr dpi detection', () => {
             Array.from({ length: 392 }, (_value, index) => index + 1),
         );
 
-        expect(mocks.runOcrCommand).toHaveBeenCalledTimes(12);
+        expect(mocks.runOcrCommand).toHaveBeenCalledTimes(9);
         expect(mocks.runOcrCommand.mock.calls[0]?.[1]).toEqual([
             '-f',
             '1',
             '-l',
-            '1',
+            '48',
             '-list',
             '/tmp/input.pdf',
         ]);
         expect(mocks.runOcrCommand.mock.calls.at(-1)?.[1]).toEqual([
             '-f',
-            '392',
+            '385',
             '-l',
             '392',
             '-list',
@@ -134,8 +141,11 @@ describe('ocr dpi detection', () => {
             ],
             expect.anything(),
         );
-        expect(result.documentDpi).toBeNull();
-        expect(result.pageDpiByNumber.get(1)).toBe(600);
+        expect(result.documentDpi).toBe(360);
+        expect(result.pageDpiByNumber.size).toBe(392);
+        expect(result.pageDpiByNumber.get(1)).toBe(360);
+        expect(result.pageDpiByNumber.get(196)).toBe(360);
+        expect(result.pageDpiByNumber.get(392)).toBe(360);
     });
 
     it('downgrades recoverable pdfimages runner errors to debug logs', async () => {

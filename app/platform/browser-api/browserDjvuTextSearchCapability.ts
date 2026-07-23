@@ -1,4 +1,4 @@
-import type { IDjvuCapability } from '@contracts/electronApiDjvu';
+import type { IDjvuCapability } from '@contracts/djvuPlatformFeature';
 import {
     createDjvuWorkerFromPath,
     searchDjvuWorkerText,
@@ -22,7 +22,7 @@ function getActiveSearchesForRequest(requestId: string) {
     return created;
 }
 
-export const browserDjvuTextSearchCapability: TBrowserDjvuTextSearchCapability = {
+export const browserDjvuTextSearchCapability = {
     async searchText(djvuPath, query, options) {
         const activeSearches = getActiveSearchesForRequest(options.requestId);
         const previous = activeSearches.get(djvuPath);
@@ -84,4 +84,4 @@ export const browserDjvuTextSearchCapability: TBrowserDjvuTextSearchCapability =
             progressListeners.delete(callback);
         };
     },
-};
+} satisfies TBrowserDjvuTextSearchCapability;

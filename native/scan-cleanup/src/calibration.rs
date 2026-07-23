@@ -1,7 +1,7 @@
 use scan_primitives::{
     distance::squared_euclidean_distance,
     threshold::{otsu_threshold, threshold_global},
-    BinaryImage, ComponentMap, GrayImage,
+    BinaryImage, Component, ComponentMap, GrayImage,
 };
 
 const MIN_ESTIMATE_COMPONENTS: usize = 8;
@@ -98,8 +98,24 @@ impl PageCalibration {
                 }
             }
         }
+        Self::estimate_from_components(
+            map.components(),
+            &component_maxima,
+            ink_fraction,
+            effective_dpi,
+            config,
+        )
+    }
+
+    pub(crate) fn estimate_from_components(
+        components: &[Component],
+        component_maxima: &[u32],
+        ink_fraction: f64,
+        effective_dpi: f64,
+        config: CalibrationConfig,
+    ) -> Self {
         let mut stroke_widths = Vec::new();
-        for component in map.components() {
+        for component in components {
             if component.area < 4 {
                 continue;
             }
@@ -110,7 +126,7 @@ impl PageCalibration {
         }
         let stroke_width_px = median(&mut stroke_widths).unwrap_or_default();
         let mut x_heights = if stroke_widths.len() >= MIN_ESTIMATE_COMPONENTS {
-            map.components()
+            components
                 .iter()
                 .filter_map(|component| {
                     let width = component.right - component.left + 1;

@@ -25,6 +25,7 @@ export function createScanCleanupPageOverride(
         manualZones,
         manualSkewDegrees,
         marginsMm,
+        outputModeOverride,
         placementOverrides,
         ...scalarValues
     } = value;
@@ -46,6 +47,7 @@ export function createScanCleanupPageOverride(
                 rotationDegrees: polygon.rotationDegrees,
             })),
         }} : {}),
+        ...(outputModeOverride ? {outputModeOverride} : {}),
         ...(marginsMm && (!documentMargins || !areScanCleanupMarginsMmEqual(marginsMm, documentMargins))
             ? {marginsMm: {...marginsMm}}
             : {}),
@@ -81,6 +83,7 @@ export function isDefaultScanCleanupPageOverride(value: IScanCleanupPageOverride
         && value.excluded === DEFAULT_SCAN_CLEANUP_PAGE_OVERRIDE.excluded
         && value.manualSplit === DEFAULT_SCAN_CLEANUP_PAGE_OVERRIDE.manualSplit
         && value.manualSkewDegrees === undefined
+        && value.outputModeOverride === undefined
         && Object.keys(value.manualContentBoxes ?? {}).length === 0
         && (value.manualZones?.picture.length ?? 0) === 0
         && (value.manualZones?.fill.length ?? 0) === 0

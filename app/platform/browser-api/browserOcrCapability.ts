@@ -1,11 +1,11 @@
 import type {
-    IOcrCapability,
     IOcrErrorEnvelope,
     IOcrJobStartResult,
     IOcrRecognizeBatchResult,
     IOcrRecognizeResult,
     IOcrToolValidationResult,
 } from '@contracts/electronApiOcr';
+import type { IOcrCapability } from '@contracts/ocrPlatformFeature';
 import { noopUnsubscribe } from '@app/platform/browser-api/browserMenuHelpers';
 
 const BROWSER_OCR_UNAVAILABLE = 'Browser OCR is unavailable; use the desktop app to create searchable PDFs.';

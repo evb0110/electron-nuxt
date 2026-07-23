@@ -27,33 +27,27 @@ function logMissingLanguageModels(languages: string[]) {
     }
 }
 
-function startModelPrepTimeout(
-    preparingJob: IOcrPreparingJob,
-    timeoutMs: number,
-) {
-    const modelPrepTimeout = setTimeout(() => {
-        if (!preparingJob.abortController.signal.aborted) {
-            preparingJob.abortController.abort(
-                createTimeoutError(`OCR model preparation timed out after ${timeoutMs}ms`),
-            );
-        }
-    }, timeoutMs);
-    modelPrepTimeout.unref?.();
-    return modelPrepTimeout;
-}
-
 export async function prepareLanguageModelsForJob(
     preparingJob: IOcrPreparingJob,
     pages: IOcrPdfPageRequest[],
     timeoutMs: number,
 ) {
     const languages = getOcrJobLanguages(pages);
-
-    const modelPrepTimeout = startModelPrepTimeout(preparingJob, timeoutMs);
+    const timeoutController = new AbortController();
+    const modelPrepTimeout = setTimeout(() => {
+        timeoutController.abort(
+            createTimeoutError(`OCR model preparation timed out after ${timeoutMs}ms`),
+        );
+    }, timeoutMs);
+    modelPrepTimeout.unref?.();
+    const signal = AbortSignal.any([
+        preparingJob.registry.signal,
+        timeoutController.signal,
+    ]);
     try {
-        await ensureRuntimeTessdataSeeded({ signal: preparingJob.abortController.signal });
+        await ensureRuntimeTessdataSeeded({ signal });
         logMissingLanguageModels(languages);
-        await ensureTessdataLanguages(languages, { signal: preparingJob.abortController.signal });
+        await ensureTessdataLanguages(languages, { signal });
     } finally {
         clearTimeout(modelPrepTimeout);
     }
