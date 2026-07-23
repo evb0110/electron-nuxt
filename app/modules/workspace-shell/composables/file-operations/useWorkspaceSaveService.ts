@@ -64,7 +64,7 @@ interface ISaveCompletionPolicy {
     resetAnnotationStorage: boolean;
 }
 
-export type TWorkspaceSaveExecutionResult =
+type TWorkspaceSaveExecutionResult =
     | {
         status: 'saved';
         persisted: IPdfPersistResult;
@@ -800,7 +800,7 @@ async function executeOptimizationSave(
     }
 }
 
-export async function executeSavePlan(
+async function executeSavePlan(
     plan: TWorkspaceSavePlan,
     deps: IWorkspaceSaveDependencies,
 ): Promise<TWorkspaceSaveExecutionResult> {
@@ -900,7 +900,7 @@ function completeSuccessfulSaveState(
     }
 }
 
-export async function completeWorkspaceSave(
+async function completeWorkspaceSave(
     plan: TWorkspaceSavePlan | null,
     result: TWorkspaceSaveExecutionResult,
     deps: IWorkspaceSaveDependencies,

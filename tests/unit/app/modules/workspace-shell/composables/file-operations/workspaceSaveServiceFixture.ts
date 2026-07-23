@@ -13,8 +13,8 @@ import type {
     TMarkupSubtype,
 } from '@app/types/annotations';
 import type { IMarkupSubtypeHint } from '@app/modules/pdf-viewer/public';
-import type {IWorkspaceSaveDependencies} from '@app/modules/workspace-shell/composables/file-operations/workspaceSaveService';
-import {useWorkspaceSaveService} from '@app/modules/workspace-shell/composables/file-operations/workspaceSaveService';
+import type {IWorkspaceSaveDependencies} from '@app/modules/workspace-shell/composables/file-operations/useWorkspaceSaveService';
+import {useWorkspaceSaveService} from '@app/modules/workspace-shell/composables/file-operations/useWorkspaceSaveService';
 import { usePdfViewerSaveTransaction } from '@app/modules/pdf-viewer/runtime/save/usePdfViewerSaveTransaction';
 import {
     asAnnotationId,

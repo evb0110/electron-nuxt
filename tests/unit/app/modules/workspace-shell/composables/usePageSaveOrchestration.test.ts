@@ -13,7 +13,7 @@ import {
 import type { PDFDocumentProxy } from 'pdfjs-dist';
 import { usePageSaveOrchestration } from '@app/modules/workspace-shell/composables/usePageSaveOrchestration';
 import type { IScrollSnapshot } from '@app/types/pdfUi';
-import type {IWorkspaceSaveDependencies} from '@app/modules/workspace-shell/composables/file-operations/workspaceSaveService';
+import type {IWorkspaceSaveDependencies} from '@app/modules/workspace-shell/composables/file-operations/useWorkspaceSaveService';
 import { cast } from '@tests/helpers/cast';
 
 const saveMocks = vi.hoisted(() => ({
@@ -27,7 +27,7 @@ const saveMocks = vi.hoisted(() => ({
 const platformMocks = vi.hoisted(() => ({statFile: vi.fn()}));
 
 vi.mock(
-    '@app/modules/workspace-shell/composables/file-operations/workspaceSaveService',
+    '@app/modules/workspace-shell/composables/file-operations/useWorkspaceSaveService',
     () => ({useWorkspaceSaveService: vi.fn((deps: unknown) => {
         saveMocks.capturedDeps = deps;
         return {

@@ -18,8 +18,8 @@ import {
     createPdfReloadWaiter,
     type IPdfViewerExpose,
 } from '@app/modules/pdf-viewer/public';
-import type {IWorkspaceSaveDependencies} from '@app/modules/workspace-shell/composables/file-operations/workspaceSaveService';
-import {useWorkspaceSaveService} from '@app/modules/workspace-shell/composables/file-operations/workspaceSaveService';
+import type {IWorkspaceSaveDependencies} from '@app/modules/workspace-shell/composables/file-operations/useWorkspaceSaveService';
+import {useWorkspaceSaveService} from '@app/modules/workspace-shell/composables/file-operations/useWorkspaceSaveService';
 import type { TDocumentOperationKind } from '@app/types/documentOperationKind';
 import { getDocumentFilesCapability } from '@app/utils/platformDocuments';
 import { hasViewerShapeChanges } from '@app/modules/workspace-shell/annotations/hasViewerShapeChanges';

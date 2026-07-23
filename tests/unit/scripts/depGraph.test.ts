@@ -776,34 +776,34 @@ describe('dependency graph', () => {
 
     it('blocks direct PDF.js annotationStorage dirty-state access outside the save bridge', () => {
         expect(checkArchitectureBoundarySource(
-            'app/modules/workspace-shell/composables/file-operations/workspaceSaveService.ts',
+            'app/modules/workspace-shell/composables/file-operations/useWorkspaceSaveService.ts',
             'pdfDocument.value?.annotationStorage?.resetModified();',
         )).toEqual([{
             rule: 'annotation-storage-private-access',
-            source: 'app/modules/workspace-shell/composables/file-operations/workspaceSaveService.ts',
-            target: 'app/modules/workspace-shell/composables/file-operations/workspaceSaveService.ts',
+            source: 'app/modules/workspace-shell/composables/file-operations/useWorkspaceSaveService.ts',
+            target: 'app/modules/workspace-shell/composables/file-operations/useWorkspaceSaveService.ts',
             specifier: 'source',
             message: 'PDF.js annotationStorage dirty-state members must be accessed through the annotation save bridge.',
         }]);
 
         expect(checkArchitectureBoundarySource(
-            'app/modules/workspace-shell/composables/file-operations/workspaceSaveService.ts',
+            'app/modules/workspace-shell/composables/file-operations/useWorkspaceSaveService.ts',
             'const storage = document.annotationStorage;\nreturn storage?.serializable;',
         )).toEqual([{
             rule: 'annotation-storage-private-access',
-            source: 'app/modules/workspace-shell/composables/file-operations/workspaceSaveService.ts',
-            target: 'app/modules/workspace-shell/composables/file-operations/workspaceSaveService.ts',
+            source: 'app/modules/workspace-shell/composables/file-operations/useWorkspaceSaveService.ts',
+            target: 'app/modules/workspace-shell/composables/file-operations/useWorkspaceSaveService.ts',
             specifier: 'source',
             message: 'PDF.js annotationStorage dirty-state members must be accessed through the annotation save bridge.',
         }]);
 
         expect(checkArchitectureBoundarySource(
-            'app/modules/workspace-shell/composables/file-operations/workspaceSaveService.ts',
+            'app/modules/workspace-shell/composables/file-operations/useWorkspaceSaveService.ts',
             'const annotationStorage = document.annotationStorage;\nreturn annotationStorage["modifiedIds"];',
         )).toEqual([{
             rule: 'annotation-storage-private-access',
-            source: 'app/modules/workspace-shell/composables/file-operations/workspaceSaveService.ts',
-            target: 'app/modules/workspace-shell/composables/file-operations/workspaceSaveService.ts',
+            source: 'app/modules/workspace-shell/composables/file-operations/useWorkspaceSaveService.ts',
+            target: 'app/modules/workspace-shell/composables/file-operations/useWorkspaceSaveService.ts',
             specifier: 'source',
             message: 'PDF.js annotationStorage dirty-state members must be accessed through the annotation save bridge.',
         }]);
@@ -867,12 +867,12 @@ describe('dependency graph', () => {
         }]);
 
         expect(checkAnnotationDependencyEdge({
-            source: 'app/modules/workspace-shell/composables/file-operations/workspaceSaveService.ts',
+            source: 'app/modules/workspace-shell/composables/file-operations/useWorkspaceSaveService.ts',
             target: 'app/modules/pdf-viewer/runtime/save/buildPdfAnnotationSavePlan.ts',
             specifier: '@app/modules/pdf-viewer/runtime/save/buildPdfAnnotationSavePlan',
         })).toEqual([{
             rule: 'annotation-save-public-entrypoint',
-            source: 'app/modules/workspace-shell/composables/file-operations/workspaceSaveService.ts',
+            source: 'app/modules/workspace-shell/composables/file-operations/useWorkspaceSaveService.ts',
             target: 'app/modules/pdf-viewer/runtime/save/buildPdfAnnotationSavePlan.ts',
             specifier: '@app/modules/pdf-viewer/runtime/save/buildPdfAnnotationSavePlan',
             message: 'Annotation save internals must be consumed through app/modules/pdf-viewer/public.',
