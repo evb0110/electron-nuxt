@@ -99,19 +99,13 @@ interface IUseAnnotationSyncOptions {
     isPdfSourceBlob: () => boolean;
 }
 
-export type TPdfAnnotationNameReadIntent = 'eager' | 'interactive';
-export type TPdfAnnotationNameReconciliationResult =
+type TPdfAnnotationNameReadIntent = 'eager' | 'interactive';
+type TPdfAnnotationNameReconciliationResult =
     | 'reconciled'
     | 'already-reconciled'
     | 'skipped-over-limit'
     | 'stale'
     | 'failed';
-
-export interface IPdfAnnotationNameReadPolicy {
-    intent: TPdfAnnotationNameReadIntent;
-    sourceSize: number | null;
-    pageCount: number;
-}
 
 type TPdfAnnotationNameReadResult = 'reconciled' | 'skipped' | 'failed';
 

@@ -9,7 +9,7 @@ import {
     detectPdfaLevelFromPdfText,
     hasPdfEncryptMarkersInPdfText,
     hasPdfSignatureMarkersInPdfText,
-} from '@pdf-core';
+} from '@pdf-core/pdfConformanceHelpers';
 import {
     createPdfjsDocumentInit,
     createPdfjsDocumentInitFromBrowserDocument,
@@ -95,7 +95,7 @@ export async function analyzeBrowserPdfConformance(path: string): Promise<IPdfCo
 
     try {
         await yieldToBrowser();
-        const { loadPdfStructure } = await import('@pdf-core');
+        const { loadPdfStructure } = await import('@pdf-core/loadPdfStructure');
         const {
             doc,
             acroForm,

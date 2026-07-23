@@ -70,9 +70,14 @@ export const SOURCE_SIZE_ALLOWLIST = {
         stage: 'further preview shell extraction planned',
     },
     'electron/features/agent/codexAssistant.ts': {
-        maxLines: 1331,
-        reason: 'transitional Electron assistant backend facade after session store and runtime lifecycle extraction',
-        stage: 'Worker 2/Stage 1 - Assistant backend session/runtime split',
+        maxLines: 1354,
+        reason: 'assistant backend facade including lazy SDK loading seam and restartable heartbeat',
+        stage: 'Low-end perf program Stage 4 - lazy agent facade',
+    },
+    'electron/features/djvu/main/pdfExport.ts': {
+        maxLines: 1280,
+        reason: 'DjVu PDF export after durable-job registry migration; job-lifecycle extraction planned',
+        stage: 'Main job registry consolidation - DjVu durable jobs migration',
     },
     'app/modules/workspace-shell/composables/file-operations/useFileOperationsSaveController.ts': {
         maxLines: 441,
@@ -85,14 +90,19 @@ export const SOURCE_SIZE_ALLOWLIST = {
         stage: 'Worker 6 - Diagnostic trace analysis extraction',
     },
     'app/modules/workspace-shell/components/DocumentWorkspace.vue': {
-        maxLines: 1542,
-        reason: 'workspace component after extracting scan-cleanup surface state and action ownership',
-        stage: 'Scan cleanup integration - workspace surface extraction follow-up',
+        maxLines: 1556,
+        reason: 'workspace component after deferred conformance wiring',
+        stage: 'Low-end perf program Stage 2 - conformance defer',
     },
     'app/modules/workspace-shell/components/DocumentPageSourceFeaturePack.vue': {
-        maxLines: 1408,
-        reason: 'page-source feature pack after shared activation sequencing and raster-layout identity integration',
-        stage: 'Viewer core follow-up - page-source controller extraction',
+        maxLines: 1474,
+        reason: 'page-source feature pack after DjVu deactivation abort and lease release wiring',
+        stage: 'Low-end perf program Stage 2 - DjVu deactivation',
+    },
+    'app/modules/pdf-viewer/annotations/bridge/pdfjs-runtime/useAnnotationSync.ts': {
+        maxLines: 1248,
+        reason: 'annotation sync after size/tier-gated name-read policy and revision-fenced reconciliation',
+        stage: 'Low-end perf program Stage 2 - annotation inventory gate; reconciliation extraction planned',
     },
     'app/modules/pdf-viewer/runtime/rendering/usePdfAnnotationLayerRenderer.ts': {
         maxLines: 1297,

@@ -1,5 +1,5 @@
-import UTIF from 'utif';
 import type { PDFDocumentProxy } from 'pdfjs-dist';
+import type * as UTIFModule from 'utif';
 import {
     range,
     sumBy,
@@ -38,13 +38,17 @@ import {
 import {
     buildTiffImageIfd,
     encodeTiffIfds,
-} from '@pdf-core';
-import type { ITiffImageDescriptor } from '@pdf-core';
+} from '@pdf-core/tiffEncoding';
+import type {
+    ITiffEncoderModule,
+    ITiffImageDescriptor,
+} from '@pdf-core/tiffEncoding';
 import { createDjvuWorkerFromPath } from '@app/platform/browser-api/createDjvuWorkerFromPath';
 import { assertBrowserDjvuRasterDimensions } from '@app/platform/browser-api/assertBrowserDjvuRasterDimensions';
 
 type TBrowserImageExportFormat = 'jpeg' | 'png' | 'tiff';
 type TBrowserImageExportProgressPayload = Omit<IImageExportProgress, 'format' | 'requestId'>;
+type TUtifModule = typeof UTIFModule;
 
 interface IRenderedPdfPage {
     pageNumber: number;
@@ -57,8 +61,12 @@ interface IBrowserTiffPageDescriptor extends ITiffImageDescriptor {pageNumber: n
 
 const BROWSER_INLINE_TIFF_EXPORT_MAX_RGBA_BYTES = 64 * 1024 * 1024;
 const imageExportProgressListeners = new Set<(progress: IImageExportProgress) => void>();
+let utifModulePromise: Promise<TUtifModule> | null = null;
 
-const UTIF_ENCODER = UTIF;
+function loadUtifEncoder(): Promise<ITiffEncoderModule> {
+    utifModulePromise ??= import('utif');
+    return utifModulePromise.then(module => module.default);
+}
 
 function normalizeBrowserExportRequestId(requestId: unknown) {
     return typeof requestId === 'string' ? requestId.trim() : '';
@@ -235,12 +243,13 @@ async function renderPdfPageToImageBytes(
 ) {
     if (format === 'tiff') {
         const rendered = await renderPdfPage(pdfDocument, pageNumber);
+        const encoder = await loadUtifEncoder();
         return {
             bytes: encodeMultiPageTiff([{
                 rgba: rendered.rgba,
                 width: rendered.width,
                 height: rendered.height,
-            }]),
+            }], encoder),
             mimeType: resolveBrowserImageMimeType(format),
         };
     }
@@ -297,7 +306,10 @@ function alignOffset(offset: number, alignment: number) {
     return remainder === 0 ? offset : offset + (alignment - remainder);
 }
 
-function encodeMultiPageTiffHeader(pageDescriptors: IBrowserTiffPageDescriptor[]) {
+function encodeMultiPageTiffHeader(
+    pageDescriptors: IBrowserTiffPageDescriptor[],
+    encoder: ITiffEncoderModule,
+) {
     let firstDataOffset = 0;
     let header = new Uint8Array();
 
@@ -314,7 +326,7 @@ function encodeMultiPageTiffHeader(pageDescriptors: IBrowserTiffPageDescriptor[]
             pageDescriptors.map((page, index) =>
                 buildTiffImageIfd(page, pageOffsets[index] ?? 0),
             ),
-            UTIF_ENCODER,
+            encoder,
         ));
 
         const nextFirstDataOffset = alignOffset(header.length, 8);
@@ -336,11 +348,14 @@ function encodeMultiPageTiffHeader(pageDescriptors: IBrowserTiffPageDescriptor[]
     };
 }
 
-function createMultiPageTiffOutput(pageDescriptors: IBrowserTiffPageDescriptor[]) {
+function createMultiPageTiffOutput(
+    pageDescriptors: IBrowserTiffPageDescriptor[],
+    encoder: ITiffEncoderModule,
+) {
     const {
         header,
         firstDataOffset,
-    } = encodeMultiPageTiffHeader(pageDescriptors);
+    } = encodeMultiPageTiffHeader(pageDescriptors, encoder);
     const output = new Uint8Array(
         firstDataOffset + sumBy(pageDescriptors, descriptor => descriptor.dataLength),
     );
@@ -354,6 +369,7 @@ function createMultiPageTiffOutput(pageDescriptors: IBrowserTiffPageDescriptor[]
 async function encodeTiffToWritable(
     pdfDocument: Pick<PDFDocumentProxy, 'getPage'>,
     pageDescriptors: IBrowserTiffPageDescriptor[],
+    encoder: ITiffEncoderModule,
     handle: FileSystemFileHandle,
     onPageWritten?: (processed: number) => void,
 ) {
@@ -362,7 +378,7 @@ async function encodeTiffToWritable(
         const {
             header,
             firstDataOffset,
-        } = encodeMultiPageTiffHeader(pageDescriptors);
+        } = encodeMultiPageTiffHeader(pageDescriptors, encoder);
         await writable.write(header);
         const paddingLength = firstDataOffset - header.length;
         if (paddingLength > 0) {
@@ -394,12 +410,13 @@ async function encodeTiffToWritable(
 async function encodeTiffToBytes(
     pdfDocument: Pick<PDFDocumentProxy, 'getPage'>,
     pageDescriptors: IBrowserTiffPageDescriptor[],
+    encoder: ITiffEncoderModule,
     onPageWritten?: (processed: number) => void,
 ) {
     const {
         output,
         firstDataOffset,
-    } = createMultiPageTiffOutput(pageDescriptors);
+    } = createMultiPageTiffOutput(pageDescriptors, encoder);
     let offset = firstDataOffset;
 
     for (let index = 0; index < pageDescriptors.length; index += 1) {
@@ -589,7 +606,8 @@ async function exportBrowserDjvuAsTiff(
                 worker.revokeObjectURL(rendered.url);
             }
         }
-        const bytes = encodeMultiPageTiff(pages);
+        const encoder = await loadUtifEncoder();
+        const bytes = encodeMultiPageTiff(pages, encoder);
         const saveResult = await saveBytesToPickerOrDownload(bytes, {
             suggestedName: 'document.tiff',
             mimeType: 'image/tiff',
@@ -780,6 +798,7 @@ export function createBrowserImageExportCapability(): IImageExportCapability {
                     };
                 }
 
+                const encoder = await loadUtifEncoder();
                 const emitPageProgress = (processed: number) => emitBrowserImageExportProgress(requestId, 'multipage-tiff', {
                     phase: 'rendering',
                     processed,
@@ -792,6 +811,7 @@ export function createBrowserImageExportCapability(): IImageExportCapability {
                     const fileSize = await encodeTiffToWritable(
                         pdfDocument.pdfDocument,
                         descriptors,
+                        encoder,
                         saveTarget.handle,
                         emitPageProgress,
                     );
@@ -836,6 +856,7 @@ export function createBrowserImageExportCapability(): IImageExportCapability {
                 const tiffBytes = await encodeTiffToBytes(
                     pdfDocument.pdfDocument,
                     descriptors,
+                    encoder,
                     emitPageProgress,
                 );
                 emitBrowserImageExportProgress(requestId, 'multipage-tiff', {
@@ -895,6 +916,7 @@ function encodeMultiPageTiff(
         width: number;
         height: number;
     }>,
+    encoder: ITiffEncoderModule,
 ) {
     if (pages.length === 0) {
         throw new Error('No pages available for TIFF export');
@@ -909,7 +931,7 @@ function encodeMultiPageTiff(
     const {
         firstDataOffset,
         output,
-    } = createMultiPageTiffOutput(pageDescriptors);
+    } = createMultiPageTiffOutput(pageDescriptors, encoder);
     let offset = firstDataOffset;
     for (const page of pages) {
         output.set(page.rgba, offset);

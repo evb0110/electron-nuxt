@@ -14,6 +14,11 @@ import {
 } from './web-deploy-asset-manifest.mjs';
 
 const defaultProjectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const FORBIDDEN_INITIAL_RENDERER_DEPENDENCIES = [
+    'pdf-lib',
+    'utif',
+    'pako',
+];
 export {
     REQUIRED_WEB_DEPLOY_ASSETS,
     REQUIRED_WEB_OUTPUT_CONTRACTS,
@@ -80,6 +85,89 @@ async function assertWasmAsset(rootPath, rootLabel, asset) {
     };
 }
 
+function readHtmlAttribute(tag, name) {
+    const match = new RegExp(`\\b${name}\\s*=\\s*(["'])(.*?)\\1`, 'iu').exec(tag);
+    return match?.[2] ?? null;
+}
+
+function collectModulePreloadPaths(html) {
+    const paths = [];
+    for (const match of html.matchAll(/<link\b[^>]*>/giu)) {
+        const tag = match[0];
+        const rel = readHtmlAttribute(tag, 'rel');
+        const href = readHtmlAttribute(tag, 'href');
+        if (rel?.split(/\s+/u).includes('modulepreload') && href) {
+            paths.push(href);
+        }
+    }
+    return paths;
+}
+
+function collectStaticImportSpecifiers(source) {
+    const specifiers = [];
+    const pattern = /\b(?:import(?:[^"'();]*?\bfrom\s*)?|export[^"'();]*?\bfrom\s*)\s*["']([^"']+)["']/gu;
+    for (const match of source.matchAll(pattern)) {
+        specifiers.push(match[1]);
+    }
+    return specifiers;
+}
+
+function resolveLocalAssetPath(specifier, importerPath = '/') {
+    if (
+        !specifier.startsWith('/')
+        && !specifier.startsWith('./')
+        && !specifier.startsWith('../')
+    ) {
+        return null;
+    }
+
+    const baseUrl = new URL(importerPath, 'https://evb.local');
+    const resolvedUrl = new URL(specifier, baseUrl);
+    return resolvedUrl.origin === baseUrl.origin
+        ? decodeURIComponent(resolvedUrl.pathname)
+        : null;
+}
+
+export async function assertInitialRendererDependencyGraph(rootPath) {
+    const htmlPath = path.join(rootPath, 'electron/index.html');
+    const html = await readFile(htmlPath, 'utf8');
+    const modulePreloads = collectModulePreloadPaths(html)
+        .map(href => resolveLocalAssetPath(href))
+        .filter(assetPath => assetPath !== null);
+    const pending = [...modulePreloads];
+    const visited = new Set();
+
+    while (pending.length > 0) {
+        const assetPath = pending.pop();
+        if (!assetPath || visited.has(assetPath)) {
+            continue;
+        }
+        visited.add(assetPath);
+
+        const source = await readFile(path.join(rootPath, assetPath.slice(1)), 'utf8');
+        const forbiddenDependency = FORBIDDEN_INITIAL_RENDERER_DEPENDENCIES.find(
+            dependency => new RegExp(`\\b${dependency}\\b`, 'iu').test(source),
+        );
+        if (forbiddenDependency) {
+            throw new Error(
+                `Initial renderer dependency graph contains ${forbiddenDependency}: ${assetPath}`,
+            );
+        }
+
+        for (const specifier of collectStaticImportSpecifiers(source)) {
+            const importedAssetPath = resolveLocalAssetPath(specifier, assetPath);
+            if (importedAssetPath && !visited.has(importedAssetPath)) {
+                pending.push(importedAssetPath);
+            }
+        }
+    }
+
+    return {
+        modulePreloads,
+        staticAssets: [...visited],
+    };
+}
+
 async function validateAssetRoot(rootPath, rootLabel, {requireOutputContracts = false} = {}) {
     await assertDirectory(rootPath, rootLabel);
 
@@ -93,6 +181,7 @@ async function validateAssetRoot(rootPath, rootLabel, {requireOutputContracts = 
         for (const relativePath of REQUIRED_WEB_OUTPUT_CONTRACTS) {
             assets.push(await assertFileAsset(rootPath, rootLabel, {relativePath}));
         }
+        await assertInitialRendererDependencyGraph(rootPath);
     }
     return assets;
 }

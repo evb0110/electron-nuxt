@@ -1,4 +1,3 @@
-import * as utifModule from 'utif';
 import {
     beforeEach,
     describe,
@@ -6,6 +5,9 @@ import {
     it,
     vi,
 } from 'vitest';
+import type * as UTIFModule from 'utif';
+
+type TUtifModule = typeof UTIFModule;
 
 const browserDocumentStoreMock = vi.hoisted(() => ({
     cleanupDetachedDocument: vi.fn(async () => true),
@@ -22,6 +24,12 @@ const writeBytesToHandleMock = vi.hoisted(() => vi.fn(async (
 ) => {}));
 const getDocumentMock = vi.hoisted(() => vi.fn());
 const yieldToBrowserMock = vi.hoisted(() => vi.fn(async () => {}));
+const createDjvuWorkerFromPathMock = vi.hoisted(() => vi.fn());
+const utifLoaderState = vi.hoisted(() => ({
+    encoderAccess: vi.fn(),
+    encoderError: null as Error | null,
+    request: vi.fn(),
+}));
 
 vi.mock('@app/platform/browserDocumentStore', () => ({
     browserDocumentStore: browserDocumentStoreMock,
@@ -29,6 +37,28 @@ vi.mock('@app/platform/browserDocumentStore', () => ({
 }));
 
 vi.mock('@app/platform/browser-api/browserYield', () => ({ yieldToBrowser: yieldToBrowserMock }));
+
+vi.mock('@app/platform/browser-api/createDjvuWorkerFromPath', () => ({createDjvuWorkerFromPath: (...args: unknown[]) =>
+    createDjvuWorkerFromPathMock(...args)}));
+
+vi.mock('utif', async importOriginal => {
+    utifLoaderState.request();
+    const actual = await importOriginal<TUtifModule>();
+    return {
+        ...actual,
+        default: new Proxy(actual.default, {get(target, property, receiver) {
+            if (property === 'ttypes') {
+                utifLoaderState.encoderAccess();
+            }
+            if (property === '_writeIFD' && utifLoaderState.encoderError) {
+                return () => {
+                    throw utifLoaderState.encoderError;
+                };
+            }
+            return Reflect.get(target, property, receiver);
+        }}),
+    };
+});
 
 vi.mock('@app/platform/browser-api/browserFilePickerAdapter', () => ({
     pickSaveTarget: (...args: unknown[]) => pickSaveTargetMock(...args),
@@ -55,7 +85,7 @@ vi.mock('@app/platform/browser-api/browserFileName', () => ({ ensurePdfExtension
 
 vi.mock('@app/platform/browser-api/browserBytes', () => ({ toUint8Array: (value: Uint8Array | ArrayBuffer) => value instanceof Uint8Array ? value : new Uint8Array(value) }));
 
-const UTIF = utifModule;
+const UTIF = await vi.importActual<TUtifModule>('utif');
 
 function countTiffDirectories(bytes: Uint8Array) {
     const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
@@ -80,15 +110,18 @@ function createCanvas() {
         width: 0,
         height: 0,
         currentPageNumber: 0,
-        getContext: vi.fn(() => ({ getImageData: vi.fn(() => {
-            const data = new Uint8ClampedArray([
-                Math.max(0, canvas.currentPageNumber - 1),
-                0,
-                0,
-                255,
-            ]);
-            return {data};
-        }) })),
+        getContext: vi.fn(() => ({
+            drawImage: vi.fn(),
+            getImageData: vi.fn(() => {
+                const data = new Uint8ClampedArray([
+                    Math.max(0, canvas.currentPageNumber - 1),
+                    0,
+                    0,
+                    255,
+                ]);
+                return {data};
+            }),
+        })),
         toBlob: vi.fn((
             callback: (blob: Blob | null) => void,
             type = 'image/png',
@@ -120,7 +153,9 @@ function createFakePdfDocument(pageCount: number) {
 
 describe('createBrowserImageExportCapability', () => {
     beforeEach(() => {
+        vi.resetModules();
         vi.clearAllMocks();
+        utifLoaderState.encoderError = null;
         browserDocumentStoreMock.createStoredDocument.mockResolvedValue(
             'browser://documents/output/sample.tiff',
         );
@@ -149,6 +184,64 @@ describe('createBrowserImageExportCapability', () => {
         vi.stubGlobal('document', mockDocument);
     });
 
+    it('does not load UTIF for JPEG or PNG exports', async () => {
+        getDocumentMock
+            .mockReturnValueOnce({promise: Promise.resolve(createFakePdfDocument(1))})
+            .mockReturnValueOnce({promise: Promise.resolve(createFakePdfDocument(1))});
+        pickSaveTargetMock
+            .mockResolvedValueOnce({
+                canceled: false,
+                fileName: 'page-001.jpg',
+                handle: null,
+            })
+            .mockResolvedValueOnce({
+                canceled: false,
+                fileName: 'page-001.png',
+                handle: null,
+            });
+        saveBytesToPickerOrDownloadMock
+            .mockResolvedValueOnce({
+                canceled: false,
+                fileName: 'page-001.jpg',
+                handle: null,
+            })
+            .mockResolvedValueOnce({
+                canceled: false,
+                fileName: 'page-001.png',
+                handle: null,
+            });
+
+        const { createBrowserImageExportCapability } = await import(
+            '@app/platform/browser-api/createBrowserImageExportCapability'
+        );
+        const capability = createBrowserImageExportCapability();
+
+        await capability.exportPdfToImages('browser://documents/work/sample.pdf', [1]);
+        await capability.exportPdfToImages('browser://documents/work/sample.pdf', [1]);
+
+        expect(utifLoaderState.encoderAccess).not.toHaveBeenCalled();
+        expect(utifLoaderState.request).not.toHaveBeenCalled();
+    });
+
+    it('shares one UTIF module request across concurrent TIFF exports', async () => {
+        getDocumentMock
+            .mockReturnValueOnce({promise: Promise.resolve(createFakePdfDocument(1))})
+            .mockReturnValueOnce({promise: Promise.resolve(createFakePdfDocument(1))});
+
+        const { createBrowserImageExportCapability } = await import(
+            '@app/platform/browser-api/createBrowserImageExportCapability'
+        );
+        const capability = createBrowserImageExportCapability();
+
+        await Promise.all([
+            capability.exportPdfToMultiPageTiff('browser://documents/work/first.pdf'),
+            capability.exportPdfToMultiPageTiff('browser://documents/work/second.pdf'),
+        ]);
+
+        expect(utifLoaderState.request).toHaveBeenCalledOnce();
+        expect(utifLoaderState.encoderAccess).toHaveBeenCalled();
+    });
+
     it('keeps the full browser multi-page TIFF directory chain intact past the legacy UTIF header limit', async () => {
         const fakePdfDocument = createFakePdfDocument(120);
         getDocumentMock.mockReturnValue({ promise: Promise.resolve(fakePdfDocument) });
@@ -162,6 +255,7 @@ describe('createBrowserImageExportCapability', () => {
             'browser://documents/work/sample.pdf',
         );
 
+        expect(utifLoaderState.encoderAccess).toHaveBeenCalled();
         expect(result).toEqual({
             success: true,
             outputPath: 'browser://documents/output/sample.tiff',
@@ -212,6 +306,95 @@ describe('createBrowserImageExportCapability', () => {
 
         expect(fakePdfDocument.destroy).toHaveBeenCalledTimes(1);
         expect(saveBytesToPickerOrDownloadMock).not.toHaveBeenCalled();
+    });
+
+    it('does not load UTIF when multi-page TIFF export is canceled before encoding', async () => {
+        const fakePdfDocument = createFakePdfDocument(1);
+        getDocumentMock.mockReturnValue({promise: Promise.resolve(fakePdfDocument)});
+        pickSaveTargetMock.mockResolvedValueOnce({
+            canceled: true,
+            fileName: 'sample.tiff',
+            handle: null,
+        });
+
+        const { createBrowserImageExportCapability } = await import(
+            '@app/platform/browser-api/createBrowserImageExportCapability'
+        );
+
+        await expect(createBrowserImageExportCapability().exportPdfToMultiPageTiff(
+            'browser://documents/work/sample.pdf',
+        )).resolves.toEqual({
+            success: false,
+            canceled: true,
+        });
+
+        expect(utifLoaderState.request).not.toHaveBeenCalled();
+        expect(utifLoaderState.encoderAccess).not.toHaveBeenCalled();
+        expect(fakePdfDocument.destroy).toHaveBeenCalledOnce();
+        expect(saveBytesToPickerOrDownloadMock).not.toHaveBeenCalled();
+    });
+
+    it('destroys the PDF.js document when the TIFF encoder rejects the export', async () => {
+        const fakePdfDocument = createFakePdfDocument(1);
+        getDocumentMock.mockReturnValue({promise: Promise.resolve(fakePdfDocument)});
+        utifLoaderState.encoderError = new Error('encoder failed');
+
+        const { createBrowserImageExportCapability } = await import(
+            '@app/platform/browser-api/createBrowserImageExportCapability'
+        );
+
+        await expect(createBrowserImageExportCapability().exportPdfToMultiPageTiff(
+            'browser://documents/work/sample.pdf',
+        )).rejects.toThrow('encoder failed');
+
+        expect(utifLoaderState.encoderAccess).toHaveBeenCalled();
+        expect(fakePdfDocument.destroy).toHaveBeenCalledOnce();
+        expect(saveBytesToPickerOrDownloadMock).not.toHaveBeenCalled();
+        expect(browserDocumentStoreMock.createStoredDocument).not.toHaveBeenCalled();
+    });
+
+    it('loads UTIF for DjVu TIFF export and terminates the worker', async () => {
+        const terminate = vi.fn();
+        const revokeObjectURL = vi.fn();
+        createDjvuWorkerFromPathMock.mockResolvedValue({
+            doc: {
+                getPagesSizes: () => ({run: async () => [{
+                    width: 1,
+                    height: 1,
+                }]}),
+                getPage: () => ({createPngObjectUrl: () => ({run: async () => ({url: 'blob:djvu-page'})})}),
+            },
+            revokeObjectURL,
+            terminate,
+        });
+        vi.stubGlobal('fetch', vi.fn(async () => ({
+            arrayBuffer: async () => new Uint8Array([1]).buffer,
+            ok: true,
+        })));
+        vi.stubGlobal('createImageBitmap', vi.fn(async () => ({
+            close: vi.fn(),
+            height: 1,
+            width: 1,
+        })));
+
+        const { createBrowserImageExportCapability } = await import(
+            '@app/platform/browser-api/createBrowserImageExportCapability'
+        );
+
+        await expect(createBrowserImageExportCapability().exportPdfToMultiPageTiff(
+            'browser://documents/work/sample.djvu',
+            [1],
+            undefined,
+            'djvu',
+        )).resolves.toEqual({
+            success: true,
+            outputPath: 'browser://documents/output/sample.tiff',
+            outputPaths: ['browser://documents/output/sample.tiff'],
+        });
+
+        expect(utifLoaderState.encoderAccess).toHaveBeenCalled();
+        expect(revokeObjectURL).toHaveBeenCalledWith('blob:djvu-page');
+        expect(terminate).toHaveBeenCalledOnce();
     });
 
     it('cleans up the PDF page and resets its canvas when rendering rejects', async () => {
@@ -448,6 +631,7 @@ describe('createBrowserImageExportCapability', () => {
             mimeType: 'image/tiff',
         }));
         expect(countTiffDirectories(savedBytes)).toBe(1);
+        expect(utifLoaderState.encoderAccess).toHaveBeenCalled();
         const ifds = UTIF.decode(savedBytes);
         expect(ifds).toHaveLength(1);
         UTIF.decodeImage(savedBytes, ifds[0]!);

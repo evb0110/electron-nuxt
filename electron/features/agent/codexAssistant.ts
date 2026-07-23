@@ -363,13 +363,26 @@ const appServerNotifications = createAssistantAppServerNotificationController({
     upsertAssistantMessage,
 });
 
-const assistantHeartbeat = createAssistantHeartbeatController({
-    sessions: sessionStore.listSessions,
-    isActive: session => isAssistantTurnActive(session.turnOwner),
-    recordBoundary: sessionStore.recordTurnBoundary,
-    publish: (event, session) => publishAssistantEvent(event, session.scope, session),
-});
-syncAssistantHeartbeat = assistantHeartbeat.sync;
+function startAssistantHeartbeat() {
+    const heartbeat = createAssistantHeartbeatController({
+        sessions: sessionStore.listSessions,
+        isActive: session => isAssistantTurnActive(session.turnOwner),
+        recordBoundary: sessionStore.recordTurnBoundary,
+        publish: (event, session) => publishAssistantEvent(event, session.scope, session),
+    });
+    syncAssistantHeartbeat = heartbeat.sync;
+    return heartbeat;
+}
+
+type TAssistantHeartbeatTimer =
+    ReturnType<typeof startAssistantHeartbeat>;
+
+let assistantHeartbeatTimer: TAssistantHeartbeatTimer | null = null;
+
+// fallow-ignore-next-line unused-export
+export function initializeAgentAssistantRuntime() {
+    assistantHeartbeatTimer ??= startAssistantHeartbeat();
+}
 
 function addMessage(
     session: IAssistantChatSession,
@@ -804,6 +817,7 @@ export async function getAgentAssistantState(
     return currentState(scope, selection);
 }
 
+// fallow-ignore-next-line unused-export
 export async function installAgentAssistantCodex(): Promise<IAgentAssistantInstallResult> {
     if (!(await isAssistantFeatureEnabled())) {
         const error = await stopAssistantForDisabledFeature();
@@ -909,6 +923,7 @@ export async function startAgentAssistantLogin(
     }
 }
 
+// fallow-ignore-next-line unused-export
 export async function cancelAgentAssistantLogin(): Promise<IAgentAssistantState> {
     authReturnWindow = null;
     const currentRuntime = runtimeLifecycle.getRuntime();
@@ -1328,7 +1343,9 @@ export async function resetAgentAssistantChat(
 }
 
 export async function shutdownAgentAssistant() {
-    assistantHeartbeat.dispose();
+    assistantHeartbeatTimer?.dispose();
+    assistantHeartbeatTimer = null;
+    syncAssistantHeartbeat = () => {};
     await shutdownCodexAssistantRuntime({ shutdownMcp: false });
     await shutdownClaudeAssistantRuntime({ shutdownMcp: false });
     await sessionStore.flushPersistence();

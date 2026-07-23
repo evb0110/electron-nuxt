@@ -24,11 +24,6 @@ export interface IPrioritizedViewerChunkWarmupOptions {
     loaderOverrides?: Partial<Record<TWorkspaceViewerChunkTarget, TWorkspaceViewerChunkLoader>>;
 }
 
-export interface IViewerChunkTargetWarmupOptions {
-    targets: readonly TWorkspaceViewerChunkTarget[];
-    loaderOverrides?: Partial<Record<TWorkspaceViewerChunkTarget, TWorkspaceViewerChunkLoader>>;
-}
-
 export interface IScheduleDesktopViewerWarmupOptions
     extends IDesktopViewerChunkWarmupOptions {
     strategy: TDesktopViewerWarmupStrategy;
@@ -57,7 +52,12 @@ function loadViewerChunkTargets(
     return Promise.all(targets.map(target => loaders[target]()));
 }
 
-export function warmupDesktopViewerChunkTargets(options: IViewerChunkTargetWarmupOptions) {
+interface IViewerChunkTargetWarmupOptions {
+    targets: readonly TWorkspaceViewerChunkTarget[];
+    loaderOverrides?: Partial<Record<TWorkspaceViewerChunkTarget, TWorkspaceViewerChunkLoader>>;
+}
+
+function warmupDesktopViewerChunkTargets(options: IViewerChunkTargetWarmupOptions) {
     return loadViewerChunkTargets(options.targets, options.loaderOverrides);
 }
 

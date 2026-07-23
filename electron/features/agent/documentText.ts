@@ -16,6 +16,7 @@ import {
     validateSearchQuery,
 } from '@electron/features/search/public';
 import { loadSearchIndex } from '@electron/search/indexBuilder';
+import {loadPdfjsTextExtractor} from '@electron/search/loadPdfjsTextExtractor';
 import { getWorkingCopyRevision } from '@electron/file-access/documentRevisionStore';
 import type { IPageText } from '@electron/search/pageText';
 import {
@@ -464,7 +465,7 @@ async function extractSelectedPdfPageTextWithFallback(
 ) {
     throwIfAborted(signal);
     try {
-        const { extractTextWithPdfjs } = await import('@electron/search/extractTextWithPdfjs');
+        const {extractTextWithPdfjs} = await loadPdfjsTextExtractor();
         return {
             source: 'direct-pdfjs' as const,
             pages: completeRequestedPageTexts(await extractTextWithPdfjs(pdfPath, {

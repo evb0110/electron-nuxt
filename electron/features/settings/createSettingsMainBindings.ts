@@ -8,6 +8,7 @@ import {
     loadSettings,
     updateSettings,
 } from '@electron/settings';
+import { setElectronLocale } from '@electron/te';
 import { createLogger } from '@electron/utils/createLogger';
 
 const logger = createLogger('ipc');
@@ -32,7 +33,7 @@ async function applySettingsSavePatch(
     shutdownAssistant: () => Promise<void>,
 ) {
     let shouldShutdownAssistant = false;
-    await updateSettings((currentSettings: ISettingsData) => {
+    const savedSettings = await updateSettings((currentSettings: ISettingsData) => {
         const incoming = sanitizeSettings({
             ...currentSettings,
             ...settingsPayload,
@@ -55,6 +56,7 @@ async function applySettingsSavePatch(
     if (shouldShutdownAssistant) {
         await shutdownAssistant();
     }
+    await setElectronLocale(savedSettings.locale);
     updateRecentFilesMenu();
 }
 

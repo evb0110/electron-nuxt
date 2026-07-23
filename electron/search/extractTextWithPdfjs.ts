@@ -61,7 +61,7 @@ const PDFJS_MAX_INPUT_BYTES = (() => {
     return parsed * 1024 * 1024;
 })();
 
-interface IExtractPdfjsTextOptions {
+export interface IExtractPdfjsTextOptions {
     signal?: AbortSignal;
     onPageText?: (page: IPageText) => void;
     collectPages?: boolean;
@@ -80,7 +80,7 @@ export interface IPageTextWithWordBoxes extends IPageText {
     hasInvisibleText: boolean;
 }
 
-interface IExtractPdfjsWordBoxOptions {
+export interface IExtractPdfjsWordBoxOptions {
     signal?: AbortSignal;
     onPageText?: (page: IPageTextWithWordBoxes) => void;
     collectPages?: boolean;

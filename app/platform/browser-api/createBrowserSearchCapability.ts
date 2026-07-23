@@ -6,9 +6,9 @@ import type {
 } from '@contracts/search';
 import {
     buildPdfSearchExcerpt,
-    collectSearchMatchWords,
     iteratePdfSearchMatches,
-} from '@pdf-core';
+} from '@pdf-core/pdfSearchCore';
+import { collectSearchMatchWords } from '@pdf-core/collectSearchMatchWords';
 import { requirePageNumber } from '@contracts/pageNumbers';
 import type {
     SEARCH_PLATFORM_FEATURE,

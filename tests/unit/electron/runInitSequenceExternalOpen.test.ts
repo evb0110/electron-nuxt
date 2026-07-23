@@ -68,6 +68,7 @@ describe('runInitSequence external open IPC', () => {
         const focusMainWindow = vi.fn();
         const createWindow = vi.fn(async () => mainWindow as never);
         const initializeResourceRuntime = vi.fn(async () => {});
+        const initializeElectronTranslations = vi.fn(async () => {});
         const cleanupStaleWorkingCopyDirectories = vi.fn(async () => ({
             removedDirectories: 0,
             removedOcrDirectories: 0,
@@ -114,6 +115,7 @@ describe('runInitSequence external open IPC', () => {
             }),
             hasWindows: vi.fn(() => options.hasWindows ?? true),
             initRecentFilesCache,
+            initializeElectronTranslations,
             initializeResourceRuntime,
             initializeUpdates: vi.fn(),
             installHostEnvironmentDisplayWatcher: vi.fn(),
@@ -154,6 +156,7 @@ describe('runInitSequence external open IPC', () => {
             externalOpenManager,
             focusMainWindow,
             initializeResourceRuntime,
+            initializeElectronTranslations,
             mainWindow,
             otherWindow,
             initRecentFilesCache,
@@ -192,6 +195,14 @@ describe('runInitSequence external open IPC', () => {
 
         expect(harness.initializeResourceRuntime).toHaveBeenCalledOnce();
         expect(harness.initializeResourceRuntime.mock.invocationCallOrder[0])
+            .toBeLessThan(harness.createWindow.mock.invocationCallOrder[0]!);
+    });
+
+    it('initializes translations before IPC registration and window creation', async () => {
+        const harness = await createHarness();
+
+        expect(harness.initializeElectronTranslations).toHaveBeenCalledOnce();
+        expect(harness.initializeElectronTranslations.mock.invocationCallOrder[0])
             .toBeLessThan(harness.createWindow.mock.invocationCallOrder[0]!);
     });
 

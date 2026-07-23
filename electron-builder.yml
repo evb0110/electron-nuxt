@@ -37,10 +37,11 @@ files:
   - package.json
   - scripts/evb-mcp-proxy.mjs
   # Runtime needs nothing from node_modules (electron-updater is bundled into
-  # main.cjs); production dependencies exist for the web/Nitro target only.
+  # main.js); production dependencies exist for the web/Nitro target only.
   - "!**/node_modules/**"
   - "!nuxt-output/**/*.map"
   - "!dist-electron/**/*.map"
+  - "!dist-electron/**/*.meta.json"
   # Web-only marketing/SEO surface — unreachable from the desktop shell.
   - "!nuxt-output/public/evb-viewer-seo.png"
   - "!nuxt-output/public/evb-viewer-preview-cropped.png"

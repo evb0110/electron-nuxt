@@ -98,7 +98,7 @@ async function resolveSearchDocumentRevision(
     return parsedDocumentRevision ?? (await getWorkingCopyRevision(resolvedPdfPath, senderId)).token;
 }
 
-export async function handlePdfSearch(
+async function handlePdfSearch(
     context: ISearchSenderContext,
     request: INormalizedPdfSearchRequest,
 ): Promise<ISearchResponse> {
@@ -153,7 +153,7 @@ export async function handlePdfSearch(
     return searchWorkerService.dispatchSearchRequest(operationContext, dispatchPayload);
 }
 
-export async function handlePdfSearchWarmIndex(
+async function handlePdfSearchWarmIndex(
     context: ISearchSenderContext,
     request: INormalizedPdfSearchWarmIndexRequest,
 ) {
@@ -187,7 +187,7 @@ export async function handlePdfSearchWarmIndex(
     return true;
 }
 
-export const searchMainBindings = {
+const searchMainBindings = {
     run: handlePdfSearch,
     warmIndex: handlePdfSearchWarmIndex,
     cancel: (context, requestId) => searchWorkerService.cancel(context, requestId),

@@ -367,9 +367,9 @@ async function stopFailedElectronStartup(electron: ChildProcess, cdpPort: number
 }
 
 async function startElectron(cdpPort: number, initialOpenPaths: string[] = []): Promise<ChildProcess> {
-    const mainJs = join(projectRoot, 'dist-electron', 'main.cjs');
+    const mainJs = join(projectRoot, 'dist-electron', 'main.js');
     if (!existsSync(mainJs)) {
-        throw new Error('dist-electron/main.cjs not found. Run `pnpm run build:electron` first.');
+        throw new Error('dist-electron/main.js not found. Run `pnpm run build:electron` first.');
     }
 
     console.log('[Electron] Starting with CDP on port', cdpPort);

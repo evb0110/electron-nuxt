@@ -19,6 +19,10 @@ interface IWebDeployAssetsModule {
     REQUIRED_WEB_OUTPUT_CONTRACTS: string[];
     REQUIRED_WEB_WASM_ASSETS: Array<{ relativePath: string }>;
     getExpectedWebDeployOutputRoots: (env?: NodeJS.ProcessEnv) => string[];
+    assertInitialRendererDependencyGraph: (rootPath: string) => Promise<{
+        modulePreloads: string[];
+        staticAssets: string[];
+    }>;
     validateWebDeployAssets: (options?: {
         env?: NodeJS.ProcessEnv;
         outputRoots?: string[];
@@ -32,6 +36,7 @@ const {
     REQUIRED_WEB_DEPLOY_ASSETS,
     REQUIRED_WEB_OUTPUT_CONTRACTS,
     REQUIRED_WEB_WASM_ASSETS,
+    assertInitialRendererDependencyGraph,
     getExpectedWebDeployOutputRoots,
     validateWebDeployAssets,
     validateVercelFunctionBoot,
@@ -70,9 +75,15 @@ async function createTempProject() {
         }
     }
     for (const root of roots.slice(1)) {
+        await mkdir(path.join(tempRoot, root, 'electron'), {recursive: true});
         for (const relativePath of REQUIRED_WEB_OUTPUT_CONTRACTS) {
             await writeFile(path.join(tempRoot, root, relativePath), '<!doctype html>', 'utf8');
         }
+        await writeFile(
+            path.join(tempRoot, root, 'electron/index.html'),
+            '<!doctype html>',
+            'utf8',
+        );
     }
 
     return tempRoot;
@@ -113,6 +124,80 @@ describe('web deploy assets check', () => {
         expect(getExpectedWebDeployOutputRoots({})).toEqual(['nuxt-output/public']);
         expect(getExpectedWebDeployOutputRoots({VERCEL: '1'})).toEqual(['.vercel/output/static']);
         expect(getExpectedWebDeployOutputRoots({NOW_BUILDER: '1'})).toEqual(['.vercel/output/static']);
+    });
+
+    it('rejects forbidden dependencies reached through static initial imports', async () => {
+        const tempRoot = await createTempProject();
+        const outputRoot = path.join(tempRoot, 'nuxt-output/public');
+        try {
+            await mkdir(path.join(outputRoot, '_nuxt'), {recursive: true});
+            await writeFile(
+                path.join(outputRoot, 'electron/index.html'),
+                '<link rel="modulepreload" href="/_nuxt/entry.js">',
+                'utf8',
+            );
+            await writeFile(
+                path.join(outputRoot, '_nuxt/entry.js'),
+                'import "./shared.js"; import("./lazy.js");',
+                'utf8',
+            );
+            await writeFile(
+                path.join(outputRoot, '_nuxt/shared.js'),
+                'export {value} from "./vendor.js";',
+                'utf8',
+            );
+            await writeFile(
+                path.join(outputRoot, '_nuxt/vendor.js'),
+                'export const value = "pdf-lib";',
+                'utf8',
+            );
+            await writeFile(
+                path.join(outputRoot, '_nuxt/lazy.js'),
+                'export const value = "utif";',
+                'utf8',
+            );
+
+            await expect(assertInitialRendererDependencyGraph(outputRoot))
+                .rejects.toThrow('Initial renderer dependency graph contains pdf-lib: /_nuxt/vendor.js');
+        } finally {
+            await rm(tempRoot, {
+                force: true,
+                recursive: true,
+            });
+        }
+    });
+
+    it('does not treat dynamic imports as initial renderer dependencies', async () => {
+        const tempRoot = await createTempProject();
+        const outputRoot = path.join(tempRoot, 'nuxt-output/public');
+        try {
+            await mkdir(path.join(outputRoot, '_nuxt'), {recursive: true});
+            await writeFile(
+                path.join(outputRoot, 'electron/index.html'),
+                '<link href="/_nuxt/entry.js" rel="modulepreload">',
+                'utf8',
+            );
+            await writeFile(
+                path.join(outputRoot, '_nuxt/entry.js'),
+                'import("./lazy.js");',
+                'utf8',
+            );
+            await writeFile(
+                path.join(outputRoot, '_nuxt/lazy.js'),
+                'export const value = "pako";',
+                'utf8',
+            );
+
+            await expect(assertInitialRendererDependencyGraph(outputRoot)).resolves.toEqual({
+                modulePreloads: ['/_nuxt/entry.js'],
+                staticAssets: ['/_nuxt/entry.js'],
+            });
+        } finally {
+            await rm(tempRoot, {
+                force: true,
+                recursive: true,
+            });
+        }
     });
 
     it('loads the generated Vercel server function entry', async () => {

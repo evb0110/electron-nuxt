@@ -31,13 +31,13 @@ export interface IMainJobActor {
     documentInstanceId?: TDocumentInstanceId;
     documentRevision?: string;
 }
-export interface IMainJobOwnerKey {
+interface IMainJobOwnerKey {
     webContentsId: number;
     ownerId?: string;
     documentInstanceId?: TDocumentInstanceId;
     documentRevision?: string;
 }
-export type TMainJobStatus = 'queued' | 'running' | 'canceling' | 'handoff' | 'committing' | 'completed' | 'canceled' | 'failed';
+type TMainJobStatus = 'queued' | 'running' | 'canceling' | 'handoff' | 'committing' | 'completed' | 'canceled' | 'failed';
 interface IMainJobSnapshotBase<TProgress> {
     jobId: string;
     owner: IMainJobOwnerKey;

@@ -14,7 +14,7 @@
   "engines": {
     "node": "24.x"
   },
-  "main": "dist-electron/main.cjs",
+  "main": "dist-electron/main.js",
   "scripts": {
     "start": "pnpm run build:electron && tsx scripts/electronRun.ts start",
     "dev": "tsx scripts/runDevWithOutputTee.ts",

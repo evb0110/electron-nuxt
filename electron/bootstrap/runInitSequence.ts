@@ -88,6 +88,7 @@ export interface IRunInitSequenceOptions {
     getWindowFromWebContents(webContents: WebContents): BrowserWindow | null;
     hasWindows(): boolean;
     initRecentFilesCache(): Promise<void>;
+    initializeElectronTranslations(): Promise<void>;
     initializeResourceRuntime(): Promise<void>;
     initializeUpdates(onStatus: (status: IAppUpdateStatus) => void): void;
     installHostEnvironmentDisplayWatcher(): void;
@@ -552,6 +553,7 @@ export async function runInitSequence(options: IRunInitSequenceOptions) {
     const startupExternalOpenClaims = createStartupExternalOpenClaimTracker(options);
     bootSingleInstance(options);
     await bootProtocol(options);
+    await options.initializeElectronTranslations();
     await options.initializeResourceRuntime();
     await bootDevDockIcon(options);
     bootAboutPanel(options);

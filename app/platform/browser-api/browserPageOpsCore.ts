@@ -12,7 +12,7 @@ import type { IPageMutationWorkerResult } from '@app/platform/browser-api/browse
 import {
     resolvePdfLibCropBox,
     resolvePdfLibMediaBox,
-} from '@pdf-core';
+} from '@pdf-core/pdfPageBoxes';
 import { tryRunBrowserPageOpsWithWasm } from '@app/platform/browser-api/tryRunBrowserPageOpsWithWasm';
 
 function toSavedPdfResult(

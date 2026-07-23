@@ -29,7 +29,7 @@ import {
     PDF_SEARCH_PROGRESS_RESULT_BATCH_LIMIT,
     validateSearchQuery,
     type IResolvedSearchMatchOptions,
-} from '@pdf-core';
+} from '@pdf-core/pdfSearchCore';
 import type { IOcrWord } from '@contracts/shared';
 import { createNativeDjvuTextSearchBridge } from '@app/platform/browser-api/createNativeDjvuTextSearchBridge';
 import { resolveDjvuPreviewResolutionPlan } from '@app/utils/djvuPreviewResolution';

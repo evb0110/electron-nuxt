@@ -1,4 +1,1 @@
-export {
-    prewarmRecentPdfOpeningGeometry,
-    type IRecentPdfOpeningGeometryPrewarmPort,
-} from '@app/modules/pdf-viewer/runtime/lifecycle/prewarmRecentPdfOpeningGeometry';
+export { prewarmRecentPdfOpeningGeometry } from '@app/modules/pdf-viewer/runtime/lifecycle/prewarmRecentPdfOpeningGeometry';

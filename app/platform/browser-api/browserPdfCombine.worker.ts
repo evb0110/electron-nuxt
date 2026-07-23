@@ -1,13 +1,15 @@
 import { PDFDocument } from 'pdf-lib';
 import {
     DEFAULT_TIFF_DECODE_LIMITS,
+    iterateDecodedTiffFrames,
+} from '@pdf-core/iterateDecodedTiffFrames';
+import {
     applyCombinedPdfPageLabels,
     inspectPdfCombineCatalog,
     offsetPdfCombineBookmarks,
-    iterateDecodedTiffFrames,
-    writePdfBookmarkOutlines,
-} from '@pdf-core';
-import type {IPdfCombinePageLabelRange} from '@pdf-core';
+} from '@pdf-core/pdfCombineCatalog';
+import type {IPdfCombinePageLabelRange} from '@pdf-core/pdfCombineCatalog';
+import { writePdfBookmarkOutlines } from '@pdf-core/writePdfBookmarkOutlines';
 import type { IPdfBookmarkEntry } from '@contracts/pdfBookmarkEntry';
 import type {
     IBrowserPdfCombineWorkerRequest,

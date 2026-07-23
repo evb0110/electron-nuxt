@@ -16,7 +16,7 @@ const RELEASE_DIR = path.resolve(process.cwd(), process.argv[2] ?? 'release');
 
 export const REQUIRED_ASAR_ENTRIES = [
     '/package.json',
-    '/dist-electron/main.cjs',
+    '/dist-electron/main.js',
     '/dist-electron/preload.cjs',
     '/dist-electron/package.json',
     '/dist-electron/pdf.worker.mjs',
@@ -25,6 +25,8 @@ export const REQUIRED_ASAR_ENTRIES = [
     '/nuxt-output/public/index.html',
     '/nuxt-output/public/_nuxt',
 ];
+
+export const REQUIRED_ASAR_PREFIXES = ['/dist-electron/main-chunk-'];
 
 export const FORBIDDEN_EXACT_ENTRIES = [
     '/nuxt-output/public/evb-viewer-seo.png',
@@ -91,6 +93,11 @@ export function collectEntryViolations(entries) {
             problems.push(`missing required entry: ${required}`);
         }
     }
+    for (const requiredPrefix of REQUIRED_ASAR_PREFIXES) {
+        if (!entries.some(entry => entry.startsWith(requiredPrefix))) {
+            problems.push(`missing required entry prefix: ${requiredPrefix}`);
+        }
+    }
 
     for (const entry of entries) {
         if (FORBIDDEN_EXACT_ENTRIES.includes(entry)) {
@@ -103,6 +110,10 @@ export function collectEntryViolations(entries) {
         }
         if (entry.endsWith('.map')) {
             problems.push(`source map should not ship: ${entry}`);
+            continue;
+        }
+        if (entry.endsWith('.meta.json')) {
+            problems.push(`bundle metafile should not ship: ${entry}`);
             continue;
         }
         if (path.posix.basename(entry).startsWith('favicon-dev')) {

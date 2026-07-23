@@ -21,10 +21,11 @@ import {
 } from '@contracts/ocrText';
 import { assembleSearchablePageText } from '@contracts/search';
 import { extractTextFromPdf } from '@electron/search/extractTextFromPdf';
-import {
-    extractTextWithPdfjs,
-    extractTextWithPdfjsWordBoxes,
+import type {
+    IExtractPdfjsTextOptions,
+    IExtractPdfjsWordBoxOptions,
 } from '@electron/search/extractTextWithPdfjs';
+import {loadPdfjsTextExtractor} from '@electron/search/loadPdfjsTextExtractor';
 import {
     abortErrorFromSignal,
     isAbortError,
@@ -499,7 +500,7 @@ async function seedFromPdfjsWordBoxes(
         log.debug(`Seeding index with pdfjs-dist word geometry (pageCount=${expectedCount ?? 'unknown'})`);
         let hasText = false;
         let nextPagesByNumber = pagesByNumber;
-        const extractOptions: Parameters<typeof extractTextWithPdfjsWordBoxes>[1] = {
+        const extractOptions: IExtractPdfjsWordBoxOptions = {
             collectPages: false,
             onPageText: (pageText) => {
                 hasText ||= pageText.text.length > 0;
@@ -514,6 +515,7 @@ async function seedFromPdfjsWordBoxes(
         if (signal !== undefined) {
             extractOptions.signal = signal;
         }
+        const {extractTextWithPdfjsWordBoxes} = await loadPdfjsTextExtractor();
         await extractTextWithPdfjsWordBoxes(pdfPath, extractOptions);
         return {
             pagesByNumber: nextPagesByNumber,
@@ -547,7 +549,7 @@ async function seedFromPdfjs(
         log.debug(`Seeding index with pdfjs-dist (pageCount=${expectedCount ?? 'unknown'})`);
         let hasText = false;
         let nextPagesByNumber = pagesByNumber;
-        const extractOptions: Parameters<typeof extractTextWithPdfjs>[1] = {
+        const extractOptions: IExtractPdfjsTextOptions = {
             collectPages: false,
             onPageText: (pageText) => {
                 hasText ||= pageText.text.length > 0;
@@ -561,6 +563,7 @@ async function seedFromPdfjs(
         if (signal !== undefined) {
             extractOptions.signal = signal;
         }
+        const {extractTextWithPdfjs} = await loadPdfjsTextExtractor();
         await extractTextWithPdfjs(pdfPath, extractOptions);
         return {
             pagesByNumber: nextPagesByNumber,

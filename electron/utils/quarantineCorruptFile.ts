@@ -1,4 +1,3 @@
-import {renameSync} from 'node:fs';
 import { rename } from 'node:fs/promises';
 import { isErrnoException } from '@contracts/runtimeGuards';
 
@@ -19,15 +18,3 @@ export async function quarantineCorruptFile(filePath: string) {
     }
 }
 
-export function quarantineCorruptFileSync(filePath: string) {
-    const quarantinePath = createQuarantinePath(filePath);
-    try {
-        renameSync(filePath, quarantinePath);
-        return quarantinePath;
-    } catch (error) {
-        if (isErrnoException(error) && error.code === 'ENOENT') {
-            return null;
-        }
-        throw error;
-    }
-}

@@ -3,7 +3,7 @@ import {
     getPdfjsLib,
 } from '@app/platform/browser-api/browserPdfjsDocumentInit';
 import type { PDFPageProxy } from 'pdfjs-dist';
-import type { TPdfjsTextOps } from '@pdf-core';
+import type { TPdfjsTextOps } from '@pdf-core/pdfjsTextGeometry';
 import { yieldToBrowser } from '@app/platform/browser-api/browserYield';
 import { extractBrowserSearchPageData } from '@app/platform/browser-api/extractBrowserSearchPageText';
 import type { IBrowserSearchPageData } from '@app/platform/browser-api/extractBrowserSearchPageText';

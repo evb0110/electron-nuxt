@@ -121,6 +121,33 @@ export default withNuxt(
         },
     },
     {
+        files: ['app/platform/browser-api/**/*.ts'],
+        rules: {
+            'no-restricted-imports': [
+                'error',
+                {patterns: [
+                    {
+                        group: [
+                            '@i18n-core/*',
+                            '@i18n-app/*',
+                            '@releaseSelection/*',
+                        ],
+                        message: 'Import shared packages via their root entrypoint to keep package APIs slim.',
+                    },
+                ]},
+            ],
+        },
+    },
+    {
+        files: [
+            'electron/features/search/searchRequestPayload.ts',
+            'electron/features/documents/createDocumentsPreloadFileClient.ts',
+        ],
+        rules: {
+            'no-restricted-imports': 'off',
+        },
+    },
+    {
         files: [
             'vitest.config.ts',
         ],

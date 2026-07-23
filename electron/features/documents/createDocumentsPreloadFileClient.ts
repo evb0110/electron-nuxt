@@ -20,7 +20,7 @@ import {
     normalizePdfNativeNoteChanges,
     normalizePdfNativeNoteTextUpdates,
     normalizePdfNativeWorkingCopyExpectation,
-} from '@pdf-core';
+} from '@pdf-core/nativePdfMutationPolicy';
 import { isRecord } from '@contracts/runtimeGuards';
 import {
     PDF_PERSISTENCE_DEFAULT_ACK_TIMEOUT_MS,

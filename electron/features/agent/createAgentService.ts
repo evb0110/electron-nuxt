@@ -5,9 +5,9 @@ import {
     interruptAgentAssistant,
     resetAgentAssistantChat,
     sendAgentAssistantMessage,
-    shutdownAgentAssistant,
+    shutdownAgentAssistantIfLoaded,
     startAgentAssistantLogin,
-} from '@electron/features/agent/codexAssistant';
+} from '@electron/features/agent/lazyAgentAssistant';
 import {
     getAgentMcpIntegrationStatus,
     setAgentMcpIntegrationEnabled,
@@ -39,6 +39,6 @@ export function createAgentService(): IAgentService {
             Promise.resolve(submitAgentWorkspaceSnapshotResponse(context.event, response)),
         submitCommandResponse: (context, response) =>
             Promise.resolve(submitAgentCommandResponse(context.event, response)),
-        shutdownAssistant: () => shutdownAgentAssistant(),
+        shutdownAssistant: () => shutdownAgentAssistantIfLoaded(),
     };
 }

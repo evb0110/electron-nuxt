@@ -3,11 +3,7 @@ import {
     rm,
     writeFile,
 } from 'fs/promises';
-import {
-    existsSync,
-    readFileSync,
-    writeFileSync,
-} from 'fs';
+import { existsSync } from 'fs';
 import { join } from 'path';
 import { app } from 'electron';
 import {
@@ -22,10 +18,7 @@ import {
     atomicReplace,
     makeSiblingTempPath,
 } from '@electron/utils/atomicReplace';
-import {
-    quarantineCorruptFile,
-    quarantineCorruptFileSync,
-} from '@electron/utils/quarantineCorruptFile';
+import { quarantineCorruptFile } from '@electron/utils/quarantineCorruptFile';
 
 const logger = createLogger('settings');
 const STARTUP_TRACE_ENABLED = process.env.EVB_STARTUP_TRACE === '1';
@@ -161,45 +154,4 @@ export async function updateSettings(
         settingsCache = next;
         return cloneSettings(next);
     });
-}
-
-function loadSettingsSync(): ISettingsData {
-    if (settingsCache) {
-        return cloneSettings(settingsCache);
-    }
-
-    const storagePath = getStoragePath();
-    if (!existsSync(storagePath)) {
-        settingsCache = sanitizeSettings(DEFAULT_SETTINGS);
-        return cloneSettings(settingsCache);
-    }
-
-    let content: string;
-    try {
-        content = readFileSync(storagePath, 'utf-8');
-    } catch (err) {
-        logger.error(`Failed to read settings: ${getErrorMessage(err)}`);
-        settingsCache = sanitizeSettings(DEFAULT_SETTINGS);
-        return cloneSettings(settingsCache);
-    }
-
-    try {
-        settingsCache = sanitizeSettings(parseSettingsPayload(content));
-        return cloneSettings(settingsCache);
-    } catch (err) {
-        logger.error(`Failed to load settings: ${getErrorMessage(err)}`);
-        try {
-            const quarantinePath = quarantineCorruptFileSync(storagePath);
-            writeFileSync(storagePath, JSON.stringify(DEFAULT_SETTINGS, null, 2), 'utf-8');
-            logger.warn(`Quarantined corrupt settings at ${quarantinePath ?? storagePath}`);
-        } catch (recoveryError) {
-            logger.error(`Failed to recover corrupt settings: ${getErrorMessage(recoveryError)}`);
-        }
-        settingsCache = sanitizeSettings(DEFAULT_SETTINGS);
-        return cloneSettings(settingsCache);
-    }
-}
-
-export function getCurrentLocaleSync() {
-    return loadSettingsSync().locale;
 }

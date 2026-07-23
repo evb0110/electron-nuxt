@@ -29,7 +29,8 @@ import type { IOcrIndexV3Manifest } from '@contracts/ocrIndex';
 import {assembleSearchablePageText} from '@contracts/search';
 import {buildOcrTextLayerIndexText} from '@contracts/ocrText';
 import {extractTextFromPdf} from '@electron/search/extractTextFromPdf';
-import {extractTextWithPdfjsWordBoxes} from '@electron/search/extractTextWithPdfjs';
+import type {IPageTextWithWordBoxes} from '@electron/search/extractTextWithPdfjs';
+import {loadPdfjsTextExtractor} from '@electron/search/loadPdfjsTextExtractor';
 import {assertWorkingCopyRevisionSidecarCurrent} from '@electron/file-access/documentRevisionSidecar';
 
 interface IVisitDocumentOcrCatalogOptions {
@@ -240,9 +241,10 @@ export async function resolveDocumentTextCatalogSnapshot(
     );
     const embeddedPages: Array<
         Awaited<ReturnType<typeof extractTextFromPdf>>[number]
-        | Awaited<ReturnType<typeof extractTextWithPdfjsWordBoxes>>[number]
+        | IPageTextWithWordBoxes
     > = [];
     if (!shouldUseBoundedTextOnlyExtraction) {
+        const {extractTextWithPdfjsWordBoxes} = await loadPdfjsTextExtractor();
         embeddedPages.push(...await extractTextWithPdfjsWordBoxes(workingCopyPath));
     } else if (pageCount) {
         for (let firstPage = 1; firstPage <= pageCount; firstPage += DOCUMENT_TEXT_EXPORT_PAGE_WINDOW) {

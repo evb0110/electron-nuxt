@@ -88,6 +88,8 @@ const mocks = vi.hoisted(() => {
         getWindowByIdFromRegistry: vi.fn(),
         loadSettings: vi.fn(async () => ({theme: 'system'})),
         updateSettings: vi.fn(),
+        setElectronLocale: vi.fn(async () => {}),
+        updateRecentFilesMenu: vi.fn(),
         agentService,
         createAgentService: vi.fn(() => agentService),
         createDocumentsService: vi.fn(() => ({})),
@@ -140,7 +142,7 @@ vi.mock('@electron/features/page-ops/public', () => ({pageOpsMainBindings: new P
 vi.mock('@electron/features/search/public', () => ({prepareSearchMainBindings: () => new Proxy({}, {get: () => vi.fn()})}));
 vi.mock('@electron/menu', () => ({
     showTabContextMenu: vi.fn(),
-    updateRecentFilesMenu: vi.fn(),
+    updateRecentFilesMenu: mocks.updateRecentFilesMenu,
 }));
 vi.mock('@electron/settings', () => ({
     loadSettings: mocks.loadSettings,
@@ -162,7 +164,10 @@ vi.mock('@electron/updates', () => ({
     skipUpdateVersion: vi.fn(),
     triggerManualUpdateCheck: vi.fn(),
 }));
-vi.mock('@electron/te', () => ({te: (key: string) => key}));
+vi.mock('@electron/te', () => ({
+    setElectronLocale: mocks.setElectronLocale,
+    te: (key: string) => key,
+}));
 vi.mock('@electron/utils/createLogger', () => ({createLogger: () => mocks.logger}));
 vi.mock('@electron/platform-ipc/rendererLogBridge', () => ({
     normalizeRendererLogEntry: vi.fn(),
@@ -459,6 +464,9 @@ describe('IPC registry sender trust', () => {
             ]);
 
             expect(mocks.updateSettings).toHaveBeenCalledOnce();
+            expect(mocks.setElectronLocale).toHaveBeenCalledWith('en');
+            expect(mocks.setElectronLocale.mock.invocationCallOrder[0]!)
+                .toBeLessThan(mocks.updateRecentFilesMenu.mock.invocationCallOrder[0]!);
             const updater = mocks.updateSettings.mock.calls[0]?.[0] as (settings: Record<string, unknown>) => unknown;
             expect(updater({
                 assistantPanelEnabled: true,

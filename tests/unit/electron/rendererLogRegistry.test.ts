@@ -84,7 +84,10 @@ vi.mock('@electron/updates', () => ({
     skipUpdateVersion: vi.fn(),
     triggerManualUpdateCheck: vi.fn(),
 }));
-vi.mock('@electron/te', () => ({te: (key: string) => key}));
+vi.mock('@electron/te', () => ({
+    setElectronLocale: vi.fn(async () => {}),
+    te: (key: string) => key,
+}));
 vi.mock('@electron/utils/createLogger', () => ({createLogger: () => mocks.logger}));
 vi.mock('@electron/config', () => ({config: {renderer: {trustedUrl: 'https://trusted.example/electron'}}}));
 

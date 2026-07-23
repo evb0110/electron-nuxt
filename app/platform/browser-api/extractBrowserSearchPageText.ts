@@ -2,12 +2,12 @@ import type { PDFPageProxy } from 'pdfjs-dist';
 import { yieldToBrowser } from '@app/platform/browser-api/browserYield';
 import { buildOcrTextLayerIndexText } from '@contracts/ocrText';
 import type { IOcrWord } from '@contracts/shared';
+import { assembleSearchablePageText } from '@contracts/search';
 import {
-    assembleSearchablePageText,
     extractPdfjsWordBoxesFromOperatorList,
     getPdfjsPageViewBox,
     type TPdfjsTextOps,
-} from '@pdf-core';
+} from '@pdf-core/pdfjsTextGeometry';
 
 interface IBrowserSearchTextPageLike {
     getTextContent: PDFPageProxy['getTextContent'];

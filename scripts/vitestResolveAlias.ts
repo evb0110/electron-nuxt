@@ -9,6 +9,7 @@ export const vitestResolveAlias = {
     '@contracts': resolve(projectRoot, 'packages/contracts'),
     '@pdf-core': resolve(projectRoot, 'packages/pdf-core'),
     '@i18n-core': resolve(projectRoot, 'packages/i18n-core'),
+    '@evb/i18n-core': resolve(projectRoot, 'packages/i18n-core'),
     '@i18n-app': resolve(projectRoot, 'packages/i18n-app'),
     '@releaseSelection': resolve(projectRoot, 'packages/release-selection'),
     '@scripts': resolve(projectRoot, 'scripts'),

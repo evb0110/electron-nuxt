@@ -50,7 +50,7 @@ import {
 } from '@electron/features/djvu/public';
 import { shutdownLocalMcpServer } from '@electron/features/agent/mcpServer';
 import { syncAgentMcpServerWithSettings } from '@electron/features/agent/codexMcpIntegration';
-import { shutdownAgentAssistant } from '@electron/features/agent/codexAssistant';
+import { shutdownAgentAssistantIfLoaded } from '@electron/features/agent/lazyAgentAssistant';
 import {
     recoverOcrJobManager,
     shutdownOcrJobManager,
@@ -111,6 +111,7 @@ import { createUnhandledRejectionRecovery } from '@electron/unhandledRejectionRe
 import { clearWorkspaceCheckpoint } from '@electron/workspaceCheckpointStore';
 import { initializeHostResourceProfile } from '@electron/resources/hostResourceProfile';
 import { configureMainJobBroker } from '@electron/resources/jobBroker';
+import { initializeElectronTranslations } from '@electron/te';
 
 app.setName(app.isPackaged ? 'EVB Viewer' : 'EVB Viewer Dev');
 configureProcessSafeMode(app, process.argv);
@@ -187,7 +188,7 @@ const recoverUnhandledRejectionSubsystem = createUnhandledRejectionRecovery({asy
     } else if (subsystem === 'search') {
         searchWorkerService.cleanupAll('unhandled rejection threshold');
     } else if (subsystem === 'agent') {
-        await shutdownAgentAssistant();
+        await shutdownAgentAssistantIfLoaded();
     } else if (subsystem === 'djvu') {
         await shutdownDjvuConversions();
         performDjvuViewingShutdownCleanup();
@@ -349,7 +350,7 @@ async function performShutdownCleanup() {
         },
         {
             label: 'agent-assistant',
-            run: () => shutdownAgentAssistant(),
+            run: () => shutdownAgentAssistantIfLoaded(),
         },
         {
             label: 'search-workers',
@@ -472,6 +473,7 @@ void runInitSequence({
     getWindowFromWebContents: BrowserWindow.fromWebContents,
     hasWindows,
     initRecentFilesCache,
+    initializeElectronTranslations,
     initializeResourceRuntime: async () => {
         const settings = await loadSettings();
         const resourceProfile = initializeHostResourceProfile({
