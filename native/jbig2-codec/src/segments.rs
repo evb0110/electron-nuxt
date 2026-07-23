@@ -53,7 +53,11 @@ pub(crate) fn encode(
     Ok(output)
 }
 
-pub(crate) fn decode(data: &[u8], limits: DecodeLimits) -> Result<OwnedBilevel, Jbig2Error> {
+pub(crate) fn decode(
+    data: &[u8],
+    limits: DecodeLimits,
+    require_canonical_arithmetic: bool,
+) -> Result<OwnedBilevel, Jbig2Error> {
     let (page_header, page_data, remaining) = read_segment(data)?;
     if page_header.number != 0
         || page_header.segment_type != PAGE_INFORMATION
@@ -118,6 +122,7 @@ pub(crate) fn decode(data: &[u8], limits: DecodeLimits) -> Result<OwnedBilevel, 
         region_height,
         stride,
         &region_data[GENERIC_REGION_HEADER_LENGTH..],
+        require_canonical_arithmetic,
     )
 }
 

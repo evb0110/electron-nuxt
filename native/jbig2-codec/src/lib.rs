@@ -137,7 +137,7 @@ pub fn encode_pdf_generic(image: Bilevel<'_>) -> Result<Vec<u8>, Jbig2Error> {
 /// Decodes the lossless PDF-embedded generic-region subset emitted by this
 /// crate and `jbig2enc -d -p`.
 pub fn decode_pdf_generic(data: &[u8], limits: DecodeLimits) -> Result<OwnedBilevel, Jbig2Error> {
-    segments::decode(data, limits)
+    segments::decode(data, limits, true)
 }
 
 /// Encodes and immediately decodes one page, returning an error unless every
@@ -145,7 +145,7 @@ pub fn decode_pdf_generic(data: &[u8], limits: DecodeLimits) -> Result<OwnedBile
 pub fn encode_pdf_generic_verified(image: Bilevel<'_>) -> Result<Vec<u8>, Jbig2Error> {
     let encoded = encode_pdf_generic(image)?;
     let pixels = u64::from(image.width) * u64::from(image.height);
-    let decoded = decode_pdf_generic(&encoded, DecodeLimits::new(pixels))?;
+    let decoded = segments::decode(&encoded, DecodeLimits::new(pixels), false)?;
     if decoded.width != image.width || decoded.height != image.height || decoded.rows != image.rows
     {
         return Err(Jbig2Error::VerificationFailed);

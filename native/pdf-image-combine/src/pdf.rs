@@ -384,28 +384,8 @@ impl<W: IoWrite> PdfWriter<W> {
     fn push_image_mask_object(&mut self, object_number: usize, mask: &PbmP4Image) -> Result<()> {
         validate_image_mask(mask)?;
         let payload = encode_mask_payload(mask)?;
-        match payload {
-            ImageMaskPayload::Flate(data) => {
-                let dict = format!(
-                    "<< /Type /XObject /Subtype /Image /Width {} /Height {} /ImageMask true /BitsPerComponent 1 /Decode [1 0] /Filter /FlateDecode /Length {} >>",
-                    mask.width,
-                    mask.height,
-                    data.len()
-                );
-                self.push_stream_object(object_number, dict.as_bytes(), &data)
-            }
-            ImageMaskPayload::CcittG4(data) => {
-                let dict = format!(
-                    "<< /Type /XObject /Subtype /Image /Width {} /Height {} /ImageMask true /BitsPerComponent 1 /Decode [1 0] /Filter /CCITTFaxDecode /DecodeParms << /K -1 /Columns {} /Rows {} /BlackIs1 true >> /Length {} >>",
-                    mask.width,
-                    mask.height,
-                    mask.width,
-                    mask.height,
-                    data.len()
-                );
-                self.push_stream_object(object_number, dict.as_bytes(), &data)
-            }
-        }
+        let dict = image_mask_dictionary(mask.width, mask.height, &payload);
+        self.push_stream_object(object_number, dict.as_bytes(), payload.data())
     }
 
     fn push_object(&mut self, object_number: usize, body: &[u8]) -> Result<()> {
@@ -500,19 +480,14 @@ fn deflate_bytes(data: &[u8]) -> Result<Vec<u8>> {
     Ok(encoder.finish()?)
 }
 
-enum ImageMaskPayload {
-    Flate(Vec<u8>),
-    CcittG4(Vec<u8>),
-}
-
 #[derive(Debug, Eq, PartialEq)]
-enum BilevelImagePayload {
+enum BilevelPayload {
     Jbig2(Vec<u8>),
     CcittG4(Vec<u8>),
     Flate(Vec<u8>),
 }
 
-impl BilevelImagePayload {
+impl BilevelPayload {
     fn data(&self) -> &[u8] {
         match self {
             Self::Jbig2(data) | Self::CcittG4(data) | Self::Flate(data) => data,
@@ -525,7 +500,7 @@ fn encode_bilevel_payload(
     height: u32,
     row_stride: usize,
     bitmap: &[u8],
-) -> Result<BilevelImagePayload> {
+) -> Result<BilevelPayload> {
     let image = PbmP4Image {
         width,
         height,
@@ -533,10 +508,18 @@ fn encode_bilevel_payload(
         bitmap: bitmap.to_vec(),
     };
     validate_image_mask(&image)?;
+    encode_mask_payload(&image)
+}
+
+fn encode_mask_payload(mask: &PbmP4Image) -> Result<BilevelPayload> {
+    let width = mask.width;
+    let height = mask.height;
+    #[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
+    let jbig2_started_at = std::time::Instant::now();
     let jbig2 = match jbig2_codec::encode_pdf_generic_verified(Bilevel {
         width,
         height,
-        rows: bitmap,
+        rows: &mask.bitmap,
     }) {
         Ok(data) => Some(data),
         Err(error) => {
@@ -546,8 +529,16 @@ fn encode_bilevel_payload(
             None
         }
     };
-    let flate = deflate_bytes(bitmap)?;
-    let ccitt = match encode_mask_ccitt_g4(&image) {
+    #[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
+    if std::env::var_os("EVB_PDF_COMBINE_TIMING").is_some() {
+        eprintln!(
+            "{{\"type\":\"jbig2-encode-timing\",\"width\":{width},\"height\":{height},\"elapsedMs\":{:.3}}}",
+            jbig2_started_at.elapsed().as_secs_f64() * 1_000.0
+        );
+    }
+
+    let flate = deflate_bytes(&mask.bitmap)?;
+    let ccitt = match encode_mask_ccitt_g4(mask) {
         Ok(data) => data,
         Err(error) => {
             eprintln!(
@@ -563,29 +554,29 @@ fn select_bilevel_payload(
     jbig2: Option<Vec<u8>>,
     ccitt: Option<Vec<u8>>,
     flate: Vec<u8>,
-) -> BilevelImagePayload {
+) -> BilevelPayload {
     let mut selected = jbig2
-        .map(BilevelImagePayload::Jbig2)
-        .or_else(|| ccitt.clone().map(BilevelImagePayload::CcittG4))
-        .unwrap_or_else(|| BilevelImagePayload::Flate(flate.clone()));
+        .map(BilevelPayload::Jbig2)
+        .or_else(|| ccitt.clone().map(BilevelPayload::CcittG4))
+        .unwrap_or_else(|| BilevelPayload::Flate(flate.clone()));
     if let Some(data) = ccitt {
         if data.len() < selected.data().len() {
-            selected = BilevelImagePayload::CcittG4(data);
+            selected = BilevelPayload::CcittG4(data);
         }
     }
     if flate.len() < selected.data().len() {
-        selected = BilevelImagePayload::Flate(flate);
+        selected = BilevelPayload::Flate(flate);
     }
     selected
 }
 
-fn bilevel_image_dictionary(width: u32, height: u32, payload: &BilevelImagePayload) -> String {
+fn bilevel_image_dictionary(width: u32, height: u32, payload: &BilevelPayload) -> String {
     let filter = match payload {
-        BilevelImagePayload::Jbig2(_) => "/Filter /JBIG2Decode".to_string(),
-        BilevelImagePayload::CcittG4(_) => format!(
+        BilevelPayload::Jbig2(_) => "/Filter /JBIG2Decode".to_string(),
+        BilevelPayload::CcittG4(_) => format!(
             "/Decode [1 0] /Filter /CCITTFaxDecode /DecodeParms << /K -1 /Columns {width} /Rows {height} /BlackIs1 true >>"
         ),
-        BilevelImagePayload::Flate(_) => "/Decode [1 0] /Filter /FlateDecode".to_string(),
+        BilevelPayload::Flate(_) => "/Decode [1 0] /Filter /FlateDecode".to_string(),
     };
     format!(
         "<< /Type /XObject /Subtype /Image /Width {width} /Height {height} /ColorSpace /DeviceGray /BitsPerComponent 1 {filter} /Length {} >>",
@@ -593,16 +584,18 @@ fn bilevel_image_dictionary(width: u32, height: u32, payload: &BilevelImagePaylo
     )
 }
 
-fn encode_mask_payload(mask: &PbmP4Image) -> Result<ImageMaskPayload> {
-    let flate = deflate_bytes(&mask.bitmap)?;
-    let Some(ccitt) = encode_mask_ccitt_g4(mask)? else {
-        return Ok(ImageMaskPayload::Flate(flate));
+fn image_mask_dictionary(width: u32, height: u32, payload: &BilevelPayload) -> String {
+    let filter = match payload {
+        BilevelPayload::Jbig2(_) => "/Filter /JBIG2Decode".to_string(),
+        BilevelPayload::CcittG4(_) => format!(
+            "/Decode [1 0] /Filter /CCITTFaxDecode /DecodeParms << /K -1 /Columns {width} /Rows {height} /BlackIs1 true >>"
+        ),
+        BilevelPayload::Flate(_) => "/Decode [1 0] /Filter /FlateDecode".to_string(),
     };
-    if ccitt.len() < flate.len() {
-        Ok(ImageMaskPayload::CcittG4(ccitt))
-    } else {
-        Ok(ImageMaskPayload::Flate(flate))
-    }
+    format!(
+        "<< /Type /XObject /Subtype /Image /Width {width} /Height {height} /ImageMask true /BitsPerComponent 1 {filter} /Length {} >>",
+        payload.data().len()
+    )
 }
 
 fn encode_mask_ccitt_g4(mask: &PbmP4Image) -> Result<Option<Vec<u8>>> {
@@ -870,19 +863,19 @@ mod tests {
     fn selects_the_smallest_successful_bilevel_candidate() {
         assert!(matches!(
             select_bilevel_payload(Some(vec![1]), Some(vec![2; 2]), vec![3; 3]),
-            BilevelImagePayload::Jbig2(_)
+            BilevelPayload::Jbig2(_)
         ));
         assert!(matches!(
             select_bilevel_payload(Some(vec![1; 3]), Some(vec![2]), vec![3; 2]),
-            BilevelImagePayload::CcittG4(_)
+            BilevelPayload::CcittG4(_)
         ));
         assert!(matches!(
             select_bilevel_payload(Some(vec![1; 3]), Some(vec![2; 2]), vec![3]),
-            BilevelImagePayload::Flate(_)
+            BilevelPayload::Flate(_)
         ));
         assert!(matches!(
             select_bilevel_payload(None, None, vec![3]),
-            BilevelImagePayload::Flate(_)
+            BilevelPayload::Flate(_)
         ));
     }
 
@@ -893,42 +886,324 @@ mod tests {
         // error after encode_bilevel_payload logs it.
         assert_eq!(
             select_bilevel_payload(None, None, vec![1, 2, 3]),
-            BilevelImagePayload::Flate(vec![1, 2, 3])
+            BilevelPayload::Flate(vec![1, 2, 3])
         );
     }
 
     #[test]
     fn writes_bilevel_base_image_dictionaries_for_every_filter() {
         for (payload, expected_filter) in [
+            (BilevelPayload::Jbig2(vec![1, 2]), "/Filter /JBIG2Decode"),
             (
-                BilevelImagePayload::Jbig2(vec![1, 2]),
-                "/Filter /JBIG2Decode",
-            ),
-            (
-                BilevelImagePayload::CcittG4(vec![1, 2]),
+                BilevelPayload::CcittG4(vec![1, 2]),
                 "/Filter /CCITTFaxDecode",
             ),
-            (
-                BilevelImagePayload::Flate(vec![1, 2]),
-                "/Filter /FlateDecode",
-            ),
+            (BilevelPayload::Flate(vec![1, 2]), "/Filter /FlateDecode"),
         ] {
             let dictionary = bilevel_image_dictionary(13, 7, &payload);
             assert!(dictionary.contains("/ColorSpace /DeviceGray"));
             assert!(dictionary.contains("/BitsPerComponent 1"));
             assert_eq!(
                 dictionary.contains("/Decode [1 0]"),
-                !matches!(payload, BilevelImagePayload::Jbig2(_))
+                !matches!(payload, BilevelPayload::Jbig2(_))
             );
             assert!(dictionary.contains(expected_filter));
             assert!(!dictionary.contains("/ImageMask true"));
-            if matches!(payload, BilevelImagePayload::CcittG4(_)) {
+            if matches!(payload, BilevelPayload::CcittG4(_)) {
                 assert!(dictionary
                     .contains("/DecodeParms << /K -1 /Columns 13 /Rows 7 /BlackIs1 true >>"));
             } else {
                 assert!(!dictionary.contains("/DecodeParms"));
             }
         }
+    }
+
+    #[test]
+    fn writes_image_mask_dictionaries_for_every_filter_and_polarity() {
+        for (payload, expected_filter) in [
+            (BilevelPayload::Jbig2(vec![1, 2]), "/Filter /JBIG2Decode"),
+            (
+                BilevelPayload::CcittG4(vec![1, 2]),
+                "/Filter /CCITTFaxDecode",
+            ),
+            (BilevelPayload::Flate(vec![1, 2]), "/Filter /FlateDecode"),
+        ] {
+            let dictionary = image_mask_dictionary(13, 7, &payload);
+            assert!(dictionary.contains("/ImageMask true"));
+            assert!(dictionary.contains("/BitsPerComponent 1"));
+            assert!(!dictionary.contains("/ColorSpace"));
+            assert_eq!(
+                dictionary.contains("/Decode [1 0]"),
+                !matches!(payload, BilevelPayload::Jbig2(_))
+            );
+            assert!(dictionary.contains(expected_filter));
+            if matches!(payload, BilevelPayload::CcittG4(_)) {
+                assert!(dictionary
+                    .contains("/DecodeParms << /K -1 /Columns 13 /Rows 7 /BlackIs1 true >>"));
+            } else {
+                assert!(!dictionary.contains("/DecodeParms"));
+            }
+        }
+    }
+
+    #[test]
+    fn all_image_mask_filters_decode_to_the_same_paint_bitmap() {
+        use fax::decoder::{decode_g4, pels};
+        use flate2::read::ZlibDecoder;
+        use std::io::Read;
+
+        let mask = PbmP4Image {
+            width: 13,
+            height: 7,
+            row_stride: 2,
+            bitmap: vec![
+                0b1010_0101,
+                0b1010_0000,
+                0b0101_1010,
+                0b0101_0000,
+                0b1111_0000,
+                0b1111_0000,
+                0b0000_1111,
+                0b0000_1000,
+                0b1000_0000,
+                0b0000_0000,
+                0b0000_0000,
+                0b1000_0000,
+                0b1111_1111,
+                0b1111_1000,
+            ],
+        };
+
+        let flate = deflate_bytes(&mask.bitmap).unwrap();
+        let mut flate_rows = Vec::new();
+        ZlibDecoder::new(flate.as_slice())
+            .read_to_end(&mut flate_rows)
+            .unwrap();
+
+        let ccitt = encode_mask_ccitt_g4(&mask).unwrap().unwrap();
+        let mut ccitt_rows = vec![0; mask.bitmap.len()];
+        let mut row = 0usize;
+        assert!(decode_g4(
+            ccitt.iter().copied(),
+            mask.width as u16,
+            Some(mask.height as u16),
+            |transitions| {
+                for (x, color) in pels(transitions, mask.width as u16).enumerate() {
+                    if color == Color::Black {
+                        ccitt_rows[row * mask.row_stride + x / 8] |= 1 << (7 - x % 8);
+                    }
+                }
+                row += 1;
+            }
+        )
+        .is_some());
+
+        let jbig2 = jbig2_codec::encode_pdf_generic_verified(Bilevel {
+            width: mask.width,
+            height: mask.height,
+            rows: &mask.bitmap,
+        })
+        .unwrap();
+        let jbig2_rows =
+            jbig2_codec::decode_pdf_generic(&jbig2, jbig2_codec::DecodeLimits::default())
+                .unwrap()
+                .rows;
+
+        assert_eq!(flate_rows, mask.bitmap);
+        assert_eq!(ccitt_rows, mask.bitmap);
+        assert_eq!(jbig2_rows, mask.bitmap);
+    }
+
+    #[test]
+    fn bundled_poppler_renders_all_image_mask_filters_identically() {
+        use std::{
+            fs,
+            path::PathBuf,
+            process::Command,
+            time::{SystemTime, UNIX_EPOCH},
+        };
+
+        let Some(pdftoppm) = bundled_pdftoppm_path() else {
+            eprintln!("bundled pdftoppm is unavailable for this host");
+            return;
+        };
+        let mask = PbmP4Image {
+            width: 13,
+            height: 7,
+            row_stride: 2,
+            bitmap: vec![
+                0b1010_0101,
+                0b1010_0000,
+                0b0101_1010,
+                0b0101_0000,
+                0b1111_0000,
+                0b1111_0000,
+                0b0000_1111,
+                0b0000_1000,
+                0b1000_0000,
+                0b0000_0000,
+                0b0000_0000,
+                0b1000_0000,
+                0b1111_1111,
+                0b1111_1000,
+            ],
+        };
+        let payloads = [
+            (
+                "flate",
+                BilevelPayload::Flate(deflate_bytes(&mask.bitmap).unwrap()),
+            ),
+            (
+                "group4",
+                BilevelPayload::CcittG4(encode_mask_ccitt_g4(&mask).unwrap().unwrap()),
+            ),
+            (
+                "jbig2",
+                BilevelPayload::Jbig2(
+                    jbig2_codec::encode_pdf_generic_verified(Bilevel {
+                        width: mask.width,
+                        height: mask.height,
+                        rows: &mask.bitmap,
+                    })
+                    .unwrap(),
+                ),
+            ),
+        ];
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let directory = std::env::temp_dir().join(format!(
+            "evb-image-mask-render-{}-{nonce}",
+            std::process::id()
+        ));
+        fs::create_dir(&directory).unwrap();
+
+        let mut renders = Vec::new();
+        for (name, payload) in payloads {
+            let pdf_path = directory.join(format!("{name}.pdf"));
+            let output_prefix = directory.join(name);
+            fs::write(&pdf_path, build_test_mask_pdf(&mask, &payload)).unwrap();
+            let output = Command::new(&pdftoppm)
+                .args(["-r", "72", "-gray", "-singlefile"])
+                .arg(&pdf_path)
+                .arg(&output_prefix)
+                .output()
+                .unwrap();
+            assert!(
+                output.status.success(),
+                "{name}: {}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+            renders.push(fs::read(output_prefix.with_extension("pgm")).unwrap());
+        }
+        assert_eq!(renders[0], renders[1]);
+        assert_eq!(renders[0], renders[2]);
+
+        fs::remove_dir_all(directory).unwrap();
+
+        fn bundled_pdftoppm_path() -> Option<PathBuf> {
+            let tag = match (std::env::consts::OS, std::env::consts::ARCH) {
+                ("macos", "aarch64") => "darwin-arm64",
+                ("linux", "x86_64") => "linux-x64",
+                ("windows", "x86_64") => "win32-x64",
+                _ => return None,
+            };
+            let executable = if std::env::consts::OS == "windows" {
+                "pdftoppm.exe"
+            } else {
+                "pdftoppm"
+            };
+            let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                .join("../../resources/poppler")
+                .join(tag)
+                .join("bin")
+                .join(executable);
+            path.is_file().then_some(path)
+        }
+    }
+
+    #[test]
+    fn real_scan_masks_select_jbig2_over_flate_and_group4() {
+        use crate::netpbm::parse_pbm_p4;
+
+        for (name, pbm) in [
+            (
+                "scan-page-000-body",
+                include_bytes!("../../jbig2-codec/tests/fixtures/scan-page-000-body.pbm")
+                    .as_slice(),
+            ),
+            (
+                "scan-page-002-body",
+                include_bytes!("../../jbig2-codec/tests/fixtures/scan-page-002-body.pbm")
+                    .as_slice(),
+            ),
+            (
+                "scan-page-007-notes",
+                include_bytes!("../../jbig2-codec/tests/fixtures/scan-page-007-notes.pbm")
+                    .as_slice(),
+            ),
+            (
+                "scan-page-000-body-509",
+                include_bytes!("../../jbig2-codec/tests/fixtures/scan-page-000-body-509.pbm")
+                    .as_slice(),
+            ),
+        ] {
+            let mask = parse_pbm_p4(pbm).unwrap();
+            let flate = deflate_bytes(&mask.bitmap).unwrap();
+            let group4 = encode_mask_ccitt_g4(&mask).unwrap().unwrap();
+            let jbig2 = jbig2_codec::encode_pdf_generic_verified(Bilevel {
+                width: mask.width,
+                height: mask.height,
+                rows: &mask.bitmap,
+            })
+            .unwrap();
+            eprintln!(
+                "{name}: Flate={} bytes, G4={} bytes, JBIG2={} bytes",
+                flate.len(),
+                group4.len(),
+                jbig2.len()
+            );
+
+            assert!(jbig2.len() < flate.len());
+            assert!(jbig2.len() < group4.len());
+            assert!(matches!(
+                encode_mask_payload(&mask).unwrap(),
+                BilevelPayload::Jbig2(_)
+            ));
+        }
+    }
+
+    fn build_test_mask_pdf(mask: &PbmP4Image, payload: &BilevelPayload) -> Vec<u8> {
+        let mut writer = PdfWriter::new(Vec::new()).unwrap();
+        writer.page_objects.push(3);
+        writer.next_object = 6;
+        writer
+            .push_object(
+                3,
+                format!(
+                    "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 {} {}] /Resources << /XObject << /Mask 4 0 R >> >> /Contents 5 0 R >>",
+                    mask.width, mask.height
+                )
+                .as_bytes(),
+            )
+            .unwrap();
+        let dictionary = image_mask_dictionary(mask.width, mask.height, payload);
+        writer
+            .push_stream_object(4, dictionary.as_bytes(), payload.data())
+            .unwrap();
+        let content = format!(
+            "1 g\n0 0 {} {} re f\n0 g\nq {} 0 0 {} 0 0 cm /Mask Do Q\n",
+            mask.width, mask.height, mask.width, mask.height
+        );
+        writer
+            .push_stream_object(
+                5,
+                format!("<< /Length {} >>", content.len()).as_bytes(),
+                content.as_bytes(),
+            )
+            .unwrap();
+        writer.finish().unwrap()
     }
 
     fn sample_layered_page(payload: LayeredImagePayload) -> LayeredPdfPage {

@@ -1,3 +1,10 @@
+//! Image-to-PDF combination used by the native CLI and browser WASM build.
+//!
+//! Set `EVB_PDF_COMBINE_TIMING=1` when running the native CLI to emit one
+//! `jbig2-encode-timing` JSON object on stderr for every bilevel base image or
+//! image mask. `elapsedMs` is the verified JBIG2 candidate's encode-and-decode
+//! wall time for that page; records appear in page-processing order.
+
 mod binary;
 mod flate;
 mod image;

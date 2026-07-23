@@ -74,6 +74,8 @@ pub(crate) struct Encoder {
     buffered_byte: u8,
     has_buffered_byte: bool,
     output: Vec<u8>,
+    #[cfg(test)]
+    carried_fe: bool,
 }
 
 impl Encoder {
@@ -85,6 +87,8 @@ impl Encoder {
             buffered_byte: 0,
             has_buffered_byte: false,
             output: Vec::new(),
+            #[cfg(test)]
+            carried_fe: false,
         }
     }
 
@@ -166,6 +170,10 @@ impl Encoder {
         }
 
         if self.c >= 0x0800_0000 {
+            #[cfg(test)]
+            if self.buffered_byte == 0xfe {
+                self.carried_fe = true;
+            }
             self.buffered_byte += 1;
             if self.buffered_byte == 0xff {
                 self.c &= 0x07ff_ffff;
@@ -342,5 +350,39 @@ mod tests {
             }
             assert_eq!(*byte, PUBLISHED_INPUT[index]);
         }
+    }
+
+    #[test]
+    fn matches_short_message_mq_vectors() {
+        assert_eq!(Encoder::new().finish(), [0xff, 0x7f, 0xff, 0xac]);
+
+        for (bit, expected) in [
+            (0, &[0x7f, 0xff, 0xac][..]),
+            (1, &[0xff, 0x7f, 0xff, 0xac][..]),
+        ] {
+            let mut encoder = Encoder::new();
+            let mut context = [0];
+            encoder.encode(&mut context, 0, bit);
+            assert_eq!(encoder.finish(), expected);
+        }
+    }
+
+    #[test]
+    fn carries_a_buffered_fe_to_ff() {
+        // Each token stores a known MQ context state in bits 0..=6 and the
+        // input bit in bit 7. This short sequence reaches Annex E.9's carry
+        // branch with B=0xFE.
+        const SEQUENCE: [u8; 22] = [
+            12, 19, 92, 167, 167, 195, 189, 51, 219, 29, 204, 164, 60, 135, 169, 2, 1, 129, 25,
+            171, 12, 214,
+        ];
+        let mut encoder = Encoder::new();
+        let mut context = [0];
+        for token in SEQUENCE {
+            context[0] = token & 0x7f;
+            encoder.encode(&mut context, 0, token >> 7);
+        }
+        assert!(encoder.carried_fe);
+        assert_eq!(encoder.finish(), [0x29, 0xff, 0x05, 0x3f, 0x13, 0xff, 0xac]);
     }
 }

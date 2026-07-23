@@ -48,6 +48,7 @@ pub(crate) fn decode(
     height: u32,
     stride: usize,
     data: &[u8],
+    require_canonical_arithmetic: bool,
 ) -> Result<OwnedBilevel, Jbig2Error> {
     if data.len() < 2 || !data.ends_with(&[0xff, 0xac]) {
         return Err(Jbig2Error::InvalidArithmeticData);
@@ -84,6 +85,10 @@ pub(crate) fn decode(
             c2 = ((c2 << 1) | u16::from(pixel(&rows, stride, width, x, y, 4, -1))) & 0x7f;
             c3 = ((c3 << 1) | u16::from(bit)) & 0x0f;
         }
+    }
+
+    if require_canonical_arithmetic && encode(width, height, &rows, stride) != data {
+        return Err(Jbig2Error::InvalidArithmeticData);
     }
 
     Ok(OwnedBilevel {

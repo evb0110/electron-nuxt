@@ -23,6 +23,11 @@ const FIXTURES: &[Fixture] = &[
         pbm: include_bytes!("fixtures/scan-page-007-notes.pbm"),
         reference: include_bytes!("fixtures/scan-page-007-notes.jbig2"),
     },
+    Fixture {
+        name: "scan-page-000-body-509",
+        pbm: include_bytes!("fixtures/scan-page-000-body-509.pbm"),
+        reference: include_bytes!("fixtures/scan-page-000-body-509.jbig2"),
+    },
 ];
 
 #[test]
