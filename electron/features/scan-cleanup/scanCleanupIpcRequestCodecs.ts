@@ -18,7 +18,7 @@ import {
     SCAN_CLEANUP_MANUAL_SKEW_MAX_DEGREES,
     SCAN_CLEANUP_MANUAL_SKEW_MIN_DEGREES,
 } from '@contracts/electronApiScanCleanup';
-import {isScanCleanupOutputMode} from '@electron/features/scan-cleanup/scanCleanupMetadataCodecs';
+import {isScanCleanupOutputMode} from '@electron/features/scan-cleanup/isScanCleanupOutputMode';
 import {requireIpcArgumentCount} from '@electron/platform-ipc/ipcCodecValidation';
 
 export function decodePreviewCancelArgs(args: readonly unknown[]) {

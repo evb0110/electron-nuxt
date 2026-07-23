@@ -31,6 +31,7 @@ import {
 
 const logger = createLogger('djvu-main-bindings');
 
+// fallow-ignore-next-line unused-export
 export const djvuMainBindings = {
     startOpenForViewing: handleDjvuStartOpenForViewingOperation,
     awaitOpenJob: handleDjvuAwaitOpenJobOperation,

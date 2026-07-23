@@ -8,10 +8,7 @@ import {
     OCR_ERROR_CODES,
     OCR_PROGRESS_PHASES,
 } from '@contracts/electronApiOcr';
-import {
-    createAbortError,
-    isAbortError,
-} from '@electron/utils/abort';
+import { isAbortError } from '@electron/utils/abort';
 import {
     isFiniteNumber,
     isOneOf,
@@ -20,10 +17,7 @@ import {
 } from '@contracts/runtimeGuards';
 import { parseDocumentRevisionToken } from '@contracts/documentRevision';
 
-export {
-    createAbortError,
-    isAbortError,
-};
+export { isAbortError };
 
 function parseOptionalProgressPhase(value: unknown) {
     return isOneOf(OCR_PROGRESS_PHASES, value)
@@ -39,10 +33,6 @@ export function createTimeoutError(message: string) {
 
 export function toScopedOcrJobId(webContentsId: number, requestId: string) {
     return `${webContentsId}:${requestId}`;
-}
-
-export function isScopedJobOwnedBySender(scopedJobId: string, webContentsId: number) {
-    return scopedJobId.startsWith(`${webContentsId}:`);
 }
 
 export type TOcrWorkerManagerMessage = Exclude<

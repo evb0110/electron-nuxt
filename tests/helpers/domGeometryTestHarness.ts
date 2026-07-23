@@ -34,7 +34,7 @@ export interface ITestNode {
     querySelectorAll?: (selector: string) => unknown[];
 }
 
-export interface ITestCanvasNode extends ITestNode {
+interface ITestCanvasNode extends ITestNode {
     width: number;
     height: number;
     remove: () => void;
@@ -77,7 +77,7 @@ export function setTestElementRect<T extends Element>(element: T, rect: ITestRec
     return element;
 }
 
-export function createTestClassList(): ITestClassList {
+function createTestClassList(): ITestClassList {
     const classNames = new Set<string>();
     return {
         add: vi.fn((...args: string[]) => {
@@ -90,7 +90,7 @@ export function createTestClassList(): ITestClassList {
     };
 }
 
-export function createTestCanvasNode(): ITestCanvasNode {
+function createTestCanvasNode(): ITestCanvasNode {
     return {
         width: 120,
         height: 180,

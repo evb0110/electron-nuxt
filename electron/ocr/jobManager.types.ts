@@ -19,7 +19,7 @@ export interface IOcrRegistryProgress extends IOcrProgress {projection: {
     replaceAllAcknowledged: boolean;
 };}
 
-export type TOcrRegistryContext = IMainJobRunContext<
+type TOcrRegistryContext = IMainJobRunContext<
     IOcrRegistryProgress,
     IOcrCompleteResult,
     IOcrErrorEnvelope
