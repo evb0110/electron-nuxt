@@ -1,6 +1,6 @@
 import {
-    mkdir,
     mkdtemp,
+    readFile,
     rm,
     writeFile,
 } from 'node:fs/promises';
@@ -11,63 +11,66 @@ import {
     expect,
     it,
 } from 'vitest';
-import type { IGeneratedRustNativeToolProtocol } from '@contracts/nativeToolProtocols';
+import {
+    GENERATED_RUST_NATIVE_TOOL_PROTOCOLS,
+    type IGeneratedRustNativeToolProtocol,
+} from '@contracts/nativeToolProtocols';
 import { checkNativeToolProtocols } from '@scripts/checkNativeToolProtocols';
+import {
+    generateNativeToolProtocols,
+    renderReleaseNativeToolProtocols,
+    renderRustNativeToolProtocols,
+} from '@scripts/generateNativeToolProtocols';
 
-const fixtureProtocol = {
+const fixtureProtocols = [{
     binaryName: 'evb-fixture-tool',
     crateName: 'fixture-tool',
     protocolVersion: 7,
     resourceFamilyId: 'pdf-search',
     stagingName: 'fixture-tool',
-} as const satisfies IGeneratedRustNativeToolProtocol;
+}] as const satisfies readonly IGeneratedRustNativeToolProtocol[];
 
-async function createNativeProtocolFixture(protocol = fixtureProtocol) {
-    const root = await mkdtemp(path.join(tmpdir(), 'evb-native-protocols-'));
-    const crateRoot = path.join(root, 'native', protocol.crateName);
+describe('native tool protocol generator', () => {
+    it('renders deterministic Rust and release descriptors from one registry', () => {
+        const firstRust = renderRustNativeToolProtocols(fixtureProtocols);
+        const firstRelease = renderReleaseNativeToolProtocols(fixtureProtocols);
 
-    await mkdir(path.join(crateRoot, 'src'), { recursive: true });
-    await mkdir(path.join(crateRoot, 'tests'), { recursive: true });
-    await writeFile(path.join(crateRoot, 'Cargo.toml'), [
-        '[package]',
-        `name = "${protocol.binaryName}"`,
-        'version = "0.1.0"',
-        'edition = "2021"',
-        '',
-    ].join('\n'), 'utf8');
-    await writeFile(path.join(crateRoot, 'src', 'main.rs'), [
-        `const PROTOCOL_VERSION: u32 = ${protocol.protocolVersion};`,
-        'fn main() {}',
-        '',
-    ].join('\n'), 'utf8');
-    await writeFile(path.join(crateRoot, 'tests', 'protocol_version.rs'), [
-        'use std::process::Command;',
-        '',
-        '#[test]',
-        'fn protocol_version_flag_prints_supported_protocol() {',
-        `    let output = Command::new(env!("CARGO_BIN_EXE_${protocol.binaryName}"))`,
-        '        .arg("--protocol-version")',
-        '        .output()',
-        '        .expect("protocol version command runs");',
-        '',
-        '    assert!(output.status.success());',
-        `    assert_eq!(String::from_utf8(output.stdout).unwrap(), "${protocol.protocolVersion}\\n");`,
-        '    assert_eq!(String::from_utf8(output.stderr).unwrap(), "");',
-        '}',
-        '',
-    ].join('\n'), 'utf8');
+        expect(renderRustNativeToolProtocols(fixtureProtocols)).toBe(firstRust);
+        expect(renderReleaseNativeToolProtocols(fixtureProtocols)).toBe(firstRelease);
+        expect(firstRust).toContain(
+            'NativeToolDescriptor::new("evb-fixture-tool", 7);',
+        );
+        expect(firstRelease).toContain('protocolVersion: 7');
+    });
 
-    return root;
-}
-
-describe('native tool protocol checker', () => {
-    it('accepts Rust source, Cargo metadata, and protocol tests that match the contract', async () => {
-        const root = await createNativeProtocolFixture();
+    it('writes both artifacts and rejects drift in check mode', async () => {
+        const root = await mkdtemp(path.join(tmpdir(), 'evb-native-protocols-'));
+        const releasePath = path.join(root, 'scripts/release/generated-native-tool-protocols.mjs');
+        const rustPath = path.join(
+            root,
+            'native/evb-native-support/src/generated_native_tool_protocols.rs',
+        );
         try {
+            await expect(generateNativeToolProtocols({
+                projectRoot: root,
+                protocols: fixtureProtocols,
+            })).resolves.toBe(true);
             await expect(checkNativeToolProtocols({
                 projectRoot: root,
-                protocols: [fixtureProtocol],
+                protocols: fixtureProtocols,
             })).resolves.toBeUndefined();
+            expect(await readFile(rustPath, 'utf8')).toBe(
+                renderRustNativeToolProtocols(fixtureProtocols),
+            );
+            expect(await readFile(releasePath, 'utf8')).toBe(
+                renderReleaseNativeToolProtocols(fixtureProtocols),
+            );
+
+            await writeFile(releasePath, '// stale\n', 'utf8');
+            await expect(checkNativeToolProtocols({
+                projectRoot: root,
+                protocols: fixtureProtocols,
+            })).rejects.toThrow('scripts/release/generated-native-tool-protocols.mjs is stale');
         } finally {
             await rm(root, {
                 force: true,
@@ -76,24 +79,27 @@ describe('native tool protocol checker', () => {
         }
     });
 
-    it('rejects Rust protocol versions that drift from the contract', async () => {
-        const root = await createNativeProtocolFixture();
-        try {
-            await writeFile(
-                path.join(root, 'native', fixtureProtocol.crateName, 'src', 'main.rs'),
-                'const PROTOCOL_VERSION: u32 = 8;\nfn main() {}\n',
-                'utf8',
-            );
-
-            await expect(checkNativeToolProtocols({
-                projectRoot: root,
-                protocols: [fixtureProtocol],
-            })).rejects.toThrow('evb-fixture-tool: native/fixture-tool/src/main.rs declares protocol 8, contract expects 7');
-        } finally {
-            await rm(root, {
-                force: true,
-                recursive: true,
-            });
-        }
+    it('pins the canonical protocol versions during generation', () => {
+        expect(GENERATED_RUST_NATIVE_TOOL_PROTOCOLS.map(protocol => [
+            protocol.binaryName,
+            protocol.protocolVersion,
+        ])).toEqual([
+            [
+                'evb-pdf-image-combine',
+                3,
+            ],
+            [
+                'evb-pdf-page-ops',
+                1,
+            ],
+            [
+                'evb-pdf-search',
+                1,
+            ],
+            [
+                'evb-scan-cleanup',
+                2,
+            ],
+        ]);
     });
 });

@@ -2,7 +2,23 @@ use serde::Serialize;
 use std::{any::Any, error::Error};
 use thiserror::Error;
 
+pub mod generated_native_tool_protocols;
 pub mod output;
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct NativeToolDescriptor {
+    pub binary_name: &'static str,
+    pub protocol_version: u32,
+}
+
+impl NativeToolDescriptor {
+    pub const fn new(binary_name: &'static str, protocol_version: u32) -> Self {
+        Self {
+            binary_name,
+            protocol_version,
+        }
+    }
+}
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Error)]
 #[serde(rename_all = "kebab-case")]
@@ -103,9 +119,46 @@ where
     }
 }
 
+pub fn run_native_cli<F>(
+    descriptor: NativeToolDescriptor,
+    package_version: &'static str,
+    args: impl IntoIterator<Item = String>,
+    operation: F,
+) where
+    F: FnOnce(Vec<String>) -> Result<(), Box<dyn Error>> + std::panic::UnwindSafe,
+{
+    let args = args.into_iter().collect::<Vec<_>>();
+    run_cli_caught(move || {
+        if let Some(output) = standard_cli_output(descriptor, package_version, &args) {
+            print!("{output}");
+            return Ok(());
+        }
+        operation(args)
+    });
+}
+
+fn standard_cli_output(
+    descriptor: NativeToolDescriptor,
+    package_version: &str,
+    args: &[String],
+) -> Option<String> {
+    match args {
+        [flag] if flag == "--protocol-version" => {
+            Some(format!("{}\n", descriptor.protocol_version))
+        }
+        [flag] if flag == "--version" || flag == "-V" => {
+            Some(format!("{} {package_version}\n", descriptor.binary_name))
+        }
+        _ => None,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use generated_native_tool_protocols::{
+        ALL_NATIVE_TOOL_DESCRIPTORS, PDF_IMAGE_COMBINE, PDF_PAGE_OPS, PDF_SEARCH, SCAN_CLEANUP,
+    };
 
     #[test]
     fn preserves_typed_domain_codes_in_serialized_envelopes() {
@@ -120,6 +173,45 @@ mod tests {
             let envelope = NativeErrorEnvelope::from_error(&error);
             assert_eq!(envelope.code, code);
             assert!(envelope.to_json().contains("localized detail"));
+        }
+    }
+
+    #[test]
+    fn generated_descriptors_drive_exact_standard_flag_output() {
+        let expected = [
+            (PDF_IMAGE_COMBINE, 4),
+            (PDF_PAGE_OPS, 1),
+            (PDF_SEARCH, 1),
+            (SCAN_CLEANUP, 3),
+        ];
+        assert_eq!(
+            ALL_NATIVE_TOOL_DESCRIPTORS,
+            expected
+                .iter()
+                .map(|(descriptor, _)| *descriptor)
+                .collect::<Vec<_>>()
+        );
+
+        for (descriptor, protocol_version) in expected {
+            assert_eq!(descriptor.protocol_version, protocol_version);
+            assert_eq!(
+                standard_cli_output(descriptor, "9.8.7", &["--protocol-version".to_string()]),
+                Some(format!("{protocol_version}\n"))
+            );
+            for flag in ["--version", "-V"] {
+                assert_eq!(
+                    standard_cli_output(descriptor, "9.8.7", &[flag.to_string()]),
+                    Some(format!("{} 9.8.7\n", descriptor.binary_name))
+                );
+            }
+            assert_eq!(
+                standard_cli_output(
+                    descriptor,
+                    "9.8.7",
+                    &["--protocol-version".to_string(), "extra".to_string()]
+                ),
+                None
+            );
         }
     }
 }

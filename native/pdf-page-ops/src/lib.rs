@@ -53,8 +53,8 @@ pub(crate) use types::*;
 pub use incremental::{fuzz_parse_incremental_xref_stream, fuzz_parse_incremental_xref_table};
 pub use types::Result;
 
-pub fn run_cli_entry() -> Result<()> {
-    run()
+pub fn run_cli_entry(args: Vec<String>) -> Result<()> {
+    run(args)
 }
 
 #[cfg(test)]

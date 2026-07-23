@@ -1,4 +1,6 @@
-use evb_native_support::{NativeError, NativeErrorCode, NativeErrorEnvelope};
+use evb_native_support::{
+    generated_native_tool_protocols::PDF_SEARCH, NativeError, NativeErrorCode, NativeErrorEnvelope,
+};
 use memmap2::{Mmap, MmapOptions};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, VecDeque};
@@ -19,8 +21,6 @@ use std::thread;
 use unicode_casefold::{Locale, UnicodeCaseFold, Variant};
 use unicode_normalization::{char::canonical_combining_class, UnicodeNormalization};
 
-const VERSION: &str = env!("CARGO_PKG_VERSION");
-const PROTOCOL_VERSION: u32 = 1;
 const MAGIC: &[u8; 8] = b"EVBSIDX2";
 const SCHEMA_VERSION: u32 = 2;
 const HEADER_SIZE: usize = 64;
@@ -983,7 +983,7 @@ fn run_service() -> Result<(), Box<dyn Error>> {
     write_service_response(
         &output,
         &ServiceResponse::Ready {
-            protocol_version: PROTOCOL_VERSION,
+            protocol_version: PDF_SEARCH.protocol_version,
         },
     )?;
     let mut workers: Vec<thread::JoinHandle<()>> = Vec::new();
@@ -1107,14 +1107,6 @@ fn run_cli(mut args: impl Iterator<Item = String>) -> Result<(), Box<dyn Error>>
     };
 
     match command.as_str() {
-        "--protocol-version" => {
-            println!("{PROTOCOL_VERSION}");
-            Ok(())
-        }
-        "--version" | "-V" => {
-            println!("evb-pdf-search {VERSION}");
-            Ok(())
-        }
         "serve" => run_service(),
         "search" => {
             let options = parse_search_options(args)?;
@@ -1131,7 +1123,12 @@ fn run_cli(mut args: impl Iterator<Item = String>) -> Result<(), Box<dyn Error>>
 }
 
 fn main() {
-    evb_native_support::run_cli_caught(|| run_cli(env::args().skip(1)));
+    evb_native_support::run_native_cli(
+        PDF_SEARCH,
+        env!("CARGO_PKG_VERSION"),
+        env::args().skip(1),
+        |args| run_cli(args.into_iter()),
+    );
 }
 
 #[cfg(test)]

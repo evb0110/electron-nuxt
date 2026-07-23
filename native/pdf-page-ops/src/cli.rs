@@ -1,23 +1,12 @@
 use super::*;
 
-pub(crate) fn run() -> Result<()> {
-    if env::args().skip(1).any(|arg| arg == "--protocol-version") {
-        println!("{PROTOCOL_VERSION}");
-        return Ok(());
-    }
-
-    if env::args().skip(1).any(|arg| arg == "--version") {
-        println!("evb-pdf-page-ops {VERSION}");
-        return Ok(());
-    }
-
-    let config = parse_args()
+pub(crate) fn run(args: Vec<String>) -> Result<()> {
+    let config = parse_args(args.into_iter())
         .map_err(|error| reclassify_domain_error(error, NativeErrorCode::InvalidRequest))?;
     mutate_pdf(config)
 }
 
-pub(crate) fn parse_args() -> Result<Config> {
-    let mut args = env::args().skip(1);
+pub(crate) fn parse_args(mut args: impl Iterator<Item = String>) -> Result<Config> {
     let command = args.next().ok_or("Missing command")?;
     let mut input_path = None;
     let mut output_path = None;

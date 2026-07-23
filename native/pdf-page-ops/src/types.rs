@@ -1,8 +1,5 @@
 use super::*;
 
-pub(crate) const VERSION: &str = env!("CARGO_PKG_VERSION");
-pub(crate) const PROTOCOL_VERSION: u32 = 1;
-
 pub type Result<T> = std::result::Result<T, Box<dyn Error>>;
 
 pub(crate) fn domain_error(code: NativeErrorCode, message: impl Into<String>) -> Box<dyn Error> {

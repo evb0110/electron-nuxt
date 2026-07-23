@@ -5,15 +5,15 @@ use std::{
     time::Instant,
 };
 
-use evb_native_support::output::{AtomicOutput, ValidatedInputFiles};
+use evb_native_support::{
+    generated_native_tool_protocols::PDF_IMAGE_COMBINE,
+    output::{AtomicOutput, ValidatedInputFiles},
+};
 use evb_pdf_image_combine::{
     combine_tiff_paths, encode_netpbm_path_as_png, probe_netpbm_path, write_pdf, FramePolicy,
     ImageCompression, ImageProcessing, ImageSpec, InputSource, JpegSizeGuardrail, PageSpec,
     PdfBuildOptions, PdfPageSize, Result, DEFAULT_MAX_BILEVEL_PIXELS, DEFAULT_MAX_IMAGE_PIXELS,
 };
-
-const VERSION: &str = env!("CARGO_PKG_VERSION");
-const PROTOCOL_VERSION: u32 = 4;
 
 struct Config {
     output_path: PathBuf,
@@ -32,11 +32,15 @@ enum OutputFormat {
 }
 
 fn main() {
-    evb_native_support::run_cli_caught(run);
+    evb_native_support::run_native_cli(
+        PDF_IMAGE_COMBINE,
+        env!("CARGO_PKG_VERSION"),
+        env::args().skip(1),
+        run,
+    );
 }
 
-fn run() -> Result<()> {
-    let raw_args = env::args().skip(1).collect::<Vec<_>>();
+fn run(raw_args: Vec<String>) -> Result<()> {
     if raw_args.first().is_some_and(|arg| arg == "--probe-netpbm") {
         let input_path = raw_args.get(1).ok_or("Missing --probe-netpbm input path")?;
         if raw_args.len() != 2 {
@@ -54,16 +58,7 @@ fn run() -> Result<()> {
         println!("{}", serde_json::to_string(&probe)?);
         return Ok(());
     }
-    if raw_args.iter().any(|arg| arg == "--protocol-version") {
-        println!("{PROTOCOL_VERSION}");
-        return Ok(());
-    }
-    if raw_args.iter().any(|arg| arg == "--version") {
-        println!("evb-pdf-image-combine {VERSION}");
-        return Ok(());
-    }
-
-    let config = parse_args()?;
+    let config = parse_args(raw_args.into_iter())?;
     let max_pixels = read_limit(
         "EVB_PDF_COMBINE_MAX_IMAGE_PIXELS",
         DEFAULT_MAX_IMAGE_PIXELS,
@@ -190,8 +185,7 @@ fn write_pdf_file(
     Ok(())
 }
 
-fn parse_args() -> Result<Config> {
-    let mut args = env::args().skip(1);
+fn parse_args(mut args: impl Iterator<Item = String>) -> Result<Config> {
     let mut output_path = None;
     let mut input_paths = Vec::new();
     let mut json_progress = false;

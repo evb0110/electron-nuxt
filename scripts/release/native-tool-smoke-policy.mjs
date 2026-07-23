@@ -1,3 +1,20 @@
+import { GENERATED_RELEASE_NATIVE_TOOL_PROTOCOLS } from './generated-native-tool-protocols.mjs';
+
+const protocolVersionByBinaryName = new Map(
+    GENERATED_RELEASE_NATIVE_TOOL_PROTOCOLS.map(descriptor => [
+        descriptor.binaryName,
+        descriptor.protocolVersion,
+    ]),
+);
+
+function getGeneratedProtocolVersion(binaryName) {
+    const protocolVersion = protocolVersionByBinaryName.get(binaryName);
+    if (protocolVersion === undefined) {
+        throw new Error(`Missing generated native tool protocol for "${binaryName}"`);
+    }
+    return protocolVersion;
+}
+
 const MAC_PACKAGED_TOOL_SMOKE_POLICY = {
     'evb-pdf-image-combine': {
         allowedExitCodes: new Set([0]),
@@ -5,7 +22,7 @@ const MAC_PACKAGED_TOOL_SMOKE_POLICY = {
     },
     'evb-pdf-image-combine-protocol': {
         allowedExitCodes: new Set([0]),
-        expectedOutputTokens: ['4'],
+        expectedOutputTokens: [String(getGeneratedProtocolVersion('evb-pdf-image-combine'))],
     },
     'evb-pdf-image-combine-compact-manifest': {
         allowedExitCodes: new Set([1]),
@@ -25,7 +42,7 @@ const MAC_PACKAGED_TOOL_SMOKE_POLICY = {
     },
     'evb-scan-cleanup-protocol': {
         allowedExitCodes: new Set([0]),
-        expectedOutputTokens: ['3'],
+        expectedOutputTokens: [String(getGeneratedProtocolVersion('evb-scan-cleanup'))],
     },
     ddjvu: {
         allowedExitCodes: new Set([
