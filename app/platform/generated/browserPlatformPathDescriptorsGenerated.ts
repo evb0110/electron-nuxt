@@ -266,16 +266,6 @@ export const browserPlatformPathDescriptorsGenerated = {
     system: {
         onShutdownSaveFlushRequest: {kind: 'event', path: ["system","onShutdownSaveFlushRequest"]},
     },
-    updates: {
-        getState: {kind: 'async', path: ["updates","getState"]},
-        check: {kind: 'async', path: ["updates","check"]},
-        download: {kind: 'async', path: ["updates","download"]},
-        install: {kind: 'async', path: ["updates","install"]},
-        defer: {kind: 'async', path: ["updates","defer"]},
-        skipVersion: {kind: 'async', path: ["updates","skipVersion"]},
-        onStatus: {kind: 'event', path: ["updates","onStatus"]},
-        onMenuCheckForUpdates: {kind: 'event', path: ["updates","onMenuCheckForUpdates"]},
-    },
     windowTabs: {
         transfer: {kind: 'async', path: ["windowTabs","transfer"]},
         transferAck: {kind: 'async', path: ["windowTabs","transferAck"]},
@@ -313,13 +303,6 @@ export const browserPlatformPathDescriptorsGenerated = {
         resetAssistantChat: {kind: 'async', path: ["agent","resetAssistantChat"]},
         onAssistantEvent: {kind: 'event', path: ["agent","onAssistantEvent"]},
     },
-    host: {
-        getEnvironment: {kind: 'async', path: ["host","getEnvironment"]},
-        onEnvironmentChange: {kind: 'event', path: ["host","onEnvironmentChange"]},
-        getZenModeState: {kind: 'async', path: ["host","getZenModeState"]},
-        setZenMode: {kind: 'async', path: ["host","setZenMode"]},
-        onZenModeChange: {kind: 'event', path: ["host","onZenModeChange"]},
-    },
     search: {
         run: {kind: 'async', path: ["search","run"]},
         warmIndex: {kind: 'async', path: ["search","warmIndex"]},
@@ -345,6 +328,13 @@ export const browserPlatformPathDescriptorsGenerated = {
     },
     shell: {
         openExternal: {kind: 'async', path: ["shell","openExternal"]},
+    },
+    host: {
+        getEnvironment: {kind: 'async', path: ["host","getEnvironment"]},
+        getZenModeState: {kind: 'async', path: ["host","getZenModeState"]},
+        setZenMode: {kind: 'async', path: ["host","setZenMode"]},
+        onEnvironmentChange: {kind: 'event', path: ["host","onEnvironmentChange"]},
+        onZenModeChange: {kind: 'event', path: ["host","onZenModeChange"]},
     },
 } as const;
 

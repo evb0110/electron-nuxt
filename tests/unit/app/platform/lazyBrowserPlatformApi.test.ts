@@ -10,7 +10,6 @@ const mocks = vi.hoisted(() => ({
     browserLoggerError: vi.fn(),
     browserPlatformImportCount: 0,
     onMenuSave: vi.fn(() => () => {}),
-    onStatus: vi.fn(),
     openDocumentDirect: vi.fn(async (path: string) => ({
         kind: 'pdf',
         originalPath: path,
@@ -47,7 +46,6 @@ vi.mock('@app/platform/browserPlatformApi', () => {
         documentFiles: {readTextFile: mocks.readTextFile},
         documentMenu: {onMenuSave: mocks.onMenuSave},
         documentOpen: {openDocumentDirect: mocks.openDocumentDirect},
-        updates: {onStatus: mocks.onStatus},
     }};
 });
 
@@ -63,7 +61,7 @@ describe('lazyBrowserPlatformApi', () => {
 
         expect(mocks.browserPlatformImportCount).toBe(0);
 
-        const unsubscribe = lazyBrowserPlatformApi.updates.onStatus(vi.fn());
+        const unsubscribe = lazyBrowserPlatformApi.documents.onMenuSave(vi.fn());
 
         await vi.waitFor(() => {
             expect(mocks.browserPlatformImportCount).toBe(1);
@@ -136,17 +134,17 @@ describe('lazyBrowserPlatformApi', () => {
 
     it('reports lazy event subscription failures with the capability path', async () => {
         const subscriptionError = new Error('subscription failed');
-        mocks.onStatus.mockImplementation(() => {
+        mocks.onMenuSave.mockImplementation(() => {
             throw subscriptionError;
         });
         const { lazyBrowserPlatformApi } = await import('@app/platform/lazyBrowserPlatformApi');
 
-        const unsubscribe = lazyBrowserPlatformApi.updates.onStatus(vi.fn());
+        const unsubscribe = lazyBrowserPlatformApi.documents.onMenuSave(vi.fn());
 
         await vi.waitFor(() => {
             expect(mocks.browserLoggerError).toHaveBeenCalledWith(
                 'platform',
-                'Failed to subscribe to browser event updates.onStatus',
+                'Failed to subscribe to browser event documentMenu.onMenuSave',
                 subscriptionError,
             );
         });

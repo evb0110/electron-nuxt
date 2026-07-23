@@ -57,51 +57,7 @@ const transferRequest = {
         isDirty: false,
     },
 };
-const updateStatus = {
-    phase: 'idle' as const,
-    origin: 'auto' as const,
-    version: null,
-    percent: null,
-    message: null,
-};
-
 const cases = [
-    {
-        channel: CORE_IPC_CHANNELS.updatesGetState,
-        args: [],
-        result: updateStatus,
-        invalidArg: 'extra',
-    },
-    {
-        channel: CORE_IPC_CHANNELS.updatesCheck,
-        args: [],
-        result: {started: true},
-        invalidArg: 'extra',
-    },
-    {
-        channel: CORE_IPC_CHANNELS.updatesDownload,
-        args: [],
-        result: {started: true},
-        invalidArg: 'extra',
-    },
-    {
-        channel: CORE_IPC_CHANNELS.updatesInstall,
-        args: [],
-        result: {started: false},
-        invalidArg: 'extra',
-    },
-    {
-        channel: CORE_IPC_CHANNELS.updatesDefer,
-        args: [],
-        result: undefined,
-        invalidArg: 'extra',
-    },
-    {
-        channel: CORE_IPC_CHANNELS.updatesSkipVersion,
-        args: ['2.0.0'],
-        result: undefined,
-        invalidArg: 2,
-    },
     {
         channel: CORE_IPC_CHANNELS.windowCloseCurrent,
         args: [],
@@ -168,33 +124,6 @@ const cases = [
         args: ['tab-1'],
         result: undefined,
         invalidArg: '',
-    },
-    {
-        channel: CORE_IPC_CHANNELS.hostGetEnvironment,
-        args: [],
-        result: {
-            platform: 'linux',
-            osScaleFactor: 1,
-        },
-        invalidArg: 'extra',
-    },
-    {
-        channel: CORE_IPC_CHANNELS.hostGetZenModeState,
-        args: [],
-        result: {
-            active: false,
-            supported: true,
-        },
-        invalidArg: 'extra',
-    },
-    {
-        channel: CORE_IPC_CHANNELS.hostSetZenMode,
-        args: [true],
-        result: {
-            active: true,
-            supported: true,
-        },
-        invalidArg: 'true',
     },
 ] as const satisfies ReadonlyArray<{
     args: readonly unknown[];

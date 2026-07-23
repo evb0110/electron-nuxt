@@ -1,4 +1,5 @@
 import { ELECTRON_PLATFORM_MANIFEST } from '@contracts/platformApi';
+import type { IElectronAPI } from '@contracts/electronApi';
 import {
     createPlatformApiFixture,
     type TPlatformApiFixtureOverrides,
@@ -11,5 +12,5 @@ export function createElectronPlatformApiFixture<TOverrides extends TPlatformApi
         backend: 'electron',
         manifest: ELECTRON_PLATFORM_MANIFEST,
         overrides,
-    });
+    }) as IElectronAPI & TOverrides;
 }

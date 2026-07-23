@@ -188,23 +188,27 @@ export function registerPlatformFeatureHandlers<
     feature: TFeature,
     bindings: TFeatureMainBindings<TFeature, IpcMainInvokeEvent>,
 ) {
-    const untypedBindings = bindings;
+    const untypedBindings: object = bindings;
     const senderContext = (event: IpcMainInvokeEvent) => ({
         sender: event.sender,
         senderId: event.sender.id,
     });
     for (const spec of Object.values(feature.methods)) {
+        if (spec.kind === 'sync') {
+            continue;
+        }
         registrar.handle(spec.channel, (event, ...args: unknown[]) => {
-            const binding = untypedBindings[spec.main.method];
-            if (!binding) {
+            const binding: unknown = Reflect.get(untypedBindings, spec.main.method);
+            if (typeof binding !== 'function') {
                 throw new Error(`Missing platform feature main binding: ${spec.main.method}`);
             }
+            const invokeBinding = binding as (...bindingArgs: unknown[]) => unknown;
             return spec.main.context === 'sender'
-                ? Reflect.apply(binding, undefined, [
+                ? invokeBinding(
                     senderContext(event),
                     ...args,
-                ])
-                : Reflect.apply(binding, undefined, args);
+                )
+                : invokeBinding(...args);
         });
     }
     for (const spec of Object.values(feature.events)) {
@@ -212,11 +216,12 @@ export function registerPlatformFeatureHandlers<
             continue;
         }
         registrar.handle(spec.subscription.channel, (event) => {
-            const binding = untypedBindings[spec.subscription!.main.method];
-            if (!binding) {
+            const binding: unknown = Reflect.get(untypedBindings, spec.subscription!.main.method);
+            if (typeof binding !== 'function') {
                 throw new Error(`Missing platform feature main binding: ${spec.subscription!.main.method}`);
             }
-            Reflect.apply(binding, undefined, [senderContext(event)]);
+            const invokeBinding = binding as (...bindingArgs: unknown[]) => unknown;
+            invokeBinding(senderContext(event));
             return undefined;
         });
     }

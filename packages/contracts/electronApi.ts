@@ -1,4 +1,5 @@
 import type { IPlatformApi } from '@contracts/platformApi';
+import type { IUpdatesCapability } from '@contracts/updatesPlatformFeature';
 
 export type * from '@contracts/agent';
 export type * from '@contracts/agentCapability';
@@ -8,11 +9,11 @@ export type * from '@contracts/electronApiCommon';
 export type * from '@contracts/electronApiDocuments';
 export type * from '@contracts/electronApiOcr';
 export type * from '@contracts/electronApiScanCleanup';
-export type * from '@contracts/electronApiUpdates';
+export type * from '@contracts/updatesPlatformFeature';
 export type * from '@contracts/electronApiWindowTabs';
 export type * from '@contracts/electronApiDjvu';
 export type * from '@contracts/electronApiPageOps';
-export type * from '@contracts/electronApiHost';
+export type * from '@contracts/hostPlatformFeature';
 export * from '@contracts/hostResourceProfile';
 export type * from '@contracts/imageExportPlatformFeature';
 export type * from '@contracts/pageOpsPlatformFeature';
@@ -20,4 +21,4 @@ export type * from '@contracts/searchPlatformFeature';
 export type * from '@contracts/settingsPlatformFeature';
 export type * from '@contracts/shellPlatformFeature';
 
-export type IElectronAPI = IPlatformApi;
+export type IElectronAPI = IPlatformApi & {updates: IUpdatesCapability};

@@ -11,14 +11,6 @@ import {
     requestWindowTabTransfer,
 } from '@electron/windowTabTransfer';
 import { getAllRegisteredAppWindows } from '@electron/window/registry';
-import {
-    deferDownloadedUpdate,
-    downloadAvailableUpdate,
-    getUpdateStatus,
-    installDownloadedUpdate,
-    skipUpdateVersion,
-    triggerManualUpdateCheck,
-} from '@electron/updates';
 import { registerRendererLogBridge } from '@electron/platform-ipc/rendererLogBridge';
 import { isTrustedWebContentsSender } from '@electron/platform-ipc/trustedIpcSender';
 import {
@@ -26,11 +18,6 @@ import {
     createValidatedIpcMainRegistrar,
 } from '@electron/platform-ipc/validatedIpcRegistrar';
 import { CORE_IPC_CODECS } from '@electron/platform-ipc/coreIpcCodecs';
-import {
-    setHostZenModeForWindow,
-    snapshotHostEnvironmentForWindow,
-    snapshotHostZenModeForWindow,
-} from '@electron/hostEnvironment';
 import {
     CORE_IPC_CHANNELS,
     CORE_IPC_SEND_CHANNELS,
@@ -166,25 +153,4 @@ export function registerCoreIpcHandlers(
         return true;
     });
 
-    registrar.handle(CORE_IPC_CHANNELS.updatesGetState, () => getUpdateStatus());
-    registrar.handle(CORE_IPC_CHANNELS.updatesCheck, () => triggerManualUpdateCheck());
-    registrar.handle(CORE_IPC_CHANNELS.updatesDownload, () => downloadAvailableUpdate());
-    registrar.handle(CORE_IPC_CHANNELS.updatesInstall, () => installDownloadedUpdate());
-    registrar.handle(CORE_IPC_CHANNELS.updatesDefer, () => deferDownloadedUpdate());
-    registrar.handle(CORE_IPC_CHANNELS.updatesSkipVersion, (_event, version) => skipUpdateVersion(version));
-
-    registrar.handle(CORE_IPC_CHANNELS.hostGetEnvironment, (event) => {
-        const window = BrowserWindow.fromWebContents(event.sender);
-        return snapshotHostEnvironmentForWindow(window);
-    });
-
-    registrar.handle(CORE_IPC_CHANNELS.hostGetZenModeState, (event) => {
-        const window = BrowserWindow.fromWebContents(event.sender);
-        return snapshotHostZenModeForWindow(window);
-    });
-
-    registrar.handle(CORE_IPC_CHANNELS.hostSetZenMode, (event, active) => {
-        const window = BrowserWindow.fromWebContents(event.sender);
-        return setHostZenModeForWindow(window, active === true);
-    });
 }

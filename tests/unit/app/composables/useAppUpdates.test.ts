@@ -5,10 +5,13 @@ import {
     it,
     vi,
 } from 'vitest';
-import type { IAppUpdateStatus } from '@contracts/electronApiUpdates';
+import type {
+    IAppUpdateStatus,
+    IUpdatesCapability,
+} from '@contracts/updatesPlatformFeature';
 import { createElectronPlatformApiFixture } from '@tests/helpers/createElectronPlatformApiFixture';
 
-type TUpdatesCapability = ReturnType<typeof createElectronPlatformApiFixture>['updates'];
+type TUpdatesCapability = IUpdatesCapability | undefined;
 
 const getUpdatesCapabilityMock = vi.hoisted(() => vi.fn<() => TUpdatesCapability>());
 const isUpdatesCapabilitySupportedMock = vi.hoisted(() => vi.fn((status: IAppUpdateStatus) => status.phase !== 'unsupported'));
@@ -38,19 +41,16 @@ describe('useAppUpdates', () => {
         vi.clearAllMocks();
     });
 
-    it('treats unsupported browser updates as a valid platform capability state', async () => {
-        const updatesCapability = createElectronPlatformApiFixture().updates;
-        getUpdatesCapabilityMock.mockReturnValue(updatesCapability);
+    it('keeps browser state idle when the optional updates capability is absent', async () => {
+        getUpdatesCapabilityMock.mockReturnValue(undefined);
 
         const { useAppUpdates } = await import('@app/composables/useAppUpdates');
         const updates = useAppUpdates();
 
-        await updates.ensureInitialized();
+        await expect(updates.ensureInitialized()).resolves.toBe(false);
 
-        expect(updatesCapability.getState).toHaveBeenCalledOnce();
-        expect(updates.status.value.phase).toBe('unsupported');
-        expect(updates.isUpdateSupported.value).toBe(false);
-        expect(isUpdatesCapabilitySupportedMock).toHaveBeenCalledWith(expect.objectContaining({ phase: 'unsupported' }));
+        expect(updates.status.value.phase).toBe('idle');
+        expect(updates.dialog.value.open).toBe(false);
     });
 
     it('routes manual check requests through the shared updates capability', async () => {

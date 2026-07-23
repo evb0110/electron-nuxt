@@ -10,6 +10,7 @@ import type {
 import type {
     TAnyDefinedPlatformFeature,
     TFeatureCapability,
+    TFeatureSyncBindings,
 } from '@contracts/platformFeature';
 import { CORE_IPC_SEND_CHANNELS } from '@electron/platform-ipc/coreContract';
 
@@ -231,14 +232,16 @@ export function createPlatformFeaturePreloadClient<
 >(
     ipcRenderer: IpcRenderer,
     feature: TFeature,
+    syncBindings?: TFeatureSyncBindings<TFeature>,
 ): TFeatureCapability<TFeature> {
     const invokeTimeoutMsByChannel = Object.fromEntries(
         Object.values(feature.methods)
-            .filter(spec => spec.ipc.timeoutMs !== undefined)
-            .map(spec => [
-                spec.channel,
-                spec.ipc.timeoutMs,
-            ]),
+            .flatMap(spec => spec.kind === 'sync' || spec.ipc.timeoutMs === undefined
+                ? []
+                : [[
+                    spec.channel,
+                    spec.ipc.timeoutMs,
+                ]]),
     );
     const invoke = createCodecIpcInvoker(
         ipcRenderer,
@@ -248,11 +251,20 @@ export function createPlatformFeaturePreloadClient<
     const eventSubscriber = createTypedIpcEventSubscriber<Record<string, unknown>>(ipcRenderer);
     const requestedSubscriptions = new Set<string>();
     const client: Record<string, unknown> = {};
+    const untypedSyncBindings = syncBindings as Record<string, (() => unknown)> | undefined;
 
     for (const [
         name,
         spec,
     ] of Object.entries(feature.methods)) {
+        if (spec.kind === 'sync') {
+            const binding = untypedSyncBindings?.[name];
+            if (typeof binding !== 'function') {
+                throw new Error(`Missing platform feature sync binding: ${name}`);
+            }
+            client[name] = binding;
+            continue;
+        }
         client[name] = (...publicArgs: unknown[]) => {
             const wireArgs = spec.client?.mapArgs
                 ? spec.client.mapArgs(...publicArgs as never[])

@@ -1,7 +1,7 @@
 import type {
     IHostEnvironmentSnapshot,
     THostPlatform,
-} from '@contracts/electronApiHost';
+} from '@contracts/hostPlatformFeature';
 import type {
     ISettingsData,
     TUiScalePreference,

@@ -14,6 +14,8 @@ import { OCR_CHANNELS } from '@electron/features/ocr/contract';
 import { OCR_IPC_CODECS } from '@electron/features/ocr/ocrIpcCodecs';
 import { PAGE_OPS_PLATFORM_FEATURE } from '@contracts/pageOpsPlatformFeature';
 import { SEARCH_PLATFORM_FEATURE } from '@contracts/searchPlatformFeature';
+import { HOST_PLATFORM_FEATURE } from '@contracts/hostPlatformFeature';
+import { UPDATES_PLATFORM_FEATURE } from '@contracts/updatesPlatformFeature';
 
 const IMAGE_EXPORT_CHANNELS = IMAGE_EXPORT_PLATFORM_FEATURE.invokeChannels;
 const IMAGE_EXPORT_IPC_CODECS = IMAGE_EXPORT_PLATFORM_FEATURE.ipcCodecs;
@@ -21,6 +23,10 @@ const PAGE_OPS_CHANNELS = PAGE_OPS_PLATFORM_FEATURE.invokeChannels;
 const PAGE_OPS_IPC_CODECS = PAGE_OPS_PLATFORM_FEATURE.ipcCodecs;
 const SEARCH_CHANNELS = SEARCH_PLATFORM_FEATURE.invokeChannels;
 const SEARCH_IPC_CODECS = SEARCH_PLATFORM_FEATURE.ipcCodecs;
+const HOST_CHANNELS = HOST_PLATFORM_FEATURE.invokeChannels;
+const HOST_IPC_CODECS = HOST_PLATFORM_FEATURE.ipcCodecs;
+const UPDATES_CHANNELS = UPDATES_PLATFORM_FEATURE.invokeChannels;
+const UPDATES_IPC_CODECS = UPDATES_PLATFORM_FEATURE.ipcCodecs;
 
 function expectExhaustiveMap(
     channels: Record<string, string>,
@@ -40,6 +46,8 @@ describe('feature IPC codec maps', () => {
         expectExhaustiveMap(OCR_CHANNELS, OCR_IPC_CODECS);
         expectExhaustiveMap(PAGE_OPS_CHANNELS, PAGE_OPS_IPC_CODECS);
         expectExhaustiveMap(SEARCH_CHANNELS, SEARCH_IPC_CODECS);
+        expectExhaustiveMap(HOST_CHANNELS, HOST_IPC_CODECS);
+        expectExhaustiveMap(UPDATES_CHANNELS, UPDATES_IPC_CODECS);
     });
 
     it('reject malformed main-process results at each feature boundary', () => {
@@ -56,6 +64,11 @@ describe('feature IPC codec maps', () => {
             results: [{}],
             truncated: false,
         })).toThrow();
+        expect(() => HOST_IPC_CODECS[HOST_CHANNELS.getEnvironment]!.decodeResult({
+            platform: 'freebsd',
+            osScaleFactor: 1,
+        })).toThrow();
+        expect(() => UPDATES_IPC_CODECS[UPDATES_CHANNELS.getState]!.decodeResult({phase: 'future'})).toThrow();
     });
 
     it('preserves the source identity needed to validate cached opening geometry', () => {

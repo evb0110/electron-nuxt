@@ -13,6 +13,7 @@ import {
 } from 'es-toolkit/array';
 import { basename } from 'path';
 import type { TWindowTabsAction } from '@contracts/windowTabs';
+import type { IUpdatesEventMap } from '@contracts/updatesPlatformFeature';
 import type { IApplicationMenuDocumentState } from '@contracts/electronApiDocuments';
 import { config } from '@electron/config';
 import { createLogger } from '@electron/utils/createLogger';
@@ -80,10 +81,9 @@ let listenersRegistered = false;
 let menuRebuildTimer: ReturnType<typeof setTimeout> | null = null;
 let menuRebuildPending = false;
 
-type TNativeMenuEventMap = IDocumentsEventMap & Pick<
+type TNativeMenuEventMap = IDocumentsEventMap & IUpdatesEventMap & Pick<
     ICoreEventMap,
     | typeof CORE_IPC_EVENT_CHANNELS.menuCheckForUpdates
-    | typeof CORE_IPC_EVENT_CHANNELS.updatesStatus
     | typeof CORE_IPC_EVENT_CHANNELS.menuWindowTabsAction
     | typeof CORE_IPC_EVENT_CHANNELS.menuNewTab
     | typeof CORE_IPC_EVENT_CHANNELS.menuCloseTab

@@ -20,6 +20,8 @@ import { SEARCH_PLATFORM_FEATURE } from '@contracts/searchPlatformFeature';
 import { PAGE_OPS_PLATFORM_FEATURE } from '@contracts/pageOpsPlatformFeature';
 import { SETTINGS_PLATFORM_FEATURE } from '@contracts/settingsPlatformFeature';
 import { SHELL_PLATFORM_FEATURE } from '@contracts/shellPlatformFeature';
+import { UPDATES_PLATFORM_FEATURE } from '@contracts/updatesPlatformFeature';
+import { HOST_PLATFORM_FEATURE } from '@contracts/hostPlatformFeature';
 import type { TAnyDefinedPlatformFeature } from '@contracts/platformFeature';
 import {DJVU_CHANNELS} from '@electron/features/djvu/contract';
 import { DJVU_IPC_CODECS } from '@electron/features/djvu/djvuIpcCodecs';
@@ -111,6 +113,11 @@ export function registerFeatureIpcAdapters(
     registerLazyPlatformFeature(ipcMain, SHELL_PLATFORM_FEATURE, async () => {
         const {shellMainBindings} = await import('@electron/features/shell/shellMainBindings');
         return shellMainBindings;
+    });
+    registerLazyPlatformFeature(ipcMain, UPDATES_PLATFORM_FEATURE, () => import('@electron/updates'));
+    registerLazyPlatformFeature(ipcMain, HOST_PLATFORM_FEATURE, async () => {
+        const {hostMainBindings} = await import('@electron/hostEnvironment');
+        return hostMainBindings;
     });
     registerLazyPlatformFeature(ipcMain, IMAGE_EXPORT_PLATFORM_FEATURE, async () => {
         const {imageExportMainBindings} = await import('@electron/features/image-export/public');

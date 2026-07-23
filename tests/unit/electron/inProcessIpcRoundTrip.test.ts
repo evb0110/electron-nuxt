@@ -38,7 +38,15 @@ import {
     SEARCH_PLATFORM_FEATURE,
     type ISearchInvokeMap,
 } from '@contracts/searchPlatformFeature';
-import type { TFeatureMainBindings } from '@contracts/platformFeature';
+import {HOST_PLATFORM_FEATURE} from '@contracts/hostPlatformFeature';
+import {
+    UPDATES_PLATFORM_FEATURE,
+    type IUpdatesInvokeMap,
+} from '@contracts/updatesPlatformFeature';
+import type {
+    TFeatureInvokeMap,
+    TFeatureMainBindings,
+} from '@contracts/platformFeature';
 import { createPlatformFeaturePreloadClient } from '@electron/preload/ipcClient';
 import { registerPlatformFeatureHandlers } from '@electron/platform-ipc/validatedIpcRegistrar';
 import type { IpcMainInvokeEvent } from 'electron';
@@ -57,6 +65,7 @@ const mocks = vi.hoisted(() => ({
     fromWebContents: vi.fn(() => null),
     isTrustedIpcInvokeSender: vi.fn(() => true),
 }));
+type THostInvokeMap = TFeatureInvokeMap<typeof HOST_PLATFORM_FEATURE>;
 
 vi.mock('electron', () => ({
     app: {
@@ -239,6 +248,76 @@ describe('in-process preload to validated IPC round trips', () => {
         );
         await expect(harness.client.rotate('/tmp/working-copy.pdf', [2], 4, 180))
             .rejects.toThrow('page operation result must include success');
+    });
+
+    it('round-trips update requests through generated codecs and bindings', async () => {
+        const checkResult = {started: true};
+        const triggerManualUpdateCheck = vi.fn(() => checkResult);
+        type TBindings = TFeatureMainBindings<typeof UPDATES_PLATFORM_FEATURE, IpcMainInvokeEvent>;
+        const bindings = cast<TBindings>({triggerManualUpdateCheck});
+        const createClient = (ipcRenderer: Electron.IpcRenderer) =>
+            createPlatformFeaturePreloadClient(ipcRenderer, UPDATES_PLATFORM_FEATURE);
+        const harness = createInProcessIpcRoundTripHarness<
+            IUpdatesInvokeMap,
+            TBindings,
+            ReturnType<typeof createClient>
+        >({
+            channels: UPDATES_PLATFORM_FEATURE.invokeChannels,
+            codecs: cast<Parameters<typeof createInProcessIpcRoundTripHarness<
+                IUpdatesInvokeMap,
+                TBindings,
+                ReturnType<typeof createClient>
+            >>[0]['codecs']>(UPDATES_PLATFORM_FEATURE.ipcCodecs),
+            createClient,
+            register: (registrar, service) => registerPlatformFeatureHandlers(
+                cast<Parameters<typeof registerPlatformFeatureHandlers>[0]>(registrar),
+                UPDATES_PLATFORM_FEATURE,
+                service,
+            ),
+            service: bindings,
+        });
+
+        await expect(harness.client.check()).resolves.toEqual(checkResult);
+        expect(triggerManualUpdateCheck).toHaveBeenCalledOnce();
+    });
+
+    it('keeps the host resource profile sync while round-tripping host invokes', async () => {
+        const getResourceProfile = vi.fn(() => null);
+        const snapshotHostZenModeForWindow = vi.fn(() => ({
+            active: false,
+            supported: true,
+        }));
+        type TBindings = TFeatureMainBindings<typeof HOST_PLATFORM_FEATURE, IpcMainInvokeEvent>;
+        const bindings = cast<TBindings>({snapshotHostZenModeForWindow});
+        const createClient = (ipcRenderer: Electron.IpcRenderer) =>
+            createPlatformFeaturePreloadClient(ipcRenderer, HOST_PLATFORM_FEATURE, {getResourceProfile});
+        const harness = createInProcessIpcRoundTripHarness<
+            THostInvokeMap,
+            TBindings,
+            ReturnType<typeof createClient>
+        >({
+            channels: HOST_PLATFORM_FEATURE.invokeChannels,
+            codecs: cast<Parameters<typeof createInProcessIpcRoundTripHarness<
+                THostInvokeMap,
+                TBindings,
+                ReturnType<typeof createClient>
+            >>[0]['codecs']>(HOST_PLATFORM_FEATURE.ipcCodecs),
+            createClient,
+            register: (registrar, service) => registerPlatformFeatureHandlers(
+                cast<Parameters<typeof registerPlatformFeatureHandlers>[0]>(registrar),
+                HOST_PLATFORM_FEATURE,
+                service,
+            ),
+            service: bindings,
+        });
+
+        expect(harness.client.getResourceProfile()).toBeNull();
+        expect(getResourceProfile).toHaveBeenCalledOnce();
+        await expect(harness.client.getZenModeState()).resolves.toEqual({
+            active: false,
+            supported: true,
+        });
+        expect(snapshotHostZenModeForWindow).toHaveBeenCalledWith(expect.objectContaining({senderId: 7}));
     });
 
     it('round-trips an agent command response and renderer acknowledgement', async () => {

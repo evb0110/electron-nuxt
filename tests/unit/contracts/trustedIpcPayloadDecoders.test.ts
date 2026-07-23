@@ -8,8 +8,8 @@ import {
     assertDocumentAllocationSize,
     decodeFileStatResult,
 } from '@contracts/electronApiDocuments';
-import { decodeAppUpdateStatus } from '@contracts/electronApiUpdates';
-import { decodeHostEnvironmentSnapshot } from '@contracts/electronApiHost';
+import { decodeAppUpdateStatus } from '@contracts/updatesPlatformFeature';
+import { decodeHostEnvironmentSnapshot } from '@contracts/hostPlatformFeature';
 import { decodeHostResourceProfileSnapshot } from '@contracts/hostResourceProfile';
 import { decodeWindowTabsAction } from '@contracts/windowTabsValidation';
 import { decodeDocumentRevisionChangedEvent } from '@contracts/documentRevision';

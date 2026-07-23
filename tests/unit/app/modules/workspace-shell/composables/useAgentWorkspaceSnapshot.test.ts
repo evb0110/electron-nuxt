@@ -20,7 +20,7 @@ import type {
 } from '@contracts/agent';
 import type { IDocumentRevisionInfo } from '@contracts/documentRevision';
 import type { IAgentCapability } from '@contracts/agentCapability';
-import type { IPlatformApi } from '@contracts/platformApi';
+import type { IElectronAPI } from '@contracts/electronApi';
 import { buildAgentWorkspaceSnapshot } from '@app/modules/workspace-shell/agent/buildAgentWorkspaceSnapshot';
 import { useAgentWorkspaceSnapshot } from '@app/modules/workspace-shell/composables/useAgentWorkspaceSnapshot';
 import { createWorkspaceDocumentSessionCore } from '@app/modules/workspace-shell/document-sessions/createWorkspaceDocumentSessionCore';
@@ -35,7 +35,7 @@ import { cast } from '@tests/helpers/cast';
 import { createElectronPlatformApiFixture } from '@tests/helpers/createElectronPlatformApiFixture';
 import {requireDocumentRevisionToken} from '@contracts';
 
-interface IWindowWithElectronApi extends Window {electronAPI?: IPlatformApi;}
+interface IWindowWithElectronApi extends Window {electronAPI?: IElectronAPI;}
 
 const initialElectronApi = (window as IWindowWithElectronApi).electronAPI;
 type TWorkspaceDocumentRecordMap = Record<string, ReturnType<typeof createWorkspaceDocumentRecord>>;

@@ -15,9 +15,7 @@ import type {
     IDocumentsWorkingCopyCapability,
 } from '@contracts/electronApiDocuments';
 import type { TMenuEventUnsubscribe } from '@contracts/electronApiCommon';
-import { decodeHostEnvironmentSnapshot } from '@contracts/electronApiHost';
 import type { IHostResourceProfileSnapshot } from '@contracts/hostResourceProfile';
-import { decodeAppUpdateStatus } from '@contracts/electronApiUpdates';
 import {
     decodeWindowTabIncomingTransfer,
     decodeWindowTabsAction,
@@ -27,6 +25,8 @@ import { PAGE_OPS_PLATFORM_FEATURE } from '@contracts/pageOpsPlatformFeature';
 import { SEARCH_PLATFORM_FEATURE } from '@contracts/searchPlatformFeature';
 import { SETTINGS_PLATFORM_FEATURE } from '@contracts/settingsPlatformFeature';
 import { SHELL_PLATFORM_FEATURE } from '@contracts/shellPlatformFeature';
+import { UPDATES_PLATFORM_FEATURE } from '@contracts/updatesPlatformFeature';
+import { HOST_PLATFORM_FEATURE } from '@contracts/hostPlatformFeature';
 import { getDebugLogMessages } from '@electron/preload/debugLogBuffer';
 import { decodeDebugLogEntry } from '@electron/preload/installDebugLogListener';
 import { createAgentPreloadClient } from '@electron/features/agent/createAgentPreloadClient';
@@ -156,6 +156,8 @@ export function createElectronApi(
     const pageOps = createPlatformFeaturePreloadClient(ipcRenderer, PAGE_OPS_PLATFORM_FEATURE);
     const imageExport = createPlatformFeaturePreloadClient(ipcRenderer, IMAGE_EXPORT_PLATFORM_FEATURE);
     const settingsIpc = createPlatformFeaturePreloadClient(ipcRenderer, SETTINGS_PLATFORM_FEATURE);
+    const updatesIpc = createPlatformFeaturePreloadClient(ipcRenderer, UPDATES_PLATFORM_FEATURE);
+    const hostIpc = createPlatformFeaturePreloadClient(ipcRenderer, HOST_PLATFORM_FEATURE, {getResourceProfile: () => options.resourceProfile ?? null});
     const shutdownSaveFlushCallbacks = new Set<() => Promise<{
         dirtyWorkingCopyPaths?: string[];
         flushedWorkingCopyPaths?: string[];
@@ -526,38 +528,14 @@ export function createElectronApi(
         },
 
         updates: {
-            getState: () => invokeCore(CORE_IPC_CHANNELS.updatesGetState),
-            check: () => invokeCore(CORE_IPC_CHANNELS.updatesCheck),
-            download: () => invokeCore(CORE_IPC_CHANNELS.updatesDownload),
-            install: () => invokeCore(CORE_IPC_CHANNELS.updatesInstall),
-            defer: () => invokeCore(CORE_IPC_CHANNELS.updatesDefer),
-            skipVersion: (version) => invokeCore(CORE_IPC_CHANNELS.updatesSkipVersion, version),
-            onStatus: (callback): TMenuEventUnsubscribe =>
-                eventSubscriber.onDecodedPayload(
-                    CORE_IPC_EVENT_CHANNELS.updatesStatus,
-                    decodeAppUpdateStatus,
-                    callback,
-                ),
+            ...updatesIpc,
             onMenuCheckForUpdates: (callback): TMenuEventUnsubscribe =>
                 eventSubscriber.onNoArg(CORE_IPC_EVENT_CHANNELS.menuCheckForUpdates, callback),
         },
 
         shell: createPlatformFeaturePreloadClient(ipcRenderer, SHELL_PLATFORM_FEATURE),
 
-        host: {
-            getResourceProfile: () => options.resourceProfile ?? null,
-            getEnvironment: () => invokeCore(CORE_IPC_CHANNELS.hostGetEnvironment),
-            onEnvironmentChange: (callback): TMenuEventUnsubscribe =>
-                eventSubscriber.onDecodedPayload(
-                    CORE_IPC_EVENT_CHANNELS.hostEnvironmentChanged,
-                    decodeHostEnvironmentSnapshot,
-                    callback,
-                ),
-            getZenModeState: () => invokeCore(CORE_IPC_CHANNELS.hostGetZenModeState),
-            setZenMode: (active) => invokeCore(CORE_IPC_CHANNELS.hostSetZenMode, active),
-            onZenModeChange: (callback): TMenuEventUnsubscribe =>
-                eventSubscriber.onPayloadUnchecked(CORE_IPC_EVENT_CHANNELS.hostZenModeChanged, callback),
-        },
+        host: hostIpc,
 
         agent: createAgentPreloadClient(ipcRenderer),
 

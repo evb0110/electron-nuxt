@@ -4,7 +4,6 @@ export { browserHostCapability } from '@app/platform/browser-api/browserHostCapa
 export { browserOcrCapability } from '@app/platform/browser-api/browserOcrCapability';
 export { browserScanCleanupCapability } from '@app/platform/browser-api/browserScanCleanupCapability';
 export { browserSettingsCapability } from '@app/platform/browser-api/browserSettingsCapability';
-export { browserUpdatesCapability } from '@app/platform/browser-api/browserUpdatesCapability';
 export {
     BrowserWorkerClient,
     canUseBrowserWorker,

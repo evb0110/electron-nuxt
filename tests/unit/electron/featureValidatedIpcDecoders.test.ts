@@ -20,7 +20,15 @@ import {
     SEARCH_PLATFORM_FEATURE,
     type ISearchInvokeMap,
 } from '@contracts/searchPlatformFeature';
-import type { TFeatureMainBindings } from '@contracts/platformFeature';
+import {HOST_PLATFORM_FEATURE} from '@contracts/hostPlatformFeature';
+import {
+    UPDATES_PLATFORM_FEATURE,
+    type IUpdatesInvokeMap,
+} from '@contracts/updatesPlatformFeature';
+import type {
+    TFeatureInvokeMap,
+    TFeatureMainBindings,
+} from '@contracts/platformFeature';
 import { registerPlatformFeatureHandlers } from '@electron/platform-ipc/validatedIpcRegistrar';
 import { cast } from '@tests/helpers/cast';
 import {
@@ -30,6 +38,7 @@ import {
 } from '@tests/unit/electron/helpers/validatedIpcRegistrarHarness';
 
 const mocks = vi.hoisted(() => ({isTrustedIpcInvokeSender: vi.fn(() => true)}));
+type THostInvokeMap = TFeatureInvokeMap<typeof HOST_PLATFORM_FEATURE>;
 
 vi.mock('electron', () => ({
     app: {
@@ -112,6 +121,78 @@ describe('feature validated IPC decoders', () => {
                 {
                     channel: channels.subscribeProgress,
                     validArgs: [],
+                },
+            ],
+        });
+    });
+
+    it('exhaustively validates updates registrar tuples', async () => {
+        type TBindings = TFeatureMainBindings<typeof UPDATES_PLATFORM_FEATURE, IpcMainInvokeEvent>;
+        const channels = UPDATES_PLATFORM_FEATURE.invokeChannels;
+        await runCases<IUpdatesInvokeMap, TBindings>({
+            channels,
+            codecs: cast<Parameters<typeof runCases<IUpdatesInvokeMap, TBindings>>[0]['codecs']>(
+                UPDATES_PLATFORM_FEATURE.ipcCodecs,
+            ),
+            register: (registrar, bindings) => registerPlatformFeatureHandlers(
+                cast<Parameters<typeof registerPlatformFeatureHandlers>[0]>(registrar),
+                UPDATES_PLATFORM_FEATURE,
+                bindings,
+            ),
+            cases: [
+                {
+                    channel: channels.getState,
+                    validArgs: [],
+                },
+                {
+                    channel: channels.check,
+                    validArgs: [],
+                },
+                {
+                    channel: channels.download,
+                    validArgs: [],
+                },
+                {
+                    channel: channels.install,
+                    validArgs: [],
+                },
+                {
+                    channel: channels.defer,
+                    validArgs: [],
+                },
+                {
+                    channel: channels.skipVersion,
+                    validArgs: ['2.0.0'],
+                },
+            ],
+        });
+    });
+
+    it('exhaustively validates host registrar tuples without registering its sync method', async () => {
+        type TBindings = TFeatureMainBindings<typeof HOST_PLATFORM_FEATURE, IpcMainInvokeEvent>;
+        const channels = HOST_PLATFORM_FEATURE.invokeChannels;
+        await runCases<THostInvokeMap, TBindings>({
+            channels,
+            codecs: cast<Parameters<typeof runCases<THostInvokeMap, TBindings>>[0]['codecs']>(
+                HOST_PLATFORM_FEATURE.ipcCodecs,
+            ),
+            register: (registrar, bindings) => registerPlatformFeatureHandlers(
+                cast<Parameters<typeof registerPlatformFeatureHandlers>[0]>(registrar),
+                HOST_PLATFORM_FEATURE,
+                bindings,
+            ),
+            cases: [
+                {
+                    channel: channels.getEnvironment,
+                    validArgs: [],
+                },
+                {
+                    channel: channels.getZenModeState,
+                    validArgs: [],
+                },
+                {
+                    channel: channels.setZenMode,
+                    validArgs: [true],
                 },
             ],
         });

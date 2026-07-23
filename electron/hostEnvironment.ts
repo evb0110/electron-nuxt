@@ -1,23 +1,25 @@
-import { screen } from 'electron';
-import type {
+import {
     BrowserWindow,
+    screen,
+} from 'electron';
+import type {
     Event,
     Input,
     Rectangle,
 } from 'electron';
-import type {
-    IHostEnvironmentSnapshot,
-    IHostZenModeState,
-    THostPlatform,
-} from '@contracts/electronApiHost';
+import {
+    HOST_PLATFORM_FEATURE,
+    type IHostEnvironmentSnapshot,
+    type IHostZenModeState,
+    type THostPlatform,
+} from '@contracts/hostPlatformFeature';
+import type { TFeatureMainBindings } from '@contracts/platformFeature';
 import { getAllRegisteredAppWindows } from '@electron/window/registry';
 import { createLogger } from '@electron/utils/createLogger';
 import { getErrorMessage } from '@electron/utils/error';
 
 const logger = createLogger('host-env');
 
-const HOST_ENV_CHANGE_CHANNEL = 'host:environmentChanged';
-const HOST_ZEN_MODE_CHANGE_CHANNEL = 'host:zenModeChanged';
 const ZEN_EXIT_SETTLE_MS = 140;
 const ZEN_STATE_EVENT_TIMEOUT_MS = 220;
 
@@ -258,6 +260,15 @@ export async function setHostZenModeForWindow(
     return snapshot;
 }
 
+export const hostMainBindings = {
+    snapshotHostEnvironmentForWindow: context => snapshotHostEnvironmentForWindow(
+        BrowserWindow.fromWebContents(context.sender),
+    ),
+    snapshotHostZenModeForWindow: context => snapshotHostZenModeForWindow(BrowserWindow.fromWebContents(context.sender)),
+    setHostZenModeForWindow: (context, active) =>
+        setHostZenModeForWindow(BrowserWindow.fromWebContents(context.sender), active),
+} satisfies TFeatureMainBindings<typeof HOST_PLATFORM_FEATURE, Electron.IpcMainInvokeEvent>;
+
 function broadcastHostEnvironmentForWindow(window: BrowserWindow) {
     if (window.isDestroyed()) {
         return;
@@ -268,7 +279,7 @@ function broadcastHostEnvironmentForWindow(window: BrowserWindow) {
         return;
     }
     try {
-        window.webContents.send(HOST_ENV_CHANGE_CHANNEL, snapshot);
+        window.webContents.send(HOST_PLATFORM_FEATURE.eventChannels.onEnvironmentChange, snapshot);
         state.lastSentSnapshot = snapshot;
     } catch (error) {
         logger.warn(`Failed to send host environment update: ${getErrorMessage(error)}`);
@@ -319,7 +330,7 @@ function broadcastHostZenModeForWindow(
     }
 
     try {
-        window.webContents.send(HOST_ZEN_MODE_CHANGE_CHANNEL, snapshot);
+        window.webContents.send(HOST_PLATFORM_FEATURE.eventChannels.onZenModeChange, snapshot);
     } catch (error) {
         logger.warn(`Failed to send host zen mode update: ${getErrorMessage(error)}`);
     }

@@ -5,7 +5,7 @@ import type { IWorkspaceExpose } from '@app/types/workspaceExpose';
 import type { TWindowTabsAction } from '@contracts/windowTabs';
 import type { IDocumentsMenuCapability } from '@contracts/electronApiDocuments';
 import type { ISettingsCapability } from '@contracts/settingsPlatformFeature';
-import type { IUpdatesCapability } from '@contracts/electronApiUpdates';
+import type { IUpdatesCapability } from '@contracts/updatesPlatformFeature';
 import type { IDjvuCapability } from '@contracts/electronApiDjvu';
 import type { IWindowTabsCapability } from '@contracts/electronApiWindowTabs';
 import { BrowserLogger } from '@app/utils/browserLogger';
@@ -18,7 +18,7 @@ import {
 export interface ITabsMenuBindingApi {
     documentMenu: IDocumentsMenuCapability;
     settings: ISettingsCapability;
-    updates: IUpdatesCapability;
+    updates?: IUpdatesCapability | undefined;
     djvu: IDjvuCapability;
     windowTabs: IWindowTabsCapability;
 }

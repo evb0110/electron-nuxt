@@ -192,7 +192,7 @@ import { pruneStartSectionByTabId } from '@app/modules/workspace-shell/tabs/prun
 import type { TPdfViewMode } from '@contracts/shared';
 import type { IAgentAssistantChatScope } from '@contracts/agent';
 import type { TStartSection } from '@app/types/startSection';
-import type { IHostZenModeState } from '@contracts/electronApiHost';
+import type { IHostZenModeState } from '@contracts/hostPlatformFeature';
 import type { ITab } from '@app/types/tabs';
 import type { IWorkspaceDocumentRecord } from '@app/modules/workspace-shell/state/workspaceDocumentRecord';
 import { getHostCapability } from '@app/utils/getHostCapability';

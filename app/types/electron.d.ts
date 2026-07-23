@@ -1,10 +1,10 @@
-import type { IPlatformApi } from '@contracts/platformApi';
+import type { IElectronAPI } from '@contracts/electronApi';
 import type { TDocumentRef } from '@contracts/documentRef';
 import type { IEvbTestApi } from '@app/types/evbTestApi';
 
 declare global {
     interface Window {
-        electronAPI?: IPlatformApi;
+        electronAPI?: IElectronAPI;
         __allowRendererFileOpenForAutomation?: (path: TDocumentRef) => Promise<boolean>;
         __deferDocumentOpenForAutomation?: (path: TDocumentRef) => boolean;
         __releaseDocumentOpenForAutomation?: (path: TDocumentRef) => boolean;

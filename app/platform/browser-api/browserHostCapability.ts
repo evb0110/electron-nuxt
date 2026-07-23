@@ -3,7 +3,7 @@ import type {
     IHostEnvironmentSnapshot,
     IHostZenModeState,
     THostPlatform,
-} from '@contracts/electronApiHost';
+} from '@contracts/hostPlatformFeature';
 import { noopUnsubscribe } from '@app/platform/browser-api/browserMenuHelpers';
 
 function detectBrowserPlatform(): THostPlatform {

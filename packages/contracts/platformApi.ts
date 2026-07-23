@@ -11,7 +11,7 @@ import type {
     IDocumentsWindowCapability,
     IDocumentsWorkingCopyCapability,
 } from '@contracts/electronApiDocuments';
-import type { IHostCapability } from '@contracts/electronApiHost';
+import type { IHostCapability } from '@contracts/hostPlatformFeature';
 import type { IOcrCapability } from '@contracts/electronApiOcr';
 import type { IScanCleanupCapability } from '@contracts/electronApiScanCleanup';
 import type { IImageExportCapability } from '@contracts/imageExportPlatformFeature';
@@ -20,7 +20,7 @@ import type { ISearchCapability } from '@contracts/searchPlatformFeature';
 import type { ISettingsCapability } from '@contracts/settingsPlatformFeature';
 import type { IShellCapability } from '@contracts/shellPlatformFeature';
 import type { ISystemCapability } from '@contracts/electronApiSystem';
-import type { IUpdatesCapability } from '@contracts/electronApiUpdates';
+import type { IUpdatesCapability } from '@contracts/updatesPlatformFeature';
 import type { IWindowTabsCapability } from '@contracts/electronApiWindowTabs';
 import type { IPlatformRuntimeManifest } from '@contracts/platformManifest';
 export type { IImageExportCapability } from '@contracts/imageExportPlatformFeature';
@@ -57,7 +57,7 @@ export interface IPlatformApi {
     djvu: IDjvuCapability;
     settings: ISettingsCapability;
     system: ISystemCapability;
-    updates: IUpdatesCapability;
+    updates?: IUpdatesCapability;
     windowTabs: IWindowTabsCapability;
     shell: IShellCapability;
     host: IHostCapability;
@@ -78,12 +78,12 @@ export type * from '@contracts/agentCapability';
 export type * from '@contracts/electronApiCommon';
 export type * from '@contracts/electronApiDocuments';
 export type * from '@contracts/electronApiDjvu';
-export type * from '@contracts/electronApiHost';
+export type * from '@contracts/hostPlatformFeature';
 export type * from '@contracts/electronApiOcr';
 export type * from '@contracts/electronApiScanCleanup';
 export type * from '@contracts/electronApiPageOps';
 export type * from '@contracts/electronApiSystem';
-export type * from '@contracts/electronApiUpdates';
+export type * from '@contracts/updatesPlatformFeature';
 export type * from '@contracts/electronApiWindowTabs';
 export * from '@contracts/hostResourceProfile';
 export type * from '@contracts/searchPlatformFeature';

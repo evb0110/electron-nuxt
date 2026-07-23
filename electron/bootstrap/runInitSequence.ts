@@ -8,7 +8,7 @@ import type {
 } from 'electron';
 import { config } from '@electron/config';
 import { getErrorMessage } from '@electron/utils/error';
-import type { IAppUpdateStatus } from '@contracts/electronApiUpdates';
+import type { IAppUpdateStatus } from '@contracts/updatesPlatformFeature';
 import type { ISettingsData } from '@contracts/shared';
 import { PACKAGED_STARTUP_READY_MARKER } from '@contracts/packagedStartupReadyMarker';
 import { resolveApplicationVersion } from '@electron/appVersion';

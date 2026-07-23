@@ -11,7 +11,10 @@ import type {
     IDocumentsWindowCapability,
     IDocumentsWorkingCopyCapability,
 } from '@contracts/electronApiDocuments';
-import type { IHostCapability } from '@contracts/electronApiHost';
+import {
+    HOST_PLATFORM_FEATURE,
+    type IHostCapability,
+} from '@contracts/hostPlatformFeature';
 import type { IOcrCapability } from '@contracts/electronApiOcr';
 import type { IScanCleanupCapability } from '@contracts/electronApiScanCleanup';
 import {
@@ -23,7 +26,10 @@ import {
     type IPageOpsCapability,
 } from '@contracts/pageOpsPlatformFeature';
 import type { ISystemCapability } from '@contracts/electronApiSystem';
-import type { IUpdatesCapability } from '@contracts/electronApiUpdates';
+import {
+    UPDATES_PLATFORM_FEATURE,
+    type IUpdatesCapability,
+} from '@contracts/updatesPlatformFeature';
 import type { IWindowTabsCapability } from '@contracts/electronApiWindowTabs';
 import type {
     TPlatformBackend,
@@ -201,7 +207,6 @@ const requiredTopLevelCapabilityPaths = [
     ['ocr'],
     ['djvu'],
     ['system'],
-    ['host'],
 ] as const;
 
 const documentCapabilityMirrors = defineDocumentCapabilityMirrors([
@@ -427,6 +432,10 @@ function isOptionalMethodPath(path: readonly string[]) {
     return isOptionalDocumentPath(path) || optionalHotReloadCompatibleMethodPaths.has(path.join('.'));
 }
 
+function isElectronOnlyMethodPath(path: readonly string[]) {
+    return path.join('.') === 'updates.onMenuCheckForUpdates';
+}
+
 function createMethodDescriptor(
     path: readonly string[],
     overrides: Partial<Omit<IPlatformMethodDescriptor, 'path' | 'kind' | 'browserLazy' | 'aliasOf'>> & { aliasOf?: TPlatformPath } = {},
@@ -434,7 +443,11 @@ function createMethodDescriptor(
     return {
         path,
         kind: resolveMethodKind(path),
-        required: isOptionalMethodPath(path) ? optionalEverywhere : requiredEverywhere,
+        required: isOptionalMethodPath(path)
+            ? optionalEverywhere
+            : isElectronOnlyMethodPath(path)
+                ? requiredInElectron
+                : requiredEverywhere,
         ...(isOptionalMethodPath(path) ? {optionalWhenImplemented: true} : {}),
         browserLazy: isDirectBrowserMethod(path) ? 'direct' : 'forwarded',
         ...overrides,
@@ -718,34 +731,6 @@ const otherMethodPaths = defineMethodPaths([
     ],
     [
         'updates',
-        'getState',
-    ],
-    [
-        'updates',
-        'check',
-    ],
-    [
-        'updates',
-        'download',
-    ],
-    [
-        'updates',
-        'install',
-    ],
-    [
-        'updates',
-        'defer',
-    ],
-    [
-        'updates',
-        'skipVersion',
-    ],
-    [
-        'updates',
-        'onStatus',
-    ],
-    [
-        'updates',
         'onMenuCheckForUpdates',
     ],
     [
@@ -880,30 +865,6 @@ const otherMethodPaths = defineMethodPaths([
         'agent',
         'onAssistantEvent',
     ],
-    [
-        'host',
-        'getResourceProfile',
-    ],
-    [
-        'host',
-        'getEnvironment',
-    ],
-    [
-        'host',
-        'onEnvironmentChange',
-    ],
-    [
-        'host',
-        'getZenModeState',
-    ],
-    [
-        'host',
-        'setZenMode',
-    ],
-    [
-        'host',
-        'onZenModeChange',
-    ],
 ] as const);
 
 export const LEGACY_PLATFORM_API_DESCRIPTOR_WITHOUT_MIGRATED_FEATURES = {
@@ -963,11 +924,6 @@ export const LEGACY_PLATFORM_API_DESCRIPTOR_WITHOUT_MIGRATED_FEATURES = {
         {
             path: ['scanCleanup'],
             required: requiredInElectron,
-        },
-        {
-            path: ['updates'],
-            required: requiredInElectron,
-            manifestPath: ['updates'],
         },
         {
             path: ['windowTabs'],
@@ -1070,6 +1026,8 @@ export const PLATFORM_FEATURE_REGISTRY = [
     PAGE_OPS_PLATFORM_FEATURE,
     SETTINGS_PLATFORM_FEATURE,
     SHELL_PLATFORM_FEATURE,
+    UPDATES_PLATFORM_FEATURE,
+    HOST_PLATFORM_FEATURE,
 ] as const;
 
 interface IMigratedPlatformFeature {

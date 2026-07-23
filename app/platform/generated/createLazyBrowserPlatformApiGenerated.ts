@@ -274,14 +274,6 @@ export function createLazyBrowserPlatformApiGenerated({
     const settingsOnMenuOpenSettingsMethod = lazyEvent(pathDescriptors.settings.onMenuOpenSettings.path);
     const systemGetMemoryInfoMethod = getMemoryInfo;
     const systemOnShutdownSaveFlushRequestMethod = lazyEvent(pathDescriptors.system.onShutdownSaveFlushRequest.path);
-    const updatesGetStateMethod = lazyAsync(pathDescriptors.updates.getState.path);
-    const updatesCheckMethod = lazyAsync(pathDescriptors.updates.check.path);
-    const updatesDownloadMethod = lazyAsync(pathDescriptors.updates.download.path);
-    const updatesInstallMethod = lazyAsync(pathDescriptors.updates.install.path);
-    const updatesDeferMethod = lazyAsync(pathDescriptors.updates.defer.path);
-    const updatesSkipVersionMethod = lazyAsync(pathDescriptors.updates.skipVersion.path);
-    const updatesOnStatusMethod = lazyEvent(pathDescriptors.updates.onStatus.path);
-    const updatesOnMenuCheckForUpdatesMethod = lazyEvent(pathDescriptors.updates.onMenuCheckForUpdates.path);
     const windowTabsTransferMethod = lazyAsync(pathDescriptors.windowTabs.transfer.path);
     const windowTabsTransferAckMethod = lazyAsync(pathDescriptors.windowTabs.transferAck.path);
     const windowTabsListTargetWindowsMethod = lazyAsync(pathDescriptors.windowTabs.listTargetWindows.path);
@@ -315,12 +307,6 @@ export function createLazyBrowserPlatformApiGenerated({
     const agentInterruptAssistantMethod = lazyAsync(pathDescriptors.agent.interruptAssistant.path);
     const agentResetAssistantChatMethod = lazyAsync(pathDescriptors.agent.resetAssistantChat.path);
     const agentOnAssistantEventMethod = lazyEvent(pathDescriptors.agent.onAssistantEvent.path);
-    const hostGetResourceProfileMethod = getResourceProfile;
-    const hostGetEnvironmentMethod = lazyAsync(pathDescriptors.host.getEnvironment.path);
-    const hostOnEnvironmentChangeMethod = lazyEvent(pathDescriptors.host.onEnvironmentChange.path);
-    const hostGetZenModeStateMethod = lazyAsync(pathDescriptors.host.getZenModeState.path);
-    const hostSetZenModeMethod = lazyAsync(pathDescriptors.host.setZenMode.path);
-    const hostOnZenModeChangeMethod = lazyEvent(pathDescriptors.host.onZenModeChange.path);
     const searchRunMethod = lazyAsync(pathDescriptors.search.run.path);
     const searchWarmIndexMethod = lazyAsync(pathDescriptors.search.warmIndex.path);
     const searchCancelMethod = lazyAsync(pathDescriptors.search.cancel.path);
@@ -341,6 +327,12 @@ export function createLazyBrowserPlatformApiGenerated({
     const settingsGetMethod = lazyAsync(pathDescriptors.settings.get.path);
     const settingsSaveMethod = lazyAsync(pathDescriptors.settings.save.path);
     const shellOpenExternalMethod = lazyAsync(pathDescriptors.shell.openExternal.path);
+    const hostGetResourceProfileMethod = getResourceProfile;
+    const hostGetEnvironmentMethod = lazyAsync(pathDescriptors.host.getEnvironment.path);
+    const hostGetZenModeStateMethod = lazyAsync(pathDescriptors.host.getZenModeState.path);
+    const hostSetZenModeMethod = lazyAsync(pathDescriptors.host.setZenMode.path);
+    const hostOnEnvironmentChangeMethod = lazyEvent(pathDescriptors.host.onEnvironmentChange.path);
+    const hostOnZenModeChangeMethod = lazyEvent(pathDescriptors.host.onZenModeChange.path);
 
     return {
     manifest: BROWSER_PLATFORM_MANIFEST,
@@ -613,16 +605,6 @@ export function createLazyBrowserPlatformApiGenerated({
         getMemoryInfo: systemGetMemoryInfoMethod,
         onShutdownSaveFlushRequest: systemOnShutdownSaveFlushRequestMethod,
     },
-    updates: {
-        getState: updatesGetStateMethod,
-        check: updatesCheckMethod,
-        download: updatesDownloadMethod,
-        install: updatesInstallMethod,
-        defer: updatesDeferMethod,
-        skipVersion: updatesSkipVersionMethod,
-        onStatus: updatesOnStatusMethod,
-        onMenuCheckForUpdates: updatesOnMenuCheckForUpdatesMethod,
-    },
     windowTabs: {
         transfer: windowTabsTransferMethod,
         transferAck: windowTabsTransferAckMethod,
@@ -660,14 +642,6 @@ export function createLazyBrowserPlatformApiGenerated({
         resetAssistantChat: agentResetAssistantChatMethod,
         onAssistantEvent: agentOnAssistantEventMethod,
     },
-    host: {
-        getResourceProfile: hostGetResourceProfileMethod,
-        getEnvironment: hostGetEnvironmentMethod,
-        onEnvironmentChange: hostOnEnvironmentChangeMethod,
-        getZenModeState: hostGetZenModeStateMethod,
-        setZenMode: hostSetZenModeMethod,
-        onZenModeChange: hostOnZenModeChangeMethod,
-    },
     search: {
         run: searchRunMethod,
         warmIndex: searchWarmIndexMethod,
@@ -693,6 +667,14 @@ export function createLazyBrowserPlatformApiGenerated({
     },
     shell: {
         openExternal: shellOpenExternalMethod,
+    },
+    host: {
+        getResourceProfile: hostGetResourceProfileMethod,
+        getEnvironment: hostGetEnvironmentMethod,
+        getZenModeState: hostGetZenModeStateMethod,
+        setZenMode: hostSetZenModeMethod,
+        onEnvironmentChange: hostOnEnvironmentChangeMethod,
+        onZenModeChange: hostOnZenModeChangeMethod,
     },
 } satisfies IPlatformApi;
 }

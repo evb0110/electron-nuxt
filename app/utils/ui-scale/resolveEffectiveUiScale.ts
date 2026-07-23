@@ -1,4 +1,4 @@
-import type { IHostEnvironmentSnapshot } from '@contracts/electronApiHost';
+import type { IHostEnvironmentSnapshot } from '@contracts/hostPlatformFeature';
 import type { TUiScalePreference } from '@contracts/shared';
 import { clamp } from 'es-toolkit/math';
 

@@ -1,6 +1,4 @@
 import type { TIpcCodecMap } from '@contracts/ipcMain';
-import { decodeHostEnvironmentSnapshot } from '@contracts/electronApiHost';
-import { decodeAppUpdateStatus } from '@contracts/electronApiUpdates';
 import { isRecord } from '@contracts/runtimeGuards';
 import type {
     IWindowTabTargetWindow,
@@ -10,7 +8,6 @@ import type {
 import { decodeWindowTabTransferRequest } from '@contracts/windowTabsValidation';
 import { decodeWorkspaceCheckpoint } from '@contracts/workspaceCheckpoint';
 import {
-    decodeBooleanArg,
     decodeStringArg,
     decodeStringArrayArg,
 } from '@electron/platform-ipc/ipcArgumentValidation';
@@ -29,13 +26,6 @@ import {
 function decodeOneArg<T>(args: readonly unknown[], decode: (value: unknown) => T): [T] {
     requireIpcArgumentCount(args, 1);
     return [decode(args[0])];
-}
-
-function decodeStartedResult(value: unknown) {
-    if (!isRecord(value) || typeof value.started !== 'boolean') {
-        throw new Error('expected a started result');
-    }
-    return {started: value.started};
 }
 
 function decodeStringArrayResult(value: unknown) {
@@ -107,44 +97,7 @@ function decodeTargetWindows(value: unknown): IWindowTabTargetWindow[] {
     });
 }
 
-function decodeZenModeState(value: unknown) {
-    if (!isRecord(value) || typeof value.active !== 'boolean' || typeof value.supported !== 'boolean') {
-        throw new Error('invalid host zen mode state');
-    }
-    return {
-        active: value.active,
-        supported: value.supported,
-    };
-}
-
 export const CORE_IPC_CODECS = {
-    [CORE_IPC_CHANNELS.updatesGetState]: {
-        decodeArgs: decodeNoArgs,
-        decodeResult: (value: unknown) => requireDecoded(value, decodeAppUpdateStatus, 'app update status'),
-    },
-    [CORE_IPC_CHANNELS.updatesCheck]: {
-        decodeArgs: decodeNoArgs,
-        decodeResult: decodeStartedResult,
-    },
-    [CORE_IPC_CHANNELS.updatesDownload]: {
-        decodeArgs: decodeNoArgs,
-        decodeResult: decodeStartedResult,
-    },
-    [CORE_IPC_CHANNELS.updatesInstall]: {
-        decodeArgs: decodeNoArgs,
-        decodeResult: decodeStartedResult,
-    },
-    [CORE_IPC_CHANNELS.updatesDefer]: {
-        decodeArgs: decodeNoArgs,
-        decodeResult: decodeUndefinedResult,
-    },
-    [CORE_IPC_CHANNELS.updatesSkipVersion]: {
-        decodeArgs: (args: readonly unknown[]) => {
-            requireIpcArgumentCount(args, 1);
-            return [decodeStringArg(args, 0, 'version')];
-        },
-        decodeResult: decodeUndefinedResult,
-    },
     [CORE_IPC_CHANNELS.windowCloseCurrent]: {
         decodeArgs: decodeNoArgs,
         decodeResult: decodeBooleanResult,
@@ -192,20 +145,5 @@ export const CORE_IPC_CODECS = {
             return [decodeStringArg(args, 0, 'tabId')];
         },
         decodeResult: decodeUndefinedResult,
-    },
-    [CORE_IPC_CHANNELS.hostGetEnvironment]: {
-        decodeArgs: decodeNoArgs,
-        decodeResult: value => requireDecoded(value, decodeHostEnvironmentSnapshot, 'host environment'),
-    },
-    [CORE_IPC_CHANNELS.hostGetZenModeState]: {
-        decodeArgs: decodeNoArgs,
-        decodeResult: decodeZenModeState,
-    },
-    [CORE_IPC_CHANNELS.hostSetZenMode]: {
-        decodeArgs: (args: readonly unknown[]) => {
-            requireIpcArgumentCount(args, 1);
-            return [decodeBooleanArg(args, 0, 'active')];
-        },
-        decodeResult: decodeZenModeState,
     },
 } satisfies TIpcCodecMap<ICoreInvokeMap>;

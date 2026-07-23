@@ -18,6 +18,7 @@ import { IMAGE_EXPORT_PLATFORM_FEATURE } from '@contracts/imageExportPlatformFea
 import { createOcrPreloadClient } from '@electron/features/ocr/createOcrPreloadClient';
 import { OCR_CHANNELS } from '@electron/features/ocr/contract';
 import { SEARCH_PLATFORM_FEATURE } from '@contracts/searchPlatformFeature';
+import { UPDATES_PLATFORM_FEATURE } from '@contracts/updatesPlatformFeature';
 import { createPlatformFeaturePreloadClient } from '@electron/preload/ipcClient';
 import { cast } from '@tests/helpers/cast';
 
@@ -178,5 +179,28 @@ describe('preload global event fan-out', () => {
 
         unsubscribes.forEach(unsubscribe => unsubscribe());
         expect(ipcRenderer.removeListener).toHaveBeenCalledTimes(3);
+    });
+
+    it('fans out decoded update status through one native listener', () => {
+        const {
+            ipcRenderer,
+            listeners,
+        } = createIpcRendererHarness();
+        const updates = createPlatformFeaturePreloadClient(ipcRenderer, UPDATES_PLATFORM_FEATURE);
+        const callbacks = Array.from({length: 24}, () => vi.fn());
+        const unsubscribes = callbacks.map(callback => updates.onStatus(callback));
+
+        expect(ipcRenderer.on).toHaveBeenCalledOnce();
+        listeners.get(UPDATES_PLATFORM_FEATURE.eventChannels.onStatus)?.({}, {
+            phase: 'downloaded',
+            origin: 'auto',
+            version: '2.0.0',
+            percent: 100,
+            message: null,
+        });
+        expect(callbacks.every(callback => callback.mock.calls.length === 1)).toBe(true);
+
+        unsubscribes.forEach(unsubscribe => unsubscribe());
+        expect(ipcRenderer.removeListener).toHaveBeenCalledOnce();
     });
 });

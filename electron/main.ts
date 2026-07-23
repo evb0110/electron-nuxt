@@ -2,7 +2,8 @@ import {
     app,
     BrowserWindow,
 } from 'electron';
-import type { IAppUpdateStatus } from '@contracts/electronApiUpdates';
+import type { IAppUpdateStatus } from '@contracts/updatesPlatformFeature';
+import { UPDATES_PLATFORM_FEATURE } from '@contracts/updatesPlatformFeature';
 import type { TPerformanceMode } from '@contracts/hostResourceProfile';
 import { isRecord } from '@contracts/runtimeGuards';
 import {
@@ -27,7 +28,6 @@ import { requestShutdownSaveFlush } from '@electron/bootstrap/requestShutdownSav
 import { createStartupTrace } from '@electron/bootstrap/createStartupTrace';
 import { config } from '@electron/config';
 import { registerIpcHandlers } from '@electron/platform-ipc/registerIpcHandlers';
-import { CORE_IPC_EVENT_CHANNELS } from '@electron/platform-ipc/coreContract';
 import {
     clearAllWorkingCopies,
     cleanupStaleWorkingCopyDirectories,
@@ -436,7 +436,7 @@ configureUpdateInstallShutdown((install) => {
 
 function broadcastUpdateStatus(status: IAppUpdateStatus) {
     for (const window of getAllRegisteredAppWindows()) {
-        sendToWindow(window, CORE_IPC_EVENT_CHANNELS.updatesStatus, status);
+        sendToWindow(window, UPDATES_PLATFORM_FEATURE.eventChannels.onStatus, status);
     }
 }
 

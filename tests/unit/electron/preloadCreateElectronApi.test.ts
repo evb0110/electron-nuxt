@@ -8,15 +8,14 @@ import {
 } from 'vitest';
 import { AGENT_EVENT_CHANNELS } from '@electron/features/agent/contract';
 import { DOCUMENTS_CHANNELS } from '@electron/features/documents/contract';
-import {
-    CORE_IPC_CHANNELS,
-    CORE_IPC_EVENT_CHANNELS,
-} from '@electron/platform-ipc/coreContract';
+import { CORE_IPC_EVENT_CHANNELS } from '@electron/platform-ipc/coreContract';
 import { getPlatformDocumentCapabilityMirrors } from '@contracts/platformApi';
 import {
     HOST_RESOURCE_PROFILE_ARGUMENT_PREFIX,
     type IHostResourceProfileSnapshot,
 } from '@contracts/hostResourceProfile';
+import { HOST_PLATFORM_FEATURE } from '@contracts/hostPlatformFeature';
+import { UPDATES_PLATFORM_FEATURE } from '@contracts/updatesPlatformFeature';
 
 const documentsClientMock = vi.hoisted(() => ({
     openDocumentDialog: vi.fn(async () => null),
@@ -722,7 +721,7 @@ describe('createElectronApi', () => {
         const listeners = new Map<string, (_event: unknown, payload: unknown) => void>();
         const ipcRenderer = {
             invoke: vi.fn(async (channel: string) => {
-                if (channel === CORE_IPC_CHANNELS.updatesGetState) {
+                if (channel === UPDATES_PLATFORM_FEATURE.invokeChannels.getState) {
                     return {
                         phase: 'future-phase',
                         origin: 'manual',
@@ -731,7 +730,7 @@ describe('createElectronApi', () => {
                         message: null,
                     };
                 }
-                if (channel === CORE_IPC_CHANNELS.hostGetEnvironment) {
+                if (channel === HOST_PLATFORM_FEATURE.invokeChannels.getEnvironment) {
                     return {
                         platform: 'linux',
                         osScaleFactor: 0,
@@ -756,25 +755,25 @@ describe('createElectronApi', () => {
             api.windowTabs.onWindowAction(actionCallback),
         ];
 
-        listeners.get(CORE_IPC_EVENT_CHANNELS.updatesStatus)?.({}, {
+        listeners.get(UPDATES_PLATFORM_FEATURE.eventChannels.onStatus)?.({}, {
             phase: 'future-phase',
             origin: 'manual',
             version: null,
             percent: null,
             message: null,
         });
-        listeners.get(CORE_IPC_EVENT_CHANNELS.updatesStatus)?.({}, {
+        listeners.get(UPDATES_PLATFORM_FEATURE.eventChannels.onStatus)?.({}, {
             phase: 'downloaded',
             origin: 'auto',
             version: '2.0.0',
             percent: 100,
             message: null,
         });
-        listeners.get(CORE_IPC_EVENT_CHANNELS.hostEnvironmentChanged)?.({}, {
+        listeners.get(HOST_PLATFORM_FEATURE.eventChannels.onEnvironmentChange)?.({}, {
             platform: 'freebsd',
             osScaleFactor: 1,
         });
-        listeners.get(CORE_IPC_EVENT_CHANNELS.hostEnvironmentChanged)?.({}, {
+        listeners.get(HOST_PLATFORM_FEATURE.eventChannels.onEnvironmentChange)?.({}, {
             platform: 'darwin',
             osScaleFactor: 2,
         });

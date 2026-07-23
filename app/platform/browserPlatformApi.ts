@@ -11,7 +11,6 @@ import {
     browserOcrCapability,
     browserScanCleanupCapability,
     browserSettingsCapability,
-    browserUpdatesCapability,
     createBrowserDocumentsCapability,
     createBrowserSearchCapability,
 } from '@app/platform/browser-api/public';
@@ -69,7 +68,6 @@ export const browserPlatformApi = {
     djvu: browserDjvuCapability,
     settings: browserSettingsCapability,
     system: browserSystemApi,
-    updates: browserUpdatesCapability,
     windowTabs: browserWindowTabsCapability,
     shell: browserShellApi,
     host: browserHostCapability,

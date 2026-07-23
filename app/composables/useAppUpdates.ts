@@ -1,7 +1,7 @@
 import type {
     IAppUpdateStatus,
     TAppUpdatePhase,
-} from '@contracts/electronApiUpdates';
+} from '@contracts/updatesPlatformFeature';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import {
     getUpdatesCapability,
@@ -113,7 +113,7 @@ function applyStatus(nextStatus: IAppUpdateStatus) {
 
 async function downloadUpdate() {
     try {
-        await getUpdatesCapability().download();
+        await getUpdatesCapability()?.download();
     } catch (error) {
         const message = toErrorMessage(error);
         BrowserLogger.error('updates', 'Failed to download update', error);
@@ -136,6 +136,9 @@ async function ensureInitialized() {
     }
 
     const updates = getUpdatesCapability();
+    if (!updates) {
+        return false;
+    }
     let receivedPushedStatus = false;
     const unsubscribe = updates.onStatus((nextStatus) => {
         receivedPushedStatus = true;
@@ -183,7 +186,7 @@ async function checkForUpdates() {
         if (!await ensureInitialized()) {
             throw new Error('Updates status initialization failed.');
         }
-        await getUpdatesCapability().check();
+        await getUpdatesCapability()?.check();
     } catch (error) {
         const message = toErrorMessage(error);
         BrowserLogger.error('updates', 'Failed to check for updates', error);
@@ -200,7 +203,7 @@ async function checkForUpdates() {
 async function installUpdateNow() {
     try {
         closeDialog();
-        await getUpdatesCapability().install();
+        await getUpdatesCapability()?.install();
     } catch (error) {
         const message = toErrorMessage(error);
         BrowserLogger.error('updates', 'Failed to install update', error);
@@ -217,7 +220,7 @@ async function installUpdateNow() {
 async function deferUpdate() {
     try {
         closeDialog();
-        await getUpdatesCapability().defer();
+        await getUpdatesCapability()?.defer();
     } catch (error) {
         const message = toErrorMessage(error);
         BrowserLogger.error('updates', 'Failed to defer update', error);
@@ -240,7 +243,7 @@ async function skipUpdateVersion() {
 
     try {
         closeDialog();
-        await getUpdatesCapability().skipVersion(version);
+        await getUpdatesCapability()?.skipVersion(version);
     } catch (error) {
         const message = toErrorMessage(error);
         BrowserLogger.error('updates', 'Failed to skip update version', error);
