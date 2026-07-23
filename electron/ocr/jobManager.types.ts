@@ -1,15 +1,40 @@
 import type { Worker } from 'worker_threads';
-import type { IOcrSearchablePdfOptions } from '@contracts/electronApiOcr';
+import type {
+    IOcrCompleteResult,
+    IOcrErrorEnvelope,
+    IOcrProgress,
+    IOcrSearchablePdfOptions,
+    TOcrTextSupersessionPolicy,
+} from '@contracts/electronApiOcr';
 import type { IDocumentRevisionInfo } from '@contracts/documentRevision';
-import type { TOcrJobLifecycleState } from '@electron/ocr/ocrJobLifecycle';
 import type { IJobBrokerLease } from '@electron/resources/jobBroker';
 import type {
     IOcrPdfPageRequest,
     TOcrWorkerCompleteResult,
 } from '@electron/ocr/worker/types';
+import type { IMainJobRunContext } from '@electron/operation-lifecycle/createMainJobRegistry';
 
-export interface IOcrQueuedJob<TState extends TOcrJobLifecycleState = TOcrJobLifecycleState> {
-    lifecycleState: TState;
+export interface IOcrRegistryProgress extends IOcrProgress {projection: {
+    supersessionPolicy: TOcrTextSupersessionPolicy;
+    replaceAllAcknowledged: boolean;
+};}
+
+export type TOcrRegistryContext = IMainJobRunContext<
+    IOcrRegistryProgress,
+    IOcrCompleteResult,
+    IOcrErrorEnvelope
+>;
+
+interface IOcrRegistryJob {
+    registry: TOcrRegistryContext;
+    cancel: (reason?: string) => boolean;
+    settled: Promise<void>;
+    workerSettlement: Promise<IOcrCompleteResult>;
+    resolveWorkerSettlement: (result: IOcrCompleteResult) => void;
+    terminalResult: IOcrCompleteResult | null;
+}
+
+export interface IOcrQueuedJob extends IOcrRegistryJob {
     scopedJobId: string;
     documentJobKey: string;
     requestId: string;
@@ -23,8 +48,7 @@ export interface IOcrQueuedJob<TState extends TOcrJobLifecycleState = TOcrJobLif
     pageWork: number;
 }
 
-export interface IOcrPreparingJob {
-    lifecycleState: 'preparing' | 'queued' | 'cancelling';
+export interface IOcrPreparingJob extends IOcrRegistryJob {
     scopedJobId: string;
     documentJobKey: string;
     requestId: string;
@@ -34,10 +58,9 @@ export interface IOcrPreparingJob {
     requestedBytes: number;
     pageWork: number;
     startedAtMs: number;
-    abortController: AbortController;
 }
 
-export interface IOcrActiveJob extends IOcrQueuedJob<'active' | 'cancelling' | 'terminal-result-sent'> {
+export interface IOcrActiveJob extends IOcrQueuedJob {
     workerAdmissionLease: IJobBrokerLease;
     worker: Worker;
     completed: boolean;

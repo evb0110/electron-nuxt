@@ -1,4 +1,5 @@
 import type { Worker } from 'worker_threads';
+import type { WebContents } from 'electron';
 import {
     OCR_MODEL_PREP_TIMEOUT_MS,
     OCR_QUEUE_MAX_AGE_MS,
@@ -8,17 +9,12 @@ import {
 } from '@electron/ocr/jobManager.config';
 import { prepareLanguageModelsForJob } from '@electron/ocr/prepareLanguageModelsForJob.modelPrep';
 import {
-    createAbortError,
     isAbortError,
-    isScopedJobOwnedBySender,
     parseWorkerMessage,
     type TOcrWorkerManagerMessage,
     toScopedOcrJobId,
 } from '@electron/ocr/jobManagerProtocol';
-import {
-    getOcrWorkerMessageDisposition,
-    transitionOcrJobLifecycle,
-} from '@electron/ocr/ocrJobLifecycle';
+import { getOcrWorkerMessageDisposition } from '@electron/ocr/getOcrWorkerMessageDisposition';
 import { createPendingResultFileStore } from '@electron/ocr/createPendingResultFileStore';
 import { createOcrWorker } from '@electron/ocr/createOcrWorker.worker';
 import { createOcrJobWorkerLifecycleController } from '@electron/ocr/ocrJobWorkerLifecycle';
@@ -27,7 +23,6 @@ import {
     handleWorkerResourceMessage,
     isWorkerResourceMessage,
 } from '@electron/ocr/ocrWorkerResourceMessages';
-import { createPreparingOcrJob } from '@electron/ocr/createPreparingOcrJob';
 import { createOcrWorkingCopyInvalidationController } from '@electron/ocr/createOcrWorkingCopyInvalidationController';
 import {
     createOcrQueueFailure,
@@ -37,32 +32,33 @@ import type {
     IOcrActiveJob,
     IOcrPreparingJob,
     IOcrQueuedJob,
+    IOcrRegistryProgress,
 } from '@electron/ocr/jobManager.types';
-import type { IOcrJobOperationContext } from '@electron/ocr/ocrJobOperationContext';
 import type {
     IOcrPdfPageRequest,
     TOcrWorkerInboundMessage,
 } from '@electron/ocr/worker/types';
 import {
-    clearOcrProgressPump,
-    enqueueOcrProgress,
-    enqueueTerminalOcrProgress,
     getJobWindow,
     safeSendToWindow,
-    sendOcrProgressStage,
 } from '@electron/ocr/ocrProgressDispatch';
 import type {
     IOcrCancelResult,
+    IOcrCompleteResult,
+    IOcrErrorEnvelope,
+    IOcrJobProjectionState,
+    IOcrProgress,
     IOcrSearchablePdfOptions,
+    TOcrErrorCode,
+    TOcrJobProjectionPhase,
 } from '@contracts/electronApiOcr';
+import { OCR_ERROR_CODES } from '@contracts/electronApiOcr';
 import { createLogger } from '@electron/utils/createLogger';
 import { OCR_EVENT_CHANNELS } from '@electron/features/ocr/contract';
 import { getErrorMessage } from '@electron/utils/error';
 import { getWorkingCopyRevision } from '@electron/file-access/documentRevisionStore';
 import { normalizePathForLookup } from '@electron/file-access/workingCopyStore';
 import { estimateOcrRequestWork } from '@electron/ocr/estimateOcrRequestWork';
-import { runDetached } from '@electron/utils/runDetached';
-import {documentOutputService} from '@electron/output/documentOutputService';
 import {
     ensureOcrQueueCapacity,
     getBufferedOcrBytes,
@@ -72,18 +68,23 @@ import {
     type IJobBrokerLease,
 } from '@electron/resources/jobBroker';
 import { removeOcrResultArtifacts } from '@electron/ocr/removeOcrResultArtifacts';
+import {
+    createMainJobRegistry,
+    type TMainJobErrorKind,
+    type TMainJobSnapshot,
+} from '@electron/operation-lifecycle/createMainJobRegistry';
+import {
+    buildOcrErrorEnvelope,
+    mapStartFailureCode,
+} from '@electron/ocr/contracts';
 const log = createLogger('ocr-ipc');
-export {
-    safeSendToWindow,
-    subscribeManagedOcrProgress,
-} from '@electron/ocr/ocrProgressDispatch';
+export { safeSendToWindow } from '@electron/ocr/ocrProgressDispatch';
 const activeJobs = new Map<string, IOcrActiveJob>();
 const preparingJobs = new Map<string, IOcrPreparingJob>();
-const pendingAdmissionPromises = new Map<string, Promise<void>>();
 const scopedJobIdsByDocumentJobKey = new Map<string, string>();
-const cancelledJobs = new Set<string>();
-const registeredSenderCleanupIds = new Set<number>();
 const workerCleanupTimersByScopedJobId = new Map<string, NodeJS.Timeout>();
+const OCR_TERMINAL_EVENT_RETENTION_MS = 30_000;
+const OCR_TERMINAL_RECORD_RETENTION_MS = 60 * 60 * 1_000;
 const OCR_WORKER_BROKER_OWNER_ID = 'ocr-worker-pool';
 const OCR_WORKER_ADMISSION_RESOURCES = {
     cpuTokens: 0.25,
@@ -91,6 +92,84 @@ const OCR_WORKER_ADMISSION_RESOURCES = {
     nativeProcesses: 0,
     ioWeight: 0.25,
 };
+type TOcrJobSnapshot = TMainJobSnapshot<IOcrRegistryProgress, IOcrCompleteResult, IOcrErrorEnvelope>;
+interface IOcrManagerContext {
+    sender: Pick<WebContents, 'id' | 'isDestroyed' | 'once' | 'on' | 'removeListener'>;
+    senderId: number;
+}
+
+function toOcrActor(context: IOcrManagerContext) {
+    return {sender: context.sender as WebContents};
+}
+
+function isOcrErrorEnvelope(cause: unknown): cause is IOcrErrorEnvelope {
+    return typeof cause === 'object'
+        && cause !== null
+        && 'code' in cause
+        && OCR_ERROR_CODES.includes(cause.code as TOcrErrorCode)
+        && 'message' in cause
+        && typeof cause.message === 'string'
+        && 'retryable' in cause
+        && typeof cause.retryable === 'boolean'
+        && 'timestamp' in cause
+        && typeof cause.timestamp === 'number';
+}
+
+function toOcrRegistryError(cause: unknown, kind: TMainJobErrorKind) {
+    if (isOcrErrorEnvelope(cause)) {
+        return cause;
+    }
+    const message = getErrorMessage(cause);
+    if (kind === 'duplicate-job-id') {
+        return buildOcrErrorEnvelope('OCR_QUEUE_BACKPRESSURE', message, {retryable: true});
+    }
+    return buildOcrErrorEnvelope('OCR_INTERNAL_ERROR', message || 'OCR job failed');
+}
+
+function toPublicOcrProgress(progress: IOcrRegistryProgress): IOcrProgress {
+    const {
+        projection: _projection,
+        ...publicProgress
+    } = progress;
+    return publicProgress;
+}
+
+const ocrJobs = createMainJobRegistry<IOcrRegistryProgress, IOcrCompleteResult, IOcrErrorEnvelope>({
+    retention: {
+        eventReplayTtlMs: OCR_TERMINAL_EVENT_RETENTION_MS,
+        terminalRecordTtlMs: OCR_TERMINAL_RECORD_RETENTION_MS,
+    },
+    progress: {
+        channel: OCR_EVENT_CHANNELS.progress,
+        getEventKey: progress => progress.requestId,
+        send: (sender, _channel, progress) => {
+            safeSendToWindow(
+                getJobWindow(sender.id),
+                OCR_EVENT_CHANNELS.progress,
+                toPublicOcrProgress(progress),
+            );
+        },
+    },
+    toError: toOcrRegistryError,
+    terminalProgress: {
+        completed: latest => ({
+            ...latest,
+            processedCount: latest.totalPages,
+            phaseProgress: 100,
+            status: 'success',
+        }),
+        canceled: (latest, error) => ({
+            ...latest,
+            status: 'canceled',
+            error: error.message,
+        }),
+        failed: (latest, error) => ({
+            ...latest,
+            status: 'failed',
+            error: error.message,
+        }),
+    },
+});
 function assertNever(value: never) {
     throw new Error(`Unhandled OCR worker message: ${JSON.stringify(value)}`);
 }
@@ -132,26 +211,31 @@ const pendingResultFileStore = createPendingResultFileStore({
     ttlMs: OCR_RESULT_FILE_ACK_TTL_MS,
     removeResultFile: path => removeOcrResultArtifacts(path, log),
 });
+
+function publishOcrProgress(job: IOcrQueuedJob, progress: IOcrProgress) {
+    job.registry.publish({
+        ...progress,
+        projection: {
+            supersessionPolicy: job.options.supersessionPolicy ?? 'missing-only',
+            replaceAllAcknowledged: job.options.replaceAllAcknowledged === true,
+        },
+    });
+}
+
 const {
-    clearJobWatchdog,
-    createTerminalOcrErrorEnvelope,
     finalizeActiveJob,
     isCurrentActiveWorker,
-    removePendingCompletionResultFile,
     resetJobWatchdog,
     sendJobFailure,
     sendJobCancellation,
     sendPendingCompletionResult,
     terminateAndFinalizeActiveJob,
-    terminateWorkerSafely,
 } = createOcrJobWorkerLifecycleController({
     activeJobs,
-    cancelledJobs,
     workerCleanupTimersByScopedJobId,
     pendingResultFileStore,
     logger: log,
-    clearOcrProgressPump,
-    enqueueOcrProgress: enqueueTerminalOcrProgress,
+    publishProgress: publishOcrProgress,
     getJobWindow,
     onFinalizeActiveJob: (scopedJobId, job) => {
         job?.workerAdmissionLease.release();
@@ -184,116 +268,15 @@ function logQueueDepth(context: string) {
     );
 }
 
-function abortPreparingJob(
-    scopedJobId: string,
-    reason: string,
-) {
-    const preparingJob = preparingJobs.get(scopedJobId);
-    if (!preparingJob) {
-        return false;
-    }
-
-    cancelledJobs.add(scopedJobId);
-    if (preparingJob.lifecycleState !== 'cancelling') {
-        preparingJob.lifecycleState = transitionOcrJobLifecycle(
-            preparingJob.lifecycleState,
-            'cancelling',
-            scopedJobId,
-        );
-    }
-    if (!preparingJob.abortController.signal.aborted) {
-        preparingJob.abortController.abort(createAbortError(reason));
-    }
-    clearOcrProgressPump(scopedJobId, preparingJob.requestId);
-    return true;
-}
-
-function cancelJobsForSender(webContentsId: number, reason: string) {
-    for (const preparingJob of Array.from(preparingJobs.values())) {
-        if (!isScopedJobOwnedBySender(preparingJob.scopedJobId, webContentsId)) {
-            continue;
-        }
-
-        abortPreparingJob(preparingJob.scopedJobId, reason);
-        sendJobCancellation(preparingJob, reason);
-        log.info(`[${preparingJob.requestId}] Marked preparing OCR job as cancelled: ${reason}`);
-    }
-
-    const activeForSender = Array.from(activeJobs.values())
-        .filter(activeJob => activeJob.webContentsId === webContentsId);
-    for (const activeJob of activeForSender) {
-        terminateAndFinalizeActiveJob(activeJob.scopedJobId, {
-            markCancelled: true,
-            reason,
-        });
-        log.info(`[${activeJob.requestId}] Cancelled active OCR job: ${reason}`);
-    }
-
-    runDetached(
-        () => pendingResultFileStore.cleanupForSender(webContentsId),
-        {
-            label: `cleanup OCR results for renderer ${webContentsId}`,
-            logger: log,
-        },
-    );
-}
-
 export const { cancelOcrJobsForWorkingCopy } = createOcrWorkingCopyInvalidationController({
-    abortPreparingJob,
     activeJobs,
+    cancelJob: (scopedJobId, reason) =>
+        preparingJobs.get(scopedJobId)?.cancel(reason)
+        ?? activeJobs.get(scopedJobId)?.cancel(reason)
+        ?? false,
     logger: log,
-    sendJobCancellation,
-    terminateAndFinalizeActiveJob,
     preparingJobs,
 });
-
-function registerSenderCleanup(context: IOcrJobOperationContext) {
-    const {
-        sender,
-        senderId,
-    } = context;
-    if (registeredSenderCleanupIds.has(senderId)) {
-        return;
-    }
-
-    registeredSenderCleanupIds.add(senderId);
-    let didCleanup = false;
-    const cleanup = (reason: string) => {
-        if (didCleanup) {
-            return;
-        }
-        didCleanup = true;
-        cancelJobsForSender(senderId, reason);
-        registeredSenderCleanupIds.delete(senderId);
-
-        sender.removeListener('destroyed', handleDestroyed);
-        sender.removeListener('render-process-gone', handleRenderProcessGone);
-        sender.removeListener('did-start-navigation', handleNavigation);
-    };
-
-    const handleDestroyed = () => {
-        cleanup('Renderer destroyed');
-    };
-    const handleRenderProcessGone = () => {
-        cleanup('Renderer process gone');
-    };
-    const handleNavigation = (
-        _event: Electron.Event,
-        _url: string,
-        isInPlace: boolean,
-        isMainFrame: boolean,
-    ) => {
-        if (isMainFrame && !isInPlace) {
-            cleanup('Renderer navigated');
-        }
-    };
-
-    sender.once('destroyed', handleDestroyed);
-    sender.once('render-process-gone', handleRenderProcessGone);
-    // Navigation can happen repeatedly during one renderer lifetime; this is
-    // registered once per sender and removed by the shared cleanup handler.
-    sender.on('did-start-navigation', handleNavigation);
-}
 
 function handleWorkerMessage(
     scopedJobId: string,
@@ -302,8 +285,6 @@ function handleWorkerMessage(
     worker: Worker,
     message: TOcrWorkerManagerMessage,
 ) {
-    const window = getJobWindow(webContentsId);
-
     switch (message.type) {
         case 'log':
             if (message.level === 'warn') {
@@ -328,7 +309,10 @@ function handleWorkerMessage(
                 }
                 return;
             }
-            enqueueOcrProgress(scopedJobId, message.progress);
+            const activeJob = activeJobs.get(scopedJobId);
+            if (activeJob) {
+                publishOcrProgress(activeJob, message.progress);
+            }
             return;
         }
         case 'complete': {
@@ -377,12 +361,10 @@ function handleWorkerMessage(
                 if (!activeJob?.terminalResultSent) {
                     log.warn(`OCR cleanup completed before result for job "${requestId}"`);
                     const error = 'OCR worker completed cleanup before sending a result';
-                    safeSendToWindow(window, OCR_EVENT_CHANNELS.complete, {
-                        requestId,
-                        success: false,
-                        errors: [error],
-                        errorEnvelope: createTerminalOcrErrorEnvelope(error),
-                    });
+                    if (activeJob) {
+                        sendJobFailure(activeJob, error);
+                        activeJob.terminalResultSent = true;
+                    }
                 }
                 terminateAndFinalizeActiveJob(scopedJobId, { reason: 'worker cleanup completed without result' });
                 return;
@@ -406,24 +388,25 @@ function startBrokerAdmittedJob(job: IOcrQueuedJob, workerAdmissionLease: IJobBr
         worker = createOcrWorker();
     } catch (error) {
         const message = getErrorMessage(error);
-        sendJobFailure(job, `OCR worker unavailable: ${message}`, {
+        const result = sendJobFailure(job, `OCR worker unavailable: ${message}`, {
             code: 'OCR_WORKER_UNAVAILABLE',
             retryable: true,
         });
         workerAdmissionLease.release();
         releaseOcrDocumentJobReservation(job.scopedJobId, job.documentJobKey);
+        job.resolveWorkerSettlement(result);
         log.error(`Failed to start OCR worker for job ${job.requestId}: ${message}`);
-        return;
+        return job.workerSettlement;
     }
 
     const activeJob: IOcrActiveJob = {
         ...job,
         workerAdmissionLease,
-        lifecycleState: transitionOcrJobLifecycle(job.lifecycleState, 'active', job.scopedJobId),
         worker,
         completed: false,
         terminatedByUs: false,
         pendingCompletionResult: null,
+        terminalResult: null,
         terminalResultSent: false,
         startedAtMs: Date.now(),
         watchdogTimer: null,
@@ -448,8 +431,7 @@ function startBrokerAdmittedJob(job: IOcrQueuedJob, workerAdmissionLease: IJobBr
     });
 
     worker.on('error', (err: Error) => {
-        if (cancelledJobs.has(job.scopedJobId)) {
-            cancelledJobs.delete(job.scopedJobId);
+        if (job.registry.signal.aborted) {
             finalizeActiveJob(job.scopedJobId);
             return;
         }
@@ -463,16 +445,12 @@ function startBrokerAdmittedJob(job: IOcrQueuedJob, workerAdmissionLease: IJobBr
             finalizeActiveJob(job.scopedJobId);
             return;
         }
-        sendJobFailure(job, `Worker error: ${err.message}`);
+        sendJobFailure(active, `Worker error: ${err.message}`);
+        active.terminalResultSent = true;
         terminateAndFinalizeActiveJob(job.scopedJobId, { reason: 'worker error' });
     });
 
     worker.on('exit', (code) => {
-        const wasCanceled = cancelledJobs.has(job.scopedJobId);
-        if (wasCanceled) {
-            cancelledJobs.delete(job.scopedJobId);
-        }
-
         const active = activeJobs.get(job.scopedJobId);
         if (!active) {
             if (code !== 0) {
@@ -480,11 +458,15 @@ function startBrokerAdmittedJob(job: IOcrQueuedJob, workerAdmissionLease: IJobBr
             }
             return;
         }
-        const wasCompletedOrTerminated = wasCanceled || active.completed || active.terminatedByUs || active.terminalResultSent;
+        const wasCompletedOrTerminated = job.registry.signal.aborted
+            || active.completed
+            || active.terminatedByUs
+            || active.terminalResultSent;
 
         if (code !== 0 && !wasCompletedOrTerminated) {
             log.error(`Worker exited with code ${code} for job ${job.requestId}`);
-            sendJobFailure(job, `Worker exited unexpectedly with code ${code}`);
+            sendJobFailure(active, `Worker exited unexpectedly with code ${code}`);
+            active.terminalResultSent = true;
         } else if (active.pendingCompletionResult && !active.terminalResultSent) {
             sendPendingCompletionResult(active);
         }
@@ -512,16 +494,18 @@ function startBrokerAdmittedJob(job: IOcrQueuedJob, workerAdmissionLease: IJobBr
         worker.postMessage(startMessage);
     } catch (error) {
         const errMsg = getErrorMessage(error);
-        sendJobFailure(job, `Failed to post OCR job to worker: ${errMsg}`);
+        sendJobFailure(activeJob, `Failed to post OCR job to worker: ${errMsg}`);
+        activeJob.terminalResultSent = true;
         terminateAndFinalizeActiveJob(job.scopedJobId, { reason: 'failed to post worker start message' });
-        return;
+        return job.workerSettlement;
     }
 
     log.debug(`OCR job ${job.requestId} started in worker thread`);
+    return job.workerSettlement;
 }
 
 function findQueueBlockingResult(
-    context: IOcrJobOperationContext,
+    context: IOcrManagerContext,
     scopedJobId: string,
     requestId: string,
     options: {
@@ -565,75 +549,81 @@ function findQueueBlockingResult(
     return null;
 }
 
-function getAbortedPreparationResult(
-    context: IOcrJobOperationContext,
-    scopedJobId: string,
-    requestId: string,
-    signal: AbortSignal,
-) {
-    const reason: unknown = signal.reason;
-    if (reason instanceof Error && reason.name === 'TimeoutError') {
-        throw reason;
+function createDeferred<T>() {
+    let resolve!: (value: T) => void;
+    const promise = new Promise<T>((resolvePromise) => {
+        resolve = resolvePromise;
+    });
+    return {
+        promise,
+        resolve,
+    };
+}
+
+function toTerminalResult(requestId: string, failure: IOcrQueueStartResult): IOcrCompleteResult {
+    const error = failure.error ?? 'OCR job failed before it started';
+    return {
+        requestId,
+        success: false,
+        errors: [error],
+        errorEnvelope: buildOcrErrorEnvelope(
+            failure.errorCode ?? mapStartFailureCode(error),
+            error,
+            {retryable: failure.errorCode === 'OCR_QUEUE_BACKPRESSURE'},
+        ),
+    };
+}
+
+function finishPreparationFailure(job: IOcrPreparingJob, failure: IOcrQueueStartResult) {
+    const result = job.terminalResult ?? toTerminalResult(job.requestId, failure);
+    job.terminalResult = result;
+    if (job.registry.signal.aborted) {
+        job.registry.terminal.cancel(result.errorEnvelope);
+    } else {
+        job.registry.terminal.fail(result.errorEnvelope);
     }
-    if (cancelledJobs.has(scopedJobId)) {
-        return createOcrQueueFailure(requestId, 'OCR job was cancelled before it started');
-    }
-    if (context.sender.isDestroyed()) {
-        return createOcrQueueFailure(requestId, 'Renderer disconnected before OCR request could be queued');
-    }
-    return null;
+    job.resolveWorkerSettlement(result);
+    return result;
 }
 
 async function prepareLanguageModelsForQueueJob(
-    context: IOcrJobOperationContext,
     preparingJob: IOcrPreparingJob,
-    scopedJobId: string,
-    requestId: string,
     pages: IOcrPdfPageRequest[],
 ) {
     try {
-        await prepareLanguageModelsForJob(
-            preparingJob,
-            pages,
-            OCR_MODEL_PREP_TIMEOUT_MS,
-        );
+        await prepareLanguageModelsForJob(preparingJob, pages, OCR_MODEL_PREP_TIMEOUT_MS);
         return null;
     } catch (error) {
-        if (preparingJob.abortController.signal.aborted) {
-            const result = getAbortedPreparationResult(
-                context,
-                scopedJobId,
-                requestId,
-                preparingJob.abortController.signal,
+        const reason: unknown = preparingJob.registry.signal.reason;
+        if (reason instanceof Error && reason.name === 'TimeoutError') {
+            throw reason;
+        }
+        if (preparingJob.registry.signal.aborted) {
+            return createOcrQueueFailure(
+                preparingJob.requestId,
+                'OCR job was cancelled before it started',
             );
-            if (result) {
-                return result;
-            }
         }
         throw error;
     }
 }
 
-function getCancelledBeforeStartResult(scopedJobId: string, requestId: string) {
-    return cancelledJobs.has(scopedJobId)
-        ? createOcrQueueFailure(requestId, 'OCR job was cancelled before it started')
-        : null;
-}
-
 async function admitPreparedOcrJob(
-    context: IOcrJobOperationContext,
     preparingJob: IOcrPreparingJob,
     queuedJob: IOcrQueuedJob,
 ) {
+    const timeoutController = new AbortController();
     const queueTimeout = setTimeout(() => {
-        if (!preparingJob.abortController.signal.aborted) {
-            preparingJob.abortController.abort(new DOMException(
-                'OCR queue item expired before JobBroker admission',
-                'TimeoutError',
-            ));
-        }
+        timeoutController.abort(new DOMException(
+            'OCR queue item expired before JobBroker admission',
+            'TimeoutError',
+        ));
     }, OCR_QUEUE_MAX_AGE_MS);
     queueTimeout.unref?.();
+    const admissionSignal = AbortSignal.any([
+        preparingJob.registry.signal,
+        timeoutController.signal,
+    ]);
 
     let workerAdmissionLease: IJobBrokerLease | null = null;
     try {
@@ -643,102 +633,53 @@ async function admitPreparedOcrJob(
             priority: 'user',
             resources: OCR_WORKER_ADMISSION_RESOURCES,
             perOwnerLimit: OCR_WORKER_POOL_SIZE,
-            signal: preparingJob.abortController.signal,
+            signal: admissionSignal,
         });
         if (
-            preparingJob.abortController.signal.aborted
-            || cancelledJobs.has(queuedJob.scopedJobId)
-            || context.sender.isDestroyed()
+            admissionSignal.aborted
             || preparingJobs.get(queuedJob.scopedJobId) !== preparingJob
         ) {
             workerAdmissionLease.release();
-            return;
+            return finishPreparationFailure(
+                preparingJob,
+                createOcrQueueFailure(
+                    queuedJob.requestId,
+                    'OCR job was cancelled before it started',
+                ),
+            );
         }
 
         preparingJobs.delete(queuedJob.scopedJobId);
-        startBrokerAdmittedJob(queuedJob, workerAdmissionLease);
+        const result = await startBrokerAdmittedJob(queuedJob, workerAdmissionLease);
         workerAdmissionLease = null;
+        return result;
     } catch (error) {
-        if (!cancelledJobs.has(queuedJob.scopedJobId)) {
-            const message = error instanceof Error && error.name === 'TimeoutError'
+        const canceled = preparingJob.registry.signal.aborted;
+        const message = canceled
+            ? 'OCR job was cancelled before it started'
+            : error instanceof Error && error.name === 'TimeoutError'
                 ? 'OCR queue item expired before processing'
                 : `OCR worker admission failed: ${getErrorMessage(error)}`;
-            sendJobFailure(queuedJob, message, {
-                code: 'OCR_QUEUE_BACKPRESSURE',
-                retryable: true,
-            });
-        }
+        return finishPreparationFailure(
+            preparingJob,
+            createOcrQueueFailure(
+                queuedJob.requestId,
+                message,
+                canceled ? 'OCR_INTERNAL_ERROR' : 'OCR_QUEUE_BACKPRESSURE',
+            ),
+        );
     } finally {
         clearTimeout(queueTimeout);
         workerAdmissionLease?.release();
         if (!activeJobs.has(queuedJob.scopedJobId)) {
             preparingJobs.delete(queuedJob.scopedJobId);
             releaseOcrDocumentJobReservation(queuedJob.scopedJobId, queuedJob.documentJobKey);
-            clearOcrProgressPump(queuedJob.scopedJobId, queuedJob.requestId);
         }
-        cleanupCancelledPreparation(queuedJob.scopedJobId);
-    }
-}
-
-function enqueuePreparedOcrJob(
-    context: IOcrJobOperationContext,
-    scopedJobId: string,
-    documentJobKey: string,
-    sourcePdfPath: string,
-    documentRevision: IOcrQueuedJob['documentRevision'],
-    pages: IOcrPdfPageRequest[],
-    requestId: string,
-    requestBytes: number,
-    pageWork: number,
-    options: IOcrSearchablePdfOptions,
-) {
-    const preparingJob = preparingJobs.get(scopedJobId);
-    if (!preparingJob) {
-        throw new Error(`Missing preparing OCR job ${scopedJobId} before JobBroker admission`);
-    }
-    preparingJob.lifecycleState = transitionOcrJobLifecycle(
-        preparingJob.lifecycleState,
-        'queued',
-        scopedJobId,
-    );
-    const queuedJob: IOcrQueuedJob = {
-        lifecycleState: 'queued',
-        scopedJobId,
-        documentJobKey,
-        requestId,
-        webContentsId: context.senderId,
-        sourcePdfPath,
-        documentRevision,
-        pages,
-        options,
-        queuedAtMs: Date.now(),
-        requestedBytes: requestBytes,
-        pageWork,
-    };
-    logQueueDepth(`OCR job ${requestId} submitted to JobBroker`);
-    const admissionPromise = admitPreparedOcrJob(context, preparingJob, queuedJob);
-    pendingAdmissionPromises.set(scopedJobId, admissionPromise);
-    runDetached(
-        () => admissionPromise.finally(() => pendingAdmissionPromises.delete(scopedJobId)),
-        {
-            label: `admit OCR worker ${requestId}`,
-            logger: log,
-        },
-    );
-}
-
-function cleanupCancelledPreparation(scopedJobId: string) {
-    if (
-        cancelledJobs.has(scopedJobId)
-        && !activeJobs.has(scopedJobId)
-        && !preparingJobs.has(scopedJobId)
-    ) {
-        cancelledJobs.delete(scopedJobId);
     }
 }
 
 export async function handleOcrCreateSearchablePdfAsync(
-    context: IOcrJobOperationContext,
+    context: IOcrManagerContext,
     sourcePdfPath: string,
     pages: IOcrPdfPageRequest[],
     requestId: string,
@@ -746,18 +687,15 @@ export async function handleOcrCreateSearchablePdfAsync(
 ): Promise<IOcrQueueStartResult> {
     log.debug(`handleOcrCreateSearchablePdfAsync called: sourcePdfPath=${sourcePdfPath}, pages=${pages.length}, reqId=${requestId}, dpi=${options.renderDpi}, profile=${options.qualityProfile ?? 'balanced'}, preprocessing=${options.preprocessingMode ?? 'off'}`);
     const scopedJobId = toScopedOcrJobId(context.senderId, requestId);
-    let isPreparingReserved = false;
+    let reservedDocumentJobKey: string | null = null;
 
     try {
-        registerSenderCleanup(context);
-
         await pendingResultFileStore.evictStale();
-
-        const initialBlock = findQueueBlockingResult(context, scopedJobId, requestId, { includePreparing: true });
+        const initialBlock = findQueueBlockingResult(context, scopedJobId, requestId, {includePreparing: true});
         if (initialBlock) {
             return initialBlock;
         }
-        cancelledJobs.delete(scopedJobId);
+
         const documentRevision = await getWorkingCopyRevision(sourcePdfPath, context.senderId);
         const documentJobKey = getOcrDocumentJobKey(sourcePdfPath, documentRevision);
         const documentBlock = findQueueBlockingResult(context, scopedJobId, requestId, {
@@ -767,126 +705,185 @@ export async function handleOcrCreateSearchablePdfAsync(
         if (documentBlock) {
             return documentBlock;
         }
-        const existingDocumentJob = reserveOcrDocumentJob(documentJobKey, scopedJobId);
-        if (existingDocumentJob) {
+        if (reserveOcrDocumentJob(documentJobKey, scopedJobId)) {
             return createOcrQueueFailure(
                 requestId,
                 'OCR job for this document revision is already in progress',
                 'OCR_QUEUE_BACKPRESSURE',
             );
         }
-
-        // Reserve the scoped id before long async prep to avoid duplicate in-flight
-        // requests racing into the queue with the same requestId.
-        const preparingJob = createPreparingOcrJob(context, scopedJobId, documentJobKey, requestId, sourcePdfPath, documentRevision);
-        preparingJobs.set(scopedJobId, preparingJob);
-        isPreparingReserved = true;
-        sendOcrProgressStage(context.senderId, requestId, pages, 'model-prep');
+        reservedDocumentJobKey = documentJobKey;
 
         const requestWork = estimateOcrRequestWork(pages, options);
-        preparingJob.requestedBytes = requestWork.bytes;
-        preparingJob.pageWork = requestWork.pageWork;
-        const capacityResult = ensureQueueCapacity({
-            bytes: requestWork.bytes,
-            pageWork: requestWork.pageWork,
-            documentJobKey,
-        }, { excludePreparingJobId: scopedJobId });
-        if (!capacityResult.ok) {
-            return createOcrQueueFailure(requestId, capacityResult.error, 'OCR_QUEUE_BACKPRESSURE');
-        }
+        const startResult = createDeferred<IOcrQueueStartResult>();
+        const handle = ocrJobs.start({
+            jobId: requestId,
+            owner: toOcrActor(context),
+            operation: {
+                kind: 'abortable-work',
+                workingCopyPath: sourcePdfPath,
+            },
+            ownerLifecycle: {
+                destroyed: 'detach',
+                renderProcessGone: 'detach',
+                mainFrameNavigation: 'detach',
+            },
+            initialProgress: {
+                requestId,
+                currentPage: pages[0]?.pageNumber ?? 0,
+                processedCount: 0,
+                totalPages: pages.length,
+                phase: 'model-prep',
+                projection: {
+                    supersessionPolicy: options.supersessionPolicy ?? 'missing-only',
+                    replaceAllAcknowledged: options.replaceAllAcknowledged === true,
+                },
+            },
+            onCancel: (reason) => {
+                const preparingJob = preparingJobs.get(scopedJobId);
+                if (preparingJob) {
+                    sendJobCancellation(preparingJob, reason);
+                } else if (activeJobs.has(scopedJobId)) {
+                    terminateAndFinalizeActiveJob(scopedJobId, {
+                        markCancelled: true,
+                        reason,
+                    });
+                }
+            },
+            run: async (registry) => {
+                const workerSettlement = createDeferred<IOcrCompleteResult>();
+                const preparingJob: IOcrPreparingJob = {
+                    registry,
+                    cancel: reason => handle.cancel(reason),
+                    settled: handle.settled,
+                    workerSettlement: workerSettlement.promise,
+                    resolveWorkerSettlement: workerSettlement.resolve,
+                    terminalResult: null,
+                    scopedJobId,
+                    documentJobKey,
+                    requestId,
+                    webContentsId: context.senderId,
+                    sourcePdfPath,
+                    documentRevision,
+                    requestedBytes: requestWork.bytes,
+                    pageWork: requestWork.pageWork,
+                    startedAtMs: Date.now(),
+                };
+                preparingJobs.set(scopedJobId, preparingJob);
+                let startResolved = false;
+                const resolveStart = (result: IOcrQueueStartResult) => {
+                    if (!startResolved) {
+                        startResolved = true;
+                        startResult.resolve(result);
+                    }
+                };
 
-        const modelPrepResult = await prepareLanguageModelsForQueueJob(
-            context,
-            preparingJob,
-            scopedJobId,
-            requestId,
-            pages,
-        );
-        if (modelPrepResult) {
-            return modelPrepResult;
-        }
+                try {
+                    const capacityResult = ensureQueueCapacity({
+                        bytes: requestWork.bytes,
+                        pageWork: requestWork.pageWork,
+                        documentJobKey,
+                    }, {excludePreparingJobId: scopedJobId});
+                    if (!capacityResult.ok) {
+                        const failure = createOcrQueueFailure(
+                            requestId,
+                            capacityResult.error,
+                            'OCR_QUEUE_BACKPRESSURE',
+                        );
+                        resolveStart(failure);
+                        return finishPreparationFailure(preparingJob, failure);
+                    }
 
-        const canceledBeforeRecheck = getCancelledBeforeStartResult(scopedJobId, requestId);
-        if (canceledBeforeRecheck) {
-            return canceledBeforeRecheck;
-        }
-        const recheckBlock = findQueueBlockingResult(context, scopedJobId, requestId, {
-            includePreparing: false,
-            documentJobKey,
+                    const modelPrepResult = await prepareLanguageModelsForQueueJob(preparingJob, pages);
+                    if (modelPrepResult) {
+                        resolveStart(modelPrepResult);
+                        return finishPreparationFailure(preparingJob, modelPrepResult);
+                    }
+
+                    const recheckBlock = findQueueBlockingResult(context, scopedJobId, requestId, {
+                        includePreparing: false,
+                        documentJobKey,
+                    });
+                    if (recheckBlock) {
+                        resolveStart(recheckBlock);
+                        return finishPreparationFailure(preparingJob, recheckBlock);
+                    }
+                    const capacityRecheck = ensureQueueCapacity({
+                        bytes: requestWork.bytes,
+                        pageWork: requestWork.pageWork,
+                        documentJobKey,
+                    }, {excludePreparingJobId: scopedJobId});
+                    if (!capacityRecheck.ok) {
+                        const failure = createOcrQueueFailure(
+                            requestId,
+                            capacityRecheck.error,
+                            'OCR_QUEUE_BACKPRESSURE',
+                        );
+                        resolveStart(failure);
+                        return finishPreparationFailure(preparingJob, failure);
+                    }
+                    if (registry.signal.aborted) {
+                        const failure = createOcrQueueFailure(
+                            requestId,
+                            'OCR job was cancelled before it started',
+                        );
+                        resolveStart(failure);
+                        return finishPreparationFailure(preparingJob, failure);
+                    }
+
+                    const queuedJob: IOcrQueuedJob = {
+                        ...preparingJob,
+                        pages,
+                        options,
+                        queuedAtMs: Date.now(),
+                    };
+                    logQueueDepth(`OCR job ${requestId} submitted to JobBroker`);
+                    resolveStart({
+                        started: true,
+                        jobId: requestId,
+                    });
+                    return await admitPreparedOcrJob(preparingJob, queuedJob);
+                } catch (error) {
+                    const message = isAbortError(error) && registry.signal.aborted
+                        ? 'OCR job was cancelled before it started'
+                        : getErrorMessage(error);
+                    const failure = createOcrQueueFailure(requestId, message);
+                    resolveStart(failure);
+                    return finishPreparationFailure(preparingJob, failure);
+                } finally {
+                    if (!activeJobs.has(scopedJobId)) {
+                        preparingJobs.delete(scopedJobId);
+                        releaseOcrDocumentJobReservation(scopedJobId, documentJobKey);
+                    }
+                }
+            },
         });
-        if (recheckBlock) {
-            return recheckBlock;
-        }
-        const recheckedCapacityResult = ensureQueueCapacity({
-            bytes: requestWork.bytes,
-            pageWork: requestWork.pageWork,
-            documentJobKey,
-        }, { excludePreparingJobId: scopedJobId });
-        if (!recheckedCapacityResult.ok) {
-            return createOcrQueueFailure(requestId, recheckedCapacityResult.error, 'OCR_QUEUE_BACKPRESSURE');
-        }
-        const canceledBeforeEnqueue = getCancelledBeforeStartResult(scopedJobId, requestId);
-        if (canceledBeforeEnqueue) {
-            return canceledBeforeEnqueue;
-        }
-
-        enqueuePreparedOcrJob(
-            context,
-            scopedJobId,
-            documentJobKey,
-            sourcePdfPath,
-            documentRevision,
-            pages,
+        reservedDocumentJobKey = null;
+        return await startResult.promise;
+    } catch (error) {
+        const message = getErrorMessage(error);
+        log.error(`Failed to queue OCR worker job: ${message}`);
+        return createOcrQueueFailure(
             requestId,
-            requestWork.bytes,
-            requestWork.pageWork,
-            options,
+            message,
+            isOcrErrorEnvelope(error) ? error.code : 'OCR_INTERNAL_ERROR',
         );
-        isPreparingReserved = false;
-
-        return {
-            started: true,
-            jobId: requestId,
-        };
-    } catch (err) {
-        if (cancelledJobs.has(scopedJobId) && isAbortError(err)) {
-            return {
-                started: false,
-                jobId: requestId,
-                error: 'OCR job was cancelled before it started',
-                errorCode: 'OCR_INTERNAL_ERROR',
-            };
-        }
-        const errMsg = getErrorMessage(err);
-        log.error(`Failed to queue OCR worker job: ${errMsg}`);
-        return {
-            started: false,
-            jobId: requestId,
-            error: errMsg,
-            errorCode: 'OCR_INTERNAL_ERROR',
-        };
     } finally {
-        if (isPreparingReserved) {
-            const preparingJob = preparingJobs.get(scopedJobId);
-            preparingJobs.delete(scopedJobId);
-            releaseOcrDocumentJobReservation(scopedJobId, preparingJob?.documentJobKey);
-            clearOcrProgressPump(scopedJobId, requestId);
+        if (reservedDocumentJobKey !== null) {
+            releaseOcrDocumentJobReservation(scopedJobId, reservedDocumentJobKey);
         }
-        cleanupCancelledPreparation(scopedJobId);
     }
 }
 
 export async function handleOcrAcknowledgeResultFile(
-    context: IOcrJobOperationContext,
+    context: IOcrManagerContext,
     requestIdPayload: unknown,
     pdfPathPayload?: unknown,
 ): Promise<{
     cleaned: boolean;
-    error?: string;
+    error?: string
 }> {
-    registerSenderCleanup(context);
     await pendingResultFileStore.evictStale();
-
     const requestId = typeof requestIdPayload === 'string' ? requestIdPayload.trim() : '';
     if (!requestId) {
         return {
@@ -894,94 +891,66 @@ export async function handleOcrAcknowledgeResultFile(
             error: 'requestId must be a non-empty string',
         };
     }
-
-    const pending = pendingResultFileStore.find(context.senderId, requestId);
-    const result = await pendingResultFileStore.acknowledge(
+    return pendingResultFileStore.acknowledge(
         context.senderId,
         requestId,
         typeof pdfPathPayload === 'string' ? pdfPathPayload : undefined,
     );
-    if (result.cleaned && pending) {
-        documentOutputService.finish(pending.scopedJobId, 'completed');
-    }
-    return result;
 }
 
 export function handleOcrCancel(
-    context: IOcrJobOperationContext,
+    context: IOcrManagerContext,
     requestId: string,
 ): IOcrCancelResult {
-    const scopedJobId = toScopedOcrJobId(context.senderId, requestId);
     log.info(`[${requestId}] Cancel requested`);
-
-    if (preparingJobs.has(scopedJobId)) {
-        const preparingJob = preparingJobs.get(scopedJobId);
-        abortPreparingJob(scopedJobId, 'explicit cancel request');
-        if (preparingJob) {
-            sendJobCancellation(preparingJob, 'explicit cancel request');
-        }
-        log.info(`[${requestId}] Preparing OCR job marked as cancelled`);
-        return { canceled: true };
+    const scopedJobId = toScopedOcrJobId(context.senderId, requestId);
+    const canceled = ocrJobs.cancel(
+        requestId,
+        toOcrActor(context),
+        'explicit cancel request',
+    );
+    const preparingJob = preparingJobs.get(scopedJobId);
+    if (preparingJob) {
+        sendJobCancellation(preparingJob, 'explicit cancel request');
     }
-
     const activeJob = activeJobs.get(scopedJobId);
-    if (!activeJob) {
-        log.info(`[${requestId}] No active OCR job found for cancel`);
-        return {
-            canceled: false,
-            reason: 'not-found',
-        };
+    if (activeJob) {
+        terminateAndFinalizeActiveJob(scopedJobId, {
+            markCancelled: true,
+            reason: 'explicit cancel request',
+        });
     }
-
-    terminateAndFinalizeActiveJob(scopedJobId, {
-        markCancelled: true,
-        reason: 'explicit cancel request',
-    });
-    log.info(`[${requestId}] Active OCR job cancelled`);
-    return { canceled: true };
+    if (canceled || preparingJob || activeJob) {
+        return {canceled: true};
+    }
+    return {
+        canceled: false,
+        reason: 'not-found',
+    };
 }
 
 async function stopOcrJobManager(options: {shutdownResultStore: boolean}) {
+    const settlements = new Set<Promise<void>>();
     for (const preparingJob of preparingJobs.values()) {
-        clearOcrProgressPump(preparingJob.scopedJobId, preparingJob.requestId);
-        releaseOcrDocumentJobReservation(preparingJob.scopedJobId, preparingJob.documentJobKey);
-        if (!preparingJob.abortController.signal.aborted) {
-            preparingJob.abortController.abort(createAbortError('OCR job manager shutdown'));
-        }
+        settlements.add(preparingJob.settled);
+        preparingJob.cancel('OCR job manager shutdown');
     }
-    await Promise.allSettled(pendingAdmissionPromises.values());
-    pendingAdmissionPromises.clear();
-    preparingJobs.clear();
-
-    const activeEntries = Array.from(activeJobs.entries());
     for (const [
         scopedJobId,
         activeJob,
-    ] of activeEntries) {
-        activeJob.completed = true;
-        activeJob.terminatedByUs = true;
-        removePendingCompletionResultFile(activeJob);
-        clearJobWatchdog(scopedJobId);
+    ] of activeJobs) {
+        settlements.add(activeJob.settled);
+        if (!activeJob.cancel('OCR job manager shutdown')) {
+            terminateAndFinalizeActiveJob(scopedJobId, {reason: 'app shutdown'});
+        }
     }
-    await Promise.allSettled(
-        activeEntries.map(([
-            scopedJobId,
-            activeJob,
-        ]) =>
-            terminateWorkerSafely(scopedJobId, activeJob.worker, 'app shutdown')),
-    );
-    for (const [scopedJobId] of activeEntries) {
-        finalizeActiveJob(scopedJobId);
-    }
-
+    await Promise.allSettled(settlements);
+    preparingJobs.clear();
     if (options.shutdownResultStore) {
         await pendingResultFileStore.shutdown();
     }
-
     ocrResourceGovernor.reset();
     scopedJobIdsByDocumentJobKey.clear();
-    cancelledJobs.clear();
-    registeredSenderCleanupIds.clear();
 }
 
 export function recoverOcrJobManager() {
@@ -990,4 +959,64 @@ export function recoverOcrJobManager() {
 
 export function shutdownOcrJobManager() {
     return stopOcrJobManager({shutdownResultStore: true});
+}
+
+function toOcrJobPhase(phase: string | undefined): TOcrJobProjectionPhase {
+    return phase === 'queued'
+        || phase === 'recognizing'
+        || phase === 'applying'
+        || phase === 'cancel-requested'
+        || phase === 'preparing'
+        || phase === 'model-prep'
+        || phase === 'pdf-prep'
+        || phase === 'dpi-inspection'
+        || phase === 'page-size-probing'
+        || phase === 'processing'
+        || phase === 'merging'
+        || phase === 'indexing'
+        ? phase
+        : 'recognizing';
+}
+
+function projectOcrJob(snapshot: TOcrJobSnapshot): IOcrJobProjectionState {
+    const progress = snapshot.progress;
+    const percent = progress.phaseProgress
+        ?? (progress.totalPages > 0 ? (progress.processedCount / progress.totalPages) * 100 : 0);
+    return {
+        jobId: toScopedOcrJobId(snapshot.owner.webContentsId, snapshot.jobId),
+        requestId: snapshot.jobId,
+        status: snapshot.status === 'canceling' || snapshot.status === 'committing'
+            ? 'running'
+            : snapshot.status,
+        phase: snapshot.status === 'canceling'
+            ? 'cancel-requested'
+            : toOcrJobPhase(progress.phase),
+        percent,
+        current: progress.processedCount,
+        total: progress.totalPages,
+        ...(progress.error ? {error: progress.error} : {}),
+        updatedAtMs: snapshot.updatedAtMs,
+        ...progress.projection,
+    };
+}
+
+export function getOcrJobProjection(context: IOcrManagerContext, requestId: string) {
+    const snapshot = ocrJobs.get(requestId, toOcrActor(context));
+    return snapshot ? projectOcrJob(snapshot) : null;
+}
+
+export function subscribeOcrJobProjection(
+    context: IOcrManagerContext,
+    requestId: string,
+    listener: (state: IOcrJobProjectionState) => void,
+) {
+    return ocrJobs.subscribe(
+        requestId,
+        toOcrActor(context),
+        snapshot => listener(projectOcrJob(snapshot)),
+    ) ?? (() => {});
+}
+
+export function subscribeManagedOcrProgress(context: IOcrManagerContext) {
+    return ocrJobs.subscribeOwner(toOcrActor(context));
 }

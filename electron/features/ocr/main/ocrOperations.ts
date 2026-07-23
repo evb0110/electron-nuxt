@@ -24,7 +24,9 @@ import {
     handleOcrAcknowledgeResultFile,
     handleOcrCancel,
     handleOcrCreateSearchablePdfAsync,
+    getOcrJobProjection,
     safeSendToWindow,
+    subscribeOcrJobProjection,
 } from '@electron/ocr/jobManager';
 import {
     getOcrToolPaths,
@@ -51,12 +53,6 @@ import { requireManagedWorkingCopyPath } from '@electron/file-access/workingCopy
 import { getErrorMessage } from '@electron/utils/error';
 import { createIpcProgressPump } from '@electron/utils/createIpcProgressPump';
 import type { IOcrOperationContext } from '@electron/features/ocr/ports';
-import {
-    registerOcrJobProjectionPolicy,
-    getOcrJobProjection,
-    subscribeOcrJobProjection,
-} from '@electron/ocr/ocrJobProjection';
-import {toScopedOcrJobId} from '@electron/ocr/jobManagerProtocol';
 
 const log = createLogger('ocr-ipc');
 
@@ -95,10 +91,6 @@ async function runBrokerAdmittedPlainOcr<T>(
 const plainOcrBatchControllers = new Map<string, AbortController>();
 const plainOcrProgressPumpsBySenderId = new Map<number, ReturnType<typeof createIpcProgressPump<IOcrProgress>>>();
 const plainOcrProgressCleanupSenderIds = new Set<number>();
-
-type TOcrJobManagerContext = Parameters<typeof handleOcrCreateSearchablePdfAsync>[0];
-type TOcrJobManagerSender = TOcrJobManagerContext['sender'];
-type TOcrSenderLifecycleListener = Parameters<TOcrJobManagerSender['once']>[1];
 
 function toScopedPlainOcrBatchId(senderId: number, requestId: string) {
     return `${senderId}:${requestId}`;
@@ -160,12 +152,12 @@ export function subscribePlainOcrProgress(context: IOcrOperationContext) {
 }
 
 export function handleGetOcrJobState(context: IOcrOperationContext, requestId: string) {
-    return getOcrJobProjection(context.senderId, validateCancelRequestId(requestId));
+    return getOcrJobProjection(context, validateCancelRequestId(requestId));
 }
 
 export function handleSubscribeOcrJob(context: IOcrOperationContext, requestId: string) {
     const checkedRequestId = validateCancelRequestId(requestId);
-    const unsubscribe = subscribeOcrJobProjection(context.senderId, checkedRequestId, (state) => {
+    const unsubscribe = subscribeOcrJobProjection(context, checkedRequestId, (state) => {
         context.sender.send(OCR_EVENT_CHANNELS.progress, {
             requestId: checkedRequestId,
             currentPage: 0,
@@ -182,37 +174,7 @@ export function handleSubscribeOcrJob(context: IOcrOperationContext, requestId: 
         });
     });
     context.sender.once('destroyed', unsubscribe);
-    return getOcrJobProjection(context.senderId, checkedRequestId);
-}
-
-function createOcrJobManagerContext(context: IOcrOperationContext): TOcrJobManagerContext {
-    const {sender} = context;
-    const once: TOcrJobManagerSender['once'] = (event, listener) => {
-        if (event === 'destroyed') {
-            return sender.once('destroyed', listener);
-        }
-        return sender.once('render-process-gone', listener);
-    };
-    const on: TOcrJobManagerSender['on'] = (event, listener) => sender.on(event, listener);
-    const removeListener: TOcrJobManagerSender['removeListener'] = (event, listener) => {
-        if (event === 'destroyed') {
-            return sender.removeListener('destroyed', listener as TOcrSenderLifecycleListener);
-        }
-        if (event === 'render-process-gone') {
-            return sender.removeListener('render-process-gone', listener as TOcrSenderLifecycleListener);
-        }
-        return sender.removeListener('did-start-navigation', listener);
-    };
-
-    return {
-        senderId: context.senderId,
-        sender: {
-            isDestroyed: () => sender.isDestroyed(),
-            once,
-            on,
-            removeListener,
-        },
-    };
+    return getOcrJobProjection(context, checkedRequestId);
 }
 
 function toPlainOcrErrorEnvelope(error: unknown): IOcrErrorEnvelope {
@@ -556,14 +518,8 @@ export async function handleOcrCreateSearchablePdf(
 
         jobId = payload.requestId;
         const validatedSourcePdfPath = await validateOcrSourcePdfPath(payload.sourcePdfPath, context.senderId);
-        const jobManagerContext = createOcrJobManagerContext(context);
-        registerOcrJobProjectionPolicy(
-            toScopedOcrJobId(context.senderId, payload.requestId),
-            payload.options.supersessionPolicy ?? 'missing-only',
-            payload.options.replaceAllAcknowledged === true,
-        );
         const result = await handleOcrCreateSearchablePdfAsync(
-            jobManagerContext,
+            context,
             validatedSourcePdfPath,
             payload.pages,
             payload.requestId,
@@ -611,7 +567,7 @@ export function handleOcrCancelValidated(
             plainOcrBatchControllers.delete(scopedBatchId);
             return { canceled: true };
         }
-        return handleOcrCancel(createOcrJobManagerContext(context), requestId);
+        return handleOcrCancel(context, requestId);
     } catch (error) {
         const envelope = toOcrErrorEnvelope(error);
         log.warn(`ocr:cancel rejected: ${envelope.message}`);
@@ -631,7 +587,7 @@ export async function handleOcrAcknowledgeResultFileValidated(
 ) {
     try {
         return await handleOcrAcknowledgeResultFile(
-            createOcrJobManagerContext(context),
+            context,
             requestIdPayload,
             pdfPathPayload,
         );

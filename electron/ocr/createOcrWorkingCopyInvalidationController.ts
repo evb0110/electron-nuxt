@@ -1,27 +1,15 @@
 import type {
     IOcrActiveJob,
     IOcrPreparingJob,
-    IOcrQueuedJob,
 } from '@electron/ocr/jobManager.types';
 import { normalizePathForLookup } from '@electron/file-access/workingCopyStore';
 
 interface IOcrWorkingCopyInvalidationLogger { info(message: string): void; }
 
 interface IOcrWorkingCopyInvalidationControllerOptions {
-    abortPreparingJob: (scopedJobId: string, reason: string) => boolean;
     activeJobs: Map<string, IOcrActiveJob>;
+    cancelJob: (scopedJobId: string, reason: string) => boolean;
     logger: IOcrWorkingCopyInvalidationLogger;
-    sendJobCancellation: (
-        job: Pick<IOcrQueuedJob | IOcrPreparingJob, 'scopedJobId' | 'requestId' | 'webContentsId'>,
-        reason: string,
-    ) => void;
-    terminateAndFinalizeActiveJob: (
-        scopedJobId: string,
-        options: {
-            markCancelled?: boolean;
-            reason: string;
-        },
-    ) => void;
     preparingJobs: Map<string, IOcrPreparingJob>;
 }
 
@@ -39,9 +27,8 @@ export function createOcrWorkingCopyInvalidationController(options: IOcrWorkingC
                 continue;
             }
 
-            if (options.abortPreparingJob(preparingJob.scopedJobId, reason)) {
+            if (options.cancelJob(preparingJob.scopedJobId, reason)) {
                 canceledCount += 1;
-                options.sendJobCancellation(preparingJob, reason);
                 options.logger.info(`[${preparingJob.requestId}] Cancelled preparing OCR job for stale working copy: ${reason}`);
             }
         }
@@ -49,12 +36,10 @@ export function createOcrWorkingCopyInvalidationController(options: IOcrWorkingC
         const activeForWorkingCopy = Array.from(options.activeJobs.values())
             .filter(activeJob => getOcrSourcePathKey(activeJob.sourcePdfPath) === targetPathKey);
         for (const activeJob of activeForWorkingCopy) {
-            options.terminateAndFinalizeActiveJob(activeJob.scopedJobId, {
-                markCancelled: true,
-                reason,
-            });
-            canceledCount += 1;
-            options.logger.info(`[${activeJob.requestId}] Cancelled active OCR job for stale working copy: ${reason}`);
+            if (options.cancelJob(activeJob.scopedJobId, reason)) {
+                canceledCount += 1;
+                options.logger.info(`[${activeJob.requestId}] Cancelled active OCR job for stale working copy: ${reason}`);
+            }
         }
 
         return canceledCount;

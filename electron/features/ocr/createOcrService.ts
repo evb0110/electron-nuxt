@@ -22,7 +22,6 @@ import type {
     IOcrService,
 } from '@electron/features/ocr/ports';
 import { subscribeManagedOcrProgress } from '@electron/ocr/jobManager';
-import { OCR_EVENT_CHANNELS } from '@electron/features/ocr/contract';
 
 type TPreprocessPageContext = Parameters<typeof handlePreprocessPage>[0];
 
@@ -70,11 +69,7 @@ export function createOcrService(): IOcrService {
             handlePreprocessPage(createPreprocessPageContext(context), imageData, usePreprocessing),
         subscribeProgress: (context) => {
             subscribePlainOcrProgress(context);
-            subscribeManagedOcrProgress(context.senderId, {
-                key: `web-contents:${context.senderId}`,
-                isDestroyed: () => context.sender.isDestroyed(),
-                send: (_channel, payload) => context.sender.send(OCR_EVENT_CHANNELS.progress, payload),
-            });
+            subscribeManagedOcrProgress(context);
         },
     };
 }
