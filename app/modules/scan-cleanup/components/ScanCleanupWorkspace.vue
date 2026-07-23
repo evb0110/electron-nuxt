@@ -20,12 +20,14 @@
             :processed-count="jobProgress.completedUnits"
             :progress-text="progressText"
             :run-ocr-after-cleanup="runOcrAfterCleanup"
+            :zone-editing="zoneEditing"
             @cancel="cancel"
             @cancel-detection="cancelDetection"
             @detect-all="detectAllPages"
             @done="done"
             @run="run"
             @update:run-ocr-after-cleanup="runOcrAfterCleanup = $event"
+            @update:zone-editing="zoneEditing = $event"
         />
     </Teleport>
     <section
@@ -114,16 +116,21 @@
                     :manual-split="currentPageOverride.manualSplit"
                     :reading-order="settings.readingOrder"
                     :manual-content-boxes="currentPageOverride.manualContentBoxes ?? {}"
+                    :manual-zones="currentPageOverride.manualZones"
+                    :output-mode="settings.outputMode"
                     :placement-overrides="currentPageOverride.placementOverrides ?? {}"
                     :lossless="settings.preserveOriginalQuality === true"
                     :show-first-run-guidance="showFirstRunGuidance"
+                    :zone-editing="zoneEditing"
                     @previous="navigatePreview(-1)"
                     @next="navigatePreview(1)"
                     @retry="retryPreview"
                     @update:view-mode="previewViewMode = $event"
                     @update:manual-split="updateCurrentManualSplit"
                     @update:manual-content-box="updateCurrentManualContentBox"
+                    @update:manual-zones="updateCurrentManualZones"
                     @update:placement="updateCurrentPlacement"
+                    @use-mixed-output="useMixedOutput"
                     @dismiss-first-run-guidance="dismissFirstRunGuidance"
                 />
             </div>
@@ -229,6 +236,7 @@ const {
     settingsScope,
     updateCurrentManualContentBox,
     updateCurrentManualSplit,
+    updateCurrentManualZones,
     updateCurrentPlacementAll,
     updatePageOverride,
     updatePlacement: updateSelectionPlacement,
@@ -276,6 +284,7 @@ const {
 } = workspaceSession.run;
 const allScopeRotation = ref<TScanCleanupPageRotation>(0);
 const allScopeExcluded = ref(false);
+const zoneEditing = ref(false);
 const cleanupProgressTotal = computed(() => Math.max(jobProgress.value.totalUnits, previewTotalPages.value));
 const allPageNumbers = computed(() => Array.from(
     {length: Math.max(1, previewTotalPages.value)},
@@ -448,6 +457,11 @@ function updateDocumentSetting(
     Object.assign(settings, {[key]: value});
 }
 
+function useMixedOutput() {
+    settings.preserveOriginalQuality = false;
+    settings.outputMode = 'mixed';
+}
+
 function handleScopeLayout(value: string | number) {
     if (settingsScope.value === 'all') {
         if ([
@@ -555,6 +569,11 @@ watch([
     previewPage: page,
     previewViewMode: viewMode,
 }), {immediate: true});
+watch(isRunning, running => {
+    if (running) {
+        zoneEditing.value = false;
+    }
+});
 </script>
 
 <style>

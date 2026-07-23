@@ -114,6 +114,92 @@ describe('scan cleanup apply scopes', () => {
 });
 
 describe('scan cleanup selection override state', () => {
+    it('persists manual zones on the leader page and clears rotation-bound geometry after rotation', () => {
+        const settings = reactive<IScanCleanupOptions>({
+            preserveOriginalQuality: false,
+            layoutMode: 'auto',
+            outputMode: 'mixed',
+            readingOrder: 'ltr',
+            thickness: 0,
+            crop: true,
+            matchPageSize: true,
+            pageAlignment: 'top-center',
+            marginsMm: {
+                leftMm: 5,
+                topMm: 5,
+                rightMm: 5,
+                bottomMm: 5,
+            },
+            despeckle: true,
+            skipBlankPages: false,
+            pageOverrides: {},
+        });
+        const selection = useScanCleanupSelection({
+            initialPage: 1,
+            previewResult: () => null,
+            previewTotalPages: () => 2,
+            settings,
+        });
+        const manualZones = {
+            picture: [{
+                layer: 'painter2' as const,
+                polygon: {
+                    points: [
+                        {
+                            xNormalized: 0.1,
+                            yNormalized: 0.2,
+                        },
+                        {
+                            xNormalized: 0.4,
+                            yNormalized: 0.2,
+                        },
+                        {
+                            xNormalized: 0.4,
+                            yNormalized: 0.6,
+                        },
+                        {
+                            xNormalized: 0.1,
+                            yNormalized: 0.6,
+                        },
+                    ],
+                    rotationDegrees: 0 as const,
+                },
+            }],
+            fill: [],
+        };
+
+        selection.updateCurrentManualZones(manualZones);
+        expect(getScanCleanupPageOverride(settings.pageOverrides, 1).manualZones).toEqual(manualZones);
+        expect(getScanCleanupPageOverride(settings.pageOverrides, 2).manualZones).toBeUndefined();
+
+        selection.updateRotation(90);
+        expect(getScanCleanupPageOverride(settings.pageOverrides, 1)).toMatchObject({
+            rotationDegrees: 90,
+            manualZones: {
+                picture: [],
+                fill: [],
+            },
+        });
+
+        selection.updateCurrentManualZones({
+            picture: [],
+            fill: manualZones.picture.map(zone => ({
+                ...zone.polygon,
+                rotationDegrees: 90,
+            })),
+        });
+        selection.resetControlOverride('rotation', [1]);
+        const resetOverride = getScanCleanupPageOverride(settings.pageOverrides, 1);
+        expect(resetOverride.rotationDegrees).toBe(0);
+        expect(resetOverride.manualZones ?? {
+            picture: [],
+            fill: [],
+        }).toEqual({
+            picture: [],
+            fill: [],
+        });
+    });
+
     it('updates all four margins while linked and one margin while unlinked', () => {
         const settings = reactive<IScanCleanupOptions>({
             preserveOriginalQuality: false,

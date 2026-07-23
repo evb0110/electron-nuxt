@@ -21,6 +21,21 @@
             </div>
 
             <div class="scan-cleanup-toolbar-zone scan-cleanup-toolbar-zone-center">
+                <AppTooltip :text="t('scanCleanup.zones.toggleHint')">
+                    <UButton
+                        class="scan-cleanup-toolbar-zone-editor"
+                        type="button"
+                        :color="zoneEditing ? 'primary' : 'neutral'"
+                        :variant="zoneEditing ? 'soft' : 'ghost'"
+                        size="xs"
+                        square
+                        icon="i-ph-bounding-box"
+                        :aria-label="t('scanCleanup.zones.toggle')"
+                        :aria-pressed="zoneEditing"
+                        :disabled="isRunning"
+                        @click="emit('update:zoneEditing', !zoneEditing)"
+                    />
+                </AppTooltip>
                 <ol class="scan-cleanup-stepper" :aria-label="t('scanCleanup.steps.label')">
                     <li
                         v-for="step in steps"
@@ -160,6 +175,7 @@ const {
     processedCount,
     progressText,
     runOcrAfterCleanup,
+    zoneEditing,
 } = defineProps<{
     canDetectAll: boolean;
     canRun: boolean;
@@ -176,6 +192,7 @@ const {
     processedCount: number;
     progressText: string;
     runOcrAfterCleanup: boolean;
+    zoneEditing?: boolean;
 }>();
 const emit = defineEmits<{
     cancel: [];
@@ -184,6 +201,7 @@ const emit = defineEmits<{
     done: [];
     run: [];
     'update:runOcrAfterCleanup': [value: boolean];
+    'update:zoneEditing': [value: boolean];
 }>();
 const {t} = useTypedI18n();
 const normalizedPercent = computed(() => Math.min(100, Math.max(0, Math.round(percent))));

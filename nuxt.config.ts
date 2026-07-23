@@ -289,6 +289,7 @@ export default defineNuxtConfig({
             'ph:book-open',
             'ph:scissors',
             'ph:bookmark',
+            'ph:bounding-box',
             'ph:check',
             'ph:caret-down',
             'ph:caret-left',

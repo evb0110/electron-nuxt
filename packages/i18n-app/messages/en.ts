@@ -509,6 +509,37 @@ export default {
             'color': 'Color',
             'colorShort': 'Color',
         },
+        'zones': {
+            'toggle': 'Edit picture and fill zones',
+            'toggleHint': 'Draw and edit per-page picture or background-fill zones.',
+            'title': 'Manual zones',
+            'controlsLabel': 'Manual zone tools',
+            'editorLabel': 'Manual zone editor. Drag on the page to draw a zone.',
+            'kindLabel': 'New zone type',
+            'picture': 'Picture',
+            'fill': 'Fill',
+            'emptyHint': 'Drag a rectangle over the page. Picture zones preserve photos and illustrations; fill zones replace an area with the page background.',
+            'mixedNote': 'Picture zones take effect with the “Black-and-white text with color pictures” output mode.',
+            'useMixedOutput': 'Use mixed output',
+            'delete': 'Delete selected zone',
+            'resizeHandle': 'Resize zone from the {direction}',
+            'corners': {
+                'nw': 'top-left corner',
+                'ne': 'top-right corner',
+                'se': 'bottom-right corner',
+                'sw': 'bottom-left corner',
+            },
+            'advanced': {
+                'title': 'Advanced zone behavior',
+                'layerLabel': 'Processing pass',
+                'layerHint': 'The default picture pass is right for most zones. The before/after passes force the selected area back to text or background at that stage.',
+                'layers': {
+                    'eraser1': 'Before pictures — text or background',
+                    'painter2': 'Picture pass — preserve image (default)',
+                    'eraser3': 'After pictures — text or background',
+                },
+            },
+        },
         'advanced': {
             'title': 'Advanced',
             'binarization': {

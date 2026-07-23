@@ -124,6 +124,42 @@ describe('scan cleanup renderer preview cache', () => {
             ...previewOptions,
             autoDewarp: true,
         }, '/tmp/source.pdf');
+        const withManualZones = createScanCleanupPreviewCacheKey(1, {
+            ...previewOptions,
+            pageOverrides: {1: {
+                rotationDegrees: 0,
+                layoutOverride: 'auto',
+                excluded: false,
+                manualSplit: null,
+                manualZones: {
+                    picture: [{
+                        layer: 'painter2',
+                        polygon: {
+                            points: [
+                                {
+                                    xNormalized: 0.1,
+                                    yNormalized: 0.1,
+                                },
+                                {
+                                    xNormalized: 0.4,
+                                    yNormalized: 0.1,
+                                },
+                                {
+                                    xNormalized: 0.4,
+                                    yNormalized: 0.4,
+                                },
+                                {
+                                    xNormalized: 0.1,
+                                    yNormalized: 0.4,
+                                },
+                            ],
+                            rotationDegrees: 0,
+                        },
+                    }],
+                    fill: [],
+                },
+            }},
+        }, '/tmp/source.pdf');
 
         expect(new Set([
             base,
@@ -134,7 +170,8 @@ describe('scan cleanup renderer preview cache', () => {
             withoutIlluminationNormalization,
             withCautiousDespeckle,
             withAutoDewarp,
-        ])).toHaveLength(8);
+            withManualZones,
+        ])).toHaveLength(9);
     });
 
     it('evicts by bytes and count while accounting for derivable shared input bytes once', () => {

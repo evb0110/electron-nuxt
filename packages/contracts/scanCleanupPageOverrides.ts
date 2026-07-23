@@ -31,7 +31,19 @@ export function createScanCleanupPageOverride(
         ...DEFAULT_SCAN_CLEANUP_PAGE_OVERRIDE,
         ...scalarValues,
         ...(manualContentBoxes ? {manualContentBoxes: {...manualContentBoxes}} : {}),
-        ...(manualZones ? {manualZones: structuredClone(manualZones)} : {}),
+        ...(manualZones ? {manualZones: {
+            picture: manualZones.picture.map(zone => ({
+                layer: zone.layer,
+                polygon: {
+                    points: zone.polygon.points.map(point => ({...point})),
+                    rotationDegrees: zone.polygon.rotationDegrees,
+                },
+            })),
+            fill: manualZones.fill.map(polygon => ({
+                points: polygon.points.map(point => ({...point})),
+                rotationDegrees: polygon.rotationDegrees,
+            })),
+        }} : {}),
         ...(marginsMm && (!documentMargins || !areScanCleanupMarginsMmEqual(marginsMm, documentMargins))
             ? {marginsMm: {...marginsMm}}
             : {}),

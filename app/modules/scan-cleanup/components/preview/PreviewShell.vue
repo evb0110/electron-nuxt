@@ -50,7 +50,10 @@
             <div
                 v-if="result"
                 class="preview-result-layer"
-                :class="{'is-cutter-source-dimmed': cutterSourceUnderlayVisible}"
+                :class="{
+                    'is-cutter-source-dimmed': cutterSourceUnderlayVisible,
+                    'is-source-underlay-dimmed': sourceUnderlayVisible,
+                }"
             >
                 <div
                     v-if="result.outputs.length === 0 && effectiveViewMode === 'cleaned'"
@@ -193,7 +196,7 @@
                 :style="dragOverlayStyle"
             >
                 <div
-                    v-if="cutterSourceUnderlayVisible"
+                    v-if="sourceUnderlayVisible"
                     class="cutter-source-underlay"
                     :style="cutterSourceFrameStyle"
                     aria-hidden="true"
@@ -216,9 +219,30 @@
                     @reset="emit('update:manualSplit', null)"
                     @start="startCutterDrag"
                 />
+
+                <ZoneEditorOverlay
+                    v-if="zoneEditing"
+                    :frame="cutterSourceFitPlacement"
+                    :manual-zones="manualZones"
+                    :rotation-degrees="rotationDegrees ?? 0"
+                    :selected="selectedZone"
+                    :zone-kind="zoneKind"
+                    @update:manual-zones="emit('update:manualZones', $event)"
+                    @update:selected="selectedZone = $event"
+                />
             </div>
+            <ZoneEditorControls
+                v-if="result && zoneEditing"
+                :output-mode="outputMode ?? 'bw'"
+                :selected-layer="selectedPictureLayer"
+                :zone-count="zoneCount"
+                :zone-kind="zoneKind"
+                @update:selected-layer="updateSelectedPictureLayer"
+                @update:zone-kind="zoneKind = $event"
+                @use-mixed-output="emit('useMixedOutput')"
+            />
             <aside
-                v-if="showFirstRunGuidance"
+                v-if="showFirstRunGuidance && !zoneEditing"
                 class="scan-cleanup-first-run-guidance"
                 :aria-label="t('scanCleanup.firstRun.title')"
             >
@@ -248,14 +272,17 @@
 
 <script setup lang="ts">
 import type {
+    IScanCleanupManualZones,
     IScanCleanupNormalizedRect,
     IScanCleanupNormalizedSplit,
     IScanCleanupPreviewMetadata,
     IScanCleanupPixelRect,
     IScanCleanupPreviewResult,
     TScanCleanupOutputHalf,
+    TScanCleanupOutputMode,
     TScanCleanupPageAlignment,
     TScanCleanupPageRotation,
+    TScanCleanupPictureZoneLayer,
 } from '@contracts/electronApiScanCleanup';
 import type {
     ComponentPublicInstance,
@@ -268,6 +295,8 @@ import ContentBoxOverlay from '@app/modules/scan-cleanup/components/preview/Cont
 import CutterOverlay from '@app/modules/scan-cleanup/components/preview/CutterOverlay.vue';
 import OriginalCanvas from '@app/modules/scan-cleanup/components/preview/OriginalCanvas.vue';
 import PlacementOverlay from '@app/modules/scan-cleanup/components/preview/PlacementOverlay.vue';
+import ZoneEditorControls from '@app/modules/scan-cleanup/components/preview/ZoneEditorControls.vue';
+import ZoneEditorOverlay from '@app/modules/scan-cleanup/components/preview/ZoneEditorOverlay.vue';
 import type {
     IRenderedScanCleanupOutput,
     IScanCleanupContentOverlayOutput,
@@ -308,6 +337,11 @@ import {
     createPreviewImageSwap,
     useScanCleanupPreviewImages,
 } from '@app/modules/scan-cleanup/composables/useScanCleanupPreviewImages';
+import {
+    cloneScanCleanupZonePolygon,
+    type IScanCleanupZoneSelection,
+    type TScanCleanupZoneKind,
+} from '@app/modules/scan-cleanup/geometry/zoneGeometry';
 
 interface ICutterDragGeometry {
     kind: 'cutter';
@@ -344,7 +378,10 @@ const props = defineProps<{
     manualSplit: IScanCleanupNormalizedSplit | null;
     readingOrder: 'ltr' | 'rtl';
     manualContentBoxes?: Partial<Record<TScanCleanupOutputHalf, IScanCleanupNormalizedRect>>;
+    manualZones?: IScanCleanupManualZones | undefined;
     placementOverrides?: Partial<Record<TScanCleanupOutputHalf, TScanCleanupPageAlignment>>;
+    outputMode?: TScanCleanupOutputMode;
+    zoneEditing?: boolean;
     lossless?: boolean;
     source?: IDocumentPageSource | null;
     layoutClassification?: IScanCleanupPreviewMetadata['layoutClassification'] | undefined;
@@ -359,7 +396,9 @@ const emit = defineEmits<{
     'update:viewMode': [value: 'original' | 'cleaned'];
     'update:manualSplit': [value: IScanCleanupNormalizedSplit | null];
     'update:manualContentBox': [half: TScanCleanupOutputHalf, value: IScanCleanupNormalizedRect | null];
+    'update:manualZones': [value: IScanCleanupManualZones];
     'update:placement': [half: TScanCleanupOutputHalf, value: TScanCleanupPageAlignment];
+    useMixedOutput: [];
 }>();
 
 const {t} = useTypedI18n();
@@ -416,6 +455,8 @@ const viewModes = computed(() => props.lossless ? [{
     },
 ]);
 const dragOutputSnapshot = ref<IRenderedScanCleanupOutput[] | null>(null);
+const selectedZone = ref<IScanCleanupZoneSelection | null>(null);
+const zoneKind = ref<TScanCleanupZoneKind>('picture');
 const {
     frame: frozenViewportFrame,
     placeholderHalves,
@@ -497,10 +538,13 @@ const cutterXPx = computed(() => resolveNormalizedManualSplitX(props.manualSplit
 const displayedCutterX = computed(() => activeCutterDraft.value
     ? resolveNormalizedManualSplitX(activeCutterDraft.value.value, analysisWidth.value) ?? cutterXPx.value
     : cutterXPx.value);
-const showCutter = computed(() => activeCutterDraft.value !== null || Boolean(props.result)
+const showCutter = computed(() => props.zoneEditing !== true
     && (
-        props.result?.pageMetadata.layoutClassification === 'two-page-spread'
-        || props.manualSplit !== null
+        activeCutterDraft.value !== null
+        || Boolean(props.result) && (
+            props.result?.pageMetadata.layoutClassification === 'two-page-spread'
+            || props.manualSplit !== null
+        )
     ));
 const originalFitPlacement = computed(() => resolvePreviewFitPlacement(
     cutterStageSize.width,
@@ -516,6 +560,7 @@ const cutterSourceFitPlacement = computed(() => resolvePreviewFitPlacement(
 ));
 const cutterSourceUnderlayVisible = computed(() => activeCutterDraft.value !== null
     && effectiveViewMode.value === 'cleaned');
+const sourceUnderlayVisible = computed(() => props.zoneEditing === true || cutterSourceUnderlayVisible.value);
 const dragOverlayStyle = computed<CSSProperties>(() => ({
     left: `${dragOverlayBounds.x}px`,
     top: `${dragOverlayBounds.y}px`,
@@ -536,6 +581,14 @@ const cutterSourceImageStyle = computed<CSSProperties>(() => {
         height: `${swapsAxes ? cutterSourceFitPlacement.value.width : cutterSourceFitPlacement.value.height}px`,
         transform: `translate(-50%, -50%) rotate(${rotation}deg)`,
     };
+});
+const zoneCount = computed(() => (props.manualZones?.picture.length ?? 0)
+    + (props.manualZones?.fill.length ?? 0));
+const selectedPictureLayer = computed<TScanCleanupPictureZoneLayer | null>(() => {
+    if (selectedZone.value?.kind !== 'picture') {
+        return null;
+    }
+    return props.manualZones?.picture[selectedZone.value.index]?.layer ?? null;
 });
 const placementAnchors: Array<{
     alignment: TScanCleanupPageAlignment;
@@ -712,6 +765,28 @@ function contentHandleLabel(handle: TScanCleanupContentHandle, half: TScanCleanu
         direction: t(`scanCleanup.preview.resizeDirections.${handle}`),
         half: outputHalfLabel(half),
     });
+}
+
+function updateSelectedPictureLayer(layer: TScanCleanupPictureZoneLayer) {
+    if (selectedZone.value?.kind !== 'picture') {
+        return;
+    }
+    const next = {
+        picture: (props.manualZones?.picture ?? []).map(zone => ({
+            layer: zone.layer,
+            polygon: cloneScanCleanupZonePolygon(zone.polygon),
+        })),
+        fill: (props.manualZones?.fill ?? []).map(cloneScanCleanupZonePolygon),
+    };
+    const zone = next.picture[selectedZone.value.index];
+    if (!zone) {
+        return;
+    }
+    next.picture[selectedZone.value.index] = {
+        ...zone,
+        layer,
+    };
+    emit('update:manualZones', next);
 }
 
 const outputHalves = computed(() => props.result?.outputs.map(output => output.metadata.half) ?? []);
@@ -1183,6 +1258,24 @@ onMounted(() => {
     observeCutterStage();
     observeOutputFitAreas();
 });
+watch([
+    () => props.pageNumber,
+    () => props.zoneEditing,
+], () => {
+    selectedZone.value = null;
+});
+watch(() => props.manualZones, () => {
+    const selection = selectedZone.value;
+    if (!selection) {
+        return;
+    }
+    const count = selection.kind === 'picture'
+        ? props.manualZones?.picture.length ?? 0
+        : props.manualZones?.fill.length ?? 0;
+    if (selection.index >= count) {
+        selectedZone.value = null;
+    }
+}, {deep: true});
 watch(() => dragTransaction.active.value, active => {
     if (!active) {
         dragOutputSnapshot.value = null;
@@ -1258,7 +1351,7 @@ function activeStageRect() {
 }
 
 const contentOverlayOutputs = computed<IScanCleanupContentOverlayOutput[]>(() => {
-    if (activeCutterDraft.value) {
+    if (activeCutterDraft.value || props.zoneEditing) {
         return [];
     }
     const stageRect = activeStageRect();
@@ -1294,7 +1387,7 @@ const contentOverlayOutputs = computed<IScanCleanupContentOverlayOutput[]>(() =>
 
 const placementOverlayOutputs = computed<IScanCleanupPlacementOverlayOutput[]>(() => {
     const stageRect = activeStageRect();
-    if (!props.matchPageSize || activeCutterDraft.value) {
+    if (!props.matchPageSize || activeCutterDraft.value || props.zoneEditing) {
         return [];
     }
     const draft = draftGeometry.value?.kind === 'placement' ? draftGeometry.value : null;
@@ -1522,7 +1615,7 @@ function placementOverlayOutputFor(half: TScanCleanupOutputHalf) {
     pointer-events: none;
 }
 
-.preview-result-layer.is-cutter-source-dimmed {
+.preview-result-layer.is-source-underlay-dimmed {
     opacity: var(--app-scan-preview-stale-opacity);
 }
 

@@ -163,6 +163,14 @@
     --app-scan-cutter-handle-height: var(--app-space-13xl);
     --app-scan-content-handle-size: var(--app-space-9xl);
     --app-scan-content-handle-hit-size: var(--app-space-13xl);
+    --app-scan-zone-controls-width: 24rem;
+    --app-scan-zone-handle-size: var(--app-space-9xl);
+    --app-scan-zone-stroke-width: var(--app-hairline-height);
+    --app-scan-zone-active-stroke-width: calc(var(--app-hairline-height) * 2);
+    --app-scan-zone-dash-array: var(--app-space-3xl) var(--app-space-sm);
+    --app-scan-zone-overlay-opacity: 14%;
+    --app-scan-zone-picture-color: var(--ui-primary);
+    --app-scan-zone-fill-color: var(--ui-warning);
     --app-progress-bar-width: 15rem;
     --app-progress-chip-offset-low: 3rem;
     --app-progress-chip-offset-high: 7rem;

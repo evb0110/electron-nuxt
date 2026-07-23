@@ -1,5 +1,6 @@
 import type {
     IScanCleanupMarginsMm,
+    IScanCleanupManualZones,
     IScanCleanupNormalizedRect,
     IScanCleanupNormalizedSplit,
     IScanCleanupOptions,
@@ -116,6 +117,10 @@ export const useScanCleanupSelection = (options: IUseScanCleanupSelectionOptions
                 ...value,
                 manualSplit: null,
                 manualContentBoxes: {},
+                manualZones: {
+                    picture: [],
+                    fill: [],
+                },
             });
     }
 
@@ -138,6 +143,13 @@ export const useScanCleanupSelection = (options: IUseScanCleanupSelectionOptions
             rotationDegrees: value,
             manualSplit: current.rotationDegrees === value ? current.manualSplit : null,
             manualContentBoxes: current.rotationDegrees === value ? current.manualContentBoxes ?? {} : {},
+            manualZones: current.rotationDegrees === value ? current.manualZones ?? {
+                picture: [],
+                fill: [],
+            } : {
+                picture: [],
+                fill: [],
+            },
         }));
     }
 
@@ -213,9 +225,20 @@ export const useScanCleanupSelection = (options: IUseScanCleanupSelectionOptions
                 };
             }
             if (control === 'rotation') {
+                const rotationChanged = current.rotationDegrees
+                    !== DEFAULT_SCAN_CLEANUP_PAGE_OVERRIDE.rotationDegrees;
                 return {
                     ...current,
                     rotationDegrees: DEFAULT_SCAN_CLEANUP_PAGE_OVERRIDE.rotationDegrees,
+                    manualSplit: rotationChanged ? null : current.manualSplit,
+                    manualContentBoxes: rotationChanged ? {} : current.manualContentBoxes ?? {},
+                    manualZones: rotationChanged ? {
+                        picture: [],
+                        fill: [],
+                    } : current.manualZones ?? {
+                        picture: [],
+                        fill: [],
+                    },
                 };
             }
             if (control === 'inclusion') {
@@ -280,6 +303,13 @@ export const useScanCleanupSelection = (options: IUseScanCleanupSelectionOptions
         updatePageOverride(leader.value, {
             ...currentPageOverride.value,
             manualContentBoxes,
+        });
+    }
+
+    function updateCurrentManualZones(value: IScanCleanupManualZones) {
+        updatePageOverride(leader.value, {
+            ...currentPageOverride.value,
+            manualZones: value,
         });
     }
 
@@ -402,6 +432,7 @@ export const useScanCleanupSelection = (options: IUseScanCleanupSelectionOptions
         settingsScope,
         updateCurrentManualContentBox,
         updateCurrentManualSplit,
+        updateCurrentManualZones,
         updateCurrentPlacement,
         updateCurrentPlacementAll,
         updateExcluded,
