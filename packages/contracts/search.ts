@@ -896,18 +896,3 @@ export function buildPdfSearchExcerpt(
         after: text.slice(endOffset, excerptEnd).replace(/\s+/g, ' ').trimEnd(),
     };
 }
-
-export interface ISearchPreloadClient {
-    run: (
-        pdfPath: string,
-        query: string,
-        options?: IPdfSearchRequestOptions,
-    ) => Promise<IPdfSearchResponse>;
-    warmIndex: (
-        pdfPath: string,
-        options?: IPdfSearchRequestOptions,
-    ) => Promise<boolean>;
-    cancel: (requestId?: string) => Promise<{ canceled: boolean }>;
-    onProgress: (callback: (progress: IPdfSearchProgress) => void) => (() => void);
-    resetCache: () => Promise<boolean>;
-}

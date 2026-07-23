@@ -22,6 +22,7 @@ import {
     decodeWindowTabIncomingTransfer,
     decodeWindowTabsAction,
 } from '@contracts/windowTabsValidation';
+import { SEARCH_PLATFORM_FEATURE } from '@contracts/searchPlatformFeature';
 import { getDebugLogMessages } from '@electron/preload/debugLogBuffer';
 import { decodeDebugLogEntry } from '@electron/preload/installDebugLogListener';
 import { createAgentPreloadClient } from '@electron/features/agent/createAgentPreloadClient';
@@ -35,10 +36,10 @@ import {
 } from '@electron/features/documents/contract';
 import {createOcrPreloadClient} from '@electron/features/ocr/createOcrPreloadClient';
 import {createScanCleanupPreloadClient} from '@electron/features/scan-cleanup/createScanCleanupPreloadClient';
-import {createSearchPreloadClient} from '@electron/features/search/createSearchPreloadClient';
 import {createDjvuPreloadClient} from '@electron/features/djvu/createDjvuPreloadClient';
 import {
     createCodecIpcInvoker,
+    createPlatformFeaturePreloadClient,
     createTypedIpcEventSubscriber,
 } from '@electron/preload/ipcClient';
 import { getErrorMessage } from '@electron/utils/error';
@@ -493,7 +494,7 @@ export function createElectronApi(
         ocr: createOcrPreloadClient(ipcRenderer),
         scanCleanup: createScanCleanupPreloadClient(ipcRenderer),
 
-        search: createSearchPreloadClient(ipcRenderer),
+        search: createPlatformFeaturePreloadClient(ipcRenderer, SEARCH_PLATFORM_FEATURE),
 
         djvu: createDjvuPreloadClient(ipcRenderer),
 

@@ -74,7 +74,14 @@ function createAsyncDefault(path: string) {
     });
 }
 
-export function createDefaultPlatformApiFixtureMethod(descriptor: IPlatformMethodDescriptor) {
+export function createDefaultPlatformApiFixtureMethod(
+    descriptor: IPlatformMethodDescriptor, example?: () => unknown,
+) {
+    if (example) {
+        return descriptor.kind === 'async'
+            ? vi.fn(async () => example())
+            : vi.fn(() => example());
+    }
     const path = descriptor.path.join('.');
     if (descriptor.kind === 'event') {
         return vi.fn(() => () => {});

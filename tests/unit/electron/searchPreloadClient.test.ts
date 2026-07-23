@@ -5,12 +5,13 @@ import {
     vi,
 } from 'vitest';
 import type { IpcRenderer } from 'electron';
-import {
-    SEARCH_CHANNELS,
-    SEARCH_EVENT_CHANNELS,
-} from '@electron/features/search/contract';
+import { SEARCH_PLATFORM_FEATURE } from '@contracts/searchPlatformFeature';
+import { createPlatformFeaturePreloadClient } from '@electron/preload/ipcClient';
 
-describe('createSearchPreloadClient', () => {
+const SEARCH_CHANNELS = SEARCH_PLATFORM_FEATURE.invokeChannels;
+const SEARCH_EVENT_CHANNELS = SEARCH_PLATFORM_FEATURE.eventChannels;
+
+describe('derived Search preload client', () => {
     it('normalizes search requests before invoking main', async () => {
         const ipcRenderer: Pick<IpcRenderer, 'invoke' | 'on' | 'removeListener'> = {
             invoke: vi.fn(async () => ({
@@ -20,8 +21,7 @@ describe('createSearchPreloadClient', () => {
             on: vi.fn(),
             removeListener: vi.fn(),
         };
-        const { createSearchPreloadClient } = await import('@electron/features/search/createSearchPreloadClient');
-        const client = createSearchPreloadClient(ipcRenderer as IpcRenderer);
+        const client = createPlatformFeaturePreloadClient(ipcRenderer as IpcRenderer, SEARCH_PLATFORM_FEATURE);
 
         await client.run('  /tmp/work.pdf  ', 'needle', {
             requestId: '  search-1  ',
@@ -31,7 +31,7 @@ describe('createSearchPreloadClient', () => {
             useRegex: false,
         });
 
-        expect(ipcRenderer.invoke).toHaveBeenCalledWith(SEARCH_CHANNELS.search, {
+        expect(ipcRenderer.invoke).toHaveBeenCalledWith(SEARCH_CHANNELS.run, {
             pdfPath: '/tmp/work.pdf',
             query: 'needle',
             requestId: 'search-1',
@@ -48,8 +48,7 @@ describe('createSearchPreloadClient', () => {
             on: vi.fn(),
             removeListener: vi.fn(),
         };
-        const { createSearchPreloadClient } = await import('@electron/features/search/createSearchPreloadClient');
-        const client = createSearchPreloadClient(ipcRenderer as IpcRenderer);
+        const client = createPlatformFeaturePreloadClient(ipcRenderer as IpcRenderer, SEARCH_PLATFORM_FEATURE);
 
         expect(() => client.run('/tmp/work.pdf', 'needle', {requestId: 'x'.repeat(129)}))
             .toThrow('requestId exceeds maximum length (128)');
@@ -70,12 +69,11 @@ describe('createSearchPreloadClient', () => {
             on: vi.fn(),
             removeListener: vi.fn(),
         };
-        const { createSearchPreloadClient } = await import('@electron/features/search/createSearchPreloadClient');
-        const client = createSearchPreloadClient(ipcRenderer as IpcRenderer);
+        const client = createPlatformFeaturePreloadClient(ipcRenderer as IpcRenderer, SEARCH_PLATFORM_FEATURE);
 
         await expect(client.run('/tmp/work.pdf', 'needle')).rejects.toMatchObject({
             name: 'PlatformIpcInvokeError',
-            channel: SEARCH_CHANNELS.search,
+            channel: SEARCH_CHANNELS.run,
             cause,
         });
     });
@@ -103,12 +101,11 @@ describe('createSearchPreloadClient', () => {
             on: vi.fn(),
             removeListener: vi.fn(),
         };
-        const { createSearchPreloadClient } = await import('@electron/features/search/createSearchPreloadClient');
-        const client = createSearchPreloadClient(ipcRenderer as IpcRenderer);
+        const client = createPlatformFeaturePreloadClient(ipcRenderer as IpcRenderer, SEARCH_PLATFORM_FEATURE);
 
         await expect(client.run('/tmp/work.pdf', 'term')).rejects.toMatchObject({
             name: 'PlatformIpcInvokeError',
-            channel: SEARCH_CHANNELS.search,
+            channel: SEARCH_CHANNELS.run,
         });
     });
 
@@ -122,12 +119,11 @@ describe('createSearchPreloadClient', () => {
             }),
             removeListener: vi.fn(),
         };
-        const { createSearchPreloadClient } = await import('@electron/features/search/createSearchPreloadClient');
-        const client = createSearchPreloadClient(ipcRenderer as IpcRenderer);
+        const client = createPlatformFeaturePreloadClient(ipcRenderer as IpcRenderer, SEARCH_PLATFORM_FEATURE);
         const callback = vi.fn();
 
         client.onProgress(callback);
-        listeners.get(SEARCH_EVENT_CHANNELS.progress)?.({}, {
+        listeners.get(SEARCH_EVENT_CHANNELS.onProgress)?.({}, {
             requestId: 'search-1',
             processed: 1,
             total: 2,
@@ -149,18 +145,18 @@ describe('createSearchPreloadClient', () => {
             truncated: false,
             canceled: false,
         });
-        listeners.get(SEARCH_EVENT_CHANNELS.progress)?.({}, {
+        listeners.get(SEARCH_EVENT_CHANNELS.onProgress)?.({}, {
             requestId: 'search-canceled',
             processed: 0,
             total: 0,
             canceled: true,
         });
-        listeners.get(SEARCH_EVENT_CHANNELS.progress)?.({}, {
+        listeners.get(SEARCH_EVENT_CHANNELS.onProgress)?.({}, {
             requestId: 'search-2',
             processed: '1',
             total: 2,
         });
-        listeners.get(SEARCH_EVENT_CHANNELS.progress)?.({}, {
+        listeners.get(SEARCH_EVENT_CHANNELS.onProgress)?.({}, {
             requestId: 'search-3',
             processed: 1,
             total: 2,
@@ -173,7 +169,7 @@ describe('createSearchPreloadClient', () => {
                 excerpt: {match: 'term'},
             }],
         });
-        listeners.get(SEARCH_EVENT_CHANNELS.progress)?.({}, {
+        listeners.get(SEARCH_EVENT_CHANNELS.onProgress)?.({}, {
             requestId: 'search-4',
             processed: 1,
             total: 2,

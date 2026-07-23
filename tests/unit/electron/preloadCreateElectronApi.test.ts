@@ -166,7 +166,6 @@ vi.mock('@electron/features/documents/createDocumentsPreloadClient', () => ({cre
 vi.mock('@electron/features/documents/createDocumentsPreloadPageOpsClient', () => ({createDocumentsPreloadPageOpsClient: () => pageOpsClientMock}));
 vi.mock('@electron/features/image-export/createImageExportPreloadClient', () => ({createImageExportPreloadClient: () => imageExportClientMock}));
 vi.mock('@electron/features/ocr/createOcrPreloadClient', () => ({ createOcrPreloadClient: () => ({}) }));
-vi.mock('@electron/features/search/createSearchPreloadClient', () => ({ createSearchPreloadClient: () => ({}) }));
 vi.mock('@electron/features/djvu/createDjvuPreloadClient', () => ({ createDjvuPreloadClient: () => ({}) }));
 vi.mock('@electron/preload/debugLogBuffer', () => ({ getDebugLogMessages: () => [] }));
 

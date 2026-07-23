@@ -216,9 +216,9 @@ export type {
     IPdfSearchUtf16Range,
     IResolvedSearchMatchOptions,
     ISearchMatchOptions,
-    ISearchPreloadClient,
     TPdfSearchUtf16Offset,
 } from '@contracts/search';
+export { SEARCH_PLATFORM_FEATURE } from '@contracts/searchPlatformFeature';
 
 export type {
     IMarkerRect,

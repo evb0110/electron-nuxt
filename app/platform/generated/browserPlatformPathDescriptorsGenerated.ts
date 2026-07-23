@@ -246,13 +246,6 @@ export const browserPlatformPathDescriptorsGenerated = {
         onJobState: {kind: 'event', path: ["scanCleanup","onJobState"]},
         onDetectionJobState: {kind: 'event', path: ["scanCleanup","onDetectionJobState"]},
     },
-    search: {
-        run: {kind: 'async', path: ["search","run"]},
-        warmIndex: {kind: 'async', path: ["search","warmIndex"]},
-        cancel: {kind: 'async', path: ["search","cancel"]},
-        onProgress: {kind: 'event', path: ["search","onProgress"]},
-        resetCache: {kind: 'async', path: ["search","resetCache"]},
-    },
     djvu: {
         startOpenForViewing: {kind: 'async', path: ["djvu","startOpenForViewing"]},
         awaitOpenJob: {kind: 'async', path: ["djvu","awaitOpenJob"]},
@@ -345,6 +338,13 @@ export const browserPlatformPathDescriptorsGenerated = {
         getZenModeState: {kind: 'async', path: ["host","getZenModeState"]},
         setZenMode: {kind: 'async', path: ["host","setZenMode"]},
         onZenModeChange: {kind: 'event', path: ["host","onZenModeChange"]},
+    },
+    search: {
+        run: {kind: 'async', path: ["search","run"]},
+        warmIndex: {kind: 'async', path: ["search","warmIndex"]},
+        cancel: {kind: 'async', path: ["search","cancel"]},
+        resetCache: {kind: 'async', path: ["search","resetCache"]},
+        onProgress: {kind: 'event', path: ["search","onProgress"]},
     },
 } as const;
 

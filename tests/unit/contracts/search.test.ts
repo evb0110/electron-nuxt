@@ -6,6 +6,7 @@ import {
 import { readFileSync } from 'fs';
 import * as contractsSearch from '@contracts/search';
 import * as pdfSearchCore from '@pdf-core';
+import { SEARCH_PLATFORM_FEATURE } from '@contracts/searchPlatformFeature';
 
 const {
     buildPdfSearchExcerpt,
@@ -93,6 +94,92 @@ describe('contracts search compatibility exports', () => {
             .toEqual(Array.from(pdfSearchCore.iteratePdfSearchMatches('foo foo', 'foo')));
         expect(contractsSearch.buildPdfSearchExcerpt('alpha beta gamma', 6, 10, 3))
             .toEqual(pdfSearchCore.buildPdfSearchExcerpt('alpha beta gamma', 6, 10, 3));
+    });
+});
+
+describe('Search platform feature schemas', () => {
+    const channels = SEARCH_PLATFORM_FEATURE.invokeChannels;
+    const codecs = SEARCH_PLATFORM_FEATURE.ipcCodecs;
+
+    it('preserves public IPC channels and replay policy', () => {
+        expect(channels).toEqual({
+            run: 'pdf:search',
+            warmIndex: 'pdf:search:warmIndex',
+            cancel: 'pdf:search:cancel',
+            resetCache: 'pdf:search:resetCache',
+            subscribeProgress: 'pdf:search:progress:subscribe',
+        });
+        expect(SEARCH_PLATFORM_FEATURE.eventChannels).toEqual({onProgress: 'pdf:search:progress'});
+        expect(SEARCH_PLATFORM_FEATURE.events.onProgress.subscription.replay).toMatchObject({
+            intervalMs: 50,
+            mode: 'latest-per-key',
+            owner: 'ipc-progress-pump',
+            terminalRetentionMs: 30_000,
+        });
+    });
+
+    it('normalizes representative boundary arguments', () => {
+        const expectArgs = (channel: string, wire: unknown[], normalized: unknown[]) =>
+            expect(codecs[channel]!.decodeArgs(wire)).toEqual(normalized);
+        expectArgs(
+            channels.run,
+            [{
+                pdfPath: ' /tmp/a.pdf ',
+                query: 'needle',
+                requestId: ' request-1 ',
+            }],
+            [{
+                pdfPath: '/tmp/a.pdf',
+                query: 'needle',
+                requestId: 'request-1',
+            }],
+        );
+        expectArgs(
+            channels.warmIndex,
+            [{
+                pdfPath: ' /tmp/a.pdf ',
+                pageCount: 4,
+            }],
+            [{
+                pdfPath: '/tmp/a.pdf',
+                pageCount: 4,
+            }],
+        );
+        expectArgs(channels.cancel, [' request-1 '], ['request-1']);
+        expectArgs(channels.cancel, [undefined], []);
+        expectArgs(channels.resetCache, [], []);
+    });
+
+    it('keeps malformed argument and result messages stable', () => {
+        expect(() => codecs[channels.run]!.decodeArgs([]))
+            .toThrow('expected 1 arguments, received 0');
+        expect(() => codecs[channels.cancel]!.decodeArgs([1]))
+            .toThrow('requestId must be a string');
+        expect(() => codecs[channels.run]!.decodeResult({results: 'invalid'}))
+            .toThrow('invalid search response');
+        expect(() => codecs[channels.cancel]!.decodeResult({canceled: 'yes'}))
+            .toThrow('invalid search cancellation result');
+    });
+
+    it('round-trips valid results and validates progress payloads', () => {
+        const response = {
+            results: [],
+            truncated: false,
+        };
+        expect(codecs[channels.run]!.decodeResult(response)).toEqual(response);
+        const progressSchema = SEARCH_PLATFORM_FEATURE.events.onProgress.payload;
+        const progress = {
+            requestId: 'request-1',
+            processed: 1,
+            total: 2,
+            status: 'running' as const,
+        };
+        expect(progressSchema.decode(progress)).toEqual(progress);
+        expect(() => progressSchema.decode({
+            requestId: 'request-1',
+            processed: '1',
+            total: 2,
+        })).toThrow('invalid search progress');
     });
 });
 

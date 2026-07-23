@@ -1,4 +1,5 @@
 export {
+    prepareSearchMainBindings,
     resolveSearchablePdfPath,
     resolveSearchWorkerPath,
     searchWorkerService,

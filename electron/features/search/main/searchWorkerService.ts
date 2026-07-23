@@ -1,10 +1,12 @@
 import { randomUUID } from 'node:crypto';
-import { webContents } from 'electron';
+import {
+    webContents,
+    type WebContents,
+} from 'electron';
 import { Worker } from 'worker_threads';
 import { minBy } from 'es-toolkit/array';
 import { clamp } from 'es-toolkit/math';
 import { withTimeout } from 'es-toolkit/promise';
-import { SEARCH_EVENT_CHANNELS } from '@electron/features/search/contract';
 import type {
     ISearchResponse,
     TSearchWorkerInboundMessage,
@@ -12,7 +14,6 @@ import type {
 } from '@electron/features/search/protocol';
 import { getErrorMessage } from '@electron/utils/error';
 import { createLogger } from '@electron/utils/createLogger';
-import { normalizeOptionalIpcRequestId } from '@electron/utils/ipcLimits';
 import {
     buildSearchErrorEnvelope,
     SearchIpcError,
@@ -20,10 +21,8 @@ import {
 } from '@electron/features/search/main/searchErrors';
 import { createIpcProgressPump } from '@electron/utils/createIpcProgressPump';
 import type { TDocumentRevisionToken } from '@contracts/documentRevision';
-import type {
-    ISearchOperationContext,
-    ISearchSenderContext,
-} from '@electron/features/search/searchService';
+import type { IPdfSearchProgress } from '@contracts/search';
+import { SEARCH_PLATFORM_FEATURE } from '@contracts/searchPlatformFeature';
 import { normalizePathForLookup } from '@electron/file-access/workingCopyStore';
 import {
     capSearchResponse,
@@ -38,16 +37,16 @@ interface IPendingSearchRequest {
 
 type TPendingSearchSettler = (pending: IPendingSearchRequest) => void;
 type TSearchMatch = ISearchResponse['results'][number];
-interface ISearchProgressPayload {
-    requestId: string;
-    processed: number;
-    total: number;
-    results?: TSearchMatch[];
-    resultsStartIndex?: number;
-    truncated?: boolean;
-    canceled?: boolean;
-    status?: 'running' | 'success' | 'canceled' | 'failed';
-    error?: string;
+type TSearchProgressPayload = IPdfSearchProgress;
+
+export interface ISearchOperationContext {
+    sender: WebContents;
+    senderId: number;
+}
+
+export interface ISearchSenderContext {
+    sender: WebContents;
+    senderId?: number;
 }
 
 interface ISenderSearchState {
@@ -111,6 +110,8 @@ function getSearchDocumentBuildKey(pdfPath: string, documentRevision: TDocumentR
 }
 
 const log = createLogger('search-ipc');
+const SEARCH_PROGRESS_EVENT = SEARCH_PLATFORM_FEATURE.events.onProgress;
+const SEARCH_PROGRESS_REPLAY = SEARCH_PROGRESS_EVENT.subscription.replay;
 
 const DEFAULT_SEARCH_REQUEST_TIMEOUT_MS = 2 * 60 * 1000;
 const MIN_SEARCH_REQUEST_TIMEOUT_MS = 5_000;
@@ -177,7 +178,7 @@ export class SearchWorkerService {
     private readonly senderSearchStates = new Map<number, ISenderSearchState>();
     private readonly senderCleanupDisposers = new Map<number, () => void>();
     private readonly workerTerminationPromises = new Map<Worker, Promise<void>>();
-    private readonly progressPumpsBySenderId = new Map<number, ReturnType<typeof createIpcProgressPump<ISearchProgressPayload>>>();
+    private readonly progressPumpsBySenderId = new Map<number, ReturnType<typeof createIpcProgressPump<TSearchProgressPayload>>>();
     private readonly warmupSingleflightsByDocument = new Map<string, IWarmupSingleflight>();
 
     constructor(private readonly resolveWorkerPath: () => string) {}
@@ -194,7 +195,7 @@ export class SearchWorkerService {
         this.progressPumpsBySenderId.get(operationContext.senderId)?.subscribe({
             key: `web-contents:${operationContext.senderId}`,
             isDestroyed: () => operationContext.sender.isDestroyed(),
-            send: (channel: string, payload: ISearchProgressPayload) => operationContext.sender.send(channel, payload),
+            send: (channel: string, payload: TSearchProgressPayload) => operationContext.sender.send(channel, payload),
         });
     }
 
@@ -310,15 +311,14 @@ export class SearchWorkerService {
         return requestPromise;
     }
 
-    cancel(context: ISearchOperationContext, requestId?: unknown) {
+    cancel(context: ISearchOperationContext, requestId?: string) {
         const senderId = context.senderId;
-        const normalizedRequestId = normalizeOptionalIpcRequestId(requestId);
         const state = this.senderSearchStates.get(senderId);
         if (!state) {
             return { canceled: false };
         }
 
-        const targetRequestId = normalizedRequestId ?? state.activeRequestId;
+        const targetRequestId = requestId ?? state.activeRequestId;
         if (!targetRequestId) {
             return { canceled: false };
         }
@@ -385,12 +385,12 @@ export class SearchWorkerService {
 
     private sendSearchProgress(
         senderId: number,
-        progress: ISearchProgressPayload,
+        progress: TSearchProgressPayload,
     ) {
         let pump = this.progressPumpsBySenderId.get(senderId);
         if (!pump) {
-            pump = createIpcProgressPump<ISearchProgressPayload>({
-                channel: SEARCH_EVENT_CHANNELS.progress,
+            pump = createIpcProgressPump<TSearchProgressPayload>({
+                channel: SEARCH_PROGRESS_EVENT.channel,
                 getTarget: () => {
                     const sender = webContents.fromId(senderId);
                     if (!sender) {
@@ -399,15 +399,13 @@ export class SearchWorkerService {
                     return {
                         key: `web-contents:${senderId}`,
                         isDestroyed: () => sender.isDestroyed(),
-                        send: (channel: string, payload: ISearchProgressPayload) => sender.send(channel, payload),
+                        send: (channel: string, payload: TSearchProgressPayload) => sender.send(channel, payload),
                     };
                 },
-                getKey: (payload: ISearchProgressPayload) => payload.requestId,
-                isTerminal: (payload: ISearchProgressPayload) => payload.status === 'success'
-                    || payload.status === 'canceled'
-                    || payload.status === 'failed'
-                    || payload.canceled === true
-                    || payload.processed >= payload.total,
+                getKey: SEARCH_PROGRESS_REPLAY.key,
+                isTerminal: SEARCH_PROGRESS_REPLAY.terminal,
+                intervalMs: SEARCH_PROGRESS_REPLAY.intervalMs,
+                terminalRetentionMs: SEARCH_PROGRESS_REPLAY.terminalRetentionMs,
                 onError: (err: unknown) => {
                     log.debug(`Failed to send search progress: ${getErrorMessage(err)}`);
                 },

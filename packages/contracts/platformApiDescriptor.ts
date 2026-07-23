@@ -23,7 +23,10 @@ import type {
     TPlatformBackend,
     IPlatformRuntimeManifest,
 } from '@contracts/platformManifest';
-import type { ISearchCapability } from '@contracts/searchCapability';
+import {
+    SEARCH_PLATFORM_FEATURE,
+    type ISearchCapability,
+} from '@contracts/searchPlatformFeature';
 import type { ISettingsCapability } from '@contracts/settingsCapability';
 import type { IShellCapability } from '@contracts/shellCapability';
 import type {
@@ -31,9 +34,20 @@ import type {
     Join,
     Paths,
 } from 'type-fest';
+import type {
+    TPlatformMethodKind,
+    IPlatformMethodDescriptor,
+    IPlatformCapabilityDescriptor,
+    IPlatformApiDescriptor,
+} from '@contracts/platformDescriptorTypes';
 
-export type TPlatformMethodKind = 'async' | 'event' | 'sync' | 'void';
-export type TBrowserPlatformLazyMode = 'forwarded' | 'direct';
+export type {
+    TPlatformMethodKind,
+    TBrowserPlatformLazyMode,
+    IPlatformMethodDescriptor,
+    IPlatformCapabilityDescriptor,
+    IPlatformApiDescriptor,
+} from '@contracts/platformDescriptorTypes';
 
 interface IPlatformApiShape {
     manifest: IPlatformRuntimeManifest;
@@ -103,26 +117,6 @@ type TVerifiedMethodPath<TPath extends TPlatformPath> = Join<TPath, '.'> extends
             : never
         : never
     : never;
-
-export interface IPlatformMethodDescriptor {
-    path: readonly string[];
-    kind: TPlatformMethodKind;
-    required: Record<TPlatformBackend, boolean>;
-    optionalWhenImplemented?: boolean;
-    aliasOf?: readonly string[];
-    browserLazy: TBrowserPlatformLazyMode;
-}
-
-export interface IPlatformCapabilityDescriptor {
-    path: readonly string[];
-    required: Record<TPlatformBackend, boolean>;
-    manifestPath?: readonly string[];
-}
-
-export interface IPlatformApiDescriptor {
-    capabilities: readonly IPlatformCapabilityDescriptor[];
-    methods: readonly IPlatformMethodDescriptor[];
-}
 
 const requiredEverywhere = {
     browser: true,
@@ -195,7 +189,6 @@ const requiredTopLevelCapabilityPaths = [
     ['pageOps'],
     ['imageExport'],
     ['ocr'],
-    ['search'],
     ['djvu'],
     ['settings'],
     ['system'],
@@ -648,26 +641,6 @@ const otherMethodPaths = defineMethodPaths([
         'onDetectionJobState',
     ],
     [
-        'search',
-        'run',
-    ],
-    [
-        'search',
-        'warmIndex',
-    ],
-    [
-        'search',
-        'cancel',
-    ],
-    [
-        'search',
-        'onProgress',
-    ],
-    [
-        'search',
-        'resetCache',
-    ],
-    [
         'djvu',
         'startOpenForViewing',
     ],
@@ -985,7 +958,7 @@ const otherMethodPaths = defineMethodPaths([
     ],
 ] as const);
 
-export const PLATFORM_API_DESCRIPTOR = {
+export const LEGACY_PLATFORM_API_DESCRIPTOR_WITHOUT_SEARCH = {
     capabilities: defineCapabilities([
         {
             path: ['documents'],
@@ -1142,6 +1115,63 @@ export const PLATFORM_API_DESCRIPTOR = {
         ...otherMethodPaths.map(path => createMethodDescriptor(path)),
     ],
 } as const satisfies IPlatformApiDescriptor;
+
+export const PLATFORM_FEATURE_REGISTRY = [SEARCH_PLATFORM_FEATURE] as const;
+
+interface IMigratedPlatformFeature {
+    platformDescriptors: IPlatformApiDescriptor;
+    invokeChannels: Readonly<Record<string, string>>;
+    eventChannels: Readonly<Record<string, string>>;
+}
+
+function addUniquePlatformValues(
+    seen: Set<string>,
+    values: Iterable<string>,
+    label: string,
+) {
+    for (const value of values) {
+        if (seen.has(value)) {
+            throw new Error(`Duplicate ${label}: ${value}`);
+        }
+        seen.add(value);
+    }
+}
+
+function mergePlatformDescriptors(
+    legacy: IPlatformApiDescriptor,
+    features: readonly IMigratedPlatformFeature[],
+): IPlatformApiDescriptor {
+    const capabilityPaths = new Set(legacy.capabilities.map(descriptor => descriptor.path.join('.')));
+    const methodPaths = new Set(legacy.methods.map(descriptor => descriptor.path.join('.')));
+    const channels = new Set<string>();
+    for (const feature of features) {
+        addUniquePlatformValues(capabilityPaths,
+            feature.platformDescriptors.capabilities.map(({path}) => path.join('.')),
+            'platform capability path');
+        addUniquePlatformValues(methodPaths,
+            feature.platformDescriptors.methods.map(({path}) => path.join('.')),
+            'platform method path');
+        addUniquePlatformValues(channels, [
+            ...Object.values(feature.invokeChannels),
+            ...Object.values(feature.eventChannels),
+        ], 'migrated platform channel');
+    }
+    return {
+        capabilities: [
+            ...legacy.capabilities,
+            ...features.flatMap(feature => feature.platformDescriptors.capabilities),
+        ],
+        methods: [
+            ...legacy.methods,
+            ...features.flatMap(feature => feature.platformDescriptors.methods),
+        ],
+    };
+}
+
+export const PLATFORM_API_DESCRIPTOR = mergePlatformDescriptors(
+    LEGACY_PLATFORM_API_DESCRIPTOR_WITHOUT_SEARCH,
+    PLATFORM_FEATURE_REGISTRY,
+);
 
 export function getPlatformMethodDescriptor(path: readonly string[]) {
     const formattedPath = path.join('.');

@@ -103,6 +103,7 @@ vi.mock('electron', () => ({
     webContents: {fromId: vi.fn(() => null)},
 }));
 
+vi.mock('@electron/platform-ipc/trustedIpcSender', () => ({isTrustedIpcInvokeSender: () => true}));
 vi.mock('@electron/utils/pathValidator', () => ({resolveAllowedReadPath: mocks.resolveAllowedReadPath}));
 vi.mock('@electron/file-access/workingCopyStore', () => ({
     findWorkingCopyPathByOriginalPath: mocks.findWorkingCopyPathByOriginalPath,
@@ -122,6 +123,25 @@ function createInvokeEvent(senderId: number) {
     } };
 }
 
+async function registerSearchHandlers() {
+    const { ipcMain } = await import('electron');
+    const { SEARCH_PLATFORM_FEATURE } = await import('@contracts/searchPlatformFeature');
+    const {
+        createValidatedIpcMainRegistrar,
+        registerPlatformFeatureHandlers,
+    } = await import('@electron/platform-ipc/validatedIpcRegistrar');
+    const { prepareSearchMainBindings } = await import('@electron/features/search/main/ipc');
+    const registrar = createValidatedIpcMainRegistrar(ipcMain as never, {
+        allowedChannels: SEARCH_PLATFORM_FEATURE.invokeChannelSet,
+        codecs: SEARCH_PLATFORM_FEATURE.ipcCodecs as never,
+    });
+    registerPlatformFeatureHandlers(
+        registrar as never,
+        SEARCH_PLATFORM_FEATURE,
+        prepareSearchMainBindings(),
+    );
+}
+
 describe('search warm-index IPC', () => {
     beforeEach(() => {
         vi.resetModules();
@@ -134,8 +154,7 @@ describe('search warm-index IPC', () => {
     });
 
     it('routes warm-index requests through worker warmup mode', async () => {
-        const { registerSearchIpcAdapter } = await import('@electron/features/search/registerSearchIpcAdapter');
-        registerSearchIpcAdapter();
+        await registerSearchHandlers();
         const warmIndexHandler = mocks.handlers.get('pdf:search:warmIndex');
 
         expect(warmIndexHandler).toBeTypeOf('function');

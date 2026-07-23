@@ -78,6 +78,19 @@ describe('createElectronPlatformApiFixture', () => {
         expect(api.documents.renderPdfNativePagePreview).toEqual(expect.any(Function));
     });
 
+    it('uses migrated schema examples for Search defaults', async () => {
+        const api = createElectronPlatformApiFixture();
+        await expect(api.search.run('/tmp/example.pdf', 'needle'))
+            .resolves.toEqual({
+                results: [],
+                truncated: false,
+            });
+        await expect(api.search.warmIndex('/tmp/example.pdf')).resolves.toBe(true);
+        await expect(api.search.cancel()).resolves.toEqual({canceled: false});
+        await expect(api.search.resetCache()).resolves.toBe(true);
+        expect(api.search.onProgress(() => undefined)).toEqual(expect.any(Function));
+    });
+
     it('rejects overrides that remove a required manifest method', () => {
         const overrides = asFixtureOverrides({documents: {readFile: undefined}});
 

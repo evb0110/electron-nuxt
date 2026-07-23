@@ -14,7 +14,7 @@ export type * from '@contracts/electronApiDjvu';
 export type * from '@contracts/electronApiPageOps';
 export type * from '@contracts/electronApiHost';
 export * from '@contracts/hostResourceProfile';
-export type * from '@contracts/searchCapability';
+export type * from '@contracts/searchPlatformFeature';
 export type * from '@contracts/settingsCapability';
 export type * from '@contracts/shellCapability';
 

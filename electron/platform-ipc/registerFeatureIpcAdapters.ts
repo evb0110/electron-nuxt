@@ -17,8 +17,7 @@ import {OCR_CHANNELS} from '@electron/features/ocr/contract';
 import { OCR_IPC_CODECS } from '@electron/features/ocr/ocrIpcCodecs';
 import {SCAN_CLEANUP_CHANNELS} from '@electron/features/scan-cleanup/contract';
 import {SCAN_CLEANUP_IPC_CODECS} from '@electron/features/scan-cleanup/scanCleanupIpcCodecs';
-import {SEARCH_CHANNELS} from '@electron/features/search/contract';
-import { SEARCH_IPC_CODECS } from '@electron/features/search/searchIpcCodecs';
+import { SEARCH_PLATFORM_FEATURE } from '@contracts/searchPlatformFeature';
 import {DJVU_CHANNELS} from '@electron/features/djvu/contract';
 import { DJVU_IPC_CODECS } from '@electron/features/djvu/djvuIpcCodecs';
 import { PAGE_OPS_IPC_CODECS } from '@electron/features/page-ops/pageOpsIpcCodecs';
@@ -27,6 +26,7 @@ import {
     createChannelSet,
     createValidatedIpcMainEventRegistrar,
     createValidatedIpcMainRegistrar,
+    registerPlatformFeatureHandlers,
 } from '@electron/platform-ipc/validatedIpcRegistrar';
 
 const DOCUMENTS_CHANNEL_SET = createChannelSet(DOCUMENTS_CHANNELS);
@@ -101,10 +101,19 @@ export function registerFeatureIpcAdapters(
         const {registerScanCleanupIpcAdapter} = await import('@electron/features/scan-cleanup/registerScanCleanupIpcAdapter');
         registerScanCleanupIpcAdapter(registrar as never);
     });
-    registerLazyValidatedFeature(ipcMain, SEARCH_CHANNELS, SEARCH_IPC_CODECS, async registrar => {
-        const {registerSearchIpcAdapter} = await import('@electron/features/search/registerSearchIpcAdapter');
-        registerSearchIpcAdapter(registrar as never);
-    });
+    registerLazyValidatedFeature(
+        ipcMain,
+        SEARCH_PLATFORM_FEATURE.invokeChannels,
+        SEARCH_PLATFORM_FEATURE.ipcCodecs,
+        async (registrar) => {
+            const {prepareSearchMainBindings} = await import('@electron/features/search/public');
+            registerPlatformFeatureHandlers(
+                registrar as never,
+                SEARCH_PLATFORM_FEATURE,
+                prepareSearchMainBindings(),
+            );
+        },
+    );
     registerLazyValidatedFeature(ipcMain, DJVU_CHANNELS, DJVU_IPC_CODECS, async registrar => {
         const {registerDjvuIpcAdapter} = await import('@electron/features/djvu/registerDjvuIpcAdapter');
         registerDjvuIpcAdapter(registrar as never);

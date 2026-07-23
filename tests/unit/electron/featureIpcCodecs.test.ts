@@ -13,8 +13,10 @@ import { IMAGE_EXPORT_CHANNELS } from '@electron/features/image-export/contract'
 import { IMAGE_EXPORT_IPC_CODECS } from '@electron/features/image-export/imageExportIpcCodecs';
 import { OCR_CHANNELS } from '@electron/features/ocr/contract';
 import { OCR_IPC_CODECS } from '@electron/features/ocr/ocrIpcCodecs';
-import { SEARCH_CHANNELS } from '@electron/features/search/contract';
-import { SEARCH_IPC_CODECS } from '@electron/features/search/searchIpcCodecs';
+import { SEARCH_PLATFORM_FEATURE } from '@contracts/searchPlatformFeature';
+
+const SEARCH_CHANNELS = SEARCH_PLATFORM_FEATURE.invokeChannels;
+const SEARCH_IPC_CODECS = SEARCH_PLATFORM_FEATURE.ipcCodecs;
 
 function expectExhaustiveMap(
     channels: Record<string, string>,
@@ -44,7 +46,7 @@ describe('feature IPC codec maps', () => {
             pageNumber: 1,
             success: true,
         })).toThrow();
-        expect(() => SEARCH_IPC_CODECS[SEARCH_CHANNELS.search].decodeResult({
+        expect(() => SEARCH_IPC_CODECS[SEARCH_CHANNELS.run]!.decodeResult({
             results: [{}],
             truncated: false,
         })).toThrow();
@@ -256,7 +258,7 @@ describe('feature IPC codec maps', () => {
             'drt1:test',
             0,
         ])).toThrow();
-        expect(() => SEARCH_IPC_CODECS[SEARCH_CHANNELS.search].decodeArgs([null])).toThrow();
+        expect(() => SEARCH_IPC_CODECS[SEARCH_CHANNELS.run]!.decodeArgs([null])).toThrow();
     });
 
     it('rejects oversized renderer collections before handler dispatch', () => {

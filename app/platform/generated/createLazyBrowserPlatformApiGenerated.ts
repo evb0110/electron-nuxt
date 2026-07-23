@@ -257,11 +257,6 @@ export function createLazyBrowserPlatformApiGenerated({
     const scanCleanupPruneGeneratedOutputsMethod = lazyAsync(pathDescriptors.scanCleanup.pruneGeneratedOutputs.path);
     const scanCleanupOnJobStateMethod = lazyEvent(pathDescriptors.scanCleanup.onJobState.path);
     const scanCleanupOnDetectionJobStateMethod = lazyEvent(pathDescriptors.scanCleanup.onDetectionJobState.path);
-    const searchRunMethod = lazyAsync(pathDescriptors.search.run.path);
-    const searchWarmIndexMethod = lazyAsync(pathDescriptors.search.warmIndex.path);
-    const searchCancelMethod = lazyAsync(pathDescriptors.search.cancel.path);
-    const searchOnProgressMethod = lazyEvent(pathDescriptors.search.onProgress.path);
-    const searchResetCacheMethod = lazyAsync(pathDescriptors.search.resetCache.path);
     const djvuStartOpenForViewingMethod = lazyAsync(pathDescriptors.djvu.startOpenForViewing.path);
     const djvuAwaitOpenJobMethod = lazyAsync(pathDescriptors.djvu.awaitOpenJob.path);
     const djvuOpenForViewingMethod = lazyAsync(pathDescriptors.djvu.openForViewing.path);
@@ -341,6 +336,11 @@ export function createLazyBrowserPlatformApiGenerated({
     const hostGetZenModeStateMethod = lazyAsync(pathDescriptors.host.getZenModeState.path);
     const hostSetZenModeMethod = lazyAsync(pathDescriptors.host.setZenMode.path);
     const hostOnZenModeChangeMethod = lazyEvent(pathDescriptors.host.onZenModeChange.path);
+    const searchRunMethod = lazyAsync(pathDescriptors.search.run.path);
+    const searchWarmIndexMethod = lazyAsync(pathDescriptors.search.warmIndex.path);
+    const searchCancelMethod = lazyAsync(pathDescriptors.search.cancel.path);
+    const searchResetCacheMethod = lazyAsync(pathDescriptors.search.resetCache.path);
+    const searchOnProgressMethod = lazyEvent(pathDescriptors.search.onProgress.path);
 
     return {
     manifest: BROWSER_PLATFORM_MANIFEST,
@@ -592,13 +592,6 @@ export function createLazyBrowserPlatformApiGenerated({
         onJobState: scanCleanupOnJobStateMethod,
         onDetectionJobState: scanCleanupOnDetectionJobStateMethod,
     },
-    search: {
-        run: searchRunMethod,
-        warmIndex: searchWarmIndexMethod,
-        cancel: searchCancelMethod,
-        onProgress: searchOnProgressMethod,
-        resetCache: searchResetCacheMethod,
-    },
     djvu: {
         startOpenForViewing: djvuStartOpenForViewingMethod,
         awaitOpenJob: djvuAwaitOpenJobMethod,
@@ -693,6 +686,13 @@ export function createLazyBrowserPlatformApiGenerated({
         getZenModeState: hostGetZenModeStateMethod,
         setZenMode: hostSetZenModeMethod,
         onZenModeChange: hostOnZenModeChangeMethod,
+    },
+    search: {
+        run: searchRunMethod,
+        warmIndex: searchWarmIndexMethod,
+        cancel: searchCancelMethod,
+        resetCache: searchResetCacheMethod,
+        onProgress: searchOnProgressMethod,
     },
 } satisfies IPlatformApi;
 }

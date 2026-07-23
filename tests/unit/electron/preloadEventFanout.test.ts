@@ -18,8 +18,8 @@ import { createImageExportPreloadClient } from '@electron/features/image-export/
 import { IMAGE_EXPORT_CHANNELS } from '@electron/features/image-export/contract';
 import { createOcrPreloadClient } from '@electron/features/ocr/createOcrPreloadClient';
 import { OCR_CHANNELS } from '@electron/features/ocr/contract';
-import { createSearchPreloadClient } from '@electron/features/search/createSearchPreloadClient';
-import { SEARCH_CHANNELS } from '@electron/features/search/contract';
+import { SEARCH_PLATFORM_FEATURE } from '@contracts/searchPlatformFeature';
+import { createPlatformFeaturePreloadClient } from '@electron/preload/ipcClient';
 import { cast } from '@tests/helpers/cast';
 
 type TEventHandler = (event: unknown, payload: unknown) => void;
@@ -159,7 +159,7 @@ describe('preload global event fan-out', () => {
             invoke,
         } = createIpcRendererHarness();
         const ocr = createOcrPreloadClient(ipcRenderer);
-        const search = createSearchPreloadClient(ipcRenderer);
+        const search = createPlatformFeaturePreloadClient(ipcRenderer, SEARCH_PLATFORM_FEATURE);
         const imageExport = createImageExportPreloadClient(ipcRenderer);
         const unsubscribes = [
             ...Array.from({length: 24}, () => ocr.onProgress(vi.fn())),
@@ -169,7 +169,7 @@ describe('preload global event fan-out', () => {
 
         for (const channel of [
             OCR_CHANNELS.subscribeProgress,
-            SEARCH_CHANNELS.subscribeProgress,
+            SEARCH_PLATFORM_FEATURE.invokeChannels.subscribeProgress,
             IMAGE_EXPORT_CHANNELS.subscribeProgress,
         ]) {
             expect(invoke).toHaveBeenCalledWith(channel);

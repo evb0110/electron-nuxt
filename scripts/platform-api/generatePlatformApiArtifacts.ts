@@ -7,6 +7,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
     PLATFORM_API_DESCRIPTOR,
+    PLATFORM_FEATURE_REGISTRY,
     type IPlatformMethodDescriptor,
     type TPlatformMethodKind,
 } from '@contracts/platformApiDescriptor';
@@ -34,6 +35,23 @@ const browserImplementedOptionalMethodNames = new Set<string>([
     'resyncWorkingCopy',
     'showItemInFolderStructured',
 ]);
+
+const migratedBrowserBindings = new Map<string, boolean>(
+    PLATFORM_FEATURE_REGISTRY.flatMap(feature =>
+        Object.entries({
+            ...feature.methods,
+            ...feature.events,
+        }).map(([
+            name,
+            spec,
+        ]) => [
+            formatPath([
+                ...feature.path,
+                name,
+            ]),
+            'method' in spec.browser,
+        ] as const)),
+);
 
 function formatPath(pathSegments: readonly string[]) {
     return pathSegments.join('.');
@@ -119,6 +137,10 @@ function getDirectBrowserMethodPaths() {
 }
 
 function isBrowserMethodImplemented(descriptor: IPlatformMethodDescriptor) {
+    const migratedBinding = migratedBrowserBindings.get(formatPath(descriptor.path));
+    if (migratedBinding !== undefined) {
+        return migratedBinding;
+    }
     const methodName = descriptor.path.at(-1);
     return descriptor.required.browser
         || descriptor.browserLazy === 'direct'

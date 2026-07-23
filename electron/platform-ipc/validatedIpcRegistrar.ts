@@ -8,6 +8,10 @@ import type {
     IIpcMainRegistrar,
     TIpcCodecMap,
 } from '@contracts/ipcMain';
+import type {
+    TAnyDefinedPlatformFeature,
+    TFeatureMainBindings,
+} from '@contracts/platformFeature';
 import {
     isTrustedIpcInvokeSender,
     isTrustedWebContentsSender,
@@ -175,6 +179,47 @@ export function createValidatedIpcMainRegistrar(
             return handler(event, ...decodedArgs);
         });
     }};
+}
+
+export function registerPlatformFeatureHandlers<
+    TFeature extends TAnyDefinedPlatformFeature,
+>(
+    registrar: IValidatedIpcMainRegistrar<never, IpcMainInvokeEvent>,
+    feature: TFeature,
+    bindings: TFeatureMainBindings<TFeature, IpcMainInvokeEvent>,
+) {
+    const untypedBindings = bindings;
+    const senderContext = (event: IpcMainInvokeEvent) => ({
+        sender: event.sender,
+        senderId: event.sender.id,
+    });
+    for (const spec of Object.values(feature.methods)) {
+        registrar.handle(spec.channel, (event, ...args: unknown[]) => {
+            const binding = untypedBindings[spec.main.method];
+            if (!binding) {
+                throw new Error(`Missing platform feature main binding: ${spec.main.method}`);
+            }
+            return spec.main.context === 'sender'
+                ? Reflect.apply(binding, undefined, [
+                    senderContext(event),
+                    ...args,
+                ])
+                : Reflect.apply(binding, undefined, args);
+        });
+    }
+    for (const spec of Object.values(feature.events)) {
+        if (!spec.subscription) {
+            continue;
+        }
+        registrar.handle(spec.subscription.channel, (event) => {
+            const binding = untypedBindings[spec.subscription!.main.method];
+            if (!binding) {
+                throw new Error(`Missing platform feature main binding: ${spec.subscription!.main.method}`);
+            }
+            Reflect.apply(binding, undefined, [senderContext(event)]);
+            return undefined;
+        });
+    }
 }
 
 export interface IValidatedIpcMainEventRegistrar {on: (

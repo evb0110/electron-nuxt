@@ -39,13 +39,13 @@ import type { IPageOpsService } from '@electron/features/page-ops/ports';
 import { registerPageOpsIpcAdapter } from '@electron/features/page-ops/registerPageOpsIpcAdapter';
 import { createDocumentsPreloadPageOpsClient } from '@electron/features/documents/createDocumentsPreloadPageOpsClient';
 import {
-    SEARCH_CHANNELS,
+    SEARCH_PLATFORM_FEATURE,
     type ISearchInvokeMap,
-} from '@electron/features/search/contract';
-import { createSearchPreloadClient } from '@electron/features/search/createSearchPreloadClient';
-import { registerSearchIpcAdapter } from '@electron/features/search/registerSearchIpcAdapter';
-import { SEARCH_IPC_CODECS } from '@electron/features/search/searchIpcCodecs';
-import type { ISearchService } from '@electron/features/search/searchService';
+} from '@contracts/searchPlatformFeature';
+import type { TFeatureMainBindings } from '@contracts/platformFeature';
+import { createPlatformFeaturePreloadClient } from '@electron/preload/ipcClient';
+import { registerPlatformFeatureHandlers } from '@electron/platform-ipc/validatedIpcRegistrar';
+import type { IpcMainInvokeEvent } from 'electron';
 import { cast } from '@tests/helpers/cast';
 import { requireDocumentRevisionToken } from '@contracts/documentRevision';
 import {
@@ -82,7 +82,6 @@ vi.mock('@electron/features/documents/public', () => ({attachSerializedPdfPersis
 vi.mock('@electron/features/page-ops/createPageOpsService', () => ({createPageOpsService: vi.fn()}));
 vi.mock('@electron/features/agent/createAgentService', () => ({createAgentService: vi.fn()}));
 vi.mock('@electron/features/ocr/createOcrService', () => ({createOcrService: vi.fn()}));
-vi.mock('@electron/features/search/createSearchService', () => ({createSearchService: vi.fn()}));
 vi.mock('@electron/features/search/main/searchWorkerService', () => ({getSearchWorkerServiceConfig: () => ({
     idleTtlMs: 1,
     maxActive: 1,
@@ -287,21 +286,36 @@ describe('in-process preload to validated IPC round trips', () => {
             }],
             truncated: false,
         };
-        const search = vi.fn(async () => searchResult);
-        const service = cast<ISearchService>({search});
-        const harness = createInProcessIpcRoundTripHarness<ISearchInvokeMap, ISearchService, ReturnType<typeof createSearchPreloadClient>>({
-            channels: SEARCH_CHANNELS,
-            codecs: SEARCH_IPC_CODECS,
-            createClient: createSearchPreloadClient,
-            register: registerSearchIpcAdapter,
-            service,
+        const run = vi.fn(async () => searchResult);
+        type TBindings = TFeatureMainBindings<typeof SEARCH_PLATFORM_FEATURE, IpcMainInvokeEvent>;
+        const bindings = cast<TBindings>({run});
+        const createClient = (ipcRenderer: Electron.IpcRenderer) =>
+            createPlatformFeaturePreloadClient(ipcRenderer, SEARCH_PLATFORM_FEATURE);
+        const harness = createInProcessIpcRoundTripHarness<
+            ISearchInvokeMap,
+            TBindings,
+            ReturnType<typeof createClient>
+        >({
+            channels: SEARCH_PLATFORM_FEATURE.invokeChannels,
+            codecs: cast<Parameters<typeof createInProcessIpcRoundTripHarness<
+                ISearchInvokeMap,
+                TBindings,
+                ReturnType<typeof createClient>
+            >>[0]['codecs']>(SEARCH_PLATFORM_FEATURE.ipcCodecs),
+            createClient,
+            register: (registrar, service) => registerPlatformFeatureHandlers(
+                cast<Parameters<typeof registerPlatformFeatureHandlers>[0]>(registrar),
+                SEARCH_PLATFORM_FEATURE,
+                service,
+            ),
+            service: bindings,
         });
 
         await expect(harness.client.run('/tmp/working-copy.pdf', 'test', {
             pageCount: 4,
             requestId: 'search-1',
         })).resolves.toEqual(searchResult);
-        expect(search).toHaveBeenCalledWith(
+        expect(run).toHaveBeenCalledWith(
             expect.objectContaining({senderId: 7}),
             expect.objectContaining({
                 pageCount: 4,

@@ -7,6 +7,10 @@ import type {
     IIpcInvokeSpec,
     TIpcCodecMap,
 } from '@contracts/ipcMain';
+import type {
+    TAnyDefinedPlatformFeature,
+    TFeatureCapability,
+} from '@contracts/platformFeature';
 import { CORE_IPC_SEND_CHANNELS } from '@electron/platform-ipc/coreContract';
 
 type TNoArgEventChannel<TEventMap extends {[TChannel in keyof TEventMap]: unknown}> = Extract<{
@@ -220,4 +224,65 @@ export function createTypedIpcEventSubscriber<
             });
         },
     };
+}
+
+export function createPlatformFeaturePreloadClient<
+    TFeature extends TAnyDefinedPlatformFeature,
+>(
+    ipcRenderer: IpcRenderer,
+    feature: TFeature,
+): TFeatureCapability<TFeature> {
+    const invokeTimeoutMsByChannel = Object.fromEntries(
+        Object.values(feature.methods)
+            .filter(spec => spec.ipc.timeoutMs !== undefined)
+            .map(spec => [
+                spec.channel,
+                spec.ipc.timeoutMs,
+            ]),
+    );
+    const invoke = createCodecIpcInvoker(
+        ipcRenderer,
+        feature.ipcCodecs,
+        {invokeTimeoutMsByChannel},
+    );
+    const eventSubscriber = createTypedIpcEventSubscriber<Record<string, unknown>>(ipcRenderer);
+    const requestedSubscriptions = new Set<string>();
+    const client: Record<string, unknown> = {};
+
+    for (const [
+        name,
+        spec,
+    ] of Object.entries(feature.methods)) {
+        client[name] = (...publicArgs: unknown[]) => {
+            const wireArgs = spec.client?.mapArgs
+                ? spec.client.mapArgs(...publicArgs as never[])
+                : publicArgs;
+            return invoke(spec.channel, ...wireArgs);
+        };
+    }
+    for (const [
+        name,
+        spec,
+    ] of Object.entries(feature.events)) {
+        client[name] = (callback: (payload: unknown) => void) => {
+            const unsubscribe = eventSubscriber.onDecodedPayload(
+                spec.channel,
+                value => {
+                    try {
+                        return spec.payload.decode(value);
+                    } catch {
+                        return null;
+                    }
+                },
+                callback,
+            );
+            const subscription = spec.subscription;
+            if (subscription && !requestedSubscriptions.has(spec.channel)) {
+                requestedSubscriptions.add(spec.channel);
+                void invoke(subscription.channel);
+            }
+            return unsubscribe;
+        };
+    }
+    return client as TFeatureCapability<TFeature>;
 }

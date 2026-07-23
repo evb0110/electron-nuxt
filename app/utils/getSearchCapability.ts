@@ -1,4 +1,4 @@
-import type { ISearchCapability } from '@contracts/searchCapability';
+import type { ISearchCapability } from '@contracts/searchPlatformFeature';
 import { getPlatformAPI } from '@app/utils/platform';
 
 export function getSearchCapability(): ISearchCapability {

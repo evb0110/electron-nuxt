@@ -3,14 +3,19 @@ import {
     it,
     vi,
 } from 'vitest';
+import type { IpcMainInvokeEvent } from 'electron';
 import type { IDjvuInvokeMap } from '@electron/features/djvu/contract';
 import type { IDjvuService } from '@electron/features/djvu/ports';
 import type { IImageExportInvokeMap } from '@electron/features/image-export/contract';
 import type { IImageExportService } from '@electron/features/image-export/ports';
 import type { IOcrInvokeMap } from '@electron/features/ocr/contract';
 import type { IOcrService } from '@electron/features/ocr/ports';
-import type { ISearchInvokeMap } from '@electron/features/search/contract';
-import type { ISearchService } from '@electron/features/search/searchService';
+import {
+    SEARCH_PLATFORM_FEATURE,
+    type ISearchInvokeMap,
+} from '@contracts/searchPlatformFeature';
+import type { TFeatureMainBindings } from '@contracts/platformFeature';
+import { registerPlatformFeatureHandlers } from '@electron/platform-ipc/validatedIpcRegistrar';
 import { cast } from '@tests/helpers/cast';
 import {
     assertValidatedRegistrarCases,
@@ -33,7 +38,6 @@ vi.mock('@electron/features/djvu/createDjvuService', () => ({createDjvuService: 
 vi.mock('@electron/features/djvu/main/djvuArtifactManifest', () => ({pruneStaleDjvuArtifactJobs: vi.fn(async () => undefined)}));
 vi.mock('@electron/features/image-export/createImageExportService', () => ({createImageExportService: vi.fn()}));
 vi.mock('@electron/features/ocr/createOcrService', () => ({createOcrService: vi.fn()}));
-vi.mock('@electron/features/search/createSearchService', () => ({createSearchService: vi.fn()}));
 
 function createServiceDouble<T>() {
     return cast<T>(new Proxy({}, {get(target, property) {
@@ -68,35 +72,40 @@ async function runCases<TMap extends Record<keyof TMap, {
 
 describe('feature validated IPC decoders', () => {
     it('exhaustively validates Search registrar tuples', async () => {
-        const { SEARCH_CHANNELS } = await import('@electron/features/search/contract');
-        const { SEARCH_IPC_CODECS } = await import('@electron/features/search/searchIpcCodecs');
-        const { registerSearchIpcAdapter } = await import('@electron/features/search/registerSearchIpcAdapter');
-        await runCases<ISearchInvokeMap, ISearchService>({
-            channels: SEARCH_CHANNELS,
-            codecs: SEARCH_IPC_CODECS,
-            register: registerSearchIpcAdapter,
+        type TBindings = TFeatureMainBindings<typeof SEARCH_PLATFORM_FEATURE, IpcMainInvokeEvent>;
+        const channels = SEARCH_PLATFORM_FEATURE.invokeChannels;
+        await runCases<ISearchInvokeMap, TBindings>({
+            channels,
+            codecs: cast<Parameters<typeof runCases<ISearchInvokeMap, TBindings>>[0]['codecs']>(
+                SEARCH_PLATFORM_FEATURE.ipcCodecs,
+            ),
+            register: (registrar, bindings) => registerPlatformFeatureHandlers(
+                cast<Parameters<typeof registerPlatformFeatureHandlers>[0]>(registrar),
+                SEARCH_PLATFORM_FEATURE,
+                bindings,
+            ),
             cases: [
                 {
-                    channel: SEARCH_CHANNELS.search,
+                    channel: channels.run,
                     validArgs: [{
                         pdfPath: '/tmp/a.pdf',
                         query: 'needle',
                     }],
                 },
                 {
-                    channel: SEARCH_CHANNELS.warmIndex,
+                    channel: channels.warmIndex,
                     validArgs: [{pdfPath: '/tmp/a.pdf'}],
                 },
                 {
-                    channel: SEARCH_CHANNELS.cancel,
+                    channel: channels.cancel,
                     validArgs: ['request-1'],
                 },
                 {
-                    channel: SEARCH_CHANNELS.resetCache,
+                    channel: channels.resetCache,
                     validArgs: [],
                 },
                 {
-                    channel: SEARCH_CHANNELS.subscribeProgress,
+                    channel: channels.subscribeProgress,
                     validArgs: [],
                 },
             ],

@@ -10,7 +10,11 @@ import {
     iteratePdfSearchMatches,
 } from '@pdf-core';
 import { requirePageNumber } from '@contracts/pageNumbers';
-import type { ISearchCapability } from '@contracts/searchCapability';
+import type {
+    SEARCH_PLATFORM_FEATURE,
+    ISearchCapability,
+} from '@contracts/searchPlatformFeature';
+import type { TFeatureBrowserBindings } from '@contracts/platformFeature';
 import {
     SEARCH_EXCERPT_CONTEXT_CHARS,
     SEARCH_RESULT_LIMIT,
@@ -979,7 +983,7 @@ export function createBrowserSearchCapability(): ICreateBrowserSearchCapabilityR
             : currentRevision.token;
     }
 
-    const capability: ISearchCapability = {
+    const capability = {
         async run(pdfPath, query, options = {}) {
             if (query.length === 0) {
                 return {
@@ -1121,7 +1125,7 @@ export function createBrowserSearchCapability(): ICreateBrowserSearchCapabilityR
             await clearSearchCachesAsync();
             return true;
         },
-    };
+    } satisfies TFeatureBrowserBindings<typeof SEARCH_PLATFORM_FEATURE>;
 
     return {
         capability,

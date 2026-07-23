@@ -326,7 +326,7 @@ describe('SearchWorkerService', () => {
     });
 
     it('relays streamed result delta start indexes from worker progress', async () => {
-        const { SEARCH_EVENT_CHANNELS } = await import('@electron/features/search/contract');
+        const { SEARCH_PLATFORM_FEATURE } = await import('@contracts/searchPlatformFeature');
         const { SearchWorkerService } = await import('@electron/features/search/main/searchWorkerService');
         const service = new SearchWorkerService(() => '/tmp/search-worker.js');
         const sender = createSender(42);
@@ -356,7 +356,7 @@ describe('SearchWorkerService', () => {
         });
 
         expect(electronMocks.send).toHaveBeenCalledWith(
-            SEARCH_EVENT_CHANNELS.progress,
+            SEARCH_PLATFORM_FEATURE.eventChannels.onProgress,
             expect.objectContaining({
                 requestId: 'search-1',
                 resultsStartIndex: 1,
