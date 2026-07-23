@@ -108,13 +108,33 @@ describe('scan cleanup renderer preview cache', () => {
                 placementOverrides: {left: 'center-left'},
             }},
         }, '/tmp/source.pdf');
+        const withBinarization = createScanCleanupPreviewCacheKey(1, {
+            ...previewOptions,
+            binarization: 'sauvola',
+        }, '/tmp/source.pdf');
+        const withoutIlluminationNormalization = createScanCleanupPreviewCacheKey(1, {
+            ...previewOptions,
+            normalizeIllumination: false,
+        }, '/tmp/source.pdf');
+        const withCautiousDespeckle = createScanCleanupPreviewCacheKey(1, {
+            ...previewOptions,
+            despeckleLevel: 'cautious',
+        }, '/tmp/source.pdf');
+        const withAutoDewarp = createScanCleanupPreviewCacheKey(1, {
+            ...previewOptions,
+            autoDewarp: true,
+        }, '/tmp/source.pdf');
 
         expect(new Set([
             base,
             withAlignment,
             withReadingOrder,
             withPlacementOverride,
-        ])).toHaveLength(4);
+            withBinarization,
+            withoutIlluminationNormalization,
+            withCautiousDespeckle,
+            withAutoDewarp,
+        ])).toHaveLength(8);
     });
 
     it('evicts by bytes and count while accounting for derivable shared input bytes once', () => {

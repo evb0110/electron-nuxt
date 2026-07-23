@@ -4,6 +4,7 @@ import type {
     IScanCleanupOptions,
     IScanCleanupReconciliationMetadata,
     IScanCleanupTextAxis,
+    TScanCleanupBinarizationMethod,
     TScanCleanupCanvasScope,
     TScanCleanupLayoutClassification,
     TScanCleanupPageRotation,
@@ -12,7 +13,9 @@ import type {
     IScanCleanupAppliedMargins,
     IScanCleanupPixelRect,
     IScanCleanupPreviewAffine,
+    IScanCleanupSplitSeamPolyline,
 } from '@contracts/scan-cleanup/geometry';
+import type {INativeScanCleanupBinarizationDiagnosticsV2} from '@contracts/scan-cleanup/nativeProtocolV2';
 import type {IScanCleanupProgress} from '@contracts/scan-cleanup/progress';
 
 export interface IScanCleanupOwnerContext {
@@ -62,10 +65,28 @@ export interface IScanCleanupContentDiagnostics {
     textMask: IScanCleanupContentTextMaskSummary;
 }
 
+export interface IScanCleanupBinarizationDiagnostics extends INativeScanCleanupBinarizationDiagnosticsV2 {}
+
+/** Renderer-facing per-page diagnostic summary assembled from page and first-output metadata. */
+export interface IScanCleanupPageDiagnostics {
+    detectedSkewDegrees?: number;
+    skewConfidence?: number;
+    binarizationMode?: TScanCleanupBinarizationMethod | null;
+    binarizationDiagnostics?: IScanCleanupBinarizationDiagnostics | null;
+    despeckleFallback?: boolean;
+    autoDewarpAttempted?: boolean;
+    dewarpApplied?: boolean;
+    dewarpConfidence?: number | null;
+    contentSideConfidence?: IScanCleanupContentSideConfidence;
+}
+
 export interface IScanCleanupPreviewMetadata {
     half: 'full' | 'left' | 'right';
     layoutClassification: TScanCleanupLayoutClassification;
     layoutConfidence: number;
+    detectedSkewDegrees?: number;
+    skewConfidence?: number;
+    skewApplied?: boolean;
     sourceRegion: IScanCleanupPixelRect;
     contentBox: IScanCleanupPixelRect | null;
     /** Applied crop in deskewed/dewarped page-region coordinates; absent in older metadata. */
@@ -90,6 +111,8 @@ export interface IScanCleanupPreviewMetadata {
     /** Maps rotated analysis-page coordinates into intrinsic cleaned-raster coordinates. */
     forwardTransform: IScanCleanupPreviewAffine | null;
     cutterXPx: number | null;
+    splitSeam?: IScanCleanupSplitSeamPolyline;
+    splitAbstained?: boolean;
     inputWidthPx: number;
     inputHeightPx: number;
     rotationDegrees: TScanCleanupPageRotation;
@@ -97,15 +120,22 @@ export interface IScanCleanupPreviewMetadata {
     resamplePasses: number;
     /** True when multiplicative illumination normalization affected the rendered raster. */
     illuminationNormalized?: boolean;
+    binarizationMode?: TScanCleanupBinarizationMethod | null;
+    binarizationDiagnostics?: IScanCleanupBinarizationDiagnostics | null;
     /** True when despeckle used top-decile fallback anchors because the page had no calibrated seed. */
     despeckleFallback?: boolean;
+    dewarpConfidence?: number | null;
+    /** Derived by Electron from native dewarp metadata. */
+    dewarpApplied?: boolean;
     warnings: string[];
 }
 
-export interface IScanCleanupPreviewPageMetadata extends IScanCleanupReconciliationMetadata {
+export interface IScanCleanupPreviewPageMetadata extends IScanCleanupReconciliationMetadata, IScanCleanupPageDiagnostics {
     layoutClassification: IScanCleanupPreviewMetadata['layoutClassification'];
-    layoutConfidence: number;
+    layoutConfidence?: number;
     cutterXPx: number | null;
+    splitSeam?: IScanCleanupSplitSeamPolyline;
+    splitAbstained?: boolean;
     rotationDegrees: TScanCleanupPageRotation;
     canvasScope: TScanCleanupCanvasScope;
     excluded: boolean;

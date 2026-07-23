@@ -22,6 +22,16 @@ export interface IScanCleanupPixelRect {
     heightPx: number;
 }
 
+export interface IScanCleanupPixelPoint {
+    x: number;
+    y: number;
+}
+
+export interface IScanCleanupPixelPolygon {points: IScanCleanupPixelPoint[]}
+
+/** Diagnostic curved gutter geometry; straight cutter geometry remains authoritative for rendering. */
+export interface IScanCleanupSplitSeamPolyline {points: IScanCleanupPixelPoint[]}
+
 export interface IScanCleanupAppliedMargins {
     leftPx: number;
     topPx: number;

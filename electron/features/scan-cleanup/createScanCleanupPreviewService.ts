@@ -71,10 +71,9 @@ interface ILosslessPreviewAnalysisOutput {
     inputHeightPx: number;
 }
 
-type ILosslessPreviewPageMetadata = IScanCleanupPreviewResult['pageMetadata'] & {
-    layoutConfidence: number;
-    outputs?: ILosslessPreviewAnalysisOutput[];
-};
+type ILosslessPreviewPageMetadata = IScanCleanupPreviewResult['pageMetadata'] & {outputs?: ILosslessPreviewAnalysisOutput[]};
+
+interface INativePreviewOutputMetadata extends IScanCleanupPreviewMetadata {dewarpModel?: unknown;}
 
 interface IPreviewEntry {
     controller: AbortController;
@@ -274,6 +273,7 @@ async function runPreview(
             canvasScope: 'page',
             qualityPath: lossless ? 'lossless' : 'raster',
             options: request.options,
+            experimental: {autoDewarp: request.options.autoDewarp ?? false},
             pages: [{
                 inputPath,
                 pageNumber: request.pageNumber,
@@ -316,7 +316,7 @@ async function runPreview(
                         metadata: {
                             half: output.half,
                             layoutClassification: pageMetadata.layoutClassification,
-                            layoutConfidence: pageMetadata.layoutConfidence,
+                            layoutConfidence: pageMetadata.layoutConfidence ?? 0,
                             sourceRegion: output.sourceRegion,
                             contentBox: output.contentBox,
                             cropRect: output.cropRect,
@@ -346,21 +346,57 @@ async function runPreview(
         const cleaned = [] as IScanCleanupPreviewResult['outputs'];
         for (const output of outputs) {
             try {
+                const nativeMetadata = JSON.parse(
+                    await readFile(output.metadataPath, 'utf8'),
+                ) as INativePreviewOutputMetadata;
                 cleaned.push({
                     imageData: await readPreviewBytes(output.outputPath),
-                    metadata: JSON.parse(await readFile(output.metadataPath, 'utf8')) as IScanCleanupPreviewResult['outputs'][number]['metadata'],
+                    metadata: {
+                        ...nativeMetadata,
+                        ...(nativeMetadata.dewarpModel === undefined
+                            ? {}
+                            : {dewarpApplied: nativeMetadata.dewarpModel !== null}),
+                    },
                 });
             } catch (error) {
                 if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
             }
         }
+        const diagnosticMetadata = cleaned[0]?.metadata;
         return {
             pageNumber: request.pageNumber,
             totalPages: raw.totalPages,
             rawImageData: raw.bytes,
             rawWidthPx: raw.width,
             rawHeightPx: raw.height,
-            pageMetadata,
+            pageMetadata: {
+                ...pageMetadata,
+                ...(diagnosticMetadata?.detectedSkewDegrees === undefined
+                    ? {}
+                    : {detectedSkewDegrees: diagnosticMetadata.detectedSkewDegrees}),
+                ...(diagnosticMetadata?.skewConfidence === undefined
+                    ? {}
+                    : {skewConfidence: diagnosticMetadata.skewConfidence}),
+                ...(diagnosticMetadata?.binarizationMode === undefined
+                    ? {}
+                    : {binarizationMode: diagnosticMetadata.binarizationMode}),
+                ...(diagnosticMetadata?.binarizationDiagnostics === undefined
+                    ? {}
+                    : {binarizationDiagnostics: diagnosticMetadata.binarizationDiagnostics}),
+                ...(diagnosticMetadata?.despeckleFallback === undefined
+                    ? {}
+                    : {despeckleFallback: diagnosticMetadata.despeckleFallback}),
+                ...(diagnosticMetadata?.dewarpConfidence === undefined
+                    ? {}
+                    : {dewarpConfidence: diagnosticMetadata.dewarpConfidence}),
+                ...(diagnosticMetadata?.dewarpApplied === undefined
+                    ? {}
+                    : {dewarpApplied: diagnosticMetadata.dewarpApplied}),
+                ...(diagnosticMetadata?.contentDiagnostics === undefined
+                    ? {}
+                    : {contentSideConfidence: diagnosticMetadata.contentDiagnostics.sideConfidence}),
+                autoDewarpAttempted: request.options.autoDewarp === true,
+            },
             outputs: cleaned,
         };
     } finally {
@@ -450,6 +486,7 @@ async function runDetection(
             canvasScope: 'page',
             qualityPath: request.options.preserveOriginalQuality ? 'lossless' : 'raster',
             options: request.options,
+            experimental: {autoDewarp: request.options.autoDewarp ?? false},
             pages: manifestPages,
         })));
         const binary = dependencies.resolveBinary();

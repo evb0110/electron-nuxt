@@ -380,7 +380,7 @@
                 @update:model-value="updateDocument('outputMode', $event)"
             />
             <UFormField
-                v-if="settings.outputMode === 'bw'"
+                v-if="settings.outputMode === 'bw' || settings.outputMode === 'mixed'"
                 :label="t('scanCleanup.thickness.label', {value: thicknessLabel})"
             >
                 <USlider
@@ -399,13 +399,6 @@
                     <span>{{ t('scanCleanup.thickness.thicker') }}</span>
                 </div>
             </UFormField>
-            <UCheckbox
-                v-if="settings.outputMode === 'bw'"
-                :model-value="settings.despeckle"
-                :label="t('scanCleanup.despeckle')"
-                :disabled="settings.preserveOriginalQuality === true"
-                @update:model-value="updateDocument('despeckle', $event === true)"
-            />
             <p v-if="settings.preserveOriginalQuality" class="scan-cleanup-lossless-explanation">
                 {{ t('scanCleanup.output.losslessDisabledOptions') }}
             </p>
@@ -434,6 +427,50 @@
                 :disabled="settings.preserveOriginalQuality === true"
                 @update:model-value="updateDocument('skipBlankPages', $event === true)"
             />
+            <details class="scan-cleanup-advanced">
+                <summary class="scan-cleanup-advanced-toggle">
+                    <span>{{ t('scanCleanup.advanced.title') }}</span>
+                </summary>
+                <div class="scan-cleanup-advanced-content">
+                        <UFormField :label="t('scanCleanup.advanced.binarization.label')">
+                            <USelect
+                                :model-value="settings.binarization ?? 'auto'"
+                                :items="binarizationItems"
+                                value-key="value"
+                                class="w-full"
+                                :disabled="settings.preserveOriginalQuality === true"
+                                @update:model-value="updateDocument('binarization', $event)"
+                            />
+                        </UFormField>
+                        <UFormField :label="t('scanCleanup.advanced.despeckle.label')">
+                            <USelect
+                                :model-value="settings.despeckleLevel
+                                    ?? ((settings.despeckle ?? true) ? 'normal' : 'off')"
+                                :items="despeckleItems"
+                                value-key="value"
+                                class="w-full"
+                                :disabled="settings.preserveOriginalQuality === true
+                                    || (settings.outputMode !== 'bw' && settings.outputMode !== 'mixed')"
+                                @update:model-value="updateDocument('despeckleLevel', $event)"
+                            />
+                        </UFormField>
+                        <UCheckbox
+                            :model-value="settings.normalizeIllumination ?? true"
+                            :label="t('scanCleanup.advanced.normalizeIllumination')"
+                            :disabled="settings.preserveOriginalQuality === true"
+                            @update:model-value="updateDocument('normalizeIllumination', $event === true)"
+                        />
+                        <UCheckbox
+                            :model-value="settings.autoDewarp ?? false"
+                            :label="t('scanCleanup.advanced.autoDewarp')"
+                            :disabled="settings.preserveOriginalQuality === true"
+                            @update:model-value="updateDocument('autoDewarp', $event === true)"
+                        />
+                        <p v-if="settings.preserveOriginalQuality" class="scan-cleanup-selection-hint">
+                            {{ t('scanCleanup.advanced.losslessDisabled') }}
+                        </p>
+                </div>
+            </details>
         </section>
 
         <div class="scan-cleanup-footnote">
@@ -553,6 +590,24 @@ const emit = defineEmits<{
 }>();
 const {t} = useTypedI18n();
 const resetOpen = ref(false);
+const binarizationItems = computed(() => ([
+    'auto',
+    'otsu',
+    'sauvola',
+    'wolf',
+] as const).map(value => ({
+    value,
+    label: t(`scanCleanup.advanced.binarization.${value}`),
+})));
+const despeckleItems = computed(() => ([
+    'off',
+    'cautious',
+    'normal',
+    'aggressive',
+] as const).map(value => ({
+    value,
+    label: t(`scanCleanup.advanced.despeckle.${value}`),
+})));
 
 const layoutModelValue = computed(() => props.layout.mixed ? 'mixed' : props.layout.value ?? 'auto');
 const rotationModelValue = computed(() => props.rotation.mixed ? 'mixed' : String(props.rotation.value ?? 0));
@@ -634,6 +689,21 @@ function updateDocument(key: keyof IScanCleanupOptions, value: unknown) {
 
 .scan-cleanup-scope-reset {
     min-width: 0;
+}
+
+.scan-cleanup-advanced,
+.scan-cleanup-advanced-content {
+    display: grid;
+    gap: var(--app-space-3xl);
+}
+
+.scan-cleanup-advanced-toggle {
+    display: flex;
+    align-items: center;
+    gap: var(--app-space-sm);
+    color: var(--ui-text);
+    cursor: pointer;
+    font-size: var(--app-text-size-body-sm);
 }
 
 .scan-cleanup-apply-page {

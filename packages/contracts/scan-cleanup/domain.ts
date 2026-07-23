@@ -9,6 +9,7 @@ export type {TScanCleanupPageRotation} from '@contracts/scan-cleanup/geometry';
 
 export type TScanCleanupLayoutMode = 'auto' | 'force-single' | 'force-two-page';
 export type TScanCleanupOutputMode = 'bw' | 'mixed' | 'grayscale' | 'color';
+export type TScanCleanupBinarizationMethod = 'auto' | 'otsu' | 'sauvola' | 'wolf';
 export type TScanCleanupDespeckleLevel = 'off' | 'cautious' | 'normal' | 'aggressive';
 export type TScanCleanupReadingOrder = 'ltr' | 'rtl';
 export type TScanCleanupPageLayoutOverride = 'auto' | 'single' | 'spread' | 'keep-left' | 'keep-right';
@@ -89,12 +90,21 @@ export interface IScanCleanupOptions {
     preserveOriginalQuality: boolean;
     layoutMode: TScanCleanupLayoutMode;
     outputMode: TScanCleanupOutputMode;
+    /** Optional only for bridge compatibility with settings created before advanced output controls. */
+    binarization?: TScanCleanupBinarizationMethod;
+    /** Optional only for bridge compatibility with settings created before advanced output controls. */
+    normalizeIllumination?: boolean;
     thickness: number;
     crop: boolean;
     matchPageSize: boolean;
     pageAlignment: TScanCleanupPageAlignment;
     marginsMm: IScanCleanupMarginsMm;
-    despeckle: boolean;
+    /** Canonical speckle-removal setting. Older settings may instead provide `despeckle`. */
+    despeckleLevel?: TScanCleanupDespeckleLevel;
+    /** @deprecated Read-only compatibility input; `despeckleLevel` is persisted by current clients. */
+    despeckle?: boolean;
+    /** Experimental automatic page-curvature correction. */
+    autoDewarp?: boolean;
     readingOrder: TScanCleanupReadingOrder;
     skipBlankPages: boolean;
     pageOverrides: TScanCleanupPageOverrides;

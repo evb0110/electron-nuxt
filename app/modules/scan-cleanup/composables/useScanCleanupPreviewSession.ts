@@ -53,12 +53,16 @@ export function createScanCleanupPreviewCacheKey(
             preserveOriginalQuality: previewOptions.preserveOriginalQuality === true,
             layoutMode: previewOptions.layoutMode,
             outputMode: previewOptions.outputMode,
+            binarization: previewOptions.binarization ?? 'auto',
+            normalizeIllumination: previewOptions.normalizeIllumination ?? true,
             thickness: previewOptions.thickness,
             crop: previewOptions.crop,
             matchPageSize: previewOptions.matchPageSize,
             pageAlignment: previewOptions.pageAlignment,
             marginsMm: previewOptions.marginsMm,
-            despeckle: previewOptions.despeckle,
+            despeckleLevel: previewOptions.despeckleLevel
+                ?? ((previewOptions.despeckle ?? true) ? 'normal' : 'off'),
+            autoDewarp: previewOptions.autoDewarp ?? false,
             readingOrder: previewOptions.readingOrder,
             skipBlankPages: previewOptions.skipBlankPages,
         },
@@ -120,9 +124,16 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
         previewOptions = toPlainScanCleanupOptions(options.settings),
         previewSourcePath = options.sourcePath.value,
     ) {
+        const pageOverride = getScanCleanupPageOverride(previewOptions.pageOverrides, pageNumber);
         return createScanCleanupPreviewCacheKey(
             pageNumber,
-            previewOptions,
+            {
+                ...previewOptions,
+                pageOverrides: {[String(pageNumber)]: {
+                    ...pageOverride,
+                    placementOverrides: {},
+                }},
+            },
             previewSourcePath,
             options.documentRevision.value,
             options.documentPriorByPage.get(pageNumber) ?? null,
@@ -280,6 +291,7 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
         classificationDiffersByPage,
         error,
         loading,
+        metadataByPage,
         navigate,
         result,
         retry,

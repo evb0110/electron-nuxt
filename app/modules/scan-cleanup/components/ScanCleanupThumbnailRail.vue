@@ -74,6 +74,76 @@
                             </span>
                             <template v-else>{{ statusLabel(naturalPage(position)) }}</template>
                         </UBadge>
+                        <UPopover
+                            v-if="diagnosticsFor(naturalPage(position))"
+                            :open="diagnosticsPopoverPage === naturalPage(position)"
+                            portal="body"
+                            :content="{side: 'right', align: 'start'}"
+                            @update:open="updateDiagnosticsPopover(naturalPage(position), $event)"
+                        >
+                            <UButton
+                                type="button"
+                                class="scan-thumbnail-diagnostics"
+                                color="neutral"
+                                variant="soft"
+                                size="xs"
+                                square
+                                icon="i-ph-info"
+                                :aria-label="t('scanCleanup.pages.diagnostics.open', {page: naturalPage(position)})"
+                                :aria-expanded="diagnosticsPopoverPage === naturalPage(position)"
+                                aria-haspopup="dialog"
+                                :disabled="disabled"
+                            />
+                            <template #content>
+                                <div
+                                    class="scan-thumbnail-diagnostics-popover"
+                                    @click.stop
+                                    @pointerdown.stop
+                                    @keydown.esc.stop.prevent="closeDiagnosticsPopover(naturalPage(position))"
+                                >
+                                    <strong>{{ t('scanCleanup.pages.diagnostics.title', {
+                                        page: naturalPage(position),
+                                    }) }}</strong>
+                                    <dl>
+                                        <div class="scan-thumbnail-diagnostic-row">
+                                            <dt>{{ t('scanCleanup.pages.diagnostics.layout') }}</dt>
+                                            <dd>{{ diagnosticLayout(naturalPage(position)) }}</dd>
+                                        </div>
+                                        <div
+                                            v-if="diagnosticsFor(naturalPage(position))?.reconciled"
+                                            class="scan-thumbnail-diagnostic-note"
+                                        >
+                                            {{ t('scanCleanup.pages.diagnostics.reconciled') }}
+                                        </div>
+                                        <div
+                                            v-if="diagnosticsFor(naturalPage(position))?.splitAbstained"
+                                            class="scan-thumbnail-diagnostic-note"
+                                        >
+                                            {{ t('scanCleanup.pages.diagnostics.splitAbstained') }}
+                                        </div>
+                                        <div class="scan-thumbnail-diagnostic-row">
+                                            <dt>{{ t('scanCleanup.pages.diagnostics.deskew') }}</dt>
+                                            <dd>{{ diagnosticDeskew(naturalPage(position)) }}</dd>
+                                        </div>
+                                        <div class="scan-thumbnail-diagnostic-row">
+                                            <dt>{{ t('scanCleanup.pages.diagnostics.binarization') }}</dt>
+                                            <dd>{{ diagnosticBinarization(naturalPage(position)) }}</dd>
+                                        </div>
+                                        <div class="scan-thumbnail-diagnostic-row">
+                                            <dt>{{ t('scanCleanup.pages.diagnostics.despeckleFallback') }}</dt>
+                                            <dd>{{ diagnosticDespeckleFallback(naturalPage(position)) }}</dd>
+                                        </div>
+                                        <div
+                                            v-if="diagnosticsFor(naturalPage(position))?.autoDewarpAttempted"
+                                            class="scan-thumbnail-diagnostic-row"
+                                        >
+                                            <dt>{{ t('scanCleanup.pages.diagnostics.dewarp') }}</dt>
+                                            <dd>{{ diagnosticDewarp(naturalPage(position)) }}</dd>
+                                        </div>
+                                    </dl>
+                                </div>
+                            </template>
+                        </UPopover>
                         <AppTooltip
                             v-if="isLowConfidence(naturalPage(position))"
                             :text="lowConfidenceHint(naturalPage(position))"
@@ -258,6 +328,7 @@
 import type {
     IScanCleanupPageOverride,
     IScanCleanupPreviewMetadata,
+    IScanCleanupPreviewPageMetadata,
     TScanCleanupPageLayoutOverride,
     TScanCleanupPageOverrides,
     TScanCleanupPageRotation,
@@ -283,6 +354,7 @@ const props = defineProps<{
     overrides: TScanCleanupPageOverrides;
     classifications: ReadonlyMap<number, IScanCleanupPreviewMetadata['layoutClassification']>;
     confidences: ReadonlyMap<number, number>;
+    diagnostics?: ReadonlyMap<number, IScanCleanupPreviewPageMetadata>;
     textAxes?: ReadonlyMap<number, IScanCleanupTextAxis>;
     disabled: boolean;
     processedPages?: ReadonlySet<number>;
@@ -297,6 +369,7 @@ const {t} = useTypedI18n();
 const sortMode = ref<TScanCleanupRailSort>('natural');
 const lowConfidencePopoverPage = ref<number | null>(null);
 const textAxisPopoverPage = ref<number | null>(null);
+const diagnosticsPopoverPage = ref<number | null>(null);
 const sortItems = computed(() => [
     {
         value: 'natural' as const,
@@ -467,7 +540,17 @@ function classificationKind(page: number) {
 }
 
 function classificationLabel(page: number) {
-    const kind = classificationKind(page);
+    return classificationValueLabel(props.classifications.get(page));
+}
+
+function classificationValueLabel(
+    classification: IScanCleanupPreviewMetadata['layoutClassification'] | undefined,
+) {
+    const kind = classification === 'two-page-spread'
+        ? 'spread'
+        : classification === 'page-with-offcut'
+            ? 'offcut'
+            : classification === 'single-uncut-page' ? 'single' : 'unclassified';
     if (kind === 'spread') {
         return t('scanCleanup.pages.classification.spread');
     }
@@ -495,6 +578,69 @@ function statusLabel(page: number) {
         return t('scanCleanup.pages.override.keepRight');
     }
     return classificationLabel(page);
+}
+
+function diagnosticsFor(page: number) {
+    return props.diagnostics?.get(page);
+}
+
+function formatConfidence(value: number | null | undefined) {
+    return value === null || value === undefined ? t('scanCleanup.pages.diagnostics.unavailable') : `${Math.round(value * 100)}%`;
+}
+
+function diagnosticLayout(page: number) {
+    const diagnostics = diagnosticsFor(page);
+    return diagnostics
+        ? t('scanCleanup.pages.diagnostics.layoutValue', {
+            layout: classificationValueLabel(diagnostics.layoutClassification),
+            confidence: formatConfidence(diagnostics.layoutConfidence),
+        })
+        : t('scanCleanup.pages.diagnostics.unavailable');
+}
+
+function diagnosticDeskew(page: number) {
+    const diagnostics = diagnosticsFor(page);
+    if (diagnostics?.detectedSkewDegrees === undefined) {
+        return t('scanCleanup.pages.diagnostics.unavailable');
+    }
+    return t('scanCleanup.pages.diagnostics.deskewValue', {
+        angle: diagnostics.detectedSkewDegrees.toFixed(2),
+        confidence: formatConfidence(diagnostics.skewConfidence),
+    });
+}
+
+function diagnosticBinarization(page: number) {
+    const diagnostics = diagnosticsFor(page);
+    const route = diagnostics?.binarizationMode ?? diagnostics?.binarizationDiagnostics?.route;
+    return route
+        ? t(`scanCleanup.advanced.binarization.${route}`)
+        : t('scanCleanup.pages.diagnostics.notApplicable');
+}
+
+function diagnosticDespeckleFallback(page: number) {
+    const fallback = diagnosticsFor(page)?.despeckleFallback;
+    return fallback === undefined
+        ? t('scanCleanup.pages.diagnostics.notApplicable')
+        : t(fallback
+            ? 'scanCleanup.pages.diagnostics.fallbackUsed'
+            : 'scanCleanup.pages.diagnostics.fallbackNotUsed');
+}
+
+function diagnosticDewarp(page: number) {
+    const diagnostics = diagnosticsFor(page);
+    return t(diagnostics?.dewarpApplied
+        ? 'scanCleanup.pages.diagnostics.dewarpApplied'
+        : 'scanCleanup.pages.diagnostics.dewarpGated', {confidence: formatConfidence(diagnostics?.dewarpConfidence)});
+}
+
+function closeDiagnosticsPopover(page: number) {
+    if (diagnosticsPopoverPage.value === page) {
+        diagnosticsPopoverPage.value = null;
+    }
+}
+
+function updateDiagnosticsPopover(page: number, open: boolean) {
+    diagnosticsPopoverPage.value = open ? page : null;
 }
 
 function isLowConfidence(page: number) {
@@ -707,6 +853,45 @@ function handleKeydown(event: KeyboardEvent) {
     font-weight: var(--app-font-weight-heading);
     padding: 0;
     pointer-events: auto;
+}
+
+.scan-thumbnail-diagnostics {
+    flex: none;
+    pointer-events: auto;
+}
+
+.scan-thumbnail-diagnostics-popover {
+    display: grid;
+    width: var(--app-scan-low-confidence-popover-width);
+    gap: var(--app-space-5xl);
+    padding: var(--app-space-5xl);
+    color: var(--ui-text);
+    font-size: var(--app-text-size-body-sm);
+}
+
+.scan-thumbnail-diagnostics-popover dl {
+    display: grid;
+    gap: var(--app-space-3xl);
+}
+
+.scan-thumbnail-diagnostic-row {
+    display: flex;
+    justify-content: space-between;
+    gap: var(--app-space-3xl);
+}
+
+.scan-thumbnail-diagnostic-row dt,
+.scan-thumbnail-diagnostic-note {
+    color: var(--ui-text-muted);
+}
+
+.scan-thumbnail-diagnostic-row dd {
+    margin-inline-start: var(--app-space-3xl);
+    text-align: end;
+}
+
+.scan-thumbnail-diagnostic-note {
+    font-size: var(--app-text-size-kicker);
 }
 
 .scan-thumbnail-text-axis {

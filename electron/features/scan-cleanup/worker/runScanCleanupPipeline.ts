@@ -13,9 +13,11 @@ import {
     join,
 } from 'path';
 import type {
+    INativeScanCleanupBinarizationDiagnosticsV2,
     IScanCleanupOptions,
     IScanCleanupPixelRect,
     IScanCleanupProgress,
+    IScanCleanupSplitSeamPolyline,
     IScanCleanupSummary,
 } from '@contracts/electronApiScanCleanup';
 import {getScanCleanupPageOverride} from '@contracts/scanCleanupPageOverrides';
@@ -52,16 +54,26 @@ interface ICleanupMetadata {
     canvasWidthPx: number;
     canvasHeightPx: number;
     layoutClassification: 'single-uncut-page' | 'page-with-offcut' | 'two-page-spread';
+    splitSeam?: IScanCleanupSplitSeamPolyline;
+    splitAbstained?: boolean;
+    detectedSkewDegrees?: number;
+    skewConfidence?: number;
     skewApplied: boolean;
     illuminationNormalized?: boolean;
+    binarizationMode?: IScanCleanupOptions['binarization'] | null;
+    binarizationDiagnostics?: INativeScanCleanupBinarizationDiagnosticsV2 | null;
     despeckleFallback?: boolean;
+    dewarpConfidence?: number | null;
     contentBox?: unknown;
     warnings?: string[];
 }
 
 interface ICleanupPageMetadata {
     layoutClassification: ICleanupMetadata['layoutClassification'];
+    layoutConfidence?: number;
     cutterXPx: number | null;
+    splitSeam?: IScanCleanupSplitSeamPolyline;
+    splitAbstained?: boolean;
     rotationDegrees: IScanCleanupOptions['pageOverrides'][string]['rotationDegrees'];
     canvasScope: 'page' | 'document';
     excluded: boolean;
@@ -322,6 +334,7 @@ async function runLosslessScanCleanup(
         canvasScope: 'document',
         qualityPath: 'lossless',
         options: request.options,
+        experimental: {autoDewarp: request.options.autoDewarp ?? false},
         pages: pageInputs,
     });
     const pages = manifest.pages;
@@ -539,6 +552,7 @@ export async function runScanCleanupPipeline(
             canvasScope: 'document',
             qualityPath: 'raster',
             options: request.options,
+            experimental: {autoDewarp: request.options.autoDewarp ?? false},
             pages: pageInputs,
         });
         const pages = manifest.pages;

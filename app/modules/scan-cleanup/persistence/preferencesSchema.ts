@@ -1,10 +1,19 @@
 import type {
     IScanCleanupMarginsMm,
     IScanCleanupOptions,
+    TScanCleanupBinarizationMethod,
+    TScanCleanupDespeckleLevel,
 } from '@contracts/electronApiScanCleanup';
 import {SCAN_CLEANUP_MARGIN_MAX_MM} from '@contracts/electronApiScanCleanup';
 
-export interface IScanCleanupGlobalPreferences extends Omit<IScanCleanupOptions, 'pageOverrides'> {
+export interface IScanCleanupGlobalPreferences extends Omit<
+    IScanCleanupOptions,
+    'autoDewarp' | 'binarization' | 'despeckle' | 'despeckleLevel' | 'normalizeIllumination' | 'pageOverrides'
+> {
+    autoDewarp: boolean;
+    binarization: TScanCleanupBinarizationMethod;
+    despeckleLevel: TScanCleanupDespeckleLevel;
+    normalizeIllumination: boolean;
     firstRunGuidanceDismissed: boolean;
     runOcrAfterCleanup: boolean;
 }
@@ -13,6 +22,8 @@ export const DEFAULT_SCAN_CLEANUP_PREFERENCES: Readonly<IScanCleanupGlobalPrefer
     preserveOriginalQuality: false,
     layoutMode: 'auto',
     outputMode: 'bw',
+    binarization: 'auto',
+    normalizeIllumination: true,
     readingOrder: 'ltr',
     thickness: 0,
     crop: true,
@@ -24,7 +35,8 @@ export const DEFAULT_SCAN_CLEANUP_PREFERENCES: Readonly<IScanCleanupGlobalPrefer
         rightMm: 5,
         bottomMm: 5,
     }),
-    despeckle: true,
+    despeckleLevel: 'normal',
+    autoDewarp: false,
     skipBlankPages: false,
     firstRunGuidanceDismissed: false,
     runOcrAfterCleanup: false,
@@ -107,6 +119,17 @@ export function decodeScanCleanupGlobalPreferences(value: unknown): IScanCleanup
         ].includes(String(stored.outputMode))
             ? stored.outputMode as IScanCleanupGlobalPreferences['outputMode']
             : defaults.outputMode,
+        binarization: [
+            'auto',
+            'otsu',
+            'sauvola',
+            'wolf',
+        ].includes(String(stored.binarization))
+            ? stored.binarization as TScanCleanupBinarizationMethod
+            : defaults.binarization,
+        normalizeIllumination: typeof stored.normalizeIllumination === 'boolean'
+            ? stored.normalizeIllumination
+            : defaults.normalizeIllumination,
         readingOrder: stored.readingOrder === 'rtl' ? 'rtl' : 'ltr',
         thickness: typeof stored.thickness === 'number' && Number.isFinite(stored.thickness)
             ? Math.min(5, Math.max(-5, stored.thickness))
@@ -127,7 +150,17 @@ export function decodeScanCleanupGlobalPreferences(value: unknown): IScanCleanup
             ? stored.pageAlignment as IScanCleanupGlobalPreferences['pageAlignment']
             : defaults.pageAlignment,
         marginsMm: decodeScanCleanupMarginsMm(stored.marginsMm, legacyMargins),
-        despeckle: typeof stored.despeckle === 'boolean' ? stored.despeckle : defaults.despeckle,
+        despeckleLevel: [
+            'off',
+            'cautious',
+            'normal',
+            'aggressive',
+        ].includes(String(stored.despeckleLevel))
+            ? stored.despeckleLevel as TScanCleanupDespeckleLevel
+            : typeof stored.despeckle === 'boolean'
+                ? stored.despeckle ? 'normal' : 'off'
+                : defaults.despeckleLevel,
+        autoDewarp: typeof stored.autoDewarp === 'boolean' ? stored.autoDewarp : defaults.autoDewarp,
         skipBlankPages: typeof stored.skipBlankPages === 'boolean' ? stored.skipBlankPages : defaults.skipBlankPages,
         firstRunGuidanceDismissed: typeof stored.firstRunGuidanceDismissed === 'boolean'
             ? stored.firstRunGuidanceDismissed

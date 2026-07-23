@@ -88,6 +88,7 @@
                 :overrides="settings.pageOverrides"
                 :classifications="authoritativeLayoutByPage"
                 :confidences="detectedLayoutConfidenceByPage"
+                :diagnostics="previewMetadataByPage"
                 :text-axes="detectedTextAxisByPage"
                 :disabled="isRunning"
                 :processed-pages="processedPages"
@@ -254,6 +255,7 @@ const {
 const {
     error: previewError,
     loading: previewLoading,
+    metadataByPage: previewMetadataByPage,
     navigate: navigatePreview,
     result: previewResult,
     retry: retryPreview,

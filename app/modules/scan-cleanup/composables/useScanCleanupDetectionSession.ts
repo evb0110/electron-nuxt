@@ -137,10 +137,15 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
             layoutMode: options.settings.layoutMode,
             layoutOverride: pageOverride.layoutOverride,
             outputMode: lossless ? 'color' : options.settings.outputMode,
+            binarization: options.settings.binarization ?? 'auto',
+            normalizeIllumination: !lossless && (options.settings.normalizeIllumination ?? true),
             thickness: lossless ? 0 : options.settings.thickness,
-            despeckle: !lossless
+            despeckleLevel: !lossless
                 && (options.settings.outputMode === 'bw' || options.settings.outputMode === 'mixed')
-                && options.settings.despeckle,
+                ? options.settings.despeckleLevel
+                    ?? ((options.settings.despeckle ?? true) ? 'normal' : 'off')
+                : 'off',
+            autoDewarp: !lossless && (options.settings.autoDewarp ?? false),
             rotationDegrees: pageOverride.rotationDegrees,
             excluded: pageOverride.excluded,
             manualSplit: pageOverride.manualSplit,

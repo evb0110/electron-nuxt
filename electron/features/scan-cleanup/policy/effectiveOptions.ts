@@ -32,6 +32,13 @@ export interface IEffectiveNativeScanCleanupOptionsV2 extends INativeScanCleanup
 const MAX_PIXELS = 160_000_000;
 const MAX_DIMENSION_PX = 40_000;
 
+export function resolveScanCleanupDespeckleLevel(
+    options: IScanCleanupOptions,
+): TScanCleanupDespeckleLevel {
+    const legacyEnabled = options.despeckle ?? true;
+    return options.despeckleLevel ?? (legacyEnabled ? 'normal' : 'off');
+}
+
 export function resolveEffectiveScanCleanupOptions({
     options,
     pageOverride,
@@ -43,13 +50,16 @@ export function resolveEffectiveScanCleanupOptions({
     const outputMode = lossless ? 'color' : options.outputMode;
     const hasBinaryLayer = outputMode === 'bw' || outputMode === 'mixed';
     const dewarpRequested = !lossless && experimental.autoDewarp;
+    const despeckleLevel = !lossless && hasBinaryLayer
+        ? resolveScanCleanupDespeckleLevel(options)
+        : 'off';
     return {
         dpi,
-        binarization: 'auto',
+        binarization: options.binarization ?? 'auto',
         thickness: lossless ? 0 : options.thickness,
-        normalizeIllumination: !lossless,
-        despeckle: !lossless && hasBinaryLayer && options.despeckle,
-        despeckleLevel: !lossless && hasBinaryLayer && options.despeckle ? 'normal' : 'off',
+        normalizeIllumination: !lossless && (options.normalizeIllumination ?? true),
+        despeckle: despeckleLevel !== 'off',
+        despeckleLevel,
         outputMode,
         ocrMode: false,
         layout: resolveScanCleanupPageLayout(options.layoutMode, pageOverride.layoutOverride),

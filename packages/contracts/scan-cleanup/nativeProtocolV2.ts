@@ -3,6 +3,7 @@ import type {
     IScanCleanupDocumentPrior,
     IScanCleanupManualZones,
     IScanCleanupTextAxis,
+    TScanCleanupBinarizationMethod,
     TScanCleanupCanvasScope,
     TScanCleanupDespeckleLevel,
     TScanCleanupLayoutClassification,
@@ -15,6 +16,8 @@ import type {
     IScanCleanupMarginsMm,
     IScanCleanupNormalizedRect,
     IScanCleanupNormalizedSplit,
+    IScanCleanupPixelPolygon,
+    IScanCleanupSplitSeamPolyline,
 } from '@contracts/scan-cleanup/geometry';
 
 export const SCAN_CLEANUP_NATIVE_PROTOCOL_VERSION = 2 as const;
@@ -26,7 +29,7 @@ export interface INativeScanCleanupExperimentalOptionsV2 {autoDewarp: boolean;}
 
 export interface INativeScanCleanupOptionsV2 {
     dpi: number;
-    binarization: 'otsu' | 'sauvola' | 'wolf' | 'auto';
+    binarization: TScanCleanupBinarizationMethod;
     thickness: number;
     normalizeIllumination: boolean;
     despeckle: boolean;
@@ -53,6 +56,62 @@ export interface INativeScanCleanupOptionsV2 {
 export interface INativeScanCleanupOutputV2 {
     outputPath: string;
     metadataPath: string;
+}
+
+/** Additive geometry returned in page/output metadata by protocol-v2 sidecars. */
+export interface INativeScanCleanupSplitResultGeometryV2 {
+    cutterXPx: number | null;
+    /** Existing straight-cut page polygons. Output metadata always supplies these. */
+    splitGeometry?: IScanCleanupPixelPolygon[];
+    /** Optional diagnostic seam. Current renderers continue to use the straight cutter. */
+    splitSeam?: IScanCleanupSplitSeamPolyline;
+}
+
+export interface INativeScanCleanupBinarizationDiagnosticsV2 {
+    route: TScanCleanupBinarizationMethod;
+    robustContrast: number;
+    illuminationDeviation: number;
+    edgeDensity: number;
+    estimatedStrokeWidthPx: number;
+    darkBorderCoverage: number;
+    otsuAdaptiveAgreement: number;
+}
+
+export interface INativeScanCleanupContentSideConfidenceV2 {
+    left: number;
+    top: number;
+    right: number;
+    bottom: number;
+}
+
+/** Optional diagnostics written by render metadata. Older protocol-v2 sidecars omit some fields. */
+export interface INativeScanCleanupRenderDiagnosticsV2 {
+    cutterXPx?: number | null;
+    splitGeometry?: IScanCleanupPixelPolygon[];
+    splitSeam?: IScanCleanupSplitSeamPolyline;
+    detectedSkewDegrees?: number;
+    skewConfidence?: number;
+    skewApplied?: boolean;
+    layoutConfidence?: number;
+    /** Additive split detector abstention signal when supplied by the native implementation. */
+    splitAbstained?: boolean;
+    binarizationMode?: TScanCleanupBinarizationMethod | null;
+    binarizationDiagnostics?: INativeScanCleanupBinarizationDiagnosticsV2 | null;
+    despeckleFallback?: boolean;
+    dewarpConfidence?: number | null;
+    contentDiagnostics?: {sideConfidence: INativeScanCleanupContentSideConfidenceV2};
+}
+
+/** Optional diagnostics written beside each analyzed page. */
+export interface INativeScanCleanupPageDiagnosticsV2 {
+    cutterXPx?: number | null;
+    splitGeometry?: IScanCleanupPixelPolygon[];
+    splitSeam?: IScanCleanupSplitSeamPolyline;
+    layoutConfidence?: number;
+    splitAbstained?: boolean;
+    tier1Verdict?: TScanCleanupLayoutClassification;
+    reconciled?: boolean;
+    clusterAgreement?: number;
 }
 
 export interface INativeScanCleanupPageV2 {

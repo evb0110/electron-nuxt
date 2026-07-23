@@ -50,6 +50,30 @@ describe('effective scan cleanup options', () => {
         }).despeckleLevel).toBe('off');
     });
 
+    it('passes advanced raster controls through to the native options', () => {
+        const effective = resolveEffectiveScanCleanupOptions({
+            options: {
+                ...options,
+                binarization: 'wolf',
+                normalizeIllumination: false,
+                despeckleLevel: 'aggressive',
+                autoDewarp: true,
+            },
+            pageOverride: createScanCleanupPageOverride(),
+            dpi: 300,
+            qualityPath: 'raster',
+            experimental: {autoDewarp: true},
+        });
+
+        expect(effective).toMatchObject({
+            binarization: 'wolf',
+            normalizeIllumination: false,
+            despeckle: true,
+            despeckleLevel: 'aggressive',
+            experimental: {autoDewarp: true},
+        });
+    });
+
     it('keeps bw as policy default while passing mixed mode and manual zones through', () => {
         expect(resolve().outputMode).toBe('bw');
         expect(resolve().manualZones).toEqual({
@@ -151,6 +175,8 @@ describe('effective scan cleanup options', () => {
         });
 
         expect(effective.normalizeIllumination).toBe(false);
+        expect(effective.binarization).toBe('auto');
+        expect(effective.despeckle).toBe(false);
         expect(effective.despeckleLevel).toBe('off');
         expect(effective.experimental.autoDewarp).toBe(false);
     });

@@ -337,6 +337,12 @@ function decodePageOverrides(value: unknown) {
 
 function decodeOptions(options: unknown): IScanCleanupStartRequest['options'] {
     if (!isRecord(options)) throw new Error('invalid scan-cleanup options');
+    const binarization = options.binarization ?? 'auto';
+    const normalizeIllumination = options.normalizeIllumination ?? true;
+    const legacyDespeckle = options.despeckle;
+    const despeckleLevel = options.despeckleLevel
+        ?? (legacyDespeckle === false ? 'off' : 'normal');
+    const autoDewarp = options.autoDewarp ?? false;
     if (
         ![
             'auto',
@@ -349,6 +355,13 @@ function decodeOptions(options: unknown): IScanCleanupStartRequest['options'] {
             'grayscale',
             'color',
         ].includes(String(options.outputMode))
+        || ![
+            'auto',
+            'otsu',
+            'sauvola',
+            'wolf',
+        ].includes(String(binarization))
+        || typeof normalizeIllumination !== 'boolean'
         || typeof options.thickness !== 'number'
         || !Number.isSafeInteger(options.thickness)
         || options.thickness < -5
@@ -356,7 +369,14 @@ function decodeOptions(options: unknown): IScanCleanupStartRequest['options'] {
         || typeof options.crop !== 'boolean'
         || typeof options.matchPageSize !== 'boolean'
         || !SCAN_CLEANUP_ALIGNMENTS.includes(String(options.pageAlignment) as TScanCleanupAlignmentValue)
-        || typeof options.despeckle !== 'boolean'
+        || (legacyDespeckle !== undefined && typeof legacyDespeckle !== 'boolean')
+        || ![
+            'off',
+            'cautious',
+            'normal',
+            'aggressive',
+        ].includes(String(despeckleLevel))
+        || typeof autoDewarp !== 'boolean'
         || ![
             'ltr',
             'rtl',
@@ -369,12 +389,16 @@ function decodeOptions(options: unknown): IScanCleanupStartRequest['options'] {
         preserveOriginalQuality: options.preserveOriginalQuality,
         layoutMode: options.layoutMode as IScanCleanupStartRequest['options']['layoutMode'],
         outputMode: options.outputMode as IScanCleanupStartRequest['options']['outputMode'],
+        ...(options.binarization === undefined ? {} : {binarization: binarization as NonNullable<IScanCleanupStartRequest['options']['binarization']>}),
+        ...(options.normalizeIllumination === undefined ? {} : {normalizeIllumination}),
         thickness: options.thickness,
         crop: options.crop,
         matchPageSize: options.matchPageSize,
         pageAlignment: options.pageAlignment as IScanCleanupStartRequest['options']['pageAlignment'],
         marginsMm,
-        despeckle: options.despeckle,
+        ...(options.despeckleLevel === undefined ? {} : {despeckleLevel: despeckleLevel as NonNullable<IScanCleanupStartRequest['options']['despeckleLevel']>}),
+        ...(legacyDespeckle === undefined ? {} : {despeckle: legacyDespeckle}),
+        ...(options.autoDewarp === undefined ? {} : {autoDewarp}),
         readingOrder: options.readingOrder as IScanCleanupStartRequest['options']['readingOrder'],
         skipBlankPages: options.skipBlankPages,
         pageOverrides: decodePageOverrides(options.pageOverrides),
@@ -504,12 +528,7 @@ function decodeContentDiagnostics(
     }
     const textMask = value.textMask;
     return {
-        sideConfidence: {
-            left: decodeUnitInterval(value.sideConfidence.left, 'content left confidence'),
-            top: decodeUnitInterval(value.sideConfidence.top, 'content top confidence'),
-            right: decodeUnitInterval(value.sideConfidence.right, 'content right confidence'),
-            bottom: decodeUnitInterval(value.sideConfidence.bottom, 'content bottom confidence'),
-        },
+        sideConfidence: decodeContentSideConfidence(value.sideConfidence),
         textMask: {
             analysisWidthPx: decodePositiveInteger(textMask.analysisWidthPx, 'text-mask analysis width'),
             analysisHeightPx: decodePositiveInteger(textMask.analysisHeightPx, 'text-mask analysis height'),
@@ -520,6 +539,52 @@ function decodeContentDiagnostics(
                 : {bounds: decodePreviewRect(textMask.bounds, 'text-mask bounds')}),
         },
     };
+}
+
+function decodeContentSideConfidence(value: unknown) {
+    if (!isRecord(value)) throw new Error('invalid scan-cleanup preview content side confidence');
+    return {
+        left: decodeUnitInterval(value.left, 'content left confidence'),
+        top: decodeUnitInterval(value.top, 'content top confidence'),
+        right: decodeUnitInterval(value.right, 'content right confidence'),
+        bottom: decodeUnitInterval(value.bottom, 'content bottom confidence'),
+    };
+}
+
+function decodeBinarizationDiagnostics(
+    value: unknown,
+): NonNullable<IScanCleanupPreviewMetadata['binarizationDiagnostics']> {
+    if (
+        !isRecord(value)
+        || ![
+            'auto',
+            'otsu',
+            'sauvola',
+            'wolf',
+        ].includes(String(value.route))
+    ) throw new Error('invalid scan-cleanup preview binarization diagnostics');
+    return {
+        route: value.route as NonNullable<IScanCleanupPreviewMetadata['binarizationMode']>,
+        robustContrast: decodeFiniteNumber(value.robustContrast, 'binarization robust contrast'),
+        illuminationDeviation: decodeFiniteNumber(value.illuminationDeviation, 'binarization illumination deviation'),
+        edgeDensity: decodeFiniteNumber(value.edgeDensity, 'binarization edge density'),
+        estimatedStrokeWidthPx: decodeFiniteNumber(value.estimatedStrokeWidthPx, 'binarization stroke width'),
+        darkBorderCoverage: decodeFiniteNumber(value.darkBorderCoverage, 'binarization border coverage'),
+        otsuAdaptiveAgreement: decodeFiniteNumber(value.otsuAdaptiveAgreement, 'binarization agreement'),
+    };
+}
+
+function decodeSplitSeam(value: unknown) {
+    if (!isRecord(value) || !Array.isArray(value.points) || value.points.length < 2) {
+        throw new Error('invalid scan-cleanup preview split seam');
+    }
+    return {points: value.points.map((point, index) => {
+        if (!isRecord(point)) throw new Error(`invalid scan-cleanup preview split seam point ${index}`);
+        return {
+            x: decodeFiniteNumber(point.x, `split seam point ${index} x`),
+            y: decodeFiniteNumber(point.y, `split seam point ${index} y`),
+        };
+    })};
 }
 
 function decodePreviewMetadata(value: unknown): IScanCleanupPreviewMetadata {
@@ -552,11 +617,31 @@ function decodePreviewMetadata(value: unknown): IScanCleanupPreviewMetadata {
         || (value.canvasOverflow !== undefined && typeof value.canvasOverflow !== 'boolean')
         || (value.illuminationNormalized !== undefined && typeof value.illuminationNormalized !== 'boolean')
         || (value.despeckleFallback !== undefined && typeof value.despeckleFallback !== 'boolean')
+        || (value.skewApplied !== undefined && typeof value.skewApplied !== 'boolean')
+        || (value.splitAbstained !== undefined && typeof value.splitAbstained !== 'boolean')
+        || (value.dewarpApplied !== undefined && typeof value.dewarpApplied !== 'boolean')
+        || (value.binarizationMode !== undefined
+            && value.binarizationMode !== null
+            && ![
+                'auto',
+                'otsu',
+                'sauvola',
+                'wolf',
+            ].includes(String(value.binarizationMode)))
     ) throw new Error('invalid scan-cleanup preview metadata');
     const metadata: IScanCleanupPreviewMetadata = {
         half: value.half as IScanCleanupPreviewMetadata['half'],
         layoutClassification: value.layoutClassification as IScanCleanupPreviewMetadata['layoutClassification'],
-        layoutConfidence: decodeUnitInterval(value.layoutConfidence, 'layout confidence'),
+        layoutConfidence: value.layoutConfidence === undefined
+            ? 0
+            : decodeUnitInterval(value.layoutConfidence, 'layout confidence'),
+        ...(value.detectedSkewDegrees === undefined
+            ? {}
+            : {detectedSkewDegrees: decodeFiniteNumber(value.detectedSkewDegrees, 'detected skew')}),
+        ...(value.skewConfidence === undefined
+            ? {}
+            : {skewConfidence: decodeUnitInterval(value.skewConfidence, 'skew confidence')}),
+        ...(value.skewApplied === undefined ? {} : {skewApplied: value.skewApplied}),
         sourceRegion: decodePreviewRect(value.sourceRegion, 'source region'),
         contentBox: value.contentBox === null ? null : decodePreviewRect(value.contentBox, 'content box'),
         cropRect: value.cropRect === undefined
@@ -596,6 +681,8 @@ function decodePreviewMetadata(value: unknown): IScanCleanupPreviewMetadata {
         placementOffsetYPx: decodeNonNegativeInteger(value.placementOffsetYPx, 'placement offset y'),
         forwardTransform: decodePreviewAffine(value.forwardTransform),
         cutterXPx: value.cutterXPx === null ? null : decodeFiniteNumber(value.cutterXPx, 'cutter x'),
+        ...(value.splitSeam === undefined ? {} : {splitSeam: decodeSplitSeam(value.splitSeam)}),
+        ...(value.splitAbstained === undefined ? {} : {splitAbstained: value.splitAbstained}),
         inputWidthPx: decodePositiveInteger(value.inputWidthPx, 'input width'),
         inputHeightPx: decodePositiveInteger(value.inputHeightPx, 'input height'),
         rotationDegrees: value.rotationDegrees as IScanCleanupPreviewMetadata['rotationDegrees'],
@@ -603,8 +690,28 @@ function decodePreviewMetadata(value: unknown): IScanCleanupPreviewMetadata {
             ? 'page'
             : (() => { throw new Error('invalid scan-cleanup preview canvas scope'); })(),
         resamplePasses: decodeNonNegativeInteger(value.resamplePasses, 'resample passes'),
-        illuminationNormalized: value.illuminationNormalized === true,
-        despeckleFallback: value.despeckleFallback === true,
+        ...(value.illuminationNormalized === undefined
+            ? {}
+            : {illuminationNormalized: value.illuminationNormalized}),
+        ...(value.binarizationMode === undefined
+            ? {}
+            : {binarizationMode: value.binarizationMode as NonNullable<
+                IScanCleanupPreviewMetadata['binarizationMode']
+            > | null}),
+        ...(value.binarizationDiagnostics === undefined
+            ? {}
+            : {binarizationDiagnostics: value.binarizationDiagnostics === null
+                ? null
+                : decodeBinarizationDiagnostics(value.binarizationDiagnostics)}),
+        ...(value.despeckleFallback === undefined
+            ? {}
+            : {despeckleFallback: value.despeckleFallback}),
+        ...(value.dewarpConfidence === undefined
+            ? {}
+            : {dewarpConfidence: value.dewarpConfidence === null
+                ? null
+                : decodeUnitInterval(value.dewarpConfidence, 'dewarp confidence')}),
+        ...(value.dewarpApplied === undefined ? {} : {dewarpApplied: value.dewarpApplied}),
         warnings: value.warnings as string[],
     };
     if (
@@ -686,13 +793,27 @@ function decodePreviewPageMetadata(value: unknown): IScanCleanupPreviewResult['p
             || value.clusterAgreement < -1
             || value.clusterAgreement > 1
         ))
+        || (value.splitAbstained !== undefined && typeof value.splitAbstained !== 'boolean')
+        || (value.despeckleFallback !== undefined && typeof value.despeckleFallback !== 'boolean')
+        || (value.autoDewarpAttempted !== undefined && typeof value.autoDewarpAttempted !== 'boolean')
+        || (value.dewarpApplied !== undefined && typeof value.dewarpApplied !== 'boolean')
+        || (value.binarizationMode !== undefined
+            && value.binarizationMode !== null
+            && ![
+                'auto',
+                'otsu',
+                'sauvola',
+                'wolf',
+            ].includes(String(value.binarizationMode)))
     ) throw new Error('invalid scan-cleanup preview page metadata');
     return {
         layoutClassification: value.layoutClassification as IScanCleanupPreviewResult['pageMetadata']['layoutClassification'],
-        layoutConfidence: value.layoutConfidence === undefined
-            ? 0
-            : decodeUnitInterval(value.layoutConfidence, 'page layout confidence'),
+        ...(value.layoutConfidence === undefined
+            ? {}
+            : {layoutConfidence: decodeUnitInterval(value.layoutConfidence, 'page layout confidence')}),
         cutterXPx: value.cutterXPx,
+        ...(value.splitSeam === undefined ? {} : {splitSeam: decodeSplitSeam(value.splitSeam)}),
+        ...(value.splitAbstained === undefined ? {} : {splitAbstained: value.splitAbstained}),
         rotationDegrees: value.rotationDegrees as IScanCleanupPreviewResult['pageMetadata']['rotationDegrees'],
         canvasScope: value.canvasScope === 'document' ? 'document' : value.canvasScope === 'page'
             ? 'page'
@@ -710,6 +831,39 @@ function decodePreviewPageMetadata(value: unknown): IScanCleanupPreviewResult['p
                 if (agreement < -1 || agreement > 1) throw new Error('invalid scan-cleanup cluster agreement');
                 return agreement;
             })(),
+        ...(value.detectedSkewDegrees === undefined
+            ? {}
+            : {detectedSkewDegrees: decodeFiniteNumber(value.detectedSkewDegrees, 'page detected skew')}),
+        ...(value.skewConfidence === undefined
+            ? {}
+            : {skewConfidence: decodeUnitInterval(value.skewConfidence, 'page skew confidence')}),
+        ...(value.binarizationMode === undefined
+            ? {}
+            : {binarizationMode: value.binarizationMode as NonNullable<
+                IScanCleanupPreviewResult['pageMetadata']['binarizationMode']
+            > | null}),
+        ...(value.binarizationDiagnostics === undefined
+            ? {}
+            : {binarizationDiagnostics: value.binarizationDiagnostics === null
+                ? null
+                : decodeBinarizationDiagnostics(value.binarizationDiagnostics)}),
+        ...(value.despeckleFallback === undefined
+            ? {}
+            : {despeckleFallback: value.despeckleFallback}),
+        ...(value.autoDewarpAttempted === undefined
+            ? {}
+            : {autoDewarpAttempted: value.autoDewarpAttempted}),
+        ...(value.dewarpApplied === undefined
+            ? {}
+            : {dewarpApplied: value.dewarpApplied}),
+        ...(value.dewarpConfidence === undefined
+            ? {}
+            : {dewarpConfidence: value.dewarpConfidence === null
+                ? null
+                : decodeUnitInterval(value.dewarpConfidence, 'page dewarp confidence')}),
+        ...(value.contentSideConfidence === undefined
+            ? {}
+            : {contentSideConfidence: decodeContentSideConfidence(value.contentSideConfidence)}),
     };
 }
 
