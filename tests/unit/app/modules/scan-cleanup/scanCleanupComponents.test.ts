@@ -33,7 +33,10 @@ import {updateScanCleanupPageOverrides} from '@app/modules/scan-cleanup/runtime/
 import ScanCleanupPreviewPane from '@app/modules/scan-cleanup/components/preview/PreviewShell.vue';
 import ScanCleanupToolbar from '@app/modules/scan-cleanup/components/ScanCleanupToolbar.vue';
 import ScanCleanupWorkspace from '@app/modules/scan-cleanup/components/ScanCleanupWorkspace.vue';
+import ScanCleanupAutoValueRow from '@app/modules/scan-cleanup/components/settings/ScanCleanupAutoValueRow.vue';
 import ToolbarOverflowMenu from '@app/components/toolbar/ToolbarOverflowMenu.vue';
+import {useScanCleanupDocumentSettings} from '@app/modules/scan-cleanup/composables/useScanCleanupDocumentSettings';
+import {resetScanCleanupPreferencesStore} from '@app/modules/scan-cleanup/runtime/scanCleanupPreferencesStore';
 import type {IScanCleanupTabSessionState} from '@app/modules/workspace-shell/tabs/tabSessionStoreTypes';
 import type {IDocumentPageSource} from '@app/utils/document-viewer/source/documentPageSource';
 
@@ -177,6 +180,7 @@ const translations: Record<string, string> = {
     'scanCleanup.pages.classification.offcut': 'Offcut',
     'scanCleanup.pages.includeInOutput': 'Include in output',
     'scanCleanup.pages.excludedFromOutput': 'Excluded from output',
+    'scanCleanup.pages.excludedBadge': 'Excluded',
     'scanCleanup.preview.unavailable': 'Preview isn\'t available. You can still run cleanup.',
     'scanCleanup.preview.retry': 'Retry',
     'scanCleanup.preview.technicalDetails': 'Technical details',
@@ -205,7 +209,9 @@ const translations: Record<string, string> = {
     'scanCleanup.output.losslessDisabledOptions': 'Raster cleanup options are unavailable in this mode.',
     'scanCleanup.pages.outputModeFollowDocument': 'Follow document setting',
     'scanCleanup.pages.outputModeLosslessControlHint': 'Per-page output mode is unavailable because preserving original quality forces color.',
-    'scanCleanup.contentPreserved': 'Output preserves original page content.',
+    'scanCleanup.imageOnly': 'Output is image-only —',
+    'scanCleanup.rasterNotice': 'Pages are rasterized.',
+    'scanCleanup.lossNotice': 'Original PDF objects are not carried over.',
     'scanCleanup.workspaceTitle': 'Scan cleanup',
     'scanCleanup.button': 'Scan cleanup',
     'scanCleanup.description': 'Clean scanned pages.',
@@ -213,9 +219,11 @@ const translations: Record<string, string> = {
     'scanCleanup.settings.scope.label': 'Settings scope',
     'scanCleanup.settings.scope.all': 'All {count} pages',
     'scanCleanup.settings.scope.page': 'This page (p. {page})',
-    'scanCleanup.settings.scope.pageBadge': 'p. {page}',
     'scanCleanup.settings.scope.selected': 'Selected: {count} pages',
-    'scanCleanup.settings.applyThisPageTo': 'Apply this page to…',
+    'scanCleanup.settings.scope.customized': '{count} customized',
+    'scanCleanup.settings.scope.pageCustomized': 'This page has custom settings',
+    'scanCleanup.settings.applyThisPageTo': 'Copy this page\'s settings to…',
+    'scanCleanup.settings.applyThisPageToHint': 'Choose “This page” above to copy its settings.',
     'scanCleanup.settings.layoutOverride': 'Page layout override',
     'scanCleanup.settings.rotation': 'Rotation',
     'scanCleanup.settings.rotationDegrees': '{value}°',
@@ -229,6 +237,7 @@ const translations: Record<string, string> = {
     'scanCleanup.settings.reset': 'Reset',
     'scanCleanup.settings.automatic': 'Automatic',
     'scanCleanup.settings.manual': 'Manual',
+    'scanCleanup.settings.returnToAutomatic': 'Return to automatic',
     'scanCleanup.settings.selectionAlignment': 'Content placement for selected pages',
     'scanCleanup.settings.contentPlacement': 'Content placement',
     'scanCleanup.settings.enableMatchPageSize': 'Enable match page size',
@@ -240,6 +249,7 @@ const translations: Record<string, string> = {
     'scanCleanup.settings.resetScope.pageBody': 'Clear page {page}',
     'scanCleanup.settings.resetScope.selectedBody': 'Clear {count} selected pages',
     'scanCleanup.settings.applyScopes.allPages': 'All pages',
+    'scanCleanup.settings.applyScopes.menuLabel': 'Copy to',
     'scanCleanup.settings.applyScopes.fromHere': 'From this page on',
     'scanCleanup.settings.applyScopes.selectedPages': 'Selected pages',
     'scanCleanup.settings.applyScopes.everyOther': 'Every other page',
@@ -282,6 +292,8 @@ const translations: Record<string, string> = {
     'scanCleanup.firstRun.dismiss': 'Got it',
     'scanCleanup.blankHint.message': '{count} pages look blank — enable Skip blank pages?',
     'scanCleanup.blankHint.enable': 'Enable',
+    'scanCleanup.zones.toggle': 'Edit picture and fill zones',
+    'scanCleanup.zones.useMixedOutput': 'Use mixed output',
     'common.close': 'Close',
 };
 
@@ -449,6 +461,13 @@ const DropdownMenuStub = defineComponent({
                 item.label,
             ])
             : h('span', item.label))),
+    ]),
+});
+const CollapsibleStub = defineComponent({
+    props: {open: Boolean},
+    setup: (props, {slots}) => () => h('div', [
+        slots.default?.({open: props.open}),
+        slots.content?.(),
     ]),
 });
 const TabsStub = defineComponent({
@@ -634,6 +653,7 @@ function mount(component: Parameters<typeof createApp>[0]) {
     app.component('UBadge', BadgeStub);
     app.component('UButton', ButtonStub);
     app.component('UCheckbox', CheckboxStub);
+    app.component('UCollapsible', CollapsibleStub);
     app.component('UDropdownMenu', DropdownMenuStub);
     app.component('UFormField', SlotStub);
     app.component('UIcon', IconStub);
@@ -918,6 +938,7 @@ function createWorkspaceEntrySession(overrides: Record<string, unknown> = {}) {
         updatePageOverride: vi.fn(),
         updateSelectionExcluded: vi.fn(),
         updateSelectionLayoutOverride: vi.fn(),
+        updateSelectionOutputModeOverride: vi.fn(),
         updateSelectionPlacement: vi.fn(),
         updateSelectionRotation: vi.fn(),
         ...overrides,
@@ -927,9 +948,134 @@ function createWorkspaceEntrySession(overrides: Record<string, unknown> = {}) {
 afterEach(() => {
     for (const unmount of activeUnmounts) unmount();
     document.body.innerHTML = '';
+    localStorage.clear();
+    resetScanCleanupPreferencesStore();
 });
 
 describe('Scan cleanup components', () => {
+    it('renders automatic, manual, and mixed auto-value states and emits reset only from the manual chip', async () => {
+        const state = ref<'auto' | 'manual' | 'mixed'>('auto');
+        const reset = vi.fn();
+        const harness = mount(defineComponent(() => () => h(ScanCleanupAutoValueRow, {
+            label: 'Deskew angle',
+            state: state.value,
+            valueText: '+1.4°',
+            hint: 'Detected angle: 1.2°',
+            onReset: reset,
+        })));
+
+        expect(harness.host.querySelector('[data-auto-value-state="auto"]')?.textContent?.trim()).toBe('Automatic');
+        expect(harness.host.querySelector('.scan-cleanup-auto-value-reset')).toBeNull();
+        expect(harness.host.textContent).toContain('Detected angle: 1.2°');
+
+        state.value = 'manual';
+        await nextTick();
+        expect(harness.host.querySelector('[data-auto-value-state="manual"]')?.textContent).toContain('+1.4°');
+        harness.host.querySelector<HTMLButtonElement>('.scan-cleanup-auto-value-reset')?.click();
+        expect(reset).toHaveBeenCalledOnce();
+
+        state.value = 'mixed';
+        await nextTick();
+        expect(harness.host.querySelector('[data-auto-value-state="mixed"]')?.textContent?.trim()).toBe('Mixed');
+        expect(harness.host.querySelector('.scan-cleanup-auto-value-reset')).toBeNull();
+    });
+
+    it('normalizes persisted document mixed output to Auto and exposes Auto/B&W/Gray/Color labels', () => {
+        localStorage.setItem('evb.scanCleanup.documentOverrides.v1', JSON.stringify({'document-mixed': {
+            outputMode: 'mixed',
+            updatedAt: 1,
+        }}));
+        let documentSettings: ReturnType<typeof useScanCleanupDocumentSettings> | undefined;
+        mount(defineComponent({setup: () => {
+            documentSettings = useScanCleanupDocumentSettings({
+                documentLifecycleKey: computed(() => 'lifecycle-mixed'),
+                preferenceDocumentKey: computed(() => 'document-mixed'),
+            });
+            return () => h('div');
+        }}));
+
+        expect(documentSettings?.values.outputMode).toBe('auto');
+        expect(documentSettings?.outputItems.value.map(item => [
+            item.value,
+            item.label,
+            item.fullLabel,
+        ])).toEqual([
+            [
+                'auto',
+                'scanCleanup.output.autoShort',
+                'scanCleanup.output.autoDescription',
+            ],
+            [
+                'bw',
+                'scanCleanup.output.bwShort',
+                'Black and white',
+            ],
+            [
+                'grayscale',
+                'scanCleanup.output.grayscaleShort',
+                'Grayscale',
+            ],
+            [
+                'color',
+                'scanCleanup.output.colorShort',
+                'Color',
+            ],
+        ]);
+        const persisted = JSON.parse(
+            localStorage.getItem('evb.scanCleanup.documentOverrides.v1') ?? '{}',
+        ) as Record<string, {outputMode?: string}>;
+        expect(persisted['document-mixed']?.outputMode).toBe('auto');
+    });
+
+    it('applies mixed output only to the current page from the zone editor', async () => {
+        const updateSelectionOutputModeOverride = vi.fn();
+        const settings = reactive({
+            preserveOriginalQuality: true,
+            layoutMode: 'auto' as const,
+            outputMode: 'color' as const,
+            readingOrder: 'ltr' as const,
+            thickness: 0,
+            crop: false,
+            matchPageSize: true,
+            pageAlignment: 'top-center' as const,
+            marginsMm: {
+                leftMm: 0,
+                topMm: 0,
+                rightMm: 0,
+                bottomMm: 0,
+            },
+            despeckle: false,
+            skipBlankPages: false,
+            pageOverrides: {},
+        });
+        workspaceSession.value = createWorkspaceEntrySession({
+            currentPageOverride: ref(createScanCleanupPageOverride()),
+            detectionPending: ref(false),
+            previewLoading: ref(false),
+            previewResult: shallowRef(spreadPreviewResult(2)),
+            previewTotalPages: ref(3),
+            selectionLeader: ref(2),
+            selectedPages: ref(new Set([2])),
+            settings,
+            updateSelectionOutputModeOverride,
+        });
+        const harness = mount(defineComponent(() => () => h(ScanCleanupWorkspace, {
+            sourcePath: null,
+            totalPages: 3,
+        })));
+
+        harness.host.querySelector<HTMLButtonElement>('.scan-cleanup-toolbar-zone-editor')?.click();
+        await nextTick();
+        const useMixed = Array.from(harness.host.querySelectorAll<HTMLButtonElement>('button'))
+            .find(button => button.textContent?.trim() === 'Use mixed output');
+        expect(useMixed).not.toBeUndefined();
+        useMixed?.click();
+
+        expect(settings.preserveOriginalQuality).toBe(false);
+        expect(settings.outputMode).toBe('color');
+        expect(updateSelectionOutputModeOverride).toHaveBeenCalledWith('mixed', [2]);
+    });
+
     it('offers to enable blank-page skipping after detection and remains dismissible', async () => {
         const blankPageCount = ref(2);
         const settings = reactive({
@@ -1282,7 +1428,7 @@ describe('Scan cleanup components', () => {
         expect(outputModeOptions[0]?.textContent).toContain('Auto');
         expect(outputModeOptions.every(option => option.disabled)).toBe(true);
         expect(harness.host.textContent).toContain('Raster cleanup options are unavailable in this mode.');
-        expect(harness.host.textContent).toContain('Output preserves original page content.');
+        expect(harness.host.querySelector('.scan-cleanup-footnote')).toBeNull();
         losslessToggle!.checked = false;
         losslessToggle!.dispatchEvent(new Event('change', {bubbles: true}));
         await nextTick();
@@ -1661,6 +1807,14 @@ describe('Scan cleanup components', () => {
         expect(harness.host.querySelector('[data-override-count="layout"]')?.textContent).toBe('1');
         expect(harness.host.querySelector('[data-override-count="margins"]')?.getAttribute('title'))
             .toBe('1 pages override this');
+        expect(harness.host.querySelector('[data-customized-scope="all"]')?.textContent?.trim())
+            .toBe('2 customized');
+        const disabledApply = Array.from(harness.host.querySelectorAll<HTMLButtonElement>('button'))
+            .find(button => button.textContent?.includes('Copy this page\'s settings to…'));
+        expect(disabledApply?.disabled).toBe(true);
+        expect(disabledApply?.getAttribute('aria-describedby')).toBe('scan-cleanup-apply-page-hint');
+        expect(harness.host.querySelector('#scan-cleanup-apply-page-hint')?.textContent)
+            .toContain('Choose “This page” above');
 
         const layout = harness.host.querySelector<HTMLSelectElement>('[aria-label="Page layout"]')!;
         layout.value = 'force-two-page';
@@ -1676,6 +1830,8 @@ describe('Scan cleanup components', () => {
         harness.host.querySelector<HTMLButtonElement>('[data-settings-scope="selected"]')?.click();
         await nextTick();
         expect(settingsScope.value).toBe('selected');
+        expect(harness.host.querySelector('[data-customized-scope="selected"]')?.textContent?.trim())
+            .toBe('2 customized');
         expect(harness.host.textContent).toContain('— Mixed');
         const outputMode = harness.host.querySelector<HTMLSelectElement>(
             '[aria-label="Output mode for pages"]',
@@ -1709,6 +1865,9 @@ describe('Scan cleanup components', () => {
         harness.host.querySelector<HTMLButtonElement>('[data-settings-scope="page"]')?.click();
         await nextTick();
         expect(settingsScope.value).toBe('page');
+        expect(harness.host.querySelector('[data-customized-scope="page"] .sr-only')?.textContent)
+            .toBe('This page has custom settings');
+        expect(harness.host.querySelector('#scan-cleanup-apply-page-hint')).toBeNull();
         layout.value = 'keep-left';
         layout.dispatchEvent(new Event('change', {bubbles: true}));
         await nextTick();
@@ -1743,7 +1902,8 @@ describe('Scan cleanup components', () => {
         expect(harness.host.querySelector('[data-reset-override="margins"]')).toBeNull();
         expect(harness.host.querySelector<HTMLInputElement>('[data-margin-side="leftMm"]')?.value).toBe('5');
 
-        expect(harness.host.textContent).toContain('Apply this page to…');
+        expect(harness.host.textContent).toContain('Copy this page\'s settings to…');
+        expect(harness.host.querySelector('[role="menu"]')?.textContent).toContain('Copy to');
         Array.from(harness.host.querySelectorAll<HTMLButtonElement>('[role="menuitem"]'))
             .find(item => item.textContent === 'Every other page')
             ?.click();

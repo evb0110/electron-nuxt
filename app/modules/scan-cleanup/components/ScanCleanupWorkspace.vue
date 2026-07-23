@@ -72,6 +72,7 @@
                     :alignment-items="alignmentItems"
                     :apply-scope-items="applyScopeItems"
                     :content-boxes="scopeContentBoxes"
+                    :customized-counts="scopeCustomizedCounts"
                     :excluded="scopeExcluded"
                     :has-scope-overrides="hasScopeOverrides"
                     :highlighted-scope="highlightedScope"
@@ -364,6 +365,16 @@ const scopePageNumbers = computed(() => settingsScope.value === 'all'
         : [...selectedPages.value].sort((left, right) => left - right));
 const scopePageOverrides = computed(() => scopePageNumbers.value
     .map(page => getScanCleanupPageOverride(settings.pageOverrides, page)));
+const scopeCustomizedCounts = computed(() => {
+    const customizedPages = new Set(Object.keys(settings.pageOverrides)
+        .map(Number)
+        .filter(page => Number.isInteger(page) && page >= 1 && page <= previewTotalPages.value));
+    return {
+        all: customizedPages.size,
+        page: customizedPages.has(selectionLeader.value) ? 1 : 0,
+        selected: [...selectedPages.value].filter(page => customizedPages.has(page)).length,
+    };
+});
 const scopeLayout = computed(() => settingsScope.value === 'all'
     ? resolveScanCleanupMixedValue([settings.layoutMode])
     : resolveScanCleanupMixedValue(scopePageOverrides.value.map(override => override.layoutOverride)));
@@ -566,30 +577,39 @@ const scopeInclusionItems = computed(() => [
         label: t('scanCleanup.pages.excludedFromOutput'),
     },
 ]);
-const applyScopeItems = computed(() => ([
-    [
-        'all',
-        'allPages',
-    ],
-    [
-        'from-here',
-        'fromHere',
-    ],
-    [
-        'every-other',
-        'everyOther',
-    ],
-    ...(selectedPages.value.size >= 2 ? [[
-        'selected',
-        'selectedPages',
-    ] as const] : []),
-] as const).map(([
-    scope,
-    label,
-]) => ({
-    label: t(`scanCleanup.settings.applyScopes.${label}`),
-    onSelect: () => applyLeaderOverrides(scope),
-})));
+const applyScopeItems = computed(() => {
+    const actions = ([
+        [
+            'all',
+            'allPages',
+        ],
+        [
+            'from-here',
+            'fromHere',
+        ],
+        [
+            'every-other',
+            'everyOther',
+        ],
+        ...(selectedPages.value.size >= 2 ? [[
+            'selected',
+            'selectedPages',
+        ] as const] : []),
+    ] as const).map(([
+        scope,
+        label,
+    ]) => ({
+        label: t(`scanCleanup.settings.applyScopes.${label}`),
+        onSelect: () => applyLeaderOverrides(scope),
+    }));
+    return [
+        {
+            type: 'label' as const,
+            label: t('scanCleanup.settings.applyScopes.menuLabel'),
+        },
+        ...actions,
+    ];
+});
 
 function done() {
     emit('done');
@@ -604,7 +624,7 @@ function updateDocumentSetting(
 
 function useMixedOutput() {
     settings.preserveOriginalQuality = false;
-    settings.outputMode = 'mixed';
+    updateSelectionOutputModeOverride('mixed', [previewPage.value]);
 }
 
 function handleScopeLayout(value: string | number) {
@@ -921,24 +941,16 @@ watch(isRunning, running => {
     gap: var(--app-space-3xl);
 }
 
-.scan-cleanup-selection-field-label,
-.scan-cleanup-selection-reset-row,
-.scan-cleanup-selection-reset-row > div {
+.scan-cleanup-selection-field-label {
     display: flex;
     align-items: center;
     gap: var(--app-space-sm);
 }
 
-.scan-cleanup-selection-field-label,
-.scan-cleanup-selection-reset-row {
+.scan-cleanup-selection-field-label {
     justify-content: space-between;
     color: var(--ui-text);
     font-size: var(--app-text-size-body-sm);
-}
-
-.scan-cleanup-selection-reset-row > div {
-    min-width: 0;
-    flex-wrap: wrap;
 }
 
 .scan-cleanup-footnote {

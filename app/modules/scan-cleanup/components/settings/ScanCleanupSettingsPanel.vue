@@ -47,6 +47,7 @@
             <div class="scan-cleanup-scope-area">
             <ScanCleanupScopeSelector
                 :model-value="scope"
+                :customized-counts="customizedCounts"
                 :highlighted-scope="highlightedScope"
                 :page-number="pageNumber"
                 :selected-count="selectedCount"
@@ -300,68 +301,37 @@
                 />
             </div>
 
-            <div class="scan-cleanup-selection-reset-row">
-                <div class="scan-cleanup-selection-field scan-cleanup-deskew-control">
-                    <UFormField :label="t('scanCleanup.settings.manualSkew')">
-                        <UInputNumber
-                            :model-value="manualSkew.mixed ? null : manualSkew.value ?? null"
-                            :min="SCAN_CLEANUP_MANUAL_SKEW_MIN_DEGREES"
-                            :max="SCAN_CLEANUP_MANUAL_SKEW_MAX_DEGREES"
-                            :step="0.1"
-                            :placeholder="t('scanCleanup.settings.automatic')"
-                            :disabled="settings.preserveOriginalQuality === true"
-                            @update:model-value="emitManualSkew"
-                        />
-                    </UFormField>
-                    <p
-                        v-if="!manualSkew.mixed
-                            && manualSkew.value === undefined
-                            && detectedSkewDegrees !== undefined"
-                        class="scan-cleanup-selection-hint"
-                    >
-                        {{ t('scanCleanup.settings.detectedSkew', {angle: detectedSkewDegrees.toFixed(1)}) }}
-                    </p>
-                </div>
-                <UButton
-                    type="button"
-                    color="neutral"
-                    variant="outline"
-                    size="xs"
-                    :label="t('scanCleanup.settings.resetToAutomatic')"
-                    :disabled="!manualSkew.mixed && manualSkew.value === undefined"
-                    @click="$emit('reset-manual-skew')"
-                />
-            </div>
-            <div class="scan-cleanup-selection-reset-row">
-                <div>
-                    <span>{{ t('scanCleanup.settings.manualSplit') }}</span>
-                    <UBadge color="neutral" variant="soft" size="sm">{{ manualSplitLabel }}</UBadge>
-                </div>
-                <UButton
-                    type="button"
-                    color="neutral"
-                    variant="outline"
-                    size="xs"
-                    :label="t('scanCleanup.settings.reset')"
-                    :disabled="!manualSplit.mixed && manualSplit.value === null"
-                    @click="$emit('reset-manual-split')"
-                />
-            </div>
-            <div class="scan-cleanup-selection-reset-row">
-                <div>
-                    <span>{{ t('scanCleanup.settings.contentBox') }}</span>
-                    <UBadge color="neutral" variant="soft" size="sm">{{ contentBoxesLabel }}</UBadge>
-                </div>
-                <UButton
-                    type="button"
-                    color="neutral"
-                    variant="outline"
-                    size="xs"
-                    :label="t('scanCleanup.settings.reset')"
-                    :disabled="!hasContentBoxes"
-                    @click="$emit('reset-content-boxes')"
-                />
-            </div>
+            <ScanCleanupAutoValueRow
+                :label="t('scanCleanup.settings.manualSkew')"
+                :state="manualSkewState"
+                :value-text="manualSkewValueText"
+                :hint="manualSkewHint"
+                :disabled="settings.preserveOriginalQuality === true"
+                @reset="$emit('reset-manual-skew')"
+            >
+                <template #entry>
+                    <UInputNumber
+                        :model-value="manualSkew.mixed ? null : manualSkew.value ?? null"
+                        :min="SCAN_CLEANUP_MANUAL_SKEW_MIN_DEGREES"
+                        :max="SCAN_CLEANUP_MANUAL_SKEW_MAX_DEGREES"
+                        :step="0.1"
+                        :placeholder="t('scanCleanup.settings.automatic')"
+                        :aria-label="t('scanCleanup.settings.manualSkew')"
+                        :disabled="settings.preserveOriginalQuality === true"
+                        @update:model-value="emitManualSkew"
+                    />
+                </template>
+            </ScanCleanupAutoValueRow>
+            <ScanCleanupAutoValueRow
+                :label="t('scanCleanup.settings.manualSplit')"
+                :state="manualSplitState"
+                @reset="$emit('reset-manual-split')"
+            />
+            <ScanCleanupAutoValueRow
+                :label="t('scanCleanup.settings.contentBox')"
+                :state="contentBoxesState"
+                @reset="$emit('reset-content-boxes')"
+            />
 
             <div class="scan-cleanup-selection-field">
                 <div class="scan-cleanup-selection-field-label">
@@ -423,23 +393,32 @@
                 </p>
             </div>
 
-            <UDropdownMenu
-                :items="applyScopeItems"
-                :content="{side: 'bottom', align: 'end'}"
-                :disabled="scope !== 'page'"
-            >
-                <UButton
-                    type="button"
-                    class="scan-cleanup-apply-page"
-                    color="neutral"
-                    variant="outline"
-                    size="sm"
-                    :label="t('scanCleanup.settings.applyThisPageTo')"
-                    trailing-icon="i-ph-caret-down"
+            <div class="scan-cleanup-apply-page-area">
+                <UDropdownMenu
+                    :items="applyScopeItems"
+                    :content="{side: 'bottom', align: 'end'}"
                     :disabled="scope !== 'page'"
-                    :title="scope === 'page' ? undefined : t('scanCleanup.settings.applyThisPageToHint')"
-                />
-            </UDropdownMenu>
+                >
+                    <UButton
+                        type="button"
+                        class="scan-cleanup-apply-page"
+                        color="neutral"
+                        variant="outline"
+                        size="sm"
+                        :label="t('scanCleanup.settings.applyThisPageTo')"
+                        trailing-icon="i-ph-caret-down"
+                        :disabled="scope !== 'page'"
+                        :aria-describedby="scope === 'page' ? undefined : applyPageHintId"
+                    />
+                </UDropdownMenu>
+                <p
+                    v-if="scope !== 'page'"
+                    :id="applyPageHintId"
+                    class="scan-cleanup-selection-hint"
+                >
+                    {{ t('scanCleanup.settings.applyThisPageToHint') }}
+                </p>
+            </div>
         </section>
 
         <section class="scan-cleanup-option-group">
@@ -504,11 +483,27 @@
                 :disabled="settings.preserveOriginalQuality === true"
                 @update:model-value="updateDocument('skipBlankPages', $event === true)"
             />
-            <details class="scan-cleanup-advanced">
-                <summary class="scan-cleanup-advanced-toggle">
-                    <span>{{ t('scanCleanup.advanced.title') }}</span>
-                </summary>
-                <div class="scan-cleanup-advanced-content">
+            <UCollapsible
+                v-model:open="advancedOpen"
+                :unmount-on-hide="false"
+                class="scan-cleanup-advanced"
+            >
+                <template #default="{open: isAdvancedOpen}">
+                    <button
+                        type="button"
+                        class="scan-cleanup-advanced-toggle"
+                        :aria-expanded="isAdvancedOpen ? 'true' : 'false'"
+                    >
+                        <UIcon
+                            :name="isAdvancedOpen ? 'i-ph-caret-down' : 'i-ph-caret-right'"
+                            class="scan-cleanup-advanced-icon"
+                            aria-hidden="true"
+                        />
+                        <span>{{ t('scanCleanup.advanced.title') }}</span>
+                    </button>
+                </template>
+                <template #content>
+                    <div class="scan-cleanup-advanced-content">
                         <UFormField :label="t('scanCleanup.advanced.binarization.label')">
                             <USelect
                                 :model-value="settings.binarization ?? 'auto'"
@@ -543,38 +538,35 @@
                             :disabled="settings.preserveOriginalQuality === true"
                             @update:model-value="updateDocument('autoDewarp', $event === true)"
                         />
-                        <div class="scan-cleanup-selection-reset-row">
-                            <UFormField :label="t('scanCleanup.advanced.autoDewarpDepth')">
+                        <ScanCleanupAutoValueRow
+                            :label="t('scanCleanup.advanced.autoDewarpDepth')"
+                            :state="autoDewarpDepthState"
+                            :disabled="autoDewarpDepthDisabled"
+                            @reset="updateDocument('autoDewarpDepth', undefined)"
+                        >
+                            <template #entry>
                                 <UInputNumber
                                     :model-value="settings.autoDewarpDepth ?? null"
                                     :min="SCAN_CLEANUP_AUTO_DEWARP_DEPTH_MIN"
                                     :max="SCAN_CLEANUP_AUTO_DEWARP_DEPTH_MAX"
                                     :step="0.1"
                                     :placeholder="t('scanCleanup.advanced.autoDewarpDepthAutomatic')"
-                                    :disabled="settings.preserveOriginalQuality === true
-                                        || !(settings.autoDewarp ?? false)"
+                                    :aria-label="t('scanCleanup.advanced.autoDewarpDepth')"
+                                    :disabled="autoDewarpDepthDisabled"
                                     @update:model-value="emitAutoDewarpDepth"
                                 />
-                            </UFormField>
-                            <UButton
-                                type="button"
-                                color="neutral"
-                                variant="outline"
-                                size="xs"
-                                :label="t('scanCleanup.settings.reset')"
-                                :disabled="settings.autoDewarpDepth === undefined"
-                                @click="updateDocument('autoDewarpDepth', undefined)"
-                            />
-                        </div>
+                            </template>
+                        </ScanCleanupAutoValueRow>
                         <p v-if="settings.preserveOriginalQuality" class="scan-cleanup-selection-hint">
                             {{ t('scanCleanup.advanced.losslessDisabled') }}
                         </p>
-                </div>
-            </details>
+                    </div>
+                </template>
+            </UCollapsible>
         </section>
 
-        <div class="scan-cleanup-footnote">
-            <span>{{ t(settings.preserveOriginalQuality ? 'scanCleanup.contentPreserved' : 'scanCleanup.imageOnly') }}</span>
+        <div v-if="!settings.preserveOriginalQuality" class="scan-cleanup-footnote">
+            <span>{{ t('scanCleanup.imageOnly') }}</span>
             <UPopover>
                 <UButton
                     type="button"
@@ -587,14 +579,8 @@
                 />
                 <template #content>
                     <div class="scan-cleanup-details-popover">
-                        <template v-if="settings.preserveOriginalQuality">
-                            <p>{{ t('scanCleanup.losslessNotice') }}</p>
-                            <p>{{ t('scanCleanup.losslessLimitNotice') }}</p>
-                        </template>
-                        <template v-else>
-                            <p>{{ t('scanCleanup.rasterNotice') }}</p>
-                            <p>{{ t('scanCleanup.lossNotice') }}</p>
-                        </template>
+                        <p>{{ t('scanCleanup.rasterNotice') }}</p>
+                        <p>{{ t('scanCleanup.lossNotice') }}</p>
                     </div>
                 </template>
             </UPopover>
@@ -622,6 +608,7 @@ import {
     SCAN_CLEANUP_MANUAL_SKEW_MIN_DEGREES,
     SCAN_CLEANUP_MARGIN_MAX_MM,
 } from '@contracts/electronApiScanCleanup';
+import ScanCleanupAutoValueRow from '@app/modules/scan-cleanup/components/settings/ScanCleanupAutoValueRow.vue';
 import ScanCleanupScopeSelector from '@app/modules/scan-cleanup/components/settings/ScanCleanupScopeSelector.vue';
 import ScanCleanupSegmented from '@app/modules/scan-cleanup/components/ScanCleanupSegmented.vue';
 import type {
@@ -653,11 +640,18 @@ const props = defineProps<{
         icon: string;
         label: string;
     }>;
-    applyScopeItems: Array<{
-        label: string;
-        onSelect: () => void;
-    }>;
+    applyScopeItems: Array<
+        | {
+            label: string;
+            type: 'label';
+        }
+        | {
+            label: string;
+            onSelect: () => void;
+        }
+    >;
     contentBoxes: IScanCleanupMixedValue<Partial<Record<TScanCleanupOutputHalf, IScanCleanupNormalizedRect>>>;
+    customizedCounts: Record<TScanCleanupSettingsScope, number>;
     detectedSkewDegrees: number | undefined;
     excluded: IScanCleanupMixedValue<boolean>;
     hasScopeOverrides: boolean;
@@ -705,6 +699,8 @@ const emit = defineEmits<{
 }>();
 const {t} = useTypedI18n();
 const resetOpen = ref(false);
+const advancedOpen = ref(false);
+const applyPageHintId = 'scan-cleanup-apply-page-hint';
 const binarizationItems = computed(() => ([
     'auto',
     'otsu',
@@ -732,14 +728,32 @@ const outputModeOverrideModelValue = computed(() => props.outputModeOverride.mix
 const inclusionModelValue = computed(() => props.excluded.mixed
     ? 'mixed'
     : props.excluded.value ? 'excluded' : 'included');
-const manualSplitLabel = computed(() => props.manualSplit.mixed
-    ? t('scanCleanup.settings.mixed')
-    : props.manualSplit.value === null ? t('scanCleanup.settings.automatic') : t('scanCleanup.settings.manual'));
 const hasContentBoxes = computed(() => props.contentBoxes.mixed
     || Object.keys(props.contentBoxes.value ?? {}).length > 0);
-const contentBoxesLabel = computed(() => props.contentBoxes.mixed
-    ? t('scanCleanup.settings.mixed')
-    : hasContentBoxes.value ? t('scanCleanup.settings.manual') : t('scanCleanup.settings.automatic'));
+const manualSkewState = computed(() => props.manualSkew.mixed
+    ? 'mixed'
+    : props.manualSkew.value === undefined ? 'auto' : 'manual');
+const manualSkewValueText = computed(() => {
+    const value = props.manualSkew.value;
+    if (props.manualSkew.mixed || value === undefined) {
+        return undefined;
+    }
+    return `${value > 0 ? '+' : ''}${value.toFixed(1)}°`;
+});
+const manualSkewHint = computed(() => !props.manualSkew.mixed
+    && props.manualSkew.value === undefined
+    && props.detectedSkewDegrees !== undefined
+    ? t('scanCleanup.settings.detectedSkew', {angle: props.detectedSkewDegrees.toFixed(1)})
+    : undefined);
+const manualSplitState = computed(() => props.manualSplit.mixed
+    ? 'mixed'
+    : props.manualSplit.value === null ? 'auto' : 'manual');
+const contentBoxesState = computed(() => props.contentBoxes.mixed
+    ? 'mixed'
+    : hasContentBoxes.value ? 'manual' : 'auto');
+const autoDewarpDepthState = computed(() => props.settings.autoDewarpDepth === undefined ? 'auto' : 'manual');
+const autoDewarpDepthDisabled = computed(() => props.settings.preserveOriginalQuality === true
+    || !(props.settings.autoDewarp ?? false));
 const resetLabel = computed(() => t(`scanCleanup.settings.resetScope.${props.scope}`));
 const resetConfirmationBody = computed(() => t(`scanCleanup.settings.resetScope.${props.scope}Body`, {
     count: props.scope === 'selected' ? props.selectedCount : props.totalPages,
@@ -824,16 +838,45 @@ function updateDocument(key: keyof IScanCleanupOptions, value: unknown) {
 .scan-cleanup-advanced,
 .scan-cleanup-advanced-content {
     display: grid;
+}
+
+.scan-cleanup-advanced-content {
     gap: var(--app-space-3xl);
 }
 
 .scan-cleanup-advanced-toggle {
     display: flex;
     align-items: center;
-    gap: var(--app-space-sm);
+    gap: var(--app-space-lg);
+    border: 0;
+    background: transparent;
+    padding: 0;
     color: var(--ui-text);
     cursor: pointer;
     font-size: var(--app-text-size-body-sm);
+    font-weight: var(--app-font-weight-medium);
+}
+
+.scan-cleanup-advanced-toggle:focus-visible {
+    border-radius: var(--app-radius-sm);
+    outline: var(--app-hairline-height) solid var(--ui-primary);
+    outline-offset: var(--app-space-xs);
+}
+
+.scan-cleanup-advanced-icon {
+    width: var(--app-icon-size-xs);
+    height: var(--app-icon-size-xs);
+    flex: none;
+    color: var(--ui-text-dimmed);
+}
+
+.scan-cleanup-advanced-content {
+    padding-top: var(--app-space-sm);
+}
+
+.scan-cleanup-apply-page-area {
+    display: grid;
+    gap: var(--app-space-sm);
 }
 
 .scan-cleanup-apply-page {

@@ -130,11 +130,6 @@ export const useScanCleanupDocumentSettings = (options: IUseScanCleanupDocumentS
             fullLabel: t('scanCleanup.output.bw'),
         },
         {
-            value: 'mixed' as const,
-            label: t('scanCleanup.output.mixedShort'),
-            fullLabel: t('scanCleanup.output.mixed'),
-        },
-        {
             value: 'grayscale' as const,
             label: t('scanCleanup.output.grayscaleShort'),
             fullLabel: t('scanCleanup.output.grayscale'),
@@ -199,7 +194,16 @@ export const useScanCleanupDocumentSettings = (options: IUseScanCleanupDocumentS
 
     watch(options.documentLifecycleKey, () => {
         values.pageOverrides = loadScanCleanupDocumentOverrides(options.preferenceDocumentKey.value);
-        values.outputMode = loadScanCleanupDocumentOutputMode(options.preferenceDocumentKey.value);
+        const persistedOutputMode = loadScanCleanupDocumentOutputMode(options.preferenceDocumentKey.value);
+        values.outputMode = persistedOutputMode === 'mixed'
+            ? DEFAULT_SCAN_CLEANUP_DOCUMENT_OUTPUT_MODE
+            : persistedOutputMode;
+        if (persistedOutputMode === 'mixed') {
+            saveScanCleanupDocumentOutputMode(
+                options.preferenceDocumentKey.value,
+                DEFAULT_SCAN_CLEANUP_DOCUMENT_OUTPUT_MODE,
+            );
+        }
         Object.assign(values.marginsMm, loadScanCleanupDocumentMargins(options.preferenceDocumentKey.value)
             ?? preferences.marginsMm);
         marginsLinked.value = scanCleanupMarginsUniform(values.marginsMm);

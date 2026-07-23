@@ -100,6 +100,7 @@ function handleKeydown(event: KeyboardEvent, index: number) {
     color: var(--ui-text-muted);
     font-size: var(--app-text-size-body-sm);
     font-weight: var(--app-font-weight-semibold);
+    white-space: nowrap;
     cursor: pointer;
     transition:
         background-color var(--app-transition-fast),
