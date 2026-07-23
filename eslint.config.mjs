@@ -19,6 +19,8 @@ const ABSOLUTE_IMPORT_SOURCE_FILES = [
 
 export default withNuxt(
     {ignores: [
+        '!app/modules/**/public/**',
+        '!electron/features/**/public/**',
         '**/.devkit/**',
         'landing/**',
         'eslint.config.mjs',
