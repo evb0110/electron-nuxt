@@ -13,6 +13,16 @@ import {
     type IDjvuInvokeMap,
 } from '@contracts/djvuPlatformFeature';
 import {
+    DOCUMENT_MENU_PLATFORM_FEATURE,
+    DOCUMENT_PICKER_PLATFORM_FEATURE,
+    DOCUMENT_RECENT_FILES_PLATFORM_FEATURE,
+    DOCUMENT_WINDOW_PLATFORM_FEATURE,
+    type IDocumentMenuInvokeMap,
+    type IDocumentPickerInvokeMap,
+    type IDocumentRecentFilesInvokeMap,
+    type IDocumentWindowInvokeMap,
+} from '@contracts/documentsPlatformFeature';
+import {
     IMAGE_EXPORT_PLATFORM_FEATURE,
     type IImageExportInvokeMap,
 } from '@contracts/imageExportPlatformFeature';
@@ -94,6 +104,128 @@ async function runCases<TMap extends Record<keyof TMap, {
 }
 
 describe('feature validated IPC decoders', () => {
+    it('exhaustively validates the migrated documents registrar tuples', async () => {
+        type TPickerBindings = TFeatureMainBindings<
+            typeof DOCUMENT_PICKER_PLATFORM_FEATURE,
+            IpcMainInvokeEvent
+        >;
+        const pickerChannels = DOCUMENT_PICKER_PLATFORM_FEATURE.invokeChannels;
+        await runCases<IDocumentPickerInvokeMap, TPickerBindings>({
+            channels: pickerChannels,
+            codecs: cast<Parameters<
+                typeof runCases<IDocumentPickerInvokeMap, TPickerBindings>
+            >[0]['codecs']>(DOCUMENT_PICKER_PLATFORM_FEATURE.ipcCodecs),
+            register: (registrar, bindings) => registerPlatformFeatureHandlers(
+                cast<Parameters<typeof registerPlatformFeatureHandlers>[0]>(registrar),
+                DOCUMENT_PICKER_PLATFORM_FEATURE,
+                bindings,
+            ),
+            cases: [
+                {
+                    channel: pickerChannels.openDocumentDialog,
+                    validArgs: [],
+                },
+                {
+                    channel: pickerChannels.openCombineDialog,
+                    validArgs: [],
+                },
+                {
+                    channel: pickerChannels.openFolderDialog,
+                    validArgs: [],
+                },
+                {
+                    channel: pickerChannels.openImageDialog,
+                    validArgs: [],
+                },
+            ],
+        });
+
+        type TRecentFilesBindings = TFeatureMainBindings<
+            typeof DOCUMENT_RECENT_FILES_PLATFORM_FEATURE,
+            IpcMainInvokeEvent
+        >;
+        const recentFilesChannels = DOCUMENT_RECENT_FILES_PLATFORM_FEATURE.invokeChannels;
+        await runCases<IDocumentRecentFilesInvokeMap, TRecentFilesBindings>({
+            channels: recentFilesChannels,
+            codecs: cast<Parameters<
+                typeof runCases<IDocumentRecentFilesInvokeMap, TRecentFilesBindings>
+            >[0]['codecs']>(DOCUMENT_RECENT_FILES_PLATFORM_FEATURE.ipcCodecs),
+            register: (registrar, bindings) => registerPlatformFeatureHandlers(
+                cast<Parameters<typeof registerPlatformFeatureHandlers>[0]>(registrar),
+                DOCUMENT_RECENT_FILES_PLATFORM_FEATURE,
+                bindings,
+            ),
+            cases: [
+                {
+                    channel: recentFilesChannels.get,
+                    validArgs: [],
+                },
+                {
+                    channel: recentFilesChannels.remove,
+                    validArgs: ['/tmp/recent.pdf'],
+                },
+                {
+                    channel: recentFilesChannels.clear,
+                    validArgs: [],
+                },
+            ],
+        });
+
+        type TWindowBindings = TFeatureMainBindings<
+            typeof DOCUMENT_WINDOW_PLATFORM_FEATURE,
+            IpcMainInvokeEvent
+        >;
+        const windowChannels = DOCUMENT_WINDOW_PLATFORM_FEATURE.invokeChannels;
+        await runCases<IDocumentWindowInvokeMap, TWindowBindings>({
+            channels: windowChannels,
+            codecs: cast<Parameters<
+                typeof runCases<IDocumentWindowInvokeMap, TWindowBindings>
+            >[0]['codecs']>(DOCUMENT_WINDOW_PLATFORM_FEATURE.ipcCodecs),
+            register: (registrar, bindings) => registerPlatformFeatureHandlers(
+                cast<Parameters<typeof registerPlatformFeatureHandlers>[0]>(registrar),
+                DOCUMENT_WINDOW_PLATFORM_FEATURE,
+                bindings,
+            ),
+            cases: [
+                {
+                    channel: windowChannels.setWindowTitle,
+                    validArgs: ['Document'],
+                },
+                {
+                    channel: windowChannels.showItemInFolder,
+                    validArgs: ['/tmp/document.pdf'],
+                },
+            ],
+        });
+
+        type TMenuBindings = TFeatureMainBindings<
+            typeof DOCUMENT_MENU_PLATFORM_FEATURE,
+            IpcMainInvokeEvent
+        >;
+        const menuChannels = DOCUMENT_MENU_PLATFORM_FEATURE.invokeChannels;
+        await runCases<IDocumentMenuInvokeMap, TMenuBindings>({
+            channels: menuChannels,
+            codecs: cast<Parameters<
+                typeof runCases<IDocumentMenuInvokeMap, TMenuBindings>
+            >[0]['codecs']>(DOCUMENT_MENU_PLATFORM_FEATURE.ipcCodecs),
+            register: (registrar, bindings) => registerPlatformFeatureHandlers(
+                cast<Parameters<typeof registerPlatformFeatureHandlers>[0]>(registrar),
+                DOCUMENT_MENU_PLATFORM_FEATURE,
+                bindings,
+            ),
+            cases: [
+                {
+                    channel: menuChannels.setMenuDocumentState,
+                    validArgs: [false],
+                },
+                {
+                    channel: menuChannels.setMenuTabCount,
+                    validArgs: [1],
+                },
+            ],
+        });
+    });
+
     it('exhaustively validates Agent registrar tuples', async () => {
         type TBindings = TFeatureMainBindings<typeof AGENT_PLATFORM_FEATURE, IpcMainInvokeEvent>;
         const channels = AGENT_PLATFORM_FEATURE.invokeChannels;

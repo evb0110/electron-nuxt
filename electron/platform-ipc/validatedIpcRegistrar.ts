@@ -194,7 +194,7 @@ export function registerPlatformFeatureHandlers<
         senderId: event.sender.id,
     });
     for (const spec of Object.values(feature.methods)) {
-        if (spec.kind === 'sync') {
+        if (spec.kind === 'sync' || 'local' in spec || spec.aliasOf !== undefined) {
             continue;
         }
         registrar.handle(spec.channel, (event, ...args: unknown[]) => {
@@ -212,7 +212,7 @@ export function registerPlatformFeatureHandlers<
         });
     }
     for (const spec of Object.values(feature.events)) {
-        if (!spec.subscription) {
+        if (spec.aliasOf !== undefined || !spec.subscription) {
             continue;
         }
         registrar.handle(spec.subscription.channel, (event) => {

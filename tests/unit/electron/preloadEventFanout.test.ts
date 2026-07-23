@@ -8,8 +8,8 @@ import {
 import { requireDocumentRevisionToken } from '@contracts/documentRevision';
 import { AGENT_PLATFORM_FEATURE } from '@contracts/agentPlatformFeature';
 import { DJVU_PLATFORM_FEATURE } from '@contracts/djvuPlatformFeature';
+import { DOCUMENT_MENU_PLATFORM_FEATURE } from '@contracts/documentsPlatformFeature';
 import { createDocumentsPreloadFileClient } from '@electron/features/documents/createDocumentsPreloadFileClient';
-import { createDocumentsPreloadMenuClient } from '@electron/features/documents/createDocumentsPreloadMenuClient';
 import { DOCUMENTS_EVENT_CHANNELS } from '@electron/features/documents/contract';
 import { IMAGE_EXPORT_PLATFORM_FEATURE } from '@contracts/imageExportPlatformFeature';
 import { OCR_PLATFORM_FEATURE } from '@contracts/ocrPlatformFeature';
@@ -139,14 +139,14 @@ describe('preload global event fan-out', () => {
             ipcRenderer,
             listeners,
         } = createIpcRendererHarness();
-        const client = createDocumentsPreloadMenuClient(ipcRenderer);
+        const client = createPlatformFeaturePreloadClient(ipcRenderer, DOCUMENT_MENU_PLATFORM_FEATURE);
         const callbacks = Array.from({length: 24}, () => vi.fn());
         const unsubscribes = callbacks.map(callback => client.onPdfOptimizeProgress(callback));
 
         expect(ipcRenderer.on).toHaveBeenCalledTimes(1);
-        listeners.get(DOCUMENTS_EVENT_CHANNELS.pdfOptimizeProgress)?.({}, {
+        listeners.get(DOCUMENT_MENU_PLATFORM_FEATURE.eventChannels.onPdfOptimizeProgress)?.({}, {
             requestId: 'optimize-1',
-            preset: 'balanced',
+            preset: 'lossless',
             phase: 'optimizing',
             processed: 1,
             total: 2,

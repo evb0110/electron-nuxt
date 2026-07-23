@@ -33,6 +33,12 @@ import { UPDATES_PLATFORM_FEATURE } from '@contracts/updatesPlatformFeature';
 import { HOST_PLATFORM_FEATURE } from '@contracts/hostPlatformFeature';
 import { SYSTEM_PLATFORM_FEATURE } from '@contracts/systemPlatformFeature';
 import { WINDOW_TABS_PLATFORM_FEATURE } from '@contracts/windowTabsPlatformFeature';
+import {
+    DOCUMENT_MENU_PLATFORM_FEATURE,
+    DOCUMENT_PICKER_PLATFORM_FEATURE,
+    DOCUMENT_RECENT_FILES_PLATFORM_FEATURE,
+    DOCUMENT_WINDOW_PLATFORM_FEATURE,
+} from '@contracts/documentsPlatformFeature';
 import { getDebugLogMessages } from '@electron/preload/debugLogBuffer';
 import { decodeDebugLogEntry } from '@electron/preload/installDebugLogListener';
 import {createDocumentsPreloadClient} from '@electron/features/documents/createDocumentsPreloadClient';
@@ -301,10 +307,6 @@ export function createElectronApi(
             : baseDocuments.openDocumentDirectBatch(paths, requestId, options);
     };
 
-    const recentFiles = {
-        ...baseDocuments.recentFiles,
-        get: () => invokeWithStartupTrace('recentFiles:get', () => baseDocuments.recentFiles.get()),
-    };
     const extractPathsForFiles = (files: File[]) => files
         .map(file => electronWebUtils.getPathForFile(file))
         .filter(filePath => filePath.length > 0);
@@ -365,22 +367,41 @@ export function createElectronApi(
         })();
     });
 
-    const documentPicker = {
-        openDocumentDialog: baseDocuments.openDocumentDialog,
-        openPdfDialog: baseDocuments.openPdfDialog,
-        openCombineDialog: baseDocuments.openCombineDialog,
-        openFolderDialog: baseDocuments.openFolderDialog,
-        ...(baseDocuments.openFolderDialogStructured
-            ? {openFolderDialogStructured: baseDocuments.openFolderDialogStructured}
-            : {}),
-        openImageDialog: baseDocuments.openImageDialog,
-        getPathForFile,
-        getPathsForFiles,
-        registerFilesForOpen,
-        ...(baseDocuments.createCombinedPdfFromFiles
-            ? {createCombinedPdfFromFiles: baseDocuments.createCombinedPdfFromFiles}
-            : {}),
-    } satisfies IDocumentsPickerCapability;
+    const documentPicker = createPlatformFeaturePreloadClient(
+        ipcRenderer,
+        DOCUMENT_PICKER_PLATFORM_FEATURE,
+        {
+            getPathForFile,
+            getPathsForFiles,
+            registerFilesForOpen,
+            ...(baseDocuments.openFolderDialogStructured
+                ? {openFolderDialogStructured: baseDocuments.openFolderDialogStructured}
+                : {}),
+            ...(baseDocuments.createCombinedPdfFromFiles
+                ? {createCombinedPdfFromFiles: baseDocuments.createCombinedPdfFromFiles}
+                : {}),
+        },
+    ) satisfies IDocumentsPickerCapability;
+    const recentFilesIpc = createPlatformFeaturePreloadClient(
+        ipcRenderer,
+        DOCUMENT_RECENT_FILES_PLATFORM_FEATURE,
+    );
+    const recentFiles = {
+        ...recentFilesIpc,
+        get: () => invokeWithStartupTrace('recentFiles:get', recentFilesIpc.get),
+    };
+    const documentRecentFiles = {recentFiles} satisfies IDocumentsRecentFilesCapability;
+    const documentWindow = createPlatformFeaturePreloadClient(
+        ipcRenderer,
+        DOCUMENT_WINDOW_PLATFORM_FEATURE,
+        baseDocuments.showItemInFolderStructured
+            ? {showItemInFolderStructured: baseDocuments.showItemInFolderStructured}
+            : {},
+    ) satisfies IDocumentsWindowCapability;
+    const documentMenu = createPlatformFeaturePreloadClient(
+        ipcRenderer,
+        DOCUMENT_MENU_PLATFORM_FEATURE,
+    ) satisfies IDocumentsMenuCapability;
     const documentOpen = {
         openDocumentDirect,
         openPdfDirect: openDocumentDirect,
@@ -459,54 +480,6 @@ export function createElectronApi(
         printPdfData: baseDocuments.printPdfData,
         printPdfPath: baseDocuments.printPdfPath,
     } satisfies IDocumentsPdfCapability;
-    const documentRecentFiles = {recentFiles} satisfies IDocumentsRecentFilesCapability;
-    const documentWindow = {
-        setWindowTitle: baseDocuments.setWindowTitle,
-        showItemInFolder: baseDocuments.showItemInFolder,
-        ...(baseDocuments.showItemInFolderStructured
-            ? {showItemInFolderStructured: baseDocuments.showItemInFolderStructured}
-            : {}),
-    } satisfies IDocumentsWindowCapability;
-    const documentMenu = {
-        setMenuDocumentState: baseDocuments.setMenuDocumentState,
-        setMenuTabCount: baseDocuments.setMenuTabCount,
-        onPdfOptimizeProgress: baseDocuments.onPdfOptimizeProgress,
-        onMenuOpenPdf: baseDocuments.onMenuOpenPdf,
-        onMenuInsertImageFromFile: baseDocuments.onMenuInsertImageFromFile,
-        onMenuPasteImageFromClipboard: baseDocuments.onMenuPasteImageFromClipboard,
-        onMenuSave: baseDocuments.onMenuSave,
-        onMenuRepairSave: baseDocuments.onMenuRepairSave,
-        onMenuOptimizePdfForInteraction: baseDocuments.onMenuOptimizePdfForInteraction,
-        onMenuSaveAs: baseDocuments.onMenuSaveAs,
-        onMenuPrint: baseDocuments.onMenuPrint,
-        onMenuPrintCurrentPage: baseDocuments.onMenuPrintCurrentPage,
-        onMenuExportDocx: baseDocuments.onMenuExportDocx,
-        onMenuExportImages: baseDocuments.onMenuExportImages,
-        onMenuExportMultiPageTiff: baseDocuments.onMenuExportMultiPageTiff,
-        onMenuZoomIn: baseDocuments.onMenuZoomIn,
-        onMenuZoomOut: baseDocuments.onMenuZoomOut,
-        onMenuActualSize: baseDocuments.onMenuActualSize,
-        onMenuFitWidth: baseDocuments.onMenuFitWidth,
-        onMenuFitHeight: baseDocuments.onMenuFitHeight,
-        onMenuToggleContinuousScroll: baseDocuments.onMenuToggleContinuousScroll,
-        onMenuViewModeSingle: baseDocuments.onMenuViewModeSingle,
-        onMenuViewModeFacing: baseDocuments.onMenuViewModeFacing,
-        onMenuViewModeFacingFirstSingle: baseDocuments.onMenuViewModeFacingFirstSingle,
-        onMenuToggleAssistant: baseDocuments.onMenuToggleAssistant,
-        onMenuUndo: baseDocuments.onMenuUndo,
-        onMenuRedo: baseDocuments.onMenuRedo,
-        onMenuDeletePages: baseDocuments.onMenuDeletePages,
-        onMenuExtractPages: baseDocuments.onMenuExtractPages,
-        onMenuRotateCw: baseDocuments.onMenuRotateCw,
-        onMenuRotateCcw: baseDocuments.onMenuRotateCcw,
-        onMenuInsertPages: baseDocuments.onMenuInsertPages,
-        onMenuOpenRecentFile: baseDocuments.onMenuOpenRecentFile,
-        onMenuOpenExternalPaths: baseDocuments.onMenuOpenExternalPaths,
-        onMenuClearRecentFiles: baseDocuments.onMenuClearRecentFiles,
-        onOpenDocumentDirectBatchProgress: baseDocuments.onOpenDocumentDirectBatchProgress,
-        onOpenPdfDirectBatchProgress: baseDocuments.onOpenPdfDirectBatchProgress,
-    } satisfies IDocumentsMenuCapability;
-
     const documents = {
         ...documentPicker,
         ...documentOpen,

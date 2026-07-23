@@ -8,6 +8,13 @@ import {
     type IDocumentsInvokeMap,
 } from '@electron/features/documents/contract';
 import { DOCUMENTS_IPC_CODECS } from '@electron/features/documents/documentsIpcCodecs';
+import {
+    DOCUMENT_MENU_PLATFORM_FEATURE,
+    DOCUMENT_PICKER_PLATFORM_FEATURE,
+    DOCUMENT_RECENT_FILES_PLATFORM_FEATURE,
+    DOCUMENTS_SIMPLE_PLATFORM_FEATURES,
+    DOCUMENT_WINDOW_PLATFORM_FEATURE,
+} from '@contracts/documentsPlatformFeature';
 import { AGENT_PLATFORM_FEATURE } from '@contracts/agentPlatformFeature';
 import type { TAgentService } from '@electron/features/agent/createAgentService';
 import { IMAGE_EXPORT_PLATFORM_FEATURE } from '@contracts/imageExportPlatformFeature';
@@ -32,7 +39,18 @@ import {
     registerPlatformFeatureHandlers,
 } from '@electron/platform-ipc/validatedIpcRegistrar';
 
-const DOCUMENTS_CHANNEL_SET = createChannelSet(DOCUMENTS_CHANNELS);
+const DOCUMENTS_CHANNEL_SET = new Set([
+    ...Object.values(DOCUMENTS_CHANNELS),
+    ...DOCUMENTS_SIMPLE_PLATFORM_FEATURES.flatMap(feature =>
+        [...feature.invokeChannelSet]),
+]);
+const DOCUMENTS_COMBINED_IPC_CODECS = {
+    ...DOCUMENTS_IPC_CODECS,
+    ...DOCUMENT_PICKER_PLATFORM_FEATURE.ipcCodecs,
+    ...DOCUMENT_RECENT_FILES_PLATFORM_FEATURE.ipcCodecs,
+    ...DOCUMENT_WINDOW_PLATFORM_FEATURE.ipcCodecs,
+    ...DOCUMENT_MENU_PLATFORM_FEATURE.ipcCodecs,
+};
 
 type TDeferredHandler = (event: Electron.IpcMainInvokeEvent, ...args: never[]) => unknown;
 
@@ -58,7 +76,7 @@ function registerLazyValidatedFeature(
         allowedChannels: createChannelSet(channels),
         codecs: codecs as never,
     });
-    for (const channel of Object.values(channels)) {
+    for (const channel of new Set(Object.values(channels))) {
         registrar.handle(channel, async (event, ...args: unknown[]) => {
             await ensureLoaded();
             const handler = handlers.get(channel);
@@ -94,7 +112,7 @@ export function registerFeatureIpcAdapters(
     registerDocumentsIpcAdapter(
         createValidatedIpcMainRegistrar<IDocumentsInvokeMap>(ipcMain, {
             allowedChannels: DOCUMENTS_CHANNEL_SET,
-            codecs: DOCUMENTS_IPC_CODECS,
+            codecs: DOCUMENTS_COMBINED_IPC_CODECS,
         }),
         undefined,
         {eventRegistrar: createValidatedIpcMainEventRegistrar(ipcMain, {allowedChannels: DOCUMENTS_CHANNEL_SET})},

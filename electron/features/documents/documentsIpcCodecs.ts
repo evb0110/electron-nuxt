@@ -1,6 +1,5 @@
 import { isDocumentRevisionInfo } from '@contracts/documentRevision';
 import type {
-    IApplicationMenuDocumentState,
     IPdfNativeNoteTextSaveResult,
     IPdfNativeStagedCommitOptions,
     IPdfNativePagePreviewOptions,
@@ -9,7 +8,6 @@ import type {
     IPdfSaveAsOptions,
     IPdfSerializedSaveOptions,
     TDocumentSaveResult,
-    TOpenFileResult,
 } from '@contracts/electronApiDocuments';
 import {
     decodeManagedTempFileHandle,
@@ -34,14 +32,13 @@ import {
     isOneOf,
     isRecord,
 } from '@contracts/runtimeGuards';
-import type { IRecentFile } from '@contracts/shared';
 import type { TPlatformUnsupportedReason } from '@contracts/platformUnsupported';
+import { decodeOpenFileResult } from '@contracts/documentsPlatformFeature';
 import {
     DOCUMENTS_CHANNELS,
     type IDocumentsInvokeMap,
 } from '@electron/features/documents/contract';
 import {
-    decodeBooleanArg,
     decodeBoundedArray,
     decodeOptionalStringArg,
     decodePositiveIntegerArrayArg,
@@ -52,7 +49,6 @@ import {
 } from '@electron/platform-ipc/ipcArgumentValidation';
 import {
     decodeBooleanResult,
-    decodeNoArgs,
     decodeNullableStringResult,
     decodeStringResult,
     decodeUndefinedResult,
@@ -83,75 +79,6 @@ const DOCUMENT_SAVE_FAILURE_REASONS = [
     'stale',
     'unknown',
 ] as const;
-
-const APPLICATION_MENU_OPTIONAL_BOOLEAN_FIELDS = [
-    'interactive',
-    'supportsSaveAs',
-    'canSaveAs',
-    'supportsRepairSave',
-    'canRepairSave',
-    'supportsOptimizePdf',
-    'canOptimizePdf',
-    'supportsPrint',
-    'canPrint',
-    'supportsExportDocx',
-    'canExportDocx',
-    'supportsRasterExport',
-    'canExportRaster',
-    'canUndo',
-    'canRedo',
-    'supportsPdfMutation',
-    'canMutatePages',
-    'supportsContinuousScroll',
-    'canContinuousScroll',
-    'continuousScroll',
-    'supportsViewMode',
-    'isActualSizeActive',
-    'isFitWidthActive',
-    'isFitHeightActive',
-    'canToggleAssistant',
-    'canCreatePane',
-    'canCloseTab',
-    'canTransferActiveTab',
-] as const satisfies ReadonlyArray<keyof IApplicationMenuDocumentState>;
-
-function decodeApplicationMenuDocumentState(value: unknown): IApplicationMenuDocumentState {
-    if (!isRecord(value) || typeof value.hasDocument !== 'boolean' || typeof value.canSave !== 'boolean') {
-        throw new Error('state must include boolean hasDocument and canSave fields');
-    }
-    for (const field of APPLICATION_MENU_OPTIONAL_BOOLEAN_FIELDS) {
-        if (value[field] !== undefined && typeof value[field] !== 'boolean') {
-            throw new Error(`state.${field} must be a boolean`);
-        }
-    }
-    for (const field of [
-        'selectedPageCount',
-        'totalPages',
-    ] as const) {
-        if (value[field] !== undefined && (
-            typeof value[field] !== 'number'
-            || !Number.isSafeInteger(value[field])
-            || value[field] < 0
-        )) {
-            throw new Error(`state.${field} must be a non-negative safe integer`);
-        }
-    }
-    if (
-        value.viewMode !== undefined
-        && !isOneOf([
-            'single',
-            'facing',
-            'facing-first-single',
-        ] as const, value.viewMode)
-    ) {
-        throw new Error('state.viewMode must be a supported PDF view mode');
-    }
-    return {
-        ...value,
-        hasDocument: value.hasDocument,
-        canSave: value.canSave,
-    };
-}
 
 function decodeOptionalObject<T>(value: unknown, fieldName: string): T | undefined {
     if (value === undefined || value === null) {
@@ -420,64 +347,6 @@ function decodeNativeSaveResult(value: unknown): IPdfNativeNoteTextSaveResult {
     };
 }
 
-function decodeRecentFile(value: unknown): IRecentFile {
-    if (
-        !isRecord(value)
-        || typeof value.originalPath !== 'string'
-        || typeof value.fileName !== 'string'
-        || !isFiniteNumber(value.timestamp)
-        || (value.backend !== undefined && value.backend !== 'electron' && value.backend !== 'browser')
-        || (value.fileSize !== undefined && (!isFiniteNumber(value.fileSize) || value.fileSize < 0))
-        || (value.modifiedAt !== undefined && (!Number.isSafeInteger(value.modifiedAt) || Number(value.modifiedAt) < 0))
-    ) {
-        throw new Error('invalid recent file');
-    }
-    return {
-        originalPath: value.originalPath,
-        fileName: value.fileName,
-        timestamp: value.timestamp,
-        ...(value.backend === undefined ? {} : {backend: value.backend}),
-        ...(value.fileSize === undefined ? {} : {fileSize: value.fileSize}),
-        ...(value.modifiedAt === undefined ? {} : {modifiedAt: Number(value.modifiedAt)}),
-    };
-}
-
-function decodeOpenFileResult(value: unknown): TOpenFileResult | null {
-    if (value === null) {
-        return null;
-    }
-    if (!isRecord(value) || (value.kind !== 'pdf' && value.kind !== 'djvu')) {
-        throw new Error('invalid open-file result');
-    }
-    if (value.kind === 'djvu') {
-        if (value.workingPath !== '' || typeof value.originalPath !== 'string') {
-            throw new Error('invalid DjVu open-file result');
-        }
-        return {
-            kind: 'djvu',
-            workingPath: '',
-            originalPath: value.originalPath,
-        };
-    }
-    if (
-        typeof value.workingPath !== 'string'
-        || typeof value.originalPath !== 'string'
-        || (value.isGenerated !== undefined && typeof value.isGenerated !== 'boolean')
-    ) {
-        throw new Error('invalid PDF open-file result');
-    }
-    const openingGeometry = value.openingGeometry === undefined
-        ? undefined
-        : decodeOpeningGeometryResult(value.openingGeometry);
-    return {
-        kind: 'pdf',
-        workingPath: value.workingPath,
-        originalPath: value.originalPath,
-        ...(value.isGenerated === undefined ? {} : {isGenerated: value.isGenerated}),
-        ...(openingGeometry === undefined ? {} : {openingGeometry}),
-    };
-}
-
 function decodeConformanceResult(value: unknown): IPdfConformanceProfile {
     if (
         !isRecord(value)
@@ -667,22 +536,6 @@ function decodeOptionalStringTail(args: readonly unknown[], first: string, index
 const decodeValidationResult = (value: unknown) => requireDecoded(value, candidate => isPdfValidationResult(candidate) ? decodePdfValidation(candidate) : null, 'PDF validation');
 
 export const DOCUMENTS_IPC_CODECS = {
-    [DOCUMENTS_CHANNELS.openDocumentDialog]: {
-        decodeArgs: decodeNoArgs,
-        decodeResult: decodeOpenFileResult,
-    },
-    [DOCUMENTS_CHANNELS.openCombineDialog]: {
-        decodeArgs: decodeNoArgs,
-        decodeResult: decodeOpenFileResult,
-    },
-    [DOCUMENTS_CHANNELS.openFolderDialog]: {
-        decodeArgs: decodeNoArgs,
-        decodeResult: decodeOpenFileResult,
-    },
-    [DOCUMENTS_CHANNELS.openImageDialog]: {
-        decodeArgs: decodeNoArgs,
-        decodeResult: decodeNullableStringResult,
-    },
     [DOCUMENTS_CHANNELS.openDocumentDirect]: {
         decodeArgs: (args: readonly unknown[]) => [decodeStringArg(args, 0, 'path')],
         decodeResult: decodeOpenFileResult,
@@ -1032,38 +885,5 @@ export const DOCUMENTS_IPC_CODECS = {
     [DOCUMENTS_CHANNELS.fileCleanupOcrTemp]: {
         decodeArgs: (args: readonly unknown[]) => [decodeStringArg(args, 0, 'path')],
         decodeResult: decodeBooleanResult,
-    },
-    [DOCUMENTS_CHANNELS.windowSetTitle]: {
-        decodeArgs: (args: readonly unknown[]) => [decodeStringArg(args, 0, 'title')],
-        decodeResult: decodeUndefinedResult,
-    },
-    [DOCUMENTS_CHANNELS.shellShowItemInFolder]: {
-        decodeArgs: (args: readonly unknown[]) => [decodeStringArg(args, 0, 'path')],
-        decodeResult: decodeBooleanResult,
-    },
-    [DOCUMENTS_CHANNELS.menuSetDocumentState]: {
-        decodeArgs: (args: readonly unknown[]) => [typeof args[0] === 'boolean'
-            ? decodeBooleanArg(args, 0, 'state')
-            : decodeApplicationMenuDocumentState(args[0])],
-        decodeResult: decodeUndefinedResult,
-    },
-    [DOCUMENTS_CHANNELS.menuSetTabCount]: {
-        decodeArgs: (args: readonly unknown[]) => [decodeSafeIntegerArg(args, 0, 'tabCount')],
-        decodeResult: decodeUndefinedResult,
-    },
-    [DOCUMENTS_CHANNELS.recentFilesGet]: {
-        decodeArgs: decodeNoArgs,
-        decodeResult: (value: unknown) => {
-            if (!Array.isArray(value)) throw new Error('invalid recent files result');
-            return value.map(decodeRecentFile);
-        },
-    },
-    [DOCUMENTS_CHANNELS.recentFilesRemove]: {
-        decodeArgs: (args: readonly unknown[]) => [decodeStringArg(args, 0, 'path')],
-        decodeResult: decodeUndefinedResult,
-    },
-    [DOCUMENTS_CHANNELS.recentFilesClear]: {
-        decodeArgs: decodeNoArgs,
-        decodeResult: decodeUndefinedResult,
     },
 } satisfies TIpcCodecMap<IDocumentsInvokeMap>;

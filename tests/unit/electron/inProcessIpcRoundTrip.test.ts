@@ -13,6 +13,13 @@ import {
     DOCUMENTS_CHANNELS,
     type IDocumentsInvokeMap,
 } from '@electron/features/documents/contract';
+import {
+    DOCUMENTS_SIMPLE_PLATFORM_FEATURES,
+    type IDocumentMenuInvokeMap,
+    type IDocumentPickerInvokeMap,
+    type IDocumentRecentFilesInvokeMap,
+    type IDocumentWindowInvokeMap,
+} from '@contracts/documentsPlatformFeature';
 import { createDocumentsPreloadFileClient } from '@electron/features/documents/createDocumentsPreloadFileClient';
 import { DOCUMENTS_IPC_CODECS } from '@electron/features/documents/documentsIpcCodecs';
 import type { IDocumentsService } from '@electron/features/documents/documentsService';
@@ -62,6 +69,20 @@ const mocks = vi.hoisted(() => ({
     isTrustedIpcInvokeSender: vi.fn(() => true),
 }));
 type THostInvokeMap = TFeatureInvokeMap<typeof HOST_PLATFORM_FEATURE>;
+type TDocumentsCombinedInvokeMap =
+    & IDocumentsInvokeMap
+    & IDocumentPickerInvokeMap
+    & IDocumentRecentFilesInvokeMap
+    & IDocumentWindowInvokeMap
+    & IDocumentMenuInvokeMap;
+const documentsCombinedChannels = {
+    ...DOCUMENTS_CHANNELS,
+    ...Object.assign({}, ...DOCUMENTS_SIMPLE_PLATFORM_FEATURES.map(feature => feature.invokeChannels)),
+};
+const documentsCombinedCodecs = {
+    ...DOCUMENTS_IPC_CODECS,
+    ...Object.assign({}, ...DOCUMENTS_SIMPLE_PLATFORM_FEATURES.map(feature => feature.ipcCodecs)),
+};
 
 vi.mock('electron', () => ({
     app: {
@@ -100,9 +121,9 @@ describe('in-process preload to validated IPC round trips', () => {
             beginSavePdfData,
             createWorkingCopyFromData,
         });
-        const harness = createInProcessIpcRoundTripHarness<IDocumentsInvokeMap, IDocumentsService, ReturnType<typeof createDocumentsPreloadFileClient>>({
-            channels: DOCUMENTS_CHANNELS,
-            codecs: DOCUMENTS_IPC_CODECS,
+        const harness = createInProcessIpcRoundTripHarness<TDocumentsCombinedInvokeMap, IDocumentsService, ReturnType<typeof createDocumentsPreloadFileClient>>({
+            channels: documentsCombinedChannels,
+            codecs: documentsCombinedCodecs,
             createClient: createDocumentsPreloadFileClient,
             postMessage: (channel, sessionId, transfer) => {
                 expect(channel).toBe(DOCUMENTS_CHANNELS.fileSavePdfDataPort);

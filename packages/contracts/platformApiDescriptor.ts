@@ -6,6 +6,7 @@ import {
     DJVU_PLATFORM_FEATURE,
     type IDjvuCapability,
 } from '@contracts/djvuPlatformFeature';
+import { DOCUMENTS_SIMPLE_PLATFORM_FEATURES } from '@contracts/documentsPlatformFeature';
 import type {
     IDocumentsCapability,
     IDocumentsFileIoCapability,
@@ -468,6 +469,13 @@ function defineCapabilities(
 }
 
 function createDocumentMethodDescriptors() {
+    const migratedDescriptors = new Map(
+        DOCUMENTS_SIMPLE_PLATFORM_FEATURES.flatMap(feature =>
+            feature.platformDescriptors.methods.map(descriptor => [
+                descriptor.path.join('.'),
+                descriptor,
+            ] as const)),
+    );
     return documentCapabilityMirrors.flatMap(({
         splitRoot,
         paths,
@@ -481,6 +489,13 @@ function createDocumentMethodDescriptors() {
                 splitRoot,
                 ...path,
             ] as const;
+            const migratedDescriptor = migratedDescriptors.get(splitPath.join('.'));
+            if (migratedDescriptor) {
+                return [{
+                    ...createMethodDescriptor(legacyPath),
+                    aliasOf: migratedDescriptor.aliasOf ?? splitPath,
+                }];
+            }
             return [
                 createMethodDescriptor(splitPath),
                 createMethodDescriptor(legacyPath, {aliasOf: splitPath}),
@@ -724,6 +739,7 @@ export const LEGACY_PLATFORM_API_DESCRIPTOR_WITHOUT_MIGRATED_FEATURES = {
 } as const satisfies IPlatformApiDescriptor;
 
 export const PLATFORM_FEATURE_REGISTRY = [
+    ...DOCUMENTS_SIMPLE_PLATFORM_FEATURES,
     AGENT_PLATFORM_FEATURE,
     SEARCH_PLATFORM_FEATURE,
     DJVU_PLATFORM_FEATURE,
@@ -782,10 +798,10 @@ function mergePlatformDescriptors(
         addUniquePlatformValues(methodPaths,
             feature.platformDescriptors.methods.map(({path}) => path.join('.')),
             'platform method path');
-        addUniquePlatformValues(channels, [
+        addUniquePlatformValues(channels, new Set([
             ...Object.values(feature.invokeChannels),
             ...Object.values(feature.eventChannels),
-        ], 'migrated platform channel');
+        ]), 'migrated platform channel');
     }
     return {
         capabilities: [...capabilities.values()],

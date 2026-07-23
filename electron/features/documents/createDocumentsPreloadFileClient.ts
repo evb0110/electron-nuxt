@@ -6,6 +6,9 @@ import {
 } from '@contracts/documentRevision';
 import type {
     IDocumentsFileCapability,
+    IDocumentsPickerCapability,
+    IDocumentsRecentFilesCapability,
+    IDocumentsWindowCapability,
     IDocumentChunkReadOptions,
     IPdfNativePagePreviewOptions,
     IPdfNativeStagedCommitOptions,
@@ -57,7 +60,9 @@ import {
 
 type TDocumentsPreloadFileClient = Omit<
     IDocumentsFileCapability,
-    'getPathForFile' | 'getPathsForFiles' | 'registerFilesForOpen'
+    keyof IDocumentsPickerCapability
+    | keyof IDocumentsRecentFilesCapability
+    | keyof IDocumentsWindowCapability
 >;
 type TDocumentsFileIpcRenderer = Pick<IpcRenderer, 'invoke' | 'postMessage'>
     & Partial<Pick<IpcRenderer, 'on' | 'removeListener'>>;
@@ -500,7 +505,6 @@ export function createDocumentsPreloadFileClient(
 ): TDocumentsPreloadFileClient {
     const invoke = createCodecIpcInvoker<IDocumentsInvokeMap>(ipcRenderer, DOCUMENTS_IPC_CODECS, {invokeTimeoutMsByChannel: DOCUMENTS_NATIVE_INVOKE_TIMEOUT_MS_BY_CHANNEL});
     const eventSubscriber = createTypedIpcEventSubscriber<IDocumentsFileEventMap>(ipcRenderer);
-    const openDocumentDialog = () => invoke(DOCUMENTS_CHANNELS.openDocumentDialog);
     const openDocumentDirect = (path: string) => invoke(DOCUMENTS_CHANNELS.openDocumentDirect, path);
     const openDocumentDirectBatch = (
         paths: string[],
@@ -511,11 +515,6 @@ export function createDocumentsPreloadFileClient(
         : invoke(DOCUMENTS_CHANNELS.openDocumentDirectBatch, paths, requestId, options);
 
     return {
-        openDocumentDialog,
-        openPdfDialog: openDocumentDialog,
-        openCombineDialog: () => invoke(DOCUMENTS_CHANNELS.openCombineDialog),
-        openFolderDialog: () => invoke(DOCUMENTS_CHANNELS.openFolderDialog),
-        openImageDialog: () => invoke(DOCUMENTS_CHANNELS.openImageDialog),
         openDocumentDirect,
         openPdfDirect: openDocumentDirect,
         openDocumentDirectBatch,
@@ -834,12 +833,5 @@ export function createDocumentsPreloadFileClient(
             ),
         cleanupFile: (path) => invoke(DOCUMENTS_CHANNELS.fileCleanup, path),
         cleanupOcrTemp: (path) => invoke(DOCUMENTS_CHANNELS.fileCleanupOcrTemp, path),
-        setWindowTitle: (title) => invoke(DOCUMENTS_CHANNELS.windowSetTitle, title),
-        showItemInFolder: (path) => invoke(DOCUMENTS_CHANNELS.shellShowItemInFolder, path),
-        recentFiles: {
-            get: () => invoke(DOCUMENTS_CHANNELS.recentFilesGet),
-            remove: (path) => invoke(DOCUMENTS_CHANNELS.recentFilesRemove, path),
-            clear: () => invoke(DOCUMENTS_CHANNELS.recentFilesClear),
-        },
     };
 }

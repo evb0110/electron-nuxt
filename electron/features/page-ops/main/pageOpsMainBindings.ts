@@ -14,17 +14,17 @@ import {
     normalizeCropMargins,
     normalizeNonEmptyStringPaths,
 } from '@contracts/shared';
-import type { TOpenBatchProgressOperation } from '@contracts/electronApiDocuments';
+import type {
+    TOpenBatchProgressOperation,
+    TOpenDocumentDirectBatchProgress,
+} from '@contracts/electronApiDocuments';
+import { DOCUMENT_MENU_PLATFORM_FEATURE } from '@contracts/documentsPlatformFeature';
 import type {
     IPageOpsMutationOptions,
     IPageIdentityDelta,
 } from '@contracts/electronApiPageOps';
 import type { PAGE_OPS_PLATFORM_FEATURE } from '@contracts/pageOpsPlatformFeature';
 import type { TFeatureMainBindings } from '@contracts/platformFeature';
-import {
-    DOCUMENTS_EVENT_CHANNELS,
-    type TOpenBatchProgressPayload,
-} from '@electron/features/documents/contract';
 import { te } from '@electron/te';
 import { PDF_COMBINE_SUPPORTED_IMAGE_EXTENSIONS } from '@electron/image/pdfCombineShared';
 import {
@@ -87,8 +87,8 @@ function createOpenBatchProgressReporter(
     requestId: string,
     operation: TOpenBatchProgressOperation,
 ) {
-    const pump = createIpcProgressPump<TOpenBatchProgressPayload>({
-        channel: DOCUMENTS_EVENT_CHANNELS.openDocumentDirectBatchProgress,
+    const pump = createIpcProgressPump<TOpenDocumentDirectBatchProgress>({
+        channel: DOCUMENT_MENU_PLATFORM_FEATURE.eventChannels.onOpenDocumentDirectBatchProgress,
         getTarget: () => context.sender,
         getKey: payload => payload.requestId,
         isTerminal: payload => payload.processed >= payload.total,

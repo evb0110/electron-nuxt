@@ -11,6 +11,10 @@ import {
 } from 'vitest';
 import { ref } from 'vue';
 import { registerTabsMenuBindings } from '@app/modules/workspace-shell/menu/registerTabsMenuBindings';
+import {
+    DOCUMENT_MENU_PLATFORM_FEATURE,
+    DOCUMENT_PICKER_PLATFORM_FEATURE,
+} from '@contracts/documentsPlatformFeature';
 import type { IDocumentsService } from '@electron/features/documents/documentsService';
 import { createDocumentsPreloadClient } from '@electron/features/documents/createDocumentsPreloadClient';
 import { handleOpenPdfDialog } from '@electron/features/documents/main/documentOpenHandlers';
@@ -20,6 +24,7 @@ import {
     setMenuDocumentState,
     setupMenu,
 } from '@electron/menu';
+import { createPlatformFeaturePreloadClient } from '@electron/preload/ipcClient';
 import type { IWorkspaceExpose } from '@app/types/workspaceExpose';
 import { cast } from '@tests/helpers/cast';
 
@@ -177,6 +182,19 @@ describe('native menu and dialog routing', () => {
         );
 
         const documents = createDocumentsPreloadClient(ipcRenderer);
+        const documentPicker = createPlatformFeaturePreloadClient(
+            ipcRenderer,
+            DOCUMENT_PICKER_PLATFORM_FEATURE,
+            {
+                getPathForFile: vi.fn(),
+                getPathsForFiles: vi.fn(),
+                registerFilesForOpen: vi.fn(),
+            },
+        );
+        const documentMenu = createPlatformFeaturePreloadClient(
+            ipcRenderer,
+            DOCUMENT_MENU_PLATFORM_FEATURE,
+        );
         let saveDialogResult: string | null = null;
         const print = vi.fn(async () => undefined);
         const deletePages = vi.fn();
@@ -189,7 +207,7 @@ describe('native menu and dialog routing', () => {
             },
         });
         registerTabsMenuBindings(cast<Parameters<typeof registerTabsMenuBindings>[0]>({
-            documentMenu: documents,
+            documentMenu,
             djvu: {},
             settings: {},
             updates: {},
@@ -198,7 +216,7 @@ describe('native menu and dialog routing', () => {
             activeTabId: ref('tab-1'),
             activeWorkspace: ref(workspace),
             handleFallbackToolbarOpenFile: async () => {
-                await documents.openDocumentDialog();
+                await documentPicker.openDocumentDialog();
             },
         }));
 

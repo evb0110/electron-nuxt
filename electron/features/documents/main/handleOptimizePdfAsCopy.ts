@@ -4,8 +4,10 @@ import {
 } from 'path';
 import type {
     IPdfOptimizeOptions,
+    IPdfOptimizeProgress,
     IDocumentMutationRevisionOptions,
 } from '@contracts/electronApiDocuments';
+import { DOCUMENT_MENU_PLATFORM_FEATURE } from '@contracts/documentsPlatformFeature';
 import { ensureWorkingCopyDirectory } from '@electron/file-access/workingCopyCreation';
 import { getWorkingCopyOriginalPath } from '@electron/file-access/workingCopyStore';
 import { enqueueWorkingCopyMutation } from '@electron/file-access/workingCopyMutationQueue';
@@ -21,10 +23,6 @@ import { createIpcProgressPump } from '@electron/utils/createIpcProgressPump';
 import { getErrorMessage } from '@electron/utils/error';
 import { normalizeOptionalIpcRequestId } from '@electron/utils/ipcLimits';
 import { createLogger } from '@electron/utils/createLogger';
-import {
-    DOCUMENTS_EVENT_CHANNELS,
-    type TPdfOptimizeProgressPayload,
-} from '@electron/features/documents/contract';
 import { showSaveDialogWithExtension } from '@electron/features/documents/main/documentDialogCommon';
 import {
     normalizePdfOptimizeOptions,
@@ -46,8 +44,8 @@ function createOptimizeProgressReporter(
     context: IDocumentsDialogContext,
     requestId: string,
 ) {
-    const pump = createIpcProgressPump<TPdfOptimizeProgressPayload>({
-        channel: DOCUMENTS_EVENT_CHANNELS.pdfOptimizeProgress,
+    const pump = createIpcProgressPump<IPdfOptimizeProgress>({
+        channel: DOCUMENT_MENU_PLATFORM_FEATURE.eventChannels.onPdfOptimizeProgress,
         getTarget: () => context.sender,
         getKey: payload => payload.requestId,
         isTerminal: payload => payload.phase === 'complete',
@@ -56,7 +54,7 @@ function createOptimizeProgressReporter(
         },
     });
 
-    return (progress: TPdfOptimizeProgressPayload) => {
+    return (progress: IPdfOptimizeProgress) => {
         if (progress.requestId === requestId) {
             pump.enqueue(progress);
         }

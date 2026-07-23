@@ -2,6 +2,8 @@ import type {
     IDocumentsMenuCapability,
     IOpenPdfDirectBatchProgress,
 } from '@contracts/electronApiDocuments';
+import type { DOCUMENT_MENU_PLATFORM_FEATURE } from '@contracts/documentsPlatformFeature';
+import type { TFeatureBrowserBindings } from '@contracts/platformFeature';
 import { noopUnsubscribe } from '@app/platform/browser-api/browserMenuHelpers';
 
 const openDocumentDirectBatchProgressListeners =
@@ -15,7 +17,16 @@ export function emitBrowserOpenDocumentDirectBatchProgress(
     });
 }
 
-export const browserDocumentsMenuCapability: IDocumentsMenuCapability = {
+const onOpenDocumentDirectBatchProgress = (
+    callback: (progress: IOpenPdfDirectBatchProgress) => void,
+) => {
+    openDocumentDirectBatchProgressListeners.add(callback);
+    return () => {
+        openDocumentDirectBatchProgressListeners.delete(callback);
+    };
+};
+
+export const browserDocumentsMenuCapability = {
     setMenuDocumentState: async (_hasDocument) => {},
     setMenuTabCount: async (_tabCount) => {},
     onPdfOptimizeProgress: noopUnsubscribe,
@@ -51,13 +62,7 @@ export const browserDocumentsMenuCapability: IDocumentsMenuCapability = {
     onMenuOpenRecentFile: noopUnsubscribe,
     onMenuOpenExternalPaths: noopUnsubscribe,
     onMenuClearRecentFiles: noopUnsubscribe,
-    onOpenDocumentDirectBatchProgress(callback) {
-        openDocumentDirectBatchProgressListeners.add(callback);
-        return () => {
-            openDocumentDirectBatchProgressListeners.delete(callback);
-        };
-    },
-    onOpenPdfDirectBatchProgress(callback) {
-        return browserDocumentsMenuCapability.onOpenDocumentDirectBatchProgress(callback);
-    },
-};
+    onOpenDocumentDirectBatchProgress,
+    onOpenPdfDirectBatchProgress: onOpenDocumentDirectBatchProgress,
+} satisfies IDocumentsMenuCapability
+    & TFeatureBrowserBindings<typeof DOCUMENT_MENU_PLATFORM_FEATURE>;

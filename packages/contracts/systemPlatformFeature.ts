@@ -20,6 +20,7 @@ export const SYSTEM_PLATFORM_FEATURE = definePlatformFeature({
     },
     methods: {getMemoryInfo: {
         kind: 'sync',
+        args: s.tuple([]),
         result: memoryInfo,
         browser: {method: 'getMemoryInfo'},
         lazy: 'direct',

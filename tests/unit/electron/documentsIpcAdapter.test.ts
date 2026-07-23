@@ -15,6 +15,12 @@ import {
 import { join } from 'path';
 import { tmpdir } from 'os';
 import { EventEmitter } from 'node:events';
+import {
+    DOCUMENT_MENU_PLATFORM_FEATURE,
+    DOCUMENT_PICKER_PLATFORM_FEATURE,
+    DOCUMENT_RECENT_FILES_PLATFORM_FEATURE,
+    DOCUMENTS_SIMPLE_PLATFORM_FEATURES,
+} from '@contracts/documentsPlatformFeature';
 import { DOCUMENTS_CHANNELS } from '@electron/features/documents/contract';
 
 type TRegisteredEventHandler = (event: IpcMainEvent, ...args: unknown[]) => void;
@@ -55,7 +61,10 @@ function createRegistrationHarness() {
 }
 
 vi.mock('@electron/features/documents/createDocumentsService', () => ({createDocumentsService: mocks.createDocumentsService}));
-vi.mock('electron', () => ({BrowserWindow: {fromWebContents: (...args: unknown[]) => mocks.fromWebContents(...args)}}));
+vi.mock('electron', () => ({
+    app: {isPackaged: false},
+    BrowserWindow: {fromWebContents: (...args: unknown[]) => mocks.fromWebContents(...args)},
+}));
 vi.mock('@electron/features/documents/public', () => ({attachSerializedPdfPersistencePort: (...args: unknown[]) => mocks.attachSerializedPdfPersistencePort(...args)}));
 vi.mock('@electron/file-access/openPathCapabilities', () => ({
     allowOpenPath: (...args: unknown[]) => mocks.allowOpenPath(...args),
@@ -81,7 +90,10 @@ describe('documents ipc adapter', () => {
 
         registerDocumentsIpcAdapter(registrar as never, undefined, {eventRegistrar});
 
-        const expectedChannels = [...new Set(Object.values(DOCUMENTS_CHANNELS))];
+        const expectedChannels = [...new Set([
+            ...Object.values(DOCUMENTS_CHANNELS),
+            ...DOCUMENTS_SIMPLE_PLATFORM_FEATURES.flatMap(feature => [...feature.invokeChannelSet]),
+        ])];
         expect(registrations).toHaveLength(expectedChannels.length);
         for (const channel of expectedChannels) {
             expect(registrations.filter(registeredChannel => registeredChannel === channel)).toHaveLength(1);
@@ -92,7 +104,10 @@ describe('documents ipc adapter', () => {
 
     it('fails the documents ipc invariant for duplicate channel values', async () => {
         const { assertDocumentsIpcSingleRegistrationInvariant } = await import('@electron/features/documents/registerDocumentsIpcAdapter');
-        const registeredChannels = [...new Set(Object.values(DOCUMENTS_CHANNELS))];
+        const registeredChannels = [...new Set([
+            ...Object.values(DOCUMENTS_CHANNELS),
+            ...DOCUMENTS_SIMPLE_PLATFORM_FEATURES.flatMap(feature => [...feature.invokeChannelSet]),
+        ])];
 
         expect(() => assertDocumentsIpcSingleRegistrationInvariant([
             ...registeredChannels,
@@ -102,7 +117,10 @@ describe('documents ipc adapter', () => {
 
     it('fails the documents ipc invariant for omitted channel values', async () => {
         const { assertDocumentsIpcSingleRegistrationInvariant } = await import('@electron/features/documents/registerDocumentsIpcAdapter');
-        const registeredChannels = [...new Set(Object.values(DOCUMENTS_CHANNELS))]
+        const registeredChannels = [...new Set([
+            ...Object.values(DOCUMENTS_CHANNELS),
+            ...DOCUMENTS_SIMPLE_PLATFORM_FEATURES.flatMap(feature => [...feature.invokeChannelSet]),
+        ])]
             .filter(channel => channel !== DOCUMENTS_CHANNELS.fileSavePdfDataPort);
 
         expect(() => assertDocumentsIpcSingleRegistrationInvariant(registeredChannels))
@@ -113,10 +131,6 @@ describe('documents ipc adapter', () => {
         const { DOCUMENTS_IPC_CHANNEL_ALIASES } = await import('@electron/features/documents/registerDocumentsIpcAdapter');
 
         expect(DOCUMENTS_IPC_CHANNEL_ALIASES).toEqual([
-            {
-                aliasKey: 'openPdfDialog',
-                ownerKey: 'openDocumentDialog',
-            },
             {
                 aliasKey: 'openPdfDirect',
                 ownerKey: 'openDocumentDirect',
@@ -132,6 +146,8 @@ describe('documents ipc adapter', () => {
         } of DOCUMENTS_IPC_CHANNEL_ALIASES) {
             expect(DOCUMENTS_CHANNELS[aliasKey]).toBe(DOCUMENTS_CHANNELS[ownerKey]);
         }
+        expect(DOCUMENT_PICKER_PLATFORM_FEATURE.methods.openPdfDialog.aliasOf)
+            .toBe('openDocumentDialog');
     });
 
     it('attaches serialized pdf persistence ports from the documents raw event channel', async () => {
@@ -167,8 +183,8 @@ describe('documents ipc adapter', () => {
 
         registerDocumentsIpcAdapter(registrar as never, service as never, {eventRegistrar});
         await handlers.get(DOCUMENTS_CHANNELS.openDocumentDirect)?.({sender}, '/tmp/open.pdf');
-        await handlers.get(DOCUMENTS_CHANNELS.recentFilesGet)?.({sender});
-        handlers.get(DOCUMENTS_CHANNELS.menuSetTabCount)?.({sender}, 3);
+        await handlers.get(DOCUMENT_RECENT_FILES_PLATFORM_FEATURE.invokeChannels.get)?.({sender});
+        handlers.get(DOCUMENT_MENU_PLATFORM_FEATURE.invokeChannels.setMenuTabCount)?.({sender}, 3);
 
         expect(service.openDocumentDirect).toHaveBeenCalledWith({
             sender,

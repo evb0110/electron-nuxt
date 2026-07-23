@@ -10,6 +10,14 @@ import type {
     IIpcMainRegistrar,
     TIpcMainInvokeHandler,
 } from '@contracts/ipcMain';
+import {
+    DOCUMENT_MENU_PLATFORM_FEATURE,
+    DOCUMENT_PICKER_PLATFORM_FEATURE,
+    DOCUMENT_RECENT_FILES_PLATFORM_FEATURE,
+    DOCUMENTS_SIMPLE_PLATFORM_FEATURES,
+    DOCUMENT_WINDOW_PLATFORM_FEATURE,
+} from '@contracts/documentsPlatformFeature';
+import type { TFeatureMainBindings } from '@contracts/platformFeature';
 import { isRecord } from '@contracts/runtimeGuards';
 import {
     DOCUMENTS_CHANNELS,
@@ -18,7 +26,6 @@ import {
 import {createDocumentsService} from '@electron/features/documents/createDocumentsService';
 import type {
     IDocumentsDialogContext,
-    IDocumentsOpenPathContext,
     IDocumentsSenderIdContext,
     IDocumentsService,
     IDocumentsWebContentsContext,
@@ -34,6 +41,7 @@ import { isSupportedOpenPath } from '@electron/image/pdfConversion';
 import { requireManagedWorkingCopyPath } from '@electron/file-access/workingCopyCreation';
 import { createLogger } from '@electron/utils/createLogger';
 import { getErrorMessage } from '@electron/utils/error';
+import { registerPlatformFeatureHandlers } from '@electron/platform-ipc/validatedIpcRegistrar';
 
 interface IRendererFileOpenToken {expiresAtMs: number;}
 interface IDocumentsIpcEventRegistrar {on: (channel: string, handler: (event: IpcMainEvent, ...args: unknown[]) => void) => void;}
@@ -43,10 +51,6 @@ type TDocumentsIpcChannel = Extract<keyof IDocumentsInvokeMap, string>;
 type TDocumentsIpcArgs<TChannel extends TDocumentsIpcChannel> = IDocumentsInvokeMap[TChannel]['args'];
 
 export const DOCUMENTS_IPC_CHANNEL_ALIASES = [
-    {
-        aliasKey: 'openPdfDialog',
-        ownerKey: 'openDocumentDialog',
-    },
     {
         aliasKey: 'openPdfDirect',
         ownerKey: 'openDocumentDirect',
@@ -68,7 +72,11 @@ const rendererFileOpenTokens = new Map<number, Map<string, IRendererFileOpenToke
 const rendererFileOpenTokenCleanupSenders = new Set<number>();
 
 function getDistinctDocumentsChannelValues() {
-    return [...new Set<string>(Object.values(DOCUMENTS_CHANNELS))];
+    return [...new Set<string>([
+        ...Object.values(DOCUMENTS_CHANNELS),
+        ...DOCUMENTS_SIMPLE_PLATFORM_FEATURES.flatMap(feature =>
+            [...feature.invokeChannelSet]),
+    ])];
 }
 
 function assertDocumentsIpcChannelAliasesAreExplicit() {
@@ -180,10 +188,6 @@ function createWindowContext(event: IpcMainInvokeEvent): IDocumentsWindowContext
         senderId: getSenderId(event),
         window: BrowserWindow.fromWebContents(event.sender),
     };
-}
-
-function createOpenPathContext(event: IpcMainInvokeEvent): IDocumentsOpenPathContext {
-    return {owner: event.sender};
 }
 
 function pruneRendererFileOpenTokens(senderId: number, now = Date.now()) {
@@ -364,10 +368,73 @@ export function registerDocumentsIpcAdapter(
         options.eventRegistrar.on(channel, handler);
     };
 
-    register(DOCUMENTS_CHANNELS.openDocumentDialog, (event: IpcMainInvokeEvent) => service.openDocumentDialog(createDialogContext(event)));
-    register(DOCUMENTS_CHANNELS.openCombineDialog, (event: IpcMainInvokeEvent) => service.openCombineDialog(createDialogContext(event)));
-    register(DOCUMENTS_CHANNELS.openFolderDialog, (event: IpcMainInvokeEvent) => service.openFolderDialog(createDialogContext(event)));
-    register(DOCUMENTS_CHANNELS.openImageDialog, (event: IpcMainInvokeEvent) => service.openImageDialog(createDialogContext(event)));
+    const featureRegistrar = {handle: (channel: string, handler: TIpcMainInvokeHandler<
+        unknown[],
+        unknown,
+        IpcMainInvokeEvent
+    >) => {
+        registeredChannels.push(channel);
+        registrar.handle(channel as never, handler as never);
+    }};
+    const featureBindings = {
+        openDocumentDialog: context => service.openDocumentDialog({
+            ...context,
+            parentWindow: BrowserWindow.fromWebContents(context.sender),
+        }),
+        openCombineDialog: context => service.openCombineDialog({
+            ...context,
+            parentWindow: BrowserWindow.fromWebContents(context.sender),
+        }),
+        openFolderDialog: context => service.openFolderDialog({
+            ...context,
+            parentWindow: BrowserWindow.fromWebContents(context.sender),
+        }),
+        openImageDialog: context => service.openImageDialog({
+            ...context,
+            parentWindow: BrowserWindow.fromWebContents(context.sender),
+        }),
+        getRecentFiles: context => service.getRecentFiles(context),
+        removeRecentFile: async (originalPath) => {
+            await service.removeRecentFile(originalPath);
+            return undefined;
+        },
+        clearRecentFiles: async () => {
+            await service.clearRecentFiles();
+            return undefined;
+        },
+        setWindowTitle: (context, title) => {
+            service.setWindowTitle({
+                senderId: context.senderId,
+                window: BrowserWindow.fromWebContents(context.sender),
+            }, title);
+            return undefined;
+        },
+        showItemInFolder: (context, filePath) =>
+            service.showItemInFolder({owner: context.sender}, filePath),
+        setMenuDocumentState: (context, state) => {
+            service.setMenuDocumentState({
+                senderId: context.senderId,
+                window: BrowserWindow.fromWebContents(context.sender),
+            }, state);
+            return undefined;
+        },
+        setMenuTabCount: (context, tabCount) => {
+            service.setMenuTabCount({
+                senderId: context.senderId,
+                window: BrowserWindow.fromWebContents(context.sender),
+            }, tabCount);
+            return undefined;
+        },
+    } satisfies
+        TFeatureMainBindings<typeof DOCUMENT_PICKER_PLATFORM_FEATURE, IpcMainInvokeEvent>
+        & TFeatureMainBindings<typeof DOCUMENT_RECENT_FILES_PLATFORM_FEATURE, IpcMainInvokeEvent>
+        & TFeatureMainBindings<typeof DOCUMENT_WINDOW_PLATFORM_FEATURE, IpcMainInvokeEvent>
+        & TFeatureMainBindings<typeof DOCUMENT_MENU_PLATFORM_FEATURE, IpcMainInvokeEvent>;
+    registerPlatformFeatureHandlers(featureRegistrar as never, DOCUMENT_PICKER_PLATFORM_FEATURE, featureBindings);
+    registerPlatformFeatureHandlers(featureRegistrar as never, DOCUMENT_RECENT_FILES_PLATFORM_FEATURE, featureBindings);
+    registerPlatformFeatureHandlers(featureRegistrar as never, DOCUMENT_WINDOW_PLATFORM_FEATURE, featureBindings);
+    registerPlatformFeatureHandlers(featureRegistrar as never, DOCUMENT_MENU_PLATFORM_FEATURE, featureBindings);
+
     register(DOCUMENTS_CHANNELS.openDocumentDirect, (
         event: IpcMainInvokeEvent,
         ...[filePath]: TDocumentsIpcArgs<typeof DOCUMENTS_CHANNELS.openDocumentDirect>
@@ -698,31 +765,6 @@ export function registerDocumentsIpcAdapter(
         ...[filePath]: TDocumentsIpcArgs<typeof DOCUMENTS_CHANNELS.fileCleanupOcrTemp>
     ) =>
         service.cleanupOcrTemp(createSenderIdContext(event), filePath));
-    register(DOCUMENTS_CHANNELS.windowSetTitle, (
-        event: IpcMainInvokeEvent,
-        ...[title]: TDocumentsIpcArgs<typeof DOCUMENTS_CHANNELS.windowSetTitle>
-    ) =>
-        service.setWindowTitle(createWindowContext(event), title));
-    register(DOCUMENTS_CHANNELS.shellShowItemInFolder, (
-        event: IpcMainInvokeEvent,
-        ...[filePath]: TDocumentsIpcArgs<typeof DOCUMENTS_CHANNELS.shellShowItemInFolder>
-    ) =>
-        service.showItemInFolder(createOpenPathContext(event), filePath));
-    register(DOCUMENTS_CHANNELS.menuSetDocumentState, (
-        event: IpcMainInvokeEvent,
-        ...[state]: TDocumentsIpcArgs<typeof DOCUMENTS_CHANNELS.menuSetDocumentState>
-    ) =>
-        service.setMenuDocumentState(createWindowContext(event), state));
-    register(DOCUMENTS_CHANNELS.menuSetTabCount, (
-        event: IpcMainInvokeEvent,
-        ...[tabCount]: TDocumentsIpcArgs<typeof DOCUMENTS_CHANNELS.menuSetTabCount>
-    ) =>
-        service.setMenuTabCount(createWindowContext(event), tabCount));
-    register(DOCUMENTS_CHANNELS.recentFilesGet, (event: IpcMainInvokeEvent) => service.getRecentFiles(createWebContentsContext(event)));
-    register(DOCUMENTS_CHANNELS.recentFilesRemove, (
-        _event: IpcMainInvokeEvent,
-        ...[originalPath]: TDocumentsIpcArgs<typeof DOCUMENTS_CHANNELS.recentFilesRemove>
-    ) => service.removeRecentFile(originalPath));
     register(DOCUMENTS_CHANNELS.registerRendererFileOpenToken, (event: IpcMainInvokeEvent, token: unknown) => {
         const normalizedToken = typeof token === 'string' ? token.trim() : '';
         return registerRendererFileOpenTokens(event, [normalizedToken]);
@@ -777,7 +819,6 @@ export function registerDocumentsIpcAdapter(
         ...[workingPath]: TDocumentsIpcArgs<typeof DOCUMENTS_CHANNELS.fileCleanup>
     ) => service.cleanupFile(createSenderIdContext(event), workingPath)
         .then(() => undefined));
-    register(DOCUMENTS_CHANNELS.recentFilesClear, () => service.clearRecentFiles());
     registerRawEvent(DOCUMENTS_CHANNELS.fileSavePdfDataPort, (event: IpcMainEvent, sessionId: unknown) => {
         try {
             attachSerializedPdfPersistencePort(event, sessionId);

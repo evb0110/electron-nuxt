@@ -41,26 +41,6 @@ export function createLazyBrowserPlatformApiGenerated({
     lazyEvent,
     lazyVoid,
 }: ILazyBrowserPlatformApiFactoryDeps) {
-    const documentPickerOpenDocumentDialogMethod = lazyAsync(pathDescriptors.documentPicker.openDocumentDialog.path);
-    const documentsOpenDocumentDialogMethod = documentPickerOpenDocumentDialogMethod;
-    const documentPickerOpenPdfDialogMethod = lazyAsync(pathDescriptors.documentPicker.openPdfDialog.path);
-    const documentsOpenPdfDialogMethod = documentPickerOpenPdfDialogMethod;
-    const documentPickerOpenCombineDialogMethod = lazyAsync(pathDescriptors.documentPicker.openCombineDialog.path);
-    const documentsOpenCombineDialogMethod = documentPickerOpenCombineDialogMethod;
-    const documentPickerOpenFolderDialogMethod = lazyAsync(pathDescriptors.documentPicker.openFolderDialog.path);
-    const documentsOpenFolderDialogMethod = documentPickerOpenFolderDialogMethod;
-    const documentPickerOpenFolderDialogStructuredMethod = lazyAsync(pathDescriptors.documentPicker.openFolderDialogStructured.path);
-    const documentsOpenFolderDialogStructuredMethod = documentPickerOpenFolderDialogStructuredMethod;
-    const documentPickerOpenImageDialogMethod = lazyAsync(pathDescriptors.documentPicker.openImageDialog.path);
-    const documentsOpenImageDialogMethod = documentPickerOpenImageDialogMethod;
-    const documentPickerGetPathForFileMethod = getPathForFile;
-    const documentsGetPathForFileMethod = documentPickerGetPathForFileMethod;
-    const documentPickerGetPathsForFilesMethod = getPathsForFiles;
-    const documentsGetPathsForFilesMethod = documentPickerGetPathsForFilesMethod;
-    const documentPickerRegisterFilesForOpenMethod = lazyAsync(pathDescriptors.documentPicker.registerFilesForOpen.path);
-    const documentsRegisterFilesForOpenMethod = documentPickerRegisterFilesForOpenMethod;
-    const documentPickerCreateCombinedPdfFromFilesMethod = lazyAsync(pathDescriptors.documentPicker.createCombinedPdfFromFiles.path);
-    const documentsCreateCombinedPdfFromFilesMethod = documentPickerCreateCombinedPdfFromFilesMethod;
     const documentOpenOpenDocumentDirectMethod = lazyAsync(pathDescriptors.documentOpen.openDocumentDirect.path);
     const documentsOpenDocumentDirectMethod = documentOpenOpenDocumentDirectMethod;
     const documentOpenOpenPdfDirectMethod = lazyAsync(pathDescriptors.documentOpen.openPdfDirect.path);
@@ -129,6 +109,47 @@ export function createLazyBrowserPlatformApiGenerated({
     const documentsPrintPdfDataMethod = documentPdfPrintPdfDataMethod;
     const documentPdfPrintPdfPathMethod = lazyAsync(pathDescriptors.documentPdf.printPdfPath.path);
     const documentsPrintPdfPathMethod = documentPdfPrintPdfPathMethod;
+    const ocrInstallLanguagesMethod = lazyAsync(pathDescriptors.ocr.installLanguages.path);
+    const scanCleanupPreviewMethod = lazyAsync(pathDescriptors.scanCleanup.preview.path);
+    const scanCleanupCancelPreviewMethod = lazyAsync(pathDescriptors.scanCleanup.cancelPreview.path);
+    const scanCleanupDetectAllMethod = lazyAsync(pathDescriptors.scanCleanup.detectAll.path);
+    const scanCleanupCancelDetectionMethod = lazyAsync(pathDescriptors.scanCleanup.cancelDetection.path);
+    const scanCleanupGetDetectionJobStateMethod = lazyAsync(pathDescriptors.scanCleanup.getDetectionJobState.path);
+    const scanCleanupSubscribeDetectionJobMethod = lazyAsync(pathDescriptors.scanCleanup.subscribeDetectionJob.path);
+    const scanCleanupStartMethod = lazyAsync(pathDescriptors.scanCleanup.start.path);
+    const scanCleanupCancelMethod = lazyAsync(pathDescriptors.scanCleanup.cancel.path);
+    const scanCleanupGetJobStateMethod = lazyAsync(pathDescriptors.scanCleanup.getJobState.path);
+    const scanCleanupSubscribeJobMethod = lazyAsync(pathDescriptors.scanCleanup.subscribeJob.path);
+    const scanCleanupReconnectJobMethod = lazyAsync(pathDescriptors.scanCleanup.reconnectJob.path);
+    const scanCleanupPruneGeneratedOutputsMethod = lazyAsync(pathDescriptors.scanCleanup.pruneGeneratedOutputs.path);
+    const scanCleanupOnJobStateMethod = lazyEvent(pathDescriptors.scanCleanup.onJobState.path);
+    const scanCleanupOnDetectionJobStateMethod = lazyEvent(pathDescriptors.scanCleanup.onDetectionJobState.path);
+    const settingsGetDebugLogsMethod = lazyAsync(pathDescriptors.settings.getDebugLogs.path);
+    const settingsOnDebugLogMethod = lazyEvent(pathDescriptors.settings.onDebugLog.path);
+    const settingsRendererLogMethod = lazyVoid(pathDescriptors.settings.rendererLog.path);
+    const settingsOnMenuOpenSettingsMethod = lazyEvent(pathDescriptors.settings.onMenuOpenSettings.path);
+    const systemOnShutdownSaveFlushRequestMethod = lazyEvent(pathDescriptors.system.onShutdownSaveFlushRequest.path);
+    const windowTabsNotifyRendererReadyMethod = lazyVoid(pathDescriptors.windowTabs.notifyRendererReady.path);
+    const documentPickerOpenDocumentDialogMethod = lazyAsync(pathDescriptors.documentPicker.openDocumentDialog.path);
+    const documentsOpenDocumentDialogMethod = documentPickerOpenDocumentDialogMethod;
+    const documentsOpenPdfDialogMethod = documentPickerOpenDocumentDialogMethod;
+    const documentPickerOpenPdfDialogMethod = documentPickerOpenDocumentDialogMethod;
+    const documentPickerOpenCombineDialogMethod = lazyAsync(pathDescriptors.documentPicker.openCombineDialog.path);
+    const documentsOpenCombineDialogMethod = documentPickerOpenCombineDialogMethod;
+    const documentPickerOpenFolderDialogMethod = lazyAsync(pathDescriptors.documentPicker.openFolderDialog.path);
+    const documentsOpenFolderDialogMethod = documentPickerOpenFolderDialogMethod;
+    const documentPickerOpenFolderDialogStructuredMethod = lazyAsync(pathDescriptors.documentPicker.openFolderDialogStructured.path);
+    const documentsOpenFolderDialogStructuredMethod = documentPickerOpenFolderDialogStructuredMethod;
+    const documentPickerOpenImageDialogMethod = lazyAsync(pathDescriptors.documentPicker.openImageDialog.path);
+    const documentsOpenImageDialogMethod = documentPickerOpenImageDialogMethod;
+    const documentPickerGetPathForFileMethod = getPathForFile;
+    const documentsGetPathForFileMethod = documentPickerGetPathForFileMethod;
+    const documentPickerGetPathsForFilesMethod = getPathsForFiles;
+    const documentsGetPathsForFilesMethod = documentPickerGetPathsForFilesMethod;
+    const documentPickerRegisterFilesForOpenMethod = lazyAsync(pathDescriptors.documentPicker.registerFilesForOpen.path);
+    const documentsRegisterFilesForOpenMethod = documentPickerRegisterFilesForOpenMethod;
+    const documentPickerCreateCombinedPdfFromFilesMethod = lazyAsync(pathDescriptors.documentPicker.createCombinedPdfFromFiles.path);
+    const documentsCreateCombinedPdfFromFilesMethod = documentPickerCreateCombinedPdfFromFilesMethod;
     const documentRecentFilesRecentFilesGetMethod = lazyAsync(pathDescriptors.documentRecentFiles.recentFiles.get.path);
     const documentsRecentFilesGetMethod = documentRecentFilesRecentFilesGetMethod;
     const documentRecentFilesRecentFilesRemoveMethod = lazyAsync(pathDescriptors.documentRecentFiles.recentFiles.remove.path);
@@ -213,29 +234,8 @@ export function createLazyBrowserPlatformApiGenerated({
     const documentsOnMenuClearRecentFilesMethod = documentMenuOnMenuClearRecentFilesMethod;
     const documentMenuOnOpenDocumentDirectBatchProgressMethod = lazyEvent(pathDescriptors.documentMenu.onOpenDocumentDirectBatchProgress.path);
     const documentsOnOpenDocumentDirectBatchProgressMethod = documentMenuOnOpenDocumentDirectBatchProgressMethod;
-    const documentMenuOnOpenPdfDirectBatchProgressMethod = lazyEvent(pathDescriptors.documentMenu.onOpenPdfDirectBatchProgress.path);
-    const documentsOnOpenPdfDirectBatchProgressMethod = documentMenuOnOpenPdfDirectBatchProgressMethod;
-    const ocrInstallLanguagesMethod = lazyAsync(pathDescriptors.ocr.installLanguages.path);
-    const scanCleanupPreviewMethod = lazyAsync(pathDescriptors.scanCleanup.preview.path);
-    const scanCleanupCancelPreviewMethod = lazyAsync(pathDescriptors.scanCleanup.cancelPreview.path);
-    const scanCleanupDetectAllMethod = lazyAsync(pathDescriptors.scanCleanup.detectAll.path);
-    const scanCleanupCancelDetectionMethod = lazyAsync(pathDescriptors.scanCleanup.cancelDetection.path);
-    const scanCleanupGetDetectionJobStateMethod = lazyAsync(pathDescriptors.scanCleanup.getDetectionJobState.path);
-    const scanCleanupSubscribeDetectionJobMethod = lazyAsync(pathDescriptors.scanCleanup.subscribeDetectionJob.path);
-    const scanCleanupStartMethod = lazyAsync(pathDescriptors.scanCleanup.start.path);
-    const scanCleanupCancelMethod = lazyAsync(pathDescriptors.scanCleanup.cancel.path);
-    const scanCleanupGetJobStateMethod = lazyAsync(pathDescriptors.scanCleanup.getJobState.path);
-    const scanCleanupSubscribeJobMethod = lazyAsync(pathDescriptors.scanCleanup.subscribeJob.path);
-    const scanCleanupReconnectJobMethod = lazyAsync(pathDescriptors.scanCleanup.reconnectJob.path);
-    const scanCleanupPruneGeneratedOutputsMethod = lazyAsync(pathDescriptors.scanCleanup.pruneGeneratedOutputs.path);
-    const scanCleanupOnJobStateMethod = lazyEvent(pathDescriptors.scanCleanup.onJobState.path);
-    const scanCleanupOnDetectionJobStateMethod = lazyEvent(pathDescriptors.scanCleanup.onDetectionJobState.path);
-    const settingsGetDebugLogsMethod = lazyAsync(pathDescriptors.settings.getDebugLogs.path);
-    const settingsOnDebugLogMethod = lazyEvent(pathDescriptors.settings.onDebugLog.path);
-    const settingsRendererLogMethod = lazyVoid(pathDescriptors.settings.rendererLog.path);
-    const settingsOnMenuOpenSettingsMethod = lazyEvent(pathDescriptors.settings.onMenuOpenSettings.path);
-    const systemOnShutdownSaveFlushRequestMethod = lazyEvent(pathDescriptors.system.onShutdownSaveFlushRequest.path);
-    const windowTabsNotifyRendererReadyMethod = lazyVoid(pathDescriptors.windowTabs.notifyRendererReady.path);
+    const documentsOnOpenPdfDirectBatchProgressMethod = documentMenuOnOpenDocumentDirectBatchProgressMethod;
+    const documentMenuOnOpenPdfDirectBatchProgressMethod = documentMenuOnOpenDocumentDirectBatchProgressMethod;
     const agentGetMcpIntegrationStatusMethod = lazyAsync(pathDescriptors.agent.getMcpIntegrationStatus.path);
     const agentSetMcpIntegrationEnabledMethod = lazyAsync(pathDescriptors.agent.setMcpIntegrationEnabled.path);
     const agentGetAssistantStateMethod = lazyAsync(pathDescriptors.agent.getAssistantState.path);
@@ -336,29 +336,13 @@ export function createLazyBrowserPlatformApiGenerated({
 
     return {
     manifest: BROWSER_PLATFORM_MANIFEST,
-    documentPicker: {
-        openDocumentDialog: documentPickerOpenDocumentDialogMethod,
-        openPdfDialog: documentPickerOpenPdfDialogMethod,
-        openCombineDialog: documentPickerOpenCombineDialogMethod,
-        openFolderDialog: documentPickerOpenFolderDialogMethod,
-        openFolderDialogStructured: documentPickerOpenFolderDialogStructuredMethod,
-        openImageDialog: documentPickerOpenImageDialogMethod,
-        getPathForFile: documentPickerGetPathForFileMethod,
-        getPathsForFiles: documentPickerGetPathsForFilesMethod,
-        registerFilesForOpen: documentPickerRegisterFilesForOpenMethod,
-        createCombinedPdfFromFiles: documentPickerCreateCombinedPdfFromFilesMethod,
+    documentOpen: {
+        openDocumentDirect: documentOpenOpenDocumentDirectMethod,
+        openPdfDirect: documentOpenOpenPdfDirectMethod,
+        openDocumentDirectBatch: documentOpenOpenDocumentDirectBatchMethod,
+        openPdfDirectBatch: documentOpenOpenPdfDirectBatchMethod,
     },
     documents: {
-        openDocumentDialog: documentsOpenDocumentDialogMethod,
-        openPdfDialog: documentsOpenPdfDialogMethod,
-        openCombineDialog: documentsOpenCombineDialogMethod,
-        openFolderDialog: documentsOpenFolderDialogMethod,
-        openFolderDialogStructured: documentsOpenFolderDialogStructuredMethod,
-        openImageDialog: documentsOpenImageDialogMethod,
-        getPathForFile: documentsGetPathForFileMethod,
-        getPathsForFiles: documentsGetPathsForFilesMethod,
-        registerFilesForOpen: documentsRegisterFilesForOpenMethod,
-        createCombinedPdfFromFiles: documentsCreateCombinedPdfFromFilesMethod,
         openDocumentDirect: documentsOpenDocumentDirectMethod,
         openPdfDirect: documentsOpenPdfDirectMethod,
         openDocumentDirectBatch: documentsOpenDocumentDirectBatchMethod,
@@ -393,6 +377,16 @@ export function createLazyBrowserPlatformApiGenerated({
         openPdfInDefaultAppPath: documentsOpenPdfInDefaultAppPathMethod,
         printPdfData: documentsPrintPdfDataMethod,
         printPdfPath: documentsPrintPdfPathMethod,
+        openDocumentDialog: documentsOpenDocumentDialogMethod,
+        openPdfDialog: documentsOpenPdfDialogMethod,
+        openCombineDialog: documentsOpenCombineDialogMethod,
+        openFolderDialog: documentsOpenFolderDialogMethod,
+        openFolderDialogStructured: documentsOpenFolderDialogStructuredMethod,
+        openImageDialog: documentsOpenImageDialogMethod,
+        getPathForFile: documentsGetPathForFileMethod,
+        getPathsForFiles: documentsGetPathsForFilesMethod,
+        registerFilesForOpen: documentsRegisterFilesForOpenMethod,
+        createCombinedPdfFromFiles: documentsCreateCombinedPdfFromFilesMethod,
         recentFiles: {
             get: documentsRecentFilesGetMethod,
             remove: documentsRecentFilesRemoveMethod,
@@ -439,12 +433,6 @@ export function createLazyBrowserPlatformApiGenerated({
         onOpenDocumentDirectBatchProgress: documentsOnOpenDocumentDirectBatchProgressMethod,
         onOpenPdfDirectBatchProgress: documentsOnOpenPdfDirectBatchProgressMethod,
     },
-    documentOpen: {
-        openDocumentDirect: documentOpenOpenDocumentDirectMethod,
-        openPdfDirect: documentOpenOpenPdfDirectMethod,
-        openDocumentDirectBatch: documentOpenOpenDocumentDirectBatchMethod,
-        openPdfDirectBatch: documentOpenOpenPdfDirectBatchMethod,
-    },
     documentWorkingCopy: {
         createWorkingCopyFromData: documentWorkingCopyCreateWorkingCopyFromDataMethod,
         createWorkingCopyFromPath: documentWorkingCopyCreateWorkingCopyFromPathMethod,
@@ -480,57 +468,6 @@ export function createLazyBrowserPlatformApiGenerated({
         openPdfInDefaultAppPath: documentPdfOpenPdfInDefaultAppPathMethod,
         printPdfData: documentPdfPrintPdfDataMethod,
         printPdfPath: documentPdfPrintPdfPathMethod,
-    },
-    documentRecentFiles: {
-        recentFiles: {
-            get: documentRecentFilesRecentFilesGetMethod,
-            remove: documentRecentFilesRecentFilesRemoveMethod,
-            clear: documentRecentFilesRecentFilesClearMethod,
-        },
-    },
-    documentWindow: {
-        setWindowTitle: documentWindowSetWindowTitleMethod,
-        showItemInFolder: documentWindowShowItemInFolderMethod,
-        showItemInFolderStructured: documentWindowShowItemInFolderStructuredMethod,
-    },
-    documentMenu: {
-        setMenuDocumentState: documentMenuSetMenuDocumentStateMethod,
-        setMenuTabCount: documentMenuSetMenuTabCountMethod,
-        onPdfOptimizeProgress: documentMenuOnPdfOptimizeProgressMethod,
-        onMenuOpenPdf: documentMenuOnMenuOpenPdfMethod,
-        onMenuInsertImageFromFile: documentMenuOnMenuInsertImageFromFileMethod,
-        onMenuPasteImageFromClipboard: documentMenuOnMenuPasteImageFromClipboardMethod,
-        onMenuSave: documentMenuOnMenuSaveMethod,
-        onMenuRepairSave: documentMenuOnMenuRepairSaveMethod,
-        onMenuOptimizePdfForInteraction: documentMenuOnMenuOptimizePdfForInteractionMethod,
-        onMenuSaveAs: documentMenuOnMenuSaveAsMethod,
-        onMenuPrint: documentMenuOnMenuPrintMethod,
-        onMenuPrintCurrentPage: documentMenuOnMenuPrintCurrentPageMethod,
-        onMenuExportDocx: documentMenuOnMenuExportDocxMethod,
-        onMenuExportImages: documentMenuOnMenuExportImagesMethod,
-        onMenuExportMultiPageTiff: documentMenuOnMenuExportMultiPageTiffMethod,
-        onMenuZoomIn: documentMenuOnMenuZoomInMethod,
-        onMenuZoomOut: documentMenuOnMenuZoomOutMethod,
-        onMenuActualSize: documentMenuOnMenuActualSizeMethod,
-        onMenuFitWidth: documentMenuOnMenuFitWidthMethod,
-        onMenuFitHeight: documentMenuOnMenuFitHeightMethod,
-        onMenuToggleContinuousScroll: documentMenuOnMenuToggleContinuousScrollMethod,
-        onMenuViewModeSingle: documentMenuOnMenuViewModeSingleMethod,
-        onMenuViewModeFacing: documentMenuOnMenuViewModeFacingMethod,
-        onMenuViewModeFacingFirstSingle: documentMenuOnMenuViewModeFacingFirstSingleMethod,
-        onMenuToggleAssistant: documentMenuOnMenuToggleAssistantMethod,
-        onMenuUndo: documentMenuOnMenuUndoMethod,
-        onMenuRedo: documentMenuOnMenuRedoMethod,
-        onMenuDeletePages: documentMenuOnMenuDeletePagesMethod,
-        onMenuExtractPages: documentMenuOnMenuExtractPagesMethod,
-        onMenuRotateCw: documentMenuOnMenuRotateCwMethod,
-        onMenuRotateCcw: documentMenuOnMenuRotateCcwMethod,
-        onMenuInsertPages: documentMenuOnMenuInsertPagesMethod,
-        onMenuOpenRecentFile: documentMenuOnMenuOpenRecentFileMethod,
-        onMenuOpenExternalPaths: documentMenuOnMenuOpenExternalPathsMethod,
-        onMenuClearRecentFiles: documentMenuOnMenuClearRecentFilesMethod,
-        onOpenDocumentDirectBatchProgress: documentMenuOnOpenDocumentDirectBatchProgressMethod,
-        onOpenPdfDirectBatchProgress: documentMenuOnOpenPdfDirectBatchProgressMethod,
     },
     ocr: {
         installLanguages: ocrInstallLanguagesMethod,
@@ -599,6 +536,69 @@ export function createLazyBrowserPlatformApiGenerated({
         onMenuFocusEditorPane: windowTabsOnMenuFocusEditorPaneMethod,
         onMenuMoveTabToPane: windowTabsOnMenuMoveTabToPaneMethod,
         onMenuCopyTabToPane: windowTabsOnMenuCopyTabToPaneMethod,
+    },
+    documentPicker: {
+        openDocumentDialog: documentPickerOpenDocumentDialogMethod,
+        openPdfDialog: documentPickerOpenPdfDialogMethod,
+        openCombineDialog: documentPickerOpenCombineDialogMethod,
+        openFolderDialog: documentPickerOpenFolderDialogMethod,
+        openFolderDialogStructured: documentPickerOpenFolderDialogStructuredMethod,
+        openImageDialog: documentPickerOpenImageDialogMethod,
+        getPathForFile: documentPickerGetPathForFileMethod,
+        getPathsForFiles: documentPickerGetPathsForFilesMethod,
+        registerFilesForOpen: documentPickerRegisterFilesForOpenMethod,
+        createCombinedPdfFromFiles: documentPickerCreateCombinedPdfFromFilesMethod,
+    },
+    documentRecentFiles: {
+        recentFiles: {
+            get: documentRecentFilesRecentFilesGetMethod,
+            remove: documentRecentFilesRecentFilesRemoveMethod,
+            clear: documentRecentFilesRecentFilesClearMethod,
+        },
+    },
+    documentWindow: {
+        setWindowTitle: documentWindowSetWindowTitleMethod,
+        showItemInFolder: documentWindowShowItemInFolderMethod,
+        showItemInFolderStructured: documentWindowShowItemInFolderStructuredMethod,
+    },
+    documentMenu: {
+        setMenuDocumentState: documentMenuSetMenuDocumentStateMethod,
+        setMenuTabCount: documentMenuSetMenuTabCountMethod,
+        onPdfOptimizeProgress: documentMenuOnPdfOptimizeProgressMethod,
+        onMenuOpenPdf: documentMenuOnMenuOpenPdfMethod,
+        onMenuInsertImageFromFile: documentMenuOnMenuInsertImageFromFileMethod,
+        onMenuPasteImageFromClipboard: documentMenuOnMenuPasteImageFromClipboardMethod,
+        onMenuSave: documentMenuOnMenuSaveMethod,
+        onMenuRepairSave: documentMenuOnMenuRepairSaveMethod,
+        onMenuOptimizePdfForInteraction: documentMenuOnMenuOptimizePdfForInteractionMethod,
+        onMenuSaveAs: documentMenuOnMenuSaveAsMethod,
+        onMenuPrint: documentMenuOnMenuPrintMethod,
+        onMenuPrintCurrentPage: documentMenuOnMenuPrintCurrentPageMethod,
+        onMenuExportDocx: documentMenuOnMenuExportDocxMethod,
+        onMenuExportImages: documentMenuOnMenuExportImagesMethod,
+        onMenuExportMultiPageTiff: documentMenuOnMenuExportMultiPageTiffMethod,
+        onMenuZoomIn: documentMenuOnMenuZoomInMethod,
+        onMenuZoomOut: documentMenuOnMenuZoomOutMethod,
+        onMenuActualSize: documentMenuOnMenuActualSizeMethod,
+        onMenuFitWidth: documentMenuOnMenuFitWidthMethod,
+        onMenuFitHeight: documentMenuOnMenuFitHeightMethod,
+        onMenuToggleContinuousScroll: documentMenuOnMenuToggleContinuousScrollMethod,
+        onMenuViewModeSingle: documentMenuOnMenuViewModeSingleMethod,
+        onMenuViewModeFacing: documentMenuOnMenuViewModeFacingMethod,
+        onMenuViewModeFacingFirstSingle: documentMenuOnMenuViewModeFacingFirstSingleMethod,
+        onMenuToggleAssistant: documentMenuOnMenuToggleAssistantMethod,
+        onMenuUndo: documentMenuOnMenuUndoMethod,
+        onMenuRedo: documentMenuOnMenuRedoMethod,
+        onMenuDeletePages: documentMenuOnMenuDeletePagesMethod,
+        onMenuExtractPages: documentMenuOnMenuExtractPagesMethod,
+        onMenuRotateCw: documentMenuOnMenuRotateCwMethod,
+        onMenuRotateCcw: documentMenuOnMenuRotateCcwMethod,
+        onMenuInsertPages: documentMenuOnMenuInsertPagesMethod,
+        onMenuOpenRecentFile: documentMenuOnMenuOpenRecentFileMethod,
+        onMenuOpenExternalPaths: documentMenuOnMenuOpenExternalPathsMethod,
+        onMenuClearRecentFiles: documentMenuOnMenuClearRecentFilesMethod,
+        onOpenDocumentDirectBatchProgress: documentMenuOnOpenDocumentDirectBatchProgressMethod,
+        onOpenPdfDirectBatchProgress: documentMenuOnOpenPdfDirectBatchProgressMethod,
     },
     agent: {
         getMcpIntegrationStatus: agentGetMcpIntegrationStatusMethod,

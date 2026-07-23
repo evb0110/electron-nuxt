@@ -10,7 +10,7 @@ import type {
 import type {
     TAnyDefinedPlatformFeature,
     TFeatureCapability,
-    TFeatureSyncBindings,
+    TFeatureDirectBindings,
 } from '@contracts/platformFeature';
 import { CORE_IPC_SEND_CHANNELS } from '@electron/platform-ipc/coreContract';
 
@@ -232,11 +232,11 @@ export function createPlatformFeaturePreloadClient<
 >(
     ipcRenderer: IpcRenderer,
     feature: TFeature,
-    syncBindings?: TFeatureSyncBindings<TFeature>,
+    directBindings?: TFeatureDirectBindings<TFeature>,
 ): TFeatureCapability<TFeature> {
     const invokeTimeoutMsByChannel = Object.fromEntries(
         Object.values(feature.methods)
-            .flatMap(spec => spec.kind === 'sync' || spec.ipc.timeoutMs === undefined
+            .flatMap(spec => spec.kind === 'sync' || 'local' in spec || spec.ipc.timeoutMs === undefined
                 ? []
                 : [[
                     spec.channel,
@@ -251,16 +251,27 @@ export function createPlatformFeaturePreloadClient<
     const eventSubscriber = createTypedIpcEventSubscriber<Record<string, unknown>>(ipcRenderer);
     const requestedSubscriptions = new Set<string>();
     const client: Record<string, unknown> = {};
-    const untypedSyncBindings = syncBindings as Record<string, (() => unknown)> | undefined;
+    const untypedDirectBindings = directBindings as Record<string, ((...args: unknown[]) => unknown)> | undefined;
 
     for (const [
         name,
         spec,
     ] of Object.entries(feature.methods)) {
-        if (spec.kind === 'sync') {
-            const binding = untypedSyncBindings?.[name];
+        if (spec.aliasOf !== undefined) {
+            const target = client[spec.aliasOf];
+            if (typeof target !== 'function') {
+                throw new Error(`Missing platform feature alias target: ${spec.aliasOf}`);
+            }
+            client[name] = target;
+            continue;
+        }
+        if (spec.kind === 'sync' || 'local' in spec) {
+            const binding = untypedDirectBindings?.[name];
             if (typeof binding !== 'function') {
-                throw new Error(`Missing platform feature sync binding: ${name}`);
+                if (spec.optionalWhenImplemented) {
+                    continue;
+                }
+                throw new Error(`Missing platform feature direct binding: ${name}`);
             }
             client[name] = binding;
             continue;
@@ -276,6 +287,14 @@ export function createPlatformFeaturePreloadClient<
         name,
         spec,
     ] of Object.entries(feature.events)) {
+        if (spec.aliasOf !== undefined) {
+            const target = client[spec.aliasOf];
+            if (typeof target !== 'function') {
+                throw new Error(`Missing platform feature alias target: ${spec.aliasOf}`);
+            }
+            client[name] = target;
+            continue;
+        }
         client[name] = (callback: (payload: unknown) => void) => {
             const unsubscribe = eventSubscriber.onDecodedPayload(
                 spec.channel,

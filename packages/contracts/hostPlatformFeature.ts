@@ -80,6 +80,7 @@ export const HOST_PLATFORM_FEATURE = definePlatformFeature({
     methods: {
         getResourceProfile: {
             kind: 'sync',
+            args: s.tuple([]),
             result: resourceProfile,
             browser: {method: 'getResourceProfile'},
             lazy: 'direct',

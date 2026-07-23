@@ -5,6 +5,12 @@ import {
 } from 'vitest';
 import { AGENT_PLATFORM_FEATURE } from '@contracts/agentPlatformFeature';
 import { DJVU_PLATFORM_FEATURE } from '@contracts/djvuPlatformFeature';
+import {
+    DOCUMENT_MENU_PLATFORM_FEATURE,
+    DOCUMENT_PICKER_PLATFORM_FEATURE,
+    DOCUMENT_RECENT_FILES_PLATFORM_FEATURE,
+    DOCUMENT_WINDOW_PLATFORM_FEATURE,
+} from '@contracts/documentsPlatformFeature';
 import { DOCUMENTS_CHANNELS } from '@electron/features/documents/contract';
 import { DOCUMENTS_IPC_CODECS } from '@electron/features/documents/documentsIpcCodecs';
 import { IMAGE_EXPORT_PLATFORM_FEATURE } from '@contracts/imageExportPlatformFeature';
@@ -62,6 +68,22 @@ describe('feature IPC codec maps', () => {
         expectExhaustiveMap(AGENT_CHANNELS, AGENT_IPC_CODECS);
         expectExhaustiveMap(DJVU_CHANNELS, DJVU_IPC_CODECS);
         expectExhaustiveMap(DOCUMENTS_CHANNELS, DOCUMENTS_IPC_CODECS, [DOCUMENTS_CHANNELS.fileSavePdfDataPort]);
+        expectExhaustiveMap(
+            DOCUMENT_PICKER_PLATFORM_FEATURE.invokeChannels,
+            DOCUMENT_PICKER_PLATFORM_FEATURE.ipcCodecs,
+        );
+        expectExhaustiveMap(
+            DOCUMENT_RECENT_FILES_PLATFORM_FEATURE.invokeChannels,
+            DOCUMENT_RECENT_FILES_PLATFORM_FEATURE.ipcCodecs,
+        );
+        expectExhaustiveMap(
+            DOCUMENT_WINDOW_PLATFORM_FEATURE.invokeChannels,
+            DOCUMENT_WINDOW_PLATFORM_FEATURE.ipcCodecs,
+        );
+        expectExhaustiveMap(
+            DOCUMENT_MENU_PLATFORM_FEATURE.invokeChannels,
+            DOCUMENT_MENU_PLATFORM_FEATURE.ipcCodecs,
+        );
         expectExhaustiveMap(IMAGE_EXPORT_CHANNELS, IMAGE_EXPORT_IPC_CODECS);
         expectExhaustiveMap(OCR_CHANNELS, OCR_IPC_CODECS);
         expectExhaustiveMap(PAGE_OPS_CHANNELS, PAGE_OPS_IPC_CODECS);
@@ -75,6 +97,9 @@ describe('feature IPC codec maps', () => {
         expect(() => agentCodec(AGENT_CHANNELS.getMcpIntegrationStatus).decodeResult({enabled: 'yes'})).toThrow();
         expect(() => djvuCodec(DJVU_CHANNELS.getInfo).decodeResult({pageCount: 'one'})).toThrow();
         expect(() => DOCUMENTS_IPC_CODECS[DOCUMENTS_CHANNELS.fileRead].decodeResult('bytes')).toThrow();
+        expect(() => DOCUMENT_PICKER_PLATFORM_FEATURE.ipcCodecs[
+            DOCUMENT_PICKER_PLATFORM_FEATURE.invokeChannels.openDocumentDialog
+        ]!.decodeResult({kind: 'pdf'})).toThrow();
         expect(() => IMAGE_EXPORT_IPC_CODECS[IMAGE_EXPORT_CHANNELS.exportPdfToImages]!.decodeResult({success: 'yes'})).toThrow();
         expect(() => ocrCodec(OCR_CHANNELS.recognize).decodeResult({
             pageNumber: 1,
@@ -94,6 +119,17 @@ describe('feature IPC codec maps', () => {
             transferId: '',
             success: true,
         }])).toThrow();
+    });
+
+    it('retains intentional documents channel aliases', () => {
+        expect(DOCUMENT_PICKER_PLATFORM_FEATURE.invokeChannels.openPdfDialog)
+            .toBe(DOCUMENT_PICKER_PLATFORM_FEATURE.invokeChannels.openDocumentDialog);
+        expect(DOCUMENT_PICKER_PLATFORM_FEATURE.methods.openPdfDialog.aliasOf)
+            .toBe('openDocumentDialog');
+        expect(DOCUMENT_MENU_PLATFORM_FEATURE.eventChannels.onOpenPdfDirectBatchProgress)
+            .toBe(DOCUMENT_MENU_PLATFORM_FEATURE.eventChannels.onOpenDocumentDirectBatchProgress);
+        expect(DOCUMENT_MENU_PLATFORM_FEATURE.events.onOpenPdfDirectBatchProgress.aliasOf)
+            .toBe('onOpenDocumentDirectBatchProgress');
     });
 
     it('preserves the source identity needed to validate cached opening geometry', () => {

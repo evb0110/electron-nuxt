@@ -9,6 +9,13 @@ import type {
     IDocumentsWindowCapability,
     IDocumentsWorkingCopyCapability,
 } from '@contracts/electronApiDocuments';
+import type {
+    DOCUMENT_MENU_PLATFORM_FEATURE,
+    DOCUMENT_PICKER_PLATFORM_FEATURE,
+    DOCUMENT_RECENT_FILES_PLATFORM_FEATURE,
+    DOCUMENT_WINDOW_PLATFORM_FEATURE,
+} from '@contracts/documentsPlatformFeature';
+import type { TFeatureBrowserBindings } from '@contracts/platformFeature';
 import type { IImageExportCapability } from '@contracts/imageExportPlatformFeature';
 import type { IPageOpsCapability } from '@contracts/pageOpsPlatformFeature';
 import {
@@ -133,17 +140,14 @@ export function createBrowserDocumentsCapability(
         openPdfDialog: fileCapability.openPdfDialog,
         openCombineDialog: fileCapability.openCombineDialog,
         openFolderDialog: fileCapability.openFolderDialog,
-        ...(fileCapability.openFolderDialogStructured
-            ? {openFolderDialogStructured: fileCapability.openFolderDialogStructured}
-            : {}),
+        openFolderDialogStructured: fileCapability.openFolderDialogStructured!,
         openImageDialog: fileCapability.openImageDialog,
         getPathForFile: fileCapability.getPathForFile,
         getPathsForFiles: fileCapability.getPathsForFiles,
         registerFilesForOpen: fileCapability.registerFilesForOpen,
-        ...(fileCapability.createCombinedPdfFromFiles
-            ? {createCombinedPdfFromFiles: fileCapability.createCombinedPdfFromFiles}
-            : {}),
-    } satisfies IDocumentsPickerCapability;
+        createCombinedPdfFromFiles: fileCapability.createCombinedPdfFromFiles!,
+    } satisfies IDocumentsPickerCapability
+        & TFeatureBrowserBindings<typeof DOCUMENT_PICKER_PLATFORM_FEATURE>;
     const documentOpen = {
         openDocumentDirect: fileCapability.openDocumentDirect,
         openPdfDirect: fileCapability.openPdfDirect,
@@ -207,15 +211,30 @@ export function createBrowserDocumentsCapability(
         printPdfData: fileCapability.printPdfData,
         printPdfPath: fileCapability.printPdfPath,
     } satisfies IDocumentsPdfCapability;
-    const documentRecentFiles = {recentFiles: fileCapability.recentFiles} satisfies IDocumentsRecentFilesCapability;
+    const recentFiles = {
+        get: fileCapability.recentFiles.get,
+        remove: async (path: string) => {
+            await fileCapability.recentFiles.remove(path);
+            return undefined;
+        },
+        clear: async () => {
+            await fileCapability.recentFiles.clear();
+            return undefined;
+        },
+    } satisfies
+        TFeatureBrowserBindings<typeof DOCUMENT_RECENT_FILES_PLATFORM_FEATURE>;
+    const documentRecentFiles = {recentFiles} satisfies IDocumentsRecentFilesCapability;
     const documentWindow = {
-        setWindowTitle: fileCapability.setWindowTitle,
+        setWindowTitle: async (title: string) => {
+            await fileCapability.setWindowTitle(title);
+            return undefined;
+        },
         showItemInFolder: fileCapability.showItemInFolder,
-        ...(fileCapability.showItemInFolderStructured
-            ? {showItemInFolderStructured: fileCapability.showItemInFolderStructured}
-            : {}),
-    } satisfies IDocumentsWindowCapability;
-    const documentMenu = {...browserDocumentsMenuCapability} satisfies IDocumentsMenuCapability;
+        showItemInFolderStructured: fileCapability.showItemInFolderStructured!,
+    } satisfies IDocumentsWindowCapability
+        & TFeatureBrowserBindings<typeof DOCUMENT_WINDOW_PLATFORM_FEATURE>;
+    const documentMenu = {...browserDocumentsMenuCapability} satisfies IDocumentsMenuCapability
+        & TFeatureBrowserBindings<typeof DOCUMENT_MENU_PLATFORM_FEATURE>;
     const documentsCapability = {
         ...documentPicker,
         ...documentOpen,

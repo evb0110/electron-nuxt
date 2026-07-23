@@ -3,11 +3,12 @@ import {
     expect,
     it,
 } from 'vitest';
-import { DOCUMENTS_CHANNELS } from '@electron/features/documents/contract';
-import { DOCUMENTS_IPC_CODECS } from '@electron/features/documents/documentsIpcCodecs';
+import { DOCUMENT_RECENT_FILES_PLATFORM_FEATURE } from '@contracts/documentsPlatformFeature';
 
 describe('documents Recent-files codec', () => {
-    const decode = DOCUMENTS_IPC_CODECS[DOCUMENTS_CHANNELS.recentFilesGet].decodeResult;
+    const decode = DOCUMENT_RECENT_FILES_PLATFORM_FEATURE.ipcCodecs[
+        DOCUMENT_RECENT_FILES_PLATFORM_FEATURE.invokeChannels.get
+    ]!.decodeResult;
 
     it('preserves an optional modified-time revision token', () => {
         expect(decode([{

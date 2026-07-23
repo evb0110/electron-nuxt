@@ -19,14 +19,14 @@ import {
 } from '@contracts/windowTabsPlatformFeature';
 import type { IUpdatesEventMap } from '@contracts/updatesPlatformFeature';
 import type { IApplicationMenuDocumentState } from '@contracts/electronApiDocuments';
+import {
+    DOCUMENT_MENU_PLATFORM_FEATURE,
+    type IDocumentMenuEventMap as IDocumentsEventMap,
+} from '@contracts/documentsPlatformFeature';
 import { config } from '@electron/config';
 import { createLogger } from '@electron/utils/createLogger';
 import { getRecentFilesSync } from '@electron/recentFiles';
 import { te } from '@electron/te';
-import {
-    DOCUMENTS_EVENT_CHANNELS,
-    type IDocumentsEventMap,
-} from '@electron/features/documents/contract';
 import {
     CORE_IPC_EVENT_CHANNELS,
     type ICoreEventMap,
@@ -39,6 +39,7 @@ import { getErrorMessage } from '@electron/utils/error';
 import { shouldExposeDevToolsMenu } from '@electron/shouldExposeDevToolsMenu';
 
 const logger = createLogger('menu');
+const DOCUMENTS_EVENT_CHANNELS = DOCUMENT_MENU_PLATFORM_FEATURE.eventChannels;
 const MENU_REBUILD_DEBOUNCE_MS = 40;
 type TResolvedApplicationMenuDocumentState = Required<IApplicationMenuDocumentState>;
 
@@ -332,7 +333,7 @@ function buildRecentFilesSubmenu(): MenuItemConstructorOptions[] {
     const fileItems: MenuItemConstructorOptions[] = recentFiles.map((filePath) => ({
         label: basename(filePath),
         click: (_, window) => {
-            sendToWindow(resolveWindowFromMenuContext(window), DOCUMENTS_EVENT_CHANNELS.menuOpenRecentFile, filePath);
+            sendToWindow(resolveWindowFromMenuContext(window), DOCUMENTS_EVENT_CHANNELS.onMenuOpenRecentFile, filePath);
         },
     }));
 
@@ -342,7 +343,7 @@ function buildRecentFilesSubmenu(): MenuItemConstructorOptions[] {
         {
             label: te('menu.clearRecentFiles'),
             click: (_, window) => {
-                sendToWindow(resolveWindowFromMenuContext(window), DOCUMENTS_EVENT_CHANNELS.menuClearRecentFiles);
+                sendToWindow(resolveWindowFromMenuContext(window), DOCUMENTS_EVENT_CHANNELS.onMenuClearRecentFiles);
             },
         },
     ];
@@ -354,18 +355,18 @@ function getFileMenu(state: TResolvedApplicationMenuDocumentState): MenuItemCons
             label: te('menu.exportDocx'),
             accelerator: 'CmdOrCtrl+Shift+E',
             enabled: state.canExportDocx,
-            channel: DOCUMENTS_EVENT_CHANNELS.menuExportDocx,
+            channel: DOCUMENTS_EVENT_CHANNELS.onMenuExportDocx,
         })] : []),
         ...(state.supportsRasterExport ? [
             createWindowMenuAction({
                 label: te('menu.exportImages'),
                 enabled: state.canExportRaster,
-                channel: DOCUMENTS_EVENT_CHANNELS.menuExportImages,
+                channel: DOCUMENTS_EVENT_CHANNELS.onMenuExportImages,
             }),
             createWindowMenuAction({
                 label: te('menu.exportMultiPageTiff'),
                 enabled: state.canExportRaster,
-                channel: DOCUMENTS_EVENT_CHANNELS.menuExportMultiPageTiff,
+                channel: DOCUMENTS_EVENT_CHANNELS.onMenuExportMultiPageTiff,
             }),
         ] : []),
     ];
@@ -376,7 +377,7 @@ function getFileMenu(state: TResolvedApplicationMenuDocumentState): MenuItemCons
             createWindowMenuAction({
                 label: te('menu.openFile'),
                 accelerator: 'CmdOrCtrl+O',
-                channel: DOCUMENTS_EVENT_CHANNELS.menuOpenPdf,
+                channel: DOCUMENTS_EVENT_CHANNELS.onMenuOpenPdf,
             }),
             {
                 label: te('menu.openRecent'),
@@ -386,35 +387,35 @@ function getFileMenu(state: TResolvedApplicationMenuDocumentState): MenuItemCons
                 label: te('menu.save'),
                 accelerator: 'CmdOrCtrl+S',
                 enabled: state.canSave,
-                channel: DOCUMENTS_EVENT_CHANNELS.menuSave,
+                channel: DOCUMENTS_EVENT_CHANNELS.onMenuSave,
             }),
             ...(state.supportsRepairSave ? [createWindowMenuAction({
                 label: te('menu.repairAndSave'),
                 enabled: state.canRepairSave,
-                channel: DOCUMENTS_EVENT_CHANNELS.menuRepairSave,
+                channel: DOCUMENTS_EVENT_CHANNELS.onMenuRepairSave,
             })] : []),
             ...(state.supportsOptimizePdf ? [createWindowMenuAction({
                 label: te('menu.optimizePdfForInteraction'),
                 enabled: state.canOptimizePdf,
-                channel: DOCUMENTS_EVENT_CHANNELS.menuOptimizePdfForInteraction,
+                channel: DOCUMENTS_EVENT_CHANNELS.onMenuOptimizePdfForInteraction,
             })] : []),
             ...(state.supportsSaveAs ? [createWindowMenuAction({
                 label: te('menu.saveAs'),
                 accelerator: 'CmdOrCtrl+Shift+S',
                 enabled: state.canSaveAs,
-                channel: DOCUMENTS_EVENT_CHANNELS.menuSaveAs,
+                channel: DOCUMENTS_EVENT_CHANNELS.onMenuSaveAs,
             })] : []),
             ...(state.supportsPrint ? [
                 createWindowMenuAction({
                     label: te('menu.print'),
                     accelerator: 'CmdOrCtrl+P',
                     enabled: state.canPrint,
-                    channel: DOCUMENTS_EVENT_CHANNELS.menuPrint,
+                    channel: DOCUMENTS_EVENT_CHANNELS.onMenuPrint,
                 }),
                 createWindowMenuAction({
                     label: te('menu.printCurrentPage'),
                     enabled: state.canPrint,
-                    channel: DOCUMENTS_EVENT_CHANNELS.menuPrintCurrentPage,
+                    channel: DOCUMENTS_EVENT_CHANNELS.onMenuPrintCurrentPage,
                 }),
             ] : []),
             ...(exportItems.length > 0 ? [{
@@ -456,13 +457,13 @@ function getEditMenu(state: TResolvedApplicationMenuDocumentState): MenuItemCons
                     label: te('menu.insertImageFromFile'),
                     accelerator: 'CmdOrCtrl+Shift+I',
                     enabled: state.canMutatePages,
-                    channel: DOCUMENTS_EVENT_CHANNELS.menuInsertImageFromFile,
+                    channel: DOCUMENTS_EVENT_CHANNELS.onMenuInsertImageFromFile,
                 }),
                 createWindowMenuAction({
                     label: te('menu.pasteImageFromClipboard'),
                     accelerator: 'CmdOrCtrl+Shift+V',
                     enabled: state.canMutatePages,
-                    channel: DOCUMENTS_EVENT_CHANNELS.menuPasteImageFromClipboard,
+                    channel: DOCUMENTS_EVENT_CHANNELS.onMenuPasteImageFromClipboard,
                 }),
                 { type: 'separator' as const },
             ] : []),
@@ -470,14 +471,14 @@ function getEditMenu(state: TResolvedApplicationMenuDocumentState): MenuItemCons
                 label: te('menu.undo'),
                 accelerator: 'CmdOrCtrl+Z',
                 enabled: state.canUndo,
-                channel: DOCUMENTS_EVENT_CHANNELS.menuUndo,
+                channel: DOCUMENTS_EVENT_CHANNELS.onMenuUndo,
                 nativeEditCommand: 'undo',
             }),
             createTextAwareWindowMenuAction({
                 label: te('menu.redo'),
                 accelerator: config.isMac ? 'Cmd+Shift+Z' : 'Ctrl+Y',
                 enabled: state.canRedo,
-                channel: DOCUMENTS_EVENT_CHANNELS.menuRedo,
+                channel: DOCUMENTS_EVENT_CHANNELS.onMenuRedo,
                 nativeEditCommand: 'redo',
             }),
             { type: 'separator' },
@@ -498,29 +499,29 @@ function getPagesMenu(state: TResolvedApplicationMenuDocumentState): MenuItemCon
             createWindowMenuAction({
                 label: te('menu.deleteSelectedPages'),
                 enabled: canOperateOnSelection && state.selectedPageCount < state.totalPages,
-                channel: DOCUMENTS_EVENT_CHANNELS.menuDeletePages,
+                channel: DOCUMENTS_EVENT_CHANNELS.onMenuDeletePages,
             }),
             createWindowMenuAction({
                 label: te('menu.extractSelectedPages'),
                 enabled: canOperateOnSelection,
-                channel: DOCUMENTS_EVENT_CHANNELS.menuExtractPages,
+                channel: DOCUMENTS_EVENT_CHANNELS.onMenuExtractPages,
             }),
             { type: 'separator' },
             createWindowMenuAction({
                 label: te('menu.rotateClockwise'),
                 enabled: canOperateOnSelection,
-                channel: DOCUMENTS_EVENT_CHANNELS.menuRotateCw,
+                channel: DOCUMENTS_EVENT_CHANNELS.onMenuRotateCw,
             }),
             createWindowMenuAction({
                 label: te('menu.rotateCounterclockwise'),
                 enabled: canOperateOnSelection,
-                channel: DOCUMENTS_EVENT_CHANNELS.menuRotateCcw,
+                channel: DOCUMENTS_EVENT_CHANNELS.onMenuRotateCcw,
             }),
             { type: 'separator' },
             createWindowMenuAction({
                 label: te('menu.insertPages'),
                 enabled: state.canMutatePages,
-                channel: DOCUMENTS_EVENT_CHANNELS.menuInsertPages,
+                channel: DOCUMENTS_EVENT_CHANNELS.onMenuInsertPages,
             }),
         ],
     };
@@ -535,13 +536,13 @@ function getViewMenu(state: TResolvedApplicationMenuDocumentState): MenuItemCons
                 label: te('menu.zoomIn'),
                 accelerator: 'CmdOrCtrl+=',
                 enabled: documentActionsEnabled,
-                channel: DOCUMENTS_EVENT_CHANNELS.menuZoomIn,
+                channel: DOCUMENTS_EVENT_CHANNELS.onMenuZoomIn,
             }),
             createWindowMenuAction({
                 label: te('menu.zoomOut'),
                 accelerator: 'CmdOrCtrl+-',
                 enabled: documentActionsEnabled,
-                channel: DOCUMENTS_EVENT_CHANNELS.menuZoomOut,
+                channel: DOCUMENTS_EVENT_CHANNELS.onMenuZoomOut,
             }),
             { type: 'separator' },
             {
@@ -549,7 +550,7 @@ function getViewMenu(state: TResolvedApplicationMenuDocumentState): MenuItemCons
                     label: te('menu.actualSize'),
                     accelerator: 'CmdOrCtrl+0',
                     enabled: documentActionsEnabled,
-                    channel: DOCUMENTS_EVENT_CHANNELS.menuActualSize,
+                    channel: DOCUMENTS_EVENT_CHANNELS.onMenuActualSize,
                 }),
                 type: 'radio',
                 checked: state.isActualSizeActive,
@@ -559,7 +560,7 @@ function getViewMenu(state: TResolvedApplicationMenuDocumentState): MenuItemCons
                     label: te('menu.fitWidth'),
                     accelerator: 'CmdOrCtrl+1',
                     enabled: documentActionsEnabled,
-                    channel: DOCUMENTS_EVENT_CHANNELS.menuFitWidth,
+                    channel: DOCUMENTS_EVENT_CHANNELS.onMenuFitWidth,
                 }),
                 type: 'radio',
                 checked: state.isFitWidthActive,
@@ -569,7 +570,7 @@ function getViewMenu(state: TResolvedApplicationMenuDocumentState): MenuItemCons
                     label: te('menu.fitHeight'),
                     accelerator: 'CmdOrCtrl+2',
                     enabled: documentActionsEnabled,
-                    channel: DOCUMENTS_EVENT_CHANNELS.menuFitHeight,
+                    channel: DOCUMENTS_EVENT_CHANNELS.onMenuFitHeight,
                 }),
                 type: 'radio',
                 checked: state.isFitHeightActive,
@@ -580,7 +581,7 @@ function getViewMenu(state: TResolvedApplicationMenuDocumentState): MenuItemCons
                     ...createWindowMenuAction({
                         label: te('zoom.continuousScroll'),
                         enabled: state.canContinuousScroll,
-                        channel: DOCUMENTS_EVENT_CHANNELS.menuToggleContinuousScroll,
+                        channel: DOCUMENTS_EVENT_CHANNELS.onMenuToggleContinuousScroll,
                     }),
                     type: 'checkbox' as const,
                     checked: state.continuousScroll,
@@ -592,7 +593,7 @@ function getViewMenu(state: TResolvedApplicationMenuDocumentState): MenuItemCons
                     ...createWindowMenuAction({
                         label: te('menu.singlePage'),
                         enabled: documentActionsEnabled,
-                        channel: DOCUMENTS_EVENT_CHANNELS.menuViewModeSingle,
+                        channel: DOCUMENTS_EVENT_CHANNELS.onMenuViewModeSingle,
                     }),
                     type: 'radio' as const,
                     checked: state.viewMode === 'single',
@@ -601,7 +602,7 @@ function getViewMenu(state: TResolvedApplicationMenuDocumentState): MenuItemCons
                     ...createWindowMenuAction({
                         label: te('menu.facingPages'),
                         enabled: documentActionsEnabled,
-                        channel: DOCUMENTS_EVENT_CHANNELS.menuViewModeFacing,
+                        channel: DOCUMENTS_EVENT_CHANNELS.onMenuViewModeFacing,
                     }),
                     type: 'radio' as const,
                     checked: state.viewMode === 'facing',
@@ -610,7 +611,7 @@ function getViewMenu(state: TResolvedApplicationMenuDocumentState): MenuItemCons
                     ...createWindowMenuAction({
                         label: te('menu.facingWithFirstSingle'),
                         enabled: documentActionsEnabled,
-                        channel: DOCUMENTS_EVENT_CHANNELS.menuViewModeFacingFirstSingle,
+                        channel: DOCUMENTS_EVENT_CHANNELS.onMenuViewModeFacingFirstSingle,
                     }),
                     type: 'radio' as const,
                     checked: state.viewMode === 'facing-first-single',
@@ -621,7 +622,7 @@ function getViewMenu(state: TResolvedApplicationMenuDocumentState): MenuItemCons
                 createWindowMenuAction({
                     label: te('menu.assistant'),
                     accelerator: 'CmdOrCtrl+Shift+A',
-                    channel: DOCUMENTS_EVENT_CHANNELS.menuToggleAssistant,
+                    channel: DOCUMENTS_EVENT_CHANNELS.onMenuToggleAssistant,
                 }),
             ] : []),
             { type: 'separator' },
