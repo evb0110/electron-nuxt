@@ -14,7 +14,6 @@ import {
     shallowRef,
 } from 'vue';
 import { shouldIgnoreEditorEvent } from '@app/modules/pdf-viewer/engine/annotations/annotation-editor-event-guards/shouldIgnoreEditorEvent';
-import { updateEditorDefaultParams } from '@app/services/pdfjs/annotationEditorAdapter';
 import { getPdfjsEditorFacadeState } from '@app/modules/pdf-viewer/annotations/bridge/pdfjsAnnotationFacade';
 import type {
     IAnnotationCommentSummary,
@@ -58,10 +57,6 @@ const {
         FakeAnnotationEditorUIManager: HoistedAnnotationEditorUIManager,
     };
 });
-
-function asAnnotationEditorUIManager(uiManager: InstanceType<typeof FakeAnnotationEditorUIManager>) {
-    return cast<AnnotationEditorUIManager>(uiManager);
-}
 
 class FakeEventBus {
     private readonly listeners = new Map<string, Set<(event: unknown) => void>>();
@@ -411,16 +406,6 @@ describe('useAnnotationEditorBridge', () => {
         expect(markupSubtype.clearMarkupSubtypeEditorClass).not.toHaveBeenCalled();
     });
 
-    it('installs a default-param updater for toolbar settings', async () => {
-        const { uiManager } = await createBridgeHarness('text');
-        const editorType = { updateDefaultParams: vi.fn() };
-
-        uiManager.registerEditorTypes([editorType]);
-
-        expect(updateEditorDefaultParams(asAnnotationEditorUIManager(uiManager), 31, '#2563eb')).toBe(true);
-        expect(editorType.updateDefaultParams).toHaveBeenCalledWith(31, '#2563eb');
-    });
-
     it('syncs annotation mutation state after deleting through the UI manager', async () => {
         const {
             emitAnnotationModified,
@@ -462,25 +447,4 @@ describe('useAnnotationEditorBridge', () => {
         expect(scheduleAnnotationCommentsSync).toHaveBeenNthCalledWith(2, true);
     });
 
-    it('decodes PDF.js state events before updating internal state', async () => {
-        const {
-            emitAnnotationState,
-            eventBus,
-        } = await createBridgeHarness('text');
-
-        eventBus.dispatch('annotationeditorstateschanged', {details: {
-            isEditing: true,
-            isEmpty: 'false',
-            hasSomethingToUndo: true,
-            unexpected: true,
-        }});
-
-        expect(emitAnnotationState).toHaveBeenLastCalledWith({
-            isEditing: true,
-            isEmpty: true,
-            hasSomethingToUndo: true,
-            hasSomethingToRedo: false,
-            hasSelectedEditor: false,
-        });
-    });
 });

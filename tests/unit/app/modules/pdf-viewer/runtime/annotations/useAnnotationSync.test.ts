@@ -10,6 +10,7 @@ import {
     ref,
     shallowRef,
 } from 'vue';
+import type { Ref } from 'vue';
 import type {
     IAnnotationCommentSummary,
     TMarkupSubtype,
@@ -115,6 +116,53 @@ function createMarkupSubtypeStore() {
     };
 }
 
+async function createSyncHarness(options: {
+    annotationCommentsCache?: Ref<IAnnotationCommentSummary[]>;
+    annotationUiManager?: ReturnType<typeof shallowRef>;
+    documentIdentity?: ReturnType<typeof ref<string>>;
+    documentRevisionToken?: ReturnType<typeof ref<string>>;
+    getPdfSourceByteSize?: () => number | null;
+    isPdfSourceBlob?: () => boolean;
+    limits?: ReturnType<typeof resolvePdfAnnotationNameReadLimits>;
+    pdfDocument?: object;
+    setAnnotations?: ReturnType<typeof vi.fn>;
+} = {}) {
+    const annotationCommentsCache = options.annotationCommentsCache ?? ref<IAnnotationCommentSummary[]>([]);
+    const identity = useAnnotationIdentity(annotationCommentsCache);
+    const markupSubtypeStore = createMarkupSubtypeStore();
+    const setAnnotations = options.setAnnotations ?? vi.fn((comments: IAnnotationCommentSummary[]) => {
+        annotationCommentsCache.value = comments;
+        return comments;
+    });
+    const { useAnnotationSync } = await import('@app/modules/pdf-viewer/runtime/annotations/useAnnotationSync');
+    const sync = useAnnotationSync({
+        pdfDocument: shallowRef(options.pdfDocument ?? {}),
+        documentIdentity: options.documentIdentity ?? ref('document'),
+        documentRevisionToken: options.documentRevisionToken,
+        numPages: ref(1),
+        currentPage: ref(1),
+        annotationUiManager: options.annotationUiManager ?? shallowRef(null),
+        authorName: ref(null),
+        getIdentity: () => identity,
+        getMarkupSubtype: () => markupSubtypeStore.markupSubtype,
+        getStore: () => ({
+            setAnnotations,
+            setLinkAnnotations: vi.fn(),
+            setActiveKey: vi.fn(),
+        }),
+        syncInlineCommentIndicators: vi.fn(),
+        getAnnotationNameReadLimits: () => options.limits ?? resolvePdfAnnotationNameReadLimits('medium'),
+        getPdfSourceByteSize: options.getPdfSourceByteSize ?? (() => null),
+        isPdfSourceBlob: options.isPdfSourceBlob ?? (() => false),
+    } as never);
+    return {
+        annotationCommentsCache,
+        ...markupSubtypeStore,
+        setAnnotations,
+        sync,
+    };
+}
+
 describe('useAnnotationSync', () => {
     it('uses inclusive 16 MiB normal and 4 MiB constrained eager boundaries', async () => {
         expect(resolvePdfAnnotationNameReadLimits('medium')).toEqual({
@@ -142,27 +190,10 @@ describe('useAnnotationSync', () => {
                 ],
             });
             await withAnnotationSyncScope(async () => {
-                const annotationCommentsCache = ref<IAnnotationCommentSummary[]>([]);
-                const identity = useAnnotationIdentity(annotationCommentsCache);
-                const {markupSubtype} = createMarkupSubtypeStore();
                 const limits = resolvePdfAnnotationNameReadLimits(tier);
-                const { useAnnotationSync } = await import('@app/modules/pdf-viewer/runtime/annotations/useAnnotationSync');
-                const sync = useAnnotationSync({
-                    pdfDocument: shallowRef({} as never),
+                const { sync } = await createSyncHarness({
                     documentIdentity: ref(`document-${tier}`),
-                    numPages: ref(1),
-                    currentPage: ref(1),
-                    annotationUiManager: shallowRef(null),
-                    authorName: ref(null),
-                    getIdentity: () => identity,
-                    getMarkupSubtype: () => markupSubtype,
-                    getStore: () => ({
-                        setAnnotations: vi.fn(),
-                        setLinkAnnotations: vi.fn(),
-                        setActiveKey: vi.fn(),
-                    }),
-                    syncInlineCommentIndicators: vi.fn(),
-                    getAnnotationNameReadLimits: () => limits,
+                    limits,
                     getPdfSourceByteSize: () => limits.eagerMaxBytes,
                     isPdfSourceBlob: () => true,
                 });
@@ -187,29 +218,11 @@ describe('useAnnotationSync', () => {
         });
 
         await withAnnotationSyncScope(async () => {
-            const annotationCommentsCache = ref<IAnnotationCommentSummary[]>([]);
-            const identity = useAnnotationIdentity(annotationCommentsCache);
-            const {markupSubtype} = createMarkupSubtypeStore();
-            const { useAnnotationSync } = await import('@app/modules/pdf-viewer/runtime/annotations/useAnnotationSync');
-            const sync = useAnnotationSync({
-                pdfDocument: shallowRef({getData: vi.fn()}),
+            const { sync } = await createSyncHarness({
                 documentIdentity: ref('path-document'),
-                numPages: ref(1),
-                currentPage: ref(1),
-                annotationUiManager: shallowRef(null),
-                authorName: ref(null),
-                getIdentity: () => identity,
-                getMarkupSubtype: () => markupSubtype,
-                getStore: () => ({
-                    setAnnotations: vi.fn(),
-                    setLinkAnnotations: vi.fn(),
-                    setActiveKey: vi.fn(),
-                }),
-                syncInlineCommentIndicators: vi.fn(),
-                getAnnotationNameReadLimits: () => resolvePdfAnnotationNameReadLimits('medium'),
+                pdfDocument: {getData: vi.fn()},
                 getPdfSourceByteSize: () => 1024,
-                isPdfSourceBlob: () => false,
-            } as never);
+            });
 
             await sync.syncAnnotationComments();
             expect(collectPdfAnnotationNamesByPage).not.toHaveBeenCalled();
@@ -233,31 +246,12 @@ describe('useAnnotationSync', () => {
         });
 
         await withAnnotationSyncScope(async () => {
-            const annotationCommentsCache = ref<IAnnotationCommentSummary[]>([]);
-            const identity = useAnnotationIdentity(annotationCommentsCache);
-            const {markupSubtype} = createMarkupSubtypeStore();
             const revision = ref('revision-1');
-            const { useAnnotationSync } = await import('@app/modules/pdf-viewer/runtime/annotations/useAnnotationSync');
-            const sync = useAnnotationSync({
-                pdfDocument: shallowRef({}),
+            const { sync } = await createSyncHarness({
                 documentIdentity: ref('path-document'),
                 documentRevisionToken: revision,
-                numPages: ref(1),
-                currentPage: ref(1),
-                annotationUiManager: shallowRef(null),
-                authorName: ref(null),
-                getIdentity: () => identity,
-                getMarkupSubtype: () => markupSubtype,
-                getStore: () => ({
-                    setAnnotations: vi.fn(),
-                    setLinkAnnotations: vi.fn(),
-                    setActiveKey: vi.fn(),
-                }),
-                syncInlineCommentIndicators: vi.fn(),
-                getAnnotationNameReadLimits: () => resolvePdfAnnotationNameReadLimits('medium'),
                 getPdfSourceByteSize: () => 1024,
-                isPdfSourceBlob: () => false,
-            } as never);
+            });
 
             const first = sync.ensurePdfAnnotationNameReconciliation('annotations-ui-open');
             const second = sync.ensurePdfAnnotationNameReconciliation('existing-annotation-mutation');
@@ -299,33 +293,18 @@ describe('useAnnotationSync', () => {
 
         await withAnnotationSyncScope(async () => {
             const annotationCommentsCache = ref<IAnnotationCommentSummary[]>([]);
-            const identity = useAnnotationIdentity(annotationCommentsCache);
-            const {markupSubtype} = createMarkupSubtypeStore();
             const setAnnotations = vi.fn((comments: IAnnotationCommentSummary[]) => {
                 annotationCommentsCache.value = comments;
                 return comments;
             });
-            const { useAnnotationSync } = await import('@app/modules/pdf-viewer/runtime/annotations/useAnnotationSync');
             const limits = resolvePdfAnnotationNameReadLimits('low');
-            const sync = useAnnotationSync({
-                pdfDocument: shallowRef({}),
+            const { sync } = await createSyncHarness({
+                annotationCommentsCache,
                 documentIdentity: ref('large-path-document'),
-                numPages: ref(1),
-                currentPage: ref(1),
-                annotationUiManager: shallowRef(null),
-                authorName: ref(null),
-                getIdentity: () => identity,
-                getMarkupSubtype: () => markupSubtype,
-                getStore: () => ({
-                    setAnnotations,
-                    setLinkAnnotations: vi.fn(),
-                    setActiveKey: vi.fn(),
-                }),
-                syncInlineCommentIndicators: vi.fn(),
-                getAnnotationNameReadLimits: () => limits,
+                limits,
                 getPdfSourceByteSize: () => limits.interactiveMaxBytes + 1,
-                isPdfSourceBlob: () => false,
-            } as never);
+                setAnnotations,
+            });
 
             await sync.syncAnnotationComments();
             await expect(sync.ensurePdfAnnotationNameReconciliation('annotations-ui-open'))
@@ -363,12 +342,6 @@ describe('useAnnotationSync', () => {
 
         await withAnnotationSyncScope(async () => {
             const annotationCommentsCache = ref<IAnnotationCommentSummary[]>([]);
-            const identity = useAnnotationIdentity(annotationCommentsCache);
-            const {
-                colorOverrides,
-                subtypeOverrides,
-                markupSubtype,
-            } = createMarkupSubtypeStore();
             const appliedColor = '#22c55e';
             const documentIdentity = ref('document-1');
             const setAnnotations = vi.fn((comments: IAnnotationCommentSummary[]) => {
@@ -380,26 +353,16 @@ describe('useAnnotationSync', () => {
                 annotationCommentsCache.value = appliedComments;
                 return appliedComments;
             });
-            const { useAnnotationSync } = await import('@app/modules/pdf-viewer/runtime/annotations/useAnnotationSync');
-            const sync = useAnnotationSync({
-                pdfDocument: shallowRef({}),
+            const {
+                colorOverrides,
+                markupSubtype,
+                subtypeOverrides,
+                sync,
+            } = await createSyncHarness({
+                annotationCommentsCache,
                 documentIdentity,
-                numPages: ref(1),
-                currentPage: ref(1),
-                annotationUiManager: shallowRef(null),
-                authorName: ref(null),
-                getIdentity: () => identity,
-                getMarkupSubtype: () => markupSubtype,
-                getStore: () => ({
-                    setAnnotations,
-                    setLinkAnnotations: vi.fn(),
-                    setActiveKey: vi.fn(),
-                }),
-                syncInlineCommentIndicators: vi.fn(),
-                getAnnotationNameReadLimits: () => resolvePdfAnnotationNameReadLimits('medium'),
-                getPdfSourceByteSize: () => null,
-                isPdfSourceBlob: () => false,
-            } as never);
+                setAnnotations,
+            });
 
             await sync.syncAnnotationComments();
 
@@ -462,33 +425,17 @@ describe('useAnnotationSync', () => {
 
         await withAnnotationSyncScope(async () => {
             const annotationCommentsCache = ref<IAnnotationCommentSummary[]>([]);
-            const identity = useAnnotationIdentity(annotationCommentsCache);
-            const {markupSubtype} = createMarkupSubtypeStore();
             const annotationUiManager = shallowRef<null | {getEditors: () => Set<object>}>(null);
             const setAnnotations = vi.fn((comments: IAnnotationCommentSummary[]) => {
                 annotationCommentsCache.value = comments;
                 return comments;
             });
-            const { useAnnotationSync } = await import('@app/modules/pdf-viewer/runtime/annotations/useAnnotationSync');
-            const sync = useAnnotationSync({
-                pdfDocument: shallowRef({}),
-                documentIdentity: ref('document-chronology'),
-                numPages: ref(1),
-                currentPage: ref(1),
+            const { sync } = await createSyncHarness({
+                annotationCommentsCache,
                 annotationUiManager,
-                authorName: ref(null),
-                getIdentity: () => identity,
-                getMarkupSubtype: () => markupSubtype,
-                getStore: () => ({
-                    setAnnotations,
-                    setLinkAnnotations: vi.fn(),
-                    setActiveKey: vi.fn(),
-                }),
-                syncInlineCommentIndicators: vi.fn(),
-                getAnnotationNameReadLimits: () => resolvePdfAnnotationNameReadLimits('medium'),
-                getPdfSourceByteSize: () => null,
-                isPdfSourceBlob: () => false,
-            } as never);
+                documentIdentity: ref('document-chronology'),
+                setAnnotations,
+            });
 
             await sync.syncAnnotationComments();
 

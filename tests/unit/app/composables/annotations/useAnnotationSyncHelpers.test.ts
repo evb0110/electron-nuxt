@@ -132,49 +132,63 @@ describe('useAnnotationSync helpers / safeReadEditorData', () => {
 });
 
 describe('useAnnotationSync helpers / resolveMarkupSubtypeOverrideRegistration', () => {
-    it('returns null when annotationId missing', () => {
-        expect(__test__.resolveMarkupSubtypeOverrideRegistration(null, 'Underline')).toBeNull();
-    });
-
-    it('returns null when subtype missing', () => {
-        expect(__test__.resolveMarkupSubtypeOverrideRegistration('id-1', null)).toBeNull();
-    });
-
-    it('returns null for blocklisted subtype Highlight', () => {
-        expect(__test__.resolveMarkupSubtypeOverrideRegistration('id-1', 'Highlight')).toBeNull();
-    });
-
-    it('returns null for blocklisted subtype Ink', () => {
-        expect(__test__.resolveMarkupSubtypeOverrideRegistration('id-1', 'Ink')).toBeNull();
-    });
-
-    it('returns null for blocklisted subtype Typewriter', () => {
-        expect(__test__.resolveMarkupSubtypeOverrideRegistration('id-1', 'Typewriter')).toBeNull();
-    });
-
-    it('returns null for non-markup subtype Stamp', () => {
-        expect(__test__.resolveMarkupSubtypeOverrideRegistration('id-1', 'Stamp')).toBeNull();
-    });
-
-    it('returns registration for Underline', () => {
-        expect(__test__.resolveMarkupSubtypeOverrideRegistration('id-1', 'Underline')).toEqual({
-            annotationId: 'id-1',
-            subtype: 'Underline',
-        });
-    });
-
-    it('returns registration for StrikeOut', () => {
-        expect(__test__.resolveMarkupSubtypeOverrideRegistration('id-1', 'StrikeOut')).toEqual({
-            annotationId: 'id-1',
-            subtype: 'StrikeOut',
-        });
-    });
-
-    it('returns registration for Squiggly', () => {
-        expect(__test__.resolveMarkupSubtypeOverrideRegistration('id-1', 'Squiggly')).toEqual({
-            annotationId: 'id-1',
-            subtype: 'Squiggly',
-        });
+    it.each([
+        [
+            null,
+            'Underline',
+            null,
+        ],
+        [
+            'id-1',
+            null,
+            null,
+        ],
+        [
+            'id-1',
+            'Highlight',
+            null,
+        ],
+        [
+            'id-1',
+            'Ink',
+            null,
+        ],
+        [
+            'id-1',
+            'Typewriter',
+            null,
+        ],
+        [
+            'id-1',
+            'Stamp',
+            null,
+        ],
+        [
+            'id-1',
+            'Underline',
+            {
+                annotationId: 'id-1',
+                subtype: 'Underline',
+            },
+        ],
+        [
+            'id-1',
+            'StrikeOut',
+            {
+                annotationId: 'id-1',
+                subtype: 'StrikeOut',
+            },
+        ],
+        [
+            'id-1',
+            'Squiggly',
+            {
+                annotationId: 'id-1',
+                subtype: 'Squiggly',
+            },
+        ],
+    ] as const)('maps annotation %s and subtype %s to %o', (annotationId, subtype, expected) => {
+        expect(__test__.resolveMarkupSubtypeOverrideRegistration(annotationId, subtype)).toEqual(expected);
     });
 });
 
@@ -224,40 +238,34 @@ describe('useAnnotationSync helpers / resolveCombinedAnnotationText', () => {
 });
 
 describe('useAnnotationSync helpers / pickLatestAnnotationTimestamp', () => {
-    it('returns null when both annotations have no dates', () => {
-        expect(__test__.pickLatestAnnotationTimestamp({}, null)).toBeNull();
-    });
-
-    it('returns annotation modification date when popup missing', () => {
-        const result = __test__.pickLatestAnnotationTimestamp(
-            { modificationDate: 'D:20240301' },
-            null,
-        );
-        expect(result).toBe(Date.UTC(2024, 2, 1));
-    });
-
-    it('falls back to creation date when modification missing', () => {
-        const result = __test__.pickLatestAnnotationTimestamp(
-            { creationDate: 'D:20240115' },
-            null,
-        );
-        expect(result).toBe(Date.UTC(2024, 0, 15));
-    });
-
-    it('takes max of own and popup timestamps', () => {
-        const result = __test__.pickLatestAnnotationTimestamp(
-            { modificationDate: 'D:20240301' },
-            { modificationDate: 'D:20240601' },
-        );
-        expect(result).toBe(Date.UTC(2024, 5, 1));
-    });
-
-    it('returns popup when annotation date missing', () => {
-        const result = __test__.pickLatestAnnotationTimestamp(
+    it.each([
+        [
             {},
-            { modificationDate: 'D:20240601' },
-        );
-        expect(result).toBe(Date.UTC(2024, 5, 1));
+            null,
+            null,
+        ],
+        [
+            {modificationDate: 'D:20240301'},
+            null,
+            Date.UTC(2024, 2, 1),
+        ],
+        [
+            {creationDate: 'D:20240115'},
+            null,
+            Date.UTC(2024, 0, 15),
+        ],
+        [
+            {modificationDate: 'D:20240301'},
+            {modificationDate: 'D:20240601'},
+            Date.UTC(2024, 5, 1),
+        ],
+        [
+            {},
+            {modificationDate: 'D:20240601'},
+            Date.UTC(2024, 5, 1),
+        ],
+    ])('selects the latest timestamp for annotation %o and popup %o', (annotation, popup, expected) => {
+        expect(__test__.pickLatestAnnotationTimestamp(annotation, popup)).toBe(expected);
     });
 });
 
