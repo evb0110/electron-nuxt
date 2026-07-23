@@ -46,7 +46,7 @@ describe('workspace PDF toolbar wiring', () => {
         const deferredHost = readWorkspaceFile('app/modules/workspace-shell/components/DeferredDocumentWorkspaceHost.vue');
 
         expect(appShell).toContain('v-on="fallbackToolbarCommandListeners"');
-        expect(shellToolbar).toContain('@go-to-page="handleGoToPage"');
+        expect(shellToolbar).toContain('@go-to-page="emit(\'go-to-page\', $event)"');
         expect(deferredHost).toContain('handleGoToPage: page => {');
         expect(deferredHost).toContain('documentOpenSurface.requestNavigation(page);');
     });

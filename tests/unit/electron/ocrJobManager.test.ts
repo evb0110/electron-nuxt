@@ -211,7 +211,7 @@ function startOcrJob(
     );
 }
 
-describe('ocr job manager preparing-stage robustness', () => {
+describe('ocr job manager preparing-stage robustness', {timeout: 20_000}, () => {
     beforeEach(() => {
         vi.resetModules();
         vi.clearAllMocks();

@@ -13,37 +13,9 @@ export function requireIpcArgumentCount(
     }
 }
 
-export function decodeUndefinedResult(value: unknown): undefined {
-    if (value !== undefined) {
-        throw new Error('expected an undefined IPC result');
-    }
-    return undefined;
-}
-
 export function decodeBooleanResult(value: unknown): boolean {
     if (typeof value !== 'boolean') {
         throw new Error('expected a boolean IPC result');
-    }
-    return value;
-}
-
-export function decodeStringResult(value: unknown): string {
-    if (typeof value !== 'string') {
-        throw new Error('expected a string IPC result');
-    }
-    return value;
-}
-
-export function decodeNullableStringResult(value: unknown): string | null {
-    if (value !== null && typeof value !== 'string') {
-        throw new Error('expected a string or null IPC result');
-    }
-    return value;
-}
-
-export function decodeUint8ArrayResult(value: unknown): Uint8Array {
-    if (!(value instanceof Uint8Array)) {
-        throw new Error('expected a Uint8Array IPC result');
     }
     return value;
 }

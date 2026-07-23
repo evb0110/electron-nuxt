@@ -14,52 +14,52 @@
         :page-dropdown-open="pageDropdownOpen"
         :overflow-menu-open="overflowMenuOpen"
         :app-menu-open="appMenuOpen"
-        @update:ocr-popup-open="handleOcrPopupOpenUpdate"
-        @update:zoom-dropdown-open="handleZoomDropdownOpenUpdate"
-        @update:page-dropdown-open="handlePageDropdownOpenUpdate"
-        @update:overflow-menu-open="handleOverflowMenuOpenUpdate"
-        @update:app-menu-open="handleAppMenuOpenUpdate"
-        @update:zoom="handleZoomUpdate"
-        @update:effective-zoom="handleEffectiveZoomUpdate"
-        @update:zoom-mode="handleZoomModeUpdate"
-        @update:fit-mode="handleFitModeUpdate"
-        @update:view-mode="handleViewModeUpdate"
-        @open-file="handleOpenFile"
-        @open-settings="handleOpenSettings"
-        @save="handleSave"
-        @repair-save="handleRepairSave"
-        @optimize-pdf-for-interaction="handleOptimizePdfForInteraction"
-        @save-as="handleSaveAs"
-        @print="handlePrint"
-        @print-current-page="handlePrintCurrentPage"
-        @combine-files="handleCombineImages"
-        @export-docx="handleExportDocx"
-        @ocr-export-docx="handleExportDocx"
-        @export-images="handleExportImages"
-        @export-multi-page-tiff="handleExportMultiPageTiff"
-        @convert-to-pdf="handleConvertToPdf"
-        @undo="handleUndo"
-        @redo="handleRedo"
-        @insert-image-from-file="handleInsertImageFromFile"
-        @paste-image-from-clipboard="handlePasteImageFromClipboard"
-        @delete-pages="handleDeletePages"
-        @extract-pages="handleExtractPages"
-        @rotate-cw="handleRotateCw"
-        @rotate-ccw="handleRotateCcw"
-        @insert-pages="handleInsertPages"
-        @toggle-sidebar="handleToggleSidebar"
-        @fit-width="handleFitWidth"
-        @fit-height="handleFitHeight"
-        @toggle-continuous-scroll="handleToggleContinuousScroll"
-        @enable-drag="handleEnableDrag"
-        @disable-drag="handleDisableDrag"
-        @capture-region="handleCaptureRegion"
-        @crop="handleCrop"
-        @quick-note="handleQuickNote"
-        @toggle-fullscreen="handleToggleFullscreen"
-        @set-view-mode="handleSetViewMode"
-        @go-to-page="handleGoToPage"
-        @ocr-complete="handleOcrComplete"
+        @update:ocr-popup-open="emit('update:ocrPopupOpen', $event)"
+        @update:zoom-dropdown-open="emit('update:zoomDropdownOpen', $event)"
+        @update:page-dropdown-open="emit('update:pageDropdownOpen', $event)"
+        @update:overflow-menu-open="emit('update:overflowMenuOpen', $event)"
+        @update:app-menu-open="emit('update:appMenuOpen', $event)"
+        @update:zoom="emit('update:zoom', $event)"
+        @update:effective-zoom="emit('update:effectiveZoom', $event)"
+        @update:zoom-mode="emit('update:zoomMode', $event)"
+        @update:fit-mode="emit('update:fitMode', $event)"
+        @update:view-mode="emit('update:viewMode', $event)"
+        @open-file="emit('open-file')"
+        @open-settings="emit('open-settings')"
+        @save="emit('save')"
+        @repair-save="emit('repair-save')"
+        @optimize-pdf-for-interaction="emit('optimize-pdf-for-interaction')"
+        @save-as="emit('save-as')"
+        @print="emit('print')"
+        @print-current-page="emit('print-current-page')"
+        @combine-files="emit('combine-files')"
+        @export-docx="emit('export-docx')"
+        @ocr-export-docx="emit('export-docx')"
+        @export-images="emit('export-images')"
+        @export-multi-page-tiff="emit('export-multi-page-tiff')"
+        @convert-to-pdf="emit('convert-to-pdf')"
+        @undo="emit('undo')"
+        @redo="emit('redo')"
+        @insert-image-from-file="emit('insert-image-from-file')"
+        @paste-image-from-clipboard="emit('paste-image-from-clipboard')"
+        @delete-pages="emit('delete-pages')"
+        @extract-pages="emit('extract-pages')"
+        @rotate-cw="emit('rotate-cw')"
+        @rotate-ccw="emit('rotate-ccw')"
+        @insert-pages="emit('insert-pages')"
+        @toggle-sidebar="emit('toggle-sidebar')"
+        @fit-width="emit('fit-width')"
+        @fit-height="emit('fit-height')"
+        @toggle-continuous-scroll="emit('toggle-continuous-scroll')"
+        @enable-drag="emit('enable-drag')"
+        @disable-drag="emit('disable-drag')"
+        @capture-region="emit('capture-region')"
+        @crop="emit('crop')"
+        @quick-note="emit('quick-note')"
+        @toggle-fullscreen="emit('toggle-fullscreen')"
+        @set-view-mode="emit('set-view-mode', $event)"
+        @go-to-page="emit('go-to-page', $event)"
+        @ocr-complete="emit('ocr-complete', $event)"
     />
 </template>
 
@@ -138,184 +138,4 @@ const emit = defineEmits<{
     'go-to-page': [page: number];
     'ocr-complete': [payload: unknown];
 }>();
-
-function handleOcrPopupOpenUpdate(open: boolean) {
-    emit('update:ocrPopupOpen', open);
-}
-
-function handleZoomDropdownOpenUpdate(open: boolean) {
-    emit('update:zoomDropdownOpen', open);
-}
-
-function handlePageDropdownOpenUpdate(open: boolean) {
-    emit('update:pageDropdownOpen', open);
-}
-
-function handleOverflowMenuOpenUpdate(open: boolean) {
-    emit('update:overflowMenuOpen', open);
-}
-
-function handleAppMenuOpenUpdate(open: boolean) {
-    emit('update:appMenuOpen', open);
-}
-
-function handleZoomUpdate(zoom: number) {
-    emit('update:zoom', zoom);
-}
-
-function handleEffectiveZoomUpdate(zoom: number) {
-    emit('update:effectiveZoom', zoom);
-}
-
-function handleZoomModeUpdate(mode: IWorkspaceToolbarSnapshot['zoomMode']) {
-    emit('update:zoomMode', mode);
-}
-
-function handleFitModeUpdate(mode: IWorkspaceToolbarSnapshot['fitMode']) {
-    emit('update:fitMode', mode);
-}
-
-function handleViewModeUpdate(mode: IWorkspaceToolbarSnapshot['viewMode']) {
-    emit('update:viewMode', mode);
-}
-
-function handleOpenFile() {
-    emit('open-file');
-}
-
-function handleOpenSettings() {
-    emit('open-settings');
-}
-
-function handleSave() {
-    emit('save');
-}
-
-function handleRepairSave() {
-    emit('repair-save');
-}
-
-function handleOptimizePdfForInteraction() {
-    emit('optimize-pdf-for-interaction');
-}
-
-function handleSaveAs() {
-    emit('save-as');
-}
-
-function handlePrint() {
-    emit('print');
-}
-
-function handlePrintCurrentPage() {
-    emit('print-current-page');
-}
-
-function handleCombineImages() {
-    emit('combine-files');
-}
-
-function handleExportDocx() {
-    emit('export-docx');
-}
-
-function handleExportImages() {
-    emit('export-images');
-}
-
-function handleExportMultiPageTiff() {
-    emit('export-multi-page-tiff');
-}
-
-function handleConvertToPdf() {
-    emit('convert-to-pdf');
-}
-
-function handleUndo() {
-    emit('undo');
-}
-
-function handleRedo() {
-    emit('redo');
-}
-
-function handleInsertImageFromFile() {
-    emit('insert-image-from-file');
-}
-
-function handlePasteImageFromClipboard() {
-    emit('paste-image-from-clipboard');
-}
-
-function handleDeletePages() {
-    emit('delete-pages');
-}
-
-function handleExtractPages() {
-    emit('extract-pages');
-}
-
-function handleRotateCw() {
-    emit('rotate-cw');
-}
-
-function handleRotateCcw() {
-    emit('rotate-ccw');
-}
-
-function handleInsertPages() {
-    emit('insert-pages');
-}
-
-function handleToggleSidebar() {
-    emit('toggle-sidebar');
-}
-
-function handleFitWidth() {
-    emit('fit-width');
-}
-
-function handleFitHeight() {
-    emit('fit-height');
-}
-
-function handleToggleContinuousScroll() {
-    emit('toggle-continuous-scroll');
-}
-
-function handleEnableDrag() {
-    emit('enable-drag');
-}
-
-function handleDisableDrag() {
-    emit('disable-drag');
-}
-
-function handleCaptureRegion() {
-    emit('capture-region');
-}
-
-function handleCrop() {
-    emit('crop');
-}
-
-function handleQuickNote() {
-    emit('quick-note');
-}
-
-function handleToggleFullscreen() {
-    emit('toggle-fullscreen');
-}
-
-function handleSetViewMode(mode: TPdfViewMode) {
-    emit('set-view-mode', mode);
-}
-
-function handleGoToPage(page: number) {
-    emit('go-to-page', page);
-}
-
-function handleOcrComplete(payload: unknown) {
-    emit('ocr-complete', payload);
-}
 </script>

@@ -41,7 +41,10 @@ import {
     atomicReplace,
     makeSiblingTempPath,
 } from '@electron/utils/atomicReplace';
-import { enqueueWorkingCopyMutation } from '@electron/file-access/workingCopyMutationQueue';
+import {
+    enqueueWorkingCopyMutation,
+    type IWorkingCopyMutationOperation,
+} from '@electron/file-access/workingCopyMutationQueue';
 import {
     assertQueuedWorkingCopyMutationPreconditions,
     normalizeExpectedDocumentRevisionToken,
@@ -222,6 +225,52 @@ async function measureNativeNotePhase<T>(
     }
 }
 
+async function prepareNativeNoteMutation(options: {
+    binaryPath: string;
+    command: INativeNoteCommandOptions;
+    context: IDocumentsSenderIdContext;
+    modifiedAt: ReturnType<typeof normalizePdfNativeModifiedAt>;
+    mutationOperation: IWorkingCopyMutationOperation;
+    payloadFilePath: string;
+    phaseTimings: INativeNotePhaseTiming[];
+    sourcePath: string;
+    tempPath: string;
+}) {
+    await measureNativeNotePhase(options.phaseTimings, 'write-payload', async () => {
+        const nativePayload = await materializeNativeBinarySidecars(
+            options.context,
+            options.command.payload,
+        );
+        await writeFile(options.payloadFilePath, JSON.stringify(nativePayload));
+    });
+    await measureNativeNotePhase(options.phaseTimings, 'clone-working-to-temp', () =>
+        copyFileCopyOnWrite(options.sourcePath, options.tempPath));
+    await measureNativeNotePhase(options.phaseTimings, 'native-command', () =>
+        runNativeToolCommand(options.binaryPath, [
+            options.command.command,
+            '--input',
+            options.tempPath,
+            '--output',
+            options.tempPath,
+            options.command.payloadFlag,
+            options.payloadFilePath,
+            '--modified-at',
+            options.modifiedAt,
+            '--append',
+        ], {
+            timeoutMs: PDF_NATIVE_MUTATION_TIMEOUT_MS,
+            commandLabel: options.command.commandLabel,
+            ...(options.command.tailOnlyIncrementalValidation
+                ? {env: TAIL_ONLY_INCREMENTAL_VALIDATION_ENV}
+                : {}),
+            signal: options.mutationOperation.signal,
+            cancelGroup: options.mutationOperation.cancelGroup,
+        }));
+    await measureNativeNotePhase(options.phaseTimings, 'assert-output', () =>
+        assertNativeOutputReady(options.tempPath));
+    return createNativeValidationResult();
+}
+
 async function syncNativeOutputToRequestingWorkingCopy(
     originalPath: string,
     requestedWorkingPath: string,
@@ -285,34 +334,17 @@ async function runNativeNoteCommand(
         let committedValidation: IPdfNativeNoteTextSaveResult['validation'] = null;
         let committed = false;
         try {
-            await measureNativeNotePhase(phaseTimings, 'write-payload', async () => {
-                const nativePayload = await materializeNativeBinarySidecars(context, options.payload);
-                await writeFile(payloadFilePath, JSON.stringify(nativePayload));
+            const validation = await prepareNativeNoteMutation({
+                binaryPath,
+                command: options,
+                context,
+                modifiedAt,
+                mutationOperation,
+                payloadFilePath,
+                phaseTimings,
+                sourcePath: normalizedWorkingPath,
+                tempPath,
             });
-            await measureNativeNotePhase(phaseTimings, 'clone-working-to-temp', () =>
-                copyFileCopyOnWrite(normalizedWorkingPath, tempPath));
-            await measureNativeNotePhase(phaseTimings, 'native-command', () =>
-                runNativeToolCommand(binaryPath, [
-                    options.command,
-                    '--input',
-                    tempPath,
-                    '--output',
-                    tempPath,
-                    options.payloadFlag,
-                    payloadFilePath,
-                    '--modified-at',
-                    modifiedAt,
-                    '--append',
-                ], {
-                    timeoutMs: PDF_NATIVE_MUTATION_TIMEOUT_MS,
-                    commandLabel: options.commandLabel,
-                    ...(options.tailOnlyIncrementalValidation ? {env: TAIL_ONLY_INCREMENTAL_VALIDATION_ENV} : {}),
-                    signal: mutationOperation.signal,
-                    cancelGroup: mutationOperation.cancelGroup,
-                }));
-            await measureNativeNotePhase(phaseTimings, 'assert-output', () =>
-                assertNativeOutputReady(tempPath));
-            const validation = createNativeValidationResult();
             const transition = await transitionOriginalAndWorkingCopyRevision({
                 workingCopyPath: normalizedWorkingPath,
                 originalPath,
@@ -421,34 +453,17 @@ async function runNativeWorkingCopyCommand(
         const payloadFilePath = join(tempDir, options.payloadFileName);
         let staged = false;
         try {
-            await measureNativeNotePhase(phaseTimings, 'write-payload', async () => {
-                const nativePayload = await materializeNativeBinarySidecars(context, options.payload);
-                await writeFile(payloadFilePath, JSON.stringify(nativePayload));
+            const validation = await prepareNativeNoteMutation({
+                binaryPath,
+                command: options,
+                context,
+                modifiedAt,
+                mutationOperation,
+                payloadFilePath,
+                phaseTimings,
+                sourcePath: normalizedWorkingPath,
+                tempPath,
             });
-            await measureNativeNotePhase(phaseTimings, 'clone-working-to-temp', () =>
-                copyFileCopyOnWrite(normalizedWorkingPath, tempPath));
-            await measureNativeNotePhase(phaseTimings, 'native-command', () =>
-                runNativeToolCommand(binaryPath, [
-                    options.command,
-                    '--input',
-                    tempPath,
-                    '--output',
-                    tempPath,
-                    options.payloadFlag,
-                    payloadFilePath,
-                    '--modified-at',
-                    modifiedAt,
-                    '--append',
-                ], {
-                    timeoutMs: PDF_NATIVE_MUTATION_TIMEOUT_MS,
-                    commandLabel: options.commandLabel,
-                    ...(options.tailOnlyIncrementalValidation ? {env: TAIL_ONLY_INCREMENTAL_VALIDATION_ENV} : {}),
-                    signal: mutationOperation.signal,
-                    cancelGroup: mutationOperation.cancelGroup,
-                }));
-            await measureNativeNotePhase(phaseTimings, 'assert-output', () =>
-                assertNativeOutputReady(tempPath));
-            const validation = createNativeValidationResult();
 
             const stagedOutput = await createTypedStagedArtifact(context, tempPath, {
                 qpdfCheck: false,

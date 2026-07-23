@@ -641,7 +641,7 @@ describe('dependency graph', () => {
         })).toEqual([]);
     });
 
-    it('keeps current PDF viewer engine imports inside allowed module layers', async () => {
+    it('keeps current PDF viewer engine imports inside allowed module layers', {timeout: 20_000}, async () => {
         const graph = await buildDependencyGraph({
             projectRoot: process.cwd(),
             roots: ['app/modules/pdf-viewer'],

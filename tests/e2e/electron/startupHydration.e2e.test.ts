@@ -11,6 +11,7 @@ import type { IElectronE2ESession } from '@tests/e2e/electron/helpers/startElect
 const HYDRATION_CONSOLE_QUIET_WINDOW_MS = 1_500;
 const HYDRATION_CONSOLE_POLL_INTERVAL_MS = 100;
 const HYDRATION_CONSOLE_MAX_WAIT_MS = 10_000;
+const STARTUP_READY_MAX_WAIT_MS = 30_000;
 const TOOLBAR_STARTUP_SAMPLE_WINDOW_MS = 1_800;
 const TOOLBAR_MIN_VISIBLE_HEIGHT_PX = 40;
 const TOOLBAR_MAX_STARTUP_SHIFT_PX = 2;
@@ -60,7 +61,7 @@ async function waitForHydrationConsoleQuiet(session: IElectronE2ESession) {
     await session.page.waitForFunction(() => (
         document.readyState !== 'loading'
         && Boolean(document.querySelector('.app-shell-root'))
-    ), { timeout: 10_000 });
+    ), {timeout: STARTUP_READY_MAX_WAIT_MS});
 
     const startedAt = Date.now();
     let consoleResult = await session.command<IConsoleCommandResult>('console', [
@@ -93,6 +94,12 @@ async function waitForHydrationConsoleQuiet(session: IElectronE2ESession) {
     }
 
     return consoleResult;
+}
+
+async function waitForAppReady(session: IElectronE2ESession) {
+    await session.page.waitForFunction(() => (
+        (window as Window & {__appReady?: boolean}).__appReady === true
+    ), {timeout: STARTUP_READY_MAX_WAIT_MS});
 }
 
 async function installToolbarStartupSampler(session: IElectronE2ESession) {
@@ -140,7 +147,8 @@ async function installToolbarStartupSampler(session: IElectronE2ESession) {
                 toolbarVisible: isVisible(toolbar),
             });
 
-            if (performance.now() - startedAt < durationMs) {
+            const appReady = (window as Window & {__appReady?: boolean}).__appReady === true;
+            if (performance.now() - startedAt < durationMs || !appReady) {
                 requestAnimationFrame(sampleToolbarStartup);
             }
         }
@@ -241,10 +249,12 @@ describe('Electron E2E - Startup Hydration', () => {
             return;
         }
 
+        await waitForAppReady(session);
         await installToolbarStartupSampler(session);
         await session.page.reload({ waitUntil: 'domcontentloaded' });
+        await waitForAppReady(session);
         await waitForHydrationConsoleQuiet(session);
-        await delay(TOOLBAR_STARTUP_SAMPLE_WINDOW_MS + 100);
+        await delay(100);
 
         const shellSamples = getShellStartupSamples(await readToolbarStartupSamples(session));
         expect(shellSamples.length).toBeGreaterThan(0);

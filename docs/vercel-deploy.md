@@ -51,10 +51,15 @@
 ## Private Email CLI Deploys
 
 - Keep Git commits authored with the GitHub no-reply address to avoid leaking a personal email in public repositories.
-- Never invoke `vercel`, `vercel deploy`, or `vercel --prod` directly from this checkout. Use `pnpm run deploy:web:prod` for production or `pnpm run deploy:web` for previews.
+- Never invoke `vercel`, `vercel deploy`, or `vercel --prod` directly from this checkout. Use `pnpm run deploy:web:prod` for the browser viewer, `pnpm run deploy:landing:prod` for the landing app, or their non-`:prod` counterparts for previews.
 - The repository-owned deploy command copies the source tree into a temporary directory without `.git`, preserves `.vercel/project.json`, and runs a normal remote `vercel deploy` from that clean source tree.
 - It passes `--archive=tgz` by default so Vercel receives a tarball upload instead of counting each source file against the direct upload item limit.
 - Its temporary source copy omits local-only directories and environment files before upload, preserves `packages/`, removes the excluded landing app from the copied workspace manifest, and removes `.vercelignore` entries that point at omitted paths. This keeps the pruned workspace installable and avoids Vercel archive-mode `ENOENT` failures.
 - This avoids sending the commit author email in Vercel CLI Git metadata, which prevents Vercel from treating the GitHub no-reply address as a separate team collaborator.
 - Because Vercel still performs the build remotely, Production/Preview environment variables and normal alias behavior match dashboard or Git-backed deploys.
 - If an upload fails due to a transient network error, rerun the same package command.
+
+The landing target keeps the root workspace manifests and shared `packages/`,
+includes `landing/`, and substitutes `landing/.vercel/project.json` into the
+sanitized source root. The Vercel project must keep `landing` configured as its
+Root Directory.

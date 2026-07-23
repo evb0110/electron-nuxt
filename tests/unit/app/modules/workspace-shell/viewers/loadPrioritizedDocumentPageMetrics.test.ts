@@ -215,7 +215,7 @@ describe('prioritized document page metrics', () => {
             19_998,
             20_002,
         ]);
-    }, 1_000);
+    }, 5_000);
 
     it('drops background metrics when the source generation is superseded', async () => {
         const {

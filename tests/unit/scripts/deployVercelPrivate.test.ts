@@ -23,11 +23,19 @@ interface IPreparedPrivateDeploySource {
 
 interface IPrivateDeployModule {
     buildPrivateDeployArgs: (sourceRoot: string, rawArgs?: string[]) => string[];
-    preparePrivateDeploySource: (options?: {projectRoot?: string}) => IPreparedPrivateDeploySource;
+    parsePrivateDeployOptions: (rawArgs?: string[]) => {
+        deployArgs: string[];
+        deployTarget: string;
+    };
+    preparePrivateDeploySource: (options?: {
+        deployTarget?: string;
+        projectRoot?: string;
+    }) => IPreparedPrivateDeploySource;
 }
 
 const {
     buildPrivateDeployArgs,
+    parsePrivateDeployOptions,
     preparePrivateDeploySource,
 } = await import(
     pathToFileURL(resolve(process.cwd(), 'scripts/deployVercelPrivate.mjs')).href
@@ -39,7 +47,8 @@ function createProjectFixture() {
     mkdirSync(path.join(projectRoot, '.git'), {recursive: true});
     mkdirSync(path.join(projectRoot, '.vercel'), {recursive: true});
     mkdirSync(path.join(projectRoot, 'app'), {recursive: true});
-    mkdirSync(path.join(projectRoot, 'landing'), {recursive: true});
+    mkdirSync(path.join(projectRoot, 'landing', '.vercel'), {recursive: true});
+    mkdirSync(path.join(projectRoot, 'landing', 'app'), {recursive: true});
     mkdirSync(path.join(projectRoot, 'native'), {recursive: true});
     mkdirSync(path.join(projectRoot, 'packages', 'contracts'), {recursive: true});
     writeFileSync(path.join(projectRoot, '.git', 'config'), '[core]\n');
@@ -47,6 +56,11 @@ function createProjectFixture() {
     writeFileSync(path.join(projectRoot, '.env.example'), 'SAFE=value\n');
     writeFileSync(path.join(projectRoot, '.vercel', 'project.json'), '{"projectId":"project"}\n');
     writeFileSync(path.join(projectRoot, 'app', 'index.ts'), 'export const app = true;\n');
+    writeFileSync(
+        path.join(projectRoot, 'landing', '.vercel', 'project.json'),
+        '{"projectId":"landing-project"}\n',
+    );
+    writeFileSync(path.join(projectRoot, 'landing', 'app', 'index.ts'), 'export const landing = true;\n');
     writeFileSync(path.join(projectRoot, 'landing', 'package.json'), '{"name":"landing"}\n');
     writeFileSync(path.join(projectRoot, 'native', 'binary'), 'local-only\n');
     writeFileSync(
@@ -119,5 +133,53 @@ describe('private Vercel deployment source', () => {
             '--yes',
             '--archive=zip',
         ]);
+    });
+
+    it('preserves the landing workspace and uses its separate project linkage', () => {
+        const projectRoot = createProjectFixture();
+        let prepared: IPreparedPrivateDeploySource | undefined;
+
+        try {
+            prepared = preparePrivateDeploySource({
+                deployTarget: 'landing',
+                projectRoot,
+            });
+
+            expect(existsSync(path.join(prepared.sourceRoot, 'landing', 'app', 'index.ts')))
+                .toBe(true);
+            expect(existsSync(path.join(prepared.sourceRoot, 'native'))).toBe(false);
+            expect(readFileSync(
+                path.join(prepared.sourceRoot, 'pnpm-workspace.yaml'),
+                'utf8',
+            )).toContain('  - \'landing\'');
+            expect(readFileSync(
+                path.join(prepared.sourceRoot, '.vercel', 'project.json'),
+                'utf8',
+            )).toContain('landing-project');
+            expect(readFileSync(path.join(prepared.sourceRoot, '.vercelignore'), 'utf8'))
+                .not.toContain('landing/');
+        } finally {
+            prepared?.cleanup();
+            rmSync(projectRoot, {
+                force: true,
+                recursive: true,
+            });
+        }
+    });
+
+    it('keeps the deploy target selector out of Vercel arguments', () => {
+        expect(parsePrivateDeployOptions([
+            '--target=landing',
+            '--prod',
+            '--logs',
+        ])).toEqual({
+            deployArgs: [
+                '--prod',
+                '--logs',
+            ],
+            deployTarget: 'landing',
+        });
+        expect(() => parsePrivateDeployOptions(['--target=unknown']))
+            .toThrow('Unsupported deploy target: unknown');
     });
 });

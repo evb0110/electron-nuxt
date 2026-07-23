@@ -39,6 +39,7 @@ shared packages under `packages/` are available during installation and build.
 ```bash
 pnpm install --frozen-lockfile
 pnpm --dir landing run build
+pnpm run deploy:landing:prod
 ```
 
 Optional environment variables on Vercel:

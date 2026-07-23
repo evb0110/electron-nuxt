@@ -30,6 +30,11 @@ interface ICargoArtifactsModule {
         rustTarget?: string;
         targetDirectory: string;
     }) => string;
+    parseCargoToolBuildRequest: (argv: string[], usage: string) => {
+        dryRun: boolean;
+        help: boolean;
+        toolId?: string;
+    };
     parseCargoTargetDirectory: (metadataOutput: string) => string;
     resolveCargoTargetDirectory: (options: {
         env?: NodeJS.ProcessEnv;
@@ -50,6 +55,7 @@ interface ICargoArtifactsModule {
 const {
     copyCargoArtifactVerified,
     getCargoArtifactPath,
+    parseCargoToolBuildRequest,
     parseCargoTargetDirectory,
     resolveCargoTargetDirectory,
 } = await import(
@@ -57,6 +63,32 @@ const {
 ) as ICargoArtifactsModule;
 
 describe('Cargo artifact staging', () => {
+    it('shares strict CLI parsing across native and WASM tool builders', () => {
+        expect(parseCargoToolBuildRequest(['pdf-search'], 'usage')).toEqual({
+            dryRun: false,
+            help: false,
+            toolId: 'pdf-search',
+        });
+        expect(parseCargoToolBuildRequest([
+            'pdf-page-ops',
+            '--dry-run',
+        ], 'usage')).toEqual({
+            dryRun: true,
+            help: false,
+            toolId: 'pdf-page-ops',
+        });
+        expect(parseCargoToolBuildRequest(['--help'], 'usage')).toEqual({
+            dryRun: false,
+            help: true,
+        });
+        expect(() => parseCargoToolBuildRequest([], 'expected usage')).toThrow('expected usage');
+        expect(() => parseCargoToolBuildRequest([
+            'one',
+            'two',
+        ], 'expected usage'))
+            .toThrow('expected usage');
+    });
+
     it('uses Cargo metadata as the authority for a shared workspace target directory', () => {
         const runCommand = vi.fn(() => ({
             status: 0,

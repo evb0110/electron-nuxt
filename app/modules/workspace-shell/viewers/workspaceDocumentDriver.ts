@@ -258,12 +258,6 @@ export function createWorkspaceDocumentDriverForAdapter(
     };
 }
 
-export function getWorkspaceViewerAdapterForDocumentDriver(
-    driver: IWorkspaceDocumentDriver,
-): IWorkspaceViewerAdapter {
-    return getWorkspaceViewerAdapter(driver.id === 'pdfjs' ? 'pdf' : driver.id);
-}
-
 export const useWorkspaceDocumentDriver = (
     options: IWorkspaceDocumentDriverOptions,
 ) => {
@@ -323,32 +317,6 @@ export const useWorkspaceDocumentDriver = (
     return {
         activeDocumentDriver,
         mountedDocumentDriver: computed(() => activeDocumentDriver.value ?? drivers.pdfjs),
-    };
-};
-
-type TWorkspaceActiveViewerAdapterOptions = Omit<
-    IWorkspaceDocumentDriverOptions,
-    'workingCopyPath'
->;
-
-// Compatibility façade. Remove when Stage 4 deletes the adapter API.
-export const useWorkspaceActiveViewerAdapter = (
-    options: TWorkspaceActiveViewerAdapterOptions,
-) => {
-    const driver = useWorkspaceDocumentDriver({
-        ...options,
-        workingCopyPath: ref(null),
-    });
-    return {
-        activeViewerAdapter: computed(() => driver.activeDocumentDriver.value
-            ? getWorkspaceViewerAdapterForDocumentDriver(driver.activeDocumentDriver.value)
-            : null),
-        activeViewerCapabilities: computed(() => driver.activeDocumentDriver.value?.capabilities),
-        nativePdfSourcePath: computed(() => (
-            driver.activeDocumentDriver.value?.id === 'native-pdf'
-                ? driver.activeDocumentDriver.value.view.sourcePath
-                : null
-        )),
     };
 };
 
@@ -554,30 +522,3 @@ export const useWorkspaceDocumentDriverBinding = (options: IWorkspaceDocumentDri
         bindActiveViewerRef,
     };
 };
-
-type TWorkspaceViewerAdapterBindingOptions = Omit<
-    IWorkspaceDocumentDriverBindingOptions,
-    'activeDocumentDriver'
-> & {
-    activeViewerAdapter: ComputedRef<IWorkspaceViewerAdapter | null>;
-    djvuSourcePath: Ref<TDocumentRef | null>;
-    nativePdfSourcePath: TReadableRef<TDocumentRef | null>;
-};
-
-// Compatibility façade. Remove when Stage 4 deletes the adapter API.
-export const useWorkspaceViewerAdapterBinding = (
-    options: TWorkspaceViewerAdapterBindingOptions,
-) => useWorkspaceDocumentDriverBinding({
-    ...options,
-    activeDocumentDriver: computed(() => createWorkspaceDocumentDriverForAdapter(
-        options.activeViewerAdapter.value
-            ?? (() => {
-                throw new Error('Workspace viewer binding requires an active adapter');
-            })(),
-        {
-            djvuSourcePath: options.djvuSourcePath,
-            nativePdfSourcePath: options.nativePdfSourcePath,
-            workingCopyPath: options.workingCopyPath,
-        },
-    )),
-});

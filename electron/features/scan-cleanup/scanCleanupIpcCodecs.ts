@@ -423,7 +423,7 @@ export function decodeScanCleanupPreviewResult(value: unknown): IScanCleanupPrev
     };
 }
 
-export function decodeScanCleanupRawPreviewResult(value: unknown): IScanCleanupRawPreviewResult {
+function decodeScanCleanupRawPreviewResult(value: unknown): IScanCleanupRawPreviewResult {
     if (!isRecord(value)) throw new Error('invalid scan-cleanup raw preview result');
     const pageNumber = decodePositiveInteger(value.pageNumber, 'raw page number');
     const totalPages = decodePositiveInteger(value.totalPages, 'raw total pages');
