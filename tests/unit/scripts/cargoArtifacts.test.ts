@@ -14,6 +14,10 @@ import {
     it,
     vi,
 } from 'vitest';
+import { createNativeToolBuildPlan } from '@scripts/build-native-tool.mjs';
+import { createWasmToolBuildPlan } from '@scripts/build-wasm-tool.mjs';
+import { getGeneratedNativeToolResource } from '@scripts/nativeResourceManifest';
+import { getWasmArtifactByCrateName } from '@scripts/wasm-artifacts.mjs';
 
 interface ICargoArtifactsModule {
     copyCargoArtifactVerified: (sourcePath: string, destinationPath: string) => Promise<{
@@ -126,21 +130,60 @@ describe('Cargo artifact staging', () => {
         }
     });
 
-    it('keeps every native and WASM staging script metadata-driven', async () => {
-        const scriptNames = [
-            'build-pdf-image-combine.mjs',
-            'build-pdf-page-ops.mjs',
-            'build-pdf-search.mjs',
-            'build-pdf-image-combine-wasm.mjs',
-            'build-pdf-page-ops-wasm.mjs',
-        ];
-
-        for (const scriptName of scriptNames) {
-            const source = await readFile(path.join(process.cwd(), 'scripts', scriptName), 'utf8');
-            expect(source).toContain('resolveCargoTargetDirectory');
-            expect(source).toContain('copyCargoArtifactVerified');
-            expect(source).not.toMatch(/artifact\.crateName,[\s\S]{0,80}['"]target['"]/);
+    it('derives every native and WASM staging plan from artifact manifests', async () => {
+        for (const toolId of [
+            'pdf-image-combine',
+            'pdf-page-ops',
+            'pdf-search',
+            'scan-cleanup',
+        ]) {
+            const tool = getGeneratedNativeToolResource(toolId);
+            const plan = createNativeToolBuildPlan({
+                projectRoot: '/repo',
+                target: {
+                    binaryExtension: '.exe',
+                    cargoTargetArgs: [
+                        '--target',
+                        'aarch64-pc-windows-msvc',
+                    ],
+                    isHostTarget: false,
+                    platform: 'win32',
+                    platformArch: 'win32-arm64',
+                    rustTarget: 'aarch64-pc-windows-msvc',
+                },
+                tool,
+            });
+            expect(plan.manifestPath).toBe(`native/${tool.crateName}/Cargo.toml`);
+            expect(plan.destinationPath).toBe(path.join(
+                '/repo',
+                '.tmp',
+                tool.stagingName,
+                'win32-arm64',
+                'bin',
+                `${tool.binaryName}.exe`,
+            ));
+            expect(plan.rustTarget).toBe('aarch64-pc-windows-msvc');
         }
+
+        for (const toolId of [
+            'pdf-image-combine',
+            'pdf-page-ops',
+        ]) {
+            const tool = getGeneratedNativeToolResource(toolId);
+            const artifact = getWasmArtifactByCrateName(tool.crateName);
+            const plan = createWasmToolBuildPlan({
+                artifact,
+                env: {RUSTFLAGS: '--cfg existing'},
+                projectRoot: '/repo',
+            });
+            expect(plan.manifestPath).toBe(`native/${tool.crateName}/Cargo.toml`);
+            expect(plan.destinationPath).toBe(path.join('/repo', artifact.publicRelativePath));
+            expect(plan.requiredExports).toBe(artifact.requiredExports);
+            expect(plan.rustflags).toContain('--cfg existing');
+        }
+        expect(() => getWasmArtifactByCrateName('pdf-search')).toThrow(
+            'Unknown WASM artifact crate: pdf-search',
+        );
 
         const benchmarkSource = await readFile(
             path.join(process.cwd(), 'scripts', 'benchmark-native-release-profiles.mjs'),

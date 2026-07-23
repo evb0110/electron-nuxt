@@ -1,22 +1,9 @@
-import {
-    mkdirSync,
-    writeFileSync,
-} from 'node:fs';
-import {
-    dirname,
-    resolve,
-} from 'node:path';
+import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
+import type { Page } from 'puppeteer-core';
 import { delay } from 'es-toolkit/promise';
-import {
-    type IDiagnosticFrameCaptureResult,
-    startDiagnosticFrameCapture,
-} from '@scripts/diagnostics/diagnosticFrameCapture';
-import { startElectronE2ESession } from '@tests/e2e/electron/helpers/startElectronE2ESession';
-import {
-    goToPageViaToolbar,
-    openPdfInApp,
-} from '@tests/e2e/electron/helpers/viewerCore';
+import type { IDiagnosticFrameCaptureResult } from '@scripts/diagnostics/diagnosticFrameCapture';
+import {goToPageViaToolbar} from '@tests/e2e/electron/helpers/viewerCore';
 import {
     callWorkspaceCommand,
     getWorkspaceToolbarSnapshot,
@@ -25,9 +12,9 @@ import {
 } from '@tests/e2e/electron/helpers/workspaceExpose';
 import type { IEvbTestApi } from '@app/types/evbTestApi';
 import {
-    disablePdfDiagnosticSession,
-    enablePdfDiagnosticSession,
-} from '@tests/e2e/electron/helpers/pdfDiagnosticSession';
+    type IPdfDiagnosticsContext,
+    runPdfDiagnosticScenario,
+} from '@scripts/diagnostics/pdfDiagnosticsEngine';
 
 const DEFAULT_TARGET_PDF_PATH = process.env.EVB_DIAGNOSTIC_PDF_PATH?.length
     ? process.env.EVB_DIAGNOSTIC_PDF_PATH
@@ -189,14 +176,7 @@ export function resolveVideoDirectory(options: Pick<IPdfNavigationBlinkTraceOpti
     return `${withoutJsonExtension}-video`;
 }
 
-async function enablePdfDiagnostics(page: Awaited<ReturnType<typeof startElectronE2ESession>>['page']) {
-    await enablePdfDiagnosticSession(page, {
-        navigation: true,
-        render: true,
-    });
-}
-
-async function installBlinkSampler(page: Awaited<ReturnType<typeof startElectronE2ESession>>['page']) {
+async function installBlinkSampler(page: Page) {
     await installWorkspaceExposeProbe(page);
     await page.evaluate(() => {
         type TBlinkTraceWindow = Window & {
@@ -515,7 +495,7 @@ async function installBlinkSampler(page: Awaited<ReturnType<typeof startElectron
 }
 
 async function recordTraceEvent(
-    page: Awaited<ReturnType<typeof startElectronE2ESession>>['page'],
+    page: Page,
     kind: string,
     payload: unknown = {},
 ) {
@@ -531,7 +511,7 @@ async function recordTraceEvent(
     ]);
 }
 
-async function waitForActiveDocumentOpenSettled(page: Awaited<ReturnType<typeof startElectronE2ESession>>['page']) {
+async function waitForActiveDocumentOpenSettled(page: Page) {
     await installWorkspaceExposeProbe(page);
     await page.evaluate(async () => {
         const testApi = (window as IPdfBlinkDiagnosticWindow).__evbTestApi;
@@ -539,7 +519,7 @@ async function waitForActiveDocumentOpenSettled(page: Awaited<ReturnType<typeof 
     });
 }
 
-async function waitForFitHeightPagedMode(page: Awaited<ReturnType<typeof startElectronE2ESession>>['page']) {
+async function waitForFitHeightPagedMode(page: Page) {
     await page.waitForFunction(() => {
         const snapshot = (window as IPdfBlinkDiagnosticWindow).__evbTestApi?.getActiveToolbarSnapshot?.() ?? null;
         return snapshot?.continuousScroll === false
@@ -548,7 +528,7 @@ async function waitForFitHeightPagedMode(page: Awaited<ReturnType<typeof startEl
     }, { timeout: 10_000 });
 }
 
-async function configureFitHeightPagedMode(page: Awaited<ReturnType<typeof startElectronE2ESession>>['page']) {
+async function configureFitHeightPagedMode(page: Page) {
     await waitForActiveDocumentOpenSettled(page);
 
     let lastSnapshot: unknown = null;
@@ -598,7 +578,7 @@ async function configureFitHeightPagedMode(page: Awaited<ReturnType<typeof start
 }
 
 async function goToPageViaWorkspace(
-    page: Awaited<ReturnType<typeof startElectronE2ESession>>['page'],
+    page: Page,
     pageNumber: number,
 ) {
     const navigationResult = await callWorkspaceCommand(page, 'handleGoToPage', [pageNumber], {requiredMethods: ['getToolbarSnapshot']});
@@ -609,14 +589,14 @@ async function goToPageViaWorkspace(
 }
 
 async function waitForToolbarPage(
-    page: Awaited<ReturnType<typeof startElectronE2ESession>>['page'],
+    page: Page,
     pageNumber: number,
 ) {
     await waitForWorkspaceToolbarSnapshot(page, {currentPage: pageNumber}, {timeoutMs: 20_000});
 }
 
 async function goToStartPage(
-    page: Awaited<ReturnType<typeof startElectronE2ESession>>['page'],
+    page: Page,
     pageNumber: number,
 ) {
     await goToPageViaWorkspace(page, pageNumber);
@@ -625,98 +605,6 @@ async function goToStartPage(
     } catch {
         await goToPageViaToolbar(page, pageNumber);
     }
-}
-
-async function waitForPageCanvas(
-    page: Awaited<ReturnType<typeof startElectronE2ESession>>['page'],
-    pageNumber: number,
-) {
-    await page.waitForFunction((targetPage: number) => {
-        const container = document.querySelector<HTMLElement>(`.page_container[data-page="${targetPage}"]`);
-        return Boolean(
-            container?.classList.contains('page_container--rendered')
-            && container.querySelector('.page_canvas canvas'),
-        );
-    }, { timeout: 30_000 }, pageNumber);
-}
-
-async function clickNextPage(page: Awaited<ReturnType<typeof startElectronE2ESession>>['page']) {
-    await page.waitForFunction(() => {
-        const isVisibleEnabled = (button: HTMLButtonElement) => {
-            const rect = button.getBoundingClientRect();
-            const style = window.getComputedStyle(button);
-            return !button.disabled
-                && button.getAttribute('aria-disabled') !== 'true'
-                && rect.width > 8
-                && rect.height > 8
-                && style.display !== 'none'
-                && style.visibility !== 'hidden';
-        };
-        return Array.from(document.querySelectorAll<HTMLButtonElement>('.page-controls button[aria-label]'))
-            .some(candidate => {
-                const label = candidate.getAttribute('aria-label') ?? '';
-                return (label === 'Next Page' || label.startsWith('Next Page ('))
-                    && isVisibleEnabled(candidate);
-            });
-    }, { timeout: 30_000 });
-
-    const clickable = await page.evaluate(() => {
-        const isVisibleEnabled = (button: HTMLButtonElement) => {
-            const rect = button.getBoundingClientRect();
-            const style = window.getComputedStyle(button);
-            return !button.disabled
-                && button.getAttribute('aria-disabled') !== 'true'
-                && rect.width > 8
-                && rect.height > 8
-                && style.display !== 'none'
-                && style.visibility !== 'hidden';
-        };
-        const button = Array.from(document.querySelectorAll<HTMLButtonElement>('.page-controls button[aria-label]'))
-            .find(candidate => {
-                const label = candidate.getAttribute('aria-label') ?? '';
-                return (label === 'Next Page' || label.startsWith('Next Page ('))
-                    && isVisibleEnabled(candidate);
-            });
-        const rect = button?.getBoundingClientRect() ?? null;
-        return {
-            clicked: Boolean(button),
-            label: button?.getAttribute('aria-label') ?? null,
-            x: rect ? Math.round(rect.left + rect.width / 2) : null,
-            y: rect ? Math.round(rect.top + rect.height / 2) : null,
-            pageText: Array.from(document.querySelectorAll<HTMLElement>('.page-controls-current-primary'))
-                .filter(element => {
-                    const rect = element.getBoundingClientRect();
-                    const style = window.getComputedStyle(element);
-                    return rect.width > 0
-                        && rect.height > 0
-                        && style.display !== 'none'
-                        && style.visibility !== 'hidden';
-                })
-                .map(element => element.textContent?.trim() ?? ''),
-        };
-    });
-
-    if (!clickable.clicked || clickable.x === null || clickable.y === null) {
-        throw new Error(`Unable to click Next Page: ${JSON.stringify(clickable)}`);
-    }
-
-    await page.mouse.click(clickable.x, clickable.y);
-
-    return clickable;
-}
-
-async function collectPdfNavLog(page: Awaited<ReturnType<typeof startElectronE2ESession>>['page']) {
-    return page.evaluate(() => {
-        const logWindow = window as Window & { __getPdfNavLog?: () => unknown[]; };
-        return logWindow.__getPdfNavLog?.() ?? [];
-    });
-}
-
-async function collectPdfRenderTrace(page: Awaited<ReturnType<typeof startElectronE2ESession>>['page']) {
-    return page.evaluate(() => {
-        const traceWindow = window as Window & { __getPdfRenderTrace?: () => unknown[]; };
-        return traceWindow.__getPdfRenderTrace?.() ?? [];
-    });
 }
 
 function uniqueNumbers(values: unknown[]) {
@@ -909,24 +797,18 @@ function sampleHasCenteredBlank(sample: Record<string, unknown>) {
         && readNumberArray(sample.blankVisiblePages).length > 0;
 }
 
-function getCenteredBlankAfterClickSummary(options: {
-    lastClickAtMs: number | null;
-    samples: Array<Record<string, unknown>>;
-}) {
-    const {
-        lastClickAtMs,
-        samples,
-    } = options;
-    if (lastClickAtMs === null) {
-        return {
-            firstSample: null,
-            maxRunMs: 0,
-        };
-    }
-
-    const minimumAtMs = lastClickAtMs + POST_CLICK_INTERMEDIATE_VISUAL_GRACE_MS;
+function summarizeSampleRuns(
+    samples: Array<Record<string, unknown>>,
+    match: (sample: Record<string, unknown>) => unknown | null | false,
+    options: {
+        minimumAtMs?: number;
+        skipInvalidTimes?: boolean;
+    } = {},
+) {
     let firstSample: Record<string, unknown> | null = null;
     let maxRunMs = 0;
+    let sampleCount = 0;
+    let runKey: unknown = null;
     let runStartAtMs: number | null = null;
     let runLastAtMs: number | null = null;
 
@@ -934,29 +816,40 @@ function getCenteredBlankAfterClickSummary(options: {
         if (runStartAtMs !== null && runLastAtMs !== null) {
             maxRunMs = Math.max(maxRunMs, runLastAtMs - runStartAtMs);
         }
+        runKey = null;
         runStartAtMs = null;
         runLastAtMs = null;
     }
 
     for (const sample of samples) {
-        const atMs = readFiniteNumber(sample.atMs);
-        if (atMs === null || atMs < minimumAtMs) {
+        const sampleAtMs = readFiniteNumber(sample.atMs);
+        if (sampleAtMs === null && options.skipInvalidTimes) {
             continue;
         }
-
-        if (sampleHasCenteredBlank(sample)) {
-            firstSample ??= sample;
-            runStartAtMs ??= atMs;
-            runLastAtMs = atMs;
-        } else {
-            flushRun();
+        const atMs = sampleAtMs ?? 0;
+        if (atMs < (options.minimumAtMs ?? Number.NEGATIVE_INFINITY)) {
+            continue;
         }
+        const key = match(sample);
+        if (key === null || key === false) {
+            flushRun();
+            continue;
+        }
+        sampleCount += 1;
+        firstSample ??= sample;
+        if (runStartAtMs === null || !Object.is(runKey, key)) {
+            flushRun();
+            runKey = key;
+            runStartAtMs = atMs;
+        }
+        runLastAtMs = atMs;
     }
     flushRun();
 
     return {
         firstSample,
         maxRunMs,
+        sampleCount,
     };
 }
 
@@ -1210,74 +1103,6 @@ function getNonFinalRenderTraceEventsAfterFinalRequest(
     });
 }
 
-function getIntermediateVisualAfterClickSummary(options: {
-    finalTargetPage: number | null;
-    lastClickAtMs: number | null;
-    samples: Array<Record<string, unknown>>;
-}) {
-    const {
-        finalTargetPage,
-        lastClickAtMs,
-        samples,
-    } = options;
-    if (finalTargetPage === null || lastClickAtMs === null) {
-        return {
-            firstSample: null,
-            maxRunMs: 0,
-            sampleCount: 0,
-        };
-    }
-
-    const minimumAtMs = lastClickAtMs + POST_CLICK_INTERMEDIATE_VISUAL_GRACE_MS;
-    let sampleCount = 0;
-    let firstSample: Record<string, unknown> | null = null;
-    let maxRunMs = 0;
-    let runPage: number | null = null;
-    let runStartAtMs: number | null = null;
-    let runLastAtMs: number | null = null;
-
-    function flushRun() {
-        if (runStartAtMs !== null && runLastAtMs !== null) {
-            maxRunMs = Math.max(maxRunMs, runLastAtMs - runStartAtMs);
-        }
-        runPage = null;
-        runStartAtMs = null;
-        runLastAtMs = null;
-    }
-
-    for (const sample of samples) {
-        const atMs = readFiniteNumber(sample.atMs);
-        if (atMs === null || atMs < minimumAtMs) {
-            continue;
-        }
-
-        const centeredVisualPage = sampleHasCenteredVisualReadyPage(sample);
-        const isIntermediateVisual = centeredVisualPage !== null
-            && centeredVisualPage !== finalTargetPage;
-
-        if (!isIntermediateVisual) {
-            flushRun();
-            continue;
-        }
-
-        sampleCount += 1;
-        firstSample ??= sample;
-        if (runPage !== centeredVisualPage) {
-            flushRun();
-            runPage = centeredVisualPage;
-            runStartAtMs = atMs;
-        }
-        runLastAtMs = atMs;
-    }
-    flushRun();
-
-    return {
-        firstSample,
-        maxRunMs,
-        sampleCount,
-    };
-}
-
 export function analyzeTraceFrames(samples: Array<Record<string, unknown>>): IFrameAnalysisSummary {
     let canvasObservedAtMs: number | null = null;
     let firstSkeletonAfterCanvasAtMs: number | null = null;
@@ -1325,39 +1150,14 @@ export function summarizeTrace(payload: {
     const skeletonSamples = samples.filter(sample => Array.isArray(sample.skeletonPages) && sample.skeletonPages.length > 0);
     const skeletonVisualOverlapSamples = samples.filter(sampleHasSkeletonVisualOverlap);
     const translucentSkeletonCanvasOverlapSamples = samples.filter(sampleHasTranslucentSkeletonCanvasOverlap);
-    let maxBlankRunMs = 0;
-    let maxCenteredBlankRunMs = 0;
-    let blankRunStartedAt: number | null = null;
-    let lastBlankAt: number | null = null;
-    let centeredBlankRunStartedAt: number | null = null;
-    let lastCenteredBlankAt: number | null = null;
-    for (const sample of samples) {
-        const atMs = typeof sample.atMs === 'number' ? sample.atMs : 0;
-        const isBlank = Array.isArray(sample.blankVisiblePages) && sample.blankVisiblePages.length > 0;
-        const isCenteredBlank = sampleHasCenteredBlank(sample);
-        if (isBlank) {
-            blankRunStartedAt ??= atMs;
-            lastBlankAt = atMs;
-        } else if (blankRunStartedAt !== null && lastBlankAt !== null) {
-            maxBlankRunMs = Math.max(maxBlankRunMs, lastBlankAt - blankRunStartedAt);
-            blankRunStartedAt = null;
-            lastBlankAt = null;
-        }
-        if (isCenteredBlank) {
-            centeredBlankRunStartedAt ??= atMs;
-            lastCenteredBlankAt = atMs;
-        } else if (centeredBlankRunStartedAt !== null && lastCenteredBlankAt !== null) {
-            maxCenteredBlankRunMs = Math.max(maxCenteredBlankRunMs, lastCenteredBlankAt - centeredBlankRunStartedAt);
-            centeredBlankRunStartedAt = null;
-            lastCenteredBlankAt = null;
-        }
-    }
-    if (blankRunStartedAt !== null && lastBlankAt !== null) {
-        maxBlankRunMs = Math.max(maxBlankRunMs, lastBlankAt - blankRunStartedAt);
-    }
-    if (centeredBlankRunStartedAt !== null && lastCenteredBlankAt !== null) {
-        maxCenteredBlankRunMs = Math.max(maxCenteredBlankRunMs, lastCenteredBlankAt - centeredBlankRunStartedAt);
-    }
+    const maxBlankRunMs = summarizeSampleRuns(
+        samples,
+        sample => Array.isArray(sample.blankVisiblePages) && sample.blankVisiblePages.length > 0,
+    ).maxRunMs;
+    const maxCenteredBlankRunMs = summarizeSampleRuns(
+        samples,
+        sample => sampleHasCenteredBlank(sample),
+    ).maxRunMs;
 
     const toolbarPages = uniqueNumbers(samples.map(sample => {
         return readToolbarPage(sample);
@@ -1373,10 +1173,19 @@ export function summarizeTrace(payload: {
         'after-next-click',
         'toolbar-button-click',
     ]);
-    const centeredBlankAfterClick = getCenteredBlankAfterClickSummary({
-        lastClickAtMs,
-        samples,
-    });
+    const centeredBlankAfterClick = lastClickAtMs === null
+        ? {
+            firstSample: null,
+            maxRunMs: 0,
+        }
+        : summarizeSampleRuns(
+            samples,
+            sample => sampleHasCenteredBlank(sample),
+            {
+                minimumAtMs: lastClickAtMs + POST_CLICK_INTERMEDIATE_VISUAL_GRACE_MS,
+                skipInvalidTimes: true,
+            },
+        );
     const finalRequestTraceAtMs = getFinalRequestTraceAtMs(payload.renderTrace, finalTargetPage);
     const nonFinalPagedCommitsAfterFinalRequest = getNonFinalRenderTraceEventsAfterFinalRequest(
         payload.renderTrace,
@@ -1396,11 +1205,23 @@ export function summarizeTrace(payload: {
             pageKeys: ['page'],
         },
     );
-    const intermediateVisualAfterClick = getIntermediateVisualAfterClickSummary({
-        finalTargetPage,
-        lastClickAtMs,
-        samples,
-    });
+    const intermediateVisualAfterClick = finalTargetPage === null || lastClickAtMs === null
+        ? {
+            firstSample: null,
+            maxRunMs: 0,
+            sampleCount: 0,
+        }
+        : summarizeSampleRuns(
+            samples,
+            (sample) => {
+                const page = sampleHasCenteredVisualReadyPage(sample);
+                return page !== null && page !== finalTargetPage ? page : null;
+            },
+            {
+                minimumAtMs: lastClickAtMs + POST_CLICK_INTERMEDIATE_VISUAL_GRACE_MS,
+                skipInvalidTimes: true,
+            },
+        );
     const bodyVisualReadySample = finalTargetPage === null
         ? null
         : samples.find(sample => sampleHasCenteredVisualForPage(sample, finalTargetPage)) ?? null;
@@ -1420,25 +1241,10 @@ export function summarizeTrace(payload: {
             && !sampleHasFeedbackForPage(sample, toolbarPage);
     });
 
-    let maxToolbarBodyLagMs = 0;
-    let toolbarAheadStartedAt: number | null = null;
-    let lastToolbarAheadAt: number | null = null;
-    for (const sample of samples) {
-        const atMs = readFiniteNumber(sample.atMs) ?? 0;
+    const maxToolbarBodyLagMs = summarizeSampleRuns(samples, (sample) => {
         const toolbarPage = readToolbarPage(sample);
-        const toolbarAhead = toolbarPage !== null && !sampleHasFeedbackForPage(sample, toolbarPage);
-        if (toolbarAhead) {
-            toolbarAheadStartedAt ??= atMs;
-            lastToolbarAheadAt = atMs;
-        } else if (toolbarAheadStartedAt !== null && lastToolbarAheadAt !== null) {
-            maxToolbarBodyLagMs = Math.max(maxToolbarBodyLagMs, lastToolbarAheadAt - toolbarAheadStartedAt);
-            toolbarAheadStartedAt = null;
-            lastToolbarAheadAt = null;
-        }
-    }
-    if (toolbarAheadStartedAt !== null && lastToolbarAheadAt !== null) {
-        maxToolbarBodyLagMs = Math.max(maxToolbarBodyLagMs, lastToolbarAheadAt - toolbarAheadStartedAt);
-    }
+        return toolbarPage !== null && !sampleHasFeedbackForPage(sample, toolbarPage);
+    }).maxRunMs;
 
     const pagesSeenWithVisual = new Set<number>();
     const skeletonAfterVisualSamples: Array<Record<string, unknown>> = [];
@@ -1634,85 +1440,90 @@ function createVideoCapturePayload(videoCapture: IDiagnosticFrameCaptureResult |
     };
 }
 
-async function main() {
-    const options = readOptions();
+export function createPdfNavigationBlinkScenario(options = readOptions()) {
     const outPath = resolve(process.cwd(), options.out);
-    const session = await startElectronE2ESession(`pdf-blink-trace-${Date.now()}`);
-    try {
-        await enablePdfDiagnostics(session.page);
-        await openPdfInApp(session.page, options.pdf, 120_000);
-        await installBlinkSampler(session.page);
-        await configureFitHeightPagedMode(session.page);
-        await goToStartPage(session.page, options.startPage);
-        await configureFitHeightPagedMode(session.page);
-        await waitForToolbarPage(session.page, options.startPage);
-        if (options.waitForStartCanvas) {
-            await waitForPageCanvas(session.page, options.startPage);
-        }
-        await delay(options.preClickWaitMs);
+    return {
+        name: 'pdf-blink-trace',
+        pdfPath: options.pdf,
+        fixtureError: `PDF navigation blink trace fixture not found: ${options.pdf}`,
+        openTimeoutMs: 120_000,
+        diagnostics: {
+            navigation: true,
+            render: true,
+        },
+        run: async (context: IPdfDiagnosticsContext) => {
+            const { page } = context;
+            await installBlinkSampler(page);
+            await configureFitHeightPagedMode(page);
+            await goToStartPage(page, options.startPage);
+            await configureFitHeightPagedMode(page);
+            await waitForToolbarPage(page, options.startPage);
+            if (options.waitForStartCanvas) {
+                await context.navigation.waitForPageCanvas(options.startPage);
+            }
+            await delay(options.preClickWaitMs);
 
-        const videoRecorder = options.video
-            ? await startDiagnosticFrameCapture(session.page, {
-                fps: options.videoFps,
-                outDir: resolveVideoDirectory(options),
-            })
-            : null;
-        await session.page.evaluate(() => {
-            const traceWindow = window as Window & { __startPdfBlinkTrace?: () => void; };
-            traceWindow.__startPdfBlinkTrace?.();
-        });
-        await recordTraceEvent(session.page, 'scenario-start', {
-            options,
-            wallTimeMs: Date.now(),
-        });
-        for (let index = 0; index < options.clicks; index += 1) {
-            await recordTraceEvent(session.page, 'before-next-click', { index });
-            const clickResult = await clickNextPage(session.page);
-            await recordTraceEvent(session.page, 'after-next-click', {
-                index,
-                clickResult,
+            const videoRecorder = options.video
+                ? await context.capture.start({
+                    fps: options.videoFps,
+                    outDir: resolveVideoDirectory(options),
+                })
+                : null;
+            await page.evaluate(() => {
+                const traceWindow = window as Window & { __startPdfBlinkTrace?: () => void; };
+                traceWindow.__startPdfBlinkTrace?.();
             });
-            await delay(options.clickDelayMs);
-        }
-        await recordTraceEvent(session.page, 'click-burst-end', {
-            clicks: options.clicks,
-            wallTimeMs: Date.now(),
-        });
-        await delay(options.settleMs);
-        const trace = await session.page.evaluate(() => {
-            const traceWindow = window as Window & { __stopPdfBlinkTrace?: () => unknown; };
-            return traceWindow.__stopPdfBlinkTrace?.() ?? null;
-        });
-        const videoCapture = videoRecorder ? await videoRecorder.stop() : null;
-        const navLog = await collectPdfNavLog(session.page);
-        const renderTrace = await collectPdfRenderTrace(session.page) as Array<{
-            event?: string;
-            payload?: Record<string, unknown>;
-        }>;
-        const payload = {
-            createdAt: new Date().toISOString(),
-            options,
-            trace,
-            navLog,
-            renderTrace,
-            video: createVideoCapturePayload(videoCapture),
-            summary: summarizeTrace({
-                trace: trace ?? {},
+            await recordTraceEvent(page, 'scenario-start', {
+                options,
+                wallTimeMs: Date.now(),
+            });
+            for (let index = 0; index < options.clicks; index += 1) {
+                await recordTraceEvent(page, 'before-next-click', { index });
+                const clickResult = await context.navigation.clickToolbarButton('Next Page', {dispatch: 'mouse'});
+                await recordTraceEvent(page, 'after-next-click', {
+                    index,
+                    clickResult,
+                });
+                await delay(options.clickDelayMs);
+            }
+            await recordTraceEvent(page, 'click-burst-end', {
+                clicks: options.clicks,
+                wallTimeMs: Date.now(),
+            });
+            await delay(options.settleMs);
+            const trace = await page.evaluate(() => {
+                const traceWindow = window as Window & { __stopPdfBlinkTrace?: () => unknown; };
+                return traceWindow.__stopPdfBlinkTrace?.() ?? null;
+            });
+            const videoCapture = videoRecorder ? await videoRecorder.stop() : null;
+            const navLog = await context.trace.collectNavigation();
+            const renderTrace = await context.trace.collectRender() as Array<{
+                event?: string;
+                payload?: Record<string, unknown>;
+            }>;
+            const payload = {
+                createdAt: new Date().toISOString(),
+                options,
+                trace,
+                navLog,
                 renderTrace,
-            }),
-        };
-        mkdirSync(dirname(outPath), { recursive: true });
-        writeFileSync(outPath, `${JSON.stringify(payload, null, 2)}\n`);
-        console.log(`Wrote ${outPath}`);
-        console.log(JSON.stringify(payload.summary, null, 2));
-        if (options.assert) {
-            assertTraceSummary(payload.summary);
-        }
-    } finally {
-        await disablePdfDiagnosticSession(session.page).catch(() => {});
-        await session.stop();
-    }
+                video: createVideoCapturePayload(videoCapture),
+                summary: summarizeTrace({
+                    trace: trace ?? {},
+                    renderTrace,
+                }),
+            };
+            context.artifacts.writeJson(outPath, payload);
+            console.log(`Wrote ${outPath}`);
+            console.log(JSON.stringify(payload.summary, null, 2));
+            if (options.assert) {
+                assertTraceSummary(payload.summary);
+            }
+        },
+    };
 }
+
+const main = () => runPdfDiagnosticScenario(createPdfNavigationBlinkScenario());
 
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
     await main();

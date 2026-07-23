@@ -7,6 +7,7 @@ import { GENERATED_RUST_NATIVE_TOOL_PROTOCOLS } from '@contracts/nativeToolProto
 import { formatNativeSourceMatrixCliEntry } from '@scripts/nativeResourceManifestCli';
 import {
     GENERATED_NATIVE_TOOL_RESOURCES,
+    getGeneratedNativeToolResource,
     getNativeSourceMatrixCheckEntries,
     NATIVE_RESOURCE_PLATFORM_ARCHES,
     NATIVE_TOOL_RESOURCE_FAMILIES,
@@ -108,6 +109,17 @@ describe('native resource manifest', () => {
             '.tmp/pdf-search',
             '.tmp/scan-cleanup',
         ]);
+    });
+
+    it('resolves generated build tools from the canonical resource rows', () => {
+        expect(getGeneratedNativeToolResource('pdf-search')).toMatchObject({
+            binaryName: 'evb-pdf-search',
+            crateName: 'pdf-search',
+            stagingName: 'pdf-search',
+        });
+        expect(() => getGeneratedNativeToolResource('not-a-tool')).toThrow(
+            'Unknown generated native tool: not-a-tool',
+        );
     });
 
     it('formats source matrix entries for the shell checker', () => {

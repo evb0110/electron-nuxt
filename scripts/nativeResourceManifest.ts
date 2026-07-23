@@ -187,6 +187,14 @@ export const GENERATED_NATIVE_TOOL_RESOURCES = GENERATED_RUST_NATIVE_TOOL_PROTOC
     stagingName: tool.stagingName,
 })) satisfies readonly IGeneratedNativeToolResource[];
 
+export function getGeneratedNativeToolResource(toolId: string) {
+    const resource = GENERATED_NATIVE_TOOL_RESOURCES.find(tool => tool.familyId === toolId);
+    if (!resource) {
+        throw new Error(`Unknown generated native tool: ${toolId}`);
+    }
+    return resource;
+}
+
 export const NATIVE_SOURCE_MATRIX_ENTRIES = [
     {
         kind: 'required',

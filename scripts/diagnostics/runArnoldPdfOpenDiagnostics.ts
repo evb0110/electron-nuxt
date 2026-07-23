@@ -1,21 +1,15 @@
 import assert from 'node:assert/strict';
 import {
     existsSync,
-    mkdirSync,
     readFileSync,
-    writeFileSync,
 } from 'node:fs';
-import {
-    dirname,
-    resolve,
-} from 'node:path';
+import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import type {
     ConsoleMessage,
     Page,
 } from 'puppeteer-core';
 import { delay } from 'es-toolkit/promise';
-import { startElectronE2ESession } from '@tests/e2e/electron/helpers/startElectronE2ESession';
 import { evaluateInPage } from '@tests/e2e/electron/helpers/pageRuntime';
 import {
     callWorkspaceCommand,
@@ -27,9 +21,9 @@ import {
     toPdfRenderTraceEntries,
 } from '@scripts/diagnostics/pdfTraceEntryGuards';
 import {
-    disablePdfDiagnosticSession,
-    enablePdfDiagnosticSession,
-} from '@tests/e2e/electron/helpers/pdfDiagnosticSession';
+    type IPdfDiagnosticsContext,
+    runPdfDiagnosticScenario,
+} from '@scripts/diagnostics/pdfDiagnosticsEngine';
 import {
     installCommittedSurfaceSampler,
     stopCommittedSurfaceSampler,
@@ -313,18 +307,7 @@ function formatConsoleEntry(entry: IConsoleLogEntry) {
     return `[${entry.receivedAtMs}ms] ${entry.type}${location} ${entry.text}${args}`;
 }
 
-function writeDiagnosticArtifacts(payload: unknown, consoleEntries: IConsoleLogEntry[]) {
-    mkdirSync(dirname(DIAGNOSTIC_OUTPUT_PATH), { recursive: true });
-    writeFileSync(DIAGNOSTIC_OUTPUT_PATH, `${JSON.stringify(payload, null, 2)}\n`);
-    writeFileSync(CONSOLE_OUTPUT_PATH, `${consoleEntries.map(formatConsoleEntry).join('\n')}\n`);
-}
-
-async function enableDiagnosticLogging(page: Page) {
-    await enablePdfDiagnosticSession(page, {
-        console: true,
-        navigation: true,
-        render: true,
-    });
+async function promoteDiagnosticConsoleWarnings(page: Page) {
     await evaluateInPage(page, () => {
         const diagnosticWindow = window as Window & {__diagnosticWarnAsWarn?: boolean;};
         diagnosticWindow.__diagnosticWarnAsWarn = true;
@@ -435,24 +418,6 @@ async function openPathDirectWithRetry(
         result.error = lastError;
     }
     return result;
-}
-
-async function collectPdfNavLog(page: Page) {
-    const entries: unknown = await evaluateInPage(page, () => {
-        const logWindow = window as Window & { __getPdfNavLog?: () => unknown[]; };
-        const logEntries = logWindow.__getPdfNavLog?.();
-        return Array.isArray(logEntries) ? Array.from(logEntries as readonly unknown[]) : [];
-    });
-    return toPdfNavLogEntries(entries);
-}
-
-async function collectPdfRenderTrace(page: Page) {
-    const entries: unknown = await evaluateInPage(page, () => {
-        const traceWindow = window as Window & { __getPdfRenderTrace?: () => unknown[]; };
-        const traceEntries = traceWindow.__getPdfRenderTrace?.();
-        return Array.isArray(traceEntries) ? Array.from(traceEntries as readonly unknown[]) : [];
-    });
-    return toPdfRenderTraceEntries(entries);
 }
 
 async function collectOpenSnapshot(page: Page, label: string, startedAtMs: number): Promise<IArnoldSnapshot> {
@@ -978,18 +943,6 @@ function assertArnoldAcceptance(input: {
     );
 }
 
-async function collectTimedSnapshots(page: Page, startedAtMs: number) {
-    const snapshots: IArnoldSnapshot[] = [];
-    for (const offsetMs of SAMPLE_OFFSETS_MS) {
-        const waitMs = Math.max(0, startedAtMs + offsetMs - Date.now());
-        if (waitMs > 0) {
-            await delay(waitMs);
-        }
-        snapshots.push(await collectOpenSnapshot(page, `open+${offsetMs}ms`, startedAtMs));
-    }
-    return snapshots;
-}
-
 async function scrollActiveViewer(page: Page) {
     return evaluateInPage(page, () => {
         const activeViewer = document.querySelector<HTMLElement>('.editor-pane.is-active #pdf-viewer');
@@ -1066,28 +1019,31 @@ function readMainProcessLog(sessionName: string) {
     }
 }
 
-function assertTargetPdfExists() {
-    if (existsSync(TARGET_PDF_PATH)) {
-        return;
-    }
-
-    throw new Error(
-        [
-            `Arnold PDF diagnostic fixture not found: ${TARGET_PDF_PATH}`,
-            'Set EVB_E2E_ARNOLD_PDF_PATH to a local Arnold lexicon PDF before running this diagnostic.',
-        ].join('\n'),
-    );
-}
-
-export async function runArnoldPdfOpenDiagnostics() {
-    assertTargetPdfExists();
-
-    const session = await startElectronE2ESession(`diagnostic-arnold-pdf-open-${Date.now()}`);
-    const consoleCollector = installConsoleCollector(session.page);
-    try {
-        await enableDiagnosticLogging(session.page);
-
-        const page = session.page;
+export const arnoldPdfOpenScenario = {
+    name: 'diagnostic-arnold-pdf-open',
+    pdfPath: TARGET_PDF_PATH,
+    fixtureError: [
+        `Arnold PDF diagnostic fixture not found: ${TARGET_PDF_PATH}`,
+        'Set EVB_E2E_ARNOLD_PDF_PATH to a local Arnold lexicon PDF before running this diagnostic.',
+    ].join('\n'),
+    diagnostics: {
+        console: true,
+        navigation: true,
+        render: true,
+    },
+    skipDefaultOpen: true,
+    prepare: (context: IPdfDiagnosticsContext) => installConsoleCollector(context.page),
+    afterDiagnosticsEnabled: async (context: IPdfDiagnosticsContext) => (
+        promoteDiagnosticConsoleWarnings(context.page)
+    ),
+    run: async (
+        context: IPdfDiagnosticsContext,
+        consoleCollector: IConsoleCollector,
+    ) => {
+        const {
+            page,
+            session,
+        } = context;
         await waitForStableWorkspace(page);
         await installCommittedSurfaceSampler(page);
         const diagnosticStartedAtMs = Date.now();
@@ -1097,7 +1053,11 @@ export async function runArnoldPdfOpenDiagnostics() {
             startedAtMs: diagnosticStartedAtMs,
         };
         const openPromise = openPathDirectWithRetry(page, TARGET_PDF_PATH, openProgress);
-        const snapshots = await collectTimedSnapshots(page, diagnosticStartedAtMs);
+        const snapshots = await context.sampling.atOffsets(
+            diagnosticStartedAtMs,
+            SAMPLE_OFFSETS_MS,
+            offsetMs => collectOpenSnapshot(page, `open+${offsetMs}ms`, diagnosticStartedAtMs),
+        );
         const triggerResult = await openPromise;
         const beforeScroll = await collectOpenSnapshot(page, 'before-scroll', diagnosticStartedAtMs);
         const scrollResult = await scrollActiveViewer(page);
@@ -1106,8 +1066,8 @@ export async function runArnoldPdfOpenDiagnostics() {
         const highZoom = await collectHighZoomEvidence(page);
         const surfaceTrace = await stopCommittedSurfaceSampler(page);
         const surfaceTiming = summarizeCommittedSurfaceTiming(surfaceTrace);
-        const bufferedNavLog = await collectPdfNavLog(page);
-        const bufferedRenderTrace = await collectPdfRenderTrace(page);
+        const bufferedNavLog = toPdfNavLogEntries(await context.trace.collectNavigation());
+        const bufferedRenderTrace = toPdfRenderTraceEntries(await context.trace.collectRender());
         await consoleCollector.drain();
         const consoleEntries = [...consoleCollector.entries];
         // Renderer diagnostics are also emitted to the console. Use that independent
@@ -1146,7 +1106,11 @@ export async function runArnoldPdfOpenDiagnostics() {
                 return pageNumber === 1;
             }),
         };
-        writeDiagnosticArtifacts(diagnostic, consoleEntries);
+        context.artifacts.writeJson(DIAGNOSTIC_OUTPUT_PATH, diagnostic);
+        context.artifacts.writeText(
+            CONSOLE_OUTPUT_PATH,
+            `${consoleEntries.map(formatConsoleEntry).join('\n')}\n`,
+        );
 
         assertArnoldAcceptance({
             triggerResult,
@@ -1163,19 +1127,25 @@ export async function runArnoldPdfOpenDiagnostics() {
         });
         assert.equal(existsSync(DIAGNOSTIC_OUTPUT_PATH), true);
         assert.equal(existsSync(CONSOLE_OUTPUT_PATH), true);
-    } finally {
-        await evaluateInPage(session.page, () => {
+    },
+    cleanup: async (
+        context: IPdfDiagnosticsContext,
+        consoleCollector: IConsoleCollector,
+    ) => {
+        await evaluateInPage(context.page, () => {
             delete (window as Window & {__diagnosticWarnAsWarn?: boolean;}).__diagnosticWarnAsWarn;
         }).catch(() => {});
-        await disablePdfDiagnosticSession(session.page).catch(() => {});
-        await stopCommittedSurfaceSampler(session.page).catch(() => ({
+        await stopCommittedSurfaceSampler(context.page).catch(() => ({
             errors: [],
             frames: [],
         }));
         consoleCollector.dispose();
-        await session.stop();
-    }
-}
+    },
+};
+
+export const runArnoldPdfOpenDiagnostics = () => (
+    runPdfDiagnosticScenario(arnoldPdfOpenScenario)
+);
 
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
     await runArnoldPdfOpenDiagnostics().catch((error: unknown) => {
