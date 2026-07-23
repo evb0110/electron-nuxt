@@ -99,20 +99,7 @@ fn detect_content_at_analysis_scale(
             hard_paper: 248,
         },
     );
-    let horizontal_seed = open(&binary, 40, 2);
-    let vertical_seed = open(&binary, 2, 40);
-    let border_candidates = reconstruct_binary(&horizontal_seed, &binary)
-        .or(&reconstruct_binary(&vertical_seed, &binary));
-    let border_map = ComponentMap::from_binary(&border_candidates);
-    let borders = border_map.retain(|component| {
-        let width = component.right - component.left + 1;
-        let height = component.bottom - component.top + 1;
-        let attached = component.left == 0
-            || component.top == 0
-            || component.right + 1 == working.width()
-            || component.bottom + 1 == working.height();
-        attached && (width * 2 >= working.width() || height * 2 >= working.height())
-    });
+    let borders = border_artifact_mask_from_binary(working, &binary);
     let cleaned = despeckle_connected_calibrated(
         &binary.subtract(&borders),
         calibration.content_despeckle_dpi(),
@@ -222,6 +209,41 @@ fn detect_content_at_analysis_scale(
         }),
         diagnostics,
     )
+}
+
+/// Reconstructs the long, edge-attached objects used by content detection as
+/// scanner-border evidence. The opening seeds require sustained horizontal or
+/// vertical structure before reconstruction, so ordinary edge-touching content
+/// is not enough to qualify.
+pub(crate) fn border_artifact_mask(working: &GrayImage) -> BinaryImage {
+    let binary = threshold_local(
+        working,
+        25,
+        LocalThreshold::Wolf {
+            k: 0.5,
+            deviation_floor: 3.0,
+            minimum_percentile: 0.01,
+            hard_ink: 48,
+            hard_paper: 248,
+        },
+    );
+    border_artifact_mask_from_binary(working, &binary)
+}
+
+fn border_artifact_mask_from_binary(working: &GrayImage, binary: &BinaryImage) -> BinaryImage {
+    let horizontal_seed = open(binary, 40, 2);
+    let vertical_seed = open(binary, 2, 40);
+    let border_candidates = reconstruct_binary(&horizontal_seed, binary)
+        .or(&reconstruct_binary(&vertical_seed, binary));
+    ComponentMap::from_binary(&border_candidates).retain(|component| {
+        let width = component.right - component.left + 1;
+        let height = component.bottom - component.top + 1;
+        let attached = component.left == 0
+            || component.top == 0
+            || component.right + 1 == working.width()
+            || component.bottom + 1 == working.height();
+        attached && (width * 2 >= working.width() || height * 2 >= working.height())
+    })
 }
 
 #[derive(Clone, Copy)]
