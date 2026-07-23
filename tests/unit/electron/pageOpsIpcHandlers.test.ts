@@ -8,6 +8,8 @@ import {
     vi,
 } from 'vitest';
 import { delay } from 'es-toolkit/promise';
+import { PAGE_OPS_PLATFORM_FEATURE } from '@contracts/pageOpsPlatformFeature';
+import { registerPlatformFeatureHandlers } from '@electron/platform-ipc/validatedIpcRegistrar';
 
 type TProgressCallback = (progress: {
     processed: number;
@@ -169,7 +171,7 @@ vi.mock('@electron/utils/createLogger', () => ({createLogger: () => ({
     error: vi.fn(),
 })}));
 
-const { registerPageOpsIpcAdapter } = await import('@electron/features/page-ops/registerPageOpsIpcAdapter');
+const { pageOpsMainBindings } = await import('@electron/features/page-ops/main/pageOpsOperations');
 const {
     cancelAllMainOperations,
     resetMainOperationLifecycleForTests,
@@ -191,7 +193,7 @@ function getHandler(channel: string) {
     return handler;
 }
 
-describe('registerPageOpsIpcAdapter', () => {
+describe('page ops main bindings', () => {
     beforeEach(() => {
         resetMainOperationLifecycleForTests();
         mocks.handlers.clear();
@@ -268,7 +270,14 @@ describe('registerPageOpsIpcAdapter', () => {
             exitCode: 0,
         });
 
-        registerPageOpsIpcAdapter();
+        registerPlatformFeatureHandlers(
+            {handle: (channel, handler) => {
+                mocks.ipcHandle(channel, handler as TRegisteredHandler);
+                mocks.handlers.set(channel, handler as TRegisteredHandler);
+            }},
+            PAGE_OPS_PLATFORM_FEATURE,
+            pageOpsMainBindings,
+        );
     });
 
     it('serializes mutating operations for the same workingCopyPath', async () => {

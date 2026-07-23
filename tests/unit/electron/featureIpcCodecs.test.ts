@@ -9,12 +9,16 @@ import { DJVU_CHANNELS } from '@electron/features/djvu/contract';
 import { DJVU_IPC_CODECS } from '@electron/features/djvu/djvuIpcCodecs';
 import { DOCUMENTS_CHANNELS } from '@electron/features/documents/contract';
 import { DOCUMENTS_IPC_CODECS } from '@electron/features/documents/documentsIpcCodecs';
-import { IMAGE_EXPORT_CHANNELS } from '@electron/features/image-export/contract';
-import { IMAGE_EXPORT_IPC_CODECS } from '@electron/features/image-export/imageExportIpcCodecs';
+import { IMAGE_EXPORT_PLATFORM_FEATURE } from '@contracts/imageExportPlatformFeature';
 import { OCR_CHANNELS } from '@electron/features/ocr/contract';
 import { OCR_IPC_CODECS } from '@electron/features/ocr/ocrIpcCodecs';
+import { PAGE_OPS_PLATFORM_FEATURE } from '@contracts/pageOpsPlatformFeature';
 import { SEARCH_PLATFORM_FEATURE } from '@contracts/searchPlatformFeature';
 
+const IMAGE_EXPORT_CHANNELS = IMAGE_EXPORT_PLATFORM_FEATURE.invokeChannels;
+const IMAGE_EXPORT_IPC_CODECS = IMAGE_EXPORT_PLATFORM_FEATURE.ipcCodecs;
+const PAGE_OPS_CHANNELS = PAGE_OPS_PLATFORM_FEATURE.invokeChannels;
+const PAGE_OPS_IPC_CODECS = PAGE_OPS_PLATFORM_FEATURE.ipcCodecs;
 const SEARCH_CHANNELS = SEARCH_PLATFORM_FEATURE.invokeChannels;
 const SEARCH_IPC_CODECS = SEARCH_PLATFORM_FEATURE.ipcCodecs;
 
@@ -34,6 +38,7 @@ describe('feature IPC codec maps', () => {
         expectExhaustiveMap(DOCUMENTS_CHANNELS, DOCUMENTS_IPC_CODECS, [DOCUMENTS_CHANNELS.fileSavePdfDataPort]);
         expectExhaustiveMap(IMAGE_EXPORT_CHANNELS, IMAGE_EXPORT_IPC_CODECS);
         expectExhaustiveMap(OCR_CHANNELS, OCR_IPC_CODECS);
+        expectExhaustiveMap(PAGE_OPS_CHANNELS, PAGE_OPS_IPC_CODECS);
         expectExhaustiveMap(SEARCH_CHANNELS, SEARCH_IPC_CODECS);
     });
 
@@ -41,11 +46,12 @@ describe('feature IPC codec maps', () => {
         expect(() => AGENT_IPC_CODECS[AGENT_CHANNELS.getMcpIntegrationStatus].decodeResult({enabled: 'yes'})).toThrow();
         expect(() => DJVU_IPC_CODECS[DJVU_CHANNELS.getInfo].decodeResult({pageCount: 'one'})).toThrow();
         expect(() => DOCUMENTS_IPC_CODECS[DOCUMENTS_CHANNELS.fileRead].decodeResult('bytes')).toThrow();
-        expect(() => IMAGE_EXPORT_IPC_CODECS[IMAGE_EXPORT_CHANNELS.exportImages].decodeResult({success: 'yes'})).toThrow();
+        expect(() => IMAGE_EXPORT_IPC_CODECS[IMAGE_EXPORT_CHANNELS.exportPdfToImages]!.decodeResult({success: 'yes'})).toThrow();
         expect(() => OCR_IPC_CODECS[OCR_CHANNELS.recognize].decodeResult({
             pageNumber: 1,
             success: true,
         })).toThrow();
+        expect(() => PAGE_OPS_IPC_CODECS[PAGE_OPS_CHANNELS.rotate]!.decodeResult({success: 'yes'})).toThrow();
         expect(() => SEARCH_IPC_CODECS[SEARCH_CHANNELS.run]!.decodeResult({
             results: [{}],
             truncated: false,
@@ -248,9 +254,16 @@ describe('feature IPC codec maps', () => {
             -1,
             4,
         ])).toThrow();
-        expect(() => IMAGE_EXPORT_IPC_CODECS[IMAGE_EXPORT_CHANNELS.exportImages].decodeArgs([
+        expect(() => IMAGE_EXPORT_IPC_CODECS[IMAGE_EXPORT_CHANNELS.exportPdfToImages]!.decodeArgs([
             '/tmp/a.pdf',
             [0],
+        ])).toThrow();
+        expect(() => PAGE_OPS_IPC_CODECS[PAGE_OPS_CHANNELS.rotate]!.decodeArgs([
+            '/tmp/a.pdf',
+            [1],
+            1,
+            45,
+            undefined,
         ])).toThrow();
         expect(() => OCR_IPC_CODECS[OCR_CHANNELS.recognize].decodeArgs([{pageNumber: 0}])).toThrow();
         expect(() => OCR_IPC_CODECS[OCR_CHANNELS.resolveDocumentOcrPage].decodeArgs([

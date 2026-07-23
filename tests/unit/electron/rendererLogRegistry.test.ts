@@ -47,9 +47,9 @@ vi.mock('@electron/features/agent/createAgentService', () => ({createAgentServic
 vi.mock('@electron/features/agent/registerAgentIpcAdapter', () => ({registerAgentIpcAdapter: vi.fn()}));
 vi.mock('@electron/features/documents/registerDocumentsIpcAdapter', () => ({registerDocumentsIpcAdapter: vi.fn()}));
 vi.mock('@electron/features/djvu/registerDjvuIpcAdapter', () => ({registerDjvuIpcAdapter: vi.fn()}));
-vi.mock('@electron/features/image-export/registerImageExportIpcAdapter', () => ({registerImageExportIpcAdapter: vi.fn()}));
+vi.mock('@electron/features/image-export/public', () => ({imageExportMainBindings: new Proxy({}, {get: () => vi.fn()})}));
 vi.mock('@electron/features/ocr/registerOcrIpcAdapter', () => ({registerOcrIpcAdapter: vi.fn()}));
-vi.mock('@electron/features/page-ops/registerPageOpsIpcAdapter', () => ({registerPageOpsIpcAdapter: vi.fn()}));
+vi.mock('@electron/features/page-ops/public', () => ({pageOpsMainBindings: new Proxy({}, {get: () => vi.fn()})}));
 vi.mock('@electron/features/search/public', () => ({prepareSearchMainBindings: () => new Proxy({}, {get: () => vi.fn()})}));
 vi.mock('@electron/menu', () => ({
     showTabContextMenu: vi.fn(),

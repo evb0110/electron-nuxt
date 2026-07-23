@@ -159,12 +159,7 @@ const documentsClientMock = vi.hoisted(() => ({
     onOpenDocumentDirectBatchProgress: vi.fn(),
     onOpenPdfDirectBatchProgress: vi.fn(),
 }));
-const pageOpsClientMock = vi.hoisted(() => ({ rotate: vi.fn() }));
-const imageExportClientMock = vi.hoisted(() => ({ exportPdfToImages: vi.fn() }));
-
 vi.mock('@electron/features/documents/createDocumentsPreloadClient', () => ({createDocumentsPreloadClient: () => documentsClientMock}));
-vi.mock('@electron/features/documents/createDocumentsPreloadPageOpsClient', () => ({createDocumentsPreloadPageOpsClient: () => pageOpsClientMock}));
-vi.mock('@electron/features/image-export/createImageExportPreloadClient', () => ({createImageExportPreloadClient: () => imageExportClientMock}));
 vi.mock('@electron/features/ocr/createOcrPreloadClient', () => ({ createOcrPreloadClient: () => ({}) }));
 vi.mock('@electron/features/djvu/createDjvuPreloadClient', () => ({ createDjvuPreloadClient: () => ({}) }));
 vi.mock('@electron/preload/debugLogBuffer', () => ({ getDebugLogMessages: () => [] }));
@@ -252,8 +247,8 @@ describe('createElectronApi', () => {
         );
         expect('pageOps' in api.documents).toBe(false);
         expect('exportPdfToImages' in api.documents).toBe(false);
-        expect(api.pageOps).toBe(pageOpsClientMock);
-        expect(api.imageExport).toBe(imageExportClientMock);
+        expect(typeof api.pageOps.rotate).toBe('function');
+        expect(typeof api.imageExport.exportPdfToImages).toBe('function');
         expect(typeof api.system.getMemoryInfo).toBe('function');
     });
 

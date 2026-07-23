@@ -1,41 +1,89 @@
-/* eslint-disable @stylistic/array-bracket-newline, @stylistic/array-element-newline, @stylistic/object-curly-newline, @stylistic/object-property-newline, custom/brace-return-after-if, custom/import-specifier-newline */
-import { dialog } from 'electron';
-import type { BrowserWindow } from 'electron';
+import {
+    BrowserWindow,
+    dialog,
+    type IpcMainInvokeEvent,
+    type WebContents,
+} from 'electron';
 import { existsSync } from 'fs';
 import { extname } from 'path';
 import { resolveAllowedWritePath } from '@electron/utils/pathValidator';
 import { ensureWorkingCopyDirectory } from '@electron/file-access/workingCopyCreation';
-import {exportPdfAsMultiPageTiff, exportPdfPagesAsImages, getPdfPageCount, normalizeImageExportPath} from '@electron/features/image-export/main/export';
-import { IMAGE_EXPORT_EVENT_CHANNELS } from '@electron/features/image-export/contract';
+import {
+    exportPdfAsMultiPageTiff,
+    exportPdfPagesAsImages,
+    getPdfPageCount,
+    normalizeImageExportPath,
+} from '@electron/features/image-export/main/export';
 import { te } from '@electron/te';
-import type {IImageExportProgress, TImageExportProgressFormat} from '@contracts/electronApiDocuments';
+import type {
+    IImageExportProgress,
+    TImageExportProgressFormat,
+} from '@contracts/electronApiDocuments';
+import { IMAGE_EXPORT_PLATFORM_FEATURE } from '@contracts/imageExportPlatformFeature';
+import type { TFeatureMainBindings } from '@contracts/platformFeature';
 import { clamp } from 'es-toolkit/math';
 import { createLogger } from '@electron/utils/createLogger';
 import { normalizeOptionalIpcRequestId } from '@electron/utils/ipcLimits';
-import type { IImageExportOperationContext } from '@electron/features/image-export/ports';
 import { cancelNativeCommandGroup } from '@electron/native-tools/runNativeCommand';
 import type { SetOptional } from 'type-fest';
-import {exportDjvuAsMultiPageTiff, exportDjvuPagesAsPng} from '@electron/features/image-export/main/djvuImageExport';
-import {createMainJobRegistry, type IMainJobErrorEnvelope, type IMainJobRunContext} from '@electron/operation-lifecycle/createMainJobRegistry';
+import {
+    exportDjvuAsMultiPageTiff,
+    exportDjvuPagesAsPng,
+} from '@electron/features/image-export/main/djvuImageExport';
+import {
+    createMainJobRegistry,
+    type IMainJobErrorEnvelope,
+    type IMainJobRunContext,
+} from '@electron/operation-lifecycle/createMainJobRegistry';
 
 const logger = createLogger('image-export');
 
 type TImageExportProgressPayload = SetOptional<Omit<IImageExportProgress, 'format' | 'requestId'>, 'percent'>;
-interface IImageExportResult {success: boolean; canceled?: boolean; outputPath?: string; outputPaths?: string[];}
+interface IImageExportResult {
+    success: boolean;
+    canceled?: boolean;
+    outputPath?: string;
+    outputPaths?: string[];
+}
 type TImageExportError = IMainJobErrorEnvelope<'canceled' | 'failed' | 'duplicate-job-id' | 'not-found-or-unauthorized'>;
 type TImageExportJobContext = IMainJobRunContext<IImageExportProgress, IImageExportResult, TImageExportError>;
+interface IImageExportOperationContext {
+    sender: WebContents;
+    senderId: number;
+    parentWindow: BrowserWindow | null;
+}
 
+const imageExportReplay = IMAGE_EXPORT_PLATFORM_FEATURE.events.onProgress.subscription.replay;
 const imageExportJobs = createMainJobRegistry<IImageExportProgress, IImageExportResult, TImageExportError>({
-    retention: {eventReplayTtlMs: 30_000, terminalRecordTtlMs: 30_000},
-    progress: {channel: IMAGE_EXPORT_EVENT_CHANNELS.progress, getEventKey: progress => progress.requestId || null},
+    retention: {
+        eventReplayTtlMs: imageExportReplay.terminalRetentionMs,
+        terminalRecordTtlMs: imageExportReplay.terminalRetentionMs,
+    },
+    progress: {
+        channel: IMAGE_EXPORT_PLATFORM_FEATURE.eventChannels.onProgress,
+        intervalMs: imageExportReplay.intervalMs,
+        getEventKey: progress => imageExportReplay.key(progress) || null,
+    },
     toError: (cause, kind) => ({
         code: kind === 'canceled' ? 'canceled' : kind,
         message: cause instanceof Error ? cause.message : String(cause ?? 'Image export failed'),
     }),
     terminalProgress: {
-        completed: latest => ({...latest, percent: 100, status: 'success'}),
-        canceled: (latest, error) => ({...latest, status: 'canceled', error: error.message}),
-        failed: (latest, error) => ({...latest, status: 'failed', error: error.message}),
+        completed: latest => ({
+            ...latest,
+            percent: 100,
+            status: 'success',
+        }),
+        canceled: (latest, error) => ({
+            ...latest,
+            status: 'canceled',
+            error: error.message,
+        }),
+        failed: (latest, error) => ({
+            ...latest,
+            status: 'failed',
+            error: error.message,
+        }),
     },
 });
 
@@ -58,11 +106,16 @@ async function validateWorkingPath(path: unknown, senderWebContentsId: number, s
 }
 
 function normalizeRequestedPageNumbers(pageNumbers: unknown): number[] | undefined {
-    if (pageNumbers === null || pageNumbers === undefined) return undefined;
+    if (pageNumbers === null || pageNumbers === undefined) {
+        return undefined;
+    }
     if (!Array.isArray(pageNumbers)) throw new Error('pageNumbers must be an array when provided');
     const normalized: number[] = [];
     const seen = new Set<number>();
-    for (const [index, page] of pageNumbers.entries()) {
+    for (const [
+        index,
+        page,
+    ] of pageNumbers.entries()) {
         if (typeof page !== 'number' || !Number.isInteger(page) || page < 1) throw new Error(`Invalid page number at index ${index}`);
         if (seen.has(page)) throw new Error(`Duplicate page number: ${page}`);
         seen.add(page);
@@ -80,7 +133,9 @@ async function validateRequestedPageNumbersWithinPdf(
         signal?: AbortSignal;
     },
 ) {
-    if (!pageNumbers) return;
+    if (!pageNumbers) {
+        return;
+    }
     const pageCount = await getPdfPageCount(pdfPath, operationOptions);
     const outOfRangePage = pageNumbers.find(pageNumber => pageNumber > pageCount);
     if (outOfRangePage !== undefined) throw new Error(`Page number ${outOfRangePage} exceeds PDF page count (${pageCount})`);
@@ -88,8 +143,12 @@ async function validateRequestedPageNumbersWithinPdf(
 
 function buildSuggestedName(pageNumbers: number[] | undefined, format: TImageExportProgressFormat) {
     const extension = format === 'images' ? 'jpg' : 'tiff';
-    if (!pageNumbers || pageNumbers.length === 0) return format === 'images' ? 'document-page.jpg' : 'document.tiff';
-    if (pageNumbers.length === 1) return `document-page-${String(pageNumbers[0]).padStart(3, '0')}.${extension}`;
+    if (!pageNumbers || pageNumbers.length === 0) {
+        return format === 'images' ? 'document-page.jpg' : 'document.tiff';
+    }
+    if (pageNumbers.length === 1) {
+        return `document-page-${String(pageNumbers[0]).padStart(3, '0')}.${extension}`;
+    }
     return format === 'images' ? 'document-pages.jpg' : 'document-pages.tiff';
 }
 
@@ -109,7 +168,10 @@ async function runImageExportJob(
     const handle = imageExportJobs.start({
         ...(normalizedRequestId ? {jobId: normalizedRequestId} : {}),
         owner: {sender: context.sender},
-        operation: {kind: 'abortable-work', workingCopyPath},
+        operation: {
+            kind: 'abortable-work',
+            workingCopyPath,
+        },
         initialProgress: {
             requestId: normalizedRequestId,
             format,
@@ -119,7 +181,11 @@ async function runImageExportJob(
             percent: 0,
             status: 'running',
         },
-        ownerLifecycle: {destroyed: 'cancel', renderProcessGone: 'cancel', mainFrameNavigation: 'cancel'},
+        ownerLifecycle: {
+            destroyed: 'cancel',
+            renderProcessGone: 'cancel',
+            mainFrameNavigation: 'cancel',
+        },
         onCancel: (reason) => {
             cancelNativeCommandGroup(`image-export:${handle.jobId}`);
             logger.warn(`Canceled image export operation ${handle.jobId}: ${reason}`);
@@ -140,8 +206,15 @@ async function runImageExportJob(
     });
     const terminal = await handle.terminal;
     await handle.settled;
-    if (terminal.status === 'completed') return terminal.result;
-    if (terminal.status === 'canceled') return {success: false, canceled: true};
+    if (terminal.status === 'completed') {
+        return terminal.result;
+    }
+    if (terminal.status === 'canceled') {
+        return {
+            success: false,
+            canceled: true,
+        };
+    }
     throw new Error(terminal.error.message);
 }
 
@@ -308,3 +381,21 @@ export async function handlePdfExportMultiPageTiff(
         return exportResult;
     });
 }
+
+function createImageExportOperationContext(context: {
+    sender: WebContents;
+    senderId: number;
+}): IImageExportOperationContext {
+    return {
+        ...context,
+        parentWindow: BrowserWindow.fromWebContents(context.sender),
+    };
+}
+
+export const imageExportMainBindings = {
+    exportImages: (context, ...args) =>
+        handlePdfExportImages(createImageExportOperationContext(context), ...args),
+    exportMultiPageTiff: (context, ...args) =>
+        handlePdfExportMultiPageTiff(createImageExportOperationContext(context), ...args),
+    subscribeProgress: context => subscribeImageExportProgress(context.sender),
+} satisfies TFeatureMainBindings<typeof IMAGE_EXPORT_PLATFORM_FEATURE, IpcMainInvokeEvent>;

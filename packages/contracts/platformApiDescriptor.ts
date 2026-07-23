@@ -3,7 +3,6 @@ import type { IDjvuCapability } from '@contracts/electronApiDjvu';
 import type {
     IDocumentsCapability,
     IDocumentsFileIoCapability,
-    IImageExportCapability,
     IDocumentsMenuCapability,
     IDocumentsOpenCapability,
     IDocumentsPdfCapability,
@@ -15,7 +14,14 @@ import type {
 import type { IHostCapability } from '@contracts/electronApiHost';
 import type { IOcrCapability } from '@contracts/electronApiOcr';
 import type { IScanCleanupCapability } from '@contracts/electronApiScanCleanup';
-import type { IPageOpsCapability } from '@contracts/electronApiPageOps';
+import {
+    IMAGE_EXPORT_PLATFORM_FEATURE,
+    type IImageExportCapability,
+} from '@contracts/imageExportPlatformFeature';
+import {
+    PAGE_OPS_PLATFORM_FEATURE,
+    type IPageOpsCapability,
+} from '@contracts/pageOpsPlatformFeature';
 import type { ISystemCapability } from '@contracts/electronApiSystem';
 import type { IUpdatesCapability } from '@contracts/electronApiUpdates';
 import type { IWindowTabsCapability } from '@contracts/electronApiWindowTabs';
@@ -186,8 +192,6 @@ function defineDocumentCapabilityMirrors<const TMirrors extends readonly IDocume
 }
 
 const requiredTopLevelCapabilityPaths = [
-    ['pageOps'],
-    ['imageExport'],
     ['ocr'],
     ['djvu'],
     ['settings'],
@@ -462,54 +466,6 @@ function createDocumentMethodDescriptors() {
 }
 
 const otherMethodPaths = defineMethodPaths([
-    [
-        'pageOps',
-        'delete',
-    ],
-    [
-        'pageOps',
-        'extract',
-    ],
-    [
-        'pageOps',
-        'reorder',
-    ],
-    [
-        'pageOps',
-        'insert',
-    ],
-    [
-        'pageOps',
-        'insertFile',
-    ],
-    [
-        'pageOps',
-        'rotate',
-    ],
-    [
-        'pageOps',
-        'crop',
-    ],
-    [
-        'pageOps',
-        'removeCrop',
-    ],
-    [
-        'pageOps',
-        'getPageGeometry',
-    ],
-    [
-        'imageExport',
-        'exportPdfToImages',
-    ],
-    [
-        'imageExport',
-        'exportPdfToMultiPageTiff',
-    ],
-    [
-        'imageExport',
-        'onProgress',
-    ],
     [
         'ocr',
         'recognize',
@@ -958,7 +914,7 @@ const otherMethodPaths = defineMethodPaths([
     ],
 ] as const);
 
-export const LEGACY_PLATFORM_API_DESCRIPTOR_WITHOUT_SEARCH = {
+export const LEGACY_PLATFORM_API_DESCRIPTOR_WITHOUT_MIGRATED_FEATURES = {
     capabilities: defineCapabilities([
         {
             path: ['documents'],
@@ -1116,7 +1072,11 @@ export const LEGACY_PLATFORM_API_DESCRIPTOR_WITHOUT_SEARCH = {
     ],
 } as const satisfies IPlatformApiDescriptor;
 
-export const PLATFORM_FEATURE_REGISTRY = [SEARCH_PLATFORM_FEATURE] as const;
+export const PLATFORM_FEATURE_REGISTRY = [
+    SEARCH_PLATFORM_FEATURE,
+    IMAGE_EXPORT_PLATFORM_FEATURE,
+    PAGE_OPS_PLATFORM_FEATURE,
+] as const;
 
 interface IMigratedPlatformFeature {
     platformDescriptors: IPlatformApiDescriptor;
@@ -1169,7 +1129,7 @@ function mergePlatformDescriptors(
 }
 
 export const PLATFORM_API_DESCRIPTOR = mergePlatformDescriptors(
-    LEGACY_PLATFORM_API_DESCRIPTOR_WITHOUT_SEARCH,
+    LEGACY_PLATFORM_API_DESCRIPTOR_WITHOUT_MIGRATED_FEATURES,
     PLATFORM_FEATURE_REGISTRY,
 );
 

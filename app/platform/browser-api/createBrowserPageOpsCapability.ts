@@ -1,7 +1,9 @@
+import type {IPageOpsMutationOptions} from '@contracts/electronApiPageOps';
 import type {
+    PAGE_OPS_PLATFORM_FEATURE,
     IPageOpsCapability,
-    IPageOpsMutationOptions,
-} from '@contracts/electronApiPageOps';
+} from '@contracts/pageOpsPlatformFeature';
+import type { TFeatureBrowserBindings } from '@contracts/platformFeature';
 import type { IPageGeometry } from '@contracts/shared';
 import { normalizeCropMargins } from '@contracts/shared';
 import type * as BrowserPageOpsCoreModule from '@app/platform/browser-api/browserPageOpsCore';
@@ -598,7 +600,7 @@ export function createBrowserPageOpsCapability(
                 },
             });
         },
-    };
+    } satisfies TFeatureBrowserBindings<typeof PAGE_OPS_PLATFORM_FEATURE>;
 
     return pageOps;
 }

@@ -1,4 +1,9 @@
-import { dialog } from 'electron';
+import {
+    BrowserWindow,
+    dialog,
+    type IpcMainInvokeEvent,
+    type WebContents,
+} from 'electron';
 import { existsSync } from 'fs';
 import {
     basename,
@@ -14,6 +19,8 @@ import type {
     IPageOpsMutationOptions,
     IPageIdentityDelta,
 } from '@contracts/electronApiPageOps';
+import type { PAGE_OPS_PLATFORM_FEATURE } from '@contracts/pageOpsPlatformFeature';
+import type { TFeatureMainBindings } from '@contracts/platformFeature';
 import {
     DOCUMENTS_EVENT_CHANNELS,
     type TOpenBatchProgressPayload,
@@ -64,11 +71,16 @@ import {
     assertQueuedWorkingCopyMutationPreconditions,
     normalizeExpectedDocumentRevisionToken,
 } from '@electron/file-access/documentMutationGuards';
-import type { IPageOpsOperationContext } from '@electron/features/page-ops/ports';
 import { normalizeOptionalIpcRequestId } from '@electron/utils/ipcLimits';
 import { createIpcProgressPump } from '@electron/utils/createIpcProgressPump';
 import type { ICreatePdfFromInputPathsProgress } from '@electron/image/pdfConversion';
 import {applyPageMetadataRemap} from '@electron/features/page-ops/main/pageMetadataRemap';
+
+export interface IPageOpsOperationContext {
+    sender: WebContents;
+    senderId: number;
+    parentWindow: BrowserWindow | null;
+}
 
 function createOpenBatchProgressReporter(
     context: IPageOpsOperationContext,
@@ -625,3 +637,26 @@ export async function handlePageOpsGetPageGeometry(
 
     return getPageGeometry(normalizedWorkingCopyPath, pageNumber, context.senderId);
 }
+
+function createPageOpsOperationContext(context: {
+    sender: WebContents;
+    senderId: number;
+}): IPageOpsOperationContext {
+    return {
+        ...context,
+        parentWindow: BrowserWindow.fromWebContents(context.sender),
+    };
+}
+
+export const pageOpsMainBindings = {
+    delete: (context, ...args) => handlePageOpsDelete(createPageOpsOperationContext(context), ...args),
+    extract: (context, ...args) => handlePageOpsExtract(createPageOpsOperationContext(context), ...args),
+    reorder: (context, ...args) => handlePageOpsReorder(createPageOpsOperationContext(context), ...args),
+    insert: (context, ...args) => handlePageOpsInsert(createPageOpsOperationContext(context), ...args),
+    insertFile: (context, ...args) => handlePageOpsInsertFile(createPageOpsOperationContext(context), ...args),
+    rotate: (context, ...args) => handlePageOpsRotate(createPageOpsOperationContext(context), ...args),
+    crop: (context, ...args) => handlePageOpsCrop(createPageOpsOperationContext(context), ...args),
+    removeCrop: (context, ...args) => handlePageOpsRemoveCrop(createPageOpsOperationContext(context), ...args),
+    getPageGeometry: (context, ...args) =>
+        handlePageOpsGetPageGeometry(createPageOpsOperationContext(context), ...args),
+} satisfies TFeatureMainBindings<typeof PAGE_OPS_PLATFORM_FEATURE, IpcMainInvokeEvent>;

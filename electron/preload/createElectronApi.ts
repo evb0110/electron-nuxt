@@ -22,14 +22,14 @@ import {
     decodeWindowTabIncomingTransfer,
     decodeWindowTabsAction,
 } from '@contracts/windowTabsValidation';
+import { IMAGE_EXPORT_PLATFORM_FEATURE } from '@contracts/imageExportPlatformFeature';
+import { PAGE_OPS_PLATFORM_FEATURE } from '@contracts/pageOpsPlatformFeature';
 import { SEARCH_PLATFORM_FEATURE } from '@contracts/searchPlatformFeature';
 import { getDebugLogMessages } from '@electron/preload/debugLogBuffer';
 import { decodeDebugLogEntry } from '@electron/preload/installDebugLogListener';
 import { createAgentPreloadClient } from '@electron/features/agent/createAgentPreloadClient';
 import {createDocumentsPreloadClient} from '@electron/features/documents/createDocumentsPreloadClient';
 import { DOCUMENTS_IPC_CODECS } from '@electron/features/documents/documentsIpcCodecs';
-import { createDocumentsPreloadPageOpsClient } from '@electron/features/documents/createDocumentsPreloadPageOpsClient';
-import { createImageExportPreloadClient } from '@electron/features/image-export/createImageExportPreloadClient';
 import {
     DOCUMENTS_CHANNELS,
     type IDocumentsInvokeMap,
@@ -151,8 +151,8 @@ export function createElectronApi(
     const invokeDocuments = createCodecIpcInvoker<IDocumentsInvokeMap>(ipcRenderer, DOCUMENTS_IPC_CODECS);
     const eventSubscriber = createTypedIpcEventSubscriber<ICoreEventMap>(ipcRenderer);
     const baseDocuments = createDocumentsPreloadClient(ipcRenderer);
-    const pageOps = createDocumentsPreloadPageOpsClient(ipcRenderer);
-    const imageExport = createImageExportPreloadClient(ipcRenderer);
+    const pageOps = createPlatformFeaturePreloadClient(ipcRenderer, PAGE_OPS_PLATFORM_FEATURE);
+    const imageExport = createPlatformFeaturePreloadClient(ipcRenderer, IMAGE_EXPORT_PLATFORM_FEATURE);
     const shutdownSaveFlushCallbacks = new Set<() => Promise<{
         dirtyWorkingCopyPaths?: string[];
         flushedWorkingCopyPaths?: string[];

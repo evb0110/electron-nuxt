@@ -215,18 +215,6 @@ export function createLazyBrowserPlatformApiGenerated({
     const documentsOnOpenDocumentDirectBatchProgressMethod = documentMenuOnOpenDocumentDirectBatchProgressMethod;
     const documentMenuOnOpenPdfDirectBatchProgressMethod = lazyEvent(pathDescriptors.documentMenu.onOpenPdfDirectBatchProgress.path);
     const documentsOnOpenPdfDirectBatchProgressMethod = documentMenuOnOpenPdfDirectBatchProgressMethod;
-    const pageOpsDeleteMethod = lazyAsync(pathDescriptors.pageOps.delete.path);
-    const pageOpsExtractMethod = lazyAsync(pathDescriptors.pageOps.extract.path);
-    const pageOpsReorderMethod = lazyAsync(pathDescriptors.pageOps.reorder.path);
-    const pageOpsInsertMethod = lazyAsync(pathDescriptors.pageOps.insert.path);
-    const pageOpsInsertFileMethod = lazyAsync(pathDescriptors.pageOps.insertFile.path);
-    const pageOpsRotateMethod = lazyAsync(pathDescriptors.pageOps.rotate.path);
-    const pageOpsCropMethod = lazyAsync(pathDescriptors.pageOps.crop.path);
-    const pageOpsRemoveCropMethod = lazyAsync(pathDescriptors.pageOps.removeCrop.path);
-    const pageOpsGetPageGeometryMethod = lazyAsync(pathDescriptors.pageOps.getPageGeometry.path);
-    const imageExportExportPdfToImagesMethod = lazyAsync(pathDescriptors.imageExport.exportPdfToImages.path);
-    const imageExportExportPdfToMultiPageTiffMethod = lazyAsync(pathDescriptors.imageExport.exportPdfToMultiPageTiff.path);
-    const imageExportOnProgressMethod = lazyEvent(pathDescriptors.imageExport.onProgress.path);
     const ocrRecognizeMethod = lazyAsync(pathDescriptors.ocr.recognize.path);
     const ocrRecognizeBatchMethod = lazyAsync(pathDescriptors.ocr.recognizeBatch.path);
     const ocrCancelMethod = lazyAsync(pathDescriptors.ocr.cancel.path);
@@ -341,6 +329,18 @@ export function createLazyBrowserPlatformApiGenerated({
     const searchCancelMethod = lazyAsync(pathDescriptors.search.cancel.path);
     const searchResetCacheMethod = lazyAsync(pathDescriptors.search.resetCache.path);
     const searchOnProgressMethod = lazyEvent(pathDescriptors.search.onProgress.path);
+    const imageExportExportPdfToImagesMethod = lazyAsync(pathDescriptors.imageExport.exportPdfToImages.path);
+    const imageExportExportPdfToMultiPageTiffMethod = lazyAsync(pathDescriptors.imageExport.exportPdfToMultiPageTiff.path);
+    const imageExportOnProgressMethod = lazyEvent(pathDescriptors.imageExport.onProgress.path);
+    const pageOpsDeleteMethod = lazyAsync(pathDescriptors.pageOps.delete.path);
+    const pageOpsExtractMethod = lazyAsync(pathDescriptors.pageOps.extract.path);
+    const pageOpsReorderMethod = lazyAsync(pathDescriptors.pageOps.reorder.path);
+    const pageOpsInsertMethod = lazyAsync(pathDescriptors.pageOps.insert.path);
+    const pageOpsInsertFileMethod = lazyAsync(pathDescriptors.pageOps.insertFile.path);
+    const pageOpsRotateMethod = lazyAsync(pathDescriptors.pageOps.rotate.path);
+    const pageOpsCropMethod = lazyAsync(pathDescriptors.pageOps.crop.path);
+    const pageOpsRemoveCropMethod = lazyAsync(pathDescriptors.pageOps.removeCrop.path);
+    const pageOpsGetPageGeometryMethod = lazyAsync(pathDescriptors.pageOps.getPageGeometry.path);
 
     return {
     manifest: BROWSER_PLATFORM_MANIFEST,
@@ -540,22 +540,6 @@ export function createLazyBrowserPlatformApiGenerated({
         onOpenDocumentDirectBatchProgress: documentMenuOnOpenDocumentDirectBatchProgressMethod,
         onOpenPdfDirectBatchProgress: documentMenuOnOpenPdfDirectBatchProgressMethod,
     },
-    pageOps: {
-        delete: pageOpsDeleteMethod,
-        extract: pageOpsExtractMethod,
-        reorder: pageOpsReorderMethod,
-        insert: pageOpsInsertMethod,
-        insertFile: pageOpsInsertFileMethod,
-        rotate: pageOpsRotateMethod,
-        crop: pageOpsCropMethod,
-        removeCrop: pageOpsRemoveCropMethod,
-        getPageGeometry: pageOpsGetPageGeometryMethod,
-    },
-    imageExport: {
-        exportPdfToImages: imageExportExportPdfToImagesMethod,
-        exportPdfToMultiPageTiff: imageExportExportPdfToMultiPageTiffMethod,
-        onProgress: imageExportOnProgressMethod,
-    },
     ocr: {
         recognize: ocrRecognizeMethod,
         recognizeBatch: ocrRecognizeBatchMethod,
@@ -693,6 +677,22 @@ export function createLazyBrowserPlatformApiGenerated({
         cancel: searchCancelMethod,
         resetCache: searchResetCacheMethod,
         onProgress: searchOnProgressMethod,
+    },
+    imageExport: {
+        exportPdfToImages: imageExportExportPdfToImagesMethod,
+        exportPdfToMultiPageTiff: imageExportExportPdfToMultiPageTiffMethod,
+        onProgress: imageExportOnProgressMethod,
+    },
+    pageOps: {
+        delete: pageOpsDeleteMethod,
+        extract: pageOpsExtractMethod,
+        reorder: pageOpsReorderMethod,
+        insert: pageOpsInsertMethod,
+        insertFile: pageOpsInsertFileMethod,
+        rotate: pageOpsRotateMethod,
+        crop: pageOpsCropMethod,
+        removeCrop: pageOpsRemoveCropMethod,
+        getPageGeometry: pageOpsGetPageGeometryMethod,
     },
 } satisfies IPlatformApi;
 }

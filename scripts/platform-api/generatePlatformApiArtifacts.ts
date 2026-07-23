@@ -37,11 +37,12 @@ const browserImplementedOptionalMethodNames = new Set<string>([
 ]);
 
 const migratedBrowserBindings = new Map<string, boolean>(
-    PLATFORM_FEATURE_REGISTRY.flatMap(feature =>
-        Object.entries({
+    PLATFORM_FEATURE_REGISTRY.flatMap((feature) => {
+        const specs: Record<string, {browser: {method: string} | {unsupported: 'omitted'}}> = {
             ...feature.methods,
             ...feature.events,
-        }).map(([
+        };
+        return Object.entries(specs).map(([
             name,
             spec,
         ]) => [
@@ -50,7 +51,8 @@ const migratedBrowserBindings = new Map<string, boolean>(
                 name,
             ]),
             'method' in spec.browser,
-        ] as const)),
+        ] as const);
+    }),
 );
 
 function formatPath(pathSegments: readonly string[]) {

@@ -8,9 +8,9 @@ import type {
     IDocumentsRecentFilesCapability,
     IDocumentsWindowCapability,
     IDocumentsWorkingCopyCapability,
-    IImageExportCapability,
 } from '@contracts/electronApiDocuments';
-import type { IPageOpsCapability } from '@contracts/electronApiPageOps';
+import type { IImageExportCapability } from '@contracts/imageExportPlatformFeature';
+import type { IPageOpsCapability } from '@contracts/pageOpsPlatformFeature';
 import {
     OPEN_PDF_IMAGE_ACCEPT,
     buildOpenPdfImagePickerTypes,

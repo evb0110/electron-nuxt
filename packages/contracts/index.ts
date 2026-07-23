@@ -218,6 +218,8 @@ export type {
     ISearchMatchOptions,
     TPdfSearchUtf16Offset,
 } from '@contracts/search';
+export { IMAGE_EXPORT_PLATFORM_FEATURE } from '@contracts/imageExportPlatformFeature';
+export { PAGE_OPS_PLATFORM_FEATURE } from '@contracts/pageOpsPlatformFeature';
 export { SEARCH_PLATFORM_FEATURE } from '@contracts/searchPlatformFeature';
 
 export type {

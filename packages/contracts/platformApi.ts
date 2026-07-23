@@ -3,7 +3,6 @@ import type { IDjvuCapability } from '@contracts/electronApiDjvu';
 import type {
     IDocumentsCapability,
     IDocumentsFileIoCapability,
-    IImageExportCapability,
     IDocumentsMenuCapability,
     IDocumentsOpenCapability,
     IDocumentsPdfCapability,
@@ -15,7 +14,8 @@ import type {
 import type { IHostCapability } from '@contracts/electronApiHost';
 import type { IOcrCapability } from '@contracts/electronApiOcr';
 import type { IScanCleanupCapability } from '@contracts/electronApiScanCleanup';
-import type { IPageOpsCapability } from '@contracts/electronApiPageOps';
+import type { IImageExportCapability } from '@contracts/imageExportPlatformFeature';
+import type { IPageOpsCapability } from '@contracts/pageOpsPlatformFeature';
 import type { ISearchCapability } from '@contracts/searchPlatformFeature';
 import type { ISettingsCapability } from '@contracts/settingsCapability';
 import type { IShellCapability } from '@contracts/shellCapability';
@@ -23,6 +23,8 @@ import type { ISystemCapability } from '@contracts/electronApiSystem';
 import type { IUpdatesCapability } from '@contracts/electronApiUpdates';
 import type { IWindowTabsCapability } from '@contracts/electronApiWindowTabs';
 import type { IPlatformRuntimeManifest } from '@contracts/platformManifest';
+export type { IImageExportCapability } from '@contracts/imageExportPlatformFeature';
+export type { IPageOpsCapability } from '@contracts/pageOpsPlatformFeature';
 export type * from '@contracts/platformManifest';
 export type * from '@contracts/platformApiDescriptor';
 export {

@@ -31,13 +31,9 @@ import { OCR_IPC_CODECS } from '@electron/features/ocr/ocrIpcCodecs';
 import type { IOcrService } from '@electron/features/ocr/ports';
 import { registerOcrIpcAdapter } from '@electron/features/ocr/registerOcrIpcAdapter';
 import {
-    PAGE_OPS_CHANNELS,
+    PAGE_OPS_PLATFORM_FEATURE,
     type IPageOpsInvokeMap,
-} from '@electron/features/page-ops/contract';
-import { PAGE_OPS_IPC_CODECS } from '@electron/features/page-ops/pageOpsIpcCodecs';
-import type { IPageOpsService } from '@electron/features/page-ops/ports';
-import { registerPageOpsIpcAdapter } from '@electron/features/page-ops/registerPageOpsIpcAdapter';
-import { createDocumentsPreloadPageOpsClient } from '@electron/features/documents/createDocumentsPreloadPageOpsClient';
+} from '@contracts/pageOpsPlatformFeature';
 import {
     SEARCH_PLATFORM_FEATURE,
     type ISearchInvokeMap,
@@ -79,7 +75,6 @@ vi.mock('@electron/platform-ipc/trustedIpcSender', () => ({
 }));
 vi.mock('@electron/features/documents/createDocumentsService', () => ({createDocumentsService: vi.fn()}));
 vi.mock('@electron/features/documents/public', () => ({attachSerializedPdfPersistencePort: vi.fn()}));
-vi.mock('@electron/features/page-ops/createPageOpsService', () => ({createPageOpsService: vi.fn()}));
 vi.mock('@electron/features/agent/createAgentService', () => ({createAgentService: vi.fn()}));
 vi.mock('@electron/features/ocr/createOcrService', () => ({createOcrService: vi.fn()}));
 vi.mock('@electron/features/search/main/searchWorkerService', () => ({getSearchWorkerServiceConfig: () => ({
@@ -199,13 +194,28 @@ describe('in-process preload to validated IPC round trips', () => {
                 success: true,
             })
             .mockResolvedValueOnce({success: 'yes'});
-        const service = cast<IPageOpsService>({rotate});
-        const harness = createInProcessIpcRoundTripHarness<IPageOpsInvokeMap, IPageOpsService, ReturnType<typeof createDocumentsPreloadPageOpsClient>>({
-            channels: PAGE_OPS_CHANNELS,
-            codecs: PAGE_OPS_IPC_CODECS,
-            createClient: createDocumentsPreloadPageOpsClient,
-            register: registerPageOpsIpcAdapter,
-            service,
+        type TBindings = TFeatureMainBindings<typeof PAGE_OPS_PLATFORM_FEATURE, IpcMainInvokeEvent>;
+        const bindings = cast<TBindings>({rotate});
+        const createClient = (ipcRenderer: Electron.IpcRenderer) =>
+            createPlatformFeaturePreloadClient(ipcRenderer, PAGE_OPS_PLATFORM_FEATURE);
+        const harness = createInProcessIpcRoundTripHarness<
+            IPageOpsInvokeMap,
+            TBindings,
+            ReturnType<typeof createClient>
+        >({
+            channels: PAGE_OPS_PLATFORM_FEATURE.invokeChannels,
+            codecs: cast<Parameters<typeof createInProcessIpcRoundTripHarness<
+                IPageOpsInvokeMap,
+                TBindings,
+                ReturnType<typeof createClient>
+            >>[0]['codecs']>(PAGE_OPS_PLATFORM_FEATURE.ipcCodecs),
+            createClient,
+            register: (registrar, service) => registerPlatformFeatureHandlers(
+                cast<Parameters<typeof registerPlatformFeatureHandlers>[0]>(registrar),
+                PAGE_OPS_PLATFORM_FEATURE,
+                service,
+            ),
+            service: bindings,
         });
 
         await expect(harness.client.rotate('/tmp/working-copy.pdf', [

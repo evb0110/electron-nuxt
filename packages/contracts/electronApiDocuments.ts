@@ -459,21 +459,6 @@ export interface IImageExportProgress {
 
 export type TDocumentImageExportSourceKind = 'pdf' | 'djvu';
 
-export interface IImageExportCapability {
-    exportPdfToImages: (workingCopyPath: TDocumentRef, pageNumbers?: number[], requestId?: string, sourceKind?: TDocumentImageExportSourceKind) => Promise<{
-        success: boolean;
-        canceled?: boolean;
-        outputPaths?: TDocumentRef[];
-    }>;
-    exportPdfToMultiPageTiff: (workingCopyPath: TDocumentRef, pageNumbers?: number[], requestId?: string, sourceKind?: TDocumentImageExportSourceKind) => Promise<{
-        success: boolean;
-        canceled?: boolean;
-        outputPath?: TDocumentRef;
-        outputPaths?: TDocumentRef[];
-    }>;
-    onProgress: (callback: (progress: IImageExportProgress) => void) => TMenuEventUnsubscribe;
-}
-
 export interface IApplicationMenuDocumentState {
     hasDocument: boolean;
     interactive?: boolean;

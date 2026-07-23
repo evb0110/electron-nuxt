@@ -194,22 +194,6 @@ export const browserPlatformPathDescriptorsGenerated = {
         onOpenDocumentDirectBatchProgress: {kind: 'event', path: ["documentMenu","onOpenDocumentDirectBatchProgress"]},
         onOpenPdfDirectBatchProgress: {kind: 'event', path: ["documentMenu","onOpenPdfDirectBatchProgress"]},
     },
-    pageOps: {
-        delete: {kind: 'async', path: ["pageOps","delete"]},
-        extract: {kind: 'async', path: ["pageOps","extract"]},
-        reorder: {kind: 'async', path: ["pageOps","reorder"]},
-        insert: {kind: 'async', path: ["pageOps","insert"]},
-        insertFile: {kind: 'async', path: ["pageOps","insertFile"]},
-        rotate: {kind: 'async', path: ["pageOps","rotate"]},
-        crop: {kind: 'async', path: ["pageOps","crop"]},
-        removeCrop: {kind: 'async', path: ["pageOps","removeCrop"]},
-        getPageGeometry: {kind: 'async', path: ["pageOps","getPageGeometry"]},
-    },
-    imageExport: {
-        exportPdfToImages: {kind: 'async', path: ["imageExport","exportPdfToImages"]},
-        exportPdfToMultiPageTiff: {kind: 'async', path: ["imageExport","exportPdfToMultiPageTiff"]},
-        onProgress: {kind: 'event', path: ["imageExport","onProgress"]},
-    },
     ocr: {
         recognize: {kind: 'async', path: ["ocr","recognize"]},
         recognizeBatch: {kind: 'async', path: ["ocr","recognizeBatch"]},
@@ -345,6 +329,22 @@ export const browserPlatformPathDescriptorsGenerated = {
         cancel: {kind: 'async', path: ["search","cancel"]},
         resetCache: {kind: 'async', path: ["search","resetCache"]},
         onProgress: {kind: 'event', path: ["search","onProgress"]},
+    },
+    imageExport: {
+        exportPdfToImages: {kind: 'async', path: ["imageExport","exportPdfToImages"]},
+        exportPdfToMultiPageTiff: {kind: 'async', path: ["imageExport","exportPdfToMultiPageTiff"]},
+        onProgress: {kind: 'event', path: ["imageExport","onProgress"]},
+    },
+    pageOps: {
+        delete: {kind: 'async', path: ["pageOps","delete"]},
+        extract: {kind: 'async', path: ["pageOps","extract"]},
+        reorder: {kind: 'async', path: ["pageOps","reorder"]},
+        insert: {kind: 'async', path: ["pageOps","insert"]},
+        insertFile: {kind: 'async', path: ["pageOps","insertFile"]},
+        rotate: {kind: 'async', path: ["pageOps","rotate"]},
+        crop: {kind: 'async', path: ["pageOps","crop"]},
+        removeCrop: {kind: 'async', path: ["pageOps","removeCrop"]},
+        getPageGeometry: {kind: 'async', path: ["pageOps","getPageGeometry"]},
     },
 } as const;
 

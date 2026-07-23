@@ -11,17 +11,15 @@ import { DOCUMENTS_IPC_CODECS } from '@electron/features/documents/documentsIpcC
 import {AGENT_CHANNELS} from '@electron/features/agent/contract';
 import { AGENT_IPC_CODECS } from '@electron/features/agent/agentIpcCodecs';
 import type { IAgentService } from '@electron/features/agent/ports';
-import {IMAGE_EXPORT_CHANNELS} from '@electron/features/image-export/contract';
-import { IMAGE_EXPORT_IPC_CODECS } from '@electron/features/image-export/imageExportIpcCodecs';
+import { IMAGE_EXPORT_PLATFORM_FEATURE } from '@contracts/imageExportPlatformFeature';
 import {OCR_CHANNELS} from '@electron/features/ocr/contract';
 import { OCR_IPC_CODECS } from '@electron/features/ocr/ocrIpcCodecs';
 import {SCAN_CLEANUP_CHANNELS} from '@electron/features/scan-cleanup/contract';
 import {SCAN_CLEANUP_IPC_CODECS} from '@electron/features/scan-cleanup/scanCleanupIpcCodecs';
 import { SEARCH_PLATFORM_FEATURE } from '@contracts/searchPlatformFeature';
+import { PAGE_OPS_PLATFORM_FEATURE } from '@contracts/pageOpsPlatformFeature';
 import {DJVU_CHANNELS} from '@electron/features/djvu/contract';
 import { DJVU_IPC_CODECS } from '@electron/features/djvu/djvuIpcCodecs';
-import { PAGE_OPS_IPC_CODECS } from '@electron/features/page-ops/pageOpsIpcCodecs';
-import {PAGE_OPS_CHANNELS} from '@electron/features/page-ops/contract';
 import {
     createChannelSet,
     createValidatedIpcMainEventRegistrar,
@@ -85,14 +83,32 @@ export function registerFeatureIpcAdapters(
         const {registerAgentIpcAdapter} = await import('@electron/features/agent/registerAgentIpcAdapter');
         registerAgentIpcAdapter(registrar as never, options.agentService);
     });
-    registerLazyValidatedFeature(ipcMain, IMAGE_EXPORT_CHANNELS, IMAGE_EXPORT_IPC_CODECS, async registrar => {
-        const {registerImageExportIpcAdapter} = await import('@electron/features/image-export/registerImageExportIpcAdapter');
-        registerImageExportIpcAdapter(registrar as never);
-    });
-    registerLazyValidatedFeature(ipcMain, PAGE_OPS_CHANNELS, PAGE_OPS_IPC_CODECS, async registrar => {
-        const {registerPageOpsIpcAdapter} = await import('@electron/features/page-ops/registerPageOpsIpcAdapter');
-        registerPageOpsIpcAdapter(registrar as never);
-    });
+    registerLazyValidatedFeature(
+        ipcMain,
+        IMAGE_EXPORT_PLATFORM_FEATURE.invokeChannels,
+        IMAGE_EXPORT_PLATFORM_FEATURE.ipcCodecs,
+        async (registrar) => {
+            const {imageExportMainBindings} = await import('@electron/features/image-export/public');
+            registerPlatformFeatureHandlers(
+                registrar as never,
+                IMAGE_EXPORT_PLATFORM_FEATURE,
+                imageExportMainBindings,
+            );
+        },
+    );
+    registerLazyValidatedFeature(
+        ipcMain,
+        PAGE_OPS_PLATFORM_FEATURE.invokeChannels,
+        PAGE_OPS_PLATFORM_FEATURE.ipcCodecs,
+        async (registrar) => {
+            const {pageOpsMainBindings} = await import('@electron/features/page-ops/public');
+            registerPlatformFeatureHandlers(
+                registrar as never,
+                PAGE_OPS_PLATFORM_FEATURE,
+                pageOpsMainBindings,
+            );
+        },
+    );
     registerLazyValidatedFeature(ipcMain, OCR_CHANNELS, OCR_IPC_CODECS, async registrar => {
         const {registerOcrIpcAdapter} = await import('@electron/features/ocr/registerOcrIpcAdapter');
         registerOcrIpcAdapter(registrar as never);

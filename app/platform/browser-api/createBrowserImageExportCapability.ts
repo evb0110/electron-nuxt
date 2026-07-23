@@ -6,10 +6,14 @@ import {
     clamp,
 } from 'es-toolkit/math';
 import type {
-    IImageExportCapability,
     IImageExportProgress,
     TImageExportProgressFormat,
 } from '@contracts/electronApiDocuments';
+import type {
+    IMAGE_EXPORT_PLATFORM_FEATURE,
+    IImageExportCapability,
+} from '@contracts/imageExportPlatformFeature';
+import type { TFeatureBrowserBindings } from '@contracts/platformFeature';
 import {
     browserDocumentStore,
     getBrowserDocumentFileName,
@@ -882,7 +886,7 @@ export function createBrowserImageExportCapability(): IImageExportCapability {
                 imageExportProgressListeners.delete(callback);
             };
         },
-    };
+    } satisfies TFeatureBrowserBindings<typeof IMAGE_EXPORT_PLATFORM_FEATURE>;
 }
 
 function encodeMultiPageTiff(

@@ -6,10 +6,16 @@ import {
 import type { IpcMainInvokeEvent } from 'electron';
 import type { IDjvuInvokeMap } from '@electron/features/djvu/contract';
 import type { IDjvuService } from '@electron/features/djvu/ports';
-import type { IImageExportInvokeMap } from '@electron/features/image-export/contract';
-import type { IImageExportService } from '@electron/features/image-export/ports';
+import {
+    IMAGE_EXPORT_PLATFORM_FEATURE,
+    type IImageExportInvokeMap,
+} from '@contracts/imageExportPlatformFeature';
 import type { IOcrInvokeMap } from '@electron/features/ocr/contract';
 import type { IOcrService } from '@electron/features/ocr/ports';
+import {
+    PAGE_OPS_PLATFORM_FEATURE,
+    type IPageOpsInvokeMap,
+} from '@contracts/pageOpsPlatformFeature';
 import {
     SEARCH_PLATFORM_FEATURE,
     type ISearchInvokeMap,
@@ -36,7 +42,6 @@ vi.mock('electron', () => ({
 vi.mock('@electron/platform-ipc/trustedIpcSender', () => mocks);
 vi.mock('@electron/features/djvu/createDjvuService', () => ({createDjvuService: vi.fn()}));
 vi.mock('@electron/features/djvu/main/djvuArtifactManifest', () => ({pruneStaleDjvuArtifactJobs: vi.fn(async () => undefined)}));
-vi.mock('@electron/features/image-export/createImageExportService', () => ({createImageExportService: vi.fn()}));
 vi.mock('@electron/features/ocr/createOcrService', () => ({createOcrService: vi.fn()}));
 
 function createServiceDouble<T>() {
@@ -113,16 +118,21 @@ describe('feature validated IPC decoders', () => {
     });
 
     it('exhaustively validates image-export registrar tuples', async () => {
-        const { IMAGE_EXPORT_CHANNELS } = await import('@electron/features/image-export/contract');
-        const { IMAGE_EXPORT_IPC_CODECS } = await import('@electron/features/image-export/imageExportIpcCodecs');
-        const { registerImageExportIpcAdapter } = await import('@electron/features/image-export/registerImageExportIpcAdapter');
-        await runCases<IImageExportInvokeMap, IImageExportService>({
-            channels: IMAGE_EXPORT_CHANNELS,
-            codecs: IMAGE_EXPORT_IPC_CODECS,
-            register: registerImageExportIpcAdapter,
+        type TBindings = TFeatureMainBindings<typeof IMAGE_EXPORT_PLATFORM_FEATURE, IpcMainInvokeEvent>;
+        const channels = IMAGE_EXPORT_PLATFORM_FEATURE.invokeChannels;
+        await runCases<IImageExportInvokeMap, TBindings>({
+            channels,
+            codecs: cast<Parameters<typeof runCases<IImageExportInvokeMap, TBindings>>[0]['codecs']>(
+                IMAGE_EXPORT_PLATFORM_FEATURE.ipcCodecs,
+            ),
+            register: (registrar, bindings) => registerPlatformFeatureHandlers(
+                cast<Parameters<typeof registerPlatformFeatureHandlers>[0]>(registrar),
+                IMAGE_EXPORT_PLATFORM_FEATURE,
+                bindings,
+            ),
             cases: [
                 {
-                    channel: IMAGE_EXPORT_CHANNELS.exportImages,
+                    channel: channels.exportPdfToImages,
                     validArgs: [
                         '/tmp/a.pdf',
                         [
@@ -134,7 +144,7 @@ describe('feature validated IPC decoders', () => {
                     ],
                 },
                 {
-                    channel: IMAGE_EXPORT_CHANNELS.exportMultiPageTiff,
+                    channel: channels.exportPdfToMultiPageTiff,
                     validArgs: [
                         '/tmp/a.djvu',
                         [1],
@@ -143,8 +153,111 @@ describe('feature validated IPC decoders', () => {
                     ],
                 },
                 {
-                    channel: IMAGE_EXPORT_CHANNELS.subscribeProgress,
+                    channel: channels.subscribeProgress,
                     validArgs: [],
+                },
+            ],
+        });
+    });
+
+    it('exhaustively validates page-ops registrar tuples', async () => {
+        type TBindings = TFeatureMainBindings<typeof PAGE_OPS_PLATFORM_FEATURE, IpcMainInvokeEvent>;
+        const channels = PAGE_OPS_PLATFORM_FEATURE.invokeChannels;
+        await runCases<IPageOpsInvokeMap, TBindings>({
+            channels,
+            codecs: cast<Parameters<typeof runCases<IPageOpsInvokeMap, TBindings>>[0]['codecs']>(
+                PAGE_OPS_PLATFORM_FEATURE.ipcCodecs,
+            ),
+            register: (registrar, bindings) => registerPlatformFeatureHandlers(
+                cast<Parameters<typeof registerPlatformFeatureHandlers>[0]>(registrar),
+                PAGE_OPS_PLATFORM_FEATURE,
+                bindings,
+            ),
+            cases: [
+                {
+                    channel: channels.delete,
+                    validArgs: [
+                        '/tmp/a.pdf',
+                        [1],
+                        1,
+                        undefined,
+                    ],
+                },
+                {
+                    channel: channels.extract,
+                    validArgs: [
+                        '/tmp/a.pdf',
+                        [1],
+                    ],
+                },
+                {
+                    channel: channels.reorder,
+                    validArgs: [
+                        '/tmp/a.pdf',
+                        [1],
+                        undefined,
+                    ],
+                },
+                {
+                    channel: channels.insert,
+                    validArgs: [
+                        '/tmp/a.pdf',
+                        1,
+                        1,
+                        undefined,
+                    ],
+                },
+                {
+                    channel: channels.insertFile,
+                    validArgs: [
+                        '/tmp/a.pdf',
+                        1,
+                        1,
+                        ['/tmp/source.pdf'],
+                        undefined,
+                        undefined,
+                    ],
+                },
+                {
+                    channel: channels.rotate,
+                    validArgs: [
+                        '/tmp/a.pdf',
+                        [1],
+                        1,
+                        90,
+                        undefined,
+                    ],
+                },
+                {
+                    channel: channels.crop,
+                    validArgs: [
+                        '/tmp/a.pdf',
+                        [1],
+                        1,
+                        {
+                            top: 0,
+                            right: 0,
+                            bottom: 0,
+                            left: 0,
+                        },
+                        undefined,
+                    ],
+                },
+                {
+                    channel: channels.removeCrop,
+                    validArgs: [
+                        '/tmp/a.pdf',
+                        [1],
+                        1,
+                        undefined,
+                    ],
+                },
+                {
+                    channel: channels.getPageGeometry,
+                    validArgs: [
+                        '/tmp/a.pdf',
+                        1,
+                    ],
                 },
             ],
         });

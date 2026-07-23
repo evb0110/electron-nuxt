@@ -6,6 +6,8 @@ import {
     vi,
 } from 'vitest';
 import type { TRegisteredHandler } from '@tests/unit/electron/helpers/ipcRegistryHarness';
+import { IMAGE_EXPORT_PLATFORM_FEATURE } from '@contracts/imageExportPlatformFeature';
+import { registerPlatformFeatureHandlers } from '@electron/platform-ipc/validatedIpcRegistrar';
 
 const mocks = vi.hoisted(() => ({
     ensureWorkingCopyDirectory: vi.fn(async () => true),
@@ -25,6 +27,7 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock('electron', () => ({
+    app: {isPackaged: false},
     BrowserWindow: { fromWebContents: mocks.fromWebContents },
     dialog: { showSaveDialog: mocks.showSaveDialog },
 }));
@@ -51,9 +54,17 @@ vi.mock('@electron/te', () => ({ te: (key: string) => key }));
 const {
     handlePdfExportImages,
     handlePdfExportMultiPageTiff,
+    imageExportMainBindings,
 } = await import('@electron/features/image-export/main/ipc');
-const { registerImageExportIpcAdapter } = await import('@electron/features/image-export/registerImageExportIpcAdapter');
-const { IMAGE_EXPORT_CHANNELS } = await import('@electron/features/image-export/contract');
+const IMAGE_EXPORT_CHANNELS = IMAGE_EXPORT_PLATFORM_FEATURE.invokeChannels;
+
+function registerImageExportHandlers(registrar: {handle: (channel: string, handler: TRegisteredHandler) => void;}) {
+    registerPlatformFeatureHandlers(
+        registrar as never,
+        IMAGE_EXPORT_PLATFORM_FEATURE,
+        imageExportMainBindings,
+    );
+}
 
 interface ITestSender {
     id: number;
@@ -383,7 +394,7 @@ describe('image export IPC lifecycle', () => {
 
     it('replays active image-export progress when the renderer subscribes after progress starts', async () => {
         const handlers = new Map<string, TRegisteredHandler>();
-        registerImageExportIpcAdapter({handle: (channel, handler) => handlers.set(channel, handler as TRegisteredHandler)});
+        registerImageExportHandlers({handle: (channel, handler) => handlers.set(channel, handler)});
         const sender = createSender();
         const exportDeferred = createDeferred<string[]>();
         mocks.showSaveDialog.mockResolvedValueOnce({
@@ -404,7 +415,7 @@ describe('image export IPC lifecycle', () => {
             return exportDeferred.promise.then(() => [outputPath]);
         });
 
-        const exportPromise = handlers.get(IMAGE_EXPORT_CHANNELS.exportMultiPageTiff)!(
+        const exportPromise = handlers.get(IMAGE_EXPORT_CHANNELS.exportPdfToMultiPageTiff)!(
             createIpcEvent(sender),
             '/tmp/working.pdf',
             undefined,
@@ -438,7 +449,7 @@ describe('image export IPC lifecycle', () => {
 
     it('replays terminal image-export progress when the renderer subscribes shortly after completion', async () => {
         const handlers = new Map<string, TRegisteredHandler>();
-        registerImageExportIpcAdapter({handle: (channel, handler) => handlers.set(channel, handler as TRegisteredHandler)});
+        registerImageExportHandlers({handle: (channel, handler) => handlers.set(channel, handler)});
         const sender = createSender();
         mocks.showSaveDialog.mockResolvedValueOnce({
             canceled: false,
@@ -458,7 +469,7 @@ describe('image export IPC lifecycle', () => {
             return [outputPath];
         });
 
-        await handlers.get(IMAGE_EXPORT_CHANNELS.exportMultiPageTiff)!(
+        await handlers.get(IMAGE_EXPORT_CHANNELS.exportPdfToMultiPageTiff)!(
             createIpcEvent(sender),
             '/tmp/working.pdf',
             undefined,

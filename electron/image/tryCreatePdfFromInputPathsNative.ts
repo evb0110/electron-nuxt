@@ -24,7 +24,7 @@ import {
     QPDF_OUTPUT_SUCCESS_EXIT_CODES,
     QPDF_TIMEOUT_MS,
     runQpdfCommand,
-} from '@electron/features/page-ops/public';
+} from '@electron/features/page-ops/publicNative';
 import { createLogger } from '@electron/utils/createLogger';
 import { getErrorMessage } from '@electron/utils/error';
 import { parseIntegerEnv } from '@electron/utils/parseIntegerEnv';

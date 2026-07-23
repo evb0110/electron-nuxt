@@ -14,8 +14,7 @@ import {
 import { createDocumentsPreloadFileClient } from '@electron/features/documents/createDocumentsPreloadFileClient';
 import { createDocumentsPreloadMenuClient } from '@electron/features/documents/createDocumentsPreloadMenuClient';
 import { DOCUMENTS_EVENT_CHANNELS } from '@electron/features/documents/contract';
-import { createImageExportPreloadClient } from '@electron/features/image-export/createImageExportPreloadClient';
-import { IMAGE_EXPORT_CHANNELS } from '@electron/features/image-export/contract';
+import { IMAGE_EXPORT_PLATFORM_FEATURE } from '@contracts/imageExportPlatformFeature';
 import { createOcrPreloadClient } from '@electron/features/ocr/createOcrPreloadClient';
 import { OCR_CHANNELS } from '@electron/features/ocr/contract';
 import { SEARCH_PLATFORM_FEATURE } from '@contracts/searchPlatformFeature';
@@ -160,7 +159,7 @@ describe('preload global event fan-out', () => {
         } = createIpcRendererHarness();
         const ocr = createOcrPreloadClient(ipcRenderer);
         const search = createPlatformFeaturePreloadClient(ipcRenderer, SEARCH_PLATFORM_FEATURE);
-        const imageExport = createImageExportPreloadClient(ipcRenderer);
+        const imageExport = createPlatformFeaturePreloadClient(ipcRenderer, IMAGE_EXPORT_PLATFORM_FEATURE);
         const unsubscribes = [
             ...Array.from({length: 24}, () => ocr.onProgress(vi.fn())),
             ...Array.from({length: 24}, () => search.onProgress(vi.fn())),
@@ -170,7 +169,7 @@ describe('preload global event fan-out', () => {
         for (const channel of [
             OCR_CHANNELS.subscribeProgress,
             SEARCH_PLATFORM_FEATURE.invokeChannels.subscribeProgress,
-            IMAGE_EXPORT_CHANNELS.subscribeProgress,
+            IMAGE_EXPORT_PLATFORM_FEATURE.invokeChannels.subscribeProgress,
         ]) {
             expect(invoke).toHaveBeenCalledWith(channel);
             expect(invoke.mock.calls.filter(call => call[0] === channel)).toHaveLength(1);

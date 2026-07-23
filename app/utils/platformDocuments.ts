@@ -8,11 +8,11 @@ import type {
     IDocumentsRecentFilesCapability,
     IDocumentsWindowCapability,
     IDocumentsWorkingCopyCapability,
-    IImageExportCapability,
 } from '@contracts/electronApiDocuments';
 import { assertDocumentAllocationSize } from '@contracts/electronApiDocuments';
 import type { TDocumentRef } from '@contracts/documentRef';
-import type { IPageOpsCapability } from '@contracts/electronApiPageOps';
+import type { IImageExportCapability } from '@contracts/imageExportPlatformFeature';
+import type { IPageOpsCapability } from '@contracts/pageOpsPlatformFeature';
 import { isBrowserDocumentRef } from '@app/utils/documentRef';
 import { yieldToBrowser } from '@app/utils/yieldToBrowser';
 import { getPlatformAPI } from '@app/utils/platform';
