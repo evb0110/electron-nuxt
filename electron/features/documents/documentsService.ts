@@ -246,6 +246,19 @@ export interface IDocumentsService {
         totalBytes: number,
         options?: IPdfSerializedSaveOptions,
     ) => Promise<IBeginSerializedPdfPersistenceResult>;
+    commitStagedSerializedPdf: (
+        context: IDocumentsSenderIdContext,
+        sessionId: string,
+        stagedOutput: ITypedStagedArtifact,
+    ) => Promise<{
+        path: string | null;
+        validation: IPdfValidationResult;
+    }>;
+    cancelStagedSerializedPdf: (
+        context: IDocumentsSenderIdContext,
+        sessionId: string,
+        stagedOutput: ITypedStagedArtifact,
+    ) => Promise<boolean>;
     cleanupFile: (context: IDocumentsSenderIdContext, workingPath: string) => Promise<void>;
     cleanupOcrTemp: (context: IDocumentsSenderIdContext, filePath: string) => Promise<void>;
     setWindowTitle: (context: IDocumentsWindowContext, title: string) => void;

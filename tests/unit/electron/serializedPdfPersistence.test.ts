@@ -25,6 +25,7 @@ import { join } from 'path';
 import { tmpdir } from 'os';
 import { createOriginalFileContentFingerprintSync } from '@electron/file-access/workingCopyOriginalFileExpectation';
 import { createStaleRevisionError } from '@contracts/documentMutationErrors';
+import { createPdfPersistenceErrorFrame } from '@contracts/documentPersistenceFrames';
 import type { TDocumentRevisionToken } from '@contracts/documentRevision';
 import type * as SerializedPdfPersistenceModule from '@electron/features/documents/main/serializedPdfPersistence';
 import type * as WorkingCopyMutationQueueModule from '@electron/file-access/workingCopyMutationQueue';
@@ -59,6 +60,9 @@ const mocks = vi.hoisted(() => ({
     optimizeLargePdfForOrdinarySave: vi.fn(),
     copyFileCopyOnWrite: vi.fn(),
     transitionOriginalAndWorkingCopyRevision: vi.fn(),
+    createTypedStagedArtifact: vi.fn(),
+    releaseManagedTempFileHandle: vi.fn(),
+    removeAllowedOpenPath: vi.fn(),
 }));
 
 vi.mock('@electron/utils/atomicReplace', () => ({
@@ -88,11 +92,18 @@ vi.mock('@electron/file-access/documentRevisionStore', () => ({
 }));
 vi.mock('@electron/file-access/isAllowedOriginalSavePath', () => ({isAllowedOriginalSavePath: vi.fn(() => true)}));
 vi.mock('@electron/file-access/workingCopyDirectory', () => ({copyFileCopyOnWrite: (...args: [string, string]) => mocks.copyFileCopyOnWrite(...args)}));
-vi.mock('@electron/file-access/openPathCapabilities', () => ({allowOpenPath: (...args: unknown[]) => mocks.allowOpenPath(...args)}));
+vi.mock('@electron/file-access/openPathCapabilities', () => ({
+    allowOpenPath: (...args: unknown[]) => mocks.allowOpenPath(...args),
+    removeAllowedOpenPath: (...args: unknown[]) => mocks.removeAllowedOpenPath(...args),
+}));
 vi.mock('@electron/recentFiles', () => ({addRecentFile: (...args: unknown[]) => mocks.addRecentFile(...args)}));
 vi.mock('@electron/menu', () => ({updateRecentFilesMenu: (...args: unknown[]) => mocks.updateRecentFilesMenu(...args)}));
 vi.mock('@electron/features/documents/main/commitPdfTempFile', () => ({commitPdfTempFile: (...args: [string, string]) => mocks.atomicReplace(...args)}));
 vi.mock('@electron/features/documents/main/transitionOriginalAndWorkingCopyRevision', () => ({transitionOriginalAndWorkingCopyRevision: (...args: unknown[]) => mocks.transitionOriginalAndWorkingCopyRevision(...args)}));
+vi.mock('@electron/features/documents/main/managedTempFileHandles', () => ({
+    createTypedStagedArtifact: (...args: unknown[]) => mocks.createTypedStagedArtifact(...args),
+    releaseManagedTempFileHandle: (...args: unknown[]) => mocks.releaseManagedTempFileHandle(...args),
+}));
 
 function createOriginalFileExpectationForTest(originalPath: string) {
     const originalStat = statSync(originalPath);
@@ -205,6 +216,41 @@ describe('serializedPdfPersistence', () => {
             }
             return {token: requireDocumentRevisionToken('drt1:test:committed')};
         });
+        mocks.createTypedStagedArtifact.mockImplementation(async (
+            _context: unknown,
+            path: string,
+            validations: {
+                qpdfResult?: {
+                    isValid: boolean;
+                    tool: 'qpdf';
+                    errors: string[];
+                    warnings: string[];
+                };
+                qpdfCheck: boolean;
+                tailCheck: boolean;
+                semanticCheck: boolean;
+                fsynced: boolean;
+            },
+            options: {trustedFingerprint?: {
+                bytes: number;
+                sha256: string;
+            };},
+        ) => ({
+            receiptVersion: 1,
+            artifactKind: 'pdf',
+            path,
+            size: options.trustedFingerprint?.bytes ?? statSync(path).size,
+            sha256: options.trustedFingerprint?.sha256 ?? 'a'.repeat(64),
+            fileIdentity: {
+                platform: 'posix',
+                deviceId: '1',
+                inode: '2',
+            },
+            validations,
+            leaseId: `lease:${path}`,
+            revision: null,
+        }));
+        mocks.releaseManagedTempFileHandle.mockReturnValue(true);
     });
 
     afterEach(() => {
@@ -225,6 +271,10 @@ describe('serializedPdfPersistence', () => {
             workingPath,
             targetPath,
             bytes: Buffer.from('new-pdf'),
+            serializedSaveOptions: {
+                ...SERIALIZED_TEST_REVISION_OPTIONS,
+                changedObjectRefs: ['12 0 R'],
+            },
         });
 
         expect(result).toMatchObject({
@@ -236,7 +286,35 @@ describe('serializedPdfPersistence', () => {
         expect(readFileSyncUtf8(targetPath)).toBe('new-pdf');
         expect(existsSync(tempPath)).toBe(false);
         expect(mocks.ensureWorkingCopyDirectory).toHaveBeenCalledWith(workingPath, 42);
-        expect(mocks.atomicReplace).toHaveBeenCalledWith(tempPath, targetPath, expect.any(Object));
+        expect(mocks.createTypedStagedArtifact).toHaveBeenCalledWith(
+            {senderId: 42},
+            tempPath,
+            expect.objectContaining({
+                qpdfCheck: true,
+                fsynced: true,
+            }),
+            expect.objectContaining({
+                cleanupOnRelease: true,
+                trustedFingerprint: {
+                    bytes: 7,
+                    sha256: expect.stringMatching(/^[a-f0-9]{64}$/u),
+                },
+            }),
+        );
+        expect(mocks.atomicReplace).toHaveBeenCalledWith(
+            tempPath,
+            targetPath,
+            expect.objectContaining({
+                receipt: {
+                    artifact: expect.objectContaining({
+                        path: tempPath,
+                        leaseId: `lease:${tempPath}`,
+                    }),
+                    context: {senderId: 42},
+                },
+                changedObjectRefs: ['12 0 R'],
+            }),
+        );
         expect(
             firstInvocationOrder(mocks.ensureWorkingCopyDirectory),
         ).toBeLessThan(firstInvocationOrder(mocks.makeSiblingTempPath));
@@ -249,12 +327,68 @@ describe('serializedPdfPersistence', () => {
         expect(mocks.updateRecentFilesMenu).toHaveBeenCalled();
     });
 
+    it('deletes a staged Save As artifact without publishing when verification is canceled', async () => {
+        const workingPath = join(tempRoot, 'working.pdf');
+        const targetPath = join(tempRoot, 'saved.pdf');
+        const tempPath = `${targetPath}.tmp`;
+        const sender = new FakeSender();
+        const port = new FakeMessagePort();
+        writeFileSync(workingPath, 'old-working');
+        writeFileSync(targetPath, 'old-target');
+        const {
+            attachSerializedPdfPersistencePort,
+            beginSerializedPdfSaveAs,
+            cancelStagedSerializedPdf,
+        } = await importSerializedPdfPersistence();
+        const beginResult = await beginSerializedPdfSaveAs(
+            createInvokeEvent(sender),
+            workingPath,
+            7,
+            targetPath,
+            undefined,
+            SERIALIZED_TEST_REVISION_OPTIONS,
+        );
+        attachSerializedPdfPersistencePort(createPortEvent(sender, port), beginResult.sessionId);
+        const resultPromise = port.nextResult();
+
+        port.emit('message', {data: {
+            type: 'chunk',
+            seq: 0,
+            bytes: Buffer.from('new-pdf'),
+        }});
+        await port.nextMessage(message => isPortMessage(message, 'ack'));
+        port.emit('message', {data: {type: 'complete'}});
+        const stagedResult = await resultPromise;
+        if (!isStagedPortMessage(stagedResult)) {
+            throw new Error('Expected staged serialized PDF result');
+        }
+
+        expect(readFileSyncUtf8(targetPath)).toBe('old-target');
+        expect(readFileSyncUtf8(tempPath)).toBe('new-pdf');
+        await expect(cancelStagedSerializedPdf(
+            {senderId: sender.id},
+            stagedResult.sessionId,
+            stagedResult.stagedOutput,
+        )).resolves.toBe(true);
+        expect(readFileSyncUtf8(targetPath)).toBe('old-target');
+        expect(existsSync(tempPath)).toBe(false);
+        expect(mocks.releaseManagedTempFileHandle)
+            .toHaveBeenCalledWith({senderId: sender.id}, stagedResult.stagedOutput.leaseId);
+        expect(mocks.removeAllowedOpenPath).toHaveBeenCalledWith(tempPath);
+    });
+
     it('runs lossless optimization for streamed Save As before replacing the selected target', async () => {
         const workingPath = join(tempRoot, 'working.pdf');
         const targetPath = join(tempRoot, 'saved.pdf');
         const tempPath = `${targetPath}.tmp`;
         writeFileSync(workingPath, 'old-working');
         writeFileSync(targetPath, 'old-target');
+        mocks.optimizePdfForSaveAs.mockResolvedValueOnce({
+            isValid: true,
+            tool: 'qpdf',
+            errors: [],
+            warnings: ['optimized'],
+        });
 
         const result = await runSaveAsSession({
             workingPath,
@@ -269,6 +403,15 @@ describe('serializedPdfPersistence', () => {
             validation: { isValid: true },
         });
         expect(mocks.optimizePdfForSaveAs).toHaveBeenCalledWith(tempPath, { optimizeLossless: true });
+        expect(mocks.createTypedStagedArtifact).toHaveBeenCalledWith(
+            {senderId: 42},
+            tempPath,
+            expect.objectContaining({
+                qpdfCheck: true,
+                qpdfResult: expect.objectContaining({warnings: ['optimized']}),
+            }),
+            {cleanupOnRelease: true},
+        );
         expect(
             firstInvocationOrder(mocks.optimizePdfForSaveAs),
         ).toBeLessThan(firstInvocationOrder(mocks.atomicReplace));
@@ -294,7 +437,10 @@ describe('serializedPdfPersistence', () => {
         expect(readFileSyncUtf8(workingPath)).toBe('old-working');
         expect(readFileSyncUtf8(targetPath)).toBe('old-target');
         expect(mocks.setWorkingCopyOriginalPath).not.toHaveBeenCalled();
-        expect(mocks.allowOpenPath).not.toHaveBeenCalled();
+        expect(mocks.allowOpenPath).toHaveBeenCalledWith(
+            `${targetPath}.tmp`,
+            expect.objectContaining({id: 42}),
+        );
         expect(mocks.addRecentFile).not.toHaveBeenCalled();
         expect(mocks.updateRecentFilesMenu).not.toHaveBeenCalled();
     });
@@ -396,7 +542,7 @@ describe('serializedPdfPersistence', () => {
         expect(result).toMatchObject({
             type: 'error',
             code: 'STALE_REVISION',
-            phase: 'complete',
+            phase: 'commit',
             retryable: true,
             expected: true,
         });
@@ -428,7 +574,7 @@ describe('serializedPdfPersistence', () => {
         expect(result).toMatchObject({
             type: 'error',
             code: 'STALE_REVISION',
-            phase: 'complete',
+            phase: 'commit',
             retryable: true,
             expected: true,
         });
@@ -459,7 +605,7 @@ describe('serializedPdfPersistence', () => {
         expect(result).toMatchObject({
             type: 'error',
             code: 'STALE_REVISION',
-            phase: 'complete',
+            phase: 'commit',
             retryable: true,
             expected: true,
         });
@@ -485,7 +631,7 @@ describe('serializedPdfPersistence', () => {
 
         expect(result).toMatchObject({
             type: 'error',
-            phase: 'complete',
+            phase: 'commit',
         });
         expect(readFileSyncUtf8(originalPath)).toBe('old-original');
         expect(readFileSyncUtf8(workingPath)).toBe('old-working');
@@ -507,6 +653,7 @@ describe('serializedPdfPersistence', () => {
         const {
             attachSerializedPdfPersistencePort,
             beginSerializedPdfSaveAs,
+            commitStagedSerializedPdf,
             shutdownSerializedPdfPersistence,
         } = await importSerializedPdfPersistence();
         const sender = new FakeSender();
@@ -529,6 +676,15 @@ describe('serializedPdfPersistence', () => {
         }});
         port.emit('message', {data: {type: 'complete'}});
 
+        const stagedResult = await resultPromise;
+        if (!isStagedPortMessage(stagedResult)) {
+            throw new Error('Expected staged serialized PDF result');
+        }
+        const commitPromise = commitStagedSerializedPdf(
+            {senderId: sender.id},
+            stagedResult.sessionId,
+            stagedResult.stagedOutput,
+        );
         await waitForCondition(() => {
             expect(mocks.atomicReplace).toHaveBeenCalledOnce();
         });
@@ -543,10 +699,7 @@ describe('serializedPdfPersistence', () => {
         expect(existsSync(`${targetPath}.tmp`)).toBe(true);
 
         replaceGate.resolve(undefined);
-        await expect(resultPromise).resolves.toMatchObject({
-            type: 'result',
-            path: targetPath,
-        });
+        await expect(commitPromise).resolves.toMatchObject({path: targetPath});
         await shutdownPromise;
 
         expect(shutdownSettled).toBe(true);
@@ -630,7 +783,7 @@ describe('serializedPdfPersistence', () => {
 
         expect(result).toMatchObject({
             type: 'error',
-            phase: 'complete',
+            phase: 'commit',
         });
         expect(readFileSyncUtf8(originalPath)).toBe('old-original');
         expect(readFileSyncUtf8(workingPath)).toBe('old-working');
@@ -843,6 +996,7 @@ describe('serializedPdfPersistence', () => {
         const {
             attachSerializedPdfPersistencePort,
             beginSerializedPdfSaveAs,
+            commitStagedSerializedPdf,
         } = await importSerializedPdfPersistence();
 
         const beginResult = await beginSerializedPdfSaveAs(
@@ -876,7 +1030,15 @@ describe('serializedPdfPersistence', () => {
             data: {type: 'complete'},
             ports: [],
         });
-        await expect(resultPromise).resolves.toMatchObject({type: 'result'});
+        const stagedResult = await resultPromise;
+        if (!isStagedPortMessage(stagedResult)) {
+            throw new Error('Expected staged serialized PDF result');
+        }
+        await commitStagedSerializedPdf(
+            {senderId: sender.id},
+            stagedResult.sessionId,
+            stagedResult.stagedOutput,
+        );
         expect(readFileSyncUtf8(targetPath)).toBe('%PDF');
         expect(existsSync(tempPath)).toBe(false);
     });
@@ -890,6 +1052,7 @@ describe('serializedPdfPersistence', () => {
         const {
             attachSerializedPdfPersistencePort,
             beginSerializedPdfSaveAs,
+            commitStagedSerializedPdf,
         } = await importSerializedPdfPersistence();
 
         const beginResult = await beginSerializedPdfSaveAs(
@@ -917,7 +1080,15 @@ describe('serializedPdfPersistence', () => {
         expect(readFileSyncUtf8(tempPath)).toBe('%PDF');
 
         port.emit('message', wrapMessageEventPayload({type: 'complete'}, 8));
-        await expect(resultPromise).resolves.toMatchObject({type: 'result'});
+        const stagedResult = await resultPromise;
+        if (!isStagedPortMessage(stagedResult)) {
+            throw new Error('Expected staged serialized PDF result');
+        }
+        await commitStagedSerializedPdf(
+            {senderId: sender.id},
+            stagedResult.sessionId,
+            stagedResult.stagedOutput,
+        );
         expect(readFileSyncUtf8(targetPath)).toBe('%PDF');
         expect(existsSync(tempPath)).toBe(false);
     });
@@ -1155,6 +1326,7 @@ describe('serializedPdfPersistence', () => {
 interface ISerializedPersistenceTestRevisionOptions {
     expectedDocumentRevisionToken: TDocumentRevisionToken;
     workingCopyOnly?: true;
+    changedObjectRefs?: string[];
 }
 
 async function runSaveAsSession(options: {
@@ -1167,6 +1339,7 @@ async function runSaveAsSession(options: {
     const {
         attachSerializedPdfPersistencePort,
         beginSerializedPdfSaveAs,
+        commitStagedSerializedPdf,
     } = await importSerializedPdfPersistence();
     const sender = new FakeSender();
     const beginResult = await beginSerializedPdfSaveAs(
@@ -1189,7 +1362,23 @@ async function runSaveAsSession(options: {
     }});
     port.emit('message', {data: {type: 'complete'}});
 
-    return resultPromise;
+    const result = await resultPromise;
+    if (!isStagedPortMessage(result)) {
+        return result;
+    }
+    try {
+        const committed = await commitStagedSerializedPdf(
+            {senderId: sender.id},
+            result.sessionId,
+            result.stagedOutput,
+        );
+        return {
+            type: 'result',
+            ...committed,
+        };
+    } catch (error) {
+        return createPdfPersistenceErrorFrame(error, {phase: 'commit'});
+    }
 }
 
 async function runSaveToOriginalSession(options: {
@@ -1200,6 +1389,7 @@ async function runSaveToOriginalSession(options: {
     const {
         attachSerializedPdfPersistencePort,
         beginSerializedPdfSaveToOriginal,
+        commitStagedSerializedPdf,
     } = await importSerializedPdfPersistence();
     const sender = new FakeSender();
     const beginResult = await beginSerializedPdfSaveToOriginal(
@@ -1220,7 +1410,23 @@ async function runSaveToOriginalSession(options: {
     }});
     port.emit('message', {data: {type: 'complete'}});
 
-    return resultPromise;
+    const result = await resultPromise;
+    if (!isStagedPortMessage(result)) {
+        return result;
+    }
+    try {
+        const committed = await commitStagedSerializedPdf(
+            {senderId: sender.id},
+            result.sessionId,
+            result.stagedOutput,
+        );
+        return {
+            type: 'result',
+            ...committed,
+        };
+    } catch (error) {
+        return createPdfPersistenceErrorFrame(error, {phase: 'commit'});
+    }
 }
 
 class FakeMessagePort extends EventEmitter {
@@ -1274,8 +1480,37 @@ function isTerminalPortMessage(message: unknown) {
         message
         && typeof message === 'object'
         && 'type' in message
-        && (message.type === 'result' || message.type === 'error'),
+        && (message.type === 'result' || message.type === 'staged' || message.type === 'error'),
     );
+}
+
+function isStagedPortMessage(message: unknown): message is {
+    type: 'staged';
+    sessionId: string;
+    stagedOutput: {
+        receiptVersion: 1;
+        artifactKind: 'pdf';
+        path: string;
+        size: number;
+        sha256: string;
+        fileIdentity: {
+            platform: 'posix';
+            deviceId: string;
+            inode: string;
+        };
+        validations: {
+            qpdfCheck: boolean;
+            tailCheck: boolean;
+            semanticCheck: boolean;
+            fsynced: boolean;
+        };
+        leaseId: string;
+        revision: null;
+    };
+} {
+    return isPortMessage(message, 'staged')
+        && 'sessionId' in message
+        && 'stagedOutput' in message;
 }
 
 function wrapMessageEventPayload(payload: unknown, depth: number) {

@@ -159,15 +159,34 @@ export async function createTypedStagedArtifact(
     context: IDocumentsSenderIdContext,
     filePath: unknown,
     validations: IStagedArtifactValidations,
-    options: {cleanupOnRelease?: boolean} = {},
+    options: {
+        cleanupOnRelease?: boolean;
+        trustedFingerprint?: {
+            bytes: number;
+            sha256: string;
+        };
+    } = {},
 ): Promise<ITypedStagedArtifact> {
     const path = await resolveExistingReadableBinaryPath(filePath, context.senderId);
     const beforeStat = await statRegularArtifact(path);
+    const trustedFingerprint = options.trustedFingerprint;
+    if (
+        trustedFingerprint !== undefined
+        && (
+            !Number.isSafeInteger(trustedFingerprint.bytes)
+            || trustedFingerprint.bytes < 0
+            || !/^[a-f0-9]{64}$/u.test(trustedFingerprint.sha256)
+        )
+    ) {
+        throw new Error('Invalid trusted staged artifact fingerprint');
+    }
     const [
         inspection,
         revisionSidecar,
     ] = await Promise.all([
-        fingerprintFileWithUtilityProcess(path),
+        trustedFingerprint === undefined
+            ? fingerprintFileWithUtilityProcess(path)
+            : Promise.resolve(trustedFingerprint),
         readWorkingCopyRevisionSidecar(path),
     ]);
     const fileStat = await statRegularArtifact(path);

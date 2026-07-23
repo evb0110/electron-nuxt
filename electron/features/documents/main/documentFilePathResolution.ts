@@ -15,6 +15,7 @@ import {
 import { ensureWorkingCopyDirectory } from '@electron/file-access/workingCopyCreation';
 import { findWorkingCopyPathByOriginalPath } from '@electron/file-access/workingCopyStore';
 import { isAllowedDjvuViewingPath } from '@electron/djvu/viewing';
+import { requireOpenPath } from '@electron/file-access/openPathCapabilities';
 
 const MAX_IPC_READ_BYTES = (() => {
     const parsed = Number.parseInt(process.env.EVB_MAX_IPC_READ_BYTES ?? `${16 * 1024 * 1024}`, 10);
@@ -98,7 +99,8 @@ export async function resolveReadablePath(
     // working copy path to preserve temp-sandboxed reads.
     const mappedWorkingCopyPath = findWorkingCopyPathByOriginalPath(normalizedPath, senderId);
     if (!mappedWorkingCopyPath) {
-        return resolveDirectSourceReadPath(normalizedPath, extension, senderId);
+        return resolveGrantedReadablePathSync(normalizedPath, senderId)
+            ?? resolveDirectSourceReadPath(normalizedPath, extension, senderId);
     }
 
     const mappedResolvedPath = await resolveAllowedReadPath(mappedWorkingCopyPath);
@@ -106,7 +108,16 @@ export async function resolveReadablePath(
         return mappedResolvedPath;
     }
 
-    return resolveDirectSourceReadPath(normalizedPath, extension, senderId);
+    return resolveGrantedReadablePathSync(normalizedPath, senderId)
+        ?? resolveDirectSourceReadPath(normalizedPath, extension, senderId);
+}
+
+function resolveGrantedReadablePathSync(normalizedPath: string, senderId?: number) {
+    try {
+        return requireOpenPath(normalizedPath, senderId);
+    } catch {
+        return null;
+    }
 }
 
 export async function resolveExistingReadableBinaryPath(

@@ -68,7 +68,11 @@ import {
     handleNativeNoteTextSave,
     handleNativePdfMutationsSave,
 } from '@electron/features/documents/main/nativePdfMutationSaveHandlers';
-import { beginSerializedPdfSaveToOriginal } from '@electron/features/documents/main/serializedPdfPersistence';
+import {
+    beginSerializedPdfSaveToOriginal,
+    cancelStagedSerializedPdf,
+    commitStagedSerializedPdf,
+} from '@electron/features/documents/main/serializedPdfPersistence';
 import {
     clearRecentFiles,
     getRecentFiles,
@@ -180,6 +184,10 @@ export function createDocumentsService(): IDocumentsService {
             handleCommitStagedPdfNativeMutations(...args),
         beginSavePdfData: (...args: TDocumentsServiceArgs<'beginSavePdfData'>) =>
             beginSerializedPdfSaveToOriginal(...args),
+        commitStagedSerializedPdf: (...args: TDocumentsServiceArgs<'commitStagedSerializedPdf'>) =>
+            commitStagedSerializedPdf(...args),
+        cancelStagedSerializedPdf: (...args: TDocumentsServiceArgs<'cancelStagedSerializedPdf'>) =>
+            cancelStagedSerializedPdf(...args),
         cleanupFile: (...args: TDocumentsServiceArgs<'cleanupFile'>) => {
             const [
                 context,

@@ -108,6 +108,7 @@ export function createBrowserDocumentsFileCapability(
         workingCopyPath: string,
         data?: Uint8Array,
         revisionOptions?: IDocumentMutationRevisionOptions,
+        commitCallbacks?: Parameters<IDocumentsFileCapability['savePdfDataAs']>[4],
     ) {
         await browserDocumentStore.assertDocumentRevisionCurrent(
             workingCopyPath,
@@ -126,6 +127,10 @@ export function createBrowserDocumentsFileCapability(
         if (saveResult.canceled) {
             return null;
         }
+        if (data) {
+            await commitCallbacks?.verifyBytesBeforeCommit?.(data);
+        }
+        await commitCallbacks?.assertBeforeCommit?.();
 
         let externalWriteCommitted = false;
         let savedSourceRef: string | null;
@@ -385,7 +390,7 @@ export function createBrowserDocumentsFileCapability(
         async savePdfAs(workingCopyPath, _options, revisionOptions) {
             return savePdfAsWithOptionalData(workingCopyPath, undefined, revisionOptions);
         },
-        async savePdfDataAs(workingCopyPath, data, _options, serializedSaveOptions) {
+        async savePdfDataAs(workingCopyPath, data, _options, serializedSaveOptions, commitCallbacks) {
             const validation = await validateBrowserPdfData(data);
             if (!validation.isValid) {
                 return {
@@ -394,7 +399,12 @@ export function createBrowserDocumentsFileCapability(
                 };
             }
 
-            const path = await savePdfAsWithOptionalData(workingCopyPath, data, serializedSaveOptions);
+            const path = await savePdfAsWithOptionalData(
+                workingCopyPath,
+                data,
+                serializedSaveOptions,
+                commitCallbacks,
+            );
             return {
                 path,
                 validation,
@@ -541,12 +551,14 @@ export function createBrowserDocumentsFileCapability(
             await clearSearchCaches(workingCopyPath);
             return browserDocumentStore.write(workingCopyPath, bytes, options);
         },
-        async savePdfData(path, data, options) {
+        async savePdfData(path, data, options, commitCallbacks) {
             const validation = await validateBrowserPdfData(data);
             if (!validation.isValid) {
                 return validation;
             }
 
+            await commitCallbacks?.verifyBytesBeforeCommit?.(data);
+            await commitCallbacks?.assertBeforeCommit?.();
             await browserDocumentStore.write(path, data, options);
             if (options?.workingCopyOnly === true) {
                 await clearSearchCaches();
@@ -564,7 +576,7 @@ export function createBrowserDocumentsFileCapability(
             await clearSearchCaches();
             return validation;
         },
-        async savePdfDataChunks(path, totalBytes, chunks, options) {
+        async savePdfDataChunks(path, totalBytes, chunks, options, commitCallbacks) {
             if (!Number.isSafeInteger(totalBytes) || totalBytes < 1) {
                 throw new Error('savePdfDataChunks.totalBytes must be a positive safe integer');
             }
@@ -643,6 +655,10 @@ export function createBrowserDocumentsFileCapability(
                     return validation;
                 }
 
+                if (commitCallbacks?.verifyBytesBeforeCommit) {
+                    throw new Error('Chunked browser persistence cannot verify a contiguous byte frontier');
+                }
+                await commitCallbacks?.assertBeforeCommit?.();
                 await browserDocumentStore.assertDocumentRevisionCurrent(
                     path,
                     options?.expectedDocumentRevisionToken,

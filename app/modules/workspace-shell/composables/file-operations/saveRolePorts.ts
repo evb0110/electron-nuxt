@@ -25,6 +25,7 @@ import type {
     IPdfNativeMutationSet,
     IPdfNoteTextUpdate,
     IPdfOptimizeOptions,
+    IPdfSerializedCommitCallbacks,
 } from '@contracts/electronApiDocuments';
 import type {
     IMarkupSubtypeHint,
@@ -101,9 +102,15 @@ export interface IWorkspaceSavePersistOptions {
     changedObjectRefs?: string[];
 }
 
-export interface IWorkspaceSavePersistSerializedOptions extends IWorkspaceSavePersistOptions {preserveLoadedSource?: boolean;}
+export interface IWorkspaceSavePersistSerializedOptions extends IWorkspaceSavePersistOptions {
+    preserveLoadedSource?: boolean;
+    commitCallbacks?: IPdfSerializedCommitCallbacks;
+}
 
-export interface IWorkspaceSavePersistAsOptions extends IWorkspaceSavePersistOptions {optimizeLossless?: boolean;}
+export interface IWorkspaceSavePersistAsOptions extends IWorkspaceSavePersistOptions {
+    optimizeLossless?: boolean;
+    commitCallbacks?: IPdfSerializedCommitCallbacks;
+}
 
 export interface IWorkspaceSavePersistencePort {
     validatePdfPath: (path: TDocumentRef) => Promise<IPdfSaveResult['validation']>;

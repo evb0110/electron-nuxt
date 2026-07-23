@@ -229,6 +229,13 @@ export interface IPdfSerializedSaveOptions extends IDocumentMutationRevisionOpti
     /** Stage validated bytes into the managed working copy without publishing its original file. */
     workingCopyOnly?: true;
 }
+
+export interface IPdfSerializedCommitCallbacks {
+    verifyBytesBeforeCommit?: (bytes: Uint8Array) => Promise<void>;
+    verifyPathBeforeCommit?: (path: TDocumentRef, knownSize: number) => Promise<void>;
+    assertBeforeCommit?: () => Promise<void> | void;
+}
+
 export interface IPdfNativeStagedCommitOptions extends IDocumentMutationRevisionOptions {changedObjectRefs?: string[];}
 
 export interface IPdfOptimizeProgress {
@@ -626,12 +633,14 @@ export interface IDocumentsFileCapability {
         path: TDocumentRef,
         data: Uint8Array,
         options?: IPdfSerializedSaveOptions,
+        commitCallbacks?: IPdfSerializedCommitCallbacks,
     ) => Promise<IPdfValidationResult>;
     savePdfDataChunks: (
         path: TDocumentRef,
         totalBytes: number,
         chunks: TDocumentChunkSource,
         options?: IPdfSerializedSaveOptions,
+        commitCallbacks?: IPdfSerializedCommitCallbacks,
     ) => Promise<IPdfValidationResult>;
     repairPdf?: (path: TDocumentRef, options?: IDocumentMutationRevisionOptions) => Promise<IPdfValidationResult>;
     optimizePdfForInteraction?: (path: TDocumentRef, options?: IDocumentMutationRevisionOptions) => Promise<IPdfValidationResult>;
@@ -676,6 +685,7 @@ export interface IDocumentsFileCapability {
         data: Uint8Array,
         options?: IPdfSaveAsOptions,
         serializedSaveOptions?: IPdfSerializedSaveOptions,
+        commitCallbacks?: IPdfSerializedCommitCallbacks,
     ) => Promise<{
         path: TDocumentRef | null;
         validation: IPdfValidationResult | null;

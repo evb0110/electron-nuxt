@@ -14,6 +14,7 @@ import type {
     IPdfNativeStagedCommitOptions,
     IPdfOptimizeOptions,
     IPdfSaveAsOptions,
+    IPdfSerializedCommitCallbacks,
     IPdfSerializedSaveOptions,
 } from '@contracts/electronApiDocuments';
 import { isPdfOptimizePreset } from '@contracts/electronApiDocuments';
@@ -39,6 +40,7 @@ import {
     parsePdfPersistenceMainToPreloadFrame,
     type IPdfPersistenceErrorFrame,
 } from '@contracts/documentPersistenceFrames';
+import type { ITypedStagedArtifact } from '@contracts/stagedArtifacts';
 import {
     DOCUMENTS_CHANNELS,
     DOCUMENTS_EVENT_CHANNELS,
@@ -86,10 +88,15 @@ const DOCUMENTS_NATIVE_INVOKE_TIMEOUT_MS_BY_CHANNEL = {
     [DOCUMENTS_CHANNELS.fileSavePdfNoteChanges]: LONG_NATIVE_IPC_TIMEOUT_MS,
     [DOCUMENTS_CHANNELS.fileSavePdfNativeMutations]: LONG_NATIVE_IPC_TIMEOUT_MS,
     [DOCUMENTS_CHANNELS.fileApplyPdfNativeMutationsToWorkingCopy]: LONG_NATIVE_IPC_TIMEOUT_MS,
+    [DOCUMENTS_CHANNELS.fileCommitStagedSerializedPdf]: LONG_NATIVE_IPC_TIMEOUT_MS,
 } as const;
 interface ISerializedPdfPersistencePortResult {
     path: string | null;
     validation: Awaited<ReturnType<IDocumentsFileCapability['validatePdfData']>>;
+    staged?: {
+        sessionId: string;
+        stagedOutput: ITypedStagedArtifact;
+    };
 }
 
 interface IDocumentsFileEventMap {[DOCUMENTS_EVENT_CHANNELS.documentRevisionChanged]: IDocumentRevisionChangedEvent;}
@@ -170,6 +177,58 @@ function assertPdfSerializedSaveOptions(value: unknown, label: string): IPdfSeri
             ? {changedObjectRefs: [...new Set(changedObjectRefs as string[])]}
             : {}),
         ...(value.workingCopyOnly === true ? {workingCopyOnly: true as const} : {}),
+    };
+}
+
+function isVerifyBytesBeforeCommit(
+    value: unknown,
+): value is NonNullable<IPdfSerializedCommitCallbacks['verifyBytesBeforeCommit']> {
+    return typeof value === 'function';
+}
+
+function isVerifyPathBeforeCommit(
+    value: unknown,
+): value is NonNullable<IPdfSerializedCommitCallbacks['verifyPathBeforeCommit']> {
+    return typeof value === 'function';
+}
+
+function isAssertBeforeCommit(
+    value: unknown,
+): value is NonNullable<IPdfSerializedCommitCallbacks['assertBeforeCommit']> {
+    return typeof value === 'function';
+}
+
+function assertPdfSerializedCommitCallbacks(
+    value: unknown,
+    label: string,
+): IPdfSerializedCommitCallbacks | undefined {
+    if (value === undefined || value === null) {
+        return undefined;
+    }
+    if (
+        !isRecord(value)
+        || (value.verifyBytesBeforeCommit !== undefined
+            && !isVerifyBytesBeforeCommit(value.verifyBytesBeforeCommit))
+        || (value.verifyPathBeforeCommit !== undefined
+            && !isVerifyPathBeforeCommit(value.verifyPathBeforeCommit))
+        || (value.assertBeforeCommit !== undefined
+            && !isAssertBeforeCommit(value.assertBeforeCommit))
+    ) {
+        throw new TypeError(`${label} must contain only persistence commit callbacks`);
+    }
+    const verifyBytesBeforeCommit = value.verifyBytesBeforeCommit;
+    const verifyPathBeforeCommit = value.verifyPathBeforeCommit;
+    const assertBeforeCommit = value.assertBeforeCommit;
+    return {
+        ...(isVerifyBytesBeforeCommit(verifyBytesBeforeCommit)
+            ? {verifyBytesBeforeCommit}
+            : {}),
+        ...(isVerifyPathBeforeCommit(verifyPathBeforeCommit)
+            ? {verifyPathBeforeCommit}
+            : {}),
+        ...(isAssertBeforeCommit(assertBeforeCommit)
+            ? {assertBeforeCommit}
+            : {}),
     };
 }
 
@@ -393,6 +452,17 @@ class PdfPersistencePortLifecycle {
             });
             return;
         }
+        if (payload.type === 'staged') {
+            this.resolveDeferred(this.result, {
+                path: null,
+                validation: payload.validation,
+                staged: {
+                    sessionId: payload.sessionId,
+                    stagedOutput: payload.stagedOutput,
+                },
+            });
+            return;
+        }
         this.abort(new PdfPersistenceError(payload));
     };
 
@@ -513,6 +583,34 @@ export function createDocumentsPreloadFileClient(
     ) => options === undefined
         ? invoke(DOCUMENTS_CHANNELS.openDocumentDirectBatch, paths, requestId)
         : invoke(DOCUMENTS_CHANNELS.openDocumentDirectBatch, paths, requestId, options);
+    const commitStagedPersistence = async (
+        result: ISerializedPdfPersistencePortResult,
+        callbacks: IPdfSerializedCommitCallbacks | undefined,
+    ) => {
+        const staged = result.staged;
+        if (staged === undefined) {
+            return result;
+        }
+        try {
+            await callbacks?.verifyPathBeforeCommit?.(
+                staged.stagedOutput.path,
+                staged.stagedOutput.size,
+            );
+            await callbacks?.assertBeforeCommit?.();
+            return await invoke(
+                DOCUMENTS_CHANNELS.fileCommitStagedSerializedPdf,
+                staged.sessionId,
+                staged.stagedOutput,
+            );
+        } catch (error) {
+            await invoke(
+                DOCUMENTS_CHANNELS.fileCancelStagedSerializedPdf,
+                staged.sessionId,
+                staged.stagedOutput,
+            ).catch(() => false);
+            throw error;
+        }
+    };
 
     return {
         openDocumentDirect,
@@ -528,13 +626,17 @@ export function createDocumentsPreloadFileClient(
                 assertPdfSaveAsOptions(options, 'savePdfAs.options'),
                 assertPdfSerializedSaveOptions(revisionOptions, 'savePdfAs.revisionOptions'),
             ),
-        savePdfDataAs: async (workingPath, data, options, serializedSaveOptions) => {
+        savePdfDataAs: async (workingPath, data, options, serializedSaveOptions, commitCallbacks) => {
             const checkedWorkingPath = assertAbsolutePath(workingPath, 'savePdfDataAs.workingPath');
             const checkedData = assertPersistenceData(data, 'savePdfDataAs.data');
             const checkedOptions = assertPdfSaveAsOptions(options, 'savePdfDataAs.options');
             const checkedSerializedSaveOptions = assertPdfSerializedSaveOptions(
                 serializedSaveOptions,
                 'savePdfDataAs.serializedSaveOptions',
+            );
+            const checkedCommitCallbacks = assertPdfSerializedCommitCallbacks(
+                commitCallbacks,
+                'savePdfDataAs.commitCallbacks',
             );
             const beginResult = await invoke(
                 DOCUMENTS_CHANNELS.savePdfDataAsBegin,
@@ -554,12 +656,13 @@ export function createDocumentsPreloadFileClient(
                 sessionId: beginResult.sessionId,
             };
 
-            return streamPdfBytesToPersistencePort(
+            const stagedResult = await streamPdfBytesToPersistencePort(
                 ipcRenderer,
                 streamingBeginResult,
                 iterateUint8ArrayChunks(checkedData),
                 checkedData.byteLength,
             );
+            return commitStagedPersistence(stagedResult, checkedCommitCallbacks);
         },
         savePdfDialog: (suggestedName) => invoke(DOCUMENTS_CHANNELS.savePdfDialog, suggestedName),
         saveDocxAs: (workingPath) => invoke(DOCUMENTS_CHANNELS.saveDocxAs, workingPath),
@@ -760,35 +863,50 @@ export function createDocumentsPreloadFileClient(
                     ? undefined
                     : assertPdfSerializedSaveOptions(revisionOptions, 'optimizePdfAsCopy.revisionOptions'),
             ),
-        savePdfData: async (path, data, options) => {
+        savePdfData: async (path, data, options, commitCallbacks) => {
             const checkedPath = assertAbsolutePath(path, 'savePdfData.path');
             const checkedData = assertPersistenceData(data, 'savePdfData.data');
             const checkedOptions = assertPdfSerializedSaveOptions(options, 'savePdfData.options');
+            const checkedCommitCallbacks = assertPdfSerializedCommitCallbacks(
+                commitCallbacks,
+                'savePdfData.commitCallbacks',
+            );
             const beginResult = await invoke(
                 DOCUMENTS_CHANNELS.fileSavePdfDataBegin,
                 checkedPath,
                 checkedData.byteLength,
                 checkedOptions,
             );
-            const result = await streamPdfBytesToPersistencePort(
+            const stagedResult = await streamPdfBytesToPersistencePort(
                 ipcRenderer,
                 beginResult,
                 iterateUint8ArrayChunks(checkedData),
                 checkedData.byteLength,
             );
+            const result = await commitStagedPersistence(stagedResult, checkedCommitCallbacks);
             return result.validation;
         },
-        savePdfDataChunks: async (path, totalBytes, chunks, options) => {
+        savePdfDataChunks: async (path, totalBytes, chunks, options, commitCallbacks) => {
             const checkedPath = assertAbsolutePath(path, 'savePdfDataChunks.path');
             const checkedTotalBytes = assertPositiveSafeInteger(totalBytes, 'savePdfDataChunks.totalBytes');
             const checkedOptions = assertPdfSerializedSaveOptions(options, 'savePdfDataChunks.options');
+            const checkedCommitCallbacks = assertPdfSerializedCommitCallbacks(
+                commitCallbacks,
+                'savePdfDataChunks.commitCallbacks',
+            );
             const beginResult = await invoke(
                 DOCUMENTS_CHANNELS.fileSavePdfDataBegin,
                 checkedPath,
                 checkedTotalBytes,
                 checkedOptions,
             );
-            const result = await streamPdfBytesToPersistencePort(ipcRenderer, beginResult, chunks, checkedTotalBytes);
+            const stagedResult = await streamPdfBytesToPersistencePort(
+                ipcRenderer,
+                beginResult,
+                chunks,
+                checkedTotalBytes,
+            );
+            const result = await commitStagedPersistence(stagedResult, checkedCommitCallbacks);
             return result.validation;
         },
         savePdfNoteTextUpdates: (path, updates, modifiedAt, options) =>

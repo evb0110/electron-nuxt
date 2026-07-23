@@ -760,6 +760,28 @@ export function registerDocumentsIpcAdapter(
         ]: TDocumentsIpcArgs<typeof DOCUMENTS_CHANNELS.fileSavePdfDataBegin>
     ) =>
         service.beginSavePdfData(createWebContentsContext(event), workingPath, totalBytes, options));
+    register(DOCUMENTS_CHANNELS.fileCommitStagedSerializedPdf, (
+        event: IpcMainInvokeEvent,
+        ...[
+            sessionId,
+            stagedOutput,
+        ]: TDocumentsIpcArgs<typeof DOCUMENTS_CHANNELS.fileCommitStagedSerializedPdf>
+    ) => service.commitStagedSerializedPdf(
+        createSenderIdContext(event),
+        sessionId,
+        stagedOutput,
+    ));
+    register(DOCUMENTS_CHANNELS.fileCancelStagedSerializedPdf, (
+        event: IpcMainInvokeEvent,
+        ...[
+            sessionId,
+            stagedOutput,
+        ]: TDocumentsIpcArgs<typeof DOCUMENTS_CHANNELS.fileCancelStagedSerializedPdf>
+    ) => service.cancelStagedSerializedPdf(
+        createSenderIdContext(event),
+        sessionId,
+        stagedOutput,
+    ));
     register(DOCUMENTS_CHANNELS.fileCleanupOcrTemp, (
         event: IpcMainInvokeEvent,
         ...[filePath]: TDocumentsIpcArgs<typeof DOCUMENTS_CHANNELS.fileCleanupOcrTemp>

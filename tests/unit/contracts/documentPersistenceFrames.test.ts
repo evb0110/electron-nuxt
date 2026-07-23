@@ -16,6 +16,7 @@ import {
     createPdfPersistenceErrorFrame,
     createPdfPersistenceReadyFrame,
     createPdfPersistenceResultFrame,
+    createPdfPersistenceStagedFrame,
     getPdfPersistenceChunkBytes,
     isPdfPersistencePreloadToMainPayload,
     isSerializedPdfPersistenceLimits,
@@ -28,6 +29,27 @@ const validValidation = {
     tool: 'qpdf' as const,
     errors: [],
     warnings: [],
+};
+const validStagedOutput = {
+    receiptVersion: 1 as const,
+    artifactKind: 'pdf' as const,
+    path: '/tmp/staged.pdf',
+    size: 512,
+    sha256: 'a'.repeat(64),
+    fileIdentity: {
+        platform: 'posix' as const,
+        deviceId: '1',
+        inode: '2',
+    },
+    validations: {
+        qpdfCheck: true,
+        qpdfResult: validValidation,
+        tailCheck: true,
+        semanticCheck: false,
+        fsynced: true,
+    },
+    leaseId: 'lease-1',
+    revision: null,
 };
 
 function wrapMessageEventPayload(payload: unknown, depth: number) {
@@ -76,6 +98,16 @@ describe('document persistence frame contracts', () => {
                 path: '/tmp/out.pdf',
                 validation: validValidation,
             });
+        expect(parsePdfPersistenceMainToPreloadFrame(createPdfPersistenceStagedFrame(
+            'session-1',
+            validStagedOutput,
+            validValidation,
+        ))).toEqual({
+            type: 'staged',
+            sessionId: 'session-1',
+            stagedOutput: validStagedOutput,
+            validation: validValidation,
+        });
         expect(parsePdfPersistenceMainToPreloadFrame(createPdfPersistenceErrorFrame(new Error('stream failed'), {
             phase: 'streaming',
             seq: 3,
@@ -112,6 +144,15 @@ describe('document persistence frame contracts', () => {
         expect(parsePdfPersistenceMainToPreloadFrame({
             type: 'ack',
             seq: 1.5,
+        })).toBeNull();
+        expect(parsePdfPersistenceMainToPreloadFrame({
+            type: 'staged',
+            sessionId: 'session-1',
+            stagedOutput: {
+                ...validStagedOutput,
+                leaseId: '',
+            },
+            validation: validValidation,
         })).toBeNull();
     });
 

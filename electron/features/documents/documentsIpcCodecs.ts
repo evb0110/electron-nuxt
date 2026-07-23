@@ -135,6 +135,16 @@ function decodePathValidationResult(value: unknown) {
     };
 }
 
+function decodeCommittedPathValidationResult(value: unknown) {
+    if (!isRecord(value) || (value.path !== null && typeof value.path !== 'string')) {
+        throw new Error('invalid committed PDF persistence result');
+    }
+    return {
+        path: value.path,
+        validation: decodePdfValidation(value.validation),
+    };
+}
+
 function decodePositiveSafeInteger(value: unknown, fieldName: string): number {
     if (!Number.isSafeInteger(value) || typeof value !== 'number' || value < 1) {
         throw new Error(`${fieldName} must be a positive safe integer`);
@@ -834,6 +844,28 @@ export const DOCUMENTS_IPC_CODECS = {
             decodeSafeIntegerArg(args, 1, 'totalBytes'),
         ], decodeRevisionOptions(args[2])),
         decodeResult: decodePersistenceBeginResult,
+    },
+    [DOCUMENTS_CHANNELS.fileCommitStagedSerializedPdf]: {
+        decodeArgs: (args: readonly unknown[]) => {
+            const stagedOutput = decodeTypedStagedArtifact(args[1]);
+            if (!stagedOutput) throw new Error('stagedOutput must be a typed staged artifact');
+            return [
+                decodeStringArg(args, 0, 'sessionId'),
+                stagedOutput,
+            ];
+        },
+        decodeResult: decodeCommittedPathValidationResult,
+    },
+    [DOCUMENTS_CHANNELS.fileCancelStagedSerializedPdf]: {
+        decodeArgs: (args: readonly unknown[]) => {
+            const stagedOutput = decodeTypedStagedArtifact(args[1]);
+            if (!stagedOutput) throw new Error('stagedOutput must be a typed staged artifact');
+            return [
+                decodeStringArg(args, 0, 'sessionId'),
+                stagedOutput,
+            ];
+        },
+        decodeResult: decodeBooleanResult,
     },
     [DOCUMENTS_CHANNELS.fileSavePdfNoteTextUpdates]: {
         decodeArgs: (args: readonly unknown[]) => appendOptional([

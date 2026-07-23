@@ -232,6 +232,9 @@ describe('createFileOperationsSaveExecutor', () => {
     });
 
     it('persists the serialized transaction result when a rewrite is selected', async () => {
+        const verifyAnnotationSave = vi.fn(async () => undefined);
+        const verifyAnnotationSavePath = vi.fn(async () => undefined);
+        const assertAnnotationSaveCurrent = vi.fn();
         const serializedResult = {
             finalBytes: new Uint8Array([
                 8,
@@ -246,8 +249,20 @@ describe('createFileOperationsSaveExecutor', () => {
             baseBytes: new Uint8Array([1]),
             serializedBytes: new Uint8Array([2]),
             serializedResult,
+            verifyAnnotationSave,
+            verifyAnnotationSavePath,
+            assertAnnotationSaveCurrent,
         })});
-        const config = createExecutionConfig();
+        const persistSerialized = vi.fn(async (
+            _data: Uint8Array,
+            options: Parameters<IFileOperationsSaveExecutionConfig['persistSerialized']>[1],
+        ) => {
+            expect(verifyAnnotationSave).not.toHaveBeenCalled();
+            await options.commitCallbacks?.verifyPathBeforeCommit?.('/tmp/staged.pdf', 2);
+            await options.commitCallbacks?.assertBeforeCommit?.();
+            return createPersistResult();
+        });
+        const config = createExecutionConfig({persistSerialized});
         const context = createContext('serialized-rewrite');
 
         await expect(fixture.executor.executeSelectedSavePath(config, context)).resolves.toBe(true);
@@ -265,7 +280,15 @@ describe('createFileOperationsSaveExecutor', () => {
             expectedWorkingPath: '/tmp/work.pdf',
             expectedDocumentRevisionToken: requireDocumentRevisionToken('rev-1'),
             changedObjectRefs: ['12 0 R'],
+            commitCallbacks: {
+                verifyBytesBeforeCommit: verifyAnnotationSave,
+                verifyPathBeforeCommit: verifyAnnotationSavePath,
+                assertBeforeCommit: assertAnnotationSaveCurrent,
+            },
         });
+        expect(verifyAnnotationSavePath).toHaveBeenCalledWith('/tmp/staged.pdf', 2);
+        expect(assertAnnotationSaveCurrent).toHaveBeenCalledOnce();
+        expect(verifyAnnotationSave).not.toHaveBeenCalled();
         expect(fixture.services.completion.primePersistedShapeStateForSave)
             .toHaveBeenCalledWith(serializedResult.finalBytes, false);
         expect(context.reloadWaiter.markFinalized).toHaveBeenCalledOnce();

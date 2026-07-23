@@ -11,6 +11,7 @@ import type {
     IPdfNativeMutationSet,
     IPdfNoteTextUpdate,
     IPdfOptimizeOptions,
+    IPdfSerializedCommitCallbacks,
     IPdfSerializedSaveOptions,
 } from '@contracts/electronApiDocuments';
 import { isStaleRevisionError } from '@contracts/documentMutationErrors';
@@ -448,6 +449,7 @@ export function createDocumentPersistence(
             expectedWorkingPath?: TDocumentRef | null;
             expectedDocumentRevisionToken?: TDocumentRevisionToken | null | undefined;
             changedObjectRefs?: string[];
+            commitCallbacks?: IPdfSerializedCommitCallbacks;
         },
     ): Promise<IPdfPersistResult> {
         const requestedSaveMode = opts?.saveMode ?? 'rewrite';
@@ -468,6 +470,7 @@ export function createDocumentPersistence(
                     expectedWorkingPath: workingPath,
                     expectedDocumentRevisionToken,
                     ...(opts?.changedObjectRefs?.length ? {changedObjectRefs: opts.changedObjectRefs} : {}),
+                    ...(opts?.commitCallbacks ? {commitCallbacks: opts.commitCallbacks} : {}),
                 });
             }
 
@@ -478,6 +481,7 @@ export function createDocumentPersistence(
                     expectedDocumentRevisionToken,
                     ...(opts?.changedObjectRefs?.length ? {changedObjectRefs: opts.changedObjectRefs} : {}),
                 }),
+                opts?.commitCallbacks,
             );
             if (!state.isActiveWorkingCopy(workingPath)) {
                 BrowserLogger.debug('workspace', 'Skipped stale PDF save completion', {
@@ -1047,6 +1051,7 @@ export function createDocumentPersistence(
             expectedDocumentRevisionToken?: TDocumentRevisionToken | null | undefined;
             optimizeLossless?: boolean;
             changedObjectRefs?: string[];
+            commitCallbacks?: IPdfSerializedCommitCallbacks;
         },
     ): Promise<IPdfPersistResult> {
         const requestedSaveMode = opts?.saveMode ?? 'save_as_rewrite';
@@ -1062,6 +1067,7 @@ export function createDocumentPersistence(
                     data,
                     saveAsOptions,
                     revisionOptions,
+                    opts?.commitCallbacks,
                 )
                 : {
                     path: await getDocumentFilesCapability().savePdfAs(

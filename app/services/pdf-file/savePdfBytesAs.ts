@@ -1,6 +1,7 @@
 import type { TDocumentRef } from '@contracts/documentRef';
 import type {
     IPdfSaveAsOptions,
+    IPdfSerializedCommitCallbacks,
     IPdfSerializedSaveOptions,
 } from '@contracts/electronApiDocuments';
 import {
@@ -16,10 +17,17 @@ export async function savePdfBytesAs(
     data: Uint8Array,
     options?: IPdfSaveAsOptions,
     serializedSaveOptions?: IPdfSerializedSaveOptions,
+    commitCallbacks?: IPdfSerializedCommitCallbacks,
 ) {
     const documentFiles = getDocumentFilesCapability();
     if (typeof documentFiles.savePdfDataAs === 'function') {
-        return documentFiles.savePdfDataAs(workingPath, data, options, serializedSaveOptions);
+        return documentFiles.savePdfDataAs(
+            workingPath,
+            data,
+            options,
+            serializedSaveOptions,
+            commitCallbacks,
+        );
     }
 
     const validation = await getDocumentPdfCapability().validatePdfData(data);
@@ -29,6 +37,7 @@ export async function savePdfBytesAs(
             validation,
         };
     }
+    await commitCallbacks?.verifyBytesBeforeCommit?.(data);
 
     const documentWorkingCopy = getDocumentWorkingCopyCapability();
     const stagedWorkingPath = await documentWorkingCopy.createWorkingCopyFromData(
@@ -37,6 +46,7 @@ export async function savePdfBytesAs(
     );
     try {
         const stagedRevision = await documentFiles.getDocumentRevision(stagedWorkingPath);
+        await commitCallbacks?.assertBeforeCommit?.();
         return {
             path: await documentFiles.savePdfAs(stagedWorkingPath, options, { expectedDocumentRevisionToken: stagedRevision.token }),
             validation,

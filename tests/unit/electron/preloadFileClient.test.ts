@@ -137,6 +137,39 @@ function createNativePlacedImage() {
     };
 }
 
+function createStagedPdfArtifact() {
+    const validation = {
+        isValid: true,
+        tool: 'qpdf' as const,
+        errors: [],
+        warnings: [],
+    };
+    return {
+        validation,
+        artifact: {
+            receiptVersion: 1 as const,
+            artifactKind: 'pdf' as const,
+            path: '/tmp/staged.pdf',
+            size: 5,
+            sha256: 'a'.repeat(64),
+            fileIdentity: {
+                platform: 'posix' as const,
+                deviceId: '1',
+                inode: '2',
+            },
+            validations: {
+                qpdfCheck: true,
+                tailCheck: true,
+                semanticCheck: false,
+                fsynced: true,
+                qpdfResult: validation,
+            },
+            leaseId: 'staged-lease',
+            revision: null,
+        },
+    };
+}
+
 describe('createDocumentsPreloadFileClient', () => {
     const revisionOptions = { expectedDocumentRevisionToken: requireDocumentRevisionToken('revision-before-save') };
 
@@ -839,6 +872,158 @@ describe('createDocumentsPreloadFileClient', () => {
             '/tmp/working.pdf',
             5,
             revisionOptions,
+        );
+    });
+
+    it('verifies the staged path and frontier before committing streamed PDF bytes', async () => {
+        const port1 = new FakeMessagePort();
+        const port2 = new FakeMessagePort();
+        const staged = createStagedPdfArtifact();
+        const order: string[] = [];
+        vi.stubGlobal('MessageChannel', class {
+            readonly port1 = port1;
+            readonly port2 = port2;
+        });
+        const ipcRenderer = {
+            invoke: vi.fn(async (channel: string) => {
+                if (channel === DOCUMENTS_CHANNELS.fileSavePdfDataBegin) {
+                    return {sessionId: 'session-1'};
+                }
+                if (channel === DOCUMENTS_CHANNELS.fileCommitStagedSerializedPdf) {
+                    order.push('commit');
+                    return {
+                        path: null,
+                        validation: staged.validation,
+                    };
+                }
+                throw new Error(`Unexpected invoke: ${channel}`);
+            }),
+            postMessage: vi.fn(() => {
+                queueMicrotask(() => {
+                    port1.emit({type: 'ready'});
+                });
+            }),
+        } satisfies Pick<IpcRenderer, 'invoke' | 'postMessage'>;
+        port1.onPostMessage = (message) => {
+            if (isChunkMessage(message)) {
+                queueMicrotask(() => {
+                    port1.emit({
+                        type: 'ack',
+                        seq: message.seq,
+                    });
+                });
+                return;
+            }
+            if (message.type === 'complete') {
+                queueMicrotask(() => {
+                    port1.emit({
+                        type: 'staged',
+                        sessionId: 'session-1',
+                        stagedOutput: staged.artifact,
+                        validation: staged.validation,
+                    });
+                });
+            }
+        };
+        const client = createDocumentsPreloadFileClient(ipcRenderer);
+
+        await expect(client.savePdfDataChunks('/tmp/working.pdf', 5, [new Uint8Array([
+            1,
+            2,
+            3,
+            4,
+            5,
+        ])], revisionOptions, {
+            verifyPathBeforeCommit: async (path, knownSize) => {
+                expect(path).toBe('/tmp/staged.pdf');
+                expect(knownSize).toBe(5);
+                order.push('verify-path');
+            },
+            assertBeforeCommit: () => {
+                order.push('assert-frontier');
+            },
+        })).resolves.toMatchObject({isValid: true});
+
+        expect(order).toEqual([
+            'verify-path',
+            'assert-frontier',
+            'commit',
+        ]);
+        expect(ipcRenderer.invoke).toHaveBeenCalledWith(
+            DOCUMENTS_CHANNELS.fileCommitStagedSerializedPdf,
+            'session-1',
+            staged.artifact,
+        );
+    });
+
+    it('cancels a staged PDF when renderer verification rejects it', async () => {
+        const port1 = new FakeMessagePort();
+        const port2 = new FakeMessagePort();
+        const staged = createStagedPdfArtifact();
+        vi.stubGlobal('MessageChannel', class {
+            readonly port1 = port1;
+            readonly port2 = port2;
+        });
+        const ipcRenderer = {
+            invoke: vi.fn(async (channel: string) => {
+                if (channel === DOCUMENTS_CHANNELS.fileSavePdfDataBegin) {
+                    return {sessionId: 'session-1'};
+                }
+                if (channel === DOCUMENTS_CHANNELS.fileCancelStagedSerializedPdf) {
+                    return true;
+                }
+                throw new Error(`Unexpected invoke: ${channel}`);
+            }),
+            postMessage: vi.fn(() => {
+                queueMicrotask(() => {
+                    port1.emit({type: 'ready'});
+                });
+            }),
+        } satisfies Pick<IpcRenderer, 'invoke' | 'postMessage'>;
+        port1.onPostMessage = (message) => {
+            if (isChunkMessage(message)) {
+                queueMicrotask(() => {
+                    port1.emit({
+                        type: 'ack',
+                        seq: message.seq,
+                    });
+                });
+                return;
+            }
+            if (message.type === 'complete') {
+                queueMicrotask(() => {
+                    port1.emit({
+                        type: 'staged',
+                        sessionId: 'session-1',
+                        stagedOutput: staged.artifact,
+                        validation: staged.validation,
+                    });
+                });
+            }
+        };
+        const client = createDocumentsPreloadFileClient(ipcRenderer);
+        const verifyPathBeforeCommit = async () => {
+            throw new Error('renderer verification failed');
+        };
+
+        await expect(client.savePdfDataChunks('/tmp/working.pdf', 5, [new Uint8Array([
+            1,
+            2,
+            3,
+            4,
+            5,
+        ])], revisionOptions, {verifyPathBeforeCommit}))
+            .rejects.toThrow('renderer verification failed');
+
+        expect(ipcRenderer.invoke).toHaveBeenCalledWith(
+            DOCUMENTS_CHANNELS.fileCancelStagedSerializedPdf,
+            'session-1',
+            staged.artifact,
+        );
+        expect(ipcRenderer.invoke).not.toHaveBeenCalledWith(
+            DOCUMENTS_CHANNELS.fileCommitStagedSerializedPdf,
+            expect.anything(),
+            expect.anything(),
         );
     });
 

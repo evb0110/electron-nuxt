@@ -2,7 +2,10 @@ import type { TPdfSaveMode } from '@app/types/pdfContracts';
 import type { IPdfPersistResult } from '@app/types/pdfUi';
 import type { TDocumentRef } from '@contracts/documentRef';
 import type { TDocumentRevisionToken } from '@contracts/documentRevision';
-import type { IPdfOptimizeOptions } from '@contracts/electronApiDocuments';
+import type {
+    IPdfOptimizeOptions,
+    IPdfSerializedCommitCallbacks,
+} from '@contracts/electronApiDocuments';
 import {
     resolvePdfViewerSaveTransactionFinalBytes,
     type INativePdfMutationProjection,
@@ -31,6 +34,7 @@ export interface IPersistSerializedOptions {
     expectedDocumentRevisionToken?: TDocumentRevisionToken | null;
     optimizeLossless?: boolean;
     changedObjectRefs?: string[];
+    commitCallbacks?: IPdfSerializedCommitCallbacks;
 }
 
 export interface IFileOperationsSaveExecutionConfig {
@@ -266,6 +270,7 @@ export function createFileOperationsSaveExecutor(
             finalBytes: Uint8Array;
             saveMode: TPdfSaveMode;
             changedObjectRefs?: readonly string[];
+            commitCallbacks?: IPdfSerializedCommitCallbacks;
         },
         shapeStateDirty: boolean,
         reloadWaiter: IPostSaveReloadWaiter | null,
@@ -299,6 +304,7 @@ export function createFileOperationsSaveExecutor(
                     ...(saveResult.changedObjectRefs?.length
                         ? {changedObjectRefs: [...saveResult.changedObjectRefs]}
                         : {}),
+                    ...(saveResult.commitCallbacks ? {commitCallbacks: saveResult.commitCallbacks} : {}),
                 }),
                 result => ({
                     bytes: saveResult.finalBytes.byteLength,
@@ -778,6 +784,17 @@ export function createFileOperationsSaveExecutor(
             {allowNativeMutationPlan: false},
         );
         const finalBytes = resolvePdfViewerSaveTransactionFinalBytes(saveTransaction);
+        const commitCallbacks: IPdfSerializedCommitCallbacks = {
+            ...(saveTransaction.verifyAnnotationSave
+                ? {verifyBytesBeforeCommit: saveTransaction.verifyAnnotationSave}
+                : {}),
+            ...(saveTransaction.verifyAnnotationSavePath
+                ? {verifyPathBeforeCommit: saveTransaction.verifyAnnotationSavePath}
+                : {}),
+            ...(saveTransaction.assertAnnotationSaveCurrent
+                ? {assertBeforeCommit: saveTransaction.assertAnnotationSaveCurrent}
+                : {}),
+        };
         const saveResult = finalBytes
             ? {
                 finalBytes,
@@ -785,6 +802,7 @@ export function createFileOperationsSaveExecutor(
                 ...(saveTransaction.serializedResult?.changedObjectRefs?.length
                     ? {changedObjectRefs: saveTransaction.serializedResult.changedObjectRefs}
                     : {}),
+                ...(Object.keys(commitCallbacks).length > 0 ? {commitCallbacks} : {}),
             }
             : null;
         const persistenceExpectedWorkingPath = resolveExpectedWorkingPathForPersistence(
@@ -793,13 +811,6 @@ export function createFileOperationsSaveExecutor(
         );
         let saveSucceeded = false;
         if (persistenceExpectedWorkingPath) {
-            // Semantic verification belongs to the same immutable frontier as
-            // serialization and must finish before the utility process exposes
-            // the staged file through its atomic replace.
-            if (saveResult) {
-                await saveTransaction.verifyAnnotationSave?.(saveResult.finalBytes);
-            }
-            await saveTransaction.assertAnnotationSaveCurrent?.();
             saveSucceeded = await runSerializedSaveFlow(
                 saveResult,
                 context.shapeStateDirty,

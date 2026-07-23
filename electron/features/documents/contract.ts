@@ -10,6 +10,7 @@ import type {
     IBeginSerializedPdfPersistenceResult,
     IBeginSerializedPdfSaveAsResult,
 } from '@electron/features/documents/serializedPdfPersistenceContract';
+import type { ITypedStagedArtifact } from '@contracts/stagedArtifacts';
 export const DOCUMENTS_CHANNELS = {
     openDocumentDirect: 'dialog:openPdfDirect',
     openPdfDirect: 'dialog:openPdfDirect',
@@ -57,6 +58,8 @@ export const DOCUMENTS_CHANNELS = {
     fileSavePdfData: 'file:savePdfData',
     fileSavePdfDataBegin: 'file:savePdfData:begin',
     fileSavePdfDataPort: 'file:savePdfData:port',
+    fileCommitStagedSerializedPdf: 'file:commitStagedSerializedPdf',
+    fileCancelStagedSerializedPdf: 'file:cancelStagedSerializedPdf',
     fileSavePdfNoteTextUpdates: 'file:savePdfNoteTextUpdates',
     fileSavePdfNoteChanges: 'file:savePdfNoteChanges',
     fileSavePdfNativeMutations: 'file:savePdfNativeMutations',
@@ -261,6 +264,23 @@ export interface IDocumentsInvokeMap {
     [DOCUMENTS_CHANNELS.fileSavePdfDataBegin]: {
         args: [path: string, totalBytes: number, options?: IPdfSerializedSaveOptions];
         result: IBeginSerializedPdfPersistenceResult;
+    };
+    [DOCUMENTS_CHANNELS.fileCommitStagedSerializedPdf]: {
+        args: [
+            sessionId: string,
+            stagedOutput: ITypedStagedArtifact,
+        ];
+        result: {
+            path: string | null;
+            validation: Awaited<ReturnType<IDocumentsFileCapability['validatePdfData']>>;
+        };
+    };
+    [DOCUMENTS_CHANNELS.fileCancelStagedSerializedPdf]: {
+        args: [
+            sessionId: string,
+            stagedOutput: ITypedStagedArtifact,
+        ];
+        result: boolean;
     };
     [DOCUMENTS_CHANNELS.fileSavePdfNoteTextUpdates]: {
         args: [

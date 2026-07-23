@@ -143,6 +143,44 @@ describe('managed temporary file handles', () => {
         expect(mocks.inspect).toHaveBeenCalledTimes(process.platform === 'win32' ? 1 : 0);
     });
 
+    it('mints a staged receipt from a trusted incremental fingerprint without rehashing', async () => {
+        const {createTypedStagedArtifact} = await import('@electron/features/documents/main/managedTempFileHandles');
+        const bytes = readFileSync(mocks.path);
+        const trustedFingerprint = {
+            bytes: bytes.byteLength,
+            sha256: createHash('sha256').update(bytes).digest('hex'),
+        };
+
+        const artifact = await createTypedStagedArtifact({senderId: 42}, mocks.path, {
+            qpdfCheck: false,
+            tailCheck: true,
+            semanticCheck: false,
+            fsynced: true,
+        }, {trustedFingerprint});
+
+        expect(artifact).toMatchObject({
+            size: trustedFingerprint.bytes,
+            sha256: trustedFingerprint.sha256,
+        });
+        expect(mocks.inspect).not.toHaveBeenCalled();
+    });
+
+    it('rejects a trusted incremental fingerprint whose byte count drifted', async () => {
+        const {createTypedStagedArtifact} = await import('@electron/features/documents/main/managedTempFileHandles');
+        const trustedFingerprint = {
+            bytes: statSync(mocks.path).size + 1,
+            sha256: 'a'.repeat(64),
+        };
+
+        await expect(createTypedStagedArtifact({senderId: 42}, mocks.path, {
+            qpdfCheck: false,
+            tailCheck: true,
+            semanticCheck: false,
+            fsynced: true,
+        }, {trustedFingerprint})).rejects.toThrow('changed while its receipt was being created');
+        expect(mocks.inspect).not.toHaveBeenCalled();
+    });
+
     it('rejects inconsistent validation evidence while minting a receipt', async () => {
         const {createTypedStagedArtifact} = await import('@electron/features/documents/main/managedTempFileHandles');
 

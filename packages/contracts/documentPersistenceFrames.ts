@@ -1,4 +1,8 @@
 import type { IPdfValidationResult } from '@contracts/pdfConformance';
+import {
+    decodeTypedStagedArtifact,
+    type ITypedStagedArtifact,
+} from '@contracts/stagedArtifacts';
 import { getErrorMessage } from '@contracts/getErrorMessage';
 import {
     getDocumentMutationErrorPayload,
@@ -60,6 +64,13 @@ export interface IPdfPersistenceResultFrame {
     validation: IPdfValidationResult;
 }
 
+export interface IPdfPersistenceStagedFrame {
+    type: 'staged';
+    sessionId: string;
+    stagedOutput: ITypedStagedArtifact;
+    validation: IPdfValidationResult;
+}
+
 export interface IPdfPersistenceReadyFrame { type: 'ready'; }
 
 export interface IPdfPersistenceAckFrame {
@@ -70,6 +81,7 @@ export interface IPdfPersistenceAckFrame {
 
 export type TPdfPersistenceMainToPreloadFrame =
     | IPdfPersistenceResultFrame
+    | IPdfPersistenceStagedFrame
     | IPdfPersistenceErrorFrame
     | IPdfPersistenceReadyFrame
     | IPdfPersistenceAckFrame;
@@ -117,6 +129,19 @@ export function createPdfPersistenceResultFrame(
     return {
         type: 'result',
         path,
+        validation,
+    };
+}
+
+export function createPdfPersistenceStagedFrame(
+    sessionId: string,
+    stagedOutput: ITypedStagedArtifact,
+    validation: IPdfValidationResult,
+): IPdfPersistenceStagedFrame {
+    return {
+        type: 'staged',
+        sessionId,
+        stagedOutput,
         validation,
     };
 }
@@ -208,6 +233,21 @@ export function parsePdfPersistenceMainToPreloadFrame(value: unknown): TPdfPersi
             typeof value.path === 'string' ? value.path : null,
             value.validation,
         );
+    }
+    if (
+        value.type === 'staged'
+        && typeof value.sessionId === 'string'
+        && value.sessionId.length > 0
+        && isPdfValidationResult(value.validation)
+    ) {
+        const stagedOutput = decodeTypedStagedArtifact(value.stagedOutput);
+        if (stagedOutput !== null) {
+            return createPdfPersistenceStagedFrame(
+                value.sessionId,
+                stagedOutput,
+                value.validation,
+            );
+        }
     }
     if (value.type === 'error') {
         const error = typeof value.error === 'string'
