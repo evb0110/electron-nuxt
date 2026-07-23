@@ -13,8 +13,8 @@ use crate::{
     jpeg::parse_jpeg_metadata,
     netpbm::{is_rgb_data_grayscale, parse_netpbm},
     pdf::{ImagePage, ImagePayload},
-    tiff_io::{read_tiff_pdf_pages_from_bytes, visit_tiff_pdf_pages_from_file},
-    MixedPdfImageProcessing, PdfPageSize, Result, DEFAULT_DPI,
+    tiff_io::{visit_tiff_pdf_pages_from_bytes, visit_tiff_pdf_pages_from_file},
+    ImageProcessing, PdfBuildOptions, PdfPageSize, Result, DEFAULT_DPI,
 };
 
 const JPEG_GUARDRAIL_QUALITY_FLOOR: u8 = 75;
@@ -44,37 +44,6 @@ fn image_extension(path: &Path) -> String {
 
 fn is_tiff_extension(extension: &str) -> bool {
     extension == "tif" || extension == "tiff"
-}
-
-pub(crate) fn read_image_pages(
-    path: &Path,
-    max_pixels: u64,
-    default_dpi: Option<u32>,
-    max_tiff_frames: usize,
-) -> Result<Vec<ImagePage>> {
-    let mut pages = Vec::new();
-    visit_image_pages(path, max_pixels, default_dpi, max_tiff_frames, |page| {
-        pages.push(page);
-        Ok(())
-    })?;
-    Ok(pages)
-}
-
-pub(crate) fn visit_image_pages(
-    path: &Path,
-    max_pixels: u64,
-    default_dpi: Option<u32>,
-    max_tiff_frames: usize,
-    on_page: impl FnMut(ImagePage) -> Result<()>,
-) -> Result<usize> {
-    visit_image_pages_from_file(
-        path,
-        File::open(path)?,
-        max_pixels,
-        default_dpi,
-        max_tiff_frames,
-        on_page,
-    )
 }
 
 pub(crate) fn visit_image_pages_from_file(
@@ -112,14 +81,12 @@ pub(crate) fn visit_image_pages_from_file(
     Ok(1)
 }
 
-#[allow(clippy::too_many_arguments)]
 pub(crate) fn read_image_page_from_file(
     path: &Path,
     file: File,
-    max_pixels: u64,
-    default_dpi: Option<u32>,
+    options: &PdfBuildOptions,
     compression: PdfImageCompression,
-    processing: MixedPdfImageProcessing,
+    processing: ImageProcessing,
     page_size: Option<PdfPageSize>,
     size_guardrail: Option<JpegSizeGuardrail>,
 ) -> Result<ImagePage> {
@@ -127,38 +94,51 @@ pub(crate) fn read_image_page_from_file(
     match (extension.as_str(), compression) {
         ("pgm" | "ppm", PdfImageCompression::Jpeg { quality }) => read_netpbm_jpeg_page(
             &read_file(file)?,
-            max_pixels,
-            default_dpi.unwrap_or(DEFAULT_DPI),
+            options.max_pixels,
+            options.default_dpi.unwrap_or(DEFAULT_DPI),
             quality,
             processing,
             page_size,
             size_guardrail,
         ),
-        ("jpg" | "jpeg", _) => read_jpeg_page(read_file(file)?, max_pixels, default_dpi),
+        ("jpg" | "jpeg", _) => {
+            read_jpeg_page(read_file(file)?, options.max_pixels, options.default_dpi)
+        }
         ("pgm" | "ppm", _) => read_netpbm_page(
             &read_file(file)?,
-            max_pixels,
-            default_dpi.unwrap_or(DEFAULT_DPI),
+            options.max_pixels,
+            options.default_dpi.unwrap_or(DEFAULT_DPI),
         ),
-        ("png", _) => read_png_page_from_reader(BufReader::new(file), max_pixels, default_dpi),
+        ("png", _) => read_png_page_from_reader(
+            BufReader::new(file),
+            options.max_pixels,
+            options.default_dpi,
+        ),
         _ => Err(format!("Unsupported image extension: {}", path.display()).into()),
     }
 }
 
-pub(crate) fn read_image_pages_from_bytes(
+pub(crate) fn visit_image_pages_from_bytes(
     file_name: &str,
     bytes: &[u8],
     max_pixels: u64,
     default_dpi: Option<u32>,
     max_tiff_frames: usize,
-) -> Result<Vec<ImagePage>> {
+    mut on_page: impl FnMut(ImagePage) -> Result<()>,
+) -> Result<usize> {
     let extension = file_name
         .rsplit_once('.')
         .map(|(_, extension)| extension)
         .unwrap_or("")
         .to_ascii_lowercase();
     if is_tiff_extension(&extension) {
-        return read_tiff_pdf_pages_from_bytes(bytes, max_pixels, default_dpi, max_tiff_frames);
+        return visit_tiff_pdf_pages_from_bytes(
+            bytes,
+            max_pixels,
+            default_dpi,
+            max_tiff_frames,
+            on_page,
+        );
     }
 
     let page = match extension.as_str() {
@@ -167,17 +147,16 @@ pub(crate) fn read_image_pages_from_bytes(
         "pgm" | "ppm" => read_netpbm_page(bytes, max_pixels, default_dpi.unwrap_or(DEFAULT_DPI))?,
         _ => return Err(format!("Unsupported image extension: {file_name}").into()),
     };
-
-    Ok(vec![page])
+    on_page(page)?;
+    Ok(1)
 }
 
 pub(crate) fn read_image_page_from_bytes(
     file_name: &str,
     bytes: &[u8],
-    max_pixels: u64,
-    default_dpi: Option<u32>,
+    options: &PdfBuildOptions,
     compression: PdfImageCompression,
-    processing: MixedPdfImageProcessing,
+    processing: ImageProcessing,
     page_size: Option<PdfPageSize>,
     size_guardrail: Option<JpegSizeGuardrail>,
 ) -> Result<ImagePage> {
@@ -189,26 +168,34 @@ pub(crate) fn read_image_page_from_bytes(
     match (extension.as_str(), compression) {
         ("pgm" | "ppm", PdfImageCompression::Jpeg { quality }) => read_netpbm_jpeg_page(
             bytes,
-            max_pixels,
-            default_dpi.unwrap_or(DEFAULT_DPI),
+            options.max_pixels,
+            options.default_dpi.unwrap_or(DEFAULT_DPI),
             quality,
             processing,
             page_size,
             size_guardrail,
         ),
         ("pgm" | "ppm", PdfImageCompression::Auto)
-            if matches!(processing, MixedPdfImageProcessing::None) =>
+            if matches!(processing, ImageProcessing::None) =>
         {
-            read_netpbm_page(bytes, max_pixels, default_dpi.unwrap_or(DEFAULT_DPI))
+            read_netpbm_page(
+                bytes,
+                options.max_pixels,
+                options.default_dpi.unwrap_or(DEFAULT_DPI),
+            )
         }
         ("pgm" | "ppm", PdfImageCompression::Auto) => {
             Err("Netpbm byte-input processing requires JPEG compression".into())
         }
-        (_, _) if !matches!(processing, MixedPdfImageProcessing::None) => {
+        (_, _) if !matches!(processing, ImageProcessing::None) => {
             Err("WASM byte-input processing currently supports PGM/PPM Netpbm inputs only".into())
         }
-        ("png", _) => read_png_page_from_reader(Cursor::new(bytes), max_pixels, default_dpi),
-        ("jpg" | "jpeg", _) => read_jpeg_page(bytes.to_vec(), max_pixels, default_dpi),
+        ("png", _) => {
+            read_png_page_from_reader(Cursor::new(bytes), options.max_pixels, options.default_dpi)
+        }
+        ("jpg" | "jpeg", _) => {
+            read_jpeg_page(bytes.to_vec(), options.max_pixels, options.default_dpi)
+        }
         _ => Err(format!("Unsupported image extension: {file_name}").into()),
     }
 }
@@ -329,7 +316,7 @@ fn read_netpbm_jpeg_page(
     max_pixels: u64,
     dpi: u32,
     quality: u8,
-    processing: MixedPdfImageProcessing,
+    processing: ImageProcessing,
     page_size: Option<PdfPageSize>,
     size_guardrail: Option<JpegSizeGuardrail>,
 ) -> Result<ImagePage> {
@@ -458,7 +445,7 @@ struct PreparedNetpbmPixels<'a> {
 fn prepare_netpbm_for_jpeg<'a>(
     netpbm: &crate::netpbm::NetpbmData<'a>,
     max_pixels: u64,
-    processing: MixedPdfImageProcessing,
+    processing: ImageProcessing,
     page_size: Option<PdfPageSize>,
 ) -> Result<PreparedNetpbmPixels<'a>> {
     let prepared = PreparedNetpbmPixels {
@@ -469,8 +456,8 @@ fn prepare_netpbm_for_jpeg<'a>(
     };
 
     match processing {
-        MixedPdfImageProcessing::None => Ok(prepared),
-        MixedPdfImageProcessing::DownscaleToPpi { ppi_cap } => {
+        ImageProcessing::None => Ok(prepared),
+        ImageProcessing::DownscaleToPpi { ppi_cap } => {
             downscale_prepared_netpbm_to_ppi_cap(prepared, max_pixels, page_size, ppi_cap)
         }
     }
@@ -758,16 +745,9 @@ mod tests {
     #[test]
     fn encodes_grayscale_netpbm_as_jpeg_payload() {
         let data = b"P6\n2 1\n255\n\x07\x07\x07\x09\x09\x09";
-        let page = read_netpbm_jpeg_page(
-            data,
-            1_000_000,
-            300,
-            75,
-            MixedPdfImageProcessing::None,
-            None,
-            None,
-        )
-        .unwrap();
+        let page =
+            read_netpbm_jpeg_page(data, 1_000_000, 300, 75, ImageProcessing::None, None, None)
+                .unwrap();
 
         assert_eq!(page.width, 2);
         assert_eq!(page.height, 1);
@@ -791,7 +771,7 @@ mod tests {
             1_000_000,
             300,
             75,
-            MixedPdfImageProcessing::DownscaleToPpi { ppi_cap: 2 },
+            ImageProcessing::DownscaleToPpi { ppi_cap: 2 },
             Some(PdfPageSize {
                 width_points: 72.0,
                 height_points: 72.0,

@@ -26,18 +26,28 @@ pub(crate) fn read_tiff_pdf_pages_from_bytes(
     max_tiff_frames: usize,
 ) -> Result<Vec<ImagePage>> {
     let mut pages = Vec::new();
+    visit_tiff_pdf_pages_from_bytes(bytes, max_pixels, default_dpi, max_tiff_frames, |page| {
+        pages.push(page);
+        Ok(())
+    })?;
+    Ok(pages)
+}
+
+pub(crate) fn visit_tiff_pdf_pages_from_bytes(
+    bytes: &[u8],
+    max_pixels: u64,
+    default_dpi: Option<u32>,
+    max_tiff_frames: usize,
+    on_page: impl FnMut(ImagePage) -> Result<()>,
+) -> Result<usize> {
     visit_tiff_pdf_pages_from_reader(
         Cursor::new(bytes),
         "in-memory TIFF",
         max_pixels,
         default_dpi,
         max_tiff_frames,
-        |page| {
-            pages.push(page);
-            Ok(())
-        },
-    )?;
-    Ok(pages)
+        on_page,
+    )
 }
 
 #[cfg(test)]

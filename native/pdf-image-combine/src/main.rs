@@ -1,15 +1,15 @@
 use std::{
     env, fs,
-    io::Write,
+    io::{BufWriter, Write},
     path::{Path, PathBuf},
     time::Instant,
 };
 
+use evb_native_support::output::{AtomicOutput, ValidatedInputFiles};
 use evb_pdf_image_combine::{
-    combine_tiff_paths, encode_netpbm_path_as_png, probe_netpbm_path,
-    write_mixed_pdf_from_page_specs_with_progress, write_pdf_from_image_paths_with_progress,
-    MixedPdfImageCompression, MixedPdfImageProcessing, MixedPdfPageSpec, PdfBuildOptions,
-    PdfPageSize, Result, DEFAULT_MAX_BILEVEL_PIXELS, DEFAULT_MAX_IMAGE_PIXELS,
+    combine_tiff_paths, encode_netpbm_path_as_png, probe_netpbm_path, write_pdf, FramePolicy,
+    ImageCompression, ImageProcessing, ImageSpec, InputSource, JpegSizeGuardrail, PageSpec,
+    PdfBuildOptions, PdfPageSize, Result, DEFAULT_MAX_BILEVEL_PIXELS, DEFAULT_MAX_IMAGE_PIXELS,
 };
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -54,12 +54,11 @@ fn run() -> Result<()> {
         println!("{}", serde_json::to_string(&probe)?);
         return Ok(());
     }
-    if env::args().skip(1).any(|arg| arg == "--protocol-version") {
+    if raw_args.iter().any(|arg| arg == "--protocol-version") {
         println!("{PROTOCOL_VERSION}");
         return Ok(());
     }
-
-    if env::args().skip(1).any(|arg| arg == "--version") {
+    if raw_args.iter().any(|arg| arg == "--version") {
         println!("evb-pdf-image-combine {VERSION}");
         return Ok(());
     }
@@ -95,40 +94,29 @@ fn run() -> Result<()> {
         return Ok(());
     }
 
+    let page_specs = if let Some(manifest_path) = &config.compact_manifest_path {
+        read_compact_manifest(manifest_path)?
+    } else {
+        config
+            .input_paths
+            .iter()
+            .cloned()
+            .map(|source| PageSpec::Image {
+                page_size: None,
+                image: ImageSpec {
+                    source,
+                    compression: ImageCompression::Auto,
+                    processing: ImageProcessing::None,
+                    size_guardrail: None,
+                },
+                frames: FramePolicy::All,
+            })
+            .collect()
+    };
+    let total = page_specs.len();
     let started_at = Instant::now();
-    if let Some(manifest_path) = &config.compact_manifest_path {
-        let page_specs = read_compact_manifest(manifest_path)?;
-        let total = page_specs.len();
-        write_mixed_pdf_from_page_specs_with_progress(
-            &page_specs,
-            &config.output_path,
-            &PdfBuildOptions {
-                default_dpi: config.dpi,
-                max_pages: read_limit("EVB_PDF_COMBINE_MAX_PAGES", 500, 1, 10_000) as usize,
-                max_pixels,
-                max_bilevel_pixels: DEFAULT_MAX_BILEVEL_PIXELS,
-                max_total_pixels,
-                max_output_bytes: read_limit(
-                    "EVB_PDF_COMBINE_MAX_OUTPUT_BYTES",
-                    512 * 1024 * 1024,
-                    1024 * 1024,
-                    u64::MAX,
-                ),
-                max_tiff_frames: read_limit("EVB_PDF_COMBINE_MAX_TIFF_FRAMES", 250, 1, 5_000)
-                    as usize,
-            },
-            |processed| {
-                if config.json_progress {
-                    print_progress(processed, total, started_at);
-                }
-            },
-        )?;
-        return Ok(());
-    }
-
-    let total = config.input_paths.len();
-    write_pdf_from_image_paths_with_progress(
-        &config.input_paths,
+    write_pdf_file(
+        page_specs,
         &config.output_path,
         &PdfBuildOptions {
             default_dpi: config.dpi,
@@ -149,14 +137,63 @@ fn run() -> Result<()> {
                 print_progress(processed, total, started_at);
             }
         },
-    )?;
+    )
+}
+
+fn write_pdf_file(
+    page_specs: Vec<PageSpec<PathBuf>>,
+    output_path: &Path,
+    options: &PdfBuildOptions,
+    on_processed: impl FnMut(usize),
+) -> Result<()> {
+    if page_specs.is_empty() {
+        return Err("At least one image input is required".into());
+    }
+    let mut paths = Vec::new();
+    for spec in &page_specs {
+        match spec {
+            PageSpec::Image { image, .. } => paths.push(image.source.clone()),
+            PageSpec::Layered {
+                background,
+                foreground_mask,
+                ..
+            } => {
+                paths.push(background.source.clone());
+                paths.push(foreground_mask.clone());
+            }
+            PageSpec::Mask {
+                foreground_mask, ..
+            } => paths.push(foreground_mask.clone()),
+        }
+    }
+
+    let validated = ValidatedInputFiles::open(&paths, output_path)?;
+    let mut input_index = 0usize;
+    let page_specs = page_specs
+        .into_iter()
+        .map(|spec| {
+            spec.map_sources(&mut |label| {
+                let file = validated.clone_file(input_index)?;
+                input_index += 1;
+                Ok::<_, std::io::Error>(InputSource::File { label, file })
+            })
+        })
+        .collect::<std::result::Result<Vec<_>, _>>()?;
+
+    let mut output = AtomicOutput::create(output_path)?;
+    {
+        let writer = BufWriter::new(output.file_mut()?);
+        let mut writer = write_pdf(writer, page_specs, options, on_processed)?;
+        writer.flush()?;
+    }
+    output.publish()?;
     Ok(())
 }
 
 fn parse_args() -> Result<Config> {
     let mut args = env::args().skip(1);
-    let mut output_path: Option<PathBuf> = None;
-    let mut input_paths: Vec<PathBuf> = Vec::new();
+    let mut output_path = None;
+    let mut input_paths = Vec::new();
     let mut json_progress = false;
     let mut dpi = None;
     let mut output_format = OutputFormat::Pdf;
@@ -168,45 +205,32 @@ fn parse_args() -> Result<Config> {
             input_paths.push(PathBuf::from(arg));
             continue;
         }
-
         match arg.as_str() {
             "--output" => {
-                let value = args.next().ok_or("Missing --output value")?;
-                output_path = Some(PathBuf::from(value));
+                output_path = Some(PathBuf::from(args.next().ok_or("Missing --output value")?))
             }
-            "--json-progress" => {
-                json_progress = true;
-            }
-            "--dpi" => {
-                let value = args.next().ok_or("Missing --dpi value")?;
-                dpi = Some(parse_dpi(&value)?);
-            }
+            "--json-progress" => json_progress = true,
+            "--dpi" => dpi = Some(parse_dpi(&args.next().ok_or("Missing --dpi value")?)?),
             "--format" => {
-                let value = args.next().ok_or("Missing --format value")?;
-                output_format = match value.as_str() {
+                output_format = match args.next().ok_or("Missing --format value")?.as_str() {
                     "pdf" => OutputFormat::Pdf,
                     "png" => OutputFormat::Png,
                     "tiff" => OutputFormat::Tiff,
-                    _ => return Err(format!("Unsupported output format: {value}").into()),
-                };
+                    value => return Err(format!("Unsupported output format: {value}").into()),
+                }
             }
             "--inputs-file" => {
                 let value = args.next().ok_or("Missing --inputs-file value")?;
                 input_paths.extend(read_input_paths_file(Path::new(&value))?);
             }
             "--compact-manifest" => {
-                let value = args.next().ok_or("Missing --compact-manifest value")?;
-                compact_manifest_path = Some(PathBuf::from(value));
+                compact_manifest_path = Some(PathBuf::from(
+                    args.next().ok_or("Missing --compact-manifest value")?,
+                ));
             }
-            "--" => {
-                reading_inputs = true;
-            }
-            _ if arg.starts_with('-') => {
-                return Err(format!("Unknown argument: {arg}").into());
-            }
-            _ => {
-                input_paths.push(PathBuf::from(arg));
-            }
+            "--" => reading_inputs = true,
+            _ if arg.starts_with('-') => return Err(format!("Unknown argument: {arg}").into()),
+            _ => input_paths.push(PathBuf::from(arg)),
         }
     }
 
@@ -217,7 +241,6 @@ fn parse_args() -> Result<Config> {
     if compact_manifest_path.is_some() && output_format != OutputFormat::Pdf {
         return Err("--compact-manifest is only supported for PDF output".into());
     }
-
     Ok(Config {
         output_path,
         input_paths,
@@ -229,8 +252,7 @@ fn parse_args() -> Result<Config> {
 }
 
 fn read_input_paths_file(path: &Path) -> Result<Vec<PathBuf>> {
-    let contents = fs::read_to_string(path)?;
-    Ok(contents
+    Ok(fs::read_to_string(path)?
         .lines()
         .map(str::trim)
         .filter(|line| !line.is_empty())
@@ -238,21 +260,23 @@ fn read_input_paths_file(path: &Path) -> Result<Vec<PathBuf>> {
         .collect())
 }
 
-fn read_compact_manifest(path: &Path) -> Result<Vec<MixedPdfPageSpec>> {
+fn read_compact_manifest(path: &Path) -> Result<Vec<PageSpec<PathBuf>>> {
     let contents = fs::read_to_string(path)?;
     let mut page_specs = Vec::new();
-
     for (index, line) in contents.lines().enumerate() {
-        if line.trim().is_empty() {
-            continue;
+        if !line.trim().is_empty() {
+            let page = page_specs.len() + 1;
+            page_specs.push(parse_compact_manifest_line(line, index + 1, page)?);
         }
-        page_specs.push(parse_compact_manifest_line(line, index + 1)?);
     }
-
     Ok(page_specs)
 }
 
-fn parse_compact_manifest_line(line: &str, line_number: usize) -> Result<MixedPdfPageSpec> {
+fn parse_compact_manifest_line(
+    line: &str,
+    line_number: usize,
+    page_number: usize,
+) -> Result<PageSpec<PathBuf>> {
     let parts = line.split('\t').collect::<Vec<_>>();
     let kind = parts
         .first()
@@ -262,34 +286,39 @@ fn parse_compact_manifest_line(line: &str, line_number: usize) -> Result<MixedPd
         width_points: parse_positive_f64(parts.get(1).copied(), "width points", line_number)?,
         height_points: parse_positive_f64(parts.get(2).copied(), "height points", line_number)?,
     };
+    let image = |source, compression, processing, size_guardrail| PageSpec::Image {
+        page_size: Some(page_size),
+        image: ImageSpec {
+            source,
+            compression,
+            processing,
+            size_guardrail,
+        },
+        frames: FramePolicy::ExactlyOne,
+    };
+    let source = |index| parse_manifest_path(parts[index], line_number);
 
     match kind {
-        "image" if parts.len() == 4 => Ok(MixedPdfPageSpec::FullImage {
-            page_size,
-            image_path: parse_manifest_path(parts[3], line_number)?,
-            compression: MixedPdfImageCompression::Auto,
-            image_processing: MixedPdfImageProcessing::None,
-            size_guardrail: false,
-        }),
-        "image-bilevel" if parts.len() == 4 => Ok(MixedPdfPageSpec::Bilevel {
-            page_size,
-            image_path: parse_manifest_path(parts[3], line_number)?,
-        }),
-        "image-jpeg" if parts.len() == 5 => Ok(MixedPdfPageSpec::FullImage {
-            page_size,
-            compression: MixedPdfImageCompression::Jpeg {
+        "image" | "image-bilevel" if parts.len() == 4 => Ok(image(
+            source(3)?,
+            ImageCompression::Auto,
+            ImageProcessing::None,
+            None,
+        )),
+        "image-jpeg" if parts.len() == 5 => Ok(image(
+            source(4)?,
+            ImageCompression::Jpeg {
                 quality: parse_jpeg_quality(parts.get(3).copied(), line_number)?,
             },
-            image_path: parse_manifest_path(parts[4], line_number)?,
-            image_processing: MixedPdfImageProcessing::None,
-            size_guardrail: false,
-        }),
-        "photo-jpeg" if parts.len() == 6 || parts.len() == 7 => Ok(MixedPdfPageSpec::FullImage {
-            page_size,
-            compression: MixedPdfImageCompression::Jpeg {
+            ImageProcessing::None,
+            None,
+        )),
+        "photo-jpeg" if parts.len() == 6 || parts.len() == 7 => Ok(image(
+            source(parts.len() - 1)?,
+            ImageCompression::Jpeg {
                 quality: parse_jpeg_quality(parts.get(3).copied(), line_number)?,
             },
-            image_processing: MixedPdfImageProcessing::DownscaleToPpi {
+            ImageProcessing::DownscaleToPpi {
                 ppi_cap: parse_u16_range(
                     parts.get(4).copied(),
                     "photo PPI cap",
@@ -298,47 +327,46 @@ fn parse_compact_manifest_line(line: &str, line_number: usize) -> Result<MixedPd
                     1200,
                 )?,
             },
-            size_guardrail: true,
-            image_path: parse_manifest_path(parts[parts.len() - 1], line_number)?,
-        }),
-        "layered" if parts.len() == 5 => Ok(MixedPdfPageSpec::Layered {
+            Some(JpegSizeGuardrail {
+                page: page_number,
+                log_json_progress: true,
+            }),
+        )),
+        "layered" if parts.len() == 5 => Ok(PageSpec::Layered {
             page_size,
-            background_path: parse_manifest_path(parts[3], line_number)?,
-            foreground_mask_path: parse_manifest_path(parts[4], line_number)?,
+            background: image_spec(source(3)?, ImageCompression::Auto),
+            foreground_mask: source(4)?,
             foreground_color: None,
-            background_compression: MixedPdfImageCompression::Auto,
-            background_processing: MixedPdfImageProcessing::None,
-            size_guardrail: false,
         }),
-        "layered-jpeg" if parts.len() == 6 => Ok(MixedPdfPageSpec::Layered {
+        "layered-jpeg" if parts.len() == 6 => Ok(PageSpec::Layered {
             page_size,
-            background_compression: MixedPdfImageCompression::Jpeg {
-                quality: parse_jpeg_quality(parts.get(3).copied(), line_number)?,
-            },
-            background_path: parse_manifest_path(parts[4], line_number)?,
-            foreground_mask_path: parse_manifest_path(parts[5], line_number)?,
+            background: image_spec(
+                source(4)?,
+                ImageCompression::Jpeg {
+                    quality: parse_jpeg_quality(parts.get(3).copied(), line_number)?,
+                },
+            ),
+            foreground_mask: source(5)?,
             foreground_color: None,
-            background_processing: MixedPdfImageProcessing::None,
-            size_guardrail: false,
         }),
-        "layered-color-jpeg" if parts.len() == 9 => Ok(MixedPdfPageSpec::Layered {
+        "layered-color-jpeg" if parts.len() == 9 => Ok(PageSpec::Layered {
             page_size,
-            background_compression: MixedPdfImageCompression::Jpeg {
-                quality: parse_jpeg_quality(parts.get(3).copied(), line_number)?,
-            },
-            background_path: parse_manifest_path(parts[4], line_number)?,
-            foreground_mask_path: parse_manifest_path(parts[5], line_number)?,
+            background: image_spec(
+                source(4)?,
+                ImageCompression::Jpeg {
+                    quality: parse_jpeg_quality(parts.get(3).copied(), line_number)?,
+                },
+            ),
+            foreground_mask: source(5)?,
             foreground_color: Some([
                 parse_u8_range(parts.get(6).copied(), "foreground red", line_number)?,
                 parse_u8_range(parts.get(7).copied(), "foreground green", line_number)?,
                 parse_u8_range(parts.get(8).copied(), "foreground blue", line_number)?,
             ]),
-            background_processing: MixedPdfImageProcessing::None,
-            size_guardrail: false,
         }),
-        "mask" if parts.len() == 4 => Ok(MixedPdfPageSpec::MaskOnly {
+        "mask" if parts.len() == 4 => Ok(PageSpec::Mask {
             page_size,
-            foreground_mask_path: parse_manifest_path(parts[3], line_number)?,
+            foreground_mask: source(3)?,
         }),
         "image" | "image-bilevel" | "image-jpeg" | "photo-jpeg" | "layered" | "layered-jpeg"
         | "layered-color-jpeg" | "mask" => {
@@ -347,6 +375,15 @@ fn parse_compact_manifest_line(line: &str, line_number: usize) -> Result<MixedPd
         _ => {
             Err(format!("Invalid compact manifest page kind on line {line_number}: {kind}").into())
         }
+    }
+}
+
+fn image_spec(source: PathBuf, compression: ImageCompression) -> ImageSpec<PathBuf> {
+    ImageSpec {
+        source,
+        compression,
+        processing: ImageProcessing::None,
+        size_guardrail: None,
     }
 }
 
@@ -387,14 +424,14 @@ fn parse_u16_range(
 }
 
 fn parse_u8_range(value: Option<&str>, label: &str, line_number: usize) -> Result<u8> {
-    let parsed = value
+    value
         .ok_or_else(|| format!("Missing {label} on compact manifest line {line_number}"))?
-        .parse::<u8>()?;
-    Ok(parsed)
+        .parse::<u8>()
+        .map_err(Into::into)
 }
 
 fn parse_manifest_path(value: &str, line_number: usize) -> Result<PathBuf> {
-    if value.is_empty() || value.trim() != value || value.contains('\r') || value.contains('\n') {
+    if value.is_empty() || value.trim() != value || value.contains(['\r', '\n']) {
         return Err(format!("Invalid path on compact manifest line {line_number}").into());
     }
     Ok(PathBuf::from(value))
@@ -425,7 +462,6 @@ fn print_progress(processed: usize, total: usize, started_at: Instant) {
         let average = elapsed_ms as f64 / processed.max(1) as f64;
         (average * (total - processed) as f64).round() as u64
     };
-
     println!(
         "{{\"type\":\"progress\",\"processed\":{processed},\"total\":{total},\"percent\":{percent},\"elapsedMs\":{elapsed_ms},\"estimatedRemainingMs\":{estimated_remaining_ms}}}"
     );
@@ -437,164 +473,36 @@ mod tests {
     use super::*;
 
     #[test]
-    fn parses_compact_manifest_layered_and_image_lines() {
-        let layered =
-            parse_compact_manifest_line("layered\t72\t144\t/tmp/background.ppm\t/tmp/mask.pbm", 1)
-                .unwrap();
-        match layered {
-            MixedPdfPageSpec::Layered {
-                page_size,
-                background_path,
-                foreground_mask_path,
-                ..
-            } => {
-                assert_eq!(page_size.width_points, 72.0);
-                assert_eq!(page_size.height_points, 144.0);
-                assert_eq!(background_path, PathBuf::from("/tmp/background.ppm"));
-                assert_eq!(foreground_mask_path, PathBuf::from("/tmp/mask.pbm"));
-            }
-            MixedPdfPageSpec::FullImage { .. }
-            | MixedPdfPageSpec::Bilevel { .. }
-            | MixedPdfPageSpec::MaskOnly { .. } => {
-                panic!("expected layered page")
-            }
-        }
-
-        let image = parse_compact_manifest_line("image\t72\t144\t/tmp/page.ppm", 2).unwrap();
-        match image {
-            MixedPdfPageSpec::FullImage {
-                page_size,
-                image_path,
-                ..
-            } => {
-                assert_eq!(page_size.width_points, 72.0);
-                assert_eq!(page_size.height_points, 144.0);
-                assert_eq!(image_path, PathBuf::from("/tmp/page.ppm"));
-            }
-            MixedPdfPageSpec::Bilevel { .. }
-            | MixedPdfPageSpec::Layered { .. }
-            | MixedPdfPageSpec::MaskOnly { .. } => {
-                panic!("expected image page")
-            }
-        }
-
-        let bilevel =
-            parse_compact_manifest_line("image-bilevel\t72\t144\t/tmp/page.pbm", 3).unwrap();
-        match bilevel {
-            MixedPdfPageSpec::Bilevel {
-                page_size,
-                image_path,
-            } => {
-                assert_eq!(page_size.width_points, 72.0);
-                assert_eq!(page_size.height_points, 144.0);
-                assert_eq!(image_path, PathBuf::from("/tmp/page.pbm"));
-            }
-            MixedPdfPageSpec::FullImage { .. }
-            | MixedPdfPageSpec::Layered { .. }
-            | MixedPdfPageSpec::MaskOnly { .. } => panic!("expected bilevel page"),
-        }
-
-        let mask = parse_compact_manifest_line("mask\t72\t144\t/tmp/mask.pbm", 4).unwrap();
-        match mask {
-            MixedPdfPageSpec::MaskOnly {
-                page_size,
-                foreground_mask_path,
-                ..
-            } => {
-                assert_eq!(page_size.width_points, 72.0);
-                assert_eq!(page_size.height_points, 144.0);
-                assert_eq!(foreground_mask_path, PathBuf::from("/tmp/mask.pbm"));
-            }
-            MixedPdfPageSpec::FullImage { .. }
-            | MixedPdfPageSpec::Bilevel { .. }
-            | MixedPdfPageSpec::Layered { .. } => {
-                panic!("expected mask page")
-            }
-        }
-
-        let jpeg =
-            parse_compact_manifest_line("layered-jpeg\t72\t144\t82\t/tmp/bg.ppm\t/tmp/mask.pbm", 4)
-                .unwrap();
-        match jpeg {
-            MixedPdfPageSpec::Layered {
-                background_compression,
-                ..
-            } => match background_compression {
-                MixedPdfImageCompression::Jpeg { quality } => assert_eq!(quality, 82),
-                MixedPdfImageCompression::Auto => panic!("expected jpeg compression"),
-            },
-            MixedPdfPageSpec::FullImage { .. }
-            | MixedPdfPageSpec::Bilevel { .. }
-            | MixedPdfPageSpec::MaskOnly { .. } => {
-                panic!("expected layered jpeg page")
-            }
-        }
-
-        let layered_color = parse_compact_manifest_line(
+    fn parses_all_compact_page_shapes_into_page_specs() {
+        let cases = [
+            "image\t72\t144\t/tmp/page.ppm",
+            "image-bilevel\t72\t144\t/tmp/page.pbm",
+            "image-jpeg\t72\t144\t82\t/tmp/page.ppm",
+            "photo-jpeg\t72\t144\t85\t300\t/tmp/photo.ppm",
+            "layered\t72\t144\t/tmp/background.ppm\t/tmp/mask.pbm",
+            "layered-jpeg\t72\t144\t82\t/tmp/bg.ppm\t/tmp/mask.pbm",
             "layered-color-jpeg\t72\t144\t82\t/tmp/bg.ppm\t/tmp/mask.pbm\t128\t16\t16",
-            5,
-        )
-        .unwrap();
-        match layered_color {
-            MixedPdfPageSpec::Layered {
-                foreground_color, ..
-            } => {
-                assert_eq!(foreground_color, Some([128, 16, 16]));
-            }
-            MixedPdfPageSpec::FullImage { .. }
-            | MixedPdfPageSpec::Bilevel { .. }
-            | MixedPdfPageSpec::MaskOnly { .. } => {
-                panic!("expected layered color jpeg page")
-            }
-        }
-
-        let photo =
-            parse_compact_manifest_line("photo-jpeg\t72\t144\t85\t300\t/tmp/photo.ppm", 6).unwrap();
-        match photo {
-            MixedPdfPageSpec::FullImage {
-                compression,
-                image_processing,
-                size_guardrail,
-                image_path,
-                ..
-            } => {
-                match compression {
-                    MixedPdfImageCompression::Jpeg { quality } => assert_eq!(quality, 85),
-                    MixedPdfImageCompression::Auto => panic!("expected jpeg compression"),
-                }
-                assert_eq!(
-                    image_processing,
-                    MixedPdfImageProcessing::DownscaleToPpi { ppi_cap: 300 }
-                );
-                assert!(size_guardrail);
-                assert_eq!(image_path, PathBuf::from("/tmp/photo.ppm"));
-            }
-            MixedPdfPageSpec::Bilevel { .. }
-            | MixedPdfPageSpec::Layered { .. }
-            | MixedPdfPageSpec::MaskOnly { .. } => {
-                panic!("expected photo jpeg page")
-            }
+            "mask\t72\t144\t/tmp/mask.pbm",
+        ];
+        for (index, line) in cases.into_iter().enumerate() {
+            parse_compact_manifest_line(line, index + 1, index + 1).unwrap();
         }
     }
 
     #[test]
     fn rejects_invalid_compact_manifest_lines() {
-        assert!(
-            parse_compact_manifest_line("layered\t0\t144\t/tmp/bg.ppm\t/tmp/mask.pbm", 1).is_err()
-        );
-        assert!(parse_compact_manifest_line(
-            "image\t72\t144\t/tmp/page with trailing space.ppm ",
-            2,
-        )
-        .is_err());
-        assert!(parse_compact_manifest_line("mask\t72\t144", 3).is_err());
-        assert!(parse_compact_manifest_line("image-jpeg\t72\t144\t0\t/tmp/page.ppm", 4).is_err());
-        assert!(parse_compact_manifest_line("unknown\t72\t144\t/tmp/page.ppm", 5).is_err());
-        assert!(
-            parse_compact_manifest_line("photo-jpeg\t72\t144\t75\t0\t0\t/tmp/page.ppm", 6).is_err()
-        );
-        assert!(
-            parse_compact_manifest_line("mask-enhanced\t72\t144\t257\t/tmp/mask.pbm", 7,).is_err()
-        );
+        for (index, line) in [
+            "layered\t0\t144\t/tmp/bg.ppm\t/tmp/mask.pbm",
+            "image\t72\t144\t/tmp/page.ppm ",
+            "mask\t72\t144",
+            "image-jpeg\t72\t144\t0\t/tmp/page.ppm",
+            "unknown\t72\t144\t/tmp/page.ppm",
+            "photo-jpeg\t72\t144\t75\t0\t/tmp/page.ppm",
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            assert!(parse_compact_manifest_line(line, index + 1, index + 1).is_err());
+        }
     }
 }

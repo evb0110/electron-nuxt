@@ -2,9 +2,8 @@ use evb_native_support::{NativeErrorCode, NativeErrorEnvelope};
 use std::{cell::RefCell, mem, slice, str};
 
 use crate::{
-    build_mixed_pdf_from_bytes_page_specs, build_pdf_from_image_bytes_page_inputs, ImageBytesInput,
-    ImageBytesPageInput, MixedPdfBytesPageSpec, MixedPdfImageCompression, MixedPdfImageProcessing,
-    PdfBuildOptions, PdfPageSize, Result,
+    write_pdf, FramePolicy, ImageCompression, ImageProcessing, ImageSpec, InputSource,
+    JpegSizeGuardrail, PageSpec, PdfBuildOptions, PdfPageSize, PdfPageSpec, Result,
 };
 
 const REQUEST_MAGIC: &[u8; 4] = b"EPIC";
@@ -22,17 +21,6 @@ const MAX_OUTPUT_BYTES: usize = 512 * 1024 * 1024;
 thread_local! {
     static LAST_OUTPUT: RefCell<Vec<u8>> = const { RefCell::new(Vec::new()) };
     static LAST_ERROR: RefCell<Vec<u8>> = const { RefCell::new(Vec::new()) };
-}
-
-enum ParsedRequest<'a> {
-    ImageInputs {
-        inputs: Vec<ImageBytesPageInput<'a>>,
-        options: PdfBuildOptions,
-    },
-    PageSpecs {
-        page_specs: Vec<MixedPdfBytesPageSpec<'a>>,
-        options: PdfBuildOptions,
-    },
 }
 
 struct RequestHeader {
@@ -74,16 +62,11 @@ pub unsafe extern "C" fn evb_pdf_image_combine_build_pdf(
     let request = slice::from_raw_parts(request_pointer, request_len);
     match std::panic::catch_unwind(|| build_pdf_from_request(request)) {
         Ok(Ok(output)) if output.len() <= MAX_OUTPUT_BYTES => {
-            LAST_OUTPUT.with(|slot| {
-                *slot.borrow_mut() = output;
-            });
+            LAST_OUTPUT.with(|slot| *slot.borrow_mut() = output);
             0
         }
         Ok(Ok(_)) => {
-            set_error_envelope(NativeErrorEnvelope {
-                code: NativeErrorCode::TooLarge,
-                message: "Image-combine WASM output exceeds the admission ceiling".to_string(),
-            });
+            set_error_envelope(output_ceiling_error());
             -1
         }
         Ok(Err(error)) => {
@@ -100,16 +83,15 @@ pub unsafe extern "C" fn evb_pdf_image_combine_build_pdf(
     }
 }
 
-fn set_last_error(message: &str) {
-    LAST_ERROR.with(|slot| {
-        *slot.borrow_mut() = message.as_bytes().to_vec();
-    });
-}
-
 fn set_error_envelope(envelope: NativeErrorEnvelope) {
-    set_last_error(&envelope.to_json());
+    LAST_ERROR.with(|slot| *slot.borrow_mut() = envelope.to_json().into_bytes());
 }
-
+fn output_ceiling_error() -> NativeErrorEnvelope {
+    NativeErrorEnvelope {
+        code: NativeErrorCode::TooLarge,
+        message: "Image-combine WASM output exceeds the admission ceiling".to_string(),
+    }
+}
 #[no_mangle]
 pub extern "C" fn evb_pdf_image_combine_output_ptr() -> *const u8 {
     LAST_OUTPUT.with(|slot| slot.borrow().as_ptr())
@@ -136,51 +118,30 @@ fn clear_last_result() {
 }
 
 fn build_pdf_from_request(request: &[u8]) -> Result<Vec<u8>> {
-    let parsed = parse_request(request)?;
-    match parsed {
-        ParsedRequest::ImageInputs { inputs, options } => {
-            build_pdf_from_image_bytes_page_inputs(&inputs, &options)
-        }
-        ParsedRequest::PageSpecs {
-            page_specs,
-            options,
-        } => build_mixed_pdf_from_bytes_page_specs(&page_specs, &options),
-    }
+    let (page_specs, options) = parse_request(request)?;
+    write_pdf(Vec::new(), page_specs, &options, |_| {})
 }
 
-fn parse_request(request: &[u8]) -> Result<ParsedRequest<'_>> {
+fn parse_request(request: &[u8]) -> Result<(Vec<PdfPageSpec<'_>>, PdfBuildOptions)> {
     let mut offset = 0usize;
-    let magic = take_bytes(request, &mut offset, REQUEST_MAGIC.len())?;
-    if magic != REQUEST_MAGIC {
+    if take_bytes(request, &mut offset, REQUEST_MAGIC.len())? != REQUEST_MAGIC {
         return Err("Invalid image-combine WASM request magic".into());
     }
     let version = read_u32_le(request, &mut offset)?;
-    if version != REQUEST_VERSION_V1
-        && version != REQUEST_VERSION_V2
-        && version != REQUEST_VERSION_V3
-        && version != REQUEST_VERSION_V4
-    {
+    if !(REQUEST_VERSION_V1..=REQUEST_VERSION_V4).contains(&version) {
         return Err(format!("Unsupported image-combine WASM request version: {version}").into());
     }
 
     let header = parse_request_header(request, &mut offset)?;
-    let parsed = if version == REQUEST_VERSION_V3 || version == REQUEST_VERSION_V4 {
-        ParsedRequest::PageSpecs {
-            page_specs: parse_v3_v4_page_specs(request, &mut offset, header.item_count, version)?,
-            options: header.options,
-        }
+    let page_specs = if version <= REQUEST_VERSION_V2 {
+        parse_v1_v2_page_specs(request, &mut offset, header.item_count, version)?
     } else {
-        ParsedRequest::ImageInputs {
-            inputs: parse_v1_v2_image_inputs(request, &mut offset, header.item_count, version)?,
-            options: header.options,
-        }
+        parse_v3_v4_page_specs(request, &mut offset, header.item_count, version)?
     };
-
     if offset != request.len() {
         return Err("Trailing bytes in image-combine WASM request".into());
     }
-
-    Ok(parsed)
+    Ok((page_specs, header.options))
 }
 
 fn parse_request_header(request: &[u8], offset: &mut usize) -> Result<RequestHeader> {
@@ -209,16 +170,16 @@ fn parse_request_header(request: &[u8], offset: &mut usize) -> Result<RequestHea
     })
 }
 
-fn parse_v1_v2_image_inputs<'a>(
+fn parse_v1_v2_page_specs<'a>(
     request: &'a [u8],
     offset: &mut usize,
     input_count: usize,
     version: u32,
-) -> Result<Vec<ImageBytesPageInput<'a>>> {
-    let mut inputs = Vec::with_capacity(input_count);
+) -> Result<Vec<PdfPageSpec<'a>>> {
+    let mut page_specs = Vec::with_capacity(input_count);
     for _ in 0..input_count {
-        let mut compression = MixedPdfImageCompression::Auto;
-        let mut image_processing = MixedPdfImageProcessing::None;
+        let mut compression = ImageCompression::Auto;
+        let mut processing = ImageProcessing::None;
         let mut page_size = None;
         if version == REQUEST_VERSION_V2 {
             let target_ppi = read_u16_range(request, offset, "target_ppi", 0, 600)?;
@@ -241,7 +202,7 @@ fn parse_v1_v2_image_inputs<'a>(
                 });
             }
             if jpeg_quality > 0 {
-                compression = MixedPdfImageCompression::Jpeg {
+                compression = ImageCompression::Jpeg {
                     quality: jpeg_quality,
                 };
             }
@@ -251,22 +212,23 @@ fn parse_v1_v2_image_inputs<'a>(
                 }
                 let _ = max_scale;
                 let _ = dark_speckle_area;
-                image_processing = MixedPdfImageProcessing::DownscaleToPpi {
+                processing = ImageProcessing::DownscaleToPpi {
                     ppi_cap: target_ppi.max(1),
                 };
             }
         }
-        let input = read_image_bytes_input(request, offset)?;
-        inputs.push(ImageBytesPageInput {
-            file_name: input.file_name,
-            data: input.data,
+        page_specs.push(PageSpec::Image {
             page_size,
-            compression,
-            image_processing,
-            size_guardrail: None,
+            image: ImageSpec {
+                source: read_input_source(request, offset)?,
+                compression,
+                processing,
+                size_guardrail: None,
+            },
+            frames: FramePolicy::All,
         });
     }
-    Ok(inputs)
+    Ok(page_specs)
 }
 
 fn parse_v3_v4_page_specs<'a>(
@@ -274,9 +236,9 @@ fn parse_v3_v4_page_specs<'a>(
     offset: &mut usize,
     page_count: usize,
     version: u32,
-) -> Result<Vec<MixedPdfBytesPageSpec<'a>>> {
+) -> Result<Vec<PdfPageSpec<'a>>> {
     let mut page_specs = Vec::with_capacity(page_count);
-    for _ in 0..page_count {
+    for page_index in 0..page_count {
         let kind = read_u32_le(request, offset)?;
         let page_size = read_page_size(request, offset)?;
         let jpeg_quality = read_u8_range(request, offset, "jpeg_quality", 0, 100)?;
@@ -285,45 +247,58 @@ fn parse_v3_v4_page_specs<'a>(
             let _ = read_u32_le(request, offset)?;
         }
         let compression = if jpeg_quality > 0 {
-            MixedPdfImageCompression::Jpeg {
+            ImageCompression::Jpeg {
                 quality: jpeg_quality,
             }
         } else {
-            MixedPdfImageCompression::Auto
+            ImageCompression::Auto
         };
-        let image_processing = if ppi_cap > 0 {
-            MixedPdfImageProcessing::DownscaleToPpi { ppi_cap }
+        let processing = if ppi_cap > 0 {
+            ImageProcessing::DownscaleToPpi { ppi_cap }
         } else {
-            MixedPdfImageProcessing::None
+            ImageProcessing::None
         };
 
-        let page_spec = match kind {
-            PAGE_KIND_IMAGE => MixedPdfBytesPageSpec::FullImage {
-                page_size,
-                image: read_image_bytes_input(request, offset)?,
-                compression,
-                image_processing,
-                size_guardrail: ppi_cap > 0,
+        page_specs.push(match kind {
+            PAGE_KIND_IMAGE => PageSpec::Image {
+                page_size: Some(page_size),
+                image: ImageSpec {
+                    source: read_input_source(request, offset)?,
+                    compression,
+                    processing,
+                    size_guardrail: (ppi_cap > 0).then_some(JpegSizeGuardrail {
+                        page: page_index + 1,
+                        log_json_progress: false,
+                    }),
+                },
+                frames: FramePolicy::ExactlyOne,
             },
-            PAGE_KIND_MASK => MixedPdfBytesPageSpec::MaskOnly {
+            PAGE_KIND_MASK => PageSpec::Mask {
                 page_size,
-                foreground_mask: read_image_bytes_input(request, offset)?,
+                foreground_mask: read_input_source(request, offset)?,
             },
-            PAGE_KIND_LAYERED => MixedPdfBytesPageSpec::Layered {
+            PAGE_KIND_LAYERED => PageSpec::Layered {
                 page_size,
-                background: read_image_bytes_input(request, offset)?,
-                foreground_mask: read_image_bytes_input(request, offset)?,
+                background: ImageSpec {
+                    source: read_input_source(request, offset)?,
+                    compression,
+                    processing: ImageProcessing::None,
+                    size_guardrail: None,
+                },
+                foreground_mask: read_input_source(request, offset)?,
                 foreground_color: None,
-                background_compression: compression,
-                background_processing: MixedPdfImageProcessing::None,
-                size_guardrail: false,
             },
-            PAGE_KIND_LAYERED_COLOR => MixedPdfBytesPageSpec::Layered {
+            PAGE_KIND_LAYERED_COLOR => PageSpec::Layered {
                 page_size,
-                background: read_image_bytes_input(request, offset)?,
-                foreground_mask: read_image_bytes_input(request, offset)?,
+                background: ImageSpec {
+                    source: read_input_source(request, offset)?,
+                    compression,
+                    processing: ImageProcessing::None,
+                    size_guardrail: None,
+                },
+                foreground_mask: read_input_source(request, offset)?,
                 foreground_color: if version == REQUEST_VERSION_V3 {
-                    let _ = read_image_bytes_input(request, offset)?;
+                    let _ = read_input_source(request, offset)?;
                     None
                 } else {
                     Some([
@@ -332,13 +307,9 @@ fn parse_v3_v4_page_specs<'a>(
                         read_u8_range(request, offset, "foreground_blue", 0, 255)?,
                     ])
                 },
-                background_compression: compression,
-                background_processing: MixedPdfImageProcessing::None,
-                size_guardrail: false,
             },
             _ => return Err(format!("Unsupported image-combine WASM page kind: {kind}").into()),
-        };
-        page_specs.push(page_spec);
+        });
     }
     Ok(page_specs)
 }
@@ -359,18 +330,12 @@ fn read_page_size(request: &[u8], offset: &mut usize) -> Result<PdfPageSize> {
     })
 }
 
-fn read_image_bytes_input<'a>(
-    request: &'a [u8],
-    offset: &mut usize,
-) -> Result<ImageBytesInput<'a>> {
+fn read_input_source<'a>(request: &'a [u8], offset: &mut usize) -> Result<InputSource<'a>> {
     let name_len = read_usize_le(request, offset, "name_len")?;
     let data_len = read_usize_le(request, offset, "data_len")?;
-    let name = str::from_utf8(take_bytes(request, offset, name_len)?)?;
+    let file_name = str::from_utf8(take_bytes(request, offset, name_len)?)?;
     let data = take_bytes(request, offset, data_len)?;
-    Ok(ImageBytesInput {
-        file_name: name,
-        data,
-    })
+    Ok(InputSource::Bytes { file_name, data })
 }
 
 fn read_usize_le(request: &[u8], offset: &mut usize, label: &str) -> Result<usize> {
@@ -386,10 +351,7 @@ fn read_u16_range(
     max_value: u16,
 ) -> Result<u16> {
     let value = read_u32_le(request, offset)?;
-    if value > u16::MAX as u32 {
-        return Err(format!("Invalid image-combine WASM {label}").into());
-    }
-    let parsed = value as u16;
+    let parsed = u16::try_from(value).map_err(|_| format!("Invalid image-combine WASM {label}"))?;
     if parsed < min_value || parsed > max_value {
         return Err(format!("Invalid image-combine WASM {label}").into());
     }
@@ -404,10 +366,7 @@ fn read_u8_range(
     max_value: u8,
 ) -> Result<u8> {
     let value = read_u32_le(request, offset)?;
-    if value > u8::MAX as u32 {
-        return Err(format!("Invalid image-combine WASM {label}").into());
-    }
-    let parsed = value as u8;
+    let parsed = u8::try_from(value).map_err(|_| format!("Invalid image-combine WASM {label}"))?;
     if parsed < min_value || parsed > max_value {
         return Err(format!("Invalid image-combine WASM {label}").into());
     }
@@ -416,14 +375,12 @@ fn read_u8_range(
 
 fn read_u32_le(request: &[u8], offset: &mut usize) -> Result<u32> {
     let bytes = take_bytes(request, offset, 4)?;
-    Ok(u32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]))
+    Ok(u32::from_le_bytes(bytes.try_into()?))
 }
 
 fn read_f64_le(request: &[u8], offset: &mut usize) -> Result<f64> {
     let bytes = take_bytes(request, offset, 8)?;
-    Ok(f64::from_le_bytes([
-        bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7],
-    ]))
+    Ok(f64::from_le_bytes(bytes.try_into()?))
 }
 
 fn take_bytes<'a>(request: &'a [u8], offset: &mut usize, len: usize) -> Result<&'a [u8]> {
@@ -435,4 +392,149 @@ fn take_bytes<'a>(request: &'a [u8], offset: &mut usize, len: usize) -> Result<&
         .ok_or("Truncated image-combine WASM request")?;
     *offset = end;
     Ok(bytes)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const PPM: &[u8] = b"P6\n1 1\n255\n\x10\x20\x30";
+    const PBM: &[u8] = b"P4\n8 1\n\x80";
+
+    #[test]
+    fn versions_one_through_four_map_to_page_specs_and_build() {
+        let v1 = image_request(REQUEST_VERSION_V1, false);
+        let (specs, options) = parse_request(&v1).unwrap();
+        assert!(matches!(
+            specs.as_slice(),
+            [PageSpec::Image {
+                frames: FramePolicy::All,
+                ..
+            }]
+        ));
+        assert!(write_pdf(Vec::new(), specs, &options, |_| {})
+            .unwrap()
+            .starts_with(b"%PDF-1.4"));
+
+        let v2 = image_request(REQUEST_VERSION_V2, true);
+        let (specs, options) = parse_request(&v2).unwrap();
+        assert!(write_pdf(Vec::new(), specs, &options, |_| {})
+            .unwrap()
+            .windows(b"/DCTDecode".len())
+            .any(|window| window == b"/DCTDecode"));
+
+        let v3 = layered_color_request(REQUEST_VERSION_V3);
+        let (specs, options) = parse_request(&v3).unwrap();
+        assert!(matches!(
+            specs.as_slice(),
+            [PageSpec::Layered {
+                foreground_color: None,
+                ..
+            }]
+        ));
+        assert!(write_pdf(Vec::new(), specs, &options, |_| {}).is_ok());
+
+        let v4 = layered_color_request(REQUEST_VERSION_V4);
+        let (specs, options) = parse_request(&v4).unwrap();
+        assert!(matches!(
+            specs.as_slice(),
+            [PageSpec::Layered {
+                foreground_color: Some([128, 16, 8]),
+                ..
+            }]
+        ));
+        let pdf = write_pdf(Vec::new(), specs, &options, |_| {}).unwrap();
+        assert!(String::from_utf8_lossy(&pdf).contains("0.5020 0.0627 0.0314 rg"));
+    }
+
+    #[test]
+    fn preserves_parser_errors_and_request_ceiling_envelope() {
+        let mut unsupported = request_header(99, 1);
+        push_input(&mut unsupported, "page.ppm", PPM);
+        assert_eq!(
+            parse_request(&unsupported).err().unwrap().to_string(),
+            "Unsupported image-combine WASM request version: 99"
+        );
+
+        let mut trailing = image_request(REQUEST_VERSION_V1, false);
+        trailing.push(0);
+        assert_eq!(
+            parse_request(&trailing).err().unwrap().to_string(),
+            "Trailing bytes in image-combine WASM request"
+        );
+        let mut truncated = image_request(REQUEST_VERSION_V1, false);
+        truncated.pop();
+        assert_eq!(
+            parse_request(&truncated).err().unwrap().to_string(),
+            "Truncated image-combine WASM request"
+        );
+
+        let dangling = std::ptr::NonNull::<u8>::dangling().as_ptr();
+        let result = unsafe { evb_pdf_image_combine_build_pdf(dangling, MAX_REQUEST_BYTES + 1) };
+        assert_eq!(result, -1);
+        let envelope = LAST_ERROR.with(|slot| String::from_utf8(slot.borrow().clone()).unwrap());
+        assert_eq!(
+            envelope,
+            r#"{"code":"too-large","message":"Image-combine WASM request exceeds the admission ceiling"}"#
+        );
+        assert_eq!(
+            output_ceiling_error().to_json(),
+            r#"{"code":"too-large","message":"Image-combine WASM output exceeds the admission ceiling"}"#
+        );
+    }
+
+    fn image_request(version: u32, processed: bool) -> Vec<u8> {
+        let mut request = request_header(version, 1);
+        if version == REQUEST_VERSION_V2 {
+            push_u32(&mut request, if processed { 300 } else { 0 });
+            push_u32(&mut request, 1);
+            push_u32(&mut request, 0);
+            push_u32(&mut request, if processed { 85 } else { 0 });
+            request.extend_from_slice(&72f64.to_le_bytes());
+            request.extend_from_slice(&72f64.to_le_bytes());
+        }
+        push_input(&mut request, "page.ppm", PPM);
+        request
+    }
+
+    fn layered_color_request(version: u32) -> Vec<u8> {
+        let mut request = request_header(version, 1);
+        push_u32(&mut request, PAGE_KIND_LAYERED_COLOR);
+        request.extend_from_slice(&72f64.to_le_bytes());
+        request.extend_from_slice(&72f64.to_le_bytes());
+        push_u32(&mut request, 0);
+        push_u32(&mut request, 0);
+        if version == REQUEST_VERSION_V3 {
+            push_u32(&mut request, 0xfeed_beef);
+        }
+        push_input(&mut request, "background.ppm", PPM);
+        push_input(&mut request, "mask.pbm", PBM);
+        if version == REQUEST_VERSION_V3 {
+            push_input(&mut request, "legacy.pbm", b"discarded");
+        } else {
+            push_u32(&mut request, 128);
+            push_u32(&mut request, 16);
+            push_u32(&mut request, 8);
+        }
+        request
+    }
+
+    fn request_header(version: u32, count: u32) -> Vec<u8> {
+        let mut request = REQUEST_MAGIC.to_vec();
+        for value in [version, 72, 10, 1_000_000, 10, count] {
+            push_u32(&mut request, value);
+        }
+        request
+    }
+
+    fn push_input(request: &mut Vec<u8>, name: &str, data: &[u8]) {
+        push_u32(request, name.len() as u32);
+        push_u32(request, data.len() as u32);
+        request.extend_from_slice(name.as_bytes());
+        request.extend_from_slice(data);
+    }
+
+    fn push_u32(request: &mut Vec<u8>, value: u32) {
+        request.extend_from_slice(&value.to_le_bytes());
+    }
 }

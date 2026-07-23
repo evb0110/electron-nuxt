@@ -63,6 +63,7 @@ pub struct MaskPdfPage {
     pub foreground_mask: PbmP4Image,
 }
 
+#[cfg(test)]
 pub(crate) fn build_pdf(pages: &[ImagePage]) -> Result<Vec<u8>> {
     let mut writer = PdfWriter::new(Vec::new())?;
     for page in pages {
@@ -71,13 +72,15 @@ pub(crate) fn build_pdf(pages: &[ImagePage]) -> Result<Vec<u8>> {
     writer.finish()
 }
 
-pub fn build_layered_pdf_page(page: &LayeredPdfPage) -> Result<Vec<u8>> {
+#[cfg(test)]
+pub(crate) fn build_layered_pdf_page(page: &LayeredPdfPage) -> Result<Vec<u8>> {
     let mut writer = PdfWriter::new(Vec::new())?;
     writer.add_layered_page(page)?;
     writer.finish()
 }
 
-pub fn build_mask_pdf_page(page: &MaskPdfPage) -> Result<Vec<u8>> {
+#[cfg(test)]
+pub(crate) fn build_mask_pdf_page(page: &MaskPdfPage) -> Result<Vec<u8>> {
     let mut writer = PdfWriter::new(Vec::new())?;
     writer.add_mask_page(page)?;
     writer.finish()
