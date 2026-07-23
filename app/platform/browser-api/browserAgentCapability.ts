@@ -5,7 +5,7 @@ import type {
     IAgentAssistantStateRequest,
     IAgentMcpIntegrationStatus,
 } from '@contracts/agent';
-import type { IAgentCapability } from '@contracts/agentCapability';
+import type { IAgentCapability } from '@contracts/agentPlatformFeature';
 import {
     ASSISTANT_DEFAULT_EFFORT,
     ASSISTANT_DEFAULT_SPEED_MODE,

@@ -19,7 +19,7 @@ import type {
     IAgentWorkspaceSnapshotRequest,
 } from '@contracts/agent';
 import type { IDocumentRevisionInfo } from '@contracts/documentRevision';
-import type { IAgentCapability } from '@contracts/agentCapability';
+import type { IAgentCapability } from '@contracts/agentPlatformFeature';
 import type { IElectronAPI } from '@contracts/electronApi';
 import { buildAgentWorkspaceSnapshot } from '@app/modules/workspace-shell/agent/buildAgentWorkspaceSnapshot';
 import { useAgentWorkspaceSnapshot } from '@app/modules/workspace-shell/composables/useAgentWorkspaceSnapshot';

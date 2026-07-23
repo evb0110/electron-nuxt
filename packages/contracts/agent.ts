@@ -590,6 +590,8 @@ export const AGENT_ASSISTANT_PRESET_IDS = [
     'number-pages',
     'check-ocr-readiness',
 ] as const;
+export const ASSISTANT_MAX_IMAGE_ATTACHMENTS = 8;
+export const ASSISTANT_MAX_IMAGE_BYTES = 10 * 1024 * 1024;
 export type TAgentAssistantPresetId = typeof AGENT_ASSISTANT_PRESET_IDS[number];
 
 export interface IAgentAssistantSendMessageRequest {

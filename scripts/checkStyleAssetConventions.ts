@@ -1,158 +1,76 @@
 import { readdir } from 'node:fs/promises';
 import path from 'node:path';
 
-interface IStyleAssetRoot {
-    root: string;
-    allowedCssFiles: ReadonlySet<string>;
-    allowedCssPrefixes: readonly string[];
-    target: TStyleAssetTarget;
-}
-
-interface IStyleAssetFile {
-    absolutePath: string;
-    relativePath: string;
-    repoPath: string;
-}
-
-const STYLE_ASSET_ROOTS: IStyleAssetRoot[] = [
+const STYLE_ASSET_ROOTS = [
     {
         root: 'app/assets/css',
-        allowedCssFiles: new Set(['main.css']),
-        allowedCssPrefixes: ['vendor/'],
         target: 'app',
     },
     {
         root: 'landing/app/assets/css',
-        allowedCssFiles: new Set(['main.css']),
-        allowedCssPrefixes: [],
         target: 'landing',
     },
-];
-
-const VALID_TARGETS = [
-    'all',
-    'app',
-    'landing',
 ] as const;
-type TStyleAssetTarget = typeof VALID_TARGETS[number];
+const STYLE_ASSET_FILE_PATTERN = /^_?[a-z0-9]+(?:-[a-z0-9]+)*\.(?:css|scss)$/u;
 
-const STYLE_EXTENSIONS = new Set([
-    '.css',
-    '.scss',
-]);
-
-const STYLE_ASSET_FILE_NAME_PATTERN = /^_?[a-z0-9]+(?:-[a-z0-9]+)*\.(?:css|scss)$/u;
-
-function toRepoPath(filePath: string) {
-    return path.relative(process.cwd(), filePath).split(path.sep).join('/');
-}
-
-function isStyleFile(filePath: string) {
-    return STYLE_EXTENSIONS.has(path.extname(filePath));
-}
-
-function isStyleAssetTarget(value: string): value is TStyleAssetTarget {
-    return (VALID_TARGETS as readonly string[]).includes(value);
-}
-
-function parseTarget(argv = process.argv.slice(2)) {
-    const targetArg = argv.find(arg => arg.startsWith('--target='));
-    const target = targetArg?.slice('--target='.length) ?? 'app';
-
-    if (isStyleAssetTarget(target)) {
+function parseTarget() {
+    const target = process.argv.find(argument => argument.startsWith('--target='))?.slice('--target='.length) ?? 'app';
+    if (target === 'app' || target === 'landing' || target === 'all') {
         return target;
     }
-
     throw new Error(`Expected --target to be one of: app, landing, all. Received "${target}".`);
 }
 
-function getTargetRoots(target: TStyleAssetTarget) {
-    return STYLE_ASSET_ROOTS.filter(root => target === 'all' || root.target === target);
-}
-
-function isAllowedCssFile(file: IStyleAssetFile, root: IStyleAssetRoot) {
-    return root.allowedCssFiles.has(file.relativePath)
-        || root.allowedCssPrefixes.some(prefix => file.relativePath.startsWith(prefix));
-}
-
-function getStyleTwinKey(file: IStyleAssetFile, root: IStyleAssetRoot) {
-    const directoryPath = path.dirname(file.relativePath);
-    const extension = path.extname(file.relativePath);
-    const baseName = path.basename(file.relativePath, extension).replace(/^_/u, '');
-
-    return `${root.root}/${directoryPath}/${baseName}`;
-}
-
-async function collectStyleAssetFiles(root: IStyleAssetRoot, directoryPath = path.resolve(root.root), files: IStyleAssetFile[] = []) {
-    const entries = await readdir(directoryPath, {withFileTypes: true});
-
-    for (const entry of entries) {
-        const absolutePath = path.join(directoryPath, entry.name);
-
+async function collectStyleFiles(root: string, directory = root): Promise<string[]> {
+    const entries = await readdir(directory, { withFileTypes: true });
+    return (await Promise.all(entries.map(async (entry) => {
+        const entryPath = path.join(directory, entry.name);
         if (entry.isDirectory()) {
-            await collectStyleAssetFiles(root, absolutePath, files);
-            continue;
+            return collectStyleFiles(root, entryPath);
         }
+        return entry.isFile() && /\.(?:css|scss)$/u.test(entry.name)
+            ? [path.relative(root, entryPath).split(path.sep).join('/')]
+            : [];
+    }))).flat();
+}
 
-        if (!entry.isFile() || !isStyleFile(absolutePath)) {
-            continue;
-        }
-
-        files.push({
-            absolutePath,
-            relativePath: path.relative(path.resolve(root.root), absolutePath).split(path.sep).join('/'),
-            repoPath: toRepoPath(absolutePath),
-        });
+const violations: string[] = [];
+for (const assetRoot of STYLE_ASSET_ROOTS) {
+    const target = parseTarget();
+    if (target !== 'all' && target !== assetRoot.target) {
+        continue;
     }
 
-    return files;
-}
-
-async function main() {
-    const violations: string[] = [];
-    const twinExtensionsByKey = new Map<string, Set<string>>();
-    const target = parseTarget();
-
-    for (const root of getTargetRoots(target)) {
-        const files = await collectStyleAssetFiles(root);
-
-        for (const file of files) {
-            const extension = path.extname(file.relativePath);
-            const fileName = path.basename(file.relativePath);
-
-            if (!STYLE_ASSET_FILE_NAME_PATTERN.test(fileName)) {
-                violations.push(`${file.repoPath}: style asset filenames must be lower kebab-case with an optional Sass partial underscore.`);
-            }
-
-            if (extension === '.css' && !isAllowedCssFile(file, root)) {
-                violations.push(`${file.repoPath}: app-owned asset styles should use .scss; keep .css for main.css and vendor/generated CSS.`);
-            }
-
-            const twinKey = getStyleTwinKey(file, root);
-            const twinExtensions = twinExtensionsByKey.get(twinKey) ?? new Set<string>();
-            twinExtensions.add(extension);
-            twinExtensionsByKey.set(twinKey, twinExtensions);
+    const extensionsByTwin = new Map<string, Set<string>>();
+    for (const relativePath of await collectStyleFiles(assetRoot.root)) {
+        const extension = path.extname(relativePath);
+        const fileName = path.basename(relativePath);
+        if (relativePath.startsWith('vendor/') && !STYLE_ASSET_FILE_PATTERN.test(fileName)) {
+            violations.push(`${assetRoot.root}/${relativePath}: vendor style asset filenames must be lower kebab-case.`);
         }
+
+        const twin = relativePath
+            .slice(0, -extension.length)
+            .replace(/(^|\/)_/gu, '$1');
+        const extensions = extensionsByTwin.get(twin) ?? new Set<string>();
+        extensions.add(extension);
+        extensionsByTwin.set(twin, extensions);
     }
 
     for (const [
-        twinKey,
+        twin,
         extensions,
-    ] of twinExtensionsByKey) {
+    ] of extensionsByTwin) {
         if (extensions.has('.css') && extensions.has('.scss')) {
-            violations.push(`${twinKey}: do not keep both .css and .scss variants for the same style asset.`);
+            violations.push(`${assetRoot.root}/${twin}: do not keep both .css and .scss variants for the same style asset.`);
         }
     }
+}
 
-    if (violations.length === 0) {
-        return;
-    }
-
-    console.error('Style asset convention violations:');
+if (violations.length > 0) {
+    console.error('Cross-file style asset convention violations:');
     for (const violation of violations) {
         console.error(`  ${violation}`);
     }
     process.exitCode = 1;
 }
-
-await main();

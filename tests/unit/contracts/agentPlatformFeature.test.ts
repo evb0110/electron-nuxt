@@ -5,15 +5,10 @@ import {
     vi,
 } from 'vitest';
 import type { IAgentAssistantState } from '@contracts/agent';
-import { AGENT_CHANNELS } from '@electron/features/agent/contract';
-import { createAgentPreloadClient } from '@electron/features/agent/createAgentPreloadClient';
-import {
-    decodeAgentAssistantEvent,
-    decodeAgentAssistantInstallResult,
-    decodeAgentAssistantLoginResult,
-    decodeAgentAssistantSendMessageResult,
-    decodeAgentAssistantState,
-} from '@electron/preload/agentIpcDecoders';
+import { AGENT_PLATFORM_FEATURE } from '@contracts/agentPlatformFeature';
+import { createPlatformFeaturePreloadClient } from '@electron/preload/ipcClient';
+import type { IpcRenderer } from 'electron';
+import { cast } from '@tests/helpers/cast';
 
 function createAssistantState(): IAgentAssistantState {
     const provider = {
@@ -115,7 +110,46 @@ function createAssistantState(): IAgentAssistantState {
     };
 }
 
-describe('agent assistant IPC decoders', () => {
+const channels = AGENT_PLATFORM_FEATURE.invokeChannels;
+const eventChannels = AGENT_PLATFORM_FEATURE.eventChannels;
+const assistantStateResult = AGENT_PLATFORM_FEATURE.methods.getAssistantState.ipc.result;
+const assistantInstallResult = AGENT_PLATFORM_FEATURE.methods.installAssistantCodex.ipc.result;
+const assistantLoginResult = AGENT_PLATFORM_FEATURE.methods.startAssistantLogin.ipc.result;
+const assistantMessageResult = AGENT_PLATFORM_FEATURE.methods.sendAssistantMessage.ipc.result;
+const assistantEvent = AGENT_PLATFORM_FEATURE.events.onAssistantEvent.payload;
+
+describe('Agent platform feature', () => {
+    it('preserves invoke channels, four event channels, and descriptor metadata', () => {
+        expect(channels).toEqual({
+            getMcpIntegrationStatus: 'agent:getMcpIntegrationStatus',
+            setMcpIntegrationEnabled: 'agent:setMcpIntegrationEnabled',
+            getAssistantState: 'agent:getAssistantState',
+            installAssistantCodex: 'agent:installAssistantCodex',
+            startAssistantLogin: 'agent:startAssistantLogin',
+            cancelAssistantLogin: 'agent:cancelAssistantLogin',
+            sendAssistantMessage: 'agent:sendAssistantMessage',
+            interruptAssistant: 'agent:interruptAssistant',
+            resetAssistantChat: 'agent:resetAssistantChat',
+            submitWorkspaceSnapshot: 'agent:submitWorkspaceSnapshot',
+            submitCommandResponse: 'agent:submitCommandResponse',
+        });
+        expect(eventChannels).toEqual({
+            onAssistantEvent: 'agent:assistantEvent',
+            onWorkspaceSnapshotRequest: 'agent:workspaceSnapshotRequest',
+            onCommandCancelRequest: 'agent:commandCancelRequest',
+            onCommandRequest: 'agent:commandRequest',
+        });
+        expect(AGENT_PLATFORM_FEATURE.platformDescriptors.capabilities).toEqual([{
+            path: ['agent'],
+            required: {
+                browser: true,
+                electron: true,
+            },
+            manifestPath: ['agent'],
+        }]);
+        expect(AGENT_PLATFORM_FEATURE.platformDescriptors.methods).toHaveLength(15);
+    });
+
     it('exhaustively reconstructs assistant state and nested provider data', () => {
         const state = createAssistantState();
         const payload = {
@@ -131,7 +165,7 @@ describe('agent assistant IPC decoders', () => {
             },
         };
 
-        expect(decodeAgentAssistantState(payload)).toEqual(state);
+        expect(assistantStateResult.decode(payload)).toEqual(state);
     });
 
     it('rejects malformed provider entries in state events and invoke results', async () => {
@@ -144,43 +178,46 @@ describe('agent assistant IPC decoders', () => {
             },
         };
 
-        expect(decodeAgentAssistantState(malformedState)).toBeNull();
-        expect(decodeAgentAssistantEvent({
+        expect(() => assistantStateResult.decode(malformedState)).toThrow('invalid assistant state');
+        expect(() => assistantEvent.decode({
             type: 'state',
             state: malformedState,
-        })).toBeNull();
-        expect(decodeAgentAssistantInstallResult({
+        })).toThrow('invalid agent assistant event');
+        expect(() => assistantInstallResult.decode({
             ok: true,
             state: malformedState,
-        })).toBeNull();
-        expect(decodeAgentAssistantLoginResult({
+        })).toThrow('invalid assistant install');
+        expect(() => assistantLoginResult.decode({
             ok: true,
             state: malformedState,
-        })).toBeNull();
-        expect(decodeAgentAssistantSendMessageResult({
+        })).toThrow('invalid assistant login');
+        expect(() => assistantMessageResult.decode({
             ok: true,
             state: malformedState,
-        })).toBeNull();
+        })).toThrow('invalid assistant message');
 
         const ipcRenderer = {
             invoke: vi.fn(async (channel: string) => {
-                expect(channel).toBe(AGENT_CHANNELS.getAssistantState);
+                expect(channel).toBe(channels.getAssistantState);
                 return malformedState;
             }),
             on: vi.fn(),
             removeListener: vi.fn(),
         };
-        const client = createAgentPreloadClient(ipcRenderer as never);
+        const client = createPlatformFeaturePreloadClient(
+            cast<IpcRenderer>(ipcRenderer),
+            AGENT_PLATFORM_FEATURE,
+        );
 
         await expect(client.getAssistantState()).rejects.toThrow(
-            'invalid assistant state IPC result',
+            'invalid assistant state',
         );
     });
 
     it('reconstructs assistant operation result variants', () => {
         const state = createAssistantState();
 
-        expect(decodeAgentAssistantInstallResult({
+        expect(assistantInstallResult.decode({
             ok: true,
             state,
             ignored: true,
@@ -188,7 +225,7 @@ describe('agent assistant IPC decoders', () => {
             ok: true,
             state,
         });
-        expect(decodeAgentAssistantLoginResult({
+        expect(assistantLoginResult.decode({
             ok: true,
             state,
             loginId: 'login-1',
@@ -200,7 +237,7 @@ describe('agent assistant IPC decoders', () => {
             loginId: 'login-1',
             authUrl: 'https://example.test/auth',
         });
-        expect(decodeAgentAssistantSendMessageResult({
+        expect(assistantMessageResult.decode({
             ok: false,
             state,
             error: 'Unavailable',
@@ -219,7 +256,7 @@ describe('agent assistant IPC decoders', () => {
             turnGeneration: 2,
             windowId: 1,
         };
-        expect(decodeAgentAssistantEvent({
+        expect(assistantEvent.decode({
             type: 'reasoning-delta',
             reasoningDelta: 'Inspecting the page',
             phase: 'thinking',
@@ -232,7 +269,7 @@ describe('agent assistant IPC decoders', () => {
             lastEventAtMs: 42,
             binding,
         });
-        expect(decodeAgentAssistantEvent({
+        expect(assistantEvent.decode({
             type: 'turn-progress',
             phase: 'tool-running',
             toolActivity: {
@@ -242,15 +279,15 @@ describe('agent assistant IPC decoders', () => {
                 startedAtMs: 42,
             },
             binding,
-        })).not.toBeNull();
-        expect(decodeAgentAssistantEvent({
+        })).toMatchObject({type: 'turn-progress'});
+        expect(() => assistantEvent.decode({
             type: 'heartbeat',
             phase: 'hung',
             binding,
-        })).toBeNull();
-        expect(decodeAgentAssistantEvent({
+        })).toThrow('invalid agent assistant event');
+        expect(() => assistantEvent.decode({
             type: 'message-delta',
             delta: 'late',
-        })).toBeNull();
+        })).toThrow('invalid agent assistant event');
     });
 });

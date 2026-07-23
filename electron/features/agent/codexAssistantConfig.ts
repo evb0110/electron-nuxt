@@ -1,6 +1,4 @@
 export const ASSISTANT_IMAGE_ONLY_PROMPT = 'Please answer using the attached image.';
-export const ASSISTANT_MAX_IMAGE_ATTACHMENTS = 8;
-export const ASSISTANT_MAX_IMAGE_BYTES = 10 * 1024 * 1024;
 // Bump when embedded assistant MCP tool names, annotations, or policy semantics change.
 export const ASSISTANT_MCP_CONTRACT_VERSION = 4;
 export const ASSISTANT_MCP_SERVER_NAME = `evb_viewer_embedded_v${ASSISTANT_MCP_CONTRACT_VERSION}`;

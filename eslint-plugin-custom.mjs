@@ -1,3 +1,205 @@
+import path from 'node:path';
+
+const APPROVED_TYPESCRIPT_DOT_SUFFIXES = new Set([
+    'client',
+    'config',
+    'constants',
+    'd',
+    'e2e',
+    'get',
+    'modelPrep',
+    'post',
+    'service',
+    'test',
+    'ts',
+    'txt',
+    'types',
+    'worker',
+    'xml',
+]);
+const FILE_NAMING_ROOTS = new Set([
+    'app',
+    'electron',
+    'landing',
+    'packages',
+    'scripts',
+    'server',
+    'tests',
+]);
+const FILE_NAMING_IGNORED_EXPORT_STEMS = new Set([
+    'analyticsAdmission',
+    'contract',
+    'contracts',
+    'eslint.config',
+    'index',
+    'nuxt.config',
+    'pdfDiagnosticsEngine',
+    'playwright.config',
+    'public',
+    'tailwind.config',
+    'vitest.config',
+]);
+const ROUTE_DIRECTORY_NAMES = new Set([
+    'layouts',
+    'middleware',
+    'pages',
+    'routes',
+]);
+const TYPESCRIPT_FILE_PATTERN = /\.[cm]?tsx?$/u;
+const LOWER_KEBAB_PATTERN = /^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/u;
+const CAMEL_PATTERN = /^[a-z][a-z0-9]*(?:[A-Z][a-z0-9]*)*$/u;
+const PASCAL_PATTERN = /^[A-Z][A-Za-z0-9]*$/u;
+
+function toRepoPath(filePath) {
+    return path.relative(process.cwd(), filePath).split(path.sep).join('/');
+}
+
+function stripTypeScriptSuffixes(fileName) {
+    let stem = fileName.replace(/(?:\.d)?\.[cm]?tsx?$/u, '');
+    const parts = stem.split('.');
+    while (parts.length > 1 && APPROVED_TYPESCRIPT_DOT_SUFFIXES.has(parts.at(-1))) {
+        parts.pop();
+    }
+    stem = parts.join('.');
+    return stem;
+}
+
+function isInsideRouteDirectory(repoPath) {
+    return repoPath.split('/').some(part => ROUTE_DIRECTORY_NAMES.has(part));
+}
+
+function getFileNamingMessages(repoPath) {
+    const parts = repoPath.split('/');
+    if (!FILE_NAMING_ROOTS.has(parts[0])) {
+        return [];
+    }
+
+    const messages = parts.slice(1, -1)
+        .filter(part => !LOWER_KEBAB_PATTERN.test(part))
+        .map(part => `Directory "${part}" must use lower kebab-case.`);
+    const fileName = parts.at(-1) ?? '';
+
+    if (TYPESCRIPT_FILE_PATTERN.test(fileName) && !CAMEL_PATTERN.test(stripTypeScriptSuffixes(fileName))) {
+        messages.push('TypeScript filenames must be camelCase, with only approved dot suffixes.');
+    }
+
+    if (fileName.endsWith('.vue') && fileName !== 'app.vue' && fileName !== 'error.vue') {
+        const stem = fileName.slice(0, -'.vue'.length);
+        const valid = isInsideRouteDirectory(repoPath)
+            ? LOWER_KEBAB_PATTERN.test(stem) || CAMEL_PATTERN.test(stem)
+            : PASCAL_PATTERN.test(stem);
+        if (!valid) {
+            messages.push('Vue components must be PascalCase; Nuxt route files may be lower kebab-case.');
+        }
+    }
+
+    return messages;
+}
+
+function collectExportedSymbols(program) {
+    const symbols = [];
+
+    function add(name, kind, isValue) {
+        if (name) {
+            symbols.push({
+                name,
+                kind,
+                isValue,
+            });
+        }
+    }
+
+    for (const statement of program.body) {
+        if (statement.type !== 'ExportNamedDeclaration' || !statement.declaration) {
+            continue;
+        }
+
+        const declaration = statement.declaration;
+        switch (declaration.type) {
+            case 'FunctionDeclaration':
+                add(declaration.id?.name, 'function', true);
+                break;
+            case 'ClassDeclaration':
+                add(declaration.id?.name, 'class', true);
+                break;
+            case 'TSInterfaceDeclaration':
+                add(declaration.id?.name, 'interface', false);
+                break;
+            case 'TSTypeAliasDeclaration':
+                add(declaration.id?.name, 'type', false);
+                break;
+            case 'TSEnumDeclaration':
+                add(declaration.id?.name, 'enum', true);
+                break;
+            case 'VariableDeclaration':
+                for (const item of declaration.declarations) {
+                    if (item.id.type === 'Identifier') {
+                        add(item.id.name, declaration.kind, true);
+                    }
+                }
+                break;
+        }
+    }
+
+    return symbols;
+}
+
+function normalizeExportName(symbol) {
+    let name = symbol.name;
+    if ((symbol.kind === 'interface' || symbol.kind === 'type') && /^[IT][A-Z]/u.test(name)) {
+        name = name.slice(1);
+    }
+    if (/^[A-Z0-9_]+$/u.test(name) && name.includes('_')) {
+        return name
+            .toLowerCase()
+            .split('_')
+            .filter(Boolean)
+            .map((part, index) => index === 0 ? part : part[0].toUpperCase() + part.slice(1))
+            .join('');
+    }
+
+    const normalized = name.replace(
+        /[A-Z]+(?=[A-Z][a-z]|$)/gu,
+        word => word[0] + word.slice(1).toLowerCase(),
+    );
+    return normalized.charAt(0).toLowerCase() + normalized.slice(1);
+}
+
+function getMainExportNamingMessage(program, repoPath) {
+    const fileName = repoPath.split('/').at(-1) ?? '';
+    if (
+        !TYPESCRIPT_FILE_PATTERN.test(fileName)
+        || fileName.endsWith('.d.ts')
+        || isInsideRouteDirectory(repoPath)
+        || FILE_NAMING_IGNORED_EXPORT_STEMS.has(stripTypeScriptSuffixes(fileName))
+        || !CAMEL_PATTERN.test(stripTypeScriptSuffixes(fileName))
+    ) {
+        return null;
+    }
+
+    const symbols = collectExportedSymbols(program);
+    const values = symbols.filter(symbol => symbol.isValue);
+    const types = symbols.filter(symbol => !symbol.isValue);
+    const mainExport = symbols.length === 1
+        ? symbols[0]
+        : values.length === 1
+            && types.length <= 2
+            && !repoPath.includes('/types/')
+            && !repoPath.includes('packages/contracts/')
+            ? values[0]
+            : null;
+    if (!mainExport) {
+        return null;
+    }
+
+    const expectedStem = normalizeExportName(mainExport);
+    if (stripTypeScriptSuffixes(fileName) === expectedStem) {
+        return null;
+    }
+
+    return `Filename must match its single/main export "${mainExport.name}" (expected stem "${expectedStem}").`;
+}
+
 function getLiteralValue(node) {
     if (!node) {
         return null;
@@ -279,6 +481,106 @@ function hasCommentsInside(sourceCode, node) {
 }
 
 export default {rules: {
+    'commonjs-named-imports': {
+        meta: {
+            type: 'problem',
+            docs: {
+                description: 'Disallow runtime named imports from guarded CommonJS packages',
+                recommended: true,
+            },
+            schema: [],
+        },
+        create(context) {
+            return {ImportDeclaration(node) {
+                if (
+                    node.source.value !== 'utif'
+                    || node.importKind === 'type'
+                ) {
+                    return;
+                }
+
+                const importedNames = node.specifiers
+                    .filter(specifier => specifier.type === 'ImportSpecifier' && specifier.importKind !== 'type')
+                    .map(specifier => specifier.imported.name ?? specifier.imported.value);
+                if (importedNames.length === 0) {
+                    return;
+                }
+
+                context.report({
+                    node,
+                    message: `Import UTIF as the CommonJS default export; runtime named import(s) are unsafe: ${importedNames.join(', ')}.`,
+                });
+            }};
+        },
+    },
+    'file-naming': {
+        meta: {
+            type: 'problem',
+            docs: {
+                description: 'Enforce repository directory, TypeScript, Vue, and main-export naming conventions',
+                recommended: true,
+            },
+            schema: [],
+        },
+        create(context) {
+            return {Program(node) {
+                const filePath = context.physicalFilename ?? context.filename;
+                if (!filePath || filePath.startsWith('<')) {
+                    return;
+                }
+
+                const repoPath = toRepoPath(filePath);
+                const messages = getFileNamingMessages(repoPath);
+                const exportMessage = getMainExportNamingMessage(node, repoPath);
+                if (exportMessage) {
+                    messages.push(exportMessage);
+                }
+
+                for (const message of messages) {
+                    context.report({
+                        node,
+                        message,
+                    });
+                }
+            }};
+        },
+    },
+    'no-core-correctness-timers': {
+        meta: {
+            type: 'problem',
+            docs: {
+                description: 'Disallow correctness timers in the new viewer core',
+                recommended: true,
+            },
+            schema: [],
+        },
+        create(context) {
+            const repoPath = toRepoPath(context.physicalFilename ?? context.filename);
+            const guarded = [
+                'app/utils/document-viewer/viewport/',
+                'app/modules/pdf-viewer/runtime/page-slots/',
+                'app/modules/pdf-viewer/runtime/viewport/',
+            ].some(root => repoPath.startsWith(root));
+            if (!guarded) {
+                return {};
+            }
+
+            return {CallExpression(node) {
+                if (
+                    node.callee.type === 'Identifier'
+                    && (
+                        node.callee.name === 'setTimeout'
+                        || node.callee.name === 'setInterval'
+                    )
+                ) {
+                    context.report({
+                        node,
+                        message: 'New viewer-core coordination must use abortable state/epochs, not correctness timers.',
+                    });
+                }
+            }};
+        },
+    },
     'no-relative-imports': {
         meta: {
             type: 'problem',
@@ -1644,13 +1946,16 @@ export default {rules: {
                 const shorthand = applyShorthands(arbitrary.tokens);
                 const deduped = dedupeTokens(shorthand.tokens);
                 const conflicts = findConflicts(arbitrary.tokens);
+                const rawLayoutTokens = shorthand.tokens.filter(token =>
+                    /^(?:[a-z-]+:)*[a-z-]+-\[\s*-?\d[^\]\n]*\]$/u.test(token),
+                );
                 const replacements = [
                     ...arbitrary.replacements,
                     ...shorthand.replacements,
                 ];
                 const changed = replacements.length > 0 || deduped.duplicates.length > 0;
 
-                if (!changed && conflicts.length === 0) {
+                if (!changed && conflicts.length === 0 && rawLayoutTokens.length === 0) {
                     return null;
                 }
 
@@ -1659,6 +1964,7 @@ export default {rules: {
                     replacements,
                     duplicates: deduped.duplicates,
                     conflicts,
+                    rawLayoutTokens,
                 };
             }
 
@@ -1696,6 +2002,13 @@ export default {rules: {
                     context.report({
                         node,
                         message: `Conflicting Tailwind utilities: ${conflictMessages.join('; ')}`,
+                    });
+                }
+
+                if (result.rawLayoutTokens.length > 0) {
+                    context.report({
+                        node,
+                        message: `Use layout tokens instead of arbitrary numeric Tailwind utilities: ${result.rawLayoutTokens.join(', ')}`,
                     });
                 }
             }

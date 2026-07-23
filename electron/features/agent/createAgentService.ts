@@ -1,4 +1,10 @@
 import {
+    BrowserWindow,
+    type IpcMainInvokeEvent,
+} from 'electron';
+import type { AGENT_PLATFORM_FEATURE } from '@contracts/agentPlatformFeature';
+import type { TFeatureMainBindings } from '@contracts/platformFeature';
+import {
     cancelAgentAssistantLogin,
     getAgentAssistantState,
     installAgentAssistantCodex,
@@ -16,29 +22,37 @@ import {
     submitAgentCommandResponse,
     submitAgentWorkspaceSnapshotResponse,
 } from '@electron/features/agent/workspaceBridge';
-import type { IAgentService } from '@electron/features/agent/ports';
 
-export function createAgentService(): IAgentService {
+export function createAgentService() {
     return {
         getMcpIntegrationStatus: () => getAgentMcpIntegrationStatus(),
         setMcpIntegrationEnabled: (context, enabled) =>
-            setAgentMcpIntegrationEnabled(enabled, context.parentWindow),
+            setAgentMcpIntegrationEnabled(
+                enabled,
+                BrowserWindow.fromWebContents(context.sender),
+            ),
         getAssistantState: (_context, request) =>
             getAgentAssistantState(request),
         installAssistantCodex: () => installAgentAssistantCodex(),
         startAssistantLogin: (context, request) =>
-            startAgentAssistantLogin(request, context.parentWindow),
+            startAgentAssistantLogin(
+                request,
+                BrowserWindow.fromWebContents(context.sender),
+            ),
         cancelAssistantLogin: () => cancelAgentAssistantLogin(),
         sendAssistantMessage: (context, request) =>
-            sendAgentAssistantMessage(request, { windowId: context.parentWindow?.id ?? null }),
+            sendAgentAssistantMessage(request, {windowId: BrowserWindow.fromWebContents(context.sender)?.id ?? null}),
         interruptAssistant: (_context, request) =>
             interruptAgentAssistant(request),
         resetAssistantChat: (_context, request) =>
             resetAgentAssistantChat(request),
         submitWorkspaceSnapshot: (context, response) =>
-            Promise.resolve(submitAgentWorkspaceSnapshotResponse(context.event, response)),
+            Promise.resolve(submitAgentWorkspaceSnapshotResponse(context, response)),
         submitCommandResponse: (context, response) =>
-            Promise.resolve(submitAgentCommandResponse(context.event, response)),
+            Promise.resolve(submitAgentCommandResponse(context, response)),
         shutdownAssistant: () => shutdownAgentAssistantIfLoaded(),
-    };
+    } satisfies TFeatureMainBindings<typeof AGENT_PLATFORM_FEATURE, IpcMainInvokeEvent>
+        & {shutdownAssistant: () => Promise<void>};
 }
+
+export type TAgentService = ReturnType<typeof createAgentService>;

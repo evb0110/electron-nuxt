@@ -8,9 +8,8 @@ import {
     type IDocumentsInvokeMap,
 } from '@electron/features/documents/contract';
 import { DOCUMENTS_IPC_CODECS } from '@electron/features/documents/documentsIpcCodecs';
-import {AGENT_CHANNELS} from '@electron/features/agent/contract';
-import { AGENT_IPC_CODECS } from '@electron/features/agent/agentIpcCodecs';
-import type { IAgentService } from '@electron/features/agent/ports';
+import { AGENT_PLATFORM_FEATURE } from '@contracts/agentPlatformFeature';
+import type { TAgentService } from '@electron/features/agent/createAgentService';
 import { IMAGE_EXPORT_PLATFORM_FEATURE } from '@contracts/imageExportPlatformFeature';
 import {
     OCR_PLATFORM_FEATURE,
@@ -86,7 +85,7 @@ function registerLazyPlatformFeature(
     );
 }
 
-export interface IFeatureIpcAdapterOptions { agentService: IAgentService; }
+export interface IFeatureIpcAdapterOptions { agentService: TAgentService; }
 
 export function registerFeatureIpcAdapters(
     ipcMain: Electron.IpcMain,
@@ -102,10 +101,7 @@ export function registerFeatureIpcAdapters(
     );
     registerDocumentRevisionEventBridge();
     registerDocumentRevisionInvalidationEffects();
-    registerLazyValidatedFeature(ipcMain, AGENT_CHANNELS, AGENT_IPC_CODECS, async registrar => {
-        const {registerAgentIpcAdapter} = await import('@electron/features/agent/registerAgentIpcAdapter');
-        registerAgentIpcAdapter(registrar as never, options.agentService);
-    });
+    registerLazyPlatformFeature(ipcMain, AGENT_PLATFORM_FEATURE, () => Promise.resolve(options.agentService));
     registerLazyPlatformFeature(ipcMain, SETTINGS_PLATFORM_FEATURE, async () => {
         const {createSettingsMainBindings} =
             await import('@electron/features/settings/createSettingsMainBindings');

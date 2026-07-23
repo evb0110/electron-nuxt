@@ -1,4 +1,4 @@
-import type { IAgentCapability } from '@contracts/agentCapability';
+import type { IAgentCapability } from '@contracts/agentPlatformFeature';
 import type { IDjvuCapability } from '@contracts/djvuPlatformFeature';
 import type {
     IDocumentsCapability,
@@ -24,6 +24,7 @@ import type { IUpdatesCapability } from '@contracts/updatesPlatformFeature';
 import type { IWindowTabsCapability } from '@contracts/windowTabsPlatformFeature';
 import type { IPlatformRuntimeManifest } from '@contracts/platformManifest';
 export type { IImageExportCapability } from '@contracts/imageExportPlatformFeature';
+export type { IAgentCapability } from '@contracts/agentPlatformFeature';
 export type { IDjvuCapability } from '@contracts/djvuPlatformFeature';
 export type { IOcrCapability } from '@contracts/ocrPlatformFeature';
 export type { IPageOpsCapability } from '@contracts/pageOpsPlatformFeature';
@@ -76,7 +77,7 @@ export type * from '@contracts/pdfPageLabels';
 export type * from '@contracts/annotations';
 export type * from '@contracts/viewerHost';
 export type * from '@contracts/agent';
-export type * from '@contracts/agentCapability';
+export type * from '@contracts/agentPlatformFeature';
 export type * from '@contracts/electronApiCommon';
 export type * from '@contracts/electronApiDocuments';
 export type * from '@contracts/electronApiDjvu';

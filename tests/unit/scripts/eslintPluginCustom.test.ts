@@ -1,12 +1,20 @@
 import {
     describe,
+    expect,
     it,
 } from 'vitest';
-import { RuleTester } from 'eslint';
+import {
+    ESLint,
+    RuleTester,
+} from 'eslint';
 import * as tsParser from '@typescript-eslint/parser';
 import * as vueParser from 'vue-eslint-parser';
+import stylelint from 'stylelint';
 
 const customPlugin = (await import(new URL('../../../eslint-plugin-custom.mjs', import.meta.url).href)).default;
+const stylelintConfigModule = await import(new URL('../../../stylelint.config.mjs', import.meta.url).href);
+const stylelintConfig = stylelintConfigModule.default;
+const stylelintCustomPlugins = stylelintConfigModule.stylelintCustomPlugins;
 
 const tester = new RuleTester({languageOptions: {
     parser: vueParser,
@@ -16,6 +24,198 @@ const tester = new RuleTester({languageOptions: {
 }});
 
 const rules = (customPlugin as { rules: Record<string, unknown> }).rules;
+
+describe('commonjs-named-imports rule', () => {
+    it('rejects runtime named imports and permits default and type-only UTIF imports', () => {
+        tester.run(
+            'commonjs-named-imports',
+            rules['commonjs-named-imports'] as Parameters<typeof tester.run>[1],
+            {
+                valid: [
+                    { code: 'import UTIF from \'utif\';' },
+                    { code: 'import type { IUtifFrame } from \'utif\';' },
+                    { code: 'import UTIF, { type IUtifFrame } from \'utif\';' },
+                ],
+                invalid: [{
+                    code: 'import { decode, type IUtifFrame } from \'utif\';',
+                    errors: [{message: 'Import UTIF as the CommonJS default export; runtime named import(s) are unsafe: decode.'}],
+                }],
+            },
+        );
+    });
+});
+
+describe('file-naming rule', () => {
+    it('enforces directory, file, Vue component, and main-export names', () => {
+        tester.run(
+            'file-naming',
+            rules['file-naming'] as Parameters<typeof tester.run>[1],
+            {
+                valid: [
+                    {
+                        code: 'export function exampleTask() {}',
+                        filename: 'scripts/exampleTask.ts',
+                    },
+                    {
+                        code: '<template><div /></template>',
+                        filename: 'app/components/ExamplePanel.vue',
+                    },
+                    {
+                        code: '<template><div /></template>',
+                        filename: 'app/pages/privacy-policy.vue',
+                    },
+                ],
+                invalid: [
+                    {
+                        code: 'export function badName() {}',
+                        filename: 'scripts/BadName.ts',
+                        errors: [{ message: 'TypeScript filenames must be camelCase, with only approved dot suffixes.' }],
+                    },
+                    {
+                        code: 'export function exampleTask() {}',
+                        filename: 'scripts/Bad_Directory/exampleTask.ts',
+                        errors: [{ message: 'Directory "Bad_Directory" must use lower kebab-case.' }],
+                    },
+                    {
+                        code: 'export function runTask() {}',
+                        filename: 'scripts/taskRunner.ts',
+                        errors: [{ message: 'Filename must match its single/main export "runTask" (expected stem "runTask").' }],
+                    },
+                    {
+                        code: '<template><div /></template>',
+                        filename: 'app/components/example-panel.vue',
+                        errors: [{ message: 'Vue components must be PascalCase; Nuxt route files may be lower kebab-case.' }],
+                    },
+                ],
+            },
+        );
+    });
+});
+
+describe('no-core-correctness-timers rule', () => {
+    it('rejects timeout and interval coordination only inside guarded viewer-core roots', () => {
+        tester.run(
+            'no-core-correctness-timers',
+            rules['no-core-correctness-timers'] as Parameters<typeof tester.run>[1],
+            {
+                valid: [
+                    {
+                        code: 'setTimeout(run, 10);',
+                        filename: 'app/modules/pdf-viewer/runtime/rendering/retry.ts',
+                    },
+                    {
+                        code: 'await abortableWait(signal);',
+                        filename: 'app/modules/pdf-viewer/runtime/viewport/wait.ts',
+                    },
+                ],
+                invalid: [
+                    {
+                        code: 'setTimeout(run, 10);',
+                        filename: 'app/modules/pdf-viewer/runtime/viewport/wait.ts',
+                        errors: 1,
+                    },
+                    {
+                        code: 'setInterval(poll, 10);',
+                        filename: 'app/modules/pdf-viewer/runtime/page-slots/wait.ts',
+                        errors: 1,
+                    },
+                ],
+            },
+        );
+    });
+});
+
+describe('migrated core ESLint and Stylelint rules', () => {
+    async function lintStyle(ruleName: string, code: string, codeFilename: string) {
+        const result = await stylelint.lint({
+            code,
+            codeFilename,
+            config: {
+                plugins: stylelintCustomPlugins,
+                rules: {[ruleName]: stylelintConfig.rules[ruleName]},
+            },
+        });
+        return result.results[0]?.warnings ?? [];
+    }
+
+    it('enforces source-size budgets with ESLint max-lines', async () => {
+        const eslint = new ESLint({
+            overrideConfigFile: true,
+            overrideConfig: [{rules: {'max-lines': [
+                'error',
+                { max: 2 },
+            ]}}],
+        });
+
+        await expect(eslint.lintText('const one = 1;\nconst two = 2;\n')).resolves.toMatchObject([{errorCount: 0}]);
+        await expect(eslint.lintText('const one = 1;\nconst two = 2;\nconst three = 3;\n')).resolves.toMatchObject([{
+            errorCount: 1,
+            messages: [{ ruleId: 'max-lines' }],
+        }]);
+    });
+
+    it('rejects unknown guarded custom properties while allowing known, local, and fallback values', async () => {
+        await expect(lintStyle(
+            'evb/known-custom-properties',
+            '.fixture { color: var(--app-space-sm); }',
+            'app/components/fixture.css',
+        )).resolves.toHaveLength(0);
+        await expect(lintStyle(
+            'evb/known-custom-properties',
+            '.fixture { --app-local: red; color: var(--app-local); background: var(--app-missing, red); }',
+            'app/components/fixture.css',
+        )).resolves.toHaveLength(0);
+        await expect(lintStyle(
+            'evb/known-custom-properties',
+            '.fixture { color: var(--app-typo); }',
+            'app/components/fixture.css',
+        )).resolves.toMatchObject([{rule: 'evb/known-custom-properties'}]);
+    });
+
+    it('rejects raw layout dimensions, font sizes, and z-indexes through Stylelint', async () => {
+        await expect(lintStyle(
+            'declaration-property-value-disallowed-list',
+            '.fixture { width: var(--app-width); font-size: var(--app-font-size); z-index: var(--app-z); }',
+            'app/components/fixture.css',
+        )).resolves.toHaveLength(0);
+        await expect(lintStyle(
+            'declaration-property-value-disallowed-list',
+            '.fixture { width: 12px; font-size: 1rem; z-index: 2; }',
+            'app/components/fixture.css',
+        )).resolves.toHaveLength(3);
+    });
+
+    it('rejects unapproved important declarations through Stylelint', async () => {
+        await expect(lintStyle(
+            'evb/important-policy',
+            '.fixture { color: red; }',
+            'app/components/fixture.css',
+        )).resolves.toHaveLength(0);
+        await expect(lintStyle(
+            'evb/important-policy',
+            '/* css-important-allow: native override */\n.fixture { color: red !important; }',
+            'app/components/fixture.css',
+        )).resolves.toHaveLength(0);
+        await expect(lintStyle(
+            'evb/important-policy',
+            '.fixture { color: red !important; }',
+            'app/components/fixture.css',
+        )).resolves.toMatchObject([{rule: 'evb/important-policy'}]);
+    });
+
+    it('rejects invalid app-owned style asset names and CSS extensions', async () => {
+        await expect(lintStyle(
+            'evb/style-asset-conventions',
+            '.fixture { color: red; }',
+            'app/assets/css/_good-name.scss',
+        )).resolves.toHaveLength(0);
+        await expect(lintStyle(
+            'evb/style-asset-conventions',
+            '.fixture { color: red; }',
+            'app/assets/css/Bad_Name.css',
+        )).resolves.toHaveLength(2);
+    });
+});
 
 describe('no-relative-imports rule', () => {
     it('rejects static, dynamic, re-export, and type import sources', () => {
@@ -381,6 +581,11 @@ describe('tailwind-class-shorthand rule', () => {
                         code: '<template><div class="px-2 px-2" /></template>',
                         output: '<template><div class="px-2" /></template>',
                         errors: 1,
+                    },
+                    {
+                        code: '<template><div class="grid-cols-[13]" /></template>',
+                        output: null,
+                        errors: [{message: 'Use layout tokens instead of arbitrary numeric Tailwind utilities: grid-cols-[13]'}],
                     },
                 ],
             },
