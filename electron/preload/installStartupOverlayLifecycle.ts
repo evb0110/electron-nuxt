@@ -22,7 +22,7 @@ const STARTUP_OVERLAY_Z_INDEX = 2_147_483_647;
 const STARTUP_OVERLAY_INNER_WIDTH_PX = 128;
 const DEV_STARTUP_OVERLAY_APP_READY_DELAY_MS = 2200;
 const STARTUP_OPEN_CLAIM_GRACE_MS = 300;
-const STARTUP_OPEN_CLAIM_FALLBACK_MS = 5_000;
+const MAX_WAIT_MS = 30_000;
 
 function ensureStartupOverlayStyles() {
     if (document.getElementById(STARTUP_OVERLAY_STYLE_ID)) {
@@ -129,7 +129,6 @@ function unmountStartupOverlay(reason: string, deps: IStartupOverlayLifecycleDep
 
 export function installStartupOverlayLifecycle(deps: IStartupOverlayLifecycleDeps) {
     const overlayLifecycleStartedAt = Date.now();
-    const MAX_WAIT_MS = 30_000;
     let waitingForStartupOpenVisual = false;
     let appReadySeen = false;
     let startupOpenClaimSeen = false;
@@ -138,6 +137,7 @@ export function installStartupOverlayLifecycle(deps: IStartupOverlayLifecycleDep
     let appReadyRemovalTimer: number | null = null;
     let devRemovalTimer: number | null = null;
     let startupOpenClaimFallbackTimer: number | null = null;
+    let hardDeadlineTimer: number | null = null;
 
     function clearAppReadyRemovalTimer() {
         if (appReadyRemovalTimer === null) {
@@ -166,6 +166,15 @@ export function installStartupOverlayLifecycle(deps: IStartupOverlayLifecycleDep
         startupOpenClaimFallbackTimer = null;
     }
 
+    function clearHardDeadlineTimer() {
+        if (hardDeadlineTimer === null) {
+            return;
+        }
+
+        window.clearTimeout(hardDeadlineTimer);
+        hardDeadlineTimer = null;
+    }
+
     function clearCheckInterval() {
         if (checkInterval === null) {
             return;
@@ -180,6 +189,7 @@ export function installStartupOverlayLifecycle(deps: IStartupOverlayLifecycleDep
         clearAppReadyRemovalTimer();
         clearDevRemovalTimer();
         clearStartupOpenClaimFallbackTimer();
+        clearHardDeadlineTimer();
         window.removeEventListener(APP_READY_EVENT_NAME, handleAppReady);
         window.removeEventListener(STARTUP_OPEN_CLAIMED_EVENT_NAME, handleStartupOpenClaimed);
         window.removeEventListener(STARTUP_OPEN_VISUAL_READY_EVENT_NAME, handleStartupOpenVisualReady);
@@ -238,6 +248,10 @@ export function installStartupOverlayLifecycle(deps: IStartupOverlayLifecycleDep
             return;
         }
 
+        const timeoutMs = Math.max(
+            0,
+            MAX_WAIT_MS - (Date.now() - overlayLifecycleStartedAt),
+        );
         startupOpenClaimFallbackTimer = window.setTimeout(() => {
             startupOpenClaimFallbackTimer = null;
             if (startupOpenClaimSeen || waitingForStartupOpenVisual) {
@@ -247,10 +261,10 @@ export function installStartupOverlayLifecycle(deps: IStartupOverlayLifecycleDep
             deps.forwardPreloadLogToMain('warn', 'loader', 'Startup overlay timed out waiting for startup open claim', {
                 variant: 'startup-overlay',
                 reason,
-                timeoutMs: STARTUP_OPEN_CLAIM_FALLBACK_MS,
+                timeoutMs,
             });
             requestOverlayUnmount('startup-open-claim-timeout');
-        }, STARTUP_OPEN_CLAIM_FALLBACK_MS);
+        }, timeoutMs);
     }
 
     function scheduleAppReadyRemoval(reason: string) {
@@ -273,6 +287,7 @@ export function installStartupOverlayLifecycle(deps: IStartupOverlayLifecycleDep
                     variant: 'startup-overlay',
                     reason,
                 });
+                clearHardDeadlineTimer();
                 scheduleStartupOpenClaimFallbackRemoval(reason);
                 return;
             }
@@ -298,6 +313,7 @@ export function installStartupOverlayLifecycle(deps: IStartupOverlayLifecycleDep
     function handleStartupOpenClaimed(event: Event) {
         startupOpenClaimSeen = true;
         clearStartupOpenClaimFallbackTimer();
+        clearHardDeadlineTimer();
         const pathCount = getStartupOpenPathCount(event);
         if (pathCount > 0) {
             waitingForStartupOpenVisual = true;
@@ -346,16 +362,18 @@ export function installStartupOverlayLifecycle(deps: IStartupOverlayLifecycleDep
 
     mountOverlayIfActive();
 
-    const start = Date.now();
+    hardDeadlineTimer = window.setTimeout(() => {
+        hardDeadlineTimer = null;
+        if (startupOpenClaimSeen || waitingForStartupOpenVisual) {
+            return;
+        }
+        requestOverlayUnmount('timeout');
+    }, MAX_WAIT_MS);
+
     checkInterval = window.setInterval(() => {
         const windowWithReady = window as Window & { __appReady?: boolean };
         if (windowWithReady.__appReady) {
             scheduleAppReadyRemoval('__appReady-interval');
-            return;
-        }
-
-        if (Date.now() - start > MAX_WAIT_MS) {
-            removeOverlay('timeout');
         }
     }, 50);
 

@@ -36,6 +36,16 @@ interface IToolbarStartupSample {
     toolbarText: string;
     toolbarVisible: boolean;
 }
+interface IStartupReadinessSample {
+    appReadyAt: number | null;
+    appReadyEventAt: number | null;
+    appReadyObservedAt: number | null;
+    claimAt: number | null;
+    navigationStartedAt: number;
+    overlayRemovedAt: number | null;
+    pathCount: number | null;
+    viewerPresentAtAppReady: boolean | null;
+}
 
 function findHydrationWarnings(messages: IConsoleCommandResult['messages']) {
     return messages.filter(message => {
@@ -158,6 +168,57 @@ function getShellStartupSamples(samples: IToolbarStartupSample[]) {
     ));
 }
 
+async function installStartupReadinessSampler(session: IElectronE2ESession) {
+    await session.page.evaluateOnNewDocument(() => {
+        const sample: IStartupReadinessSample = {
+            appReadyAt: null,
+            appReadyEventAt: null,
+            appReadyObservedAt: null,
+            claimAt: null,
+            navigationStartedAt: performance.timeOrigin,
+            overlayRemovedAt: null,
+            pathCount: null,
+            viewerPresentAtAppReady: null,
+        };
+        let overlaySeen = false;
+        const sampleOverlay = () => {
+            const overlayPresent = document.querySelector('#evb-startup-overlay') !== null;
+            if (overlayPresent) {
+                overlaySeen = true;
+            } else if (overlaySeen && sample.overlayRemovedAt === null) {
+                sample.overlayRemovedAt = performance.now();
+            }
+        };
+        new MutationObserver(sampleOverlay).observe(document, {
+            childList: true,
+            subtree: true,
+        });
+        window.addEventListener('evb:app-ready', () => {
+            sample.appReadyEventAt = performance.now();
+            sample.appReadyObservedAt = Date.now();
+            sample.appReadyAt = (window as Window & {__appReadyAt?: number}).__appReadyAt ?? null;
+            sample.viewerPresentAtAppReady = document.querySelector(
+                '#pdf-viewer canvas, .native-pdf-page-content canvas, [data-testid="document-page-source-image"]',
+            ) !== null;
+            sampleOverlay();
+        }, {once: true});
+        window.addEventListener('evb:startup-open-claimed', (event) => {
+            const detail = event instanceof CustomEvent
+                ? event.detail as {pathCount?: unknown} | null
+                : null;
+            sample.claimAt = performance.now();
+            sample.pathCount = typeof detail?.pathCount === 'number'
+                ? detail.pathCount
+                : null;
+            sampleOverlay();
+        }, {once: true});
+        Object.defineProperty(window, '__evbStartupReadinessSample', {
+            configurable: true,
+            value: sample,
+        });
+    });
+}
+
 describe('Electron E2E - Startup Hydration', () => {
     const sessionFixture = createElectronE2ESessionFixture({sessionName: () => `e2e-startup-hydration-${Date.now()}`});
 
@@ -203,6 +264,46 @@ describe('Electron E2E - Startup Hydration', () => {
         const finalSample = shellSamples.at(-1);
         expect(finalSample?.toolbarVisible).toBe(true);
         expect(finalSample?.toolbar).not.toBeNull();
+    });
+
+    it('keeps the empty-shell overlay until app-ready and an empty startup claim', async () => {
+        const session = sessionFixture.getSession();
+        if (!session) {
+            return;
+        }
+
+        await installStartupReadinessSampler(session);
+        await session.page.reload({waitUntil: 'domcontentloaded'});
+        await session.page.waitForFunction(() => {
+            const sample = (window as Window & {__evbStartupReadinessSample?: IStartupReadinessSample;}).__evbStartupReadinessSample;
+            return sample?.appReadyEventAt !== null
+                && sample?.claimAt !== null
+                && sample?.overlayRemovedAt !== null;
+        }, {timeout: 30_000});
+
+        const result = await session.page.evaluate(() => {
+            const sample = (window as Window & {__evbStartupReadinessSample?: IStartupReadinessSample;}).__evbStartupReadinessSample;
+            return {
+                sample,
+                appReady: (window as Window & {__appReady?: boolean}).__appReady ?? false,
+                shellInteractiveAt: performance
+                    .getEntriesByName('evb:shell-interactive', 'mark')
+                    .at(-1)?.startTime ?? null,
+            };
+        });
+
+        expect(result.appReady).toBe(true);
+        expect(result.sample?.pathCount).toBe(0);
+        expect(result.sample?.viewerPresentAtAppReady).toBe(false);
+        expect(result.shellInteractiveAt).not.toBeNull();
+        expect(result.sample?.appReadyEventAt).not.toBeNull();
+        expect(result.sample?.claimAt).not.toBeNull();
+        expect(result.sample?.overlayRemovedAt).not.toBeNull();
+        expect(result.shellInteractiveAt!).toBeLessThanOrEqual(result.sample!.appReadyEventAt!);
+        expect(result.sample!.appReadyEventAt!).toBeLessThan(result.sample!.overlayRemovedAt!);
+        expect(result.sample!.claimAt!).toBeLessThan(result.sample!.overlayRemovedAt!);
+        expect(result.sample!.appReadyAt!).toBeGreaterThanOrEqual(result.sample!.navigationStartedAt);
+        expect(result.sample!.appReadyAt!).toBeLessThanOrEqual(result.sample!.appReadyObservedAt!);
     });
 
     it('copies Agentation feedback and auto-clears it after a successful clipboard write', async () => {

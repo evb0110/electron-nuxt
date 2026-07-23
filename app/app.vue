@@ -166,25 +166,23 @@ import {
 } from '@app/utils/browserSettingsPersistence';
 import { waitForVisualFrames } from '@app/utils/asyncHelpers';
 import { markStartupMetricOnce } from '@app/utils/startupMetrics';
+import { traceRendererStartup } from '@app/utils/traceRendererStartup';
 import {onBrowserDocumentPersistenceWarning} from '@app/platform/browser/browserDocumentPersistenceWarnings';
-import {
-    preloadStartupDocumentOpenChunks,
-    shouldPreloadWorkspaceDuringStartup,
-} from '@app/modules/workspace-shell/public';
 import {
     isElectronUserAgent,
     waitForPreferredDesktopPlatformBridge,
 } from '@app/utils/platform';
 import { getDocumentFilesCapability } from '@app/utils/platformDocuments';
 import { getDjvuCapability } from '@app/utils/getDjvuCapability';
+import {runPostReadyRecentGeometryPrewarm} from '@app/modules/workspace-shell/host/runPostReadyRecentGeometryPrewarm';
 import {
-    beginRecentOpenGeometryPrewarm,
-    settleRecentOpenGeometryPrewarm,
-} from '@app/modules/workspace-shell/host/recentOpenGeometryReadiness';
-import { prewarmRecentDjvuOpeningGeometry } from '@app/modules/djvu-viewer/public/openGeometry';
-
-const RECENT_OPEN_GEOMETRY_SETTLE_TIMEOUT_MS = 1_500;
-const RECENT_OPEN_GEOMETRY_PREWARM_LIMIT = 4;
+    resolveStartupWorkProfile,
+    type IStartupWorkProfile,
+} from '@app/utils/startupWorkProfile';
+import {
+    scheduleIdleWork,
+    type TCancelIdleWork,
+} from '@app/utils/scheduleIdleWork';
 
 const {
     load: loadSettings,
@@ -202,7 +200,6 @@ const hostEnvironmentUnsubscribers: Array<() => void> = [];
 const toast = useToast();
 let themeRepaintRevision = 0;
 const {
-    hasUsableInitialSnapshot: hasUsableInitialRecentFilesSnapshot,
     loadRecentFiles,
     recentFiles,
     syncCookieFromRuntime: syncRecentFilesCookieFromRuntime,
@@ -250,6 +247,8 @@ const {
     copy: copyFatalDetailToClipboard,
     isSupported: isFatalDetailClipboardSupported,
 } = useClipboard({ copiedDuring: 1500 });
+let cancelPostReadyRecentGeometryWarmup: TCancelIdleWork | null = null;
+let appReadyDispatched = false;
 const {
     copied: recentlyCopiedReports,
     copy: copyReportsToClipboard,
@@ -337,6 +336,8 @@ watch(() => colorMode.value, async () => {
 
 onBeforeUnmount(() => {
     themeRepaintRevision += 1;
+    cancelPostReadyRecentGeometryWarmup?.();
+    cancelPostReadyRecentGeometryWarmup = null;
     while (hostEnvironmentUnsubscribers.length > 0) {
         const unsubscribe = hostEnvironmentUnsubscribers.pop();
         try {
@@ -373,150 +374,55 @@ useHead(() => ({
     link: localeHead.value.link,
 }));
 
-async function preloadStartupContent() {
-    if (!import.meta.client) {
+function schedulePostReadyRecentGeometryWarmup(
+    profile: IStartupWorkProfile,
+): void {
+    traceRendererStartup('post-ready recent geometry warmup scheduled');
+    cancelPostReadyRecentGeometryWarmup = scheduleIdleWork(() => {
+        const warmup = (async () => {
+            try {
+                await loadRecentFiles();
+                const documentFiles = getDocumentFilesCapability();
+                const djvu = getDjvuCapability();
+                await runPostReadyRecentGeometryPrewarm({
+                    files: recentFiles.value,
+                    ports: {
+                        ...(documentFiles.getPdfOpeningGeometry
+                            ? {readPdfOpeningGeometry: (path: string) => documentFiles.getPdfOpeningGeometry!(path)}
+                            : {}),
+                        readDjvuSourceInfo: path => djvu.getPageSourceInfo(path, 1),
+                    },
+                    profile,
+                    onError: (kind, path, error) => BrowserLogger.debug(
+                        'recent-open',
+                        `Application-level Recent ${kind.toUpperCase()} geometry warmup unavailable`,
+                        {
+                            path,
+                            error: error instanceof Error ? error.message : String(error),
+                        },
+                    ),
+                });
+                markStartupMetricOnce('evb:recent-pdf-geometry-prewarmed');
+                traceRendererStartup('post-ready recent geometry warmup settled');
+            } catch (error) {
+                traceRendererStartup('post-ready recent geometry warmup failed');
+                throw error;
+            }
+        })();
+        guardStartupWarmup(warmup, 'Recent opening geometry warmup failed');
+        return warmup;
+    });
+}
+
+function dispatchAppReady() {
+    if (typeof window === 'undefined' || appReadyDispatched) {
         return;
     }
-
-    const warmupStartedAt = performance.now();
-    // The active document workspace owns the canonical opening page frame.
-    // Keep the startup barrier until that owner is available so a Recent-file
-    // click can transition in the same frame instead of waiting on a lazy
-    // chunk after the interactive shell has already been exposed.
-    const shouldBlockOnRecentFiles = false;
-    const shouldBlockOnDocumentOpenChunks = true;
-    BrowserLogger.debug('loader', 'Startup content warmup started', {
-        hasUsableInitialRecentFilesSnapshot: hasUsableInitialRecentFilesSnapshot.value,
-        isDesktopRuntime: isDesktopRuntime.value,
-        shouldBlockOnRecentFiles,
-        shouldBlockOnDocumentOpenChunks,
-    });
-
-    const warmupTasks: Array<{
-        title: string;
-        promise: Promise<unknown>;
-    }> = [];
-    const recentFilesWarmup = loadRecentFiles();
-    const recentPdfGeometryWarmup = recentFilesWarmup.then(async () => {
-        const candidates = recentFiles.value
-            .filter(file => /\.pdf$/iu.test(file.fileName || file.originalPath))
-            .slice(0, RECENT_OPEN_GEOMETRY_PREWARM_LIMIT);
-        beginRecentOpenGeometryPrewarm(candidates.map(file => file.originalPath));
-        const { prewarmRecentPdfOpeningGeometry } = await import(
-            '@app/modules/pdf-viewer/runtime/lifecycle/prewarmRecentPdfOpeningGeometry'
-        );
-        const documentFiles = getDocumentFilesCapability();
-        const handleGeometryWarmupError = (file: {originalPath: string}, error: unknown) => BrowserLogger.debug(
-            'recent-open',
-            'Application-level Recent PDF geometry warmup unavailable',
-            {
-                path: file.originalPath,
-                error: error instanceof Error ? error.message : String(error),
-            },
-        );
-        const readOpeningGeometry = documentFiles.getPdfOpeningGeometry
-            ? (path: string) => documentFiles.getPdfOpeningGeometry!(path)
-            : undefined;
-        const warmedGeometry = await prewarmRecentPdfOpeningGeometry(recentFiles.value, {readOpeningGeometry}, {
-            limit: RECENT_OPEN_GEOMETRY_PREWARM_LIMIT,
-            settleTimeoutMs: RECENT_OPEN_GEOMETRY_SETTLE_TIMEOUT_MS,
-            onError: handleGeometryWarmupError,
-            onSettled: (file, geometry) => settleRecentOpenGeometryPrewarm(
-                file.originalPath,
-                geometry ? 'ready' : 'cold-fallback',
-            ),
-        });
-        for (const file of candidates) {
-            if (!warmedGeometry.has(file.originalPath)) {
-                settleRecentOpenGeometryPrewarm(file.originalPath, 'cold-fallback');
-            }
-        }
-        return warmedGeometry;
-    }).catch((error) => {
-        for (const file of recentFiles.value
-            .filter(file => /\.pdf$/iu.test(file.fileName || file.originalPath))) {
-            settleRecentOpenGeometryPrewarm(file.originalPath, 'cold-fallback');
-        }
-        throw error;
-    });
-    guardStartupWarmup(recentPdfGeometryWarmup, 'Recent PDF opening geometry warmup failed');
-    const recentDjvuGeometryWarmup = recentFilesWarmup.then(async () => {
-        const candidates = recentFiles.value
-            .filter(file => /\.djvu?$/iu.test(file.fileName || file.originalPath))
-            .slice(0, RECENT_OPEN_GEOMETRY_PREWARM_LIMIT);
-        beginRecentOpenGeometryPrewarm(candidates.map(file => file.originalPath));
-        const djvu = getDjvuCapability();
-        const warmedGeometry = await prewarmRecentDjvuOpeningGeometry(recentFiles.value, {readSourceInfo: path => djvu.getPageSourceInfo(path, 1)}, {
-            limit: RECENT_OPEN_GEOMETRY_PREWARM_LIMIT,
-            settleTimeoutMs: RECENT_OPEN_GEOMETRY_SETTLE_TIMEOUT_MS,
-            onSettled: (file, geometry) => settleRecentOpenGeometryPrewarm(
-                file.originalPath,
-                geometry ? 'ready' : 'cold-fallback',
-            ),
-        });
-        for (const file of candidates) {
-            if (!warmedGeometry.has(file.originalPath)) {
-                settleRecentOpenGeometryPrewarm(file.originalPath, 'cold-fallback');
-            }
-        }
-        return warmedGeometry;
-    }).catch((error) => {
-        for (const file of recentFiles.value
-            .filter(file => /\.djvu?$/iu.test(file.fileName || file.originalPath))) {
-            settleRecentOpenGeometryPrewarm(file.originalPath, 'cold-fallback');
-        }
-        throw error;
-    });
-    guardStartupWarmup(recentDjvuGeometryWarmup, 'Recent DjVu opening geometry warmup failed');
-    const recentOpenGeometryReadiness = Promise.allSettled([
-        recentPdfGeometryWarmup,
-        recentDjvuGeometryWarmup,
-    ]).then(() => {
-        markStartupMetricOnce('evb:recent-pdf-geometry-prewarmed');
-    });
-    guardStartupWarmup(recentOpenGeometryReadiness, 'Recent opening geometry readiness failed');
-    if (shouldBlockOnRecentFiles) {
-        warmupTasks.push({
-            title: 'Recent files warmup failed',
-            promise: recentFilesWarmup,
-        });
-    } else {
-        guardStartupWarmup(recentFilesWarmup, 'Recent files warmup failed');
-    }
-    const preloadSignals = {
-        isDesktopRuntime: isDesktopRuntime.value,
-        isDev: import.meta.dev,
-        ...(route.meta.preloadWorkspaceShell === false ? { routePreloadWorkspaceShell: false } : {}),
-    };
-    const shouldPreloadWorkspace = shouldPreloadWorkspaceDuringStartup(preloadSignals);
-    const documentOpenChunkPreload = preloadStartupDocumentOpenChunks({
-        isDesktopRuntime: isDesktopRuntime.value,
-        shouldPreloadWorkspace,
-    });
-    if (documentOpenChunkPreload) {
-        if (shouldBlockOnDocumentOpenChunks) {
-            warmupTasks.unshift({
-                title: 'Document open chunk preload failed',
-                promise: documentOpenChunkPreload,
-            });
-        } else {
-            guardStartupWarmup(documentOpenChunkPreload, 'Document open chunk preload failed');
-        }
-    }
-
-    const results = await Promise.allSettled(warmupTasks.map(task => task.promise));
-    for (const [
-        index,
-        result,
-    ] of results.entries()) {
-        if (result.status === 'rejected') {
-            reportStartupWarmupFailure(warmupTasks[index]?.title ?? 'Startup warmup failed', result.reason);
-        }
-    }
-    BrowserLogger.debug('loader', 'Startup content warmup settled', {
-        durationMs: Math.round(performance.now() - warmupStartedAt),
-        taskStates: results.map(result => result.status),
-    });
+    appReadyDispatched = true;
+    window.__appReady = true;
+    window.__appReadyAt = Date.now();
+    window.dispatchEvent(new Event('evb:app-ready'));
+    traceRendererStartup('evb:app-ready dispatched');
 }
 
 function installViteReloadDiagnostics() {
@@ -564,7 +470,6 @@ function installViteReloadDiagnostics() {
 installViteReloadDiagnostics();
 
 onMounted(async () => {
-    const mountTime = Date.now();
     try {
         hostEnvironmentUnsubscribers.push(onBrowserDocumentPersistenceWarning(({
             fileName,
@@ -600,25 +505,23 @@ onMounted(async () => {
             await setLocale(settings.value.locale);
         }
         colorMode.preference = settings.value.theme;
-
-        await preloadStartupContent();
-        if (isBrowserRuntime.value) {
-            void syncRecentFilesCookieFromRuntime();
-        }
+        traceRendererStartup('app bootstrap settings and locale ready');
         await nextTick();
         await waitForVisualFrames();
         markStartupMetricOnce('evb:shell-interactive');
+        dispatchAppReady();
+        schedulePostReadyRecentGeometryWarmup(resolveStartupWorkProfile());
+        if (isBrowserRuntime.value) {
+            guardStartupWarmup(
+                syncRecentFilesCookieFromRuntime(),
+                'Recent files cookie synchronization failed',
+            );
+        }
     } catch (error) {
         BrowserLogger.error('loader', 'App bootstrap failed', error);
         setFatalRuntimeError('startup', error, 'app-bootstrap');
     } finally {
-        // Always emit readiness, even on bootstrap failure, so preload fallbacks
-        // can deterministically remove startup overlays and avoid hanging UI.
-        if (typeof window !== 'undefined') {
-            window.__appReady = true;
-            window.__appReadyAt = mountTime;
-            window.dispatchEvent(new Event('evb:app-ready'));
-        }
+        dispatchAppReady();
     }
 });
 </script>

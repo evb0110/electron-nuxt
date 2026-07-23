@@ -139,6 +139,22 @@ describe('Electron E2E - Blocking PDF Save Smoke', () => {
                 timeoutMs: 45_000,
             }),
         ]);
+
+        const startupState = await readWorkspaceStateValues<{originalPath?: string | null;}>(page, ['originalPath']);
+        const readinessState = await page.evaluate(() => ({
+            appReady: (window as Window & {__appReady?: boolean}).__appReady ?? false,
+            appReadyAt: (window as Window & {__appReadyAt?: number}).__appReadyAt ?? null,
+            firstPagePaintedAt: performance
+                .getEntriesByName('evb:first-page-painted', 'mark')
+                .at(-1)?.startTime ?? null,
+            navigationStartedAt: performance.timeOrigin,
+            overlayPresent: document.querySelector('#evb-startup-overlay') !== null,
+        }));
+        expect(startupState.originalPath).toBe(pdfPath);
+        expect(readinessState.overlayPresent).toBe(false);
+        expect(readinessState.appReady).toBe(true);
+        expect(readinessState.appReadyAt).not.toBeNull();
+        expect(readinessState.firstPagePaintedAt).not.toBeNull();
         await waitForPdfLoaded(page, 30_000);
         await waitForViewerInteractive(page, 30_000);
 

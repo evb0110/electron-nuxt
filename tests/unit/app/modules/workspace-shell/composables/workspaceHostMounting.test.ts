@@ -5,9 +5,7 @@ import {
 } from 'vitest';
 import { resolveWorkspaceRequestedState } from '@app/modules/workspace-shell/host/resolveWorkspaceRequestedState';
 import { shouldAutoRequestWorkspace } from '@app/modules/workspace-shell/host/shouldAutoRequestWorkspace';
-import { shouldPreloadWorkspaceDuringStartup } from '@app/modules/workspace-shell/host/shouldPreloadWorkspaceDuringStartup';
 import { shouldPreloadWorkspaceOnHostMount } from '@app/modules/workspace-shell/host/shouldPreloadWorkspaceOnHostMount';
-import { preloadStartupDocumentOpenChunks } from '@app/modules/workspace-shell/host/preloadStartupDocumentOpenChunks';
 import { scheduleActiveEmptyWorkspacePremount } from '@app/modules/workspace-shell/host/scheduleActiveEmptyWorkspacePremount';
 import {
     getWorkspaceViewerChunkTargetsForPaths,
@@ -193,34 +191,6 @@ describe('workspace host mount request state', () => {
 });
 
 describe('workspace preload policy', () => {
-    it('keeps the desktop document workspace inside startup readiness in production and dev', () => {
-        expect(shouldPreloadWorkspaceDuringStartup({
-            isDesktopRuntime: true,
-            isDev: false,
-            routePreloadWorkspaceShell: false,
-        })).toBe(true);
-        expect(shouldPreloadWorkspaceDuringStartup({
-            isDesktopRuntime: true,
-            isDev: true,
-            routePreloadWorkspaceShell: false,
-        })).toBe(true);
-    });
-
-    it('respects route-level startup workspace preload opt-out on the web', () => {
-        expect(shouldPreloadWorkspaceDuringStartup({
-            isDesktopRuntime: false,
-            isDev: true,
-            routePreloadWorkspaceShell: false,
-        })).toBe(false);
-    });
-
-    it('preloads during startup when the route does not opt out', () => {
-        expect(shouldPreloadWorkspaceDuringStartup({
-            isDesktopRuntime: false,
-            isDev: false,
-        })).toBe(true);
-    });
-
     it('skips viewer chunk warmup on the web so visitors never prefetch both engines', () => {
         const loadedChunks: string[] = [];
         const result = warmupDesktopViewerChunks({
@@ -229,53 +199,6 @@ describe('workspace preload policy', () => {
         });
         expect(result).toBeNull();
         expect(loadedChunks).toEqual([]);
-    });
-
-    it('awaits every cold Recent-file viewer boundary before desktop startup becomes interactive', async () => {
-        const loadedChunks: string[] = [];
-        const workspaceLoader = () => {
-            loadedChunks.push('workspace');
-            return Promise.resolve();
-        };
-        const preload = preloadStartupDocumentOpenChunks({
-            isDesktopRuntime: true,
-            shouldPreloadWorkspace: true,
-            workspaceLoader,
-            viewerLoaderOverrides: createRecordingViewerChunkLoaders(loadedChunks),
-        });
-
-        expect(preload).not.toBeNull();
-        await preload;
-        expect(loadedChunks).toEqual([
-            'workspace',
-            'chassis',
-            'pdfjs',
-            'native-pdf',
-            'page-source',
-        ]);
-    });
-
-    it('preserves the web bundle policy while retaining workspace preload where requested', async () => {
-        const loadedChunks: string[] = [];
-        const workspaceLoader = () => {
-            loadedChunks.push('workspace');
-            return Promise.resolve();
-        };
-        const preload = preloadStartupDocumentOpenChunks({
-            isDesktopRuntime: false,
-            shouldPreloadWorkspace: true,
-            workspaceLoader,
-            viewerLoaderOverrides: createRecordingViewerChunkLoaders(loadedChunks),
-        });
-
-        await preload;
-        expect(loadedChunks).toEqual(['workspace']);
-        expect(preloadStartupDocumentOpenChunks({
-            isDesktopRuntime: false,
-            shouldPreloadWorkspace: false,
-            workspaceLoader,
-            viewerLoaderOverrides: createRecordingViewerChunkLoaders(loadedChunks),
-        })).toBeNull();
     });
 
     it('warms every viewer chunk loader on desktop', async () => {

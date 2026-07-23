@@ -22,6 +22,7 @@ import { createWorkspaceDocumentRecord } from '@app/modules/workspace-shell/stat
 import { cast } from '@tests/helpers/cast';
 
 const mocks = vi.hoisted(() => ({
+    lifecycleOrder: [] as string[],
     useEventListener: vi.fn(),
     shouldHandleRendererMenuAccelerators: vi.fn(),
     registerTabsMenuBindings: vi.fn(() => []),
@@ -34,6 +35,20 @@ const mocks = vi.hoisted(() => ({
     claimPendingExternalOpenPaths: vi.fn(async (): Promise<string[]> => []),
     acknowledgePendingExternalOpenPaths: vi.fn(async () => {}),
     notifyRendererReady: vi.fn(),
+    getWorkspaceViewerChunkTargetsForPaths: vi.fn(() => [
+        'chassis',
+        'pdfjs',
+        'native-pdf',
+    ]),
+    warmupDesktopViewerChunkForPaths: vi.fn(async () => []),
+    cancelDesktopViewerWarmup: vi.fn(),
+    scheduleDesktopViewerWarmup: vi.fn(),
+    resolveStartupWorkProfile: vi.fn(() => ({
+        tier: 'high',
+        desktopViewerWarmupStrategy: 'eager',
+        recentGeometryCandidateLimit: 4,
+        recentGeometryConcurrency: 2,
+    })),
 }));
 
 vi.mock('@vueuse/core', () => ({useEventListener: mocks.useEventListener}));
@@ -47,6 +62,12 @@ vi.mock('@app/utils/platformDocuments', () => ({getDocumentMenuCapability: () =>
 vi.mock('@app/utils/getSettingsCapability', () => ({getSettingsCapability: () => mocks.settingsCapability}));
 vi.mock('@app/utils/platformUpdates', () => ({getUpdatesCapability: () => mocks.updatesCapability}));
 vi.mock('@app/utils/getDjvuCapability', () => ({getDjvuCapability: () => mocks.djvuCapability}));
+vi.mock('@app/utils/startupWorkProfile', () => ({resolveStartupWorkProfile: mocks.resolveStartupWorkProfile}));
+vi.mock('@app/modules/workspace-shell/host/warmupDesktopViewerChunks', () => ({
+    getWorkspaceViewerChunkTargetsForPaths: mocks.getWorkspaceViewerChunkTargetsForPaths,
+    warmupDesktopViewerChunkForPaths: mocks.warmupDesktopViewerChunkForPaths,
+    scheduleDesktopViewerWarmup: mocks.scheduleDesktopViewerWarmup,
+}));
 vi.mock('@app/utils/platformWindowTabs', () => ({getWindowTabsCapability: () => ({
     claimPendingExternalOpenPaths: mocks.claimPendingExternalOpenPaths,
     acknowledgePendingExternalOpenPaths: mocks.acknowledgePendingExternalOpenPaths,
@@ -191,6 +212,7 @@ describe('useTabsShellBindings', () => {
     beforeEach(() => {
         vi.resetModules();
         vi.clearAllMocks();
+        mocks.lifecycleOrder.length = 0;
         capturedKeydown = undefined;
         vi.stubGlobal('window', { dispatchEvent: vi.fn() });
         vi.stubGlobal('CustomEvent', CustomEventStub);
@@ -199,6 +221,23 @@ describe('useTabsShellBindings', () => {
         mocks.waitForDesktopPlatformBridge.mockResolvedValue(true);
         mocks.claimPendingExternalOpenPaths.mockResolvedValue([]);
         mocks.acknowledgePendingExternalOpenPaths.mockResolvedValue(undefined);
+        mocks.acknowledgePendingExternalOpenPaths.mockImplementation(async () => {
+            mocks.lifecycleOrder.push('acknowledge');
+        });
+        mocks.notifyRendererReady.mockImplementation(() => {
+            mocks.lifecycleOrder.push('notify');
+        });
+        mocks.warmupDesktopViewerChunkForPaths.mockImplementation(async () => {
+            mocks.lifecycleOrder.push('matching-settled');
+            return [];
+        });
+        mocks.scheduleDesktopViewerWarmup.mockImplementation(() => {
+            mocks.lifecycleOrder.push('schedule-all');
+            return {
+                completion: Promise.resolve(),
+                cancel: mocks.cancelDesktopViewerWarmup,
+            };
+        });
         mocks.useEventListener.mockImplementation((_target, event, listener) => {
             if (event === 'keydown') {
                 capturedKeydown = listener;
@@ -370,13 +409,31 @@ describe('useTabsShellBindings', () => {
 
     it('waits for claimed startup external paths before notifying renderer readiness', async () => {
         const options = createOptions();
+        let resolveMatchingWarmup: (() => void) | undefined;
         let resolveStartupOpen: (() => void) | undefined;
+        mocks.warmupDesktopViewerChunkForPaths.mockImplementationOnce(() => new Promise((resolve) => {
+            resolveMatchingWarmup = () => {
+                mocks.lifecycleOrder.push('matching-settled');
+                resolve([]);
+            };
+        }));
         options.beginOpenPathsInAppropriateTab = vi.fn(() => new Promise<string[]>((resolve) => {
+            mocks.lifecycleOrder.push('open-started');
             resolveStartupOpen = () => resolve([]);
         }));
         mocks.claimPendingExternalOpenPaths.mockResolvedValue(['/tmp/startup.pdf']);
 
         const unmount = await mountBindingsClient(options);
+        await flushMountedStartupClaim();
+
+        expect(mocks.warmupDesktopViewerChunkForPaths).toHaveBeenCalledWith({
+            isDesktopRuntime: false,
+            paths: ['/tmp/startup.pdf'],
+        });
+        expect(options.beginOpenPathsInAppropriateTab).not.toHaveBeenCalled();
+        expect(mocks.notifyRendererReady).not.toHaveBeenCalled();
+
+        resolveMatchingWarmup?.();
         await flushMountedStartupClaim();
 
         expect(options.beginOpenPathsInAppropriateTab).toHaveBeenCalledWith(['/tmp/startup.pdf']);
@@ -390,6 +447,14 @@ describe('useTabsShellBindings', () => {
         expect(mocks.acknowledgePendingExternalOpenPaths).toHaveBeenCalledWith([]);
         expect(options.isStartupOpenClaimPending.value).toBe(false);
         expect(mocks.notifyRendererReady).toHaveBeenCalledOnce();
+        expect(mocks.scheduleDesktopViewerWarmup).toHaveBeenCalledOnce();
+        expect(mocks.lifecycleOrder).toEqual([
+            'matching-settled',
+            'open-started',
+            'acknowledge',
+            'notify',
+            'schedule-all',
+        ]);
         unmount();
     });
 
@@ -403,7 +468,38 @@ describe('useTabsShellBindings', () => {
 
         expect(mocks.acknowledgePendingExternalOpenPaths).toHaveBeenCalledWith(['/tmp/missing.pdf']);
         expect(mocks.notifyRendererReady).toHaveBeenCalledOnce();
+        expect(mocks.lifecycleOrder.indexOf('acknowledge')).toBeLessThan(mocks.lifecycleOrder.indexOf('notify'));
+        expect(mocks.lifecycleOrder.indexOf('notify')).toBeLessThan(mocks.lifecycleOrder.indexOf('schedule-all'));
         unmount();
+    });
+
+    it('does not invoke matching warmup when startup has no paths', async () => {
+        const options = createOptions();
+
+        const unmount = await mountBindingsClient(options);
+        await flushMountedStartupClaim();
+
+        expect(mocks.warmupDesktopViewerChunkForPaths).not.toHaveBeenCalled();
+        expect(mocks.notifyRendererReady).toHaveBeenCalledOnce();
+        expect(mocks.scheduleDesktopViewerWarmup).toHaveBeenCalledOnce();
+        unmount();
+    });
+
+    it('notifies and schedules once when startup preparation fails', async () => {
+        const options = createOptions();
+        mocks.claimPendingExternalOpenPaths.mockRejectedValueOnce(new Error('claim failed'));
+
+        const unmount = await mountBindingsClient(options);
+        await flushMountedStartupClaim();
+
+        expect(mocks.notifyRendererReady).toHaveBeenCalledOnce();
+        expect(mocks.scheduleDesktopViewerWarmup).toHaveBeenCalledOnce();
+        expect(mocks.lifecycleOrder).toEqual([
+            'notify',
+            'schedule-all',
+        ]);
+        unmount();
+        expect(mocks.cancelDesktopViewerWarmup).toHaveBeenCalledOnce();
     });
 
     it('routes web renderer menu shortcuts that have no native browser menu', async () => {

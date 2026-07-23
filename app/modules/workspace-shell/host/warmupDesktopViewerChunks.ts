@@ -7,21 +7,37 @@ import {
     type TWorkspaceViewerChunkTarget,
     workspaceViewerChunkLoaders,
 } from '@app/modules/workspace-shell/viewers/workspaceViewerChunkLoaders';
+import {
+    scheduleIdleWork,
+    type TCancelIdleWork,
+} from '@app/utils/scheduleIdleWork';
+import type { TDesktopViewerWarmupStrategy } from '@app/utils/startupWorkProfile';
 
-interface IDesktopViewerChunkWarmupOptions {
+export interface IDesktopViewerChunkWarmupOptions {
     isDesktopRuntime: boolean;
     loaderOverrides?: Partial<Record<TWorkspaceViewerChunkTarget, TWorkspaceViewerChunkLoader>>;
 }
 
-interface IPrioritizedViewerChunkWarmupOptions {
+export interface IPrioritizedViewerChunkWarmupOptions {
     isDesktopRuntime: boolean;
     paths: readonly string[];
     loaderOverrides?: Partial<Record<TWorkspaceViewerChunkTarget, TWorkspaceViewerChunkLoader>>;
 }
 
-interface IViewerChunkTargetWarmupOptions {
+export interface IViewerChunkTargetWarmupOptions {
     targets: readonly TWorkspaceViewerChunkTarget[];
     loaderOverrides?: Partial<Record<TWorkspaceViewerChunkTarget, TWorkspaceViewerChunkLoader>>;
+}
+
+export interface IScheduleDesktopViewerWarmupOptions
+    extends IDesktopViewerChunkWarmupOptions {
+    strategy: TDesktopViewerWarmupStrategy;
+    scheduleIdle?: typeof scheduleIdleWork;
+}
+
+export interface IDesktopViewerWarmupHandle {
+    completion: Promise<void>;
+    cancel: TCancelIdleWork;
 }
 
 function resolveViewerChunkLoaders(
@@ -98,4 +114,107 @@ export function warmupDesktopViewerChunks(options: IDesktopViewerChunkWarmupOpti
     }
 
     return loadViewerChunkTargets(ALL_WORKSPACE_VIEWER_CHUNK_TARGETS, options.loaderOverrides);
+}
+
+export function scheduleDesktopViewerWarmup(
+    options: IScheduleDesktopViewerWarmupOptions,
+): IDesktopViewerWarmupHandle | null {
+    if (!options.isDesktopRuntime || options.strategy === 'skip') {
+        return null;
+    }
+
+    const scheduleIdle = options.scheduleIdle ?? scheduleIdleWork;
+    let cancelScheduled: TCancelIdleWork = () => {};
+    let cancelled = false;
+    let stageRunning = false;
+    let settled = false;
+    let resolveCompletion: () => void = () => {};
+    let rejectCompletion: (error: unknown) => void = () => {};
+    const completion = new Promise<void>((resolve, reject) => {
+        resolveCompletion = resolve;
+        rejectCompletion = reject;
+    });
+
+    function resolveOnce() {
+        if (settled) {
+            return;
+        }
+        settled = true;
+        resolveCompletion();
+    }
+
+    function rejectOnce(error: unknown) {
+        if (settled) {
+            return;
+        }
+        settled = true;
+        rejectCompletion(error);
+    }
+
+    function scheduleStagedTarget(index: number) {
+        if (cancelled || index >= ALL_WORKSPACE_VIEWER_CHUNK_TARGETS.length) {
+            resolveOnce();
+            return;
+        }
+
+        cancelScheduled = scheduleIdle(async () => {
+            if (cancelled) {
+                resolveOnce();
+                return;
+            }
+            stageRunning = true;
+            const target = ALL_WORKSPACE_VIEWER_CHUNK_TARGETS[index];
+            try {
+                if (target) {
+                    await warmupDesktopViewerChunkTargets({
+                        targets: [target],
+                        ...(options.loaderOverrides ? {loaderOverrides: options.loaderOverrides} : {}),
+                    });
+                }
+                stageRunning = false;
+                if (cancelled) {
+                    resolveOnce();
+                    return;
+                }
+                scheduleStagedTarget(index + 1);
+            } catch (error) {
+                stageRunning = false;
+                rejectOnce(error);
+            }
+        });
+    }
+
+    if (options.strategy === 'eager') {
+        cancelScheduled = scheduleIdle(async () => {
+            if (cancelled) {
+                resolveOnce();
+                return;
+            }
+            stageRunning = true;
+            try {
+                await warmupDesktopViewerChunks(options);
+                stageRunning = false;
+                resolveOnce();
+            } catch (error) {
+                stageRunning = false;
+                rejectOnce(error);
+            }
+        });
+    } else {
+        scheduleStagedTarget(0);
+    }
+
+    return {
+        completion,
+        cancel: () => {
+            if (settled || cancelled) {
+                return;
+            }
+            cancelled = true;
+            cancelScheduled();
+            if (!stageRunning) {
+                resolveOnce();
+            }
+        },
+    };
 }

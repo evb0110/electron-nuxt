@@ -84,6 +84,7 @@ interface IImmediateRecentOpenResult {
     emptyTabCreatedAtMs: number | null;
     framesAfterClick: number;
     prewarmAtMs: number | null;
+    shellInteractiveAtMs: number | null;
     recentRowVisibleAtShell: boolean;
     sawVisibleDisabledTargetRow: boolean;
     shellAtMs: number | null;
@@ -325,6 +326,9 @@ async function emptyCurrentTabAndOpenRecentOnFirstFrame(
         const prewarmAtMs = performance
             .getEntriesByName('evb:recent-pdf-geometry-prewarmed', 'mark')
             .at(-1)?.startTime ?? null;
+        const shellInteractiveAtMs = performance
+            .getEntriesByName('evb:shell-interactive', 'mark')
+            .at(-1)?.startTime ?? null;
         let emptyTabCreatedAtMs: number | null = null;
         let clickAtMs: number | null = null;
         let framesAfterClick = 0;
@@ -381,6 +385,7 @@ async function emptyCurrentTabAndOpenRecentOnFirstFrame(
                 emptyTabCreatedAtMs,
                 framesAfterClick,
                 prewarmAtMs,
+                shellInteractiveAtMs,
                 recentRowVisibleAtShell: isVisible(getRecentRow()),
                 sawVisibleDisabledTargetRow,
                 shellAtMs,
@@ -658,6 +663,7 @@ describe('Electron E2E - Recent Files', () => {
         // another tab or replace the current tab identity.
         expect(immediateOpen.activeTabChanged, JSON.stringify(immediateOpen)).toBe(false);
         expect(immediateOpen.prewarmAtMs, JSON.stringify(immediateOpen)).not.toBeNull();
+        expect(immediateOpen.shellInteractiveAtMs, JSON.stringify(immediateOpen)).not.toBeNull();
         expect(immediateOpen.clickAtMs, JSON.stringify(immediateOpen)).not.toBeNull();
         expect(
             immediateOpen.actionableElapsedMs,
@@ -665,6 +671,10 @@ describe('Electron E2E - Recent Files', () => {
         ).toBeLessThanOrEqual(RECENT_EMPTY_TAB_ACTIONABLE_BUDGET_MS);
         expect(immediateOpen.targetReadyAtClick, JSON.stringify(immediateOpen)).toBe(true);
         expect(immediateOpen.targetActionableAtClick, JSON.stringify(immediateOpen)).toBe(true);
+        expect(
+            immediateOpen.prewarmAtMs! >= immediateOpen.shellInteractiveAtMs!,
+            JSON.stringify(immediateOpen),
+        ).toBe(true);
         expect(
             immediateOpen.prewarmAtMs! <= immediateOpen.clickAtMs!,
             JSON.stringify(immediateOpen),

@@ -30,9 +30,12 @@ import type { IWorkspaceDocumentRecord } from '@app/modules/workspace-shell/stat
 import type { ITab } from '@app/types/tabs';
 import { restoreWorkspaceCheckpoint } from '@app/modules/workspace-shell/checkpoint/restoreWorkspaceCheckpoint';
 import {
+    getWorkspaceViewerChunkTargetsForPaths,
+    scheduleDesktopViewerWarmup,
     warmupDesktopViewerChunkForPaths,
-    warmupDesktopViewerChunks,
+    type IDesktopViewerWarmupHandle,
 } from '@app/modules/workspace-shell/host/warmupDesktopViewerChunks';
+import { resolveStartupWorkProfile } from '@app/utils/startupWorkProfile';
 import {
     invokeWorkspaceExposeCommand,
     isWorkspaceExposeCommandName,
@@ -412,6 +415,26 @@ export const useTabsShellBindings = (options: IUseTabsShellBindingsOptions) => {
         {capture: true},
     );
     let isDisposed = false;
+    let rendererReadyNotified = false;
+    let desktopViewerWarmupHandle: IDesktopViewerWarmupHandle | null = null;
+
+    function notifyRendererReadyAndScheduleViewerWarmup() {
+        if (rendererReadyNotified) {
+            return;
+        }
+        rendererReadyNotified = true;
+        getWindowTabsCapability().notifyRendererReady();
+        const profile = resolveStartupWorkProfile();
+        desktopViewerWarmupHandle = scheduleDesktopViewerWarmup({
+            isDesktopRuntime: shouldPreferDesktopPlatform(route.path),
+            strategy: profile.desktopViewerWarmupStrategy,
+        });
+        void desktopViewerWarmupHandle?.completion.catch(error => BrowserLogger.warn(
+            'tabs-shell',
+            'Background viewer warmup failed',
+            error,
+        ));
+    }
 
     onMounted(() => {
         isDisposed = false;
@@ -498,24 +521,34 @@ export const useTabsShellBindings = (options: IUseTabsShellBindingsOptions) => {
             dispatchStartupOpenClaimed(startupExternalPaths.length);
             if (startupExternalPaths.length > 0) {
                 traceRendererStartup('tabs shell claimed startup external paths', {pathCount: startupExternalPaths.length});
-                await warmupDesktopViewerChunkForPaths({
-                    isDesktopRuntime: shouldPreferDesktopPlatform(route.path),
-                    paths: startupExternalPaths,
-                });
+                const targets = getWorkspaceViewerChunkTargetsForPaths(startupExternalPaths);
+                const matchingWarmupTraceData = {
+                    pathCount: startupExternalPaths.length,
+                    targets,
+                };
+                traceRendererStartup('startup matching viewer warmup started', matchingWarmupTraceData);
+                try {
+                    await warmupDesktopViewerChunkForPaths({
+                        isDesktopRuntime: shouldPreferDesktopPlatform(route.path),
+                        paths: startupExternalPaths,
+                    });
+                } catch (error) {
+                    BrowserLogger.warn('tabs-shell', 'Matching viewer warmup failed; opening without prefetch', error);
+                }
+                traceRendererStartup('startup matching viewer warmup settled', matchingWarmupTraceData);
                 const failedPaths = await beginOpenPathsInAppropriateTab(startupExternalPaths);
                 await windowTabsCapability.acknowledgePendingExternalOpenPaths(failedPaths);
                 if (isDisposed) {
                     return;
                 }
             }
-            void warmupDesktopViewerChunks({isDesktopRuntime: shouldPreferDesktopPlatform(route.path)})?.catch(error => BrowserLogger.warn('tabs-shell', 'Background viewer warmup failed', error));
             isStartupOpenClaimPending.value = false;
             await nextTick();
             if (isDisposed) {
                 return;
             }
             traceRendererStartup('tabs shell dispatching app:rendererReady');
-            windowTabsCapability.notifyRendererReady();
+            notifyRendererReadyAndScheduleViewerWarmup();
         })().catch((error) => {
             if (isDisposed) {
                 return;
@@ -523,7 +556,8 @@ export const useTabsShellBindings = (options: IUseTabsShellBindingsOptions) => {
             BrowserLogger.warn('tabs-shell', 'Startup externalOpen preparation failed before renderer ready', error);
             dispatchStartupOpenClaimed(0);
             isStartupOpenClaimPending.value = false;
-            getWindowTabsCapability().notifyRendererReady();
+            traceRendererStartup('tabs shell dispatching app:rendererReady');
+            notifyRendererReadyAndScheduleViewerWarmup();
         });
 
         traceRendererStartup('tabs shell onMounted finished', {durationMs: Math.round(performance.now() - onMountedStart)});
@@ -531,6 +565,8 @@ export const useTabsShellBindings = (options: IUseTabsShellBindingsOptions) => {
 
     onUnmounted(() => {
         isDisposed = true;
+        desktopViewerWarmupHandle?.cancel();
+        desktopViewerWarmupHandle = null;
         cleanupDirectOpenDelegate?.();
         cleanupDirectOpenDelegate = null;
         if (typeof window !== 'undefined' && (window as Window & { __handleSave?: unknown }).__handleSave === debugHandleSave) {

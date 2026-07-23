@@ -95,13 +95,9 @@ import { createImmediateSerializedQueue } from '@app/modules/workspace-shell/hos
 import { createDeferredWorkspaceLoadGateway } from '@app/modules/workspace-shell/host/createDeferredWorkspaceLoadGateway';
 import { shouldPreloadWorkspaceOnHostMount } from '@app/modules/workspace-shell/host/shouldPreloadWorkspaceOnHostMount';
 import {
-    beginRecentOpenGeometryPrewarm,
     isRecentOpenGeometryExactFrameReady,
     readRecentOpenExactGeometry,
-    readRecentOpenGeometryState,
-    settleRecentOpenGeometryPrewarm,
 } from '@app/modules/workspace-shell/host/recentOpenGeometryReadiness';
-import { getDjvuCapability } from '@app/utils/getDjvuCapability';
 import { tabHasDocumentHint } from '@app/modules/workspace-shell/tabs/tabHasDocumentHint';
 import {
     createWorkspaceRestoreAttemptState,
@@ -295,67 +291,6 @@ function isRecentFileExactFrameReady(file: IRecentFile) {
     return preparedFrame !== null
         && preparedFrame.sourceRevisionKey !== null;
 }
-
-async function prepareRecentGeometry(documentRef: string) {
-    beginRecentOpenGeometryPrewarm([documentRef]);
-    try {
-        if (/\.pdf$/iu.test(documentRef)) {
-            const { prevalidateTrustedPdfOpenGeometry } = await import(
-                '@app/modules/pdf-viewer/public/openGeometry'
-            );
-            const documentFiles = getDocumentFilesCapability();
-            const geometry = await prevalidateTrustedPdfOpenGeometry(
-                documentRef,
-                1,
-                undefined,
-                documentFiles.getPdfOpeningGeometry
-                    ? () => documentFiles.getPdfOpeningGeometry!(documentRef)
-                    : undefined,
-                {forceAuthoritativeRefresh: true},
-            );
-            settleRecentOpenGeometryPrewarm(documentRef, geometry ? 'ready' : 'cold-fallback');
-        } else if (/\.djvu?$/iu.test(documentRef)) {
-            const { prewarmRecentDjvuOpeningGeometry } = await import(
-                '@app/modules/djvu-viewer/public/openGeometry'
-            );
-            const file = recentFiles.value.find(candidate => candidate.originalPath === documentRef);
-            if (!file) {
-                settleRecentOpenGeometryPrewarm(documentRef, 'cold-fallback');
-                return;
-            }
-            const result = await prewarmRecentDjvuOpeningGeometry(
-                [file],
-                {readSourceInfo: path => getDjvuCapability().getPageSourceInfo(path, 1)},
-                {limit: 1},
-            );
-            settleRecentOpenGeometryPrewarm(
-                documentRef,
-                result.get(documentRef) ? 'ready' : 'cold-fallback',
-            );
-        }
-    } catch (error) {
-        settleRecentOpenGeometryPrewarm(documentRef, 'cold-fallback');
-        BrowserLogger.debug(DEFERRED_WORKSPACE_HOST_POLICY.RECENT_OPEN_LOG_SECTION, 'Closed document exact Recent geometry refresh failed', {
-            documentRef,
-            error: error instanceof Error ? error.message : String(error),
-        });
-    }
-}
-
-watch(
-    recentFiles,
-    (files) => {
-        for (const file of files) {
-            if (readRecentOpenGeometryState(file.originalPath) === 'cold-fallback') {
-                void prepareRecentGeometry(file.originalPath);
-            }
-        }
-    },
-    {
-        flush: 'post',
-        immediate: true,
-    },
-);
 
 watch(
     () => activeDocumentSession.value.snapshot.value,
