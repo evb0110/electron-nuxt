@@ -60,6 +60,8 @@ export const useWorkspaceDocumentLifecycleEffects = (options: IWorkspaceDocument
         closeAllAnnotationNotes,
         loadRecentFiles,
         consumePreservedSourceReloadMetadata,
+        hasPendingProgrammaticPageNavigation,
+        clearProgrammaticPageNavigation,
     } = options;
 
     const documentFiles = getDocumentFilesCapability();
@@ -152,5 +154,7 @@ export const useWorkspaceDocumentLifecycleEffects = (options: IWorkspaceDocument
         closeAllAnnotationNotes,
         loadRecentFiles,
         consumePreservedSourceReloadMetadata,
+        hasPendingProgrammaticPageNavigation,
+        clearProgrammaticPageNavigation,
     });
 };

@@ -508,6 +508,23 @@ watch(
     },
 );
 
+// The authority's semantic page follows the shared surface, including
+// pre-mount navigation intent. Feature packs only emit page events on later
+// changes, so a renderer initialized directly at the target page would leave
+// the parent's projection behind without this authoritative projection.
+watch(
+    () => chassisAuthority.currentPage.value,
+    (pageNumber) => {
+        if (pageNumber !== props.currentPage) {
+            emit('update:current-page', pageNumber);
+        }
+    },
+    {
+        flush: 'sync',
+        immediate: true,
+    },
+);
+
 watch(() => props.currentPage, (pageNumber) => {
     if (
         pageNumber !== undefined

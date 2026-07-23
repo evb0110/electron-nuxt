@@ -985,6 +985,8 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         bookmarksDirty,
         bookmarkEditMode,
         consumePreservedSourceReloadMetadata,
+        hasPendingProgrammaticPageNavigation: () => programmaticPageNavigationTarget.value !== null,
+        clearProgrammaticPageNavigation: () => clearProgrammaticPageNavigationTarget('document-closed'),
         pageLabels,
         pageLabelRanges,
         pageLabelsDirty,

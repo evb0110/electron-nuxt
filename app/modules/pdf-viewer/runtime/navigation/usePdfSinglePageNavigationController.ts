@@ -1038,9 +1038,12 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
                         viewportAuthority.currentPage.value,
                         pendingPage,
                     )
-                    : requestedPage !== (
-                        pendingPage ?? viewportAuthority.currentPage.value
-                    );
+                    // Pre-ready the prop carries the open surface's initial or
+                    // restored page, but it is still an echo: explicit commands
+                    // enter through submitPageNavigation, and the open's
+                    // default page must never supersede a queued user command.
+                    : pendingPage === null
+                        && requestedPage !== viewportAuthority.currentPage.value;
                 logPdfRenderTrace('navigation-requested-page-observed', () => ({
                     requested,
                     requestedPage,

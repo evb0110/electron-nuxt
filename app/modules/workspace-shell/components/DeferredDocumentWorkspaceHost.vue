@@ -592,6 +592,8 @@ function shouldSeedPendingTabHint(target: TTabUpdate | null | undefined) {
     });
 }
 
+let pendingPreOwnerGoToPage: number | null = null;
+
 function beginDocumentOpenTransaction(intent: IDocumentOpenIntent) {
     const target = intent.target ?? null;
     const currentSurface = documentOpenSurface.snapshot.value;
@@ -673,6 +675,10 @@ function beginDocumentOpenTransaction(intent: IDocumentOpenIntent) {
         }
         if (!preparedOpeningFrame) {
             openingPageFrameAuthority.value?.prepareOpeningPageFrame(generation);
+        }
+        if (pendingPreOwnerGoToPage !== null) {
+            documentOpenSurface.requestNavigation(pendingPreOwnerGoToPage);
+            pendingPreOwnerGoToPage = null;
         }
     }
 
@@ -758,6 +764,7 @@ async function waitForDocumentOpenTerminalState(transaction: IDocumentOpenTransa
 }
 
 function finishDocumentOpenTransaction(transaction: IDocumentOpenTransactionRun, opened: boolean) {
+    pendingPreOwnerGoToPage = null;
     activeDocumentSession.value.finishTransaction(
         transaction.sessionTransaction.id,
         opened ? 'committed' : 'failed',
@@ -1042,8 +1049,16 @@ const workspaceExpose: IWorkspaceExpose = createDeferredWorkspaceExposeProxy({
         // The shell toolbar is visible before the deferred workspace mounts.
         // Navigation must enter the already-owned viewport session directly;
         // a mount-wait command target can legitimately become stale as the
-        // in-flight open refines its document identity.
+        // in-flight open refines its document identity. Rapid commands can
+        // also arrive in the async gap before a queued open transaction
+        // begins its surface generation; the owner-less session rejects them
+        // as potential stale projections, so the host retains the genuine
+        // user command and replays it when the generation begins.
         handleGoToPage: page => {
+            if (documentOpenSurface.viewportSession.value.identity === null) {
+                pendingPreOwnerGoToPage = page;
+                return;
+            }
             documentOpenSurface.requestNavigation(page);
         },
         handleOpenFileFromUi,

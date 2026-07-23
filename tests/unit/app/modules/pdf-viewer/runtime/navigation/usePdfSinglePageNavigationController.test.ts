@@ -688,8 +688,11 @@ describe('usePdfSinglePageNavigationController', () => {
                 throw new Error('Expected navigation controller');
             }
 
+            // Explicit commands enter through the command API; the
+            // requestedCurrentPage prop is a projection of the open surface
+            // and must never be treated as the command channel.
             for (let requestedPage = 2; requestedPage <= 6; requestedPage += 1) {
-                requestedCurrentPage.value = requestedPage;
+                controller.scrollToPage(requestedPage);
                 await nextTick();
             }
             expect(controller.navigationAnchorPage.value).toBe(6);

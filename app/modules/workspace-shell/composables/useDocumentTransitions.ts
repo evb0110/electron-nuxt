@@ -8,6 +8,7 @@ import type { TPdfSource } from '@app/types/pdfUi';
 import type { TDocumentRef } from '@contracts/documentRef';
 import type { TPdfSidebarTab } from '@app/modules/workspace-shell/types/workspaceOrchestration.types';
 import { BrowserLogger } from '@app/utils/browserLogger';
+import { logPdfRenderTrace } from '@app/utils/pdfRenderTrace';
 import { annotationIdForSummary } from '@app/modules/pdf-viewer/public';
 
 export interface IDocumentTransitionDeps {
@@ -47,6 +48,8 @@ export interface IDocumentTransitionDeps {
     closeAllAnnotationNotes: (opts?: { saveIfDirty?: boolean }) => Promise<boolean>;
     loadRecentFiles: () => void;
     consumePreservedSourceReloadMetadata?: (() => boolean) | undefined;
+    hasPendingProgrammaticPageNavigation?: (() => boolean) | undefined;
+    clearProgrammaticPageNavigation?: (() => void) | undefined;
 }
 
 interface IDestroyablePdfDocument { destroy?: () => Promise<void> }
@@ -98,6 +101,8 @@ export const useDocumentTransitions = (deps: IDocumentTransitionDeps) => {
         closeAllAnnotationNotes,
         loadRecentFiles,
         consumePreservedSourceReloadMetadata,
+        hasPendingProgrammaticPageNavigation,
+        clearProgrammaticPageNavigation,
     } = deps;
 
     watch(pdfError, (err: unknown) => {
@@ -135,7 +140,19 @@ export const useDocumentTransitions = (deps: IDocumentTransitionDeps) => {
     watch(pdfSrc, (newSrc, oldSrc) => {
         if (newSrc && newSrc !== oldSrc) {
             const isReload = Boolean(oldSrc);
-            currentPage.value = 1;
+            const pendingProgrammaticNavigation = hasPendingProgrammaticPageNavigation?.() === true;
+            logPdfRenderTrace('workspace-document-transition-source-changed', {
+                isReload,
+                pendingProgrammaticNavigation,
+                currentPageBefore: currentPage.value,
+            });
+            // A user command issued during the open transition owns the page
+            // model until the viewer settles it; resetting here would echo
+            // page 1 back into the navigation controller and discard the
+            // queued intent.
+            if (!pendingProgrammaticNavigation) {
+                currentPage.value = 1;
+            }
             resetAnnotationTracking();
             markAnnotationCommentsLoading();
             if (!isReload) {
@@ -152,6 +169,7 @@ export const useDocumentTransitions = (deps: IDocumentTransitionDeps) => {
         }
         if (!newSrc) {
             const previousDocument = isDestroyablePdfDocument(pdfDocument.value) ? pdfDocument.value : null;
+            clearProgrammaticPageNavigation?.();
             currentPage.value = 1;
             totalPages.value = 0;
             pdfDocument.value = null;

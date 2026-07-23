@@ -1,4 +1,5 @@
 import type { Ref } from 'vue';
+import { logPdfRenderTrace } from '@app/utils/pdfRenderTrace';
 
 interface IDocumentWorkspacePageSessionRestoreOptions {
     activeViewerAdapter: Readonly<Ref<unknown>>;
@@ -21,6 +22,7 @@ export const useDocumentWorkspacePageSessionRestore = (
         : Math.max(1, Math.trunc(options.initialPage));
     watch(options.activeViewerAdapter, (adapter) => {
         if (!adapter) {
+            logPdfRenderTrace('workspace-page-session-adapter-reset', {currentPageBefore: options.currentPage.value});
             options.currentPage.value = 1;
             options.totalPages.value = 0;
             options.isLoading.value = false;
