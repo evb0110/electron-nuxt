@@ -9,6 +9,13 @@ export type {TScanCleanupPageRotation} from '@contracts/scan-cleanup/geometry';
 
 export type TScanCleanupLayoutMode = 'auto' | 'force-single' | 'force-two-page';
 export type TScanCleanupOutputMode = 'bw' | 'mixed' | 'grayscale' | 'color';
+export type TScanCleanupOutputModeRecommendationReason =
+    | 'blank'
+    | 'color-chroma'
+    | 'text-with-pictures'
+    | 'continuous-tone'
+    | 'bimodal-text'
+    | 'uncertain-tonal';
 export type TScanCleanupBinarizationMethod = 'auto' | 'otsu' | 'sauvola' | 'wolf';
 export type TScanCleanupOutputModeSetting = 'auto' | TScanCleanupOutputMode;
 export type TScanCleanupDespeckleLevel = 'off' | 'cautious' | 'normal' | 'aggressive';

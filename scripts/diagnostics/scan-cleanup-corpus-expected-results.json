@@ -1,0 +1,22 @@
+{
+  "version": 1,
+  "fixtures": {
+    "luther-p6-9": {
+      "expectedOutputBytes": 727236,
+      "pages": {
+        "1": {"mode": "bw", "reason": "bimodal-text", "minConfidence": 0.75, "outputCount": 2},
+        "2": {"mode": "bw", "reason": "bimodal-text", "minConfidence": 0.75, "outputCount": 2},
+        "3": {"mode": "bw", "reason": "bimodal-text", "minConfidence": 0.75, "outputCount": 2},
+        "4": {"mode": "bw", "reason": "bimodal-text", "minConfidence": 0.75, "outputCount": 2}
+      }
+    },
+    "rome-selected": {
+      "expectedOutputBytes": 19080994,
+      "pages": {
+        "1": {"mode": "color", "reason": "color-chroma", "minConfidence": 0.75, "outputCount": 1},
+        "2": {"mode": "bw", "reason": "blank", "minConfidence": 0.75, "outputCount": 1},
+        "49": {"mode": "mixed", "reason": "text-with-pictures", "minConfidence": 0.75, "outputCount": 1}
+      }
+    }
+  }
+}

@@ -171,6 +171,13 @@ export default {
             'label': 'Snijd elke uitvoerpagina bij tot de inhoud ervan',
             'skipBlank': 'Sla lege pagina\'s over',
         },
+        'blankHint': {
+            'message': plural({
+                one: '{count} pagina lijkt leeg — ‘Sla lege pagina’s over’ inschakelen?',
+                other: '{count} pagina’s lijken leeg — ‘Sla lege pagina’s over’ inschakelen?',
+            }),
+            'enable': 'Inschakelen',
+        },
         'margins': {
             'title': 'Marges',
             'left': 'Links (mm)',

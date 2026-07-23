@@ -9,6 +9,7 @@ import type {
     TScanCleanupLayoutClassification,
     TScanCleanupOutputHalf,
     TScanCleanupOutputMode,
+    TScanCleanupOutputModeRecommendationReason,
     TScanCleanupOutputModeSetting,
     TScanCleanupPageAlignment,
     TScanCleanupPageRotation,
@@ -178,6 +179,7 @@ export interface INativeScanCleanupProgressV3 {
     stageTimings?: INativeScanCleanupPageStageTimingsV3;
     recommendedOutputMode?: TScanCleanupOutputMode;
     recommendedOutputModeConfidence?: number;
+    recommendedOutputModeReason?: TScanCleanupOutputModeRecommendationReason;
 }
 
 export interface INativeScanCleanupProgressEnvelopeV3 {

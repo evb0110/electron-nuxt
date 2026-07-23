@@ -65,6 +65,7 @@ describe('scan-cleanup native protocol codec', () => {
                 },
                 recommendedOutputMode: 'mixed',
                 recommendedOutputModeConfidence: 0.91,
+                recommendedOutputModeReason: 'text-with-pictures',
             },
         });
     });
@@ -99,6 +100,22 @@ describe('scan-cleanup native protocol codec', () => {
                 recommendedOutputModeConfidence: 1.1,
             },
         }))).toThrow('output mode confidence');
+
+        expect(() => decodeNativeScanCleanupEnvelope(JSON.stringify({
+            version: 3,
+            type: 'progress',
+            progress: {
+                stage: 'page-complete',
+                completedPages: 1,
+                totalPages: 1,
+                pageNumber: 1,
+                classification: 'single-uncut-page',
+                confidence: 0.9,
+                recommendedOutputMode: 'bw',
+                recommendedOutputModeConfidence: 0.9,
+                recommendedOutputModeReason: 'empty',
+            },
+        }))).toThrow('recommendation reason');
     });
 
     it('omits an absent text axis and rejects malformed axis confidence', () => {

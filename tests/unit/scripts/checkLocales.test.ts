@@ -3,7 +3,10 @@ import {
     expect,
     it,
 } from 'vitest';
-import { checkLocaleParity } from '@scripts/checkLocales';
+import {
+    checkLocaleParity,
+    checkNoEnglishSchemaFallbackImport,
+} from '@scripts/checkLocales';
 
 const schema = {
     actions: {
@@ -40,5 +43,13 @@ describe('locale parity checker', () => {
             },
             title: 'Ejemplo',
         }})).toEqual([]);
+    });
+
+    it('rejects English fallback aliases for the landing target', () => {
+        expect(checkNoEnglishSchemaFallbackImport(
+            'landing',
+            'de.ts',
+            'import en from \'./en\';\nexport default {section: en.section};',
+        )).toEqual(['landing locale file "de.ts" imports the English schema as a fallback; define its keys explicitly']);
     });
 });

@@ -1,3 +1,4 @@
+// Machine translations in de/es/fr/it/nl/pt/ptBr scanCleanup await native-speaker review.
 import {isRecord} from '@contracts/runtimeGuards';
 import {
     LOCALE_CODES,
@@ -260,7 +261,22 @@ function listLocaleFileNames(relativeDirectory: string): string[] {
         .sort();
 }
 
-function assertNoEnglishSchemaFallbackImports(relativeDirectory: string, errors: string[]) {
+export function checkNoEnglishSchemaFallbackImport(
+    label: string,
+    fileName: string,
+    source: string,
+): string[] {
+    const importsEnglishSchema = /from\s+['"](?:@evb\/i18n-app\/messages\/en|\.\/en)(?:\.ts)?['"]/u.test(source);
+    return importsEnglishSchema
+        ? [`${label} locale file "${fileName}" imports the English schema as a fallback; define its keys explicitly`]
+        : [];
+}
+
+function assertNoEnglishSchemaFallbackImports(
+    label: string,
+    relativeDirectory: string,
+    errors: string[],
+) {
     for (const fileName of listLocaleFileNames(relativeDirectory)) {
         if (fileName === 'en.ts') {
             continue;
@@ -268,13 +284,7 @@ function assertNoEnglishSchemaFallbackImports(relativeDirectory: string, errors:
 
         const localePath = path.join(projectRoot, relativeDirectory, fileName);
         const source = readFileSync(localePath, 'utf8');
-        const importsEnglishSchema = /from\s+['"](?:@evb\/i18n-app\/messages\/en|\.\/en)(?:\.ts)?['"]/u.test(source);
-
-        if (importsEnglishSchema) {
-            errors.push(
-                `desktop locale file "${fileName}" imports the English schema as a fallback; define its keys explicitly`,
-            );
-        }
+        errors.push(...checkNoEnglishSchemaFallbackImport(label, fileName, source));
     }
 }
 
@@ -339,7 +349,7 @@ async function main() {
 
     if (target === 'app' || target === 'all') {
         assertRuntimeLocaleParity(errors);
-        assertNoEnglishSchemaFallbackImports('packages/i18n-app/messages', errors);
+        assertNoEnglishSchemaFallbackImports('desktop', 'packages/i18n-app/messages', errors);
         const desktopLocaleMessages = await loadLocaleMessages('packages/i18n-app/messages');
         const desktopLocaleFiles = listLocaleFileNames('packages/i18n-app/messages');
 
@@ -353,6 +363,7 @@ async function main() {
     }
 
     if (target === 'landing' || target === 'all') {
+        assertNoEnglishSchemaFallbackImports('landing', 'landing/app/locales', errors);
         const [
             landingSchema,
             landingLocaleMessages,

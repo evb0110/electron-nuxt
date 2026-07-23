@@ -421,6 +421,7 @@ fn run_manifest_inner(manifest: &BatchManifest) -> Result<(), Box<dyn Error>> {
         stage_timings: None,
         recommended_output_mode: None,
         recommended_output_mode_confidence: None,
+        recommended_output_mode_reason: None,
     })?;
     let cache = manifest_cache();
     let analyzed_pages = Mutex::new(0usize);
@@ -455,6 +456,7 @@ fn run_manifest_inner(manifest: &BatchManifest) -> Result<(), Box<dyn Error>> {
                 stage_timings: None,
                 recommended_output_mode: None,
                 recommended_output_mode_confidence: None,
+                recommended_output_mode_reason: None,
             })
             .map_err(|error| {
                 NativeError::new(
@@ -529,6 +531,7 @@ fn run_manifest_inner(manifest: &BatchManifest) -> Result<(), Box<dyn Error>> {
             recommended_output_mode_confidence: page_result
                 .metadata
                 .recommended_output_mode_confidence,
+            recommended_output_mode_reason: page_result.metadata.recommended_output_mode_reason,
         })?;
     }
     match_page_sizes(
@@ -553,6 +556,7 @@ fn run_manifest_inner(manifest: &BatchManifest) -> Result<(), Box<dyn Error>> {
         stage_timings: None,
         recommended_output_mode: None,
         recommended_output_mode_confidence: None,
+        recommended_output_mode_reason: None,
     })?;
     Ok(())
 }

@@ -580,6 +580,13 @@ export default {
             'label': 'Crop each output page to its content',
             'skipBlank': 'Skip blank pages',
         },
+        'blankHint': {
+            'message': plural({
+                one: '{count} page looks blank — enable Skip blank pages?',
+                other: '{count} pages look blank — enable Skip blank pages?',
+            }),
+            'enable': 'Enable',
+        },
         'margins': {
             'title': 'Margins',
             'left': 'Left (mm)',

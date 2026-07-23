@@ -1,0 +1,20 @@
+{
+  "fixtures": [
+    {
+      "id": "luther-p6-9",
+      "pdfPath": "/absolute/path/to/003319_luther_syr_chronik_josua_styllites (p6-9).pdf",
+      "pages": [1, 2, 3, 4]
+    },
+    {
+      "id": "rome-selected",
+      "pdfPath": "/absolute/path/to/History of Ancient Rome_2005.pdf",
+      "pages": [1, 2, 49]
+    },
+    {
+      "id": "linguae-optional",
+      "pdfPath": "/absolute/path/to/an/optional/Linguae/fixture.pdf",
+      "pages": [1, 2, 3, 4, 5, 6, 7, 8],
+      "optional": true
+    }
+  ]
+}

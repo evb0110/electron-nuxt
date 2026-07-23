@@ -26,7 +26,10 @@ import {
     decodeStartArgs,
     isLayoutClassification,
 } from '@electron/features/scan-cleanup/scanCleanupIpcRequestCodecs';
-import {isScanCleanupOutputMode} from '@electron/features/scan-cleanup/isScanCleanupOutputMode';
+import {
+    isScanCleanupOutputMode,
+    isScanCleanupOutputModeRecommendationReason,
+} from '@electron/features/scan-cleanup/isScanCleanupOutputMode';
 
 const PREVIEW_MAX_IMAGE_BYTES = 32 * 1024 * 1024;
 const PREVIEW_MAX_TOTAL_BYTES = 96 * 1024 * 1024;
@@ -751,6 +754,8 @@ export function decodeScanCleanupDetectionJobState(value: unknown): TScanCleanup
                 || result.recommendedOutputModeConfidence < 0
                 || result.recommendedOutputModeConfidence > 1
             ))
+            || (result.recommendedOutputModeReason !== undefined
+                && !isScanCleanupOutputModeRecommendationReason(result.recommendedOutputModeReason))
         ) throw new Error('invalid scan-cleanup detection result');
         return {
             pageNumber: decodePositiveInteger(result.pageNumber, 'detection page number'),
@@ -780,6 +785,9 @@ export function decodeScanCleanupDetectionJobState(value: unknown): TScanCleanup
                 : {}),
             ...(typeof result.recommendedOutputModeConfidence === 'number'
                 ? {recommendedOutputModeConfidence: result.recommendedOutputModeConfidence}
+                : {}),
+            ...(isScanCleanupOutputModeRecommendationReason(result.recommendedOutputModeReason)
+                ? {recommendedOutputModeReason: result.recommendedOutputModeReason}
                 : {}),
         };
     });

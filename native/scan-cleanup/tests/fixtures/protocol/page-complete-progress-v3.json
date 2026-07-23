@@ -34,6 +34,7 @@
       "renderMs": 24.0
     },
     "recommendedOutputMode": "mixed",
-    "recommendedOutputModeConfidence": 0.91
+    "recommendedOutputModeConfidence": 0.91,
+    "recommendedOutputModeReason": "text-with-pictures"
   }
 }

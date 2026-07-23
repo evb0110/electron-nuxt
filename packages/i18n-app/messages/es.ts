@@ -171,6 +171,13 @@ export default {
             'label': 'Recorta cada página de salida según su contenido',
             'skipBlank': 'Saltar páginas en blanco',
         },
+        'blankHint': {
+            'message': plural({
+                one: 'Parece que {count} página está en blanco. ¿Activar «Saltar páginas en blanco»?',
+                other: 'Parece que {count} páginas están en blanco. ¿Activar «Saltar páginas en blanco»?',
+            }),
+            'enable': 'Activar',
+        },
         'margins': {
             'title': 'Márgenes',
             'left': 'Izquierda (mm)',

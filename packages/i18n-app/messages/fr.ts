@@ -171,6 +171,13 @@ export default {
             'label': 'Recadrer chaque page de sortie selon son contenu',
             'skipBlank': 'Ignorer les pages blanches',
         },
+        'blankHint': {
+            'message': plural({
+                one: '{count} page semble blanche — activer « Ignorer les pages blanches » ?',
+                other: '{count} pages semblent blanches — activer « Ignorer les pages blanches » ?',
+            }),
+            'enable': 'Activer',
+        },
         'margins': {
             'title': 'Marges',
             'left': 'Gauche (mm)',

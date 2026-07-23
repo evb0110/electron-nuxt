@@ -899,7 +899,7 @@ describe('scan cleanup preview', () => {
         }))).toThrow('invalid scan-cleanup preview applied left margin');
     });
 
-    it('accepts optional detection text-axis results and rejects malformed values', () => {
+    it('accepts optional detection text-axis and recommendation reasons and rejects malformed values', () => {
         const state = {
             jobId: 'detect-axis',
             status: 'completed',
@@ -923,6 +923,7 @@ describe('scan cleanup preview', () => {
                     sideways: true,
                     confidence: 0.98,
                 },
+                recommendedOutputModeReason: 'blank',
             }],
             updatedAtMs: Date.now(),
         };
@@ -930,6 +931,7 @@ describe('scan cleanup preview', () => {
             sideways: true,
             confidence: 0.98,
         });
+        expect(decodeScanCleanupDetectionJobState(state)?.results[0]?.recommendedOutputModeReason).toBe('blank');
 
         const withoutAxis = structuredClone(state);
         delete (withoutAxis.results[0] as {textAxis?: unknown}).textAxis;
@@ -938,6 +940,10 @@ describe('scan cleanup preview', () => {
         const malformed = structuredClone(state);
         malformed.results[0]!.textAxis.confidence = Number.NaN;
         expect(() => decodeScanCleanupDetectionJobState(malformed)).toThrow('detection result');
+
+        const malformedReason = structuredClone(state);
+        malformedReason.results[0]!.recommendedOutputModeReason = 'empty';
+        expect(() => decodeScanCleanupDetectionJobState(malformedReason)).toThrow('detection result');
     });
 
     it('publishes incremental rasterization and analysis progress before reconciled results', async () => {

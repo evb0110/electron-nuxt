@@ -151,6 +151,9 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
             total: progress.value.totalUnits,
         },
     ));
+    const blankPageCount = computed(() => jobState.value?.status === 'completed'
+        ? jobState.value.results.filter(result => result.recommendedOutputModeReason === 'blank').length
+        : 0);
     const outputEstimate = computed(() => {
         const estimate = estimateScanCleanupOutputPages(
             options.totalPages.value,
@@ -573,6 +576,7 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
 
     return {
         authoritativeLayoutByPage,
+        blankPageCount,
         canDetectAll,
         cancel,
         cancelAndWaitForTerminal,

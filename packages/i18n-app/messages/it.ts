@@ -171,6 +171,13 @@ export default {
             'label': 'Ritaglia ogni pagina di output in base al suo contenuto',
             'skipBlank': 'Salta le pagine vuote',
         },
+        'blankHint': {
+            'message': plural({
+                one: '{count} pagina sembra vuota — attivare «Salta le pagine vuote»?',
+                other: '{count} pagine sembrano vuote — attivare «Salta le pagine vuote»?',
+            }),
+            'enable': 'Attiva',
+        },
         'margins': {
             'title': 'Margini',
             'left': 'Sinistra (mm)',

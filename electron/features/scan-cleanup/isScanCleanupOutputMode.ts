@@ -1,7 +1,21 @@
-import type { IScanCleanupPreviewResult } from '@contracts/electronApiScanCleanup';
+import type {
+    IScanCleanupPreviewResult,
+    TScanCleanupOutputModeRecommendationReason,
+} from '@contracts/electronApiScanCleanup';
 
 export function isScanCleanupOutputMode(
     value: unknown,
 ): value is NonNullable<IScanCleanupPreviewResult['pageMetadata']['recommendedOutputMode']> {
     return value === 'bw' || value === 'mixed' || value === 'grayscale' || value === 'color';
+}
+
+export function isScanCleanupOutputModeRecommendationReason(
+    value: unknown,
+): value is TScanCleanupOutputModeRecommendationReason {
+    return value === 'blank'
+        || value === 'color-chroma'
+        || value === 'text-with-pictures'
+        || value === 'continuous-tone'
+        || value === 'bimodal-text'
+        || value === 'uncertain-tonal';
 }
