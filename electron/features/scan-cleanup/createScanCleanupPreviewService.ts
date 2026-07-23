@@ -567,6 +567,9 @@ async function runDetection(
                     ...(nativeProgress.recommendedOutputModeConfidence === undefined
                         ? {}
                         : {recommendedOutputModeConfidence: nativeProgress.recommendedOutputModeConfidence}),
+                    ...(nativeProgress.recommendedOutputModeReason === undefined
+                        ? {}
+                        : {recommendedOutputModeReason: nativeProgress.recommendedOutputModeReason}),
                 });
                 const completedUnits = Math.max(analyzedPages, progress.completedUnits);
                 publish([...results], {

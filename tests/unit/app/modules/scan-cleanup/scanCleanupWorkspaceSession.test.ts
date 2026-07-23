@@ -651,11 +651,13 @@ describe('scan cleanup workspace session detection guidance', () => {
             ...completed.results[0]!,
             recommendedOutputMode: 'color',
             recommendedOutputModeConfidence: 0.94,
+            recommendedOutputModeReason: 'blank',
         };
         harness.emitDetection(completed);
         await vi.waitFor(() => expect(
             mounted.session.detection.recommendedOutputModeByPage.get(1),
         ).toBe('color'));
+        expect(mounted.session.detection.blankPageCount.value).toBe(1);
 
         mounted.session.settings.values.outputMode = 'bw';
         await nextTick();

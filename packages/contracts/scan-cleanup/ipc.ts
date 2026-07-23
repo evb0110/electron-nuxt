@@ -8,6 +8,7 @@ import type {
     TScanCleanupCanvasScope,
     TScanCleanupLayoutClassification,
     TScanCleanupOutputMode,
+    TScanCleanupOutputModeRecommendationReason,
     TScanCleanupPageRotation,
 } from '@contracts/scan-cleanup/domain';
 import type {
@@ -209,6 +210,7 @@ export interface IScanCleanupDetectionResult extends IScanCleanupReconciliationM
     textAxis?: IScanCleanupTextAxis;
     recommendedOutputMode?: TScanCleanupOutputMode;
     recommendedOutputModeConfidence?: number;
+    recommendedOutputModeReason?: TScanCleanupOutputModeRecommendationReason;
 }
 
 interface IScanCleanupDetectionJobBase {

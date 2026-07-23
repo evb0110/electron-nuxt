@@ -1,5 +1,6 @@
 use crate::{
     engine::text_axis::TextAxisHint,
+    mode_select::OutputModeRecommendationReason,
     protocol::manifest_v3::VERSION,
     split::{DocumentPrior, LayoutClassification},
     OutputMode,
@@ -79,6 +80,8 @@ pub struct Progress {
     pub recommended_output_mode: Option<OutputMode>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub recommended_output_mode_confidence: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub recommended_output_mode_reason: Option<OutputModeRecommendationReason>,
 }
 
 #[derive(Serialize)]
@@ -142,6 +145,7 @@ mod tests {
             stage_timings: None,
             recommended_output_mode: None,
             recommended_output_mode_confidence: None,
+            recommended_output_mode_reason: None,
         }))
         .unwrap();
 
@@ -189,6 +193,7 @@ mod tests {
             }),
             recommended_output_mode: Some(OutputMode::Mixed),
             recommended_output_mode_confidence: Some(0.91),
+            recommended_output_mode_reason: Some(OutputModeRecommendationReason::TextWithPictures),
         }))
         .unwrap();
 

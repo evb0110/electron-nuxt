@@ -86,7 +86,7 @@ describe('native tool protocol generator', () => {
         ])).toEqual([
             [
                 'evb-pdf-image-combine',
-                3,
+                4,
             ],
             [
                 'evb-pdf-page-ops',
@@ -98,7 +98,7 @@ describe('native tool protocol generator', () => {
             ],
             [
                 'evb-scan-cleanup',
-                2,
+                3,
             ],
         ]);
     });

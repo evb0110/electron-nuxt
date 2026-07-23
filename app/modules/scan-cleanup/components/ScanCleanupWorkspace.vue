@@ -36,6 +36,37 @@
         :aria-label="t('scanCleanup.workspaceTitle')"
     >
         <div
+            v-if="showBlankPageHint"
+            class="scan-cleanup-blank-hint-anchor"
+        >
+            <div class="scan-cleanup-blank-hint" role="status">
+                <UIcon
+                    name="i-ph-info"
+                    class="scan-cleanup-blank-hint-icon"
+                />
+                <span class="scan-cleanup-blank-hint-text">
+                    {{ t('scanCleanup.blankHint.message', {count: blankPageCount}) }}
+                </span>
+                <div class="scan-cleanup-blank-hint-actions">
+                    <UButton
+                        :label="t('scanCleanup.blankHint.enable')"
+                        variant="soft"
+                        color="primary"
+                        size="xs"
+                        @click="enableSkipBlankPages"
+                    />
+                    <UButton
+                        icon="i-ph-x"
+                        variant="ghost"
+                        color="neutral"
+                        size="xs"
+                        :aria-label="t('common.close')"
+                        @click="blankPageHintDismissed = true"
+                    />
+                </div>
+            </div>
+        </div>
+        <div
             class="scan-cleanup-workspace"
             :aria-busy="isRunning"
         >
@@ -265,6 +296,7 @@ const {
 const previewPage = selectionLeader;
 const {
     authoritativeLayoutByPage,
+    blankPageCount,
     canDetectAll,
     cancel: cancelDetection,
     cancelRequested: detectionCancelRequested,
@@ -306,6 +338,22 @@ const {
 const allScopeRotation = ref<TScanCleanupPageRotation>(0);
 const allScopeExcluded = ref(false);
 const zoneEditing = ref(false);
+const blankPageHintDismissed = ref(false);
+const showBlankPageHint = computed(() => blankPageCount.value > 0
+    && !settings.skipBlankPages
+    && !blankPageHintDismissed.value);
+
+function enableSkipBlankPages() {
+    settings.skipBlankPages = true;
+    blankPageHintDismissed.value = true;
+}
+
+watch(() => [
+    documentKey,
+    sourcePath,
+], () => {
+    blankPageHintDismissed.value = false;
+});
 const cleanupProgressTotal = computed(() => Math.max(jobProgress.value.totalUnits, previewTotalPages.value));
 const allPageNumbers = computed(() => Array.from(
     {length: Math.max(1, previewTotalPages.value)},
@@ -721,6 +769,56 @@ watch(isRunning, running => {
         minmax(0, 1fr)
         var(--app-scan-dialog-rail-width);
     overflow: hidden;
+}
+
+.scan-cleanup-blank-hint-anchor {
+    position: relative;
+    height: 0;
+    z-index: var(--app-z-document-status);
+}
+
+.scan-cleanup-blank-hint {
+    position: absolute;
+    top: var(--app-space-lg);
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    align-items: center;
+    gap: var(--app-space-xl);
+    max-width: min(90%, 44rem);
+    padding: var(--app-space-sm) var(--app-space-lg);
+    background: color-mix(in srgb, var(--ui-bg-elevated) 88%, transparent);
+    backdrop-filter: blur(8px);
+    border: 1px solid var(--ui-border);
+    border-radius: var(--app-radius-full);
+    box-shadow: var(--shadow-popup);
+    font-size: var(--app-text-size-body-sm);
+    line-height: var(--app-line-height-snug);
+    white-space: nowrap;
+}
+
+.scan-cleanup-blank-hint-icon {
+    width: var(--app-icon-size-md);
+    height: var(--app-icon-size-md);
+    color: var(--ui-primary);
+    flex-shrink: 0;
+}
+
+.scan-cleanup-blank-hint-text {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    color: var(--ui-text-muted);
+    font-variant-numeric: tabular-nums;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.scan-cleanup-blank-hint-actions {
+    display: flex;
+    flex-shrink: 0;
+    align-items: center;
+    gap: var(--app-space-sm);
 }
 
 .scan-cleanup-options-rail {

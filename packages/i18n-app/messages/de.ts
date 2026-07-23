@@ -171,6 +171,13 @@ export default {
             'label': 'Jede Ausgabeseite auf ihren Inhalt zuschneiden',
             'skipBlank': 'Leere Seiten überspringen',
         },
+        'blankHint': {
+            'message': plural({
+                one: '{count} Seite scheint leer zu sein — „Leere Seiten überspringen“ aktivieren?',
+                other: '{count} Seiten scheinen leer zu sein — „Leere Seiten überspringen“ aktivieren?',
+            }),
+            'enable': 'Aktivieren',
+        },
         'margins': {
             'title': 'Ränder',
             'left': 'Links (mm)',

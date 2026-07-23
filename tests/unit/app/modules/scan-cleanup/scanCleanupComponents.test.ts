@@ -122,6 +122,7 @@ vi.mock('@app/modules/scan-cleanup/composables/useScanCleanupWorkspaceSession', 
         },
         detection: {
             authoritativeLayoutByPage: session.authoritativeLayoutByPage,
+            blankPageCount: session.blankPageCount ?? computed(() => 0),
             canDetectAll: session.canDetectAll,
             cancel: session.cancelDetection,
             cancelRequested: session.detectionCancelRequested,
@@ -279,6 +280,9 @@ const translations: Record<string, string> = {
     'scanCleanup.firstRun.review': 'Review pages — drag the cutter or boxes, and adjust per-page settings.',
     'scanCleanup.firstRun.cleanUp': 'Clean up creates a new PDF; the original is untouched.',
     'scanCleanup.firstRun.dismiss': 'Got it',
+    'scanCleanup.blankHint.message': '{count} pages look blank — enable Skip blank pages?',
+    'scanCleanup.blankHint.enable': 'Enable',
+    'common.close': 'Close',
 };
 
 vi.mock('@app/composables/useTypedI18n', () => ({useTypedI18n: () => ({t: (
@@ -806,6 +810,7 @@ function createWorkspaceEntrySession(overrides: Record<string, unknown> = {}) {
         alignmentItems: ref([]),
         applyLeaderOverrides: vi.fn(),
         authoritativeLayoutByPage: reactive(new Map()),
+        blankPageCount: ref(0),
         cancel: vi.fn(),
         cancelDetection: vi.fn(),
         cancelRequested: ref(false),
@@ -925,6 +930,70 @@ afterEach(() => {
 });
 
 describe('Scan cleanup components', () => {
+    it('offers to enable blank-page skipping after detection and remains dismissible', async () => {
+        const blankPageCount = ref(2);
+        const settings = reactive({
+            preserveOriginalQuality: false,
+            layoutMode: 'auto',
+            outputMode: 'color',
+            readingOrder: 'ltr',
+            thickness: 0,
+            crop: false,
+            matchPageSize: true,
+            pageAlignment: 'top-center',
+            marginsMm: {
+                leftMm: 0,
+                topMm: 0,
+                rightMm: 0,
+                bottomMm: 0,
+            },
+            despeckle: false,
+            skipBlankPages: false,
+            pageOverrides: {},
+        });
+        workspaceSession.value = createWorkspaceEntrySession({
+            blankPageCount,
+            detectionPending: ref(false),
+            settings,
+        });
+
+        const harness = mount(defineComponent(() => () => h(ScanCleanupWorkspace, {
+            sourcePath: '/docs/scanned.pdf',
+            documentKey: 'document-a',
+            currentPage: 1,
+            totalPages: 2,
+        })));
+        await nextTick();
+
+        const hint = harness.host.querySelector('.scan-cleanup-blank-hint');
+        expect(hint?.textContent).toContain('2 pages look blank');
+        Array.from(hint?.querySelectorAll('button') ?? [])
+            .find(button => button.textContent === 'Enable')
+            ?.click();
+        await nextTick();
+        expect(settings.skipBlankPages).toBe(true);
+        expect(harness.host.querySelector('.scan-cleanup-blank-hint')).toBeNull();
+
+        harness.unmount();
+        settings.skipBlankPages = false;
+        workspaceSession.value = createWorkspaceEntrySession({
+            blankPageCount,
+            detectionPending: ref(false),
+            settings,
+        });
+        const dismissHarness = mount(defineComponent(() => () => h(ScanCleanupWorkspace, {
+            sourcePath: '/docs/scanned.pdf',
+            documentKey: 'document-a',
+            currentPage: 1,
+            totalPages: 2,
+        })));
+        await nextTick();
+        dismissHarness.host.querySelector<HTMLButtonElement>('[aria-label="Close"]')?.click();
+        await nextTick();
+        expect(settings.skipBlankPages).toBe(false);
+        expect(dismissHarness.host.querySelector('.scan-cleanup-blank-hint')).toBeNull();
+    });
+
     it('keeps a native page frame visible through the real workspace debounce state while metrics resolve', async () => {
         const source: IDocumentPageSource = {
             ...previewPageSource(1000, 800),

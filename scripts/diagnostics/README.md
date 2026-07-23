@@ -5,6 +5,26 @@ isolated Electron sessions, diagnostic trace buffers, timed sampling, optional f
 capture, artifact writes, and cleanup. Their package commands, acceptance thresholds,
 and JSON schemas remain scenario-specific.
 
+## Scan-cleanup release corpus
+
+Copy `scan-cleanup-corpus-config.example.json` to the ignored
+`.devkit/scan-cleanup-corpus.json` and replace each `pdfPath` with an absolute local
+path. Build the staged release tools, then run:
+
+```bash
+pnpm run build:scan-cleanup
+pnpm run build:pdf-image-combine
+pnpm run diag:scan-cleanup-corpus-verify -- --keep-artifacts
+```
+
+The diagnostic detects each selected page's dominant source DPI with `pdfimages`,
+rasterizes with `pdftoppm`, runs protocol-v3 auto analysis and final rendering,
+combines the output with the release PDF combiner, and reports every mode, codec,
+roundtrip, MediaBox, size, and timing assertion separately. Linguae fixtures are
+optional: mark them with `"optional": true` and they are reported as skipped when
+their absolute path is absent. The checked-in expectations cover the Luther p6–9
+session fixture and Rome pages 1, 2, and 49.
+
 ## Navigation blink trace
 
 Use the blink trace for blank frames, delayed skeletons, or canvas/skeleton flicker:

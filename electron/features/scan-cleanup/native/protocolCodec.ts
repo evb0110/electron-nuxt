@@ -12,6 +12,7 @@ import type {
     TNativeScanCleanupEnvelopeV3,
 } from '@contracts/electronApiScanCleanup';
 import {SCAN_CLEANUP_NATIVE_PROTOCOL_VERSION} from '@contracts/electronApiScanCleanup';
+import {isScanCleanupOutputModeRecommendationReason} from '@electron/features/scan-cleanup/isScanCleanupOutputMode';
 
 function isNonNegativeInteger(value: unknown) {
     return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0;
@@ -136,6 +137,10 @@ function decodeProgress(value: unknown): INativeScanCleanupProgressV3 {
         || value.recommendedOutputModeConfidence > 1
     )) throw new Error('Invalid evb-scan-cleanup output mode confidence');
     if (
+        value.recommendedOutputModeReason !== undefined
+        && !isScanCleanupOutputModeRecommendationReason(value.recommendedOutputModeReason)
+    ) throw new Error('Invalid evb-scan-cleanup output mode recommendation reason');
+    if (
         value.stage === 'page-analyzed'
         && [
             value.classification,
@@ -148,6 +153,7 @@ function decodeProgress(value: unknown): INativeScanCleanupProgressV3 {
             value.textAxis,
             value.recommendedOutputMode,
             value.recommendedOutputModeConfidence,
+            value.recommendedOutputModeReason,
         ].some(item => item !== undefined)
     ) throw new Error('Invalid evb-scan-cleanup pre-reconciliation analysis progress');
     const documentPrior = value.documentPrior === undefined ? undefined : decodeDocumentPrior(value.documentPrior);
@@ -171,6 +177,9 @@ function decodeProgress(value: unknown): INativeScanCleanupProgressV3 {
             : {}),
         ...(typeof value.recommendedOutputModeConfidence === 'number'
             ? {recommendedOutputModeConfidence: value.recommendedOutputModeConfidence}
+            : {}),
+        ...(isScanCleanupOutputModeRecommendationReason(value.recommendedOutputModeReason)
+            ? {recommendedOutputModeReason: value.recommendedOutputModeReason}
             : {}),
     };
 }
