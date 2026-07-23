@@ -10,9 +10,11 @@ import {
 import type {
     IAnnotationCommentSummary,
     IShapeAnnotation,
+    TMarkupSubtype,
 } from '@app/types/annotations';
-import type { IFileOperationsSaveAdapterPorts } from '@app/modules/workspace-shell/composables/file-operations/saveRolePorts';
-import { useFileOperationsSaveController as useFileOperationsSaveControllerPublic } from '@app/modules/workspace-shell/composables/file-operations/useFileOperationsSaveController';
+import type { IMarkupSubtypeHint } from '@app/modules/pdf-viewer/public';
+import type {IWorkspaceSaveDependencies} from '@app/modules/workspace-shell/composables/file-operations/workspaceSaveService';
+import {useWorkspaceSaveService} from '@app/modules/workspace-shell/composables/file-operations/workspaceSaveService';
 import { usePdfViewerSaveTransaction } from '@app/modules/pdf-viewer/runtime/save/usePdfViewerSaveTransaction';
 import {
     asAnnotationId,
@@ -24,30 +26,70 @@ import { cast } from '@tests/helpers/cast';
 
 export const toastAddMock = vi.fn();
 type TFileOperationsSaveControllerTestDeps =
-    IFileOperationsSaveAdapterPorts['state']['status']
-    & IFileOperationsSaveAdapterPorts['state']['documentIdentity']
-    & IFileOperationsSaveAdapterPorts['state']['annotations']
-    & IFileOperationsSaveAdapterPorts['state']['metadata']
-    & IFileOperationsSaveAdapterPorts['state']['metadataCompletion']
-    & IFileOperationsSaveAdapterPorts['pdf']['source']
-    & IFileOperationsSaveAdapterPorts['pdf']['serialization']
-    & IFileOperationsSaveAdapterPorts['persistence']['file']
-    & NonNullable<IFileOperationsSaveAdapterPorts['persistence']['nativeWorkingCopy']>
-    & NonNullable<IFileOperationsSaveAdapterPorts['persistence']['nativeMutations']>
-    & IFileOperationsSaveAdapterPorts['annotationEdits']
-    & IFileOperationsSaveAdapterPorts['viewer']['markup']
-    & IFileOperationsSaveAdapterPorts['viewer']['shapes']
-    & IFileOperationsSaveAdapterPorts['viewer']['shapeState']
-    & IFileOperationsSaveAdapterPorts['lifecycle']
-    & NonNullable<IFileOperationsSaveAdapterPorts['operationLease']>
+    IWorkspaceSaveDependencies['status']
     & {
+        workingCopyPath: IWorkspaceSaveDependencies['document']['workingCopyPath'];
+        originalPath: IWorkspaceSaveDependencies['document']['originalPath'];
+        documentRevisionToken: IWorkspaceSaveDependencies['document']['revisionToken'];
+        annotationDirty: IWorkspaceSaveDependencies['annotations']['dirty'];
+        markAnnotationSaved: IWorkspaceSaveDependencies['annotations']['markSaved'];
+        getAnnotationSaveStateToken?: IWorkspaceSaveDependencies['annotations']['getSaveStateToken'];
+        hasAnnotationChanges: IWorkspaceSaveDependencies['annotations']['hasChanges'];
+        hasLivePdfJsAnnotationChanges?: IWorkspaceSaveDependencies['annotations']['hasLivePdfJsChanges'];
+        hasSavedPdfJsAnnotationBaselineChanges?: IWorkspaceSaveDependencies['annotations']['hasSavedPdfJsBaselineChanges'];
+        hasPreservedAnnotationSourceChanges?: IWorkspaceSaveDependencies['annotations']['hasPreservedSourceChanges'];
+        hasPendingAnnotationDeletes?: IWorkspaceSaveDependencies['annotations']['hasPendingDeletes'];
+        annotationNoteWindowsCount: IWorkspaceSaveDependencies['annotations']['openNoteCount'];
+        persistAllAnnotationNotes: IWorkspaceSaveDependencies['annotations']['persistOpenNotes'];
+        totalPages: IWorkspaceSaveDependencies['metadata']['totalPages'];
+        pageLabelsDirty: IWorkspaceSaveDependencies['metadata']['pageLabelsDirty'];
+        pageLabelRanges: IWorkspaceSaveDependencies['metadata']['pageLabelRanges'];
+        bookmarksDirty: IWorkspaceSaveDependencies['metadata']['bookmarksDirty'];
+        bookmarkItems: IWorkspaceSaveDependencies['metadata']['bookmarkItems'];
+        untitledBookmarkLabel: string;
+        markPageLabelsSaved: IWorkspaceSaveDependencies['metadata']['markPageLabelsSaved'];
+        getPageLabelsSaveStateToken?: IWorkspaceSaveDependencies['metadata']['getPageLabelsSaveStateToken'];
+        markBookmarksSaved: IWorkspaceSaveDependencies['metadata']['markBookmarksSaved'];
+        getBookmarksSaveStateToken?: IWorkspaceSaveDependencies['metadata']['getBookmarksSaveStateToken'];
+        pdfDocument: IWorkspaceSaveDependencies['pdf']['document'];
+        runSaveTransaction: IWorkspaceSaveDependencies['pdf']['runSaveTransaction'];
+        saveDocument: () => Promise<Uint8Array | null>;
+        getSourcePdfData: IWorkspaceSaveDependencies['pdf']['getSourceData'];
+        commitPdfEditorsForSave?: () => Promise<void>;
+        serializePdfForSave: IWorkspaceSaveDependencies['pdf']['serializeForSave'];
+        validatePdfPath: IWorkspaceSaveDependencies['persistence']['validatePdfPath'];
+        saveFile: IWorkspaceSaveDependencies['persistence']['saveSerialized'];
+        saveWorkingCopy: IWorkspaceSaveDependencies['persistence']['saveWorkingCopy'];
+        saveWorkingCopyAs: IWorkspaceSaveDependencies['persistence']['saveAs'];
+        repairWorkingCopy?: IWorkspaceSaveDependencies['persistence']['repairWorkingCopy'];
+        optimizeWorkingCopy?: IWorkspaceSaveDependencies['persistence']['optimizeWorkingCopy'];
+        optimizeWorkingCopyAsCopy?: IWorkspaceSaveDependencies['persistence']['optimizeWorkingCopyAsCopy'];
+        optimizePdfOnSaveAs?: Ref<boolean>;
+        trySavePdfNativeMutations?: IWorkspaceSaveDependencies['persistence']['trySavePdfNativeMutations'];
+        trySaveEmbeddedNoteTextUpdates?: IWorkspaceSaveDependencies['persistence']['trySaveEmbeddedNoteTextUpdates'];
+        getWorkingCopySize?: IWorkspaceSaveDependencies['persistence']['getWorkingCopySize'];
+        hasShapeChanges?: () => boolean;
+        hasManagedShapes?: () => boolean;
+        getAllShapes?: () => IShapeAnnotation[];
+        getDeletedEmbeddedShapeAnnotationIds?: () => string[];
+        getDeletedEmbeddedShapeStableKeys?: () => string[];
+        getMarkupSubtypeOverrides?: () => Map<string, TMarkupSubtype> | undefined;
+        getMarkupSubtypeHints?: () => IMarkupSubtypeHint[] | undefined;
+        markShapeStateSaved?: IWorkspaceSaveDependencies['shapes']['markSaved'];
+        preparePersistedShapeStateForSave?: IWorkspaceSaveDependencies['shapes']['preparePersistedState'];
+        restorePreparedPersistedShapeState?: IWorkspaceSaveDependencies['shapes']['restorePreparedState'];
+        adoptPersistedShapeStateForNextReload?: IWorkspaceSaveDependencies['shapes']['adoptPersistedStateOnReload'];
+        clearPendingPersistedShapeStateForNextReload?: IWorkspaceSaveDependencies['shapes']['clearPendingPersistedState'];
+        loadRecentFiles: IWorkspaceSaveDependencies['lifecycle']['loadRecentFiles'];
+        preparePostSaveReload?: IWorkspaceSaveDependencies['lifecycle']['preparePostSaveReload'];
+        runWithDocumentOperationLease?: NonNullable<IWorkspaceSaveDependencies['runWithDocumentOperationLease']>;
         canonicalAnnotationComments: Ref<IAnnotationCommentSummary[]>;
         captureCanonicalPendingTextUpdates: () => Map<string, string> | null;
         captureCanonicalPendingAnnotationDeletes: () => IAnnotationCommentSummary[] | null;
     };
-export type TPdfNativeMutationSave = NonNullable<NonNullable<
-    IFileOperationsSaveAdapterPorts['persistence']['nativeMutations']
->['trySavePdfNativeMutations']>;
+export type TPdfNativeMutationSave = NonNullable<
+    IWorkspaceSaveDependencies['persistence']['trySavePdfNativeMutations']
+>;
 
 vi.stubGlobal('useTypedI18n', () => ({ t: (key: string) => key }));
 vi.stubGlobal('useToast', () => ({ add: toastAddMock }));
@@ -66,39 +108,117 @@ export function createDeferred<T>() {
     };
 }
 
-function createSaveControllerPorts(
+function createSaveDependencies(
     deps: TFileOperationsSaveControllerTestDeps,
-): IFileOperationsSaveAdapterPorts {
+): IWorkspaceSaveDependencies {
     return {
-        state: {
-            status: deps,
-            documentIdentity: deps,
-            annotations: deps,
-            metadata: deps,
-            metadataCompletion: deps,
+        status: deps,
+        document: {
+            workingCopyPath: deps.workingCopyPath,
+            originalPath: deps.originalPath,
+            revisionToken: deps.documentRevisionToken,
+        },
+        annotations: {
+            dirty: deps.annotationDirty,
+            markSaved: deps.markAnnotationSaved,
+            ...(deps.getAnnotationSaveStateToken
+                ? {getSaveStateToken: deps.getAnnotationSaveStateToken}
+                : {}),
+            hasChanges: deps.hasAnnotationChanges,
+            ...(deps.hasLivePdfJsAnnotationChanges
+                ? {hasLivePdfJsChanges: deps.hasLivePdfJsAnnotationChanges}
+                : {}),
+            ...(deps.hasSavedPdfJsAnnotationBaselineChanges
+                ? {hasSavedPdfJsBaselineChanges: deps.hasSavedPdfJsAnnotationBaselineChanges}
+                : {}),
+            ...(deps.hasPreservedAnnotationSourceChanges
+                ? {hasPreservedSourceChanges: deps.hasPreservedAnnotationSourceChanges}
+                : {}),
+            ...(deps.hasPendingAnnotationDeletes
+                ? {hasPendingDeletes: deps.hasPendingAnnotationDeletes}
+                : {}),
+            openNoteCount: deps.annotationNoteWindowsCount,
+            persistOpenNotes: deps.persistAllAnnotationNotes,
+        },
+        metadata: {
+            totalPages: deps.totalPages,
+            pageLabelsDirty: deps.pageLabelsDirty,
+            pageLabelRanges: deps.pageLabelRanges,
+            bookmarksDirty: deps.bookmarksDirty,
+            bookmarkItems: deps.bookmarkItems,
+            untitledBookmarkLabel: deps.untitledBookmarkLabel,
+            markPageLabelsSaved: deps.markPageLabelsSaved,
+            ...(deps.getPageLabelsSaveStateToken
+                ? {getPageLabelsSaveStateToken: deps.getPageLabelsSaveStateToken}
+                : {}),
+            markBookmarksSaved: deps.markBookmarksSaved,
+            ...(deps.getBookmarksSaveStateToken
+                ? {getBookmarksSaveStateToken: deps.getBookmarksSaveStateToken}
+                : {}),
         },
         pdf: {
-            source: deps,
-            serialization: deps,
+            document: deps.pdfDocument,
+            runSaveTransaction: deps.runSaveTransaction,
+            getSourceData: deps.getSourcePdfData,
+            serializeForSave: deps.serializePdfForSave,
         },
         persistence: {
-            file: deps,
-            nativeWorkingCopy: deps,
-            nativeMutations: deps,
+            validatePdfPath: deps.validatePdfPath,
+            saveSerialized: deps.saveFile,
+            saveWorkingCopy: deps.saveWorkingCopy,
+            saveAs: deps.saveWorkingCopyAs,
+            ...(deps.repairWorkingCopy ? {repairWorkingCopy: deps.repairWorkingCopy} : {}),
+            ...(deps.optimizeWorkingCopy ? {optimizeWorkingCopy: deps.optimizeWorkingCopy} : {}),
+            ...(deps.optimizeWorkingCopyAsCopy
+                ? {optimizeWorkingCopyAsCopy: deps.optimizeWorkingCopyAsCopy}
+                : {}),
+            ...(deps.trySavePdfNativeMutations
+                ? {trySavePdfNativeMutations: deps.trySavePdfNativeMutations}
+                : {}),
+            ...(deps.trySaveEmbeddedNoteTextUpdates
+                ? {trySaveEmbeddedNoteTextUpdates: deps.trySaveEmbeddedNoteTextUpdates}
+                : {}),
+            ...(deps.getWorkingCopySize
+                ? {getWorkingCopySize: deps.getWorkingCopySize}
+                : {}),
         },
-        annotationEdits: deps,
-        viewer: {
-            markup: deps,
-            shapes: deps,
-            shapeState: deps,
+        shapes: {
+            hasChanges: () => deps.hasShapeChanges?.() ?? false,
+            hasManagedShapes: () => deps.hasManagedShapes?.() ?? false,
+            ...(deps.markShapeStateSaved ? {markSaved: deps.markShapeStateSaved} : {}),
+            ...(deps.preparePersistedShapeStateForSave
+                ? {preparePersistedState: deps.preparePersistedShapeStateForSave}
+                : {}),
+            ...(deps.restorePreparedPersistedShapeState
+                ? {restorePreparedState: deps.restorePreparedPersistedShapeState}
+                : {}),
+            ...(deps.adoptPersistedShapeStateForNextReload
+                ? {adoptPersistedStateOnReload: deps.adoptPersistedShapeStateForNextReload}
+                : {}),
+            ...(deps.clearPendingPersistedShapeStateForNextReload
+                ? {clearPendingPersistedState: deps.clearPendingPersistedShapeStateForNextReload}
+                : {}),
         },
-        lifecycle: deps,
-        operationLease: deps,
+        lifecycle: {
+            loadRecentFiles: deps.loadRecentFiles,
+            ...(deps.preparePostSaveReload
+                ? {preparePostSaveReload: deps.preparePostSaveReload}
+                : {}),
+        },
+        ...(deps.runWithDocumentOperationLease
+            ? {runWithDocumentOperationLease: deps.runWithDocumentOperationLease}
+            : {}),
     };
 }
 
-export function useFileOperationsSaveController(deps: TFileOperationsSaveControllerTestDeps) {
-    return useFileOperationsSaveControllerPublic(createSaveControllerPorts(deps));
+export function useWorkspaceSaveServiceForTest(deps: TFileOperationsSaveControllerTestDeps) {
+    const service = useWorkspaceSaveService(createSaveDependencies(deps));
+    return {
+        ...service,
+        handleSaveAs: () => service.handleSaveAs(
+            deps.optimizePdfOnSaveAs?.value === true,
+        ),
+    };
 }
 
 function canonicalEntityFromSummary(
@@ -179,9 +299,12 @@ function buildCanonicalAnnotationPlan(deps: TFileOperationsSaveControllerTestDep
     }, entities, entities);
 }
 
-export function createDeps(overrides: Partial<Parameters<typeof useFileOperationsSaveController>[0]> = {}) {
+export function createDeps(overrides: Partial<Parameters<typeof useWorkspaceSaveServiceForTest>[0]> = {}) {
     const resetModified = vi.fn();
-    const saveFile = vi.fn(async (_data: Uint8Array) => ({
+    const saveFile = vi.fn(async (
+        _data: Uint8Array,
+        _opts: Parameters<IWorkspaceSaveDependencies['persistence']['saveSerialized']>[1],
+    ) => ({
         success: true,
         outPath: '/tmp/work.pdf',
         saveMode: 'rewrite' as const,
@@ -189,7 +312,7 @@ export function createDeps(overrides: Partial<Parameters<typeof useFileOperation
     }));
     const saveWorkingCopyAs = vi.fn(async (
         _data?: Uint8Array,
-        _opts?: Parameters<IFileOperationsSaveAdapterPorts['persistence']['file']['saveWorkingCopyAs']>[1],
+        _opts?: Parameters<IWorkspaceSaveDependencies['persistence']['saveAs']>[1],
     ) => ({
         success: true,
         outPath: '/tmp/new.pdf',
@@ -197,7 +320,7 @@ export function createDeps(overrides: Partial<Parameters<typeof useFileOperation
         didSaveAs: true,
     }));
 
-    const deps = cast<Parameters<typeof useFileOperationsSaveController>[0]>({
+    const deps = cast<Parameters<typeof useWorkspaceSaveServiceForTest>[0]>({
         isSaving: ref(false),
         isSavingAs: ref(false),
         originalPath: ref('/tmp/source.pdf'),
@@ -206,7 +329,11 @@ export function createDeps(overrides: Partial<Parameters<typeof useFileOperation
         annotationDirty: ref(false),
         canonicalAnnotationComments: ref([]),
         pageLabelsDirty: ref(false),
+        pageLabelRanges: ref([]),
         bookmarksDirty: ref(false),
+        bookmarkItems: ref([]),
+        totalPages: ref(1),
+        untitledBookmarkLabel: 'Untitled',
         pdfDocument: shallowRef(cast({ annotationStorage: { resetModified } })),
         saveDocument: vi.fn(async () => new Uint8Array([1])),
         getSourcePdfData: vi.fn(async () => new Uint8Array([1])),

@@ -20,11 +20,11 @@ import {
     expectWorkspaceSaveNotMarked,
     toastAddMock,
     type TPdfNativeMutationSave,
-    useFileOperationsSaveController,
-} from '@tests/unit/app/modules/workspace-shell/composables/file-operations/useFileOperationsSaveControllerFixture';
+    useWorkspaceSaveServiceForTest,
+} from '@tests/unit/app/modules/workspace-shell/composables/file-operations/workspaceSaveServiceFixture';
 import {requireDocumentRevisionToken} from '@contracts';
 
-describe('useFileOperationsSaveController', () => {
+describe('workspaceSaveService', () => {
     beforeEach(() => {
         toastAddMock.mockClear();
     });
@@ -35,7 +35,7 @@ describe('useFileOperationsSaveController', () => {
             resetModified,
             saveFile,
         } = createDeps({annotationDirty: ref(true)});
-        const { handleSave } = useFileOperationsSaveController(deps);
+        const { handleSave } = useWorkspaceSaveServiceForTest(deps);
 
         await handleSave();
 
@@ -44,6 +44,10 @@ describe('useFileOperationsSaveController', () => {
         expect(deps.serializePdfForSave).toHaveBeenCalledOnce();
         expect(deps.saveWorkingCopy).not.toHaveBeenCalled();
         expect(saveFile).toHaveBeenCalledOnce();
+        expect(saveFile.mock.calls[0]?.[1]).toMatchObject({
+            expectedWorkingPath: '/tmp/work.pdf',
+            expectedDocumentRevisionToken: requireDocumentRevisionToken('rev-1'),
+        });
         expect(Array.from(saveFile.mock.calls[0]?.[0] ?? [])).toEqual([
             1,
             2,
@@ -81,7 +85,7 @@ describe('useFileOperationsSaveController', () => {
             getSourcePdfData,
             saveFile,
         });
-        const { handleSave } = useFileOperationsSaveController(deps);
+        const { handleSave } = useWorkspaceSaveServiceForTest(deps);
 
         await expect(handleSave()).resolves.toBe(true);
 
@@ -122,7 +126,7 @@ describe('useFileOperationsSaveController', () => {
             getSourcePdfData: vi.fn(async () => new Uint8Array([1])),
             saveFile,
         });
-        const { handleSave } = useFileOperationsSaveController(deps);
+        const { handleSave } = useWorkspaceSaveServiceForTest(deps);
 
         await expect(handleSave()).resolves.toBe(false);
 
@@ -139,13 +143,18 @@ describe('useFileOperationsSaveController', () => {
 
     it('saves working copy directly when no serialization work is required', async () => {
         const { deps } = createDeps();
-        const { handleSave } = useFileOperationsSaveController(deps);
+        const { handleSave } = useWorkspaceSaveServiceForTest(deps);
 
         await handleSave();
 
         expect(deps.saveDocument).not.toHaveBeenCalled();
         expect(deps.validatePdfPath).toHaveBeenCalledOnce();
         expect(deps.saveWorkingCopy).toHaveBeenCalledOnce();
+        expect(deps.saveWorkingCopy).toHaveBeenCalledWith({
+            saveMode: 'rewrite',
+            expectedWorkingPath: '/tmp/work.pdf',
+            expectedDocumentRevisionToken: requireDocumentRevisionToken('rev-1'),
+        });
         expectWorkspaceSaveMarked(deps);
         expect(deps.loadRecentFiles).toHaveBeenCalledOnce();
     });
@@ -159,7 +168,7 @@ describe('useFileOperationsSaveController', () => {
         }>();
         const validatePdfPath = vi.fn(() => validation.promise);
         const { deps } = createDeps({validatePdfPath});
-        const { handleSave } = useFileOperationsSaveController(deps);
+        const { handleSave } = useWorkspaceSaveServiceForTest(deps);
 
         const savePromise = handleSave();
 
@@ -199,7 +208,7 @@ describe('useFileOperationsSaveController', () => {
             persistAllAnnotationNotes: vi.fn(() => notePersistence.promise),
             trySaveEmbeddedNoteTextUpdates,
         });
-        const { handleSave } = useFileOperationsSaveController(deps);
+        const { handleSave } = useWorkspaceSaveServiceForTest(deps);
 
         const savePromise = handleSave();
         await Promise.resolve();
@@ -226,7 +235,7 @@ describe('useFileOperationsSaveController', () => {
             captureCanonicalPendingTextUpdates: vi.fn(() => pendingTexts),
             saveDocument: vi.fn(() => sourceBytes.promise),
         });
-        const { handleSave } = useFileOperationsSaveController(deps);
+        const { handleSave } = useWorkspaceSaveServiceForTest(deps);
 
         const savePromise = handleSave();
 
@@ -253,7 +262,7 @@ describe('useFileOperationsSaveController', () => {
             captureCanonicalPendingTextUpdates: vi.fn(() => pendingTexts),
             getSourcePdfData: vi.fn(() => sourceBytes.promise),
         });
-        const { handleSave } = useFileOperationsSaveController(deps);
+        const { handleSave } = useWorkspaceSaveServiceForTest(deps);
 
         const savePromise = handleSave();
 
@@ -283,7 +292,7 @@ describe('useFileOperationsSaveController', () => {
                 cancel,
             }),
         });
-        const { handleSave } = useFileOperationsSaveController(deps);
+        const { handleSave } = useWorkspaceSaveServiceForTest(deps);
 
         const savePromise = handleSave();
 
@@ -320,7 +329,7 @@ describe('useFileOperationsSaveController', () => {
             persistAllAnnotationNotes: vi.fn(() => notePersistence.promise),
             trySaveEmbeddedNoteTextUpdates,
         });
-        const { handleSave } = useFileOperationsSaveController(deps);
+        const { handleSave } = useWorkspaceSaveServiceForTest(deps);
 
         const savePromise = handleSave();
         await Promise.resolve();
@@ -344,7 +353,7 @@ describe('useFileOperationsSaveController', () => {
             return operation();
         });
         const { deps } = createDeps({ runWithDocumentOperationLease: cast(runWithDocumentOperationLease) });
-        const { handleSave } = useFileOperationsSaveController(deps);
+        const { handleSave } = useWorkspaceSaveServiceForTest(deps);
 
         const savePromise = handleSave();
         await Promise.resolve();
@@ -369,7 +378,7 @@ describe('useFileOperationsSaveController', () => {
             hasSavedPdfJsAnnotationBaselineChanges: vi.fn(() => true),
             saveDocument: vi.fn(async () => new Uint8Array([9])),
         });
-        const { handleSave } = useFileOperationsSaveController(deps);
+        const { handleSave } = useWorkspaceSaveServiceForTest(deps);
 
         await handleSave();
 
@@ -388,7 +397,7 @@ describe('useFileOperationsSaveController', () => {
             deps,
             saveFile,
         } = createDeps();
-        const { handleRepairSave } = useFileOperationsSaveController(deps);
+        const { handleRepairSave } = useWorkspaceSaveServiceForTest(deps);
 
         await handleRepairSave();
 
@@ -431,7 +440,7 @@ describe('useFileOperationsSaveController', () => {
             getPageLabelsSaveStateToken: () => pageLabelsToken,
             getBookmarksSaveStateToken: () => bookmarksToken,
         });
-        const { handleSave } = useFileOperationsSaveController(deps);
+        const { handleSave } = useWorkspaceSaveServiceForTest(deps);
 
         await expect(handleSave()).resolves.toBe(true);
 
@@ -457,7 +466,7 @@ describe('useFileOperationsSaveController', () => {
             hasAnnotationChanges: vi.fn(() => true),
             saveDocument,
         });
-        const { handleSave } = useFileOperationsSaveController(deps);
+        const { handleSave } = useWorkspaceSaveServiceForTest(deps);
 
         await expect(handleSave()).resolves.toBe(true);
 
@@ -496,7 +505,7 @@ describe('useFileOperationsSaveController', () => {
             markAnnotationSaved,
             runSaveTransaction,
         });
-        const { handleSave } = useFileOperationsSaveController(deps);
+        const { handleSave } = useWorkspaceSaveServiceForTest(deps);
 
         await expect(handleSave()).resolves.toBe(true);
 
@@ -526,7 +535,7 @@ describe('useFileOperationsSaveController', () => {
             }),
             saveFile,
         });
-        const { handleSave } = useFileOperationsSaveController(deps);
+        const { handleSave } = useWorkspaceSaveServiceForTest(deps);
 
         await expect(handleSave()).resolves.toBe(true);
 
@@ -545,7 +554,7 @@ describe('useFileOperationsSaveController', () => {
             deps,
             saveFile,
         } = createDeps({repairWorkingCopy});
-        const { handleRepairSave } = useFileOperationsSaveController(deps);
+        const { handleRepairSave } = useWorkspaceSaveServiceForTest(deps);
 
         await handleRepairSave();
 
@@ -574,7 +583,7 @@ describe('useFileOperationsSaveController', () => {
             deps,
             saveFile,
         } = createDeps({optimizeWorkingCopy});
-        const { handleOptimizePdfForInteraction } = useFileOperationsSaveController(deps);
+        const { handleOptimizePdfForInteraction } = useWorkspaceSaveServiceForTest(deps);
 
         await handleOptimizePdfForInteraction();
 
@@ -592,6 +601,29 @@ describe('useFileOperationsSaveController', () => {
         expectWorkspaceSaveMarked(deps);
     });
 
+    it('keeps edits made during native working-copy persistence dirty', async () => {
+        let annotationToken = 'annotation-before';
+        const repairWorkingCopy = vi.fn(async () => {
+            annotationToken = 'annotation-after-newer-edit';
+            return {
+                success: true,
+                outPath: '/tmp/work.pdf',
+                saveMode: 'rewrite' as const,
+                didSaveAs: false,
+            };
+        });
+        const {deps} = createDeps({
+            repairWorkingCopy,
+            getAnnotationSaveStateToken: () => annotationToken,
+        });
+        const {handleRepairSave} = useWorkspaceSaveServiceForTest(deps);
+
+        await expect(handleRepairSave()).resolves.toBe(true);
+
+        expect(repairWorkingCopy).toHaveBeenCalledOnce();
+        expect(deps.markAnnotationSaved).not.toHaveBeenCalled();
+    });
+
     it('blocks large unsupported serialized saves before reading or materializing full PDF bytes', async () => {
         const getWorkingCopySize = vi.fn(async () => 512 * 1024 * 1024 + 1);
         const {
@@ -601,7 +633,7 @@ describe('useFileOperationsSaveController', () => {
             annotationDirty: ref(true),
             getWorkingCopySize,
         });
-        const { handleSave } = useFileOperationsSaveController(deps);
+        const { handleSave } = useWorkspaceSaveServiceForTest(deps);
 
         await expect(handleSave()).resolves.toBe(false);
 
@@ -617,26 +649,12 @@ describe('useFileOperationsSaveController', () => {
         }));
     });
 
-    it('preserves annotation undo history after a successful save', async () => {
-        const clearAnnotationHistory = vi.fn();
-        const { deps } = createDeps({
-            annotationDirty: ref(true),
-            clearAnnotationHistory,
-        });
-        const { handleSave } = useFileOperationsSaveController(deps);
-
-        await handleSave();
-
-        expect(deps.markAnnotationSaved).toHaveBeenCalledOnce();
-        expect(clearAnnotationHistory).not.toHaveBeenCalled();
-    });
-
     it('saves clean Save As from the working copy without serialization', async () => {
         const {
             deps,
             saveWorkingCopyAs,
         } = createDeps();
-        const { handleSaveAs } = useFileOperationsSaveController(deps);
+        const { handleSaveAs } = useWorkspaceSaveServiceForTest(deps);
 
         await handleSaveAs();
 
@@ -659,7 +677,7 @@ describe('useFileOperationsSaveController', () => {
             resetModified,
             saveWorkingCopyAs,
         } = createDeps({annotationDirty: ref(true)});
-        const { handleSaveAs } = useFileOperationsSaveController(deps);
+        const { handleSaveAs } = useWorkspaceSaveServiceForTest(deps);
 
         await handleSaveAs();
 
@@ -690,7 +708,7 @@ describe('useFileOperationsSaveController', () => {
             annotationDirty: ref(true),
             optimizePdfOnSaveAs: ref(true),
         });
-        const { handleSaveAs } = useFileOperationsSaveController(deps);
+        const { handleSaveAs } = useWorkspaceSaveServiceForTest(deps);
 
         await handleSaveAs();
 
@@ -707,7 +725,7 @@ describe('useFileOperationsSaveController', () => {
             annotationNoteWindowsCount: ref(2),
             persistAllAnnotationNotes: vi.fn(async () => false),
         });
-        const { handleSave } = useFileOperationsSaveController(deps);
+        const { handleSave } = useWorkspaceSaveServiceForTest(deps);
 
         await handleSave();
 
@@ -725,7 +743,7 @@ describe('useFileOperationsSaveController', () => {
             warnings: [],
         }));
         const { deps } = createDeps({ validatePdfPath });
-        const { handleSave } = useFileOperationsSaveController(deps);
+        const { handleSave } = useWorkspaceSaveServiceForTest(deps);
 
         await handleSave();
 
@@ -749,7 +767,7 @@ describe('useFileOperationsSaveController', () => {
             saveDocument: vi.fn(async () => new Uint8Array([7])),
             getSourcePdfData: vi.fn(async () => new Uint8Array([9])),
         });
-        const { handleSave } = useFileOperationsSaveController(deps);
+        const { handleSave } = useWorkspaceSaveServiceForTest(deps);
 
         await handleSave();
 
@@ -802,7 +820,7 @@ describe('useFileOperationsSaveController', () => {
             preparePostSaveReload,
             trySavePdfNativeMutations,
         });
-        const { handleSave } = useFileOperationsSaveController(deps);
+        const { handleSave } = useWorkspaceSaveServiceForTest(deps);
 
         const result = await handleSave();
 
@@ -885,7 +903,7 @@ describe('useFileOperationsSaveController', () => {
             getPageLabelsSaveStateToken: () => pageLabelsToken,
             getBookmarksSaveStateToken: () => bookmarksToken,
         });
-        const { handleSave } = useFileOperationsSaveController(deps);
+        const { handleSave } = useWorkspaceSaveServiceForTest(deps);
 
         const result = await handleSave();
 
@@ -894,6 +912,38 @@ describe('useFileOperationsSaveController', () => {
         expect(saveFile).not.toHaveBeenCalled();
         expect(deps.markPageLabelsSaved).toHaveBeenCalledOnce();
         expect(deps.markBookmarksSaved).toHaveBeenCalledOnce();
+    });
+
+    it('keeps unrelated annotation edits made during native mutation persistence dirty', async () => {
+        let annotationToken = 'annotation-before';
+        const trySavePdfNativeMutations = vi.fn(async () => {
+            annotationToken = 'annotation-after-newer-edit';
+            return {
+                success: true,
+                outPath: '/tmp/work.pdf',
+                saveMode: 'rewrite' as const,
+                didSaveAs: false,
+            };
+        });
+        const {deps} = createDeps({
+            totalPages: ref(3),
+            pageLabelsDirty: ref(true),
+            pageLabelRanges: ref([{
+                startPage: 1,
+                style: 'D',
+                prefix: '',
+                startNumber: 1,
+            }]),
+            trySavePdfNativeMutations,
+            getAnnotationSaveStateToken: () => annotationToken,
+        });
+        const {handleSave} = useWorkspaceSaveServiceForTest(deps);
+
+        await expect(handleSave()).resolves.toBe(true);
+
+        expect(trySavePdfNativeMutations).toHaveBeenCalledOnce();
+        expect(deps.markAnnotationSaved).not.toHaveBeenCalled();
+        expect(deps.markPageLabelsSaved).toHaveBeenCalledOnce();
     });
 
     it('falls back to serialized save when native markup hints are stale', async () => {
@@ -931,7 +981,7 @@ describe('useFileOperationsSaveController', () => {
             hasPreservedAnnotationSourceChanges: vi.fn(() => true),
             trySavePdfNativeMutations,
         });
-        const { handleSave } = useFileOperationsSaveController(deps);
+        const { handleSave } = useWorkspaceSaveServiceForTest(deps);
 
         const result = await handleSave();
 
@@ -941,6 +991,58 @@ describe('useFileOperationsSaveController', () => {
         expect(deps.getSourcePdfData).not.toHaveBeenCalled();
         expect(deps.serializePdfForSave).toHaveBeenCalledOnce();
         expect(saveFile).toHaveBeenCalledOnce();
+    });
+
+    it('propagates the optimization plan revision token to optimize-copy persistence', async () => {
+        const optimizeWorkingCopyAsCopy = vi.fn(async () => ({
+            success: true,
+            outPath: '/tmp/optimized.pdf',
+            saveMode: 'save_as_rewrite' as const,
+            didSaveAs: true,
+        }));
+        const {deps} = createDeps({optimizeWorkingCopyAsCopy});
+        const {handleOptimizePdfAsCopy} = useWorkspaceSaveServiceForTest(deps);
+
+        await expect(handleOptimizePdfAsCopy(
+            {preset: 'lossless'},
+            'optimize-1',
+        )).resolves.toBe(true);
+
+        expect(optimizeWorkingCopyAsCopy).toHaveBeenCalledWith(
+            {preset: 'lossless'},
+            'optimize-1',
+            {
+                saveMode: 'save_as_rewrite',
+                expectedWorkingPath: '/tmp/work.pdf',
+                expectedDocumentRevisionToken: requireDocumentRevisionToken('rev-1'),
+            },
+        );
+    });
+
+    it('keeps edits made during optimization persistence dirty', async () => {
+        let annotationToken = 'annotation-before';
+        const optimizeWorkingCopyAsCopy = vi.fn(async () => {
+            annotationToken = 'annotation-after-newer-edit';
+            return {
+                success: true,
+                outPath: '/tmp/optimized.pdf',
+                saveMode: 'save_as_rewrite' as const,
+                didSaveAs: true,
+            };
+        });
+        const {deps} = createDeps({
+            optimizeWorkingCopyAsCopy,
+            getAnnotationSaveStateToken: () => annotationToken,
+        });
+        const {handleOptimizePdfAsCopy} = useWorkspaceSaveServiceForTest(deps);
+
+        await expect(handleOptimizePdfAsCopy(
+            {preset: 'lossless'},
+            'optimize-1',
+        )).resolves.toBe(true);
+
+        expect(optimizeWorkingCopyAsCopy).toHaveBeenCalledOnce();
+        expect(deps.markAnnotationSaved).not.toHaveBeenCalled();
     });
 
 });

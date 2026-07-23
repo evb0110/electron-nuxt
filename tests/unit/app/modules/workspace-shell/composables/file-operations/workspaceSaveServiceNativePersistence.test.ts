@@ -22,10 +22,10 @@ import {
     expectWorkspaceSaveMarked,
     expectWorkspaceSaveNotMarked,
     toastAddMock,
-    useFileOperationsSaveController,
-} from '@tests/unit/app/modules/workspace-shell/composables/file-operations/useFileOperationsSaveControllerFixture';
+    useWorkspaceSaveServiceForTest,
+} from '@tests/unit/app/modules/workspace-shell/composables/file-operations/workspaceSaveServiceFixture';
 
-describe('useFileOperationsSaveController native persistence', () => {
+describe('workspaceSaveService native persistence', () => {
     beforeEach(() => {
         toastAddMock.mockClear();
     });
@@ -55,7 +55,7 @@ describe('useFileOperationsSaveController native persistence', () => {
             getSourcePdfData: vi.fn(async () => savedBytes),
             preparePersistedShapeStateForSave: vi.fn(async () => ({snapshot: true})),
         });
-        const { handleSave } = useFileOperationsSaveController(deps);
+        const { handleSave } = useWorkspaceSaveServiceForTest(deps);
 
         const result = await handleSave();
 
@@ -78,6 +78,7 @@ describe('useFileOperationsSaveController native persistence', () => {
             expect.objectContaining({
                 saveMode: 'rewrite',
                 expectedWorkingPath: '/tmp/work.pdf',
+                expectedDocumentRevisionToken: 'rev-1',
                 preserveLoadedSource: true,
             }),
         );
@@ -105,7 +106,7 @@ describe('useFileOperationsSaveController native persistence', () => {
             trySavePdfNativeMutations,
             getSourcePdfData: vi.fn(async () => new Uint8Array([9])),
         });
-        const { handleSave } = useFileOperationsSaveController(deps);
+        const { handleSave } = useWorkspaceSaveServiceForTest(deps);
 
         const result = await handleSave();
 
@@ -137,7 +138,7 @@ describe('useFileOperationsSaveController native persistence', () => {
             })),
             getSourcePdfData: vi.fn(async () => new Uint8Array([9])),
         });
-        const { handleSave } = useFileOperationsSaveController(deps);
+        const { handleSave } = useWorkspaceSaveServiceForTest(deps);
 
         const result = await handleSave();
 
@@ -167,7 +168,7 @@ describe('useFileOperationsSaveController native persistence', () => {
             hasSavedPdfJsAnnotationBaselineChanges: vi.fn(() => true),
             trySaveEmbeddedNoteTextUpdates,
         });
-        const { handleSave } = useFileOperationsSaveController(deps);
+        const { handleSave } = useWorkspaceSaveServiceForTest(deps);
 
         const result = await handleSave();
 
@@ -197,7 +198,7 @@ describe('useFileOperationsSaveController native persistence', () => {
             captureCanonicalPendingTextUpdates: vi.fn(() => pendingTexts),
             trySaveEmbeddedNoteTextUpdates,
         });
-        const { handleSaveAs } = useFileOperationsSaveController(deps);
+        const { handleSaveAs } = useWorkspaceSaveServiceForTest(deps);
 
         const result = await handleSaveAs();
 
@@ -229,7 +230,7 @@ describe('useFileOperationsSaveController native persistence', () => {
             saveDocument: vi.fn(async () => new Uint8Array([11])),
             getSourcePdfData: vi.fn(async () => new Uint8Array([9])),
         });
-        const { handleSave } = useFileOperationsSaveController(deps);
+        const { handleSave } = useWorkspaceSaveServiceForTest(deps);
 
         await handleSave();
 
@@ -260,7 +261,7 @@ describe('useFileOperationsSaveController native persistence', () => {
                 cancel,
             }),
         });
-        const { handleSave } = useFileOperationsSaveController(deps);
+        const { handleSave } = useWorkspaceSaveServiceForTest(deps);
 
         let settled = false;
         const savePromise = handleSave().then(() => {
@@ -314,7 +315,7 @@ describe('useFileOperationsSaveController native persistence', () => {
                 };
             }),
         });
-        const { handleSave } = useFileOperationsSaveController(deps);
+        const { handleSave } = useWorkspaceSaveServiceForTest(deps);
 
         await handleSave();
 
@@ -346,7 +347,7 @@ describe('useFileOperationsSaveController native persistence', () => {
                 };
             }),
         });
-        const { handleSave } = useFileOperationsSaveController(deps);
+        const { handleSave } = useWorkspaceSaveServiceForTest(deps);
 
         await handleSave();
 
@@ -378,7 +379,7 @@ describe('useFileOperationsSaveController native persistence', () => {
                 cancel: vi.fn(),
             }),
         });
-        const { handleSave } = useFileOperationsSaveController(deps);
+        const { handleSave } = useWorkspaceSaveServiceForTest(deps);
 
         await handleSave();
 
@@ -396,7 +397,7 @@ describe('useFileOperationsSaveController native persistence', () => {
             getSourcePdfData: vi.fn(async () => new Uint8Array([13])),
             saveDocument: vi.fn(async () => new Uint8Array([99])),
         });
-        const { handleSave } = useFileOperationsSaveController(deps);
+        const { handleSave } = useWorkspaceSaveServiceForTest(deps);
 
         await handleSave();
 
@@ -428,7 +429,7 @@ describe('useFileOperationsSaveController native persistence', () => {
                 cancel,
             }),
         });
-        const { handleSave } = useFileOperationsSaveController(deps);
+        const { handleSave } = useWorkspaceSaveServiceForTest(deps);
 
         await handleSave();
 
@@ -469,7 +470,7 @@ describe('useFileOperationsSaveController native persistence', () => {
                 didSaveAs: false,
             })),
         });
-        const { handleSave } = useFileOperationsSaveController(deps);
+        const { handleSave } = useWorkspaceSaveServiceForTest(deps);
 
         await handleSave();
 
@@ -489,7 +490,7 @@ describe('useFileOperationsSaveController native persistence', () => {
                 didSaveAs: false,
             })),
         });
-        const { handleSave } = useFileOperationsSaveController(deps);
+        const { handleSave } = useWorkspaceSaveServiceForTest(deps);
 
         await handleSave();
 
@@ -514,7 +515,7 @@ describe('useFileOperationsSaveController native persistence', () => {
                 cancel,
             }),
         });
-        const { handleSaveAs } = useFileOperationsSaveController(deps);
+        const { handleSaveAs } = useWorkspaceSaveServiceForTest(deps);
 
         await handleSaveAs();
 
@@ -535,7 +536,7 @@ describe('useFileOperationsSaveController native persistence', () => {
             pdfDocument: livePdfDocument,
             saveDocument: vi.fn(() => stalledSave),
         });
-        const { handleSave } = useFileOperationsSaveController(deps);
+        const { handleSave } = useWorkspaceSaveServiceForTest(deps);
 
         try {
             const savePromise = handleSave();
@@ -564,7 +565,7 @@ describe('useFileOperationsSaveController native persistence', () => {
             annotationNoteWindowsCount: ref(1),
             persistAllAnnotationNotes: vi.fn(() => deferredNotes.promise),
         });
-        const { handleSave } = useFileOperationsSaveController(deps);
+        const { handleSave } = useWorkspaceSaveServiceForTest(deps);
 
         const firstSave = handleSave();
         const secondSave = await handleSave();
@@ -589,7 +590,7 @@ describe('useFileOperationsSaveController native persistence', () => {
             pdfDocument: livePdfDocument,
             saveDocument: vi.fn(async () => null),
         });
-        const { handleSave } = useFileOperationsSaveController(deps);
+        const { handleSave } = useWorkspaceSaveServiceForTest(deps);
 
         const result = await handleSave();
 

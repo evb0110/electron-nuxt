@@ -4,164 +4,196 @@ import {
     it,
 } from 'vitest';
 import {
-    selectSerializationMechanism,
-    type ISerializationMechanismConfig,
-    type ISerializationMechanismInput,
+    createWorkspaceSavePlan,
+    type IWorkspaceSaveDirtyState,
+    type TWorkspaceSaveRequest,
 } from '@app/modules/workspace-shell/composables/file-operations/workspaceSavePlan';
-import type { IDocumentDirtyState } from '@app/modules/workspace-shell/composables/file-operations/saveDirtyState';
 import {requireDocumentRevisionToken} from '@contracts';
 
-const CLEAN_DIRTY_STATE: IDocumentDirtyState = {
+const CLEAN_DIRTY_STATE: IWorkspaceSaveDirtyState = {
     annotationChanges: false,
     annotationDirty: false,
     bookmarks: false,
     livePdfJsAnnotations: false,
     pageLabels: false,
     pendingDeletes: false,
-    pendingTexts: false,
     preservedAnnotationSource: false,
     savedPdfjsAnnotationBaseline: false,
     shapes: false,
 };
 
-const BASE_CONFIG: ISerializationMechanismConfig = {
-    mode: 'save',
-    shouldPreferWorkingCopy: true,
-    canPersistNativeWorkingCopy: false,
-    canAttemptNativeMutationSave: false,
-};
-
-const BASE_INPUT: ISerializationMechanismInput = {
-    workingCopyPath: '/tmp/work.pdf',
-    expectedOriginalPath: '/tmp/source.pdf',
-    expectedWorkingPath: '/tmp/work.pdf',
-    expectedDocumentRevisionToken: requireDocumentRevisionToken('rev-1'),
-    dirtyState: CLEAN_DIRTY_STATE,
-    hasManagedShapes: false,
-};
-
-function dirtyState(overrides: Partial<IDocumentDirtyState> = {}): IDocumentDirtyState {
+function dirtyState(
+    overrides: Partial<IWorkspaceSaveDirtyState> = {},
+): IWorkspaceSaveDirtyState {
     return {
         ...CLEAN_DIRTY_STATE,
         ...overrides,
     };
 }
 
-function buildPlan(
-    config: Partial<ISerializationMechanismConfig> = {},
-    input: Partial<ISerializationMechanismInput> = {},
-) {
-    return selectSerializationMechanism(
-        {
-            ...BASE_CONFIG,
-            ...config,
+function buildPlan(options: {
+    request?: TWorkspaceSaveRequest;
+    dirtyState?: IWorkspaceSaveDirtyState;
+    hasManagedShapes?: boolean;
+    canPersistNativeWorkingCopy?: boolean;
+    canPersistNativeMutations?: boolean;
+} = {}) {
+    return createWorkspaceSavePlan({
+        request: options.request ?? {kind: 'save'},
+        target: {
+            expectedOriginalPath: '/tmp/source.pdf',
+            expectedWorkingPath: '/tmp/work.pdf',
+            expectedRevisionToken: requireDocumentRevisionToken('rev-1'),
         },
-        {
-            ...BASE_INPUT,
-            ...input,
+        baseline: {
+            annotations: 'annotations-1',
+            pageLabels: 'labels-1',
+            bookmarks: 'bookmarks-1',
+            shapes: options.dirtyState?.shapes ?? false,
         },
-    );
+        dirtyState: options.dirtyState ?? CLEAN_DIRTY_STATE,
+        hasManagedShapes: options.hasManagedShapes ?? false,
+        canPersistNativeWorkingCopy: options.canPersistNativeWorkingCopy ?? false,
+        canPersistNativeMutations: options.canPersistNativeMutations ?? false,
+    });
 }
 
 describe('workspaceSavePlan', () => {
-    it('plans clean Save and Save As through the existing working copy', () => {
-        expect(buildPlan().persistenceRoute).toBe('working-copy');
-        expect(buildPlan().serialization).toMatchObject({
-            shouldSerialize: false,
-            forcedByDirtyState: false,
-            requestedByRepairOrOptimization: false,
-        });
+    it('represents clean Save and Save As as working-copy sourced serialized plans', () => {
+        const save = buildPlan();
+        const saveAs = buildPlan({request: {
+            kind: 'save-as',
+            optimizeLossless: true,
+        }});
 
-        const saveAsPlan = buildPlan({
-            mode: 'save_as',
-            shouldPreferWorkingCopy: false,
+        expect(save).toMatchObject({
+            kind: 'serialized',
+            destination: 'original',
+            body: {
+                source: 'working-copy',
+                requiresLargeFileGuard: false,
+            },
         });
-
-        expect(saveAsPlan.flowMode).toBe('save_as');
-        expect(saveAsPlan.persistenceRoute).toBe('working-copy');
-        expect(saveAsPlan.staleTargetProtection).toEqual({
+        expect(saveAs).toMatchObject({
+            kind: 'serialized',
+            destination: 'save-as',
+            body: {source: 'working-copy'},
+        });
+        expect(saveAs.target).toEqual({
             expectedOriginalPath: '/tmp/source.pdf',
             expectedWorkingPath: '/tmp/work.pdf',
-            expectedDocumentRevisionToken: requireDocumentRevisionToken('rev-1'),
+            expectedRevisionToken: requireDocumentRevisionToken('rev-1'),
         });
     });
 
-    it('plans clean repair and optimize requests through native working-copy persistence when available', () => {
-        const plan = buildPlan({
-            forceSerialize: true,
-            forceRewrite: true,
-            canPersistNativeWorkingCopy: true,
-        });
-
-        expect(plan.persistenceRoute).toBe('native-working-copy');
-        expect(plan.serialization).toMatchObject({
-            shouldSerialize: true,
-            forcedByDirtyState: false,
-            requestedByRepairOrOptimization: true,
-            forceRewrite: true,
-        });
-        expect(plan.rendererFullPdfSerialization.requiresLargeFileGuard).toBe(false);
-    });
-
-    it('plans dirty repair and optimize requests as serialized rewrites instead of native working-copy persistence', () => {
-        const plan = buildPlan({
-            forceSerialize: true,
-            forceRewrite: true,
-            canPersistNativeWorkingCopy: true,
-            canAttemptNativeMutationSave: true,
-        }, {dirtyState: dirtyState({pendingTexts: true})});
-
-        expect(plan.persistenceRoute).toBe('serialized-rewrite');
-        expect(plan.serialization).toMatchObject({
-            shouldSerialize: true,
-            forcedByDirtyState: true,
-            requestedByRepairOrOptimization: true,
-            forceRewrite: true,
-        });
-        expect(plan.rendererFullPdfSerialization.requiresLargeFileGuard).toBe(true);
-    });
-
-    it('plans dirty save through native mutations with serialized fallback when native attempts are allowed', () => {
-        const plan = buildPlan({canAttemptNativeMutationSave: true}, {dirtyState: dirtyState({pendingTexts: true})});
-
-        expect(plan.persistenceRoute).toBe('native-mutations-or-serialized');
-        expect(plan.livePdfjsAnnotationSession.canPreserve).toBe(true);
-        expect(plan.rendererFullPdfSerialization.requiresLargeFileGuard).toBe(true);
-    });
-
-    it('plans dirty Save As and native-disabled dirty Save as serialized rewrites', () => {
+    it.each([
+        [
+            {kind: 'repair'} as const,
+            'repair',
+        ],
+        [
+            {kind: 'optimize'} as const,
+            'optimize',
+        ],
+    ])('plans clean %s through native working-copy persistence', (request, operation) => {
         expect(buildPlan({
-            mode: 'save_as',
-            shouldPreferWorkingCopy: false,
-            canAttemptNativeMutationSave: true,
-        }, {dirtyState: dirtyState({pendingTexts: true})}).persistenceRoute).toBe('serialized-rewrite');
-
-        expect(buildPlan({}, {dirtyState: dirtyState({pendingTexts: true})}).persistenceRoute).toBe('serialized-rewrite');
+            request,
+            canPersistNativeWorkingCopy: true,
+        })).toMatchObject({
+            kind: 'native-working-copy',
+            operation,
+        });
     });
 
-    it('expresses PDF.js materialization and managed-shape live-source flags', () => {
-        const plan = buildPlan({canAttemptNativeMutationSave: true}, {
+    it('plans dirty repair and optimize requests as serialized rewrites', () => {
+        const plan = buildPlan({
+            request: {kind: 'repair'},
+            dirtyState: dirtyState({annotationDirty: true}),
+            canPersistNativeWorkingCopy: true,
+        });
+
+        expect(plan).toMatchObject({
+            kind: 'serialized',
+            destination: 'original',
+            body: {
+                source: 'live-pdfjs',
+                forceRewrite: true,
+                requiresLargeFileGuard: true,
+            },
+        });
+    });
+
+    it('plans eligible dirty Save through native mutations with an explicit serialized fallback', () => {
+        const plan = buildPlan({
+            dirtyState: dirtyState({annotationChanges: true}),
+            canPersistNativeMutations: true,
+        });
+
+        expect(plan).toMatchObject({
+            kind: 'native-mutation',
+            serializedFallback: {
+                source: 'live-pdfjs',
+                preserveLoadedSource: true,
+                requiresLargeFileGuard: true,
+            },
+        });
+    });
+
+    it('keeps dirty Save As and native-disabled Save on the serialized route', () => {
+        expect(buildPlan({
+            request: {
+                kind: 'save-as',
+                optimizeLossless: false,
+            },
+            dirtyState: dirtyState({annotationChanges: true}),
+            canPersistNativeMutations: true,
+        }).kind).toBe('serialized');
+        expect(buildPlan({dirtyState: dirtyState({annotationChanges: true})}).kind).toBe('serialized');
+    });
+
+    it('requires serialized materialization when managed shapes need the live source', () => {
+        const plan = buildPlan({
             dirtyState: dirtyState({preservedAnnotationSource: true}),
             hasManagedShapes: true,
+            canPersistNativeMutations: true,
         });
 
-        expect(plan.persistenceRoute).toBe('serialized-rewrite');
-        expect(plan.pdfjsSourceMaterialization).toEqual({
-            required: true,
-            forcePdfjsMaterialize: true,
-            includeManagedShapesForLiveSource: true,
+        expect(plan).toMatchObject({
+            kind: 'serialized',
+            body: {
+                source: 'live-pdfjs',
+                includeManagedShapes: true,
+                preserveLoadedSource: true,
+            },
         });
-        expect(plan.livePdfjsAnnotationSession.canPreserve).toBe(true);
     });
 
-    it('plans saved PDF.js baseline changes as materialized serialized rewrites', () => {
-        const plan = buildPlan({canAttemptNativeMutationSave: true}, {dirtyState: dirtyState({savedPdfjsAnnotationBaseline: true})});
-
-        expect(plan.persistenceRoute).toBe('serialized-rewrite');
-        expect(plan.pdfjsSourceMaterialization).toMatchObject({
-            required: true,
-            forcePdfjsMaterialize: false,
+    it('keeps saved PDF.js baseline changes out of native mutation persistence', () => {
+        const plan = buildPlan({
+            dirtyState: dirtyState({savedPdfjsAnnotationBaseline: true}),
+            canPersistNativeMutations: true,
         });
-        expect(plan.livePdfjsAnnotationSession.canPreserve).toBe(false);
+
+        expect(plan).toMatchObject({
+            kind: 'serialized',
+            body: {
+                source: 'live-pdfjs',
+                preserveLoadedSource: false,
+            },
+        });
+    });
+
+    it('uses the optimization variant only for optimize-copy requests', () => {
+        expect(buildPlan({request: {
+            kind: 'optimize-copy',
+            options: {preset: 'lossless'},
+            requestId: 'optimize-1',
+        }})).toMatchObject({
+            kind: 'optimization',
+            request: {
+                kind: 'optimize-copy',
+                requestId: 'optimize-1',
+            },
+        });
     });
 });

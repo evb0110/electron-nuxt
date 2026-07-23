@@ -1,148 +1,169 @@
 import type { TDocumentRef } from '@contracts/documentRef';
 import type { TDocumentRevisionToken } from '@contracts/documentRevision';
-import type { IDocumentDirtyState } from '@app/modules/workspace-shell/composables/file-operations/saveDirtyState';
-import {
-    computeShouldSerializeFlag,
-    shouldPreserveLiveAnnotationSession,
-} from '@app/modules/workspace-shell/composables/file-operations/saveDirtyState';
-import {
-    resolveDocumentSaveRoute,
-    type TDocumentSaveFlowMode,
-} from '@app/modules/workspace-shell/composables/file-operations/documentSaveRoutes';
+import type { IPdfOptimizeOptions } from '@contracts/electronApiDocuments';
 
-export type TWorkspaceSavePersistenceRoute =
-    | 'working-copy'
-    | 'native-working-copy'
-    | 'native-mutations-or-serialized'
-    | 'serialized-rewrite';
+export type TWorkspaceSaveRequest =
+    | {kind: 'save'}
+    | {
+        kind: 'save-as';
+        optimizeLossless: boolean
+    }
+    | {kind: 'repair'}
+    | {kind: 'optimize'}
+    | {
+        kind: 'optimize-copy';
+        options: IPdfOptimizeOptions;
+        requestId?: string;
+    };
 
-export interface ISerializationMechanismConfig {
-    mode: TDocumentSaveFlowMode;
-    shouldPreferWorkingCopy: boolean;
-    forceSerialize?: boolean;
-    forceRewrite?: boolean;
-    canPersistNativeWorkingCopy: boolean;
-    canAttemptNativeMutationSave: boolean;
-}
-
-export interface ISerializationMechanismInput {
-    workingCopyPath: TDocumentRef | null;
+export interface IWorkspaceSaveTarget {
     expectedOriginalPath: TDocumentRef | null;
     expectedWorkingPath: TDocumentRef | null;
-    expectedDocumentRevisionToken: TDocumentRevisionToken | null;
-    dirtyState: IDocumentDirtyState;
+    expectedRevisionToken: TDocumentRevisionToken | null;
+}
+
+export interface IWorkspaceSaveBaseline {
+    annotations: unknown;
+    pageLabels: unknown;
+    bookmarks: unknown;
+    shapes: boolean;
+}
+
+export interface IWorkspaceSaveDirtyState {
+    annotationDirty: boolean;
+    annotationChanges: boolean;
+    bookmarks: boolean;
+    livePdfJsAnnotations: boolean;
+    pageLabels: boolean;
+    pendingDeletes: boolean;
+    preservedAnnotationSource: boolean;
+    savedPdfjsAnnotationBaseline: boolean;
+    shapes: boolean;
+}
+
+export interface IWorkspaceSerializedSaveBody {
+    source: 'live-pdfjs' | 'working-copy';
+    forceRewrite: boolean;
+    includeManagedShapes: boolean;
+    preserveLoadedSource: boolean;
+    requiresLargeFileGuard: boolean;
+}
+
+interface IWorkspaceSavePlanCommon {
+    request: TWorkspaceSaveRequest;
+    target: IWorkspaceSaveTarget;
+    baseline: IWorkspaceSaveBaseline;
+    dirtyState: IWorkspaceSaveDirtyState;
+}
+
+export type TWorkspaceSavePlan =
+    | IWorkspaceSavePlanCommon & {
+        kind: 'serialized';
+        destination: 'original' | 'save-as';
+        body: IWorkspaceSerializedSaveBody;
+    }
+    | IWorkspaceSavePlanCommon & {
+        kind: 'native-working-copy';
+        request: Extract<TWorkspaceSaveRequest, {kind: 'repair' | 'optimize'}>;
+        operation: 'repair' | 'optimize';
+    }
+    | IWorkspaceSavePlanCommon & {
+        kind: 'native-mutation';
+        request: Extract<TWorkspaceSaveRequest, {kind: 'save'}>;
+        serializedFallback: IWorkspaceSerializedSaveBody;
+    }
+    | IWorkspaceSavePlanCommon & {
+        kind: 'optimization';
+        request: Extract<TWorkspaceSaveRequest, {kind: 'optimize-copy'}>;
+    };
+
+export function createWorkspaceSavePlan(input: {
+    request: TWorkspaceSaveRequest;
+    target: IWorkspaceSaveTarget;
+    baseline: IWorkspaceSaveBaseline;
+    dirtyState: IWorkspaceSaveDirtyState;
     hasManagedShapes: boolean;
-}
+    canPersistNativeWorkingCopy: boolean;
+    canPersistNativeMutations: boolean;
+}): TWorkspaceSavePlan {
+    const {
+        request,
+        target,
+        baseline,
+        dirtyState,
+    } = input;
+    const common = {
+        request,
+        target,
+        baseline,
+        dirtyState,
+    };
 
-export interface ISerializationMechanismSelection {
-    flowMode: TDocumentSaveFlowMode;
-    persistenceRoute: TWorkspaceSavePersistenceRoute;
-    serialization: {
-        shouldSerialize: boolean;
-        forcedByDirtyState: boolean;
-        requestedByRepairOrOptimization: boolean;
-        forceRewrite: boolean;
-    };
-    pdfjsSourceMaterialization: {
-        required: boolean;
-        forcePdfjsMaterialize: boolean;
-        includeManagedShapesForLiveSource: boolean;
-    };
-    livePdfjsAnnotationSession: {canPreserve: boolean;};
-    rendererFullPdfSerialization: {requiresLargeFileGuard: boolean;};
-    staleTargetProtection: {
-        expectedOriginalPath: TDocumentRef | null;
-        expectedWorkingPath: TDocumentRef | null;
-        expectedDocumentRevisionToken: TDocumentRevisionToken | null;
-    };
-}
+    if (request.kind === 'optimize-copy') {
+        return {
+            ...common,
+            kind: 'optimization',
+            request,
+        };
+    }
 
-export function selectSerializationMechanism(
-    config: ISerializationMechanismConfig,
-    input: ISerializationMechanismInput,
-): ISerializationMechanismSelection {
-    const forcedByDirtyState = computeShouldSerializeFlag(input.dirtyState);
-    const requestedByRepairOrOptimization = config.forceSerialize === true;
-    const shouldSerialize = forcedByDirtyState || requestedByRepairOrOptimization;
-    const forcePdfjsMaterialize = input.dirtyState.preservedAnnotationSource;
-    const includeManagedShapesForLiveSource = forcePdfjsMaterialize && input.hasManagedShapes;
-    const requiredPdfjsSourceMaterialization = forcePdfjsMaterialize
-        || input.dirtyState.savedPdfjsAnnotationBaseline;
-    const persistenceRoute = resolveWorkspaceSavePersistenceRoute(
-        config,
-        input,
-        {
-            forcedByDirtyState,
-            includeManagedShapesForLiveSource,
-            shouldSerialize,
-        },
-    );
+    const forcedByDirtyState = Object.values(dirtyState).some(Boolean);
+    const forceRewrite = request.kind === 'repair' || request.kind === 'optimize';
+    const shouldSerialize = forcedByDirtyState || forceRewrite;
+    const includeManagedShapes = dirtyState.preservedAnnotationSource && input.hasManagedShapes;
+    const preserveLoadedSource = request.kind === 'save'
+        && shouldSerialize
+        && !dirtyState.pendingDeletes
+        && !dirtyState.pageLabels
+        && !dirtyState.bookmarks
+        && (
+            dirtyState.shapes
+            || dirtyState.livePdfJsAnnotations
+            || dirtyState.preservedAnnotationSource
+            || dirtyState.annotationChanges
+        );
+    const serializedBody: IWorkspaceSerializedSaveBody = {
+        source: shouldSerialize ? 'live-pdfjs' : 'working-copy',
+        forceRewrite,
+        includeManagedShapes,
+        preserveLoadedSource,
+        requiresLargeFileGuard: shouldSerialize,
+    };
+
+    if (
+        (request.kind === 'repair' || request.kind === 'optimize')
+        && !forcedByDirtyState
+        && Boolean(target.expectedOriginalPath)
+        && Boolean(target.expectedWorkingPath)
+        && input.canPersistNativeWorkingCopy
+    ) {
+        return {
+            ...common,
+            kind: 'native-working-copy',
+            request,
+            operation: request.kind,
+        };
+    }
+
+    if (
+        request.kind === 'save'
+        && forcedByDirtyState
+        && input.canPersistNativeMutations
+        && !dirtyState.savedPdfjsAnnotationBaseline
+        && !includeManagedShapes
+    ) {
+        return {
+            ...common,
+            kind: 'native-mutation',
+            request,
+            serializedFallback: serializedBody,
+        };
+    }
 
     return {
-        flowMode: config.mode,
-        persistenceRoute,
-        serialization: {
-            shouldSerialize,
-            forcedByDirtyState,
-            requestedByRepairOrOptimization,
-            forceRewrite: config.forceRewrite === true,
-        },
-        pdfjsSourceMaterialization: {
-            required: requiredPdfjsSourceMaterialization,
-            forcePdfjsMaterialize,
-            includeManagedShapesForLiveSource,
-        },
-        livePdfjsAnnotationSession: {canPreserve: shouldPreserveLiveAnnotationSession({
-            mode: config.mode,
-            shouldSerialize,
-            dirtyState: input.dirtyState,
-        })},
-        rendererFullPdfSerialization: {requiresLargeFileGuard: persistenceRoute === 'native-mutations-or-serialized'
-                || persistenceRoute === 'serialized-rewrite'},
-        staleTargetProtection: {
-            expectedOriginalPath: input.expectedOriginalPath,
-            expectedWorkingPath: input.expectedWorkingPath,
-            expectedDocumentRevisionToken: input.expectedDocumentRevisionToken,
-        },
+        ...common,
+        kind: 'serialized',
+        destination: request.kind === 'save-as' ? 'save-as' : 'original',
+        body: serializedBody,
     };
-}
-
-function resolveWorkspaceSavePersistenceRoute(
-    config: ISerializationMechanismConfig,
-    input: ISerializationMechanismInput,
-    derived: {
-        forcedByDirtyState: boolean;
-        includeManagedShapesForLiveSource: boolean;
-        shouldSerialize: boolean;
-    },
-): TWorkspaceSavePersistenceRoute {
-    const route = resolveDocumentSaveRoute({
-        mode: config.mode,
-        shouldPreferWorkingCopy: config.shouldPreferWorkingCopy,
-        canPersistNativeWorkingCopy: config.canPersistNativeWorkingCopy,
-        ...(config.forceSerialize !== undefined ? {forceSerialize: config.forceSerialize} : {}),
-        ...(config.forceRewrite !== undefined ? {forceRewrite: config.forceRewrite} : {}),
-    }, {
-        workingCopyPath: input.workingCopyPath,
-        expectedOriginalPath: input.expectedOriginalPath,
-        expectedWorkingPath: input.expectedWorkingPath,
-        shouldSerialize: derived.shouldSerialize,
-        shouldSerializeDirtyState: derived.forcedByDirtyState,
-    });
-
-    if (route !== 'native-mutations-or-serialized') {
-        return route;
-    }
-    if (
-        config.mode !== 'save'
-        || !derived.forcedByDirtyState
-        || config.forceRewrite === true
-        || !config.canAttemptNativeMutationSave
-        || input.dirtyState.savedPdfjsAnnotationBaseline
-        || derived.includeManagedShapesForLiveSource
-    ) {
-        return 'serialized-rewrite';
-    }
-
-    return 'native-mutations-or-serialized';
 }

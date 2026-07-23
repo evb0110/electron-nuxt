@@ -235,6 +235,18 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         exportDocx,
         clearDocxExportError,
     } = useDocxExport();
+    const isExportingDocx = computed(() => isDocxExporting.value);
+    async function handleExportDocx(selectedLanguages?: string[]) {
+        const exported = await exportDocx({
+            workingCopyPath: workingCopyPath.value,
+            documentRevisionToken: documentRevisionToken.value,
+            pdfDocument: pdfDocument.value,
+            ...(selectedLanguages === undefined ? {} : {selectedLanguages}),
+        });
+        if (!exported) {
+            openDropdown('ocr');
+        }
+    }
 
     const annotationSession = useWorkspaceAnnotationSession({
         pdfViewerRef,
@@ -363,14 +375,6 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         pdfData,
         pdfDocument,
         pdfViewerRef,
-        requestDocxExport: (selectedLanguages?: string[]) => exportDocx({
-            workingCopyPath: workingCopyPath.value,
-            documentRevisionToken: documentRevisionToken.value,
-            pdfDocument: pdfDocument.value,
-            ...(selectedLanguages !== undefined ? { selectedLanguages } : {}),
-        }),
-        openOcrPopup: () => openDropdown('ocr'),
-        isExportingDocx: isDocxExporting,
         workingCopyPath,
         originalPath,
         documentRevisionToken,
@@ -409,22 +413,16 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         saveWorkingCopyAs,
         optimizePdfOnSaveAs: computed(() => appSettings.value.optimizePdfOnSaveAs),
         persistAllAnnotationNotes: (force) => persistAllAnnotationNotes(force),
-        clearAnnotationHistory: () => pdfViewerRef.value?.clearAnnotationHistory?.(),
         loadRecentFiles: () => {
             void loadRecentFiles();
         },
-        clearOcrCache: (path) => clearOcrCache(path),
-        ensureHistoryBaselineForExternalMutation,
-        reloadWorkingCopyIntoHistory,
         currentPage,
-        waitForPdfReload: (page) => waitForPdfReload(page),
         resetSearchCache,
         runWithDocumentOperationLease: documentOperationLease.runExclusive,
     });
     const {
         handleSave,
         isAnySaving,
-        isExportingDocx,
         canSave,
         embedPlacedImageToPage,
         getSourcePdfData,
@@ -902,7 +900,7 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         preserveInitialStateForFirstSource: deps.preserveInitialStateForFirstSource,
         runWithDocumentOperationLease: documentOperationLease.runExclusive,
     });
-    useWorkspaceDocumentLifecycleEffects({
+    const {handleOcrComplete} = useWorkspaceDocumentLifecycleEffects({
         currentPage,
         totalPages,
         pdfDocument,
@@ -944,6 +942,11 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         loadRecentFiles: () => {
             void loadRecentFiles();
         },
+        clearOcrCache,
+        ensureHistoryBaselineForExternalMutation,
+        reloadWorkingCopyIntoHistory,
+        waitForPdfReload,
+        runWithDocumentOperationLease: documentOperationLease.runExclusive,
     });
     return {
         documentDriver,
@@ -988,6 +991,9 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
             isHistoryBusy,
             docxExportError,
             hasPendingUnsavedChanges,
+            handleExportDocx,
+            handleOcrComplete,
+            isExportingDocx,
         },
         printWorkflow: workspacePrint,
         workspaceSettings: { appSettings },
