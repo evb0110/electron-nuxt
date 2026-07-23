@@ -35,6 +35,7 @@ export const usePdfFile = (options: IUsePdfFileOptions = {}) => {
         lastSaveMode,
         openBatchProgress,
         originalPath,
+        pdfConformanceAnalysisState,
         pdfConformanceProfile,
         pdfData,
         pdfRasterDisplayProfile,
@@ -52,6 +53,7 @@ export const usePdfFile = (options: IUsePdfFileOptions = {}) => {
     const {
         clearPdfConformanceProfile,
         deferPdfConformanceProfile,
+        notifyPdfInitialVisualReady,
         shouldForceSaveAsForWorkingCopy,
     } = createDocumentConformance(sessionState);
     const documentOpenFlowRef: { current: ReturnType<typeof createDocumentOpenFlow> | null } = {current: null};
@@ -193,11 +195,13 @@ export const usePdfFile = (options: IUsePdfFileOptions = {}) => {
         fileName,
         error,
         isDirty,
+        pdfConformanceAnalysisState,
         pdfConformanceProfile,
         lastSaveMode,
         isElectron,
         pendingDjvu,
         openBatchProgress,
+        notifyPdfInitialVisualReady,
         pickFileToOpen,
         openFile,
         openFileDirect,

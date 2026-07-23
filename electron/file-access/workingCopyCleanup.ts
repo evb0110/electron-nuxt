@@ -1,7 +1,7 @@
-import { statSync } from 'fs';
 import {
     readdir,
     rm,
+    stat,
 } from 'fs/promises';
 import {
     basename,
@@ -55,7 +55,14 @@ const STALE_WORK_DIR_SCAN_LIMIT = (() => {
     return Math.min(parsed, 10_000);
 })();
 
-export async function cleanupStaleWorkingCopyDirectories() {
+export interface ICleanupStaleWorkingCopyDirectoriesOptions {statConcurrency?: number;}
+
+export async function cleanupStaleWorkingCopyDirectories(
+    options: ICleanupStaleWorkingCopyDirectoriesOptions = {},
+): Promise<{
+    removedDirectories: number;
+    removedOcrDirectories: number;
+}> {
     const tempDir = resolve(getAppTempDir());
     let entries: string[] = [];
     try {
@@ -69,55 +76,53 @@ export async function cleanupStaleWorkingCopyDirectories() {
 
     let removedDirectories = 0;
     let removedOcrDirectories = 0;
-    let scannedCount = 0;
     const now = Date.now();
+    const candidates = entries
+        .filter(entryName => isWorkingCopyDirectoryName(entryName) && !entryName.endsWith('.ocr'))
+        .slice(0, STALE_WORK_DIR_SCAN_LIMIT)
+        .map(entryName => resolve(join(tempDir, entryName)))
+        .filter((workDir) => {
+            const relativePath = relative(tempDir, workDir);
+            return relativePath !== '..'
+                && !relativePath.startsWith(`..${sep}`)
+                && !isAbsolute(relativePath);
+        });
+    const workerCount = Math.min(
+        candidates.length,
+        Math.max(1, Math.trunc(options.statConcurrency ?? 8)),
+    );
+    let nextCandidateIndex = 0;
 
-    for (const entryName of entries) {
-        if (scannedCount >= STALE_WORK_DIR_SCAN_LIMIT) {
-            break;
-        }
-        if (!isWorkingCopyDirectoryName(entryName) || entryName.endsWith('.ocr')) {
-            continue;
-        }
-        scannedCount += 1;
+    await Promise.all(Array.from({length: workerCount}, async () => {
+        while (nextCandidateIndex < candidates.length) {
+            const candidateIndex = nextCandidateIndex;
+            nextCandidateIndex += 1;
+            const workDir = candidates[candidateIndex];
+            if (!workDir) {
+                continue;
+            }
 
-        const workDir = resolve(join(tempDir, entryName));
-        const relativePath = relative(tempDir, workDir);
-        const isWithinTemp = (
-            relativePath !== '..'
-            && !relativePath.startsWith(`..${sep}`)
-            && !isAbsolute(relativePath)
-        );
-        if (!isWithinTemp) {
-            continue;
-        }
+            try {
+                const workDirStat = await stat(workDir);
+                if (!workDirStat.isDirectory() || now - workDirStat.mtimeMs < STALE_WORK_DIR_MAX_AGE_MS) {
+                    continue;
+                }
+            } catch {
+                continue;
+            }
 
-        let workDirStat: ReturnType<typeof statSync> | null = null;
-        try {
-            workDirStat = statSync(workDir);
-        } catch {
-            continue;
+            if (await safeRemoveDirectory(workDir)) {
+                removedDirectories += 1;
+            }
+            if (await safeRemoveDirectory(`${workDir}.ocr`)) {
+                removedOcrDirectories += 1;
+            }
         }
-        if (!workDirStat.isDirectory()) {
-            continue;
-        }
-        if (now - workDirStat.mtimeMs < STALE_WORK_DIR_MAX_AGE_MS) {
-            continue;
-        }
-
-        if (await safeRemoveDirectory(workDir)) {
-            removedDirectories += 1;
-        }
-
-        const ocrDir = `${workDir}.ocr`;
-        if (await safeRemoveDirectory(ocrDir)) {
-            removedOcrDirectories += 1;
-        }
-    }
+    }));
 
     if (removedDirectories > 0 || removedOcrDirectories > 0) {
         logger.info(
-            `Cleaned stale working copy temp directories (work=${removedDirectories}, ocr=${removedOcrDirectories}, scanned=${scannedCount})`,
+            `Cleaned stale working copy temp directories (work=${removedDirectories}, ocr=${removedOcrDirectories}, scanned=${candidates.length})`,
         );
     }
 

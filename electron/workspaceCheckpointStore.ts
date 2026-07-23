@@ -27,6 +27,20 @@ interface IStoredWorkspaceCheckpoint {
     checkpoint: IWorkspaceCheckpoint;
 }
 
+interface IWorkspaceCheckpointSaveWaiter {
+    resolve(): void;
+    reject(error: unknown): void;
+}
+
+interface IPendingWorkspaceCheckpointSave {
+    stored: IStoredWorkspaceCheckpoint;
+    waiters: IWorkspaceCheckpointSaveWaiter[];
+}
+
+let checkpointWriteInFlight: Promise<void> | null = null;
+let pendingLatestCheckpointSave: IPendingWorkspaceCheckpointSave | null = null;
+let checkpointBarrierQueue: Promise<unknown> = Promise.resolve();
+
 function getStoragePath() {
     return join(app.getPath('userData'), 'workspace-checkpoint.json');
 }
@@ -80,59 +94,151 @@ function canonicalizeCheckpointSources(
     } satisfies IWorkspaceCheckpoint;
 }
 
+async function writeStoredWorkspaceCheckpoint(stored: IStoredWorkspaceCheckpoint) {
+    const storagePath = getStoragePath();
+    const tempPath = makeSiblingTempPath(storagePath);
+    await writeFile(tempPath, JSON.stringify(stored, null, 2), 'utf-8');
+    await atomicReplace(tempPath, storagePath);
+}
+
+function settleCheckpointSave(
+    save: IPendingWorkspaceCheckpointSave,
+    error?: unknown,
+) {
+    for (const waiter of save.waiters) {
+        if (error === undefined) {
+            waiter.resolve();
+        } else {
+            waiter.reject(error);
+        }
+    }
+}
+
+function startCheckpointWriteDrain(initialSave: IPendingWorkspaceCheckpointSave) {
+    checkpointWriteInFlight = (async () => {
+        let currentSave: IPendingWorkspaceCheckpointSave | null = initialSave;
+        while (currentSave) {
+            try {
+                await writeStoredWorkspaceCheckpoint(currentSave.stored);
+                settleCheckpointSave(currentSave);
+            } catch (error) {
+                settleCheckpointSave(currentSave, error);
+            }
+            currentSave = pendingLatestCheckpointSave;
+            pendingLatestCheckpointSave = null;
+        }
+    })().finally(() => {
+        checkpointWriteInFlight = null;
+        if (pendingLatestCheckpointSave) {
+            const nextSave = pendingLatestCheckpointSave;
+            pendingLatestCheckpointSave = null;
+            startCheckpointWriteDrain(nextSave);
+        }
+    });
+}
+
+function enqueueWorkspaceCheckpointSave(stored: IStoredWorkspaceCheckpoint) {
+    return new Promise<void>((resolve, reject) => {
+        const waiter = {
+            resolve,
+            reject,
+        };
+        if (!checkpointWriteInFlight) {
+            startCheckpointWriteDrain({
+                stored,
+                waiters: [waiter],
+            });
+            return;
+        }
+        if (pendingLatestCheckpointSave) {
+            pendingLatestCheckpointSave = {
+                stored,
+                waiters: [
+                    ...pendingLatestCheckpointSave.waiters,
+                    waiter,
+                ],
+            };
+            return;
+        }
+        pendingLatestCheckpointSave = {
+            stored,
+            waiters: [waiter],
+        };
+    });
+}
+
+async function drainWorkspaceCheckpointWrites() {
+    while (checkpointWriteInFlight) {
+        await checkpointWriteInFlight;
+    }
+}
+
+function enqueueWorkspaceCheckpointBarrier<T>(operation: () => Promise<T>) {
+    const barrier = checkpointBarrierQueue.then(async () => {
+        await drainWorkspaceCheckpointWrites();
+        return operation();
+    });
+    checkpointBarrierQueue = barrier.then(() => undefined, () => undefined);
+    return barrier;
+}
+
 export async function saveWorkspaceCheckpoint(checkpoint: IWorkspaceCheckpoint, ownerWebContentsId: number) {
-    for (const tab of checkpoint.tabs) {
+    const validatedCheckpoint = decodeWorkspaceCheckpoint(checkpoint);
+    if (!validatedCheckpoint) {
+        throw new Error('Invalid workspace checkpoint');
+    }
+    for (const tab of validatedCheckpoint.tabs) {
         if (tab.workingCopyRef && getWorkingCopyOwnerWebContentsId(tab.workingCopyRef) !== ownerWebContentsId) {
             throw new Error('Workspace checkpoint contains an unowned working copy');
         }
     }
     const canonicalCheckpoint = canonicalizeCheckpointSources(
-        checkpoint,
+        validatedCheckpoint,
         ownerWebContentsId,
         {rejectUnmappedWorkingCopy: true},
     );
-    const storagePath = getStoragePath();
-    const tempPath = makeSiblingTempPath(storagePath);
     const stored: IStoredWorkspaceCheckpoint = {
         version: 1,
         ownerWebContentsId,
         checkpoint: canonicalCheckpoint,
     };
-    await writeFile(tempPath, JSON.stringify(stored, null, 2), 'utf-8');
-    await atomicReplace(tempPath, storagePath);
+    await checkpointBarrierQueue;
+    return enqueueWorkspaceCheckpointSave(stored);
 }
 
 export async function claimWorkspaceCheckpoint(newOwnerWebContentsId: number) {
-    let stored: IStoredWorkspaceCheckpoint | null = null;
-    try {
-        stored = decodeStoredCheckpoint(JSON.parse(await readFile(getStoragePath(), 'utf-8')));
-    } catch {
-        return null;
-    }
-    if (!stored) {
-        return null;
-    }
-    const canonicalCheckpoint = canonicalizeCheckpointSources(
-        stored.checkpoint,
-        stored.ownerWebContentsId,
-        {rejectUnmappedWorkingCopy: false},
-    );
-    for (const tab of canonicalCheckpoint.tabs) {
-        if (tab.workingCopyRef) {
-            const transferred = claimWorkingCopyOwnership(
-                tab.workingCopyRef,
-                stored.ownerWebContentsId,
-                newOwnerWebContentsId,
-            );
-            if (!transferred && tab.sourceRef) {
-                await setWorkingCopyOriginalPath(tab.workingCopyRef, tab.sourceRef, newOwnerWebContentsId);
+    return enqueueWorkspaceCheckpointBarrier(async () => {
+        let stored: IStoredWorkspaceCheckpoint | null = null;
+        try {
+            stored = decodeStoredCheckpoint(JSON.parse(await readFile(getStoragePath(), 'utf-8')));
+        } catch {
+            return null;
+        }
+        if (!stored) {
+            return null;
+        }
+        const canonicalCheckpoint = canonicalizeCheckpointSources(
+            stored.checkpoint,
+            stored.ownerWebContentsId,
+            {rejectUnmappedWorkingCopy: false},
+        );
+        for (const tab of canonicalCheckpoint.tabs) {
+            if (tab.workingCopyRef) {
+                const transferred = claimWorkingCopyOwnership(
+                    tab.workingCopyRef,
+                    stored.ownerWebContentsId,
+                    newOwnerWebContentsId,
+                );
+                if (!transferred && tab.sourceRef) {
+                    await setWorkingCopyOriginalPath(tab.workingCopyRef, tab.sourceRef, newOwnerWebContentsId);
+                }
             }
         }
-    }
-    await rm(getStoragePath(), {force: true});
-    return canonicalCheckpoint;
+        await rm(getStoragePath(), {force: true});
+        return canonicalCheckpoint;
+    });
 }
 
 export function clearWorkspaceCheckpoint() {
-    return rm(getStoragePath(), {force: true});
+    return enqueueWorkspaceCheckpointBarrier(() => rm(getStoragePath(), {force: true}));
 }

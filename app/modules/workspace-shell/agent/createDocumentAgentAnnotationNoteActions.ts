@@ -128,10 +128,10 @@ export function createDocumentAgentAnnotationNoteActions(
 
         options.pdfViewerRef.value?.registerAnnotationHistoryCommand?.({
             cmd: () => {
-                applyAgentAnnotationNoteTextUpdate(nextComment, nextText, nextMarkerRect);
+                void applyAgentAnnotationNoteTextUpdate(nextComment, nextText, nextMarkerRect);
             },
             undo: () => {
-                applyAgentAnnotationNoteTextUpdate(previousComment, previousText, previousMarkerRect);
+                void applyAgentAnnotationNoteTextUpdate(previousComment, previousText, previousMarkerRect);
             },
         });
     }
@@ -155,7 +155,7 @@ export function createDocumentAgentAnnotationNoteActions(
                 options.handleOpenAnnotationNote(commentForUpdate);
                 await nextTick();
                 context?.assertCurrentDocument();
-                const updated = applyAgentAnnotationNoteTextUpdate(
+                const updated = await applyAgentAnnotationNoteTextUpdate(
                     commentForUpdate,
                     parsedInput.text,
                     parsedInput.markerRect,

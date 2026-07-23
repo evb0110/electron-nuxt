@@ -71,4 +71,26 @@ describe('annotationSummaryIdentity', () => {
         ]);
         expect(comments).toHaveLength(2);
     });
+
+    it('keeps reference identity stable until annotation-name enrichment arrives', () => {
+        const referenceSummary = summary({
+            id: 'pdf:0:12R0',
+            stableKey: 'src:pdf:0:12R0',
+            source: 'pdf',
+            annotationId: '12R0',
+        });
+        const enrichedSummary = summary({
+            id: 'pdf:0:12R0',
+            stableKey: 'nm:stable-name',
+            source: 'pdf',
+            annotationId: '12R0',
+            annotationName: 'stable-name',
+        });
+
+        expect(annotationCommentsMatch(referenceSummary, enrichedSummary)).toBe(true);
+        expect(dedupeAnnotationCommentSummaries([
+            referenceSummary,
+            enrichedSummary,
+        ])).toHaveLength(1);
+    });
 });

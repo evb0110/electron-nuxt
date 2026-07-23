@@ -159,8 +159,20 @@ export interface IPdfViewerAnnotationCommandExpose {
 }
 
 export interface IPdfViewerAnnotationCommentExpose {
+    ensurePdfAnnotationNameReconciliation?: (
+        reason: 'annotations-ui-open' | 'existing-annotation-mutation',
+    ) => Promise<
+        | 'reconciled'
+        | 'already-reconciled'
+        | 'skipped-over-limit'
+        | 'stale'
+        | 'failed'
+    >;
     focusAnnotationComment: (comment: IAnnotationCommentSummary) => Promise<void>;
-    updateAnnotationComment: (comment: IAnnotationCommentSummary, text: string) => boolean;
+    updateAnnotationComment: (
+        comment: IAnnotationCommentSummary,
+        text: string,
+    ) => boolean | Promise<boolean>;
     moveAnnotationMarker: (comment: IAnnotationCommentSummary, rect: IAnnotationMarkerRect) => boolean;
     deleteAnnotationComment: (comment: IAnnotationCommentSummary) => Promise<boolean>;
     getAnnotationCommentsSnapshot?: () => IAnnotationCommentSummary[];

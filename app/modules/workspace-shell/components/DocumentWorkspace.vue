@@ -577,6 +577,7 @@ const {
     requiresSaveAsOnFirstSave,
     documentRevisionInfo,
     documentRevisionToken,
+    notifyPdfInitialVisualReady,
     isDjvuMode,
     djvuSourcePath,
     conversionState,
@@ -654,6 +655,15 @@ const isExternalWorkspaceLayoutResizingRef = toRef(() => isExternalWorkspaceLayo
 const isActiveViewerLayoutResizing = computed(() => (
     isResizingSidebar.value || isExternalWorkspaceLayoutResizingRef.value || isTabTransitionBusy
 ));
+watch(
+    () => showSidebar.value && sidebarTab.value === 'annotations',
+    (annotationsVisible) => {
+        if (annotationsVisible) {
+            void pdfViewerRef.value?.ensurePdfAnnotationNameReconciliation?.('annotations-ui-open');
+        }
+    },
+    {flush: 'post'},
+);
 const { appSettings } = workspaceSettings;
 const {
     exportOverlay,
@@ -937,7 +947,7 @@ const {
     pendingDocumentIdentity: computed(() => String(pendingDocumentPath ?? tabId)),
 });
 const {
-    handleInitialVisualReady: handleDocumentInitialVisualReadyWithAutomationEvent,
+    handleInitialVisualReady: handleDocumentInitialVisualReadyWithAutomationEventBase,
     handleSave: handleSaveWithAutomationEvent,
 } = createDocumentWorkspaceAutomationHandlers({
     getContext: () => ({
@@ -949,6 +959,10 @@ const {
     handleInitialVisualReady: handleDocumentInitialVisualReady,
     handleSave,
 });
+function handleDocumentInitialVisualReadyWithAutomationEvent() {
+    notifyPdfInitialVisualReady();
+    return handleDocumentInitialVisualReadyWithAutomationEventBase();
+}
 const {
     handleCurrentPage: handleViewerCurrentPageUpdate,
     handleTotalPages: handleViewerTotalPagesUpdate,

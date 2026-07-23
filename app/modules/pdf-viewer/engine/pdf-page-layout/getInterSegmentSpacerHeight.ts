@@ -1,4 +1,8 @@
 import type { IPdfPageLayoutMetrics } from '@app/modules/pdf-viewer/engine/pdf-page-layout/pdfPageLayoutMetrics';
+import {
+    getLayoutPageTop,
+    getLayoutRowHeight,
+} from '@app/modules/pdf-viewer/engine/pdf-page-layout/pdfPageLayoutMetrics';
 
 /**
  * Returns the physical spacer height between two non-contiguous mounted rows.
@@ -23,17 +27,17 @@ export function getInterSegmentSpacerHeight(
         return 0;
     }
 
-    const previousPageIndex = Math.min(layout.totalPages, Math.floor(previousVisiblePage)) - 1;
-    const nextPageIndex = Math.min(layout.totalPages, Math.floor(nextVisiblePage)) - 1;
-    const previousRowIndex = layout.pageRowIndices[previousPageIndex] ?? -1;
-    const nextRowIndex = layout.pageRowIndices[nextPageIndex] ?? -1;
+    const previousPageIndex = Math.min(layout.base.totalPages, Math.floor(previousVisiblePage)) - 1;
+    const nextPageIndex = Math.min(layout.base.totalPages, Math.floor(nextVisiblePage)) - 1;
+    const previousRowIndex = layout.base.pageRowIndices[previousPageIndex] ?? -1;
+    const nextRowIndex = layout.base.pageRowIndices[nextPageIndex] ?? -1;
     if (previousRowIndex < 0 || nextRowIndex <= previousRowIndex) {
         return 0;
     }
 
-    const previousTop = layout.pageTops[previousPageIndex] ?? 0;
-    const previousHeight = layout.rowHeights[previousRowIndex] ?? 0;
-    const nextTop = layout.pageTops[nextPageIndex] ?? previousTop + previousHeight;
+    const previousTop = getLayoutPageTop(layout, previousPageIndex) ?? 0;
+    const previousHeight = getLayoutRowHeight(layout, previousRowIndex);
+    const nextTop = getLayoutPageTop(layout, nextPageIndex) ?? previousTop + previousHeight;
     return Math.max(
         0,
         nextTop - previousTop - previousHeight - 2 * layout.gap,

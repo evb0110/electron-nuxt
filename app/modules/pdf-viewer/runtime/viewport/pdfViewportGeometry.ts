@@ -1,6 +1,13 @@
 import { clamp } from 'es-toolkit/math';
 import type { TPdfViewMode } from '@contracts/shared';
 import type { IPdfPageLayoutMetrics } from '@app/modules/pdf-viewer/engine/pdf-page-layout/pdfPageLayoutMetrics';
+import {
+    getLayoutContentHeight,
+    getLayoutPageHeight,
+    getLayoutPageTop,
+    getLayoutPageWidth,
+    getLayoutRowHeight,
+} from '@app/modules/pdf-viewer/engine/pdf-page-layout/pdfPageLayoutMetrics';
 
 export interface IPdfSemanticAnchor {
     page: number;
@@ -34,28 +41,28 @@ export function createPdfViewportGeometryFromLayout(
     },
     revision: number,
 ): IPdfViewportGeometry {
-    const pageRects = metrics.pageWidths.map((width, index) => {
-        const rowIndex = metrics.pageRowIndices[index] ?? 0;
-        const rowStartPage = metrics.rowStartPages[rowIndex] ?? index + 1;
-        const rowEndPage = metrics.rowEndPages[rowIndex] ?? index + 1;
+    const pageRects = metrics.base.pageWidths.map((_width, index) => {
+        const rowIndex = metrics.base.pageRowIndices[index] ?? 0;
+        const rowStartPage = metrics.base.rowStartPages[rowIndex] ?? index + 1;
+        const rowEndPage = metrics.base.rowEndPages[rowIndex] ?? index + 1;
         let rowWidth = 0;
         for (let page = rowStartPage; page <= rowEndPage; page += 1) {
-            rowWidth += metrics.pageWidths[page - 1] ?? 0;
+            rowWidth += getLayoutPageWidth(metrics, page - 1);
         }
         rowWidth += Math.max(0, rowEndPage - rowStartPage) * metrics.gap;
         let left = Math.max(0, (viewport.width - rowWidth) / 2);
         for (let page = rowStartPage; page < index + 1; page += 1) {
-            left += (metrics.pageWidths[page - 1] ?? 0) + metrics.gap;
+            left += getLayoutPageWidth(metrics, page - 1) + metrics.gap;
         }
         return {
             left,
-            top: metrics.pageTops[index] ?? 0,
-            width,
-            height: metrics.pageHeights[index] ?? 0,
+            top: getLayoutPageTop(metrics, index) ?? 0,
+            width: getLayoutPageWidth(metrics, index),
+            height: getLayoutPageHeight(metrics, index),
         };
     });
-    const rows = metrics.rowStartPages.map((startPage, rowIndex) => {
-        const endPage = metrics.rowEndPages[rowIndex] ?? startPage;
+    const rows = metrics.base.rowStartPages.map((startPage, rowIndex) => {
+        const endPage = metrics.base.rowEndPages[rowIndex] ?? startPage;
         const first = pageRects[startPage - 1] ?? {
             left: 0,
             top: 0,
@@ -70,7 +77,7 @@ export function createPdfViewportGeometryFromLayout(
                 left: first.left,
                 top: first.top,
                 width: last.left + last.width - first.left,
-                height: metrics.rowHeights[rowIndex] ?? first.height,
+                height: getLayoutRowHeight(metrics, rowIndex) || first.height,
             },
         };
     });
@@ -80,7 +87,7 @@ export function createPdfViewportGeometryFromLayout(
         viewportWidth: viewport.width,
         viewportHeight: viewport.height,
         contentWidth: Math.max(viewport.width, ...pageRects.map(rect => rect.left + rect.width)),
-        contentHeight: Math.max(viewport.height, metrics.contentHeight),
+        contentHeight: Math.max(viewport.height, getLayoutContentHeight(metrics)),
         pageRects,
         rows,
     };

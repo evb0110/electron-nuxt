@@ -11,6 +11,7 @@ import {
     it,
 } from 'vitest';
 import { buildPageLayoutMetrics } from '@app/modules/pdf-viewer/engine/pdf-page-layout/buildPageLayoutMetrics';
+import { getLayoutContentHeight } from '@app/modules/pdf-viewer/engine/pdf-page-layout/pdfPageLayoutMetrics';
 
 describe('pdfViewportGeometry', () => {
     const pages = [
@@ -183,7 +184,7 @@ describe('pdfViewportGeometry', () => {
             leftPage,
             rightPage,
         ] = geometry.pageRects;
-        expect(layout.contentHeight).toBe(viewport.height);
+        expect(getLayoutContentHeight(layout)).toBe(viewport.height);
         expect(leftPage?.top).toBe(margin);
         expect(leftPage?.height).toBe(viewport.height - margin * 2);
         expect((rightPage?.left ?? 0) - ((leftPage?.left ?? 0) + (leftPage?.width ?? 0))).toBe(margin);

@@ -8,6 +8,7 @@ import {
 import { runInitSequence } from '@electron/bootstrap/runInitSequence';
 import { canonicalBundledApplicationVersion } from '@electron/appVersion';
 import { config } from '@electron/config';
+import { DEFAULT_SETTINGS } from '@contracts/settings';
 
 vi.mock('@electron/config', () => ({config: {
     automation: { noFocus: false },
@@ -26,6 +27,7 @@ describe('runInitSequence external open IPC', () => {
         appVersion?: string;
         gracefulQuitInProgress?: boolean;
         hasWindows?: boolean;
+        initRecentFilesCache?: () => Promise<void>;
         isPackaged?: boolean;
     } = {}) {
         const app = new EventEmitter() as EventEmitter & {
@@ -69,7 +71,18 @@ describe('runInitSequence external open IPC', () => {
         const focusMainWindow = vi.fn();
         const createWindow = vi.fn(async () => mainWindow as never);
         const initializeResourceRuntime = vi.fn(async () => {});
+        const cleanupStaleWorkingCopyDirectories = vi.fn(async () => ({
+            removedDirectories: 0,
+            removedOcrDirectories: 0,
+        }));
+        const sweepStaleDefaultAppTempPdfs = vi.fn(async () => {});
+        const pruneStaleDjvuArtifactJobs = vi.fn(async () => {});
+        const sweepStaleOcrTempArtifacts = vi.fn(async () => {});
         const sweepStaleManagedScratchTempDirs = vi.fn(async () => {});
+        const initRecentFilesCache = vi.fn(options.initRecentFilesCache ?? (async () => {}));
+        const loadSettings = vi.fn(async () => ({...DEFAULT_SETTINGS}));
+        const setupMenu = vi.fn();
+        const updateRecentFilesMenu = vi.fn();
         const shutdownCoordinator = options.gracefulQuitInProgress === undefined
             ? null
             : {
@@ -86,10 +99,7 @@ describe('runInitSequence external open IPC', () => {
             allowOpenPaths,
             attachHostEnvironmentToWindow: vi.fn(),
             broadcastUpdateStatus: vi.fn(),
-            cleanupStaleWorkingCopyDirectories: vi.fn(async () => ({
-                removedDirectories: 0,
-                removedOcrDirectories: 0,
-            })),
+            cleanupStaleWorkingCopyDirectories,
             createWindow,
             devDockBadgeText: '',
             devDockIconPath: '',
@@ -106,7 +116,7 @@ describe('runInitSequence external open IPC', () => {
                 return null;
             }),
             hasWindows: vi.fn(() => options.hasWindows ?? true),
-            initRecentFilesCache: vi.fn(async () => {}),
+            initRecentFilesCache,
             initializeResourceRuntime,
             initializeUpdates: vi.fn(),
             installHostEnvironmentDisplayWatcher: vi.fn(),
@@ -116,6 +126,7 @@ describe('runInitSequence external open IPC', () => {
                 info: vi.fn(),
                 warn: vi.fn(),
             },
+            loadSettings,
             logStartupPhase: vi.fn(),
             markWindowRendererReady: vi.fn(),
             markWindowTabTransferNotReady: vi.fn(),
@@ -127,11 +138,14 @@ describe('runInitSequence external open IPC', () => {
                 Object.assign(capturedHandlers, handlers);
             }),
             setupAppProtocolHandler: vi.fn(),
-            setupMenu: vi.fn(),
+            setupMenu,
             shouldResetRendererReadyOnNavigation: vi.fn(() => true),
             shutdownCoordinator,
-            sweepStaleDefaultAppTempPdfs: vi.fn(async () => {}),
+            sweepStaleDefaultAppTempPdfs,
             sweepStaleManagedScratchTempDirs,
+            sweepStaleOcrTempArtifacts,
+            pruneStaleDjvuArtifactJobs,
+            updateRecentFilesMenu,
         });
 
         return {
@@ -139,13 +153,21 @@ describe('runInitSequence external open IPC', () => {
             allowOpenPaths,
             capturedHandlers,
             createWindow,
+            cleanupStaleWorkingCopyDirectories,
             externalOpenManager,
             focusMainWindow,
             initializeResourceRuntime,
             mainWindow,
             otherWindow,
+            initRecentFilesCache,
+            loadSettings,
+            pruneStaleDjvuArtifactJobs,
+            setupMenu,
             shutdownCoordinator,
+            sweepStaleDefaultAppTempPdfs,
             sweepStaleManagedScratchTempDirs,
+            sweepStaleOcrTempArtifacts,
+            updateRecentFilesMenu,
         };
     }
 
@@ -257,10 +279,91 @@ describe('runInitSequence external open IPC', () => {
         }
     });
 
-    it('starts managed scratch temp cleanup during boot cleanup', async () => {
+    it('defers startup maintenance until the main renderer is ready and runs it once', async () => {
+        vi.useFakeTimers();
         const harness = await createHarness();
+        const sweeps = [
+            harness.sweepStaleDefaultAppTempPdfs,
+            harness.pruneStaleDjvuArtifactJobs,
+            harness.sweepStaleOcrTempArtifacts,
+            harness.sweepStaleManagedScratchTempDirs,
+            harness.cleanupStaleWorkingCopyDirectories,
+        ];
+        expect(sweeps.every(sweep => sweep.mock.calls.length === 0)).toBe(true);
 
-        expect(harness.sweepStaleManagedScratchTempDirs).toHaveBeenCalledTimes(1);
+        harness.capturedHandlers.onRendererReady?.({sender: harness.otherWindow.webContents});
+        await vi.runAllTimersAsync();
+        expect(sweeps.every(sweep => sweep.mock.calls.length === 0)).toBe(true);
+
+        harness.capturedHandlers.onRendererReady?.({sender: harness.mainWindow.webContents});
+        harness.capturedHandlers.onRendererReady?.({sender: harness.mainWindow.webContents});
+        await vi.runAllTimersAsync();
+
+        expect(sweeps.every(sweep => sweep.mock.calls.length === 1)).toBe(true);
+        vi.useRealTimers();
+    });
+
+    it('installs the cached menu before Recent refresh and patches it only after success', async () => {
+        let resolveRecentRefresh: () => void = () => {};
+        const recentRefresh = new Promise<void>((resolve) => {
+            resolveRecentRefresh = resolve;
+        });
+        const harness = await createHarness({initRecentFilesCache: () => recentRefresh});
+        await vi.waitFor(() => expect(harness.setupMenu).toHaveBeenCalledOnce());
+        expect(harness.initRecentFilesCache).toHaveBeenCalledOnce();
+        expect(harness.updateRecentFilesMenu).not.toHaveBeenCalled();
+
+        resolveRecentRefresh();
+        await vi.waitFor(() => expect(harness.updateRecentFilesMenu).toHaveBeenCalledOnce());
+    });
+
+    it('retains the cached menu when Recent refresh fails', async () => {
+        const initRecentFilesCache = async () => {
+            throw new Error('refresh failed');
+        };
+        const harness = await createHarness({initRecentFilesCache});
+
+        await vi.waitFor(() => expect(harness.initRecentFilesCache).toHaveBeenCalledOnce());
+        expect(harness.setupMenu).toHaveBeenCalledOnce();
+        expect(harness.updateRecentFilesMenu).not.toHaveBeenCalled();
+    });
+
+    it('continues serialized startup maintenance after a failed step', async () => {
+        vi.useFakeTimers();
+        const harness = await createHarness();
+        const order: string[] = [];
+        harness.sweepStaleDefaultAppTempPdfs.mockImplementation(async () => {
+            order.push('default');
+        });
+        harness.pruneStaleDjvuArtifactJobs.mockImplementation(async () => {
+            order.push('djvu');
+            throw new Error('failed');
+        });
+        harness.sweepStaleOcrTempArtifacts.mockImplementation(async () => {
+            order.push('ocr');
+        });
+        harness.sweepStaleManagedScratchTempDirs.mockImplementation(async () => {
+            order.push('scratch');
+        });
+        harness.cleanupStaleWorkingCopyDirectories.mockImplementation(async () => {
+            order.push('working');
+            return {
+                removedDirectories: 0,
+                removedOcrDirectories: 0,
+            };
+        });
+
+        harness.capturedHandlers.onRendererReady?.({sender: harness.mainWindow.webContents});
+        await vi.runAllTimersAsync();
+
+        expect(order).toEqual([
+            'default',
+            'djvu',
+            'ocr',
+            'scratch',
+            'working',
+        ]);
+        vi.useRealTimers();
     });
 
     it('quits when the last window closes outside macOS', async () => {

@@ -23,6 +23,7 @@ import {
 import { tmpdir } from 'os';
 import type { TOpenPath } from '@electron/file-access/openPathCapabilities';
 import {requireDocumentRevisionToken} from '@contracts';
+import type * as FsPromises from 'fs/promises';
 
 let tempRoot = '';
 
@@ -696,6 +697,50 @@ describe('workingCopy', () => {
         });
         expect(existsSync(workDir)).toBe(false);
         expect(existsSync(ocrDir)).toBe(false);
+    });
+
+    it('bounds stale working-copy stats to eight workers and honors a smaller limit', async () => {
+        let activeStats = 0;
+        let maximumActiveStats = 0;
+        vi.doMock('fs/promises', async (importOriginal) => {
+            const actual = await importOriginal<typeof FsPromises>();
+            return {
+                ...actual,
+                stat: async (...args: Parameters<typeof actual.stat>) => {
+                    activeStats += 1;
+                    maximumActiveStats = Math.max(maximumActiveStats, activeStats);
+                    await new Promise(resolve => setTimeout(resolve, 5));
+                    try {
+                        return await actual.stat(...args);
+                    } finally {
+                        activeStats -= 1;
+                    }
+                },
+            };
+        });
+        try {
+            const appTempDir = join(tempRoot, 'evb-viewer');
+            const createStaleDirectories = (prefix: string) => {
+                for (let index = 0; index < 12; index += 1) {
+                    const workDir = join(appTempDir, `pdf-work-${prefix}-${index}`);
+                    mkdirSync(workDir, {recursive: true});
+                    const staleDate = new Date(Date.now() - (48 * 60 * 60 * 1000));
+                    utimesSync(workDir, staleDate, staleDate);
+                }
+            };
+            createStaleDirectories('default');
+            const { cleanupStaleWorkingCopyDirectories } = await import('@electron/file-access/workingCopyCleanup');
+
+            await cleanupStaleWorkingCopyDirectories();
+            expect(maximumActiveStats).toBe(8);
+
+            maximumActiveStats = 0;
+            createStaleDirectories('limited');
+            await cleanupStaleWorkingCopyDirectories({statConcurrency: 3});
+            expect(maximumActiveStats).toBe(3);
+        } finally {
+            vi.doUnmock('fs/promises');
+        }
     });
 
     it('serializes mutation queue entries that use different spellings of one Windows path', async () => {

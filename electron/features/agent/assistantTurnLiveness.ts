@@ -32,13 +32,20 @@ export async function waitForBoundedAssistantInterrupt(operation: Promise<unknow
     }
 }
 
-export function startAssistantHeartbeat(options: {
+export interface IAssistantHeartbeatController {
+    sync(): void;
+    dispose(): void;
+}
+
+export function createAssistantHeartbeatController(options: {
     sessions: () => IAssistantChatSession[];
     isActive: (session: IAssistantChatSession) => boolean;
     recordBoundary: (session: IAssistantChatSession) => void;
     publish: (event: IAgentAssistantEvent, session: IAssistantChatSession) => void;
-}) {
-    const timer = setInterval(() => {
+}): IAssistantHeartbeatController {
+    let timer: NodeJS.Timeout | null = null;
+
+    function publishHeartbeat() {
         const now = Date.now();
         for (const session of options.sessions()) {
             if (!options.isActive(session)) continue;
@@ -54,7 +61,30 @@ export function startAssistantHeartbeat(options: {
                 lastEventAtMs,
             }, session);
         }
-    }, 2_000);
-    timer.unref();
-    return timer;
+    }
+
+    function sync() {
+        const hasActiveTurn = options.sessions().some(options.isActive);
+        if (hasActiveTurn && !timer) {
+            timer = setInterval(publishHeartbeat, 2_000);
+            timer.unref();
+            return;
+        }
+        if (!hasActiveTurn && timer) {
+            clearInterval(timer);
+            timer = null;
+        }
+    }
+
+    function dispose() {
+        if (timer) {
+            clearInterval(timer);
+            timer = null;
+        }
+    }
+
+    return {
+        sync,
+        dispose,
+    };
 }

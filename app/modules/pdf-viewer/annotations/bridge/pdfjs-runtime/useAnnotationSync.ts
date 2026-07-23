@@ -91,20 +91,43 @@ interface IUseAnnotationSyncOptions {
     getStore: () => ISyncStore;
     syncInlineCommentIndicators: () => void;
     debounceMs?: number;
-    shouldCollectPdfAnnotationNames?: (() => boolean) | undefined;
+    getAnnotationNameReadLimits: () => {
+        eagerMaxBytes: number;
+        interactiveMaxBytes: number;
+    };
+    getPdfSourceByteSize: () => number | null;
+    isPdfSourceBlob: () => boolean;
 }
+
+export type TPdfAnnotationNameReadIntent = 'eager' | 'interactive';
+export type TPdfAnnotationNameReconciliationResult =
+    | 'reconciled'
+    | 'already-reconciled'
+    | 'skipped-over-limit'
+    | 'stale'
+    | 'failed';
+
+export interface IPdfAnnotationNameReadPolicy {
+    intent: TPdfAnnotationNameReadIntent;
+    sourceSize: number | null;
+    pageCount: number;
+}
+
+type TPdfAnnotationNameReadResult = 'reconciled' | 'skipped' | 'failed';
 
 interface IPdfAnnotationSnapshot {
     doc: PDFDocumentProxy;
     pageCount: number;
     comments: IAnnotationCommentSummary[];
     links: ILinkAnnotation[];
+    annotationNameReadResult: TPdfAnnotationNameReadResult;
 }
 
 interface ISharedPdfAnnotationSnapshot {
     pageCount: number;
     comments: IAnnotationCommentSummary[];
     links: ILinkAnnotation[];
+    annotationNameReadResult: TPdfAnnotationNameReadResult;
 }
 
 const MAX_SHARED_PDF_ANNOTATION_SNAPSHOTS = 8;
@@ -122,6 +145,7 @@ function cloneSharedSnapshot(
         pageCount: cached.pageCount,
         comments: structuredClone(cached.comments),
         links: structuredClone(cached.links),
+        annotationNameReadResult: cached.annotationNameReadResult,
     };
 }
 
@@ -131,6 +155,7 @@ function rememberSharedSnapshot(key: string, snapshot: IPdfAnnotationSnapshot) {
         pageCount: snapshot.pageCount,
         comments: structuredClone(snapshot.comments),
         links: structuredClone(snapshot.links),
+        annotationNameReadResult: snapshot.annotationNameReadResult,
     });
     while (sharedPdfAnnotationSnapshots.size > MAX_SHARED_PDF_ANNOTATION_SNAPSHOTS) {
         const oldestKey = sharedPdfAnnotationSnapshots.keys().next().value;
@@ -157,7 +182,9 @@ export const useAnnotationSync = (options: IUseAnnotationSyncOptions) => {
         getStore,
         syncInlineCommentIndicators,
         debounceMs = 140,
-        shouldCollectPdfAnnotationNames,
+        getAnnotationNameReadLimits,
+        getPdfSourceByteSize,
+        isPdfSourceBlob,
     } = options;
 
     let syncToken = 0;
@@ -170,7 +197,14 @@ export const useAnnotationSync = (options: IUseAnnotationSyncOptions) => {
         doc: PDFDocumentProxy;
         pageCount: number;
         version: number;
+        intent: TPdfAnnotationNameReadIntent;
         promise: Promise<IPdfAnnotationSnapshot | null>;
+    } | null = null;
+    let annotationNameReconciliationPromise: {
+        doc: PDFDocumentProxy;
+        pageCount: number;
+        snapshotVersion: number;
+        promise: Promise<TPdfAnnotationNameReconciliationResult>;
     } | null = null;
     let syncMachineState = initialAnnotationSyncState<IAnnotationCommentSummary>();
     let hasAppliedDocumentSnapshot = false;
@@ -258,6 +292,7 @@ export const useAnnotationSync = (options: IUseAnnotationSyncOptions) => {
         pdfAnnotationSnapshotVersion += 1;
         pdfAnnotationSnapshot = null;
         pdfAnnotationSnapshotPromise = null;
+        annotationNameReconciliationPromise = null;
     }
 
     function resolveAnnotationKindLabel(subtype: string | null | undefined) {
@@ -458,6 +493,7 @@ export const useAnnotationSync = (options: IUseAnnotationSyncOptions) => {
         doc: PDFDocumentProxy,
         pageCount: number,
         localToken: number,
+        intent: TPdfAnnotationNameReadIntent,
     ): Promise<IPdfAnnotationSnapshot | null> {
         const identity = getIdentity();
         const comments: IAnnotationCommentSummary[] = [];
@@ -469,18 +505,35 @@ export const useAnnotationSync = (options: IUseAnnotationSyncOptions) => {
         const { collectPdfAnnotationNamesByPage } = await import(
             '@app/modules/pdf-viewer/engine/annotations/annotation-sync-helpers/collectPdfAnnotationNamesByPage'
         );
-        const annotationNamesByPage = await collectPdfAnnotationNamesByPage(
-            doc,
-            {allowFullRead: pageCount <= 512
-                    && (shouldCollectPdfAnnotationNames?.() ?? true)},
-        ).catch((error: unknown) => {
-            BrowserLogger.debug(
-                'annotations',
-                'Failed to collect PDF annotation names',
-                error,
+        const sourceSize = getPdfSourceByteSize();
+        const limits = getAnnotationNameReadLimits();
+        const allowFullRead = sourceSize !== null
+            && sourceSize <= (
+                intent === 'interactive'
+                    ? limits.interactiveMaxBytes
+                    : limits.eagerMaxBytes
+            )
+            && (
+                intent === 'interactive'
+                || (pageCount <= 512 && isPdfSourceBlob())
             );
-            return null;
-        });
+        let annotationNameReadResult: TPdfAnnotationNameReadResult = allowFullRead
+            ? 'reconciled'
+            : 'skipped';
+        const annotationNamesByPage = allowFullRead
+            ? await collectPdfAnnotationNamesByPage(
+                doc,
+                {allowFullRead: true},
+            ).catch((error: unknown) => {
+                BrowserLogger.debug(
+                    'annotations',
+                    'Failed to collect PDF annotation names',
+                    error,
+                );
+                annotationNameReadResult = 'failed';
+                return null;
+            })
+            : null;
 
         const pageOrder = getVisibleFirstPageOrder(pageCount);
         let completedPages = 0;
@@ -564,6 +617,7 @@ export const useAnnotationSync = (options: IUseAnnotationSyncOptions) => {
             pageCount,
             comments,
             links,
+            annotationNameReadResult,
         };
     }
 
@@ -578,11 +632,16 @@ export const useAnnotationSync = (options: IUseAnnotationSyncOptions) => {
     function getReusablePdfSnapshotPromise(
         doc: PDFDocumentProxy,
         pageCount: number,
+        intent: TPdfAnnotationNameReadIntent,
     ) {
         if (
             !pdfAnnotationSnapshotPromise
             || !matchesPdfSnapshotRequest(pdfAnnotationSnapshotPromise, doc, pageCount)
             || pdfAnnotationSnapshotPromise.version !== pdfAnnotationSnapshotVersion
+            || (
+                intent === 'interactive'
+                && pdfAnnotationSnapshotPromise.intent !== 'interactive'
+            )
         ) {
             return null;
         }
@@ -608,8 +667,16 @@ export const useAnnotationSync = (options: IUseAnnotationSyncOptions) => {
         doc: PDFDocumentProxy,
         pageCount: number,
         localToken: number,
+        intent: TPdfAnnotationNameReadIntent,
     ): Promise<IPdfAnnotationSnapshot | null> {
-        if (pdfAnnotationSnapshot && matchesPdfSnapshotRequest(pdfAnnotationSnapshot, doc, pageCount)) {
+        if (
+            pdfAnnotationSnapshot
+            && matchesPdfSnapshotRequest(pdfAnnotationSnapshot, doc, pageCount)
+            && (
+                intent === 'eager'
+                || pdfAnnotationSnapshot.annotationNameReadResult === 'reconciled'
+            )
+        ) {
             return pdfAnnotationSnapshot;
         }
 
@@ -617,7 +684,14 @@ export const useAnnotationSync = (options: IUseAnnotationSyncOptions) => {
         const shared = (sharedKey ? sharedPdfAnnotationSnapshots.get(sharedKey) : null)
             ?? sourcePdfAnnotationSnapshots.get(doc)
             ?? null;
-        if (shared && shared.pageCount === pageCount) {
+        if (
+            shared
+            && shared.pageCount === pageCount
+            && (
+                intent === 'eager'
+                || shared.annotationNameReadResult === 'reconciled'
+            )
+        ) {
             // Refresh LRU order and hand each viewer an isolated payload.
             if (sharedKey) {
                 sharedPdfAnnotationSnapshots.delete(sharedKey);
@@ -627,13 +701,13 @@ export const useAnnotationSync = (options: IUseAnnotationSyncOptions) => {
             return pdfAnnotationSnapshot;
         }
 
-        const reusablePromise = getReusablePdfSnapshotPromise(doc, pageCount);
+        const reusablePromise = getReusablePdfSnapshotPromise(doc, pageCount, intent);
         if (reusablePromise) {
             return reusablePromise;
         }
 
         const snapshotVersion = pdfAnnotationSnapshotVersion;
-        const snapshotPromise = collectPdfAnnotationSnapshot(doc, pageCount, localToken)
+        const snapshotPromise = collectPdfAnnotationSnapshot(doc, pageCount, localToken, intent)
             .then((snapshot) => {
                 if (shouldCachePdfAnnotationSnapshot(snapshot, doc, pageCount, snapshotVersion)) {
                     pdfAnnotationSnapshot = snapshot;
@@ -644,6 +718,7 @@ export const useAnnotationSync = (options: IUseAnnotationSyncOptions) => {
                         pageCount: snapshot.pageCount,
                         comments: structuredClone(snapshot.comments),
                         links: structuredClone(snapshot.links),
+                        annotationNameReadResult: snapshot.annotationNameReadResult,
                     });
                 }
                 return snapshot;
@@ -658,6 +733,7 @@ export const useAnnotationSync = (options: IUseAnnotationSyncOptions) => {
             doc,
             pageCount,
             version: snapshotVersion,
+            intent,
             promise: snapshotPromise,
         };
 
@@ -915,7 +991,9 @@ export const useAnnotationSync = (options: IUseAnnotationSyncOptions) => {
         syncInlineCommentIndicators();
     }
 
-    async function syncAnnotationCommentsInternal() {
+    async function syncAnnotationCommentsInternal(
+        annotationNameReadIntent: TPdfAnnotationNameReadIntent = 'eager',
+    ) {
         const identity = getIdentity();
         const markupSubtype = getMarkupSubtype();
         const store = getStore();
@@ -923,7 +1001,7 @@ export const useAnnotationSync = (options: IUseAnnotationSyncOptions) => {
 
         if (!doc || numPages.value <= 0) {
             applyEmptyAnnotationSyncState(identity, markupSubtype, store);
-            return;
+            return null;
         }
 
         const localToken = ++syncToken;
@@ -944,14 +1022,19 @@ export const useAnnotationSync = (options: IUseAnnotationSyncOptions) => {
             records: Array.from(commentsByKey.values()),
         });
 
-        const pdfSnapshot = await getPdfAnnotationSnapshot(doc, numPages.value, localToken);
+        const pdfSnapshot = await getPdfAnnotationSnapshot(
+            doc,
+            numPages.value,
+            localToken,
+            annotationNameReadIntent,
+        );
         if (!pdfSnapshot || localToken !== syncToken) {
             tracePdfAnnotationSaveEvent('annotation-sync:pdf-snapshot-stale', {
                 hasSnapshot: Boolean(pdfSnapshot),
                 localToken,
                 syncToken,
             });
-            return;
+            return null;
         }
         tracePdfAnnotationSaveEvent('annotation-sync:pdf-snapshot', () => ({
             comments: summarizeCommentsForTrace(pdfSnapshot.comments),
@@ -983,7 +1066,7 @@ export const useAnnotationSync = (options: IUseAnnotationSyncOptions) => {
         const collectedLinks = collectVisiblePdfLinks(pdfSnapshot, isDeletedAnnotationElement);
 
         if (localToken !== syncToken) {
-            return;
+            return null;
         }
 
         syncMachineState = reduceAnnotationSync(syncMachineState, {
@@ -991,7 +1074,7 @@ export const useAnnotationSync = (options: IUseAnnotationSyncOptions) => {
             generation: localToken,
         });
         if (syncMachineState.phase !== 'complete') {
-            return;
+            return null;
         }
 
         applyAnnotationSyncState(
@@ -1003,6 +1086,85 @@ export const useAnnotationSync = (options: IUseAnnotationSyncOptions) => {
             uiManager !== null,
             hasPostOpenUserMutation,
         );
+        return pdfSnapshot;
+    }
+
+    function ensurePdfAnnotationNameReconciliation(
+        reason: 'annotations-ui-open' | 'existing-annotation-mutation',
+    ): Promise<TPdfAnnotationNameReconciliationResult> {
+        const doc = pdfDocument.value;
+        const pageCount = numPages.value;
+        if (!doc || pageCount <= 0) {
+            return Promise.resolve('stale');
+        }
+        if (
+            pdfAnnotationSnapshot
+            && matchesPdfSnapshotRequest(pdfAnnotationSnapshot, doc, pageCount)
+            && pdfAnnotationSnapshot.annotationNameReadResult === 'reconciled'
+        ) {
+            return Promise.resolve('already-reconciled');
+        }
+
+        const sourceSize = getPdfSourceByteSize();
+        if (
+            sourceSize === null
+            || sourceSize > getAnnotationNameReadLimits().interactiveMaxBytes
+        ) {
+            return Promise.resolve('skipped-over-limit');
+        }
+
+        const snapshotVersion = pdfAnnotationSnapshotVersion;
+        if (
+            annotationNameReconciliationPromise
+            && annotationNameReconciliationPromise.doc === doc
+            && annotationNameReconciliationPromise.pageCount === pageCount
+            && annotationNameReconciliationPromise.snapshotVersion === snapshotVersion
+        ) {
+            return annotationNameReconciliationPromise.promise;
+        }
+
+        tracePdfAnnotationSaveEvent('annotation-sync:name-reconciliation-start', {
+            pageCount,
+            reason,
+            sourceSize,
+        });
+        const promise = syncAnnotationCommentsInternal('interactive')
+            .then((snapshot): TPdfAnnotationNameReconciliationResult => {
+                if (
+                    pdfDocument.value !== doc
+                    || numPages.value !== pageCount
+                    || pdfAnnotationSnapshotVersion !== snapshotVersion
+                ) {
+                    return 'stale';
+                }
+                if (!snapshot) {
+                    return 'stale';
+                }
+                return snapshot.annotationNameReadResult === 'reconciled'
+                    ? 'reconciled'
+                    : snapshot.annotationNameReadResult === 'failed'
+                        ? 'failed'
+                        : 'skipped-over-limit';
+            })
+            .catch((error: unknown) => {
+                BrowserLogger.warn('annotations', 'Annotation-name reconciliation failed', {
+                    error,
+                    reason,
+                });
+                return 'failed' as const;
+            })
+            .finally(() => {
+                if (annotationNameReconciliationPromise?.promise === promise) {
+                    annotationNameReconciliationPromise = null;
+                }
+            });
+        annotationNameReconciliationPromise = {
+            doc,
+            pageCount,
+            snapshotVersion,
+            promise,
+        };
+        return promise;
     }
 
     async function syncAnnotationComments() {
@@ -1084,6 +1246,7 @@ export const useAnnotationSync = (options: IUseAnnotationSyncOptions) => {
         toEditorSummary,
         syncAnnotationComments,
         scheduleAnnotationCommentsSync,
+        ensurePdfAnnotationNameReconciliation,
         setActiveCommentStableKey,
         incrementSyncToken,
         clearSyncState,

@@ -4,6 +4,12 @@ import {
     it,
 } from 'vitest';
 import { buildPageLayoutMetrics } from '@app/modules/pdf-viewer/engine/pdf-page-layout/buildPageLayoutMetrics';
+import {
+    getLayoutContentHeight,
+    getLayoutPageHeight,
+    getLayoutPageTop,
+    getLayoutRowHeight,
+} from '@app/modules/pdf-viewer/engine/pdf-page-layout/pdfPageLayoutMetrics';
 import { getLeadingSpacerHeightForPage } from '@app/modules/pdf-viewer/engine/pdf-page-layout/getLeadingSpacerHeightForPage';
 import { getTrailingSpacerHeightForPage } from '@app/modules/pdf-viewer/engine/pdf-page-layout/getTrailingSpacerHeightForPage';
 import { normalizePageMetrics } from '@app/modules/pdf-viewer/engine/pdf-page-layout/normalizePageMetrics';
@@ -11,6 +17,43 @@ import { resolveDocumentBaseMetric } from '@app/modules/pdf-viewer/engine/pdf-pa
 import type { IPdfPageMetric } from '@app/types/pdfUi';
 
 describe('pdfPageLayout', () => {
+    it('reuses immutable base topology across scale-only changes', () => {
+        const pageMetrics = Array.from({length: 10_000}, (_, index) => ({
+            width: 300 + index % 3,
+            height: 500 + index % 5,
+        }));
+        const createLayout = (scale: number, pageMetricsVersion = 1) => buildPageLayoutMetrics({
+            pageMetrics,
+            pageMetricsVersion,
+            totalPages: pageMetrics.length,
+            viewMode: 'facing',
+            scale,
+            gap: 17,
+            paddingTop: 19,
+            paddingBottom: 23,
+            fallbackWidth: null,
+            fallbackHeight: null,
+        });
+
+        const first = createLayout(1);
+        const scaled = createLayout(1.375);
+        const revised = createLayout(1.375, 2);
+        expect(first?.base).toBe(scaled?.base);
+        expect(revised?.base).not.toBe(first?.base);
+        expect(Object.isFrozen(first?.base)).toBe(true);
+        expect(Object.isFrozen(first?.base.pageHeights)).toBe(true);
+        expect(Object.keys(scaled ?? {}).sort()).toEqual([
+            'base',
+            'gap',
+            'paddingBottom',
+            'paddingTop',
+            'scale',
+        ]);
+        expect(scaled?.gap).toBe(17);
+        expect(scaled?.paddingTop).toBe(19);
+        expect(scaled?.paddingBottom).toBe(23);
+    });
+
     it('builds per-page tops from variable page heights', () => {
         const layout = buildPageLayoutMetrics({
             pageMetrics: [
@@ -38,12 +81,12 @@ describe('pdfPageLayout', () => {
         });
 
         expect(layout).not.toBeNull();
-        expect(layout?.pageTops).toEqual([
+        expect(layout && layout.base.pageHeights.map((_height, index) => getLayoutPageTop(layout, index))).toEqual([
             20,
             240,
             660,
         ]);
-        expect(layout?.pageHeights).toEqual([
+        expect(layout && layout.base.pageHeights.map((_height, index) => getLayoutPageHeight(layout, index))).toEqual([
             200,
             400,
             240,
@@ -85,36 +128,36 @@ describe('pdfPageLayout', () => {
         });
 
         expect(layout).not.toBeNull();
-        expect(layout?.pageTops).toEqual([
+        expect(layout && layout.base.pageHeights.map((_height, index) => getLayoutPageTop(layout, index))).toEqual([
             20,
             20,
             180,
             180,
             360,
         ]);
-        expect(layout?.pageRowIndices).toEqual([
+        expect(layout?.base.pageRowIndices).toEqual([
             0,
             0,
             1,
             1,
             2,
         ]);
-        expect(layout?.rowStartPages).toEqual([
+        expect(layout?.base.rowStartPages).toEqual([
             1,
             3,
             5,
         ]);
-        expect(layout?.rowEndPages).toEqual([
+        expect(layout?.base.rowEndPages).toEqual([
             2,
             4,
             5,
         ]);
-        expect(layout?.rowHeights).toEqual([
+        expect(layout && layout.base.rowHeights.map((_height, index) => getLayoutRowHeight(layout, index))).toEqual([
             140,
             160,
             110,
         ]);
-        expect(layout?.contentHeight).toBe(490);
+        expect(layout && getLayoutContentHeight(layout)).toBe(490);
         expect(getLeadingSpacerHeightForPage(layout!, 3)).toBe(140);
         expect(getTrailingSpacerHeightForPage(layout!, 2)).toBe(290);
     });

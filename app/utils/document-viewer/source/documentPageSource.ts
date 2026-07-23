@@ -23,6 +23,7 @@ export interface IDocumentSurfaceLease {
     readonly surface: HTMLCanvasElement | string;
     onInvalidated?(listener: () => void): () => void;
     promotePriority?(priority: TDocumentRenderPriority): void;
+    setPriority?(priority: TDocumentRenderPriority): void;
     release(): void;
 }
 

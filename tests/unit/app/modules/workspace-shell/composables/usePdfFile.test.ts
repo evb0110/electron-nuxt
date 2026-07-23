@@ -149,6 +149,7 @@ interface IPdfFileTestApi {
     loadPdfFromData: (data: Uint8Array) => Promise<void>;
     loadPdfFromPath: (path: string) => Promise<void>;
     markDirty: () => void;
+    notifyPdfInitialVisualReady: () => boolean;
     openBatchProgress: Ref<unknown | null>;
     openFile: (result?: unknown) => Promise<IPdfFileTestOpenOutcome>;
     openFileDirect: (path: string) => Promise<IPdfFileTestOpenOutcome>;
@@ -929,6 +930,7 @@ describe('usePdfFile', () => {
 
             const file = createTestPdfFile();
             await file.openFile();
+            file.notifyPdfInitialVisualReady();
             await vi.waitFor(() => {
                 expect(file.pdfConformanceProfile.value).toEqual(staleProfile);
             });
@@ -940,6 +942,11 @@ describe('usePdfFile', () => {
             await expect(file.undo()).resolves.toBe(true);
 
             expect(file.pdfConformanceProfile.value).toBeNull();
+            expect(mockDocumentPdf.analyzePdfConformance).not.toHaveBeenCalled();
+            file.notifyPdfInitialVisualReady();
+            await vi.waitFor(() => {
+                expect(mockDocumentPdf.analyzePdfConformance).toHaveBeenCalledWith('/tmp/undo.pdf');
+            });
             expect(mockDocumentPdf.analyzePdfConformance).toHaveBeenCalledWith('/tmp/undo.pdf');
 
             conformanceGate.resolve(restoredProfile);
@@ -1312,6 +1319,7 @@ describe('usePdfFile', () => {
 
             const file = createTestPdfFile();
             await file.openFile();
+            file.notifyPdfInitialVisualReady();
             await vi.waitFor(() => {
                 expect(file.pdfConformanceProfile.value).toEqual(unsignedProfile);
             });
@@ -1339,6 +1347,7 @@ describe('usePdfFile', () => {
             });
             expect(file.pdfConformanceProfile.value).toBeNull();
 
+            file.notifyPdfInitialVisualReady();
             conformanceGate.resolve(postSaveProfile);
             await savePromise;
             await vi.waitFor(() => {
@@ -1433,7 +1442,7 @@ describe('usePdfFile', () => {
             const file = createTestPdfFile();
             await file.loadPdfFromPath('/tmp/small.pdf');
             expect(file.pdfConformanceProfile.value).toBeNull();
-            expect(mockDocumentPdf.analyzePdfConformance).toHaveBeenCalledTimes(1);
+            expect(mockDocumentPdf.analyzePdfConformance).not.toHaveBeenCalled();
 
             const savePromise = file.trySaveEmbeddedNoteTextUpdates([{
                 objectNumber: 42,
@@ -1494,8 +1503,13 @@ describe('usePdfFile', () => {
             const file = createTestPdfFile();
             await file.loadPdfFromPath('/tmp/save.pdf');
             expect(file.pdfConformanceProfile.value).toBeNull();
+            file.notifyPdfInitialVisualReady();
+            await vi.waitFor(() => {
+                expect(mockDocumentPdf.analyzePdfConformance).toHaveBeenCalledTimes(1);
+            });
 
             await file.persistPdfDataSilently(savedBytes);
+            file.notifyPdfInitialVisualReady();
 
             staleConformanceGate.resolve(staleProfile);
             await Promise.resolve();

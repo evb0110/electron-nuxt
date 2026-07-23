@@ -42,7 +42,10 @@ const ANNOTATION_NOTE_DISAPPEARANCE_GRACE_MS = 5_000;
 export interface IAnnotationNoteWindowDeps {
     annotationComments: Ref<IAnnotationCommentSummary[]>;
     markAnnotationDirty: () => void;
-    updateAnnotationCommentInViewer: (annotationId: AnnotationId, text: string) => boolean;
+    updateAnnotationCommentInViewer: (
+        annotationId: AnnotationId,
+        text: string,
+    ) => boolean | Promise<boolean>;
     isAnnotationCommentSyncReady?: () => boolean;
 }
 
@@ -369,7 +372,7 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
         };
     }
 
-    function persistAnnotationNote(value: string, force = false) {
+    function persistAnnotationNote(value: string, force = false): boolean | Promise<boolean> {
         const id = resolveId(value) ?? asAnnotationId(value);
         const state = stateById(id);
         const metadata = runtime.get(id);
@@ -381,8 +384,8 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
         }
         metadata.saving = true;
         metadata.error = null;
-        try {
-            const updated = deps.updateAnnotationCommentInViewer(id, state.draftText);
+        const submittedText = state.draftText;
+        const finish = (updated: boolean) => {
             if (metadata.requiresEmbeddedSave) {
                 metadata.pendingEmbeddedSave = true;
             }
@@ -390,19 +393,43 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
                 metadata.pendingEmbeddedSave = true;
                 return true;
             }
-            metadata.canonicalText = state.draftText;
-            metadata.dirty = false;
+            metadata.canonicalText = submittedText;
+            if (state.draftText === submittedText) {
+                metadata.dirty = false;
+            }
             return true;
-        } catch {
+        };
+        const fail = () => {
             metadata.error = t('errors.annotation.updateNote');
             return false;
-        } finally {
+        };
+        try {
+            const updated = deps.updateAnnotationCommentInViewer(id, submittedText);
+            if (updated instanceof Promise) {
+                return updated
+                    .then(finish)
+                    .catch(fail)
+                    .finally(() => {
+                        metadata.saving = false;
+                    });
+            }
+            const result = finish(updated);
             metadata.saving = false;
+            return result;
+        } catch {
+            const result = fail();
+            metadata.saving = false;
+            return result;
         }
     }
 
-    function persistAllAnnotationNotes(force = false) {
-        return Promise.resolve(states.value.every(state => persistAnnotationNote(state.annotationId, force)));
+    async function persistAllAnnotationNotes(force = false) {
+        const results = await Promise.all(
+            states.value.map(state => Promise.resolve(
+                persistAnnotationNote(state.annotationId, force),
+            )),
+        );
+        return results.every(Boolean);
     }
 
     function removeAnnotationNoteWindow(value: string) {
@@ -416,12 +443,11 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
         clearDisappearanceTimer(id);
     }
 
-    function closeAnnotationNote(value: string, options: {saveIfDirty?: boolean} = {}) {
-        if (options.saveIfDirty !== false && !persistAnnotationNote(value, true)) {
-            return Promise.resolve();
+    async function closeAnnotationNote(value: string, options: {saveIfDirty?: boolean} = {}) {
+        if (options.saveIfDirty !== false && !await persistAnnotationNote(value, true)) {
+            return;
         }
         removeAnnotationNoteWindow(value);
-        return Promise.resolve();
     }
 
     async function closeAllAnnotationNotes(options: {saveIfDirty?: boolean} = {}) {

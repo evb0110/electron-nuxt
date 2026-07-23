@@ -164,6 +164,7 @@ describe('recentFiles persistence', () => {
         writeFileSync(filePath, 'other');
         const replacementTime = new Date((initial?.modifiedAt ?? Date.now()) + 10_000);
         utimesSync(filePath, replacementTime, replacementTime);
+        await recentFiles.initRecentFilesCache();
 
         const refreshed = (await recentFiles.getRecentFiles())[0];
         expect(refreshed?.fileSize).toBe(initial?.fileSize);
@@ -371,6 +372,79 @@ describe('recentFiles persistence', () => {
 
         expect(recentFiles.getRecentFilesSync()).toEqual([]);
         expect(await recentFiles.getRecentFiles()).toEqual([]);
+    });
+
+    it('shares one cold refresh across concurrent getters and cache initialization', async () => {
+        const filePath = writeFixture('single-flight.pdf');
+        writeFileSync(join(userDataDir, 'recentFiles.json'), JSON.stringify({
+            version: 1,
+            files: [{
+                originalPath: filePath,
+                fileName: 'single-flight.pdf',
+                timestamp: 1,
+                fileSize: 1,
+            }],
+        }));
+        const recentFiles = await loadRecentFilesModule();
+
+        const [
+            first,
+            second,
+        ] = await Promise.all([
+            recentFiles.getRecentFiles(),
+            recentFiles.getRecentFiles(),
+            recentFiles.initRecentFilesCache(),
+        ]);
+
+        expect(first).toEqual(second);
+        expect(mocks.stat).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not stat Recent paths again during a fresh TTL hit', async () => {
+        const filePath = writeFixture('ttl-hit.pdf');
+        writeFileSync(join(userDataDir, 'recentFiles.json'), JSON.stringify({
+            version: 1,
+            files: [{
+                originalPath: filePath,
+                fileName: 'ttl-hit.pdf',
+                timestamp: 1,
+                fileSize: 1,
+            }],
+        }));
+        const recentFiles = await loadRecentFilesModule();
+        await recentFiles.initRecentFilesCache();
+        mocks.stat.mockClear();
+
+        await recentFiles.getRecentFiles();
+        await recentFiles.getRecentFiles();
+
+        expect(mocks.stat).not.toHaveBeenCalled();
+    });
+
+    it('performs one validation pass for concurrent getters after TTL expiry', async () => {
+        vi.useFakeTimers();
+        vi.setSystemTime(10_000);
+        const filePath = writeFixture('ttl-expired.pdf');
+        writeFileSync(join(userDataDir, 'recentFiles.json'), JSON.stringify({
+            version: 1,
+            files: [{
+                originalPath: filePath,
+                fileName: 'ttl-expired.pdf',
+                timestamp: 1,
+                fileSize: 1,
+            }],
+        }));
+        const recentFiles = await loadRecentFilesModule();
+        await recentFiles.initRecentFilesCache();
+        mocks.stat.mockClear();
+        vi.setSystemTime(15_001);
+
+        await Promise.all([
+            recentFiles.getRecentFiles(),
+            recentFiles.getRecentFiles(),
+        ]);
+
+        expect(mocks.stat).toHaveBeenCalledTimes(1);
     });
 
     it('clears persisted storage and the synchronous cache together', async () => {

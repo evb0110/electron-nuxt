@@ -16,7 +16,10 @@ import {
 } from '@electron/features/agent/assistantTurnLifecycle';
 import { syncAssistantMcpSessionScope } from '@electron/features/agent/assistantMcpSessionScope';
 
-interface IAssistantSessionTurnCoordinatorOptions { sessionStore: TAssistantChatSessionStore }
+interface IAssistantSessionTurnCoordinatorOptions {
+    sessionStore: TAssistantChatSessionStore;
+    onTurnStateChanged?: () => void;
+}
 
 export function createAssistantSessionTurnCoordinator(options: IAssistantSessionTurnCoordinatorOptions) {
     function createAssistantSessionScopeBinding(
@@ -53,6 +56,7 @@ export function createAssistantSessionTurnCoordinator(options: IAssistantSession
         };
         syncSessionTurnScope(session);
         options.sessionStore.recordTurnBoundary(session);
+        options.onTurnStateChanged?.();
         return session.turnOwner.generation;
     }
 
@@ -66,6 +70,7 @@ export function createAssistantSessionTurnCoordinator(options: IAssistantSession
         syncSessionTurnScope(session);
         if (session.turnOwner !== previousOwner) {
             options.sessionStore.recordTurnBoundary(session);
+            options.onTurnStateChanged?.();
         }
         return session.turnOwner !== previousOwner;
     }
@@ -85,6 +90,7 @@ export function createAssistantSessionTurnCoordinator(options: IAssistantSession
         syncSessionTurnScope(session);
         if (session.turnOwner !== previousOwner) {
             options.sessionStore.recordTurnBoundary(session);
+            options.onTurnStateChanged?.();
         }
         return session.turnOwner !== previousOwner;
     }
@@ -104,6 +110,7 @@ export function createAssistantSessionTurnCoordinator(options: IAssistantSession
         syncSessionTurnScope(session);
         if (session.turnOwner !== previousOwner) {
             options.sessionStore.recordTurnBoundary(session);
+            options.onTurnStateChanged?.();
         }
         return session.turnOwner !== previousOwner;
     }
@@ -113,22 +120,31 @@ export function createAssistantSessionTurnCoordinator(options: IAssistantSession
         session.turnOwner = errorAssistantTurn(supersededOwner, supersededOwner.generation, error);
         syncSessionTurnScope(session);
         options.sessionStore.recordTurnBoundary(session);
+        options.onTurnStateChanged?.();
     }
 
     function interruptSessionTurn(session: IAssistantChatSession) {
+        const previousOwner = session.turnOwner;
         session.turnOwner = markAssistantTurnInterrupting(session.turnOwner);
         session.turnPresentation.phase = 'interrupting';
         session.turnPresentation.lastEventAtMs = Date.now();
         syncSessionTurnScope(session);
         options.sessionStore.recordTurnBoundary(session);
+        if (session.turnOwner !== previousOwner) {
+            options.onTurnStateChanged?.();
+        }
     }
 
     function supersedeSessionTurn(session: IAssistantChatSession) {
+        const previousOwner = session.turnOwner;
         session.turnOwner = supersedeAssistantTurn(session.turnOwner);
         session.turnPresentation.phase = 'cancelled';
         session.turnPresentation.lastEventAtMs = Date.now();
         syncSessionTurnScope(session);
         options.sessionStore.recordTurnBoundary(session);
+        if (session.turnOwner !== previousOwner) {
+            options.onTurnStateChanged?.();
+        }
     }
 
     function rememberStateScope(

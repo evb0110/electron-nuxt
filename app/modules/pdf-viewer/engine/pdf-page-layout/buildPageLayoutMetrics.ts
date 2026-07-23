@@ -2,7 +2,12 @@ import type { TPdfViewMode } from '@app/types/pdfContracts';
 import type { IPdfPageMetric } from '@app/types/pdfUi';
 import { clamp } from 'es-toolkit/math';
 import { normalizePageMetrics } from '@app/modules/pdf-viewer/engine/pdf-page-layout/normalizePageMetrics';
-import type { IPdfPageLayoutMetrics } from '@app/modules/pdf-viewer/engine/pdf-page-layout/pdfPageLayoutMetrics';
+import type {
+    IPdfPageLayoutBase,
+    IPdfPageLayoutMetrics,
+} from '@app/modules/pdf-viewer/engine/pdf-page-layout/pdfPageLayoutMetrics';
+
+const baseCache = new WeakMap<IPdfPageMetric[], Map<string, IPdfPageLayoutBase>>();
 
 function clampPageNumber(pageNumber: number, totalPages: number) {
     return clamp(Math.floor(pageNumber), 1, totalPages);
@@ -88,82 +93,89 @@ function resolveSafeLayoutSpacing(options: {
     };
 }
 
-function scalePageDimensions(metrics: IPdfPageMetric[], scale: number) {
-    return {
-        pageWidths: metrics.map(metric => metric.width * scale),
-        pageHeights: metrics.map(metric => metric.height * scale),
-    };
-}
-
-function buildPageHeightPrefixSums(pageHeights: number[]) {
-    const pageHeightPrefixSums = Array.from({ length: pageHeights.length }, () => 0);
-    let maxPageHeight = 0;
-
-    for (let index = 0; index < pageHeights.length; index += 1) {
-        const height = pageHeights[index] ?? 0;
-        pageHeightPrefixSums[index] = height + (pageHeightPrefixSums[index - 1] ?? 0);
-        maxPageHeight = Math.max(maxPageHeight, height);
+function buildPrefixSums(values: readonly number[]) {
+    const prefixSums = Array.from({ length: values.length }, () => 0);
+    for (let index = 0; index < values.length; index += 1) {
+        prefixSums[index] = (values[index] ?? 0) + (prefixSums[index - 1] ?? 0);
     }
-
-    return {
-        pageHeightPrefixSums,
-        maxPageHeight,
-    };
+    return prefixSums;
 }
 
-function buildLayoutRows(options: {
+function buildPageLayoutBase(options: {
+    pageMetrics: IPdfPageMetric[];
+    pageMetricsVersion: number;
     totalPages: number;
     viewMode: TPdfViewMode;
-    pageHeights: number[];
-    gap: number;
-    paddingTop: number;
-    paddingBottom: number;
+    fallbackWidth: number | null;
+    fallbackHeight: number | null;
 }) {
-    const pageTops: number[] = [];
+    const cacheKey = [
+        options.pageMetricsVersion,
+        options.totalPages,
+        options.viewMode,
+        options.fallbackWidth ?? 'null',
+        options.fallbackHeight ?? 'null',
+    ].join(':');
+    const cached = baseCache.get(options.pageMetrics)?.get(cacheKey);
+    if (cached) {
+        return cached;
+    }
+
+    const metrics = normalizePageMetrics({
+        pageMetrics: options.pageMetrics,
+        totalPages: options.totalPages,
+        fallbackWidth: options.fallbackWidth,
+        fallbackHeight: options.fallbackHeight,
+    });
+    if (metrics.length === 0) {
+        return null;
+    }
+
+    const pageWidths = metrics.map(metric => metric.width);
+    const pageHeights = metrics.map(metric => metric.height);
     const pageRowIndices = Array.from({ length: options.totalPages }, () => 0);
     const rowStartPages: number[] = [];
     const rowEndPages: number[] = [];
     const rowHeights: number[] = [];
-    const rowHeightPrefixSums: number[] = [];
-    let offset = options.paddingTop;
     let rowIndex = 0;
 
     for (let pageNumber = 1; pageNumber <= options.totalPages;) {
-        const rowStartPage = pageNumber;
         const rowPages = getSpreadRowPages(pageNumber, options.viewMode, options.totalPages);
-        const rowHeight = Math.max(...rowPages.map(rowPage => options.pageHeights[rowPage - 1] ?? 0));
-
-        rowStartPages.push(rowStartPage);
-        rowEndPages.push(rowPages[rowPages.length - 1] ?? rowStartPage);
-        rowHeights.push(rowHeight);
-        rowHeightPrefixSums.push(rowHeight + (rowHeightPrefixSums[rowHeightPrefixSums.length - 1] ?? 0));
-
+        const rowEndPage = rowPages[rowPages.length - 1] ?? pageNumber;
+        rowStartPages.push(pageNumber);
+        rowEndPages.push(rowEndPage);
+        rowHeights.push(Math.max(...rowPages.map(rowPage => pageHeights[rowPage - 1] ?? 0)));
         for (const rowPage of rowPages) {
-            pageTops[rowPage - 1] = offset;
             pageRowIndices[rowPage - 1] = rowIndex;
         }
-
-        pageNumber = (rowPages[rowPages.length - 1] ?? rowStartPage) + 1;
-        offset += rowHeight;
-        if (pageNumber <= options.totalPages) {
-            offset += options.gap;
-        }
+        pageNumber = rowEndPage + 1;
         rowIndex += 1;
     }
 
-    return {
-        pageTops,
-        pageRowIndices,
-        rowStartPages,
-        rowEndPages,
-        rowHeights,
-        rowHeightPrefixSums,
-        contentHeight: offset + options.paddingBottom,
-    };
+    const base = Object.freeze({
+        totalPages: options.totalPages,
+        maxPageHeight: pageHeights.reduce(
+            (maxHeight, pageHeight) => pageHeight > maxHeight ? pageHeight : maxHeight,
+            0,
+        ),
+        pageWidths: Object.freeze(pageWidths),
+        pageHeights: Object.freeze(pageHeights),
+        pageHeightPrefixSums: Object.freeze(buildPrefixSums(pageHeights)),
+        pageRowIndices: Object.freeze(pageRowIndices),
+        rowStartPages: Object.freeze(rowStartPages),
+        rowEndPages: Object.freeze(rowEndPages),
+        rowHeights: Object.freeze(rowHeights),
+        rowHeightPrefixSums: Object.freeze(buildPrefixSums(rowHeights)),
+    }) satisfies IPdfPageLayoutBase;
+    const metricsCache = baseCache.get(options.pageMetrics) ?? new Map<string, IPdfPageLayoutBase>();
+    metricsCache.set(cacheKey, base);
+    baseCache.set(options.pageMetrics, metricsCache);
+    return base;
 }
 
 export function buildPageLayoutMetrics(options: {
     pageMetrics: IPdfPageMetric[];
+    pageMetricsVersion?: number;
     totalPages: number;
     viewMode: TPdfViewMode;
     scale: number;
@@ -173,71 +185,36 @@ export function buildPageLayoutMetrics(options: {
     fallbackWidth: number | null;
     fallbackHeight: number | null;
 }): IPdfPageLayoutMetrics | null {
-    const {
-        totalPages,
-        viewMode,
-        scale,
-        gap,
-        paddingTop,
-        paddingBottom,
-    } = options;
-
-    if (totalPages <= 0 || !Number.isFinite(scale) || scale <= 0) {
+    if (options.totalPages <= 0 || !Number.isFinite(options.scale) || options.scale <= 0) {
         return null;
     }
 
-    const metrics = normalizePageMetrics({
+    const base = buildPageLayoutBase({
         pageMetrics: options.pageMetrics,
-        totalPages,
+        pageMetricsVersion: options.pageMetricsVersion ?? 0,
+        totalPages: options.totalPages,
+        viewMode: options.viewMode,
         fallbackWidth: options.fallbackWidth,
         fallbackHeight: options.fallbackHeight,
     });
-
-    if (metrics.length === 0) {
+    if (!base) {
         return null;
     }
 
     const {
-        gap: safeGap,
-        paddingTop: safePaddingTop,
-        paddingBottom: safePaddingBottom,
-    } = resolveSafeLayoutSpacing({
         gap,
         paddingTop,
-        ...(paddingBottom !== undefined ? { paddingBottom } : {}),
+        paddingBottom,
+    } = resolveSafeLayoutSpacing({
+        gap: options.gap,
+        paddingTop: options.paddingTop,
+        ...(options.paddingBottom !== undefined ? { paddingBottom: options.paddingBottom } : {}),
     });
-    const {
-        pageWidths,
-        pageHeights,
-    } = scalePageDimensions(metrics, scale);
-    const {
-        pageHeightPrefixSums,
-        maxPageHeight,
-    } = buildPageHeightPrefixSums(pageHeights);
-    const rows = buildLayoutRows({
-        totalPages,
-        viewMode,
-        pageHeights,
-        gap: safeGap,
-        paddingTop: safePaddingTop,
-        paddingBottom: safePaddingBottom,
-    });
-
     return {
-        totalPages,
-        gap: safeGap,
-        paddingTop: safePaddingTop,
-        paddingBottom: safePaddingBottom,
-        maxPageHeight,
-        pageWidths,
-        pageHeights,
-        pageHeightPrefixSums,
-        pageTops: rows.pageTops,
-        pageRowIndices: rows.pageRowIndices,
-        rowStartPages: rows.rowStartPages,
-        rowEndPages: rows.rowEndPages,
-        rowHeights: rows.rowHeights,
-        rowHeightPrefixSums: rows.rowHeightPrefixSums,
-        contentHeight: rows.contentHeight,
+        base,
+        scale: options.scale,
+        gap,
+        paddingTop,
+        paddingBottom,
     };
 }

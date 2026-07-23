@@ -5,6 +5,11 @@ import {
 } from 'vitest';
 import type { TPdfViewMode } from '@contracts/shared';
 import { buildPageLayoutMetrics } from '@app/modules/pdf-viewer/engine/pdf-page-layout/buildPageLayoutMetrics';
+import {
+    getLayoutContentHeight,
+    getLayoutPageTop,
+    getLayoutRowHeight,
+} from '@app/modules/pdf-viewer/engine/pdf-page-layout/pdfPageLayoutMetrics';
 import { getInterSegmentSpacerHeight } from '@app/modules/pdf-viewer/engine/pdf-page-layout/getInterSegmentSpacerHeight';
 import { getLeadingSpacerHeightForPage } from '@app/modules/pdf-viewer/engine/pdf-page-layout/getLeadingSpacerHeightForPage';
 import { getTrailingSpacerHeightForPage } from '@app/modules/pdf-viewer/engine/pdf-page-layout/getTrailingSpacerHeightForPage';
@@ -34,8 +39,8 @@ function createLayout(totalPages: number, viewMode: TPdfViewMode) {
 
 function getPageBottom(layout: ReturnType<typeof createLayout>, pageNumber: number) {
     const pageIndex = pageNumber - 1;
-    const rowIndex = layout.pageRowIndices[pageIndex] ?? 0;
-    return (layout.pageTops[pageIndex] ?? 0) + (layout.rowHeights[rowIndex] ?? 0);
+    const rowIndex = layout.base.pageRowIndices[pageIndex] ?? 0;
+    return (getLayoutPageTop(layout, pageIndex) ?? 0) + getLayoutRowHeight(layout, rowIndex);
 }
 
 describe('virtual PDF segment spacer geometry', () => {
@@ -48,7 +53,7 @@ describe('virtual PDF segment spacer geometry', () => {
         expect(spacerHeight).toBe(340);
         expect(
             getPageBottom(layout, previousPage) + GAP + spacerHeight + GAP,
-        ).toBe(layout.pageTops[nextPage - 1]);
+        ).toBe(getLayoutPageTop(layout, nextPage - 1));
     });
 
     it('subtracts both grid-row gaps from a facing-mode inter-segment spacer', () => {
@@ -60,7 +65,7 @@ describe('virtual PDF segment spacer geometry', () => {
         expect(spacerHeight).toBe(220);
         expect(
             getPageBottom(layout, previousPage) + GAP + spacerHeight + GAP,
-        ).toBe(layout.pageTops[nextPage - 1]);
+        ).toBe(getLayoutPageTop(layout, nextPage - 1));
     });
 
     it.each([
@@ -90,7 +95,7 @@ describe('virtual PDF segment spacer geometry', () => {
             + (trailingSpacer > 0 ? GAP + trailingSpacer : 0)
             + PADDING;
 
-        expect(firstPageTop).toBe(layout.pageTops[firstMountedPage - 1]);
-        expect(reconstructedContentHeight).toBe(layout.contentHeight);
+        expect(firstPageTop).toBe(getLayoutPageTop(layout, firstMountedPage - 1));
+        expect(reconstructedContentHeight).toBe(getLayoutContentHeight(layout));
     });
 });

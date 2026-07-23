@@ -2,6 +2,7 @@ import type { ComponentPublicInstance } from 'vue';
 import type { TDocumentRef } from '@contracts/documentRef';
 import type { TDocumentRevisionToken } from '@contracts/documentRevision';
 import type { TDocumentViewMode } from '@contracts/shared';
+import type { THostResourceTier } from '@contracts/hostResourceProfile';
 import type { IDocumentSearchMatch } from '@app/utils/document-viewer/search/documentSearch';
 import type {
     IDocumentPageMetrics,
@@ -12,6 +13,19 @@ import type {
 import type { IDocumentViewerRenderSession } from '@app/utils/document-viewer/chassis/createDocumentViewerRenderCoordinator';
 import { resolveDocumentContinuousScrollWindow } from '@app/utils/document-viewer/viewport/resolveDocumentContinuousScrollWindow';
 import { createProvisionalDocumentPageMetrics } from '@app/modules/workspace-shell/viewers/loadPrioritizedDocumentPageMetrics';
+import type { TWorkspaceResourcePressureLevel } from '@app/modules/workspace-shell/memory/workspaceSurfaceBudgetController';
+
+export function resolveInactiveDjvuLeasePolicy(
+    tier: THostResourceTier,
+    pressureLevel: TWorkspaceResourcePressureLevel,
+) {
+    return tier === 'low' || ![
+        'healthy',
+        'guarded',
+    ].includes(pressureLevel)
+        ? 'release-immediately'
+        : 'warm-grace';
+}
 
 export interface IDocumentPageSourceFeaturePackProps {
     src: TDocumentRef | null;

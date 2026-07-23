@@ -115,6 +115,7 @@ import {
     type IDocumentPageSourceFeaturePackProps,
     type IDocumentPageSourceVisualState,
     prepareDocumentPageSourceInitialState,
+    resolveInactiveDjvuLeasePolicy,
     resolveDocumentPageSourceMountedPages,
     type TDocumentPageElement,
 } from '@app/modules/workspace-shell/viewers/documentPageSourceFeaturePackState';
@@ -184,11 +185,13 @@ const DOCUMENT_SOURCE_CONTINUOUS_MOUNT_RADIUS = 12;
 const DOCUMENT_SOURCE_MAX_MOUNTED_PAGES = 40;
 const DOCUMENT_SOURCE_MAX_RESIDENT_PAGES = 5;
 const DOCUMENT_SOURCE_RENDER_CONCURRENCY = 2;
+const DOCUMENT_SOURCE_INACTIVE_LEASE_GRACE_MS = 1_500;
 const loadGeneration = ref(0);
 let loadSettled = Promise.resolve();
 let loadController: AbortController | null = null;
 let releaseViewportFeature: (() => void) | null = null;
 let deferredMetricHydration: (() => Promise<void>) | null = null;
+let inactiveLeaseReleaseTimer: ReturnType<typeof setTimeout> | null = null;
 const activeOpenSurfaceGeneration = ref<number | null>(null);
 const activeOpenSurfaceRevision = ref<string | null>(null);
 let nextViewportRenderRequestId = 0;
@@ -650,7 +653,15 @@ async function renderPage(pageNumber: number) {
             throw error;
         }
         const current = pageStates.get(pageNumber);
-        if (!renderOutcome.committed || source.value !== activeSource || current?.generation !== generation) {
+        if (
+            !renderOutcome.committed
+            || !isActive
+            || signal.aborted
+            || controller.signal.aborted
+            || renderControllers.get(pageNumber) !== controller
+            || source.value !== activeSource
+            || current?.generation !== generation
+        ) {
             lease.release();
             return;
         }
@@ -1024,6 +1035,49 @@ function releasePageState(pageNumber: number) {
     visualRetryState.releasePage(pageNumber);
     renderSession?.releasePage(pageNumber);
 }
+function cancelInactiveLeaseRelease() {
+    if (inactiveLeaseReleaseTimer !== null) {
+        clearTimeout(inactiveLeaseReleaseTimer);
+        inactiveLeaseReleaseTimer = null;
+    }
+}
+function releaseAllPageStates() {
+    for (const pageNumber of [...pageStates.keys()]) {
+        releasePageState(pageNumber);
+    }
+}
+function releaseInactivePageStates() {
+    cancelInactiveLeaseRelease();
+    const leasePolicy = resolveInactiveDjvuLeasePolicy(
+        rasterBufferProfile.tier,
+        surfaceBudget.getSnapshot().pressureLevel,
+    );
+    if (leasePolicy === 'release-immediately') {
+        releaseAllPageStates();
+        return;
+    }
+
+    for (const pageNumber of [...pageStates.keys()]) {
+        if (pageNumber === currentPage) {
+            continue;
+        }
+        releasePageState(pageNumber);
+    }
+    const retainedPageNumber = currentPage;
+    const retainedState = pageStates.get(retainedPageNumber);
+    const retainedLease = retainedState?.lease;
+    if (!retainedState || !retainedLease) {
+        return;
+    }
+    retainedLease.setPriority?.('prefetch');
+    retainedState.priority = 'prefetch';
+    inactiveLeaseReleaseTimer = setTimeout(() => {
+        inactiveLeaseReleaseTimer = null;
+        if (!isActive && pageStates.get(retainedPageNumber)?.lease === retainedLease) {
+            releasePageState(retainedPageNumber);
+        }
+    }, DOCUMENT_SOURCE_INACTIVE_LEASE_GRACE_MS);
+}
 async function commitInitialPageShell(
     pageNumber: number,
     generation: number,
@@ -1134,6 +1188,7 @@ watch(
 
 watch(() => src, (documentRef, previousDocumentRef) => {
     activationRun.invalidate();
+    cancelInactiveLeaseRelease();
     pagedWheelNavigation.reset();
     if (previousDocumentRef && previousDocumentRef !== documentRef) {
         supersedeActiveOpenSurfaceGeneration();
@@ -1331,10 +1386,20 @@ watch(() => isActive, (active) => {
         return;
     }
     activationRun.invalidate();
+    scheduleRender.cancel();
+    renderControllers.forEach(controller => controller.abort());
+    renderControllers.clear();
+    releaseInactivePageStates();
 }, {flush: 'sync'});
 watch(() => isActive, (active) => {
     if (!active) {
         return;
+    }
+    cancelInactiveLeaseRelease();
+    const retainedState = pageStates.get(currentPage);
+    retainedState?.lease?.setPriority?.('navigation');
+    if (retainedState?.lease) {
+        retainedState.priority = 'navigation';
     }
     const runId = activationRun.begin();
     // Resume is a proof-producing lifecycle step: remeasure demand, repair any
@@ -1361,6 +1426,7 @@ watch(() => renderDemand.value.residentPages, (pages) => {
 });
 onBeforeUnmount(() => {
     activationRun.invalidate();
+    cancelInactiveLeaseRelease();
     supersedeActiveOpenSurfaceGeneration();
     releaseViewportFeature?.();
     scheduleRender.cancel();

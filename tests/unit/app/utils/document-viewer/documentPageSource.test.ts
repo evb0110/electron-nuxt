@@ -312,6 +312,49 @@ describe('document page sources', () => {
         source.dispose();
     });
 
+    it('revokes a late DjVu.js URL after abort without committing a retained lease', async () => {
+        let resolveRender!: (value: {
+            objectUrl: string;
+            renderedPx: number;
+        }) => void;
+        const previewSource = {
+            getPageSizes: vi.fn().mockResolvedValue([{
+                width: 1_200,
+                height: 1_800,
+                dpi: 300,
+            }]),
+            renderPageObjectUrl: vi.fn(() => new Promise<{
+                objectUrl: string;
+                renderedPx: number;
+            }>((resolve) => {
+                resolveRender = resolve;
+            })),
+            revokeObjectURL: vi.fn(),
+            terminate: vi.fn(),
+        } satisfies IPagePreviewSource;
+        const budget = createWorkspaceSurfaceBudgetController();
+        const source = await createDjvuPageSource('book.djvu', previewSource, budget);
+        const controller = new AbortController();
+        const render = source.renderPage({
+            pageNumber: 1,
+            widthPx: 200,
+            priority: 'visible',
+            signal: controller.signal,
+        });
+        await vi.waitFor(() => expect(previewSource.renderPageObjectUrl).toHaveBeenCalledOnce());
+
+        controller.abort();
+        resolveRender({
+            objectUrl: 'blob:late-aborted-page',
+            renderedPx: 200,
+        });
+
+        await expect(render).rejects.toThrow();
+        expect(previewSource.revokeObjectURL).toHaveBeenCalledWith('blob:late-aborted-page');
+        expect(budget.getSnapshot().leaseCount).toBe(0);
+        source.dispose();
+    });
+
     it('notifies a mounted DjVu surface when later memory pressure invalidates it', async () => {
         const previewSource = {
             getPageSizes: vi.fn().mockResolvedValue([{
@@ -392,11 +435,13 @@ describe('document page sources', () => {
             terminate: vi.fn(),
         } satisfies IPagePreviewSource;
         const promotePriority = vi.fn();
+        const setPriority = vi.fn();
         let canEvict: (() => boolean) | undefined;
         const reserve = vi.fn((options: {canEvict?: (() => boolean) | undefined;}) => {
             canEvict = options.canEvict;
             return {
                 promotePriority,
+                setPriority,
                 release: vi.fn(),
             };
         });
@@ -419,6 +464,9 @@ describe('document page sources', () => {
         expect(previewSource.renderPageObjectUrl).toHaveBeenCalledOnce();
         expect(promotePriority).toHaveBeenCalledOnce();
         expect(promotePriority).toHaveBeenCalledWith(100);
+        surface.setPriority?.('prefetch');
+        expect(canEvict?.()).toBe(true);
+        expect(setPriority).toHaveBeenCalledWith(10);
         surface.release();
         source.dispose();
     });

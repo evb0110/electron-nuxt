@@ -60,7 +60,8 @@ const BOOTSTRAP_RECENT_FILES_DIR_NAMES = [
 // In-memory cache for synchronous access (needed for menu building)
 let recentFilesCache: IRecentFile[] = [];
 let cacheTimestamp = 0;
-let mutationQueue: Promise<void> = Promise.resolve();
+let recentFilesRefreshPromise: Promise<IRecentFile[]> | null = null;
+let recentFilesOperationQueue: Promise<unknown> = Promise.resolve();
 
 interface IRecentFilesData {
     version: number;
@@ -350,10 +351,41 @@ async function saveRecentFilesData(data: IRecentFilesData) {
     }
 }
 
-function enqueueMutation(task: () => Promise<void>) {
-    const run = mutationQueue.then(task, task);
-    mutationQueue = run.then(() => undefined, () => undefined);
+function cloneRecentFiles(files: readonly IRecentFile[]): IRecentFile[] {
+    return files.map(file => ({...file}));
+}
+
+function enqueueRecentFilesOperation<T>(operation: () => Promise<T>): Promise<T> {
+    const run = recentFilesOperationQueue.then(operation, operation);
+    recentFilesOperationQueue = run.then(() => undefined, () => undefined);
     return run;
+}
+
+function refreshRecentFilesCache(): Promise<IRecentFile[]> {
+    if (recentFilesRefreshPromise) {
+        return recentFilesRefreshPromise;
+    }
+
+    const refreshPromise = enqueueRecentFilesOperation(async () => {
+        const data = await loadRecentFilesData();
+        const filtered = await filterExistingFiles(data.files);
+        recentFilesCache = cloneRecentFiles(filtered.files);
+        cacheTimestamp = Date.now();
+        if (STARTUP_TRACE_ENABLED) {
+            logger.info(
+                `[startup] recentFiles:get disk refresh (${filtered.files.length} file(s), `
+                + `removedMissing=${filtered.removedMissingCount}, unreadable=${filtered.unreadableCount})`,
+            );
+        }
+        return cloneRecentFiles(recentFilesCache);
+    });
+    recentFilesRefreshPromise = refreshPromise;
+    void refreshPromise.finally(() => {
+        if (recentFilesRefreshPromise === refreshPromise) {
+            recentFilesRefreshPromise = null;
+        }
+    }).catch(() => {});
+    return refreshPromise;
 }
 
 function resolveRecentOriginalPath(filePath: string, senderWebContentsId?: number) {
@@ -416,7 +448,7 @@ function canonicalizePersistedRecentFiles(files: IRecentFile[]) {
 
 /** Persists a recent-file entry; callers must validate or mint path capabilities before calling. */
 export async function addRecentFile(filePath: string, senderWebContentsId?: number) {
-    await enqueueMutation(async () => {
+    await enqueueRecentFilesOperation(async () => {
         // Invalidate cache before mutation
         cacheTimestamp = 0;
 
@@ -462,41 +494,27 @@ export async function addRecentFile(filePath: string, senderWebContentsId?: numb
         await saveRecentFilesData(data);
 
         // Update cache
-        recentFilesCache = data.files;
+        recentFilesCache = cloneRecentFiles(data.files);
         cacheTimestamp = Date.now();
     });
 }
 
 export async function getRecentFiles(): Promise<IRecentFile[]> {
     const startedAt = Date.now();
-    await mutationQueue;
-    // Use cache if fresh
+    const operationsAtCallTime = recentFilesOperationQueue;
+    await operationsAtCallTime;
     if (Date.now() - cacheTimestamp < CACHE_TTL_MS) {
-        // Still validate existence
-        const filtered = await filterExistingFiles(recentFilesCache);
         if (STARTUP_TRACE_ENABLED) {
-            logger.info(`[startup] recentFiles:get cache hit (${filtered.files.length} file(s), removedMissing=${filtered.removedMissingCount}, unreadable=${filtered.unreadableCount}, +${Date.now() - startedAt}ms)`);
+            logger.info(`[startup] recentFiles:get cache hit (${recentFilesCache.length} file(s), +${Date.now() - startedAt}ms)`);
         }
-        return filtered.files;
+        return cloneRecentFiles(recentFilesCache);
     }
 
-    // Refresh cache from disk
-    const data = await loadRecentFilesData();
-    const filtered = await filterExistingFiles(data.files);
-    const validFiles = filtered.files;
-
-    // Update cache
-    recentFilesCache = validFiles;
-    cacheTimestamp = Date.now();
-
-    if (STARTUP_TRACE_ENABLED) {
-        logger.info(`[startup] recentFiles:get disk refresh (${validFiles.length} file(s), removedMissing=${filtered.removedMissingCount}, unreadable=${filtered.unreadableCount}, +${Date.now() - startedAt}ms)`);
-    }
-    return validFiles;
+    return cloneRecentFiles(await refreshRecentFilesCache());
 }
 
 export async function removeRecentFile(originalPath: string) {
-    await enqueueMutation(async () => {
+    await enqueueRecentFilesOperation(async () => {
         // Invalidate cache before mutation
         cacheTimestamp = 0;
 
@@ -505,13 +523,13 @@ export async function removeRecentFile(originalPath: string) {
         await saveRecentFilesData(data);
 
         // Update cache
-        recentFilesCache = data.files;
+        recentFilesCache = cloneRecentFiles(data.files);
         cacheTimestamp = Date.now();
     });
 }
 
 export async function clearRecentFiles() {
-    await enqueueMutation(async () => {
+    await enqueueRecentFilesOperation(async () => {
         // Invalidate cache before mutation
         cacheTimestamp = 0;
         recentFilesCache = [];
@@ -536,8 +554,6 @@ export function getRecentFilesSync(): string[] {
  * Initialize the recent files cache
  * Call this during app startup before menu is built
  */
-export async function initRecentFilesCache() {
-    await mutationQueue;
-    const files = await getRecentFiles();
-    recentFilesCache = files;
+export async function initRecentFilesCache(): Promise<void> {
+    await refreshRecentFilesCache();
 }

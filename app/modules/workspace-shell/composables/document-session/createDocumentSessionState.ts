@@ -19,6 +19,15 @@ import { getDocumentRefBaseName } from '@app/utils/documentRef';
 
 interface ICreateDocumentSessionStateDeps { isDesktopRuntime: Ref<boolean> | ComputedRef<boolean>; }
 
+export type TPdfConformanceAnalysisState =
+    | 'none'
+    | 'waiting-initial-visual'
+    | 'waiting-idle'
+    | 'analyzing'
+    | 'ready'
+    | 'failed'
+    | 'on-demand-only';
+
 export interface IDocumentSessionState {
     error: Ref<string | null>;
     fileName: ComputedRef<string | null>;
@@ -27,6 +36,7 @@ export interface IDocumentSessionState {
     lastSaveMode: Ref<TPdfSaveMode>;
     openBatchProgress: Ref<IOpenBatchProgressState | null>;
     originalPath: Ref<TDocumentRef | null>;
+    pdfConformanceAnalysisState: Ref<TPdfConformanceAnalysisState>;
     pdfConformanceProfile: Ref<IPdfConformanceProfile | null>;
     pdfData: ShallowRef<Uint8Array | null>;
     pdfRasterDisplayProfile: Ref<TPdfRasterDisplayProfile | null>;
@@ -54,6 +64,7 @@ export function createDocumentSessionState(
     const originalPath = ref<TDocumentRef | null>(null);
     const error = ref<string | null>(null);
     const isDirty = ref(false);
+    const pdfConformanceAnalysisState = ref<TPdfConformanceAnalysisState>('none');
     const pdfConformanceProfile = ref<IPdfConformanceProfile | null>(null);
     const lastSaveMode = ref<TPdfSaveMode>('rewrite');
     const requiresSaveAsOnFirstSave = ref(false);
@@ -82,6 +93,7 @@ export function createDocumentSessionState(
         originalPath.value = null;
         error.value = null;
         isDirty.value = false;
+        pdfConformanceAnalysisState.value = 'none';
         pendingDjvu.value = null;
         openBatchProgress.value = null;
         requiresSaveAsOnFirstSave.value = false;
@@ -97,6 +109,7 @@ export function createDocumentSessionState(
         lastSaveMode,
         openBatchProgress,
         originalPath,
+        pdfConformanceAnalysisState,
         pdfConformanceProfile,
         pdfData,
         pdfRasterDisplayProfile,

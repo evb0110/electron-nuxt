@@ -40,6 +40,7 @@ import {
 import {
     sendToWindow,
     setupMenu,
+    updateRecentFilesMenu,
 } from '@electron/menu';
 import { initRecentFilesCache } from '@electron/recentFiles';
 import {
@@ -487,6 +488,7 @@ void runInitSequence({
     initializeUpdates,
     installHostEnvironmentDisplayWatcher,
     logger,
+    loadSettings,
     logStartupPhase: startupTrace.log,
     markWindowRendererReady: (windowId) => {
         markWindowRendererReady(windowId);
@@ -509,6 +511,7 @@ void runInitSequence({
     registerIpcHandlers,
     setupAppProtocolHandler,
     setupMenu,
+    updateRecentFilesMenu,
     shouldResetRendererReadyOnNavigation,
     shutdownCoordinator,
     sweepStaleDefaultAppTempPdfs,

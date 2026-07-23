@@ -68,6 +68,7 @@ const MIME_TYPES = new Map([
 
 let isSchemeRegistered = false;
 let isHandlerRegistered = false;
+const packagedPathResolutionCache = new Map<string, string | null>();
 
 export function registerAppProtocolScheme() {
     if (isSchemeRegistered) {
@@ -92,6 +93,18 @@ function createResponse(body: BodyInit | null, init: ResponseInit = {}) {
 }
 
 function resolveStaticFilePath(url: URL) {
+    const cacheKey = `${url.hostname}\0${url.pathname}`;
+    const cachedPath = packagedPathResolutionCache.get(cacheKey);
+    if (cachedPath !== undefined || packagedPathResolutionCache.has(cacheKey)) {
+        return cachedPath ?? null;
+    }
+
+    const resolvedPath = resolveUncachedStaticFilePath(url);
+    packagedPathResolutionCache.set(cacheKey, resolvedPath);
+    return resolvedPath;
+}
+
+function resolveUncachedStaticFilePath(url: URL) {
     if (url.hostname !== APP_PROTOCOL_HOST) {
         return null;
     }
@@ -123,12 +136,15 @@ function resolveStaticFilePath(url: URL) {
     }
 
     if (!extname(normalizedPath)) {
-        return join(
+        const fallbackPath = join(
             config.renderer.staticRoot,
             normalizedPath === 'electron' || normalizedPath.startsWith('electron/')
                 ? 'electron/index.html'
                 : 'index.html',
         );
+        if (existsSync(fallbackPath) && statSync(fallbackPath).isFile()) {
+            return fallbackPath;
+        }
     }
 
     return null;
@@ -146,7 +162,7 @@ export function setupAppProtocolHandler() {
     protocol.handle(APP_PROTOCOL_SCHEME, async (request) => {
         const url = new URL(request.url);
         const filePath = resolveStaticFilePath(url);
-        if (!filePath || !existsSync(filePath)) {
+        if (!filePath) {
             return createResponse('Not found', {status: 404});
         }
 

@@ -241,14 +241,23 @@ export const usePdfViewerPublicApiController = (options: IUsePdfViewerPublicApiC
         undoAnnotation: options.undoAnnotation,
         redoAnnotation: options.redoAnnotation,
         registerAnnotationHistoryCommand: annotationRuntime.registerShapeHistoryCommand,
+        ensurePdfAnnotationNameReconciliation: annotations.commentSync.ensurePdfAnnotationNameReconciliation,
         focusAnnotationComment,
-        updateAnnotationComment: (comment, text) => annotationMutationService.updateComment(
-            {
-                comment,
-                text,
-            },
-            { source: 'user' },
-        ),
+        updateAnnotationComment: (comment, text) => {
+            const update = () => annotationMutationService.updateComment(
+                {
+                    comment,
+                    text,
+                },
+                { source: 'user' },
+            );
+            if (comment.source !== 'pdf' || comment.annotationName) {
+                return update();
+            }
+            return annotations.commentSync
+                .ensurePdfAnnotationNameReconciliation('existing-annotation-mutation')
+                .then(update);
+        },
         moveAnnotationMarker: (comment, rect) => annotationMutationService.moveMarker(
             {
                 comment,

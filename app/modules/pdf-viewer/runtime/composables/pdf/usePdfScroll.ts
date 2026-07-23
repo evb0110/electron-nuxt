@@ -6,6 +6,13 @@ import { getPageContainerByNumber } from '@app/modules/pdf-viewer/engine/pdf-scr
 import { getViewportVisibilityFromDom } from '@app/modules/pdf-viewer/engine/pdf-scroll-visibility/getViewportVisibilityFromDom';
 import type { IViewportVisibilityResult } from '@app/modules/pdf-viewer/engine/pdf-scroll-visibility/pdfScrollVisibilityTypes';
 import type { IPdfPageLayoutMetrics } from '@app/modules/pdf-viewer/engine/pdf-page-layout/pdfPageLayoutMetrics';
+import {
+    getLayoutPageHeight,
+    getLayoutPageTop as getResolvedLayoutPageTop,
+    getLayoutPageWidth,
+    getLayoutRowHeight,
+    getLayoutRowTop as getResolvedLayoutRowTop,
+} from '@app/modules/pdf-viewer/engine/pdf-page-layout/pdfPageLayoutMetrics';
 import { getPageHeight } from '@app/modules/pdf-viewer/engine/pdf-page-layout/getPageHeight';
 import { getPageTop } from '@app/modules/pdf-viewer/engine/pdf-page-layout/getPageTop';
 import { resolvePageBoundedHorizontalScroll } from '@app/modules/pdf-viewer/engine/pdf-horizontal-scroll-clamp/resolvePageBoundedHorizontalScroll';
@@ -35,15 +42,14 @@ function getLayoutPageTop(
     metrics: TPageLayoutMetrics,
     index: number,
 ) {
-    return Math.max(0, (metrics.pageTops[index] ?? 0) - metrics.paddingTop);
+    return Math.max(0, (getResolvedLayoutPageTop(metrics, index) ?? 0) - metrics.paddingTop);
 }
 
 function getLayoutRowTop(
     metrics: TPageLayoutMetrics,
     rowIndex: number,
 ) {
-    const rowStartPage = metrics.rowStartPages[rowIndex] ?? 1;
-    return getLayoutPageTop(metrics, Math.max(0, rowStartPage - 1));
+    return Math.max(0, getResolvedLayoutRowTop(metrics, rowIndex) - metrics.paddingTop);
 }
 
 function getLayoutRowBottom(
@@ -51,7 +57,7 @@ function getLayoutRowBottom(
     rowIndex: number,
 ) {
     const rowTop = getLayoutRowTop(metrics, rowIndex);
-    const rowHeight = metrics.rowHeights[rowIndex] ?? 0;
+    const rowHeight = getLayoutRowHeight(metrics, rowIndex);
     return rowTop + rowHeight;
 }
 
@@ -59,12 +65,12 @@ function getLayoutRowWidth(
     metrics: TPageLayoutMetrics,
     rowIndex: number,
 ) {
-    const rowStartPage = metrics.rowStartPages[rowIndex] ?? 1;
-    const rowEndPage = metrics.rowEndPages[rowIndex] ?? rowStartPage;
+    const rowStartPage = metrics.base.rowStartPages[rowIndex] ?? 1;
+    const rowEndPage = metrics.base.rowEndPages[rowIndex] ?? rowStartPage;
     let width = 0;
 
     for (let pageNumber = rowStartPage; pageNumber <= rowEndPage; pageNumber += 1) {
-        width += metrics.pageWidths[pageNumber - 1] ?? 0;
+        width += getLayoutPageWidth(metrics, pageNumber - 1);
     }
 
     return width;
@@ -75,13 +81,13 @@ function getLayoutPageLeft(
     index: number,
     containerWidth: number,
 ) {
-    const rowIndex = metrics.pageRowIndices[index] ?? 0;
-    const rowStartPage = metrics.rowStartPages[rowIndex] ?? index + 1;
+    const rowIndex = metrics.base.pageRowIndices[index] ?? 0;
+    const rowStartPage = metrics.base.rowStartPages[rowIndex] ?? index + 1;
     const rowWidth = getLayoutRowWidth(metrics, rowIndex);
     let pageLeft = Math.max(0, (containerWidth - rowWidth) / 2);
 
     for (let pageNumber = rowStartPage; pageNumber < index + 1; pageNumber += 1) {
-        pageLeft += metrics.pageWidths[pageNumber - 1] ?? 0;
+        pageLeft += getLayoutPageWidth(metrics, pageNumber - 1);
     }
 
     return pageLeft;
@@ -178,7 +184,7 @@ function findFirstVisibleLayoutRowIndex(
     viewportTop: number,
 ) {
     let low = 0;
-    let high = metrics.rowHeights.length - 1;
+    let high = metrics.base.rowHeights.length - 1;
     let result = -1;
 
     while (low <= high) {
@@ -199,7 +205,7 @@ function findLastVisibleLayoutRowIndex(
     viewportBottom: number,
 ) {
     let low = 0;
-    let high = metrics.rowHeights.length - 1;
+    let high = metrics.base.rowHeights.length - 1;
     let result = -1;
 
     while (low <= high) {
@@ -348,7 +354,7 @@ export const usePdfScroll = (options: IUsePdfScrollOptions) => {
         totalPages: number,
     ): IViewportVisibilityResult | null {
         const metrics = pageLayoutMetrics.value;
-        if (!metrics || metrics.totalPages !== totalPages) {
+        if (!metrics || metrics.base.totalPages !== totalPages) {
             return null;
         }
 
@@ -356,8 +362,8 @@ export const usePdfScroll = (options: IUsePdfScrollOptions) => {
         const viewportBottom = viewportTop + container.clientHeight;
         const layoutPageCount = Math.min(
             totalPages,
-            metrics.pageTops.length,
-            metrics.pageHeights.length,
+            metrics.base.pageRowIndices.length,
+            metrics.base.pageHeights.length,
         );
         if (layoutPageCount <= 0) {
             return null;
@@ -390,22 +396,22 @@ export const usePdfScroll = (options: IUsePdfScrollOptions) => {
         let maxVisibleArea = 0;
 
         const firstVisibleIndex = clamp(
-            (metrics.rowStartPages[firstVisibleRowIndex] ?? 1) - 1,
+            (metrics.base.rowStartPages[firstVisibleRowIndex] ?? 1) - 1,
             0,
             layoutPageCount - 1,
         );
         const lastVisibleIndex = clamp(
-            (metrics.rowEndPages[lastVisibleRowIndex] ?? layoutPageCount) - 1,
+            (metrics.base.rowEndPages[lastVisibleRowIndex] ?? layoutPageCount) - 1,
             0,
             layoutPageCount - 1,
         );
 
         for (let index = firstVisibleIndex; index <= lastVisibleIndex; index += 1) {
             const pageTop = getLayoutPageTop(metrics, index);
-            const pageHeight = metrics.pageHeights[index] ?? 0;
+            const pageHeight = getLayoutPageHeight(metrics, index);
             const pageBottom = pageTop + pageHeight;
             const pageLeft = getLayoutPageLeft(metrics, index, container.clientWidth);
-            const pageWidth = metrics.pageWidths[index] ?? 0;
+            const pageWidth = getLayoutPageWidth(metrics, index);
             const pageRight = pageLeft + pageWidth;
             const visibleTop = Math.max(pageTop, viewportTop);
             const visibleBottom = Math.min(pageBottom, viewportBottom);
@@ -553,7 +559,7 @@ export const usePdfScroll = (options: IUsePdfScrollOptions) => {
         }
 
         const metrics = pageLayoutMetrics.value;
-        if (metrics && metrics.totalPages === totalPages) {
+        if (metrics && metrics.base.totalPages === totalPages) {
             if (options?.preferExactDom) {
                 logPdfNav(
                     `[PDF-NAV] usePdfScroll.scrollToPage source=anchor-only targetPage=${targetPage}`
@@ -577,7 +583,7 @@ export const usePdfScroll = (options: IUsePdfScrollOptions) => {
             const pageIndex = targetPage - 1;
             const nextLeft = resolveMarkerScrollLeft({
                 pageLeft: getLayoutPageLeft(metrics, pageIndex, container.clientWidth),
-                pageWidth: metrics.pageWidths[pageIndex] ?? 0,
+                pageWidth: getLayoutPageWidth(metrics, pageIndex),
                 containerWidth: container.clientWidth,
                 margin,
                 markerRect: options?.markerRect,

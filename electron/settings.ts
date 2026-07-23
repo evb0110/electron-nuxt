@@ -31,6 +31,8 @@ const logger = createLogger('settings');
 const STARTUP_TRACE_ENABLED = process.env.EVB_STARTUP_TRACE === '1';
 
 let settingsCache: ISettingsData | null = null;
+let settingsLoadPromise: Promise<ISettingsData> | null = null;
+let settingsCacheGeneration = 0;
 let settingsMutationQueue: Promise<unknown> = Promise.resolve();
 
 type TSettingsUpdateResult = Partial<ISettingsData> | undefined;
@@ -49,11 +51,6 @@ function cloneSettings(settings: ISettingsData): ISettingsData {
 function parseSettingsPayload(content: string): unknown {
     const parsed: unknown = JSON.parse(content);
     return parsed;
-}
-
-function cacheSettings(raw: unknown): ISettingsData {
-    settingsCache = sanitizeSettings(raw);
-    return cloneSettings(settingsCache);
 }
 
 function queueSettingsMutation<T>(mutation: () => Promise<T>) {
@@ -76,7 +73,7 @@ async function writeSettingsAtomically(storagePath: string, settings: ISettingsD
 
 async function readSettingsFromStorage(storagePath: string) {
     if (!existsSync(storagePath)) {
-        return cacheSettings(DEFAULT_SETTINGS);
+        return sanitizeSettings(DEFAULT_SETTINGS);
     }
 
     let content: string;
@@ -84,11 +81,11 @@ async function readSettingsFromStorage(storagePath: string) {
         content = await readFile(storagePath, 'utf-8');
     } catch (err) {
         logger.error(`Failed to read settings: ${getErrorMessage(err)}`);
-        return cacheSettings(DEFAULT_SETTINGS);
+        return sanitizeSettings(DEFAULT_SETTINGS);
     }
 
     try {
-        return cacheSettings(parseSettingsPayload(content));
+        return sanitizeSettings(parseSettingsPayload(content));
     } catch (err) {
         logger.error(`Failed to load settings: ${getErrorMessage(err)}`);
         try {
@@ -98,7 +95,7 @@ async function readSettingsFromStorage(storagePath: string) {
         } catch (recoveryError) {
             logger.error(`Failed to recover corrupt settings: ${getErrorMessage(recoveryError)}`);
         }
-        return cacheSettings(DEFAULT_SETTINGS);
+        return sanitizeSettings(DEFAULT_SETTINGS);
     }
 }
 
@@ -111,15 +108,35 @@ export async function loadSettings(): Promise<ISettingsData> {
         return cloneSettings(settingsCache);
     }
 
-    const parsed = await readSettingsFromStorage(getStoragePath());
+    if (settingsLoadPromise) {
+        return cloneSettings(await settingsLoadPromise);
+    }
+
+    const generation = settingsCacheGeneration;
+    const storagePath = getStoragePath();
+    const loadPromise = readSettingsFromStorage(storagePath);
+    settingsLoadPromise = loadPromise;
+    let parsed: ISettingsData;
+    try {
+        parsed = await loadPromise;
+        if (generation === settingsCacheGeneration) {
+            settingsCache = parsed;
+        }
+    } finally {
+        if (settingsLoadPromise === loadPromise) {
+            settingsLoadPromise = null;
+        }
+    }
     if (STARTUP_TRACE_ENABLED) {
         logger.info(`[startup] loadSettings file read complete (+${Date.now() - startedAt}ms)`);
     }
-    return parsed;
+    return cloneSettings(parsed);
 }
 
 export function resetSettingsCacheAfterUserDataPathChange() {
+    settingsCacheGeneration += 1;
     settingsCache = null;
+    settingsLoadPromise = null;
 }
 
 export async function updateSettings(
@@ -129,7 +146,7 @@ export async function updateSettings(
     return queueSettingsMutation(async () => {
         const current = settingsCache
             ? cloneSettings(settingsCache)
-            : await readSettingsFromStorage(storagePath);
+            : await loadSettings();
         const workingCopy = cloneSettings(current);
         const mutationResult = await mutate(workingCopy);
         const next = sanitizeSettings(
@@ -153,7 +170,8 @@ function loadSettingsSync(): ISettingsData {
 
     const storagePath = getStoragePath();
     if (!existsSync(storagePath)) {
-        return cacheSettings(DEFAULT_SETTINGS);
+        settingsCache = sanitizeSettings(DEFAULT_SETTINGS);
+        return cloneSettings(settingsCache);
     }
 
     let content: string;
@@ -161,11 +179,13 @@ function loadSettingsSync(): ISettingsData {
         content = readFileSync(storagePath, 'utf-8');
     } catch (err) {
         logger.error(`Failed to read settings: ${getErrorMessage(err)}`);
-        return cacheSettings(DEFAULT_SETTINGS);
+        settingsCache = sanitizeSettings(DEFAULT_SETTINGS);
+        return cloneSettings(settingsCache);
     }
 
     try {
-        return cacheSettings(parseSettingsPayload(content));
+        settingsCache = sanitizeSettings(parseSettingsPayload(content));
+        return cloneSettings(settingsCache);
     } catch (err) {
         logger.error(`Failed to load settings: ${getErrorMessage(err)}`);
         try {
@@ -175,7 +195,8 @@ function loadSettingsSync(): ISettingsData {
         } catch (recoveryError) {
             logger.error(`Failed to recover corrupt settings: ${getErrorMessage(recoveryError)}`);
         }
-        return cacheSettings(DEFAULT_SETTINGS);
+        settingsCache = sanitizeSettings(DEFAULT_SETTINGS);
+        return cloneSettings(settingsCache);
     }
 }
 

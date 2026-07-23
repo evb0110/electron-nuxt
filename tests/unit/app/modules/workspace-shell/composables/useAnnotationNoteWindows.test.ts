@@ -89,6 +89,72 @@ describe('useAnnotationNoteWindows', () => {
         expect(deps.annotationComments.value.find(comment => comment.stableKey === 'ann:0:note-1:0')?.text).toBe('Initial note');
     });
 
+    it('keeps an imported note dirty until asynchronous viewer reconciliation finishes', async () => {
+        const {
+            deps,
+            windows,
+        } = createHarness(createComment({
+            source: 'pdf',
+            annotationName: null,
+        }));
+        let resolveUpdate!: (updated: boolean) => void;
+        deps.updateAnnotationCommentInViewer.mockImplementation(() => new Promise<boolean>((resolve) => {
+            resolveUpdate = resolve;
+        }) as never);
+        windows.handleOpenAnnotationNote(deps.annotationComments.value[0]!);
+        const note = windows.findAnnotationNoteWindow('ann:0:note-1:0');
+        expect(note).not.toBeNull();
+        if (!note) {
+            return;
+        }
+        note.draftText = 'Reconciled note';
+        note.dirty = true;
+
+        const saved = windows.persistAnnotationNote(note.annotationId, true);
+        expect(saved).toBeInstanceOf(Promise);
+        expect(note.dirty).toBe(true);
+        expect(note.saving).toBe(true);
+        resolveUpdate(true);
+
+        await expect(saved).resolves.toBe(true);
+        expect(note.dirty).toBe(false);
+        expect(note.saving).toBe(false);
+    });
+
+    it('keeps a note dirty when the draft changes during an asynchronous save', async () => {
+        const {
+            deps,
+            windows,
+        } = createHarness(createComment({
+            source: 'pdf',
+            annotationName: null,
+        }));
+        let resolveUpdate!: (updated: boolean) => void;
+        deps.updateAnnotationCommentInViewer.mockImplementation(() => new Promise<boolean>((resolve) => {
+            resolveUpdate = resolve;
+        }) as never);
+        windows.handleOpenAnnotationNote(deps.annotationComments.value[0]!);
+        const note = windows.findAnnotationNoteWindow('ann:0:note-1:0');
+        expect(note).not.toBeNull();
+        if (!note) {
+            return;
+        }
+        note.draftText = 'Submitted text';
+        note.dirty = true;
+
+        const saved = windows.persistAnnotationNote(note.annotationId, true);
+        expect(saved).toBeInstanceOf(Promise);
+        note.draftText = 'Edited while saving';
+        resolveUpdate(true);
+
+        await expect(saved).resolves.toBe(true);
+        expect(deps.updateAnnotationCommentInViewer).toHaveBeenCalledWith('ann:0:note-1:0', 'Submitted text');
+        const metadata = windows.findAnnotationNoteWindow('ann:0:note-1:0');
+        expect(metadata?.dirty).toBe(true);
+        expect(metadata?.draftText).toBe('Edited while saving');
+        expect(metadata?.saving).toBe(false);
+    });
+
     it('preserves a note creation timestamp when saving through a synchronized summary without one', () => {
         const opened = createComment({
             createdAt: 111,

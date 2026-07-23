@@ -29,6 +29,18 @@ import { useFreeTextResize } from '@app/modules/pdf-viewer/runtime/annotations/u
 import { useAnnotationMarkerViewModel } from '@app/modules/pdf-viewer/runtime/annotations/useAnnotationMarkerViewModel';
 import type { IPdfAnnotationRenderingPort } from '@app/modules/pdf-viewer/runtime/annotations/createAttachablePdfAnnotationRenderingPort';
 import type { TDocumentRevisionToken } from '@contracts/documentRevision';
+import type { THostResourceTier } from '@contracts/hostResourceProfile';
+import { getPerformanceProfile } from '@app/utils/performanceProfile';
+
+const MEBIBYTE = 1024 * 1024;
+
+export function resolvePdfAnnotationNameReadLimits(tier: THostResourceTier) {
+    const constrained = tier === 'low';
+    return {
+        eagerMaxBytes: (constrained ? 4 : 16) * MEBIBYTE,
+        interactiveMaxBytes: (constrained ? 16 : 64) * MEBIBYTE,
+    };
+}
 
 interface IUseAnnotationOrchestratorOptions {
     viewerContainer: Ref<HTMLElement | null>;
@@ -216,8 +228,24 @@ export const useAnnotationOrchestrator = (
             },
         }),
         syncInlineCommentIndicators: inlineIndicators.syncInlineCommentIndicators,
-        shouldCollectPdfAnnotationNames: () => typeof Blob !== 'undefined' && sourcePdf.value instanceof Blob,
+        getAnnotationNameReadLimits: () => resolvePdfAnnotationNameReadLimits(
+            getPerformanceProfile().tier,
+        ),
+        getPdfSourceByteSize: () => {
+            const source = sourcePdf.value;
+            return typeof Blob !== 'undefined' && source instanceof Blob
+                ? source.size
+                : source && 'size' in source
+                    ? source.size
+                    : null;
+        },
+        isPdfSourceBlob: () => typeof Blob !== 'undefined' && sourcePdf.value instanceof Blob,
     });
+
+    function emitAnnotationOpenNoteWithReconciliation(comment: IAnnotationCommentSummary) {
+        void commentSync.ensurePdfAnnotationNameReconciliation('annotations-ui-open');
+        emitAnnotationOpenNote(comment);
+    }
 
     const bridge = useAnnotationEditorBridge({
         viewerContainer,
@@ -239,7 +267,7 @@ export const useAnnotationOrchestrator = (
         ...(isPdfjsHistoryRouted ? { isPdfjsHistoryRouted } : {}),
         ...(routeAnnotationHistoryUndo ? { routeAnnotationHistoryUndo } : {}),
         ...(routeAnnotationHistoryRedo ? { routeAnnotationHistoryRedo } : {}),
-        emitAnnotationOpenNote,
+        emitAnnotationOpenNote: emitAnnotationOpenNoteWithReconciliation,
     });
 
     const editor: TAnnotationEditorController = {
@@ -267,7 +295,7 @@ export const useAnnotationOrchestrator = (
         getToolManager: () => toolState,
         deferCreatedEditorUndoToStorage: true,
         stopDrag,
-        emitAnnotationOpenNote,
+        emitAnnotationOpenNote: emitAnnotationOpenNoteWithReconciliation,
         emitAnnotationNotePlacementChange,
         ensureAnnotationEditorLayerReady: async (pageNumber) => {
             if (await renderingPort.renderAnnotationEditorLayerForPage(pageNumber)) {
@@ -305,7 +333,7 @@ export const useAnnotationOrchestrator = (
         renderVisiblePages: renderingPort.renderVisiblePages,
         updateVisibleRange,
         emitAnnotationModified,
-        emitAnnotationOpenNote,
+        emitAnnotationOpenNote: emitAnnotationOpenNoteWithReconciliation,
         emitAnnotationCommentClick,
         emitAnnotationContextMenu,
         emitAnnotationToolCancel,

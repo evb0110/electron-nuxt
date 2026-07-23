@@ -9,6 +9,7 @@ import type {
 import { config } from '@electron/config';
 import { getErrorMessage } from '@electron/utils/error';
 import type { IAppUpdateStatus } from '@contracts/electronApiUpdates';
+import type { ISettingsData } from '@contracts/shared';
 import { PACKAGED_STARTUP_READY_MARKER } from '@contracts/packagedStartupReadyMarker';
 import { resolveApplicationVersion } from '@electron/appVersion';
 
@@ -92,6 +93,7 @@ export interface IRunInitSequenceOptions {
     initializeUpdates(onStatus: (status: IAppUpdateStatus) => void): void;
     installHostEnvironmentDisplayWatcher(): void;
     logger: ILogger;
+    loadSettings(): Promise<ISettingsData>;
     logStartupPhase(message: string): void;
     markWindowRendererReady(windowId: number): void;
     markWindowTabTransferNotReady(windowId: number): void;
@@ -102,6 +104,7 @@ export interface IRunInitSequenceOptions {
     registerIpcHandlers(options: IRegisterIpcHandlersOptions): void;
     setupAppProtocolHandler(): void;
     setupMenu(): void;
+    updateRecentFilesMenu(): void;
     shouldResetRendererReadyOnNavigation(options: {
         isMainFrame: boolean;
         isInPlace: boolean;
@@ -262,6 +265,7 @@ function bootAboutPanel(options: IRunInitSequenceOptions) {
 function bootIpc(
     options: IRunInitSequenceOptions,
     startupExternalOpenClaims: IStartupExternalOpenClaimTracker,
+    schedulePostRendererReadyMaintenance: () => void,
 ) {
     const {
         allowOpenPaths,
@@ -297,6 +301,7 @@ function bootIpc(
                 }
                 logStartupPhase(`${PACKAGED_STARTUP_READY_MARKER} Main renderer signaled ready (windowId=${window.id})`);
                 maybePromptForDefaultViewer();
+                schedulePostRendererReadyMaintenance();
             }
         },
         claimPendingExternalOpenPaths: async (event) => {
@@ -325,7 +330,16 @@ function bootIpc(
     logStartupPhase('IPC handlers registered');
 }
 
-function bootCleanup(options: IRunInitSequenceOptions) {
+type TStartupMaintenanceStep = () => Promise<unknown>;
+
+interface IStartupMaintenanceStepDefinition {
+    label: string;
+    run: TStartupMaintenanceStep;
+}
+
+function createPostRendererReadyMaintenanceRunner(
+    options: IRunInitSequenceOptions,
+): () => void {
     const {
         cleanupStaleWorkingCopyDirectories,
         logger,
@@ -335,33 +349,65 @@ function bootCleanup(options: IRunInitSequenceOptions) {
         pruneStaleDjvuArtifactJobs,
     } = options;
 
-    void sweepStaleDefaultAppTempPdfs().catch((error: unknown) => {
-        logger.warn(`Failed to sweep stale default-app temp PDFs: ${String(error)}`);
-    });
+    const steps: IStartupMaintenanceStepDefinition[] = [
+        {
+            label: 'default-app temp PDFs',
+            run: sweepStaleDefaultAppTempPdfs,
+        },
+        ...(pruneStaleDjvuArtifactJobs
+            ? [{
+                label: 'DjVu artifact jobs',
+                run: pruneStaleDjvuArtifactJobs,
+            }]
+            : []),
+        ...(sweepStaleOcrTempArtifacts
+            ? [{
+                label: 'OCR temp artifacts',
+                run: sweepStaleOcrTempArtifacts,
+            }]
+            : []),
+        ...(sweepStaleManagedScratchTempDirs
+            ? [{
+                label: 'managed scratch temp directories',
+                run: sweepStaleManagedScratchTempDirs,
+            }]
+            : []),
+        {
+            label: 'working-copy directories',
+            run: async () => {
+                const result = await cleanupStaleWorkingCopyDirectories();
+                if (result.removedDirectories > 0 || result.removedOcrDirectories > 0) {
+                    logger.info(
+                        `Removed stale working-copy directories: work=${result.removedDirectories}, ocr=${result.removedOcrDirectories}`,
+                    );
+                }
+            },
+        },
+    ];
+    let scheduled = false;
 
-    void pruneStaleDjvuArtifactJobs?.().catch((error: unknown) => {
-        logger.warn(`Failed to prune stale DjVu artifact jobs: ${getErrorMessage(error)}`);
-    });
-
-    void sweepStaleOcrTempArtifacts?.().catch((error: unknown) => {
-        logger.warn(`Failed to sweep stale OCR temp artifacts: ${getErrorMessage(error)}`);
-    });
-
-    void sweepStaleManagedScratchTempDirs?.().catch((error: unknown) => {
-        logger.warn(`Failed to sweep stale managed scratch temp directories: ${getErrorMessage(error)}`);
-    });
-
-    void cleanupStaleWorkingCopyDirectories()
-        .then((result) => {
-            if (result.removedDirectories > 0 || result.removedOcrDirectories > 0) {
-                logger.info(
-                    `Removed stale working-copy directories: work=${result.removedDirectories}, ocr=${result.removedOcrDirectories}`,
-                );
-            }
-        })
-        .catch((error) => {
-            logger.warn(`Failed to cleanup stale working-copy directories: ${getErrorMessage(error)}`);
+    return () => {
+        if (scheduled) {
+            return;
+        }
+        scheduled = true;
+        options.logStartupPhase('Post-renderer startup maintenance scheduled');
+        setImmediate(() => {
+            void (async () => {
+                options.logStartupPhase('Post-renderer startup maintenance started');
+                for (const step of steps) {
+                    try {
+                        await step.run();
+                        options.logStartupPhase(`Post-renderer startup maintenance step completed: ${step.label}`);
+                    } catch (error) {
+                        logger.warn(`Post-renderer startup maintenance failed for ${step.label}: ${getErrorMessage(error)}`);
+                        options.logStartupPhase(`Post-renderer startup maintenance step failed: ${step.label}`);
+                    }
+                }
+                options.logStartupPhase('Post-renderer startup maintenance settled');
+            })();
         });
+    };
 }
 
 function bootWindowLifecycle(
@@ -494,19 +540,10 @@ function bootUpdates(options: IRunInitSequenceOptions) {
     }
 }
 
-async function bootRecentFiles(options: IRunInitSequenceOptions) {
-    try {
-        await options.initRecentFilesCache();
-        options.logStartupPhase('Recent files cache initialized');
-    } catch (error) {
-        options.logger.error(`Failed to initialize recent files cache: ${getErrorMessage(error)}`);
-    }
-}
-
 function bootMenu(options: IRunInitSequenceOptions) {
     try {
         options.setupMenu();
-        options.logStartupPhase('Application menu initialized');
+        options.logStartupPhase('Application menu initialized from cached data');
     } catch (error) {
         options.logger.error(`Failed to initialize application menu: ${getErrorMessage(error)}`);
     }
@@ -519,15 +556,25 @@ export async function runInitSequence(options: IRunInitSequenceOptions) {
     await options.initializeResourceRuntime();
     await bootDevDockIcon(options);
     bootAboutPanel(options);
-    bootIpc(options, startupExternalOpenClaims);
+    const schedulePostRendererReadyMaintenance = createPostRendererReadyMaintenanceRunner(options);
+    bootIpc(options, startupExternalOpenClaims, schedulePostRendererReadyMaintenance);
     options.installHostEnvironmentDisplayWatcher();
-    bootCleanup(options);
     bootWindowLifecycle(options, startupExternalOpenClaims);
     await bootMainWindow(options);
 
     void (async () => {
         bootUpdates(options);
-        await bootRecentFiles(options);
+        await options.loadSettings();
         bootMenu(options);
-    })();
+        try {
+            await options.initRecentFilesCache();
+            options.logStartupPhase('Recent files cache initialized');
+            options.updateRecentFilesMenu();
+            options.logStartupPhase('Application menu patched after recent files refresh');
+        } catch (error) {
+            options.logger.error(`Failed to initialize recent files cache: ${getErrorMessage(error)}`);
+        }
+    })().catch((error) => {
+        options.logger.error(`Failed to initialize application menu: ${getErrorMessage(error)}`);
+    });
 }

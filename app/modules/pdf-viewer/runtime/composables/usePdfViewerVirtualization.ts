@@ -101,13 +101,14 @@ export const usePdfViewerVirtualization = (options: IUsePdfViewerVirtualizationO
         }),
     );
 
-    const pageHeightEstimate = computed(() => {
+    const maxBasePageHeight = computed(() => {
         let maxHeight = 0;
         for (const metric of normalizedPageMetrics.value) {
-            maxHeight = Math.max(maxHeight, metric.height * effectiveScale.value);
+            maxHeight = Math.max(maxHeight, metric.height);
         }
         return maxHeight;
     });
+    const pageHeightEstimate = computed(() => maxBasePageHeight.value * effectiveScale.value);
 
     const pageLayout = computed(() => {
         if (numPages.value <= 0 || pageHeightEstimate.value <= 0) {
@@ -116,6 +117,7 @@ export const usePdfViewerVirtualization = (options: IUsePdfViewerVirtualizationO
 
         return buildPageLayoutMetrics({
             pageMetrics: normalizedPageMetrics.value,
+            pageMetricsVersion: pageMetricsSnapshot.value.version,
             totalPages: numPages.value,
             viewMode: viewMode.value,
             scale: effectiveScale.value,

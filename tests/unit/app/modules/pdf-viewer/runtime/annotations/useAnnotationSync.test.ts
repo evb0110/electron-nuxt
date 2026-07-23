@@ -16,8 +16,10 @@ import type {
 } from '@app/types/annotations';
 import { useAnnotationIdentity } from '@app/modules/pdf-viewer/runtime/annotations/useAnnotationIdentity';
 import type { IPdfPageAnnotationBundle } from '@app/modules/pdf-viewer/engine/annotations/annotation-sync-helpers/annotationSyncHelpersTypes';
+import { resolvePdfAnnotationNameReadLimits } from '@app/modules/pdf-viewer/runtime/annotations/useAnnotationOrchestrator';
 
 const {
+    collectPdfAnnotationNamesByPage,
     leasePdfDocumentPage,
     loadPdfPageAnnotations,
 } = vi.hoisted(() => {
@@ -30,6 +32,7 @@ const {
         ) => Promise<IPdfPageAnnotationBundle | null>
     >();
     return {
+        collectPdfAnnotationNamesByPage: vi.fn(async () => new Map<number, Map<string, string>>()),
         leasePdfDocumentPage: vi.fn(async () => ({
             page: {},
             release: vi.fn(),
@@ -38,8 +41,26 @@ const {
     };
 });
 
-vi.mock('@app/services/pdfjs/runtimeLib', () => ({PDFDateString: {toDateObject: vi.fn(() => null)}}));
+vi.mock('@app/services/pdfjs/runtimeLib', () => ({
+    default: {},
+    AnnotationEditorParamsType: {},
+    AnnotationEditorType: {
+        FREETEXT: 3,
+        HIGHLIGHT: 9,
+        STAMP: 13,
+    },
+    PixelsPerInch: {PDF_TO_CSS_UNITS: 96 / 72},
+    assertPdfjsRuntimeCompatibility: vi.fn(),
+    PDFDateString: {toDateObject: vi.fn(() => null)},
+}));
+vi.mock('@app/services/pdfjs/getPdfjsViewerRuntimeProbeFailures', () => ({
+    EventBus: vi.fn(),
+    GenericL10n: vi.fn(),
+}));
 vi.mock('@app/modules/pdf-viewer/runtime/composables/pdf/usePdfDocument', () => ({leasePdfDocumentPage}));
+vi.mock('@app/modules/pdf-viewer/engine/annotations/annotation-sync-helpers/collectPdfAnnotationNamesByPage', () => (
+    {collectPdfAnnotationNamesByPage}
+));
 
 vi.mock('@app/modules/pdf-viewer/engine/annotations/annotation-sync-helpers/loadPdfPageAnnotations', async (importOriginal) => {
     const actual = await importOriginal<object>();
@@ -95,6 +116,229 @@ function createMarkupSubtypeStore() {
 }
 
 describe('useAnnotationSync', () => {
+    it('uses inclusive 16 MiB normal and 4 MiB constrained eager boundaries', async () => {
+        expect(resolvePdfAnnotationNameReadLimits('medium')).toEqual({
+            eagerMaxBytes: 16 * 1024 * 1024,
+            interactiveMaxBytes: 64 * 1024 * 1024,
+        });
+        expect(resolvePdfAnnotationNameReadLimits('low')).toEqual({
+            eagerMaxBytes: 4 * 1024 * 1024,
+            interactiveMaxBytes: 16 * 1024 * 1024,
+        });
+
+        for (const tier of [
+            'medium',
+            'low',
+        ] as const) {
+            collectPdfAnnotationNamesByPage.mockClear();
+            loadPdfPageAnnotations.mockResolvedValue({
+                annotations: [],
+                pageRotation: 0,
+                pageView: [
+                    0,
+                    0,
+                    100,
+                    100,
+                ],
+            });
+            await withAnnotationSyncScope(async () => {
+                const annotationCommentsCache = ref<IAnnotationCommentSummary[]>([]);
+                const identity = useAnnotationIdentity(annotationCommentsCache);
+                const {markupSubtype} = createMarkupSubtypeStore();
+                const limits = resolvePdfAnnotationNameReadLimits(tier);
+                const { useAnnotationSync } = await import('@app/modules/pdf-viewer/runtime/annotations/useAnnotationSync');
+                const sync = useAnnotationSync({
+                    pdfDocument: shallowRef({} as never),
+                    documentIdentity: ref(`document-${tier}`),
+                    numPages: ref(1),
+                    currentPage: ref(1),
+                    annotationUiManager: shallowRef(null),
+                    authorName: ref(null),
+                    getIdentity: () => identity,
+                    getMarkupSubtype: () => markupSubtype,
+                    getStore: () => ({
+                        setAnnotations: vi.fn(),
+                        setLinkAnnotations: vi.fn(),
+                        setActiveKey: vi.fn(),
+                    }),
+                    syncInlineCommentIndicators: vi.fn(),
+                    getAnnotationNameReadLimits: () => limits,
+                    getPdfSourceByteSize: () => limits.eagerMaxBytes,
+                    isPdfSourceBlob: () => true,
+                });
+
+                await sync.syncAnnotationComments();
+                expect(collectPdfAnnotationNamesByPage).toHaveBeenCalledOnce();
+            });
+        }
+    });
+
+    it('never starts eager annotation-name parsing for a path source', async () => {
+        collectPdfAnnotationNamesByPage.mockClear();
+        loadPdfPageAnnotations.mockResolvedValue({
+            annotations: [],
+            pageRotation: 0,
+            pageView: [
+                0,
+                0,
+                100,
+                100,
+            ],
+        });
+
+        await withAnnotationSyncScope(async () => {
+            const annotationCommentsCache = ref<IAnnotationCommentSummary[]>([]);
+            const identity = useAnnotationIdentity(annotationCommentsCache);
+            const {markupSubtype} = createMarkupSubtypeStore();
+            const { useAnnotationSync } = await import('@app/modules/pdf-viewer/runtime/annotations/useAnnotationSync');
+            const sync = useAnnotationSync({
+                pdfDocument: shallowRef({getData: vi.fn()}),
+                documentIdentity: ref('path-document'),
+                numPages: ref(1),
+                currentPage: ref(1),
+                annotationUiManager: shallowRef(null),
+                authorName: ref(null),
+                getIdentity: () => identity,
+                getMarkupSubtype: () => markupSubtype,
+                getStore: () => ({
+                    setAnnotations: vi.fn(),
+                    setLinkAnnotations: vi.fn(),
+                    setActiveKey: vi.fn(),
+                }),
+                syncInlineCommentIndicators: vi.fn(),
+                getAnnotationNameReadLimits: () => resolvePdfAnnotationNameReadLimits('medium'),
+                getPdfSourceByteSize: () => 1024,
+                isPdfSourceBlob: () => false,
+            } as never);
+
+            await sync.syncAnnotationComments();
+            expect(collectPdfAnnotationNamesByPage).not.toHaveBeenCalled();
+        });
+    });
+
+    it('deduplicates interactive reconciliation and discards a stale revision result', async () => {
+        let resolveNames!: (value: Map<number, Map<string, string>>) => void;
+        collectPdfAnnotationNamesByPage.mockImplementationOnce(() => new Promise((resolve) => {
+            resolveNames = resolve;
+        }));
+        loadPdfPageAnnotations.mockResolvedValue({
+            annotations: [],
+            pageRotation: 0,
+            pageView: [
+                0,
+                0,
+                100,
+                100,
+            ],
+        });
+
+        await withAnnotationSyncScope(async () => {
+            const annotationCommentsCache = ref<IAnnotationCommentSummary[]>([]);
+            const identity = useAnnotationIdentity(annotationCommentsCache);
+            const {markupSubtype} = createMarkupSubtypeStore();
+            const revision = ref('revision-1');
+            const { useAnnotationSync } = await import('@app/modules/pdf-viewer/runtime/annotations/useAnnotationSync');
+            const sync = useAnnotationSync({
+                pdfDocument: shallowRef({}),
+                documentIdentity: ref('path-document'),
+                documentRevisionToken: revision,
+                numPages: ref(1),
+                currentPage: ref(1),
+                annotationUiManager: shallowRef(null),
+                authorName: ref(null),
+                getIdentity: () => identity,
+                getMarkupSubtype: () => markupSubtype,
+                getStore: () => ({
+                    setAnnotations: vi.fn(),
+                    setLinkAnnotations: vi.fn(),
+                    setActiveKey: vi.fn(),
+                }),
+                syncInlineCommentIndicators: vi.fn(),
+                getAnnotationNameReadLimits: () => resolvePdfAnnotationNameReadLimits('medium'),
+                getPdfSourceByteSize: () => 1024,
+                isPdfSourceBlob: () => false,
+            } as never);
+
+            const first = sync.ensurePdfAnnotationNameReconciliation('annotations-ui-open');
+            const second = sync.ensurePdfAnnotationNameReconciliation('existing-annotation-mutation');
+            expect(second).toBe(first);
+            await vi.waitFor(() => {
+                expect(collectPdfAnnotationNamesByPage).toHaveBeenCalledOnce();
+            });
+
+            revision.value = 'revision-2';
+            await nextTick();
+            resolveNames(new Map());
+
+            await expect(first).resolves.toBe('stale');
+        });
+    });
+
+    it('keeps over-limit interactive reconciliation reference-based', async () => {
+        collectPdfAnnotationNamesByPage.mockClear();
+        loadPdfPageAnnotations.mockResolvedValue({
+            annotations: [{
+                id: '12R0',
+                subtype: 'FreeText',
+                contentsObj: {str: 'Persisted note'},
+                rect: [
+                    10,
+                    10,
+                    11,
+                    11,
+                ],
+            }],
+            pageRotation: 0,
+            pageView: [
+                0,
+                0,
+                100,
+                100,
+            ],
+        });
+
+        await withAnnotationSyncScope(async () => {
+            const annotationCommentsCache = ref<IAnnotationCommentSummary[]>([]);
+            const identity = useAnnotationIdentity(annotationCommentsCache);
+            const {markupSubtype} = createMarkupSubtypeStore();
+            const setAnnotations = vi.fn((comments: IAnnotationCommentSummary[]) => {
+                annotationCommentsCache.value = comments;
+                return comments;
+            });
+            const { useAnnotationSync } = await import('@app/modules/pdf-viewer/runtime/annotations/useAnnotationSync');
+            const limits = resolvePdfAnnotationNameReadLimits('low');
+            const sync = useAnnotationSync({
+                pdfDocument: shallowRef({}),
+                documentIdentity: ref('large-path-document'),
+                numPages: ref(1),
+                currentPage: ref(1),
+                annotationUiManager: shallowRef(null),
+                authorName: ref(null),
+                getIdentity: () => identity,
+                getMarkupSubtype: () => markupSubtype,
+                getStore: () => ({
+                    setAnnotations,
+                    setLinkAnnotations: vi.fn(),
+                    setActiveKey: vi.fn(),
+                }),
+                syncInlineCommentIndicators: vi.fn(),
+                getAnnotationNameReadLimits: () => limits,
+                getPdfSourceByteSize: () => limits.interactiveMaxBytes + 1,
+                isPdfSourceBlob: () => false,
+            } as never);
+
+            await sync.syncAnnotationComments();
+            await expect(sync.ensurePdfAnnotationNameReconciliation('annotations-ui-open'))
+                .resolves.toBe('skipped-over-limit');
+            expect(collectPdfAnnotationNamesByPage).not.toHaveBeenCalled();
+            expect(annotationCommentsCache.value[0]).toMatchObject({
+                annotationId: '12R0',
+                text: 'Persisted note',
+            });
+            expect(annotationCommentsCache.value[0]?.annotationName).toBeNull();
+        });
+    });
+
     it('remembers the color-preserved underline summary for zoom rerender presentation sync', async () => {
         loadPdfPageAnnotations.mockResolvedValue({
             annotations: [{
@@ -152,6 +396,9 @@ describe('useAnnotationSync', () => {
                     setActiveKey: vi.fn(),
                 }),
                 syncInlineCommentIndicators: vi.fn(),
+                getAnnotationNameReadLimits: () => resolvePdfAnnotationNameReadLimits('medium'),
+                getPdfSourceByteSize: () => null,
+                isPdfSourceBlob: () => false,
             } as never);
 
             await sync.syncAnnotationComments();
@@ -238,6 +485,9 @@ describe('useAnnotationSync', () => {
                     setActiveKey: vi.fn(),
                 }),
                 syncInlineCommentIndicators: vi.fn(),
+                getAnnotationNameReadLimits: () => resolvePdfAnnotationNameReadLimits('medium'),
+                getPdfSourceByteSize: () => null,
+                isPdfSourceBlob: () => false,
             } as never);
 
             await sync.syncAnnotationComments();

@@ -87,7 +87,7 @@ import { getActiveAssistantMcpSessionScope } from '@electron/features/agent/assi
 import { buildAgentAssistantStateSnapshot } from '@electron/features/agent/buildAgentAssistantStateSnapshot';
 import { createAssistantSessionTurnCoordinator } from '@electron/features/agent/createAssistantSessionTurnCoordinator';
 import {
-    startAssistantHeartbeat,
+    createAssistantHeartbeatController,
     waitForBoundedAssistantInterrupt,
 } from '@electron/features/agent/assistantTurnLiveness';
 import { createAssistantAppServerNotificationController } from '@electron/features/agent/createAssistantAppServerNotificationController';
@@ -156,6 +156,7 @@ const runtimeLifecycle = createAssistantRuntimeLifecycle({
     handleExit: handleAppServerExit,
     logger,
 });
+let syncAssistantHeartbeat = () => {};
 const {
     claimSessionTurn,
     completeSessionTurn,
@@ -165,7 +166,10 @@ const {
     rememberStateScope,
     supersedeSessionTurn,
     supersedeSessionTurnWithError,
-} = createAssistantSessionTurnCoordinator({ sessionStore });
+} = createAssistantSessionTurnCoordinator({
+    sessionStore,
+    onTurnStateChanged: () => syncAssistantHeartbeat(),
+});
 function ensureSharedEmbeddedMcp() {
     return startEmbeddedMcpServer();
 }
@@ -359,12 +363,13 @@ const appServerNotifications = createAssistantAppServerNotificationController({
     upsertAssistantMessage,
 });
 
-startAssistantHeartbeat({
+const assistantHeartbeat = createAssistantHeartbeatController({
     sessions: sessionStore.listSessions,
     isActive: session => isAssistantTurnActive(session.turnOwner),
     recordBoundary: sessionStore.recordTurnBoundary,
     publish: (event, session) => publishAssistantEvent(event, session.scope, session),
 });
+syncAssistantHeartbeat = assistantHeartbeat.sync;
 
 function addMessage(
     session: IAssistantChatSession,
@@ -1323,6 +1328,7 @@ export async function resetAgentAssistantChat(
 }
 
 export async function shutdownAgentAssistant() {
+    assistantHeartbeat.dispose();
     await shutdownCodexAssistantRuntime({ shutdownMcp: false });
     await shutdownClaudeAssistantRuntime({ shutdownMcp: false });
     await sessionStore.flushPersistence();

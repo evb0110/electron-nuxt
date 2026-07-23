@@ -13,6 +13,7 @@ import {
 } from 'vue';
 import type { PDFDocumentProxy } from '@app/types/pdfContracts';
 import { buildPageLayoutMetrics } from '@app/modules/pdf-viewer/engine/pdf-page-layout/buildPageLayoutMetrics';
+import { getLayoutPageTop } from '@app/modules/pdf-viewer/engine/pdf-page-layout/pdfPageLayoutMetrics';
 import { createPdfPageSlotRegistry } from '@app/modules/pdf-viewer/runtime/page-slots/pdfPageSlotRegistry';
 import { usePdfSinglePageNavigationController } from '@app/modules/pdf-viewer/runtime/navigation/usePdfSinglePageNavigationController';
 import { createTestPdfViewportWritePort } from '@tests/helpers/createTestPdfViewportWritePort';
@@ -111,7 +112,7 @@ describe('usePdfSinglePageNavigationController', () => {
             await vi.waitFor(() => {
                 expect(controller.viewportAuthority.currentPage.value).toBe(3);
             });
-            expect(layout.pageTops[2]).toBeGreaterThan(viewer.scrollHeight);
+            expect(getLayoutPageTop(layout, 2)).toBeGreaterThan(viewer.scrollHeight);
             expect(viewportWrites.writes.at(-1)?.top).toBe(0);
             expect(viewer.scrollTop).toBe(0);
         } finally {

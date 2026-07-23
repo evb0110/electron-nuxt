@@ -100,8 +100,8 @@ export function annotationCommentsMatch(left: TAnnotationCommentMatchInput, righ
     if (left.appAnnotationId || right.appAnnotationId) {
         return Boolean(left.appAnnotationId && left.appAnnotationId === right.appAnnotationId);
     }
-    if (left.annotationName || right.annotationName) {
-        return Boolean(left.annotationName && left.annotationName === right.annotationName);
+    if (left.annotationName && right.annotationName) {
+        return left.annotationName === right.annotationName;
     }
     if (left.annotationId || right.annotationId) {
         return Boolean(

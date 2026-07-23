@@ -10,6 +10,8 @@ import { buildWorkspaceCheckpoint } from '@app/modules/workspace-shell/checkpoin
 import { getWindowTabsCapability } from '@app/utils/platformWindowTabs';
 import { waitForDesktopPlatformBridge } from '@app/utils/platform';
 import { guardAsync } from '@app/utils/asyncGuard';
+import { getPerformanceProfile } from '@app/utils/performanceProfile';
+import type { IWorkspaceCheckpoint } from '@contracts/workspaceCheckpoint';
 
 interface IUseWorkspaceCrashCheckpointOptions {
     enabled: Ref<boolean>;
@@ -23,23 +25,54 @@ interface IUseWorkspaceCrashCheckpointOptions {
     getPaneByTabId(tabId: string): IEditorPaneState | null;
 }
 
-const CHECKPOINT_DEBOUNCE_MS = 500;
-
 export const useWorkspaceCrashCheckpoint = (options: IUseWorkspaceCrashCheckpointOptions) => {
     let timer: ReturnType<typeof setTimeout> | null = null;
+    let inFlight: Promise<void> | null = null;
+    let pendingLatest: IWorkspaceCheckpoint | null = null;
     let disposed = false;
+    const debounceMs = getPerformanceProfile().tier === 'low' ? 1_500 : 500;
 
-    function persistCheckpoint() {
+    async function drainCheckpointWrites(initialCheckpoint: IWorkspaceCheckpoint) {
+        let checkpoint: IWorkspaceCheckpoint | null = initialCheckpoint;
+        let firstError: unknown;
+        await waitForDesktopPlatformBridge({shouldWait: true});
+        while (checkpoint && !disposed) {
+            if (!options.enabled.value) {
+                pendingLatest = null;
+                return;
+            }
+            try {
+                await getWindowTabsCapability().saveWorkspaceCheckpoint(checkpoint);
+            } catch (error) {
+                firstError ??= error;
+            }
+            checkpoint = pendingLatest;
+            pendingLatest = null;
+        }
+        if (firstError !== undefined) {
+            throw firstError instanceof Error
+                ? firstError
+                : new Error(String(firstError));
+        }
+    }
+
+    function persistCheckpoint(checkpoint: IWorkspaceCheckpoint) {
         if (!options.enabled.value || disposed) {
             return;
         }
-        const checkpoint = buildWorkspaceCheckpoint(options);
-        guardAsync((async () => {
-            await waitForDesktopPlatformBridge({shouldWait: true});
-            if (!disposed && options.enabled.value) {
-                await getWindowTabsCapability().saveWorkspaceCheckpoint(checkpoint);
+        if (inFlight) {
+            pendingLatest = checkpoint;
+            return;
+        }
+        inFlight = drainCheckpointWrites(checkpoint).finally(() => {
+            inFlight = null;
+            if (pendingLatest && !disposed && options.enabled.value) {
+                const nextCheckpoint = pendingLatest;
+                pendingLatest = null;
+                persistCheckpoint(nextCheckpoint);
             }
-        })(), {
+        });
+        guardAsync(inFlight, {
             category: 'background-diagnostic',
             scope: 'workspace-checkpoint',
             message: 'Failed to persist crash recovery checkpoint',
@@ -52,8 +85,8 @@ export const useWorkspaceCrashCheckpoint = (options: IUseWorkspaceCrashCheckpoin
         }
         timer = setTimeout(() => {
             timer = null;
-            persistCheckpoint();
-        }, CHECKPOINT_DEBOUNCE_MS);
+            persistCheckpoint(buildWorkspaceCheckpoint(options));
+        }, debounceMs);
     }
 
     const stop = watch(
@@ -66,6 +99,7 @@ export const useWorkspaceCrashCheckpoint = (options: IUseWorkspaceCrashCheckpoin
 
     onBeforeUnmount(() => {
         disposed = true;
+        pendingLatest = null;
         stop();
         if (timer) {
             clearTimeout(timer);

@@ -45,7 +45,7 @@ describe('app protocol', () => {
             isFile: () => false,
             isDirectory: () => false,
         });
-        mocks.fetch.mockResolvedValue(new Response('asset', {
+        mocks.fetch.mockImplementation(async () => new Response('asset', {
             status: 200,
             headers: {'content-type': 'application/octet-stream'},
         }));
@@ -102,6 +102,49 @@ describe('app protocol', () => {
         expect(mocks.fetch).toHaveBeenCalledWith('file:///app/dist/assets/app.js');
         expect(response.status).toBe(200);
         expect(response.headers.get('content-type')).toBe('text/javascript; charset=utf-8');
+    });
+
+    it('caches path resolution across repeated and query-string requests', async () => {
+        mocks.existsSync.mockImplementation((filePath: string) => filePath === '/app/dist/assets/app.js');
+        mocks.statSync.mockReturnValue({
+            isFile: () => true,
+            isDirectory: () => false,
+        });
+        const { setupAppProtocolHandler } = await import('@electron/protocol');
+        setupAppProtocolHandler();
+        const handler = mocks.handle.mock.calls[0]?.[1] as (request: Request) => Promise<Response>;
+
+        await handler(new Request('evb-viewer://app/assets/app.js?first=1'));
+        await handler(new Request('evb-viewer://app/assets/app.js?second=2'));
+
+        expect(mocks.existsSync).toHaveBeenCalledOnce();
+        expect(mocks.statSync).toHaveBeenCalledOnce();
+        expect(mocks.fetch).toHaveBeenCalledTimes(2);
+    });
+
+    it('negatively caches missing URLs and resolves different paths independently', async () => {
+        const { setupAppProtocolHandler } = await import('@electron/protocol');
+        setupAppProtocolHandler();
+        const handler = mocks.handle.mock.calls[0]?.[1] as (request: Request) => Promise<Response>;
+
+        await handler(new Request('evb-viewer://app/assets/missing.js'));
+        await handler(new Request('evb-viewer://app/assets/missing.js?retry=1'));
+        await handler(new Request('evb-viewer://app/assets/other.js'));
+
+        expect(mocks.existsSync).toHaveBeenCalledTimes(2);
+        expect(mocks.fetch).not.toHaveBeenCalled();
+    });
+
+    it('validates the extensionless Electron fallback before caching it', async () => {
+        const { setupAppProtocolHandler } = await import('@electron/protocol');
+        setupAppProtocolHandler();
+        const handler = mocks.handle.mock.calls[0]?.[1] as (request: Request) => Promise<Response>;
+
+        await expect(handler(new Request('evb-viewer://app/electron')))
+            .resolves.toMatchObject({status: 404});
+
+        expect(mocks.existsSync).toHaveBeenCalledWith('/app/dist/electron/index.html');
+        expect(mocks.fetch).not.toHaveBeenCalled();
     });
 
     it('rejects other hosts and encoded traversal', async () => {

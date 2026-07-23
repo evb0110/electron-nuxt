@@ -26,6 +26,7 @@ export interface IDjvuSurfaceBudget {
         canEvict?: (() => boolean) | undefined;
     }): {
         promotePriority?(priority: number): void;
+        setPriority?(priority: number): void;
         release(): void
     };
     tryReserve?(options: {
@@ -37,6 +38,7 @@ export interface IDjvuSurfaceBudget {
         canEvict?: (() => boolean) | undefined;
     }): {
         promotePriority?(priority: number): void;
+        setPriority?(priority: number): void;
         release(): void
     } | null;
     releaseScope(scopeId: string): void;
@@ -92,6 +94,7 @@ export async function createDjvuPageSource(
     const urlLeases = new Map<string, {
         lease: {
             promotePriority?(priority: number): void;
+            setPriority?(priority: number): void;
             release(): void
         } | null;
         invalidationListeners: Set<() => void>;
@@ -158,6 +161,7 @@ export async function createDjvuPageSource(
         const leaseEntry = {
             lease: null as {
                 promotePriority?(priority: number): void;
+                setPriority?(priority: number): void;
                 release(): void
             } | null,
             invalidationListeners: new Set<() => void>(),
@@ -215,6 +219,12 @@ export async function createDjvuPageSource(
                 if (!released && promotedPriority > priority) {
                     priority = promotedPriority;
                     leaseEntry.lease?.promotePriority?.(promotedPriority);
+                }
+            },
+            setPriority(nextPriority: TDocumentRenderPriority) {
+                if (!released) {
+                    priority = previewPriorityByClass[nextPriority];
+                    leaseEntry.lease?.setPriority?.(priority);
                 }
             },
             release() {
