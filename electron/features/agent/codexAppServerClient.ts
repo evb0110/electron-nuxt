@@ -16,6 +16,11 @@ import { registerMainOperation } from '@electron/operation-lifecycle/mainOperati
 
 const logger = createLogger('agent-codex-assistant');
 const APP_SERVER_REQUEST_TIMEOUT_MS = 30_000;
+const APP_SERVER_MAX_STDOUT_RECORD_BYTES = parseIntegerEnv(
+    'EVB_CODEX_APP_SERVER_MAX_STDOUT_RECORD_BYTES',
+    32 * 1024 * 1024,
+    1_024,
+);
 const APP_SERVER_MAX_STDERR_BYTES = parseIntegerEnv('EVB_CODEX_APP_SERVER_MAX_STDERR_BYTES', 262_144, 1_024);
 const APP_SERVER_SHUTDOWN_GRACE_MS = parseIntegerEnv('EVB_CODEX_APP_SERVER_SHUTDOWN_GRACE_MS', 1_000, 250);
 const APP_SERVER_SHUTDOWN_CLOSE_TIMEOUT_MS = parseIntegerEnv('EVB_CODEX_APP_SERVER_SHUTDOWN_CLOSE_TIMEOUT_MS', 500, 100);
@@ -62,6 +67,16 @@ export function isCodexAppServerRequestTimeoutError(error: unknown): error is Co
     return error instanceof CodexAppServerRequestTimeoutError;
 }
 
+export class CodexAppServerRecordTooLargeError extends Error {
+    readonly maxBytes: number;
+
+    constructor(maxBytes: number) {
+        super(`Codex app-server JSON-RPC record exceeded ${maxBytes} bytes.`);
+        this.name = 'CodexAppServerRecordTooLargeError';
+        this.maxBytes = maxBytes;
+    }
+}
+
 export class CodexAppServerClient {
     private readonly child: ChildProcess;
     private readonly stdin: NonNullable<ChildProcess['stdin']>;
@@ -70,6 +85,7 @@ export class CodexAppServerClient {
     private readonly pending = new Map<TAppServerJsonRpcId, IPendingAppServerRequest>();
     private nextId = 1;
     private stdoutBuffer = '';
+    private stdoutBufferBytes = 0;
     private stderrBuffer = '';
     private stderrTruncated = false;
     private closed = false;
@@ -289,16 +305,41 @@ export class CodexAppServerClient {
     }
 
     private handleStdout(chunk: string) {
-        this.stdoutBuffer += chunk;
-        const lines = this.stdoutBuffer.split(/\r?\n/u);
-        this.stdoutBuffer = lines.pop() ?? '';
-        for (const line of lines) {
-            const trimmed = line.trim();
-            if (!trimmed) {
-                continue;
+        let start = 0;
+        for (;;) {
+            const newlineIndex = chunk.indexOf('\n', start);
+            const end = newlineIndex < 0 ? chunk.length : newlineIndex;
+            const segment = chunk.slice(start, end);
+            if (!this.appendStdoutRecordSegment(segment)) {
+                return;
             }
-            this.handleMessage(trimmed);
+            if (newlineIndex < 0) {
+                return;
+            }
+            const line = this.stdoutBuffer.trim();
+            this.stdoutBuffer = '';
+            this.stdoutBufferBytes = 0;
+            if (line) {
+                this.handleMessage(line);
+            }
+            start = newlineIndex + 1;
         }
+    }
+
+    private appendStdoutRecordSegment(segment: string) {
+        const nextBytes = this.stdoutBufferBytes + Buffer.byteLength(segment);
+        if (nextBytes > APP_SERVER_MAX_STDOUT_RECORD_BYTES) {
+            const error = new CodexAppServerRecordTooLargeError(APP_SERVER_MAX_STDOUT_RECORD_BYTES);
+            this.failAll(error.message, error);
+            this.shutdownPromise ??= this.terminateChild();
+            void this.shutdownPromise.catch(terminationError => {
+                logger.warn(`Failed to terminate oversized Codex app-server record: ${getErrorMessage(terminationError)}`);
+            });
+            return false;
+        }
+        this.stdoutBuffer += segment;
+        this.stdoutBufferBytes = nextBytes;
+        return true;
     }
 
     private handleStderr(chunk: string) {
@@ -402,7 +443,7 @@ export class CodexAppServerClient {
         this.respond(request.id, null);
     }
 
-    private failAll(message: string) {
+    private failAll(message: string, error?: Error) {
         if (this.closed) {
             return;
         }
@@ -414,7 +455,7 @@ export class CodexAppServerClient {
             pending,
         ] of this.pending) {
             clearTimeout(pending.timeout);
-            pending.reject(new Error(message));
+            pending.reject(error ?? new Error(message));
             this.pending.delete(id);
         }
         this.onExit(message);

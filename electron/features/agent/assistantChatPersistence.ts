@@ -57,6 +57,7 @@ const ASSISTANT_CHAT_ARCHIVE_DIR = 'archive';
 const ASSISTANT_CHAT_SESSION_FILE_PREFIX = 'v2-';
 const DEFAULT_ASSISTANT_CHAT_MAX_SESSION_BYTES = 2 * 1024 * 1024;
 const DEFAULT_ASSISTANT_CHAT_MAX_SESSIONS = 64;
+const DEFAULT_ASSISTANT_CHAT_SNAPSHOT_DEBOUNCE_MS = 300;
 const ASSISTANT_CHAT_INTERRUPTED_ERROR = 'Assistant turn interrupted because EVB Viewer closed before it completed.';
 
 const logger = createLogger('assistant-chat-persistence');
@@ -122,8 +123,15 @@ export interface IAssistantChatPersistenceOptions {
     rootDir?: string;
     maxSessionBytes?: number;
     maxSessions?: number;
+    snapshotDebounceMs?: number;
     now?: () => number;
     onError?: (message: string, error: unknown) => void;
+}
+
+interface IPendingAssistantChatSnapshot {
+    ready: boolean;
+    record: TPersistedAssistantChatRecord;
+    timer: ReturnType<typeof setTimeout> | null;
 }
 
 function readBoundedIntegerEnv(name: string, fallback: number, minimum: number, maximum?: number) {
@@ -580,9 +588,12 @@ export class AssistantChatPersistence {
     readonly indexPath: string;
     private readonly maxSessionBytes: number;
     private readonly maxSessions: number;
+    private readonly snapshotDebounceMs: number;
     private readonly now: () => number;
     private readonly onError: (message: string, error: unknown) => void;
     private readonly queues = new Map<string, Promise<void>>();
+    private readonly pendingSnapshots = new Map<string, IPendingAssistantChatSnapshot>();
+    private readonly activeSnapshotCounts = new Map<string, number>();
     private writeQueue: Promise<void> = Promise.resolve();
     private maintenanceQueue: Promise<void> = Promise.resolve();
 
@@ -593,6 +604,7 @@ export class AssistantChatPersistence {
         this.indexPath = join(this.rootDir, 'index.json');
         this.maxSessionBytes = options.maxSessionBytes ?? readAssistantChatMaxSessionBytes();
         this.maxSessions = options.maxSessions ?? readAssistantChatMaxSessions();
+        this.snapshotDebounceMs = options.snapshotDebounceMs ?? DEFAULT_ASSISTANT_CHAT_SNAPSHOT_DEBOUNCE_MS;
         this.now = options.now ?? Date.now;
         this.onError = options.onError ?? ((message, error) => {
             logger.warn(`${message}: ${getErrorMessage(error)}`);
@@ -646,25 +658,17 @@ export class AssistantChatPersistence {
     }
 
     recordSessionSnapshot(key: string, session: IAssistantChatPersistenceSession): void {
-        const record = createSnapshotRecord(key, session);
-        this.enqueue(key, async () => {
-            await this.appendRecord(key, record);
-            await this.runMaintenance(async () => {
-                await this.compactOversizedSession(key);
-                await this.pruneSessions();
-                await this.writeIndex();
-            });
-        });
+        this.setPendingSnapshot(key, createSnapshotRecord(key, session), false);
     }
 
     // fallow-ignore-next-line unused-class-member
     recordTurnBoundary(key: string, session: IAssistantChatPersistenceSession): void {
-        this.recordSessionSnapshot(key, session);
+        this.setPendingSnapshot(key, createSnapshotRecord(key, session), true);
     }
 
     // fallow-ignore-next-line unused-class-member
     archiveSession(key: string, reason: string): void {
-        this.enqueue(key, async () => {
+        this.enqueueAfterSnapshots(key, async () => {
             const sourcePath = this.sessionPath(key);
             if (!await this.pathExists(sourcePath)) {
                 return;
@@ -682,7 +686,7 @@ export class AssistantChatPersistence {
 
     // fallow-ignore-next-line unused-class-member
     removeSession(key: string): void {
-        this.enqueue(key, async () => {
+        this.enqueueAfterSnapshots(key, async () => {
             await rm(this.sessionPath(key), { force: true });
             await this.runMaintenance(() => this.writeIndex());
         });
@@ -712,6 +716,79 @@ export class AssistantChatPersistence {
         });
     }
 
+    private setPendingSnapshot(key: string, record: TPersistedAssistantChatRecord, durable: boolean) {
+        const existing = this.pendingSnapshots.get(key);
+        if (existing?.timer) {
+            clearTimeout(existing.timer);
+        }
+        const pending = existing ?? {
+            ready: false,
+            record,
+            timer: null,
+        };
+        pending.record = record;
+        pending.timer = null;
+        if (durable || pending.ready) {
+            pending.ready = true;
+            this.pendingSnapshots.set(key, pending);
+            this.schedulePendingSnapshot(key);
+            return;
+        }
+        pending.timer = setTimeout(() => {
+            pending.timer = null;
+            pending.ready = true;
+            this.schedulePendingSnapshot(key);
+        }, this.snapshotDebounceMs);
+        pending.timer.unref?.();
+        this.pendingSnapshots.set(key, pending);
+    }
+
+    private forcePendingSnapshot(key: string, allowConcurrent = false) {
+        const pending = this.pendingSnapshots.get(key);
+        if (!pending) {
+            return;
+        }
+        if (pending.timer) {
+            clearTimeout(pending.timer);
+            pending.timer = null;
+        }
+        pending.ready = true;
+        this.schedulePendingSnapshot(key, allowConcurrent);
+    }
+
+    private schedulePendingSnapshot(key: string, allowConcurrent = false) {
+        const pending = this.pendingSnapshots.get(key);
+        const activeCount = this.activeSnapshotCounts.get(key) ?? 0;
+        if (!pending?.ready || activeCount > 0 && !allowConcurrent) {
+            return;
+        }
+        this.pendingSnapshots.delete(key);
+        this.activeSnapshotCounts.set(key, activeCount + 1);
+        this.enqueue(key, async () => {
+            await this.appendRecord(key, pending.record);
+            await this.runMaintenance(async () => {
+                await this.compactOversizedSession(key);
+                await this.pruneSessions();
+                await this.writeIndex();
+            });
+        });
+        const activeWrite = this.queues.get(key);
+        void activeWrite?.finally(() => {
+            const remaining = (this.activeSnapshotCounts.get(key) ?? 1) - 1;
+            if (remaining === 0) {
+                this.activeSnapshotCounts.delete(key);
+            } else {
+                this.activeSnapshotCounts.set(key, remaining);
+            }
+            this.schedulePendingSnapshot(key);
+        });
+    }
+
+    private enqueueAfterSnapshots(key: string, task: () => Promise<void>) {
+        this.forcePendingSnapshot(key, true);
+        this.enqueue(key, task);
+    }
+
     private async runMaintenance(task: () => Promise<void>) {
         const next = this.maintenanceQueue.catch(() => undefined).then(task);
         this.maintenanceQueue = next.catch(() => undefined);
@@ -721,6 +798,9 @@ export class AssistantChatPersistence {
     private async flushUntilIdle() {
         const results: unknown[] = [];
         for (;;) {
+            for (const key of this.pendingSnapshots.keys()) {
+                this.forcePendingSnapshot(key);
+            }
             const pending = [
                 ...this.queues.values(),
                 this.writeQueue,
@@ -729,10 +809,18 @@ export class AssistantChatPersistence {
             await Promise.all(pending).then(values => {
                 results.push(...values);
             });
-            if (this.queues.size === 0) {
+            if (
+                this.queues.size === 0
+                && this.pendingSnapshots.size === 0
+                && this.activeSnapshotCounts.size === 0
+            ) {
                 await this.writeQueue;
                 await this.maintenanceQueue;
-                if (this.queues.size === 0) {
+                if (
+                    this.queues.size === 0
+                    && this.pendingSnapshots.size === 0
+                    && this.activeSnapshotCounts.size === 0
+                ) {
                     return results;
                 }
             }

@@ -54,6 +54,7 @@ describe('CodexAppServerClient stdin handling', () => {
     beforeEach(() => {
         vi.resetModules();
         vi.clearAllMocks();
+        delete process.env.EVB_CODEX_APP_SERVER_MAX_STDOUT_RECORD_BYTES;
         delete process.env.EVB_CODEX_APP_SERVER_MAX_STDERR_BYTES;
         mocks.createDetachedChildProcessSpawnOptions.mockImplementation((options: Record<string, unknown>) => ({
             ...options,
@@ -103,6 +104,28 @@ describe('CodexAppServerClient stdin handling', () => {
                 threadId: 'thread-1',
             },
         }));
+    });
+
+    it('rejects pending requests with a typed error and terminates on an oversized stdout record', async () => {
+        process.env.EVB_CODEX_APP_SERVER_MAX_STDOUT_RECORD_BYTES = '1024';
+        const fakeProcess = new FakeAssistantAppServerProcess((_line, callback) => {
+            callback?.();
+            return true;
+        });
+        const {client} = await createClient(fakeProcess);
+        const {CodexAppServerRecordTooLargeError} = await import('@electron/features/agent/codexAppServerClient');
+        const request = client.request('thread/start', {});
+
+        fakeProcess.stdout.write('x'.repeat(1025));
+
+        await expect(request).rejects.toMatchObject({
+            name: 'CodexAppServerRecordTooLargeError',
+            maxBytes: 1024,
+        });
+        await vi.waitFor(() => {
+            expect(mocks.terminateDetachedChildProcess).toHaveBeenCalledWith(fakeProcess, 1_000);
+        });
+        await expect(request).rejects.toBeInstanceOf(CodexAppServerRecordTooLargeError);
     });
 
     it.each([

@@ -22,7 +22,10 @@ import type {
     TScanCleanupDetectionStartResult,
     TScanCleanupDetectionJobState,
 } from '@contracts/electronApiScanCleanup';
-import {getScanCleanupPageOverride} from '@contracts/scanCleanupPageOverrides';
+import {
+    getScanCleanupPageOverride,
+    resolveScanCleanupPlacementOffset,
+} from '@contracts/scanCleanupPageOverrides';
 import {getPdfPageCount} from '@electron/pdf/pdfPageCount';
 import {getPdfNativeToolPaths} from '@electron/pdf/nativeToolPaths';
 import {renderPdfPageToPng} from '@electron/ocr/worker/popplerStage';
@@ -311,7 +314,7 @@ async function runPreview(
                     const outputHeightPx = Math.max(1, Math.round(output.cropRect.heightPx));
                     const resolvedCanvasWidth = canvasWidthPx ?? outputWidthPx;
                     const resolvedCanvasHeight = canvasHeightPx ?? outputHeightPx;
-                    const placement = resolvePreviewPlacementOffset(
+                    const placement = resolveScanCleanupPlacementOffset(
                         resolvedCanvasWidth - outputWidthPx,
                         resolvedCanvasHeight - outputHeightPx,
                         pageOverride.placementOverrides?.[output.half] ?? request.options.pageAlignment,
@@ -413,21 +416,6 @@ async function runPreview(
             force: true,
         });
     }
-}
-
-function resolvePreviewPlacementOffset(
-    availableWidth: number,
-    availableHeight: number,
-    alignment: IScanCleanupPreviewRequest['options']['pageAlignment'],
-) {
-    const [
-        vertical,
-        horizontal = vertical,
-    ] = alignment.split('-');
-    return {
-        x: horizontal === 'left' ? 0 : horizontal === 'right' ? availableWidth : Math.floor(availableWidth / 2),
-        y: vertical === 'top' ? 0 : vertical === 'bottom' ? availableHeight : Math.floor(availableHeight / 2),
-    };
 }
 
 async function mapDetectionPages<T>(

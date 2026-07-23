@@ -5,6 +5,7 @@ import {
     it,
     vi,
 } from 'vitest';
+import {EventEmitter} from 'node:events';
 import {
     createOwnerScopedJobRegistry,
     type IScanCleanupJobSubscriber,
@@ -13,19 +14,14 @@ import {
 type TTestSubscriber = IScanCleanupJobSubscriber & {send: ReturnType<typeof vi.fn>};
 
 function sender(id: number) {
-    let destroyed: (() => void) | null = null;
-    const value: TTestSubscriber = {
+    const value = Object.assign(new EventEmitter(), {
         id,
         isDestroyed: () => false,
-        once: vi.fn((event: string, callback: () => void) => {
-            if (event === 'destroyed') destroyed = callback;
-            return value;
-        }),
         send: vi.fn(),
-    };
+    }) as TTestSubscriber & EventEmitter;
     return {
         value,
-        destroy: () => destroyed?.(),
+        destroy: () => value.emit('destroyed'),
     };
 }
 
@@ -78,5 +74,30 @@ describe('scan cleanup owner-scoped job registry', () => {
         expect(registry.size).toBe(1);
         vi.advanceTimersByTime(1);
         expect(registry.size).toBe(0);
+    });
+
+    it('uses one destroyed listener per sender and removes it after all jobs expire', () => {
+        vi.useFakeTimers();
+        const registry = createOwnerScopedJobRegistry<TTestSubscriber, {subscribers: Set<TTestSubscriber>}>(25);
+        const owner = sender(1);
+        const ownership = {
+            ownerId: 'tab-a',
+            documentRevision: 'revision-1',
+        };
+        registry.add('job-1', owner.value, ownership, {subscribers: new Set()});
+        registry.add('job-2', owner.value, ownership, {subscribers: new Set()});
+
+        expect(owner.value.listenerCount('destroyed')).toBe(1);
+        registry.subscribe('job-1', owner.value, ownership);
+        registry.subscribe('job-1', owner.value, ownership);
+        registry.subscribe('job-2', owner.value, ownership);
+        expect(owner.value.listenerCount('destroyed')).toBe(1);
+
+        registry.expireTerminal('job-1');
+        vi.advanceTimersByTime(25);
+        expect(owner.value.listenerCount('destroyed')).toBe(1);
+        registry.expireTerminal('job-2');
+        vi.advanceTimersByTime(25);
+        expect(owner.value.listenerCount('destroyed')).toBe(0);
     });
 });

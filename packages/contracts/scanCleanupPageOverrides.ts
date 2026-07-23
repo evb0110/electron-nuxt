@@ -113,6 +113,21 @@ export function resolveScanCleanupOutputPlacement(
     return override.placementOverrides?.[half] ?? documentDefault;
 }
 
+export function resolveScanCleanupPlacementOffset(
+    availableWidth: number,
+    availableHeight: number,
+    alignment: IScanCleanupOptions['pageAlignment'],
+) {
+    const [
+        vertical,
+        horizontal = vertical,
+    ] = alignment.split('-');
+    return {
+        x: horizontal === 'left' ? 0 : horizontal === 'right' ? availableWidth : Math.floor(availableWidth / 2),
+        y: vertical === 'top' ? 0 : vertical === 'bottom' ? availableHeight : Math.floor(availableHeight / 2),
+    };
+}
+
 export function resolveScanCleanupPageLayout(
     layoutMode: IScanCleanupOptions['layoutMode'],
     override: TScanCleanupPageLayoutOverride,

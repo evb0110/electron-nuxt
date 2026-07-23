@@ -1,7 +1,9 @@
 import type {
     IScanCleanupPreviewMetadata,
     IScanCleanupPixelRect,
+    TScanCleanupPageAlignment,
 } from '@contracts/electronApiScanCleanup';
+import {resolveScanCleanupPlacementOffset} from '@contracts/scanCleanupPageOverrides';
 import type {CSSProperties} from 'vue';
 
 export interface IScanCleanupPreviewPlacement {
@@ -11,12 +13,25 @@ export interface IScanCleanupPreviewPlacement {
     top: number;
 }
 
-export function resolvePreviewMetadataPlacement(metadata: IScanCleanupPreviewMetadata): IScanCleanupPreviewPlacement {
+export function resolvePreviewMetadataPlacement(
+    metadata: IScanCleanupPreviewMetadata,
+    alignment?: TScanCleanupPageAlignment,
+): IScanCleanupPreviewPlacement {
+    const offset = alignment === undefined
+        ? {
+            x: metadata.placementOffsetXPx,
+            y: metadata.placementOffsetYPx,
+        }
+        : resolveScanCleanupPlacementOffset(
+            metadata.canvasWidthPx - metadata.outputWidthPx,
+            metadata.canvasHeightPx - metadata.outputHeightPx,
+            alignment,
+        );
     return {
         canvasWidthPx: metadata.canvasWidthPx,
         canvasHeightPx: metadata.canvasHeightPx,
-        left: metadata.placementOffsetXPx,
-        top: metadata.placementOffsetYPx,
+        left: offset.x,
+        top: offset.y,
     };
 }
 

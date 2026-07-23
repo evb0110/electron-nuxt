@@ -81,6 +81,7 @@ function sender(id = 1) {
         isDestroyed: () => false,
         send: vi.fn(),
         once: vi.fn((_event: 'destroyed', _listener: () => void) => undefined),
+        removeListener: vi.fn((_event: 'destroyed', _listener: () => void) => undefined),
     } satisfies IScanCleanupDetectionSubscriber;
 }
 

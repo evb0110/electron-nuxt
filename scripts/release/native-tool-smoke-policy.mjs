@@ -25,7 +25,7 @@ const MAC_PACKAGED_TOOL_SMOKE_POLICY = {
     },
     'evb-scan-cleanup-protocol': {
         allowedExitCodes: new Set([0]),
-        expectedOutputTokens: ['1'],
+        expectedOutputTokens: ['2'],
     },
     ddjvu: {
         allowedExitCodes: new Set([

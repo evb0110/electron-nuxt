@@ -2145,8 +2145,8 @@ describe('Scan cleanup components', () => {
         expect(Number.parseFloat(paper.style.height)).toBeCloseTo(920 / 620 * 500);
         expect(paper.dataset.frameWidth).toBe('620');
         expect(paper.dataset.frameHeight).toBe('920');
-        expect(Number.parseFloat(raster.style.left)).toBeCloseTo(13 / 620 * 100);
-        expect(Number.parseFloat(raster.style.top)).toBeCloseTo(13 / 920 * 100);
+        expect(Number.parseFloat(raster.style.left)).toBeCloseTo(26 / 620 * 100);
+        expect(Number.parseFloat(raster.style.top)).toBeCloseTo(26 / 920 * 100);
 
         const paperWidth = Number.parseFloat(paper.style.width);
         const paperHeight = Number.parseFloat(paper.style.height);
@@ -2156,8 +2156,8 @@ describe('Scan cleanup components', () => {
             width: Number.parseFloat(raster.style.width) / 100 * paperWidth,
             height: Number.parseFloat(raster.style.height) / 100 * paperHeight,
         };
-        expect(rasterRect.left).toBeCloseTo(13 / 620 * paperWidth);
-        expect(rasterRect.top).toBeCloseTo(13 / 920 * paperHeight);
+        expect(rasterRect.left).toBeCloseTo(26 / 620 * paperWidth);
+        expect(rasterRect.top).toBeCloseTo(26 / 920 * paperHeight);
         expect(rasterRect.left + rasterRect.width).toBeLessThanOrEqual(paperWidth);
         expect(rasterRect.top + rasterRect.height).toBeLessThanOrEqual(paperHeight);
         expect(paper.contains(harness.host.querySelector('.placement-overlay-canvas'))).toBe(true);
@@ -2583,5 +2583,40 @@ describe('Scan cleanup components', () => {
         expect(placed?.style.top).toBe('25%');
         expect(placed?.style.width).toBe('60%');
         expect(placed?.style.height).toBe('75%');
+    });
+
+    it('repositions a cached preview when its placement override changes', async () => {
+        const result = spreadPreviewResult();
+        const first = result.outputs[0]!;
+        first.metadata.outputWidthPx = 300;
+        first.metadata.outputHeightPx = 600;
+        first.metadata.canvasWidthPx = 500;
+        first.metadata.canvasHeightPx = 800;
+        first.metadata.placementOffsetXPx = 0;
+        first.metadata.placementOffsetYPx = 0;
+        const placementOverrides = ref<Partial<Record<TScanCleanupOutputHalf, TScanCleanupPageAlignment>>>({left: 'top-left'});
+        const harness = mount(defineComponent({setup: () => () => h(ScanCleanupPreviewPane, {
+            result,
+            loading: false,
+            error: '',
+            viewMode: 'cleaned',
+            matchPageSize: true,
+            alignment: 'top-center',
+            pageNumber: 1,
+            totalPages: 3,
+            manualSplit: null,
+            readingOrder: 'ltr',
+            placementOverrides: placementOverrides.value,
+        })}));
+
+        await nextTick();
+        const placed = harness.host.querySelector<HTMLElement>('.placed-image');
+        expect(placed?.style.left).toBe('0%');
+        expect(placed?.style.top).toBe('0%');
+
+        placementOverrides.value = {left: 'bottom-right'};
+        await nextTick();
+        expect(placed?.style.left).toBe('40%');
+        expect(placed?.style.top).toBe('25%');
     });
 });

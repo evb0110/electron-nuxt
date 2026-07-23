@@ -1299,7 +1299,10 @@ const renderedOutputs = computed(() => {
     }
     const outputs = props.result.outputs.map((output): IRenderedScanCleanupOutput => {
         const metadata = output.metadata;
-        const placement = resolvePreviewMetadataPlacement(metadata);
+        const placement = resolvePreviewMetadataPlacement(
+            metadata,
+            props.placementOverrides?.[metadata.half] ?? props.alignment,
+        );
         const imageStyle = toPreviewStyleRect({
             xPx: 0,
             yPx: 0,

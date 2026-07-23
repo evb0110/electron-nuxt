@@ -6,6 +6,7 @@ import {
 import { readFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 import { resolve } from 'node:path';
+import { GENERATED_RUST_NATIVE_TOOL_PROTOCOLS } from '@contracts/nativeToolProtocols';
 
 const {
     assertMacPackagedToolSmoke,
@@ -116,7 +117,7 @@ describe('native tool smoke policy', () => {
         expect(() => assertMacPackagedToolSmoke('evb-pdf-page-ops', 0, 'evb-pdf-page-ops 0.1.0')).not.toThrow();
         expect(() => assertMacPackagedToolSmoke('evb-pdf-search', 0, 'evb-pdf-search 0.1.0')).not.toThrow();
         expect(() => assertMacPackagedToolSmoke('evb-scan-cleanup', 0, 'evb-scan-cleanup 0.1.0')).not.toThrow();
-        expect(() => assertMacPackagedToolSmoke('evb-scan-cleanup-protocol', 0, '1')).not.toThrow();
+        expect(() => assertMacPackagedToolSmoke('evb-scan-cleanup-protocol', 0, '2')).not.toThrow();
         expect(() => assertMacPackagedToolSmoke('evb-pdf-image-combine-compact-manifest', 1, 'Missing --compact-manifest value')).not.toThrow();
         expect(() => assertMacPackagedToolSmoke('ddjvu', 1, 'ddjvu usage')).not.toThrow();
         expect(() => assertMacPackagedToolSmoke('djvudump', 1, 'djvudump usage')).not.toThrow();
@@ -130,6 +131,25 @@ describe('native tool smoke policy', () => {
         expect(() => assertMacPackagedToolSmoke('evb-pdf-image-combine-compact-manifest', 1, 'Unknown argument: --compact-manifest')).toThrow(
             'Packaged tool smoke test output for evb-pdf-image-combine-compact-manifest did not match any expected signature',
         );
+    });
+
+    it('matches native protocol smoke tokens to the generated registry', () => {
+        const verifierSource = readFileSync(resolve(process.cwd(), 'scripts/verify-packaged-native-tools.sh'), 'utf-8');
+        const protocolSmokeNames = Array.from(
+            verifierSource.matchAll(/run_macos_packaged_tool_smoke "([^"]+-protocol)"/gu),
+            match => match[1]!,
+        );
+
+        for (const smokeName of protocolSmokeNames) {
+            const tool = GENERATED_RUST_NATIVE_TOOL_PROTOCOLS.find(
+                candidate => `${candidate.binaryName}-protocol` === smokeName,
+            );
+            if (!tool) {
+                throw new Error(`Missing generated native protocol for ${smokeName}`);
+            }
+            const policy = getMacPackagedToolSmokePolicy(smokeName);
+            expect(policy.expectedOutputTokens).toEqual([String(tool.protocolVersion)]);
+        }
     });
 
     it('keeps packaged OCR verification production-like and default-bundle complete', () => {

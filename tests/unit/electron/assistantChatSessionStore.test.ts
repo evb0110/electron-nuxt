@@ -72,6 +72,10 @@ function mutateLastPersistedSnapshot(
     writeFileSync(transcriptPath, `${records.map(record => JSON.stringify(record)).join('\n')}\n`);
 }
 
+function persistedRecordCount(transcriptPath: string) {
+    return readFileSync(transcriptPath, 'utf8').split(/\r?\n/u).filter(Boolean).length;
+}
+
 afterEach(() => {
     for (const root of tempRoots.splice(0)) {
         rmSync(root, {
@@ -118,6 +122,38 @@ describe('assistant chat session store persistence', () => {
                 'hi',
             ],
         ]);
+    });
+
+    it('coalesces rapid deltas and persists the newest snapshot', async () => {
+        const rootDir = createTempRoot();
+        const persistence = createPersistence(rootDir);
+        const store = createAssistantChatSessionStore({persistence});
+        const session = store.getSession(scope, selection, {create: true});
+        const deltaCount = 20;
+
+        for (let index = 0; index < deltaCount; index += 1) {
+            store.appendAssistantDelta(session, 'assistant-1', String(index % 10));
+        }
+        await store.flushPersistenceForTests();
+
+        const transcriptPath = persistence.sessionPath(store.keyForSession(session));
+        expect(persistedRecordCount(transcriptPath)).toBeLessThan(deltaCount);
+        const recoveredStore = createAssistantChatSessionStore({persistence: createPersistence(rootDir)});
+        expect(recoveredStore.getMessages(scope, selection)[0]?.text).toBe('01234567890123456789');
+    });
+
+    it('writes a turn boundary without waiting for the snapshot debounce', async () => {
+        const persistence = createPersistence(createTempRoot(), {snapshotDebounceMs: 60_000});
+        const store = createAssistantChatSessionStore({persistence});
+        const coordinator = createAssistantSessionTurnCoordinator({sessionStore: store});
+        const session = store.getSession(scope, selection, {create: true});
+
+        coordinator.claimSessionTurn(session);
+
+        const transcriptPath = persistence.sessionPath(store.keyForSession(session));
+        await vi.waitFor(() => {
+            expect(persistedRecordCount(transcriptPath)).toBe(1);
+        });
     });
 
     it('quarantines a transcript containing corrupt lines instead of partially recovering it', async () => {
@@ -326,7 +362,6 @@ describe('assistant chat session store persistence', () => {
             role: 'user',
             text: 'before reset',
         });
-        await store.flushPersistenceForTests();
 
         session.messages.length = 0;
         store.resetSessionTranscript(session, 'reset');
@@ -337,6 +372,8 @@ describe('assistant chat session store persistence', () => {
         const recoveredStore = createAssistantChatSessionStore({persistence: createPersistence(rootDir)});
 
         expect(archiveEntries.some(entry => entry.includes('.reset.'))).toBe(true);
+        const archivedTranscript = archiveEntries.find(entry => entry.includes('.reset.'));
+        expect(readFileSync(join(archiveRoot, archivedTranscript!), 'utf8')).toContain('before reset');
         expect(recoveredStore.getMessages(scope, selection)).toEqual([]);
     });
 
@@ -384,17 +421,16 @@ describe('assistant chat session store persistence', () => {
 
     it('exposes a production persistence flush that drains queued snapshots', async () => {
         const rootDir = createTempRoot();
-        const persistence = createPersistence(rootDir);
+        const persistence = createPersistence(rootDir, {snapshotDebounceMs: 60_000});
         const store = createAssistantChatSessionStore({ persistence });
         const session = store.getSession(scope, selection, { create: true });
 
-        store.addMessage(session, {
-            role: 'user',
-            text: 'flush me',
-        });
+        store.appendAssistantDelta(session, 'assistant-1', 'flush ');
+        store.appendAssistantDelta(session, 'assistant-1', 'the newest pending state');
         await store.flushPersistence();
 
         const recoveredStore = createAssistantChatSessionStore({persistence: createPersistence(rootDir)});
-        expect(recoveredStore.getMessages(scope, selection).map(message => message.text)).toEqual(['flush me']);
+        expect(recoveredStore.getMessages(scope, selection).map(message => message.text))
+            .toEqual(['flush the newest pending state']);
     });
 });

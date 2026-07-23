@@ -4,6 +4,7 @@ export interface IScanCleanupJobSubscriber {
     id: number;
     isDestroyed: () => boolean;
     once: (event: 'destroyed', listener: () => void) => unknown;
+    removeListener: (event: 'destroyed', listener: () => void) => unknown;
 }
 
 export interface IScanCleanupJobOwner {
@@ -29,12 +30,47 @@ export function createOwnerScopedJobRegistry<
     terminalTtlMs = SCAN_CLEANUP_TERMINAL_JOB_TTL_MS,
 ) {
     const entries = new Map<string, IRegistryEntry<TSubscriber, TJob>>();
+    const senderEntries = new Map<TSubscriber, {
+        destroyedListener: () => void;
+        entries: Set<IRegistryEntry<TSubscriber, TJob>>;
+    }>();
 
     function addSubscriber(entry: IRegistryEntry<TSubscriber, TJob>, sender: TSubscriber) {
         entry.job.subscribers.add(sender);
-        sender.once('destroyed', () => {
+        const existing = senderEntries.get(sender);
+        if (existing) {
+            existing.entries.add(entry);
+            return;
+        }
+        const senderJobEntries = new Set([entry]);
+        const destroyedListener = () => {
+            for (const senderEntry of senderJobEntries) {
+                senderEntry.job.subscribers.delete(sender);
+            }
+            senderJobEntries.clear();
+            senderEntries.delete(sender);
+        };
+        const state = {
+            destroyedListener,
+            entries: senderJobEntries,
+        };
+        senderEntries.set(sender, state);
+        sender.once('destroyed', state.destroyedListener);
+    }
+
+    function detachEntry(entry: IRegistryEntry<TSubscriber, TJob>) {
+        for (const sender of entry.job.subscribers) {
+            const state = senderEntries.get(sender);
+            if (!state) {
+                continue;
+            }
+            state.entries.delete(entry);
             entry.job.subscribers.delete(sender);
-        });
+            if (state.entries.size === 0) {
+                sender.removeListener('destroyed', state.destroyedListener);
+                senderEntries.delete(sender);
+            }
+        }
     }
 
     function ownedEntry(jobId: string, sender: TSubscriber, owner: IScanCleanupJobOwner) {
@@ -49,6 +85,11 @@ export function createOwnerScopedJobRegistry<
 
     return {
         add(jobId: string, sender: TSubscriber, owner: IScanCleanupJobOwner, job: TJob) {
+            const previous = entries.get(jobId);
+            if (previous) {
+                if (previous.terminalTimer) clearTimeout(previous.terminalTimer);
+                detachEntry(previous);
+            }
             const entry: IRegistryEntry<TSubscriber, TJob> = {
                 ...owner,
                 job,
@@ -78,7 +119,10 @@ export function createOwnerScopedJobRegistry<
                 return;
             }
             entry.terminalTimer = setTimeout(() => {
-                if (entries.get(jobId) === entry) entries.delete(jobId);
+                if (entries.get(jobId) === entry) {
+                    entries.delete(jobId);
+                    detachEntry(entry);
+                }
             }, terminalTtlMs);
             entry.terminalTimer.unref?.();
         },
