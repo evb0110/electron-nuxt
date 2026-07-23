@@ -356,7 +356,6 @@ export {
     getPdfPersistenceChunkBytes,
     getPdfPersistenceErrorMessage,
     isPdfPersistencePreloadToMainPayload,
-    isPdfValidationResult,
     isSerializedPdfPersistenceLimits,
     normalizePdfPersistencePreloadToMainPayload,
     parsePdfPersistenceMainToPreloadFrame,

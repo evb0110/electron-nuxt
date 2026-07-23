@@ -412,7 +412,7 @@ async function createSession(options: {
         options.serializedSaveOptions,
     );
     const releaseSenderReservation = reserveSenderPersistenceCapacity(options.sender.id, options.totalBytes);
-    const tempPath = makeSiblingTempPath(options.targetPath);
+    const tempPath = `${makeSiblingTempPath(options.targetPath)}.pdf`;
     let handle: FileHandle;
     try {
         handle = await open(tempPath, 'wx');

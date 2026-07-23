@@ -35,6 +35,7 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock('fs', () => ({
+    constants: {COPYFILE_FICLONE: 2},
     createReadStream: (...args: unknown[]) => mocks.createReadStream(...args),
     lstatSync: (path: string) => mocks.lstatSync(path),
     realpathSync: (path: string) => mocks.realpathSync(path),
@@ -180,9 +181,11 @@ describe('OCR replacement ownership path aliases', () => {
             'revision-after-ocr',
         );
 
-        expect(mocks.copyFile).toHaveBeenCalledWith(
+        expect(mocks.copyFile).toHaveBeenNthCalledWith(
+            2,
             canonicalOcrPath,
             expect.stringMatching(/\/private\/var\/folders\/app\/T\/evb-viewer\/pdf-work-1\/\.book\.pdf\.\d+\..+\.tmp$/u),
+            2,
         );
         expect(mocks.rename).toHaveBeenCalledWith(
             expect.stringMatching(/\/private\/var\/folders\/app\/T\/evb-viewer\/pdf-work-1\/\.book\.pdf\.\d+\..+\.tmp$/u),

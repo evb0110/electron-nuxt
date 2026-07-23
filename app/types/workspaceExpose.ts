@@ -247,6 +247,11 @@ export interface IWorkspaceAutomationStateSnapshot {
         pendingEmbeddedAnnotationDeleteCount: number;
     };
     originalPath: TDocumentRef | null;
+    pdfSourceState?: {
+        hasInMemoryData: boolean;
+        reloadKind: 'blob' | 'none' | 'path';
+        reloadPath: TDocumentRef | null;
+    };
     requiresSaveAsOnFirstSave?: boolean;
     sortedAnnotationNoteWindows: IAnnotationNoteWindowViewModel[];
     workingCopyPath: TDocumentRef | null;

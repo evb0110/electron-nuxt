@@ -1277,7 +1277,6 @@ watch([
         resolveDocumentOpenVisualSettleIfReady();
     }
 });
-
 const deferredWorkspaceSearch = createDeferredWorkspaceSearch({
     tabId,
     pollIntervalMs: SEARCH_DOCUMENT_READY_POLL_MS,
@@ -1314,7 +1313,6 @@ const deferredWorkspaceSearch = createDeferredWorkspaceSearch({
     handleSearch,
 });
 const handleSearchWhenDocumentReady = deferredWorkspaceSearch.handleSearchWhenDocumentReady;
-
 function handleAnnotationComments(comments: IAnnotationCommentSummary[]) {
     if (
         annotationCommentsStatus.value === 'loading'
@@ -1494,6 +1492,8 @@ const workspaceExpose: IWorkspaceExpose = createWorkspaceExpose({
     readAgentResource,
     workingCopyPath,
     originalPath,
+    pdfData,
+    pdfReloadSrc,
     requiresSaveAsOnFirstSave,
     annotationComments,
     annotationCommentsStatus,

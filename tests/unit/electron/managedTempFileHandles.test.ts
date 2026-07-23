@@ -437,7 +437,9 @@ describe('managed temporary file handles', () => {
             tailCheck: true,
             semanticCheck: false,
             fsynced: false,
-            qpdfResult: sourceArtifact.validations.qpdfResult,
+            ...(sourceArtifact.validations.qpdfResult
+                ? {qpdfResult: sourceArtifact.validations.qpdfResult}
+                : {}),
         });
 
         expect(copiedArtifact.leaseId).not.toBe(sourceArtifact.leaseId);

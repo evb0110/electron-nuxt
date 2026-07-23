@@ -43,6 +43,7 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock('electron', () => ({
+    app: {isPackaged: false},
     BrowserWindow: {
         fromWebContents: vi.fn(() => null),
         getAllWindows: vi.fn(() => []),

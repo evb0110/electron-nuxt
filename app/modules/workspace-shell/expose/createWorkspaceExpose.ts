@@ -36,6 +36,7 @@ import type {
     IWorkspacePdfViewerExposeAutomationPort,
 } from '@app/modules/workspace-shell/types/workspaceOrchestration.types';
 import type { TDocumentSidebarTab } from '@app/utils/document-viewer/sidebar/documentSidebarTabs';
+import type { TPdfSource } from '@app/types/pdfUi';
 
 interface ICreateWorkspaceExposeDeps extends
     IWorkspaceFilePort,
@@ -104,6 +105,8 @@ interface ICreateWorkspaceExposeDeps extends
     waitForDocumentOpenSettled: IWorkspaceExpose['waitForDocumentOpenSettled'];
     workingCopyPath: Ref<TDocumentRef | null>;
     originalPath: Ref<TDocumentRef | null>;
+    pdfData: Ref<Uint8Array | null>;
+    pdfReloadSrc: Ref<TPdfSource | null>;
     requiresSaveAsOnFirstSave?: Ref<boolean>;
     annotationComments: Ref<IAnnotationCommentSummary[]>;
     annotationCommentsStatus: Ref<TAnnotationCommentsStatus>;
@@ -289,6 +292,7 @@ export function createWorkspaceExpose(deps: ICreateWorkspaceExposeDeps): IWorksp
     }
 
     function getAutomationStateSnapshot(): IWorkspaceAutomationStateSnapshot {
+        const reloadSrc = deps.pdfReloadSrc.value;
         return {
             annotationComments: [...deps.annotationComments.value],
             annotationCommentsStatus: deps.annotationCommentsStatus.value,
@@ -306,6 +310,15 @@ export function createWorkspaceExpose(deps: ICreateWorkspaceExposeDeps): IWorksp
                 pendingEmbeddedAnnotationDeleteCount: deps.pendingEmbeddedAnnotationDeleteCount?.value ?? 0,
             },
             originalPath: deps.originalPath.value,
+            pdfSourceState: {
+                hasInMemoryData: deps.pdfData.value !== null,
+                reloadKind: reloadSrc instanceof Blob
+                    ? 'blob'
+                    : reloadSrc?.kind ?? 'none',
+                reloadPath: reloadSrc instanceof Blob
+                    ? null
+                    : reloadSrc?.path ?? null,
+            },
             requiresSaveAsOnFirstSave: deps.requiresSaveAsOnFirstSave?.value ?? false,
             sortedAnnotationNoteWindows: deps.sortedAnnotationNoteWindows.value.map(note => ({
                 ...note,

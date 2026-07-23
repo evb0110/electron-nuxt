@@ -507,6 +507,26 @@ describe('createDocumentPersistence', () => {
         ]);
     });
 
+    it('propagates staged commit failures instead of returning the serialized-save fallback signal', async () => {
+        const { persistence } = createPersistenceHarness();
+        mocks.documentFilesCapability.commitStagedPdfNativeMutations.mockRejectedValueOnce(
+            new Error('Staged artifact content changed after staging'),
+        );
+
+        await expect(persistence.trySavePdfNativeMutations({updates: [{
+            objectNumber: 10,
+            generationNumber: 0,
+            text: 'Commit boundary failure',
+        }]}, {
+            saveMode: 'rewrite',
+            expectedWorkingPath: '/tmp/old-working.pdf',
+            modifiedAt: 'D:20260628123456+03\'00\'',
+        })).rejects.toThrow('Staged artifact content changed after staging');
+
+        expect(mocks.documentFilesCapability.commitStagedPdfNativeMutations).toHaveBeenCalledOnce();
+        expect(mocks.savePdfBytesToWorkingCopy).not.toHaveBeenCalled();
+    });
+
     it('releases an unverifiable staged native output without exposing it', async () => {
         const { persistence } = createPersistenceHarness();
         const verifyPathBeforeExpose = vi.fn(async () => {

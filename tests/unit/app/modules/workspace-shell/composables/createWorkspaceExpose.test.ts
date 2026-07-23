@@ -89,6 +89,8 @@ function createDeps(overrides: Partial<Parameters<typeof createWorkspaceExpose>[
         readAgentResource: vi.fn(async () => ({})),
         workingCopyPath: ref(null),
         originalPath: ref(null),
+        pdfData: ref(null),
+        pdfReloadSrc: ref(null),
         annotationComments: ref([]),
         annotationCommentsStatus: ref('ready'),
         annotationDirty: ref(false),
@@ -99,6 +101,24 @@ function createDeps(overrides: Partial<Parameters<typeof createWorkspaceExpose>[
 }
 
 describe('createWorkspaceExpose', () => {
+    it('reports path-backed PDF ownership without exposing bytes', () => {
+        const deps = createDeps({
+            pdfData: ref(null),
+            pdfReloadSrc: ref({
+                kind: 'path',
+                path: '/tmp/working.pdf',
+                size: 4_096,
+            }),
+        });
+
+        expect(createWorkspaceExpose(deps).getAutomationStateSnapshot().pdfSourceState)
+            .toEqual({
+                hasInMemoryData: false,
+                reloadKind: 'path',
+                reloadPath: '/tmp/working.pdf',
+            });
+    });
+
     it('runs save only when the toolbar save command is enabled', async () => {
         const deps = createDeps({
             hasPdf: ref(true),

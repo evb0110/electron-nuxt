@@ -60,6 +60,14 @@ const documentsMock = vi.hoisted(() => ({
         leaseId: 'working-copy-expectation-lease',
         revision: null,
     })),
+    getDocumentRevision: vi.fn(async () => ({
+        authority: 'main-working-copy' as const,
+        contentRevision: 2,
+        documentRef: '/tmp/work.pdf',
+        mintedAt: 2,
+        token: requireDocumentRevisionToken('drt1:test:native-committed'),
+        version: 1,
+    })),
     readFile: vi.fn(async () => new Uint8Array([
         37,
         80,

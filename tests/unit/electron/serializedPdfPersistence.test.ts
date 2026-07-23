@@ -263,7 +263,7 @@ describe('serializedPdfPersistence', () => {
     it('updates the Save As working copy after replacing the selected target', async () => {
         const workingPath = join(tempRoot, 'working.pdf');
         const targetPath = join(tempRoot, 'saved.pdf');
-        const tempPath = `${targetPath}.tmp`;
+        const tempPath = `${targetPath}.tmp.pdf`;
         writeFileSync(workingPath, 'old-working');
         writeFileSync(targetPath, 'old-target');
 
@@ -330,7 +330,7 @@ describe('serializedPdfPersistence', () => {
     it('deletes a staged Save As artifact without publishing when verification is canceled', async () => {
         const workingPath = join(tempRoot, 'working.pdf');
         const targetPath = join(tempRoot, 'saved.pdf');
-        const tempPath = `${targetPath}.tmp`;
+        const tempPath = `${targetPath}.tmp.pdf`;
         const sender = new FakeSender();
         const port = new FakeMessagePort();
         writeFileSync(workingPath, 'old-working');
@@ -380,7 +380,7 @@ describe('serializedPdfPersistence', () => {
     it('runs lossless optimization for streamed Save As before replacing the selected target', async () => {
         const workingPath = join(tempRoot, 'working.pdf');
         const targetPath = join(tempRoot, 'saved.pdf');
-        const tempPath = `${targetPath}.tmp`;
+        const tempPath = `${targetPath}.tmp.pdf`;
         writeFileSync(workingPath, 'old-working');
         writeFileSync(targetPath, 'old-target');
         mocks.optimizePdfForSaveAs.mockResolvedValueOnce({
@@ -438,7 +438,7 @@ describe('serializedPdfPersistence', () => {
         expect(readFileSyncUtf8(targetPath)).toBe('old-target');
         expect(mocks.setWorkingCopyOriginalPath).not.toHaveBeenCalled();
         expect(mocks.allowOpenPath).toHaveBeenCalledWith(
-            `${targetPath}.tmp`,
+            `${targetPath}.tmp.pdf`,
             expect.objectContaining({id: 42}),
         );
         expect(mocks.addRecentFile).not.toHaveBeenCalled();
@@ -448,7 +448,7 @@ describe('serializedPdfPersistence', () => {
     it('allows serialized PDF streams above the single IPC write budget', async () => {
         const workingPath = join(tempRoot, 'large-working.pdf');
         const targetPath = join(tempRoot, 'large-saved.pdf');
-        const tempPath = `${targetPath}.tmp`;
+        const tempPath = `${targetPath}.tmp.pdf`;
         const sender = new FakeSender();
         const { beginSerializedPdfSaveAs } = await importSerializedPdfPersistence();
 
@@ -487,7 +487,7 @@ describe('serializedPdfPersistence', () => {
         )).rejects.toThrow('Invalid PDF persistence stream: exceeds maximum size');
 
         expect(mocks.makeSiblingTempPath).not.toHaveBeenCalled();
-        expect(existsSync(`${targetPath}.tmp`)).toBe(false);
+        expect(existsSync(`${targetPath}.tmp.pdf`)).toBe(false);
     });
 
     it('rejects Save to original when the original file changed before final replacement', async () => {
@@ -516,7 +516,7 @@ describe('serializedPdfPersistence', () => {
         });
         expect(readFileSyncUtf8(workingPath)).toBe('old-original');
         expect(readFileSyncUtf8(originalPath)).toBe('external-change');
-        expect(mocks.optimizeLargePdfForOrdinarySave).toHaveBeenCalledWith(`${originalPath}.tmp`);
+        expect(mocks.optimizeLargePdfForOrdinarySave).toHaveBeenCalledWith(`${originalPath}.tmp.pdf`);
         expect(mocks.atomicReplace).not.toHaveBeenCalled();
         expect(mocks.refreshWorkingCopyOriginalFileExpectation).not.toHaveBeenCalled();
     });
@@ -635,7 +635,7 @@ describe('serializedPdfPersistence', () => {
         });
         expect(readFileSyncUtf8(originalPath)).toBe('old-original');
         expect(readFileSyncUtf8(workingPath)).toBe('old-working');
-        expect(mocks.optimizeLargePdfForOrdinarySave).toHaveBeenCalledWith(`${originalPath}.tmp`);
+        expect(mocks.optimizeLargePdfForOrdinarySave).toHaveBeenCalledWith(`${originalPath}.tmp.pdf`);
         expect(mocks.refreshWorkingCopyOriginalFileExpectation).not.toHaveBeenCalled();
     });
 
@@ -696,7 +696,7 @@ describe('serializedPdfPersistence', () => {
         await waitForSettledQueueTurn();
 
         expect(shutdownSettled).toBe(false);
-        expect(existsSync(`${targetPath}.tmp`)).toBe(true);
+        expect(existsSync(`${targetPath}.tmp.pdf`)).toBe(true);
 
         replaceGate.resolve(undefined);
         await expect(commitPromise).resolves.toMatchObject({path: targetPath});
@@ -704,7 +704,7 @@ describe('serializedPdfPersistence', () => {
 
         expect(shutdownSettled).toBe(true);
         expect(readFileSyncUtf8(targetPath)).toBe('new-pdf');
-        expect(existsSync(`${targetPath}.tmp`)).toBe(false);
+        expect(existsSync(`${targetPath}.tmp.pdf`)).toBe(false);
     });
 
     it('refreshes the original save base after streamed Save to original syncs the working copy', async () => {
@@ -726,7 +726,7 @@ describe('serializedPdfPersistence', () => {
         });
         expect(readFileSyncUtf8(originalPath)).toBe('new-pdf');
         expect(readFileSyncUtf8(workingPath)).toBe('new-pdf');
-        expect(mocks.optimizeLargePdfForOrdinarySave).toHaveBeenCalledWith(`${originalPath}.tmp`);
+        expect(mocks.optimizeLargePdfForOrdinarySave).toHaveBeenCalledWith(`${originalPath}.tmp.pdf`);
         expect(
             firstInvocationOrder(mocks.optimizeLargePdfForOrdinarySave),
         ).toBeLessThan(firstInvocationOrder(mocks.atomicReplace));
@@ -807,7 +807,7 @@ describe('serializedPdfPersistence', () => {
         )).rejects.toThrow('Working copy path is not managed');
 
         expect(mocks.makeSiblingTempPath).not.toHaveBeenCalled();
-        expect(existsSync(`${targetPath}.tmp`)).toBe(false);
+        expect(existsSync(`${targetPath}.tmp.pdf`)).toBe(false);
     });
 
     it('routes Save As working-copy replacement through the shared mutation queue', async () => {
@@ -902,7 +902,7 @@ describe('serializedPdfPersistence', () => {
     it('acknowledges each streamed chunk after writing it to the temp file', async () => {
         const workingPath = join(tempRoot, 'working.pdf');
         const targetPath = join(tempRoot, 'saved.pdf');
-        const tempPath = `${targetPath}.tmp`;
+        const tempPath = `${targetPath}.tmp.pdf`;
         const sender = new FakeSender();
         const port = new FakeMessagePort();
         const {
@@ -951,7 +951,7 @@ describe('serializedPdfPersistence', () => {
 
     it('rejects a sender that floods more persistence frames than the negotiated window can bound', async () => {
         const targetPath = join(tempRoot, 'flooded-stream.pdf');
-        const tempPath = `${targetPath}.tmp`;
+        const tempPath = `${targetPath}.tmp.pdf`;
         const sender = new FakeSender();
         const port = new FakeMessagePort();
         const {
@@ -990,7 +990,7 @@ describe('serializedPdfPersistence', () => {
     it('accepts Electron MessagePortMain message events with transferred-port metadata', async () => {
         const workingPath = join(tempRoot, 'working.pdf');
         const targetPath = join(tempRoot, 'electron-message-event.pdf');
-        const tempPath = `${targetPath}.tmp`;
+        const tempPath = `${targetPath}.tmp.pdf`;
         const sender = new FakeSender();
         const port = new FakeMessagePort();
         const {
@@ -1046,7 +1046,7 @@ describe('serializedPdfPersistence', () => {
     it('accepts deeply nested MessagePortMain message events from Electron payload wrappers', async () => {
         const workingPath = join(tempRoot, 'working.pdf');
         const targetPath = join(tempRoot, 'nested-electron-message-event.pdf');
-        const tempPath = `${targetPath}.tmp`;
+        const tempPath = `${targetPath}.tmp.pdf`;
         const sender = new FakeSender();
         const port = new FakeMessagePort();
         const {
@@ -1095,7 +1095,7 @@ describe('serializedPdfPersistence', () => {
 
     it('rejects cyclic MessagePortMain event wrappers without recursive listener failure', async () => {
         const targetPath = join(tempRoot, 'cyclic-message-event.pdf');
-        const tempPath = `${targetPath}.tmp`;
+        const tempPath = `${targetPath}.tmp.pdf`;
         const sender = new FakeSender();
         const port = new FakeMessagePort();
         const {
@@ -1138,7 +1138,7 @@ describe('serializedPdfPersistence', () => {
 
     it('cleans an open Save As session when the sender is destroyed before streaming starts', async () => {
         const targetPath = join(tempRoot, 'destroyed-sender.pdf');
-        const tempPath = `${targetPath}.tmp`;
+        const tempPath = `${targetPath}.tmp.pdf`;
         const sender = new FakeSender(73);
         const removeListenerSpy = vi.spyOn(sender, 'removeListener');
         const { beginSerializedPdfSaveAs } = await importSerializedPdfPersistence();
@@ -1165,7 +1165,7 @@ describe('serializedPdfPersistence', () => {
 
     it('cleans an open Save As session when the sender render process is gone before streaming starts', async () => {
         const targetPath = join(tempRoot, 'gone-renderer.pdf');
-        const tempPath = `${targetPath}.tmp`;
+        const tempPath = `${targetPath}.tmp.pdf`;
         const sender = new FakeSender(74);
         const removeListenerSpy = vi.spyOn(sender, 'removeListener');
         const { beginSerializedPdfSaveAs } = await importSerializedPdfPersistence();
@@ -1192,7 +1192,7 @@ describe('serializedPdfPersistence', () => {
 
     it('cleans an open Save As session on non-in-place main-frame navigation before streaming starts', async () => {
         const targetPath = join(tempRoot, 'navigated-renderer.pdf');
-        const tempPath = `${targetPath}.tmp`;
+        const tempPath = `${targetPath}.tmp.pdf`;
         const sender = new FakeSender(75);
         const removeListenerSpy = vi.spyOn(sender, 'removeListener');
         const { beginSerializedPdfSaveAs } = await importSerializedPdfPersistence();
@@ -1246,14 +1246,14 @@ describe('serializedPdfPersistence', () => {
         sender.emit('destroyed');
         await waitForCondition(() => {
             for (const targetPath of targetPaths) {
-                expect(existsSync(`${targetPath}.tmp`)).toBe(false);
+                expect(existsSync(`${targetPath}.tmp.pdf`)).toBe(false);
             }
         });
     });
 
     it('rejects duplicate MessagePort attachment for a serialized PDF session', async () => {
         const targetPath = join(tempRoot, 'duplicate-port.pdf');
-        const tempPath = `${targetPath}.tmp`;
+        const tempPath = `${targetPath}.tmp.pdf`;
         const sender = new FakeSender(81);
         const port = new FakeMessagePort();
         const {
@@ -1284,7 +1284,7 @@ describe('serializedPdfPersistence', () => {
 
     it('rejects serialized PDF chunks larger than the protocol chunk budget', async () => {
         const targetPath = join(tempRoot, 'oversized-chunk.pdf');
-        const tempPath = `${targetPath}.tmp`;
+        const tempPath = `${targetPath}.tmp.pdf`;
         const sender = new FakeSender(82);
         const port = new FakeMessagePort();
         const {
@@ -1509,6 +1509,8 @@ function isStagedPortMessage(message: unknown): message is {
     };
 } {
     return isPortMessage(message, 'staged')
+        && typeof message === 'object'
+        && message !== null
         && 'sessionId' in message
         && 'stagedOutput' in message;
 }

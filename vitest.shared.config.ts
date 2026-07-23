@@ -24,6 +24,7 @@ const vitestProjectNames = {
     electronE2ERapidNavigation: 'e2e-rapid-navigation',
     electronE2EVisibleWindow: 'e2e-visible-window',
     electronE2EQuarantine: 'e2e-quarantine',
+    electronE2ESavePipeline: 'e2e-save-pipeline',
 } as const;
 
 const electronBundleStaticIntegrityTestFiles = ['tests/unit/electron/bundleIntegrity.test.ts'];
@@ -56,6 +57,10 @@ const electronE2ELargePdfTestFiles = [
 const electronE2ERapidNavigationTestFiles = ['tests/e2e/electron/rapidPdfNavigation.e2e.test.ts'];
 const electronE2EVisibleWindowTestFiles = ['tests/e2e/electron/visibleWindowLifecycle.e2e.test.ts'];
 const electronE2EQuarantineTestFiles = ['tests/e2e/electron/quarantine/**/*.e2e.test.ts'];
+const electronE2ESavePipelineTestFiles = [
+    'tests/e2e/electron/savePipeline.e2e.test.ts',
+    'tests/e2e/electron/savePipelineBenchmark.e2e.test.ts',
+];
 
 function createUnitAutoImportPlugin() {
     return AutoImport({
@@ -188,4 +193,5 @@ export const vitestProjects = [
     createElectronE2ETestProject(vitestProjectNames.electronE2ERapidNavigation, electronE2ERapidNavigationTestFiles),
     createElectronE2ETestProject(vitestProjectNames.electronE2EVisibleWindow, electronE2EVisibleWindowTestFiles),
     createElectronE2ETestProject(vitestProjectNames.electronE2EQuarantine, electronE2EQuarantineTestFiles),
+    createElectronE2ETestProject(vitestProjectNames.electronE2ESavePipeline, electronE2ESavePipelineTestFiles),
 ] satisfies TestProjectConfiguration[];

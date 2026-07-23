@@ -3,7 +3,7 @@ import {
     parseDocumentRevisionToken,
     type TDocumentRevisionToken,
 } from '@contracts/documentRevision';
-import { isPdfValidationResult } from '@contracts/documentPersistenceFrames';
+import { isPdfValidationResult } from '@contracts/pdfConformance';
 import type { IPdfValidationResult } from '@contracts/pdfConformance';
 import { isRecord } from '@contracts/runtimeGuards';
 

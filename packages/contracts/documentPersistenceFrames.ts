@@ -1,4 +1,5 @@
 import type { IPdfValidationResult } from '@contracts/pdfConformance';
+import { isPdfValidationResult } from '@contracts/pdfConformance';
 import {
     decodeTypedStagedArtifact,
     type ITypedStagedArtifact,
@@ -194,15 +195,6 @@ export function getPdfPersistenceErrorMessage(payload: Pick<IPdfPersistenceError
     return getDocumentMutationErrorPayload(error)?.message ?? error;
 }
 
-export function isPdfValidationResult(value: unknown): value is IPdfValidationResult {
-    return isRecord(value)
-        && typeof value.isValid === 'boolean'
-        && (value.tool === 'qpdf' || value.tool === 'browser' || value.tool === 'native')
-        && Array.isArray(value.errors)
-        && value.errors.every(error => typeof error === 'string')
-        && Array.isArray(value.warnings)
-        && value.warnings.every(warning => typeof warning === 'string');
-}
 
 export function isSerializedPdfPersistenceLimits(value: unknown): value is ISerializedPdfPersistenceLimits {
     return isRecord(value)

@@ -94,7 +94,13 @@ describe('savePdfBytesAs', () => {
         const result = await savePdfBytesAs('/tmp/active.pdf', data, options, SERIALIZED_SAVE_OPTIONS);
 
         expect(result.path).toBe('/tmp/fast.pdf');
-        expect(savePdfDataAs).toHaveBeenCalledWith('/tmp/active.pdf', data, options, SERIALIZED_SAVE_OPTIONS);
+        expect(savePdfDataAs).toHaveBeenCalledWith(
+            '/tmp/active.pdf',
+            data,
+            options,
+            SERIALIZED_SAVE_OPTIONS,
+            undefined,
+        );
         expect(mocks.documentPdf.validatePdfData).not.toHaveBeenCalled();
         expect(mocks.documentWorkingCopy.createWorkingCopyFromData).not.toHaveBeenCalled();
         expect(mocks.legacyDocuments.savePdfDataAs).not.toHaveBeenCalled();

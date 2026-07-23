@@ -44,6 +44,7 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock('fs', () => ({
+    constants: {COPYFILE_FICLONE: 2},
     createReadStream: () => Readable.from(Buffer.from([
         1,
         2,
@@ -347,9 +348,11 @@ describe('fileOps path security', () => {
         );
 
         expect(mocks.ensureWorkingCopyDirectory).toHaveBeenCalledWith('/tmp/electron-test/work.pdf', 42);
-        expect(mocks.copyFile).toHaveBeenCalledWith(
+        expect(mocks.copyFile).toHaveBeenNthCalledWith(
+            2,
             '/tmp/electron-test/ocr-1-merged.pdf',
             expect.stringMatching(/\/\.work\.pdf\.\d+\..+\.tmp$/u),
+            2,
         );
         expect(mocks.rename).toHaveBeenCalledWith(
             expect.stringMatching(/\/\.work\.pdf\.\d+\..+\.tmp$/u),

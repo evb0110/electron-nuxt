@@ -4,6 +4,7 @@ import type {
     TEvbAutomationEventPredicate,
     TEvbAutomationEventType,
 } from '@app/types/evbAutomationEvents';
+import type { ITypedStagedArtifact } from '@contracts/stagedArtifacts';
 
 const DEFAULT_AUTOMATION_EVENT_TIMEOUT_MS = 30_000;
 const MAX_AUTOMATION_EVENTS = 200;
@@ -15,6 +16,15 @@ const listeners = new Set<TEvbAutomationEventListener>();
 function isAutomationEventCollectionEnabled() {
     return typeof window !== 'undefined'
         && typeof window.__allowRendererFileOpenForAutomation === 'function';
+}
+
+export async function publishStagedPdfNativeMutationForAutomation(
+    stagedArtifact: ITypedStagedArtifact,
+) {
+    if (!isAutomationEventCollectionEnabled()) {
+        return;
+    }
+    await window.__stagedPdfNativeMutationCommitBarrierForAutomation?.(stagedArtifact);
 }
 
 export function emitAutomationEvent<TDetail extends Record<string, unknown> = Record<string, unknown>>(

@@ -534,6 +534,41 @@ jobs:
         with:
           artifact-name: electron-regression-${{ github.run_attempt }}
 
+  nightly_electron_e2e_save_pipeline:
+    name: Nightly Electron E2E Save Pipeline
+    if: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
+    runs-on: macos-14
+    continue-on-error: true
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v5
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      - name: Install dependencies
+        run: node scripts/ci-install-dependencies.mjs --frozen-lockfile
+
+      - name: Verify Electron install
+        run: pnpm run check:electron:install
+
+      - name: Electron E2E save pipeline
+        run: pnpm run test:e2e:electron:save-pipeline
+
+      - name: Upload Electron E2E artifacts
+        if: ${{ always() }}
+        uses: ./.github/actions/upload-electron-e2e-artifacts
+        with:
+          artifact-name: electron-save-pipeline-${{ github.run_attempt }}
+
   nightly_electron_e2e_rapid_navigation:
     name: Nightly Electron E2E Rapid Navigation
     if: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}

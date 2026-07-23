@@ -73,7 +73,12 @@ describe('savePdfBytesToWorkingCopy', () => {
         const result = await savePdfBytesToWorkingCopy('/tmp/working.pdf', data, SERIALIZED_SAVE_OPTIONS);
 
         expect(result).toBe(validation);
-        expect(savePdfData).toHaveBeenCalledWith('/tmp/working.pdf', data, SERIALIZED_SAVE_OPTIONS);
+        expect(savePdfData).toHaveBeenCalledWith(
+            '/tmp/working.pdf',
+            data,
+            SERIALIZED_SAVE_OPTIONS,
+            undefined,
+        );
         expect(mocks.documentPdf.validatePdfData).not.toHaveBeenCalled();
         expect(mocks.documentFiles.writeFile).not.toHaveBeenCalled();
         expect(mocks.documentFiles.saveFileStructured).not.toHaveBeenCalled();

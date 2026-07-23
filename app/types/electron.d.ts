@@ -1,5 +1,6 @@
 import type { IElectronAPI } from '@contracts/electronApi';
 import type { TDocumentRef } from '@contracts/documentRef';
+import type { ITypedStagedArtifact } from '@contracts/stagedArtifacts';
 import type { IEvbTestApi } from '@app/types/evbTestApi';
 
 declare global {
@@ -9,6 +10,9 @@ declare global {
         __deferDocumentOpenForAutomation?: (path: TDocumentRef) => boolean;
         __releaseDocumentOpenForAutomation?: (path: TDocumentRef) => boolean;
         __evbTestApi?: IEvbTestApi;
+        __stagedPdfNativeMutationCommitBarrierForAutomation?: (
+            stagedArtifact: ITypedStagedArtifact,
+        ) => Promise<void> | void;
         __openFileDirect?: (path: TDocumentRef) => Promise<boolean>;
         __handleSave?: () => Promise<unknown>;
         __appReady?: boolean;

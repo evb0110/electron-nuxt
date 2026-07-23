@@ -1,4 +1,5 @@
 import { isDocumentRevisionInfo } from '@contracts/documentRevision';
+import { isPdfValidationResult } from '@contracts/pdfConformance';
 import type {
     IPdfNativeNoteTextSaveResult,
     IPdfNativeStagedCommitOptions,
@@ -25,7 +26,6 @@ import {
     PDF_PERSISTENCE_DEFAULT_MAX_IN_FLIGHT_CHUNKS,
     PDF_PERSISTENCE_DEFAULT_RESULT_TIMEOUT_MS,
     SERIALIZED_PDF_PERSISTENCE_PROTOCOL_VERSION,
-    isPdfValidationResult,
 } from '@contracts/documentPersistenceFrames';
 import type { ISerializedPdfPersistenceLimits } from '@contracts/documentPersistenceFrames';
 import {

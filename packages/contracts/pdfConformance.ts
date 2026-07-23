@@ -1,3 +1,4 @@
+import { isRecord } from '@contracts/runtimeGuards';
 import type {
     Except,
     LiteralUnion,
@@ -27,4 +28,14 @@ export interface IPdfValidationResult {
     tool: 'qpdf' | 'browser' | 'native';
     errors: string[];
     warnings: string[];
+}
+
+export function isPdfValidationResult(value: unknown): value is IPdfValidationResult {
+    return isRecord(value)
+        && typeof value.isValid === 'boolean'
+        && (value.tool === 'qpdf' || value.tool === 'browser' || value.tool === 'native')
+        && Array.isArray(value.errors)
+        && value.errors.every(error => typeof error === 'string')
+        && Array.isArray(value.warnings)
+        && value.warnings.every(warning => typeof warning === 'string');
 }
