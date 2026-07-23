@@ -10,7 +10,6 @@ import {
     vi,
 } from 'vitest';
 import type { IIpcMainRegistrar } from '@contracts/ipcMain';
-import { DEFAULT_SETTINGS } from '@contracts/settings';
 import {
     CORE_IPC_CHANNELS,
     type ICoreInvokeMap,
@@ -68,18 +67,6 @@ const updateStatus = {
 
 const cases = [
     {
-        channel: CORE_IPC_CHANNELS.settingsGet,
-        args: [],
-        result: DEFAULT_SETTINGS,
-        invalidArg: 'extra',
-    },
-    {
-        channel: CORE_IPC_CHANNELS.settingsSave,
-        args: [{}],
-        result: undefined,
-        invalidArg: null,
-    },
-    {
         channel: CORE_IPC_CHANNELS.updatesGetState,
         args: [],
         result: updateStatus,
@@ -114,12 +101,6 @@ const cases = [
         args: ['2.0.0'],
         result: undefined,
         invalidArg: 2,
-    },
-    {
-        channel: CORE_IPC_CHANNELS.shellOpenExternal,
-        args: ['https://example.com'],
-        result: undefined,
-        invalidArg: false,
     },
     {
         channel: CORE_IPC_CHANNELS.windowCloseCurrent,

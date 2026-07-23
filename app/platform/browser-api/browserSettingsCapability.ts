@@ -2,7 +2,11 @@ import type {
     IDebugLogEntry,
     IRendererLogEntry,
 } from '@contracts/electronApiCommon';
-import type { ISettingsCapability } from '@contracts/settingsCapability';
+import type {
+    ISettingsCapability,
+    SETTINGS_PLATFORM_FEATURE,
+} from '@contracts/settingsPlatformFeature';
+import type { TFeatureBrowserBindings } from '@contracts/platformFeature';
 import {
     DEFAULT_SETTINGS,
     normalizeLocale,
@@ -112,7 +116,7 @@ export const browserSettingsCapability: ISettingsCapability = {
         browserSettingsLoaded = true;
         writeBrowserSettingsToStorage(nextSettings);
         writeBrowserSettingsToCookie(nextSettings);
-        return Promise.resolve();
+        return Promise.resolve(undefined);
     },
     getDebugLogs(): Promise<IDebugLogEntry[]> {
         return Promise.resolve([]);
@@ -121,3 +125,5 @@ export const browserSettingsCapability: ISettingsCapability = {
     rendererLog(_entry: IRendererLogEntry) {},
     onMenuOpenSettings: noopUnsubscribe,
 };
+
+browserSettingsCapability satisfies TFeatureBrowserBindings<typeof SETTINGS_PLATFORM_FEATURE>;

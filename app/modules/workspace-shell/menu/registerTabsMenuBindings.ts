@@ -4,7 +4,7 @@ import type { TPaneDirection } from '@contracts/editorPanes';
 import type { IWorkspaceExpose } from '@app/types/workspaceExpose';
 import type { TWindowTabsAction } from '@contracts/windowTabs';
 import type { IDocumentsMenuCapability } from '@contracts/electronApiDocuments';
-import type { ISettingsCapability } from '@contracts/settingsCapability';
+import type { ISettingsCapability } from '@contracts/settingsPlatformFeature';
 import type { IUpdatesCapability } from '@contracts/electronApiUpdates';
 import type { IDjvuCapability } from '@contracts/electronApiDjvu';
 import type { IWindowTabsCapability } from '@contracts/electronApiWindowTabs';

@@ -268,8 +268,6 @@ export function createLazyBrowserPlatformApiGenerated({
     const djvuOnProgressMethod = lazyEvent(pathDescriptors.djvu.onProgress.path);
     const djvuOnTextSearchProgressMethod = lazyEvent(pathDescriptors.djvu.onTextSearchProgress.path);
     const djvuOnMenuConvertToPdfMethod = lazyEvent(pathDescriptors.djvu.onMenuConvertToPdf.path);
-    const settingsGetMethod = lazyAsync(pathDescriptors.settings.get.path);
-    const settingsSaveMethod = lazyAsync(pathDescriptors.settings.save.path);
     const settingsGetDebugLogsMethod = lazyAsync(pathDescriptors.settings.getDebugLogs.path);
     const settingsOnDebugLogMethod = lazyEvent(pathDescriptors.settings.onDebugLog.path);
     const settingsRendererLogMethod = lazyVoid(pathDescriptors.settings.rendererLog.path);
@@ -317,7 +315,6 @@ export function createLazyBrowserPlatformApiGenerated({
     const agentInterruptAssistantMethod = lazyAsync(pathDescriptors.agent.interruptAssistant.path);
     const agentResetAssistantChatMethod = lazyAsync(pathDescriptors.agent.resetAssistantChat.path);
     const agentOnAssistantEventMethod = lazyEvent(pathDescriptors.agent.onAssistantEvent.path);
-    const shellOpenExternalMethod = lazyAsync(pathDescriptors.shell.openExternal.path);
     const hostGetResourceProfileMethod = getResourceProfile;
     const hostGetEnvironmentMethod = lazyAsync(pathDescriptors.host.getEnvironment.path);
     const hostOnEnvironmentChangeMethod = lazyEvent(pathDescriptors.host.onEnvironmentChange.path);
@@ -341,6 +338,9 @@ export function createLazyBrowserPlatformApiGenerated({
     const pageOpsCropMethod = lazyAsync(pathDescriptors.pageOps.crop.path);
     const pageOpsRemoveCropMethod = lazyAsync(pathDescriptors.pageOps.removeCrop.path);
     const pageOpsGetPageGeometryMethod = lazyAsync(pathDescriptors.pageOps.getPageGeometry.path);
+    const settingsGetMethod = lazyAsync(pathDescriptors.settings.get.path);
+    const settingsSaveMethod = lazyAsync(pathDescriptors.settings.save.path);
+    const shellOpenExternalMethod = lazyAsync(pathDescriptors.shell.openExternal.path);
 
     return {
     manifest: BROWSER_PLATFORM_MANIFEST,
@@ -602,12 +602,12 @@ export function createLazyBrowserPlatformApiGenerated({
         onMenuConvertToPdf: djvuOnMenuConvertToPdfMethod,
     },
     settings: {
-        get: settingsGetMethod,
-        save: settingsSaveMethod,
         getDebugLogs: settingsGetDebugLogsMethod,
         onDebugLog: settingsOnDebugLogMethod,
         rendererLog: settingsRendererLogMethod,
         onMenuOpenSettings: settingsOnMenuOpenSettingsMethod,
+        get: settingsGetMethod,
+        save: settingsSaveMethod,
     },
     system: {
         getMemoryInfo: systemGetMemoryInfoMethod,
@@ -660,9 +660,6 @@ export function createLazyBrowserPlatformApiGenerated({
         resetAssistantChat: agentResetAssistantChatMethod,
         onAssistantEvent: agentOnAssistantEventMethod,
     },
-    shell: {
-        openExternal: shellOpenExternalMethod,
-    },
     host: {
         getResourceProfile: hostGetResourceProfileMethod,
         getEnvironment: hostGetEnvironmentMethod,
@@ -693,6 +690,9 @@ export function createLazyBrowserPlatformApiGenerated({
         crop: pageOpsCropMethod,
         removeCrop: pageOpsRemoveCropMethod,
         getPageGeometry: pageOpsGetPageGeometryMethod,
+    },
+    shell: {
+        openExternal: shellOpenExternalMethod,
     },
 } satisfies IPlatformApi;
 }

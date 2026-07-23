@@ -221,6 +221,8 @@ export type {
 export { IMAGE_EXPORT_PLATFORM_FEATURE } from '@contracts/imageExportPlatformFeature';
 export { PAGE_OPS_PLATFORM_FEATURE } from '@contracts/pageOpsPlatformFeature';
 export { SEARCH_PLATFORM_FEATURE } from '@contracts/searchPlatformFeature';
+export { SETTINGS_PLATFORM_FEATURE } from '@contracts/settingsPlatformFeature';
+export { SHELL_PLATFORM_FEATURE } from '@contracts/shellPlatformFeature';
 
 export type {
     IMarkerRect,

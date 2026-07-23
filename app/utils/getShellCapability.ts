@@ -1,4 +1,4 @@
-import type { IShellCapability } from '@contracts/shellCapability';
+import type { IShellCapability } from '@contracts/shellPlatformFeature';
 import { getPlatformAPI } from '@app/utils/platform';
 
 export function getShellCapability(): IShellCapability {

@@ -17,7 +17,7 @@ export * from '@contracts/hostResourceProfile';
 export type * from '@contracts/imageExportPlatformFeature';
 export type * from '@contracts/pageOpsPlatformFeature';
 export type * from '@contracts/searchPlatformFeature';
-export type * from '@contracts/settingsCapability';
-export type * from '@contracts/shellCapability';
+export type * from '@contracts/settingsPlatformFeature';
+export type * from '@contracts/shellPlatformFeature';
 
 export type IElectronAPI = IPlatformApi;

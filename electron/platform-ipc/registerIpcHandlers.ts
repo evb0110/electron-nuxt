@@ -10,6 +10,6 @@ export { normalizeRendererLogEntry } from '@electron/platform-ipc/rendererLogBri
 
 export function registerIpcHandlers(options: ICoreIpcHandlerOptions = {}) {
     const agentService = createAgentService();
-    registerCoreIpcHandlers(ipcMain, options, {agentService});
+    registerCoreIpcHandlers(ipcMain, options);
     registerFeatureIpcAdapters(ipcMain, {agentService});
 }

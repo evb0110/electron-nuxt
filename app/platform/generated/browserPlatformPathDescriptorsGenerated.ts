@@ -256,12 +256,12 @@ export const browserPlatformPathDescriptorsGenerated = {
         onMenuConvertToPdf: {kind: 'event', path: ["djvu","onMenuConvertToPdf"]},
     },
     settings: {
-        get: {kind: 'async', path: ["settings","get"]},
-        save: {kind: 'async', path: ["settings","save"]},
         getDebugLogs: {kind: 'async', path: ["settings","getDebugLogs"]},
         onDebugLog: {kind: 'event', path: ["settings","onDebugLog"]},
         rendererLog: {kind: 'void', path: ["settings","rendererLog"]},
         onMenuOpenSettings: {kind: 'event', path: ["settings","onMenuOpenSettings"]},
+        get: {kind: 'async', path: ["settings","get"]},
+        save: {kind: 'async', path: ["settings","save"]},
     },
     system: {
         onShutdownSaveFlushRequest: {kind: 'event', path: ["system","onShutdownSaveFlushRequest"]},
@@ -313,9 +313,6 @@ export const browserPlatformPathDescriptorsGenerated = {
         resetAssistantChat: {kind: 'async', path: ["agent","resetAssistantChat"]},
         onAssistantEvent: {kind: 'event', path: ["agent","onAssistantEvent"]},
     },
-    shell: {
-        openExternal: {kind: 'async', path: ["shell","openExternal"]},
-    },
     host: {
         getEnvironment: {kind: 'async', path: ["host","getEnvironment"]},
         onEnvironmentChange: {kind: 'event', path: ["host","onEnvironmentChange"]},
@@ -345,6 +342,9 @@ export const browserPlatformPathDescriptorsGenerated = {
         crop: {kind: 'async', path: ["pageOps","crop"]},
         removeCrop: {kind: 'async', path: ["pageOps","removeCrop"]},
         getPageGeometry: {kind: 'async', path: ["pageOps","getPageGeometry"]},
+    },
+    shell: {
+        openExternal: {kind: 'async', path: ["shell","openExternal"]},
     },
 } as const;
 

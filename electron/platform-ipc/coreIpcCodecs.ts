@@ -1,10 +1,6 @@
 import type { TIpcCodecMap } from '@contracts/ipcMain';
 import { decodeHostEnvironmentSnapshot } from '@contracts/electronApiHost';
 import { decodeAppUpdateStatus } from '@contracts/electronApiUpdates';
-import {
-    DEFAULT_SETTINGS,
-    sanitizeSettings,
-} from '@contracts/settings';
 import { isRecord } from '@contracts/runtimeGuards';
 import type {
     IWindowTabTargetWindow,
@@ -33,47 +29,6 @@ import {
 function decodeOneArg<T>(args: readonly unknown[], decode: (value: unknown) => T): [T] {
     requireIpcArgumentCount(args, 1);
     return [decode(args[0])];
-}
-
-function decodeSettingsPatch(value: unknown): ICoreInvokeMap[typeof CORE_IPC_CHANNELS.settingsSave]['args'][0] {
-    if (!isRecord(value)) {
-        throw new Error('settings must be an object');
-    }
-    const normalized = sanitizeSettings({
-        ...DEFAULT_SETTINGS,
-        ...value,
-    });
-    for (const [
-        key,
-        candidate,
-    ] of Object.entries(value)) {
-        if (!(key in normalized) || normalized[key as keyof typeof normalized] !== candidate) {
-            throw new Error(`invalid settings field: ${key}`);
-        }
-    }
-    return value;
-}
-
-function decodeSettingsResult(value: unknown) {
-    if (!isRecord(value)) {
-        throw new Error('invalid settings result');
-    }
-    const normalized = sanitizeSettings(value);
-    const allowedKeys = new Set(Object.keys(normalized));
-    for (const key of Object.keys(value)) {
-        if (!allowedKeys.has(key)) {
-            throw new Error(`invalid settings result field: ${key}`);
-        }
-    }
-    for (const [
-        key,
-        candidate,
-    ] of Object.entries(normalized)) {
-        if (value[key] !== candidate) {
-            throw new Error(`invalid settings result field: ${key}`);
-        }
-    }
-    return normalized;
 }
 
 function decodeStartedResult(value: unknown) {
@@ -163,14 +118,6 @@ function decodeZenModeState(value: unknown) {
 }
 
 export const CORE_IPC_CODECS = {
-    [CORE_IPC_CHANNELS.settingsGet]: {
-        decodeArgs: decodeNoArgs,
-        decodeResult: decodeSettingsResult,
-    },
-    [CORE_IPC_CHANNELS.settingsSave]: {
-        decodeArgs: (args: readonly unknown[]) => decodeOneArg(args, decodeSettingsPatch),
-        decodeResult: decodeUndefinedResult,
-    },
     [CORE_IPC_CHANNELS.updatesGetState]: {
         decodeArgs: decodeNoArgs,
         decodeResult: (value: unknown) => requireDecoded(value, decodeAppUpdateStatus, 'app update status'),
@@ -195,13 +142,6 @@ export const CORE_IPC_CODECS = {
         decodeArgs: (args: readonly unknown[]) => {
             requireIpcArgumentCount(args, 1);
             return [decodeStringArg(args, 0, 'version')];
-        },
-        decodeResult: decodeUndefinedResult,
-    },
-    [CORE_IPC_CHANNELS.shellOpenExternal]: {
-        decodeArgs: (args: readonly unknown[]) => {
-            requireIpcArgumentCount(args, 1);
-            return [decodeStringArg(args, 0, 'url')];
         },
         decodeResult: decodeUndefinedResult,
     },

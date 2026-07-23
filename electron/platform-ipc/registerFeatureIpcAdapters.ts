@@ -18,6 +18,9 @@ import {SCAN_CLEANUP_CHANNELS} from '@electron/features/scan-cleanup/contract';
 import {SCAN_CLEANUP_IPC_CODECS} from '@electron/features/scan-cleanup/scanCleanupIpcCodecs';
 import { SEARCH_PLATFORM_FEATURE } from '@contracts/searchPlatformFeature';
 import { PAGE_OPS_PLATFORM_FEATURE } from '@contracts/pageOpsPlatformFeature';
+import { SETTINGS_PLATFORM_FEATURE } from '@contracts/settingsPlatformFeature';
+import { SHELL_PLATFORM_FEATURE } from '@contracts/shellPlatformFeature';
+import type { TAnyDefinedPlatformFeature } from '@contracts/platformFeature';
 import {DJVU_CHANNELS} from '@electron/features/djvu/contract';
 import { DJVU_IPC_CODECS } from '@electron/features/djvu/djvuIpcCodecs';
 import {
@@ -63,6 +66,23 @@ function registerLazyValidatedFeature(
     }
 }
 
+function registerLazyPlatformFeature(
+    ipcMain: Electron.IpcMain,
+    feature: TAnyDefinedPlatformFeature,
+    loadBindings: () => Promise<Record<string, unknown>>,
+) {
+    registerLazyValidatedFeature(
+        ipcMain,
+        feature.invokeChannels,
+        feature.ipcCodecs,
+        async (registrar) => registerPlatformFeatureHandlers(
+            registrar as never,
+            feature as never,
+            await loadBindings() as never,
+        ),
+    );
+}
+
 export interface IFeatureIpcAdapterOptions { agentService: IAgentService; }
 
 export function registerFeatureIpcAdapters(
@@ -83,32 +103,23 @@ export function registerFeatureIpcAdapters(
         const {registerAgentIpcAdapter} = await import('@electron/features/agent/registerAgentIpcAdapter');
         registerAgentIpcAdapter(registrar as never, options.agentService);
     });
-    registerLazyValidatedFeature(
-        ipcMain,
-        IMAGE_EXPORT_PLATFORM_FEATURE.invokeChannels,
-        IMAGE_EXPORT_PLATFORM_FEATURE.ipcCodecs,
-        async (registrar) => {
-            const {imageExportMainBindings} = await import('@electron/features/image-export/public');
-            registerPlatformFeatureHandlers(
-                registrar as never,
-                IMAGE_EXPORT_PLATFORM_FEATURE,
-                imageExportMainBindings,
-            );
-        },
-    );
-    registerLazyValidatedFeature(
-        ipcMain,
-        PAGE_OPS_PLATFORM_FEATURE.invokeChannels,
-        PAGE_OPS_PLATFORM_FEATURE.ipcCodecs,
-        async (registrar) => {
-            const {pageOpsMainBindings} = await import('@electron/features/page-ops/public');
-            registerPlatformFeatureHandlers(
-                registrar as never,
-                PAGE_OPS_PLATFORM_FEATURE,
-                pageOpsMainBindings,
-            );
-        },
-    );
+    registerLazyPlatformFeature(ipcMain, SETTINGS_PLATFORM_FEATURE, async () => {
+        const {createSettingsMainBindings} =
+            await import('@electron/features/settings/createSettingsMainBindings');
+        return createSettingsMainBindings(options.agentService.shutdownAssistant);
+    });
+    registerLazyPlatformFeature(ipcMain, SHELL_PLATFORM_FEATURE, async () => {
+        const {shellMainBindings} = await import('@electron/features/shell/shellMainBindings');
+        return shellMainBindings;
+    });
+    registerLazyPlatformFeature(ipcMain, IMAGE_EXPORT_PLATFORM_FEATURE, async () => {
+        const {imageExportMainBindings} = await import('@electron/features/image-export/public');
+        return imageExportMainBindings;
+    });
+    registerLazyPlatformFeature(ipcMain, PAGE_OPS_PLATFORM_FEATURE, async () => {
+        const {pageOpsMainBindings} = await import('@electron/features/page-ops/public');
+        return pageOpsMainBindings;
+    });
     registerLazyValidatedFeature(ipcMain, OCR_CHANNELS, OCR_IPC_CODECS, async registrar => {
         const {registerOcrIpcAdapter} = await import('@electron/features/ocr/registerOcrIpcAdapter');
         registerOcrIpcAdapter(registrar as never);
@@ -117,19 +128,10 @@ export function registerFeatureIpcAdapters(
         const {registerScanCleanupIpcAdapter} = await import('@electron/features/scan-cleanup/registerScanCleanupIpcAdapter');
         registerScanCleanupIpcAdapter(registrar as never);
     });
-    registerLazyValidatedFeature(
-        ipcMain,
-        SEARCH_PLATFORM_FEATURE.invokeChannels,
-        SEARCH_PLATFORM_FEATURE.ipcCodecs,
-        async (registrar) => {
-            const {prepareSearchMainBindings} = await import('@electron/features/search/public');
-            registerPlatformFeatureHandlers(
-                registrar as never,
-                SEARCH_PLATFORM_FEATURE,
-                prepareSearchMainBindings(),
-            );
-        },
-    );
+    registerLazyPlatformFeature(ipcMain, SEARCH_PLATFORM_FEATURE, async () => {
+        const {prepareSearchMainBindings} = await import('@electron/features/search/public');
+        return prepareSearchMainBindings();
+    });
     registerLazyValidatedFeature(ipcMain, DJVU_CHANNELS, DJVU_IPC_CODECS, async registrar => {
         const {registerDjvuIpcAdapter} = await import('@electron/features/djvu/registerDjvuIpcAdapter');
         registerDjvuIpcAdapter(registrar as never);

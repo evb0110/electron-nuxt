@@ -1,6 +1,8 @@
 import type { IPlatformApi } from '@contracts/platformApi';
 import { BROWSER_PLATFORM_MANIFEST } from '@contracts/platformApi';
 import { inspectAllowedExternalUrl } from '@contracts/externalUrl';
+import type { SHELL_PLATFORM_FEATURE } from '@contracts/shellPlatformFeature';
+import type { TFeatureBrowserBindings } from '@contracts/platformFeature';
 import { browserWindowTabsCapability } from '@app/platform/browserWindowTabs';
 import {
     browserAgentCapability,
@@ -27,7 +29,7 @@ const browserSystemApi: IPlatformApi['system'] = {
 };
 const browserShellApi: IPlatformApi['shell'] = { openExternal(url: string) {
     if (typeof window === 'undefined') {
-        return Promise.resolve();
+        return Promise.resolve(undefined);
     }
 
     const decision = inspectAllowedExternalUrl(url);
@@ -37,7 +39,7 @@ const browserShellApi: IPlatformApi['shell'] = { openExternal(url: string) {
             reason: decision.reason,
             url,
         });
-        return Promise.resolve();
+        return Promise.resolve(undefined);
     }
 
     const openedWindow = window.open(decision.normalizedUrl, '_blank', 'noopener,noreferrer');
@@ -45,8 +47,8 @@ const browserShellApi: IPlatformApi['shell'] = { openExternal(url: string) {
         BrowserLogger.warn('shell', 'Failed to open external URL', { url: decision.normalizedUrl });
     }
 
-    return Promise.resolve();
-} };
+    return Promise.resolve(undefined);
+} } satisfies TFeatureBrowserBindings<typeof SHELL_PLATFORM_FEATURE>;
 
 export const browserPlatformApi = {
     manifest: BROWSER_PLATFORM_MANIFEST,

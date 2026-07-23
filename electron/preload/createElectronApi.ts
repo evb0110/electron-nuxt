@@ -25,6 +25,8 @@ import {
 import { IMAGE_EXPORT_PLATFORM_FEATURE } from '@contracts/imageExportPlatformFeature';
 import { PAGE_OPS_PLATFORM_FEATURE } from '@contracts/pageOpsPlatformFeature';
 import { SEARCH_PLATFORM_FEATURE } from '@contracts/searchPlatformFeature';
+import { SETTINGS_PLATFORM_FEATURE } from '@contracts/settingsPlatformFeature';
+import { SHELL_PLATFORM_FEATURE } from '@contracts/shellPlatformFeature';
 import { getDebugLogMessages } from '@electron/preload/debugLogBuffer';
 import { decodeDebugLogEntry } from '@electron/preload/installDebugLogListener';
 import { createAgentPreloadClient } from '@electron/features/agent/createAgentPreloadClient';
@@ -153,6 +155,7 @@ export function createElectronApi(
     const baseDocuments = createDocumentsPreloadClient(ipcRenderer);
     const pageOps = createPlatformFeaturePreloadClient(ipcRenderer, PAGE_OPS_PLATFORM_FEATURE);
     const imageExport = createPlatformFeaturePreloadClient(ipcRenderer, IMAGE_EXPORT_PLATFORM_FEATURE);
+    const settingsIpc = createPlatformFeaturePreloadClient(ipcRenderer, SETTINGS_PLATFORM_FEATURE);
     const shutdownSaveFlushCallbacks = new Set<() => Promise<{
         dirtyWorkingCopyPaths?: string[];
         flushedWorkingCopyPaths?: string[];
@@ -499,11 +502,11 @@ export function createElectronApi(
         djvu: createDjvuPreloadClient(ipcRenderer),
 
         settings: {
+            ...settingsIpc,
             get: () => invokeWithStartupTrace(
                 'settings:get',
-                () => invokeCore(CORE_IPC_CHANNELS.settingsGet),
+                settingsIpc.get,
             ),
-            save: (settings) => invokeCore(CORE_IPC_CHANNELS.settingsSave, settings),
             getDebugLogs: () => Promise.resolve(getDebugLogMessages()),
             onDebugLog: (callback): TMenuEventUnsubscribe =>
                 eventSubscriber.onDecodedPayload(CORE_IPC_EVENT_CHANNELS.debugLog, decodeDebugLogEntry, callback),
@@ -539,7 +542,7 @@ export function createElectronApi(
                 eventSubscriber.onNoArg(CORE_IPC_EVENT_CHANNELS.menuCheckForUpdates, callback),
         },
 
-        shell: {openExternal: (url) => invokeCore(CORE_IPC_CHANNELS.shellOpenExternal, url)},
+        shell: createPlatformFeaturePreloadClient(ipcRenderer, SHELL_PLATFORM_FEATURE),
 
         host: {
             getResourceProfile: () => options.resourceProfile ?? null,

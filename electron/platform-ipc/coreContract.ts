@@ -5,7 +5,6 @@ import type {
 } from '@contracts/electronApiHost';
 import type { IAppUpdateStatus } from '@contracts/electronApiUpdates';
 import type { TPaneDirection } from '@contracts/editorPanes';
-import type { ISettingsData } from '@contracts/shared';
 import type {
     IWindowTabIncomingTransfer,
     IWindowTabTargetWindow,
@@ -17,15 +16,12 @@ import type {
 import type { IWorkspaceCheckpoint } from '@contracts/workspaceCheckpoint';
 
 export const CORE_IPC_CHANNELS = {
-    settingsGet: 'settings:get',
-    settingsSave: 'settings:save',
     updatesGetState: 'updates:getState',
     updatesCheck: 'updates:check',
     updatesDownload: 'updates:download',
     updatesInstall: 'updates:install',
     updatesDefer: 'updates:defer',
     updatesSkipVersion: 'updates:skipVersion',
-    shellOpenExternal: 'shell:openExternal',
     windowCloseCurrent: 'window:closeCurrent',
     rendererReady: 'app:rendererReady',
     claimPendingExternalOpenPaths: 'app:claimPendingExternalOpenPaths',
@@ -67,14 +63,6 @@ export const CORE_IPC_SEND_CHANNELS = {
 type TNoIpcResult = Awaited<Promise<void>>;
 
 export interface ICoreInvokeMap {
-    [CORE_IPC_CHANNELS.settingsGet]: {
-        args: [];
-        result: ISettingsData;
-    };
-    [CORE_IPC_CHANNELS.settingsSave]: {
-        args: [settings: Partial<ISettingsData>];
-        result: TNoIpcResult;
-    };
     [CORE_IPC_CHANNELS.updatesGetState]: {
         args: [];
         result: IAppUpdateStatus;
@@ -97,10 +85,6 @@ export interface ICoreInvokeMap {
     };
     [CORE_IPC_CHANNELS.updatesSkipVersion]: {
         args: [version: string];
-        result: TNoIpcResult;
-    };
-    [CORE_IPC_CHANNELS.shellOpenExternal]: {
-        args: [url: string];
         result: TNoIpcResult;
     };
     [CORE_IPC_CHANNELS.windowCloseCurrent]: {

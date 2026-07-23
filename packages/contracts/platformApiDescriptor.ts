@@ -33,8 +33,14 @@ import {
     SEARCH_PLATFORM_FEATURE,
     type ISearchCapability,
 } from '@contracts/searchPlatformFeature';
-import type { ISettingsCapability } from '@contracts/settingsCapability';
-import type { IShellCapability } from '@contracts/shellCapability';
+import {
+    SETTINGS_PLATFORM_FEATURE,
+    type ISettingsCapability,
+} from '@contracts/settingsPlatformFeature';
+import {
+    SHELL_PLATFORM_FEATURE,
+    type IShellCapability,
+} from '@contracts/shellPlatformFeature';
 import type {
     Get,
     Join,
@@ -194,9 +200,7 @@ function defineDocumentCapabilityMirrors<const TMirrors extends readonly IDocume
 const requiredTopLevelCapabilityPaths = [
     ['ocr'],
     ['djvu'],
-    ['settings'],
     ['system'],
-    ['shell'],
     ['host'],
 ] as const;
 
@@ -690,14 +694,6 @@ const otherMethodPaths = defineMethodPaths([
     ],
     [
         'settings',
-        'get',
-    ],
-    [
-        'settings',
-        'save',
-    ],
-    [
-        'settings',
         'getDebugLogs',
     ],
     [
@@ -883,10 +879,6 @@ const otherMethodPaths = defineMethodPaths([
     [
         'agent',
         'onAssistantEvent',
-    ],
-    [
-        'shell',
-        'openExternal',
     ],
     [
         'host',
@@ -1076,6 +1068,8 @@ export const PLATFORM_FEATURE_REGISTRY = [
     SEARCH_PLATFORM_FEATURE,
     IMAGE_EXPORT_PLATFORM_FEATURE,
     PAGE_OPS_PLATFORM_FEATURE,
+    SETTINGS_PLATFORM_FEATURE,
+    SHELL_PLATFORM_FEATURE,
 ] as const;
 
 interface IMigratedPlatformFeature {
