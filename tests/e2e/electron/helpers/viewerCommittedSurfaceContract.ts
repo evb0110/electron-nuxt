@@ -254,7 +254,13 @@ export function findCommittedSurfaceContractViolations(trace: ICommittedSurfaceT
         violations.push('the committed canvas wrapper did not own the visible page frame style');
     }
 
-    const shellFrames = frames.slice(0, firstCanvasIndex).filter(frame => frame.kind === 'page-shell');
+    // The opening shell may present with fallback dimensions before the
+    // document's real geometry is known; geometry stability is only
+    // meaningful for shells that already carry committed surface geometry.
+    const shellFrames = frames.slice(0, firstCanvasIndex).filter(frame => (
+        frame.kind === 'page-shell'
+        && frame.openSurfaceDiagnostic?.openSurfaceHasGeometry !== 'false'
+    ));
     const firstShell = shellFrames[0];
     if (firstShell) {
         for (const shell of shellFrames.slice(1)) {
@@ -966,6 +972,14 @@ export async function installCommittedSurfaceSampler(page: Page) {
                 };
                 const viewportSkeletons = skeletons.filter(intersectsViewport);
                 const exactSkeletons = viewportSkeletons.filter(candidate => pageCanvas?.contains(candidate));
+                // A neighbor page's skeleton sliver can intersect the viewport
+                // edge in continuous scroll; it belongs to that page's own
+                // container. Out-of-frame counts only true orphans that no
+                // page container owns.
+                const orphanSkeletons = viewportSkeletons.filter(candidate => (
+                    !pageCanvas?.contains(candidate)
+                    && !candidate.closest('.page_container, [data-testid="document-page-source-page"], .document-source-viewer__page')
+                ));
                 const skeleton = exactSkeletons[0] ?? null;
                 const canvasNonblank = canvasHasNonblankPixels(canvas);
                 // `page_container--rendered` is applied by the render coordinator only
@@ -1096,7 +1110,7 @@ export async function installCommittedSurfaceSampler(page: Page) {
                     openSurfaceDiagnostic: chassis ? {...chassis.dataset} : undefined,
                     pdfOpeningDiagnostic: pdfOpeningDiagnostic ? {...pdfOpeningDiagnostic.dataset} : undefined,
                     pdfNavigationDiagnostic: pdfViewerHost ? {...pdfViewerHost.dataset} : undefined,
-                    outOfFrameSkeletonCount: viewportSkeletons.length - exactSkeletons.length,
+                    outOfFrameSkeletonCount: orphanSkeletons.length,
                     outerPlaceholderPresent: outerPlaceholder !== null,
                     outerPlaceholderOwnsCenter: ownsVisibleCenter(outerPlaceholder),
                     outerPlaceholderVisible: isVisible(outerPlaceholder),
@@ -1128,7 +1142,10 @@ export async function installCommittedSurfaceSampler(page: Page) {
                     shellId: getElementId(pageCanvas),
                     shellRect: toRect(pageCanvas),
                     shellStyle: toStyle(pageCanvas),
-                    skeletonCount: viewportSkeletons.length,
+                    // Target-owned skeletons only: a neighbor page's skeleton
+                    // intersecting the viewport edge belongs to that page and
+                    // is not competing skeleton ownership for this frame.
+                    skeletonCount: exactSkeletons.length,
                     skeletonPages: skeletons.map(candidate => {
                         const owner = candidate.closest<HTMLElement>(
                             '.page_container[data-page], [data-testid="document-page-source-page"][data-page-number]',

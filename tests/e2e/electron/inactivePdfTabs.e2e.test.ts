@@ -229,10 +229,19 @@ describe('Electron E2E - Inactive PDF Tabs', () => {
             return;
         }
 
+        await setTabMemoryPolicyForE2E(session.page, 'aggressive');
+        const splitPrimaryFixturePath = await createMultiPageTextFixturePdf(`inactive-tabs-split-primary-${Date.now()}.pdf`, 3);
+        const splitHiddenFixturePath = await createMultiPageTextFixturePdf(`inactive-tabs-split-hidden-${Date.now()}.pdf`, 3);
+        await openPdfInApp(session.page, splitPrimaryFixturePath);
+        await waitForPdfLoaded(session.page);
+        await createNewTab(session);
+        await openPdfInApp(session.page, splitHiddenFixturePath);
+        await waitForPdfLoaded(session.page);
+
         await activateTab(session, 0);
         await waitForPdfLoaded(session.page);
         await splitActiveDocument(session, 'right');
-        await openPdfInApp(session.page, firstFixturePath);
+        await openPdfInApp(session.page, splitPrimaryFixturePath);
         await waitForPdfLoaded(session.page);
         await waitForVisibleRenderedPdfHosts(session, 2);
 

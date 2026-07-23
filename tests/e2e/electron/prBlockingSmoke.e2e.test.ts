@@ -210,6 +210,7 @@ async function collectPdfStageDiagnostics(
             viewportAuthorityTrace: renderTrace.filter(entry => (
                 entry.event.startsWith('viewport-session-')
                 || entry.event.startsWith('navigation-')
+                || entry.event.startsWith('workspace-')
             )),
             renderTrace: renderTrace.slice(-60),
         };

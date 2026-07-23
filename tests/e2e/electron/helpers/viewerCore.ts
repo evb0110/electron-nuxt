@@ -1292,36 +1292,53 @@ async function readActiveViewerCurrentPageState(page: Page) {
 }
 
 export async function goToPageViaToolbar(page: Page, pageNumber: number) {
-    const displayPoint = await page.evaluate(() => {
-        const isVisibleElement = (element: HTMLElement) => {
-            const rect = element.getBoundingClientRect();
-            const style = window.getComputedStyle(element);
-            return style.display !== 'none' && style.visibility !== 'hidden' && rect.width > 8 && rect.height > 8;
-        };
+    const deadline = Date.now() + DEFAULT_TIMEOUT_MS;
+    let lastFailure = 'toolbar page control never became clickable';
 
-        const display = Array.from(document.querySelectorAll<HTMLElement>('.page-controls-display'))
-            .find(isVisibleElement);
-        if (!display) {
-            return null;
+    while (Date.now() < deadline) {
+        const displayPoint = await page.evaluate(() => {
+            const isVisibleElement = (element: HTMLElement) => {
+                const rect = element.getBoundingClientRect();
+                const style = window.getComputedStyle(element);
+                return style.display !== 'none' && style.visibility !== 'hidden' && rect.width > 8 && rect.height > 8;
+            };
+
+            const toolbarHost = document.querySelector<HTMLElement>('#editor-global-toolbar-host');
+            const display = Array.from((toolbarHost ?? document).querySelectorAll<HTMLButtonElement>('.page-controls-display'))
+                .find(candidate => isVisibleElement(candidate) && !candidate.disabled);
+            if (!display) {
+                return null;
+            }
+
+            const rect = display.getBoundingClientRect();
+            return {
+                x: Math.round(rect.left + rect.width / 2),
+                y: Math.round(rect.top + rect.height / 2),
+            };
+        });
+
+        if (!displayPoint) {
+            lastFailure = 'no enabled visible .page-controls-display in the active toolbar';
+            await new Promise(resolve => setTimeout(resolve, 250));
+            continue;
         }
 
-        const rect = display.getBoundingClientRect();
-        return {
-            x: Math.round(rect.left + rect.width / 2),
-            y: Math.round(rect.top + rect.height / 2),
-        };
-    });
+        await page.mouse.click(displayPoint.x, displayPoint.y);
+        try {
+            await page.waitForSelector('.page-controls-inline-input', { timeout: 2_000 });
+        } catch {
+            lastFailure = 'clicking the page control did not open the inline editor';
+            continue;
+        }
 
-    if (!displayPoint) {
-        throw new Error('Toolbar page control not found');
+        await page.click('.page-controls-inline-input', { count: 3 });
+        await page.keyboard.type(String(pageNumber));
+        await page.keyboard.press('Enter');
+        await waitForToolbarCurrentPage(page, pageNumber);
+        return;
     }
 
-    await page.mouse.click(displayPoint.x, displayPoint.y);
-    await page.waitForSelector('.page-controls-inline-input', { timeout: DEFAULT_TIMEOUT_MS });
-    await page.click('.page-controls-inline-input', { count: 3 });
-    await page.keyboard.type(String(pageNumber));
-    await page.keyboard.press('Enter');
-    await waitForToolbarCurrentPage(page, pageNumber);
+    throw new Error(`Toolbar page navigation to ${pageNumber} failed within ${DEFAULT_TIMEOUT_MS}ms (${lastFailure})`);
 }
 
 export async function getToolbarCurrentPage(page: Page) {

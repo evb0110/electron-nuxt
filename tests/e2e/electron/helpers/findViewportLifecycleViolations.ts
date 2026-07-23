@@ -94,7 +94,14 @@ export function findViewportLifecycleViolations(
         && frame.pageNumber === contract.expectedFinalPage
         && frame.skeletonCount > 0
     ));
-    if (contract.requireSkeleton && skeletonFrames.length === 0) {
+    const targetCommittedWithoutShell = frames.some(frame => (
+        frame.kind === 'committed-canvas'
+        && frame.pageNumber === contract.expectedFinalPage
+    ));
+    // A resident-canvas or warm reopen commits the target page without any
+    // render delay; the skeleton contract only applies when the page actually
+    // had to wait for its render.
+    if (contract.requireSkeleton && skeletonFrames.length === 0 && !targetCommittedWithoutShell) {
         violations.push('the controlled slow render never exposed its delayed page skeleton');
     }
 
