@@ -1,4 +1,5 @@
 use crate::{png::RgbImage, DewarpOptions};
+use rayon::prelude::*;
 use scan_primitives::{GrayImage, Point, Projective};
 use thiserror::Error;
 
@@ -342,16 +343,7 @@ pub fn rasterize_inverse_area_with<F>(
 where
     F: Fn(Point) -> Option<Point>,
 {
-    let mut output = GrayImage::new(width, height, 255);
-    for y in 0..height {
-        for x in 0..width {
-            let Some(quad) = mapped_quad_with(&output_to_source, x, y) else {
-                continue;
-            };
-            output.set(x, y, integrate_quad(source, &quad));
-        }
-    }
-    output
+    rasterize_inverse_area_impl(source, width, height, output_to_source)
 }
 
 pub fn rasterize_inverse_area_rgb(
@@ -374,14 +366,177 @@ pub fn rasterize_inverse_area_rgb_with<F>(
 where
     F: Fn(Point) -> Option<Point>,
 {
-    let mut output = RgbImage::new(width, height, [255; 3]);
-    for y in 0..height {
-        for x in 0..width {
-            let Some(quad) = mapped_quad_with(&output_to_source, x, y) else {
-                continue;
-            };
-            output.set(x, y, integrate_quad_rgb(source, &quad));
+    rasterize_inverse_area_impl(source, width, height, output_to_source)
+}
+
+trait RasterPixel: Copy + Send {
+    type Accumulator;
+
+    fn white() -> Self;
+    fn accumulator() -> Self::Accumulator;
+    fn add_weighted(accumulator: &mut Self::Accumulator, pixel: Self, weight: f64);
+    fn resolve(accumulator: Self::Accumulator, area: f64) -> Self;
+}
+
+impl RasterPixel for u8 {
+    type Accumulator = f64;
+
+    fn white() -> Self {
+        255
+    }
+
+    fn accumulator() -> Self::Accumulator {
+        0.0
+    }
+
+    fn add_weighted(accumulator: &mut Self::Accumulator, pixel: Self, weight: f64) {
+        *accumulator += weight * f64::from(pixel);
+    }
+
+    fn resolve(accumulator: Self::Accumulator, area: f64) -> Self {
+        (accumulator / area).round().clamp(0.0, 255.0) as u8
+    }
+}
+
+impl RasterPixel for [u8; 3] {
+    type Accumulator = [f64; 3];
+
+    fn white() -> Self {
+        [255; 3]
+    }
+
+    fn accumulator() -> Self::Accumulator {
+        [0.0; 3]
+    }
+
+    fn add_weighted(accumulator: &mut Self::Accumulator, pixel: Self, weight: f64) {
+        for channel in 0..3 {
+            accumulator[channel] += weight * f64::from(pixel[channel]);
         }
+    }
+
+    fn resolve(accumulator: Self::Accumulator, area: f64) -> Self {
+        accumulator.map(|value| (value / area).round().clamp(0.0, 255.0) as u8)
+    }
+}
+
+trait RasterImage: Sized + Sync {
+    type Pixel: RasterPixel;
+
+    fn new_white(width: usize, height: usize) -> Self;
+    fn width(&self) -> usize;
+    fn height(&self) -> usize;
+    fn get(&self, x: usize, y: usize) -> Self::Pixel;
+    fn data_mut(&mut self) -> &mut [u8];
+    fn row_len(width: usize) -> usize;
+    fn write_pixel(row: &mut [u8], x: usize, pixel: Self::Pixel);
+}
+
+impl RasterImage for GrayImage {
+    type Pixel = u8;
+
+    fn new_white(width: usize, height: usize) -> Self {
+        Self::new(width, height, 255)
+    }
+
+    fn width(&self) -> usize {
+        GrayImage::width(self)
+    }
+
+    fn height(&self) -> usize {
+        GrayImage::height(self)
+    }
+
+    fn get(&self, x: usize, y: usize) -> Self::Pixel {
+        GrayImage::get(self, x, y)
+    }
+
+    fn data_mut(&mut self) -> &mut [u8] {
+        GrayImage::data_mut(self)
+    }
+
+    fn row_len(width: usize) -> usize {
+        width
+    }
+
+    fn write_pixel(row: &mut [u8], x: usize, pixel: Self::Pixel) {
+        row[x] = pixel;
+    }
+}
+
+impl RasterImage for RgbImage {
+    type Pixel = [u8; 3];
+
+    fn new_white(width: usize, height: usize) -> Self {
+        Self::new(width, height, [255; 3])
+    }
+
+    fn width(&self) -> usize {
+        RgbImage::width(self)
+    }
+
+    fn height(&self) -> usize {
+        RgbImage::height(self)
+    }
+
+    fn get(&self, x: usize, y: usize) -> Self::Pixel {
+        RgbImage::get(self, x, y)
+    }
+
+    fn data_mut(&mut self) -> &mut [u8] {
+        RgbImage::data_mut(self)
+    }
+
+    fn row_len(width: usize) -> usize {
+        width.saturating_mul(3)
+    }
+
+    fn write_pixel(row: &mut [u8], x: usize, pixel: Self::Pixel) {
+        row[x * 3..x * 3 + 3].copy_from_slice(&pixel);
+    }
+}
+
+fn rasterize_inverse_area_impl<I, F>(
+    source: &I,
+    width: usize,
+    height: usize,
+    output_to_source: F,
+) -> I
+where
+    I: RasterImage,
+    F: Fn(Point) -> Option<Point>,
+{
+    let mut output = I::new_white(width, height);
+    if width == 0 || height == 0 {
+        return output;
+    }
+    let row_len = I::row_len(width);
+    let rows_per_batch = rayon::current_num_threads().max(1).saturating_mul(2);
+    for (batch_index, output_rows) in output
+        .data_mut()
+        .chunks_mut(row_len.saturating_mul(rows_per_batch))
+        .enumerate()
+    {
+        let first_y = batch_index * rows_per_batch;
+        let mapped_rows = (0..output_rows.len() / row_len)
+            .map(|row_offset| {
+                let y = first_y + row_offset;
+                (0..width)
+                    .map(|x| mapped_quad_with(&output_to_source, x, y))
+                    .collect::<Vec<_>>()
+            })
+            .collect::<Vec<_>>();
+        output_rows
+            .par_chunks_mut(row_len)
+            .zip(mapped_rows.into_par_iter())
+            .for_each(|(output_row, quads)| {
+                for (x, quad) in quads.into_iter().enumerate() {
+                    let Some(quad) = quad else {
+                        continue;
+                    };
+                    I::write_pixel(output_row, x, sample_quad(source, &quad));
+                }
+            });
     }
     output
 }
@@ -398,129 +553,173 @@ where
     ])
 }
 
-fn integrate_quad(source: &GrayImage, quad: &[Point; 4]) -> u8 {
-    let min_x = quad
-        .iter()
-        .map(|point| point.x)
-        .fold(f64::INFINITY, f64::min)
-        .floor()
-        .max(0.0) as usize;
-    let max_x = quad
-        .iter()
-        .map(|point| point.x)
-        .fold(f64::NEG_INFINITY, f64::max)
-        .ceil()
-        .min(source.width() as f64) as usize;
-    let min_y = quad
-        .iter()
-        .map(|point| point.y)
-        .fold(f64::INFINITY, f64::min)
-        .floor()
-        .max(0.0) as usize;
-    let max_y = quad
-        .iter()
-        .map(|point| point.y)
-        .fold(f64::NEG_INFINITY, f64::max)
-        .ceil()
-        .min(source.height() as f64) as usize;
-    let mut weighted = 0.0;
+#[derive(Clone, Copy)]
+struct QuadBounds {
+    min_x: f64,
+    max_x: f64,
+    min_y: f64,
+    max_y: f64,
+}
+
+impl QuadBounds {
+    fn from_quad(quad: &[Point; 4]) -> Self {
+        Self {
+            min_x: quad
+                .iter()
+                .map(|point| point.x)
+                .fold(f64::INFINITY, f64::min),
+            max_x: quad
+                .iter()
+                .map(|point| point.x)
+                .fold(f64::NEG_INFINITY, f64::max),
+            min_y: quad
+                .iter()
+                .map(|point| point.y)
+                .fold(f64::INFINITY, f64::min),
+            max_y: quad
+                .iter()
+                .map(|point| point.y)
+                .fold(f64::NEG_INFINITY, f64::max),
+        }
+    }
+
+    fn uses_bilinear(self) -> bool {
+        self.max_x - self.min_x <= 1.05 && self.max_y - self.min_y <= 1.05
+    }
+}
+
+fn sample_quad<I: RasterImage>(source: &I, quad: &[Point; 4]) -> I::Pixel {
+    let bounds = QuadBounds::from_quad(quad);
+    if bounds.uses_bilinear() {
+        let center = Point::new(
+            quad.iter().map(|point| point.x).sum::<f64>() * 0.25,
+            quad.iter().map(|point| point.y).sum::<f64>() * 0.25,
+        );
+        sample_bilinear(source, center, bounds)
+    } else {
+        integrate_quad(source, quad, bounds)
+    }
+}
+
+fn sample_bilinear<I: RasterImage>(source: &I, point: Point, bounds: QuadBounds) -> I::Pixel {
+    if source.width() == 0
+        || source.height() == 0
+        || bounds.max_x <= 0.0
+        || bounds.max_y <= 0.0
+        || bounds.min_x >= source.width() as f64
+        || bounds.min_y >= source.height() as f64
+    {
+        return I::Pixel::white();
+    }
+    let x = (point.x - 0.5).clamp(0.0, source.width().saturating_sub(1) as f64);
+    let y = (point.y - 0.5).clamp(0.0, source.height().saturating_sub(1) as f64);
+    let x0 = x.floor() as usize;
+    let y0 = y.floor() as usize;
+    let x1 = (x0 + 1).min(source.width() - 1);
+    let y1 = (y0 + 1).min(source.height() - 1);
+    let x_amount = x - x0 as f64;
+    let y_amount = y - y0 as f64;
+    let mut accumulator = I::Pixel::accumulator();
+    I::Pixel::add_weighted(
+        &mut accumulator,
+        source.get(x0, y0),
+        (1.0 - x_amount) * (1.0 - y_amount),
+    );
+    I::Pixel::add_weighted(
+        &mut accumulator,
+        source.get(x1, y0),
+        x_amount * (1.0 - y_amount),
+    );
+    I::Pixel::add_weighted(
+        &mut accumulator,
+        source.get(x0, y1),
+        (1.0 - x_amount) * y_amount,
+    );
+    I::Pixel::add_weighted(&mut accumulator, source.get(x1, y1), x_amount * y_amount);
+    I::Pixel::resolve(accumulator, 1.0)
+}
+
+fn integrate_quad<I: RasterImage>(source: &I, quad: &[Point; 4], bounds: QuadBounds) -> I::Pixel {
+    let min_x = bounds.min_x.floor().max(0.0) as usize;
+    let max_x = bounds.max_x.ceil().min(source.width() as f64) as usize;
+    let min_y = bounds.min_y.floor().max(0.0) as usize;
+    let max_y = bounds.max_y.ceil().min(source.height() as f64) as usize;
+    let mut weighted = I::Pixel::accumulator();
     let mut area = 0.0;
     for sy in min_y..max_y {
         for sx in min_x..max_x {
-            let clipped = clip_to_rect(
-                quad.to_vec(),
-                sx as f64,
-                sy as f64,
-                (sx + 1) as f64,
-                (sy + 1) as f64,
-            );
-            let coverage = polygon_area(&clipped);
+            let clipped =
+                clip_to_rect(quad, sx as f64, sy as f64, (sx + 1) as f64, (sy + 1) as f64);
+            let coverage = polygon_area(clipped.as_slice());
             if coverage > 1e-12 {
-                weighted += coverage * f64::from(source.get(sx, sy));
+                I::Pixel::add_weighted(&mut weighted, source.get(sx, sy), coverage);
                 area += coverage;
             }
         }
     }
     if area > 1e-12 {
-        (weighted / area).round().clamp(0.0, 255.0) as u8
+        I::Pixel::resolve(weighted, area)
     } else {
-        255
+        I::Pixel::white()
     }
 }
 
-fn integrate_quad_rgb(source: &RgbImage, quad: &[Point; 4]) -> [u8; 3] {
-    let min_x = quad
-        .iter()
-        .map(|point| point.x)
-        .fold(f64::INFINITY, f64::min)
-        .floor()
-        .max(0.0) as usize;
-    let max_x = quad
-        .iter()
-        .map(|point| point.x)
-        .fold(f64::NEG_INFINITY, f64::max)
-        .ceil()
-        .min(source.width() as f64) as usize;
-    let min_y = quad
-        .iter()
-        .map(|point| point.y)
-        .fold(f64::INFINITY, f64::min)
-        .floor()
-        .max(0.0) as usize;
-    let max_y = quad
-        .iter()
-        .map(|point| point.y)
-        .fold(f64::NEG_INFINITY, f64::max)
-        .ceil()
-        .min(source.height() as f64) as usize;
-    let mut weighted = [0.0; 3];
-    let mut area = 0.0;
-    for sy in min_y..max_y {
-        for sx in min_x..max_x {
-            let clipped = clip_to_rect(
-                quad.to_vec(),
-                sx as f64,
-                sy as f64,
-                (sx + 1) as f64,
-                (sy + 1) as f64,
-            );
-            let coverage = polygon_area(&clipped);
-            if coverage > 1e-12 {
-                let pixel = source.get(sx, sy);
-                for channel in 0..3 {
-                    weighted[channel] += coverage * f64::from(pixel[channel]);
-                }
-                area += coverage;
-            }
+const MAX_CLIP_VERTICES: usize = 12;
+
+#[derive(Clone, Copy)]
+struct ClipPolygon {
+    points: [Point; MAX_CLIP_VERTICES],
+    len: usize,
+}
+
+impl ClipPolygon {
+    fn from_quad(quad: &[Point; 4]) -> Self {
+        let mut polygon = Self::default();
+        for &point in quad {
+            polygon.push(point);
+        }
+        polygon
+    }
+
+    fn clear(&mut self) {
+        self.len = 0;
+    }
+
+    fn push(&mut self, point: Point) {
+        self.points[self.len] = point;
+        self.len += 1;
+    }
+
+    fn as_slice(&self) -> &[Point] {
+        &self.points[..self.len]
+    }
+}
+
+impl Default for ClipPolygon {
+    fn default() -> Self {
+        Self {
+            points: [Point::default(); MAX_CLIP_VERTICES],
+            len: 0,
         }
     }
-    if area > 1e-12 {
-        weighted.map(|value| (value / area).round().clamp(0.0, 255.0) as u8)
-    } else {
-        [255; 3]
-    }
 }
 
-fn clip_to_rect(
-    mut polygon: Vec<Point>,
-    left: f64,
-    top: f64,
-    right: f64,
-    bottom: f64,
-) -> Vec<Point> {
+fn clip_to_rect(quad: &[Point; 4], left: f64, top: f64, right: f64, bottom: f64) -> ClipPolygon {
+    let mut polygon = ClipPolygon::from_quad(quad);
+    let mut output = ClipPolygon::default();
     for (axis, bound, keep_greater) in [
         (0, left, true),
         (0, right, false),
         (1, top, true),
         (1, bottom, false),
     ] {
-        let input = std::mem::take(&mut polygon);
-        if input.is_empty() {
+        if polygon.len == 0 {
             break;
         }
-        for index in 0..input.len() {
-            let current = input[index];
-            let previous = input[(index + input.len() - 1) % input.len()];
+        output.clear();
+        for index in 0..polygon.len {
+            let current = polygon.points[index];
+            let previous = polygon.points[(index + polygon.len - 1) % polygon.len];
             let current_value = if axis == 0 { current.x } else { current.y };
             let previous_value = if axis == 0 { previous.x } else { previous.y };
             let current_inside = if keep_greater {
@@ -535,15 +734,16 @@ fn clip_to_rect(
             };
             if current_inside != previous_inside {
                 let amount = (bound - previous_value) / (current_value - previous_value);
-                polygon.push(Point::new(
+                output.push(Point::new(
                     previous.x + (current.x - previous.x) * amount,
                     previous.y + (current.y - previous.y) * amount,
                 ));
             }
             if current_inside {
-                polygon.push(current);
+                output.push(current);
             }
         }
+        std::mem::swap(&mut polygon, &mut output);
     }
     polygon
 }
@@ -623,6 +823,7 @@ fn solve(mut matrix: Vec<Vec<f64>>) -> Option<Vec<f64>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
     fn curves() -> DewarpOptions {
         DewarpOptions {
             top_curve: (0..=8)
@@ -646,6 +847,34 @@ mod tests {
             depth: 0.15,
         }
     }
+
+    fn rasterize_serial<I, F>(source: &I, width: usize, height: usize, output_to_source: F) -> I
+    where
+        I: RasterImage,
+        F: Fn(Point) -> Option<Point>,
+    {
+        let mut output = I::new_white(width, height);
+        if width == 0 || height == 0 {
+            return output;
+        }
+        for (y, output_row) in output.data_mut().chunks_mut(I::row_len(width)).enumerate() {
+            for x in 0..width {
+                let Some(quad) = mapped_quad_with(&output_to_source, x, y) else {
+                    continue;
+                };
+                I::write_pixel(output_row, x, sample_quad(source, &quad));
+            }
+        }
+        output
+    }
+
+    fn nontrivial_warp(point: Point) -> Option<Point> {
+        Some(Point::new(
+            1.5 + point.x * (1.08 + 0.018 * point.y) + 0.04 * point.y,
+            1.0 + point.y * (1.12 + 0.008 * point.x) + 0.18 * (point.x * 0.35).sin(),
+        ))
+    }
+
     #[test]
     fn endpoints_and_inverse_mapping_round_trip() {
         let model = DewarpModel::from_options(&curves()).unwrap();
@@ -656,6 +885,69 @@ mod tests {
             assert!((restored.y - v).abs() < 0.015);
         }
     }
+
+    #[test]
+    fn parallel_rasterizers_match_serial_reference_for_nontrivial_warp() {
+        let mut gray = GrayImage::new(48, 36, 255);
+        let mut rgb = RgbImage::new(48, 36, [255; 3]);
+        for y in 0..36 {
+            for x in 0..48 {
+                let value = ((x * 37 + y * 61 + x * y * 3) % 256) as u8;
+                gray.set(x, y, value);
+                rgb.set(x, y, [value, value.wrapping_mul(3), value.wrapping_add(91)]);
+            }
+        }
+        let expected_gray = rasterize_serial(&gray, 24, 20, nontrivial_warp);
+        let expected_rgb = rasterize_serial(&rgb, 24, 20, nontrivial_warp);
+
+        for thread_count in [1, 4] {
+            let pool = rayon::ThreadPoolBuilder::new()
+                .num_threads(thread_count)
+                .build()
+                .unwrap();
+            let actual_gray =
+                pool.install(|| rasterize_inverse_area_with(&gray, 24, 20, nontrivial_warp));
+            let actual_rgb =
+                pool.install(|| rasterize_inverse_area_rgb_with(&rgb, 24, 20, nontrivial_warp));
+            assert_eq!(actual_gray, expected_gray, "thread_count={thread_count}");
+            assert_eq!(actual_rgb, expected_rgb, "thread_count={thread_count}");
+        }
+    }
+
+    #[test]
+    fn bilinear_fast_path_agrees_with_area_integration_near_identity() {
+        let mut source = GrayImage::new(22, 18, 255);
+        for y in 0..source.height() {
+            for x in 0..source.width() {
+                source.set(x, y, (x * 5 + y * 7 + x * y % 5) as u8);
+            }
+        }
+        let near_identity = |point: Point| {
+            Some(Point::new(
+                1.0 + point.x * 0.995 + point.y * 0.004,
+                1.0 + point.y * 1.002 + point.x * 0.003,
+            ))
+        };
+        let adaptive = rasterize_inverse_area_with(&source, 18, 14, near_identity);
+        let mut exact = GrayImage::new(18, 14, 255);
+        for y in 0..14 {
+            for x in 0..18 {
+                let quad = mapped_quad_with(&near_identity, x, y).unwrap();
+                let bounds = QuadBounds::from_quad(&quad);
+                assert!(bounds.uses_bilinear());
+                exact.set(x, y, integrate_quad(&source, &quad, bounds));
+            }
+        }
+        let max_difference = adaptive
+            .data()
+            .iter()
+            .zip(exact.data())
+            .map(|(&left, &right)| left.abs_diff(right))
+            .max()
+            .unwrap();
+        assert!(max_difference <= 2, "max_difference={max_difference}");
+    }
+
     #[test]
     fn inverse_area_rasterizer_straightens_known_curves() {
         let model = DewarpModel::from_options(&curves()).unwrap();
