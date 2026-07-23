@@ -153,7 +153,6 @@ describe('CI topology policy', () => {
         expect(prQuality).not.toContain('run: pnpm run test:rust');
         expect(prQuality).not.toContain('run: pnpm run test:e2e');
         expect(prQuality).not.toContain('run: pnpm run test:e2e:electron:large');
-        expect(prQuality).not.toContain('run: pnpm run test:python-page-processor');
         expect(prQuality).not.toContain('run: pnpm run diag:pdf-tabs:ci');
         expect(prQuality).not.toContain('electron-builder');
         expect(workflow).toContain('name: Manual Quality Gates');
@@ -209,9 +208,6 @@ describe('CI topology policy', () => {
         expect(workflowJob(workflow, 'manual_landing')).not.toContain('continue-on-error: true');
         expect(sharedVitestConfig).toContain('tests/unit/landing/**/*.test.ts');
         expect(testsTsconfig.exclude).toContain('./unit/landing/**/*.ts');
-        expect(workflowJob(workflow, 'nightly_maintenance')).toContain('python -m pip install --require-hashes --only-binary=:all:');
-        expect(workflowJob(workflow, 'nightly_maintenance')).toContain('-r python/page-processor/requirements-lock.txt');
-        expect(workflowJob(workflow, 'nightly_maintenance')).toContain('run: pnpm run test:python-page-processor');
     });
 
     it('runs regular packaged-content verification against extracted Store AppX contents', async () => {
@@ -355,9 +351,6 @@ describe('CI topology policy', () => {
         expect(workflowJob(workflow, 'nightly_maintenance')).toContain('run: pnpm --dir landing install --frozen-lockfile');
         expect(workflowJob(workflow, 'nightly_maintenance')).not.toContain('playwright install');
         expect(workflowJob(workflow, 'manual_quality')).not.toContain('run: pnpm run check:production-dependency-audit');
-        expect(workflowJob(workflow, 'nightly_maintenance')).toContain('python -m pip install --require-hashes --only-binary=:all:');
-        expect(workflowJob(workflow, 'nightly_maintenance')).toContain('-r python/page-processor/requirements-lock.txt');
-        expect(workflowJob(workflow, 'nightly_maintenance')).toContain('run: pnpm run test:python-page-processor');
         expect(nvmrc.trim()).toBe('24.11.1');
         expect(workflow).toContain('NODE_VERSION: \'24.11.1\'');
         expect(buildWorkflow).toContain('NODE_VERSION: \'24.11.1\'');

@@ -80,8 +80,7 @@ sudo env DEBIAN_FRONTEND=noninteractive apt-get install -y -qq \
   libgtk-3-0 libnss3 libasound2t64 libxss1 libgbm1 libdrm2 \
   libxshmfence1 libatk-bridge2.0-0 libatspi2.0-0 libcups2 \
   libxcomposite1 libxdamage1 libxrandr2 libxkbcommon0 \
-  libpango-1.0-0 libcairo2 \
-  python3-numpy python3-opencv python3-pil python3-img2pdf
+  libpango-1.0-0 libcairo2
 sudo gem install fpm --no-document
 ```
 

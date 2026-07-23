@@ -314,7 +314,6 @@ describe('package scripts', () => {
         expect(scripts['check:pdfjs-viewer-css']).toBe('node scripts/sync-pdfjs-viewer-css.mjs --check');
         expect(scripts['check:production-dependency-audit']).toBe('pnpm exec tsx scripts/checkProductionDependencyAudit.ts');
         expect(scripts['release:resume']).toBe('HUSKY=0 node scripts/release/cut-release.mjs --resume');
-        expect(scripts['test:python-page-processor']).toBe('python3 scripts/check-page-processor-smoke.py');
         expect(scripts['check:wasm:freshness']).toBe('node scripts/check-wasm-freshness.mjs --mode=strict');
         expect(scripts['check:wasm:portable']).toBe('node scripts/check-wasm-freshness.mjs --mode=portable');
         expect(scripts['check:architecture:dep-graph']).toBe('node scripts/architecture/dep-graph.mjs --scope=focused --output=.tmp/dep-graph.json');

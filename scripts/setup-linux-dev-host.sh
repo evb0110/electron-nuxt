@@ -46,10 +46,6 @@ APT_PACKAGES=(
   libxkbcommon0
   libpango-1.0-0
   libcairo2
-  python3-numpy
-  python3-opencv
-  python3-pil
-  python3-img2pdf
 )
 
 echo "Installing Linux host packages..."

@@ -1,5 +1,7 @@
 # Architecture Audit — 2026-07-23 (Size, Elegance, and Consolidation)
 
+Decision update: the dormant Python page-processor was removed after the native scan-cleanup pipeline superseded it; its implementation remains recoverable from git history.
+
 Unlike the 2026-07-03/05 audits (correctness/fragility), this audit answers the owner's
 question: *is ~678k authored LOC justified, and can substantial parts be rewritten more
 logically and elegantly?* Six Codex (gpt-5.6-sol @ high) area auditors + one correctness
@@ -173,8 +175,8 @@ replay, fail-closed release gates).
 10. Tests: table-drive repeated scenario families; delete mock-echo assertions; one
     layer per scenario + one e2e proof; each deleted duplicate needs a retained test
     that fails under a representative violation. (236.5k → 165–180k.)
-11. Owner decisions: dormant python/ page-processor (extract, delete, or promote);
-    landing/ into the workspace (delete vendor copies, lockstep checker, nested
+11. Owner decisions: dormant python/ page-processor deleted (recoverable from git
+    history); landing/ into the workspace (delete vendor copies, lockstep checker, nested
     workflow); legacy `documents.*` aggregate deprecation clock.
 
 ## Process rules for the overhaul (and after)

@@ -6,7 +6,6 @@ release/
 # Native resources (Electron-only)
 native/
 resources/
-python/
 
 # Nuxt build cache (root app, not landing)
 .angular/

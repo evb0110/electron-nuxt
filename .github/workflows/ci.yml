@@ -435,11 +435,6 @@ jobs:
             pnpm-lock.yaml
             landing/pnpm-lock.yaml
 
-      - name: Setup Python
-        uses: actions/setup-python@v6
-        with:
-          python-version: '3.12'
-
       - name: Install dependencies
         run: node scripts/ci-install-dependencies.mjs --frozen-lockfile
 
@@ -457,11 +452,6 @@ jobs:
 
       - name: WASM freshness
         run: pnpm run check:wasm:portable
-
-      - name: Install page processor smoke dependencies
-        run: >-
-          python -m pip install --require-hashes --only-binary=:all:
-          -r python/page-processor/requirements-lock.txt
 
       - name: Lint
         run: pnpm run lint
@@ -492,9 +482,6 @@ jobs:
 
       - name: Coverage
         run: pnpm run test:coverage
-
-      - name: Page processor smoke
-        run: pnpm run test:python-page-processor
 
       - name: OCR native smoke
         run: pnpm run test:ocr:native-smoke:required

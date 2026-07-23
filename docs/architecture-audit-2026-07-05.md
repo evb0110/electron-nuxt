@@ -1,5 +1,7 @@
 # Architecture Audit — 2026-07-05
 
+Historical note: the dormant Python page-processor was removed in July 2026 after the native scan-cleanup pipeline superseded it; its implementation remains recoverable from git history.
+
 Follow-up to `architecture-audit-2026-07-03.md`. Six Codex (gpt-5.5) auditors: two at
 high effort re-verifying all 56 prior findings against HEAD (10308da2d), one at high
 effort reviewing the 15 remediation commits (`a4868541..HEAD`) with fresh eyes, and three

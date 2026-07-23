@@ -168,28 +168,6 @@ function verifyLocalPackageArtifacts(target) {
     }
 }
 
-export function getGeneratedNativeResourceCommands(target) {
-    void target;
-    return [];
-}
-
-export function prepareGeneratedNativeResources(target, env, runCommand = run) {
-    const commands = getGeneratedNativeResourceCommands(target);
-    if (commands.length === 0) {
-        return;
-    }
-
-    process.stdout.write(
-        `Bundling generated native resources for ${target.platform}-${target.arch}...\n`,
-    );
-    for (const command of commands) {
-        runCommand(command.command, command.args, {
-            env,
-            stdio: 'inherit',
-        });
-    }
-}
-
 function pruneUpdaterMetadataForLocalParity(target) {
     if (expectsUpdaterMetadata(target)) {
         return;
@@ -227,8 +205,6 @@ function main() {
         process.stdout.write(
             `Packaging local release artifacts for ${target.platform}-${target.arch}...\n`,
         );
-
-        prepareGeneratedNativeResources(target, env);
 
         run('pnpm', getPackagingArgs(target, env), {
             env,

@@ -1,9 +1,6 @@
 #!/usr/bin/env node
 import { spawnSync } from 'node:child_process';
-import {
-    existsSync,
-    readdirSync,
-} from 'node:fs';
+import { existsSync } from 'node:fs';
 import {
     dirname,
     join,
@@ -69,59 +66,6 @@ function nodeProbe(source) {
     return run(process.execPath, [
         '-e',
         source,
-    ]);
-}
-
-const PYTHON_PAGE_PROCESSOR_PROBE_SOURCE = 'import cv2, img2pdf, numpy, PIL; print(f"cv2={cv2.__version__} img2pdf={img2pdf.__version__} numpy={numpy.__version__} PIL={PIL.__version__}")';
-
-function pageProcessorPythonCandidates() {
-    const candidates = ['python3'];
-    const smokeVenvRoot = join(projectRoot, '.devkit', 'python-page-processor-smoke');
-
-    if (!existsSync(smokeVenvRoot)) {
-        return candidates;
-    }
-
-    try {
-        const venvPythonCandidates = readdirSync(smokeVenvRoot, {withFileTypes: true})
-            .filter(entry => entry.isDirectory() && /^py\d+$/u.test(entry.name))
-            .map(entry => join(
-                smokeVenvRoot,
-                entry.name,
-                process.platform === 'win32' ? 'Scripts' : 'bin',
-                process.platform === 'win32' ? 'python.exe' : 'python',
-            ))
-            .filter(candidate => existsSync(candidate))
-            .sort()
-            .reverse();
-
-        candidates.push(...venvPythonCandidates);
-    } catch {
-        return candidates;
-    }
-
-    return [...new Set(candidates)];
-}
-
-function pythonPageProcessorProbe() {
-    let firstResult = null;
-    for (const candidate of pageProcessorPythonCandidates()) {
-        const result = run(candidate, [
-            '-c',
-            PYTHON_PAGE_PROCESSOR_PROBE_SOURCE,
-        ]);
-        firstResult ??= result;
-        if (result.ok) {
-            return {
-                ...result,
-                stdout: `${result.stdout} (${candidate})`,
-            };
-        }
-    }
-
-    return firstResult ?? run('python3', [
-        '-c',
-        PYTHON_PAGE_PROCESSOR_PROBE_SOURCE,
     ]);
 }
 
@@ -279,15 +223,6 @@ addCheck({
     remedy: 'Run rustup target add wasm32-unknown-unknown.',
     required: true,
     status: hasWasmTarget ? 'ok' : 'missing',
-});
-
-const pythonResult = pythonPageProcessorProbe();
-addCheck({
-    detail: pythonResult.ok ? pythonResult.stdout : pythonResult.stderr || pythonResult.error,
-    name: 'Python page-processor modules',
-    remedy: 'Run pnpm run test:python-page-processor to bootstrap .devkit dependencies, or on Ubuntu install python3-numpy python3-opencv python3-pil python3-img2pdf.',
-    required: true,
-    status: pythonResult.ok ? 'ok' : 'missing',
 });
 
 if (hostTag) {
