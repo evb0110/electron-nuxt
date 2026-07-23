@@ -2,6 +2,8 @@ use serde::Serialize;
 use std::{any::Any, error::Error};
 use thiserror::Error;
 
+pub mod output;
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Error)]
 #[serde(rename_all = "kebab-case")]
 pub enum NativeErrorCode {

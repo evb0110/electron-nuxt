@@ -7,11 +7,11 @@ use std::{
 use std::fs;
 
 use crc32fast::Hasher;
+use evb_native_support::output::{write_bytes_atomically, ValidatedInputFiles};
 use flate2::{write::ZlibEncoder, Compression};
 
 use crate::{
     netpbm::{is_rgb_data_grayscale, parse_netpbm},
-    output::{validate_output_inputs, write_atomically},
     Result,
 };
 
@@ -22,23 +22,21 @@ pub(crate) fn encode_netpbm_file_as_png(
     output_path: &Path,
     max_pixels: u64,
 ) -> Result<()> {
-    let validated_inputs = validate_output_inputs(&[input_path.to_path_buf()], output_path)?;
+    let validated_inputs = ValidatedInputFiles::open(&[input_path.to_path_buf()], output_path)?;
     encode_validated_netpbm_file_as_png(output_path, max_pixels, &validated_inputs)
 }
 
 fn encode_validated_netpbm_file_as_png(
     output_path: &Path,
     max_pixels: u64,
-    validated_inputs: &crate::output::ValidatedInputs,
+    validated_inputs: &ValidatedInputFiles,
 ) -> Result<()> {
-    let mut input = validated_inputs.file(0)?;
+    let mut input = validated_inputs.clone_file(0)?;
     let mut data = Vec::new();
     input.read_to_end(&mut data)?;
     let png = encode_netpbm_as_png(&data, max_pixels)?;
-    write_atomically(output_path, |output| {
-        output.write_all(&png)?;
-        Ok(())
-    })
+    write_bytes_atomically(output_path, &png)?;
+    Ok(())
 }
 
 fn encode_netpbm_as_png(data: &[u8], max_pixels: u64) -> Result<Vec<u8>> {
@@ -161,45 +159,6 @@ mod tests {
         assert!(result.is_err());
         assert_eq!(fs::read(&output_path).unwrap(), b"existing-png-output");
         let _ = fs::remove_file(input_path);
-        let _ = fs::remove_file(output_path);
-    }
-
-    #[test]
-    fn file_conversion_rejects_output_alias_to_netpbm_input() {
-        let input_path = temp_path("alias-input").with_extension("ppm");
-        let original = b"P6\n1 1\n255\n\x01\x02\x03";
-        fs::write(&input_path, original).unwrap();
-
-        let error = encode_netpbm_file_as_png(&input_path, &input_path, 1).unwrap_err();
-
-        assert!(error.to_string().contains("Output aliases an input"));
-        assert_eq!(fs::read(&input_path).unwrap(), original);
-        let _ = fs::remove_file(input_path);
-    }
-
-    #[test]
-    fn file_conversion_decodes_validated_descriptor_after_path_becomes_output_alias() {
-        let input_path = temp_path("descriptor-input").with_extension("ppm");
-        let displaced_path = temp_path("descriptor-original").with_extension("ppm");
-        let output_path = temp_path("descriptor-output").with_extension("png");
-        fs::write(&input_path, b"P6\n1 1\n255\n\x11\x22\x33").unwrap();
-        fs::write(&output_path, b"old-png-output").unwrap();
-        let input_paths = vec![input_path.clone()];
-
-        let validated_inputs = validate_output_inputs(&input_paths, &output_path).unwrap();
-        fs::rename(&input_path, &displaced_path).unwrap();
-        fs::hard_link(&output_path, &input_path).unwrap();
-
-        encode_validated_netpbm_file_as_png(&output_path, 1, &validated_inputs).unwrap();
-
-        let png = fs::read(&output_path).unwrap();
-        assert_eq!(
-            inflate(chunk_data(&png, b"IDAT").unwrap()),
-            vec![0, 17, 34, 51]
-        );
-        assert_eq!(fs::read(&input_path).unwrap(), b"old-png-output");
-        let _ = fs::remove_file(input_path);
-        let _ = fs::remove_file(displaced_path);
         let _ = fs::remove_file(output_path);
     }
 

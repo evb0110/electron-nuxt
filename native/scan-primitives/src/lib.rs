@@ -7,9 +7,11 @@ pub mod distance;
 pub mod geometry;
 pub mod gray;
 pub mod morphology;
+pub mod rgb;
 pub mod threshold;
 
 pub use binary::BinaryImage;
 pub use components::{Component, ComponentMap};
 pub use geometry::{Affine, Line, Point, Polygon, Projective, Rect};
 pub use gray::{GrayImage, GrayView};
+pub use rgb::RgbImage;

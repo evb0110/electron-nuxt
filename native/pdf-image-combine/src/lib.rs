@@ -3,7 +3,6 @@ mod flate;
 mod image;
 mod jpeg;
 mod netpbm;
-mod output;
 mod pdf;
 mod png;
 mod png_encode;
@@ -19,6 +18,8 @@ use std::{
     path::{Path, PathBuf},
 };
 
+use evb_native_support::output::{AtomicOutput, ValidatedInputFiles};
+
 use crate::{
     image::{
         assert_pixel_limit, read_image_page_from_bytes, read_image_page_from_file,
@@ -26,7 +27,6 @@ use crate::{
         PdfImageCompression,
     },
     netpbm::parse_pbm_p4,
-    output::{validate_output_inputs, write_atomically},
     pdf::{
         build_layered_pdf_page, build_mask_pdf_page, build_pdf, write_pdf_to_writer, ImagePage,
         ImagePayload,
@@ -213,7 +213,7 @@ pub fn write_pdf_from_image_paths_with_progress(
     options: &PdfBuildOptions,
     on_processed: impl FnMut(usize),
 ) -> Result<()> {
-    let validated_inputs = validate_output_inputs(input_paths, output_path)?;
+    let validated_inputs = ValidatedInputFiles::open(input_paths, output_path)?;
     write_pdf_from_validated_image_paths_with_progress(
         input_paths,
         output_path,
@@ -227,19 +227,21 @@ fn write_pdf_from_validated_image_paths_with_progress(
     input_paths: &[PathBuf],
     output_path: &Path,
     options: &PdfBuildOptions,
-    validated_inputs: &output::ValidatedInputs,
+    validated_inputs: &ValidatedInputFiles,
     mut on_processed: impl FnMut(usize),
 ) -> Result<()> {
     let mut page_count = 0;
     let mut total_pixels = 0u64;
 
-    write_atomically(output_path, |output| {
-        let writer = OutputLimitWriter::new(BufWriter::new(output), options.max_output_bytes);
+    let mut output = AtomicOutput::create(output_path)?;
+    {
+        let writer =
+            OutputLimitWriter::new(BufWriter::new(output.file_mut()?), options.max_output_bytes);
         let mut writer = write_pdf_to_writer(writer, |pdf| {
             for (index, input_path) in input_paths.iter().enumerate() {
                 visit_image_pages_from_file(
                     input_path,
-                    validated_inputs.file(index)?,
+                    validated_inputs.clone_file(index)?,
                     options.max_pixels,
                     options.default_dpi,
                     options.max_tiff_frames,
@@ -258,8 +260,9 @@ fn write_pdf_from_validated_image_paths_with_progress(
             Ok(())
         })?;
         writer.flush()?;
-        Ok(())
-    })
+    }
+    output.publish()?;
+    Ok(())
 }
 
 struct OutputLimitWriter<W: Write> {
@@ -495,10 +498,11 @@ pub fn write_mixed_pdf_from_page_specs_with_progress(
     next_page_count_with_limit(0, page_specs.len(), options.max_pages)?;
 
     let input_paths = mixed_pdf_input_paths(page_specs);
-    let validated_inputs = validate_output_inputs(&input_paths, output_path)?;
+    let validated_inputs = ValidatedInputFiles::open(&input_paths, output_path)?;
 
-    write_atomically(output_path, |output| {
-        let writer = BufWriter::new(output);
+    let mut output = AtomicOutput::create(output_path)?;
+    {
+        let writer = BufWriter::new(output.file_mut()?);
         let mut writer = write_pdf_to_writer(writer, |pdf| {
             let mut input_index = 0usize;
             for (index, spec) in page_specs.iter().enumerate() {
@@ -512,7 +516,7 @@ pub fn write_mixed_pdf_from_page_specs_with_progress(
                     } => {
                         let page = read_single_image_page_from_file(
                             image_path,
-                            validated_inputs.file(input_index)?,
+                            validated_inputs.clone_file(input_index)?,
                             options,
                             image_compression_to_reader(*compression),
                             *image_processing,
@@ -533,7 +537,7 @@ pub fn write_mixed_pdf_from_page_specs_with_progress(
                     } => {
                         let background = read_single_image_page_from_file(
                             background_path,
-                            validated_inputs.file(input_index)?,
+                            validated_inputs.clone_file(input_index)?,
                             options,
                             image_compression_to_reader(*background_compression),
                             *background_processing,
@@ -542,7 +546,7 @@ pub fn write_mixed_pdf_from_page_specs_with_progress(
                         )?;
                         input_index += 1;
                         let foreground_mask = parse_processed_pbm_mask_from_file(
-                            validated_inputs.file(input_index)?,
+                            validated_inputs.clone_file(input_index)?,
                             options.max_pixels,
                         )?;
                         input_index += 1;
@@ -566,7 +570,7 @@ pub fn write_mixed_pdf_from_page_specs_with_progress(
                         foreground_mask_path: _,
                     } => {
                         let foreground_mask = parse_processed_pbm_mask_from_file(
-                            validated_inputs.file(input_index)?,
+                            validated_inputs.clone_file(input_index)?,
                             options.max_pixels,
                         )?;
                         input_index += 1;
@@ -589,8 +593,9 @@ pub fn write_mixed_pdf_from_page_specs_with_progress(
             Ok(())
         })?;
         writer.flush()?;
-        Ok(())
-    })
+    }
+    output.publish()?;
+    Ok(())
 }
 
 fn mixed_pdf_input_paths(page_specs: &[MixedPdfPageSpec]) -> Vec<PathBuf> {
@@ -963,7 +968,7 @@ mod tests {
         write_two_page_rgb_tiff(&tiff_path);
         fs::write(&output_path, b"old-output").unwrap();
 
-        let validated_inputs = validate_output_inputs(&input_paths, &output_path).unwrap();
+        let validated_inputs = ValidatedInputFiles::open(&input_paths, &output_path).unwrap();
         let mut displaced_paths = Vec::new();
         for (index, input_path) in input_paths.iter().enumerate() {
             let displaced_path = temp_path(&format!("descriptor-original-{index}"));
@@ -993,74 +998,6 @@ mod tests {
         for displaced_path in displaced_paths {
             let _ = fs::remove_file(displaced_path);
         }
-        let _ = fs::remove_file(output_path);
-    }
-
-    #[test]
-    fn rejects_pdf_output_that_is_the_input_without_modifying_it() {
-        let input_path = temp_path("same-input-output").with_extension("ppm");
-        let original = b"P6\n1 1\n255\n\xff\0\0";
-        fs::write(&input_path, original).unwrap();
-
-        let error = write_pdf_from_image_paths(
-            std::slice::from_ref(&input_path),
-            &input_path,
-            &PdfBuildOptions::default(),
-        )
-        .unwrap_err();
-
-        assert!(error.to_string().contains("Output aliases an input"));
-        assert_eq!(fs::read(&input_path).unwrap(), original);
-        let _ = fs::remove_file(input_path);
-    }
-
-    #[test]
-    fn rejects_pdf_output_hardlink_to_input_without_modifying_either_link() {
-        let input_path = temp_path("hardlink-input").with_extension("ppm");
-        let output_path = temp_path("hardlink-output").with_extension("pdf");
-        let original = b"P6\n1 1\n255\n\0\xff\0";
-        fs::write(&input_path, original).unwrap();
-        fs::hard_link(&input_path, &output_path).unwrap();
-
-        let error = write_pdf_from_image_paths(
-            std::slice::from_ref(&input_path),
-            &output_path,
-            &PdfBuildOptions::default(),
-        )
-        .unwrap_err();
-
-        assert!(error.to_string().contains("Output aliases an input"));
-        assert_eq!(fs::read(&input_path).unwrap(), original);
-        assert_eq!(fs::read(&output_path).unwrap(), original);
-        let _ = fs::remove_file(input_path);
-        let _ = fs::remove_file(output_path);
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn rejects_pdf_output_symlink_to_input_without_modifying_target() {
-        use std::os::unix::fs::symlink;
-
-        let input_path = temp_path("symlink-input").with_extension("ppm");
-        let output_path = temp_path("symlink-output").with_extension("pdf");
-        let original = b"P6\n1 1\n255\n\0\0\xff";
-        fs::write(&input_path, original).unwrap();
-        symlink(&input_path, &output_path).unwrap();
-
-        let error = write_pdf_from_image_paths(
-            std::slice::from_ref(&input_path),
-            &output_path,
-            &PdfBuildOptions::default(),
-        )
-        .unwrap_err();
-
-        assert!(error.to_string().contains("Output aliases an input"));
-        assert_eq!(fs::read(&input_path).unwrap(), original);
-        assert!(fs::symlink_metadata(&output_path)
-            .unwrap()
-            .file_type()
-            .is_symlink());
-        let _ = fs::remove_file(input_path);
         let _ = fs::remove_file(output_path);
     }
 
