@@ -193,12 +193,15 @@ mod tests {
             layout: crate::LayoutMode::Auto,
             ..CleanupOptions::default()
         };
+        let mut timings = PageStageTimings::default();
         let prepared = prepare_analysis_page(
             &source,
             &options,
             true,
             None,
             CalibrationConfig::default(),
+            None,
+            &mut timings,
         );
         assert_eq!(
             prepared.split.classification,

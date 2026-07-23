@@ -3,6 +3,7 @@ mod analysis;
 pub mod auto_dewarp;
 pub mod background;
 pub mod bw;
+mod cache;
 #[doc(hidden)]
 pub mod calibration;
 pub mod cli;

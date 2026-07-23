@@ -14,6 +14,7 @@ use crate::{
         binarize_normalized_with_diagnostics, binarize_normalized_with_diagnostics_excluding,
         binary_to_gray, postprocess_binary_with_diagnostics, BinarizationDiagnostics,
     },
+    cache::{PageCache, StageCacheKey},
     calibration::{CalibrationConfig, PageCalibration},
     content::detect_content_and_margins_calibrated,
     deskew::{detect_skew, DeskewResult},
@@ -22,7 +23,7 @@ use crate::{
     },
     picture::{apply_manual_zones, detect_picture_mask},
     png::RgbImage,
-    protocol::manifest_v2::ContentDiagnostics,
+    protocol::{manifest_v2::ContentDiagnostics, progress::PageStageTimings},
     split::{
         detect_split_at_analysis_level_with_threshold, DocumentPrior, LayoutClassification,
         ReconciliationMetadata, SplitResult,
@@ -34,6 +35,7 @@ use scan_primitives::{
     threshold::otsu_threshold, Affine, BinaryImage, GrayImage, Point, Polygon, Rect,
 };
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use std::{sync::Arc, time::Instant};
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -282,18 +284,19 @@ pub struct PageAnalysisResult {
 
 struct PreparedPage {
     rotated_source: GrayImage,
-    normalized: GrayImage,
-    analysis_normalized: Option<GrayImage>,
+    normalized: Arc<GrayImage>,
+    analysis_normalized: Option<Arc<GrayImage>>,
     analysis_scale_x: f64,
     analysis_scale_y: f64,
     calibration: PageCalibration,
     rotated_color: Option<RgbImage>,
-    picture_mask: Option<BinaryImage>,
+    picture_mask: Option<Arc<BinaryImage>>,
     split: SplitResult,
+    split_cache_key: Option<StageCacheKey>,
 }
 
 struct PreparedAnalysis {
-    normalized: GrayImage,
+    normalized: Arc<GrayImage>,
     split: SplitResult,
     scale_x: f64,
     scale_y: f64,
@@ -303,7 +306,29 @@ struct PreparedAnalysis {
     candidate_cutter_ratio: Option<f64>,
     whitespace_score: f64,
     text_axis: Option<TextAxisHint>,
-    picture_mask: Option<BinaryImage>,
+    picture_mask: Option<Arc<BinaryImage>>,
+    split_cache_key: Option<StageCacheKey>,
+}
+
+struct AnalysisArtifact {
+    normalized: Arc<GrayImage>,
+    layout_normalized: Arc<GrayImage>,
+    scale_x: f64,
+    scale_y: f64,
+    full_width: usize,
+    full_height: usize,
+    calibration: PageCalibration,
+    effective_dpi: f64,
+    picture_mask: Option<Arc<BinaryImage>>,
+    analysis_threshold: u8,
+    text_axis: Option<TextAxisHint>,
+}
+
+#[derive(Clone, Copy)]
+struct CachedContentDetection {
+    detected_content: Option<Rect>,
+    source_content_box: Option<Rect>,
+    diagnostics: Option<ContentDiagnostics>,
 }
 
 pub fn classify_page(
@@ -318,6 +343,17 @@ pub fn classify_page_with_document_prior(
     options: &CleanupOptions,
     document_prior: Option<DocumentPrior>,
 ) -> Result<PageClassificationResult, String> {
+    let mut timings = PageStageTimings::default();
+    classify_page_with_document_prior_impl(source, options, document_prior, None, &mut timings)
+}
+
+fn classify_page_with_document_prior_impl(
+    source: &GrayImage,
+    options: &CleanupOptions,
+    document_prior: Option<DocumentPrior>,
+    cache: Option<&PageCache>,
+    timings: &mut PageStageTimings,
+) -> Result<PageClassificationResult, String> {
     options.validate()?;
     let prepared = prepare_analysis_page(
         source,
@@ -325,6 +361,8 @@ pub fn classify_page_with_document_prior(
         false,
         document_prior,
         CalibrationConfig::default(),
+        cache,
+        timings,
     );
     Ok(PageClassificationResult {
         classification: prepared.split.classification,
@@ -354,6 +392,27 @@ pub fn analyze_page_with_document_prior(
     options: &CleanupOptions,
     document_prior: Option<DocumentPrior>,
 ) -> Result<PageAnalysisResult, String> {
+    let mut timings = PageStageTimings::default();
+    analyze_page_with_document_prior_impl(source, options, document_prior, None, &mut timings)
+}
+
+pub(crate) fn analyze_page_with_document_prior_cached(
+    source: &GrayImage,
+    options: &CleanupOptions,
+    document_prior: Option<DocumentPrior>,
+    cache: &PageCache,
+    timings: &mut PageStageTimings,
+) -> Result<PageAnalysisResult, String> {
+    analyze_page_with_document_prior_impl(source, options, document_prior, Some(cache), timings)
+}
+
+fn analyze_page_with_document_prior_impl(
+    source: &GrayImage,
+    options: &CleanupOptions,
+    document_prior: Option<DocumentPrior>,
+    cache: Option<&PageCache>,
+    timings: &mut PageStageTimings,
+) -> Result<PageAnalysisResult, String> {
     options.validate()?;
     if options.excluded {
         return Ok(PageAnalysisResult {
@@ -382,7 +441,10 @@ pub fn analyze_page_with_document_prior(
         true,
         document_prior,
         CalibrationConfig::default(),
+        cache,
+        timings,
     );
+    let content_started = Instant::now();
     let outputs = output_regions(
         prepared.full_width,
         prepared.full_height,
@@ -460,6 +522,7 @@ pub fn analyze_page_with_document_prior(
         }
     })
     .collect();
+    timings.content_ms += content_started.elapsed().as_secs_f64() * 1_000.0;
     Ok(PageAnalysisResult {
         outputs,
         classification: prepared.split.classification,
@@ -482,6 +545,7 @@ pub fn clean_page(
     options: &CleanupOptions,
     source_page_index: usize,
 ) -> Result<PageCleanupResult, String> {
+    let mut timings = PageStageTimings::default();
     clean_page_with_color_and_calibration_config(
         source,
         None,
@@ -489,6 +553,8 @@ pub fn clean_page(
         source_page_index,
         CalibrationConfig::default(),
         None,
+        None,
+        &mut timings,
     )
 }
 
@@ -499,6 +565,7 @@ pub fn clean_page_with_calibration_config(
     source_page_index: usize,
     calibration_config: CalibrationConfig,
 ) -> Result<PageCleanupResult, String> {
+    let mut timings = PageStageTimings::default();
     clean_page_with_color_and_calibration_config(
         source,
         None,
@@ -506,6 +573,8 @@ pub fn clean_page_with_calibration_config(
         source_page_index,
         calibration_config,
         None,
+        None,
+        &mut timings,
     )
 }
 
@@ -515,6 +584,7 @@ pub fn clean_page_with_color(
     options: &CleanupOptions,
     source_page_index: usize,
 ) -> Result<PageCleanupResult, String> {
+    let mut timings = PageStageTimings::default();
     clean_page_with_color_and_calibration_config(
         source,
         color_source,
@@ -522,6 +592,8 @@ pub fn clean_page_with_color(
         source_page_index,
         CalibrationConfig::default(),
         None,
+        None,
+        &mut timings,
     )
 }
 
@@ -532,6 +604,7 @@ pub fn clean_page_with_color_and_document_prior(
     source_page_index: usize,
     document_prior: Option<DocumentPrior>,
 ) -> Result<PageCleanupResult, String> {
+    let mut timings = PageStageTimings::default();
     clean_page_with_color_and_calibration_config(
         source,
         color_source,
@@ -539,6 +612,29 @@ pub fn clean_page_with_color_and_document_prior(
         source_page_index,
         CalibrationConfig::default(),
         document_prior,
+        None,
+        &mut timings,
+    )
+}
+
+pub(crate) fn clean_page_with_color_and_document_prior_cached(
+    source: &GrayImage,
+    color_source: Option<&RgbImage>,
+    options: &CleanupOptions,
+    source_page_index: usize,
+    document_prior: Option<DocumentPrior>,
+    cache: &PageCache,
+    timings: &mut PageStageTimings,
+) -> Result<PageCleanupResult, String> {
+    clean_page_with_color_and_calibration_config(
+        source,
+        color_source,
+        options,
+        source_page_index,
+        CalibrationConfig::default(),
+        document_prior,
+        Some(cache),
+        timings,
     )
 }
 
@@ -549,6 +645,8 @@ fn clean_page_with_color_and_calibration_config(
     source_page_index: usize,
     calibration_config: CalibrationConfig,
     document_prior: Option<DocumentPrior>,
+    cache: Option<&PageCache>,
+    timings: &mut PageStageTimings,
 ) -> Result<PageCleanupResult, String> {
     options.validate()?;
     if options.excluded {
@@ -574,6 +672,8 @@ fn clean_page_with_color_and_calibration_config(
         options,
         calibration_config,
         document_prior,
+        cache,
+        timings,
     );
     let PreparedPage {
         rotated_source,
@@ -585,6 +685,7 @@ fn clean_page_with_color_and_calibration_config(
         rotated_color,
         picture_mask,
         split,
+        split_cache_key,
     } = prepared;
     let regions = output_regions(
         normalized.width(),
@@ -598,17 +699,20 @@ fn clean_page_with_color_and_calibration_config(
             source,
             &rotated_source,
             &normalized,
-            analysis_normalized.as_ref().unwrap_or(&normalized),
+            analysis_normalized.as_deref().unwrap_or(&normalized),
             analysis_scale_x,
             analysis_scale_y,
             calibration,
             rotated_color.as_ref(),
-            picture_mask.as_ref(),
+            picture_mask.as_deref(),
             options,
             source_page_index,
             &split,
             region,
             half,
+            cache,
+            split_cache_key.as_ref(),
+            timings,
         )?);
     }
     let before_blank_filter = outputs.len();
@@ -635,6 +739,8 @@ fn prepare_page(
     options: &CleanupOptions,
     calibration_config: CalibrationConfig,
     document_prior: Option<DocumentPrior>,
+    cache: Option<&PageCache>,
+    timings: &mut PageStageTimings,
 ) -> PreparedPage {
     let PreparedAnalysis {
         normalized: analysis_normalized,
@@ -645,8 +751,17 @@ fn prepare_page(
         picture_mask: analysis_picture_mask,
         full_width,
         full_height,
+        split_cache_key,
         ..
-    } = prepare_analysis_page(source, options, true, document_prior, calibration_config);
+    } = prepare_analysis_page(
+        source,
+        options,
+        true,
+        document_prior,
+        calibration_config,
+        cache,
+        timings,
+    );
     let (rotated_source, _) = rotate_orthogonal(source, options.rotation);
     let analysis_is_full = analysis_normalized.width() == full_width
         && analysis_normalized.height() == full_height
@@ -658,7 +773,7 @@ fn prepare_page(
         } else {
             let mut mask = detect_picture_mask(&rotated_source, options.dpi, calibration);
             apply_manual_zones(&mut mask, options);
-            Some(mask)
+            Some(Arc::new(mask))
         }
     } else {
         None
@@ -667,7 +782,7 @@ fn prepare_page(
         .map(|image| rotate_rgb_orthogonal(image, options.rotation))
         .map(|image| {
             if options.normalize_illumination {
-                if let Some(mask) = picture_mask.as_ref() {
+                if let Some(mask) = picture_mask.as_deref() {
                     normalize_illumination_rgb_with_picture_mask(
                         &rotated_source,
                         &image,
@@ -685,7 +800,7 @@ fn prepare_page(
         (analysis_normalized, None)
     } else {
         let normalized = if options.normalize_illumination {
-            if let Some(mask) = picture_mask.as_ref() {
+            if let Some(mask) = picture_mask.as_deref() {
                 normalize_illumination_with_picture_mask(&rotated_source, options.dpi, Some(mask))
             } else {
                 normalize_illumination(&rotated_source, options.dpi)
@@ -693,7 +808,7 @@ fn prepare_page(
         } else {
             rotated_source.clone()
         };
-        (normalized, Some(analysis_normalized))
+        (Arc::new(normalized), Some(analysis_normalized))
     };
     PreparedPage {
         rotated_source,
@@ -705,6 +820,7 @@ fn prepare_page(
         rotated_color,
         picture_mask: picture_mask.take(),
         split,
+        split_cache_key,
     }
 }
 
@@ -714,110 +830,216 @@ fn prepare_analysis_page(
     prepare_quality_raster: bool,
     document_prior: Option<DocumentPrior>,
     calibration_config: CalibrationConfig,
+    cache: Option<&PageCache>,
+    timings: &mut PageStageTimings,
 ) -> PreparedAnalysis {
-    let AnalysisLevel {
-        image,
-        effective_dpi,
-        scale_x: source_scale_x,
-        scale_y: source_scale_y,
-    } = build_analysis_level(source, options.dpi, 150.0);
-    let (rotated, _) = rotate_orthogonal(&image, options.rotation);
-    let (full_width, full_height) = match options.rotation {
-        OrthogonalRotation::None | OrthogonalRotation::Clockwise180 => {
-            (source.width(), source.height())
-        }
-        OrthogonalRotation::Clockwise90 | OrthogonalRotation::Clockwise270 => {
-            (source.height(), source.width())
-        }
-    };
-    let applicable_prior =
-        document_prior.filter(|prior| prior.applies_to_dimensions(full_width, full_height));
-    let scale_x = rotated.width() as f64 / full_width.max(1) as f64;
-    let scale_y = rotated.height() as f64 / full_height.max(1) as f64;
-    debug_assert!((scale_x - source_scale_x.min(source_scale_y)).abs() < 0.01);
-    let layout_normalized = if options.normalize_illumination {
-        normalize_illumination_for_layout(&rotated)
-    } else {
-        rotated.clone()
-    };
-    let calibration =
-        PageCalibration::estimate(&layout_normalized, effective_dpi, calibration_config);
-    let picture_mask = if options.output_mode == OutputMode::Mixed && prepare_quality_raster {
-        let mut mask = detect_picture_mask(&rotated, effective_dpi, calibration);
-        apply_manual_zones(&mut mask, options);
-        Some(mask)
-    } else {
-        None
-    };
-    let normalized = if options.normalize_illumination {
-        if prepare_quality_raster {
-            if let Some(mask) = picture_mask.as_ref() {
-                normalize_illumination_with_picture_mask(&rotated, effective_dpi, Some(mask))
+    let analysis_key = cache.map(|cache| {
+        StageCacheKey::analysis(
+            &cache.source,
+            options,
+            prepare_quality_raster,
+            calibration_config,
+        )
+    });
+    let cached_analysis = cache
+        .zip(analysis_key.as_ref())
+        .and_then(|(cache, key)| cache.shared.lock().ok()?.get::<AnalysisArtifact>(key));
+    let analysis = cached_analysis.unwrap_or_else(|| {
+        let analysis_started = Instant::now();
+        let AnalysisLevel {
+            image,
+            effective_dpi,
+            scale_x: source_scale_x,
+            scale_y: source_scale_y,
+        } = build_analysis_level(source, options.dpi, 150.0);
+        let (rotated, _) = rotate_orthogonal(&image, options.rotation);
+        let (full_width, full_height) = match options.rotation {
+            OrthogonalRotation::None | OrthogonalRotation::Clockwise180 => {
+                (source.width(), source.height())
+            }
+            OrthogonalRotation::Clockwise90 | OrthogonalRotation::Clockwise270 => {
+                (source.height(), source.width())
+            }
+        };
+        let scale_x = rotated.width() as f64 / full_width.max(1) as f64;
+        let scale_y = rotated.height() as f64 / full_height.max(1) as f64;
+        debug_assert!((scale_x - source_scale_x.min(source_scale_y)).abs() < 0.01);
+        timings.analysis_level_ms += analysis_started.elapsed().as_secs_f64() * 1_000.0;
+
+        let normalization_started = Instant::now();
+        let layout_normalized = if options.normalize_illumination {
+            normalize_illumination_for_layout(&rotated)
+        } else {
+            rotated.clone()
+        };
+        let calibration =
+            PageCalibration::estimate(&layout_normalized, effective_dpi, calibration_config);
+        let picture_mask = if options.output_mode == OutputMode::Mixed && prepare_quality_raster {
+            let mut mask = detect_picture_mask(&rotated, effective_dpi, calibration);
+            apply_manual_zones(&mut mask, options);
+            Some(Arc::new(mask))
+        } else {
+            None
+        };
+        let normalized = if options.normalize_illumination {
+            if prepare_quality_raster {
+                if let Some(mask) = picture_mask.as_deref() {
+                    normalize_illumination_with_picture_mask(&rotated, effective_dpi, Some(mask))
+                } else {
+                    normalize_illumination(&rotated, effective_dpi)
+                }
             } else {
-                normalize_illumination(&rotated, effective_dpi)
+                layout_normalized.clone()
             }
         } else {
-            layout_normalized.clone()
+            rotated
+        };
+        let analysis_threshold = otsu_threshold(&layout_normalized);
+        let text_axis = detect_text_axis(&layout_normalized, analysis_threshold);
+        let artifact = Arc::new(AnalysisArtifact {
+            normalized: Arc::new(normalized),
+            layout_normalized: Arc::new(layout_normalized),
+            scale_x,
+            scale_y,
+            full_width,
+            full_height,
+            calibration,
+            effective_dpi,
+            picture_mask,
+            analysis_threshold,
+            text_axis,
+        });
+        timings.normalization_ms += normalization_started.elapsed().as_secs_f64() * 1_000.0;
+        if let (Some(cache), Some(key)) = (cache, analysis_key.clone()) {
+            let bytes = analysis_artifact_bytes(&artifact);
+            if let Ok(mut shared) = cache.shared.lock() {
+                shared.insert(key, Arc::clone(&artifact), bytes);
+            }
         }
-    } else {
-        rotated
-    };
-    let analysis_threshold = otsu_threshold(&layout_normalized);
-    let text_axis = detect_text_axis(&layout_normalized, analysis_threshold);
-    let mut split = if options.ocr_mode {
-        detect_split_at_analysis_level_with_threshold(
-            &layout_normalized,
-            effective_dpi,
-            crate::LayoutMode::Single,
-            None,
-            analysis_threshold,
-            None,
+        artifact
+    });
+    let applicable_prior = document_prior
+        .filter(|prior| prior.applies_to_dimensions(analysis.full_width, analysis.full_height));
+    let split_key = cache.map(|cache| {
+        StageCacheKey::split(
+            &cache.source,
+            options,
+            prepare_quality_raster,
+            calibration_config,
+            document_prior,
         )
-    } else {
-        detect_split_at_analysis_level_with_threshold(
-            &layout_normalized,
-            effective_dpi,
-            options.layout,
-            options.resolved_manual_split_x(normalized.width()),
-            analysis_threshold,
-            applicable_prior,
-        )
-    };
+    });
+    let cached_split = cache
+        .zip(split_key.as_ref())
+        .and_then(|(cache, key)| cache.shared.lock().ok()?.get::<SplitResult>(key));
+    let split_started = Instant::now();
+    let analysis_threshold = analysis.analysis_threshold;
+    let text_axis = analysis.text_axis;
+    let split = cached_split.as_deref().cloned().unwrap_or_else(|| {
+        let mut split = if options.ocr_mode {
+            detect_split_at_analysis_level_with_threshold(
+                &analysis.layout_normalized,
+                analysis.effective_dpi,
+                crate::LayoutMode::Single,
+                None,
+                analysis_threshold,
+                None,
+            )
+        } else {
+            detect_split_at_analysis_level_with_threshold(
+                &analysis.layout_normalized,
+                analysis.effective_dpi,
+                options.layout,
+                options.resolved_manual_split_x(analysis.normalized.width()),
+                analysis_threshold,
+                applicable_prior,
+            )
+        };
+        if matches!(options.layout, crate::LayoutMode::Auto) && options.manual_split_x.is_none() {
+            if let Some(prior) = applicable_prior {
+                split.apply_document_prior(
+                    analysis.normalized.width(),
+                    analysis.normalized.height(),
+                    prior.with_cluster_dimensions(
+                        analysis.normalized.width(),
+                        analysis.normalized.height(),
+                    ),
+                );
+            }
+        }
+        if prepare_quality_raster && options.normalize_illumination {
+            split.reusable_binary = None;
+        }
+        if (analysis.scale_x < 1.0 || analysis.scale_y < 1.0)
+            && matches!(options.layout, crate::LayoutMode::Auto)
+            && options.manual_split_x.is_none()
+        {
+            split.abstain_from_resolution_limited_offcut();
+        }
+        scale_split_result(
+            &mut split,
+            analysis.scale_x,
+            analysis.scale_y,
+            analysis.full_width,
+            analysis.full_height,
+        );
+        if let (Some(cache), Some(key)) = (cache, split_key.clone()) {
+            let value = Arc::new(split.clone());
+            let bytes = split_result_bytes(&value);
+            if let Ok(mut shared) = cache.shared.lock() {
+                shared.insert(key, value, bytes);
+            }
+        }
+        split
+    });
+    timings.split_ms += split_started.elapsed().as_secs_f64() * 1_000.0;
     let candidate_cutter_ratio = (split.diagnostics.decision_x > 0.0)
-        .then_some(split.diagnostics.decision_x / normalized.width().max(1) as f64);
+        .then_some(split.diagnostics.decision_x / analysis.normalized.width().max(1) as f64);
     let whitespace_score = split.diagnostics.whitespace_score;
-    if matches!(options.layout, crate::LayoutMode::Auto) && options.manual_split_x.is_none() {
-        if let Some(prior) = applicable_prior {
-            split.apply_document_prior(
-                normalized.width(),
-                normalized.height(),
-                prior.with_cluster_dimensions(normalized.width(), normalized.height()),
-            );
-        }
-    }
-    if prepare_quality_raster && options.normalize_illumination {
-        split.reusable_binary = None;
-    }
-    if (scale_x < 1.0 || scale_y < 1.0)
-        && matches!(options.layout, crate::LayoutMode::Auto)
-        && options.manual_split_x.is_none()
-    {
-        split.abstain_from_resolution_limited_offcut();
-    }
-    scale_split_result(&mut split, scale_x, scale_y, full_width, full_height);
     PreparedAnalysis {
-        normalized,
+        normalized: Arc::clone(&analysis.normalized),
         split,
-        scale_x,
-        scale_y,
-        full_width,
-        full_height,
-        calibration,
+        scale_x: analysis.scale_x,
+        scale_y: analysis.scale_y,
+        full_width: analysis.full_width,
+        full_height: analysis.full_height,
+        calibration: analysis.calibration,
         candidate_cutter_ratio,
         whitespace_score,
         text_axis,
-        picture_mask,
+        picture_mask: analysis.picture_mask.clone(),
+        split_cache_key: split_key,
     }
+}
+
+fn analysis_artifact_bytes(artifact: &AnalysisArtifact) -> usize {
+    let gray = artifact.normalized.data().len() + artifact.layout_normalized.data().len();
+    let mask = artifact
+        .picture_mask
+        .as_deref()
+        .map_or(0, |mask| std::mem::size_of_val(mask.words()));
+    gray.saturating_add(mask)
+        .saturating_add(std::mem::size_of::<AnalysisArtifact>())
+}
+
+fn split_result_bytes(split: &SplitResult) -> usize {
+    let polygons = split
+        .pages
+        .iter()
+        .map(|polygon| polygon.points.len() * std::mem::size_of::<Point>())
+        .sum::<usize>();
+    let seam = split
+        .split_seam
+        .as_ref()
+        .map_or(0, |seam| seam.points.len() * std::mem::size_of::<Point>());
+    let binary = split
+        .reusable_binary
+        .as_ref()
+        .map_or(0, |binary| std::mem::size_of_val(binary.words()));
+    std::mem::size_of::<SplitResult>()
+        .saturating_add(polygons)
+        .saturating_add(seam)
+        .saturating_add(binary)
 }
 
 fn scale_split_result(
@@ -864,6 +1086,9 @@ fn clean_region(
     split: &SplitResult,
     region: Rect,
     half: PageHalf,
+    cache: Option<&PageCache>,
+    split_cache_key: Option<&StageCacheKey>,
+    timings: &mut PageStageTimings,
 ) -> Result<CleanupResult, String> {
     let working = crop_gray(normalized, region);
     let analysis_region = Rect::new(
@@ -875,7 +1100,26 @@ fn clean_region(
     let analysis_working = crop_gray(analysis_normalized, analysis_region);
     let local_scale_x = analysis_working.width() as f64 / working.width().max(1) as f64;
     let local_scale_y = analysis_working.height() as f64 / working.height().max(1) as f64;
-    let deskew = detect_skew(&analysis_working, calibration.effective_dpi);
+    let deskew_key = cache
+        .zip(split_cache_key)
+        .map(|(cache, split_key)| StageCacheKey::deskew(&cache.source, options, split_key, region));
+    let deskew_started = Instant::now();
+    let deskew = cache
+        .zip(deskew_key.as_ref())
+        .and_then(|(cache, key)| cache.shared.lock().ok()?.get::<DeskewResult>(key))
+        .map_or_else(
+            || {
+                let result = detect_skew(&analysis_working, calibration.effective_dpi);
+                if let (Some(cache), Some(key)) = (cache, deskew_key.clone()) {
+                    if let Ok(mut shared) = cache.shared.lock() {
+                        shared.insert(key, Arc::new(result), std::mem::size_of::<DeskewResult>());
+                    }
+                }
+                result
+            },
+            |cached| *cached,
+        );
+    timings.deskew_ms += deskew_started.elapsed().as_secs_f64() * 1_000.0;
     let local_deskew_forward = deskew_transform(working.width(), working.height(), deskew);
     let local_deskew_inverse = local_deskew_forward
         .inverse()
@@ -935,87 +1179,105 @@ fn clean_region(
         })
     });
     let content_analysis = dewarped_analysis.as_ref().unwrap_or(&deskewed_analysis);
-    let (content, source_content_box, content_diagnostics) = if let Some(manual) =
-        options.resolved_manual_content_for(half, normalized.width(), normalized.height())
-    {
-        let left = manual
-            .x
-            .clamp(0.0, working.width().saturating_sub(1) as f64);
-        let top = manual
-            .y
-            .clamp(0.0, working.height().saturating_sub(1) as f64);
-        let right = manual.right().clamp(left + 1.0, working.width() as f64);
-        let bottom = manual.bottom().clamp(top + 1.0, working.height() as f64);
-        let source_content = Rect::new(left, top, right - left, bottom - top);
-        let deskewed_content = transform_rect_bounds(source_content, local_deskew_forward);
-        let output_content = if let Some(model) = &dewarp_model {
-            map_rect_bounds(deskewed_content, |point| {
-                model.map_source_to_unit_approx(point).map(|unit| {
-                    Point::new(
-                        unit.x * working.width() as f64,
-                        unit.y * working.height() as f64,
-                    )
-                })
-            })
-            .ok_or("Manual content box cannot be mapped through the dewarp model")?
-        } else {
-            deskewed_content
-        };
-        (
-            content_result_for_dimensions(
-                working.width(),
-                working.height(),
-                options.dpi,
-                Some(output_content),
-                options.margins_mm.map(crate::MarginsMm::values),
-                options.margins_pixels,
-            ),
-            Some(source_content),
-            None,
-        )
+    let content_key = cache.zip(deskew_key.as_ref()).map(|(cache, deskew_key)| {
+        StageCacheKey::content(&cache.source, options, deskew_key, half)
+    });
+    let content_started = Instant::now();
+    let cached_content = cache
+        .zip(content_key.as_ref())
+        .and_then(|(cache, key)| cache.shared.lock().ok()?.get::<CachedContentDetection>(key));
+    let detected = if let Some(cached) = cached_content {
+        *cached
     } else {
-        let detected_result = detect_content_and_margins_calibrated(
-            content_analysis,
-            calibration.effective_dpi,
-            None,
-            Some([0.0; 4]),
-            calibration,
-        );
-        let detected = detected_result.content.map(|rect| {
-            Rect::new(
-                rect.x / local_scale_x,
-                rect.y / local_scale_y,
-                rect.width / local_scale_x,
-                rect.height / local_scale_y,
-            )
-        });
-        let source_content = detected.and_then(|rect| {
-            if let Some(model) = &dewarp_model {
-                map_rect_bounds(rect, |point| {
-                    model
-                        .map_unit_to_source(
-                            point.x / working.width() as f64,
-                            point.y / working.height() as f64,
+        let detected = if let Some(manual) =
+            options.resolved_manual_content_for(half, normalized.width(), normalized.height())
+        {
+            let left = manual
+                .x
+                .clamp(0.0, working.width().saturating_sub(1) as f64);
+            let top = manual
+                .y
+                .clamp(0.0, working.height().saturating_sub(1) as f64);
+            let right = manual.right().clamp(left + 1.0, working.width() as f64);
+            let bottom = manual.bottom().clamp(top + 1.0, working.height() as f64);
+            let source_content = Rect::new(left, top, right - left, bottom - top);
+            let deskewed_content = transform_rect_bounds(source_content, local_deskew_forward);
+            let output_content = if let Some(model) = &dewarp_model {
+                map_rect_bounds(deskewed_content, |point| {
+                    model.map_source_to_unit_approx(point).map(|unit| {
+                        Point::new(
+                            unit.x * working.width() as f64,
+                            unit.y * working.height() as f64,
                         )
-                        .map(|deskewed| local_deskew_inverse.apply(deskewed))
+                    })
                 })
+                .ok_or("Manual content box cannot be mapped through the dewarp model")?
             } else {
-                Some(transform_rect_bounds(rect, local_deskew_inverse))
+                deskewed_content
+            };
+            CachedContentDetection {
+                detected_content: Some(output_content),
+                source_content_box: Some(source_content),
+                diagnostics: None,
             }
-        });
-        (
-            content_result_for_dimensions(
-                working.width(),
-                working.height(),
-                options.dpi,
-                detected,
-                options.margins_mm.map(crate::MarginsMm::values),
-                options.margins_pixels,
-            ),
-            source_content,
-            detected_result.diagnostics,
-        )
+        } else {
+            let detected_result = detect_content_and_margins_calibrated(
+                content_analysis,
+                calibration.effective_dpi,
+                None,
+                Some([0.0; 4]),
+                calibration,
+            );
+            let detected_content = detected_result.content.map(|rect| {
+                Rect::new(
+                    rect.x / local_scale_x,
+                    rect.y / local_scale_y,
+                    rect.width / local_scale_x,
+                    rect.height / local_scale_y,
+                )
+            });
+            let source_content_box = detected_content.and_then(|rect| {
+                if let Some(model) = &dewarp_model {
+                    map_rect_bounds(rect, |point| {
+                        model
+                            .map_unit_to_source(
+                                point.x / working.width() as f64,
+                                point.y / working.height() as f64,
+                            )
+                            .map(|deskewed| local_deskew_inverse.apply(deskewed))
+                    })
+                } else {
+                    Some(transform_rect_bounds(rect, local_deskew_inverse))
+                }
+            });
+            CachedContentDetection {
+                detected_content,
+                source_content_box,
+                diagnostics: detected_result.diagnostics,
+            }
+        };
+        if let (Some(cache), Some(key)) = (cache, content_key) {
+            if let Ok(mut shared) = cache.shared.lock() {
+                shared.insert(
+                    key,
+                    Arc::new(detected),
+                    std::mem::size_of::<CachedContentDetection>(),
+                );
+            }
+        }
+        detected
     };
+    timings.content_ms += content_started.elapsed().as_secs_f64() * 1_000.0;
+    let content = content_result_for_dimensions(
+        working.width(),
+        working.height(),
+        options.dpi,
+        detected.detected_content,
+        options.margins_mm.map(crate::MarginsMm::values),
+        options.margins_pixels,
+    );
+    let source_content_box = detected.source_content_box;
+    let content_diagnostics = detected.diagnostics;
     let crop_enabled = options.crop_content && !options.ocr_mode && content.content.is_some();
     let output_rect = if crop_enabled {
         content.output_rect
@@ -1034,6 +1296,7 @@ fn clean_region(
     let output_width = render_plan.output_width();
     let output_height = render_plan.output_height();
 
+    let render_started = Instant::now();
     let (rendered_gray, rendered_color, forward_transform, inverse_transform, dewarp_mapping) =
         if render_plan.has_dewarp() {
             let gray =
@@ -1175,6 +1438,7 @@ fn clean_region(
                 OutputMode::Color => (rendered_gray, rendered_color, None, None, false),
             }
         };
+    timings.render_ms += render_started.elapsed().as_secs_f64() * 1_000.0;
     let mut warnings = if deskew.accepted || effective_dewarp.is_some() {
         Vec::new()
     } else {

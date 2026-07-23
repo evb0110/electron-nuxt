@@ -1,0 +1,416 @@
+use crate::{calibration::CalibrationConfig, CleanupOptions, OutputMode};
+use serde::Serialize;
+use std::{
+    any::Any,
+    collections::HashMap,
+    fs,
+    path::{Path, PathBuf},
+    sync::{Arc, Mutex},
+    time::UNIX_EPOCH,
+};
+
+pub(crate) const DEFAULT_CACHE_BUDGET_BYTES: usize = 256 * 1024 * 1024;
+
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+pub(crate) struct SourceFingerprint {
+    path: PathBuf,
+    file_size: u64,
+    modified_nanos: i128,
+    page_index: usize,
+}
+
+impl SourceFingerprint {
+    pub(crate) fn from_path(path: &Path, page_index: usize) -> Result<Self, String> {
+        let metadata = fs::metadata(path).map_err(|error| error.to_string())?;
+        let modified = metadata.modified().map_err(|error| error.to_string())?;
+        let modified_nanos = match modified.duration_since(UNIX_EPOCH) {
+            Ok(duration) => duration.as_nanos().min(i128::MAX as u128) as i128,
+            Err(error) => -(error.duration().as_nanos().min(i128::MAX as u128) as i128),
+        };
+        Ok(Self {
+            path: path.to_path_buf(),
+            file_size: metadata.len(),
+            modified_nanos,
+            page_index,
+        })
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+enum CacheStage {
+    DecodedGray,
+    DecodedColor,
+    Analysis,
+    Split,
+    Deskew,
+    Content,
+}
+
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+pub(crate) struct StageCacheKey {
+    source: SourceFingerprint,
+    stage: CacheStage,
+    options: Vec<u8>,
+}
+
+fn serialized(value: &impl Serialize) -> Vec<u8> {
+    serde_json::to_vec(value).expect("cache key serialization uses finite validated options")
+}
+
+impl StageCacheKey {
+    /// Decode is independent of cleanup behavior. Guardrails remain in the key
+    /// because a raster accepted under one request must not bypass stricter
+    /// max-pixel or max-dimension limits in another request.
+    pub(crate) fn decoded(
+        source: &SourceFingerprint,
+        color: bool,
+        options: &CleanupOptions,
+    ) -> Self {
+        Self {
+            source: source.clone(),
+            stage: if color {
+                CacheStage::DecodedColor
+            } else {
+                CacheStage::DecodedGray
+            },
+            options: serialized(&(options.max_pixels, options.max_dimension)),
+        }
+    }
+
+    /// Analysis-level construction and layout normalization consume source DPI,
+    /// orthogonal rotation, illumination normalization, and calibration policy.
+    /// Mixed output additionally builds a picture mask, so output mode and
+    /// manual picture/fill zones are conservatively included. Margins,
+    /// placement, crop, binarization, thickness, and despeckling are later-stage
+    /// concerns and intentionally do not invalidate this artifact.
+    pub(crate) fn analysis(
+        source: &SourceFingerprint,
+        options: &CleanupOptions,
+        prepare_quality_raster: bool,
+        calibration: CalibrationConfig,
+    ) -> Self {
+        let manual_zones =
+            (options.output_mode == OutputMode::Mixed).then_some(&options.manual_zones);
+        Self {
+            source: source.clone(),
+            stage: CacheStage::Analysis,
+            options: serialized(&(
+                options.dpi.to_bits(),
+                options.rotation,
+                options.normalize_illumination,
+                options.output_mode,
+                manual_zones,
+                prepare_quality_raster,
+                calibration_key(calibration),
+            )),
+        }
+    }
+
+    /// Split detection consumes the analysis artifact plus layout policy, OCR
+    /// single-page routing, manual cutter, and the optional document prior.
+    /// It does not consume margins, placement, crop, thickness, or despeckling.
+    pub(crate) fn split(
+        source: &SourceFingerprint,
+        options: &CleanupOptions,
+        prepare_quality_raster: bool,
+        calibration: CalibrationConfig,
+        document_prior: Option<crate::split::DocumentPrior>,
+    ) -> Self {
+        Self {
+            source: source.clone(),
+            stage: CacheStage::Split,
+            options: serialized(&(
+                Self::analysis(source, options, prepare_quality_raster, calibration).options,
+                options.ocr_mode,
+                options.layout,
+                options.manual_split_x,
+                document_prior,
+            )),
+        }
+    }
+
+    /// Per-region deskew consumes the normalized analysis raster, calibration,
+    /// and split-derived region geometry. Output margins, placement, thickness,
+    /// binarization, and despeckling cannot affect it.
+    pub(crate) fn deskew(
+        source: &SourceFingerprint,
+        options: &CleanupOptions,
+        split_key: &Self,
+        region: scan_primitives::Rect,
+    ) -> Self {
+        Self {
+            source: source.clone(),
+            stage: CacheStage::Deskew,
+            options: serialized(&(&split_key.options, rect_key(region), options.dpi.to_bits())),
+        }
+    }
+
+    /// Content detection consumes the deskewed/dewarped analysis raster and
+    /// manual content geometry. Dewarp policy is included because it changes
+    /// the coordinate space being inspected. Margins, crop enablement,
+    /// placement, match-page-size, binarization, thickness, and despeckling are
+    /// deliberately excluded: they are applied after content is detected.
+    pub(crate) fn content(
+        source: &SourceFingerprint,
+        options: &CleanupOptions,
+        deskew_key: &Self,
+        half: crate::pipeline::PageHalf,
+    ) -> Self {
+        Self {
+            source: source.clone(),
+            stage: CacheStage::Content,
+            options: serialized(&(
+                &deskew_key.options,
+                half,
+                &options.manual_content_boxes,
+                &options.dewarp,
+                options.experimental.auto_dewarp,
+            )),
+        }
+    }
+}
+
+fn rect_key(rect: scan_primitives::Rect) -> [u64; 4] {
+    [
+        rect.x.to_bits(),
+        rect.y.to_bits(),
+        rect.width.to_bits(),
+        rect.height.to_bits(),
+    ]
+}
+
+fn calibration_key(config: CalibrationConfig) -> [bool; 9] {
+    [
+        config.content_neighborhood,
+        config.content_dilation,
+        config.content_block_gaps,
+        config.content_min_block_area,
+        config.content_dirt_radius,
+        config.despeckle_substantial_area,
+        config.despeckle_analysis_scale,
+        config.local_threshold_radius,
+        config.multiscale_local_threshold,
+    ]
+}
+
+struct CacheEntry {
+    value: Arc<dyn Any + Send + Sync>,
+    bytes: usize,
+    last_used: u64,
+}
+
+pub(crate) struct ByteLru {
+    budget_bytes: usize,
+    resident_bytes: usize,
+    clock: u64,
+    entries: HashMap<StageCacheKey, CacheEntry>,
+}
+
+impl ByteLru {
+    pub(crate) fn new(budget_bytes: usize) -> Self {
+        Self {
+            budget_bytes,
+            resident_bytes: 0,
+            clock: 0,
+            entries: HashMap::new(),
+        }
+    }
+
+    pub(crate) fn get<T: Any + Send + Sync>(&mut self, key: &StageCacheKey) -> Option<Arc<T>> {
+        let entry = self.entries.get_mut(key)?;
+        self.clock = self.clock.wrapping_add(1);
+        entry.last_used = self.clock;
+        Arc::clone(&entry.value).downcast::<T>().ok()
+    }
+
+    pub(crate) fn insert<T: Any + Send + Sync>(
+        &mut self,
+        key: StageCacheKey,
+        value: Arc<T>,
+        bytes: usize,
+    ) {
+        if let Some(replaced) = self.entries.remove(&key) {
+            self.resident_bytes = self.resident_bytes.saturating_sub(replaced.bytes);
+        }
+        if bytes > self.budget_bytes {
+            return;
+        }
+        self.clock = self.clock.wrapping_add(1);
+        self.resident_bytes = self.resident_bytes.saturating_add(bytes);
+        self.entries.insert(
+            key,
+            CacheEntry {
+                value,
+                bytes,
+                last_used: self.clock,
+            },
+        );
+        while self.resident_bytes > self.budget_bytes {
+            let Some(oldest) = self
+                .entries
+                .iter()
+                .min_by_key(|(_, entry)| entry.last_used)
+                .map(|(key, _)| key.clone())
+            else {
+                break;
+            };
+            if let Some(evicted) = self.entries.remove(&oldest) {
+                self.resident_bytes = self.resident_bytes.saturating_sub(evicted.bytes);
+            }
+        }
+    }
+
+    #[cfg(test)]
+    fn contains(&self, key: &StageCacheKey) -> bool {
+        self.entries.contains_key(key)
+    }
+}
+
+#[derive(Clone)]
+pub(crate) struct PageCache {
+    pub(crate) shared: Arc<Mutex<ByteLru>>,
+    pub(crate) source: SourceFingerprint,
+}
+
+impl PageCache {
+    pub(crate) fn new(shared: Arc<Mutex<ByteLru>>, source: SourceFingerprint) -> Self {
+        Self { shared, source }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{
+        engine::render::analyze_page_with_document_prior_cached,
+        protocol::progress::PageStageTimings, MarginsMm, OrthogonalRotation,
+    };
+    use scan_primitives::GrayImage;
+
+    fn source(page_index: usize) -> SourceFingerprint {
+        SourceFingerprint {
+            path: PathBuf::from("/tmp/source.png"),
+            file_size: 123,
+            modified_nanos: 456,
+            page_index,
+        }
+    }
+
+    #[test]
+    fn evicts_least_recently_used_entries_by_bytes() {
+        let options = CleanupOptions::default();
+        let key_a = StageCacheKey::decoded(&source(0), false, &options);
+        let key_b = StageCacheKey::decoded(&source(1), false, &options);
+        let key_c = StageCacheKey::decoded(&source(2), false, &options);
+        let mut cache = ByteLru::new(8);
+        cache.insert(key_a.clone(), Arc::new(1_u32), 4);
+        cache.insert(key_b.clone(), Arc::new(2_u32), 4);
+        assert_eq!(*cache.get::<u32>(&key_a).unwrap(), 1);
+        cache.insert(key_c.clone(), Arc::new(3_u32), 4);
+        assert!(cache.contains(&key_a));
+        assert!(!cache.contains(&key_b));
+        assert!(cache.contains(&key_c));
+        assert_eq!(cache.resident_bytes, 8);
+    }
+
+    #[test]
+    fn key_mismatch_and_type_mismatch_are_isolated() {
+        let options = CleanupOptions::default();
+        let key_a = StageCacheKey::decoded(&source(0), false, &options);
+        let key_b = StageCacheKey::decoded(&source(1), false, &options);
+        let mut cache = ByteLru::new(16);
+        cache.insert(key_a.clone(), Arc::new(7_u32), 4);
+        assert!(cache.get::<u32>(&key_b).is_none());
+        assert!(cache.get::<String>(&key_a).is_none());
+        assert_eq!(*cache.get::<u32>(&key_a).unwrap(), 7);
+    }
+
+    #[test]
+    fn analysis_key_ignores_margins_but_not_rotation() {
+        let source = source(0);
+        let mut options = CleanupOptions::default();
+        let baseline =
+            StageCacheKey::analysis(&source, &options, true, CalibrationConfig::default());
+        options.margins_mm = Some(MarginsMm {
+            left_mm: 25.0,
+            ..MarginsMm::default()
+        });
+        assert_eq!(
+            baseline,
+            StageCacheKey::analysis(&source, &options, true, CalibrationConfig::default())
+        );
+        options.rotation = OrthogonalRotation::Clockwise90;
+        assert_ne!(
+            baseline,
+            StageCacheKey::analysis(&source, &options, true, CalibrationConfig::default())
+        );
+    }
+
+    #[test]
+    fn cached_analysis_is_transparent_and_margin_changes_reuse_early_stages() {
+        let mut image = GrayImage::new(160, 100, 245);
+        for y in 20..80 {
+            for x in 30..130 {
+                if x % 13 < 3 || y % 17 < 2 {
+                    image.set(x, y, 30);
+                }
+            }
+        }
+        let shared = Arc::new(Mutex::new(ByteLru::new(8 * 1024 * 1024)));
+        let cache = PageCache::new(shared, source(0));
+        let options = CleanupOptions::default();
+        let mut cold_timings = PageStageTimings::default();
+        let cold = analyze_page_with_document_prior_cached(
+            &image,
+            &options,
+            None,
+            &cache,
+            &mut cold_timings,
+        )
+        .unwrap();
+
+        let mut margin_options = options.clone();
+        margin_options.margins_mm = Some(MarginsMm {
+            left_mm: 12.0,
+            top_mm: 9.0,
+            right_mm: 7.0,
+            bottom_mm: 5.0,
+        });
+        let mut cached_timings = PageStageTimings::default();
+        let cached = analyze_page_with_document_prior_cached(
+            &image,
+            &margin_options,
+            None,
+            &cache,
+            &mut cached_timings,
+        )
+        .unwrap();
+
+        assert!(cold_timings.analysis_level_ms > 0.0);
+        assert!(cold_timings.normalization_ms > 0.0);
+        assert_eq!(cached_timings.analysis_level_ms, 0.0);
+        assert_eq!(cached_timings.normalization_ms, 0.0);
+        assert_eq!(cold.classification, cached.classification);
+        assert_eq!(cold.confidence, cached.confidence);
+        assert_eq!(cold.cutter_x, cached.cutter_x);
+        assert_eq!(cold.split_seam, cached.split_seam);
+
+        let mut repeat_timings = PageStageTimings::default();
+        let repeat = analyze_page_with_document_prior_cached(
+            &image,
+            &options,
+            None,
+            &cache,
+            &mut repeat_timings,
+        )
+        .unwrap();
+        assert_eq!(
+            serde_json::to_value(&cold.outputs).unwrap(),
+            serde_json::to_value(&repeat.outputs).unwrap()
+        );
+        assert_eq!(cold.classification, repeat.classification);
+        assert_eq!(cold.confidence, repeat.confidence);
+        assert_eq!(cold.cutter_x, repeat.cutter_x);
+        assert_eq!(cold.split_seam, repeat.split_seam);
+    }
+}

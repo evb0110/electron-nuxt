@@ -67,6 +67,62 @@ pub fn read_image(path: &Path, max_pixels: u64, max_dimension: u32) -> Result<De
     decode_image(&bytes, max_pixels, max_dimension)
 }
 
+/// Reads only the PNG signature and IHDR chunk. This is sufficient for sizing
+/// worker memory and canvases without inflating the image payload.
+pub fn read_dimensions(
+    path: &Path,
+    max_pixels: u64,
+    max_dimension: u32,
+) -> Result<(usize, usize), String> {
+    let mut file = File::open(path).map_err(|error| error.to_string())?;
+    let mut header = [0_u8; 33];
+    file.read_exact(&mut header)
+        .map_err(|error| error.to_string())?;
+    dimensions_from_ihdr(&header, max_pixels, max_dimension)
+}
+
+fn dimensions_from_ihdr(
+    header: &[u8],
+    max_pixels: u64,
+    max_dimension: u32,
+) -> Result<(usize, usize), String> {
+    if header.get(..8) != Some(SIGNATURE)
+        || read_u32(header, 8)? != 13
+        || header.get(12..16) != Some(b"IHDR")
+    {
+        return Err("Invalid PNG IHDR".into());
+    }
+    let data = header.get(16..29).ok_or("Truncated PNG IHDR")?;
+    let expected_crc = read_u32(header, 29)?;
+    let mut hasher = Hasher::new();
+    hasher.update(b"IHDR");
+    hasher.update(data);
+    if hasher.finalize() != expected_crc {
+        return Err("PNG IHDR CRC mismatch".into());
+    }
+    let width = read_u32(data, 0)?;
+    let height = read_u32(data, 4)?;
+    if width == 0
+        || height == 0
+        || width > max_dimension
+        || height > max_dimension
+        || u64::from(width) * u64::from(height) > max_pixels
+    {
+        return Err(format!(
+            "PNG dimensions exceed cleanup guardrails: {width}x{height}"
+        ));
+    }
+    if data[8] != 8
+        || !matches!(data[9], 0 | 2 | 4 | 6)
+        || data[10] != 0
+        || data[11] != 0
+        || data[12] != 0
+    {
+        return Err("Only non-interlaced 8-bit grayscale/RGB/RGBA PNG is supported".into());
+    }
+    Ok((width as usize, height as usize))
+}
+
 pub fn decode_gray(bytes: &[u8], max_pixels: u64, max_dimension: u32) -> Result<GrayImage, String> {
     Ok(decode_impl(bytes, max_pixels, max_dimension, false)?.0)
 }
@@ -371,6 +427,7 @@ pub fn read_gray_default(path: &Path) -> Result<GrayImage, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::time::{SystemTime, UNIX_EPOCH};
     #[test]
     fn grayscale_png_round_trips() {
         let image = GrayImage::from_vec(3, 2, 3, vec![0, 30, 255, 80, 120, 200]).unwrap();
@@ -394,5 +451,23 @@ mod tests {
         assert!(decode_gray(&bytes, 5, 10)
             .unwrap_err()
             .contains("guardrails"));
+    }
+
+    #[test]
+    fn ihdr_dimensions_equal_full_decode_dimensions() {
+        let image = GrayImage::new(37, 23, 181);
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let path = std::env::temp_dir().join(format!(
+            "scan-cleanup-ihdr-{}-{unique}.png",
+            std::process::id()
+        ));
+        fs::write(&path, encode_gray(&image).unwrap()).unwrap();
+        let dimensions = read_dimensions(&path, 10_000, 1_000).unwrap();
+        let decoded = read_gray(&path, 10_000, 1_000).unwrap();
+        fs::remove_file(path).unwrap();
+        assert_eq!(dimensions, (decoded.width(), decoded.height()));
     }
 }

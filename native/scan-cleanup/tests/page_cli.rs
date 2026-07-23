@@ -476,7 +476,23 @@ fn parallel_batch_outputs_and_progress_are_deterministic() {
         "stderr={}",
         String::from_utf8_lossy(&second.stderr)
     );
-    assert_eq!(first.stdout, second.stdout);
+    let stable_progress = |bytes: &[u8]| {
+        String::from_utf8_lossy(bytes)
+            .lines()
+            .map(|line| {
+                let mut value = serde_json::from_str::<Value>(line).unwrap();
+                value
+                    .get_mut("progress")
+                    .and_then(Value::as_object_mut)
+                    .map(|progress| progress.remove("stageTimings"));
+                value
+            })
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(
+        stable_progress(&first.stdout),
+        stable_progress(&second.stdout)
+    );
     let progress = String::from_utf8(second.stdout).unwrap();
     let completed_pages = progress
         .lines()

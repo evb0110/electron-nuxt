@@ -1,13 +1,14 @@
 use crate::adapters::single_ocr_cli::{invalid, optional_value, parse_options, required_path};
+use crate::engine::render::{
+    analyze_page_with_document_prior_cached, clean_page_with_color_and_document_prior_cached,
+};
 use crate::{
-    pipeline::{
-        analyze_page_with_document_prior, clean_page_with_color_and_document_prior,
-        AnalysisOutputMetadata, CleanupMetadata, MatchedCanvasPolicy,
-    },
+    cache::{ByteLru, PageCache, SourceFingerprint, StageCacheKey, DEFAULT_CACHE_BUDGET_BYTES},
+    pipeline::{AnalysisOutputMetadata, CleanupMetadata, MatchedCanvasPolicy},
     png::{self, RgbImage},
     protocol::{
         manifest_v2::{CanvasScope, ManifestV2, Operation, RenderMode},
-        progress::{Progress, ProgressEnvelope, ProgressStage},
+        progress::{PageStageTimings, Progress, ProgressEnvelope, ProgressStage},
         result::ResultEnvelope,
     },
     split::LayoutClassification,
@@ -22,6 +23,8 @@ use std::{
     error::Error,
     fs,
     path::{Path, PathBuf},
+    sync::{Arc, Mutex},
+    time::Instant,
 };
 
 #[derive(Debug, Deserialize)]
@@ -107,6 +110,8 @@ struct WrittenOutput {
     options: CleanupOptions,
     is_color: bool,
     half: crate::pipeline::PageHalf,
+    width: usize,
+    height: usize,
 }
 
 #[derive(Serialize)]
@@ -151,6 +156,7 @@ struct PageRunResult {
     metadata: PageResultMetadata,
     page_metadata_path: Option<PathBuf>,
     classification_only: bool,
+    timings: PageStageTimings,
 }
 
 #[derive(Clone, Copy)]
@@ -159,6 +165,21 @@ struct Tier1Provenance {
     confidence: f64,
     candidate_cutter_ratio: Option<f64>,
     whitespace_score: f64,
+}
+
+fn manifest_cache() -> Arc<Mutex<ByteLru>> {
+    Arc::new(Mutex::new(ByteLru::new(configured_cache_budget_bytes())))
+}
+
+fn page_cache_for(
+    job: &PageJob,
+    fallback_page_index: usize,
+    shared: &Arc<Mutex<ByteLru>>,
+) -> Result<PageCache, NativeError> {
+    let page_index = job.source_page_index.unwrap_or(fallback_page_index);
+    let source =
+        SourceFingerprint::from_path(&job.input_path, page_index).map_err(map_image_error)?;
+    Ok(PageCache::new(Arc::clone(shared), source))
 }
 
 pub fn run(args: impl IntoIterator<Item = String>) -> Result<(), Box<dyn Error>> {
@@ -196,23 +217,20 @@ pub fn run(args: impl IntoIterator<Item = String>) -> Result<(), Box<dyn Error>>
     {
         options.experimental.auto_dewarp = true;
     }
-    run_page(
-        &PageJob {
-            input_path: input,
-            output_path: Some(output),
-            metadata_path: Some(metadata),
-            outputs: Vec::new(),
-            source_page_index: Some(0),
-            page_metadata_path: None,
-            options: Some(options),
-            classify_only: None,
-            document_prior: None,
-        },
-        None,
-        0,
-        CanvasScope::Page,
-    )
-    .map(|_| ())
+    let job = PageJob {
+        input_path: input,
+        output_path: Some(output),
+        metadata_path: Some(metadata),
+        outputs: Vec::new(),
+        source_page_index: Some(0),
+        page_metadata_path: None,
+        options: Some(options),
+        classify_only: None,
+        document_prior: None,
+    };
+    let cache = manifest_cache();
+    let page_cache = page_cache_for(&job, 0, &cache)?;
+    run_page(&job, None, 0, CanvasScope::Page, &page_cache).map(|_| ())
 }
 
 fn run_manifest(path: &Path, allow_v1: bool) -> Result<(), Box<dyn Error>> {
@@ -386,16 +404,20 @@ fn run_manifest_inner(manifest: &BatchManifest) -> Result<(), Box<dyn Error>> {
         cluster_agreement: None,
         document_prior: None,
         text_axis: None,
+        stage_timings: None,
     })?;
+    let cache = manifest_cache();
     let run_one = |(index, page): (usize, &PageJob)| {
-        run_manifest_page(manifest, page, index).map_err(|error| {
+        let page_cache = page_cache_for(page, index, &cache)?;
+        run_manifest_page(manifest, page, index, &page_cache).map_err(|error| {
             let envelope = NativeErrorEnvelope::from_error(error.as_ref());
             NativeError::new(envelope.code, envelope.message)
         })
     };
     let page_results = if manifest.pages.len() > 1 && pages_have_disjoint_destinations(manifest) {
+        let worker_threads = manifest_worker_threads(manifest)?;
         rayon::ThreadPoolBuilder::new()
-            .num_threads(2)
+            .num_threads(worker_threads)
             .thread_name(|index| format!("scan-cleanup-page-{index}"))
             .build()
             .map_err(|error| invalid(format!("Unable to initialize page workers: {error}")))?
@@ -412,7 +434,7 @@ fn run_manifest_inner(manifest: &BatchManifest) -> Result<(), Box<dyn Error>> {
     };
 
     let mut page_results = page_results.into_iter().collect::<Result<Vec<_>, _>>()?;
-    reconcile_classification_batch(manifest, &mut page_results)?;
+    reconcile_classification_batch(manifest, &mut page_results, &cache)?;
     let mut written_outputs = Vec::new();
     for (index, page_result) in page_results.into_iter().enumerate() {
         if let Some(path) = &page_result.page_metadata_path {
@@ -441,6 +463,7 @@ fn run_manifest_inner(manifest: &BatchManifest) -> Result<(), Box<dyn Error>> {
             cluster_agreement: Some(page_result.metadata.cluster_agreement),
             document_prior: page_result.metadata.document_prior,
             text_axis: page_result.metadata.text_axis,
+            stage_timings: (!page_result.timings.is_empty()).then_some(page_result.timings),
         })?;
     }
     match_page_sizes(&written_outputs, manifest.preview_mode)?;
@@ -458,6 +481,7 @@ fn run_manifest_inner(manifest: &BatchManifest) -> Result<(), Box<dyn Error>> {
         cluster_agreement: None,
         document_prior: None,
         text_axis: None,
+        stage_timings: None,
     })?;
     Ok(())
 }
@@ -465,6 +489,7 @@ fn run_manifest_inner(manifest: &BatchManifest) -> Result<(), Box<dyn Error>> {
 fn reconcile_classification_batch(
     manifest: &BatchManifest,
     results: &mut [PageRunResult],
+    cache: &Arc<Mutex<ByteLru>>,
 ) -> Result<(), Box<dyn Error>> {
     let eligible = results
         .iter()
@@ -592,13 +617,21 @@ fn reconcile_classification_batch(
                     candidate_cutter_ratio: metadata.candidate_cutter_ratio,
                     whitespace_score: metadata.whitespace_score,
                 };
-                results[index] = run_classification(
+                let page_cache = page_cache_for(&manifest.pages[index], index, cache)?;
+                let mut rerun = run_classification(
                     &manifest.pages[index],
                     Some(&manifest.shared_options),
                     index,
                     manifest.canvas_scope,
                     Some(prior),
+                    &page_cache,
                 )?;
+                rerun.timings.decode_ms += results[index].timings.decode_ms;
+                rerun.timings.analysis_level_ms += results[index].timings.analysis_level_ms;
+                rerun.timings.normalization_ms += results[index].timings.normalization_ms;
+                rerun.timings.split_ms += results[index].timings.split_ms;
+                rerun.timings.content_ms += results[index].timings.content_ms;
+                results[index] = rerun;
                 preserve_tier1_provenance_after_rerun(&mut results[index].metadata, tier1, prior);
                 continue;
             }
@@ -704,6 +737,7 @@ fn run_manifest_page(
     manifest: &BatchManifest,
     page: &PageJob,
     index: usize,
+    cache: &PageCache,
 ) -> Result<PageRunResult, Box<dyn Error>> {
     let classify_only = page.classify_only.unwrap_or_else(|| {
         page.options
@@ -719,6 +753,7 @@ fn run_manifest_page(
             index,
             manifest.canvas_scope,
             page.document_prior,
+            cache,
         )
     } else {
         run_page(
@@ -726,6 +761,7 @@ fn run_manifest_page(
             Some(&manifest.shared_options),
             index,
             manifest.canvas_scope,
+            cache,
         )
     }
 }
@@ -749,41 +785,162 @@ fn pages_have_disjoint_destinations(manifest: &BatchManifest) -> bool {
     })
 }
 
+const FALLBACK_SYSTEM_MEMORY_BYTES: u64 = 4 * 1024 * 1024 * 1024;
+const GRAY_PEAK_BYTES_PER_PIXEL: u64 = 12;
+const COLOR_PEAK_BYTES_PER_PIXEL: u64 = 24;
+
+fn manifest_worker_threads(manifest: &BatchManifest) -> Result<usize, NativeError> {
+    let available = std::thread::available_parallelism().map_or(2, usize::from);
+    let peak_page_bytes = manifest
+        .pages
+        .iter()
+        .map(|page| {
+            let options = page.options.as_ref().unwrap_or(&manifest.shared_options);
+            let (width, height) =
+                png::read_dimensions(&page.input_path, options.max_pixels, options.max_dimension)
+                    .map_err(map_image_error)?;
+            Ok(estimate_peak_page_bytes(width, height, options.output_mode))
+        })
+        .collect::<Result<Vec<_>, NativeError>>()?
+        .into_iter()
+        .max()
+        .unwrap_or(1);
+    let total_memory = system_memory_bytes().unwrap_or(FALLBACK_SYSTEM_MEMORY_BYTES);
+    let process_budget = total_memory.saturating_mul(40) / 100;
+    let worker_budget = process_budget.saturating_sub(configured_cache_budget_bytes() as u64);
+    Ok(adaptive_thread_count(
+        available,
+        manifest.pages.len(),
+        worker_budget,
+        peak_page_bytes,
+    ))
+}
+
+/// Peak accounting follows the full-resolution allocations in `run_page` and
+/// `clean_region`: gray decode, rotation, normalization/background work,
+/// rendered/output copies, and binary/morphology scratch are covered by twelve
+/// bytes per pixel. Color/mixed adds decoded, rotated, normalized, and rendered
+/// RGB rasters, bringing the conservative multiplier to twenty-four.
+fn estimate_peak_page_bytes(width: usize, height: usize, output_mode: OutputMode) -> u64 {
+    let pixels = (width as u64).saturating_mul(height as u64);
+    let multiplier = if matches!(output_mode, OutputMode::Color | OutputMode::Mixed) {
+        COLOR_PEAK_BYTES_PER_PIXEL
+    } else {
+        GRAY_PEAK_BYTES_PER_PIXEL
+    };
+    pixels.saturating_mul(multiplier)
+}
+
+fn adaptive_thread_count(
+    available_parallelism: usize,
+    page_count: usize,
+    memory_budget_bytes: u64,
+    peak_page_bytes: u64,
+) -> usize {
+    if page_count == 0 {
+        return 1;
+    }
+    let cpu_limit = (available_parallelism / 2).max(2).min(page_count.max(1));
+    let memory_limit = if peak_page_bytes == 0 {
+        page_count
+    } else {
+        (memory_budget_bytes / peak_page_bytes).max(1) as usize
+    };
+    cpu_limit.min(memory_limit).min(page_count).max(1)
+}
+
+fn system_memory_bytes() -> Option<u64> {
+    let meminfo = fs::read_to_string("/proc/meminfo").ok()?;
+    let kibibytes = meminfo
+        .lines()
+        .find_map(|line| line.strip_prefix("MemTotal:"))?
+        .split_ascii_whitespace()
+        .next()?
+        .parse::<u64>()
+        .ok()?;
+    Some(kibibytes.saturating_mul(1024))
+}
+
+fn configured_cache_budget_bytes() -> usize {
+    let total_memory = system_memory_bytes().unwrap_or(FALLBACK_SYSTEM_MEMORY_BYTES);
+    DEFAULT_CACHE_BUDGET_BYTES.min((total_memory / 10) as usize)
+}
+
 fn run_page(
     job: &PageJob,
     shared: Option<&CleanupOptions>,
     fallback_page_index: usize,
     canvas_scope: CanvasScope,
+    cache: &PageCache,
 ) -> Result<PageRunResult, Box<dyn Error>> {
     let options = job.options.as_ref().or(shared).cloned().unwrap_or_default();
     options.validate().map_err(invalid)?;
+    let mut timings = PageStageTimings::default();
+    let decode_started = Instant::now();
     let color_input = if matches!(options.output_mode, OutputMode::Color | OutputMode::Mixed) {
-        Some(
-            png::read_image(&job.input_path, options.max_pixels, options.max_dimension)
-                .map_err(map_image_error)?,
-        )
+        let key = StageCacheKey::decoded(&cache.source, true, &options);
+        let cached = cache
+            .shared
+            .lock()
+            .ok()
+            .and_then(|mut shared| shared.get::<png::DecodedPng>(&key));
+        Some(if let Some(cached) = cached {
+            cached
+        } else {
+            let decoded = Arc::new(
+                png::read_image(&job.input_path, options.max_pixels, options.max_dimension)
+                    .map_err(map_image_error)?,
+            );
+            let bytes = decoded
+                .gray
+                .data()
+                .len()
+                .saturating_add(decoded.rgb.width().saturating_mul(decoded.rgb.height()) * 3);
+            if let Ok(mut shared) = cache.shared.lock() {
+                shared.insert(key, Arc::clone(&decoded), bytes);
+            }
+            decoded
+        })
     } else {
         None
     };
     let gray_input = if color_input.is_none() {
-        Some(
-            png::read_gray(&job.input_path, options.max_pixels, options.max_dimension)
-                .map_err(map_image_error)?,
-        )
+        let key = StageCacheKey::decoded(&cache.source, false, &options);
+        let cached = cache
+            .shared
+            .lock()
+            .ok()
+            .and_then(|mut shared| shared.get::<GrayImage>(&key));
+        Some(if let Some(cached) = cached {
+            cached
+        } else {
+            let decoded = Arc::new(
+                png::read_gray(&job.input_path, options.max_pixels, options.max_dimension)
+                    .map_err(map_image_error)?,
+            );
+            let bytes = decoded.data().len();
+            if let Ok(mut shared) = cache.shared.lock() {
+                shared.insert(key, Arc::clone(&decoded), bytes);
+            }
+            decoded
+        })
     } else {
         None
     };
+    timings.decode_ms += decode_started.elapsed().as_secs_f64() * 1_000.0;
     let input_gray = color_input
         .as_ref()
         .map(|input| &input.gray)
-        .or(gray_input.as_ref())
+        .or(gray_input.as_deref())
         .expect("cleanup input is initialized");
-    let mut result = clean_page_with_color_and_document_prior(
+    let mut result = clean_page_with_color_and_document_prior_cached(
         input_gray,
         color_input.as_ref().map(|input| &input.rgb),
         &options,
         job.source_page_index.unwrap_or(fallback_page_index),
         job.document_prior,
+        cache,
+        &mut timings,
     )
     .map_err(invalid)?;
     for output in &mut result.outputs {
@@ -838,6 +995,7 @@ fn run_page(
     };
     let destinations = resolve_destinations(job, result.outputs.len())?;
     let mut written = Vec::with_capacity(result.outputs.len());
+    let write_started = Instant::now();
     for (output, destination) in result.outputs.iter().zip(&destinations) {
         if let Some(color) = &output.color_image {
             png::write_rgb_atomic(&destination.output_path, color)
@@ -853,13 +1011,17 @@ fn run_page(
             options: options.clone(),
             is_color: output.color_image.is_some(),
             half: output.metadata.half,
+            width: output.image.width(),
+            height: output.image.height(),
         });
     }
+    timings.write_ms += write_started.elapsed().as_secs_f64() * 1_000.0;
     Ok(PageRunResult {
         outputs: written,
         metadata: page_metadata,
         page_metadata_path: job.page_metadata_path.clone(),
         classification_only: false,
+        timings,
     })
 }
 
@@ -869,13 +1031,40 @@ fn run_classification(
     fallback_page_index: usize,
     canvas_scope: CanvasScope,
     document_prior: Option<crate::split::DocumentPrior>,
+    cache: &PageCache,
 ) -> Result<PageRunResult, Box<dyn Error>> {
     let options = job.options.as_ref().or(shared).cloned().unwrap_or_default();
     options.validate().map_err(invalid)?;
-    let input = png::read_gray(&job.input_path, options.max_pixels, options.max_dimension)
-        .map_err(map_image_error)?;
-    let result =
-        analyze_page_with_document_prior(&input, &options, document_prior).map_err(invalid)?;
+    let mut timings = PageStageTimings::default();
+    let decode_started = Instant::now();
+    let key = StageCacheKey::decoded(&cache.source, false, &options);
+    let cached = cache
+        .shared
+        .lock()
+        .ok()
+        .and_then(|mut shared| shared.get::<GrayImage>(&key));
+    let input = if let Some(cached) = cached {
+        cached
+    } else {
+        let decoded = Arc::new(
+            png::read_gray(&job.input_path, options.max_pixels, options.max_dimension)
+                .map_err(map_image_error)?,
+        );
+        let bytes = decoded.data().len();
+        if let Ok(mut shared) = cache.shared.lock() {
+            shared.insert(key, Arc::clone(&decoded), bytes);
+        }
+        decoded
+    };
+    timings.decode_ms += decode_started.elapsed().as_secs_f64() * 1_000.0;
+    let result = analyze_page_with_document_prior_cached(
+        &input,
+        &options,
+        document_prior,
+        cache,
+        &mut timings,
+    )
+    .map_err(invalid)?;
     let page_metadata = PageResultMetadata {
         source_page_index: job.source_page_index.unwrap_or(fallback_page_index),
         layout_classification: result.classification,
@@ -929,6 +1118,7 @@ fn run_classification(
         metadata: page_metadata,
         page_metadata_path: Some(metadata_path.clone()),
         classification_only: true,
+        timings,
     })
 }
 
@@ -941,32 +1131,21 @@ fn match_page_sizes(outputs: &[WrittenOutput], preview_mode: bool) -> Result<(),
         return Ok(());
     }
 
-    let images = eligible
-        .iter()
-        .map(|output| {
-            png::read_gray(
-                &output.output_path,
-                output.options.max_pixels,
-                output.options.max_dimension,
-            )
-            .map_err(map_image_error)
-        })
-        .collect::<Result<Vec<_>, _>>()?;
-    let target_width = robust_quantile_dimension(images.iter().map(GrayImage::width));
-    let target_height = robust_quantile_dimension(images.iter().map(GrayImage::height));
+    let target_width = robust_quantile_dimension(eligible.iter().map(|output| output.width));
+    let target_height = robust_quantile_dimension(eligible.iter().map(|output| output.height));
     validate_uniform_canvas(target_width, target_height, &eligible)?;
 
-    for (output, image) in eligible.into_iter().zip(images) {
-        let overflow = image.width() > target_width || image.height() > target_height;
+    for output in eligible {
+        let overflow = output.width > target_width || output.height > target_height;
         let available_width = if overflow {
             0
         } else {
-            target_width - image.width()
+            target_width - output.width
         };
         let available_height = if overflow {
             0
         } else {
-            target_height - image.height()
+            target_height - output.height
         };
         let (left, top) = output
             .options
@@ -986,13 +1165,9 @@ fn match_page_sizes(outputs: &[WrittenOutput], preview_mode: bool) -> Result<(),
         metadata.canvas_overflow = overflow;
         metadata.matched_canvas_target_width = Some(target_width);
         metadata.matched_canvas_target_height = Some(target_height);
-        metadata.canvas_width = if overflow {
-            image.width()
-        } else {
-            target_width
-        };
+        metadata.canvas_width = if overflow { output.width } else { target_width };
         metadata.canvas_height = if overflow {
-            image.height()
+            output.height
         } else {
             target_height
         };
@@ -1001,8 +1176,8 @@ fn match_page_sizes(outputs: &[WrittenOutput], preview_mode: bool) -> Result<(),
         if overflow {
             metadata.warnings.push(format!(
                 "Matched canvas target {target_width}x{target_height} would clip intrinsic page {}x{}; retained intrinsic size",
-                image.width(),
-                image.height()
+                output.width,
+                output.height
             ));
         }
 
@@ -1019,6 +1194,12 @@ fn match_page_sizes(outputs: &[WrittenOutput], preview_mode: bool) -> Result<(),
                 png::write_rgb_atomic(&output.output_path, &canvas)
                     .map_err(|message| NativeError::new(NativeErrorCode::Io, message))?;
             } else {
+                let image = png::read_gray(
+                    &output.output_path,
+                    output.options.max_pixels,
+                    output.options.max_dimension,
+                )
+                .map_err(map_image_error)?;
                 let canvas = place_on_white_canvas(&image, target_width, target_height, left, top);
                 png::write_gray_atomic(&output.output_path, &canvas)
                     .map_err(|message| NativeError::new(NativeErrorCode::Io, message))?;
@@ -1171,13 +1352,13 @@ fn map_image_error(message: String) -> NativeError {
 #[cfg(test)]
 mod tests {
     use super::{
-        preserve_tier1_provenance_after_rerun, robust_quantile_dimension, PageResultMetadata,
-        Tier1Provenance,
+        adaptive_thread_count, estimate_peak_page_bytes, preserve_tier1_provenance_after_rerun,
+        robust_quantile_dimension, PageResultMetadata, Tier1Provenance,
     };
     use crate::{
         protocol::manifest_v2::{CanvasScope, SplitSeamPolyline},
         split::{ClusterDimensions, DocumentPrior, LayoutClassification},
-        OrthogonalRotation,
+        OrthogonalRotation, OutputMode,
     };
     use scan_primitives::Point;
 
@@ -1187,6 +1368,24 @@ mod tests {
         assert_eq!(
             robust_quantile_dimension([80, 80, 80, 80, 80, 80, 80, 80, 80, 140].into_iter()),
             80
+        );
+    }
+
+    #[test]
+    fn adaptive_threads_respect_cpu_pages_and_memory() {
+        assert_eq!(adaptive_thread_count(16, 20, 10_000, 1_000), 8);
+        assert_eq!(adaptive_thread_count(16, 3, 10_000, 1_000), 3);
+        assert_eq!(adaptive_thread_count(2, 20, 10_000, 1_000), 2);
+        assert_eq!(adaptive_thread_count(16, 20, 1_500, 1_000), 1);
+        assert_eq!(adaptive_thread_count(16, 0, 10_000, 1_000), 1);
+    }
+
+    #[test]
+    fn color_peak_estimate_accounts_for_rgb_working_copies() {
+        assert_eq!(estimate_peak_page_bytes(100, 50, OutputMode::Bw), 60_000);
+        assert_eq!(
+            estimate_peak_page_bytes(100, 50, OutputMode::Color),
+            120_000
         );
     }
 
