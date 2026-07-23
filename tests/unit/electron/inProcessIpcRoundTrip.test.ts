@@ -22,14 +22,7 @@ import { createDocumentsPreloadFileClient } from '@electron/features/documents/c
 import { DOCUMENTS_IPC_CODECS } from '@electron/features/documents/documentsIpcCodecs';
 import type { IDocumentsService } from '@electron/features/documents/documentsService';
 import { registerDocumentsIpcAdapter } from '@electron/features/documents/registerDocumentsIpcAdapter';
-import {
-    OCR_CHANNELS,
-    type IOcrInvokeMap,
-} from '@electron/features/ocr/contract';
-import { createOcrPreloadClient } from '@electron/features/ocr/createOcrPreloadClient';
-import { OCR_IPC_CODECS } from '@electron/features/ocr/ocrIpcCodecs';
-import type { IOcrService } from '@electron/features/ocr/ports';
-import { registerOcrIpcAdapter } from '@electron/features/ocr/registerOcrIpcAdapter';
+import { OCR_PLATFORM_FEATURE } from '@contracts/ocrPlatformFeature';
 import {
     PAGE_OPS_PLATFORM_FEATURE,
     type IPageOpsInvokeMap,
@@ -93,7 +86,6 @@ vi.mock('@electron/platform-ipc/trustedIpcSender', () => ({
 vi.mock('@electron/features/documents/createDocumentsService', () => ({createDocumentsService: vi.fn()}));
 vi.mock('@electron/features/documents/public', () => ({attachSerializedPdfPersistencePort: vi.fn()}));
 vi.mock('@electron/features/agent/createAgentService', () => ({createAgentService: vi.fn()}));
-vi.mock('@electron/features/ocr/createOcrService', () => ({createOcrService: vi.fn()}));
 vi.mock('@electron/features/search/main/searchWorkerService', () => ({getSearchWorkerServiceConfig: () => ({
     idleTtlMs: 1,
     maxActive: 1,
@@ -531,16 +523,35 @@ describe('in-process preload to validated IPC round trips', () => {
                 contentDigest: 'page-digest',
             },
         }));
-        const service = cast<IOcrService>({
+        type TOcrBindings = TFeatureMainBindings<
+            typeof OCR_PLATFORM_FEATURE,
+            IpcMainInvokeEvent
+        >;
+        type TOcrInvokeMap = TFeatureInvokeMap<typeof OCR_PLATFORM_FEATURE>;
+        const service = cast<TOcrBindings>({
             cancel,
             resolveDocumentOcrAvailability,
             resolveDocumentOcrPage,
         });
-        const harness = createInProcessIpcRoundTripHarness<IOcrInvokeMap, IOcrService, ReturnType<typeof createOcrPreloadClient>>({
-            channels: OCR_CHANNELS,
-            codecs: OCR_IPC_CODECS,
-            createClient: createOcrPreloadClient,
-            register: registerOcrIpcAdapter,
+        const createOcrClient = (ipcRenderer: Electron.IpcRenderer) =>
+            createPlatformFeaturePreloadClient(ipcRenderer, OCR_PLATFORM_FEATURE);
+        const harness = createInProcessIpcRoundTripHarness<
+            TOcrInvokeMap,
+            TOcrBindings,
+            ReturnType<typeof createOcrClient>
+        >({
+            channels: OCR_PLATFORM_FEATURE.invokeChannels,
+            codecs: cast<Parameters<typeof createInProcessIpcRoundTripHarness<
+                TOcrInvokeMap,
+                TOcrBindings,
+                ReturnType<typeof createOcrClient>
+            >>[0]['codecs']>(OCR_PLATFORM_FEATURE.ipcCodecs),
+            createClient: createOcrClient,
+            register: (registrar, bindings) => registerPlatformFeatureHandlers(
+                cast<Parameters<typeof registerPlatformFeatureHandlers>[0]>(registrar),
+                OCR_PLATFORM_FEATURE,
+                bindings,
+            ),
             service,
         });
 

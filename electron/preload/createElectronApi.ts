@@ -16,8 +16,14 @@ import type {
 } from '@contracts/electronApiDocuments';
 import type { TMenuEventUnsubscribe } from '@contracts/electronApiCommon';
 import type { IHostResourceProfileSnapshot } from '@contracts/hostResourceProfile';
+import { assertNonEmptyString } from '@contracts/ipcAssertions';
 import { IMAGE_EXPORT_PLATFORM_FEATURE } from '@contracts/imageExportPlatformFeature';
 import { DJVU_PLATFORM_FEATURE } from '@contracts/djvuPlatformFeature';
+import {
+    OCR_PLATFORM_FEATURE,
+    OCR_PREPROCESSING_PLATFORM_FEATURE,
+    type IOcrCapability,
+} from '@contracts/ocrPlatformFeature';
 import { PAGE_OPS_PLATFORM_FEATURE } from '@contracts/pageOpsPlatformFeature';
 import { SEARCH_PLATFORM_FEATURE } from '@contracts/searchPlatformFeature';
 import { SETTINGS_PLATFORM_FEATURE } from '@contracts/settingsPlatformFeature';
@@ -35,7 +41,6 @@ import {
     DOCUMENTS_CHANNELS,
     type IDocumentsInvokeMap,
 } from '@electron/features/documents/contract';
-import {createOcrPreloadClient} from '@electron/features/ocr/createOcrPreloadClient';
 import {createScanCleanupPreloadClient} from '@electron/features/scan-cleanup/createScanCleanupPreloadClient';
 import {
     createCodecIpcInvoker,
@@ -54,6 +59,7 @@ import {
 
 const preloadStartupStart = Date.now();
 const STARTUP_TRACE_ENABLED = process.env.EVB_STARTUP_TRACE === '1';
+const OCR_LANGUAGE_INSTALL_UNAVAILABLE = 'OCR language installation is not available from the renderer; validateTools only reports installed languages.';
 
 function stringifyDetails(details?: Record<string, unknown>) {
     if (!details) {
@@ -150,6 +156,35 @@ export function createElectronApi(
     const baseDocuments = createDocumentsPreloadClient(ipcRenderer);
     const pageOps = createPlatformFeaturePreloadClient(ipcRenderer, PAGE_OPS_PLATFORM_FEATURE);
     const imageExport = createPlatformFeaturePreloadClient(ipcRenderer, IMAGE_EXPORT_PLATFORM_FEATURE);
+    const ocrIpc = createPlatformFeaturePreloadClient(ipcRenderer, OCR_PLATFORM_FEATURE);
+    const ocr = {
+        ...ocrIpc,
+        installLanguages: async (_languages: string[], requestId: string) => {
+            const checkedRequestId = assertNonEmptyString(
+                requestId,
+                'ocrInstallLanguages.requestId',
+                128,
+            );
+            const validation = await ocrIpc.validateTools();
+            return {
+                started: false,
+                jobId: checkedRequestId,
+                installed: [],
+                errors: [
+                    OCR_LANGUAGE_INSTALL_UNAVAILABLE,
+                    ...validation.errors,
+                ],
+                error: OCR_LANGUAGE_INSTALL_UNAVAILABLE,
+                ...(validation.errorEnvelope
+                    ? {errorEnvelope: validation.errorEnvelope}
+                    : {}),
+            };
+        },
+        preprocessing: createPlatformFeaturePreloadClient(
+            ipcRenderer,
+            OCR_PREPROCESSING_PLATFORM_FEATURE,
+        ),
+    } satisfies IOcrCapability;
     const settingsIpc = createPlatformFeaturePreloadClient(ipcRenderer, SETTINGS_PLATFORM_FEATURE);
     const updatesIpc = createPlatformFeaturePreloadClient(ipcRenderer, UPDATES_PLATFORM_FEATURE);
     const hostIpc = createPlatformFeaturePreloadClient(ipcRenderer, HOST_PLATFORM_FEATURE, {getResourceProfile: () => options.resourceProfile ?? null});
@@ -497,7 +532,7 @@ export function createElectronApi(
         pageOps,
         imageExport,
 
-        ocr: createOcrPreloadClient(ipcRenderer),
+        ocr,
         scanCleanup: createScanCleanupPreloadClient(ipcRenderer),
 
         search: createPlatformFeaturePreloadClient(ipcRenderer, SEARCH_PLATFORM_FEATURE),

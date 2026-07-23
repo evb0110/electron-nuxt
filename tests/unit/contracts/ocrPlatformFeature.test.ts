@@ -5,13 +5,78 @@ import {
     vi,
 } from 'vitest';
 import {
-    OCR_CHANNELS,
-    OCR_EVENT_CHANNELS,
-} from '@electron/features/ocr/contract';
+    OCR_PLATFORM_FEATURE,
+    OCR_PREPROCESSING_PLATFORM_FEATURE,
+} from '@contracts/ocrPlatformFeature';
+import { createPlatformFeaturePreloadClient } from '@electron/preload/ipcClient';
 import type { IpcRenderer } from 'electron';
-import type * as OcrPreloadClientModule from '@electron/features/ocr/createOcrPreloadClient';
 
-describe('createOcrPreloadClient', () => {
+const channels = OCR_PLATFORM_FEATURE.invokeChannels;
+const eventChannels = OCR_PLATFORM_FEATURE.eventChannels;
+
+describe('OCR platform feature', () => {
+    it('preserves channels, timeouts, optional members, and registry replay policy', () => {
+        expect(channels).toEqual({
+            recognize: 'ocr:recognize',
+            recognizeBatch: 'ocr:recognizeBatch',
+            cancel: 'ocr:cancel',
+            getJobState: 'ocr:job:get-state',
+            subscribeJob: 'ocr:job:subscribe',
+            reconnectJob: 'ocr:job:reconnect',
+            getLanguages: 'ocr:getLanguages',
+            resolveDocumentTextCatalog: 'ocr:resolveDocumentTextCatalog',
+            resolveDocumentOcrAvailability: 'ocr:resolveDocumentOcrAvailability',
+            resolveDocumentOcrPage: 'ocr:resolveDocumentOcrPage',
+            validateTools: 'ocr:validateTools',
+            acknowledgeResultFile: 'ocr:ackResultFile',
+            createSearchablePdf: 'ocr:createSearchablePdf',
+            subscribeProgress: 'ocr:progress:subscribe',
+        });
+        expect(OCR_PREPROCESSING_PLATFORM_FEATURE.invokeChannels).toEqual({
+            validate: 'preprocessing:validate',
+            preprocessPage: 'preprocessing:preprocessPage',
+        });
+        expect(eventChannels).toEqual({
+            onProgress: 'ocr:progress',
+            onComplete: 'ocr:complete',
+        });
+        expect(OCR_PLATFORM_FEATURE.methods.resolveDocumentOcrAvailability)
+            .toMatchObject({
+                optionalWhenImplemented: true,
+                required: {
+                    browser: false,
+                    electron: false,
+                },
+            });
+        expect(OCR_PLATFORM_FEATURE.methods.resolveDocumentOcrPage)
+            .toMatchObject({optionalWhenImplemented: true});
+        expect(OCR_PLATFORM_FEATURE.methods.createSearchablePdf.ipc.timeoutMs)
+            .toBe(30 * 60 * 1_000);
+        expect(
+            OCR_PREPROCESSING_PLATFORM_FEATURE.methods.preprocessPage.ipc.timeoutMs,
+        ).toBe(30 * 60 * 1_000);
+        const replay = OCR_PLATFORM_FEATURE.events.onProgress.subscription.replay;
+        expect(replay).toMatchObject({
+            intervalMs: 50,
+            mode: 'latest-per-key',
+            owner: 'ipc-progress-pump',
+            terminalRetentionMs: 30_000,
+        });
+        expect(replay.key({
+            requestId: 'ocr-1',
+            currentPage: 1,
+            processedCount: 0,
+            totalPages: 1,
+        })).toBe('ocr-1');
+        expect(replay.terminal({
+            requestId: 'ocr-1',
+            currentPage: 1,
+            processedCount: 1,
+            totalPages: 1,
+            status: 'success',
+        })).toBe(true);
+    });
+
     it('decodes OCR languages and rejects malformed nested language entries', async () => {
         let result: unknown = [
             {
@@ -28,8 +93,10 @@ describe('createOcrPreloadClient', () => {
             on: vi.fn(),
             removeListener: vi.fn(),
         };
-        const { createOcrPreloadClient }: typeof OcrPreloadClientModule = await import('@electron/features/ocr/createOcrPreloadClient');
-        const client = createOcrPreloadClient(ipcRenderer as IpcRenderer);
+        const client = createPlatformFeaturePreloadClient(
+            ipcRenderer as IpcRenderer,
+            OCR_PLATFORM_FEATURE,
+        );
 
         await expect(client.getLanguages()).resolves.toEqual(result);
 
@@ -63,59 +130,6 @@ describe('createOcrPreloadClient', () => {
         }
     });
 
-    it('does not report language installation success when only validation is available', async () => {
-        const ipcRenderer: Pick<IpcRenderer, 'invoke' | 'on' | 'removeListener'> = {
-            invoke: vi.fn(async (channel: string) => {
-                if (channel === OCR_CHANNELS.validateTools) {
-                    return {
-                        valid: true,
-                        tools: {
-                            tesseract: {
-                                found: true,
-                                path: '/tools/tesseract',
-                            },
-                            tessdata: {
-                                found: true,
-                                path: '/tools/tessdata',
-                                languages: ['eng'],
-                            },
-                            pdftoppm: {
-                                found: true,
-                                path: '/tools/pdftoppm',
-                            },
-                            pdftotext: {
-                                found: true,
-                                path: '/tools/pdftotext',
-                            },
-                            popplerRuntime: {
-                                dataDirFound: true,
-                                fontConfigDirFound: true,
-                            },
-                            qpdf: {
-                                found: true,
-                                path: '/tools/qpdf',
-                            },
-                        },
-                        errors: [],
-                    };
-                }
-                throw new Error(`Unexpected channel: ${channel}`);
-            }),
-            on: vi.fn(),
-            removeListener: vi.fn(),
-        };
-        const { createOcrPreloadClient }: typeof OcrPreloadClientModule = await import('@electron/features/ocr/createOcrPreloadClient');
-
-        await expect(createOcrPreloadClient(ipcRenderer as IpcRenderer).installLanguages(['eng'], 'request-1'))
-            .resolves.toMatchObject({
-                started: false,
-                jobId: 'request-1',
-                installed: [],
-                error: 'OCR language installation is not available from the renderer; validateTools only reports installed languages.',
-            });
-        expect(ipcRenderer.invoke).toHaveBeenCalledWith(OCR_CHANNELS.validateTools);
-    });
-
     it('drops malformed OCR progress and converts malformed completions to failure callbacks', async () => {
         const listeners = new Map<string, (_event: unknown, payload: unknown) => void>();
         const ipcRenderer: Pick<IpcRenderer, 'invoke' | 'on' | 'removeListener'> = {
@@ -126,34 +140,36 @@ describe('createOcrPreloadClient', () => {
             }),
             removeListener: vi.fn(),
         };
-        const { createOcrPreloadClient }: typeof OcrPreloadClientModule = await import('@electron/features/ocr/createOcrPreloadClient');
-        const client = createOcrPreloadClient(ipcRenderer as IpcRenderer);
+        const client = createPlatformFeaturePreloadClient(
+            ipcRenderer as IpcRenderer,
+            OCR_PLATFORM_FEATURE,
+        );
         const progressCallback = vi.fn();
         const completeCallback = vi.fn();
 
         client.onProgress(progressCallback);
         client.onComplete(completeCallback);
-        listeners.get(OCR_EVENT_CHANNELS.progress)?.({}, {
+        listeners.get(eventChannels.onProgress)?.({}, {
             requestId: 'ocr-1',
             currentPage: 1,
             processedCount: 1,
             totalPages: 2,
             phase: 'processing',
         });
-        listeners.get(OCR_EVENT_CHANNELS.progress)?.({}, {
+        listeners.get(eventChannels.onProgress)?.({}, {
             requestId: 'ocr-2',
             currentPage: '1',
             processedCount: 1,
             totalPages: 2,
         });
-        listeners.get(OCR_EVENT_CHANNELS.progress)?.({}, {
+        listeners.get(eventChannels.onProgress)?.({}, {
             requestId: 'ocr-3',
             currentPage: 1,
             processedCount: 1,
             totalPages: 2,
             phase: 'not-a-contract-phase',
         });
-        listeners.get(OCR_EVENT_CHANNELS.complete)?.({}, {
+        listeners.get(eventChannels.onComplete)?.({}, {
             requestId: 'ocr-1',
             success: true,
             pdfPath: '/tmp/out.pdf',
@@ -168,12 +184,12 @@ describe('createOcrPreloadClient', () => {
                 pageNumber: 1,
             }],
         });
-        listeners.get(OCR_EVENT_CHANNELS.complete)?.({}, {
+        listeners.get(eventChannels.onComplete)?.({}, {
             requestId: 'ocr-2',
             success: true,
             errors: [42],
         });
-        listeners.get(OCR_EVENT_CHANNELS.complete)?.({}, {
+        listeners.get(eventChannels.onComplete)?.({}, {
             requestId: 'ocr-3',
             success: false,
             errors: ['OCR queue is full'],
@@ -184,7 +200,7 @@ describe('createOcrPreloadClient', () => {
                 timestamp: 123,
             },
         });
-        listeners.get(OCR_EVENT_CHANNELS.complete)?.({}, {
+        listeners.get(eventChannels.onComplete)?.({}, {
             requestId: 'ocr-4',
             success: false,
             errors: ['Malformed envelope'],
@@ -195,7 +211,7 @@ describe('createOcrPreloadClient', () => {
                 timestamp: 123,
             },
         });
-        listeners.get(OCR_EVENT_CHANNELS.complete)?.({}, {
+        listeners.get(eventChannels.onComplete)?.({}, {
             requestId: 'ocr-5',
             success: true,
             pdfPath: '/tmp/out-without-token.pdf',

@@ -15,7 +15,7 @@ import type {
 } from '@electron/ocr/jobManager.types';
 import type { createPendingResultFileStore } from '@electron/ocr/createPendingResultFileStore';
 import { ocrResourceGovernor } from '@electron/ocr/ocrResourceGovernor';
-import { OCR_EVENT_CHANNELS } from '@electron/features/ocr/contract';
+import { OCR_COMPLETE_EVENT_CHANNEL } from '@contracts/electronApiOcr';
 import { buildOcrErrorEnvelope } from '@electron/ocr/contracts';
 import type { ILogger } from '@electron/utils/createLogger';
 import { getErrorMessage } from '@electron/utils/error';
@@ -26,6 +26,7 @@ import type {
     IOcrProgress,
     TOcrErrorCode,
 } from '@contracts/electronApiOcr';
+
 
 const OCR_WORKER_COOPERATIVE_CANCEL_DELAY_MS = (() => {
     const parsed = Number.parseInt(process.env.EVB_OCR_WORKER_COOPERATIVE_CANCEL_DELAY_MS ?? '250', 10);
@@ -58,7 +59,7 @@ interface IOcrJobWorkerLifecycleControllerOptions {
     removeResultFile: (path: string) => Promise<boolean>;
     safeSendToWindow: (
         window: BrowserWindow | null | undefined,
-        channel: typeof OCR_EVENT_CHANNELS.complete,
+        channel: typeof OCR_COMPLETE_EVENT_CHANNEL,
         payload: IOcrCompleteResult,
     ) => void;
 }
@@ -153,7 +154,7 @@ export function createOcrJobWorkerLifecycleController(
         };
         job.registry.terminal.fail(errorEnvelope);
         job.terminalResult = result;
-        safeSendToWindow(window, OCR_EVENT_CHANNELS.complete, result);
+        safeSendToWindow(window, OCR_COMPLETE_EVENT_CHANNEL, result);
         return result;
     }
 
@@ -175,7 +176,7 @@ export function createOcrJobWorkerLifecycleController(
         };
         job.registry.terminal.cancel(errorEnvelope);
         job.terminalResult = result;
-        safeSendToWindow(window, OCR_EVENT_CHANNELS.complete, result);
+        safeSendToWindow(window, OCR_COMPLETE_EVENT_CHANNEL, result);
         return result;
     }
 
@@ -357,7 +358,11 @@ export function createOcrJobWorkerLifecycleController(
                     ),
             );
         }
-        safeSendToWindow(getJobWindow(job.webContentsId), OCR_EVENT_CHANNELS.complete, completeResult);
+        safeSendToWindow(
+            getJobWindow(job.webContentsId),
+            OCR_COMPLETE_EVENT_CHANNEL,
+            completeResult,
+        );
         return true;
     }
 

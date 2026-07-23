@@ -4,12 +4,12 @@ import { uniq } from 'es-toolkit/array';
 import type { IOcrLanguage } from '@contracts/shared';
 import type { TDocumentRef } from '@contracts/documentRef';
 import type {
-    IOcrCapability,
     IOcrCancelResult,
     IOcrErrorEnvelope,
     IOcrSearchablePdfOptions,
     IOcrDiagnostic,
 } from '@contracts/electronApiOcr';
+import type { IOcrCapability } from '@contracts/ocrPlatformFeature';
 import { createDocxFromText } from '@app/utils/docx';
 import { OCR_TIMEOUT_MS } from '@app/constants/timeouts';
 import { BrowserLogger } from '@app/utils/browserLogger';

@@ -18,7 +18,11 @@ import {
     HOST_PLATFORM_FEATURE,
     type IHostCapability,
 } from '@contracts/hostPlatformFeature';
-import type { IOcrCapability } from '@contracts/electronApiOcr';
+import {
+    OCR_PLATFORM_FEATURE,
+    OCR_PREPROCESSING_PLATFORM_FEATURE,
+    type IOcrCapability,
+} from '@contracts/ocrPlatformFeature';
 import type { IScanCleanupCapability } from '@contracts/electronApiScanCleanup';
 import {
     IMAGE_EXPORT_PLATFORM_FEATURE,
@@ -388,11 +392,6 @@ const optionalDocumentMethodNames = new Set<string>([
     'showItemInFolderStructured',
 ]);
 
-const optionalHotReloadCompatibleMethodPaths = new Set([
-    'ocr.resolveDocumentOcrAvailability',
-    'ocr.resolveDocumentOcrPage',
-]);
-
 function resolveMethodKind(path: readonly string[]): TPlatformMethodKind {
     const methodName = path.at(-1);
     if (methodName?.startsWith('on')) {
@@ -434,7 +433,7 @@ function isOptionalDocumentPath(path: readonly string[]) {
 }
 
 function isOptionalMethodPath(path: readonly string[]) {
-    return isOptionalDocumentPath(path) || optionalHotReloadCompatibleMethodPaths.has(path.join('.'));
+    return isOptionalDocumentPath(path);
 }
 
 function isElectronOnlyMethodPath(path: readonly string[]) {
@@ -490,77 +489,7 @@ function createDocumentMethodDescriptors() {
 const otherMethodPaths = defineMethodPaths([
     [
         'ocr',
-        'recognize',
-    ],
-    [
-        'ocr',
-        'recognizeBatch',
-    ],
-    [
-        'ocr',
-        'cancel',
-    ],
-    [
-        'ocr',
-        'getJobState',
-    ],
-    [
-        'ocr',
-        'subscribeJob',
-    ],
-    [
-        'ocr',
-        'reconnectJob',
-    ],
-    [
-        'ocr',
-        'getLanguages',
-    ],
-    [
-        'ocr',
-        'resolveDocumentTextCatalog',
-    ],
-    [
-        'ocr',
-        'resolveDocumentOcrAvailability',
-    ],
-    [
-        'ocr',
-        'resolveDocumentOcrPage',
-    ],
-    [
-        'ocr',
-        'validateTools',
-    ],
-    [
-        'ocr',
         'installLanguages',
-    ],
-    [
-        'ocr',
-        'acknowledgeResultFile',
-    ],
-    [
-        'ocr',
-        'createSearchablePdf',
-    ],
-    [
-        'ocr',
-        'onProgress',
-    ],
-    [
-        'ocr',
-        'onComplete',
-    ],
-    [
-        'ocr',
-        'preprocessing',
-        'validate',
-    ],
-    [
-        'ocr',
-        'preprocessing',
-        'preprocessPage',
     ],
     [
         'scanCleanup',
@@ -859,6 +788,8 @@ export const LEGACY_PLATFORM_API_DESCRIPTOR_WITHOUT_MIGRATED_FEATURES = {
 export const PLATFORM_FEATURE_REGISTRY = [
     SEARCH_PLATFORM_FEATURE,
     DJVU_PLATFORM_FEATURE,
+    OCR_PLATFORM_FEATURE,
+    OCR_PREPROCESSING_PLATFORM_FEATURE,
     IMAGE_EXPORT_PLATFORM_FEATURE,
     PAGE_OPS_PLATFORM_FEATURE,
     SETTINGS_PLATFORM_FEATURE,
@@ -892,13 +823,23 @@ function mergePlatformDescriptors(
     legacy: IPlatformApiDescriptor,
     features: readonly IMigratedPlatformFeature[],
 ): IPlatformApiDescriptor {
-    const capabilityPaths = new Set(legacy.capabilities.map(descriptor => descriptor.path.join('.')));
+    const capabilities = new Map(
+        legacy.capabilities.map(descriptor => [
+            descriptor.path.join('.'),
+            descriptor,
+        ]),
+    );
     const methodPaths = new Set(legacy.methods.map(descriptor => descriptor.path.join('.')));
     const channels = new Set<string>();
     for (const feature of features) {
-        addUniquePlatformValues(capabilityPaths,
-            feature.platformDescriptors.capabilities.map(({path}) => path.join('.')),
-            'platform capability path');
+        for (const descriptor of feature.platformDescriptors.capabilities) {
+            const path = descriptor.path.join('.');
+            const existing = capabilities.get(path);
+            if (existing && JSON.stringify(existing) !== JSON.stringify(descriptor)) {
+                throw new Error(`Conflicting platform capability path: ${path}`);
+            }
+            capabilities.set(path, descriptor);
+        }
         addUniquePlatformValues(methodPaths,
             feature.platformDescriptors.methods.map(({path}) => path.join('.')),
             'platform method path');
@@ -908,10 +849,7 @@ function mergePlatformDescriptors(
         ], 'migrated platform channel');
     }
     return {
-        capabilities: [
-            ...legacy.capabilities,
-            ...features.flatMap(feature => feature.platformDescriptors.capabilities),
-        ],
+        capabilities: [...capabilities.values()],
         methods: [
             ...legacy.methods,
             ...features.flatMap(feature => feature.platformDescriptors.methods),

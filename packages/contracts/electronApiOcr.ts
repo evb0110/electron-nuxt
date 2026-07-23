@@ -1,11 +1,8 @@
 import type { TDocumentRef } from '@contracts/documentRef';
 import type { TDocumentRevisionToken } from '@contracts/documentRevision';
-import type { IOcrLanguage } from '@contracts/shared';
-import type {
-    IDocumentOcrAvailability,
-    IDocumentOcrPageSnapshot,
-    IDocumentTextSnapshot,
-} from '@contracts/documentTextCatalog';
+
+export const OCR_PROGRESS_EVENT_CHANNEL = 'ocr:progress';
+export const OCR_COMPLETE_EVENT_CHANNEL = 'ocr:complete';
 
 export type TOcrErrorCode =
     | 'OCR_INVALID_PAYLOAD'
@@ -229,50 +226,4 @@ export interface IPreprocessPageResult extends IOcrErrorEnvelopeCarrier {
     imageData: Uint8Array;
     message?: string;
     error?: string;
-}
-
-export interface IOcrCapability {
-    recognize: (request: IOcrRecognizeRequest) => Promise<IOcrRecognizeResult>;
-    recognizeBatch: (
-        pages: IOcrRecognizeRequest[],
-        requestId: string,
-    ) => Promise<IOcrRecognizeBatchResult>;
-    cancel: (requestId: string) => Promise<IOcrCancelResult>;
-    getJobState: (requestId: string) => Promise<IOcrJobProjectionState | null>;
-    subscribeJob: (requestId: string) => Promise<IOcrJobProjectionState | null>;
-    reconnectJob: (requestId: string) => Promise<IOcrJobProjectionState | null>;
-    getLanguages: () => Promise<IOcrLanguage[]>;
-    resolveDocumentTextCatalog: (
-        workingCopyPath: TDocumentRef,
-        documentRevision: TDocumentRevisionToken,
-        pageCount?: number,
-    ) => Promise<IDocumentTextSnapshot>;
-    resolveDocumentOcrAvailability?: (
-        workingCopyPath: TDocumentRef,
-        documentRevision: TDocumentRevisionToken,
-    ) => Promise<IDocumentOcrAvailability>;
-    resolveDocumentOcrPage?: (
-        workingCopyPath: TDocumentRef,
-        documentRevision: TDocumentRevisionToken,
-        pageNumber: number,
-    ) => Promise<IDocumentOcrPageSnapshot>;
-    validateTools: () => Promise<IOcrToolValidationResult>;
-    installLanguages: (languages: string[], requestId: string) => Promise<IOcrJobStartResult>;
-    acknowledgeResultFile: (requestId: string, pdfPath?: TDocumentRef) => Promise<IOcrResultFileAckResult>;
-    createSearchablePdf: (
-        sourcePdfPath: string,
-        pages: Array<{
-            pageNumber: number;
-            languages: string[];
-        }>,
-        requestId: string,
-        renderDpiOrOptions?: number | IOcrSearchablePdfOptions,
-    ) => Promise<IOcrJobStartResult>;
-    onProgress: (callback: (progress: IOcrProgress) => void) => () => void;
-    onComplete: (callback: (result: IOcrCompleteResult) => void) => () => void;
-
-    preprocessing: {
-        validate: () => Promise<IPreprocessingValidationResult>;
-        preprocessPage: (imageData: Uint8Array, usePreprocessing: boolean) => Promise<IPreprocessPageResult>;
-    };
 }

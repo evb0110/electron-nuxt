@@ -11,8 +11,7 @@ import { createDocumentsPreloadFileClient } from '@electron/features/documents/c
 import { createDocumentsPreloadMenuClient } from '@electron/features/documents/createDocumentsPreloadMenuClient';
 import { DOCUMENTS_EVENT_CHANNELS } from '@electron/features/documents/contract';
 import { IMAGE_EXPORT_PLATFORM_FEATURE } from '@contracts/imageExportPlatformFeature';
-import { createOcrPreloadClient } from '@electron/features/ocr/createOcrPreloadClient';
-import { OCR_CHANNELS } from '@electron/features/ocr/contract';
+import { OCR_PLATFORM_FEATURE } from '@contracts/ocrPlatformFeature';
 import { SEARCH_PLATFORM_FEATURE } from '@contracts/searchPlatformFeature';
 import { UPDATES_PLATFORM_FEATURE } from '@contracts/updatesPlatformFeature';
 import { createPlatformFeaturePreloadClient } from '@electron/preload/ipcClient';
@@ -156,7 +155,10 @@ describe('preload global event fan-out', () => {
             ipcRenderer,
             invoke,
         } = createIpcRendererHarness();
-        const ocr = createOcrPreloadClient(ipcRenderer);
+        const ocr = createPlatformFeaturePreloadClient(
+            ipcRenderer,
+            OCR_PLATFORM_FEATURE,
+        );
         const djvu = createPlatformFeaturePreloadClient(ipcRenderer, DJVU_PLATFORM_FEATURE);
         const search = createPlatformFeaturePreloadClient(ipcRenderer, SEARCH_PLATFORM_FEATURE);
         const imageExport = createPlatformFeaturePreloadClient(ipcRenderer, IMAGE_EXPORT_PLATFORM_FEATURE);
@@ -168,7 +170,7 @@ describe('preload global event fan-out', () => {
         ];
 
         for (const channel of [
-            OCR_CHANNELS.subscribeProgress,
+            OCR_PLATFORM_FEATURE.invokeChannels.subscribeProgress,
             DJVU_PLATFORM_FEATURE.invokeChannels.subscribeProgress,
             SEARCH_PLATFORM_FEATURE.invokeChannels.subscribeProgress,
             IMAGE_EXPORT_PLATFORM_FEATURE.invokeChannels.subscribeProgress,

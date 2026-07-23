@@ -195,6 +195,7 @@ export const browserPlatformPathDescriptorsGenerated = {
         onOpenPdfDirectBatchProgress: {kind: 'event', path: ["documentMenu","onOpenPdfDirectBatchProgress"]},
     },
     ocr: {
+        installLanguages: {kind: 'async', path: ["ocr","installLanguages"]},
         recognize: {kind: 'async', path: ["ocr","recognize"]},
         recognizeBatch: {kind: 'async', path: ["ocr","recognizeBatch"]},
         cancel: {kind: 'async', path: ["ocr","cancel"]},
@@ -204,7 +205,6 @@ export const browserPlatformPathDescriptorsGenerated = {
         getLanguages: {kind: 'async', path: ["ocr","getLanguages"]},
         resolveDocumentTextCatalog: {kind: 'async', path: ["ocr","resolveDocumentTextCatalog"]},
         validateTools: {kind: 'async', path: ["ocr","validateTools"]},
-        installLanguages: {kind: 'async', path: ["ocr","installLanguages"]},
         acknowledgeResultFile: {kind: 'async', path: ["ocr","acknowledgeResultFile"]},
         createSearchablePdf: {kind: 'async', path: ["ocr","createSearchablePdf"]},
         onProgress: {kind: 'event', path: ["ocr","onProgress"]},

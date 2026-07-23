@@ -13,6 +13,7 @@ import { createLogger } from '@electron/utils/createLogger';
 import { getErrorMessage } from '@electron/utils/error';
 import { getAppTempDir } from '@electron/utils/appTempDir';
 import type { IImageDimensions } from '@electron/image/imageDimensions';
+import type { WebContents } from 'electron';
 
 const log = createLogger('ocr-ipc');
 const PREPROCESS_MAX_IMAGE_BYTES = (() => {
@@ -58,7 +59,7 @@ interface IPreprocessPageSender {
     ) => unknown;
 }
 
-interface IPreprocessPageContext {sender: IPreprocessPageSender;}
+interface IPreprocessPageContext {sender: IPreprocessPageSender | WebContents;}
 
 function readPngDimensions(bytes: Uint8Array): IImageDimensions | null {
     const pngSignature = [
@@ -185,6 +186,7 @@ export async function handlePreprocessPage(
     imageData: unknown,
     usePreprocessing: unknown,
 ) {
+    const sender = context.sender as IPreprocessPageSender;
     const abortController = new AbortController();
     const handleSenderGone = () => {
         abortController.abort();
@@ -207,11 +209,11 @@ export async function handlePreprocessPage(
             throw new Error('Invalid preprocessing payload: usePreprocessing must be a boolean');
         }
 
-        context.sender.once('destroyed', handleSenderGone);
-        context.sender.once('render-process-gone', handleSenderGone);
-        context.sender.on('did-start-navigation', handleNavigation);
+        sender.once('destroyed', handleSenderGone);
+        sender.once('render-process-gone', handleSenderGone);
+        sender.on('did-start-navigation', handleNavigation);
 
-        if (context.sender.isDestroyed()) {
+        if (sender.isDestroyed()) {
             return createPreprocessingAbortResult(normalizedImageData, 'Renderer disconnected before preprocessing started');
         }
 
@@ -294,8 +296,8 @@ export async function handlePreprocessPage(
             error: errMsg,
         };
     } finally {
-        context.sender.removeListener('destroyed', handleSenderGone);
-        context.sender.removeListener('render-process-gone', handleSenderGone);
-        context.sender.removeListener('did-start-navigation', handleNavigation);
+        sender.removeListener('destroyed', handleSenderGone);
+        sender.removeListener('render-process-gone', handleSenderGone);
+        sender.removeListener('did-start-navigation', handleNavigation);
     }
 }

@@ -12,8 +12,10 @@ import {
     IMAGE_EXPORT_PLATFORM_FEATURE,
     type IImageExportInvokeMap,
 } from '@contracts/imageExportPlatformFeature';
-import type { IOcrInvokeMap } from '@electron/features/ocr/contract';
-import type { IOcrService } from '@electron/features/ocr/ports';
+import {
+    OCR_PLATFORM_FEATURE,
+    OCR_PREPROCESSING_PLATFORM_FEATURE,
+} from '@contracts/ocrPlatformFeature';
 import {
     PAGE_OPS_PLATFORM_FEATURE,
     type IPageOpsInvokeMap,
@@ -55,7 +57,6 @@ vi.mock('electron', () => ({
     ipcMain: {handle: vi.fn()},
 }));
 vi.mock('@electron/platform-ipc/trustedIpcSender', () => mocks);
-vi.mock('@electron/features/ocr/createOcrService', () => ({createOcrService: vi.fn()}));
 
 function createServiceDouble<T>() {
     return cast<T>(new Proxy({}, {get(target, property) {
@@ -569,9 +570,12 @@ describe('feature validated IPC decoders', () => {
     });
 
     it('exhaustively validates OCR registrar tuples', async () => {
-        const { OCR_CHANNELS } = await import('@electron/features/ocr/contract');
-        const { OCR_IPC_CODECS } = await import('@electron/features/ocr/ocrIpcCodecs');
-        const { registerOcrIpcAdapter } = await import('@electron/features/ocr/registerOcrIpcAdapter');
+        type TOcrInvokeMap = TFeatureInvokeMap<typeof OCR_PLATFORM_FEATURE>;
+        type TOcrBindings = TFeatureMainBindings<
+            typeof OCR_PLATFORM_FEATURE,
+            IpcMainInvokeEvent
+        >;
+        const channels = OCR_PLATFORM_FEATURE.invokeChannels;
         const request = {
             pageNumber: 1,
             imageData: new Uint8Array([
@@ -580,24 +584,30 @@ describe('feature validated IPC decoders', () => {
             ]),
             languages: ['eng'],
         };
-        await runCases<IOcrInvokeMap, IOcrService>({
-            channels: OCR_CHANNELS,
-            codecs: OCR_IPC_CODECS,
-            register: registerOcrIpcAdapter,
+        await runCases<TOcrInvokeMap, TOcrBindings>({
+            channels,
+            codecs: cast<Parameters<
+                typeof runCases<TOcrInvokeMap, TOcrBindings>
+            >[0]['codecs']>(OCR_PLATFORM_FEATURE.ipcCodecs),
+            register: (registrar, bindings) => registerPlatformFeatureHandlers(
+                cast<Parameters<typeof registerPlatformFeatureHandlers>[0]>(registrar),
+                OCR_PLATFORM_FEATURE,
+                bindings,
+            ),
             cases: [
                 {
-                    channel: OCR_CHANNELS.recognize,
+                    channel: channels.recognize,
                     validArgs: [request],
                 },
                 {
-                    channel: OCR_CHANNELS.recognizeBatch,
+                    channel: channels.recognizeBatch,
                     validArgs: [
                         [request],
                         'request-1',
                     ],
                 },
                 {
-                    channel: OCR_CHANNELS.createSearchablePdf,
+                    channel: channels.createSearchablePdf,
                     validArgs: [
                         '/tmp/a.pdf',
                         [{
@@ -609,34 +619,34 @@ describe('feature validated IPC decoders', () => {
                     ],
                 },
                 {
-                    channel: OCR_CHANNELS.cancel,
+                    channel: channels.cancel,
                     validArgs: ['request-1'],
                 },
                 {
-                    channel: OCR_CHANNELS.getJobState,
+                    channel: channels.getJobState,
                     validArgs: ['request-1'],
                 },
                 {
-                    channel: OCR_CHANNELS.subscribeJob,
+                    channel: channels.subscribeJob,
                     validArgs: ['request-1'],
                 },
                 {
-                    channel: OCR_CHANNELS.reconnectJob,
+                    channel: channels.reconnectJob,
                     validArgs: ['request-1'],
                 },
                 {
-                    channel: OCR_CHANNELS.acknowledgeResultFile,
+                    channel: channels.acknowledgeResultFile,
                     validArgs: [
                         'request-1',
                         '/tmp/a.pdf',
                     ],
                 },
                 {
-                    channel: OCR_CHANNELS.getLanguages,
+                    channel: channels.getLanguages,
                     validArgs: [],
                 },
                 {
-                    channel: OCR_CHANNELS.resolveDocumentTextCatalog,
+                    channel: channels.resolveDocumentTextCatalog,
                     validArgs: [
                         '/tmp/a.pdf',
                         'drt1:test',
@@ -644,14 +654,14 @@ describe('feature validated IPC decoders', () => {
                     ],
                 },
                 {
-                    channel: OCR_CHANNELS.resolveDocumentOcrAvailability,
+                    channel: channels.resolveDocumentOcrAvailability,
                     validArgs: [
                         '/tmp/a.pdf',
                         'drt1:test',
                     ],
                 },
                 {
-                    channel: OCR_CHANNELS.resolveDocumentOcrPage,
+                    channel: channels.resolveDocumentOcrPage,
                     validArgs: [
                         '/tmp/a.pdf',
                         'drt1:test',
@@ -659,23 +669,45 @@ describe('feature validated IPC decoders', () => {
                     ],
                 },
                 {
-                    channel: OCR_CHANNELS.validateTools,
+                    channel: channels.validateTools,
                     validArgs: [],
                 },
                 {
-                    channel: OCR_CHANNELS.preprocessingValidate,
+                    channel: channels.subscribeProgress,
+                    validArgs: [],
+                },
+            ],
+        });
+
+        type TPreprocessingInvokeMap =
+            TFeatureInvokeMap<typeof OCR_PREPROCESSING_PLATFORM_FEATURE>;
+        type TPreprocessingBindings = TFeatureMainBindings<
+            typeof OCR_PREPROCESSING_PLATFORM_FEATURE,
+            IpcMainInvokeEvent
+        >;
+        const preprocessingChannels =
+            OCR_PREPROCESSING_PLATFORM_FEATURE.invokeChannels;
+        await runCases<TPreprocessingInvokeMap, TPreprocessingBindings>({
+            channels: preprocessingChannels,
+            codecs: cast<Parameters<
+                typeof runCases<TPreprocessingInvokeMap, TPreprocessingBindings>
+            >[0]['codecs']>(OCR_PREPROCESSING_PLATFORM_FEATURE.ipcCodecs),
+            register: (registrar, bindings) => registerPlatformFeatureHandlers(
+                cast<Parameters<typeof registerPlatformFeatureHandlers>[0]>(registrar),
+                OCR_PREPROCESSING_PLATFORM_FEATURE,
+                bindings,
+            ),
+            cases: [
+                {
+                    channel: preprocessingChannels.validate,
                     validArgs: [],
                 },
                 {
-                    channel: OCR_CHANNELS.preprocessingPreprocessPage,
+                    channel: preprocessingChannels.preprocessPage,
                     validArgs: [
                         new Uint8Array([1]),
                         true,
                     ],
-                },
-                {
-                    channel: OCR_CHANNELS.subscribeProgress,
-                    validArgs: [],
                 },
             ],
         });

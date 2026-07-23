@@ -215,22 +215,7 @@ export function createLazyBrowserPlatformApiGenerated({
     const documentsOnOpenDocumentDirectBatchProgressMethod = documentMenuOnOpenDocumentDirectBatchProgressMethod;
     const documentMenuOnOpenPdfDirectBatchProgressMethod = lazyEvent(pathDescriptors.documentMenu.onOpenPdfDirectBatchProgress.path);
     const documentsOnOpenPdfDirectBatchProgressMethod = documentMenuOnOpenPdfDirectBatchProgressMethod;
-    const ocrRecognizeMethod = lazyAsync(pathDescriptors.ocr.recognize.path);
-    const ocrRecognizeBatchMethod = lazyAsync(pathDescriptors.ocr.recognizeBatch.path);
-    const ocrCancelMethod = lazyAsync(pathDescriptors.ocr.cancel.path);
-    const ocrGetJobStateMethod = lazyAsync(pathDescriptors.ocr.getJobState.path);
-    const ocrSubscribeJobMethod = lazyAsync(pathDescriptors.ocr.subscribeJob.path);
-    const ocrReconnectJobMethod = lazyAsync(pathDescriptors.ocr.reconnectJob.path);
-    const ocrGetLanguagesMethod = lazyAsync(pathDescriptors.ocr.getLanguages.path);
-    const ocrResolveDocumentTextCatalogMethod = lazyAsync(pathDescriptors.ocr.resolveDocumentTextCatalog.path);
-    const ocrValidateToolsMethod = lazyAsync(pathDescriptors.ocr.validateTools.path);
     const ocrInstallLanguagesMethod = lazyAsync(pathDescriptors.ocr.installLanguages.path);
-    const ocrAcknowledgeResultFileMethod = lazyAsync(pathDescriptors.ocr.acknowledgeResultFile.path);
-    const ocrCreateSearchablePdfMethod = lazyAsync(pathDescriptors.ocr.createSearchablePdf.path);
-    const ocrOnProgressMethod = lazyEvent(pathDescriptors.ocr.onProgress.path);
-    const ocrOnCompleteMethod = lazyEvent(pathDescriptors.ocr.onComplete.path);
-    const ocrPreprocessingValidateMethod = lazyAsync(pathDescriptors.ocr.preprocessing.validate.path);
-    const ocrPreprocessingPreprocessPageMethod = lazyAsync(pathDescriptors.ocr.preprocessing.preprocessPage.path);
     const scanCleanupPreviewMethod = lazyAsync(pathDescriptors.scanCleanup.preview.path);
     const scanCleanupCancelPreviewMethod = lazyAsync(pathDescriptors.scanCleanup.cancelPreview.path);
     const scanCleanupDetectAllMethod = lazyAsync(pathDescriptors.scanCleanup.detectAll.path);
@@ -294,6 +279,21 @@ export function createLazyBrowserPlatformApiGenerated({
     const djvuOnProgressMethod = lazyEvent(pathDescriptors.djvu.onProgress.path);
     const djvuOnTextSearchProgressMethod = lazyEvent(pathDescriptors.djvu.onTextSearchProgress.path);
     const djvuOnMenuConvertToPdfMethod = lazyEvent(pathDescriptors.djvu.onMenuConvertToPdf.path);
+    const ocrRecognizeMethod = lazyAsync(pathDescriptors.ocr.recognize.path);
+    const ocrRecognizeBatchMethod = lazyAsync(pathDescriptors.ocr.recognizeBatch.path);
+    const ocrCancelMethod = lazyAsync(pathDescriptors.ocr.cancel.path);
+    const ocrGetJobStateMethod = lazyAsync(pathDescriptors.ocr.getJobState.path);
+    const ocrSubscribeJobMethod = lazyAsync(pathDescriptors.ocr.subscribeJob.path);
+    const ocrReconnectJobMethod = lazyAsync(pathDescriptors.ocr.reconnectJob.path);
+    const ocrGetLanguagesMethod = lazyAsync(pathDescriptors.ocr.getLanguages.path);
+    const ocrResolveDocumentTextCatalogMethod = lazyAsync(pathDescriptors.ocr.resolveDocumentTextCatalog.path);
+    const ocrValidateToolsMethod = lazyAsync(pathDescriptors.ocr.validateTools.path);
+    const ocrAcknowledgeResultFileMethod = lazyAsync(pathDescriptors.ocr.acknowledgeResultFile.path);
+    const ocrCreateSearchablePdfMethod = lazyAsync(pathDescriptors.ocr.createSearchablePdf.path);
+    const ocrOnProgressMethod = lazyEvent(pathDescriptors.ocr.onProgress.path);
+    const ocrOnCompleteMethod = lazyEvent(pathDescriptors.ocr.onComplete.path);
+    const ocrPreprocessingValidateMethod = lazyAsync(pathDescriptors.ocr.preprocessing.validate.path);
+    const ocrPreprocessingPreprocessPageMethod = lazyAsync(pathDescriptors.ocr.preprocessing.preprocessPage.path);
     const imageExportExportPdfToImagesMethod = lazyAsync(pathDescriptors.imageExport.exportPdfToImages.path);
     const imageExportExportPdfToMultiPageTiffMethod = lazyAsync(pathDescriptors.imageExport.exportPdfToMultiPageTiff.path);
     const imageExportOnProgressMethod = lazyEvent(pathDescriptors.imageExport.onProgress.path);
@@ -533,6 +533,7 @@ export function createLazyBrowserPlatformApiGenerated({
         onOpenPdfDirectBatchProgress: documentMenuOnOpenPdfDirectBatchProgressMethod,
     },
     ocr: {
+        installLanguages: ocrInstallLanguagesMethod,
         recognize: ocrRecognizeMethod,
         recognizeBatch: ocrRecognizeBatchMethod,
         cancel: ocrCancelMethod,
@@ -542,7 +543,6 @@ export function createLazyBrowserPlatformApiGenerated({
         getLanguages: ocrGetLanguagesMethod,
         resolveDocumentTextCatalog: ocrResolveDocumentTextCatalogMethod,
         validateTools: ocrValidateToolsMethod,
-        installLanguages: ocrInstallLanguagesMethod,
         acknowledgeResultFile: ocrAcknowledgeResultFileMethod,
         createSearchablePdf: ocrCreateSearchablePdfMethod,
         onProgress: ocrOnProgressMethod,

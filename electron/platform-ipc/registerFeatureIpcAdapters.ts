@@ -12,8 +12,10 @@ import {AGENT_CHANNELS} from '@electron/features/agent/contract';
 import { AGENT_IPC_CODECS } from '@electron/features/agent/agentIpcCodecs';
 import type { IAgentService } from '@electron/features/agent/ports';
 import { IMAGE_EXPORT_PLATFORM_FEATURE } from '@contracts/imageExportPlatformFeature';
-import {OCR_CHANNELS} from '@electron/features/ocr/contract';
-import { OCR_IPC_CODECS } from '@electron/features/ocr/ocrIpcCodecs';
+import {
+    OCR_PLATFORM_FEATURE,
+    OCR_PREPROCESSING_PLATFORM_FEATURE,
+} from '@contracts/ocrPlatformFeature';
 import {SCAN_CLEANUP_CHANNELS} from '@electron/features/scan-cleanup/contract';
 import {SCAN_CLEANUP_IPC_CODECS} from '@electron/features/scan-cleanup/scanCleanupIpcCodecs';
 import { SEARCH_PLATFORM_FEATURE } from '@contracts/searchPlatformFeature';
@@ -126,9 +128,14 @@ export function registerFeatureIpcAdapters(
         const {pageOpsMainBindings} = await import('@electron/features/page-ops/public');
         return pageOpsMainBindings;
     });
-    registerLazyValidatedFeature(ipcMain, OCR_CHANNELS, OCR_IPC_CODECS, async registrar => {
-        const {registerOcrIpcAdapter} = await import('@electron/features/ocr/registerOcrIpcAdapter');
-        registerOcrIpcAdapter(registrar as never);
+    registerLazyPlatformFeature(ipcMain, OCR_PLATFORM_FEATURE, async () => {
+        const {ocrMainBindings} = await import('@electron/features/ocr/mainBindings');
+        return ocrMainBindings;
+    });
+    registerLazyPlatformFeature(ipcMain, OCR_PREPROCESSING_PLATFORM_FEATURE, async () => {
+        const {ocrPreprocessingMainBindings} =
+            await import('@electron/features/ocr/mainBindings');
+        return ocrPreprocessingMainBindings;
     });
     registerLazyValidatedFeature(ipcMain, SCAN_CLEANUP_CHANNELS, SCAN_CLEANUP_IPC_CODECS, async registrar => {
         const {registerScanCleanupIpcAdapter} = await import('@electron/features/scan-cleanup/registerScanCleanupIpcAdapter');

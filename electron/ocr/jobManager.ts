@@ -52,9 +52,11 @@ import type {
     TOcrErrorCode,
     TOcrJobProjectionPhase,
 } from '@contracts/electronApiOcr';
-import { OCR_ERROR_CODES } from '@contracts/electronApiOcr';
+import {
+    OCR_ERROR_CODES,
+    OCR_PROGRESS_EVENT_CHANNEL,
+} from '@contracts/electronApiOcr';
 import { createLogger } from '@electron/utils/createLogger';
-import { OCR_EVENT_CHANNELS } from '@electron/features/ocr/contract';
 import { getErrorMessage } from '@electron/utils/error';
 import { getWorkingCopyRevision } from '@electron/file-access/documentRevisionStore';
 import { normalizePathForLookup } from '@electron/file-access/workingCopyStore';
@@ -76,6 +78,7 @@ import {
 import {
     buildOcrErrorEnvelope,
     mapStartFailureCode,
+    validateCancelRequestId,
 } from '@electron/ocr/contracts';
 const log = createLogger('ocr-ipc');
 export { safeSendToWindow } from '@electron/ocr/ocrProgressDispatch';
@@ -140,12 +143,12 @@ const ocrJobs = createMainJobRegistry<IOcrRegistryProgress, IOcrCompleteResult, 
         terminalRecordTtlMs: OCR_TERMINAL_RECORD_RETENTION_MS,
     },
     progress: {
-        channel: OCR_EVENT_CHANNELS.progress,
+        channel: OCR_PROGRESS_EVENT_CHANNEL,
         getEventKey: progress => progress.requestId,
         send: (sender, _channel, progress) => {
             safeSendToWindow(
                 getJobWindow(sender.id),
-                OCR_EVENT_CHANNELS.progress,
+                OCR_PROGRESS_EVENT_CHANNEL,
                 toPublicOcrProgress(progress),
             );
         },
@@ -1015,6 +1018,38 @@ export function subscribeOcrJobProjection(
         toOcrActor(context),
         snapshot => listener(projectOcrJob(snapshot)),
     ) ?? (() => {});
+}
+
+export function getOcrJobState(
+    context: IOcrManagerContext,
+    requestId: string,
+) {
+    return getOcrJobProjection(context, validateCancelRequestId(requestId));
+}
+
+export function subscribeOcrJob(
+    context: IOcrManagerContext,
+    requestId: string,
+) {
+    const checkedRequestId = validateCancelRequestId(requestId);
+    const unsubscribe = subscribeOcrJobProjection(context, checkedRequestId, (state) => {
+        toOcrActor(context).sender.send(OCR_PROGRESS_EVENT_CHANNEL, {
+            requestId: checkedRequestId,
+            currentPage: 0,
+            processedCount: state.current ?? 0,
+            totalPages: state.total ?? 0,
+            status: state.status === 'completed'
+                ? 'success'
+                : state.status === 'canceled'
+                    ? 'canceled'
+                    : state.status === 'failed'
+                        ? 'failed'
+                        : 'running',
+            ...(state.error ? {error: state.error} : {}),
+        });
+    });
+    context.sender.once('destroyed', unsubscribe);
+    return getOcrJobProjection(context, checkedRequestId);
 }
 
 export function subscribeManagedOcrProgress(context: IOcrManagerContext) {

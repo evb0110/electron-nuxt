@@ -1,5 +1,5 @@
 import { BrowserWindow } from 'electron';
-import type { IOcrEventMap } from '@electron/features/ocr/contract';
+import type { IOcrEventMap } from '@contracts/ocrPlatformFeature';
 import { createLogger } from '@electron/utils/createLogger';
 import { getErrorMessage } from '@electron/utils/error';
 import { sendPlatformEvent } from '@electron/utils/sendPlatformEvent';
