@@ -1,6 +1,7 @@
 appId: com.evb.viewer
 productName: EVB Viewer
 copyright: Copyright © 2026 Eugene Barsky
+extends: ./.tmp/generated-electron-builder-resources.yml
 
 # Keep the built Nuxt renderer as static assets. Electron backend behavior lives
 # in main/preload plus typed IPC; packaged apps do not ship or spawn Nitro.
@@ -52,15 +53,6 @@ files:
   - "!.devkit/**/*"
   - "!.devkit"
 
-extraResources:
-  - from: resources/tesseract/tessdata
-    to: tesseract/tessdata
-    filter:
-      - eng.traineddata
-      - rus.traineddata
-  - from: resources/icon.png
-    to: icon.png
-
 mac:
   icon: resources/icon.icns
   artifactName: "EVB-Viewer-${version}-${arch}.${ext}"
@@ -76,58 +68,17 @@ mac:
   target:
     - dmg
     - zip
-  # Native tools are staged via extraResources, then afterPack moves the
+  # Native tools are staged through the generated resource manifest, then afterPack moves the
   # executable payloads under Contents/MacOS/native-tools. macOS kills Mach-O
   # launches from Contents/Resources inside .app bundles on current hosts.
   # afterSign re-signs the moved payloads with the app identity so bundled
   # dylibs loaded by those executables pass library validation.
-  extraResources:
-    - from: resources/tesseract/darwin-${arch}
-      to: tesseract/darwin-${arch}
-    - from: resources/poppler/darwin-${arch}
-      to: poppler/darwin-${arch}
-    - from: resources/qpdf/darwin-${arch}
-      to: qpdf/darwin-${arch}
-    - from: resources/djvulibre/darwin-${arch}
-      to: djvulibre/darwin-${arch}
-    - from: .tmp/pdf-image-combine/darwin-${arch}
-      to: pdf-image-combine/darwin-${arch}
-    - from: .tmp/pdf-page-ops/darwin-${arch}
-      to: pdf-page-ops/darwin-${arch}
-    - from: .tmp/pdf-search/darwin-${arch}
-      to: pdf-search/darwin-${arch}
-    - from: .tmp/scan-cleanup/darwin-${arch}
-      to: scan-cleanup/darwin-${arch}
 
 win:
   icon: resources/icon.ico
   artifactName: "EVB-Viewer-${version}-${arch}-setup.${ext}"
   target:
     - nsis
-  extraResources:
-    - from: resources/tesseract/win32-${arch}
-      to: tesseract/win32-${arch}
-    - from: resources/poppler/win32-${arch}
-      to: poppler/win32-${arch}
-      filter:
-        - "**/*"
-        - "!share/poppler/CMakeLists.txt"
-        - "!share/poppler/Makefile"
-        - "!share/poppler/README"
-        - "!share/poppler/poppler-data.pc"
-        - "!share/poppler/poppler-data.pc.in"
-    - from: resources/qpdf/win32-${arch}
-      to: qpdf/win32-${arch}
-    - from: resources/djvulibre/win32-${arch}
-      to: djvulibre/win32-${arch}
-    - from: .tmp/pdf-image-combine/win32-${arch}
-      to: pdf-image-combine/win32-${arch}
-    - from: .tmp/pdf-page-ops/win32-${arch}
-      to: pdf-page-ops/win32-${arch}
-    - from: .tmp/pdf-search/win32-${arch}
-      to: pdf-search/win32-${arch}
-    - from: .tmp/scan-cleanup/win32-${arch}
-      to: scan-cleanup/win32-${arch}
 
 appx:
   artifactName: "EVB-Viewer-${version}-${arch}-store.${ext}"
@@ -166,24 +117,6 @@ linux:
   target:
     - AppImage
     - deb
-  extraResources:
-    - from: resources/tesseract/linux-${arch}
-      to: tesseract/linux-${arch}
-    - from: resources/poppler/linux-${arch}
-      to: poppler/linux-${arch}
-    - from: resources/qpdf/linux-${arch}
-      to: qpdf/linux-${arch}
-    - from: resources/djvulibre/linux-${arch}
-      to: djvulibre/linux-${arch}
-    - from: .tmp/pdf-image-combine/linux-${arch}
-      to: pdf-image-combine/linux-${arch}
-    - from: .tmp/pdf-page-ops/linux-${arch}
-      to: pdf-page-ops/linux-${arch}
-    - from: .tmp/pdf-search/linux-${arch}
-      to: pdf-search/linux-${arch}
-    - from: .tmp/scan-cleanup/linux-${arch}
-      to: scan-cleanup/linux-${arch}
-
 nsis:
   oneClick: false
   allowToChangeInstallationDirectory: true

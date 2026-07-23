@@ -15,7 +15,6 @@ import {
     GENERATED_RUST_NATIVE_TOOL_PROTOCOLS,
     type IGeneratedRustNativeToolProtocol,
 } from '@contracts/nativeToolProtocols';
-import { checkNativeToolProtocols } from '@scripts/checkNativeToolProtocols';
 import {
     generateNativeToolProtocols,
     renderReleaseNativeToolProtocols,
@@ -43,7 +42,7 @@ describe('native tool protocol generator', () => {
         expect(firstRelease).toContain('protocolVersion: 7');
     });
 
-    it('writes both artifacts and rejects drift in check mode', async () => {
+    it('writes both artifacts byte-stably and repairs generated drift', async () => {
         const root = await mkdtemp(path.join(tmpdir(), 'evb-native-protocols-'));
         const releasePath = path.join(root, 'scripts/release/generated-native-tool-protocols.mjs');
         const rustPath = path.join(
@@ -55,10 +54,10 @@ describe('native tool protocol generator', () => {
                 projectRoot: root,
                 protocols: fixtureProtocols,
             })).resolves.toBe(true);
-            await expect(checkNativeToolProtocols({
+            await expect(generateNativeToolProtocols({
                 projectRoot: root,
                 protocols: fixtureProtocols,
-            })).resolves.toBeUndefined();
+            })).resolves.toBe(false);
             expect(await readFile(rustPath, 'utf8')).toBe(
                 renderRustNativeToolProtocols(fixtureProtocols),
             );
@@ -67,10 +66,13 @@ describe('native tool protocol generator', () => {
             );
 
             await writeFile(releasePath, '// stale\n', 'utf8');
-            await expect(checkNativeToolProtocols({
+            await expect(generateNativeToolProtocols({
                 projectRoot: root,
                 protocols: fixtureProtocols,
-            })).rejects.toThrow('scripts/release/generated-native-tool-protocols.mjs is stale');
+            })).resolves.toBe(true);
+            expect(await readFile(releasePath, 'utf8')).toBe(
+                renderReleaseNativeToolProtocols(fixtureProtocols),
+            );
         } finally {
             await rm(root, {
                 force: true,

@@ -135,6 +135,7 @@ describe('package scripts', () => {
         const packageJson = await readPackageJson();
 
         expect(scriptCommands(packageJson, 'build')).toEqual([
+            'pnpm run generate:build-artifacts',
             'pnpm exec nuxi build',
             'node scripts/prune-build-artifacts.mjs',
             'node scripts/check-web-deploy-assets.mjs',
@@ -175,7 +176,7 @@ describe('package scripts', () => {
         expect(scripts['build:strict:no-wasm-check']).toBe('node scripts/run-build-strict.mjs --skip-wasm-check');
     });
 
-    it('keeps split lint scripts running dependency and generated-source checks', async () => {
+    it('keeps generation in prepare and build instead of the lint chain', async () => {
         const packageJson = await readPackageJson();
         const scripts = getPackageScripts(packageJson);
         const lintTargets = scriptRunTargets(packageJson, 'lint');
@@ -202,26 +203,27 @@ describe('package scripts', () => {
         expect(lintFixCommandText).toContain('--fix --max-warnings=0');
         expect(lintFixCommandText).toContain('stylelint "app/**/*.{vue,scss,css}" --fix');
         expect(scriptAndNestedRunTargets(packageJson, 'lint')).toEqual(expect.arrayContaining([
-            'check:platform-api-generated',
             'check:style-assets',
-            'check:pdfjs-viewer-css',
             'check:locales',
             'check:icons:bundle',
-            'check:native-tool-protocols',
             'check:architecture:imports',
         ]));
         expect(scriptAndNestedRunTargets(packageJson, 'lint')).not.toEqual(expect.arrayContaining([
+            'check:platform-api-generated',
+            'check:pdfjs-viewer-css',
+            'check:native-tool-protocols',
             'check:css-custom-properties',
             'check:css-important',
             'check:commonjs-imports',
             'check:layout-tokens',
             'check:naming',
         ]));
-        expect(scripts['check:native-tool-protocols']).toBe('node --import tsx scripts/checkNativeToolProtocols.ts');
-        expect(scriptRunTargets(packageJson, 'check:static:assets')).toEqual([
-            'check:web-deploy-source',
-            'check:ocr-language-model-registry',
-        ]);
+        expect(scripts['generate:build-artifacts']).toBe(
+            'node --import tsx scripts/generateBuildArtifacts.ts',
+        );
+        expect(scriptRunTargets(packageJson, 'prepare')).toEqual(['generate:build-artifacts']);
+        expect(scriptRunTargets(packageJson, 'build')).toEqual(['generate:build-artifacts']);
+        expect(scriptRunTargets(packageJson, 'check:static:assets')).toEqual(['check:web-deploy-source']);
         expect(scriptRunTargets(packageJson, 'check:static:reports')).toEqual(['check:platform-manifest-consumers']);
         expect(lintCommandText).not.toContain('|| true');
         expect(lintCommandText).not.toContain('landing');
@@ -308,8 +310,10 @@ describe('package scripts', () => {
         expect(scripts['check:coverage:ratchet']).toBe('pnpm exec tsx scripts/checkCoverageRatchet.ts');
         expect(scripts['check:drizzle-schema']).toBe('node scripts/check-drizzle-schema.mjs');
         expect(scripts['check:electron-builder:asar-unpack']).toBe('node scripts/check-electron-builder-asar-unpack.mjs');
-        expect(scripts['check:generated-native-resources:host']).toBe('node scripts/check-generated-native-resources.mjs --host');
-        expect(scripts['check:pdfjs-viewer-css']).toBe('node scripts/sync-pdfjs-viewer-css.mjs --check');
+        expect(scripts).not.toHaveProperty('check:generated-native-resources:host');
+        expect(scripts).not.toHaveProperty('check:pdfjs-viewer-css');
+        expect(scripts).not.toHaveProperty('check:ocr-language-model-registry');
+        expect(scripts).not.toHaveProperty('check:native-tool-protocols');
         expect(scripts['check:production-dependency-audit']).toBe('pnpm exec tsx scripts/checkProductionDependencyAudit.ts');
         expect(scripts['release:resume']).toBe('HUSKY=0 node scripts/release/cut-release.mjs --resume');
         expect(scripts['check:wasm:freshness']).toBe('node scripts/check-wasm-freshness.mjs --mode=strict');

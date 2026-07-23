@@ -11,7 +11,6 @@ import {
 } from '@contracts/nativeToolProtocols';
 
 export interface IGenerateNativeToolProtocolsOptions {
-    check?: boolean;
     projectRoot?: string;
     protocols?: readonly IGeneratedRustNativeToolProtocol[];
 }
@@ -61,15 +60,11 @@ async function writeGeneratedFile(
     root: string,
     relativePath: string,
     content: string,
-    check: boolean,
 ) {
     const filePath = path.join(root, relativePath);
     const existing = await readFile(filePath, 'utf8').catch(() => null);
     if (existing === content) {
         return false;
-    }
-    if (check) {
-        throw new Error(`${relativePath} is stale. Run node --import tsx scripts/generateNativeToolProtocols.ts.`);
     }
     await mkdir(path.dirname(filePath), { recursive: true });
     await writeFile(filePath, content, 'utf8');
@@ -81,19 +76,16 @@ export async function generateNativeToolProtocols(
 ) {
     const root = options.projectRoot ?? projectRoot;
     const protocols = options.protocols ?? GENERATED_RUST_NATIVE_TOOL_PROTOCOLS;
-    const check = options.check ?? false;
     const changed = await Promise.all([
         writeGeneratedFile(
             root,
             generatedRustRelativePath,
             renderRustNativeToolProtocols(protocols),
-            check,
         ),
         writeGeneratedFile(
             root,
             generatedReleaseRelativePath,
             renderReleaseNativeToolProtocols(protocols),
-            check,
         ),
     ]);
     return changed.some(Boolean);
@@ -104,7 +96,10 @@ const isDirectCliRun = process.argv[1] !== undefined
 
 if (isDirectCliRun) {
     try {
-        const changed = await generateNativeToolProtocols({ check: process.argv.includes('--check') });
+        if (process.argv.length > 2) {
+            throw new Error('Usage: node --import tsx scripts/generateNativeToolProtocols.ts');
+        }
+        const changed = await generateNativeToolProtocols();
         if (changed) {
             console.info('Generated native tool protocol artifacts.');
         }

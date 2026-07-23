@@ -47,6 +47,23 @@ jobs:
       - name: Install dependencies
         run: node scripts/ci-install-dependencies.mjs --frozen-lockfile
 
+      - name: Generate committed build artifacts and reject drift
+        run: |
+          pnpm run generate:build-artifacts
+          pnpm run copy:pdfjs
+          git diff --exit-code -- \
+            app/assets/css/vendor/pdfjs-viewer-sanitized.css \
+            app/platform/generated \
+            native/evb-native-support/src/generated_native_tool_protocols.rs \
+            public/pdfjs/images \
+            scripts/release/generated-native-tool-protocols.mjs
+          test -z "$(git ls-files --others --exclude-standard -- \
+            app/assets/css/vendor/pdfjs-viewer-sanitized.css \
+            app/platform/generated \
+            native/evb-native-support/src/generated_native_tool_protocols.rs \
+            public/pdfjs/images \
+            scripts/release/generated-native-tool-protocols.mjs)"
+
       - name: Lint
         run: pnpm run lint
 

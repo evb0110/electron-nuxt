@@ -65,6 +65,11 @@ export async function runNativeToolBuilder(argv = process.argv.slice(2)) {
         throw new Error(usage);
     }
 
+    const { generateNativeToolProtocols } = await tsImport(
+        './generateNativeToolProtocols.ts',
+        import.meta.url,
+    );
+    await generateNativeToolProtocols();
     const tool = await resolveTool(positional[0]);
     const target = getRequestedNativeRustTarget();
     const plan = createNativeToolBuildPlan({

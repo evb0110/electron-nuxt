@@ -72,6 +72,11 @@ export async function runWasmToolBuilder(argv = process.argv.slice(2)) {
         throw new Error(usage);
     }
 
+    const { generateNativeToolProtocols } = await tsImport(
+        './generateNativeToolProtocols.ts',
+        import.meta.url,
+    );
+    await generateNativeToolProtocols();
     const {
         artifact,
         tool,

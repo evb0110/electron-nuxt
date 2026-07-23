@@ -84,17 +84,6 @@ function runSourceMatrixAsLinuxX64Host() {
         'esac',
         '',
     ].join('\n'));
-    writeExecutable(join(binDir, 'pnpm'), [
-        '#!/bin/sh',
-        'if [ "$1" = "run" ] && [ "$2" = "check:ocr-language-model-registry" ]; then',
-        '  echo "stubbed ocr registry check"',
-        '  exit 0',
-        'fi',
-        'echo "unexpected pnpm invocation: $*" >&2',
-        'exit 1',
-        '',
-    ].join('\n'));
-
     return execFileSync(
         '/bin/bash',
         [

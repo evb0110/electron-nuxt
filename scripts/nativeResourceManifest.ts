@@ -43,10 +43,8 @@ export interface INativeResourceTarget {
 
 export interface INativeToolResourceFamily {
     id: TNativeToolResourceFamilyId;
-    label: string;
     sourceRootSegments: readonly string[];
     stagedRootSegments: readonly string[];
-    sourceKind: 'checked-in' | 'generated';
 }
 
 export interface IGeneratedNativeToolResource {
@@ -100,8 +98,6 @@ export const NATIVE_RESOURCE_PLATFORM_ARCHES = [
 export const NATIVE_TOOL_RESOURCE_FAMILIES = [
     {
         id: 'tesseract',
-        label: 'Tesseract native tools',
-        sourceKind: 'checked-in',
         sourceRootSegments: [
             'resources',
             'tesseract',
@@ -110,8 +106,6 @@ export const NATIVE_TOOL_RESOURCE_FAMILIES = [
     },
     {
         id: 'poppler',
-        label: 'Poppler native tools',
-        sourceKind: 'checked-in',
         sourceRootSegments: [
             'resources',
             'poppler',
@@ -120,8 +114,6 @@ export const NATIVE_TOOL_RESOURCE_FAMILIES = [
     },
     {
         id: 'qpdf',
-        label: 'qpdf native tools',
-        sourceKind: 'checked-in',
         sourceRootSegments: [
             'resources',
             'qpdf',
@@ -130,54 +122,20 @@ export const NATIVE_TOOL_RESOURCE_FAMILIES = [
     },
     {
         id: 'djvulibre',
-        label: 'DjVuLibre native tools',
-        sourceKind: 'checked-in',
         sourceRootSegments: [
             'resources',
             'djvulibre',
         ],
         stagedRootSegments: ['djvulibre'],
     },
-    {
-        id: 'pdf-image-combine',
-        label: 'PDF image combine native tool',
-        sourceKind: 'generated',
+    ...GENERATED_RUST_NATIVE_TOOL_PROTOCOLS.map(tool => ({
+        id: tool.resourceFamilyId,
         sourceRootSegments: [
             '.tmp',
-            'pdf-image-combine',
+            tool.stagingName,
         ],
-        stagedRootSegments: ['pdf-image-combine'],
-    },
-    {
-        id: 'pdf-page-ops',
-        label: 'PDF page ops native tool',
-        sourceKind: 'generated',
-        sourceRootSegments: [
-            '.tmp',
-            'pdf-page-ops',
-        ],
-        stagedRootSegments: ['pdf-page-ops'],
-    },
-    {
-        id: 'pdf-search',
-        label: 'PDF search native tool',
-        sourceKind: 'generated',
-        sourceRootSegments: [
-            '.tmp',
-            'pdf-search',
-        ],
-        stagedRootSegments: ['pdf-search'],
-    },
-    {
-        id: 'scan-cleanup',
-        label: 'Scan cleanup native tool',
-        sourceKind: 'generated',
-        sourceRootSegments: [
-            '.tmp',
-            'scan-cleanup',
-        ],
-        stagedRootSegments: ['scan-cleanup'],
-    },
+        stagedRootSegments: [tool.stagingName],
+    })),
 ] as const satisfies readonly INativeToolResourceFamily[];
 
 export const GENERATED_NATIVE_TOOL_RESOURCES = GENERATED_RUST_NATIVE_TOOL_PROTOCOLS.map(tool => ({
