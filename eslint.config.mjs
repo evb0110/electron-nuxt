@@ -1,5 +1,7 @@
 import withNuxt from './.nuxt/eslint.config.mjs';
 import stylistic from '@stylistic/eslint-plugin';
+import * as tsParser from '@typescript-eslint/parser';
+import * as vueParser from 'vue-eslint-parser';
 import customPlugin from './eslint-plugin-custom.mjs';
 import {
     arrayTypeRules,
@@ -17,7 +19,35 @@ const ABSOLUTE_IMPORT_SOURCE_FILES = [
     'tests/**/*.ts',
 ];
 
-export default withNuxt(
+const namingOnlyConfig = [
+    {
+        files: ['landing/**/*.{cjs,cts,js,jsx,mjs,mts,ts,tsx}'],
+        languageOptions: {
+            parser: tsParser,
+            parserOptions: {
+                ecmaVersion: 2022,
+                sourceType: 'module',
+            },
+        },
+        plugins: {custom: customPlugin},
+        rules: {'custom/file-naming': 'error'},
+    },
+    {
+        files: ['landing/**/*.vue'],
+        languageOptions: {
+            parser: vueParser,
+            parserOptions: {
+                ecmaVersion: 2022,
+                parser: tsParser,
+                sourceType: 'module',
+            },
+        },
+        plugins: {custom: customPlugin},
+        rules: {'custom/file-naming': 'error'},
+    },
+];
+
+const projectConfig = withNuxt(
     {ignores: [
         '**/.devkit/**',
         'landing/**',
@@ -96,9 +126,87 @@ export default withNuxt(
             'custom/import-specifier-newline': 'error',
             'custom/destructuring-property-newline': 'error',
             'custom/app-tooltip-only': 'error',
+            'custom/commonjs-named-imports': 'error',
+            'custom/file-naming': 'error',
+            'custom/no-core-correctness-timers': 'error',
             ...stylisticRules,
         },
     },
+    {
+        files: [
+            'app/**/*.{cjs,js,mjs,cts,mts,ts,tsx,vue}',
+            'electron/**/*.{cjs,js,mjs,cts,mts,ts,tsx,vue}',
+            'packages/**/*.{cjs,js,mjs,cts,mts,ts,tsx,vue}',
+            'scripts/**/*.{cjs,js,mjs,cts,mts,ts,tsx,vue}',
+            'server/**/*.{cjs,js,mjs,cts,mts,ts,tsx,vue}',
+        ],
+        ignores: [
+            '**/__fixtures__/**',
+            '**/__snapshots__/**',
+            '**/__tests__/**',
+            '**/e2e/**',
+            '**/fixtures/**',
+            '**/generated/**',
+            '**/snapshots/**',
+            '**/tests/**',
+            '**/vendor/**',
+            'packages/i18n-app/messages/**',
+        ],
+        rules: {
+            'max-lines': [
+                'error',
+                {
+                    max: 1200,
+                    skipBlankLines: false,
+                    skipComments: false,
+                },
+            ],
+        },
+    },
+    ...[
+        ['app/modules/agent-panel/components/AgentAssistantPanel.vue', 781],
+        ['app/modules/agent-panel/composables/useAgentAssistantPanelController.ts', 1159],
+        ['app/modules/pdf-viewer/components/PdfThumbnails.vue', 915],
+        ['app/modules/native-pdf-viewer/components/NativePdfViewer.vue', 1312],
+        ['app/modules/scan-cleanup/components/preview/PreviewShell.vue', 1298],
+        ['app/modules/scan-cleanup/components/ScanCleanupThumbnailRail.vue', 1274],
+        ['electron/features/agent/codexAssistant.ts', 1337],
+        ['app/modules/workspace-shell/composables/file-operations/useFileOperationsSaveController.ts', 441],
+        ['scripts/diagnostics/pdfNavigationBlinkTrace.ts', 1530],
+        ['app/modules/workspace-shell/components/DocumentWorkspace.vue', 1556],
+        ['app/modules/workspace-shell/components/DocumentPageSourceFeaturePack.vue', 1474],
+        ['app/modules/pdf-viewer/runtime/rendering/usePdfAnnotationLayerRenderer.ts', 1297],
+        ['app/platform/browser/browserDocumentRepository.ts', 1207],
+        ['app/modules/pdf-viewer/runtime/composables/pdf/usePdfTextLayerRenderer.ts', 1264],
+        ['app/modules/pdf-viewer/runtime/usePdfViewerFeatureController.ts', 1216],
+        ['electron/ocr/jobManager.ts', 1067],
+        ['packages/contracts/agentPlatformFeature.ts', 1813],
+        ['app/modules/workspace-shell/components/AppShellRoot.vue', 900],
+        ['app/modules/workspace-shell/agent/useDocumentWorkspaceAgent.ts', 1081],
+        ['app/modules/workspace-shell/components/WorkspaceAnnotationOverlays.vue', 1167],
+        ['electron/features/agent/mcp/mcpServerCore.ts', 979],
+        ['scripts/architecture/boundary-check.mjs', 1232],
+        ['app/modules/pdf-viewer/annotations/bridge/pdfjs-runtime/useAnnotationSync.ts', 1254],
+        ['app/platform/browser-api/browserDjvuCapability.ts', 1202],
+        ['electron/features/djvu/main/pdfExport.ts', 1287],
+        ['packages/contracts/djvuPlatformFeature.ts', 1328],
+        ['packages/contracts/ocrPlatformFeature.ts', 1368],
+    ].map(([
+        file,
+        max,
+    ]) => ({
+        files: [file],
+        rules: {
+            'max-lines': [
+                'error',
+                {
+                    max,
+                    skipBlankLines: false,
+                    skipComments: false,
+                },
+            ],
+        },
+    })),
     {
         files: ABSOLUTE_IMPORT_SOURCE_FILES,
         rules: {
@@ -316,3 +424,7 @@ export default withNuxt(
         },
     },
 );
+
+export default process.env.EVB_ESLINT_NAMING_ONLY === '1'
+    ? namingOnlyConfig
+    : projectConfig;

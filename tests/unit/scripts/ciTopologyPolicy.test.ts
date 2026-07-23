@@ -133,7 +133,7 @@ describe('CI topology policy', () => {
         expect(packageJson).toContain('"lint:eslint": "eslint app electron packages scripts server tests eslint-plugin-custom.mjs vitest.config.ts vitest.shared.config.ts --max-warnings=0 --report-unused-disable-directives"');
         expect(packageJson).toContain('"lint:style": "stylelint \\"app/**/*.{vue,scss,css}\\""');
         expect(packageJson).toContain('"check:static:fast": "pnpm run check:github-actions-syntax && pnpm run check:platform-api-generated');
-        expect(packageJson).toContain('"check:github-actions-syntax": "pnpm exec tsx scripts/checkGithubActionsSyntax.ts"');
+        expect(packageJson).toContain('"check:github-actions-syntax": "node --import tsx scripts/checkGithubActionsSyntax.ts"');
         expect(packageJson).toContain('pnpm run check:native-tool-protocols');
         expect(packageJson).toContain('"check:static:reports": "pnpm run check:platform-manifest-consumers"');
         expect(packageJson).toContain('"check:static:assets": "pnpm run check:web-deploy-source && pnpm run check:ocr-language-model-registry && pnpm run check:vendor-sync"');

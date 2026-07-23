@@ -205,17 +205,20 @@ describe('package scripts', () => {
             'check:platform-api-generated',
             'check:style-assets',
             'check:pdfjs-viewer-css',
-            'check:css-custom-properties',
-            'check:css-important',
             'check:locales',
             'check:icons:bundle',
-            'check:commonjs-imports',
             'check:dependency-lockstep',
             'check:native-tool-protocols',
-            'check:naming',
             'check:architecture:imports',
         ]));
-        expect(scripts['check:native-tool-protocols']).toBe('pnpm exec tsx scripts/checkNativeToolProtocols.ts');
+        expect(scriptAndNestedRunTargets(packageJson, 'lint')).not.toEqual(expect.arrayContaining([
+            'check:css-custom-properties',
+            'check:css-important',
+            'check:commonjs-imports',
+            'check:layout-tokens',
+            'check:naming',
+        ]));
+        expect(scripts['check:native-tool-protocols']).toBe('node --import tsx scripts/checkNativeToolProtocols.ts');
         expect(scriptRunTargets(packageJson, 'check:static:assets')).toEqual([
             'check:web-deploy-source',
             'check:ocr-language-model-registry',
@@ -232,28 +235,28 @@ describe('package scripts', () => {
         const scripts = getPackageScripts(packageJson);
         const lintAllCommandText = scriptAndNestedCommandText(packageJson, 'lint:all');
 
-        expect(scripts['check:style-assets']).toBe('pnpm exec tsx scripts/checkStyleAssetConventions.ts --target=app');
-        expect(scripts['check:style-assets:landing']).toBe('pnpm exec tsx scripts/checkStyleAssetConventions.ts --target=landing');
-        expect(scripts['check:style-assets:all']).toBe('pnpm exec tsx scripts/checkStyleAssetConventions.ts --target=all');
-        expect(scripts['check:css-important']).toBe('pnpm exec tsx scripts/checkCssImportantPolicy.ts --target=app');
-        expect(scripts['check:css-important:landing']).toBe('pnpm exec tsx scripts/checkCssImportantPolicy.ts --target=landing');
-        expect(scripts['check:css-important:all']).toBe('pnpm exec tsx scripts/checkCssImportantPolicy.ts --target=all');
+        expect(scripts['check:style-assets']).toBe('node --import tsx scripts/checkStyleAssetConventions.ts --target=app');
+        expect(scripts['check:style-assets:landing']).toBe('node --import tsx scripts/checkStyleAssetConventions.ts --target=landing');
+        expect(scripts['check:style-assets:all']).toBe('node --import tsx scripts/checkStyleAssetConventions.ts --target=all');
+        expect(scripts['check:css-important']).toBe('pnpm run lint:style');
+        expect(scripts['check:css-important:landing']).toBe('stylelint "landing/app/**/*.{vue,scss,css}"');
+        expect(scripts['check:css-important:all']).toBe('pnpm run lint:style:all');
         expect(scriptRunTargets(packageJson, 'lint:all')).toEqual([
             'lint:eslint',
-            'lint:style',
+            'lint:style:all',
             'check:static:fast:all',
             'check:static:reports',
             'check:static:assets',
         ]);
-        expect(scriptAndNestedRunTargets(packageJson, 'lint:all')).toEqual(expect.arrayContaining([
-            'check:style-assets:all',
-            'check:css-important:all',
-        ]));
+        expect(scriptAndNestedRunTargets(packageJson, 'lint:all')).toEqual(expect.arrayContaining(['check:style-assets:all']));
         expect(scriptAndNestedRunTargets(packageJson, 'lint:all')).toEqual(expect.arrayContaining([
             'check:locales:all',
             'check:icons:bundle:all',
-            'check:naming:all',
+            'check:naming:landing',
         ]));
+        expect(scripts['check:naming:landing']).toBe(
+            'EVB_ESLINT_NAMING_ONLY=1 eslint landing --no-ignore --max-warnings=0',
+        );
         expect(lintAllCommandText).toContain('pnpm --dir landing run lint');
     });
 
@@ -265,7 +268,6 @@ describe('package scripts', () => {
             'pnpm run lint',
             'pnpm run check:static:reports',
             'pnpm run check:static:assets',
-            'pnpm run check:architecture:source-size',
             'pnpm run typecheck',
             'pnpm run test:unit',
             'pnpm run typecheck:coverage',
@@ -317,18 +319,13 @@ describe('package scripts', () => {
         expect(scripts['check:wasm:portable']).toBe('node scripts/check-wasm-freshness.mjs --mode=portable');
         expect(scripts['check:architecture:dep-graph']).toBe('node scripts/architecture/dep-graph.mjs --scope=focused --output=.tmp/dep-graph.json');
         expect(scripts['check:architecture:boundaries']).toBe('node scripts/architecture/boundary-check.mjs --scope=focused');
-        expect(scripts['check:architecture:source-size']).toBe('node scripts/architecture/source-size-check.mjs');
+        expect(scripts['check:architecture:source-size']).toBe('pnpm run lint:eslint');
         expect(scriptRunTargets(packageJson, 'check:architecture')).toEqual([
             'check:architecture:dep-graph',
             'check:architecture:boundaries',
             'check:architecture:source-size',
-            'check:architecture:viewer-core-ledger',
         ]);
-        expect(scripts['check:architecture:viewer-core-ledger']).toBe(
-            'node scripts/check-viewer-core-coordination-ledger.mjs',
-        );
         expect(scriptRunTargets(packageJson, 'check:architecture:all')).toContain('check:architecture:source-size');
-        expect(scriptRunTargets(packageJson, 'check:architecture:all')).toContain('check:architecture:viewer-core-ledger');
         expect(scriptCommands(packageJson, 'test:e2e:electron')).toEqual([
             'pnpm run build:electron',
             'pnpm run test:e2e:electron:regression:no-build',

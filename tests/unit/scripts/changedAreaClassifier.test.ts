@@ -33,7 +33,11 @@ interface IChangedAreaClassifierModule { classifyChangedFiles: (files: string[])
 interface IReleasePolicyModule { getCiChangedAreaPolicy: () => Record<string, IChangedAreaDefinition> }
 
 function runGit(cwd: string, args: string[]) {
-    const result = spawnSync('git', args, {
+    const result = spawnSync('git', [
+        '-c',
+        'commit.gpgSign=false',
+        ...args,
+    ], {
         cwd,
         encoding: 'utf8',
     });
