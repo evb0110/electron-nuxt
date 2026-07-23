@@ -1,8 +1,16 @@
-interface IProgressPumpTarget<TPayload> {
+export interface IProgressPumpTarget<TPayload> {
     key?: string;
     isDestroyed?: () => boolean;
     send: (channel: string, payload: TPayload) => void;
 }
+
+export type TIpcProgressReplayMode<TPayload> =
+    // Remove internal job retention when every job feature uses the main job registry.
+    | {kind: 'internal'}
+    | {
+        kind: 'external';
+        getReplayPayloads: (target: IProgressPumpTarget<TPayload>) => Iterable<TPayload>;
+    };
 
 export interface IIpcProgressPumpOptions<TPayload> {
     channel: string;
@@ -11,6 +19,7 @@ export interface IIpcProgressPumpOptions<TPayload> {
     isTerminal?: (payload: TPayload) => boolean;
     intervalMs?: number;
     terminalRetentionMs?: number;
+    replayMode?: TIpcProgressReplayMode<TPayload>;
     onError?: (error: unknown) => void;
     onIdle?: () => void;
 }
@@ -30,6 +39,7 @@ export function createIpcProgressPump<TPayload>(options: IIpcProgressPumpOptions
     const keyedSubscribers = new Map<string, IProgressPumpTarget<TPayload>>();
     const unkeyedSubscribers = new Set<IProgressPumpTarget<TPayload>>();
     const retainedByKey = new Map<string, IRetainedProgress<TPayload>>();
+    const replayMode = options.replayMode ?? {kind: 'internal'};
     const intervalMs = Math.max(0, options.intervalMs ?? DEFAULT_PROGRESS_PUMP_INTERVAL_MS);
     const terminalRetentionMs = Math.max(0, options.terminalRetentionMs ?? DEFAULT_TERMINAL_PROGRESS_RETENTION_MS);
 
@@ -81,6 +91,9 @@ export function createIpcProgressPump<TPayload>(options: IIpcProgressPumpOptions
     }
 
     function retain(key: string, payload: TPayload) {
+        if (replayMode.kind === 'external') {
+            return;
+        }
         const terminal = options.isTerminal?.(payload) === true;
         clearRetainedTimer(key);
 
@@ -201,7 +214,10 @@ export function createIpcProgressPump<TPayload>(options: IIpcProgressPumpOptions
         } else {
             unkeyedSubscribers.add(target);
         }
-        for (const {payload} of retainedByKey.values()) {
+        const replayPayloads = replayMode.kind === 'external'
+            ? replayMode.getReplayPayloads(target)
+            : [...retainedByKey.values()].map(({payload}) => payload);
+        for (const payload of replayPayloads) {
             sendToTarget(target, payload);
         }
 

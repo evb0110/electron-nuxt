@@ -20,6 +20,8 @@ const MANAGED_SCRATCH_PREFIXES = [
     'qpdfArgs-',
     'qpdfOutput-',
     'pdf-page-ops-',
+    'djvu-image-export-',
+    'djvu-tiff-export-',
 ] as const;
 const MANAGED_SCRATCH_STALE_MAX_AGE_MS = parseIntegerEnv(
     'EVB_MANAGED_SCRATCH_STALE_MAX_AGE_MS',
@@ -33,7 +35,7 @@ const MANAGED_SCRATCH_SWEEP_MAX_ENTRIES = parseIntegerEnv(
     5_000,
 );
 
-type TManagedScratchPrefix = typeof MANAGED_SCRATCH_PREFIXES[number];
+export type TManagedScratchPrefix = typeof MANAGED_SCRATCH_PREFIXES[number];
 
 function isManagedScratchDirectoryName(entryName: string) {
     return MANAGED_SCRATCH_PREFIXES.some(prefix => entryName.startsWith(prefix));
@@ -56,6 +58,21 @@ export async function createManagedScratchTempDir(prefix: TManagedScratchPrefix)
         prefix,
     })}\n`, 'utf8');
     return tempDir;
+}
+
+export async function usingManagedScratchScope<T>(
+    prefix: TManagedScratchPrefix,
+    run: (scratchPath: string) => Promise<T>,
+): Promise<T> {
+    const scratchPath = await createManagedScratchTempDir(prefix);
+    try {
+        return await run(scratchPath);
+    } finally {
+        await rm(scratchPath, {
+            force: true,
+            recursive: true,
+        });
+    }
 }
 
 export async function sweepStaleManagedScratchTempDirs(

@@ -32,6 +32,7 @@ vi.mock('@electron/utils/createLogger', () => ({createLogger: () => mocks.logger
 const {
     createManagedScratchTempDir,
     sweepStaleManagedScratchTempDirs,
+    usingManagedScratchScope,
 } = await import('@electron/utils/managedScratchTemp');
 
 describe('managed scratch temp cleanup', () => {
@@ -76,5 +77,14 @@ describe('managed scratch temp cleanup', () => {
 
         expect(existsSync(markedPath)).toBe(true);
         expect(mocks.logger.info).not.toHaveBeenCalled();
+    });
+
+    it('removes a managed scope after success and failure', async () => {
+        let successfulPath = '';
+        await usingManagedScratchScope('pdfExport-', async scratchPath => { successfulPath = scratchPath; expect(existsSync(scratchPath)).toBe(true); });
+        expect(existsSync(successfulPath)).toBe(false);
+        let failedPath = '';
+        await expect(usingManagedScratchScope('qpdfArgs-', async scratchPath => { failedPath = scratchPath; throw new Error('scope failed'); })).rejects.toThrow('scope failed');
+        expect(existsSync(failedPath)).toBe(false);
     });
 });

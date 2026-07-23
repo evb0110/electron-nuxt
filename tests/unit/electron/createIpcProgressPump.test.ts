@@ -1,3 +1,4 @@
+/* eslint-disable @stylistic/array-bracket-newline, @stylistic/array-element-newline, @stylistic/object-curly-newline, @stylistic/object-property-newline */
 import {
     afterEach,
     describe,
@@ -160,6 +161,22 @@ describe('createIpcProgressPump replay', () => {
             phase: 'complete',
             value: 100,
         });
+        expect(replaySend).not.toHaveBeenCalled();
+    });
+
+    it('delegates replay retention to an external owner', () => {
+        const replaySend = vi.fn();
+        let replay = [{requestId: 'external', phase: 'active', value: 7}] satisfies ITestProgress[];
+        const pump = createIpcProgressPump<ITestProgress>({
+            channel: 'test:progress', getTarget: () => null,
+            getKey: progress => progress.requestId,
+            replayMode: {kind: 'external', getReplayPayloads: () => replay},
+        });
+        pump.enqueue({requestId: 'not-retained-internally', phase: 'active', value: 1});
+        pump.subscribe({send: replaySend});
+        expect(replaySend.mock.calls).toEqual([['test:progress', replay[0]]]);
+        replaySend.mockClear(); replay = [];
+        pump.subscribe({send: replaySend});
         expect(replaySend).not.toHaveBeenCalled();
     });
 });

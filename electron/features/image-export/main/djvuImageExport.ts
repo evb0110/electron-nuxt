@@ -2,10 +2,8 @@ import { randomUUID } from 'node:crypto';
 import {
     copyFile,
     mkdir,
-    mkdtemp,
     rm,
 } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
 import {
     basename,
     dirname,
@@ -26,12 +24,17 @@ import {
 } from '@electron/utils/atomicReplace';
 import { abortErrorFromSignal } from '@electron/utils/abort';
 import { mainJobBroker } from '@electron/resources/jobBroker';
+import {
+    type TManagedScratchPrefix,
+    usingManagedScratchScope,
+} from '@electron/utils/managedScratchTemp';
 
 interface IDjvuImageExportOptions {
     pageNumbers?: number[];
     signal?: AbortSignal;
     cancelGroup?: string;
     onProgress?: (progress: Pick<IImageExportProgress, 'phase' | 'processed' | 'total' | 'percent'>) => void;
+    scratch?: {using<T>(prefix: TManagedScratchPrefix, run: (scratchPath: string) => Promise<T>): Promise<T>;};
 }
 
 const DJVU_EXPORT_MAX_EDGE_PIXELS = 8_192;
@@ -42,6 +45,14 @@ const DJVU_EXPORT_MAX_STAGED_BYTES = 2 * 1024 * 1024 * 1024;
 
 function throwIfAborted(signal?: AbortSignal) {
     if (signal?.aborted) throw abortErrorFromSignal(signal);
+}
+
+function usingDjvuScratch<T>(
+    options: IDjvuImageExportOptions,
+    prefix: TManagedScratchPrefix,
+    run: (scratchPath: string) => Promise<T>,
+) {
+    return (options.scratch?.using ?? usingManagedScratchScope)(prefix, run);
 }
 
 async function resolvePages(path: string, requested: number[] | undefined, signal?: AbortSignal) {
@@ -99,9 +110,8 @@ async function renderDjvuPngPages(
     pages: number[],
     options: IDjvuImageExportOptions,
 ) {
-    const tempDirectory = await mkdtemp(join(tmpdir(), 'djvu-image-export-'));
-    let stagedBytes = 0;
-    try {
+    return usingDjvuScratch(options, 'djvu-image-export-', async tempDirectory => {
+        let stagedBytes = 0;
         options.onProgress?.({
             phase: 'rendering',
             processed: 0,
@@ -164,12 +174,7 @@ async function renderDjvuPngPages(
             });
         }
         return outputPaths;
-    } finally {
-        await rm(tempDirectory, {
-            force: true,
-            recursive: true,
-        });
-    }
+    });
 }
 
 export async function exportDjvuPagesAsPng(
@@ -207,8 +212,7 @@ export async function exportDjvuAsMultiPageTiff(
         DJVU_TIFF_EXPORT_MAX_TOTAL_PIXELS,
         options.signal,
     );
-    const tempDirectory = await mkdtemp(join(tmpdir(), 'djvu-tiff-export-'));
-    try {
+    return usingDjvuScratch(options, 'djvu-tiff-export-', async tempDirectory => {
         const pagePaths: string[] = [];
         let stagedBytes = 0;
         for (const [
@@ -278,10 +282,5 @@ export async function exportDjvuAsMultiPageTiff(
             percent: 100,
         });
         return [targetPath];
-    } finally {
-        await rm(tempDirectory, {
-            force: true,
-            recursive: true,
-        });
-    }
+    });
 }

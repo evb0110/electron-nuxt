@@ -86,7 +86,20 @@ vi.mock('@electron/utils/atomicReplace', () => ({
     atomicReplace: (...args: unknown[]) => mocks.atomicReplace(...args),
     makeSiblingTempPath: (...args: [string]) => mocks.makeSiblingTempPath(...args),
 }));
-vi.mock('@electron/utils/managedScratchTemp', () => ({createManagedScratchTempDir: (...args: [string]) => mocks.createManagedScratchTempDir(...args)}));
+vi.mock('@electron/utils/managedScratchTemp', () => ({
+    createManagedScratchTempDir: (...args: [string]) => mocks.createManagedScratchTempDir(...args),
+    usingManagedScratchScope: async (prefix: string, run: (scratchPath: string) => Promise<unknown>) => {
+        const scratchPath = await mocks.createManagedScratchTempDir(prefix);
+        try {
+            return await run(scratchPath);
+        } finally {
+            await rm(scratchPath, {
+                force: true,
+                recursive: true,
+            });
+        }
+    },
+}));
 
 const {
     exportPdfAsMultiPageTiff,
@@ -275,6 +288,7 @@ describe('image export', () => {
 
     afterEach(async () => {
         if (tempDir) {
+            expect(mocks.managedScratchDirs.every(({path}) => !existsSync(path))).toBe(true);
             await rm(tempDir, {
                 recursive: true,
                 force: true,

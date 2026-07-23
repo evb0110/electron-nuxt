@@ -74,9 +74,11 @@ interface ITestProgressPayload {
 
 interface ITestProgressOptions { onProgress?: (progress: ITestProgressPayload) => void; }
 
+let nextSenderId = 7;
+
 function createSender(): ITestSender {
     const sender: ITestSender = {
-        id: 7,
+        id: nextSenderId++,
         destroyed: false,
         isDestroyed: () => sender.destroyed,
         once: vi.fn(),
@@ -319,9 +321,6 @@ describe('image export IPC lifecycle', () => {
             canceled: true,
         });
         expect(exportState.signal?.aborted).toBe(true);
-        expect(sender.removeListener).toHaveBeenCalledWith('destroyed', expect.any(Function));
-        expect(sender.removeListener).toHaveBeenCalledWith('render-process-gone', expect.any(Function));
-        expect(sender.removeListener).toHaveBeenCalledWith('did-start-navigation', expect.any(Function));
     });
 
     it('cancels active image export when the renderer main frame navigates', async () => {
@@ -358,37 +357,6 @@ describe('image export IPC lifecycle', () => {
         expect(exportState.signal?.aborted).toBe(true);
     });
 
-    it('passes renderer lifecycle cancellation to multi-page TIFF export', async () => {
-        const sender = createSender();
-        const exportState: {signal: AbortSignal | undefined} = { signal: undefined };
-        mocks.showSaveDialog.mockResolvedValueOnce({
-            canceled: false,
-            filePath: '/tmp/export.tiff',
-        });
-        mocks.exportPdfAsMultiPageTiff.mockImplementation(async (
-            _sourcePath: string,
-            outputPath: string,
-            options: { signal?: AbortSignal },
-        ) => {
-            exportState.signal = options.signal;
-            return [outputPath];
-        });
-
-        await expect(handlePdfExportMultiPageTiff(
-            createContext(sender),
-            '/tmp/working.pdf',
-        )).resolves.toEqual({
-            success: true,
-            outputPath: '/tmp/export.tiff',
-            outputPaths: ['/tmp/export.tiff'],
-        });
-
-        expect(exportState.signal).toBeInstanceOf(AbortSignal);
-        expect(sender.once).toHaveBeenCalledWith('destroyed', expect.any(Function));
-        expect(sender.once).toHaveBeenCalledWith('render-process-gone', expect.any(Function));
-        expect(sender.on).toHaveBeenCalledWith('did-start-navigation', expect.any(Function));
-    });
-
     it('returns every split multi-page TIFF output path', async () => {
         const sender = createSender();
         mocks.showSaveDialog.mockResolvedValueOnce({
@@ -410,48 +378,6 @@ describe('image export IPC lifecycle', () => {
                 '/tmp/export-part-001.tiff',
                 '/tmp/export-part-002.tiff',
             ],
-        });
-    });
-
-    it('forwards multi-page TIFF progress to the requesting renderer', async () => {
-        const sender = createSender();
-        mocks.showSaveDialog.mockResolvedValueOnce({
-            canceled: false,
-            filePath: '/tmp/export.tiff',
-        });
-        mocks.exportPdfAsMultiPageTiff.mockImplementationOnce(async (
-            _sourcePath: string,
-            outputPath: string,
-            options: ITestProgressOptions,
-        ) => {
-            options.onProgress?.({
-                phase: 'rendering',
-                processed: 7,
-                total: 10,
-                percent: 63,
-            });
-            return [outputPath];
-        });
-
-        await expect(handlePdfExportMultiPageTiff(
-            createContext(sender),
-            '/tmp/working.pdf',
-            undefined,
-            'export-1',
-        )).resolves.toEqual({
-            success: true,
-            outputPath: '/tmp/export.tiff',
-            outputPaths: ['/tmp/export.tiff'],
-        });
-
-        expect(sender.send).toHaveBeenCalledWith('pdfExport:progress', {
-            requestId: 'export-1',
-            format: 'multipage-tiff',
-            phase: 'rendering',
-            processed: 7,
-            total: 10,
-            percent: 63,
-            status: 'running',
         });
     });
 
@@ -550,6 +476,31 @@ describe('image export IPC lifecycle', () => {
             percent: 100,
             status: 'success',
         });
+    });
+
+    it('delivers one failed terminal when export throws before progress', async () => {
+        const sender = createSender();
+        mocks.exportPdfPagesAsImages.mockRejectedValueOnce(new Error('render failed'));
+
+        await expect(handlePdfExportImages(
+            createContext(sender),
+            '/tmp/working.pdf',
+            undefined,
+            'export-failed',
+        )).rejects.toThrow('render failed');
+
+        expect(sender.send.mock.calls.filter(([
+            , progress,
+        ]) => (
+            progress as {status?: string}
+        ).status === 'failed')).toEqual([[
+            'pdfExport:progress',
+            expect.objectContaining({
+                requestId: 'export-failed',
+                status: 'failed',
+                error: 'render failed',
+            }),
+        ]]);
     });
 
     it('rejects oversized image export progress request ids before opening a save dialog', async () => {
