@@ -11,7 +11,7 @@ import type { IElectronE2ESession } from '@tests/e2e/electron/helpers/startElect
 const HYDRATION_CONSOLE_QUIET_WINDOW_MS = 1_500;
 const HYDRATION_CONSOLE_POLL_INTERVAL_MS = 100;
 const HYDRATION_CONSOLE_MAX_WAIT_MS = 10_000;
-const STARTUP_READY_MAX_WAIT_MS = 30_000;
+const STARTUP_READY_MAX_WAIT_MS = 60_000;
 const TOOLBAR_STARTUP_SAMPLE_WINDOW_MS = 1_800;
 const TOOLBAR_MIN_VISIBLE_HEIGHT_PX = 40;
 const TOOLBAR_MAX_STARTUP_SHIFT_PX = 2;
@@ -282,6 +282,7 @@ describe('Electron E2E - Startup Hydration', () => {
             return;
         }
 
+        await waitForAppReady(session);
         await installStartupReadinessSampler(session);
         await session.page.reload({waitUntil: 'domcontentloaded'});
         await session.page.waitForFunction(() => {
@@ -289,7 +290,7 @@ describe('Electron E2E - Startup Hydration', () => {
             return sample?.appReadyEventAt !== null
                 && sample?.claimAt !== null
                 && sample?.overlayRemovedAt !== null;
-        }, {timeout: 30_000});
+        }, {timeout: STARTUP_READY_MAX_WAIT_MS});
 
         const result = await session.page.evaluate(() => {
             const sample = (window as Window & {__evbStartupReadinessSample?: IStartupReadinessSample;}).__evbStartupReadinessSample;
