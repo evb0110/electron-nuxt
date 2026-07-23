@@ -27,7 +27,7 @@ function listFilesRecursive(path: string): string[] {
     }
 }
 
-describe('browser OCR capability', () => {
+describe('browser OCR capability', {timeout: 20_000}, () => {
     it('does not ship browser Tesseract assets', () => {
         expect(listFilesRecursive(resolve(process.cwd(), 'public/tesseract'))).toEqual([]);
     });

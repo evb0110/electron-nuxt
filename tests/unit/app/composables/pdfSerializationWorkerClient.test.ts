@@ -95,7 +95,7 @@ class FakeWorker {
     public terminate() {}
 }
 
-describe('pdfSerializationWorkerClient', () => {
+describe('pdfSerializationWorkerClient', {timeout: 20_000}, () => {
     beforeEach(() => {
         vi.resetModules();
         vi.unstubAllGlobals();

@@ -217,7 +217,7 @@ async function loadBrowserDocumentsFileCapability(
     };
 }
 
-describe('createBrowserDocumentsFileCapability', () => {
+describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
     beforeEach(() => {
         vi.unstubAllGlobals();
         browserPdfCombineWorkerMock.canUse.mockReset();

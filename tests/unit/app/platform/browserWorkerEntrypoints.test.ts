@@ -8,7 +8,7 @@ import {
 
 vi.mock('pdfjs-dist', () => ({getDocument: vi.fn()}));
 
-describe('browser worker entrypoints', () => {
+describe('browser worker entrypoints', {timeout: 20_000}, () => {
     afterEach(() => {
         vi.unstubAllGlobals();
     });

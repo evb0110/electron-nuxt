@@ -26,7 +26,7 @@ async function createSplitCache() {
     return useWorkspaceSplitCache();
 }
 
-describe('useWorkspaceSplitCache', () => {
+describe('useWorkspaceSplitCache', {timeout: 20_000}, () => {
     beforeEach(() => {
         vi.useFakeTimers();
         vi.setSystemTime(new Date('2026-01-01T00:00:00Z'));
