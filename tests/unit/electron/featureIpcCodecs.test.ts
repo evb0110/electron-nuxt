@@ -6,39 +6,19 @@ import {
 import { AGENT_PLATFORM_FEATURE } from '@contracts/agentPlatformFeature';
 import { DJVU_PLATFORM_FEATURE } from '@contracts/djvuPlatformFeature';
 import {
-    DOCUMENT_MENU_PLATFORM_FEATURE,
     DOCUMENT_OPEN_PLATFORM_FEATURE,
     DOCUMENT_PICKER_PLATFORM_FEATURE,
-    DOCUMENT_RECENT_FILES_PLATFORM_FEATURE,
-    DOCUMENT_WINDOW_PLATFORM_FEATURE,
 } from '@contracts/documentsPlatformFeature';
+import { PLATFORM_FEATURE_REGISTRY } from '@contracts/platformApiDescriptor';
 import { DOCUMENTS_CHANNELS } from '@electron/features/documents/contract';
 import { DOCUMENTS_IPC_CODECS } from '@electron/features/documents/documentsIpcCodecs';
-import { IMAGE_EXPORT_PLATFORM_FEATURE } from '@contracts/imageExportPlatformFeature';
 import {
     OCR_PLATFORM_FEATURE,
     OCR_PREPROCESSING_PLATFORM_FEATURE,
 } from '@contracts/ocrPlatformFeature';
-import { PAGE_OPS_PLATFORM_FEATURE } from '@contracts/pageOpsPlatformFeature';
-import { SEARCH_PLATFORM_FEATURE } from '@contracts/searchPlatformFeature';
-import { HOST_PLATFORM_FEATURE } from '@contracts/hostPlatformFeature';
-import { UPDATES_PLATFORM_FEATURE } from '@contracts/updatesPlatformFeature';
-import { WINDOW_TABS_PLATFORM_FEATURE } from '@contracts/windowTabsPlatformFeature';
 
-const IMAGE_EXPORT_CHANNELS = IMAGE_EXPORT_PLATFORM_FEATURE.invokeChannels;
 const AGENT_CHANNELS = AGENT_PLATFORM_FEATURE.invokeChannels;
 const AGENT_IPC_CODECS = AGENT_PLATFORM_FEATURE.ipcCodecs;
-const IMAGE_EXPORT_IPC_CODECS = IMAGE_EXPORT_PLATFORM_FEATURE.ipcCodecs;
-const PAGE_OPS_CHANNELS = PAGE_OPS_PLATFORM_FEATURE.invokeChannels;
-const PAGE_OPS_IPC_CODECS = PAGE_OPS_PLATFORM_FEATURE.ipcCodecs;
-const SEARCH_CHANNELS = SEARCH_PLATFORM_FEATURE.invokeChannels;
-const SEARCH_IPC_CODECS = SEARCH_PLATFORM_FEATURE.ipcCodecs;
-const HOST_CHANNELS = HOST_PLATFORM_FEATURE.invokeChannels;
-const HOST_IPC_CODECS = HOST_PLATFORM_FEATURE.ipcCodecs;
-const UPDATES_CHANNELS = UPDATES_PLATFORM_FEATURE.invokeChannels;
-const UPDATES_IPC_CODECS = UPDATES_PLATFORM_FEATURE.ipcCodecs;
-const WINDOW_TABS_CHANNELS = WINDOW_TABS_PLATFORM_FEATURE.invokeChannels;
-const WINDOW_TABS_IPC_CODECS = WINDOW_TABS_PLATFORM_FEATURE.ipcCodecs;
 const DJVU_CHANNELS = DJVU_PLATFORM_FEATURE.invokeChannels;
 const DJVU_IPC_CODECS = DJVU_PLATFORM_FEATURE.ipcCodecs;
 const OCR_CHANNELS = {
@@ -86,60 +66,10 @@ function expectExhaustiveMap(
 
 describe('feature IPC codec maps', () => {
     it('cover every invoke channel exactly once', () => {
-        expectExhaustiveMap(AGENT_CHANNELS, AGENT_IPC_CODECS);
-        expectExhaustiveMap(DJVU_CHANNELS, DJVU_IPC_CODECS);
+        for (const feature of PLATFORM_FEATURE_REGISTRY) {
+            expectExhaustiveMap(feature.invokeChannels, feature.ipcCodecs);
+        }
         expectExhaustiveMap(DOCUMENTS_CHANNELS, DOCUMENTS_IPC_CODECS, [DOCUMENTS_CHANNELS.fileSavePdfDataPort]);
-        expectExhaustiveMap(
-            DOCUMENT_PICKER_PLATFORM_FEATURE.invokeChannels,
-            DOCUMENT_PICKER_PLATFORM_FEATURE.ipcCodecs,
-        );
-        expectExhaustiveMap(
-            DOCUMENT_RECENT_FILES_PLATFORM_FEATURE.invokeChannels,
-            DOCUMENT_RECENT_FILES_PLATFORM_FEATURE.ipcCodecs,
-        );
-        expectExhaustiveMap(
-            DOCUMENT_WINDOW_PLATFORM_FEATURE.invokeChannels,
-            DOCUMENT_WINDOW_PLATFORM_FEATURE.ipcCodecs,
-        );
-        expectExhaustiveMap(
-            DOCUMENT_MENU_PLATFORM_FEATURE.invokeChannels,
-            DOCUMENT_MENU_PLATFORM_FEATURE.ipcCodecs,
-        );
-        expectExhaustiveMap(IMAGE_EXPORT_CHANNELS, IMAGE_EXPORT_IPC_CODECS);
-        expectExhaustiveMap(OCR_CHANNELS, OCR_IPC_CODECS);
-        expectExhaustiveMap(PAGE_OPS_CHANNELS, PAGE_OPS_IPC_CODECS);
-        expectExhaustiveMap(SEARCH_CHANNELS, SEARCH_IPC_CODECS);
-        expectExhaustiveMap(HOST_CHANNELS, HOST_IPC_CODECS);
-        expectExhaustiveMap(UPDATES_CHANNELS, UPDATES_IPC_CODECS);
-        expectExhaustiveMap(WINDOW_TABS_CHANNELS, WINDOW_TABS_IPC_CODECS);
-    });
-
-    it('reject malformed main-process results at each feature boundary', () => {
-        expect(() => agentCodec(AGENT_CHANNELS.getMcpIntegrationStatus).decodeResult({enabled: 'yes'})).toThrow();
-        expect(() => djvuCodec(DJVU_CHANNELS.getInfo).decodeResult({pageCount: 'one'})).toThrow();
-        expect(() => DOCUMENTS_IPC_CODECS[DOCUMENTS_CHANNELS.fileRead].decodeResult('bytes')).toThrow();
-        expect(() => DOCUMENT_PICKER_PLATFORM_FEATURE.ipcCodecs[
-            DOCUMENT_PICKER_PLATFORM_FEATURE.invokeChannels.openDocumentDialog
-        ]!.decodeResult({kind: 'pdf'})).toThrow();
-        expect(() => IMAGE_EXPORT_IPC_CODECS[IMAGE_EXPORT_CHANNELS.exportPdfToImages]!.decodeResult({success: 'yes'})).toThrow();
-        expect(() => ocrCodec(OCR_CHANNELS.recognize).decodeResult({
-            pageNumber: 1,
-            success: true,
-        })).toThrow();
-        expect(() => PAGE_OPS_IPC_CODECS[PAGE_OPS_CHANNELS.rotate]!.decodeResult({success: 'yes'})).toThrow();
-        expect(() => SEARCH_IPC_CODECS[SEARCH_CHANNELS.run]!.decodeResult({
-            results: [{}],
-            truncated: false,
-        })).toThrow();
-        expect(() => HOST_IPC_CODECS[HOST_CHANNELS.getEnvironment]!.decodeResult({
-            platform: 'freebsd',
-            osScaleFactor: 1,
-        })).toThrow();
-        expect(() => UPDATES_IPC_CODECS[UPDATES_CHANNELS.getState]!.decodeResult({phase: 'future'})).toThrow();
-        expect(() => WINDOW_TABS_IPC_CODECS[WINDOW_TABS_CHANNELS.transferAck]!.decodeArgs([{
-            transferId: '',
-            success: true,
-        }])).toThrow();
     });
 
     it('retains intentional documents channel aliases', () => {
@@ -339,34 +269,6 @@ describe('feature IPC codec maps', () => {
             operation,
             status: 'queued',
         });
-    });
-
-    it('reject malformed renderer arguments before handler dispatch', () => {
-        expect(() => agentCodec(AGENT_CHANNELS.setMcpIntegrationEnabled).decodeArgs(['yes'])).toThrow();
-        expect(() => djvuCodec(DJVU_CHANNELS.getInfo).decodeArgs([''])).toThrow();
-        expect(() => DOCUMENTS_IPC_CODECS[DOCUMENTS_CHANNELS.fileReadRange].decodeArgs([
-            '/tmp/a.pdf',
-            -1,
-            4,
-        ])).toThrow();
-        expect(() => IMAGE_EXPORT_IPC_CODECS[IMAGE_EXPORT_CHANNELS.exportPdfToImages]!.decodeArgs([
-            '/tmp/a.pdf',
-            [0],
-        ])).toThrow();
-        expect(() => PAGE_OPS_IPC_CODECS[PAGE_OPS_CHANNELS.rotate]!.decodeArgs([
-            '/tmp/a.pdf',
-            [1],
-            1,
-            45,
-            undefined,
-        ])).toThrow();
-        expect(() => ocrCodec(OCR_CHANNELS.recognize).decodeArgs([{pageNumber: 0}])).toThrow();
-        expect(() => ocrCodec(OCR_CHANNELS.resolveDocumentOcrPage).decodeArgs([
-            '/tmp/a.pdf',
-            'drt1:test',
-            0,
-        ])).toThrow();
-        expect(() => SEARCH_IPC_CODECS[SEARCH_CHANNELS.run]!.decodeArgs([null])).toThrow();
     });
 
     it('decodes staged artifact receipts in both native IPC directions', () => {

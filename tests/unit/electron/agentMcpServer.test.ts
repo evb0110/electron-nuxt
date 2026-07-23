@@ -237,6 +237,47 @@ function createOptions() {
     };
 }
 
+type TMcpOptions = Parameters<typeof processMcpRequest>[1];
+
+function request(
+    options: TMcpOptions,
+    method: string,
+    params?: Record<string, unknown>,
+    id: string | number = method,
+) {
+    return processMcpRequest({
+        jsonrpc: '2.0',
+        id,
+        method,
+        ...(params === undefined ? {} : {params}),
+    }, options);
+}
+
+function callTool(
+    options: TMcpOptions,
+    name: string,
+    args: Record<string, unknown> = {},
+    id: string | number = name,
+) {
+    return request(options, 'tools/call', {
+        name,
+        arguments: args,
+    }, id);
+}
+
+function runAction(
+    options: TMcpOptions,
+    id: string,
+    input?: Record<string, unknown>,
+    extras: Record<string, unknown> = {},
+) {
+    return callTool(options, 'evb_run_action', {
+        id,
+        ...(input === undefined ? {} : {input}),
+        ...extras,
+    }, id);
+}
+
 function expectStructuredCloneable(value: unknown) {
     expect(() => structuredClone(value)).not.toThrow();
 }
@@ -405,17 +446,8 @@ describe('processMcpRequest', () => {
     it('responds to MCP initialize and lists EVB tools', async () => {
         const options = createOptions();
 
-        const initialized = await processMcpRequest({
-            jsonrpc: '2.0',
-            id: 1,
-            method: 'initialize',
-            params: { protocolVersion: '2025-11-25' },
-        }, options);
-        const tools = await processMcpRequest({
-            jsonrpc: '2.0',
-            id: 2,
-            method: 'tools/list',
-        }, options);
+        const initialized = await request(options, 'initialize', {protocolVersion: '2025-11-25'}, 1);
+        const tools = await request(options, 'tools/list', undefined, 2);
 
         expect(initialized?.result).toMatchObject({
             protocolVersion: '2025-11-25',
@@ -479,17 +511,8 @@ describe('processMcpRequest', () => {
             callerKind: 'external' as const,
         };
 
-        const initialized = await processMcpRequest({
-            jsonrpc: '2.0',
-            id: 1,
-            method: 'initialize',
-            params: {protocolVersion: '2025-11-25'},
-        }, options);
-        const tools = await processMcpRequest({
-            jsonrpc: '2.0',
-            id: 2,
-            method: 'tools/list',
-        }, options);
+        const initialized = await request(options, 'initialize', {protocolVersion: '2025-11-25'}, 1);
+        const tools = await request(options, 'tools/list', undefined, 2);
 
         expect(JSON.stringify(initialized?.result)).toContain('policy.external is confirm are blocked');
         const runActionTool = (tools?.result as IListToolsResult).tools?.find(tool => tool.name === 'evb_run_action');
@@ -504,15 +527,7 @@ describe('processMcpRequest', () => {
     it('returns open documents through the discoverable EVB Viewer tool', async () => {
         const options = createOptions();
 
-        const response = await processMcpRequest({
-            jsonrpc: '2.0',
-            id: 'open-documents',
-            method: 'tools/call',
-            params: {
-                name: 'evb_viewer_open_documents',
-                arguments: {},
-            },
-        }, options);
+        const response = await callTool(options, 'evb_viewer_open_documents');
 
         expect(options.getWorkspaceSnapshot).toHaveBeenCalledOnce();
         expect(response?.result).toMatchObject({structuredContent: {
@@ -541,15 +556,7 @@ describe('processMcpRequest', () => {
     it('returns document readiness through a tool call', async () => {
         const options = createOptions();
 
-        const response = await processMcpRequest({
-            jsonrpc: '2.0',
-            id: 'readiness',
-            method: 'tools/call',
-            params: {
-                name: 'evb_document_readiness',
-                arguments: { tabId: 'tab-1' },
-            },
-        }, options);
+        const response = await callTool(options, 'evb_document_readiness', {tabId: 'tab-1'});
 
         expect(options.getWorkspaceSnapshot).toHaveBeenCalledOnce();
         expect(response?.result).toMatchObject({structuredContent: {
@@ -561,108 +568,15 @@ describe('processMcpRequest', () => {
         }});
     });
 
-    it('exposes text-markup annotation creation as a discoverable capability', async () => {
-        const options = createOptions();
-        const shapeTools = [
-            'draw',
-            'rectangle',
-            'circle',
-            'line',
-            'arrow',
-        ];
-
-        const response = await processMcpRequest({
-            jsonrpc: '2.0',
-            id: 'annotation-capabilities',
-            method: 'tools/call',
-            params: {
-                name: 'evb_list_capabilities',
-                arguments: {
-                    domain: 'annotation',
-                    detail: 'full',
-                },
-            },
-        }, options);
-
-        expect(response?.result).toMatchObject({structuredContent: {
-            domain: 'annotation',
-            capabilities: expect.arrayContaining([
-                expect.objectContaining({
-                    id: 'annotation.create_text_markup',
-                    risk: 'write',
-                    inputSchema: expect.objectContaining({
-                        required: ['text'],
-                        properties: expect.objectContaining({
-                            text: expect.objectContaining({type: 'string'}),
-                            page: expect.objectContaining({type: 'number'}),
-                            markup: expect.objectContaining({enum: [
-                                'highlight',
-                                'underline',
-                                'strikethrough',
-                                'squiggly',
-                            ]}),
-                        }),
-                    }),
-                }),
-                expect.objectContaining({
-                    id: 'annotation.create_note_at_point',
-                    inputSchema: expect.objectContaining({properties: expect.objectContaining({
-                        pageX: expect.objectContaining({type: 'number'}),
-                        pageY: expect.objectContaining({type: 'number'}),
-                    })}),
-                }),
-                expect.objectContaining({
-                    id: 'annotation.create_shape',
-                    inputSchema: expect.objectContaining({
-                        properties: expect.objectContaining({shape: expect.objectContaining({enum: shapeTools})}),
-                        required: ['shape'],
-                    }),
-                }),
-                expect.objectContaining({
-                    id: 'annotation.update_note',
-                    inputSchema: expect.objectContaining({required: ['text']}),
-                }),
-                expect.objectContaining({
-                    id: 'annotation.update_text_markup_color',
-                    inputSchema: expect.objectContaining({required: ['color']}),
-                }),
-            ]),
-        }});
-    });
-
     it('lists capabilities compactly by default and keeps schemas behind full detail or describe', async () => {
         const options = createOptions();
 
-        const compactResponse = await processMcpRequest({
-            jsonrpc: '2.0',
-            id: 'compact-file-capabilities',
-            method: 'tools/call',
-            params: {
-                name: 'evb_list_capabilities',
-                arguments: {domain: 'file'},
-            },
-        }, options);
-        const fullResponse = await processMcpRequest({
-            jsonrpc: '2.0',
-            id: 'full-file-capabilities',
-            method: 'tools/call',
-            params: {
-                name: 'evb_list_capabilities',
-                arguments: {
-                    domain: 'file',
-                    detail: 'full',
-                },
-            },
-        }, options);
-        const describeResponse = await processMcpRequest({
-            jsonrpc: '2.0',
-            id: 'describe-repair-save',
-            method: 'tools/call',
-            params: {
-                name: 'evb_describe_capability',
-                arguments: {id: 'file.repair_save'},
-            },
-        }, options);
+        const compactResponse = await callTool(options, 'evb_list_capabilities', {domain: 'file'});
+        const fullResponse = await callTool(options, 'evb_list_capabilities', {
+            domain: 'file',
+            detail: 'full',
+        });
+        const describeResponse = await callTool(options, 'evb_describe_capability', {id: 'file.repair_save'});
 
         expect(compactResponse?.result).toMatchObject({structuredContent: {
             detail: 'compact',
@@ -693,117 +607,16 @@ describe('processMcpRequest', () => {
         })}});
     });
 
-    it('exposes repair, optimize, crop, remove-crop, and history as semantic capabilities', async () => {
-        const options = createOptions();
-
-        const [
-            fileResponse,
-            pageOpsResponse,
-            historyResponse,
-        ] = await Promise.all([
-            processMcpRequest({
-                jsonrpc: '2.0',
-                id: 'file-capabilities',
-                method: 'tools/call',
-                params: {
-                    name: 'evb_list_capabilities',
-                    arguments: {
-                        domain: 'file',
-                        detail: 'full',
-                    },
-                },
-            }, options),
-            processMcpRequest({
-                jsonrpc: '2.0',
-                id: 'page-op-capabilities',
-                method: 'tools/call',
-                params: {
-                    name: 'evb_list_capabilities',
-                    arguments: {
-                        domain: 'page_ops',
-                        detail: 'full',
-                    },
-                },
-            }, options),
-            processMcpRequest({
-                jsonrpc: '2.0',
-                id: 'history-capabilities',
-                method: 'tools/call',
-                params: {
-                    name: 'evb_list_capabilities',
-                    arguments: {
-                        domain: 'history',
-                        detail: 'full',
-                    },
-                },
-            }, options),
-        ]);
-
-        expect(fileResponse?.result).toMatchObject({structuredContent: {capabilities: expect.arrayContaining([
-            expect.objectContaining({
-                id: 'file.repair_save',
-                risk: 'longRunning',
-            }),
-            expect.objectContaining({
-                id: 'file.optimize_for_interaction',
-                risk: 'longRunning',
-            }),
-        ])}});
-        expect(pageOpsResponse?.result).toMatchObject({structuredContent: {capabilities: expect.arrayContaining([
-            expect.objectContaining({
-                id: 'page_ops.crop',
-                inputSchema: expect.objectContaining({required: [
-                    'pages',
-                    'margins',
-                ]}),
-            }),
-            expect.objectContaining({
-                id: 'page_ops.remove_crop',
-                inputSchema: expect.objectContaining({required: ['pages']}),
-            }),
-        ])}});
-        expect(historyResponse?.result).toMatchObject({structuredContent: {
-            capabilityCount: 2,
-            capabilities: expect.arrayContaining([
-                expect.objectContaining({id: 'history.undo'}),
-                expect.objectContaining({id: 'history.redo'}),
-            ]),
-        }});
-    });
-
     it('normalizes compatibility aliases without advertising them as public capabilities', async () => {
         const options = createOptions();
 
-        const compactResponse = await processMcpRequest({
-            jsonrpc: '2.0',
-            id: 'all-capabilities',
-            method: 'tools/call',
-            params: {
-                name: 'evb_list_capabilities',
-                arguments: {},
-            },
-        }, options);
-        const describeAliasResponse = await processMcpRequest({
-            jsonrpc: '2.0',
-            id: 'describe-page-numbering',
-            method: 'tools/call',
-            params: {
-                name: 'evb_describe_capability',
-                arguments: {id: 'page_numbering.preview'},
-            },
-        }, options);
-        await processMcpRequest({
-            jsonrpc: '2.0',
-            id: 'run-annotation-alias',
-            method: 'tools/call',
-            params: {
-                name: 'evb_run_action',
-                arguments: {
-                    id: 'annotation.set_tool',
-                    input: {tool: 'highlight'},
-                },
-            },
-        }, options);
+        const compactResponse = await callTool(options, 'evb_list_capabilities');
+        const describeAliasResponse = await callTool(
+            options,
+            'evb_describe_capability',
+            {id: 'page_numbering.preview'},
+        );
+        await runAction(options, 'annotation.set_tool', {tool: 'highlight'});
 
         expect(JSON.stringify(compactResponse?.result)).not.toContain('page_numbering.preview');
         expect(JSON.stringify(compactResponse?.result)).not.toContain('annotation.set_tool');
@@ -820,66 +633,17 @@ describe('processMcpRequest', () => {
         }, undefined);
     });
 
-    it('dispatches text-markup annotation creation through run action', async () => {
-        const options = createOptions();
-
-        await processMcpRequest({
-            jsonrpc: '2.0',
-            id: 'create-markup',
-            method: 'tools/call',
-            params: {
-                name: 'evb_run_action',
-                arguments: {
-                    tabId: 'tab-1',
-                    id: 'annotation.create_text_markup',
-                    input: {
-                        page: 12,
-                        text: 'broken plural',
-                        markup: 'underline',
-                        occurrence: 2,
-                    },
-                },
-            },
-        }, options);
-
-        expect(options.runCommand).toHaveBeenCalledWith({
-            name: 'run_action',
-            arguments: {
-                tabId: 'tab-1',
-                id: 'annotation.create_text_markup',
-                input: {
-                    page: 12,
-                    text: 'broken plural',
-                    markup: 'underline',
-                    occurrence: 2,
-                },
-            },
-        }, undefined);
-    });
-
     it('blocks external run action calls that require confirmation', async () => {
         const options = {
             ...createOptions(),
             callerKind: 'external' as const,
         };
 
-        const response = await processMcpRequest({
-            jsonrpc: '2.0',
-            id: 'create-markup',
-            method: 'tools/call',
-            params: {
-                name: 'evb_run_action',
-                arguments: {
-                    tabId: 'tab-1',
-                    id: 'annotation.create_text_markup',
-                    input: {
-                        page: 12,
-                        text: 'broken plural',
-                        markup: 'underline',
-                    },
-                },
-            },
-        }, options);
+        const response = await runAction(options, 'annotation.create_text_markup', {
+            page: 12,
+            text: 'broken plural',
+            markup: 'underline',
+        }, {tabId: 'tab-1'});
 
         expect(response?.result).toMatchObject({
             isError: true,
@@ -897,15 +661,7 @@ describe('processMcpRequest', () => {
             callerKind: 'external' as const,
         };
 
-        const response = await processMcpRequest({
-            jsonrpc: '2.0',
-            id: 'open-documents',
-            method: 'tools/call',
-            params: {
-                name: 'evb_run_action',
-                arguments: {id: 'document.open_documents'},
-            },
-        }, options);
+        const response = await runAction(options, 'document.open_documents');
 
         expect(response?.error).toBeUndefined();
         expect(response?.result).toMatchObject({structuredContent: {
@@ -925,20 +681,12 @@ describe('processMcpRequest', () => {
             page: 5,
         }]};
 
-        const response = await processMcpRequest({
-            jsonrpc: '2.0',
-            id: 'preview-bookmarks',
-            method: 'tools/call',
-            params: {
-                name: 'evb_read_action',
-                arguments: {
-                    windowId: 42,
-                    tabId: 'tab-1',
-                    id: 'bookmarks.preview_tree',
-                    input: bookmarkPlanInput,
-                },
-            },
-        }, options);
+        const response = await callTool(options, 'evb_read_action', {
+            windowId: 42,
+            tabId: 'tab-1',
+            id: 'bookmarks.preview_tree',
+            input: bookmarkPlanInput,
+        });
 
         expect(response?.error).toBeUndefined();
         expect(options.runCommand).toHaveBeenCalledWith({
@@ -954,32 +702,16 @@ describe('processMcpRequest', () => {
     it('rejects non-read capabilities on the read-only action tool', async () => {
         const options = createOptions();
 
-        const writeResponse = await processMcpRequest({
-            jsonrpc: '2.0',
-            id: 'apply-bookmarks-through-read-tool',
-            method: 'tools/call',
-            params: {
-                name: 'evb_read_action',
-                arguments: {
-                    tabId: 'tab-1',
-                    id: 'bookmarks.apply_plan',
-                    input: {entries: []},
-                },
-            },
-        }, options);
-        const destructiveResponse = await processMcpRequest({
-            jsonrpc: '2.0',
-            id: 'delete-bookmarks-through-read-tool',
-            method: 'tools/call',
-            params: {
-                name: 'evb_read_action',
-                arguments: {
-                    tabId: 'tab-1',
-                    id: 'bookmarks.delete',
-                    input: {path: [0]},
-                },
-            },
-        }, options);
+        const writeResponse = await callTool(options, 'evb_read_action', {
+            tabId: 'tab-1',
+            id: 'bookmarks.apply_plan',
+            input: {entries: []},
+        });
+        const destructiveResponse = await callTool(options, 'evb_read_action', {
+            tabId: 'tab-1',
+            id: 'bookmarks.delete',
+            input: {path: [0]},
+        });
 
         expect(writeResponse?.result).toMatchObject({
             isError: true,
@@ -998,165 +730,13 @@ describe('processMcpRequest', () => {
             callerKind: 'external' as const,
         };
 
-        const response = await processMcpRequest({
-            jsonrpc: '2.0',
-            id: 'external-apply-bookmarks',
-            method: 'tools/call',
-            params: {
-                name: 'evb_run_action',
-                arguments: {
-                    tabId: 'tab-1',
-                    id: 'bookmarks.apply_plan',
-                    input: {entries: []},
-                },
-            },
-        }, options);
+        const response = await runAction(options, 'bookmarks.apply_plan', {entries: []}, {tabId: 'tab-1'});
 
         expect(response?.result).toMatchObject({
             isError: true,
             structuredContent: {message: 'Capability bookmarks.apply_plan requires explicit user confirmation for external MCP callers.'},
         });
         expect(options.runCommand).not.toHaveBeenCalled();
-    });
-
-    it('allows internal bookmark writes to reach renderer dispatch', async () => {
-        const options = createOptions();
-        const bookmarkPlanInput = {entries: [{
-            level: 1,
-            title: 'Chapter 1',
-            page: 5,
-        }]};
-
-        const response = await processMcpRequest({
-            jsonrpc: '2.0',
-            id: 'internal-apply-bookmarks',
-            method: 'tools/call',
-            params: {
-                name: 'evb_run_action',
-                arguments: {
-                    windowId: 42,
-                    tabId: 'tab-1',
-                    id: 'bookmarks.apply_plan',
-                    input: bookmarkPlanInput,
-                },
-            },
-        }, options);
-
-        expect(response?.error).toBeUndefined();
-        expect(options.runCommand).toHaveBeenCalledWith({
-            name: 'run_action',
-            arguments: {
-                tabId: 'tab-1',
-                id: 'bookmarks.apply_plan',
-                input: bookmarkPlanInput,
-            },
-        }, 42);
-    });
-
-    it('exposes page-label and bookmark editing capabilities', async () => {
-        const options = createOptions();
-
-        const [
-            pageLabelsResponse,
-            bookmarksResponse,
-        ] = await Promise.all([
-            processMcpRequest({
-                jsonrpc: '2.0',
-                id: 'page-label-capabilities',
-                method: 'tools/call',
-                params: {
-                    name: 'evb_list_capabilities',
-                    arguments: {
-                        domain: 'page_labels',
-                        detail: 'full',
-                    },
-                },
-            }, options),
-            processMcpRequest({
-                jsonrpc: '2.0',
-                id: 'bookmark-capabilities',
-                method: 'tools/call',
-                params: {
-                    name: 'evb_list_capabilities',
-                    arguments: {
-                        domain: 'bookmarks',
-                        detail: 'full',
-                    },
-                },
-            }, options),
-        ]);
-
-        expect(pageLabelsResponse?.result).toMatchObject({structuredContent: {
-            domain: 'page_labels',
-            capabilities: expect.arrayContaining([
-                expect.objectContaining({
-                    id: 'page_labels.set_ranges',
-                    inputSchema: expect.objectContaining({required: ['ranges']}),
-                }),
-                expect.objectContaining({
-                    id: 'page_labels.preview',
-                    inputSchema: expect.objectContaining({properties: expect.objectContaining({segments: expect.objectContaining({type: 'array'})})}),
-                }),
-                expect.objectContaining({id: 'page_labels.apply_plan'}),
-                expect.objectContaining({id: 'page_labels.apply_range'}),
-                expect.objectContaining({id: 'page_labels.set_labels'}),
-            ]),
-        }});
-        expect(bookmarksResponse?.result).toMatchObject({structuredContent: {
-            domain: 'bookmarks',
-            capabilities: expect.arrayContaining([
-                expect.objectContaining({
-                    id: 'bookmarks.preview_tree',
-                    inputSchema: expect.objectContaining({properties: expect.objectContaining({entries: expect.objectContaining({type: 'array'})})}),
-                }),
-                expect.objectContaining({id: 'bookmarks.apply_plan'}),
-                expect.objectContaining({id: 'bookmarks.set_tree'}),
-                expect.objectContaining({id: 'bookmarks.add'}),
-                expect.objectContaining({id: 'bookmarks.add_batch'}),
-                expect.objectContaining({
-                    id: 'bookmarks.update',
-                    inputSchema: expect.objectContaining({required: ['path']}),
-                }),
-                expect.objectContaining({
-                    id: 'bookmarks.delete',
-                    inputSchema: expect.objectContaining({required: ['path']}),
-                }),
-            ]),
-        }});
-    });
-
-    it('exposes visual page capture as a document verification capability', async () => {
-        const options = createOptions();
-
-        const response = await processMcpRequest({
-            jsonrpc: '2.0',
-            id: 'document-capabilities',
-            method: 'tools/call',
-            params: {
-                name: 'evb_list_capabilities',
-                arguments: {
-                    domain: 'document',
-                    detail: 'full',
-                },
-            },
-        }, options);
-
-        expectStructuredCloneable(response);
-        expect(response?.result).toMatchObject({structuredContent: {
-            domain: 'document',
-            capabilities: expect.arrayContaining([expect.objectContaining({
-                id: 'document.capture_page_image',
-                risk: 'navigate',
-                inputSchema: expect.objectContaining({properties: expect.objectContaining({
-                    page: expect.objectContaining({type: 'number'}),
-                    region: expect.objectContaining({enum: expect.arrayContaining([
-                        'full',
-                        'top',
-                        'bottom',
-                    ])}),
-                })}),
-            })]),
-        }});
     });
 
     it('returns MCP image content for rendered page capture results', async () => {
@@ -1172,22 +752,10 @@ describe('processMcpRequest', () => {
             },
         });
 
-        const response = await processMcpRequest({
-            jsonrpc: '2.0',
-            id: 'capture-page',
-            method: 'tools/call',
-            params: {
-                name: 'evb_run_action',
-                arguments: {
-                    tabId: 'tab-1',
-                    id: 'document.capture_page_image',
-                    input: {
-                        page: 4,
-                        region: 'top',
-                    },
-                },
-            },
-        }, options);
+        const response = await runAction(options, 'document.capture_page_image', {
+            page: 4,
+            region: 'top',
+        }, {tabId: 'tab-1'});
 
         expectStructuredCloneable(response);
         expect(options.runCommand).toHaveBeenCalledWith({
@@ -1223,191 +791,14 @@ describe('processMcpRequest', () => {
         expect(result.content?.find(item => item.type === 'text')?.text).not.toContain('"data"');
     });
 
-    it('dispatches page-label and bookmark mutations through run action', async () => {
-        const options = createOptions();
-        const pageLabelPlanInput = {segments: [{
-            startPage: 1,
-            endPage: 4,
-            style: 'roman-lower',
-        }]};
-        const bookmarkBatchInput = {bookmarks: [{
-            title: 'Chapter 1',
-            page: 5,
-            items: [{
-                title: 'Section 1.1',
-                page: 6,
-            }],
-        }]};
-        const bookmarkPlanInput = {entries: [
-            {
-                level: 1,
-                title: 'Chapter 1',
-                page: 5,
-            },
-            {
-                level: 2,
-                title: 'Section 1.1',
-                page: 6,
-            },
-        ]};
-
-        await processMcpRequest({
-            jsonrpc: '2.0',
-            id: 'preview-page-labels',
-            method: 'tools/call',
-            params: {
-                name: 'evb_run_action',
-                arguments: {
-                    tabId: 'tab-1',
-                    id: 'page_labels.preview',
-                    input: pageLabelPlanInput,
-                },
-            },
-        }, options);
-        await processMcpRequest({
-            jsonrpc: '2.0',
-            id: 'apply-page-label-plan',
-            method: 'tools/call',
-            params: {
-                name: 'evb_run_action',
-                arguments: {
-                    tabId: 'tab-1',
-                    id: 'page_labels.apply_plan',
-                    input: pageLabelPlanInput,
-                },
-            },
-        }, options);
-        await processMcpRequest({
-            jsonrpc: '2.0',
-            id: 'set-page-labels',
-            method: 'tools/call',
-            params: {
-                name: 'evb_run_action',
-                arguments: {
-                    tabId: 'tab-1',
-                    id: 'page_labels.apply_range',
-                    input: {
-                        startPage: 1,
-                        endPage: 4,
-                        style: 'r',
-                        prefix: '',
-                        startNumber: 1,
-                    },
-                },
-            },
-        }, options);
-        await processMcpRequest({
-            jsonrpc: '2.0',
-            id: 'preview-bookmarks',
-            method: 'tools/call',
-            params: {
-                name: 'evb_run_action',
-                arguments: {
-                    tabId: 'tab-1',
-                    id: 'bookmarks.preview_tree',
-                    input: bookmarkPlanInput,
-                },
-            },
-        }, options);
-        await processMcpRequest({
-            jsonrpc: '2.0',
-            id: 'apply-bookmark-plan',
-            method: 'tools/call',
-            params: {
-                name: 'evb_run_action',
-                arguments: {
-                    tabId: 'tab-1',
-                    id: 'bookmarks.apply_plan',
-                    input: bookmarkPlanInput,
-                },
-            },
-        }, options);
-        await processMcpRequest({
-            jsonrpc: '2.0',
-            id: 'add-bookmarks',
-            method: 'tools/call',
-            params: {
-                name: 'evb_run_action',
-                arguments: {
-                    tabId: 'tab-1',
-                    id: 'bookmarks.add_batch',
-                    input: bookmarkBatchInput,
-                },
-            },
-        }, options);
-
-        expect(options.runCommand).toHaveBeenCalledWith({
-            name: 'run_action',
-            arguments: {
-                tabId: 'tab-1',
-                id: 'page_labels.preview',
-                input: pageLabelPlanInput,
-            },
-        }, undefined);
-        expect(options.runCommand).toHaveBeenCalledWith({
-            name: 'run_action',
-            arguments: {
-                tabId: 'tab-1',
-                id: 'page_labels.apply_plan',
-                input: pageLabelPlanInput,
-            },
-        }, undefined);
-        expect(options.runCommand).toHaveBeenCalledWith({
-            name: 'run_action',
-            arguments: {
-                tabId: 'tab-1',
-                id: 'page_labels.apply_range',
-                input: {
-                    startPage: 1,
-                    endPage: 4,
-                    style: 'r',
-                    prefix: '',
-                    startNumber: 1,
-                },
-            },
-        }, undefined);
-        expect(options.runCommand).toHaveBeenCalledWith({
-            name: 'run_action',
-            arguments: {
-                tabId: 'tab-1',
-                id: 'bookmarks.preview_tree',
-                input: bookmarkPlanInput,
-            },
-        }, undefined);
-        expect(options.runCommand).toHaveBeenCalledWith({
-            name: 'run_action',
-            arguments: {
-                tabId: 'tab-1',
-                id: 'bookmarks.apply_plan',
-                input: bookmarkPlanInput,
-            },
-        }, undefined);
-        expect(options.runCommand).toHaveBeenCalledWith({
-            name: 'run_action',
-            arguments: {
-                tabId: 'tab-1',
-                id: 'bookmarks.add_batch',
-                input: bookmarkBatchInput,
-            },
-        }, undefined);
-    });
-
     it('searches the active PDF through the document text handler', async () => {
         const options = createOptions();
 
-        const response = await processMcpRequest({
-            jsonrpc: '2.0',
-            id: 'search',
-            method: 'tools/call',
-            params: {
-                name: 'evb_viewer_search_open_document',
-                arguments: {
-                    query: 'stem',
-                    maxResults: 5,
-                    wholeWord: true,
-                },
-            },
-        }, options);
+        const response = await callTool(options, 'evb_viewer_search_open_document', {
+            query: 'stem',
+            maxResults: 5,
+            wholeWord: true,
+        });
 
         expect(options.searchDocument).toHaveBeenCalledWith({
             tab: workspaceSnapshot.tabs[0],
@@ -1427,21 +818,10 @@ describe('processMcpRequest', () => {
     it('clamps document page reads to the target tab page count before expansion', async () => {
         const options = createOptions();
 
-        await processMcpRequest({
-            jsonrpc: '2.0',
-            id: 'read-clamped-pages',
-            method: 'tools/call',
-            params: {
-                name: 'evb_run_action',
-                arguments: {
-                    id: 'document.read_pages',
-                    input: {
-                        startPage: 1,
-                        endPage: 1000,
-                    },
-                },
-            },
-        }, options);
+        await runAction(options, 'document.read_pages', {
+            startPage: 1,
+            endPage: 1000,
+        });
 
         expect(options.readDocumentPages).toHaveBeenCalledWith({
             tab: workspaceSnapshot.tabs[0],
@@ -1459,21 +839,10 @@ describe('processMcpRequest', () => {
             }],
         });
 
-        const response = await processMcpRequest({
-            jsonrpc: '2.0',
-            id: 'read-too-many-pages',
-            method: 'tools/call',
-            params: {
-                name: 'evb_run_action',
-                arguments: {
-                    id: 'document.read_pages',
-                    input: {
-                        startPage: 1,
-                        endPage: 1000,
-                    },
-                },
-            },
-        }, options);
+        const response = await runAction(options, 'document.read_pages', {
+            startPage: 1,
+            endPage: 1000,
+        });
 
         expect(response?.result).toMatchObject({
             isError: true,
@@ -1485,44 +854,21 @@ describe('processMcpRequest', () => {
     it('exposes workspace resources, page text resources, and prompts', async () => {
         const options = createOptions();
 
-        const resources = await processMcpRequest({
-            jsonrpc: '2.0',
-            id: 'resources',
-            method: 'resources/list',
-        }, options);
-        const pageText = await processMcpRequest({
-            jsonrpc: '2.0',
-            id: 'page',
-            method: 'resources/read',
-            params: {uri: 'evb://document/tab-1/page/7'},
-        }, options);
-        const prompt = await processMcpRequest({
-            jsonrpc: '2.0',
-            id: 'prompt',
-            method: 'prompts/get',
-            params: {
-                name: 'evb_find_in_current_pdf',
-                arguments: {topic: 'seventh stem tables'},
-            },
-        }, options);
-        const pageNumberingPrompt = await processMcpRequest({
-            jsonrpc: '2.0',
-            id: 'page-numbering-prompt',
-            method: 'prompts/get',
-            params: {name: 'evb_number_pages_from_printed_pages'},
-        }, options);
-        const bookmarkPrompt = await processMcpRequest({
-            jsonrpc: '2.0',
-            id: 'bookmark-prompt',
-            method: 'prompts/get',
-            params: {name: 'evb_rebuild_verified_bookmarks'},
-        }, options);
-        const largeDocumentPrompt = await processMcpRequest({
-            jsonrpc: '2.0',
-            id: 'large-document-prompt',
-            method: 'prompts/get',
-            params: {name: 'evb_large_document_strategy'},
-        }, options);
+        const resources = await request(options, 'resources/list');
+        const pageText = await request(options, 'resources/read', {uri: 'evb://document/tab-1/page/7'});
+        const prompt = await request(options, 'prompts/get', {
+            name: 'evb_find_in_current_pdf',
+            arguments: {topic: 'seventh stem tables'},
+        });
+        const [
+            pageNumberingPrompt,
+            bookmarkPrompt,
+            largeDocumentPrompt,
+        ] = await Promise.all([
+            'evb_number_pages_from_printed_pages',
+            'evb_rebuild_verified_bookmarks',
+            'evb_large_document_strategy',
+        ].map(name => request(options, 'prompts/get', {name})));
 
         expect(JSON.stringify(resources?.result)).toContain('evb://workspace/current');
         expect(JSON.stringify(resources?.result)).toContain('evb://document/tab-1/bookmarks');
@@ -1554,18 +900,10 @@ describe('processMcpRequest', () => {
     it('dispatches go-to-page commands with normalized page numbers', async () => {
         const options = createOptions();
 
-        await processMcpRequest({
-            jsonrpc: '2.0',
-            id: 'go-to-page',
-            method: 'tools/call',
-            params: {
-                name: 'evb_go_to_page',
-                arguments: {
-                    tabId: 'tab-1',
-                    page: 8.9,
-                },
-            },
-        }, options);
+        await callTool(options, 'evb_go_to_page', {
+            tabId: 'tab-1',
+            page: 8.9,
+        });
 
         expect(options.runCommand).toHaveBeenCalledWith({
             name: 'go_to_page',

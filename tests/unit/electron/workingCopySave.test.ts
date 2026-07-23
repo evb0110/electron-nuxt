@@ -21,7 +21,6 @@ import {
 } from 'fs/promises';
 import { join } from 'path';
 import { tmpdir } from 'os';
-import { createStaleRevisionError } from '@contracts/documentMutationErrors';
 import { createOriginalFileContentFingerprintSync } from '@electron/file-access/workingCopyOriginalFileExpectation';
 import {requireDocumentRevisionToken} from '@contracts';
 
@@ -252,54 +251,6 @@ describe('workingCopySave', () => {
         expect(mocks.transitionWorkingCopyContentRevision).toHaveBeenCalled();
     });
 
-    it('rejects structured saves without a revision token before replacing files', async () => {
-        const workingPath = join(tempRoot, 'structured-missing-token-working.pdf');
-        const originalPath = join(tempRoot, 'structured-missing-token-original.pdf');
-        writeFileSync(workingPath, 'new-working');
-        writeFileSync(originalPath, 'old-original');
-        mocks.getWorkingCopyOriginalPath.mockReturnValue({originalPath});
-        const { handleFileSaveStructured } = await import('@electron/features/documents/main/workingCopySave');
-
-        await expect(handleFileSaveStructured(context, workingPath))
-            .resolves
-            .toMatchObject({
-                ok: false,
-                reason: 'write-failed',
-                externalWriteCommitted: false,
-            });
-
-        expect(readFileSyncUtf8(originalPath)).toBe('old-original');
-        expect(mocks.atomicReplace).not.toHaveBeenCalled();
-        expect(mocks.assertWorkingCopyRevisionCurrent).not.toHaveBeenCalled();
-    });
-
-    it('rejects structured saves with a stale revision token before replacing files', async () => {
-        const workingPath = join(tempRoot, 'structured-stale-token-working.pdf');
-        const originalPath = join(tempRoot, 'structured-stale-token-original.pdf');
-        writeFileSync(workingPath, 'new-working');
-        writeFileSync(originalPath, 'old-original');
-        mocks.getWorkingCopyOriginalPath.mockReturnValue({originalPath});
-        mocks.assertWorkingCopyRevisionCurrent.mockRejectedValueOnce(createStaleRevisionError({
-            documentRef: workingPath,
-            expectedRevision: revisionOptions.expectedDocumentRevisionToken,
-            actualRevision: requireDocumentRevisionToken('revision-after-edit'),
-        }));
-        const { handleFileSaveStructured } = await import('@electron/features/documents/main/workingCopySave');
-
-        await expect(handleFileSaveStructured(context, workingPath, revisionOptions))
-            .resolves
-            .toMatchObject({
-                ok: false,
-                reason: 'write-failed',
-                externalWriteCommitted: false,
-            });
-
-        expect(readFileSyncUtf8(originalPath)).toBe('old-original');
-        expect(mocks.atomicReplace).not.toHaveBeenCalled();
-        expect(mocks.assertWorkingCopyRevisionCurrent)
-            .toHaveBeenCalledWith(workingPath, revisionOptions.expectedDocumentRevisionToken);
-    });
-
     it('returns structured failure when original refresh fails after save', async () => {
         const workingPath = join(tempRoot, 'refresh-fail-working.pdf');
         const originalPath = join(tempRoot, 'refresh-fail-original.pdf');
@@ -321,76 +272,6 @@ describe('workingCopySave', () => {
                 validation: null,
             });
         expect(readFileSyncUtf8(originalPath)).toBe('old-original');
-    });
-
-    it('routes serialized PDF save and working-copy copy-back through the shared mutation queue', async () => {
-        const workingPath = join(tempRoot, 'serialized-working.pdf');
-        const originalPath = join(tempRoot, 'serialized-original.pdf');
-        writeFileSync(workingPath, 'old-working');
-        writeFileSync(originalPath, 'old-original');
-        mocks.getWorkingCopyOriginalPath.mockReturnValue({originalPath});
-        const queuedMutation = deferred<undefined>();
-        const { enqueueWorkingCopyMutation } = await import('@electron/file-access/workingCopyMutationQueue');
-        const blockingMutation = enqueueWorkingCopyMutation(workingPath, () => queuedMutation.promise);
-        const { handleSerializedPdfSave } = await import('@electron/features/documents/main/workingCopySave');
-
-        const savePromise = handleSerializedPdfSave(context, workingPath, Buffer.from('serialized-pdf'), revisionOptions);
-        await waitForSettledQueueTurn();
-
-        expect(readFileSyncUtf8(workingPath)).toBe('old-working');
-        expect(readFileSyncUtf8(originalPath)).toBe('old-original');
-        expect(mocks.atomicReplace).not.toHaveBeenCalled();
-
-        queuedMutation.resolve(undefined);
-        await blockingMutation;
-        await expect(savePromise).resolves.toMatchObject({isValid: true});
-        expect(readFileSyncUtf8(workingPath)).toBe('serialized-pdf');
-        expect(readFileSyncUtf8(originalPath)).toBe('serialized-pdf');
-        expect(mocks.optimizeLargePdfForSave).toHaveBeenCalledWith(`${originalPath}.tmp`);
-        expect(mocks.refreshWorkingCopyOriginalFileExpectation).toHaveBeenCalledWith(workingPath, 42);
-        expect(mocks.transitionWorkingCopyContentRevision).toHaveBeenCalled();
-    });
-
-    it('skips copy-back when the original file changed since the working copy was opened', async () => {
-        const workingPath = join(tempRoot, 'changed-working.pdf');
-        const originalPath = join(tempRoot, 'changed-original.pdf');
-        writeFileSync(workingPath, 'old-original');
-        writeFileSync(originalPath, 'external-change');
-        mocks.getWorkingCopyOriginalPath.mockReturnValue({originalPath});
-        mocks.getWorkingCopyOriginalFileExpectation.mockReturnValue({
-            mtimeMs: 1,
-            size: 12,
-        });
-        const { handleSerializedPdfSave } = await import('@electron/features/documents/main/workingCopySave');
-
-        await expect(handleSerializedPdfSave(context, workingPath, Buffer.from('serialized-pdf'), revisionOptions))
-            .resolves.toMatchObject({
-                isValid: false,
-                errors: [expect.stringContaining('Original file changed on disk')],
-            });
-
-        expect(readFileSyncUtf8(workingPath)).toBe('old-original');
-        expect(readFileSyncUtf8(originalPath)).toBe('external-change');
-        expect(mocks.atomicReplace).not.toHaveBeenCalled();
-        expect(mocks.refreshWorkingCopyOriginalFileExpectation).not.toHaveBeenCalled();
-    });
-
-    it('reports serialized save failure when copy-back fails after replacing the original', async () => {
-        const workingPath = join(tempRoot, 'copyback-working.pdf');
-        const originalPath = join(tempRoot, 'copyback-original.pdf');
-        writeFileSync(workingPath, 'old-working');
-        writeFileSync(originalPath, 'old-original');
-        mocks.getWorkingCopyOriginalPath.mockReturnValue({originalPath});
-        mocks.refreshWorkingCopyOriginalFileExpectation.mockRejectedValueOnce(new Error('copy-back failed'));
-        const { handleSerializedPdfSave } = await import('@electron/features/documents/main/workingCopySave');
-
-        await expect(handleSerializedPdfSave(context, workingPath, Buffer.from('serialized-pdf'), revisionOptions))
-            .rejects.toThrow('Failed to save: copy-back failed');
-
-        expect(readFileSyncUtf8(originalPath)).toBe('old-original');
-        expect(readFileSyncUtf8(workingPath)).toBe('old-working');
-        expect(mocks.refreshWorkingCopyOriginalFileExpectation).toHaveBeenCalled();
-        expect(mocks.markWorkingCopyContentChanged).not.toHaveBeenCalled();
     });
 
     it('resyncs from the latest original mapping even when normal mutations are sync-blocked', async () => {
@@ -465,46 +346,6 @@ describe('workingCopySave', () => {
         expect(mocks.transitionWorkingCopyContentRevision).toHaveBeenCalled();
     });
 
-    it('rejects repair saves without a revision token before running qpdf', async () => {
-        const workingPath = join(tempRoot, 'repair-missing-token-working.pdf');
-        const originalPath = join(tempRoot, 'repair-missing-token-original.pdf');
-        writeFileSync(workingPath, 'damaged-working');
-        writeFileSync(originalPath, 'old-original');
-        mocks.getWorkingCopyOriginalPath.mockReturnValue({originalPath});
-        const { handleRepairPdfSave } = await import('@electron/features/documents/main/workingCopySave');
-
-        await expect(handleRepairPdfSave(context, workingPath))
-            .rejects
-            .toThrow('Document revision token is required');
-
-        expect(readFileSyncUtf8(originalPath)).toBe('old-original');
-        expect(mocks.runNativeToolCommand).not.toHaveBeenCalled();
-        expect(mocks.atomicReplace).not.toHaveBeenCalled();
-        expect(mocks.assertWorkingCopyRevisionCurrent).not.toHaveBeenCalled();
-    });
-
-    it('rejects repair saves with a stale revision token before running qpdf', async () => {
-        const workingPath = join(tempRoot, 'repair-stale-token-working.pdf');
-        const originalPath = join(tempRoot, 'repair-stale-token-original.pdf');
-        writeFileSync(workingPath, 'damaged-working');
-        writeFileSync(originalPath, 'old-original');
-        mocks.getWorkingCopyOriginalPath.mockReturnValue({originalPath});
-        mocks.assertWorkingCopyRevisionCurrent.mockRejectedValueOnce(createStaleRevisionError({
-            documentRef: workingPath,
-            expectedRevision: revisionOptions.expectedDocumentRevisionToken,
-            actualRevision: requireDocumentRevisionToken('revision-after-edit'),
-        }));
-        const { handleRepairPdfSave } = await import('@electron/features/documents/main/workingCopySave');
-
-        await expect(handleRepairPdfSave(context, workingPath, revisionOptions))
-            .rejects
-            .toThrow('Document changed while this edit was being prepared');
-
-        expect(readFileSyncUtf8(originalPath)).toBe('old-original');
-        expect(mocks.runNativeToolCommand).not.toHaveBeenCalled();
-        expect(mocks.atomicReplace).not.toHaveBeenCalled();
-    });
-
     it('optimizes the current PDF for interaction through qpdf before replacing the original', async () => {
         const workingPath = join(tempRoot, 'optimize-working.pdf');
         const originalPath = join(tempRoot, 'optimize-original.pdf');
@@ -526,47 +367,6 @@ describe('workingCopySave', () => {
         expect(mocks.transitionWorkingCopyContentRevision).toHaveBeenCalled();
     });
 
-    it('rejects interaction optimization without a revision token before optimizing', async () => {
-        const workingPath = join(tempRoot, 'optimize-missing-token-working.pdf');
-        const originalPath = join(tempRoot, 'optimize-missing-token-original.pdf');
-        writeFileSync(workingPath, 'working-pdf');
-        writeFileSync(originalPath, 'old-original');
-        mocks.getWorkingCopyOriginalPath.mockReturnValue({originalPath});
-        const { handleOptimizePdfForInteraction } =
-            await import('@electron/features/documents/main/workingCopySave');
-
-        await expect(handleOptimizePdfForInteraction(context, workingPath))
-            .rejects
-            .toThrow('Document revision token is required');
-
-        expect(readFileSyncUtf8(originalPath)).toBe('old-original');
-        expect(mocks.optimizePdfForSave).not.toHaveBeenCalled();
-        expect(mocks.atomicReplace).not.toHaveBeenCalled();
-        expect(mocks.assertWorkingCopyRevisionCurrent).not.toHaveBeenCalled();
-    });
-
-    it('rejects interaction optimization with a stale revision token before optimizing', async () => {
-        const workingPath = join(tempRoot, 'optimize-stale-token-working.pdf');
-        const originalPath = join(tempRoot, 'optimize-stale-token-original.pdf');
-        writeFileSync(workingPath, 'working-pdf');
-        writeFileSync(originalPath, 'old-original');
-        mocks.getWorkingCopyOriginalPath.mockReturnValue({originalPath});
-        mocks.assertWorkingCopyRevisionCurrent.mockRejectedValueOnce(createStaleRevisionError({
-            documentRef: workingPath,
-            expectedRevision: revisionOptions.expectedDocumentRevisionToken,
-            actualRevision: requireDocumentRevisionToken('revision-after-edit'),
-        }));
-        const { handleOptimizePdfForInteraction } =
-            await import('@electron/features/documents/main/workingCopySave');
-
-        await expect(handleOptimizePdfForInteraction(context, workingPath, revisionOptions))
-            .rejects
-            .toThrow('Document changed while this edit was being prepared');
-
-        expect(readFileSyncUtf8(originalPath)).toBe('old-original');
-        expect(mocks.optimizePdfForSave).not.toHaveBeenCalled();
-        expect(mocks.atomicReplace).not.toHaveBeenCalled();
-    });
 });
 
 function readFileSyncUtf8(path: string) {

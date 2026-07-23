@@ -6,6 +6,7 @@ import {
     it,
     vi,
 } from 'vitest';
+import type * as OcrJobManagerModule from '@electron/ocr/jobManager';
 
 const mocks = vi.hoisted(() => ({
     ensureRuntimeTessdataSeeded: vi.fn(),
@@ -181,6 +182,35 @@ function getOcrCompleteCalls() {
     ]) => channel === 'ocr:complete');
 }
 
+type TStartOcrJob = typeof OcrJobManagerModule.handleOcrCreateSearchablePdfAsync;
+
+interface IStartOcrJobOptions {
+    pages?: Array<{
+        pageNumber: number;
+        languages: string[];
+    }>;
+    path?: string;
+    request?: Parameters<TStartOcrJob>[4];
+}
+
+function startOcrJob(
+    start: TStartOcrJob,
+    context: ReturnType<typeof createContext>,
+    jobId: string,
+    options: IStartOcrJobOptions = {},
+) {
+    return start(
+        context,
+        options.path ?? `/tmp/work-${jobId}.pdf`,
+        options.pages ?? [{
+            pageNumber: 1,
+            languages: ['eng'],
+        }],
+        jobId,
+        options.request,
+    );
+}
+
 describe('ocr job manager preparing-stage robustness', () => {
     beforeEach(() => {
         vi.resetModules();
@@ -222,27 +252,15 @@ describe('ocr job manager preparing-stage robustness', () => {
             handleOcrCreateSearchablePdfAsync,
         } = await import('@electron/ocr/jobManager');
 
-        const firstPromise = handleOcrCreateSearchablePdfAsync(
-            firstContext,
-            '/tmp/work-1.pdf',
-            [{
-                pageNumber: 1,
-                languages: ['eng'],
-            }],
-            'job-1',
-        );
+        const firstPromise = startOcrJob(handleOcrCreateSearchablePdfAsync, firstContext, 'job-1');
 
         await vi.waitFor(() => {
             expect(mocks.ensureTessdataLanguages).toHaveBeenCalledTimes(1);
         });
 
-        const secondResult = await handleOcrCreateSearchablePdfAsync(
+        const secondResult = await startOcrJob(
+            handleOcrCreateSearchablePdfAsync,
             createContext(22),
-            '/tmp/work-2.pdf',
-            [{
-                pageNumber: 1,
-                languages: ['eng'],
-            }],
             'job-2',
         );
 
@@ -269,15 +287,7 @@ describe('ocr job manager preparing-stage robustness', () => {
 
         const { handleOcrCreateSearchablePdfAsync } = await import('@electron/ocr/jobManager');
 
-        const result = await handleOcrCreateSearchablePdfAsync(
-            createContext(23),
-            '/tmp/work-large.pdf',
-            [{
-                pageNumber: 1,
-                languages: ['eng'],
-            }],
-            'job-large',
-        );
+        const result = await startOcrJob(handleOcrCreateSearchablePdfAsync, createContext(23), 'job-large');
 
         expect(result).toMatchObject({
             started: false,
@@ -296,14 +306,16 @@ describe('ocr job manager preparing-stage robustness', () => {
             ],
         }));
 
-        const result = await handleOcrCreateSearchablePdfAsync(
+        const result = await startOcrJob(
+            handleOcrCreateSearchablePdfAsync,
             createContext(24),
-            '/tmp/work-dictionary.pdf',
-            pages,
             'job-dictionary',
             {
-                qualityProfile: 'accurate',
-                preprocessingMode: 'clean',
+                pages,
+                request: {
+                    qualityProfile: 'accurate',
+                    preprocessingMode: 'clean',
+                },
             },
         );
 
@@ -333,15 +345,7 @@ describe('ocr job manager preparing-stage robustness', () => {
             handleOcrCreateSearchablePdfAsync,
         } = await import('@electron/ocr/jobManager');
 
-        const firstPromise = handleOcrCreateSearchablePdfAsync(
-            firstContext,
-            '/tmp/work-3.pdf',
-            [{
-                pageNumber: 1,
-                languages: ['eng'],
-            }],
-            'job-3',
-        );
+        const firstPromise = startOcrJob(handleOcrCreateSearchablePdfAsync, firstContext, 'job-3');
 
         await vi.waitFor(() => {
             expect(mocks.ensureTessdataLanguages).toHaveBeenCalledTimes(1);
@@ -355,13 +359,9 @@ describe('ocr job manager preparing-stage robustness', () => {
         });
         expect(firstSignal.aborted).toBe(true);
 
-        const secondResult = await handleOcrCreateSearchablePdfAsync(
+        const secondResult = await startOcrJob(
+            handleOcrCreateSearchablePdfAsync,
             createContext(44),
-            '/tmp/work-4.pdf',
-            [{
-                pageNumber: 1,
-                languages: ['eng'],
-            }],
             'job-4',
         );
 
@@ -378,21 +378,16 @@ describe('ocr job manager preparing-stage robustness', () => {
 
         const { handleOcrCreateSearchablePdfAsync } = await import('@electron/ocr/jobManager');
 
-        const result = await handleOcrCreateSearchablePdfAsync(
-            createContext(55),
-            '/tmp/work-5.pdf',
-            [
-                {
-                    pageNumber: 1,
-                    languages: ['eng'],
-                },
-                {
-                    pageNumber: 2,
-                    languages: ['eng'],
-                },
-            ],
-            'job-5',
-        );
+        const result = await startOcrJob(handleOcrCreateSearchablePdfAsync, createContext(55), 'job-5', {pages: [
+            {
+                pageNumber: 1,
+                languages: ['eng'],
+            },
+            {
+                pageNumber: 2,
+                languages: ['eng'],
+            },
+        ]});
 
         expect(result).toMatchObject({
             started: true,
@@ -446,15 +441,7 @@ describe('ocr job manager preparing-stage robustness', () => {
 
         const { handleOcrCreateSearchablePdfAsync } = await import('@electron/ocr/jobManager');
 
-        await handleOcrCreateSearchablePdfAsync(
-            createContext(56),
-            '/tmp/work-6.pdf',
-            [{
-                pageNumber: 1,
-                languages: ['eng'],
-            }],
-            'job-6',
-        );
+        await startOcrJob(handleOcrCreateSearchablePdfAsync, createContext(56), 'job-6');
 
         const worker = mocks.workerInstances[0];
         expect(worker).toBeDefined();
@@ -485,15 +472,7 @@ describe('ocr job manager preparing-stage robustness', () => {
 
         const { handleOcrCreateSearchablePdfAsync } = await import('@electron/ocr/jobManager');
 
-        await handleOcrCreateSearchablePdfAsync(
-            createContext(57),
-            '/tmp/work-7.pdf',
-            [{
-                pageNumber: 1,
-                languages: ['eng'],
-            }],
-            'job-7',
-        );
+        await startOcrJob(handleOcrCreateSearchablePdfAsync, createContext(57), 'job-7');
 
         const worker = mocks.workerInstances[0];
         expect(worker).toBeDefined();
@@ -540,10 +519,9 @@ describe('ocr job manager preparing-stage robustness', () => {
             subscribeOcrJobProjection,
         } = await import('@electron/ocr/jobManager');
 
-        await handleOcrCreateSearchablePdfAsync(
-            owner,
-            '/tmp/work-projection.pdf',
-            [
+        await startOcrJob(handleOcrCreateSearchablePdfAsync, owner, 'ocr-reload', {
+            path: '/tmp/work-projection.pdf',
+            pages: [
                 {
                     pageNumber: 1,
                     languages: ['eng'],
@@ -553,20 +531,16 @@ describe('ocr job manager preparing-stage robustness', () => {
                     languages: ['eng'],
                 },
             ],
-            'ocr-reload',
-            {
+            request: {
                 supersessionPolicy: 'replace-all',
                 replaceAllAcknowledged: true,
             },
-        );
-        await expect(handleOcrCreateSearchablePdfAsync(
+        });
+        await expect(startOcrJob(
+            handleOcrCreateSearchablePdfAsync,
             otherSender,
-            '/tmp/work-projection-other.pdf',
-            [{
-                pageNumber: 1,
-                languages: ['eng'],
-            }],
             'ocr-reload',
+            {path: '/tmp/work-projection-other.pdf'},
         )).resolves.toMatchObject({
             started: false,
             errorCode: 'OCR_QUEUE_BACKPRESSURE',
@@ -639,15 +613,7 @@ describe('ocr job manager preparing-stage robustness', () => {
         } = await import('@electron/ocr/jobManager');
 
         const context = createContext(66);
-        const result = await handleOcrCreateSearchablePdfAsync(
-            context,
-            '/tmp/work-6.pdf',
-            [{
-                pageNumber: 1,
-                languages: ['eng'],
-            }],
-            'job-6',
-        );
+        const result = await startOcrJob(handleOcrCreateSearchablePdfAsync, context, 'job-6');
 
         expect(result).toMatchObject({
             started: true,
@@ -705,13 +671,9 @@ describe('ocr job manager preparing-stage robustness', () => {
             subscribeManagedOcrProgress,
         } = await import('@electron/ocr/jobManager');
 
-        await expect(handleOcrCreateSearchablePdfAsync(
+        await expect(startOcrJob(
+            handleOcrCreateSearchablePdfAsync,
             createContext(69),
-            '/tmp/work-69.pdf',
-            [{
-                pageNumber: 1,
-                languages: ['eng'],
-            }],
             'job-69',
         )).resolves.toMatchObject({
             started: true,
@@ -719,13 +681,9 @@ describe('ocr job manager preparing-stage robustness', () => {
         });
 
         const queuedOwner = createContext(70);
-        await expect(handleOcrCreateSearchablePdfAsync(
+        await expect(startOcrJob(
+            handleOcrCreateSearchablePdfAsync,
             queuedOwner,
-            '/tmp/work-70.pdf',
-            [{
-                pageNumber: 1,
-                languages: ['eng'],
-            }],
             'job-70',
         )).resolves.toMatchObject({
             started: true,
@@ -770,15 +728,7 @@ describe('ocr job manager preparing-stage robustness', () => {
             handleOcrCreateSearchablePdfAsync,
         } = await import('@electron/ocr/jobManager');
 
-        const startPromise = handleOcrCreateSearchablePdfAsync(
-            context,
-            '/tmp/work-71.pdf',
-            [{
-                pageNumber: 1,
-                languages: ['eng'],
-            }],
-            'job-71',
-        );
+        const startPromise = startOcrJob(handleOcrCreateSearchablePdfAsync, context, 'job-71');
 
         await vi.waitFor(() => {
             expect(mocks.ensureTessdataLanguages).toHaveBeenCalledTimes(1);
@@ -808,13 +758,9 @@ describe('ocr job manager preparing-stage robustness', () => {
         } = await import('@electron/ocr/jobManager');
 
         const firstContext = createContext(67);
-        await expect(handleOcrCreateSearchablePdfAsync(
+        await expect(startOcrJob(
+            handleOcrCreateSearchablePdfAsync,
             firstContext,
-            '/tmp/work-67.pdf',
-            [{
-                pageNumber: 1,
-                languages: ['eng'],
-            }],
             'job-67',
         )).resolves.toMatchObject({
             started: true,
@@ -828,13 +774,9 @@ describe('ocr job manager preparing-stage robustness', () => {
             resolveTerminate = () => resolve(0);
         }));
 
-        const secondPromise = handleOcrCreateSearchablePdfAsync(
+        const secondPromise = startOcrJob(
+            handleOcrCreateSearchablePdfAsync,
             createContext(68),
-            '/tmp/work-68.pdf',
-            [{
-                pageNumber: 1,
-                languages: ['eng'],
-            }],
             'job-68',
         );
         await Promise.resolve();
@@ -858,15 +800,7 @@ describe('ocr job manager preparing-stage robustness', () => {
 
         const { handleOcrCreateSearchablePdfAsync } = await import('@electron/ocr/jobManager');
 
-        const result = await handleOcrCreateSearchablePdfAsync(
-            createContext(77),
-            '/tmp/work-7.pdf',
-            [{
-                pageNumber: 1,
-                languages: ['eng'],
-            }],
-            'job-7',
-        );
+        const result = await startOcrJob(handleOcrCreateSearchablePdfAsync, createContext(77), 'job-7');
 
         expect(result).toMatchObject({
             started: true,
@@ -914,15 +848,7 @@ describe('ocr job manager preparing-stage robustness', () => {
 
         const { handleOcrCreateSearchablePdfAsync } = await import('@electron/ocr/jobManager');
 
-        const result = await handleOcrCreateSearchablePdfAsync(
-            createContext(79),
-            '/tmp/work-79.pdf',
-            [{
-                pageNumber: 1,
-                languages: ['eng'],
-            }],
-            'job-79',
-        );
+        const result = await startOcrJob(handleOcrCreateSearchablePdfAsync, createContext(79), 'job-79');
 
         expect(result).toMatchObject({
             started: true,
@@ -964,13 +890,9 @@ describe('ocr job manager preparing-stage robustness', () => {
 
         const { handleOcrCreateSearchablePdfAsync } = await import('@electron/ocr/jobManager');
 
-        await expect(handleOcrCreateSearchablePdfAsync(
+        await expect(startOcrJob(
+            handleOcrCreateSearchablePdfAsync,
             createContext(177),
-            '/tmp/work-177.pdf',
-            [{
-                pageNumber: 1,
-                languages: ['eng'],
-            }],
             'job-177',
         )).resolves.toMatchObject({
             started: true,
@@ -1023,13 +945,9 @@ describe('ocr job manager preparing-stage robustness', () => {
 
         const { handleOcrCreateSearchablePdfAsync } = await import('@electron/ocr/jobManager');
 
-        await expect(handleOcrCreateSearchablePdfAsync(
+        await expect(startOcrJob(
+            handleOcrCreateSearchablePdfAsync,
             createContext(178),
-            '/tmp/work-178.pdf',
-            [{
-                pageNumber: 1,
-                languages: ['eng'],
-            }],
             'job-178',
         )).resolves.toMatchObject({
             started: true,
@@ -1071,13 +989,9 @@ describe('ocr job manager preparing-stage robustness', () => {
 
         const { handleOcrCreateSearchablePdfAsync } = await import('@electron/ocr/jobManager');
 
-        await expect(handleOcrCreateSearchablePdfAsync(
+        await expect(startOcrJob(
+            handleOcrCreateSearchablePdfAsync,
             createContext(179),
-            '/tmp/work-179.pdf',
-            [{
-                pageNumber: 1,
-                languages: ['eng'],
-            }],
             'job-179',
         )).resolves.toMatchObject({
             started: true,
@@ -1118,13 +1032,9 @@ describe('ocr job manager preparing-stage robustness', () => {
 
         const { handleOcrCreateSearchablePdfAsync } = await import('@electron/ocr/jobManager');
 
-        await expect(handleOcrCreateSearchablePdfAsync(
+        await expect(startOcrJob(
+            handleOcrCreateSearchablePdfAsync,
             createContext(180),
-            '/tmp/work-180.pdf',
-            [{
-                pageNumber: 1,
-                languages: ['eng'],
-            }],
             'job-180',
         )).resolves.toMatchObject({
             started: true,
@@ -1172,13 +1082,9 @@ describe('ocr job manager preparing-stage robustness', () => {
         } = await import('@electron/ocr/jobManager');
 
         const firstContext = createContext(181);
-        await expect(handleOcrCreateSearchablePdfAsync(
+        await expect(startOcrJob(
+            handleOcrCreateSearchablePdfAsync,
             firstContext,
-            '/tmp/work-181.pdf',
-            [{
-                pageNumber: 1,
-                languages: ['eng'],
-            }],
             'job-181',
         )).resolves.toMatchObject({
             started: true,
@@ -1231,13 +1137,9 @@ describe('ocr job manager preparing-stage robustness', () => {
             token: firstLeaseMessage.token,
         });
 
-        await expect(handleOcrCreateSearchablePdfAsync(
+        await expect(startOcrJob(
+            handleOcrCreateSearchablePdfAsync,
             createContext(182),
-            '/tmp/work-182.pdf',
-            [{
-                pageNumber: 1,
-                languages: ['eng'],
-            }],
             'job-182',
         )).resolves.toMatchObject({
             started: true,
@@ -1273,15 +1175,7 @@ describe('ocr job manager preparing-stage robustness', () => {
         } = await import('@electron/ocr/jobManager');
 
         const context = createContext(78);
-        const result = await handleOcrCreateSearchablePdfAsync(
-            context,
-            '/tmp/work-78.pdf',
-            [{
-                pageNumber: 1,
-                languages: ['eng'],
-            }],
-            'job-78',
-        );
+        const result = await startOcrJob(handleOcrCreateSearchablePdfAsync, context, 'job-78');
 
         expect(result).toMatchObject({
             started: true,
@@ -1324,15 +1218,7 @@ describe('ocr job manager preparing-stage robustness', () => {
             handleOcrCreateSearchablePdfAsync,
         } = await import('@electron/ocr/jobManager');
 
-        const startPromise = handleOcrCreateSearchablePdfAsync(
-            context,
-            '/tmp/work-80.pdf',
-            [{
-                pageNumber: 1,
-                languages: ['eng'],
-            }],
-            'job-80',
-        );
+        const startPromise = startOcrJob(handleOcrCreateSearchablePdfAsync, context, 'job-80');
 
         await vi.waitFor(() => {
             expect(mocks.ensureTessdataLanguages).toHaveBeenCalledTimes(1);
@@ -1357,15 +1243,7 @@ describe('ocr job manager preparing-stage robustness', () => {
             shutdownOcrJobManager,
         } = await import('@electron/ocr/jobManager');
 
-        const result = await handleOcrCreateSearchablePdfAsync(
-            createContext(88),
-            '/tmp/work-8.pdf',
-            [{
-                pageNumber: 1,
-                languages: ['eng'],
-            }],
-            'job-8',
-        );
+        const result = await startOcrJob(handleOcrCreateSearchablePdfAsync, createContext(88), 'job-8');
 
         expect(result).toMatchObject({
             started: true,
@@ -1392,15 +1270,7 @@ describe('ocr job manager preparing-stage robustness', () => {
         } = await import('@electron/ocr/jobManager');
 
         const firstContext = createContext(99);
-        const firstResult = await handleOcrCreateSearchablePdfAsync(
-            firstContext,
-            '/tmp/work-99.pdf',
-            [{
-                pageNumber: 1,
-                languages: ['eng'],
-            }],
-            'job-99',
-        );
+        const firstResult = await startOcrJob(handleOcrCreateSearchablePdfAsync, firstContext, 'job-99');
 
         expect(firstResult).toMatchObject({
             started: true,
@@ -1439,13 +1309,9 @@ describe('ocr job manager preparing-stage robustness', () => {
             expect(getResourceDeniedMessages(firstWorker)).toEqual([expect.objectContaining({ requestId: 'page-2' })]);
         });
 
-        const secondResult = await handleOcrCreateSearchablePdfAsync(
+        const secondResult = await startOcrJob(
+            handleOcrCreateSearchablePdfAsync,
             createContext(100),
-            '/tmp/work-100.pdf',
-            [{
-                pageNumber: 1,
-                languages: ['eng'],
-            }],
             'job-100',
         );
 
