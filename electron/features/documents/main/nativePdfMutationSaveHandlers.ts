@@ -15,6 +15,7 @@ import type {
     IPdfNativeWorkingCopyExpectation,
 } from '@contracts/electronApiDocuments';
 import type { IPdfValidationResult } from '@contracts/pdfConformance';
+import type { ITypedStagedArtifact } from '@contracts/stagedArtifacts';
 import {
     normalizePdfNativeModifiedAt,
     normalizePdfNativeMutationSet,
@@ -53,9 +54,10 @@ import {transitionOriginalAndWorkingCopyRevision} from '@electron/features/docum
 import {commitPdfTempFile} from '@electron/features/documents/main/commitPdfTempFile';
 import type { IDocumentsSenderIdContext } from '@electron/features/documents/documentsService';
 import {
-    createManagedTempFileHandle,
+    createTypedStagedArtifact,
     releaseManagedTempFileHandle,
     resolveManagedTempFileHandle,
+    resolveTypedStagedArtifact,
 } from '@electron/features/documents/main/managedTempFileHandles';
 import {fingerprintFileWithUtilityProcess} from '@electron/features/documents/main/fingerprintFileWithUtilityProcess';
 
@@ -448,7 +450,12 @@ async function runNativeWorkingCopyCommand(
                 assertNativeOutputReady(tempPath));
             const validation = createNativeValidationResult();
 
-            const stagedOutput = await createManagedTempFileHandle(context, tempPath, {cleanupOnRelease: true});
+            const stagedOutput = await createTypedStagedArtifact(context, tempPath, {
+                qpdfCheck: false,
+                tailCheck: false,
+                semanticCheck: false,
+                fsynced: false,
+            }, {cleanupOnRelease: true});
             staged = true;
             log.debug(`Native working-copy mutation phase timings: ${JSON.stringify({
                 command: options.command,
@@ -482,13 +489,13 @@ async function runNativeWorkingCopyCommand(
 export async function handleCommitStagedPdfNativeMutations(
     context: IDocumentsSenderIdContext,
     workingPath: unknown,
-    rawStagedOutput: unknown,
+    stagedArtifact: ITypedStagedArtifact,
     revisionOptions?: IPdfNativeStagedCommitOptions,
 ): Promise<IPdfNativeNoteTextSaveResult> {
     const senderId = requireSenderId(context);
     const normalizedWorkingPath = normalizeWorkingPath(workingPath);
     const expectedDocumentRevisionToken = normalizeExpectedDocumentRevisionToken(revisionOptions);
-    const stagedOutput = await resolveManagedTempFileHandle(context, rawStagedOutput);
+    const stagedOutput = await resolveTypedStagedArtifact(context, stagedArtifact);
     const originalPath = getValidatedOriginalPath(normalizedWorkingPath, senderId);
     try {
         return await enqueueWorkingCopyMutation(normalizedWorkingPath, async () => {

@@ -48,7 +48,8 @@ const mocks = vi.hoisted(() => ({
     markWorkingCopyContentChanged: vi.fn(),
     markWorkingCopySyncRequired: vi.fn(),
     resolveManagedTempFileHandle: vi.fn(async (_context: unknown, handle: unknown) => handle),
-    createManagedTempFileHandle: vi.fn(),
+    resolveTypedStagedArtifact: vi.fn(async (_context: unknown, artifact: unknown) => artifact),
+    createTypedStagedArtifact: vi.fn(),
     releaseManagedTempFileHandle: vi.fn((_context: unknown, _leaseId: string) => true),
     transitionOriginalAndWorkingCopyRevision: vi.fn(),
     commitPdfTempFile: vi.fn(),
@@ -85,9 +86,10 @@ vi.mock('@electron/utils/atomicReplace', () => ({
 }));
 vi.mock('@electron/file-access/workingCopyDirectory', () => ({copyFileCopyOnWrite: (...args: [string, string]) => mocks.copyFileCopyOnWrite(...args)}));
 vi.mock('@electron/features/documents/main/managedTempFileHandles', () => ({
-    createManagedTempFileHandle: (...args: unknown[]) => mocks.createManagedTempFileHandle(...args),
+    createTypedStagedArtifact: (...args: unknown[]) => mocks.createTypedStagedArtifact(...args),
     releaseManagedTempFileHandle: (context: unknown, leaseId: string) => mocks.releaseManagedTempFileHandle(context, leaseId),
     resolveManagedTempFileHandle: (context: unknown, handle: unknown) => mocks.resolveManagedTempFileHandle(context, handle),
+    resolveTypedStagedArtifact: (context: unknown, artifact: unknown) => mocks.resolveTypedStagedArtifact(context, artifact),
 }));
 vi.mock('@electron/features/documents/main/transitionOriginalAndWorkingCopyRevision', () => ({transitionOriginalAndWorkingCopyRevision: (...args: unknown[]) => mocks.transitionOriginalAndWorkingCopyRevision(...args)}));
 vi.mock('@electron/features/documents/main/commitPdfTempFile', () => ({commitPdfTempFile: (...args: unknown[]) => mocks.commitPdfTempFile(...args)}));
@@ -232,12 +234,25 @@ describe('handleNativeNoteTextSave', () => {
             await copyFile(sourcePath, targetPath);
             await unlink(sourcePath).catch(() => undefined);
         });
-        mocks.createManagedTempFileHandle.mockImplementation(async (_context: unknown, path: string) => {
+        mocks.createTypedStagedArtifact.mockImplementation(async (_context: unknown, path: string) => {
             const bytes = await readFile(path);
             return {
+                receiptVersion: 1,
+                artifactKind: 'pdf',
                 path,
                 size: bytes.byteLength,
                 sha256: createHash('sha256').update(bytes).digest('hex'),
+                fileIdentity: {
+                    platform: 'posix',
+                    deviceId: '1',
+                    inode: '2',
+                },
+                validations: {
+                    qpdfCheck: false,
+                    tailCheck: false,
+                    semanticCheck: false,
+                    fsynced: false,
+                },
                 leaseId: 'staged-native-output',
                 revision: null,
             };
@@ -878,6 +893,9 @@ describe('handleNativeNoteTextSave', () => {
         expect(readFileSyncUtf8(originalPath)).toBe('base-before');
         expect(staged.stagedOutput && readFileSyncUtf8(staged.stagedOutput.path)).toContain('% staged mutation');
         expect(mocks.fingerprintFileWithUtilityProcess).toHaveBeenCalledWith(workingPath);
+        if (!staged.stagedOutput) {
+            throw new Error('Expected a staged artifact');
+        }
 
         const committed = await handleCommitStagedPdfNativeMutations(
             context,

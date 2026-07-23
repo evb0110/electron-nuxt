@@ -3,6 +3,7 @@ import type {
     WebContents,
 } from 'electron';
 import type {IDocumentRevisionInfo} from '@contracts/documentRevision';
+import type { ITypedStagedArtifact } from '@contracts/stagedArtifacts';
 import type {
     IPdfConformanceProfile,
     IPdfValidationResult,
@@ -236,7 +237,7 @@ export interface IDocumentsService {
     commitStagedPdfNativeMutations: (
         context: IDocumentsSenderIdContext,
         workingPath: string,
-        stagedOutput: IManagedTempFileHandle,
+        stagedOutput: ITypedStagedArtifact,
         options?: IPdfNativeStagedCommitOptions,
     ) => Promise<IPdfNativeSaveResult>;
     beginSavePdfData: (

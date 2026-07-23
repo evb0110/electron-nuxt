@@ -43,6 +43,7 @@ import type {
     TMenuEventCallback,
     TMenuEventUnsubscribe,
 } from '@contracts/electronApiCommon';
+import type { ITypedStagedArtifact } from '@contracts/stagedArtifacts';
 
 export type TOpenBatchProgressOperation = 'document-open' | 'page-insert';
 
@@ -397,7 +398,7 @@ export interface IPdfNativeNoteTextSaveResult {
     validation: IPdfValidationResult | null;
     syncError?: string;
     /** Immutable native output. It is not visible as document state until committed. */
-    stagedOutput?: IManagedTempFileHandle;
+    stagedOutput?: ITypedStagedArtifact;
 }
 
 export type IPdfNativeSaveResult = IPdfNativeNoteTextSaveResult;
@@ -667,7 +668,7 @@ export interface IDocumentsFileCapability {
     ) => Promise<IPdfNativeSaveResult>;
     commitStagedPdfNativeMutations?: (
         path: TDocumentRef,
-        stagedOutput: IManagedTempFileHandle,
+        stagedOutput: ITypedStagedArtifact,
         options?: IPdfNativeStagedCommitOptions,
     ) => Promise<IPdfNativeSaveResult>;
     savePdfDataAs: (

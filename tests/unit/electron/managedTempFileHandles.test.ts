@@ -87,4 +87,33 @@ describe('managed temporary file handles', () => {
         writeFileSync(mocks.path, Buffer.from('changed'));
         await expect(resolveManagedTempFileHandle({senderId: 42}, handle)).rejects.toThrow('content or revision changed');
     });
+
+    it('keeps typed staged artifact evidence authoritative for its owner-bound lease', async () => {
+        const {
+            createTypedStagedArtifact,
+            resolveTypedStagedArtifact,
+        } = await import('@electron/features/documents/main/managedTempFileHandles');
+        const artifact = await createTypedStagedArtifact({senderId: 42}, mocks.path, {
+            qpdfCheck: false,
+            tailCheck: false,
+            semanticCheck: false,
+            fsynced: false,
+        });
+
+        expect(artifact).toMatchObject({
+            receiptVersion: 1,
+            artifactKind: 'pdf',
+            path: mocks.path,
+            fileIdentity: {platform: process.platform === 'win32' ? 'win32' : 'posix'},
+        });
+        await expect(resolveTypedStagedArtifact({senderId: 42}, artifact)).resolves.toEqual(artifact);
+        await expect(resolveTypedStagedArtifact({senderId: 7}, artifact)).rejects.toThrow('another renderer');
+        await expect(resolveTypedStagedArtifact({senderId: 42}, {
+            ...artifact,
+            validations: {
+                ...artifact.validations,
+                tailCheck: true,
+            },
+        })).rejects.toThrow('altered');
+    });
 });

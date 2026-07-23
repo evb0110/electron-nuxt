@@ -140,6 +140,15 @@ export type {
     TDocumentRevisionToken,
 } from '@contracts/documentRevision';
 export {
+    decodeTypedStagedArtifact,
+    isTypedStagedArtifact,
+} from '@contracts/stagedArtifacts';
+export type {
+    IStagedArtifactValidations,
+    ITypedStagedArtifact,
+    TArtifactFileIdentity,
+} from '@contracts/stagedArtifacts';
+export {
     isDocumentRevisionInfo,
     parseDocumentRevisionToken,
     requireDocumentRevisionToken,

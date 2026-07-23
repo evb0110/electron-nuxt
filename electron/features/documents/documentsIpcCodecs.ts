@@ -13,6 +13,7 @@ import {
     decodeManagedTempFileHandle,
     isPdfOptimizePreset,
 } from '@contracts/electronApiDocuments';
+import { decodeTypedStagedArtifact } from '@contracts/stagedArtifacts';
 import type {
     IPdfConformanceProfile,
     IPdfValidationResult,
@@ -335,7 +336,7 @@ function decodeNativeSaveResult(value: unknown): IPdfNativeNoteTextSaveResult {
     }
     const stagedOutput = value.stagedOutput === undefined
         ? undefined
-        : decodeManagedTempFileHandle(value.stagedOutput);
+        : decodeTypedStagedArtifact(value.stagedOutput);
     if (value.stagedOutput !== undefined && !stagedOutput) {
         throw new Error('invalid staged native PDF output');
     }
@@ -869,8 +870,8 @@ export const DOCUMENTS_IPC_CODECS = {
     },
     [DOCUMENTS_CHANNELS.fileCommitStagedPdfNativeMutations]: {
         decodeArgs: (args: readonly unknown[]) => {
-            const stagedOutput = decodeManagedTempFileHandle(args[1]);
-            if (!stagedOutput) throw new Error('stagedOutput must be a managed temporary file handle');
+            const stagedOutput = decodeTypedStagedArtifact(args[1]);
+            if (!stagedOutput) throw new Error('stagedOutput must be a typed staged artifact');
             return appendOptional([
                 decodeStringArg(args, 0, 'path'),
                 stagedOutput,

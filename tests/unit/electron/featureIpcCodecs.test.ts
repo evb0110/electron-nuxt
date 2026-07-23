@@ -53,6 +53,26 @@ const OCR_IPC_CODECS = {
 const djvuCodec = (channel: string) => DJVU_IPC_CODECS[channel]!;
 const agentCodec = (channel: string) => AGENT_IPC_CODECS[channel]!;
 const ocrCodec = (channel: string) => OCR_IPC_CODECS[channel]!;
+const validStagedArtifact = {
+    receiptVersion: 1 as const,
+    artifactKind: 'pdf' as const,
+    path: '/tmp/staged.pdf',
+    size: 512,
+    sha256: 'a'.repeat(64),
+    fileIdentity: {
+        platform: 'posix' as const,
+        deviceId: '1',
+        inode: '2',
+    },
+    validations: {
+        qpdfCheck: false,
+        tailCheck: false,
+        semanticCheck: false,
+        fsynced: false,
+    },
+    leaseId: 'lease-1',
+    revision: null,
+};
 
 function expectExhaustiveMap(
     channels: Record<string, string>,
@@ -346,6 +366,54 @@ describe('feature IPC codec maps', () => {
             0,
         ])).toThrow();
         expect(() => SEARCH_IPC_CODECS[SEARCH_CHANNELS.run]!.decodeArgs([null])).toThrow();
+    });
+
+    it('decodes staged artifact receipts in both native IPC directions', () => {
+        expect(DOCUMENTS_IPC_CODECS[
+            DOCUMENTS_CHANNELS.fileApplyPdfNativeMutationsToWorkingCopy
+        ].decodeResult({
+            applied: true,
+            validation: {
+                isValid: true,
+                tool: 'native',
+                errors: [],
+                warnings: [],
+            },
+            stagedOutput: validStagedArtifact,
+        })).toMatchObject({stagedOutput: validStagedArtifact});
+        expect(DOCUMENTS_IPC_CODECS[
+            DOCUMENTS_CHANNELS.fileCommitStagedPdfNativeMutations
+        ].decodeArgs([
+            '/tmp/working.pdf',
+            validStagedArtifact,
+        ])).toEqual([
+            '/tmp/working.pdf',
+            validStagedArtifact,
+        ]);
+    });
+
+    it('rejects malformed staged artifact receipts at the IPC boundary', () => {
+        const malformedArtifact = {
+            ...validStagedArtifact,
+            validations: {
+                ...validStagedArtifact.validations,
+                qpdfCheck: true,
+            },
+        };
+
+        expect(() => DOCUMENTS_IPC_CODECS[
+            DOCUMENTS_CHANNELS.fileApplyPdfNativeMutationsToWorkingCopy
+        ].decodeResult({
+            applied: true,
+            validation: null,
+            stagedOutput: malformedArtifact,
+        })).toThrow('invalid staged native PDF output');
+        expect(() => DOCUMENTS_IPC_CODECS[
+            DOCUMENTS_CHANNELS.fileCommitStagedPdfNativeMutations
+        ].decodeArgs([
+            '/tmp/working.pdf',
+            malformedArtifact,
+        ])).toThrow('typed staged artifact');
     });
 
     it('rejects oversized renderer collections before handler dispatch', () => {
