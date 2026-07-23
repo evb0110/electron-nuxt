@@ -18,15 +18,12 @@ import { resolveCommentWithRenderedTextMarkupColorAtPoint } from '@app/modules/p
 import { scoreTextMarkupVisualCandidate } from '@app/modules/pdf-viewer/engine/annotations/annotation-dom-removal/scoreTextMarkupVisualCandidate';
 import { syncAnnotationCommentTextMarkupVisualOverlays } from '@app/modules/pdf-viewer/engine/annotations/annotation-dom-removal/syncAnnotationCommentTextMarkupVisualOverlays';
 import { refreshHighlightCompositeOverlay } from '@app/modules/pdf-viewer/engine/pdf-highlight-composite-overlay/refreshHighlightCompositeOverlay';
+import {
+    setTestElementRect as setTestRect,
+    type ITestRect as IAnnotationDomRemovalTestRect,
+} from '@tests/helpers/domGeometryTestHarness';
 
 vi.mock('@app/modules/pdf-viewer/engine/pdf-highlight-composite-overlay/refreshHighlightCompositeOverlay', () => ({ refreshHighlightCompositeOverlay: vi.fn() }));
-
-interface IAnnotationDomRemovalTestRect {
-    left: number;
-    top: number;
-    width: number;
-    height: number;
-}
 
 const SVG_NAMESPACE = 'http://www.w3.org/2000/svg';
 
@@ -43,43 +40,6 @@ const svgTags = new Set([
 ]);
 
 interface ITestCanvas extends HTMLCanvasElement { putImageDataCalls: number; }
-
-function createDomRect(rect: IAnnotationDomRemovalTestRect): DOMRect {
-    const {
-        left,
-        top,
-        width,
-        height,
-    } = rect;
-    return {
-        bottom: top + height,
-        height,
-        left,
-        right: left + width,
-        toJSON: () => ({
-            bottom: top + height,
-            height,
-            left,
-            right: left + width,
-            top,
-            width,
-            x: left,
-            y: top,
-        }),
-        top,
-        width,
-        x: left,
-        y: top,
-    };
-}
-
-function setTestRect<T extends Element>(element: T, rect: IAnnotationDomRemovalTestRect) {
-    Object.defineProperty(element, 'getBoundingClientRect', {
-        configurable: true,
-        value: () => createDomRect(rect),
-    });
-    return element;
-}
 
 function createTestElement(tagOrClassName: string, rect: IAnnotationDomRemovalTestRect): HTMLElement {
     const normalized = tagOrClassName.trim();
@@ -169,6 +129,39 @@ function connectPage(container: HTMLElement, page: HTMLElement) {
     document.body.append(container);
 }
 
+const TEST_PAGE_RECT = {
+    left: 0,
+    top: 0,
+    width: 1000,
+    height: 1000,
+};
+const TEST_MARKUP_RECT = {
+    left: 100,
+    top: 200,
+    width: 200,
+    height: 50,
+};
+const TEST_MARKER_RECT = {
+    left: 0.1,
+    top: 0.2,
+    width: 0.2,
+    height: 0.05,
+};
+
+function createViewer() {
+    return createTestElement('viewer', TEST_PAGE_RECT);
+}
+
+function createConnectedPage() {
+    const container = createViewer();
+    const page = createTestElement('page_container', TEST_PAGE_RECT);
+    connectPage(container, page);
+    return {
+        container,
+        page,
+    };
+}
+
 function connectToPage(page: HTMLElement, element: Element) {
     page.append(element);
 }
@@ -246,18 +239,8 @@ describe('scoreTextMarkupVisualCandidate', () => {
 
 describe('removeAnnotationCommentDom', () => {
     it('removes annotation layer elements using normalized PDF.js annotation ids', () => {
-        const container = createTestElement('viewer', {
-            left: 0,
-            top: 0,
-            width: 1000,
-            height: 1000,
-        });
-        const annotation = createTestElement('highlightAnnotation', {
-            left: 100,
-            top: 200,
-            width: 200,
-            height: 50,
-        });
+        const container = createViewer();
+        const annotation = createTestElement('highlightAnnotation', TEST_MARKUP_RECT);
         annotation.dataset.annotationId = '12R';
         const popup = createTestElement('popup', {
             left: 120,
@@ -267,12 +250,7 @@ describe('removeAnnotationCommentDom', () => {
         });
         popup.dataset.annotationId = 'popup-12R';
         popup.setAttribute('aria-controls', 'pdfjs_internal_id_12R');
-        const annotationLayer = createTestElement('annotationLayer', {
-            left: 0,
-            top: 0,
-            width: 1000,
-            height: 1000,
-        });
+        const annotationLayer = createTestElement('annotationLayer', TEST_PAGE_RECT);
         container.append(annotationLayer);
         annotationLayer.append(annotation);
         annotation.append(popup);
@@ -285,24 +263,9 @@ describe('removeAnnotationCommentDom', () => {
     });
 
     it('does not remove overlapping geometry neighbors when an exact annotation id matches', () => {
-        const container = createTestElement('viewer', {
-            left: 0,
-            top: 0,
-            width: 1000,
-            height: 1000,
-        });
-        const page = createTestElement('page_container', {
-            left: 0,
-            top: 0,
-            width: 1000,
-            height: 1000,
-        });
-        const targetHighlight = createTestElement('highlightAnnotation', {
-            left: 100,
-            top: 200,
-            width: 200,
-            height: 50,
-        });
+        const container = createViewer();
+        const page = createTestElement('page_container', TEST_PAGE_RECT);
+        const targetHighlight = createTestElement('highlightAnnotation', TEST_MARKUP_RECT);
         const neighboringHighlight = createTestElement('highlightAnnotation', {
             left: 105,
             top: 202,
@@ -323,30 +286,10 @@ describe('removeAnnotationCommentDom', () => {
 
     it('removes the matching draw-layer highlight visual and refreshes the composite overlay', () => {
         const refresh = vi.mocked(refreshHighlightCompositeOverlay);
-        const container = createTestElement('viewer', {
-            left: 0,
-            top: 0,
-            width: 1000,
-            height: 1000,
-        });
-        const page = createTestElement('page_container', {
-            left: 0,
-            top: 0,
-            width: 1000,
-            height: 1000,
-        });
-        const annotation = createTestElement('highlightAnnotation', {
-            left: 100,
-            top: 200,
-            width: 200,
-            height: 50,
-        });
-        const matchingHighlight = createTestElement('highlight', {
-            left: 100,
-            top: 200,
-            width: 200,
-            height: 50,
-        });
+        const container = createViewer();
+        const page = createTestElement('page_container', TEST_PAGE_RECT);
+        const annotation = createTestElement('highlightAnnotation', TEST_MARKUP_RECT);
+        const matchingHighlight = createTestElement('highlight', TEST_MARKUP_RECT);
         const distantHighlight = createTestElement('highlight', {
             left: 600,
             top: 600,
@@ -372,24 +315,9 @@ describe('removeAnnotationCommentDom', () => {
     it('removes text markup visuals by geometry when no annotation id is available', () => {
         const refresh = vi.mocked(refreshHighlightCompositeOverlay);
         refresh.mockClear();
-        const container = createTestElement('viewer', {
-            left: 0,
-            top: 0,
-            width: 1000,
-            height: 1000,
-        });
-        const page = createTestElement('page_container', {
-            left: 0,
-            top: 0,
-            width: 1000,
-            height: 1000,
-        });
-        const matchingHighlight = createTestElement('highlight', {
-            left: 100,
-            top: 200,
-            width: 200,
-            height: 50,
-        });
+        const container = createViewer();
+        const page = createTestElement('page_container', TEST_PAGE_RECT);
+        const matchingHighlight = createTestElement('highlight', TEST_MARKUP_RECT);
         const distantHighlight = createTestElement('highlight', {
             left: 600,
             top: 600,
@@ -414,30 +342,10 @@ describe('removeAnnotationCommentDom', () => {
     });
 
     it('removes a PDF.js highlight editor only when its editor identity matches', () => {
-        const container = createTestElement('viewer', {
-            left: 0,
-            top: 0,
-            width: 1000,
-            height: 1000,
-        });
-        const page = createTestElement('page_container', {
-            left: 0,
-            top: 0,
-            width: 1000,
-            height: 1000,
-        });
-        const editorLayer = createTestElement('annotationEditorLayer', {
-            left: 0,
-            top: 0,
-            width: 1000,
-            height: 1000,
-        });
-        const matchingEditor = createTestElement('highlightEditor', {
-            left: 100,
-            top: 200,
-            width: 200,
-            height: 50,
-        });
+        const container = createViewer();
+        const page = createTestElement('page_container', TEST_PAGE_RECT);
+        const editorLayer = createTestElement('annotationEditorLayer', TEST_PAGE_RECT);
+        const matchingEditor = createTestElement('highlightEditor', TEST_MARKUP_RECT);
         const distantEditor = createTestElement('highlightEditor', {
             left: 600,
             top: 600,
@@ -462,30 +370,10 @@ describe('removeAnnotationCommentDom', () => {
     });
 
     it('preserves an overlapping live highlight editor when only geometry matches', () => {
-        const container = createTestElement('viewer', {
-            left: 0,
-            top: 0,
-            width: 1000,
-            height: 1000,
-        });
-        const page = createTestElement('page_container', {
-            left: 0,
-            top: 0,
-            width: 1000,
-            height: 1000,
-        });
-        const editorLayer = createTestElement('annotationEditorLayer', {
-            left: 0,
-            top: 0,
-            width: 1000,
-            height: 1000,
-        });
-        const overlappingEditor = createTestElement('highlightEditor', {
-            left: 100,
-            top: 200,
-            width: 200,
-            height: 50,
-        });
+        const container = createViewer();
+        const page = createTestElement('page_container', TEST_PAGE_RECT);
+        const editorLayer = createTestElement('annotationEditorLayer', TEST_PAGE_RECT);
+        const overlappingEditor = createTestElement('highlightEditor', TEST_MARKUP_RECT);
         overlappingEditor.id = 'pdfjs_internal_editor_neighbor';
         connectPage(container, page);
         connectToPage(page, editorLayer);
@@ -526,18 +414,8 @@ describe('applyAnnotationCommentTextMarkupColor', () => {
             initialAttribute,
             subtype,
         }) => {
-            const container = createTestElement('viewer', {
-                left: 0,
-                top: 0,
-                width: 1000,
-                height: 1000,
-            });
-            const page = createTestElement('page_container', {
-                left: 0,
-                top: 0,
-                width: 1000,
-                height: 1000,
-            });
+            const container = createViewer();
+            const page = createTestElement('page_container', TEST_PAGE_RECT);
             connectPage(container, page);
             const matchingMarkup = createTestElement('highlight', {
                 left: 100,
@@ -748,33 +626,13 @@ describe('applyAnnotationCommentTextMarkupColor', () => {
     it('recolors matching highlight visuals and keeps annotation-layer highlight paint authoritative', () => {
         const refresh = vi.mocked(refreshHighlightCompositeOverlay);
         refresh.mockClear();
-        const container = createTestElement('viewer', {
-            left: 0,
-            top: 0,
-            width: 1000,
-            height: 1000,
-        });
-        const page = createTestElement('page_container', {
-            left: 0,
-            top: 0,
-            width: 1000,
-            height: 1000,
-        });
-        const annotation = createTestElement('highlightAnnotation', {
-            left: 100,
-            top: 200,
-            width: 200,
-            height: 50,
-        });
+        const container = createViewer();
+        const page = createTestElement('page_container', TEST_PAGE_RECT);
+        const annotation = createTestElement('highlightAnnotation', TEST_MARKUP_RECT);
         annotation.dataset.annotationId = 'unmatched-id';
         annotation.style.backgroundColor = 'rgb(255, 255, 0)';
 
-        const matchingHighlight = createTestElement('highlight', {
-            left: 100,
-            top: 200,
-            width: 200,
-            height: 50,
-        });
+        const matchingHighlight = createTestElement('highlight', TEST_MARKUP_RECT);
         const distantHighlight = createTestElement('highlight', {
             left: 600,
             top: 600,
@@ -808,18 +666,8 @@ describe('applyAnnotationCommentTextMarkupColor', () => {
     it('recolors thin underline visuals matched inside the text markup rect', () => {
         const refresh = vi.mocked(refreshHighlightCompositeOverlay);
         refresh.mockClear();
-        const container = createTestElement('viewer', {
-            left: 0,
-            top: 0,
-            width: 1000,
-            height: 1000,
-        });
-        const page = createTestElement('page_container', {
-            left: 0,
-            top: 0,
-            width: 1000,
-            height: 1000,
-        });
+        const container = createViewer();
+        const page = createTestElement('page_container', TEST_PAGE_RECT);
         const matchingUnderline = createTestElement('highlight', {
             left: 120,
             top: 360,
@@ -865,19 +713,10 @@ describe('applyAnnotationCommentTextMarkupColor', () => {
     it('does not recolor non-highlight transparent rectangle outlines', () => {
         const refresh = vi.mocked(refreshHighlightCompositeOverlay);
         refresh.mockClear();
-        const container = createTestElement('viewer', {
-            left: 0,
-            top: 0,
-            width: 1000,
-            height: 1000,
-        });
-        const page = createTestElement('page_container', {
-            left: 0,
-            top: 0,
-            width: 1000,
-            height: 1000,
-        });
-        connectPage(container, page);
+        const {
+            container,
+            page,
+        } = createConnectedPage();
         const editorOutlineSvg = createTestElement('highlight', {
             left: 100,
             top: 200,
@@ -916,19 +755,10 @@ describe('applyAnnotationCommentTextMarkupColor', () => {
     });
 
     it('suppresses the base highlight fill when recoloring underline markup', () => {
-        const container = createTestElement('viewer', {
-            left: 0,
-            top: 0,
-            width: 1000,
-            height: 1000,
-        });
-        const page = createTestElement('page_container', {
-            left: 0,
-            top: 0,
-            width: 1000,
-            height: 1000,
-        });
-        connectPage(container, page);
+        const {
+            container,
+            page,
+        } = createConnectedPage();
         const baseHighlightSvg = createTestElement('highlight pdf-markup-subtype-draw-underline', {
             left: 100,
             top: 200,
@@ -998,19 +828,10 @@ describe('applyAnnotationCommentTextMarkupColor', () => {
     });
 
     it('suppresses unclassified PDF.js highlight geometry when recoloring underline markup', () => {
-        const container = createTestElement('viewer', {
-            left: 0,
-            top: 0,
-            width: 1000,
-            height: 1000,
-        });
-        const page = createTestElement('page_container', {
-            left: 0,
-            top: 0,
-            width: 1000,
-            height: 1000,
-        });
-        connectPage(container, page);
+        const {
+            container,
+            page,
+        } = createConnectedPage();
         const baseHighlightSvg = createTestElement('highlight', {
             left: 100,
             top: 200,
@@ -1072,18 +893,8 @@ describe('applyAnnotationCommentTextMarkupColor', () => {
 
     it('updates decorated annotation-layer markup without painting stale annotation box borders', () => {
         installInlineComputedStyle();
-        const container = createTestElement('viewer', {
-            left: 0,
-            top: 0,
-            width: 1000,
-            height: 1000,
-        });
-        const page = createTestElement('page_container', {
-            left: 0,
-            top: 0,
-            width: 1000,
-            height: 1000,
-        });
+        const container = createViewer();
+        const page = createTestElement('page_container', TEST_PAGE_RECT);
         const staleAnnotationNode = createTestElement('annotationLayerItem underlineAnnotation', {
             left: 100,
             top: 200,
@@ -1117,18 +928,8 @@ describe('applyAnnotationCommentTextMarkupColor', () => {
     });
 
     it('keeps edited highlight annotation-layer text visible when the stale canvas paint is suppressed', () => {
-        const container = createTestElement('viewer', {
-            left: 0,
-            top: 0,
-            width: 1000,
-            height: 1000,
-        });
-        const page = createTestElement('page_container', {
-            left: 0,
-            top: 0,
-            width: 1000,
-            height: 1000,
-        });
+        const container = createViewer();
+        const page = createTestElement('page_container', TEST_PAGE_RECT);
         const highlightNode = createTestElement('annotationLayerItem highlightAnnotation', {
             left: 100,
             top: 200,
@@ -1164,31 +965,14 @@ describe('applyAnnotationCommentTextMarkupColor', () => {
     });
 
     it('does not synthesize duplicate underline overlays when no visible visual can be recolored', () => {
-        const container = createTestElement('viewer', {
-            left: 0,
-            top: 0,
-            width: 1000,
-            height: 1000,
-        });
-        const page = createTestElement('page_container', {
-            left: 0,
-            top: 0,
-            width: 1000,
-            height: 1000,
-        });
-        connectPage(container, page);
+        const {container} = createConnectedPage();
 
         const didUpdate = applyAnnotationCommentTextMarkupColor(
             toHTMLElement(container),
             createComment({
                 annotationId: null,
                 subtype: 'Underline',
-                markerRect: {
-                    left: 0.1,
-                    top: 0.2,
-                    width: 0.2,
-                    height: 0.05,
-                },
+                markerRect: TEST_MARKER_RECT,
             }),
             '#3b82f6',
         );
@@ -1197,31 +981,17 @@ describe('applyAnnotationCommentTextMarkupColor', () => {
     });
 
     it('creates a stable edited underline overlay from marker geometry', () => {
-        const container = createTestElement('viewer', {
-            left: 0,
-            top: 0,
-            width: 1000,
-            height: 1000,
-        });
-        const page = createTestElement('page_container', {
-            left: 0,
-            top: 0,
-            width: 1000,
-            height: 1000,
-        });
-        connectPage(container, page);
+        const {
+            container,
+            page,
+        } = createConnectedPage();
 
         const didUpdate = applyAnnotationCommentTextMarkupVisualOverlay(
             toHTMLElement(container),
             createComment({
                 annotationId: '12R0',
                 subtype: 'Underline',
-                markerRect: {
-                    left: 0.1,
-                    top: 0.2,
-                    width: 0.2,
-                    height: 0.05,
-                },
+                markerRect: TEST_MARKER_RECT,
             }),
             '#22c55e',
         );
@@ -1237,31 +1007,17 @@ describe('applyAnnotationCommentTextMarkupColor', () => {
     });
 
     it('renders edited highlight overlays with raw color and configured opacity', () => {
-        const container = createTestElement('viewer', {
-            left: 0,
-            top: 0,
-            width: 1000,
-            height: 1000,
-        });
-        const page = createTestElement('page_container', {
-            left: 0,
-            top: 0,
-            width: 1000,
-            height: 1000,
-        });
-        connectPage(container, page);
+        const {
+            container,
+            page,
+        } = createConnectedPage();
 
         const didUpdate = applyAnnotationCommentTextMarkupVisualOverlay(
             toHTMLElement(container),
             createComment({
                 annotationId: '12R0',
                 subtype: 'Highlight',
-                markerRect: {
-                    left: 0.1,
-                    top: 0.2,
-                    width: 0.2,
-                    height: 0.05,
-                },
+                markerRect: TEST_MARKER_RECT,
             }),
             '#22c55e',
             { highlightOpacity: 0.35 },
@@ -1275,30 +1031,10 @@ describe('applyAnnotationCommentTextMarkupColor', () => {
     });
 
     it('suppresses native highlight paint when an edited highlight overlay is active', () => {
-        const container = createTestElement('viewer', {
-            left: 0,
-            top: 0,
-            width: 1000,
-            height: 1000,
-        });
-        const page = createTestElement('page_container', {
-            left: 0,
-            top: 0,
-            width: 1000,
-            height: 1000,
-        });
-        const annotation = createTestElement('highlightAnnotation', {
-            left: 100,
-            top: 200,
-            width: 200,
-            height: 50,
-        });
-        const mark = createTestElement('mark', {
-            left: 100,
-            top: 200,
-            width: 200,
-            height: 50,
-        });
+        const container = createViewer();
+        const page = createTestElement('page_container', TEST_PAGE_RECT);
+        const annotation = createTestElement('highlightAnnotation', TEST_MARKUP_RECT);
+        const mark = createTestElement('mark', TEST_MARKUP_RECT);
         annotation.dataset.annotationId = '12R0';
         annotation.style.backgroundColor = '#b2ebc7';
         mark.style.backgroundColor = '#b2ebc7';
@@ -1323,31 +1059,17 @@ describe('applyAnnotationCommentTextMarkupColor', () => {
     });
 
     it('converts blended preset highlight display colors back to raw overlay colors', () => {
-        const container = createTestElement('viewer', {
-            left: 0,
-            top: 0,
-            width: 1000,
-            height: 1000,
-        });
-        const page = createTestElement('page_container', {
-            left: 0,
-            top: 0,
-            width: 1000,
-            height: 1000,
-        });
-        connectPage(container, page);
+        const {
+            container,
+            page,
+        } = createConnectedPage();
 
         const didUpdate = applyAnnotationCommentTextMarkupVisualOverlay(
             toHTMLElement(container),
             createComment({
                 annotationId: '12R0',
                 subtype: 'Highlight',
-                markerRect: {
-                    left: 0.1,
-                    top: 0.2,
-                    width: 0.2,
-                    height: 0.05,
-                },
+                markerRect: TEST_MARKER_RECT,
             }),
             '#b2ebc7',
             { highlightOpacity: 0.35 },
@@ -1361,19 +1083,10 @@ describe('applyAnnotationCommentTextMarkupColor', () => {
     });
 
     it('syncs edited overlays and removes visuals outside the current edited set', () => {
-        const container = createTestElement('viewer', {
-            left: 0,
-            top: 0,
-            width: 1000,
-            height: 1000,
-        });
-        const page = createTestElement('page_container', {
-            left: 0,
-            top: 0,
-            width: 1000,
-            height: 1000,
-        });
-        connectPage(container, page);
+        const {
+            container,
+            page,
+        } = createConnectedPage();
         const firstComment = createComment({
             annotationId: '12R0',
             color: '#22c55e',
@@ -1419,19 +1132,10 @@ describe('applyAnnotationCommentTextMarkupColor', () => {
     });
 
     it('keeps a current synced highlight overlay when a live editor covers the same rect', () => {
-        const container = createTestElement('viewer', {
-            left: 0,
-            top: 0,
-            width: 1000,
-            height: 1000,
-        });
-        const page = createTestElement('page_container', {
-            left: 0,
-            top: 0,
-            width: 1000,
-            height: 1000,
-        });
-        connectPage(container, page);
+        const {
+            container,
+            page,
+        } = createConnectedPage();
         const comment = createComment({
             annotationId: '12R0',
             color: '#22c55e',
@@ -1443,18 +1147,8 @@ describe('applyAnnotationCommentTextMarkupColor', () => {
             [comment],
             { resolveColor: candidate => candidate.color },
         );
-        const editorLayer = createTestElement('annotationEditorLayer', {
-            left: 0,
-            top: 0,
-            width: 1000,
-            height: 1000,
-        });
-        const liveEditor = createTestElement('highlightEditor', {
-            left: 100,
-            top: 200,
-            width: 200,
-            height: 50,
-        });
+        const editorLayer = createTestElement('annotationEditorLayer', TEST_PAGE_RECT);
+        const liveEditor = createTestElement('highlightEditor', TEST_MARKUP_RECT);
         editorLayer.append(liveEditor);
         connectToPage(page, editorLayer);
 
@@ -1507,12 +1201,7 @@ describe('applyAnnotationCommentTextMarkupColor', () => {
             context as CanvasRenderingContext2D,
             createComment({
                 subtype: 'StrikeOut',
-                markerRect: {
-                    left: 0.1,
-                    top: 0.2,
-                    width: 0.2,
-                    height: 0.05,
-                },
+                markerRect: TEST_MARKER_RECT,
             }),
             '#22c55e',
         );
@@ -1529,33 +1218,14 @@ describe('applyAnnotationCommentTextMarkupColor', () => {
 describe('resolveAnnotationCommentTextMarkupColor', () => {
     it('reads highlight SVG paint instead of inherited black editor fill', () => {
         installInlineComputedStyle();
-        const container = createTestElement('viewer', {
-            left: 0,
-            top: 0,
-            width: 1000,
-            height: 1000,
-        });
-        const page = createTestElement('page_container', {
-            left: 0,
-            top: 0,
-            width: 1000,
-            height: 1000,
-        });
-        connectPage(container, page);
-        const editor = createTestElement('highlightEditor', {
-            left: 100,
-            top: 200,
-            width: 200,
-            height: 50,
-        });
+        const {
+            container,
+            page,
+        } = createConnectedPage();
+        const editor = createTestElement('highlightEditor', TEST_MARKUP_RECT);
         editor.dataset.annotationId = '42R0';
         editor.style.fill = 'rgb(0, 0, 0)';
-        const renderedHighlight = createTestElement('highlight', {
-            left: 100,
-            top: 200,
-            width: 200,
-            height: 50,
-        });
+        const renderedHighlight = createTestElement('highlight', TEST_MARKUP_RECT);
         renderedHighlight.setAttribute('fill', '#bad3fc');
         editor.append(renderedHighlight);
         connectToPage(page, editor);
@@ -1578,33 +1248,14 @@ describe('resolveAnnotationCommentTextMarkupColor', () => {
 
     it('keeps an existing raw highlight swatch color instead of replacing it with display paint', () => {
         installInlineComputedStyle();
-        const container = createTestElement('viewer', {
-            left: 0,
-            top: 0,
-            width: 1000,
-            height: 1000,
-        });
-        const page = createTestElement('page_container', {
-            left: 0,
-            top: 0,
-            width: 1000,
-            height: 1000,
-        });
-        connectPage(container, page);
-        const editor = createTestElement('highlightEditor', {
-            left: 100,
-            top: 200,
-            width: 200,
-            height: 50,
-        });
+        const {
+            container,
+            page,
+        } = createConnectedPage();
+        const editor = createTestElement('highlightEditor', TEST_MARKUP_RECT);
         editor.dataset.annotationId = '42R0';
         editor.style.fill = 'rgb(0, 0, 0)';
-        const renderedHighlight = createTestElement('highlight', {
-            left: 100,
-            top: 200,
-            width: 200,
-            height: 50,
-        });
+        const renderedHighlight = createTestElement('highlight', TEST_MARKUP_RECT);
         renderedHighlight.setAttribute('fill', '#bad3fc');
         editor.append(renderedHighlight);
         connectToPage(page, editor);
@@ -1626,35 +1277,16 @@ describe('resolveAnnotationCommentTextMarkupColor', () => {
 
     it('uses the visible canvas color for context-menu swatches instead of a stale non-painted underline variable', () => {
         installInlineComputedStyle();
-        const container = createTestElement('viewer', {
-            left: 0,
-            top: 0,
-            width: 1000,
-            height: 1000,
-        });
-        const page = createTestElement('page_container', {
-            left: 0,
-            top: 0,
-            width: 1000,
-            height: 1000,
-        });
-        connectPage(container, page);
-        const staleAnnotation = createTestElement('underlineAnnotation', {
-            left: 100,
-            top: 200,
-            width: 200,
-            height: 50,
-        });
+        const {
+            container,
+            page,
+        } = createConnectedPage();
+        const staleAnnotation = createTestElement('underlineAnnotation', TEST_MARKUP_RECT);
         staleAnnotation.dataset.annotationId = '42R0';
         staleAnnotation.style.setProperty('--pdf-markup-subtype-color', '#22c55e');
         connectToPage(page, staleAnnotation);
 
-        const canvas = createTestElement('canvas', {
-            left: 0,
-            top: 0,
-            width: 1000,
-            height: 1000,
-        }) as HTMLCanvasElement;
+        const canvas = createTestElement('canvas', TEST_PAGE_RECT) as HTMLCanvasElement;
         canvas.width = 1000;
         canvas.height = 1000;
         const getContext = vi.fn((_contextType: string, _options: unknown) => {
@@ -1695,36 +1327,17 @@ describe('resolveAnnotationCommentTextMarkupColor', () => {
 
     it('prefers the visible underline line at the click point over stale editor dataset color', () => {
         installInlineComputedStyle();
-        const container = createTestElement('viewer', {
-            left: 0,
-            top: 0,
-            width: 1000,
-            height: 1000,
-        });
-        const page = createTestElement('page_container', {
-            left: 0,
-            top: 0,
-            width: 1000,
-            height: 1000,
-        });
-        connectPage(container, page);
-        const staleEditor = createTestElement('highlightEditor pdf-markup-subtype-underline', {
-            left: 100,
-            top: 200,
-            width: 200,
-            height: 50,
-        });
+        const {
+            container,
+            page,
+        } = createConnectedPage();
+        const staleEditor = createTestElement('highlightEditor pdf-markup-subtype-underline', TEST_MARKUP_RECT);
         staleEditor.dataset.annotationId = '42R0';
         staleEditor.dataset.markupSubtypeColor = '#22c55e';
         staleEditor.style.setProperty('--pdf-markup-subtype-color', '#22c55e');
         connectToPage(page, staleEditor);
 
-        const visibleUnderline = createTestElement('pdf-markup-subtype-draw-visual pdf-markup-subtype-draw-underline', {
-            left: 100,
-            top: 200,
-            width: 200,
-            height: 50,
-        });
+        const visibleUnderline = createTestElement('pdf-markup-subtype-draw-visual pdf-markup-subtype-draw-underline', TEST_MARKUP_RECT);
         visibleUnderline.style.setProperty('--pdf-markup-subtype-color', '#ef4444');
         visibleUnderline.setAttribute('fill', 'none');
         visibleUnderline.setAttribute('stroke', '#ef4444');
@@ -1748,25 +1361,11 @@ describe('resolveAnnotationCommentTextMarkupColor', () => {
 
     it('ignores hidden stale strikeout editor paint and resolves the visible rendered line color', () => {
         installInlineComputedStyle();
-        const container = createTestElement('viewer', {
-            left: 0,
-            top: 0,
-            width: 1000,
-            height: 1000,
-        });
-        const page = createTestElement('page_container', {
-            left: 0,
-            top: 0,
-            width: 1000,
-            height: 1000,
-        });
-        connectPage(container, page);
-        const hiddenEditor = createTestElement('strikeoutAnnotation', {
-            left: 100,
-            top: 200,
-            width: 200,
-            height: 50,
-        });
+        const {
+            container,
+            page,
+        } = createConnectedPage();
+        const hiddenEditor = createTestElement('strikeoutAnnotation', TEST_MARKUP_RECT);
         hiddenEditor.dataset.annotationId = '99R0';
         hiddenEditor.setAttribute('stroke', '#111827');
         hiddenEditor.style.opacity = '0';
@@ -1794,32 +1393,13 @@ describe('resolveAnnotationCommentTextMarkupColor', () => {
 
     it('uses underline stroke instead of a stale generic highlight fill', () => {
         installInlineComputedStyle();
-        const container = createTestElement('viewer', {
-            left: 0,
-            top: 0,
-            width: 1000,
-            height: 1000,
-        });
-        const page = createTestElement('page_container', {
-            left: 0,
-            top: 0,
-            width: 1000,
-            height: 1000,
-        });
-        connectPage(container, page);
+        const {
+            container,
+            page,
+        } = createConnectedPage();
 
-        const matchingVisual = createTestElement('highlight', {
-            left: 100,
-            top: 200,
-            width: 200,
-            height: 50,
-        });
-        const staleFillPath = createTestElement('path', {
-            left: 100,
-            top: 200,
-            width: 200,
-            height: 50,
-        });
+        const matchingVisual = createTestElement('highlight', TEST_MARKUP_RECT);
+        const staleFillPath = createTestElement('path', TEST_MARKUP_RECT);
         staleFillPath.setAttribute('fill', '#22c55e');
         const visibleLine = createTestElement('line', {
             left: 100,

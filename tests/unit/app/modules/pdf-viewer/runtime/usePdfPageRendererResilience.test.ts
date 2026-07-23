@@ -15,7 +15,14 @@ import {
 import type { Ref } from 'vue';
 import type { IPdfSearchMatch } from '@app/types/pdfUi';
 import { cast } from '@tests/helpers/cast';
-import {createTestPdfViewportWritePort} from '@tests/helpers/createTestPdfViewportWritePort';
+import { createTestPdfViewportWritePort } from '@tests/helpers/createTestPdfViewportWritePort';
+import {
+    createTestPageContainer as createPageContainer,
+    createTestPageContainerRoot as createContainerRoot,
+    createTestPageLease as createPageLease,
+    createTestPageRenderResult as createRenderResult,
+    type ITestNode as INodeLike,
+} from '@tests/helpers/domGeometryTestHarness';
 
 const loggerError = vi.fn();
 const loggerWarn = vi.fn();
@@ -28,38 +35,6 @@ vi.mock('@app/utils/browserLogger', () => ({BrowserLogger: {
     warnThrottled: vi.fn(),
     debug: vi.fn(),
 }}));
-
-interface IClassList {
-    add: (...args: string[]) => void;
-    contains: (className: string) => boolean;
-    remove: (...args: string[]) => void;
-}
-
-interface INodeLike {
-    style: Record<string, string>;
-    classList: IClassList;
-    isConnected?: boolean;
-    dataset?: Record<string, string>;
-    getAttribute?: (name: string) => string | null;
-    offsetTop?: number;
-    offsetWidth?: number;
-    offsetHeight?: number;
-    clientWidth?: number;
-    clientHeight?: number;
-    innerHTML?: string;
-    hidden?: boolean;
-    dir?: string;
-    appendChild?: (...args: unknown[]) => void;
-    replaceChildren?: (...args: unknown[]) => void;
-    querySelector?: (selector: string) => unknown;
-    querySelectorAll?: (selector: string) => unknown[];
-}
-
-interface ICanvasLike extends INodeLike {
-    width: number;
-    height: number;
-    remove: () => void;
-}
 
 interface IRenderContext {
     canvasContext: unknown;
@@ -123,244 +98,45 @@ vi.mock('@app/modules/pdf-viewer/runtime/composables/pdf/usePdfTextLayerRenderer
 vi.mock('@app/modules/pdf-viewer/runtime/rendering/usePdfAnnotationLayerRenderer', () => ({usePdfAnnotationLayerRenderer: () => annotationLayerRendererMock}));
 
 const { usePdfPageRenderer: usePdfPageRendererProduction } = await import('@app/modules/pdf-viewer/runtime/rendering/usePdfPageRenderer');
+type TPdfPageRendererOptions = Omit<
+    Parameters<typeof usePdfPageRendererProduction>[0],
+    'viewportWritePort'
+>;
 const usePdfPageRenderer = (
-    options: Omit<Parameters<typeof usePdfPageRendererProduction>[0], 'viewportWritePort'>,
+    options: Pick<TPdfPageRendererOptions, 'container' | 'document'>
+        & Partial<TPdfPageRendererOptions>,
 ) => usePdfPageRendererProduction({
-    ...options,
+    currentPage: ref(1),
+    effectiveScale: ref(1),
+    bufferPages: ref(0),
+    showAnnotations: ref(true),
+    annotationUiManager: ref(null),
+    annotationL10n: ref(null),
+    searchPageMatches: ref(new Map()),
+    currentSearchMatch: ref(null),
+    workingCopyPath: ref(null),
     viewportWritePort: createTestPdfViewportWritePort().port,
+    ...options,
 });
 const {
     PDF_PAGE_RENDER_TIMEOUT_MS,
     PDF_PAGE_TEXT_LAYER_TIMEOUT_MS,
 } = await import('@app/constants/timeouts');
 
-function createClassList(): IClassList {
-    const classNames = new Set<string>();
-
+function createDocumentState<TOverrides extends object>(
+    overrides: TOverrides = {} as TOverrides,
+) {
     return {
-        add: vi.fn((...args: string[]) => {
-            for (const className of args) {
-                classNames.add(className);
-            }
-        }),
-        contains: vi.fn((className: string) => classNames.has(className)),
-        remove: vi.fn((...args: string[]) => {
-            for (const className of args) {
-                classNames.delete(className);
-            }
-        }),
-    };
-}
-
-function createCanvas(): ICanvasLike {
-    return {
-        width: 120,
-        height: 180,
-        isConnected: true,
-        remove: vi.fn(),
-        style: {},
-        classList: createClassList(),
-    };
-}
-
-function createDeferred<T = void>() {
-    let resolve!: (value: T | PromiseLike<T>) => void;
-    let reject!: (reason?: unknown) => void;
-    const promise = new Promise<T>((promiseResolve, promiseReject) => {
-        resolve = promiseResolve;
-        reject = promiseReject;
-    });
-
-    return {
-        promise,
-        reject,
-        resolve,
-    };
-}
-
-function createPageLease<TPage extends object>(page: TPage) {
-    let released = false;
-    const release = vi.fn(() => {
-        if (released) {
-            return;
-        }
-        released = true;
-        const cleanup = (page as { cleanup?: () => void }).cleanup;
-        cleanup?.();
-    });
-    return {
-        page,
-        release,
-    };
-}
-
-function createPageContainer(overrides?: {
-    pageNumber?: number;
-    textLayerDiv?: INodeLike | null;
-    annotationLayerDiv?: INodeLike | null;
-    annotationEditorLayerDiv?: INodeLike | null;
-    hasShapeOverlay?: boolean;
-    shapeOverlayAnnotationIds?: string[];
-    offsetWidth?: number;
-    offsetHeight?: number;
-}) {
-    const pageNumber = overrides?.pageNumber ?? 1;
-    let mountedCanvas: unknown = null;
-    const overlayAnnotationIds = overrides?.shapeOverlayAnnotationIds
-        ?? (overrides?.hasShapeOverlay === true ? ['12R'] : []);
-    const overlayElements: INodeLike[] = overlayAnnotationIds.map(annotationId => ({
-        dataset: { annotationId },
-        style: {},
-        classList: createClassList(),
-        getAttribute: (name: string) => name === 'data-annotation-id' ? annotationId : null,
-    }));
-    const canvasHost: INodeLike = {
-        innerHTML: '',
-        style: {},
-        classList: createClassList(),
-        appendChild: vi.fn((canvas: unknown) => {
-            mountedCanvas = canvas;
-        }),
-        replaceChildren: vi.fn(() => {
-            mountedCanvas = null;
-        }),
-    };
-    const skeleton: INodeLike = {
-        style: {display: ''},
-        classList: createClassList(),
-    };
-    const textLayerDiv = overrides?.textLayerDiv ?? {
-        innerHTML: '',
-        style: {},
-        classList: createClassList(),
-    };
-    const annotationLayerDiv = overrides?.annotationLayerDiv ?? {
-        innerHTML: '',
-        style: {},
-        classList: createClassList(),
-        replaceChildren: vi.fn(),
-    };
-    const annotationEditorLayerDiv = overrides?.annotationEditorLayerDiv ?? {
-        innerHTML: '',
-        hidden: false,
-        dir: 'ltr',
-        style: {},
-        classList: createClassList(),
-        replaceChildren: vi.fn(),
-    };
-    annotationLayerDiv.replaceChildren ??= vi.fn();
-    annotationEditorLayerDiv.replaceChildren ??= vi.fn();
-
-    const selectorMap = new Map<string, unknown>([
-        [
-            '.page_canvas',
-            canvasHost,
-        ],
-        [
-            '.page_canvas__render-layer',
-            canvasHost,
-        ],
-        [
-            '.page_canvas canvas',
-            mountedCanvas,
-        ],
-        [
-            '.document-page-skeleton',
-            skeleton,
-        ],
-        [
-            '.text-layer',
-            textLayerDiv,
-        ],
-        [
-            '.annotation-layer',
-            annotationLayerDiv,
-        ],
-        [
-            '.annotation-editor-layer',
-            annotationEditorLayerDiv,
-        ],
-        [
-            '.pdf-shape-overlay.has-shapes',
-            overlayElements.length > 0 ? {} : null,
-        ],
-    ]);
-
-    const pageContainer: INodeLike = {
-        dataset: { page: String(pageNumber) },
-        offsetTop: 0,
-        offsetWidth: overrides?.offsetWidth ?? 120,
-        offsetHeight: overrides?.offsetHeight ?? 180,
-        clientWidth: overrides?.offsetWidth ?? 120,
-        clientHeight: overrides?.offsetHeight ?? 180,
-        style: {},
-        classList: createClassList(),
-        querySelector: vi.fn((selector: string) => (
-            selector === '.page_canvas canvas'
-                ? mountedCanvas
-                : selectorMap.get(selector) ?? null
-        )),
-        querySelectorAll: vi.fn((selector: string) => (
-            selector === '.pdf-shape-overlay.has-shapes [data-annotation-id]'
-                ? overlayElements
-                : []
-        )),
-    };
-
-    return {
-        pageContainer,
-        canvasHost,
-        textLayerDiv,
-        setMountedCanvas: (canvas: unknown) => {
-            mountedCanvas = canvas;
-            selectorMap.set('.page_canvas canvas', mountedCanvas);
-        },
-    };
-}
-
-function createContainerRoot(pageContainerOrContainers: INodeLike | INodeLike[]) {
-    const pageContainers = Array.isArray(pageContainerOrContainers)
-        ? pageContainerOrContainers
-        : [pageContainerOrContainers];
-
-    return cast<HTMLElement>({
-        querySelectorAll: vi.fn((selector: string) => (
-            selector === '.page_container'
-                ? pageContainers
-                : []
-        )),
-        querySelector: vi.fn((selector: string) => {
-            const pageMatch = selector.match(/^\.page_container\[data-page="(\d+)"\]$/);
-            if (!pageMatch) {
-                return null;
-            }
-
-            return pageContainers.find(
-                pageContainer => pageContainer.dataset?.page === pageMatch[1],
-            ) ?? null;
-        }),
-    });
-}
-
-function createRenderResult() {
-    return {
-        canvas: cast<HTMLCanvasElement>(createCanvas()),
-        viewport: {
-            width: 120,
-            height: 180,
-            rawDims: {
-                pageWidth: 120,
-                pageHeight: 180,
-            },
-        },
-        scaleX: 1,
-        scaleY: 1,
-        rawDims: {
-            pageWidth: 120,
-            pageHeight: 180,
-        },
-        userUnit: 1,
-        totalScaleFactor: 1,
+        pdfDocument: shallowRef({} as object),
+        numPages: ref(1),
+        basePageWidth: ref(100),
+        basePageHeight: ref(100),
+        isLoading: ref(false),
+        ensurePageMetricsInRange: vi.fn(async () => false),
+        leasePage: vi.fn(async () => createPageLease({render: vi.fn(() => ({promise: Promise.resolve()}))})),
+        evictPage: vi.fn(),
+        cleanupPageCache: vi.fn(),
+        ...overrides,
     };
 }
 
@@ -369,6 +145,9 @@ describe('usePdfPageRenderer resilience', () => {
         canvasRendererMock.mountCanvas.mockImplementation((host: INodeLike, canvas: unknown) => {
             host.appendChild?.(canvas);
         });
+        canvasRendererMock.renderCanvas.mockResolvedValue(createRenderResult());
+        textLayerRendererMock.renderTextLayer.mockResolvedValue(undefined);
+        annotationLayerRendererMock.renderAnnotationLayer.mockResolvedValue(null);
     });
 
     afterEach(() => {
@@ -385,39 +164,21 @@ describe('usePdfPageRenderer resilience', () => {
         ]);
         const leasedPages: number[] = [];
         const documentState = {
-            pdfDocument: shallowRef({} as object),
+            ...createDocumentState(),
             numPages: ref(2),
-            basePageWidth: ref(100),
-            basePageHeight: ref(100),
-            isLoading: ref(false),
-            ensurePageMetricsInRange: vi.fn(async () => false),
             leasePage: vi.fn(async (pageNumber: number) => {
                 leasedPages.push(pageNumber);
                 return createPageLease({render: vi.fn(() => ({ promise: Promise.resolve() }))});
             }),
-            evictPage: vi.fn(),
-            cleanupPageCache: vi.fn(),
         };
-        canvasRendererMock.renderCanvas.mockResolvedValue(createRenderResult());
-        textLayerRendererMock.renderTextLayer.mockResolvedValue(undefined);
-        annotationLayerRendererMock.renderAnnotationLayer.mockResolvedValue(null);
 
         const renderer = usePdfPageRenderer({
             container: ref(containerRoot),
             document: documentState as never,
-            currentPage: ref(1),
             getProtectedVisibleRange: () => ({
                 start: 1,
                 end: 1,
             }),
-            effectiveScale: ref(1),
-            bufferPages: ref(0),
-            showAnnotations: ref(true),
-            annotationUiManager: ref(null),
-            annotationL10n: ref(null),
-            searchPageMatches: ref(new Map()),
-            currentSearchMatch: ref(null),
-            workingCopyPath: ref(null),
         });
 
         await renderer.renderVisiblePages({
@@ -438,22 +199,13 @@ describe('usePdfPageRenderer resilience', () => {
         ]);
         const leasedPages: number[] = [];
         const documentState = {
-            pdfDocument: shallowRef({} as object),
+            ...createDocumentState(),
             numPages: ref(2),
-            basePageWidth: ref(100),
-            basePageHeight: ref(100),
-            isLoading: ref(false),
-            ensurePageMetricsInRange: vi.fn(async () => false),
             leasePage: vi.fn(async (pageNumber: number) => {
                 leasedPages.push(pageNumber);
                 return createPageLease({render: vi.fn(() => ({promise: Promise.resolve()}))});
             }),
-            evictPage: vi.fn(),
-            cleanupPageCache: vi.fn(),
         };
-        canvasRendererMock.renderCanvas.mockResolvedValue(createRenderResult());
-        textLayerRendererMock.renderTextLayer.mockResolvedValue(undefined);
-        annotationLayerRendererMock.renderAnnotationLayer.mockResolvedValue(null);
         canvasRendererMock.mountCanvas
             .mockImplementationOnce(() => {})
             .mockImplementationOnce(() => {})
@@ -464,19 +216,10 @@ describe('usePdfPageRenderer resilience', () => {
         const renderer = usePdfPageRenderer({
             container: ref(containerRoot),
             document: documentState as never,
-            currentPage: ref(1),
             getProtectedVisibleRange: () => ({
                 start: 1,
                 end: 2,
             }),
-            effectiveScale: ref(1),
-            bufferPages: ref(0),
-            showAnnotations: ref(true),
-            annotationUiManager: ref(null),
-            annotationL10n: ref(null),
-            searchPageMatches: ref(new Map()),
-            currentSearchMatch: ref(null),
-            workingCopyPath: ref(null),
         });
 
         await renderer.renderVisiblePages({
@@ -513,30 +256,13 @@ describe('usePdfPageRenderer resilience', () => {
             .mockReturnValueOnce(firstMetrics)
             .mockResolvedValue(false);
         canvasRendererMock.renderCanvas.mockReturnValue(canvasResult);
-        textLayerRendererMock.renderTextLayer.mockResolvedValue(undefined);
-        annotationLayerRendererMock.renderAnnotationLayer.mockResolvedValue(null);
         const renderer = usePdfPageRenderer({
             container: ref(createContainerRoot(pageContainer)),
-            document: {
-                pdfDocument: shallowRef({} as object),
+            document: createDocumentState({
                 numPages: ref(1),
-                basePageWidth: ref(100),
-                basePageHeight: ref(100),
-                isLoading: ref(false),
                 ensurePageMetricsInRange,
                 leasePage,
-                evictPage: vi.fn(),
-                cleanupPageCache: vi.fn(),
-            } as never,
-            currentPage: ref(1),
-            effectiveScale: ref(1),
-            bufferPages: ref(0),
-            showAnnotations: ref(true),
-            annotationUiManager: ref(null),
-            annotationL10n: ref(null),
-            searchPageMatches: ref(new Map()),
-            currentSearchMatch: ref(null),
-            workingCopyPath: ref(null),
+            }) as never,
         });
 
         const staleRender = renderer.renderVisiblePages({
@@ -566,26 +292,11 @@ describe('usePdfPageRenderer resilience', () => {
         const {pageContainer} = createPageContainer();
         const renderer = usePdfPageRenderer({
             container: ref(createContainerRoot(pageContainer)),
-            document: {
-                pdfDocument: shallowRef({} as object),
+            document: createDocumentState({
                 numPages: ref(1),
-                basePageWidth: ref(100),
-                basePageHeight: ref(100),
-                isLoading: ref(false),
                 leasePage: vi.fn(async () => createPageLease({render: vi.fn(() => ({promise: Promise.resolve()}))})),
-                evictPage: vi.fn(),
-                cleanupPageCache: vi.fn(),
-            } as never,
-            currentPage: ref(1),
+            }) as never,
             isActive,
-            effectiveScale: ref(1),
-            bufferPages: ref(0),
-            showAnnotations: ref(true),
-            annotationUiManager: ref(null),
-            annotationL10n: ref(null),
-            searchPageMatches: ref(new Map()),
-            currentSearchMatch: ref(null),
-            workingCopyPath: ref(null),
         });
 
         await renderer.renderVisiblePages({
@@ -617,30 +328,13 @@ describe('usePdfPageRenderer resilience', () => {
                 return textLayerPromise;
             });
         });
-        canvasRendererMock.renderCanvas.mockResolvedValue(createRenderResult());
-        annotationLayerRendererMock.renderAnnotationLayer.mockResolvedValue(null);
         const pageLease = createPageLease({render: vi.fn(() => ({promise: Promise.resolve()}))});
         const renderer = usePdfPageRenderer({
             container: ref(createContainerRoot(pageContainer)),
-            document: {
-                pdfDocument: shallowRef({} as object),
+            document: createDocumentState({
                 numPages: ref(1),
-                basePageWidth: ref(100),
-                basePageHeight: ref(100),
-                isLoading: ref(false),
                 leasePage: vi.fn(async () => pageLease),
-                evictPage: vi.fn(),
-                cleanupPageCache: vi.fn(),
-            } as never,
-            currentPage: ref(1),
-            effectiveScale: ref(1),
-            bufferPages: ref(0),
-            showAnnotations: ref(true),
-            annotationUiManager: ref(null),
-            annotationL10n: ref(null),
-            searchPageMatches: ref(new Map()),
-            currentSearchMatch: ref(null),
-            workingCopyPath: ref(null),
+            }) as never,
         });
 
         const renderPromise = renderer.renderVisiblePages({
@@ -674,32 +368,14 @@ describe('usePdfPageRenderer resilience', () => {
 
         const pageLease = createPageLease(pdfPage);
         const documentState = {
-            pdfDocument: shallowRef({} as object),
+            ...createDocumentState(),
             numPages: ref(1),
-            basePageWidth: ref(100),
-            basePageHeight: ref(100),
-            isLoading: ref(false),
             leasePage: vi.fn(async () => pageLease),
-            evictPage: vi.fn(),
-            cleanupPageCache: vi.fn(),
         };
-
-        canvasRendererMock.renderCanvas.mockResolvedValue(createRenderResult());
-        textLayerRendererMock.renderTextLayer.mockResolvedValue(undefined);
-        annotationLayerRendererMock.renderAnnotationLayer.mockResolvedValue(null);
 
         const renderer = usePdfPageRenderer({
             container: ref(containerRoot),
             document: documentState as never,
-            currentPage: ref(1),
-            effectiveScale: ref(1),
-            bufferPages: ref(0),
-            showAnnotations: ref(true),
-            annotationUiManager: ref(null),
-            annotationL10n: ref(null),
-            searchPageMatches: ref(new Map()),
-            currentSearchMatch: ref(null),
-            workingCopyPath: ref(null),
         });
 
         await renderer.renderVisiblePages({
@@ -715,42 +391,26 @@ describe('usePdfPageRenderer resilience', () => {
     it('resolves in-flight render cancellation only after active PDF.js tasks settle', async () => {
         const { pageContainer } = createPageContainer();
         const containerRoot = createContainerRoot(pageContainer);
-        const renderTask = createDeferred();
+        const renderTask = Promise.withResolvers<undefined>();
         const cancelRenderTask = vi.fn();
         const startRender = vi.fn(() => ({
             cancel: cancelRenderTask,
             promise: renderTask.promise,
         }));
         const documentState = {
-            pdfDocument: shallowRef({} as object),
+            ...createDocumentState(),
             numPages: ref(1),
-            basePageWidth: ref(100),
-            basePageHeight: ref(100),
-            isLoading: ref(false),
             leasePage: vi.fn(async () => createPageLease({ cleanup: vi.fn() })),
-            evictPage: vi.fn(),
-            cleanupPageCache: vi.fn(),
         };
 
         canvasRendererMock.prepareCanvasRender.mockResolvedValueOnce({
             ...createRenderResult(),
             startRender,
         });
-        textLayerRendererMock.renderTextLayer.mockResolvedValue(undefined);
-        annotationLayerRendererMock.renderAnnotationLayer.mockResolvedValue(null);
 
         const renderer = usePdfPageRenderer({
             container: ref(containerRoot),
             document: documentState as never,
-            currentPage: ref(1),
-            effectiveScale: ref(1),
-            bufferPages: ref(0),
-            showAnnotations: ref(true),
-            annotationUiManager: ref(null),
-            annotationL10n: ref(null),
-            searchPageMatches: ref(new Map()),
-            currentSearchMatch: ref(null),
-            workingCopyPath: ref(null),
         });
 
         const renderPromise = renderer.renderVisiblePages({
@@ -770,7 +430,7 @@ describe('usePdfPageRenderer resilience', () => {
         expect(cancelRenderTask).toHaveBeenCalled();
         expect(cancellationSettled).toBe(false);
 
-        renderTask.resolve();
+        renderTask.resolve(undefined);
         await cancellationPromise;
         await renderPromise.catch(() => undefined);
 
@@ -781,37 +441,19 @@ describe('usePdfPageRenderer resilience', () => {
         const { pageContainer } = createPageContainer({ hasShapeOverlay: false });
         const containerRoot = createContainerRoot(pageContainer);
         const documentState = {
-            pdfDocument: shallowRef({} as object),
+            ...createDocumentState(),
             numPages: ref(1),
-            basePageWidth: ref(100),
-            basePageHeight: ref(100),
-            isLoading: ref(false),
             leasePage: vi.fn(async () => createPageLease({ cleanup: vi.fn() })),
-            evictPage: vi.fn(),
-            cleanupPageCache: vi.fn(),
         };
-
-        canvasRendererMock.renderCanvas.mockResolvedValue(createRenderResult());
-        textLayerRendererMock.renderTextLayer.mockResolvedValue(undefined);
-        annotationLayerRendererMock.renderAnnotationLayer.mockResolvedValue(null);
 
         const renderer = usePdfPageRenderer({
             container: ref(containerRoot),
             document: documentState as never,
-            currentPage: ref(1),
-            effectiveScale: ref(1),
-            bufferPages: ref(0),
-            showAnnotations: ref(true),
             hiddenAnnotationIds: ref(new Set([
                 '12R0',
                 'deleted-annotation',
             ])),
             managedAnnotationIds: ref(new Set(['12R'])),
-            annotationUiManager: ref(null),
-            annotationL10n: ref(null),
-            searchPageMatches: ref(new Map()),
-            currentSearchMatch: ref(null),
-            workingCopyPath: ref(null),
         });
 
         await renderer.renderVisiblePages({
@@ -827,37 +469,19 @@ describe('usePdfPageRenderer resilience', () => {
         const { pageContainer } = createPageContainer({ hasShapeOverlay: true });
         const containerRoot = createContainerRoot(pageContainer);
         const documentState = {
-            pdfDocument: shallowRef({} as object),
+            ...createDocumentState(),
             numPages: ref(1),
-            basePageWidth: ref(100),
-            basePageHeight: ref(100),
-            isLoading: ref(false),
             leasePage: vi.fn(async () => createPageLease({ cleanup: vi.fn() })),
-            evictPage: vi.fn(),
-            cleanupPageCache: vi.fn(),
         };
-
-        canvasRendererMock.renderCanvas.mockResolvedValue(createRenderResult());
-        textLayerRendererMock.renderTextLayer.mockResolvedValue(undefined);
-        annotationLayerRendererMock.renderAnnotationLayer.mockResolvedValue(null);
 
         const renderer = usePdfPageRenderer({
             container: ref(containerRoot),
             document: documentState as never,
-            currentPage: ref(1),
-            effectiveScale: ref(1),
-            bufferPages: ref(0),
-            showAnnotations: ref(true),
             hiddenAnnotationIds: ref(new Set([
                 '12R0',
                 'deleted-annotation',
             ])),
             managedAnnotationIds: ref(new Set(['12R'])),
-            annotationUiManager: ref(null),
-            annotationL10n: ref(null),
-            searchPageMatches: ref(new Map()),
-            currentSearchMatch: ref(null),
-            workingCopyPath: ref(null),
         });
 
         await renderer.renderVisiblePages({
@@ -879,32 +503,14 @@ describe('usePdfPageRenderer resilience', () => {
         } = createPageContainer();
         const containerRoot = createContainerRoot(pageContainer);
         const documentState = {
-            pdfDocument: shallowRef({} as object),
+            ...createDocumentState(),
             numPages: ref(1),
-            basePageWidth: ref(100),
-            basePageHeight: ref(100),
-            isLoading: ref(false),
             leasePage: vi.fn(async () => createPageLease({ render: vi.fn(() => ({ promise: Promise.resolve() })) })),
-            evictPage: vi.fn(),
-            cleanupPageCache: vi.fn(),
         };
-
-        canvasRendererMock.renderCanvas.mockResolvedValue(createRenderResult());
-        textLayerRendererMock.renderTextLayer.mockResolvedValue(undefined);
-        annotationLayerRendererMock.renderAnnotationLayer.mockResolvedValue(null);
 
         const renderer = usePdfPageRenderer({
             container: ref(containerRoot),
             document: documentState as never,
-            currentPage: ref(1),
-            effectiveScale: ref(1),
-            bufferPages: ref(0),
-            showAnnotations: ref(true),
-            annotationUiManager: ref(null),
-            annotationL10n: ref(null),
-            searchPageMatches: ref(new Map()),
-            currentSearchMatch: ref(null),
-            workingCopyPath: ref(null),
         });
 
         await renderer.renderVisiblePages({
@@ -927,31 +533,13 @@ describe('usePdfPageRenderer resilience', () => {
     it('keeps an intact committed canvas ready across a pure render cancellation', async () => {
         const { pageContainer } = createPageContainer();
         const containerRoot = createContainerRoot(pageContainer);
-        canvasRendererMock.renderCanvas.mockResolvedValue(createRenderResult());
-        textLayerRendererMock.renderTextLayer.mockResolvedValue(undefined);
-        annotationLayerRendererMock.renderAnnotationLayer.mockResolvedValue(null);
 
         const renderer = usePdfPageRenderer({
             container: ref(containerRoot),
-            document: {
-                pdfDocument: shallowRef({} as object),
+            document: createDocumentState({
                 numPages: ref(1),
-                basePageWidth: ref(100),
-                basePageHeight: ref(100),
-                isLoading: ref(false),
                 leasePage: vi.fn(async () => createPageLease({ render: vi.fn(() => ({ promise: Promise.resolve() })) })),
-                evictPage: vi.fn(),
-                cleanupPageCache: vi.fn(),
-            } as never,
-            currentPage: ref(1),
-            effectiveScale: ref(1),
-            bufferPages: ref(0),
-            showAnnotations: ref(true),
-            annotationUiManager: ref(null),
-            annotationL10n: ref(null),
-            searchPageMatches: ref(new Map()),
-            currentSearchMatch: ref(null),
-            workingCopyPath: ref(null),
+            }) as never,
         });
 
         await renderer.renderVisiblePages({
@@ -975,31 +563,13 @@ describe('usePdfPageRenderer resilience', () => {
         const { pageContainer } = createPageContainer();
         const containerRoot = createContainerRoot(pageContainer);
         canvasRendererMock.mountCanvas.mockImplementation(() => {});
-        canvasRendererMock.renderCanvas.mockResolvedValue(createRenderResult());
-        textLayerRendererMock.renderTextLayer.mockResolvedValue(undefined);
-        annotationLayerRendererMock.renderAnnotationLayer.mockResolvedValue(null);
 
         const renderer = usePdfPageRenderer({
             container: ref(containerRoot),
-            document: {
-                pdfDocument: shallowRef({} as object),
+            document: createDocumentState({
                 numPages: ref(1),
-                basePageWidth: ref(100),
-                basePageHeight: ref(100),
-                isLoading: ref(false),
                 leasePage: vi.fn(async () => createPageLease({ render: vi.fn(() => ({ promise: Promise.resolve() })) })),
-                evictPage: vi.fn(),
-                cleanupPageCache: vi.fn(),
-            } as never,
-            currentPage: ref(1),
-            effectiveScale: ref(1),
-            bufferPages: ref(0),
-            showAnnotations: ref(true),
-            annotationUiManager: ref(null),
-            annotationL10n: ref(null),
-            searchPageMatches: ref(new Map()),
-            currentSearchMatch: ref(null),
-            workingCopyPath: ref(null),
+            }) as never,
         });
 
         await renderer.renderVisiblePages({
@@ -1023,19 +593,10 @@ describe('usePdfPageRenderer resilience', () => {
             });
             const containerRoot = createContainerRoot(pageContainer);
             const documentState = {
-                pdfDocument: shallowRef({} as object),
+                ...createDocumentState(),
                 numPages: ref(2),
-                basePageWidth: ref(100),
-                basePageHeight: ref(100),
-                isLoading: ref(false),
                 leasePage: vi.fn(async () => createPageLease({ render: vi.fn(() => ({ promise: Promise.resolve() })) })),
-                evictPage: vi.fn(),
-                cleanupPageCache: vi.fn(),
             };
-
-            canvasRendererMock.renderCanvas.mockResolvedValue(createRenderResult());
-            textLayerRendererMock.renderTextLayer.mockResolvedValue(undefined);
-            annotationLayerRendererMock.renderAnnotationLayer.mockResolvedValue(null);
 
             const renderer = usePdfPageRenderer({
                 container: ref(containerRoot),
@@ -1075,16 +636,11 @@ describe('usePdfPageRenderer resilience', () => {
             offsetHeight: 900,
         });
         const containerRoot = createContainerRoot(pageContainer);
-        const canvasPaint = createDeferred();
+        const canvasPaint = Promise.withResolvers<undefined>();
         const documentState = {
-            pdfDocument: shallowRef({} as object),
+            ...createDocumentState(),
             numPages: ref(2),
-            basePageWidth: ref(100),
-            basePageHeight: ref(100),
-            isLoading: ref(false),
             leasePage: vi.fn(async () => createPageLease({ render: vi.fn(() => ({ promise: Promise.resolve() })) })),
-            evictPage: vi.fn(),
-            cleanupPageCache: vi.fn(),
         };
 
         canvasRendererMock.prepareCanvasRender.mockImplementationOnce(async () => ({
@@ -1094,19 +650,10 @@ describe('usePdfPageRenderer resilience', () => {
                 promise: canvasPaint.promise,
             }),
         }));
-        textLayerRendererMock.renderTextLayer.mockResolvedValue(undefined);
-        annotationLayerRendererMock.renderAnnotationLayer.mockResolvedValue(null);
 
         const renderer = usePdfPageRenderer({
             container: ref(containerRoot),
             document: documentState as never,
-            currentPage: ref(1),
-            effectiveScale: ref(1),
-            bufferPages: ref(0),
-            showAnnotations: ref(true),
-            annotationUiManager: ref(null),
-            annotationL10n: ref(null),
-            searchPageMatches: ref(new Map()),
             currentSearchMatch: ref(cast<IPdfSearchMatch>({
                 pageIndex: 1,
                 matchIndex: 0,
@@ -1114,7 +661,6 @@ describe('usePdfPageRenderer resilience', () => {
                 endOffset: 4,
             })),
             currentSearchMatchNavigationId: ref(0),
-            workingCopyPath: ref(null),
         });
 
         const renderPromise = renderer.renderVisiblePages(
@@ -1135,7 +681,7 @@ describe('usePdfPageRenderer resilience', () => {
         expect(pageContainer.classList.contains('page_container--rendered')).toBe(false);
         expect(renderer.isPageRendered(2)).toBe(false);
 
-        canvasPaint.resolve();
+        canvasPaint.resolve(undefined);
         await vi.runOnlyPendingTimersAsync();
         await renderPromise;
 
@@ -1146,34 +692,17 @@ describe('usePdfPageRenderer resilience', () => {
     it('commits canvas visual readiness before secondary page layers finish', async () => {
         const { pageContainer } = createPageContainer();
         const containerRoot = createContainerRoot(pageContainer);
-        const textLayerRender = createDeferred();
+        const textLayerRender = Promise.withResolvers<undefined>();
         const documentState = {
-            pdfDocument: shallowRef({} as object),
+            ...createDocumentState(),
             numPages: ref(1),
-            basePageWidth: ref(100),
-            basePageHeight: ref(100),
-            isLoading: ref(false),
             leasePage: vi.fn(async () => createPageLease({ render: vi.fn(() => ({ promise: Promise.resolve() })) })),
-            evictPage: vi.fn(),
-            cleanupPageCache: vi.fn(),
         };
-
-        canvasRendererMock.renderCanvas.mockResolvedValue(createRenderResult());
         textLayerRendererMock.renderTextLayer.mockReturnValue(textLayerRender.promise);
-        annotationLayerRendererMock.renderAnnotationLayer.mockResolvedValue(null);
 
         const renderer = usePdfPageRenderer({
             container: ref(containerRoot),
             document: documentState as never,
-            currentPage: ref(1),
-            effectiveScale: ref(1),
-            bufferPages: ref(0),
-            showAnnotations: ref(true),
-            annotationUiManager: ref(null),
-            annotationL10n: ref(null),
-            searchPageMatches: ref(new Map()),
-            currentSearchMatch: ref(null),
-            workingCopyPath: ref(null),
         });
 
         const renderPromise = renderer.renderVisiblePages({
@@ -1191,7 +720,7 @@ describe('usePdfPageRenderer resilience', () => {
         await renderPromise;
         expect(textLayerRendererMock.setupTextLayerInteraction).not.toHaveBeenCalled();
 
-        textLayerRender.resolve();
+        textLayerRender.resolve(undefined);
         await vi.waitFor(() => {
             expect(textLayerRendererMock.setupTextLayerInteraction).toHaveBeenCalledOnce();
         });
@@ -1208,31 +737,14 @@ describe('usePdfPageRenderer resilience', () => {
             firstPage.pageContainer,
             secondPage.pageContainer,
         ]);
-        canvasRendererMock.renderCanvas.mockResolvedValue(createRenderResult());
-        textLayerRendererMock.renderTextLayer.mockResolvedValue(undefined);
-        annotationLayerRendererMock.renderAnnotationLayer.mockResolvedValue(null);
 
         const renderer = usePdfPageRenderer({
             container: ref(containerRoot),
-            document: {
-                pdfDocument: shallowRef({} as object),
+            document: createDocumentState({
                 numPages: ref(2),
-                basePageWidth: ref(100),
-                basePageHeight: ref(100),
-                isLoading: ref(false),
                 leasePage: vi.fn(async () => createPageLease({render: vi.fn(() => ({promise: Promise.resolve()}))})),
-                evictPage: vi.fn(),
-                cleanupPageCache: vi.fn(),
-            } as never,
-            currentPage: ref(1),
-            effectiveScale: ref(1),
+            }) as never,
             bufferPages: ref(1),
-            showAnnotations: ref(true),
-            annotationUiManager: ref(null),
-            annotationL10n: ref(null),
-            searchPageMatches: ref(new Map()),
-            currentSearchMatch: ref(null),
-            workingCopyPath: ref(null),
         });
 
         await renderer.renderVisiblePages({
@@ -1252,32 +764,14 @@ describe('usePdfPageRenderer resilience', () => {
         const containerRoot = createContainerRoot(pageContainer);
         const onRenderedPageStateChanged = vi.fn();
         const documentState = {
-            pdfDocument: shallowRef({} as object),
+            ...createDocumentState(),
             numPages: ref(1),
-            basePageWidth: ref(100),
-            basePageHeight: ref(100),
-            isLoading: ref(false),
             leasePage: vi.fn(async () => createPageLease({ render: vi.fn(() => ({ promise: Promise.resolve() })) })),
-            evictPage: vi.fn(),
-            cleanupPageCache: vi.fn(),
         };
-
-        canvasRendererMock.renderCanvas.mockResolvedValue(createRenderResult());
-        textLayerRendererMock.renderTextLayer.mockResolvedValue(undefined);
-        annotationLayerRendererMock.renderAnnotationLayer.mockResolvedValue(null);
 
         const renderer = usePdfPageRenderer({
             container: ref(containerRoot),
             document: documentState as never,
-            currentPage: ref(1),
-            effectiveScale: ref(1),
-            bufferPages: ref(0),
-            showAnnotations: ref(true),
-            annotationUiManager: ref(null),
-            annotationL10n: ref(null),
-            searchPageMatches: ref(new Map()),
-            currentSearchMatch: ref(null),
-            workingCopyPath: ref(null),
             onRenderedPageStateChanged,
         });
 
@@ -1301,35 +795,19 @@ describe('usePdfPageRenderer resilience', () => {
         const ensurePageMetricsInRange = vi.fn(async () => true);
 
         const documentState = {
-            pdfDocument: shallowRef({} as object),
+            ...createDocumentState(),
             numPages: ref(1),
-            basePageWidth: ref(100),
-            basePageHeight: ref(100),
-            isLoading: ref(false),
             ensurePageMetricsInRange,
             leasePage: vi.fn(async () => createPageLease({render: vi.fn((_ctx: IRenderContext) => ({ promise: Promise.resolve() }))})),
-            evictPage: vi.fn(),
-            cleanupPageCache: vi.fn(),
         };
 
         canvasRendererMock.renderCanvas
             .mockResolvedValueOnce(createRenderResult())
             .mockResolvedValueOnce(createRenderResult());
-        textLayerRendererMock.renderTextLayer.mockResolvedValue(undefined);
-        annotationLayerRendererMock.renderAnnotationLayer.mockResolvedValue(null);
 
         const renderer = usePdfPageRenderer({
             container: ref(containerRoot),
             document: documentState as never,
-            currentPage: ref(1),
-            effectiveScale: ref(1),
-            bufferPages: ref(0),
-            showAnnotations: ref(true),
-            annotationUiManager: ref(null),
-            annotationL10n: ref(null),
-            searchPageMatches: ref(new Map()),
-            currentSearchMatch: ref(null),
-            workingCopyPath: ref(null),
         });
 
         await renderer.renderVisiblePages({
@@ -1360,40 +838,23 @@ describe('usePdfPageRenderer resilience', () => {
             firstPageContainer,
             secondPageContainer,
         ]);
-        const staleMetricsHydration = createDeferred<boolean>();
+        const staleMetricsHydration = Promise.withResolvers<boolean>();
         const ensurePageMetricsInRange = vi.fn()
             .mockResolvedValueOnce(false)
             .mockReturnValueOnce(staleMetricsHydration.promise)
             .mockResolvedValueOnce(false);
 
         const documentState = {
-            pdfDocument: shallowRef({} as object),
+            ...createDocumentState(),
             numPages: ref(2),
-            basePageWidth: ref(100),
-            basePageHeight: ref(100),
-            isLoading: ref(false),
             ensurePageMetricsInRange,
             leasePage: vi.fn(async () => createPageLease({ render: vi.fn((_ctx: IRenderContext) => ({ promise: Promise.resolve() })) })),
-            evictPage: vi.fn(),
-            cleanupPageCache: vi.fn(),
         };
-
-        canvasRendererMock.renderCanvas.mockResolvedValue(createRenderResult());
-        textLayerRendererMock.renderTextLayer.mockResolvedValue(undefined);
-        annotationLayerRendererMock.renderAnnotationLayer.mockResolvedValue(null);
 
         const renderer = usePdfPageRenderer({
             container: ref(containerRoot),
             document: documentState as never,
             currentPage: ref(2),
-            effectiveScale: ref(1),
-            bufferPages: ref(0),
-            showAnnotations: ref(true),
-            annotationUiManager: ref(null),
-            annotationL10n: ref(null),
-            searchPageMatches: ref(new Map()),
-            currentSearchMatch: ref(null),
-            workingCopyPath: ref(null),
         });
 
         await renderer.renderVisiblePages({
@@ -1431,37 +892,20 @@ describe('usePdfPageRenderer resilience', () => {
             firstPageContainer,
             secondPageContainer,
         ]);
-        const firstTextLayerRender = createDeferred();
+        const firstTextLayerRender = Promise.withResolvers<undefined>();
         const onPageRendered = vi.fn();
         const documentState = {
-            pdfDocument: shallowRef({} as object),
+            ...createDocumentState(),
             numPages: ref(2),
-            basePageWidth: ref(100),
-            basePageHeight: ref(100),
-            isLoading: ref(false),
             leasePage: vi.fn(async () => createPageLease({ render: vi.fn((_ctx: IRenderContext) => ({ promise: Promise.resolve() })) })),
-            evictPage: vi.fn(),
-            cleanupPageCache: vi.fn(),
         };
-
-        canvasRendererMock.renderCanvas.mockResolvedValue(createRenderResult());
         textLayerRendererMock.renderTextLayer
             .mockReturnValueOnce(firstTextLayerRender.promise)
             .mockResolvedValue(undefined);
-        annotationLayerRendererMock.renderAnnotationLayer.mockResolvedValue(null);
 
         const renderer = usePdfPageRenderer({
             container: ref(containerRoot),
             document: documentState as never,
-            currentPage: ref(1),
-            effectiveScale: ref(1),
-            bufferPages: ref(0),
-            showAnnotations: ref(true),
-            annotationUiManager: ref(null),
-            annotationL10n: ref(null),
-            searchPageMatches: ref(new Map()),
-            currentSearchMatch: ref(null),
-            workingCopyPath: ref(null),
             onPageRendered,
         });
 
@@ -1479,7 +923,7 @@ describe('usePdfPageRenderer resilience', () => {
             end: 2,
         });
 
-        firstTextLayerRender.resolve();
+        firstTextLayerRender.resolve(undefined);
         await staleRender;
 
         expect(onPageRendered).toHaveBeenCalledWith(1);
@@ -1494,39 +938,22 @@ describe('usePdfPageRenderer resilience', () => {
             setMountedCanvas,
         } = createPageContainer({ pageNumber: 1 });
         const containerRoot = createContainerRoot(pageContainer);
-        const staleTextLayerRender = createDeferred();
+        const staleTextLayerRender = Promise.withResolvers<undefined>();
         const documentState = {
-            pdfDocument: shallowRef({} as object),
+            ...createDocumentState(),
             numPages: ref(1),
-            basePageWidth: ref(100),
-            basePageHeight: ref(100),
-            isLoading: ref(false),
             leasePage: vi.fn(async () => createPageLease({ render: vi.fn((_ctx: IRenderContext) => ({ promise: Promise.resolve() })) })),
-            evictPage: vi.fn(),
-            cleanupPageCache: vi.fn(),
         };
-
-        canvasRendererMock.renderCanvas.mockResolvedValue(createRenderResult());
         canvasRendererMock.mountCanvas.mockImplementation((_host, canvas) => {
             setMountedCanvas(canvas);
         });
         textLayerRendererMock.renderTextLayer
             .mockResolvedValueOnce(undefined)
             .mockReturnValueOnce(staleTextLayerRender.promise);
-        annotationLayerRendererMock.renderAnnotationLayer.mockResolvedValue(null);
 
         const renderer = usePdfPageRenderer({
             container: ref(containerRoot),
             document: documentState as never,
-            currentPage: ref(1),
-            effectiveScale: ref(1),
-            bufferPages: ref(0),
-            showAnnotations: ref(true),
-            annotationUiManager: ref(null),
-            annotationL10n: ref(null),
-            searchPageMatches: ref(new Map()),
-            currentSearchMatch: ref(null),
-            workingCopyPath: ref(null),
         });
 
         await renderer.renderVisiblePages({
@@ -1556,7 +983,7 @@ describe('usePdfPageRenderer resilience', () => {
         );
         await vi.waitFor(() => expect(renderer.isPageRendered(1)).toBe(true));
 
-        staleTextLayerRender.resolve();
+        staleTextLayerRender.resolve(undefined);
         await Promise.all([
             staleRender,
             latestRender,
@@ -1573,31 +1000,15 @@ describe('usePdfPageRenderer resilience', () => {
         const containerRoot = createContainerRoot(pageContainer);
 
         const documentState = {
-            pdfDocument: shallowRef({} as object),
+            ...createDocumentState(),
             numPages: ref(1),
-            basePageWidth: ref(100),
-            basePageHeight: ref(100),
-            isLoading: ref(false),
             leasePage: vi.fn(async () => createPageLease({render: vi.fn((_ctx: IRenderContext) => ({ promise: Promise.resolve() }))})),
-            evictPage: vi.fn(),
-            cleanupPageCache: vi.fn(),
         };
-
-        canvasRendererMock.renderCanvas.mockResolvedValue(createRenderResult());
         textLayerRendererMock.renderTextLayer.mockRejectedValue(new Error('text layer failed'));
 
         const renderer = usePdfPageRenderer({
             container: ref(containerRoot),
             document: documentState as never,
-            currentPage: ref(1),
-            effectiveScale: ref(1),
-            bufferPages: ref(0),
-            showAnnotations: ref(true),
-            annotationUiManager: ref(null),
-            annotationL10n: ref(null),
-            searchPageMatches: ref(new Map()),
-            currentSearchMatch: ref(null),
-            workingCopyPath: ref(null),
         });
 
         await renderer.renderVisiblePages({
@@ -1625,17 +1036,10 @@ describe('usePdfPageRenderer resilience', () => {
         let didAbortTextLayer = false;
 
         const documentState = {
-            pdfDocument: shallowRef({} as object),
+            ...createDocumentState(),
             numPages: ref(1),
-            basePageWidth: ref(100),
-            basePageHeight: ref(100),
-            isLoading: ref(false),
             leasePage: vi.fn(async () => createPageLease({render: vi.fn((_ctx: IRenderContext) => ({ promise: Promise.resolve() }))})),
-            evictPage: vi.fn(),
-            cleanupPageCache: vi.fn(),
         };
-
-        canvasRendererMock.renderCanvas.mockResolvedValue(createRenderResult());
         textLayerRendererMock.renderTextLayer.mockImplementation((...args: unknown[]) => {
             textLayerSignal = args.at(-1) as AbortSignal;
             textLayerSignal.addEventListener('abort', () => {
@@ -1643,20 +1047,11 @@ describe('usePdfPageRenderer resilience', () => {
             });
             return new Promise(() => {});
         });
-        annotationLayerRendererMock.renderAnnotationLayer.mockResolvedValue(null);
 
         const renderer = usePdfPageRenderer({
             container: ref(containerRoot),
             document: documentState as never,
-            currentPage: ref(1),
-            effectiveScale: ref(1),
-            bufferPages: ref(0),
-            showAnnotations: ref(true),
             annotationUiManager: cast<Ref<AnnotationEditorUIManager | null>>(ref({ direction: 'ltr' })),
-            annotationL10n: ref(null),
-            searchPageMatches: ref(new Map()),
-            currentSearchMatch: ref(null),
-            workingCopyPath: ref(null),
             onRenderStall,
         });
 
@@ -1695,32 +1090,16 @@ describe('usePdfPageRenderer resilience', () => {
         const containerRoot = createContainerRoot(pageContainer);
 
         const documentState = {
-            pdfDocument: shallowRef({} as object),
+            ...createDocumentState(),
             numPages: ref(1),
-            basePageWidth: ref(100),
-            basePageHeight: ref(100),
-            isLoading: ref(false),
             leasePage: vi.fn(async () => createPageLease({render: vi.fn((_ctx: IRenderContext) => ({ promise: Promise.resolve() }))})),
-            evictPage: vi.fn(),
-            cleanupPageCache: vi.fn(),
         };
-
-        canvasRendererMock.renderCanvas.mockResolvedValue(createRenderResult());
-        textLayerRendererMock.renderTextLayer.mockResolvedValue(undefined);
         annotationLayerRendererMock.renderAnnotationLayer.mockRejectedValue(new Error('annotation layer failed'));
 
         const renderer = usePdfPageRenderer({
             container: ref(containerRoot),
             document: documentState as never,
-            currentPage: ref(1),
-            effectiveScale: ref(1),
-            bufferPages: ref(0),
-            showAnnotations: ref(true),
             annotationUiManager: cast<Ref<AnnotationEditorUIManager | null>>(ref({ direction: 'ltr' })),
-            annotationL10n: ref(null),
-            searchPageMatches: ref(new Map()),
-            currentSearchMatch: ref(null),
-            workingCopyPath: ref(null),
         });
 
         await renderer.renderVisiblePages({
@@ -1741,18 +1120,10 @@ describe('usePdfPageRenderer resilience', () => {
         const { pageContainer } = createPageContainer();
         const containerRoot = createContainerRoot(pageContainer);
         const documentState = {
-            pdfDocument: shallowRef({} as object),
+            ...createDocumentState(),
             numPages: ref(1),
-            basePageWidth: ref(100),
-            basePageHeight: ref(100),
-            isLoading: ref(false),
             leasePage: vi.fn(async () => createPageLease({render: vi.fn((_ctx: IRenderContext) => ({ promise: Promise.resolve() }))})),
-            evictPage: vi.fn(),
-            cleanupPageCache: vi.fn(),
         };
-
-        canvasRendererMock.renderCanvas.mockResolvedValue(createRenderResult());
-        textLayerRendererMock.renderTextLayer.mockResolvedValue(undefined);
         annotationLayerRendererMock.renderAnnotationLayer.mockRejectedValue(
             Object.assign(new Error('Page render stage was aborted'), {name: 'AbortError'}),
         );
@@ -1760,15 +1131,6 @@ describe('usePdfPageRenderer resilience', () => {
         const renderer = usePdfPageRenderer({
             container: ref(containerRoot),
             document: documentState as never,
-            currentPage: ref(1),
-            effectiveScale: ref(1),
-            bufferPages: ref(0),
-            showAnnotations: ref(true),
-            annotationUiManager: ref(null),
-            annotationL10n: ref(null),
-            searchPageMatches: ref(new Map()),
-            currentSearchMatch: ref(null),
-            workingCopyPath: ref(null),
         });
 
         await renderer.renderVisiblePages({
@@ -1786,18 +1148,10 @@ describe('usePdfPageRenderer resilience', () => {
         const containerRoot = createContainerRoot(pageContainer);
         const annotationSignals: AbortSignal[] = [];
         const documentState = {
-            pdfDocument: shallowRef({} as object),
+            ...createDocumentState(),
             numPages: ref(1),
-            basePageWidth: ref(100),
-            basePageHeight: ref(100),
-            isLoading: ref(false),
             leasePage: vi.fn(async () => createPageLease({render: vi.fn((_ctx: IRenderContext) => ({ promise: Promise.resolve() }))})),
-            evictPage: vi.fn(),
-            cleanupPageCache: vi.fn(),
         };
-
-        canvasRendererMock.renderCanvas.mockResolvedValue(createRenderResult());
-        textLayerRendererMock.renderTextLayer.mockResolvedValue(undefined);
         annotationLayerRendererMock.renderAnnotationLayer.mockImplementation((...args: unknown[]) => {
             annotationSignals.push((args[5] as { signal: AbortSignal }).signal);
             return new Promise(() => {});
@@ -1806,15 +1160,6 @@ describe('usePdfPageRenderer resilience', () => {
         const renderer = usePdfPageRenderer({
             container: ref(containerRoot),
             document: documentState as never,
-            currentPage: ref(1),
-            effectiveScale: ref(1),
-            bufferPages: ref(0),
-            showAnnotations: ref(true),
-            annotationUiManager: ref(null),
-            annotationL10n: ref(null),
-            searchPageMatches: ref(new Map()),
-            currentSearchMatch: ref(null),
-            workingCopyPath: ref(null),
         });
 
         const renderPromise = renderer.renderVisiblePages({
@@ -1845,19 +1190,10 @@ describe('usePdfPageRenderer resilience', () => {
         const containerRoot = createContainerRoot(pageContainer);
         const annotationEditorSignals: AbortSignal[] = [];
         const documentState = {
-            pdfDocument: shallowRef({} as object),
+            ...createDocumentState(),
             numPages: ref(1),
-            basePageWidth: ref(100),
-            basePageHeight: ref(100),
-            isLoading: ref(false),
             leasePage: vi.fn(async () => createPageLease({render: vi.fn((_ctx: IRenderContext) => ({ promise: Promise.resolve() }))})),
-            evictPage: vi.fn(),
-            cleanupPageCache: vi.fn(),
         };
-
-        canvasRendererMock.renderCanvas.mockResolvedValue(createRenderResult());
-        textLayerRendererMock.renderTextLayer.mockResolvedValue(undefined);
-        annotationLayerRendererMock.renderAnnotationLayer.mockResolvedValue(null);
         annotationLayerRendererMock.renderAnnotationEditorLayer.mockImplementation((...args: unknown[]) => {
             annotationEditorSignals.push((args[6] as { signal: AbortSignal }).signal);
             return new Promise(() => {});
@@ -1866,15 +1202,7 @@ describe('usePdfPageRenderer resilience', () => {
         const renderer = usePdfPageRenderer({
             container: ref(containerRoot),
             document: documentState as never,
-            currentPage: ref(1),
-            effectiveScale: ref(1),
-            bufferPages: ref(0),
-            showAnnotations: ref(true),
             annotationUiManager: cast<Ref<AnnotationEditorUIManager | null>>(ref({ direction: 'ltr' })),
-            annotationL10n: ref(null),
-            searchPageMatches: ref(new Map()),
-            currentSearchMatch: ref(null),
-            workingCopyPath: ref(null),
         });
 
         const renderPromise = renderer.renderVisiblePages({
@@ -1906,14 +1234,9 @@ describe('usePdfPageRenderer resilience', () => {
         const onRenderStall = vi.fn();
 
         const documentState = {
-            pdfDocument: shallowRef({} as object),
+            ...createDocumentState(),
             numPages: ref(1),
-            basePageWidth: ref(100),
-            basePageHeight: ref(100),
-            isLoading: ref(false),
             leasePage: vi.fn(async () => createPageLease({render: vi.fn((_ctx: IRenderContext) => ({ promise: Promise.resolve() }))})),
-            evictPage: vi.fn(),
-            cleanupPageCache: vi.fn(),
         };
 
         canvasRendererMock.prepareCanvasRender.mockImplementationOnce(async () => {
@@ -1927,21 +1250,10 @@ describe('usePdfPageRenderer resilience', () => {
                 }),
             };
         });
-        textLayerRendererMock.renderTextLayer.mockResolvedValue(undefined);
-        annotationLayerRendererMock.renderAnnotationLayer.mockResolvedValue(null);
 
         const renderer = usePdfPageRenderer({
             container: ref(containerRoot),
             document: documentState as never,
-            currentPage: ref(1),
-            effectiveScale: ref(1),
-            bufferPages: ref(0),
-            showAnnotations: ref(true),
-            annotationUiManager: ref(null),
-            annotationL10n: ref(null),
-            searchPageMatches: ref(new Map()),
-            currentSearchMatch: ref(null),
-            workingCopyPath: ref(null),
             onRenderStall,
         });
 
@@ -1969,24 +1281,12 @@ describe('usePdfPageRenderer resilience', () => {
 
         const renderer = usePdfPageRenderer({
             container: ref(containerRoot),
-            document: {
-                pdfDocument: shallowRef({} as object),
+            document: createDocumentState({
                 numPages: ref(1),
-                basePageWidth: ref(100),
-                basePageHeight: ref(100),
-                isLoading: ref(false),
                 ensurePageMetricsInRange,
                 leasePage,
-                evictPage: vi.fn(),
-                cleanupPageCache: vi.fn(),
-            } as never,
-            currentPage: ref(1),
+            }) as never,
             isActive: ref(false),
-            effectiveScale: ref(1),
-            bufferPages: ref(0),
-            searchPageMatches: ref(new Map()),
-            currentSearchMatch: ref(null),
-            workingCopyPath: ref(null),
         });
 
         await renderer.renderVisiblePages({
@@ -2006,23 +1306,11 @@ describe('usePdfPageRenderer resilience', () => {
 
         const renderer = usePdfPageRenderer({
             container: ref(containerRoot),
-            document: {
-                pdfDocument: shallowRef({} as object),
+            document: createDocumentState({
                 numPages: ref(1),
-                basePageWidth: ref(100),
-                basePageHeight: ref(100),
-                isLoading: ref(false),
                 leasePage,
-                evictPage: vi.fn(),
-                cleanupPageCache: vi.fn(),
-            } as never,
-            currentPage: ref(1),
+            }) as never,
             isActive: ref(false),
-            effectiveScale: ref(1),
-            bufferPages: ref(0),
-            searchPageMatches: ref(new Map()),
-            currentSearchMatch: ref(null),
-            workingCopyPath: ref(null),
         });
 
         await renderer.reRenderAllVisiblePages(() => ({

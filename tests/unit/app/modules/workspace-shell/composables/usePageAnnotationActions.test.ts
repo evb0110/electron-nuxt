@@ -23,6 +23,7 @@ import type { IPdfPlacedImageFinalizePayload } from '@app/types/pdfImagePlacemen
 import type { TDocumentOperationKind } from '@app/types/documentOperationKind';
 import { usePageAnnotationActions } from '@app/modules/workspace-shell/composables/usePageAnnotationActions';
 import { createElectronPlatformApiFixture } from '@tests/helpers/createElectronPlatformApiFixture';
+import { createTestDomRect } from '@tests/helpers/domGeometryTestHarness';
 
 const { resolveAnnotationCommentTextMarkupColor } = vi.hoisted(() => ({resolveAnnotationCommentTextMarkupColor: vi.fn(() => null as string | null)}));
 
@@ -76,15 +77,19 @@ function createEditorOpenNote(
     };
 }
 
-function deferred<T>() {
-    let resolve: ((value: T | PromiseLike<T>) => void) | null = null;
-    const promise = new Promise<T>((res) => {
-        resolve = res;
-    });
-
+function placedImagePayload(rotationDegrees = 0): IPdfPlacedImageFinalizePayload {
     return {
-        promise,
-        resolve: (value: T) => resolve?.(value),
+        pageNumber: 4,
+        x: 0.1,
+        y: 0.2,
+        width: 0.3,
+        height: 0.15,
+        rotationDegrees,
+        fileName: 'image.png',
+        mimeType: 'image/png',
+        bytes: Uint8Array.of(1, 2, 3),
+        targetPixelWidth: 240,
+        targetPixelHeight: 120,
     };
 }
 
@@ -117,11 +122,7 @@ function installSplitImagePickerPlatform(imagePath: string, options: { cleanupEr
         readFile: vi.fn(() => Promise.reject(new Error('legacy image read should not be used'))),
         cleanupFile: vi.fn(() => Promise.reject(new Error('legacy image cleanup should not be used'))),
     };
-    const imageBytes = Uint8Array.from([
-        1,
-        2,
-        3,
-    ]);
+    const imageBytes = Uint8Array.of(1, 2, 3);
     const cleanupFile = vi.fn(() => (
         options.cleanupError
             ? Promise.reject(options.cleanupError)
@@ -152,14 +153,7 @@ function installSplitImagePickerPlatform(imagePath: string, options: { cleanupEr
     };
 }
 
-interface ITestViewerRect {
-    left: number;
-    top: number;
-    width: number;
-    height: number;
-}
-
-interface ITestViewerPageContainer { getBoundingClientRect: () => ITestViewerRect; }
+interface ITestViewerPageContainer { getBoundingClientRect: () => DOMRect; }
 
 interface ITestViewerContainer {
     addEventListener: ReturnType<typeof vi.fn>;
@@ -196,10 +190,7 @@ function createHarness() {
         runSaveTransaction: vi.fn(async () => ({
             source: 'pdfjs-materialize' as const,
             baseBytes: null,
-            serializedBytes: new Uint8Array([
-                9,
-                9,
-            ]),
+            serializedBytes: Uint8Array.of(9, 9),
             serializedResult: null,
             nativeMutationProjection: null,
             annotationSavePlan: {
@@ -209,10 +200,7 @@ function createHarness() {
                 unreplayableLiveAnnotationIds: [],
             },
         })),
-        saveDocument: vi.fn(async () => new Uint8Array([
-            9,
-            9,
-        ])),
+        saveDocument: vi.fn(async () => Uint8Array.of(9, 9)),
         startImagePlacement: vi.fn(async (
             _file?: File,
             _placement?: {
@@ -285,14 +273,8 @@ function createHarness() {
         setPreservedAnnotationSourceDirty: vi.fn(),
         getAnnotationCommentsSnapshot: vi.fn((): IAnnotationCommentSummary[] => []),
         getAnnotationCommentsStatusSnapshot: vi.fn((): TAnnotationCommentsStatus => 'loading'),
-        getEmbeddedMutationBaseData: vi.fn(async () => new Uint8Array([
-            6,
-            6,
-        ])),
-        embedPlacedImageToPage: vi.fn(async (_data: Uint8Array, _placement: IPdfPlacedImageFinalizePayload) => new Uint8Array([
-            7,
-            7,
-        ])),
+        getEmbeddedMutationBaseData: vi.fn(async () => Uint8Array.of(6, 6)),
+        embedPlacedImageToPage: vi.fn(async (_data: Uint8Array, _placement: IPdfPlacedImageFinalizePayload) => Uint8Array.of(7, 7)),
         runWithDocumentOperationLease,
     };
 
@@ -601,7 +583,7 @@ describe('usePageAnnotationActions', () => {
             removeEventListener: vi.fn(),
             querySelector: (selector: string) => (
                 selector === '.page_container[data-page="1"]'
-                    ? { getBoundingClientRect: () => ({
+                    ? { getBoundingClientRect: () => createTestDomRect({
                         left: 100,
                         top: 80,
                         width: 600,
@@ -884,39 +866,17 @@ describe('usePageAnnotationActions', () => {
             viewer,
             actions,
         } = createHarness();
-        const finalized = await actions.handleFinalizePlacedImage({
-            pageNumber: 4,
-            x: 0.1,
-            y: 0.2,
-            width: 0.3,
-            height: 0.15,
-            rotationDegrees: 90,
-            fileName: 'image.png',
-            mimeType: 'image/png',
-            bytes: new Uint8Array([
-                1,
-                2,
-                3,
-            ]),
-            targetPixelWidth: 240,
-            targetPixelHeight: 120,
-        });
+        const finalized = await actions.handleFinalizePlacedImage(placedImagePayload(90));
 
         expect(finalized).toBe(true);
-        expect(deps.embedPlacedImageToPage).toHaveBeenCalledWith(new Uint8Array([
-            6,
-            6,
-        ]), expect.objectContaining({
+        expect(deps.embedPlacedImageToPage).toHaveBeenCalledWith(Uint8Array.of(6, 6), expect.objectContaining({
             pageNumber: 4,
             rotationDegrees: 90,
             targetPixelWidth: 240,
             targetPixelHeight: 120,
         }));
         expect(deps.waitForPdfReload).toHaveBeenCalledWith(4);
-        expect(deps.loadPdfFromData).toHaveBeenCalledWith(new Uint8Array([
-            7,
-            7,
-        ]), {
+        expect(deps.loadPdfFromData).toHaveBeenCalledWith(Uint8Array.of(7, 7), {
             pushHistory: true,
             persistWorkingCopy: true,
         });
@@ -929,7 +889,7 @@ describe('usePageAnnotationActions', () => {
             deps,
             actions,
         } = createHarness();
-        const leaseGate = deferred<undefined>();
+        const leaseGate = Promise.withResolvers<undefined>();
         deps.runWithDocumentOperationLease.mockImplementationOnce(async <T>(
             kind: TDocumentOperationKind,
             operation: () => Promise<T>,
@@ -939,23 +899,7 @@ describe('usePageAnnotationActions', () => {
             return operation();
         });
 
-        const finalizePromise = actions.handleFinalizePlacedImage({
-            pageNumber: 4,
-            x: 0.1,
-            y: 0.2,
-            width: 0.3,
-            height: 0.15,
-            rotationDegrees: 90,
-            fileName: 'image.png',
-            mimeType: 'image/png',
-            bytes: new Uint8Array([
-                1,
-                2,
-                3,
-            ]),
-            targetPixelWidth: 240,
-            targetPixelHeight: 120,
-        });
+        const finalizePromise = actions.handleFinalizePlacedImage(placedImagePayload(90));
         await Promise.resolve();
 
         expect(deps.runWithDocumentOperationLease).toHaveBeenCalledWith('page-operation', expect.any(Function));
@@ -965,10 +909,7 @@ describe('usePageAnnotationActions', () => {
         leaseGate.resolve(undefined);
         await expect(finalizePromise).resolves.toBe(true);
 
-        expect(deps.loadPdfFromData).toHaveBeenCalledWith(new Uint8Array([
-            7,
-            7,
-        ]), {
+        expect(deps.loadPdfFromData).toHaveBeenCalledWith(Uint8Array.of(7, 7), {
             pushHistory: true,
             persistWorkingCopy: true,
         });
@@ -982,29 +923,10 @@ describe('usePageAnnotationActions', () => {
         } = createHarness();
         deps.embedPlacedImageToPage.mockImplementationOnce(async () => {
             deps.workingCopyPath.value = '/tmp/other.pdf';
-            return new Uint8Array([
-                7,
-                7,
-            ]);
+            return Uint8Array.of(7, 7);
         });
 
-        const finalized = await actions.handleFinalizePlacedImage({
-            pageNumber: 4,
-            x: 0.1,
-            y: 0.2,
-            width: 0.3,
-            height: 0.15,
-            rotationDegrees: 0,
-            fileName: 'image.png',
-            mimeType: 'image/png',
-            bytes: new Uint8Array([
-                1,
-                2,
-                3,
-            ]),
-            targetPixelWidth: 240,
-            targetPixelHeight: 120,
-        });
+        const finalized = await actions.handleFinalizePlacedImage(placedImagePayload(0));
 
         expect(finalized).toBe(false);
         expect(viewer.clearPendingImagePlacement).toHaveBeenCalledOnce();
@@ -1018,34 +940,12 @@ describe('usePageAnnotationActions', () => {
             viewer,
             actions,
         } = createHarness();
-        deps.getEmbeddedMutationBaseData.mockResolvedValueOnce(new Uint8Array([
-            9,
-            9,
-        ]));
+        deps.getEmbeddedMutationBaseData.mockResolvedValueOnce(Uint8Array.of(9, 9));
 
-        await actions.handleFinalizePlacedImage({
-            pageNumber: 4,
-            x: 0.1,
-            y: 0.2,
-            width: 0.3,
-            height: 0.15,
-            rotationDegrees: 0,
-            fileName: 'image.png',
-            mimeType: 'image/png',
-            bytes: new Uint8Array([
-                1,
-                2,
-                3,
-            ]),
-            targetPixelWidth: 240,
-            targetPixelHeight: 120,
-        });
+        await actions.handleFinalizePlacedImage(placedImagePayload(0));
 
         expect(viewer.saveDocument).not.toHaveBeenCalled();
-        expect(deps.embedPlacedImageToPage).toHaveBeenCalledWith(new Uint8Array([
-            9,
-            9,
-        ]), expect.any(Object));
+        expect(deps.embedPlacedImageToPage).toHaveBeenCalledWith(Uint8Array.of(9, 9), expect.any(Object));
     });
 
     it('serializes delete requests through a single queue', async () => {
@@ -1069,7 +969,7 @@ describe('usePageAnnotationActions', () => {
             },
         ];
 
-        const gate = deferred<undefined>();
+        const gate = Promise.withResolvers<undefined>();
         const deleteOrder: string[] = [];
         viewer.deleteAnnotationComment.mockImplementation(async (comment: IAnnotationCommentSummary) => {
             deleteOrder.push(comment.stableKey);
@@ -1111,7 +1011,7 @@ describe('usePageAnnotationActions', () => {
             annotationId: annotationIdForSummary(comment),
             draftText: comment.text,
         }];
-        const gate = deferred<boolean>();
+        const gate = Promise.withResolvers<boolean>();
         viewer.deleteAnnotationComment.mockImplementation(async () => gate.promise);
 
         const deleteA = actions.handleDeleteAnnotationComment(comment);
@@ -1361,10 +1261,7 @@ describe('usePageAnnotationActions', () => {
             viewer,
             actions,
         } = createHarness();
-        deps.getEmbeddedMutationBaseData.mockResolvedValueOnce(new Uint8Array([
-            9,
-            9,
-        ]));
+        deps.getEmbeddedMutationBaseData.mockResolvedValueOnce(Uint8Array.of(9, 9));
         const comment = createComment('stamp-delete-with-live-edits');
         comment.source = 'editor';
         comment.annotationId = '12R';
@@ -1402,10 +1299,7 @@ describe('usePageAnnotationActions', () => {
 
         expect(didReload).toBe(true);
         expect(deps.waitForPdfReload).toHaveBeenCalledWith(3);
-        expect(deps.loadPdfFromData).toHaveBeenCalledWith(new Uint8Array([
-            9,
-            9,
-        ]), {
+        expect(deps.loadPdfFromData).toHaveBeenCalledWith(Uint8Array.of(9, 9), {
             pushHistory: true,
             persistWorkingCopy: true,
         });
@@ -1416,7 +1310,7 @@ describe('usePageAnnotationActions', () => {
             deps,
             actions,
         } = createHarness();
-        const leaseGate = deferred<undefined>();
+        const leaseGate = Promise.withResolvers<undefined>();
         deps.runWithDocumentOperationLease.mockImplementationOnce(async <T>(
             kind: TDocumentOperationKind,
             operation: () => Promise<T>,
@@ -1434,10 +1328,7 @@ describe('usePageAnnotationActions', () => {
 
         leaseGate.resolve(undefined);
         await expect(reloadPromise).resolves.toBe(true);
-        expect(deps.loadPdfFromData).toHaveBeenCalledWith(new Uint8Array([
-            9,
-            9,
-        ]), {
+        expect(deps.loadPdfFromData).toHaveBeenCalledWith(Uint8Array.of(9, 9), {
             pushHistory: true,
             persistWorkingCopy: true,
         });
