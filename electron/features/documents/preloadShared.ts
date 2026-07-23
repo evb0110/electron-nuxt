@@ -1,7 +1,3 @@
-import type {
-    TMenuEventCallback,
-    TMenuEventUnsubscribe,
-} from '@contracts/electronApiCommon';
 import {
     assertAbsolutePath,
     assertNonEmptyString,
@@ -43,9 +39,4 @@ export {
     assertOptionalAbsolutePath,
     assertWriteData,
     assertWorkingCopyFileName,
-};
-
-export type {
-    TMenuEventCallback,
-    TMenuEventUnsubscribe,
 };

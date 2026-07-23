@@ -41,14 +41,6 @@ export function decodeOptionalStringArg(args: readonly unknown[], index: number,
     return value;
 }
 
-export function decodeBooleanArg(args: readonly unknown[], index: number, fieldName: string): boolean {
-    const value = args[index];
-    if (typeof value !== 'boolean') {
-        throw new Error(`${fieldName} must be a boolean`);
-    }
-    return value;
-}
-
 export function decodeSafeIntegerArg(args: readonly unknown[], index: number, fieldName: string, min = 0): number {
     const value = args[index];
     if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < min) {

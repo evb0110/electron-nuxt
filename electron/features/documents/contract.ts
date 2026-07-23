@@ -1,4 +1,3 @@
-import type {IDocumentRevisionChangedEvent} from '@contracts/documentRevision';
 import type {
     IDocumentMutationRevisionOptions,
     IDocumentsFileCapability,
@@ -318,6 +317,5 @@ export interface IDocumentsInvokeMap {
     };
 }
 
-export interface IDocumentsEventMap {[DOCUMENTS_EVENT_CHANNELS.documentRevisionChanged]: IDocumentRevisionChangedEvent;}
 
 export type { TOpenFileResult } from '@contracts/electronApiDocuments';

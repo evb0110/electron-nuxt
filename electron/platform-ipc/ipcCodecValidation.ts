@@ -1,8 +1,3 @@
-export function decodeNoArgs(args: readonly unknown[]): [] {
-    requireIpcArgumentCount(args, 0);
-    return [];
-}
-
 export function requireIpcArgumentCount(
     args: readonly unknown[],
     expected: number | {

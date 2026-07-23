@@ -14,7 +14,10 @@ const {
 } = await import(pathToFileURL(resolve(process.cwd(), 'scripts/release/native-tool-smoke-policy.mjs')).href);
 const { GENERATED_RELEASE_NATIVE_TOOL_PROTOCOLS } = await import(
     pathToFileURL(resolve(process.cwd(), 'scripts/release/generated-native-tool-protocols.mjs')).href
-);
+) as {GENERATED_RELEASE_NATIVE_TOOL_PROTOCOLS: ReadonlyArray<{
+    binaryName: string;
+    protocolVersion: number;
+}>;};
 
 describe('native tool smoke policy', () => {
     it('keeps mac packaged tool smoke expectations explicit per tool', () => {
