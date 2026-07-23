@@ -117,9 +117,11 @@ const DOCUMENT_REVISION = 'revision-token';
 function createInvokeEvent(senderId: number) {
     return { sender: {
         id: senderId,
+        isDestroyed: () => false,
         on: vi.fn(),
         once: vi.fn(),
         removeListener: vi.fn(),
+        send: vi.fn(),
     } };
 }
 

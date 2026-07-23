@@ -116,6 +116,8 @@ describe('Search platform feature schemas', () => {
             owner: 'ipc-progress-pump',
             terminalRetentionMs: 30_000,
         });
+        expect(SEARCH_PLATFORM_FEATURE.methods.run.ipc.timeoutMs).toBe(30 * 60 * 1_000);
+        expect(SEARCH_PLATFORM_FEATURE.methods.warmIndex.ipc.timeoutMs).toBe(30 * 60 * 1_000);
     });
 
     it('normalizes representative boundary arguments', () => {

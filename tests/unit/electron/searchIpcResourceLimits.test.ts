@@ -194,15 +194,18 @@ vi.mock('@electron/utils/createLogger', () => ({createLogger: () => mocks.logger
 vi.mock('fs', () => ({existsSync: (...args: unknown[]) => mocks.existsSync(...args)}));
 
 function createInvokeEvent(senderId: number) {
+    const send = vi.fn();
     const sender = {
         id: senderId,
+        isDestroyed: () => false,
         once: vi.fn(),
         on: vi.fn(),
         removeListener: vi.fn(),
+        send,
     };
     mocks.webContentsById.set(senderId, {
         isDestroyed: () => false,
-        send: vi.fn(),
+        send,
     });
     return {sender};
 }
@@ -660,45 +663,41 @@ describe('search IPC worker resource limits', () => {
         }});
     });
 
-    it('cancels pending search work when the renderer main frame navigates', async () => {
-        vi.useFakeTimers();
-        process.env.EVB_SEARCH_WORKER_TERMINATE_TIMEOUT_MS = '1000';
+    it('detaches renderer delivery without canceling pending search work on main-frame navigation', async () => {
         mocks.autoCompleteSearch = false;
 
-        try {
-            await registerSearchHandlers();
-            const searchHandler = getSearchHandler();
-            const event = createInvokeEvent(174);
-            const searchPromise = searchHandler(
-                event,
-                {
-                    pdfPath: '/tmp/one.pdf',
-                    query: 'needle',
-                    requestId: 'nav-cancel',
-                },
-            ) as Promise<{
-                results: unknown[];
-                truncated: boolean
-            }>;
+        await registerSearchHandlers();
+        const searchHandler = getSearchHandler();
+        const event = createInvokeEvent(174);
+        const searchPromise = searchHandler(
+            event,
+            {
+                pdfPath: '/tmp/one.pdf',
+                query: 'needle',
+                requestId: 'nav-detach',
+            },
+        ) as Promise<{
+            results: unknown[];
+            truncated: boolean
+        }>;
 
-            await vi.waitFor(() => {
-                expect(mocks.workerRecords).toHaveLength(1);
-            });
+        await vi.waitFor(() => {
+            expect(mocks.workerRecords).toHaveLength(1);
+        });
 
-            triggerMainFrameNavigation(event);
+        triggerMainFrameNavigation(event);
 
-            await expect(searchPromise).rejects.toThrow('Renderer navigated');
-            expect(mocks.workerRecords[0]?.postMessageCalls).toContainEqual({
-                type: 'cancel',
-                requestId: 'nav-cancel',
-            });
-            expect(mocks.workerRecords[0]?.terminate).not.toHaveBeenCalled();
-            await vi.advanceTimersByTimeAsync(1_000);
-            expect(mocks.workerRecords[0]?.terminate).toHaveBeenCalledOnce();
-            expect(event.sender.removeListener).toHaveBeenCalledWith('did-start-navigation', expect.any(Function));
-        } finally {
-            vi.useRealTimers();
-        }
+        expect(mocks.workerRecords[0]?.postMessageCalls).not.toContainEqual({
+            type: 'cancel',
+            requestId: 'nav-detach',
+        });
+        expect(mocks.workerRecords[0]?.terminate).not.toHaveBeenCalled();
+        emitWorkerComplete(0, 'nav-detach');
+        await expect(searchPromise).resolves.toEqual({
+            results: [],
+            truncated: false,
+        });
+        expect(event.sender.removeListener).toHaveBeenCalledWith('did-start-navigation', expect.any(Function));
     });
 
     it.each([
@@ -757,27 +756,29 @@ describe('search IPC worker resource limits', () => {
 
             const validResult = buildSearchMatch({pageNumber: 2});
             emitWorkerProgressWithResults(0, requestId, [validResult]);
-            expect(sender.send).toHaveBeenCalledWith('pdf:search:progress', {
-                requestId,
-                processed: 1,
-                total: 2,
-                results: [validResult],
-                truncated: false,
+            await vi.waitFor(() => {
+                expect(sender.send).toHaveBeenCalledWith('pdf:search:progress', {
+                    requestId,
+                    processed: 1,
+                    total: 2,
+                    results: [validResult],
+                    truncated: false,
+                });
             });
             sender.send.mockClear();
             mocks.logger.warn.mockClear();
 
             if (mode === 'complete') {
                 emitWorkerComplete(0, requestId);
+                await expect(searchPromise).resolves.toEqual({
+                    results: [],
+                    truncated: false,
+                });
                 expect(sender.send).toHaveBeenCalledWith('pdf:search:progress', {
                     requestId,
                     processed: 2,
                     total: 2,
                     status: 'success',
-                });
-                await expect(searchPromise).resolves.toEqual({
-                    results: [],
-                    truncated: false,
                 });
                 sender.send.mockClear();
             } else if (mode === 'cancel') {
@@ -787,17 +788,17 @@ describe('search IPC worker resource limits', () => {
                     type: 'cancelled',
                     requestId,
                 });
+                await expect(searchPromise).resolves.toEqual({
+                    results: [],
+                    truncated: false,
+                    canceled: true,
+                });
                 expect(sender.send).toHaveBeenCalledWith('pdf:search:progress', {
                     requestId,
                     processed: 0,
                     total: 2,
                     canceled: true,
                     status: 'canceled',
-                });
-                await expect(searchPromise).resolves.toEqual({
-                    results: [],
-                    truncated: false,
-                    canceled: true,
                 });
                 sender.send.mockClear();
             } else {
