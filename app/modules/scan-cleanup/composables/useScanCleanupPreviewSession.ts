@@ -11,7 +11,7 @@ import type {
     Ref,
 } from 'vue';
 import {createScanCleanupPreviewPrefetcher} from '@app/modules/scan-cleanup/runtime/scanCleanupPreviewPrefetcher';
-import {createScanCleanupPreviewCache} from '@app/modules/scan-cleanup/runtime/scanCleanupPreviewCache';
+import {createScanCleanupPreviewCache} from '@app/modules/scan-cleanup/runtime/createScanCleanupPreviewCache';
 import {toPlainScanCleanupOptions} from '@app/modules/scan-cleanup/persistence/preferencesRepository';
 import {getScanCleanupCapability} from '@app/utils/getScanCleanupCapability';
 import {toBridgeSafeScanCleanupPayload} from '@app/modules/scan-cleanup/runtime/toBridgeSafeScanCleanupPayload';

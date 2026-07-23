@@ -29,7 +29,7 @@ export const SCAN_CLEANUP_MARGIN_SIDES: IScanCleanupMarginSideField[] = [
     },
 ];
 
-export function clampScanCleanupMarginMm(value: number) {
+function clampScanCleanupMarginMm(value: number) {
     return Math.min(SCAN_CLEANUP_MARGIN_MAX_MM, Math.max(0, value));
 }
 

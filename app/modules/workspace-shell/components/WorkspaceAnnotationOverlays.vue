@@ -158,7 +158,6 @@ import type {
     IPageContextMenuState,
 } from '@app/types/pdfContextMenu';
 import type {
-    IAnnotationCommentSummary,
     IShapeAnnotation,
     ITextMarkupAnnotationProperties,
     TAnnotationTool,
@@ -181,6 +180,7 @@ import {
     useMutationObserver,
 } from '@vueuse/core';
 import { createRafBurstScheduler } from '@app/modules/workspace-shell/scheduling/createRafBurstScheduler';
+import type {IAnnotationNoteWindowEntry} from '@app/modules/workspace-shell/annotations/annotationNoteWindowEntry';
 
 const INLINE_NOTE_SUBTYPES = new Set([
     'text',
@@ -192,23 +192,6 @@ const FREE_TEXT_NOTE_SUBTYPES = new Set([
     'typewriter',
 ]);
 
-interface IAnnotationNoteWindowEntry {
-    annotationId: string;
-    pageIndex: number;
-    pageNumber: number;
-    author: string | null;
-    createdAt: number | null;
-    modifiedAt: number | null;
-    markerRect: IAnnotationCommentSummary['markerRect'];
-    subtype: string | null;
-    source: IAnnotationCommentSummary['source'];
-    hasNote: boolean;
-    draftText: string;
-    saving: boolean;
-    error: string | null;
-    order: number;
-    isMinimized: boolean;
-}
 const {
     annotationNotePositions,
     annotationViewportRoot = undefined,

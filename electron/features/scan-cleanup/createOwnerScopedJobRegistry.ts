@@ -1,4 +1,4 @@
-export const SCAN_CLEANUP_TERMINAL_JOB_TTL_MS = 60_000;
+const SCAN_CLEANUP_TERMINAL_JOB_TTL_MS = 60_000;
 
 export interface IScanCleanupJobSubscriber {
     id: number;
@@ -7,7 +7,7 @@ export interface IScanCleanupJobSubscriber {
     removeListener: (event: 'destroyed', listener: () => void) => unknown;
 }
 
-export interface IScanCleanupJobOwner {
+interface IScanCleanupJobOwner {
     documentRevision: string;
     ownerId: string;
 }

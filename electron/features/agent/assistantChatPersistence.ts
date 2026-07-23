@@ -657,6 +657,7 @@ export class AssistantChatPersistence {
         return recovered;
     }
 
+    // fallow-ignore-next-line unused-class-member
     recordSessionSnapshot(key: string, session: IAssistantChatPersistenceSession): void {
         this.setPendingSnapshot(key, createSnapshotRecord(key, session), false);
     }

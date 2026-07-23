@@ -9,7 +9,7 @@ import {EventEmitter} from 'node:events';
 import {
     createOwnerScopedJobRegistry,
     type IScanCleanupJobSubscriber,
-} from '@electron/features/scan-cleanup/ownerScopedJobRegistry';
+} from '@electron/features/scan-cleanup/createOwnerScopedJobRegistry';
 
 type TTestSubscriber = IScanCleanupJobSubscriber & {send: ReturnType<typeof vi.fn>};
 

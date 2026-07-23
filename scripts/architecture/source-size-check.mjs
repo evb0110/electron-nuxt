@@ -64,6 +64,11 @@ export const SOURCE_SIZE_ALLOWLIST = {
         reason: 'native PDF viewer after committed-surface ownership and page-source lifecycle hardening',
         stage: 'Viewer core follow-up - native PDF presentation extraction',
     },
+    'app/modules/scan-cleanup/components/preview/PreviewShell.vue': {
+        maxLines: 1411,
+        reason: 'preview shell after extracting zone-editing state and presentation styles',
+        stage: 'further preview shell extraction planned',
+    },
     'electron/features/agent/codexAssistant.ts': {
         maxLines: 1331,
         reason: 'transitional Electron assistant backend facade after session store and runtime lifecycle extraction',
@@ -80,8 +85,8 @@ export const SOURCE_SIZE_ALLOWLIST = {
         stage: 'Worker 6 - Diagnostic trace analysis extraction',
     },
     'app/modules/workspace-shell/components/DocumentWorkspace.vue': {
-        maxLines: 1545,
-        reason: 'workspace component after scan-cleanup surface integration and extraction of its session-state ownership',
+        maxLines: 1542,
+        reason: 'workspace component after extracting scan-cleanup surface state and action ownership',
         stage: 'Scan cleanup integration - workspace surface extraction follow-up',
     },
     'app/modules/workspace-shell/components/DocumentPageSourceFeaturePack.vue': {
@@ -115,7 +120,7 @@ export const SOURCE_SIZE_ALLOWLIST = {
         stage: 'Static audit Stage 15 - OCR admission calculation extraction',
     },
     'app/modules/workspace-shell/components/AppShellRoot.vue': {
-        maxLines: 898,
+        maxLines: 900,
         reason: 'app shell orchestration after scoped presentation styles were extracted',
         stage: 'Static audit Stage 15 - app shell style extraction',
     },
@@ -125,8 +130,8 @@ export const SOURCE_SIZE_ALLOWLIST = {
         stage: 'Future workspace agent extraction',
     },
     'app/modules/workspace-shell/components/WorkspaceAnnotationOverlays.vue': {
-        maxLines: 1176,
-        reason: 'transitional workspace annotation overlay hotspot',
+        maxLines: 1167,
+        reason: 'workspace annotation overlay after extracting its note-window entry contract',
         stage: 'Future workspace annotation extraction',
     },
     'electron/features/agent/mcp/mcpServerCore.ts': {

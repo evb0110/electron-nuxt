@@ -361,7 +361,6 @@ import '@app/assets/css/pdf-comment-ui.scss';
 import '@app/assets/css/pdf-search-highlights.scss';
 import '@app/assets/css/pdf-animations.scss';
 import '@app/assets/css/pdf-debug-overlays.scss';
-import { discardScanCleanupDocumentState } from '@app/modules/scan-cleanup/public/runtime';
 import { PdfEmptyState } from '@app/modules/pdf-viewer/public/component-exports/pdfEmptyState';
 import { PdfSidebar } from '@app/modules/pdf-viewer/public/component-exports/pdfSidebar';
 import { PdfStatusBar } from '@app/modules/pdf-viewer/public/component-exports/pdfStatusBar';
@@ -378,7 +377,7 @@ import WorkspaceShell from '@app/modules/workspace-shell/components/layout/Works
 import WorkspaceSidebarHost from '@app/modules/workspace-shell/components/layout/WorkspaceSidebarHost.vue';
 import WorkspaceToolbarHost from '@app/modules/workspace-shell/components/layout/WorkspaceToolbarHost.vue';
 import WorkspaceViewerHost from '@app/modules/workspace-shell/components/layout/WorkspaceViewerHost.vue';
-import { useDocumentWorkspaceSurfaceMode } from '@app/modules/workspace-shell/composables/useDocumentWorkspaceSurfaceMode';
+import { useDocumentWorkspaceScanCleanupSurface } from '@app/modules/workspace-shell/composables/useDocumentWorkspaceScanCleanupSurface';
 import { useDocumentWorkspaceSplitRestore } from '@app/modules/workspace-shell/composables/useDocumentWorkspaceSplitRestore';
 import { useDocumentWorkspaceOptimizeDialog } from '@app/modules/workspace-shell/composables/useDocumentWorkspaceOptimizeDialog';
 import { useDocumentWorkspaceToolbar } from '@app/modules/workspace-shell/composables/useDocumentWorkspaceToolbar';
@@ -475,32 +474,17 @@ const toolbarSurface = DESKTOP_EDITOR_READER_COMMAND_SURFACE;
 const isOcrRunning = ref(false);
 const ocrPopupRef = ref<IOcrPopupAgentExpose | null>(null);
 const {
-    closeScanCleanup: closeScanCleanupSurface,
-    discardScanCleanupSessionState,
-    openScanCleanup: openScanCleanupSurface,
+    closeScanCleanup,
+    discardScanCleanupState: discardScanCleanupSurfaceState,
+    openScanCleanup,
     scanCleanupSessionState,
     surfaceMode,
     updateScanCleanupSessionState,
-} = useDocumentWorkspaceSurfaceMode({
-    initialScanCleanup: documentSession?.snapshot.value.viewState.scanCleanup ?? initialViewState?.scanCleanup ?? null,
-    initialSurfaceMode: documentSession?.snapshot.value.viewState.surfaceMode ?? initialViewState?.surfaceMode ?? 'reader',
-    applyViewState: documentSession
-        ? updates => documentSession.applyViewState({
-            ...documentSession.snapshot.value.viewState,
-            ...updates,
-        })
-        : undefined,
-    readScanCleanup: documentSession ? () => documentSession.snapshot.value.viewState.scanCleanup ?? null : undefined,
-    readSurfaceMode: documentSession ? () => documentSession.snapshot.value.viewState.surfaceMode : undefined,
-    clearScanCleanupViewState: documentSession
-        ? () => {
-            const {
-                scanCleanup: _scanCleanup,
-                ...viewState
-            } = documentSession.snapshot.value.viewState;
-            documentSession.applyViewState(viewState);
-        }
-        : undefined,
+} = useDocumentWorkspaceScanCleanupSurface({
+    closeAllDropdowns: () => closeAllDropdowns(),
+    documentSession,
+    initialViewState,
+    readDocumentKey: () => documentRevisionInfo.value?.documentRef ?? originalPath.value ?? workingCopyPath.value,
 });
 const emit = defineEmits<IDocumentWorkspaceEmits>();
 const workspaceCommandBindings = createDocumentWorkspaceCommandBindings(emit);
@@ -521,21 +505,8 @@ const currentPageTransitionHistory = ref<Array<{
     page: number;
     at: number 
 }>>([]);
-function openScanCleanup() {
-    closeAllDropdowns();
-    openScanCleanupSurface();
-}
-
-function closeScanCleanup() {
-    closeScanCleanupSurface();
-    discardScanCleanupState();
-}
-
 function discardScanCleanupState() {
-    // Closing the split UI discards the split session: saved view state and
-    // per-document split data must not survive into the next entry.
-    discardScanCleanupSessionState();
-    discardScanCleanupDocumentState(documentRevisionInfo.value?.documentRef ?? originalPath.value ?? workingCopyPath.value);
+    discardScanCleanupSurfaceState();
 }
 const navigationFeedbackPage = ref<number | null>(null);
 const {

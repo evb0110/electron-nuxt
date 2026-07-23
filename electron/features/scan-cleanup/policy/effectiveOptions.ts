@@ -15,7 +15,7 @@ export interface IScanCleanupExperimentalOptions {
     autoDewarpDepth?: number;
 }
 
-export const DEFAULT_SCAN_CLEANUP_EXPERIMENTAL_OPTIONS: Readonly<IScanCleanupExperimentalOptions> = Object.freeze({autoDewarp: false});
+const DEFAULT_SCAN_CLEANUP_EXPERIMENTAL_OPTIONS: Readonly<IScanCleanupExperimentalOptions> = Object.freeze({autoDewarp: false});
 
 export type TScanCleanupQualityPath = 'raster' | 'lossless';
 
@@ -35,7 +35,7 @@ export interface IEffectiveNativeScanCleanupOptionsV2 extends INativeScanCleanup
 const MAX_PIXELS = 160_000_000;
 const MAX_DIMENSION_PX = 40_000;
 
-export function resolveScanCleanupDespeckleLevel(
+function resolveScanCleanupDespeckleLevel(
     options: IScanCleanupOptions,
 ): TScanCleanupDespeckleLevel {
     const legacyEnabled = options.despeckle ?? true;

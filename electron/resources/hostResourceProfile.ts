@@ -15,7 +15,7 @@ import {
 import { isRecord } from '@contracts/runtimeGuards';
 import { PROCESS_SAFE_MODE_ARGUMENT } from '@electron/processDeathRecovery';
 
-export interface ICreateHostResourceProfileSnapshotOptions {
+interface ICreateHostResourceProfileSnapshotOptions {
     logicalCpus: number;
     totalRamBytes: number;
     safeMode: boolean;
@@ -89,7 +89,7 @@ function readGpuStatus(options: IInitializeHostResourceProfileOptions) {
     }
 }
 
-export function createHostResourceProfileSnapshot(
+function createHostResourceProfileSnapshot(
     options: ICreateHostResourceProfileSnapshotOptions,
 ): IHostResourceProfileSnapshot {
     const detectedTier = resolveDetectedHostResourceTier(options);

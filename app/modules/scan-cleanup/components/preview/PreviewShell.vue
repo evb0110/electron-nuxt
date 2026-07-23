@@ -282,7 +282,6 @@ import type {
     TScanCleanupOutputMode,
     TScanCleanupPageAlignment,
     TScanCleanupPageRotation,
-    TScanCleanupPictureZoneLayer,
 } from '@contracts/electronApiScanCleanup';
 import type {
     ComponentPublicInstance,
@@ -308,6 +307,7 @@ import {
     useScanCleanupDragTransaction,
 } from '@app/modules/scan-cleanup/composables/useScanCleanupDragTransaction';
 import {useScanCleanupViewportFrame} from '@app/modules/scan-cleanup/composables/useScanCleanupViewportFrame';
+import {useScanCleanupZoneEditor} from '@app/modules/scan-cleanup/composables/useScanCleanupZoneEditor';
 import {
     clampPreviewRect,
     expandPreviewRectByMargins,
@@ -337,11 +337,6 @@ import {
     createPreviewImageSwap,
     useScanCleanupPreviewImages,
 } from '@app/modules/scan-cleanup/composables/useScanCleanupPreviewImages';
-import {
-    cloneScanCleanupZonePolygon,
-    type IScanCleanupZoneSelection,
-    type TScanCleanupZoneKind,
-} from '@app/modules/scan-cleanup/geometry/zoneGeometry';
 
 interface ICutterDragGeometry {
     kind: 'cutter';
@@ -455,8 +450,18 @@ const viewModes = computed(() => props.lossless ? [{
     },
 ]);
 const dragOutputSnapshot = ref<IRenderedScanCleanupOutput[] | null>(null);
-const selectedZone = ref<IScanCleanupZoneSelection | null>(null);
-const zoneKind = ref<TScanCleanupZoneKind>('picture');
+const {
+    selectedPictureLayer,
+    selectedZone,
+    updateSelectedPictureLayer,
+    zoneCount,
+    zoneKind,
+} = useScanCleanupZoneEditor({
+    editing: () => props.zoneEditing,
+    manualZones: () => props.manualZones,
+    pageNumber: () => props.pageNumber,
+    updateManualZones: value => emit('update:manualZones', value),
+});
 const {
     frame: frozenViewportFrame,
     placeholderHalves,
@@ -581,14 +586,6 @@ const cutterSourceImageStyle = computed<CSSProperties>(() => {
         height: `${swapsAxes ? cutterSourceFitPlacement.value.width : cutterSourceFitPlacement.value.height}px`,
         transform: `translate(-50%, -50%) rotate(${rotation}deg)`,
     };
-});
-const zoneCount = computed(() => (props.manualZones?.picture.length ?? 0)
-    + (props.manualZones?.fill.length ?? 0));
-const selectedPictureLayer = computed<TScanCleanupPictureZoneLayer | null>(() => {
-    if (selectedZone.value?.kind !== 'picture') {
-        return null;
-    }
-    return props.manualZones?.picture[selectedZone.value.index]?.layer ?? null;
 });
 const placementAnchors: Array<{
     alignment: TScanCleanupPageAlignment;
@@ -765,28 +762,6 @@ function contentHandleLabel(handle: TScanCleanupContentHandle, half: TScanCleanu
         direction: t(`scanCleanup.preview.resizeDirections.${handle}`),
         half: outputHalfLabel(half),
     });
-}
-
-function updateSelectedPictureLayer(layer: TScanCleanupPictureZoneLayer) {
-    if (selectedZone.value?.kind !== 'picture') {
-        return;
-    }
-    const next = {
-        picture: (props.manualZones?.picture ?? []).map(zone => ({
-            layer: zone.layer,
-            polygon: cloneScanCleanupZonePolygon(zone.polygon),
-        })),
-        fill: (props.manualZones?.fill ?? []).map(cloneScanCleanupZonePolygon),
-    };
-    const zone = next.picture[selectedZone.value.index];
-    if (!zone) {
-        return;
-    }
-    next.picture[selectedZone.value.index] = {
-        ...zone,
-        layer,
-    };
-    emit('update:manualZones', next);
 }
 
 const outputHalves = computed(() => props.result?.outputs.map(output => output.metadata.half) ?? []);
@@ -1258,24 +1233,6 @@ onMounted(() => {
     observeCutterStage();
     observeOutputFitAreas();
 });
-watch([
-    () => props.pageNumber,
-    () => props.zoneEditing,
-], () => {
-    selectedZone.value = null;
-});
-watch(() => props.manualZones, () => {
-    const selection = selectedZone.value;
-    if (!selection) {
-        return;
-    }
-    const count = selection.kind === 'picture'
-        ? props.manualZones?.picture.length ?? 0
-        : props.manualZones?.fill.length ?? 0;
-    if (selection.index >= count) {
-        selectedZone.value = null;
-    }
-}, {deep: true});
 watch(() => dragTransaction.active.value, active => {
     if (!active) {
         dragOutputSnapshot.value = null;
@@ -1440,653 +1397,15 @@ function placementOverlayOutputFor(half: TScanCleanupOutputHalf) {
 }
 </script>
 
+<style src="./PreviewShell.css"></style>
 <style>
-.preview-pane {
-    display: flex;
-    height: 100%;
-    min-width: 0;
-    min-height: 0;
-    flex-direction: column;
-}
-
-.preview-pane:focus-visible {
-    border-radius: var(--app-radius-lg);
-    outline: 2px solid var(--ui-primary);
-    outline-offset: var(--app-space-xs);
-}
-
-.preview-header,
-.page-navigation,
-.preview-controls,
-.overlay-legend,
-.refresh-indicator,
-.page-loading-overlay,
-.cutter-grab-handle {
-    display: flex;
-    align-items: center;
-}
-
-.refresh-indicator.is-error {
-    border-color: var(--ui-error);
-    color: var(--ui-error);
-}
-
-.preview-refresh-error {
-    position: absolute;
-    z-index: var(--app-z-local-overlay);
-    inset-inline: var(--app-space-9xl);
-    inset-block-end: var(--app-space-9xl);
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    justify-content: center;
-    gap: var(--app-space-5xl);
-    border: 1px solid var(--ui-error);
-    border-radius: var(--app-radius-md);
-    background: var(--ui-bg);
-    padding: var(--app-space-5xl) var(--app-space-9xl);
-    color: var(--ui-error);
-    font-size: var(--app-text-size-body-sm);
-}
-
-.preview-header {
-    box-sizing: border-box;
-    height: var(--app-scan-header-height);
-    min-height: var(--app-scan-header-height);
-    flex: 0 0 var(--app-scan-header-height);
-    justify-content: space-between;
-    gap: var(--app-space-3xl);
-    border-block-end: var(--app-hairline-height) solid var(--ui-border);
-    padding-inline: var(--app-space-12xl);
-}
-
-.preview-controls {
-    gap: var(--app-space-9xl);
-}
-
-.page-navigation {
-    gap: var(--app-space-sm);
-}
-
-.page-label {
-    min-width: var(--app-scan-preview-page-label-width);
-    color: var(--ui-text-muted);
-    font-size: var(--app-text-size-secondary);
-    text-align: center;
-}
-
-.preview-surface {
-    position: relative;
-    display: grid;
-    min-height: 0;
-    flex: 1;
-    place-items: center;
-    overflow: hidden;
-    padding: var(--app-space-9xl);
-    border: 1px solid var(--ui-border);
-    border-radius: var(--app-radius-lg);
-    background: var(--ui-bg-muted);
-    margin: var(--app-space-12xl);
-}
-
-.preview-result-layer,
-.preview-empty-layer {
-    display: grid;
-    width: 100%;
-    height: 100%;
-    min-width: 0;
-    min-height: 0;
-    grid-area: 1 / 1;
-    place-items: center;
-}
-
-.preview-result-layer > .preview-viewport-layout,
-.preview-result-layer > .preview-message {
-    grid-area: 1 / 1;
-}
-
-.preview-viewport-layout {
-    display: grid;
-    width: 100%;
-    height: 100%;
-    min-width: 0;
-    min-height: 0;
-    grid-template-rows: minmax(0, 1fr) var(--app-control-height-sm);
-}
-
-.preview-viewport-caption {
-    display: grid;
-    min-width: 0;
-    place-items: center;
-    color: var(--ui-text-muted);
-    font-size: var(--app-text-size-body-sm);
-    text-align: center;
-}
-
-.is-stale-content {
-    opacity: var(--app-scan-preview-stale-opacity);
-    pointer-events: none;
-    transition: opacity var(--app-scan-preview-crossfade-duration);
-    user-select: none;
-}
-
-.page-loading-overlay {
-    position: absolute;
-    z-index: var(--app-z-local-overlay);
-    inset: 0;
-    flex-direction: column;
-    justify-content: center;
-    gap: var(--app-space-5xl);
-    background: color-mix(in srgb, var(--ui-bg-muted) 42%, transparent);
-    color: var(--ui-text);
-    font-size: var(--app-text-size-body-sm);
-    font-weight: 600;
-    pointer-events: none;
-}
-
-.raw-preview {
-    position: relative;
-    display: flex;
-    width: 100%;
-    height: 100%;
-    min-height: 0;
-    align-items: center;
-    justify-content: center;
-}
-
-.lossless-crop-overlay {
-    position: absolute;
-    z-index: var(--app-z-local-raised);
-    box-sizing: border-box;
-    border: var(--app-hairline-height) solid var(--ui-primary);
-    background: color-mix(in srgb, var(--ui-primary) 8%, transparent);
-    pointer-events: none;
-}
-
-.cutter-stage {
-    position: relative;
-    display: flex;
-    width: 100%;
-    height: 100%;
-    min-width: 0;
-    min-height: 0;
-}
-
-.drag-overlay-layer {
-    position: absolute;
-    z-index: var(--app-z-local-raised);
-    pointer-events: none;
-}
-
-.preview-result-layer.is-source-underlay-dimmed {
-    opacity: var(--app-scan-preview-stale-opacity);
-}
-
-.cutter-source-underlay,
-.placement-overlay-canvas {
-    position: absolute;
-    pointer-events: none;
-}
-
-.cutter-source-underlay {
-    overflow: hidden;
-    background: var(--ui-bg);
-    box-shadow: var(--app-document-page-shadow);
-}
-
-.cutter-source-underlay img {
-    position: absolute;
-    inset-inline-start: 50%;
-    inset-block-start: 50%;
-    max-width: none;
-    max-height: none;
-    object-fit: fill;
-}
-
 .cutter-control {
-    position: absolute;
-    inset-block: 0;
-    z-index: var(--app-z-local-raised);
-    width: var(--app-space-9xl);
-    border: 0;
-    border-radius: var(--app-radius-md);
-    background: transparent;
     cursor: col-resize;
-    pointer-events: auto;
-    touch-action: none;
-    transform: translateX(-50%);
-}
-
-.cutter-control.is-refreshing {
-    opacity: var(--app-scan-preview-stale-opacity);
-}
-
-.cutter-line {
-    position: absolute;
-    inset-block: 0;
-    inset-inline-start: 50%;
-    width: var(--app-space-xs);
-    background: var(--ui-primary);
-    box-shadow: 0 0 0 var(--app-hairline-height) var(--ui-bg);
-    transform: translateX(-50%);
-    transition:
-        background-color var(--app-transition-fast),
-        width var(--app-transition-fast);
-}
-
-.cutter-control:hover .cutter-line,
-.cutter-control:focus-visible .cutter-line {
-    width: var(--app-space-sm);
-    background: var(--ui-primary-hover);
-}
-
-.cutter-grab-handle {
-    position: absolute;
-    inset-inline-start: 50%;
-    inset-block-start: 50%;
-    width: var(--app-scan-cutter-handle-width);
-    height: var(--app-scan-cutter-handle-height);
-    justify-content: center;
-    border: var(--app-hairline-height) solid var(--ui-primary);
-    border-radius: var(--app-radius-md);
-    background: var(--ui-bg);
-    color: var(--ui-primary);
-    box-shadow: var(--shadow-sm);
-    transform: translate(-50%, -50%);
-}
-
-.cutter-control:focus-visible {
-    outline: 2px solid var(--ui-primary);
-    outline-offset: var(--app-space-xs);
-}
-
-.cleaned-outputs {
-    display: grid;
-    width: 100%;
-    height: 100%;
-    min-height: 0;
-    grid-auto-columns: minmax(0, 1fr);
-    grid-auto-flow: column;
-}
-
-.raw-preview img {
-    display: block;
-    max-width: 100%;
-    max-height: 100%;
-    object-fit: contain;
-    box-shadow: var(--app-document-page-shadow);
-}
-
-.raw-preview .preview-pixel {
-    position: absolute;
-    inset: 0;
-    margin: auto;
-}
-
-.output-column {
-    box-sizing: border-box;
-    display: flex;
-    min-width: 0;
-    min-height: 0;
-    max-width: 100%;
-    flex-direction: column;
-    align-items: center;
-    gap: var(--app-space-sm);
-    padding-inline: calc(var(--app-space-3xl) / 2);
-}
-
-.output-fit-area {
-    display: grid;
-    width: 100%;
-    min-height: 0;
-    flex: 1;
-    place-items: center;
-}
-
-.uniform-canvas {
-    position: relative;
-    min-height: 0;
-    flex: none;
-    border: var(--app-hairline-height) dashed transparent;
-    border-radius: var(--app-radius-md);
-    background: var(--ui-bg);
-    box-shadow: var(--app-document-page-shadow);
-    overflow: hidden;
-}
-
-.uniform-canvas.has-uniform-canvas {
-    border-color: var(--ui-border);
-    background: var(--ui-bg-elevated);
-}
-
-.placed-image,
-.content-overlay,
-.placement-control {
-    position: absolute;
-    display: block;
-}
-
-.placed-image {
-    touch-action: none;
-}
-
-.placed-image.is-draggable {
-    cursor: grab;
-}
-
-.placed-image.is-draggable:active {
-    cursor: grabbing;
-}
-
-.placed-image.is-drag-placeholder {
-    opacity: var(--app-scan-preview-stale-opacity);
-}
-
-.placement-control {
-    border: 0;
-    background: transparent;
-    cursor: grab;
-    pointer-events: auto;
-    touch-action: none;
-}
-
-.placement-control.is-active {
-    box-shadow: var(--app-document-page-shadow);
-    cursor: grabbing;
-}
-
-.placement-control:focus-visible {
-    outline: var(--app-hairline-height) solid var(--ui-primary);
-    outline-offset: var(--app-space-xs);
-}
-
-.placement-snap-anchor {
-    position: absolute;
-    width: var(--app-space-sm);
-    height: var(--app-space-sm);
-    border: var(--app-hairline-height) solid var(--ui-primary);
-    border-radius: 50%;
-    background: var(--ui-bg);
-    opacity: var(--app-scan-preview-stale-opacity);
-    transform: translate(-50%, -50%);
-}
-
-.placement-snap-anchor.is-nearest {
-    background: var(--ui-primary);
-    opacity: 1;
-}
-
-.placed-image:focus-visible,
-.content-overlay:focus-visible {
-    outline: var(--app-hairline-height) solid var(--ui-primary);
-    outline-offset: var(--app-space-xs);
-}
-
-.cleaned-image {
-    display: block;
-    width: 100%;
-    height: 100%;
-    object-fit: fill;
-    pointer-events: none;
-}
-
-.placed-image > .preview-pixel {
-    position: absolute;
-    inset: 0;
-}
-
-.preview-pixel {
-    transition: opacity var(--app-scan-preview-crossfade-duration);
-}
-
-.preview-pixel.is-incoming,
-.preview-pixel.is-outgoing {
-    opacity: 0;
-}
-
-.preview-pixel.is-entering {
-    opacity: 1;
-}
-
-.margin-overlay {
-    position: absolute;
-    inset: 0;
-    box-sizing: border-box;
-    border: var(--app-hairline-height) solid var(--ui-warning);
-    pointer-events: none;
-}
-
-.content-overlay {
-    box-sizing: border-box;
-    border: var(--app-hairline-height) solid var(--ui-primary);
-    background: color-mix(in srgb, var(--ui-primary) 10%, transparent);
-    pointer-events: auto;
-    touch-action: none;
-}
-
-.content-handle {
-    position: absolute;
-    width: var(--app-scan-content-handle-hit-size);
-    height: var(--app-scan-content-handle-hit-size);
-    border: 0;
-    background: transparent;
-    padding: 0;
-    touch-action: none;
-}
-
-.content-handle::after {
-    position: absolute;
-    inset: 50% auto auto 50%;
-    width: var(--app-scan-content-handle-size);
-    height: var(--app-scan-content-handle-size);
-    border: var(--app-hairline-height) solid var(--ui-primary);
-    border-radius: var(--app-radius-xs);
-    background: var(--ui-bg);
-    content: '';
-    opacity: 0;
-    transform: translate(-50%, -50%);
-    transition: opacity var(--app-transition-fast);
 }
 
 .content-overlay:hover .content-handle::after,
 .content-overlay:focus-within .content-handle::after,
 .content-handle:focus-visible::after {
     opacity: 1;
-}
-
-.content-handle.is-n,
-.content-handle.is-s {
-    left: 50%;
-    cursor: ns-resize;
-    transform: translateX(-50%);
-}
-
-.content-handle.is-e,
-.content-handle.is-w {
-    top: 50%;
-    cursor: ew-resize;
-    transform: translateY(-50%);
-}
-
-.content-handle.is-n,
-.content-handle.is-ne,
-.content-handle.is-nw {
-    top: calc(-0.5 * var(--app-scan-content-handle-hit-size));
-}
-
-.content-handle.is-s,
-.content-handle.is-se,
-.content-handle.is-sw {
-    bottom: calc(-0.5 * var(--app-scan-content-handle-hit-size));
-}
-
-.content-handle.is-e,
-.content-handle.is-ne,
-.content-handle.is-se {
-    right: calc(-0.5 * var(--app-scan-content-handle-hit-size));
-}
-
-.content-handle.is-w,
-.content-handle.is-nw,
-.content-handle.is-sw {
-    left: calc(-0.5 * var(--app-scan-content-handle-hit-size));
-}
-
-.content-handle.is-ne,
-.content-handle.is-sw {
-    cursor: nesw-resize;
-}
-
-.content-handle.is-nw,
-.content-handle.is-se {
-    cursor: nwse-resize;
-}
-
-.scan-cleanup-first-run-guidance {
-    position: absolute;
-    z-index: var(--app-z-local-overlay);
-    inset-inline-start: 50%;
-    inset-block-start: 50%;
-    display: grid;
-    width: min(var(--app-scan-first-run-guidance-width), calc(100% - var(--app-space-16xl)));
-    gap: var(--app-space-7xl);
-    border: var(--app-hairline-height) solid var(--ui-border);
-    border-radius: var(--app-radius-lg);
-    background: color-mix(in srgb, var(--ui-bg-elevated) 96%, transparent);
-    box-shadow: var(--shadow-lg);
-    padding: var(--app-space-12xl);
-    color: var(--ui-text);
-    font-size: var(--app-text-size-body-sm);
-    transform: translate(-50%, -50%);
-}
-
-.scan-cleanup-first-run-guidance ol {
-    display: grid;
-    gap: var(--app-space-5xl);
-    margin: 0;
-    padding-inline-start: var(--app-space-16xl);
-    color: var(--ui-text-muted);
-}
-
-.scan-cleanup-first-run-guidance button {
-    justify-self: end;
-}
-
-.preview-message {
-    display: flex;
-    max-width: var(--app-scan-preview-message-width);
-    flex-direction: column;
-    align-items: center;
-    gap: var(--app-space-3xl);
-    color: var(--ui-text-muted);
-    font-size: var(--app-text-size-body-sm);
-    text-align: center;
-}
-
-.preview-loading {
-    width: 100%;
-    height: 100%;
-    min-width: 0;
-    min-height: 0;
-}
-
-.preview-skeleton-page {
-    background: var(--ui-bg);
-    border: var(--app-hairline-height) solid var(--ui-border);
-}
-
-.preview-skeleton-page .preview-skeleton-fill {
-    position: absolute;
-    inset: var(--app-space-2xl);
-    width: auto;
-    height: auto;
-    background: var(--ui-bg-accented);
-    border-radius: inherit;
-}
-
-.preview-message.is-error,
-.preview-error-detail {
-    color: var(--ui-error);
-}
-
-.preview-error-detail {
-    display: block;
-    max-width: var(--app-scan-preview-message-width);
-    margin-block-start: var(--app-space-sm);
-    font-size: var(--app-text-size-kicker);
-    overflow-wrap: anywhere;
-}
-
-.preview-error-disclosure {
-    width: 100%;
-    color: var(--ui-text-muted);
-    text-align: start;
-}
-
-.preview-error-disclosure summary {
-    cursor: pointer;
-}
-
-.refresh-indicator {
-    position: absolute;
-    right: var(--app-space-3xl);
-    top: var(--app-space-3xl);
-    gap: var(--app-space-sm);
-    padding: var(--app-space-sm) var(--app-space-3xl);
-    border: 1px solid var(--ui-border);
-    border-radius: var(--app-radius-full);
-    background: var(--ui-bg);
-    color: var(--ui-text-muted);
-    font-size: var(--app-text-size-kicker);
-}
-
-.is-spinning {
-    animation: scan-preview-spin 1s linear infinite;
-}
-
-@keyframes scan-preview-spin {
-    to {
-        transform: rotate(1turn);
-    }
-}
-
-.overlay-legend {
-    flex-wrap: wrap;
-    gap: var(--app-space-5xl);
-    color: var(--ui-text-muted);
-    font-size: var(--app-text-size-kicker);
-}
-
-.overlay-legend > span {
-    display: inline-flex;
-    align-items: center;
-    gap: var(--app-space-sm);
-}
-
-.legend-swatch {
-    display: inline-block;
-    width: var(--app-space-9xl);
-    height: var(--app-space-9xl);
-    border: 2px solid;
-    border-radius: var(--app-radius-xs);
-}
-
-.legend-swatch.is-content {
-    border-color: var(--ui-primary);
-}
-
-.legend-swatch.is-margin {
-    border-color: var(--ui-warning);
-}
-
-.legend-swatch.is-canvas {
-    border-style: dashed;
-    border-color: var(--ui-border);
-}
-
-@media (width <= 48rem) {
-    .preview-controls {
-        gap: var(--app-space-sm);
-    }
 }
 </style>

@@ -19,9 +19,8 @@ import {
 } from '@app/modules/scan-cleanup/persistence/preferencesSchema';
 
 // Version 1 is retained for documents saved before normalized geometry shipped.
-// Expiry: remove after the first release whose minimum supported upgrade path is
-// newer than 2026-07, once telemetry/manual support checks show no v1 records.
-export const SCAN_CLEANUP_OVERRIDE_MIGRATION_V1_EXPIRES_AFTER = '2027-07';
+// Expiry 2027-07: remove after the first release whose minimum supported upgrade
+// path is newer than 2026-07, once support checks show no v1 records.
 
 const OUTPUT_HALVES: readonly TScanCleanupOutputHalf[] = [
     'full',

@@ -5,8 +5,8 @@ import type {IScanCleanupPreviewResult} from '@contracts/electronApiScanCleanup'
  * a useful navigation window; 96 MiB matches the IPC payload ceiling without
  * allowing a long document to retain an unbounded second copy in the renderer.
  */
-export const SCAN_CLEANUP_PREVIEW_CACHE_MAX_ENTRIES = 8;
-export const SCAN_CLEANUP_PREVIEW_CACHE_MAX_BYTES = 96 * 1024 * 1024;
+const SCAN_CLEANUP_PREVIEW_CACHE_MAX_ENTRIES = 8;
+const SCAN_CLEANUP_PREVIEW_CACHE_MAX_BYTES = 96 * 1024 * 1024;
 
 interface ICachedPreview {
     byteLength: number;

@@ -29,7 +29,7 @@ import {
 import {allowOpenPath} from '@electron/file-access/openPathCapabilities';
 import {resolveNativePageOpsPath} from '@electron/features/page-ops/public';
 import {hasNativeErrorCode} from '@contracts/nativeErrors';
-import {createOwnerScopedJobRegistry} from '@electron/features/scan-cleanup/ownerScopedJobRegistry';
+import {createOwnerScopedJobRegistry} from '@electron/features/scan-cleanup/createOwnerScopedJobRegistry';
 
 interface IScanCleanupJob {
     abortController: AbortController;

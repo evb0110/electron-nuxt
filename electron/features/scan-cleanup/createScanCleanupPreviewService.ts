@@ -43,7 +43,7 @@ import {buildNativeScanCleanupManifest} from '@electron/features/scan-cleanup/po
 import {
     createOwnerScopedJobRegistry,
     type IScanCleanupJobSubscriber,
-} from '@electron/features/scan-cleanup/ownerScopedJobRegistry';
+} from '@electron/features/scan-cleanup/createOwnerScopedJobRegistry';
 
 const PREVIEW_DPI = 150;
 const PREVIEW_MAX_IMAGE_BYTES = 32 * 1024 * 1024;

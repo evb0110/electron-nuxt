@@ -8,7 +8,7 @@ import type {
     IScanCleanupPreviewResult,
 } from '@contracts/electronApiScanCleanup';
 import {createScanCleanupPreviewCacheKey} from '@app/modules/scan-cleanup/composables/useScanCleanupPreviewSession';
-import {createScanCleanupPreviewCache} from '@app/modules/scan-cleanup/runtime/scanCleanupPreviewCache';
+import {createScanCleanupPreviewCache} from '@app/modules/scan-cleanup/runtime/createScanCleanupPreviewCache';
 
 const previewOptions: IScanCleanupOptions = {
     preserveOriginalQuality: false,

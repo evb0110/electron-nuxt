@@ -13,7 +13,7 @@ export interface IScanCleanupPreviewFitArea extends IScanCleanupPreviewSize {
 }
 export interface IScanCleanupPreviewFitPlacement extends IScanCleanupPreviewFitArea {}
 export interface IScanCleanupPreviewFrameOutput extends IScanCleanupPreviewSize {half: IScanCleanupPreviewMetadata['half'];}
-export interface IScanCleanupCutterControlGeometry {
+interface IScanCleanupCutterControlGeometry {
     controlLeft: number;
     handleCenter: number;
     lineCenter: number;

@@ -3,10 +3,7 @@ import {isScanCleanupRunning} from '@app/modules/scan-cleanup/runtime/scanCleanu
 import {useScanCleanupSelection} from '@app/modules/scan-cleanup/composables/useScanCleanupSelection';
 import {useScanCleanupDocumentSettings} from '@app/modules/scan-cleanup/composables/useScanCleanupDocumentSettings';
 import {useScanCleanupDetectionSession} from '@app/modules/scan-cleanup/composables/useScanCleanupDetectionSession';
-import {
-    createScanCleanupPreviewCacheKey,
-    useScanCleanupPreviewSession,
-} from '@app/modules/scan-cleanup/composables/useScanCleanupPreviewSession';
+import {useScanCleanupPreviewSession} from '@app/modules/scan-cleanup/composables/useScanCleanupPreviewSession';
 import {useScanCleanupRunSession} from '@app/modules/scan-cleanup/composables/useScanCleanupRunSession';
 
 interface IUseScanCleanupWorkspaceSessionOptions {
@@ -20,8 +17,6 @@ interface IUseScanCleanupWorkspaceSessionOptions {
     initialPreviewPage?: () => number | undefined;
     initialPreviewViewMode?: () => 'original' | 'cleaned' | undefined;
 }
-
-export {createScanCleanupPreviewCacheKey};
 
 export const useScanCleanupWorkspaceSession = (options: IUseScanCleanupWorkspaceSessionOptions) => {
     const initialPreviewPage = Math.max(1, Math.trunc(options.initialPreviewPage?.() ?? options.currentPage()));
