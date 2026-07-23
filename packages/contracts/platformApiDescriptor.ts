@@ -84,6 +84,7 @@ type TConventionMethodKind<TPath extends TPlatformPath> = Join<TPath, '.'> exten
     | 'documentPicker.getPathsForFiles'
     | 'documents.getPathForFile'
     | 'documents.getPathsForFiles'
+    | 'host.getResourceProfile'
     | 'system.getMemoryInfo'
     ? 'sync'
     : TPath extends readonly [...string[], infer TMethodName extends string]
@@ -389,7 +390,10 @@ function resolveMethodKind(path: readonly string[]): TPlatformMethodKind {
     if (methodName === 'notifyRendererReady' || methodName === 'rendererLog') {
         return 'void';
     }
-    if (path.join('.') === 'system.getMemoryInfo') {
+    if (
+        path.join('.') === 'host.getResourceProfile'
+        || path.join('.') === 'system.getMemoryInfo'
+    ) {
         return 'sync';
     }
     if (
@@ -409,6 +413,7 @@ function isDirectBrowserMethod(path: readonly string[]) {
         || formattedPath === 'documentPicker.getPathsForFiles'
         || formattedPath === 'documents.getPathForFile'
         || formattedPath === 'documents.getPathsForFiles'
+        || formattedPath === 'host.getResourceProfile'
         || formattedPath === 'system.getMemoryInfo';
 }
 
@@ -953,6 +958,10 @@ const otherMethodPaths = defineMethodPaths([
     [
         'shell',
         'openExternal',
+    ],
+    [
+        'host',
+        'getResourceProfile',
     ],
     [
         'host',

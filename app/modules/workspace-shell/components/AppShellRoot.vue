@@ -196,6 +196,7 @@ import type { IHostZenModeState } from '@contracts/electronApiHost';
 import type { ITab } from '@app/types/tabs';
 import type { IWorkspaceDocumentRecord } from '@app/modules/workspace-shell/state/workspaceDocumentRecord';
 import { getHostCapability } from '@app/utils/getHostCapability';
+import { getPerformanceProfile } from '@app/utils/performanceProfile';
 import { waitForDesktopPlatformBridge } from '@app/utils/platform';
 import { getDocumentWindowCapability } from '@app/utils/platformDocuments';
 import { resolveDocumentRefBackend } from '@app/utils/documentRef';
@@ -292,6 +293,7 @@ const tabLifecycleById = computed(() => Object.fromEntries(
         panes: panes.value,
         policy: appSettings.value.tabMemoryPolicy,
         tabs: tabs.value,
+        tier: getPerformanceProfile().tier,
     }).map(state => [
         state.tabId,
         state,

@@ -29,6 +29,13 @@
             />
         </section>
 
+        <section class="settings-card">
+            <SettingsPerformancePanel
+                :settings="settings"
+                @update:performance-mode="applyPerformanceMode"
+            />
+        </section>
+
         <section v-if="isDesktopRuntime" class="settings-card settings-card--span">
             <SettingsAgentPanel
                 :assistant-panel-enabled="settings.assistantPanelEnabled"
@@ -72,6 +79,7 @@ import type {
     TTabMemoryPolicy,
     TPdfViewMode,
 } from '@contracts/shared';
+import type { TPerformanceMode } from '@contracts/hostResourceProfile';
 import type {
     IAgentAssistantEvent,
     IAgentAssistantState,
@@ -86,6 +94,7 @@ import { getShellCapability } from '@app/utils/getShellCapability';
 import { runSettingsAssistantAction } from '@app/modules/workspace-shell/agent/runSettingsAssistantAction';
 import SettingsAgentPanel from '@app/components/settings/SettingsAgentPanel.vue';
 import SettingsGeneralPanel from '@app/components/settings/SettingsGeneralPanel.vue';
+import SettingsPerformancePanel from '@app/components/settings/SettingsPerformancePanel.vue';
 import SettingsShortcutsPanel from '@app/components/settings/SettingsShortcutsPanel.vue';
 import SettingsUpdatesPanel from '@app/components/settings/SettingsUpdatesPanel.vue';
 import SettingsViewerDefaultsPanel from '@app/components/settings/SettingsViewerDefaultsPanel.vue';
@@ -177,6 +186,12 @@ const SUPPORTED_LOCALES: ReadonlySet<string> = new Set<TAppLocale>(LOCALE_OPTION
 const DEFAULT_ZOOM_PRESETS: ReadonlySet<string> = new Set<TDefaultZoomPreset>(ZOOM_PRESET_OPTION_DEFINITIONS.map(option => option.value));
 const DEFAULT_VIEW_MODES: ReadonlySet<string> = new Set<TPdfViewMode>(VIEW_MODE_OPTION_DEFINITIONS.map(option => option.value));
 const TAB_MEMORY_POLICIES: ReadonlySet<string> = new Set<TTabMemoryPolicy>(TAB_MEMORY_POLICY_OPTION_DEFINITIONS.map(option => option.value));
+const PERFORMANCE_MODES: ReadonlySet<string> = new Set<TPerformanceMode>([
+    'auto',
+    'low',
+    'medium',
+    'high',
+]);
 
 const {
     t,
@@ -350,6 +365,10 @@ function isTabMemoryPolicy(value: string): value is TTabMemoryPolicy {
     return TAB_MEMORY_POLICIES.has(value);
 }
 
+function isPerformanceMode(value: string): value is TPerformanceMode {
+    return PERFORMANCE_MODES.has(value);
+}
+
 function applyZoomPreset(preset: string | { value: string }) {
     const value = readSelectValue(preset);
     if (isDefaultZoomPreset(value)) {
@@ -373,6 +392,13 @@ function applyTabMemoryPolicy(policy: string | { value: string }) {
     const value = readSelectValue(policy);
     if (isTabMemoryPolicy(value)) {
         updateSetting('tabMemoryPolicy', value);
+    }
+}
+
+function applyPerformanceMode(mode: string | { value: string }) {
+    const value = readSelectValue(mode);
+    if (isPerformanceMode(value)) {
+        updateSetting('performanceMode', value);
     }
 }
 

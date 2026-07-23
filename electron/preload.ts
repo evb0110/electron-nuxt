@@ -20,6 +20,7 @@ import {
 } from '@electron/features/documents/contract';
 import { DOCUMENTS_IPC_CODECS } from '@electron/features/documents/documentsIpcCodecs';
 import { createCodecIpcInvoker } from '@electron/preload/ipcClient';
+import { readHostResourceProfileArgument } from '@electron/preload/readHostResourceProfileArgument';
 const preloadAlreadyInstalled = markPreloadInstalled();
 if (preloadAlreadyInstalled) {
     console.debug('[Preload] Re-exposing bridge for duplicate installation (fast reload detected)');
@@ -71,7 +72,11 @@ const deferredAutomationDocumentOpens = new Map<string, {
     promise: Promise<void>;
     release: () => void;
 }>();
-const electronApi = createElectronApi(ipcRenderer, webUtils, {waitForDocumentOpenDirect: path => deferredAutomationDocumentOpens.get(path)?.promise ?? Promise.resolve()});
+const electronApi = createElectronApi(ipcRenderer, webUtils, {
+    resourceProfile: readHostResourceProfileArgument(),
+    waitForDocumentOpenDirect: path =>
+        deferredAutomationDocumentOpens.get(path)?.promise ?? Promise.resolve(),
+});
 contextBridge.exposeInMainWorld('electronAPI', electronApi);
 tracePreload('electronAPI exposed to renderer');
 

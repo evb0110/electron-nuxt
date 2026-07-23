@@ -1,17 +1,15 @@
 import {
-    PDF_PAGE_PROXY_CACHE_DEFAULT,
-    PDF_SETTLED_MAX_CANVAS_PIXELS_DEFAULT,
     resolvePerformanceProfile,
     type IPerformanceProfile,
     type IPerformanceProfileEnvironment,
 } from '@app/utils/performanceProfile';
+import type { THostResourceTier } from '@contracts/hostResourceProfile';
 import {
     normalizeMemoryPressureLevel,
     selectViewerReclaimCandidates,
     type IRuntimeMemoryPressureSignal,
     type IViewerReclaimCandidate,
     type TMemoryPressureLevel,
-    type TWorkspaceMemoryDeviceTier,
 } from '@app/utils/document-viewer/memory/viewerResidencyPolicy';
 
 const MIB = 1024 ** 2;
@@ -34,7 +32,7 @@ export interface IResolveWorkspaceMemoryBudgetOptions {
 }
 
 export interface IWorkspaceMemoryBudget {
-    deviceTier: TWorkspaceMemoryDeviceTier;
+    deviceTier: THostResourceTier;
     pressureLevel: TMemoryPressureLevel;
     maxWarmViewers: number;
     targetWarmViewers: number;
@@ -59,13 +57,13 @@ export interface IWorkspaceMemoryReclaimPlan {
     candidates: IViewerReclaimCandidate[];
 }
 
-const BASE_BUDGETS: Record<TWorkspaceMemoryDeviceTier, IWorkspaceMemoryBudgetBase> = {
+const BASE_BUDGETS: Record<THostResourceTier, IWorkspaceMemoryBudgetBase> = {
     low: {
         maxWarmViewers: 2,
         maxEstimatedWorkspaceBytes: 768 * MIB,
         reclaimTargetBytes: 128 * MIB,
     },
-    balanced: {
+    medium: {
         maxWarmViewers: 3,
         maxEstimatedWorkspaceBytes: 1536 * MIB,
         reclaimTargetBytes: 256 * MIB,
@@ -111,15 +109,8 @@ function resolveTotalMemoryBytes(options: IResolveWorkspaceMemoryBudgetOptions) 
 
 export function resolveWorkspaceMemoryDeviceTier(
     performanceProfile: IPerformanceProfile,
-): TWorkspaceMemoryDeviceTier {
-    if (performanceProfile.lowMemory) {
-        return 'low';
-    }
-
-    return performanceProfile.settledMaxCanvasPixels > PDF_SETTLED_MAX_CANVAS_PIXELS_DEFAULT
-        && performanceProfile.maxCachedPdfPages >= PDF_PAGE_PROXY_CACHE_DEFAULT
-        ? 'high'
-        : 'balanced';
+): THostResourceTier {
+    return performanceProfile.tier;
 }
 
 export function resolveWorkspaceMemoryBudget(

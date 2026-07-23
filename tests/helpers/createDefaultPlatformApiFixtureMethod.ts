@@ -80,7 +80,10 @@ export function createDefaultPlatformApiFixtureMethod(descriptor: IPlatformMetho
         return vi.fn(() => () => {});
     }
     if (descriptor.kind === 'sync') {
-        if (path.endsWith('.getMemoryInfo')) {
+        if (
+            path.endsWith('.getMemoryInfo')
+            || path.endsWith('.getResourceProfile')
+        ) {
             return vi.fn(() => null);
         }
         if (path.endsWith('.getPathForFile')) {

@@ -68,6 +68,7 @@ describe('runInitSequence external open IPC', () => {
         const allowOpenPaths = vi.fn();
         const focusMainWindow = vi.fn();
         const createWindow = vi.fn(async () => mainWindow as never);
+        const initializeResourceRuntime = vi.fn(async () => {});
         const sweepStaleManagedScratchTempDirs = vi.fn(async () => {});
         const shutdownCoordinator = options.gracefulQuitInProgress === undefined
             ? null
@@ -106,6 +107,7 @@ describe('runInitSequence external open IPC', () => {
             }),
             hasWindows: vi.fn(() => options.hasWindows ?? true),
             initRecentFilesCache: vi.fn(async () => {}),
+            initializeResourceRuntime,
             initializeUpdates: vi.fn(),
             installHostEnvironmentDisplayWatcher: vi.fn(),
             logger: {
@@ -139,6 +141,7 @@ describe('runInitSequence external open IPC', () => {
             createWindow,
             externalOpenManager,
             focusMainWindow,
+            initializeResourceRuntime,
             mainWindow,
             otherWindow,
             shutdownCoordinator,
@@ -163,6 +166,14 @@ describe('runInitSequence external open IPC', () => {
             iconPath: '/app/icon.png',
             authors: ['Eugene Barsky'],
         });
+    });
+
+    it('initializes the resource runtime before creating a window', async () => {
+        const harness = await createHarness();
+
+        expect(harness.initializeResourceRuntime).toHaveBeenCalledOnce();
+        expect(harness.initializeResourceRuntime.mock.invocationCallOrder[0])
+            .toBeLessThan(harness.createWindow.mock.invocationCallOrder[0]!);
     });
 
     it('never displays the generic Electron runtime version in the development About panel', async () => {

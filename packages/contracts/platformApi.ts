@@ -83,6 +83,7 @@ export type * from '@contracts/electronApiPageOps';
 export type * from '@contracts/electronApiSystem';
 export type * from '@contracts/electronApiUpdates';
 export type * from '@contracts/electronApiWindowTabs';
+export * from '@contracts/hostResourceProfile';
 export type * from '@contracts/searchCapability';
 export type * from '@contracts/settingsCapability';
 export type * from '@contracts/shellCapability';

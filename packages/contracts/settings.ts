@@ -9,6 +9,7 @@ import {
 } from 'es-toolkit/predicate';
 import { trim } from 'es-toolkit/string';
 import type { ISettingsData } from '@contracts/shared';
+import type { TPerformanceMode } from '@contracts/hostResourceProfile';
 import { isRecord } from '@contracts/runtimeGuards';
 
 const DEFAULT_ANNOTATION_COLOR = '#ffd400';
@@ -35,6 +36,12 @@ const TAB_MEMORY_POLICIES: ReadonlySet<string> = new Set<ISettingsData['tabMemor
     'conservative',
     'aggressive',
 ]);
+const PERFORMANCE_MODES: ReadonlySet<string> = new Set<TPerformanceMode>([
+    'auto',
+    'low',
+    'medium',
+    'high',
+]);
 const MAX_AUTHOR_NAME_LENGTH = 256;
 const MAX_SKIPPED_UPDATE_VERSION_LENGTH = 128;
 
@@ -49,6 +56,7 @@ export const DEFAULT_SETTINGS: ISettingsData = {
     defaultAnnotationColor: DEFAULT_ANNOTATION_COLOR,
     uiScale: 'auto',
     tabMemoryPolicy: 'conservative',
+    performanceMode: 'auto',
     optimizePdfOnSaveAs: false,
     assistantPanelEnabled: false,
     agentMcpEnabled: false,
@@ -74,6 +82,10 @@ function isUiScalePreference(value: string): value is ISettingsData['uiScale'] {
 
 function isTabMemoryPolicy(value: string): value is ISettingsData['tabMemoryPolicy'] {
     return TAB_MEMORY_POLICIES.has(value);
+}
+
+function isPerformanceMode(value: string): value is TPerformanceMode {
+    return PERFORMANCE_MODES.has(value);
 }
 
 export function normalizeTheme(theme: unknown): ISettingsData['theme'] {
@@ -145,6 +157,14 @@ function normalizeTabMemoryPolicy(value: unknown): ISettingsData['tabMemoryPolic
     return isTabMemoryPolicy(value) ? value : DEFAULT_SETTINGS.tabMemoryPolicy;
 }
 
+export function normalizePerformanceMode(value: unknown): TPerformanceMode {
+    if (!isString(value)) {
+        return DEFAULT_SETTINGS.performanceMode;
+    }
+
+    return isPerformanceMode(value) ? value : DEFAULT_SETTINGS.performanceMode;
+}
+
 export function sanitizeSettings(raw: unknown): ISettingsData {
     const value = isRecord(raw) ? raw : null;
     const settings: ISettingsData = {
@@ -160,6 +180,7 @@ export function sanitizeSettings(raw: unknown): ISettingsData {
         defaultAnnotationColor: normalizeDefaultAnnotationColor(value?.defaultAnnotationColor),
         uiScale: normalizeUiScale(value?.uiScale),
         tabMemoryPolicy: normalizeTabMemoryPolicy(value?.tabMemoryPolicy),
+        performanceMode: normalizePerformanceMode(value?.performanceMode),
         optimizePdfOnSaveAs: value?.optimizePdfOnSaveAs === true,
         assistantPanelEnabled: isBoolean(value?.assistantPanelEnabled)
             ? value.assistantPanelEnabled

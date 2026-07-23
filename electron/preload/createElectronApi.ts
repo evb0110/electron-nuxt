@@ -16,6 +16,7 @@ import type {
 } from '@contracts/electronApiDocuments';
 import type { TMenuEventUnsubscribe } from '@contracts/electronApiCommon';
 import { decodeHostEnvironmentSnapshot } from '@contracts/electronApiHost';
+import type { IHostResourceProfileSnapshot } from '@contracts/hostResourceProfile';
 import { decodeAppUpdateStatus } from '@contracts/electronApiUpdates';
 import {
     decodeWindowTabIncomingTransfer,
@@ -135,7 +136,10 @@ function readSystemMemoryInfo() {
     return decodeSystemMemoryInfo(process.getSystemMemoryInfo());
 }
 
-interface ICreateElectronApiOptions {waitForDocumentOpenDirect?: (path: string) => Promise<void>;}
+interface ICreateElectronApiOptions {
+    resourceProfile?: IHostResourceProfileSnapshot | null;
+    waitForDocumentOpenDirect?: (path: string) => Promise<void>;
+}
 
 export function createElectronApi(
     ipcRenderer: IpcRenderer,
@@ -537,6 +541,7 @@ export function createElectronApi(
         shell: {openExternal: (url) => invokeCore(CORE_IPC_CHANNELS.shellOpenExternal, url)},
 
         host: {
+            getResourceProfile: () => options.resourceProfile ?? null,
             getEnvironment: () => invokeCore(CORE_IPC_CHANNELS.hostGetEnvironment),
             onEnvironmentChange: (callback): TMenuEventUnsubscribe =>
                 eventSubscriber.onDecodedPayload(

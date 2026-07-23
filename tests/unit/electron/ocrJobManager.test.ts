@@ -98,6 +98,14 @@ vi.mock('@electron/ocr/paths', () => ({getOcrToolPaths: mocks.getOcrToolPaths}))
 vi.mock('@electron/utils/createLogger', () => ({createLogger: () => mocks.logger}));
 vi.mock('@electron/utils/sendPlatformEvent', () => ({sendPlatformEvent: mocks.sendPlatformEvent}));
 vi.mock('@electron/file-access/documentRevisionStore', () => ({getWorkingCopyRevision: mocks.getWorkingCopyRevision}));
+vi.mock('@electron/resources/hostResourceProfile', () => ({getHostResourceProfileSnapshot: () => ({
+    logicalCpus: 8,
+    totalRamBytes: 16 * 1024 * 1024 * 1024,
+    safeMode: false,
+    detectedTier: 'high',
+    performanceMode: 'auto',
+    tier: 'high',
+})}));
 
 function createDocumentRevision(documentRef: string) {
     return {

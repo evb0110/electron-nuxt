@@ -95,6 +95,16 @@ vi.mock('@electron/utils/createLogger', () => ({createLogger: () => ({
 
 const { registerDjvuIpcAdapter } = await import('@electron/features/djvu/registerDjvuIpcAdapter');
 const { resolveDjvuPreviewBrokerPriority } = await import('@electron/features/djvu/main/djvuOperations');
+const { configureMainJobBroker } = await import('@electron/resources/jobBroker');
+
+configureMainJobBroker({
+    logicalCpus: 8,
+    totalRamBytes: 16 * 1024 * 1024 * 1024,
+    safeMode: false,
+    detectedTier: 'high',
+    performanceMode: 'auto',
+    tier: 'high',
+});
 
 function createIpcEvent(senderId: number) {
     type TListener = (...args: unknown[]) => void;

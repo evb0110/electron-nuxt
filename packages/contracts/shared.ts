@@ -4,6 +4,7 @@ import type {
     TDocumentRef,
 } from '@contracts/documentRef';
 import type { IPdfBox as IPdfGeometryBox } from '@contracts/geometry';
+import type { TPerformanceMode } from '@contracts/hostResourceProfile';
 import { isRecord } from '@contracts/runtimeGuards';
 
 export type {
@@ -90,6 +91,7 @@ export interface ISettingsData {
     defaultAnnotationColor: string;
     uiScale: TUiScalePreference;
     tabMemoryPolicy: TTabMemoryPolicy;
+    performanceMode: TPerformanceMode;
     optimizePdfOnSaveAs: boolean;
     assistantPanelEnabled: boolean;
     agentMcpEnabled: boolean;

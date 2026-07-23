@@ -10,6 +10,7 @@ import {
 } from '@app/types/workspaceExpose';
 import { resolveTabLifecycleStates } from '@app/modules/workspace-shell/tabs/resolveTabLifecycleStates';
 import type { IEditorPaneState } from '@contracts/editorPanes';
+import type { THostResourceTier } from '@contracts/hostResourceProfile';
 import type { ITab } from '@app/types/tabs';
 
 function tab(id: string): ITab {
@@ -118,7 +119,10 @@ describe('tab session memory policy', () => {
         expect(readerState.surfaceMode).toBe('reader');
     });
 
-    it('keeps the active tab hot and recent tabs warm in conservative mode', () => {
+    it.each<THostResourceTier>([
+        'medium',
+        'high',
+    ])('keeps the active tab hot and two recent tabs warm on the %s tier', (tier) => {
         const states = resolveTabLifecycleStates({
             tabs: [
                 tab('a'),
@@ -140,6 +144,7 @@ describe('tab session memory policy', () => {
                 'd',
             ],
             policy: 'conservative',
+            tier,
         });
 
         expect(Object.fromEntries(states.map(state => [
@@ -171,6 +176,42 @@ describe('tab session memory policy', () => {
         });
     });
 
+    it('caps low-tier conservative mode at one inactive warm tab', () => {
+        const states = resolveTabLifecycleStates({
+            tabs: [
+                tab('a'),
+                tab('b'),
+                tab('c'),
+                tab('d'),
+            ],
+            panes: [pane('pane-1', 'a', [
+                'a',
+                'b',
+                'c',
+                'd',
+            ])],
+            activeTabId: 'a',
+            activationOrder: [
+                'a',
+                'c',
+                'b',
+                'd',
+            ],
+            policy: 'conservative',
+            tier: 'low',
+        });
+
+        expect(Object.fromEntries(states.map(state => [
+            state.tabId,
+            state.temperature,
+        ]))).toEqual({
+            a: 'hot',
+            b: 'cold',
+            c: 'warm',
+            d: 'cold',
+        });
+    });
+
     it('cools non-active tabs aggressively except visible split panes', () => {
         const states = resolveTabLifecycleStates({
             tabs: [
@@ -192,6 +233,7 @@ describe('tab session memory policy', () => {
                 'c',
             ],
             policy: 'aggressive',
+            tier: 'low',
         });
 
         expect(Object.fromEntries(states.map(state => [
@@ -227,6 +269,7 @@ describe('tab session memory policy', () => {
                 'b',
             ],
             policy: 'aggressive',
+            tier: 'low',
         });
 
         expect(Object.fromEntries(states.map(state => [

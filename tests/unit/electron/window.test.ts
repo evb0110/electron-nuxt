@@ -193,6 +193,10 @@ vi.mock('@electron/te', () => ({te: mocks.te}));
 vi.mock('@electron/security/csp', () => ({setupContentSecurityPolicy: mocks.setupContentSecurityPolicy}));
 
 vi.mock('@electron/utils/createLogger', () => ({createLogger: () => mocks.logger}));
+vi.mock('@electron/resources/hostResourceProfile', () => ({
+    encodeHostResourceProfileArgument: vi.fn(() => '--evb-host-resource-profile=test'),
+    getHostResourceProfileSnapshot: vi.fn(() => ({})),
+}));
 
 describe('window runtime readiness', () => {
     beforeEach(() => {
@@ -217,6 +221,7 @@ describe('window runtime readiness', () => {
         const window = mocks.BrowserWindow.windows[0];
         expect(window?.options).toEqual(expect.objectContaining({autoHideMenuBar: false}));
         expect(window?.options).toEqual(expect.objectContaining({webPreferences: expect.objectContaining({
+            additionalArguments: ['--evb-host-resource-profile=test'],
             contextIsolation: true,
             nodeIntegration: false,
             sandbox: true,

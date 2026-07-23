@@ -9,8 +9,14 @@ import {
 import type { ocrResourceGovernor as importedOcrResourceGovernor } from '@electron/ocr/ocrResourceGovernor';
 
 const mocks = vi.hoisted(() => ({
-    availableParallelism: vi.fn(() => 8),
-    totalmem: vi.fn(() => 16 * 1024 * 1024 * 1024),
+    resourceProfile: {
+        logicalCpus: 8,
+        totalRamBytes: 16 * 1024 * 1024 * 1024,
+        safeMode: false,
+        detectedTier: 'high',
+        performanceMode: 'auto',
+        tier: 'high',
+    },
     logger: {
         debug: vi.fn(),
         info: vi.fn(),
@@ -22,10 +28,7 @@ const mocks = vi.hoisted(() => ({
     brokerLeaseRelease: vi.fn(),
 }));
 
-vi.mock('os', () => ({
-    availableParallelism: mocks.availableParallelism,
-    totalmem: mocks.totalmem,
-}));
+vi.mock('@electron/resources/hostResourceProfile', () => ({getHostResourceProfileSnapshot: () => mocks.resourceProfile}));
 vi.mock('@electron/utils/createLogger', () => ({createLogger: () => mocks.logger}));
 vi.mock('@electron/resources/jobBroker', () => ({mainJobBroker: {
     acquire: mocks.brokerAcquire,
@@ -42,8 +45,10 @@ describe('ocr resource governor', () => {
     beforeEach(() => {
         vi.resetModules();
         vi.clearAllMocks();
-        mocks.availableParallelism.mockReturnValue(8);
-        mocks.totalmem.mockReturnValue(16 * 1024 * 1024 * 1024);
+        mocks.resourceProfile.logicalCpus = 8;
+        mocks.resourceProfile.totalRamBytes = 16 * 1024 * 1024 * 1024;
+        mocks.resourceProfile.detectedTier = 'high';
+        mocks.resourceProfile.tier = 'high';
         mocks.brokerAcquire.mockImplementation(async (request: {resources: {
             cpuTokens: number;
             estimatedResidentBytes: number;
@@ -119,6 +124,23 @@ describe('ocr resource governor', () => {
         });
         ocrResourceGovernor.release(lease.token);
         expect(mocks.brokerLeaseRelease).toHaveBeenCalledOnce();
+    });
+
+    it('uses the canonical low tier for admission and high-DPI slot cost', async () => {
+        mocks.resourceProfile.detectedTier = 'low';
+        mocks.resourceProfile.tier = 'low';
+        const ocrResourceGovernor = await loadOcrResourceGovernor();
+        const lease = await ocrResourceGovernor.acquire({
+            jobId: 'job-low-tier',
+            pageNumber: 1,
+            requestedDpi: 600,
+        });
+
+        expect(mocks.brokerAcquire).toHaveBeenCalledWith(expect.objectContaining({
+            perOwnerLimit: 1,
+            resources: expect.objectContaining({cpuTokens: 1}),
+        }));
+        ocrResourceGovernor.release(lease.token);
     });
 
     it('does not create a local lease when cross-feature admission fails', async () => {

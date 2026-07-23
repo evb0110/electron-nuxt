@@ -10,6 +10,7 @@ import {
 } from '@contracts/electronApiDocuments';
 import { decodeAppUpdateStatus } from '@contracts/electronApiUpdates';
 import { decodeHostEnvironmentSnapshot } from '@contracts/electronApiHost';
+import { decodeHostResourceProfileSnapshot } from '@contracts/hostResourceProfile';
 import { decodeWindowTabsAction } from '@contracts/windowTabsValidation';
 import { decodeDocumentRevisionChangedEvent } from '@contracts/documentRevision';
 import { decodeOcrLanguages } from '@contracts/ocrLanguages';
@@ -96,6 +97,34 @@ describe('trusted IPC payload decoders', () => {
             platform: 'darwin',
             osScaleFactor: 9,
         })).toBeNull();
+    });
+
+    it('keeps the decoded host resource profile contract stable', () => {
+        expect(decodeHostResourceProfileSnapshot({
+            logicalCpus: 4,
+            totalRamBytes: 12 * (1024 ** 3),
+            safeMode: true,
+            gpuStatus: {
+                gpu_compositing: 'disabled_software',
+                webgl: 'unavailable_software',
+            },
+            detectedTier: 'low',
+            performanceMode: 'medium',
+            tier: 'medium',
+        })).toMatchInlineSnapshot(`
+          {
+            "detectedTier": "low",
+            "gpuStatus": {
+              "gpu_compositing": "disabled_software",
+              "webgl": "unavailable_software",
+            },
+            "logicalCpus": 4,
+            "performanceMode": "medium",
+            "safeMode": true,
+            "tier": "medium",
+            "totalRamBytes": 12884901888,
+          }
+        `);
     });
 
     it('validates every nested window-tab action variant', () => {

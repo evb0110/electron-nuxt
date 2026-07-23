@@ -5,10 +5,6 @@ import {
     unlink,
     writeFile,
 } from 'fs/promises';
-import {
-    availableParallelism,
-    cpus,
-} from 'os';
 import { PDFDocument } from 'pdf-lib';
 import { limitAsync } from 'es-toolkit/array';
 import { clamp } from 'es-toolkit/math';
@@ -25,6 +21,8 @@ import type { IRunCommandOptions } from '@electron/native-tools/runNativeCommand
 import { abortErrorFromSignal } from '@electron/utils/abort';
 import { openDjvuArtifactJob } from '@electron/features/djvu/main/djvuArtifactManifest';
 import { mainJobBroker } from '@electron/resources/jobBroker';
+import type { THostResourceTier } from '@contracts/hostResourceProfile';
+import { getHostResourceProfileSnapshot } from '@electron/resources/hostResourceProfile';
 
 interface IDjvuConversionOptions {
     subsample?: number;
@@ -774,14 +772,14 @@ function createPageRanges(
     return chunks;
 }
 
-function getLogicalCpuCount() {
-    if (typeof availableParallelism === 'function') {
-        return availableParallelism();
+export function resolveDjvuRangeWorkerCount(
+    pageCount: number,
+    logicalCpuCount = getHostResourceProfileSnapshot().logicalCpus,
+    tier: THostResourceTier = getHostResourceProfileSnapshot().tier,
+) {
+    if (tier === 'low') {
+        return Math.min(pageCount, 1);
     }
-    return cpus().length;
-}
-
-export function resolveDjvuRangeWorkerCount(pageCount: number, logicalCpuCount = getLogicalCpuCount()) {
     const cpuBound = Math.max(1, logicalCpuCount - 1);
     const desired = clamp(cpuBound, 1, MAX_RANGE_WORKERS);
     return Math.min(pageCount, desired);

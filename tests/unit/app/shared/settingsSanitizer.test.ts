@@ -60,6 +60,40 @@ describe('settings-sanitizer', () => {
         expect(sanitizeSettings({tabMemoryPolicy: 'unsupported' as never}).tabMemoryPolicy).toBe(DEFAULT_SETTINGS.tabMemoryPolicy);
     });
 
+    it('defaults performance mode to auto', () => {
+        expect(sanitizeSettings(undefined).performanceMode).toBe('auto');
+        expect(DEFAULT_SETTINGS.performanceMode).toBe('auto');
+    });
+
+    it('normalizes every valid performance mode', () => {
+        for (const mode of [
+            'auto',
+            'low',
+            'medium',
+            'high',
+        ] as const) {
+            expect(sanitizeSettings({performanceMode: mode}).performanceMode).toBe(mode);
+        }
+    });
+
+    it('falls back to auto for an invalid performance mode', () => {
+        expect(sanitizeSettings({performanceMode: 'turbo' as never}).performanceMode).toBe('auto');
+        expect(sanitizeSettings({performanceMode: 42 as never}).performanceMode).toBe('auto');
+    });
+
+    it('discards resolved tier fields that are not part of the settings shape', () => {
+        const sanitized = sanitizeSettings({
+            performanceMode: 'low',
+            tier: 'high',
+            detectedTier: 'high',
+            resolvedTier: 'high',
+        } as never);
+        expect(sanitized.performanceMode).toBe('low');
+        expect(sanitized).not.toHaveProperty('tier');
+        expect(sanitized).not.toHaveProperty('detectedTier');
+        expect(sanitized).not.toHaveProperty('resolvedTier');
+    });
+
     it('normalizes Save As PDF optimization setting', () => {
         expect(sanitizeSettings({optimizePdfOnSaveAs: true}).optimizePdfOnSaveAs).toBe(true);
         expect(sanitizeSettings({optimizePdfOnSaveAs: 'yes'}).optimizePdfOnSaveAs).toBe(false);

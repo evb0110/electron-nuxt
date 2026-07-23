@@ -1,6 +1,5 @@
 export type TMemoryPressureLevel = 'none' | 'moderate' | 'critical';
 export type TViewerResidencyState = 'active' | 'warm' | 'hibernating' | 'hibernated';
-export type TWorkspaceMemoryDeviceTier = 'low' | 'balanced' | 'high';
 
 export interface IRuntimeMemoryPressureSignal {
     level?: TMemoryPressureLevel | undefined;

@@ -9,6 +9,10 @@ import {
     MAIN_JOB_BROKER_MAX_SINGLE_JOB_RESOURCES,
     resolveMainJobBrokerCapacity,
 } from '@electron/resources/jobBroker';
+import type {
+    IHostResourceProfileSnapshot,
+    THostResourceTier,
+} from '@contracts/hostResourceProfile';
 
 const CAPACITY = {
     cpuTokens: 2,
@@ -16,6 +20,22 @@ const CAPACITY = {
     nativeProcesses: 2,
     ioWeight: 2,
 };
+const GIB = 1024 ** 3;
+
+function createResourceProfile(
+    logicalCpus: number,
+    totalRamBytes: number,
+    tier: THostResourceTier,
+): IHostResourceProfileSnapshot {
+    return {
+        logicalCpus,
+        totalRamBytes,
+        safeMode: false,
+        detectedTier: tier,
+        performanceMode: 'auto',
+        tier,
+    };
+}
 
 function createRequest(overrides: Partial<IJobBrokerRequest> = {}): IJobBrokerRequest {
     return {
@@ -40,7 +60,9 @@ describe('JobBroker', () => {
         6,
         8,
     ])('admits the largest supported single job on a %i-CPU host', async (cpuCount) => {
-        const capacity = resolveMainJobBrokerCapacity(cpuCount, 8 * 1024 * 1024 * 1024);
+        const capacity = resolveMainJobBrokerCapacity(
+            createResourceProfile(cpuCount, 8 * GIB, 'low'),
+        );
         const broker = new JobBroker(capacity);
         const lease = await broker.acquire(createRequest({resources: {...MAIN_JOB_BROKER_MAX_SINGLE_JOB_RESOURCES}}));
 
@@ -49,6 +71,80 @@ describe('JobBroker', () => {
         expect(capacity.nativeProcesses).toBeGreaterThanOrEqual(MAIN_JOB_BROKER_MAX_SINGLE_JOB_RESOURCES.nativeProcesses);
         expect(capacity.ioWeight).toBeGreaterThanOrEqual(MAIN_JOB_BROKER_MAX_SINGLE_JOB_RESOURCES.ioWeight);
         expect(lease.release()).toBe(true);
+    });
+
+    it('preserves medium and high capacity formulas while applying tier floors', () => {
+        expect(resolveMainJobBrokerCapacity(
+            createResourceProfile(3, 16 * GIB, 'medium'),
+        )).toEqual({
+            cpuTokens: 2,
+            estimatedResidentBytes: 13.6 * GIB,
+            nativeProcesses: 2,
+            ioWeight: 4,
+        });
+        expect(resolveMainJobBrokerCapacity(
+            createResourceProfile(8, 16 * GIB, 'high'),
+        )).toEqual({
+            cpuTokens: 6,
+            estimatedResidentBytes: 13.6 * GIB,
+            nativeProcesses: 4,
+            ioWeight: 4,
+        });
+    });
+
+    it('caps low-tier concurrency without changing its memory formula', () => {
+        expect(resolveMainJobBrokerCapacity(
+            createResourceProfile(8, 8 * GIB, 'low'),
+        )).toEqual({
+            cpuTokens: 2,
+            estimatedResidentBytes: 6.8 * GIB,
+            nativeProcesses: 2,
+            ioWeight: 4,
+        });
+    });
+
+    it('keeps nested native-process leases admissible on the low tier', async () => {
+        const broker = new JobBroker(resolveMainJobBrokerCapacity(
+            createResourceProfile(2, 4 * GIB, 'low'),
+        ));
+        const outer = await broker.acquire({
+            ownerId: 'djvu-job',
+            kind: 'djvu-output',
+            priority: 'user',
+            resources: {
+                cpuTokens: 1,
+                estimatedResidentBytes: 1,
+                nativeProcesses: 1,
+                ioWeight: 1,
+            },
+        });
+        const inner = await broker.acquire({
+            ownerId: 'djvu-job',
+            kind: 'djvu-conversion',
+            priority: 'user',
+            resources: {
+                cpuTokens: 1,
+                estimatedResidentBytes: 1,
+                nativeProcesses: 1,
+                ioWeight: 1,
+            },
+        });
+        inner.release();
+        outer.release();
+    });
+
+    it('reconfigures capacity only before work is admitted', async () => {
+        const broker = new JobBroker(CAPACITY);
+        broker.reconfigureCapacity({
+            ...CAPACITY,
+            cpuTokens: 1,
+        });
+        expect(broker.getSnapshot().capacity.cpuTokens).toBe(1);
+
+        const lease = await broker.acquire(createRequest());
+        expect(() => broker.reconfigureCapacity(CAPACITY))
+            .toThrow('cannot be reconfigured after work is admitted');
+        lease.release();
     });
 
     it('holds work until the full resource vector is available', async () => {

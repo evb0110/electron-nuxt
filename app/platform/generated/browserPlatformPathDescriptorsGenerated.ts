@@ -354,4 +354,5 @@ export const directBrowserPlatformMemberPathsGenerated = [
     ["documentPicker","getPathsForFiles"],
     ["documents","getPathsForFiles"],
     ["system","getMemoryInfo"],
+    ["host","getResourceProfile"],
 ] as const;

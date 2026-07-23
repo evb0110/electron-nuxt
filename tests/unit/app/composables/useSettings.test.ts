@@ -79,6 +79,7 @@ describe('useSettings', () => {
     it('sanitizes invalid loaded locale to default', async () => {
         mockGet.mockResolvedValue({
             version: 1,
+            performanceMode: 'auto',
             authorName: 'Tester',
             theme: 'light',
             locale: 'xx' as ISettingsData['locale'],
@@ -107,6 +108,7 @@ describe('useSettings', () => {
     it('starts unresolved without a snapshot and resolves after the authoritative load', async () => {
         mockGet.mockResolvedValue({
             version: 1,
+            performanceMode: 'auto',
             authorName: 'Browser Tester',
             theme: 'dark',
             locale: 'fr',

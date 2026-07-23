@@ -49,6 +49,38 @@ describe('workspace memory budget', () => {
         });
     });
 
+    it.each([
+        {
+            tier: 'low' as const,
+            maxWarmViewers: 2,
+            maxCachedPdfPagesPerViewer: 16,
+            maxEstimatedWorkspaceBytes: 768 * MIB,
+            reclaimTargetBytes: 128 * MIB,
+        },
+        {
+            tier: 'medium' as const,
+            maxWarmViewers: 3,
+            maxCachedPdfPagesPerViewer: 48,
+            maxEstimatedWorkspaceBytes: 1536 * MIB,
+            reclaimTargetBytes: 256 * MIB,
+        },
+        {
+            tier: 'high' as const,
+            maxWarmViewers: 5,
+            maxCachedPdfPagesPerViewer: 48,
+            maxEstimatedWorkspaceBytes: 3072 * MIB,
+            reclaimTargetBytes: 512 * MIB,
+        },
+    ])('keeps the existing $tier numeric base', ({
+        tier,
+        ...expected
+    }) => {
+        expect(resolveWorkspaceMemoryBudget({environment: { tier }})).toMatchObject({
+            deviceTier: tier,
+            ...expected,
+        });
+    });
+
     it('derives bounded raster and free-memory reserves from physical memory', () => {
         expect(resolveWorkspaceMemoryBudget({environment: { totalMemoryBytes: 4 * GIB }})).toMatchObject({
             maxRasterSurfaceBytes: 0.24 * GIB,
@@ -63,8 +95,9 @@ describe('workspace memory budget', () => {
         });
     });
 
-    it('keeps balanced devices distinct from low and high tiers', () => {
+    it('uses the canonical performance profile tier without reclassifying it', () => {
         expect(resolveWorkspaceMemoryDeviceTier({
+            tier: 'medium',
             lowMemory: false,
             lowCpu: false,
             pdfBufferPages: 2,
@@ -73,7 +106,7 @@ describe('workspace memory budget', () => {
             thumbnailBaseConcurrency: 2,
             settledMaxCanvasPixels: 2 ** 25,
             maxBufferCanvasPixels: 16_777_216,
-        })).toBe('balanced');
+        })).toBe('medium');
     });
 
     it('selects inactive reclaim candidates deterministically when warm viewers exceed the budget', () => {

@@ -1,4 +1,5 @@
 import type { TMenuEventUnsubscribe } from '@contracts/electronApiCommon';
+import type { IHostResourceProfileSnapshot } from '@contracts/hostResourceProfile';
 import {
     isFiniteNumber,
     isRecord,
@@ -34,6 +35,7 @@ export interface IHostZenModeState {
 }
 
 export interface IHostCapability {
+    getResourceProfile: () => IHostResourceProfileSnapshot | null;
     getEnvironment: () => Promise<IHostEnvironmentSnapshot>;
     onEnvironmentChange: (callback: (snapshot: IHostEnvironmentSnapshot) => void) => TMenuEventUnsubscribe;
     getZenModeState: () => Promise<IHostZenModeState>;

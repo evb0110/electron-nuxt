@@ -32,6 +32,10 @@ function getMemoryInfo() {
     return null;
 }
 
+function getResourceProfile() {
+    return null;
+}
+
 export function createLazyBrowserPlatformApiGenerated({
     lazyAsync,
     lazyEvent,
@@ -331,6 +335,7 @@ export function createLazyBrowserPlatformApiGenerated({
     const agentResetAssistantChatMethod = lazyAsync(pathDescriptors.agent.resetAssistantChat.path);
     const agentOnAssistantEventMethod = lazyEvent(pathDescriptors.agent.onAssistantEvent.path);
     const shellOpenExternalMethod = lazyAsync(pathDescriptors.shell.openExternal.path);
+    const hostGetResourceProfileMethod = getResourceProfile;
     const hostGetEnvironmentMethod = lazyAsync(pathDescriptors.host.getEnvironment.path);
     const hostOnEnvironmentChangeMethod = lazyEvent(pathDescriptors.host.onEnvironmentChange.path);
     const hostGetZenModeStateMethod = lazyAsync(pathDescriptors.host.getZenModeState.path);
@@ -682,6 +687,7 @@ export function createLazyBrowserPlatformApiGenerated({
         openExternal: shellOpenExternalMethod,
     },
     host: {
+        getResourceProfile: hostGetResourceProfileMethod,
         getEnvironment: hostGetEnvironmentMethod,
         onEnvironmentChange: hostOnEnvironmentChangeMethod,
         getZenModeState: hostGetZenModeStateMethod,

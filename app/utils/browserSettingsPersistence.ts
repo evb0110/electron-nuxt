@@ -6,7 +6,9 @@ import type {
     TAppLocale,
     TAppTheme,
 } from '@contracts/shared';
+import type { TPerformanceMode } from '@contracts/hostResourceProfile';
 import { LOCALE_CODES } from '@i18n-core';
+import { safeDecodeURIComponent } from '@app/utils/browserSafe';
 
 export const BROWSER_SETTINGS_COOKIE_KEY = 'evb_viewer_settings';
 export const BROWSER_SETTINGS_COOKIE_MAX_AGE_SECONDS = 60 * 60 * 24 * 180;
@@ -87,6 +89,7 @@ export function serializeBrowserSettingsPayload(settings: ISettingsData) {
         defaultAnnotationColor: sanitized.defaultAnnotationColor,
         uiScale: sanitized.uiScale,
         tabMemoryPolicy: sanitized.tabMemoryPolicy,
+        performanceMode: sanitized.performanceMode,
         optimizePdfOnSaveAs: sanitized.optimizePdfOnSaveAs,
         assistantPanelEnabled: sanitized.assistantPanelEnabled,
     };
@@ -97,4 +100,29 @@ export function serializeBrowserSettingsPayload(settings: ISettingsData) {
         payload.skippedUpdateVersion = sanitized.skippedUpdateVersion;
     }
     return JSON.stringify(payload);
+}
+
+function readRawSettingsCookie(): string | null {
+    if (typeof document === 'undefined') {
+        return null;
+    }
+
+    const cookies = document.cookie.split(';');
+    for (const cookie of cookies) {
+        const separatorIndex = cookie.indexOf('=');
+        if (separatorIndex === -1) {
+            continue;
+        }
+
+        const name = cookie.slice(0, separatorIndex).trim();
+        if (name === BROWSER_SETTINGS_COOKIE_KEY) {
+            return safeDecodeURIComponent(cookie.slice(separatorIndex + 1).trim());
+        }
+    }
+
+    return null;
+}
+
+export function readBrowserPerformanceModeSnapshot(): TPerformanceMode {
+    return parseBrowserSettingsPayload(readRawSettingsCookie()).performanceMode;
 }

@@ -3,6 +3,8 @@ import {
     BrowserWindow,
 } from 'electron';
 import type { IAppUpdateStatus } from '@contracts/electronApiUpdates';
+import type { TPerformanceMode } from '@contracts/hostResourceProfile';
+import { isRecord } from '@contracts/runtimeGuards';
 import {
     dirname,
     join,
@@ -86,7 +88,10 @@ import {
     registerAppProtocolScheme,
     setupAppProtocolHandler,
 } from '@electron/protocol';
-import { resetSettingsCacheAfterUserDataPathChange } from '@electron/settings';
+import {
+    loadSettings,
+    resetSettingsCacheAfterUserDataPathChange,
+} from '@electron/settings';
 import { configureMacKeychainAccess } from '@electron/security/macKeychainAccess';
 import {
     beginMainOperationShutdown,
@@ -103,6 +108,8 @@ import { runDetached } from '@electron/utils/runDetached';
 import { resolveApplicationVersion } from '@electron/appVersion';
 import { createUnhandledRejectionRecovery } from '@electron/unhandledRejectionRecovery';
 import { clearWorkspaceCheckpoint } from '@electron/workspaceCheckpointStore';
+import { initializeHostResourceProfile } from '@electron/resources/hostResourceProfile';
+import { configureMainJobBroker } from '@electron/resources/jobBroker';
 
 app.setName(app.isPackaged ? 'EVB Viewer' : 'EVB Viewer Dev');
 configureProcessSafeMode(app, process.argv);
@@ -434,6 +441,19 @@ function broadcastUpdateStatus(status: IAppUpdateStatus) {
 
 const allowMultipleAutomationSessions = process.env.EVB_ALLOW_MULTI_AUTOMATION_SESSIONS === '1';
 
+function isPerformanceMode(value: unknown): value is TPerformanceMode {
+    return value === 'auto'
+        || value === 'low'
+        || value === 'medium'
+        || value === 'high';
+}
+
+function readLaunchPerformanceMode(value: unknown) {
+    return isRecord(value) && isPerformanceMode(value.performanceMode)
+        ? value.performanceMode
+        : 'auto';
+}
+
 void runInitSequence({
     app,
     aboutIconPath,
@@ -451,6 +471,19 @@ void runInitSequence({
     getWindowFromWebContents: BrowserWindow.fromWebContents,
     hasWindows,
     initRecentFilesCache,
+    initializeResourceRuntime: async () => {
+        const settings = await loadSettings();
+        const resourceProfile = initializeHostResourceProfile({
+            app,
+            performanceMode: readLaunchPerformanceMode(settings),
+        });
+        configureMainJobBroker(resourceProfile);
+        startupTrace.log(
+            `Host resource profile initialized: tier=${resourceProfile.tier}, `
+            + `mode=${resourceProfile.performanceMode}, logicalCpus=${resourceProfile.logicalCpus}, `
+            + `totalRamBytes=${resourceProfile.totalRamBytes}, safeMode=${String(resourceProfile.safeMode)}`,
+        );
+    },
     initializeUpdates,
     installHostEnvironmentDisplayWatcher,
     logger,

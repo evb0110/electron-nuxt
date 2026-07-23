@@ -26,6 +26,7 @@ import {
 describe('resolvePerformanceProfile', () => {
     it('uses the conservative low profile when memory and CPU are unknown', () => {
         expect(resolvePerformanceProfile({})).toMatchObject({
+            tier: 'low',
             lowMemory: true,
             lowCpu: true,
             pdfBufferPages: 1,
@@ -43,6 +44,7 @@ describe('resolvePerformanceProfile', () => {
             deviceMemory: 8,
             hardwareConcurrency: 8,
         })).toMatchObject({
+            tier: 'high',
             lowMemory: false,
             lowCpu: false,
             pdfBufferPages: 2,
@@ -60,6 +62,7 @@ describe('resolvePerformanceProfile', () => {
             hardwareConcurrency: 8,
             totalMemoryBytes: 8 * 1024 ** 3,
         })).toMatchObject({
+            tier: 'low',
             lowMemory: true,
             lowCpu: false,
             pdfBufferPages: 1,
@@ -76,6 +79,7 @@ describe('resolvePerformanceProfile', () => {
             hardwareConcurrency: 24,
             totalMemoryBytes: 32 * 1024 ** 3,
         })).toMatchObject({
+            tier: 'high',
             lowMemory: false,
             lowCpu: false,
             pdfBufferPages: PDF_BUFFER_PAGES_WORKSTATION,
@@ -92,6 +96,7 @@ describe('resolvePerformanceProfile', () => {
             hardwareConcurrency: 8,
             totalMemoryBytes: 64 * 1024 ** 3,
         })).toMatchObject({
+            tier: 'high',
             pdfBufferPages: 2,
             concurrentPdfRenders: PDF_RENDER_CONCURRENCY_DEFAULT,
             maxCachedPdfPages: PDF_PAGE_PROXY_CACHE_DEFAULT,
@@ -106,6 +111,7 @@ describe('resolvePerformanceProfile', () => {
             deviceMemory: 8,
             hardwareConcurrency: 4,
         })).toMatchObject({
+            tier: 'high',
             lowMemory: false,
             lowCpu: true,
             pdfBufferPages: 2,
@@ -122,6 +128,7 @@ describe('resolvePerformanceProfile', () => {
             deviceMemory: 4,
             hardwareConcurrency: 8,
         })).toMatchObject({
+            tier: 'low',
             lowMemory: true,
             lowCpu: false,
             pdfBufferPages: 1,
@@ -129,6 +136,161 @@ describe('resolvePerformanceProfile', () => {
             maxCachedPdfPages: PDF_PAGE_PROXY_CACHE_LOW_MEMORY,
             settledMaxCanvasPixels: PDF_SETTLED_MAX_CANVAS_PIXELS_DEFAULT,
             maxBufferCanvasPixels: PDF_BUFFER_MAX_CANVAS_PIXELS_LOW_MEMORY,
+        });
+    });
+
+    it.each([
+        {
+            tier: 'low' as const,
+            expected: {
+                tier: 'low',
+                lowMemory: true,
+                lowCpu: true,
+                pdfBufferPages: 1,
+                concurrentPdfRenders: 1,
+                maxCachedPdfPages: 16,
+                thumbnailBaseConcurrency: 1,
+                settledMaxCanvasPixels: 2 ** 25,
+                maxBufferCanvasPixels: 8_388_608,
+            },
+        },
+        {
+            tier: 'medium' as const,
+            expected: {
+                tier: 'medium',
+                lowMemory: false,
+                lowCpu: false,
+                pdfBufferPages: 2,
+                concurrentPdfRenders: 3,
+                maxCachedPdfPages: 48,
+                thumbnailBaseConcurrency: 2,
+                settledMaxCanvasPixels: 2 ** 25,
+                maxBufferCanvasPixels: 16_777_216,
+            },
+        },
+        {
+            tier: 'high' as const,
+            expected: {
+                tier: 'high',
+                lowMemory: false,
+                lowCpu: false,
+                pdfBufferPages: 2,
+                concurrentPdfRenders: 3,
+                maxCachedPdfPages: 48,
+                thumbnailBaseConcurrency: 2,
+                settledMaxCanvasPixels: 2 ** 26,
+                maxBufferCanvasPixels: 16_777_216,
+            },
+        },
+    ])('uses the exact canonical $tier table', ({
+        tier,
+        expected,
+    }) => {
+        expect(resolvePerformanceProfile({
+            tier,
+            hardwareConcurrency: 8,
+            totalMemoryBytes: 16 * 1024 ** 3,
+        })).toEqual(expected);
+    });
+
+    it('applies the existing workstation uplift only to a high canonical tier', () => {
+        const environment = {
+            hardwareConcurrency: 24,
+            totalMemoryBytes: 32 * 1024 ** 3,
+        };
+
+        expect(resolvePerformanceProfile({
+            ...environment,
+            tier: 'high',
+        })).toEqual({
+            tier: 'high',
+            lowMemory: false,
+            lowCpu: false,
+            pdfBufferPages: 4,
+            concurrentPdfRenders: 6,
+            maxCachedPdfPages: 96,
+            thumbnailBaseConcurrency: 4,
+            settledMaxCanvasPixels: 2 ** 27,
+            maxBufferCanvasPixels: 33_554_432,
+        });
+        expect(resolvePerformanceProfile({
+            ...environment,
+            tier: 'medium',
+        })).toEqual({
+            tier: 'medium',
+            lowMemory: false,
+            lowCpu: false,
+            pdfBufferPages: 2,
+            concurrentPdfRenders: 3,
+            maxCachedPdfPages: 48,
+            thumbnailBaseConcurrency: 2,
+            settledMaxCanvasPixels: 2 ** 25,
+            maxBufferCanvasPixels: 16_777_216,
+        });
+    });
+
+    it('preserves the legacy browser auto formulas when no canonical tier is available', () => {
+        expect(resolvePerformanceProfile({
+            performanceMode: 'auto',
+            deviceMemory: 4,
+            hardwareConcurrency: 8,
+        })).toEqual({
+            tier: 'low',
+            lowMemory: true,
+            lowCpu: false,
+            pdfBufferPages: 1,
+            concurrentPdfRenders: 2,
+            maxCachedPdfPages: 16,
+            thumbnailBaseConcurrency: 1,
+            settledMaxCanvasPixels: 2 ** 25,
+            maxBufferCanvasPixels: 8_388_608,
+        });
+        expect(resolvePerformanceProfile({
+            performanceMode: 'auto',
+            deviceMemory: 8,
+            hardwareConcurrency: 4,
+        })).toEqual({
+            tier: 'high',
+            lowMemory: false,
+            lowCpu: true,
+            pdfBufferPages: 2,
+            concurrentPdfRenders: 1,
+            maxCachedPdfPages: 48,
+            thumbnailBaseConcurrency: 1,
+            settledMaxCanvasPixels: 2 ** 26,
+            maxBufferCanvasPixels: 16_777_216,
+        });
+    });
+
+    it.each([
+        [
+            'low',
+            1,
+            2 ** 25,
+        ],
+        [
+            'medium',
+            3,
+            2 ** 25,
+        ],
+        [
+            'high',
+            3,
+            2 ** 26,
+        ],
+    ] as const)('maps the manual browser %s override directly to its tier', (
+        performanceMode,
+        concurrentPdfRenders,
+        settledMaxCanvasPixels,
+    ) => {
+        expect(resolvePerformanceProfile({
+            performanceMode,
+            deviceMemory: 4,
+            hardwareConcurrency: 8,
+        })).toMatchObject({
+            tier: performanceMode,
+            concurrentPdfRenders,
+            settledMaxCanvasPixels,
         });
     });
 });

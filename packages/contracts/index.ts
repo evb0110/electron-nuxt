@@ -77,6 +77,20 @@ export {
 } from '@contracts/platformApi';
 export type { IElectronAPI } from '@contracts/electronApi';
 
+export {
+    HOST_RESOURCE_PROFILE_ARGUMENT_PREFIX,
+    decodeHostResourceProfileSnapshot,
+    resolveDetectedHostResourceTier,
+    resolveEffectiveHostResourceTier,
+} from '@contracts/hostResourceProfile';
+export type {
+    IHostGpuStatusSnapshot,
+    IHostResourceProfileSnapshot,
+    IHostResourceTierInputs,
+    THostResourceTier,
+    TPerformanceMode,
+} from '@contracts/hostResourceProfile';
+
 export type {
     IDesktopMenuCapability,
     IDesktopWindowCapability,

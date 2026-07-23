@@ -142,12 +142,15 @@ vi.mock('fs/promises', () => ({
     unlink: mocks.unlink,
     writeFile: mocks.writeFile,
 }));
-vi.mock('os', () => ({
-    availableParallelism: () => 5,
-    cpus: () => Array.from({length: 5}, () => ({})),
-    totalmem: () => 16 * 1024 * 1024 * 1024,
-    tmpdir: () => '/tmp',
-}));
+vi.mock('os', () => ({tmpdir: () => '/tmp'}));
+vi.mock('@electron/resources/hostResourceProfile', () => ({getHostResourceProfileSnapshot: () => ({
+    logicalCpus: 5,
+    totalRamBytes: 16 * 1024 * 1024 * 1024,
+    safeMode: false,
+    detectedTier: 'medium',
+    performanceMode: 'auto',
+    tier: 'medium',
+})}));
 vi.mock('@electron/djvu/paths', () => ({buildDjvuRuntimeEnv: () => ({PATH: '/bin'})}));
 vi.mock('@electron/djvu/nativeToolPaths', () => ({getDjvuNativeToolPaths: () => ({
     ddjvu: '/tools/ddjvu',
@@ -190,16 +193,31 @@ const {
     resolveDjvuRangeWorkerCount,
     runRegisteredDjvuProcess,
 } = await import('@electron/features/djvu/main/ddjvuConversion');
+const { configureMainJobBroker } = await import('@electron/resources/jobBroker');
+
+configureMainJobBroker({
+    logicalCpus: 5,
+    totalRamBytes: 16 * 1024 * 1024 * 1024,
+    safeMode: false,
+    detectedTier: 'medium',
+    performanceMode: 'auto',
+    tier: 'medium',
+});
 
 describe('resolveDjvuRangeWorkerCount', () => {
     it('does not clamp a two-core host up to two conversion workers', () => {
-        expect(resolveDjvuRangeWorkerCount(25, 2)).toBe(1);
-        expect(resolveDjvuRangeWorkerCount(25, 1)).toBe(1);
+        expect(resolveDjvuRangeWorkerCount(25, 2, 'medium')).toBe(1);
+        expect(resolveDjvuRangeWorkerCount(25, 1, 'high')).toBe(1);
     });
 
     it('keeps one core free and respects the page count', () => {
-        expect(resolveDjvuRangeWorkerCount(25, 5)).toBe(4);
-        expect(resolveDjvuRangeWorkerCount(2, 16)).toBe(2);
+        expect(resolveDjvuRangeWorkerCount(25, 5, 'medium')).toBe(4);
+        expect(resolveDjvuRangeWorkerCount(2, 16, 'high')).toBe(2);
+    });
+
+    it('clamps low-tier range conversion to one worker', () => {
+        expect(resolveDjvuRangeWorkerCount(25, 16, 'low')).toBe(1);
+        expect(resolveDjvuRangeWorkerCount(0, 16, 'low')).toBe(0);
     });
 });
 

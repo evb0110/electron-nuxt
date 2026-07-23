@@ -78,6 +78,7 @@ function onBrowserZenModeChange(callback: (state: IHostZenModeState) => void) {
 }
 
 export const browserHostCapability = {
+    getResourceProfile: () => null,
     getEnvironment() {
         return Promise.resolve(snapshotBrowserHostEnvironment());
     },

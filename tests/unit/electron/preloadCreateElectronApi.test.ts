@@ -13,6 +13,10 @@ import {
     CORE_IPC_EVENT_CHANNELS,
 } from '@electron/platform-ipc/coreContract';
 import { getPlatformDocumentCapabilityMirrors } from '@contracts/platformApi';
+import {
+    HOST_RESOURCE_PROFILE_ARGUMENT_PREFIX,
+    type IHostResourceProfileSnapshot,
+} from '@contracts/hostResourceProfile';
 
 const documentsClientMock = vi.hoisted(() => ({
     openDocumentDialog: vi.fn(async () => null),
@@ -267,6 +271,73 @@ describe('createElectronApi', () => {
             totalBytes: 38_654_705_664,
             freeBytes: 146_751_488,
         });
+    });
+
+    it('reads one valid host resource profile argument and rejects absent or malformed inputs', async () => {
+        const { readHostResourceProfileArgument } = await import(
+            '@electron/preload/readHostResourceProfileArgument'
+        );
+        const resourceProfile = {
+            logicalCpus: 8,
+            totalRamBytes: 16 * (1024 ** 3),
+            safeMode: false,
+            gpuStatus: {webgl: 'enabled'},
+            detectedTier: 'high',
+            performanceMode: 'auto',
+            tier: 'high',
+        } satisfies IHostResourceProfileSnapshot;
+        const encodedProfile = Buffer
+            .from(JSON.stringify(resourceProfile), 'utf8')
+            .toString('base64url');
+        const validArgument = `${HOST_RESOURCE_PROFILE_ARGUMENT_PREFIX}${encodedProfile}`;
+
+        expect(readHostResourceProfileArgument([
+            'electron',
+            validArgument,
+        ])).toEqual(resourceProfile);
+        expect(readHostResourceProfileArgument(['electron'])).toBeNull();
+        expect(readHostResourceProfileArgument([
+            validArgument,
+            validArgument,
+        ])).toBeNull();
+        expect(readHostResourceProfileArgument([`${HOST_RESOURCE_PROFILE_ARGUMENT_PREFIX}%%%`])).toBeNull();
+        expect(readHostResourceProfileArgument([`${HOST_RESOURCE_PROFILE_ARGUMENT_PREFIX}${Buffer
+            .from(JSON.stringify({
+                ...resourceProfile,
+                tier: 'low',
+            }), 'utf8')
+            .toString('base64url')}`])).toBeNull();
+    });
+
+    it('returns the preload resource profile synchronously with stable identity', async () => {
+        const ipcRenderer = {
+            invoke: vi.fn(async () => undefined),
+            on: vi.fn(),
+            send: vi.fn(),
+        };
+        const resourceProfile = {
+            logicalCpus: 4,
+            totalRamBytes: 12 * (1024 ** 3),
+            safeMode: true,
+            detectedTier: 'low',
+            performanceMode: 'medium',
+            tier: 'medium',
+        } satisfies IHostResourceProfileSnapshot;
+        const { createElectronApi } = await import('@electron/preload/createElectronApi');
+        const api = createElectronApi(
+            ipcRenderer as never,
+            { getPathForFile: () => '' },
+            {resourceProfile},
+        );
+        const absentApi = createElectronApi(
+            ipcRenderer as never,
+            { getPathForFile: () => '' },
+        );
+
+        expect(api.host.getResourceProfile()).toBe(resourceProfile);
+        expect(api.host.getResourceProfile()).toBe(resourceProfile);
+        expect(absentApi.host.getResourceProfile()).toBeNull();
+        expect(ipcRenderer.invoke).not.toHaveBeenCalled();
     });
 
     it('exposes top-level document capability slices from the same preload behavior as legacy documents', async () => {

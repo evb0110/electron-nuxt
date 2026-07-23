@@ -22,6 +22,10 @@ import {
     registerAppWindow,
 } from '@electron/window/registry';
 import { attachShowLifecycle } from '@electron/window/attachShowLifecycle';
+import {
+    encodeHostResourceProfileArgument,
+    getHostResourceProfileSnapshot,
+} from '@electron/resources/hostResourceProfile';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -322,6 +326,9 @@ export async function createAppWindow(options: ICreateAppWindowOptions = {}) {
             contextIsolation: true,
             sandbox: true,
             preload: preloadPath,
+            additionalArguments: [encodeHostResourceProfileArgument(
+                getHostResourceProfileSnapshot(),
+            )],
             ...(keepAutomationRendererActive ? {backgroundThrottling: false} : {}),
         },
     });

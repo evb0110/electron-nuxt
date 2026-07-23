@@ -1,8 +1,5 @@
-import {
-    availableParallelism,
-    totalmem,
-} from 'os';
 import { clamp } from 'es-toolkit/math';
+import type { IHostResourceProfileSnapshot } from '@contracts/hostResourceProfile';
 
 const MIB = 1024 * 1024;
 const GIB = 1024 * MIB;
@@ -95,7 +92,7 @@ export class JobBroker {
     private counter = 0;
 
     constructor(
-        private readonly capacity: IJobResourceVector,
+        private capacity: IJobResourceVector,
         private readonly agingIntervalMs = DEFAULT_AGING_INTERVAL_MS,
         private readonly now: () => number = Date.now,
         private readonly maxQueuedJobs = DEFAULT_JOB_BROKER_MAX_QUEUED_JOBS,
@@ -108,6 +105,14 @@ export class JobBroker {
         if (!Number.isSafeInteger(maxQueuedJobsPerOwner) || maxQueuedJobsPerOwner < 1) {
             throw new TypeError('Job broker per-owner queue limit must be a positive safe integer');
         }
+    }
+
+    reconfigureCapacity(capacity: IJobResourceVector) {
+        if (this.active.size > 0 || this.queue.length > 0) {
+            throw new Error('Job broker capacity cannot be reconfigured after work is admitted');
+        }
+        validateResourceVector(capacity);
+        this.capacity = capacity;
     }
 
     acquire(request: IJobBrokerRequest): Promise<IJobBrokerLease> {
@@ -285,28 +290,46 @@ export class JobBroker {
 }
 
 export function resolveMainJobBrokerCapacity(
-    availableCpuCount = availableParallelism(),
-    hostMemoryBytes = totalmem(),
+    profile: IHostResourceProfileSnapshot,
 ): IJobResourceVector {
-    const cpuCount = Math.max(1, availableCpuCount);
-    const totalMemoryBytes = Math.max(0, hostMemoryBytes);
+    const cpuCount = Math.max(1, profile.logicalCpus);
+    const totalMemoryBytes = Math.max(0, profile.totalRamBytes);
     const freeReserveBytes = clamp(totalMemoryBytes * 0.15, GIB, 4 * GIB);
+    const cpuTokens = clamp(
+        Math.floor(cpuCount * 0.75),
+        MAIN_JOB_BROKER_MAX_SINGLE_JOB_RESOURCES.cpuTokens,
+        16,
+    );
+    const nativeProcesses = clamp(
+        Math.floor(cpuCount / 2),
+        MAIN_JOB_BROKER_MAX_SINGLE_JOB_RESOURCES.nativeProcesses,
+        8,
+    );
     return {
-        cpuTokens: clamp(Math.floor(cpuCount * 0.75), MAIN_JOB_BROKER_MAX_SINGLE_JOB_RESOURCES.cpuTokens, 16),
+        cpuTokens: profile.tier === 'low'
+            ? Math.min(cpuTokens, 2)
+            : cpuTokens,
         estimatedResidentBytes: Math.max(
             MAIN_JOB_BROKER_MAX_SINGLE_JOB_RESOURCES.estimatedResidentBytes,
             totalMemoryBytes - freeReserveBytes,
         ),
-        nativeProcesses: clamp(
-            Math.floor(cpuCount / 2),
-            MAIN_JOB_BROKER_MAX_SINGLE_JOB_RESOURCES.nativeProcesses,
-            8,
-        ),
+        // DjVu export/print nests a conversion lease inside its output-slot
+        // lease (pdfExport.runDjvuConversionJobWithSlot), so any capacity
+        // below 2 deadlocks that workflow.
+        nativeProcesses: profile.tier === 'low'
+            ? 2
+            : Math.max(nativeProcesses, profile.tier === 'medium' ? 2 : 3),
         // A weight of four is used by supported single-process save and
         // fingerprint jobs. Keep that work admissible on low-core hosts while
         // still allowing additional I/O concurrency on larger machines.
-        ioWeight: clamp(Math.floor(cpuCount / 2), MAIN_JOB_BROKER_MAX_SINGLE_JOB_RESOURCES.ioWeight, 8),
+        ioWeight: profile.tier === 'low'
+            ? 4
+            : clamp(Math.floor(cpuCount / 2), MAIN_JOB_BROKER_MAX_SINGLE_JOB_RESOURCES.ioWeight, 8),
     };
 }
 
-export const mainJobBroker = new JobBroker(resolveMainJobBrokerCapacity());
+export function configureMainJobBroker(profile: IHostResourceProfileSnapshot) {
+    mainJobBroker.reconfigureCapacity(resolveMainJobBrokerCapacity(profile));
+}
+
+export const mainJobBroker = new JobBroker(MAIN_JOB_BROKER_MAX_SINGLE_JOB_RESOURCES);

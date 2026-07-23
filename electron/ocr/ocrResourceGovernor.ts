@@ -1,26 +1,16 @@
-import {
-    availableParallelism,
-    totalmem,
-} from 'os';
-import { clamp } from 'es-toolkit/math';
 import { createLogger } from '@electron/utils/createLogger';
 import {
     mainJobBroker,
     type IJobBrokerLease,
 } from '@electron/resources/jobBroker';
+import { getOcrRuntimePolicy } from '@electron/ocr/ocrRuntimePolicy';
 
 const log = createLogger('ocr-resource-governor');
 
 const DEFAULT_PAGE_WIDTH_IN = 8.5;
 const DEFAULT_PAGE_HEIGHT_IN = 11;
 const BYTES_PER_RGBA_PIXEL = 4;
-const MIB = 1024 * 1024;
-
 const MAX_RENDERED_PIXELS = 45_000_000;
-const LOW_MEMORY_BYTES = 8 * 1024 * MIB;
-const BASE_NORMAL_PAGE_SLOTS = 3;
-const MAX_NORMAL_PAGE_SLOTS = 8;
-const LOW_MEMORY_PAGE_SLOTS = 2;
 const HIGH_DPI_THRESHOLD = 450;
 const HIGH_DPI_PAGE_SLOT_COST = 2;
 
@@ -49,17 +39,6 @@ function removeLease(
     ]) => !predicate(token, lease)));
 }
 
-function parsePositiveInt(value: string | undefined) {
-    if (!value) {
-        return null;
-    }
-    const parsed = Number.parseInt(value, 10);
-    if (!Number.isFinite(parsed) || parsed <= 0) {
-        return null;
-    }
-    return parsed;
-}
-
 function getPageDimensions(request: Pick<IOcrResourceRequest, 'pageWidthIn' | 'pageHeightIn'>) {
     const widthIn = typeof request.pageWidthIn === 'number' && Number.isFinite(request.pageWidthIn) && request.pageWidthIn > 0
         ? request.pageWidthIn
@@ -85,30 +64,6 @@ function estimateRenderedBytes(dpi: number, request: Pick<IOcrResourceRequest, '
     return estimateRenderedPixels(dpi, request) * BYTES_PER_RGBA_PIXEL;
 }
 
-function getCpuSlotCount() {
-    const cpuCount = typeof availableParallelism === 'function'
-        ? availableParallelism()
-        : 2;
-    return clamp(Math.floor(cpuCount / 2), 1, MAX_NORMAL_PAGE_SLOTS);
-}
-
-function getMemorySlotCount(memoryBytes: number, renderedPageBytes: number) {
-    if (memoryBytes <= 0 || renderedPageBytes <= 0) {
-        return BASE_NORMAL_PAGE_SLOTS;
-    }
-
-    const memoryBudgetRatio = memoryBytes >= 32 * 1024 * MIB
-        ? 0.18
-        : memoryBytes >= 16 * 1024 * MIB
-            ? 0.12
-            : 0.08;
-    return clamp(
-        Math.floor((memoryBytes * memoryBudgetRatio) / renderedPageBytes),
-        1,
-        MAX_NORMAL_PAGE_SLOTS,
-    );
-}
-
 function assertRenderedPixelAdmission(request: IOcrResourceRequest) {
     const requestedPixels = estimateRenderedPixels(request.requestedDpi, request);
     if (requestedPixels <= MAX_RENDERED_PIXELS) {
@@ -119,28 +74,11 @@ function assertRenderedPixelAdmission(request: IOcrResourceRequest) {
     );
 }
 
-function getGlobalSlotBudget() {
-    const configured = parsePositiveInt(process.env.OCR_GLOBAL_PAGE_SLOTS);
-    if (configured) {
-        return clamp(configured, 1, 8);
-    }
-
-    const memoryBytes = totalmem();
-    if (memoryBytes > 0 && memoryBytes < LOW_MEMORY_BYTES) {
-        return LOW_MEMORY_PAGE_SLOTS;
-    }
-
-    const normalRenderedPageBytes = estimateRenderedBytes(300);
-    return clamp(
-        Math.min(getCpuSlotCount(), getMemorySlotCount(memoryBytes, normalRenderedPageBytes)),
-        1,
-        MAX_NORMAL_PAGE_SLOTS,
-    );
-}
-
-function getPageSlotCost(effectiveDpi: number, request: IOcrResourceRequest) {
-    const globalSlotBudget = getGlobalSlotBudget();
-
+function getPageSlotCost(
+    effectiveDpi: number,
+    request: IOcrResourceRequest,
+    globalSlotBudget: number,
+) {
     const renderedPageBytes = estimateRenderedBytes(effectiveDpi, request);
     if (effectiveDpi >= HIGH_DPI_THRESHOLD || renderedPageBytes > (MAX_RENDERED_PIXELS * BYTES_PER_RGBA_PIXEL) / 2) {
         return Math.min(HIGH_DPI_PAGE_SLOT_COST, globalSlotBudget);
@@ -156,13 +94,18 @@ class OcrResourceGovernor {
     async acquire(request: IOcrResourceRequest) {
         assertRenderedPixelAdmission(request);
         const effectiveDpi = request.requestedDpi;
-        const slotCost = getPageSlotCost(effectiveDpi, request);
+        const { globalPageSlots } = getOcrRuntimePolicy();
+        const slotCost = getPageSlotCost(
+            effectiveDpi,
+            request,
+            globalPageSlots,
+        );
 
         const brokerLease = await mainJobBroker.acquire({
             ownerId: request.jobId,
             kind: 'ocr-page',
             priority: 'user',
-            perOwnerLimit: getGlobalSlotBudget(),
+            perOwnerLimit: globalPageSlots,
             resources: {
                 cpuTokens: slotCost,
                 estimatedResidentBytes: estimateRenderedBytes(effectiveDpi, request),
@@ -170,7 +113,11 @@ class OcrResourceGovernor {
                 ioWeight: 1,
             },
         });
-        const lease = this.createLease(request.jobId, slotCost);
+        const lease = this.createLease(
+            request.jobId,
+            slotCost,
+            globalPageSlots,
+        );
         lease.brokerLease = brokerLease;
         return {
             ...lease,
@@ -217,7 +164,11 @@ class OcrResourceGovernor {
         this.activeLeases.clear();
     }
 
-    private createLease(jobId: string, slotCost: number): IOcrResourceLease {
+    private createLease(
+        jobId: string,
+        slotCost: number,
+        globalPageSlots: number,
+    ): IOcrResourceLease {
         const token = `${Date.now()}-${++this.tokenCounter}`;
         const lease = {
             token,
@@ -225,7 +176,7 @@ class OcrResourceGovernor {
             slotCost,
         };
         this.activeLeases.set(token, lease);
-        log.debug(`Granted OCR resource slot to ${jobId}; activeSlots=${this.getActiveSlotCost()}/${getGlobalSlotBudget()}`);
+        log.debug(`Granted OCR resource slot to ${jobId}; activeSlots=${this.getActiveSlotCost()}/${globalPageSlots}`);
         return lease;
     }
 
