@@ -363,4 +363,121 @@ describe('createDocumentHistory', () => {
             },
         );
     });
+
+    it('materializes a lazy clean baseline before the next external mutation without adding file undo', async () => {
+        const {
+            documentFiles,
+            documentWorkingCopy,
+            history,
+            state,
+        } = createHistoryHarness(true);
+        const revision = requireDocumentRevisionToken('lazy-history-revision');
+        state.documentRevisionToken.value = revision;
+        documentFiles.getDocumentRevision.mockResolvedValue({
+            version: 1,
+            documentRef: '/tmp/work.pdf',
+            token: revision,
+            contentRevision: 2,
+            authority: 'electron-working-copy',
+            mintedAt: 2,
+        });
+        const register = vi.fn();
+        history.setWorkspaceCommandSink({
+            register,
+            reset: vi.fn(),
+        });
+        await history.resetHistory(new Uint8Array([1]), {reuseSnapshot: true});
+        await history.markCurrentHistoryEntryClean(null, {
+            lazyBaseline: {
+                workingPath: '/tmp/work.pdf',
+                revision,
+                size: 128,
+            },
+            recordSnapshotChange: false,
+        });
+
+        await expect(history.ensureHistoryBaselineForExternalMutation()).resolves.toBe(true);
+
+        expect(documentFiles.getDocumentRevision).toHaveBeenCalledTimes(2);
+        expect(documentWorkingCopy.createWorkingCopyFromPath).toHaveBeenCalledWith(
+            '/tmp/work.pdf',
+            '/tmp/original.pdf',
+        );
+        expect(register).not.toHaveBeenCalled();
+        expect(history.getHistoryDebugState()).toEqual({
+            historyLength: 1,
+            historyIndex: 0,
+            historyCleanIndex: 0,
+        });
+    });
+
+    it('refuses to materialize a lazy baseline after its working-copy revision changes', async () => {
+        const {
+            documentFiles,
+            documentWorkingCopy,
+            history,
+            state,
+        } = createHistoryHarness(true);
+        const baselineRevision = requireDocumentRevisionToken('lazy-history-before');
+        state.documentRevisionToken.value = baselineRevision;
+        await history.markCurrentHistoryEntryClean(null, {
+            lazyBaseline: {
+                workingPath: '/tmp/work.pdf',
+                revision: baselineRevision,
+                size: 128,
+            },
+            recordSnapshotChange: false,
+        });
+        documentFiles.getDocumentRevision.mockResolvedValue({
+            version: 1,
+            documentRef: '/tmp/work.pdf',
+            token: requireDocumentRevisionToken('lazy-history-after'),
+            contentRevision: 3,
+            authority: 'electron-working-copy',
+            mintedAt: 3,
+        });
+
+        await expect(history.ensureHistoryBaselineForExternalMutation()).resolves.toBe(false);
+
+        expect(documentWorkingCopy.createWorkingCopyFromPath).not.toHaveBeenCalled();
+    });
+
+    it('materializes a lazy redo snapshot before file undo moves the cursor', async () => {
+        const {
+            documentFiles,
+            documentWorkingCopy,
+            history,
+            state,
+        } = createHistoryHarness(true);
+        const revision = requireDocumentRevisionToken('lazy-redo-revision');
+        state.documentRevisionToken.value = revision;
+        documentFiles.getDocumentRevision.mockResolvedValue({
+            version: 1,
+            documentRef: '/tmp/work.pdf',
+            token: revision,
+            contentRevision: 4,
+            authority: 'electron-working-copy',
+            mintedAt: 4,
+        });
+        await history.resetHistory(new Uint8Array([1]), {reuseSnapshot: true});
+        await history.pushHistorySnapshot(new Uint8Array([2]), {reuseSnapshot: true});
+        await history.markCurrentHistoryEntryClean(null, {
+            lazyBaseline: {
+                workingPath: '/tmp/work.pdf',
+                revision,
+                size: 256,
+            },
+            recordSnapshotChange: false,
+        });
+
+        await expect(history.undo()).resolves.toBe(true);
+
+        expect(documentWorkingCopy.createWorkingCopyFromPath).toHaveBeenCalledWith(
+            '/tmp/work.pdf',
+            '/tmp/original.pdf',
+        );
+        expect(documentWorkingCopy.createWorkingCopyFromPath.mock.invocationCallOrder[0])
+            .toBeLessThan(documentFiles.writeFile.mock.invocationCallOrder[0]!);
+        expect(history.canRedo.value).toBe(true);
+    });
 });

@@ -3,6 +3,7 @@ import type {
     IPdfViewerSaveTransactionRequest,
     IPdfViewerSaveTransactionResult,
 } from '@app/modules/pdf-viewer/public';
+import { resolvePdfViewerSaveTransactionFinalBytes } from '@app/modules/pdf-viewer/public';
 import type { TDocumentRef } from '@contracts/documentRef';
 
 interface IPageMutationSaveViewer {runSaveTransaction(request: IPdfViewerSaveTransactionRequest): Promise<IPdfViewerSaveTransactionResult>;}
@@ -43,7 +44,7 @@ export function createPageMutationAnnotationMaterializer(deps: {
             mode: 'embedded-mutation',
             forcePdfjsMaterialize: true,
         });
-        const bytes = transaction.serializedBytes ?? transaction.baseBytes;
+        const bytes = resolvePdfViewerSaveTransactionFinalBytes(transaction);
         if (!bytes || deps.workingCopyPath.value !== capturedWorkingCopyPath) {
             return false;
         }

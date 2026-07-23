@@ -6,13 +6,40 @@ import {
     vi,
 } from 'vitest';
 import type { IPdfSerializationSavePayload } from '@app/modules/pdf-viewer/engine/pdf-serialization-operations/pdfSerializationSavePayload';
+import { requireDocumentRevisionToken } from '@contracts';
 
 const yieldToBrowserMock = vi.hoisted(() => vi.fn(async () => {}));
 const serializePdfEditsMock = vi.hoisted(() => vi.fn(async (data: Uint8Array) => data));
+const readDocumentBytesMock = vi.hoisted(() => vi.fn());
+const getDocumentRevisionMock = vi.hoisted(() => vi.fn());
 const workerCloneTimeoutMs = 8_000;
 
 vi.mock('@app/utils/yieldToBrowser', () => ({ yieldToBrowser: yieldToBrowserMock }));
 vi.mock('@app/modules/pdf-viewer/engine/pdf-serialization-operations/serializePdfEdits', () => ({ serializePdfEdits: serializePdfEditsMock }));
+vi.mock('@app/utils/documentBytes', () => ({ readDocumentBytes: readDocumentBytesMock }));
+vi.mock('@app/utils/platformDocuments', () => ({getDocumentFilesCapability: () => ({getDocumentRevision: getDocumentRevisionMock})}));
+
+function createSavePayload(): IPdfSerializationSavePayload {
+    return {
+        markupSubtypeOverrides: [],
+        markupSubtypeHints: [],
+        rewriteShapeState: false,
+        shapes: [],
+        deletedShapeAnnotationIds: [],
+        deletedShapeStableKeys: [],
+        freeTextComments: [],
+        annotationComments: [],
+        pendingEmbeddedTextUpdates: [],
+        pendingEmbeddedAnnotationDeletes: [],
+        pageLabelsDirty: false,
+        pageLabelRanges: [],
+        totalPages: 0,
+        bookmarksDirty: false,
+        bookmarkItems: [],
+        untitledBookmarkLabel: '',
+        placedImage: null,
+    };
+}
 
 class FakeWorker {
     public static lastInstance: FakeWorker | null = null;
@@ -105,6 +132,8 @@ describe('pdfSerializationWorkerClient', {timeout: 20_000}, () => {
         yieldToBrowserMock.mockResolvedValue(undefined);
         serializePdfEditsMock.mockReset();
         serializePdfEditsMock.mockImplementation(async (data: Uint8Array) => data);
+        readDocumentBytesMock.mockReset();
+        getDocumentRevisionMock.mockReset();
         vi.stubGlobal('window', {});
         vi.stubGlobal('Worker', FakeWorker);
     });
@@ -156,6 +185,123 @@ describe('pdfSerializationWorkerClient', {timeout: 20_000}, () => {
             3,
         ]);
     }, workerCloneTimeoutMs);
+
+    it('transfers a disposable full-span path read without copying it', async () => {
+        const { serializePdfEditsOffThread } = await import('@app/modules/pdf-viewer/engine/pdf-serialization-worker-client/serializePdfEditsOffThread');
+        const data = new Uint8Array([
+            7,
+            8,
+            9,
+        ]);
+        const revision = requireDocumentRevisionToken('drt1:test:disposable-transfer');
+        const payload = createSavePayload();
+
+        await serializePdfEditsOffThread({
+            bytes: data,
+            ownership: 'disposable',
+            reloadPath: '/tmp/disposable.pdf',
+            revision,
+        }, payload);
+
+        const call = FakeWorker.lastInstance?.postMessageCalls[0];
+        const request = call?.message as { payload: { data: Uint8Array } };
+        expect(request.payload.data.buffer).toBe(data.buffer);
+        expect(call?.transfer).toEqual([data.buffer]);
+    });
+
+    it('reloads the exact revision before direct fallback after a disposable transfer detaches', async () => {
+        const revision = requireDocumentRevisionToken('drt1:test:disposable-reload');
+        const reloaded = new Uint8Array([
+            4,
+            5,
+            6,
+        ]);
+        getDocumentRevisionMock.mockResolvedValue({
+            version: 1,
+            documentRef: '/tmp/disposable.pdf',
+            token: revision,
+            contentRevision: 1,
+            authority: 'electron-working-copy',
+            mintedAt: 1,
+        });
+        readDocumentBytesMock.mockResolvedValue(reloaded);
+        const originalPostMessage = FakeWorker.prototype.postMessage;
+        FakeWorker.prototype.postMessage = function detachingFailure(
+            message: unknown,
+            transfer: Transferable[],
+        ) {
+            this.postMessageCalls.push({
+                message,
+                transfer,
+            });
+            structuredClone(message, {transfer});
+            throw new Error('worker transport failed');
+        };
+
+        try {
+            const { serializePdfEditsOffThread } = await import('@app/modules/pdf-viewer/engine/pdf-serialization-worker-client/serializePdfEditsOffThread');
+            const data = new Uint8Array([
+                1,
+                2,
+                3,
+            ]);
+            const payload = createSavePayload();
+
+            await expect(serializePdfEditsOffThread({
+                bytes: data,
+                ownership: 'disposable',
+                reloadPath: '/tmp/disposable.pdf',
+                revision,
+            }, payload)).resolves.toBe(reloaded);
+
+            expect(data.byteLength).toBe(0);
+            expect(readDocumentBytesMock).toHaveBeenCalledWith('/tmp/disposable.pdf');
+            expect(getDocumentRevisionMock).toHaveBeenCalledTimes(2);
+            expect(serializePdfEditsMock).toHaveBeenCalledWith(reloaded, payload);
+        } finally {
+            FakeWorker.prototype.postMessage = originalPostMessage;
+        }
+    });
+
+    it('rejects direct fallback when the disposable source revision has changed', async () => {
+        const revision = requireDocumentRevisionToken('drt1:test:disposable-stale');
+        getDocumentRevisionMock.mockResolvedValue({
+            version: 1,
+            documentRef: '/tmp/disposable.pdf',
+            token: requireDocumentRevisionToken('drt1:test:disposable-newer'),
+            contentRevision: 2,
+            authority: 'electron-working-copy',
+            mintedAt: 2,
+        });
+        const originalPostMessage = FakeWorker.prototype.postMessage;
+        FakeWorker.prototype.postMessage = function detachingFailure(
+            message: unknown,
+            transfer: Transferable[],
+        ) {
+            structuredClone(message, {transfer});
+            throw new Error('worker transport failed');
+        };
+
+        try {
+            const { serializePdfEditsOffThread } = await import('@app/modules/pdf-viewer/engine/pdf-serialization-worker-client/serializePdfEditsOffThread');
+
+            await expect(serializePdfEditsOffThread({
+                bytes: new Uint8Array([
+                    1,
+                    2,
+                    3,
+                ]),
+                ownership: 'disposable',
+                reloadPath: '/tmp/disposable.pdf',
+                revision,
+            }, createSavePayload())).rejects.toThrow('revision changed before reload');
+
+            expect(readDocumentBytesMock).not.toHaveBeenCalled();
+            expect(serializePdfEditsMock).not.toHaveBeenCalled();
+        } finally {
+            FakeWorker.prototype.postMessage = originalPostMessage;
+        }
+    });
 
     it('binds canonical identities in the worker and replays serializable identity evidence', async () => {
         const {bindCanonicalAnnotationIdentitiesOffThread} = await import(

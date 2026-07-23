@@ -450,14 +450,35 @@ describe('usePdfViewerSaveTransaction', () => {
             }),
         }));
         expect(result.source).toBe('serialized-rewrite');
-        expect(result.baseBytes).toBe(sourceBytes);
-        expect(result.serializedBytes).toBe(finalBytes);
+        expect(result.baseBytes).toBeNull();
+        expect(result.serializedBytes).toBeNull();
         expect(result.serializedResult).toEqual({
             finalBytes,
             saveMode: 'save_as_rewrite',
             source: 'serialized-rewrite',
             changedObjectRefs: [],
         });
+    });
+
+    it('retains only the canonical result when serialization returns its input allocation', async () => {
+        const sourceBytes = new Uint8Array([
+            1,
+            2,
+        ]);
+        const {runSaveTransaction} = usePdfViewerSaveTransaction({materializePdfJsDocumentForInternalUse: vi.fn(async () => new Uint8Array([9]))});
+
+        const result = await runSaveTransaction({
+            mode: 'persist',
+            source: {
+                getSourcePdfData: vi.fn(async () => sourceBytes),
+                serializePdfForSave: vi.fn(async data => data),
+            },
+            serializeResult: true,
+        });
+
+        expect(result.baseBytes).toBeNull();
+        expect(result.serializedBytes).toBeNull();
+        expect(result.serializedResult?.finalBytes).toBe(sourceBytes);
     });
 
     it('awaits the managed-shape baseline before any rewrite source is sampled', async () => {

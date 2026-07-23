@@ -3,7 +3,10 @@ import type { IPdfPersistResult } from '@app/types/pdfUi';
 import type { TDocumentRef } from '@contracts/documentRef';
 import type { TDocumentRevisionToken } from '@contracts/documentRevision';
 import type { IPdfOptimizeOptions } from '@contracts/electronApiDocuments';
-import type { INativePdfMutationProjection } from '@app/modules/pdf-viewer/public';
+import {
+    resolvePdfViewerSaveTransactionFinalBytes,
+    type INativePdfMutationProjection,
+} from '@app/modules/pdf-viewer/public';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { toPdfDateString } from '@app/utils/pdfDate';
 import type { IFileOperationsSaveContext } from '@app/modules/workspace-shell/composables/file-operations/createFileOperationsSaveContext';
@@ -774,9 +777,7 @@ export function createFileOperationsSaveExecutor(
             context,
             {allowNativeMutationPlan: false},
         );
-        const finalBytes = saveTransaction.serializedResult?.finalBytes
-            ?? saveTransaction.serializedBytes
-            ?? saveTransaction.baseBytes;
+        const finalBytes = resolvePdfViewerSaveTransactionFinalBytes(saveTransaction);
         const saveResult = finalBytes
             ? {
                 finalBytes,

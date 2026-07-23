@@ -15,7 +15,10 @@ import type {
 } from '@contracts/electronApiDocuments';
 import { isStaleRevisionError } from '@contracts/documentMutationErrors';
 import type { IDocumentSessionState } from '@app/modules/workspace-shell/composables/document-session/createDocumentSessionState';
-import type { IPdfLoadedState } from '@app/modules/workspace-shell/composables/document-session/createDocumentHistory';
+import type {
+    ILazyHistoryBaseline,
+    IPdfLoadedState,
+} from '@app/modules/workspace-shell/composables/document-session/createDocumentHistory';
 import { createFailedPdfPersistResult } from '@app/services/pdf-file/createFailedPdfPersistResult';
 import { createPdfPersistResult } from '@app/services/pdf-file/createPdfPersistResult';
 import { savePdfBytesAs } from '@app/services/pdf-file/savePdfBytesAs';
@@ -44,7 +47,10 @@ interface ICreateDocumentPersistenceDeps {
     };
     markCurrentHistoryEntryClean: (
         snapshot: Uint8Array | null,
-        options?: { recordSnapshotChange?: boolean },
+        options?: {
+            lazyBaseline?: ILazyHistoryBaseline;
+            recordSnapshotChange?: boolean;
+        },
     ) => Promise<void>;
     pushHistorySnapshot: (
         snapshot: Uint8Array,
@@ -152,6 +158,26 @@ export function createDocumentPersistence(
     state: IDocumentSessionState,
     deps: ICreateDocumentPersistenceDeps,
 ) {
+    async function resolveStableLazyHistoryBaseline(path: TDocumentRef) {
+        const documentFiles = getDocumentFilesCapability();
+        for (let attempt = 0; attempt < 2; attempt += 1) {
+            const before = await documentFiles.getDocumentRevision(path);
+            const file = await documentFiles.statFile(path);
+            const after = await documentFiles.getDocumentRevision(path);
+            if (before.token === after.token) {
+                return {
+                    baseline: {
+                        workingPath: path,
+                        revision: after.token,
+                        size: file.size,
+                    },
+                    revisionInfo: after,
+                };
+            }
+        }
+        throw new Error('Working-copy revision changed while adopting the saved path');
+    }
+
     function resolveDocumentMutationRevisionToken(
         opts?: {expectedDocumentRevisionToken?: TDocumentRevisionToken | null | undefined},
     ) {
@@ -216,13 +242,26 @@ export function createDocumentPersistence(
                     };
                 await deps.markCurrentHistoryEntryClean(snapshot, { recordSnapshotChange: false });
             } else {
-                const nextState = await deps.readPdfStateFromPath(path);
+                const {
+                    baseline,
+                    revisionInfo,
+                } = await resolveStableLazyHistoryBaseline(path);
                 if (!state.isActiveWorkingCopy(path)) {
                     return false;
                 }
-                state.pdfData.value = nextState.pdfData;
-                state.pdfReloadSrc.value = nextState.pdfSrc;
-                await deps.markCurrentHistoryEntryClean(nextState.pdfData, { recordSnapshotChange: false });
+                state.documentRevisionInfo.value = revisionInfo;
+                state.documentRevisionToken.value = revisionInfo.token;
+                state.pdfData.value = null;
+                state.pdfReloadSrc.value = {
+                    kind: 'path',
+                    path,
+                    size: baseline.size,
+                    revision: baseline.revision,
+                };
+                await deps.markCurrentHistoryEntryClean(null, {
+                    lazyBaseline: baseline,
+                    recordSnapshotChange: false,
+                });
             }
         } else if (snapshotHint && snapshotHint.byteLength <= MAX_IN_MEMORY_PDF_BYTES) {
             const snapshot = snapshotHint.slice();

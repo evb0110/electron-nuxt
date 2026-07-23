@@ -974,16 +974,17 @@ export const usePdfViewerSaveTransaction = (
         const resultSource = request.source
             ? resolveResultSource(annotationSavePlan, serializedBytes, null)
             : 'pdfjs-materialize';
+        const serializedResult = createSerializedResult({
+            request,
+            resultSource,
+            serializedBytes,
+        });
 
         return {
             source: resultSource,
-            baseBytes: request.source ? baseBytes : null,
-            serializedBytes,
-            serializedResult: createSerializedResult({
-                request,
-                resultSource,
-                serializedBytes,
-            }),
+            baseBytes: serializedBytes ? null : request.source ? baseBytes : null,
+            serializedBytes: serializedResult ? null : serializedBytes,
+            serializedResult,
             nativeMutationProjection,
             annotationSavePlan,
             ...canonicalSaveCallbacks,

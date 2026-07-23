@@ -1,4 +1,5 @@
 import type {
+    ISerializationWorkerBinaryInput,
     ISerializationWorkerRequest,
     ISerializationWorkerRequestMap,
     ISerializationWorkerResultMap,
@@ -7,6 +8,8 @@ import type {
 } from '@app/modules/pdf-viewer/engine/canonicalAnnotationIdentityBindingWorkerResult.types';
 import { isRecord } from '@contracts/runtimeGuards';
 import { yieldToBrowser } from '@app/utils/yieldToBrowser';
+import { readDocumentBytes } from '@app/utils/documentBytes';
+import { getDocumentFilesCapability } from '@app/utils/platformDocuments';
 import type { IPendingBrowserWorkerRequest } from '@app/platform/browser-api/public';
 import {
     BrowserWorkerClient,
@@ -160,13 +163,37 @@ async function toTransferableUint8Array(data: Uint8Array): Promise<Uint8Array<Ar
     return copy;
 }
 
+function canTransferOwnedInput(input: ISerializationWorkerBinaryInput | undefined) {
+    const bytes = input?.bytes;
+    return input?.ownership === 'disposable'
+        && input.revision !== undefined
+        && input.reloadPath !== undefined
+        && bytes?.buffer instanceof ArrayBuffer
+        && bytes.byteOffset === 0
+        && bytes.byteLength === bytes.buffer.byteLength;
+}
+
+async function resolveTransferableData(
+    data: Uint8Array,
+    input: ISerializationWorkerBinaryInput | undefined,
+) {
+    if (input?.bytes === data && canTransferOwnedInput(input)) {
+        if (data.byteLength > SERIALIZATION_WORKER_MAX_INPUT_BYTES) {
+            throw new RangeError('PDF serialization input exceeds the 512 MiB worker limit');
+        }
+        return data as Uint8Array<ArrayBuffer>;
+    }
+    return toTransferableUint8Array(data);
+}
+
 async function buildWorkerRequestWithTransfers(
     request: TSerializationWorkerRequest,
+    binaryInput: ISerializationWorkerBinaryInput | undefined,
 ) {
     switch (request.type) {
         case 'save': {
             const payload = request.payload;
-            const transferableData = await toTransferableUint8Array(payload.data);
+            const transferableData = await resolveTransferableData(payload.data, binaryInput);
             return {
                 request: {
                     ...request,
@@ -228,6 +255,49 @@ async function buildWorkerRequestWithTransfers(
     }
 }
 
+async function reloadDisposableInput(input: ISerializationWorkerBinaryInput) {
+    const path = input.reloadPath;
+    const revision = input.revision;
+    if (path === undefined || revision === undefined) {
+        throw new Error('Detached serialization input cannot be reloaded without an exact working-copy revision');
+    }
+    const documentFiles = getDocumentFilesCapability();
+    const before = await documentFiles.getDocumentRevision(path);
+    if (before.token !== revision) {
+        throw new Error('Serialization fallback working-copy revision changed before reload');
+    }
+    const bytes = await readDocumentBytes(path);
+    const after = await documentFiles.getDocumentRevision(path);
+    if (after.token !== revision) {
+        throw new Error('Serialization fallback working-copy revision changed during reload');
+    }
+    return bytes;
+}
+
+async function prepareDirectFallbackRequest(
+    request: TSerializationWorkerRequest,
+    binaryInput: ISerializationWorkerBinaryInput | undefined,
+) {
+    if (
+        !binaryInput
+        || binaryInput.ownership !== 'disposable'
+        || binaryInput.bytes.byteLength > 0
+    ) {
+        return request;
+    }
+    if (request.type !== 'save') {
+        throw new Error('Disposable serialization input is only supported for full save requests');
+    }
+    const data = await reloadDisposableInput(binaryInput);
+    return {
+        ...request,
+        payload: {
+            ...request.payload,
+            data,
+        },
+    } satisfies ISerializationWorkerRequest<'save'>;
+}
+
 const serializationWorkerClient = new BrowserWorkerClient<IPendingBrowserWorkerRequest>({
     idleTtlMs: SERIALIZATION_WORKER_IDLE_TTL_MS,
     requestTimeoutMs: SERIALIZATION_WORKER_BASE_REQUEST_TIMEOUT_MS,
@@ -248,7 +318,8 @@ async function runDirect(
             const { serializePdfEdits } = await import(
                 '@app/modules/pdf-viewer/engine/pdf-serialization-operations/serializePdfEdits'
             );
-            return serializePdfEdits(payload.data, payload.payload);
+            return await serializePdfEdits(payload.data, payload.payload)
+                ?? payload.data;
         }
         case 'updateEmbeddedText': {
             const { payload } = request;
@@ -305,6 +376,7 @@ async function runDirectWithYield(
 async function runSerializationWorkerRequestInternal<K extends TSerializationWorkerRequestType>(
     type: K,
     payload: ISerializationWorkerRequestMap[K],
+    binaryInput: ISerializationWorkerBinaryInput | undefined,
 ): Promise<ISerializationWorkerResultMap[K]> {
     const request: ISerializationWorkerRequest<K> = {
         id: serializationWorkerClient.createRequestId(),
@@ -324,7 +396,7 @@ async function runSerializationWorkerRequestInternal<K extends TSerializationWor
         return runDirectWithYield(typedRequest) as Promise<ISerializationWorkerResultMap[K]>;
     }
 
-    const workerRequest = await buildWorkerRequestWithTransfers(typedRequest);
+    const workerRequest = await buildWorkerRequestWithTransfers(typedRequest, binaryInput);
     const requestTimeoutMs = resolveSerializationWorkerRequestTimeoutMs(typedRequest);
     return new Promise<ISerializationWorkerResultMap[K]>((resolve, reject) => {
         serializationWorkerClient.clearIdleTerminateTimer();
@@ -375,15 +447,22 @@ async function runSerializationWorkerRequestInternal<K extends TSerializationWor
         if (serializationWorkerClient.isActiveWorker(worker)) {
             serializationWorkerClient.resetWorker();
         }
-        return runDirectWithYield(typedRequest).catch(() => {
+        const fallbackRequest = await prepareDirectFallbackRequest(typedRequest, binaryInput);
+        try {
+            return await runDirectWithYield(fallbackRequest) as ISerializationWorkerResultMap[K];
+        } catch (fallbackError) {
+            if (binaryInput?.ownership === 'disposable' && binaryInput.bytes.byteLength === 0) {
+                throw fallbackError;
+            }
             throw error;
-        }) as Promise<ISerializationWorkerResultMap[K]>;
+        }
     });
 }
 
 export async function runSerializationWorkerRequest<K extends TSerializationWorkerRequestType>(
     type: K,
     payload: ISerializationWorkerRequestMap[K],
+    binaryInput?: ISerializationWorkerBinaryInput,
 ): Promise<ISerializationWorkerResultMap[K]> {
     if (serializationRequestCount >= SERIALIZATION_WORKER_MAX_QUEUED_REQUESTS) {
         throw new Error('PDF serialization queue is full; wait for the active save to finish');
@@ -396,7 +475,7 @@ export async function runSerializationWorkerRequest<K extends TSerializationWork
     });
     await predecessor;
     try {
-        return await runSerializationWorkerRequestInternal(type, payload);
+        return await runSerializationWorkerRequestInternal(type, payload, binaryInput);
     } finally {
         serializationRequestCount -= 1;
         releaseQueueSlot();

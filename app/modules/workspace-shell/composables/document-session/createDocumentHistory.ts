@@ -26,6 +26,20 @@ export interface IPdfLoadedState {
     pdfSrc: TPdfSource;
 }
 
+export interface ILazyHistoryBaseline {
+    workingPath: TDocumentRef;
+    revision: TDocumentRevisionToken;
+    size: number;
+}
+
+interface ILazyHistoryEntry extends ILazyHistoryBaseline {kind: 'lazy';}
+
+type TDocumentHistoryEntry = TPdfHistoryEntry | ILazyHistoryEntry;
+
+function isMaterializedHistoryEntry(entry: TDocumentHistoryEntry): entry is TPdfHistoryEntry {
+    return entry.kind !== 'lazy';
+}
+
 interface IApplyLoadedPdfStateOptions {
     markDirty?: boolean;
     preserveHistory?: boolean;
@@ -79,12 +93,13 @@ export function createDocumentHistory(
     state: IDocumentSessionState,
     deps: ICreateDocumentHistoryDeps,
 ) {
-    const history = shallowRef<TPdfHistoryEntry[]>([]);
+    const history = shallowRef<TDocumentHistoryEntry[]>([]);
     const historyIndex = ref(0);
     const historyCleanIndex = ref(-1);
     const fileHistoryMutationVersion = ref(0);
     const fileHistorySessionVersion = ref(0);
     let workspaceCommandSink: IWorkspaceCommandSink | null = null;
+    let lazyHistoryBaseline: ILazyHistoryBaseline | null = null;
 
     function setWorkspaceCommandSink(sink: IWorkspaceCommandSink | null) {
         workspaceCommandSink = sink;
@@ -100,7 +115,7 @@ export function createDocumentHistory(
         };
     }
 
-    function scheduleHistoryEntryCleanup(entries: TPdfHistoryEntry[]) {
+    function scheduleHistoryEntryCleanup(entries: TDocumentHistoryEntry[]) {
         const snapshotPaths = uniq(entries.flatMap((entry) => entry.kind === 'path' ? [entry.path] : []));
 
         if (snapshotPaths.length === 0) {
@@ -121,7 +136,7 @@ export function createDocumentHistory(
         }
     }
 
-    function replaceHistory(nextHistory: TPdfHistoryEntry[], nextIndex: number, nextCleanIndex: number) {
+    function replaceHistory(nextHistory: TDocumentHistoryEntry[], nextIndex: number, nextCleanIndex: number) {
         const removedEntries = history.value.filter(entry => !nextHistory.includes(entry));
         history.value = nextHistory;
         historyIndex.value = nextIndex;
@@ -130,6 +145,7 @@ export function createDocumentHistory(
     }
 
     function clearHistory() {
+        lazyHistoryBaseline = null;
         replaceHistory([], 0, -1);
     }
 
@@ -143,6 +159,7 @@ export function createDocumentHistory(
         if (options?.isCurrent?.() === false) {
             return false;
         }
+        lazyHistoryBaseline = null;
 
         if (snapshot) {
             const entry = await createHistoryEntryFromSnapshot(snapshot, options);
@@ -284,7 +301,10 @@ export function createDocumentHistory(
 
     async function markCurrentHistoryEntryClean(
         snapshot: Uint8Array | null,
-        options?: { recordSnapshotChange?: boolean },
+        options?: {
+            lazyBaseline?: ILazyHistoryBaseline;
+            recordSnapshotChange?: boolean;
+        },
     ) {
         BrowserLogger.debug('workspace', 'Marking file history clean', () => ({
             hasSnapshot: Boolean(snapshot),
@@ -294,6 +314,30 @@ export function createDocumentHistory(
             isDirty: state.isDirty.value,
             recordSnapshotChange: options?.recordSnapshotChange !== false,
         }));
+        if (options?.lazyBaseline) {
+            lazyHistoryBaseline = options.lazyBaseline;
+            const lazyEntry: ILazyHistoryEntry = {
+                kind: 'lazy',
+                ...options.lazyBaseline,
+            };
+            if (history.value.length === 0) {
+                replaceHistory([lazyEntry], 0, 0);
+            } else {
+                const nextHistory = history.value.slice();
+                nextHistory[historyIndex.value] = lazyEntry;
+                replaceHistory(nextHistory, historyIndex.value, historyIndex.value);
+            }
+            state.isDirty.value = false;
+            return;
+        }
+        if (
+            !snapshot
+            && history.value[historyIndex.value]?.kind === 'lazy'
+            && !await materializeLazyHistoryBaseline()
+        ) {
+            clearHistory();
+        }
+        lazyHistoryBaseline = null;
         if (!snapshot) {
             if (history.value.length === 0) {
                 clearHistory();
@@ -329,6 +373,14 @@ export function createDocumentHistory(
             const nextHistory = history.value.slice();
             nextHistory[historyIndex.value] = entry;
             replaceHistory(nextHistory, historyIndex.value, historyIndex.value);
+        } else if (currentEntry?.kind === 'lazy') {
+            const entry = await createHistoryEntryFromSnapshot(snapshot, { reuseSnapshot: true });
+            if (!entry) {
+                return;
+            }
+            const nextHistory = history.value.slice();
+            nextHistory[historyIndex.value] = entry;
+            replaceHistory(nextHistory, historyIndex.value, historyIndex.value);
         } else if (!currentEntry) {
             await resetHistory(snapshot, { reuseSnapshot: true });
         }
@@ -344,7 +396,51 @@ export function createDocumentHistory(
         }));
     }
 
+    async function materializeLazyHistoryBaseline() {
+        const baseline = lazyHistoryBaseline;
+        if (!baseline) {
+            return true;
+        }
+        if (
+            !state.isActiveWorkingCopy(baseline.workingPath)
+            || state.documentRevisionToken.value !== baseline.revision
+        ) {
+            return false;
+        }
+        const before = await deps.documentFiles().getDocumentRevision(baseline.workingPath);
+        if (before.token !== baseline.revision) {
+            return false;
+        }
+        const entry = await createPathHistoryEntry(baseline.workingPath, baseline.size);
+        const after = await deps.documentFiles().getDocumentRevision(baseline.workingPath).catch((error: unknown) => {
+            void deps.documentWorkingCopy().cleanupFile(entry.path);
+            throw error;
+        });
+        if (
+            lazyHistoryBaseline !== baseline
+            || !state.isActiveWorkingCopy(baseline.workingPath)
+            || state.documentRevisionToken.value !== baseline.revision
+            || after.token !== baseline.revision
+        ) {
+            void deps.documentWorkingCopy().cleanupFile(entry.path);
+            return false;
+        }
+        const nextHistory = history.value.slice();
+        if (nextHistory.length === 0) {
+            nextHistory.push(entry);
+            replaceHistory(nextHistory, 0, 0);
+        } else {
+            nextHistory[historyIndex.value] = entry;
+            replaceHistory(nextHistory, historyIndex.value, historyIndex.value);
+        }
+        lazyHistoryBaseline = null;
+        return true;
+    }
+
     async function ensureHistoryBaselineForExternalMutation() {
+        if (!await materializeLazyHistoryBaseline()) {
+            return false;
+        }
         if (history.value.length > 0) {
             return true;
         }
@@ -414,8 +510,12 @@ export function createDocumentHistory(
             });
             return false;
         }
+        const materializedHistory = history.value.filter(isMaterializedHistoryEntry);
+        if (materializedHistory.length !== history.value.length) {
+            return false;
+        }
         const nextState = appendHistoryEntry({
-            history: history.value,
+            history: materializedHistory,
             historyIndex: historyIndex.value,
             historyCleanIndex: historyCleanIndex.value,
         }, entry, {
@@ -457,7 +557,7 @@ export function createDocumentHistory(
             history.value.length > 0 && historyIndex.value < history.value.length - 1,
     );
 
-    async function restoreHistoryEntry(entry: TPdfHistoryEntry | undefined) {
+    async function restoreHistoryEntry(entry: TDocumentHistoryEntry | undefined) {
         const restoreSessionVersion = fileHistorySessionVersion.value;
         const restoreOpenRequestId = deps.getOpenEpoch();
 
@@ -523,6 +623,9 @@ export function createDocumentHistory(
         if (!canUndo.value) {
             return false;
         }
+        if (!await materializeLazyHistoryBaseline()) {
+            return false;
+        }
         const nextHistoryIndex = historyIndex.value - 1;
         const restored = await restoreHistoryEntry(history.value[nextHistoryIndex]);
         if (!restored) {
@@ -537,6 +640,9 @@ export function createDocumentHistory(
         if (!canRedo.value) {
             return false;
         }
+        if (!await materializeLazyHistoryBaseline()) {
+            return false;
+        }
         const nextHistoryIndex = historyIndex.value + 1;
         const restored = await restoreHistoryEntry(history.value[nextHistoryIndex]);
         if (!restored) {
@@ -549,6 +655,7 @@ export function createDocumentHistory(
 
     function incrementSessionVersion() {
         fileHistorySessionVersion.value += 1;
+        lazyHistoryBaseline = null;
         workspaceCommandSink?.reset();
     }
 

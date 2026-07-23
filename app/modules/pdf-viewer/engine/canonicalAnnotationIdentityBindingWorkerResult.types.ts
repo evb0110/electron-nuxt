@@ -4,6 +4,17 @@ import type {
     ICanonicalAnnotationIdentityBinding,
     ICanonicalAnnotationIdentityBindingEvidence,
 } from '@app/modules/pdf-viewer/engine/serialization/pdf-serialization-annotations/applyCanonicalAnnotationIdentityBindings';
+import type { TDocumentRef } from '@contracts/documentRef';
+import type { TDocumentRevisionToken } from '@contracts/documentRevision';
+
+export type TSerializationInputOwnership = 'borrowed' | 'disposable';
+
+export interface ISerializationWorkerBinaryInput {
+    bytes: Uint8Array;
+    ownership: TSerializationInputOwnership;
+    revision?: TDocumentRevisionToken;
+    reloadPath?: TDocumentRef;
+}
 
 export interface ICanonicalAnnotationIdentityBindingWorkerResult {
     data: Uint8Array;

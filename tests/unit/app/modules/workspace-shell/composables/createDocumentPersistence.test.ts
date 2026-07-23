@@ -24,6 +24,7 @@ const mocks = vi.hoisted(() => {
             applyPdfNativeMutationsToWorkingCopy: vi.fn(),
             commitStagedPdfNativeMutations: vi.fn(),
             createManagedTempFileHandle: vi.fn(),
+            getDocumentRevision: vi.fn(),
             optimizePdfAsCopy: vi.fn(),
             optimizePdfForInteraction: vi.fn(),
             releaseManagedTempFileHandle: vi.fn(),
@@ -33,6 +34,7 @@ const mocks = vi.hoisted(() => {
             savePdfNativeMutations: vi.fn(),
             savePdfNoteChanges: vi.fn(),
             savePdfNoteTextUpdates: vi.fn(),
+            statFile: vi.fn(),
             writeFile: vi.fn(),
         },
         documentWorkingCopyCapability: {
@@ -145,6 +147,18 @@ describe('createDocumentPersistence', () => {
             pageCount: 1,
         });
         mocks.documentFilesCapability.optimizePdfForInteraction.mockResolvedValue(validPdfResult);
+        mocks.documentFilesCapability.getDocumentRevision.mockResolvedValue({
+            version: 1,
+            documentRef: '/tmp/old-working.pdf',
+            token: requireDocumentRevisionToken('drt1:test:persistence-after-save'),
+            contentRevision: 2,
+            authority: 'electron-working-copy',
+            mintedAt: 2,
+        });
+        mocks.documentFilesCapability.statFile.mockResolvedValue({
+            size: 3,
+            modifiedAt: 2,
+        });
         mocks.documentFilesCapability.releaseManagedTempFileHandle.mockResolvedValue(true);
         mocks.documentFilesCapability.createManagedTempFileHandle.mockResolvedValue({
             path: '/tmp/old-working.pdf',
@@ -755,5 +769,57 @@ describe('createDocumentPersistence', () => {
             2,
             3,
         ]));
+    });
+
+    it('adopts a native save as a revision-bound path without rereading renderer bytes', async () => {
+        const {
+            deps,
+            persistence,
+            state,
+        } = createPersistenceHarness();
+        const liveSource = new Blob([new Uint8Array([
+            1,
+            2,
+            3,
+        ])]);
+        state.pdfSrc.value = liveSource;
+        state.pdfData.value = new Uint8Array([
+            1,
+            2,
+            3,
+        ]);
+        const nextRevision = requireDocumentRevisionToken('drt1:test:persistence-after-save');
+
+        const result = await persistence.trySavePdfNativeMutations({updates: [{
+            objectNumber: 10,
+            generationNumber: 0,
+            text: 'Updated note text',
+        }]}, {
+            saveMode: 'rewrite',
+            preserveLoadedSource: true,
+            expectedWorkingPath: '/tmp/old-working.pdf',
+            modifiedAt: 'D:20260628123456+03\'00\'',
+        });
+
+        expect(result?.success).toBe(true);
+        expect(state.pdfSrc.value).toBe(liveSource);
+        expect(state.pdfData.value).toBeNull();
+        expect(state.pdfReloadSrc.value).toEqual({
+            kind: 'path',
+            path: '/tmp/old-working.pdf',
+            size: 3,
+            revision: nextRevision,
+        });
+        expect(state.documentRevisionToken.value).toBe(nextRevision);
+        expect(mocks.readDocumentBytes).not.toHaveBeenCalled();
+        expect(deps.readPdfStateFromPath).not.toHaveBeenCalled();
+        expect(deps.markCurrentHistoryEntryClean).toHaveBeenCalledWith(null, {
+            lazyBaseline: {
+                workingPath: '/tmp/old-working.pdf',
+                revision: nextRevision,
+                size: 3,
+            },
+            recordSnapshotChange: false,
+        });
     });
 });

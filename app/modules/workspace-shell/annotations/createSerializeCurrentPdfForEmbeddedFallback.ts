@@ -2,6 +2,7 @@ import type {
     ISerializeEmbeddedFallbackDeps,
     TSerializeEmbeddedFallbackResult,
 } from '@app/modules/workspace-shell/annotations/workspaceAnnotationTypes';
+import { resolvePdfViewerSaveTransactionFinalBytes } from '@app/modules/pdf-viewer/public';
 
 export function createSerializeCurrentPdfForEmbeddedFallback(deps: ISerializeEmbeddedFallbackDeps) {
     return async function serializeCurrentPdfForEmbeddedFallback(): Promise<TSerializeEmbeddedFallbackResult> {
@@ -18,7 +19,7 @@ export function createSerializeCurrentPdfForEmbeddedFallback(deps: ISerializeEmb
             mode: 'embedded-mutation',
             forcePdfjsMaterialize: true,
         });
-        const rawData = saveTransaction.serializedBytes ?? saveTransaction.baseBytes;
+        const rawData = resolvePdfViewerSaveTransactionFinalBytes(saveTransaction);
         if (!rawData) {
             return null;
         }

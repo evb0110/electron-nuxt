@@ -16,6 +16,7 @@ import {
     usePdfSerialization,
     resolvePdfReloadPage,
     createPdfReloadWaiter,
+    resolvePdfViewerSaveTransactionFinalBytes,
 } from '@app/modules/pdf-viewer/public';
 import { useFileOperationsSaveController } from '@app/modules/workspace-shell/composables/file-operations/useFileOperationsSaveController';
 import type {
@@ -588,7 +589,7 @@ export const usePageSaveOrchestration = (deps: IPageSaveOrchestrationDeps) => {
             forcePdfjsMaterialize: true,
             serializeResult: false,
         });
-        return result?.serializedBytes ?? result?.baseBytes ?? null;
+        return resolvePdfViewerSaveTransactionFinalBytes(result);
     }
 
     return {

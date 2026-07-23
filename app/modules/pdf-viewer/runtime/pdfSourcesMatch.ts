@@ -20,5 +20,6 @@ export function pdfSourcesMatch(left: TPdfSource | null, right: TPdfSource | nul
     return isPdfPathSource(left)
         && isPdfPathSource(right)
         && left.path === right.path
-        && left.size === right.size;
+        && left.size === right.size
+        && (left.revision ?? null) === (right.revision ?? null);
 }

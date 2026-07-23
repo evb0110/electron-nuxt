@@ -27,7 +27,8 @@ async function handleRequest(
 ) {
     switch (request.type) {
         case 'save':
-            return serializePdfEdits(request.payload.data, request.payload.payload);
+            return await serializePdfEdits(request.payload.data, request.payload.payload)
+                ?? request.payload.data;
         case 'updateEmbeddedText':
             return updateEmbeddedAnnotationText(
                 request.payload.data,

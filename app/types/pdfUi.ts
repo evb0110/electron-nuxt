@@ -1,4 +1,5 @@
 import type { TDocumentRef } from '@contracts/documentRef';
+import type { TDocumentRevisionToken } from '@contracts/documentRevision';
 import type { TOcrIndexRotation } from '@contracts/ocrIndex';
 import { pageNumberToPageIndex } from '@contracts/pageNumbers';
 import type { IDocumentPageRange } from '@app/utils/document-viewer/documentPageRange';
@@ -59,6 +60,7 @@ export interface IPdfPathSource {
     kind: 'path';
     path: TDocumentRef;
     size: number;
+    revision?: TDocumentRevisionToken;
 }
 
 export type TPdfSource = Blob | IPdfPathSource;

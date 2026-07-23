@@ -120,3 +120,12 @@ export interface IPdfViewerSaveTransactionResult {
     assertAnnotationSaveCurrent?(): Promise<void> | void;
     commitAnnotationSave?(): void;
 }
+
+export function resolvePdfViewerSaveTransactionFinalBytes(
+    result: IPdfViewerSaveTransactionResult | null | undefined,
+) {
+    return result?.serializedResult?.finalBytes
+        ?? result?.serializedBytes
+        ?? result?.baseBytes
+        ?? null;
+}

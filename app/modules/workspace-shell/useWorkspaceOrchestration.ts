@@ -6,6 +6,7 @@ import { tryOnScopeDispose } from '@vueuse/core';
 import { uniq } from 'es-toolkit/array';
 import { clamp } from 'es-toolkit/math';
 import {
+    resolvePdfViewerSaveTransactionFinalBytes,
     useOcrTextContent,
     usePageContextMenu,
     usePdfHistory,
@@ -773,8 +774,7 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
                 serializePdfForSave,
             },
         });
-        return printTransaction?.serializedBytes
-            ?? printTransaction?.baseBytes
+        return resolvePdfViewerSaveTransactionFinalBytes(printTransaction)
             ?? pdfData.value
             ?? await readWorkingCopyBytes();
     }

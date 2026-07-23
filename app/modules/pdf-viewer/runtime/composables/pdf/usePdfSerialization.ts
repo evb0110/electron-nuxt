@@ -19,6 +19,7 @@ import type { IMarkupSubtypeHint } from '@app/modules/pdf-viewer/engine/pdf-seri
 import { deleteEmbeddedAnnotationOffThread } from '@app/modules/pdf-viewer/engine/pdf-serialization-worker-client/deleteEmbeddedAnnotationOffThread';
 import { serializePdfEditsOffThread } from '@app/modules/pdf-viewer/engine/pdf-serialization-worker-client/serializePdfEditsOffThread';
 import { updateEmbeddedAnnotationTextOffThread } from '@app/modules/pdf-viewer/engine/pdf-serialization-worker-client/updateEmbeddedAnnotationTextOffThread';
+import type { ISerializationWorkerBinaryInput } from '@app/modules/pdf-viewer/engine/canonicalAnnotationIdentityBindingWorkerResult.types';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import {
     decodeBrowserImageBlob,
@@ -78,24 +79,53 @@ export const usePdfSerialization = (deps: IPdfSerializationDeps) => {
         getDeletedEmbeddedShapeStableKeys,
         ensureManagedShapeBaselineReady,
     } = deps;
+    const serializationInputs = new WeakMap<Uint8Array, ISerializationWorkerBinaryInput>();
+
+    function getSerializationInput(data: Uint8Array): ISerializationWorkerBinaryInput {
+        return serializationInputs.get(data) ?? {
+            bytes: data,
+            ownership: 'borrowed',
+        };
+    }
+
+    async function readDisposableWorkingCopy(path: TDocumentRef) {
+        const documentFiles = getDocumentFilesCapability();
+        const before = await documentFiles.getDocumentRevision(path);
+        const expectedRevision = documentRevisionToken?.value ?? before.token;
+        if (before.token !== expectedRevision) {
+            throw new Error('Working-copy revision changed before serialization read');
+        }
+        const sourceData = toTransferableUint8Array(await readDocumentBytes(path));
+        const after = await documentFiles.getDocumentRevision(path);
+        if (after.token !== expectedRevision) {
+            throw new Error('Working-copy revision changed during serialization read');
+        }
+        serializationInputs.set(sourceData, {
+            bytes: sourceData,
+            ownership: 'disposable',
+            revision: expectedRevision,
+            reloadPath: path,
+        });
+        return sourceData;
+    }
 
     async function getSourcePdfData() {
-        let sourceData = pdfData.value ? toTransferableUint8Array(pdfData.value) : null;
-        if (!sourceData && workingCopyPath.value) {
-            const path = workingCopyPath.value;
-            try {
-                sourceData = toTransferableUint8Array(
-                    await readDocumentBytes(path),
-                );
-            } catch (error) {
-                BrowserLogger.warn(PDF_SERIALIZATION_LOG_SECTION, 'Failed to read working copy for serialization', {
-                    path,
-                    error,
-                });
-                throw error;
-            }
+        if (pdfData.value) {
+            return toTransferableUint8Array(pdfData.value);
         }
-        return sourceData;
+        const path = workingCopyPath.value;
+        if (!path) {
+            return null;
+        }
+        try {
+            return await readDisposableWorkingCopy(path);
+        } catch (error) {
+            BrowserLogger.warn(PDF_SERIALIZATION_LOG_SECTION, 'Failed to read working copy for serialization', {
+                path,
+                error,
+            });
+            throw error;
+        }
     }
 
     async function decodePlacedImageSource(payload: IPdfPlacedImageFinalizePayload) {
@@ -359,7 +389,7 @@ export const usePdfSerialization = (deps: IPdfSerializationDeps) => {
         payload: IPdfSerializationSavePayload,
     ) {
         return measureDevPerfAsync('pdf:serialize-edits', async () => {
-            const result = await serializePdfEditsOffThread(data, payload);
+            const result = await serializePdfEditsOffThread(getSerializationInput(data), payload);
             if (!result) {
                 return data;
             }

@@ -21,6 +21,7 @@ import {
     getShapeRect,
     resolveAnnotationCommentTextMarkupColor,
     annotationIdForSummary,
+    resolvePdfViewerSaveTransactionFinalBytes,
 } from '@app/modules/pdf-viewer/public';
 import { getAnnotationPageNumber } from '@app/modules/workspace-shell/annotations/getAnnotationPageNumber';
 import { withOpenedAnnotationNoteCreationTimestamp } from '@app/modules/workspace-shell/annotations/withOpenedAnnotationNoteCreationTimestamp';
@@ -984,7 +985,7 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
                 mode: 'embedded-mutation',
                 forcePdfjsMaterialize: true,
             });
-            const rawData = saveTransaction?.serializedBytes ?? saveTransaction?.baseBytes;
+            const rawData = resolvePdfViewerSaveTransactionFinalBytes(saveTransaction);
             if (!rawData) {
                 return false;
             }

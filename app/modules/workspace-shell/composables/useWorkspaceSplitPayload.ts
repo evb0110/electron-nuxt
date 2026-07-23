@@ -18,6 +18,7 @@ import { resolveDocumentRefBackend } from '@app/utils/documentRef';
 import type { TDocumentOpenOutcome } from '@app/types/documentOpenOutcome';
 import type { TDocumentOperationKind } from '@app/types/documentOperationKind';
 import { runWithoutDocumentOperationLease } from '@app/utils/runWithoutDocumentOperationLease';
+import { resolvePdfViewerSaveTransactionFinalBytes } from '@app/modules/pdf-viewer/public';
 
 interface IUseWorkspaceSplitPayloadOptions {
     pdfSrc: Ref<TPdfSource | null>;
@@ -129,7 +130,7 @@ export const useWorkspaceSplitPayload = (options: IUseWorkspaceSplitPayloadOptio
                     },
                 } : {}),
             });
-            const viewerSnapshot = viewerTransaction?.serializedBytes ?? viewerTransaction?.baseBytes ?? null;
+            const viewerSnapshot = resolvePdfViewerSaveTransactionFinalBytes(viewerTransaction);
             if (viewerSnapshot) {
                 return viewerSnapshot;
             }
