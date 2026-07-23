@@ -1,86 +1,90 @@
+import type {IDocumentRevisionChangedEvent} from '@contracts/documentRevision';
+import {
+    DOCUMENT_FILES_PLATFORM_FEATURE,
+    DOCUMENT_OPEN_PLATFORM_FEATURE,
+    DOCUMENT_PDF_PLATFORM_FEATURE,
+    DOCUMENT_WORKING_COPY_PLATFORM_FEATURE,
+    type IDocumentFilesInvokeMap,
+    type IDocumentOpenInvokeMap,
+    type IDocumentPdfInvokeMap,
+    type IDocumentWorkingCopyInvokeMap,
+} from '@contracts/documentsPlatformFeature';
 import type {
-    IDocumentMutationRevisionOptions,
     IDocumentsFileCapability,
-    IPdfNativePagePreviewOptions,
     IPdfSaveAsOptions,
     IPdfSerializedSaveOptions,
-    IPdfOptimizeOptions,
 } from '@contracts/electronApiDocuments';
 import type {
     IBeginSerializedPdfPersistenceResult,
     IBeginSerializedPdfSaveAsResult,
 } from '@electron/features/documents/serializedPdfPersistenceContract';
+
+/**
+ * Compatibility names for existing Electron callers. Every invoke/event channel
+ * that can be represented by a platform feature is derived from that feature;
+ * only renderer authorization and MessagePort-backed persistence remain local.
+ */
 export const DOCUMENTS_CHANNELS = {
-    openDocumentDirect: 'dialog:openPdfDirect',
-    openPdfDirect: 'dialog:openPdfDirect',
-    openDocumentDirectBatch: 'dialog:openPdfDirectBatch',
-    openPdfDirectBatch: 'dialog:openPdfDirectBatch',
-    cancelOpenDocumentDirectBatch: 'dialog:openPdfDirectBatch:cancel',
+    openDocumentDirect: DOCUMENT_OPEN_PLATFORM_FEATURE.invokeChannels.openDocumentDirect,
+    openPdfDirect: DOCUMENT_OPEN_PLATFORM_FEATURE.invokeChannels.openPdfDirect,
+    openDocumentDirectBatch: DOCUMENT_OPEN_PLATFORM_FEATURE.invokeChannels.openDocumentDirectBatch,
+    openPdfDirectBatch: DOCUMENT_OPEN_PLATFORM_FEATURE.invokeChannels.openPdfDirectBatch,
+    cancelOpenDocumentDirectBatch: DOCUMENT_OPEN_PLATFORM_FEATURE.invokeChannels.cancelOpenDocumentDirectBatch,
     registerRendererFileOpenToken: 'dialog:registerRendererFileOpenToken',
     registerRendererFileOpenTokens: 'dialog:registerRendererFileOpenTokens',
     allowRendererFileOpen: 'dialog:allowRendererFileOpen',
     allowRendererFileOpenBatch: 'dialog:allowRendererFileOpenBatch',
-    createWorkingCopyFromData: 'working-copy:createFromData',
-    createWorkingCopyFromPath: 'working-copy:createFromPath',
-    savePdfAs: 'dialog:savePdfAs',
+    createWorkingCopyFromData: DOCUMENT_WORKING_COPY_PLATFORM_FEATURE.invokeChannels.createWorkingCopyFromData,
+    createWorkingCopyFromPath: DOCUMENT_WORKING_COPY_PLATFORM_FEATURE.invokeChannels.createWorkingCopyFromPath,
+    savePdfAs: DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.savePdfAs,
     savePdfDataAs: 'dialog:savePdfDataAs',
     savePdfDataAsBegin: 'dialog:savePdfDataAs:begin',
-    savePdfDialog: 'dialog:savePdfDialog',
-    saveDocxAs: 'dialog:saveDocxAs',
-    fileRead: 'file:read',
-    fileStat: 'file:stat',
-    fileReadRange: 'file:readRange',
-    fileCreateManagedHandle: 'file:createManagedHandle',
-    fileReleaseManagedHandle: 'file:releaseManagedHandle',
-    pdfOpeningGeometry: 'pdf:openingGeometry',
-    pdfNativePageSizes: 'pdf:nativePageSizes',
-    pdfNativePagePreviewCancel: 'pdf:nativePagePreview:cancel',
-    pdfNativePagePreview: 'pdf:nativePagePreview',
-    fileReadText: 'file:readText',
-    fileExists: 'file:exists',
-    documentRevisionGet: 'document:revision:get',
-    pdfAnalyzeConformance: 'pdf:analyzeConformance',
-    pdfValidateData: 'pdf:validateData',
-    pdfValidatePath: 'pdf:validatePath',
-    pdfOpenInDefaultAppData: 'pdf:openInDefaultAppData',
-    pdfOpenInDefaultAppPath: 'pdf:openInDefaultAppPath',
-    pdfPrintData: 'pdf:printData',
-    pdfPrintPath: 'pdf:printPath',
-    fileWrite: 'file:write',
-    fileReplaceWorkingCopyFromPath: 'file:replaceWorkingCopyFromPath',
-    fileWriteDocx: 'file:writeDocx',
-    fileSaveStructured: 'file:saveStructured',
-    fileResyncWorkingCopy: 'file:resyncWorkingCopy',
-    fileRepairPdf: 'file:repairPdf',
-    fileOptimizePdfForInteraction: 'file:optimizePdfForInteraction',
-    fileOptimizePdfAsCopy: 'file:optimizePdfAsCopy',
+    savePdfDialog: DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.savePdfDialog,
+    saveDocxAs: DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.saveDocxAs,
+    fileRead: DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.readFile,
+    fileStat: DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.statFile,
+    fileReadRange: DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.readFileRange,
+    fileCreateManagedHandle: DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.createManagedTempFileHandle,
+    fileReleaseManagedHandle: DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.releaseManagedTempFileHandle,
+    pdfOpeningGeometry: DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.getPdfOpeningGeometry,
+    pdfNativePageSizes: DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.getPdfNativePageSizes,
+    pdfNativePagePreviewCancel: DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.cancelPdfNativePagePreview,
+    pdfNativePagePreview: DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.renderPdfNativePagePreview,
+    fileReadText: DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.readTextFile,
+    fileExists: DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.fileExists,
+    documentRevisionGet: DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.getDocumentRevision,
+    pdfAnalyzeConformance: DOCUMENT_PDF_PLATFORM_FEATURE.invokeChannels.analyzePdfConformance,
+    pdfValidateData: DOCUMENT_PDF_PLATFORM_FEATURE.invokeChannels.validatePdfData,
+    pdfValidatePath: DOCUMENT_PDF_PLATFORM_FEATURE.invokeChannels.validatePdfPath,
+    pdfOpenInDefaultAppData: DOCUMENT_PDF_PLATFORM_FEATURE.invokeChannels.openPdfInDefaultAppData,
+    pdfOpenInDefaultAppPath: DOCUMENT_PDF_PLATFORM_FEATURE.invokeChannels.openPdfInDefaultAppPath,
+    pdfPrintData: DOCUMENT_PDF_PLATFORM_FEATURE.invokeChannels.printPdfData,
+    pdfPrintPath: DOCUMENT_PDF_PLATFORM_FEATURE.invokeChannels.printPdfPath,
+    fileWrite: DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.writeFile,
+    fileReplaceWorkingCopyFromPath: DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.replaceWorkingCopyFromPath,
+    fileWriteDocx: DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.writeDocxFile,
+    fileSaveStructured: DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.saveFileStructured,
+    fileResyncWorkingCopy: DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.resyncWorkingCopy,
+    fileRepairPdf: DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.repairPdf,
+    fileOptimizePdfForInteraction: DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.optimizePdfForInteraction,
+    fileOptimizePdfAsCopy: DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.optimizePdfAsCopy,
     fileSavePdfData: 'file:savePdfData',
     fileSavePdfDataBegin: 'file:savePdfData:begin',
     fileSavePdfDataPort: 'file:savePdfData:port',
-    fileSavePdfNoteTextUpdates: 'file:savePdfNoteTextUpdates',
-    fileSavePdfNoteChanges: 'file:savePdfNoteChanges',
-    fileSavePdfNativeMutations: 'file:savePdfNativeMutations',
-    fileApplyPdfNativeMutationsToWorkingCopy: 'file:applyPdfNativeMutationsToWorkingCopy',
-    fileCommitStagedPdfNativeMutations: 'file:commitStagedPdfNativeMutations',
-    fileCleanup: 'file:cleanup',
-    fileCleanupOcrTemp: 'file:cleanupOcrTemp',
+    fileSavePdfNoteTextUpdates: DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.savePdfNoteTextUpdates,
+    fileSavePdfNoteChanges: DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.savePdfNoteChanges,
+    fileSavePdfNativeMutations: DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.savePdfNativeMutations,
+    fileApplyPdfNativeMutationsToWorkingCopy:
+        DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.applyPdfNativeMutationsToWorkingCopy,
+    fileCommitStagedPdfNativeMutations:
+        DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.commitStagedPdfNativeMutations,
+    fileCleanup: DOCUMENT_WORKING_COPY_PLATFORM_FEATURE.invokeChannels.cleanupFile,
+    fileCleanupOcrTemp: DOCUMENT_WORKING_COPY_PLATFORM_FEATURE.invokeChannels.cleanupOcrTemp,
 } as const;
 
-export const DOCUMENTS_EVENT_CHANNELS = {documentRevisionChanged: 'document:revision:changed'} as const;
+export const DOCUMENTS_EVENT_CHANNELS = {documentRevisionChanged: DOCUMENT_FILES_PLATFORM_FEATURE.eventChannels.onDocumentRevisionChanged} as const;
 
-export interface IDocumentsInvokeMap {
-    [DOCUMENTS_CHANNELS.openDocumentDirect]: {
-        args: [path: string];
-        result: Awaited<ReturnType<IDocumentsFileCapability['openDocumentDirect']>>;
-    };
-    [DOCUMENTS_CHANNELS.openDocumentDirectBatch]: {
-        args: [paths: string[], requestId?: string, options?: {forceCombine?: boolean}];
-        result: Awaited<ReturnType<IDocumentsFileCapability['openDocumentDirectBatch']>>;
-    };
-    [DOCUMENTS_CHANNELS.cancelOpenDocumentDirectBatch]: {
-        args: [requestId: string];
-        result: boolean;
-    };
+interface IDocumentsDirectPersistenceInvokeMap {
     [DOCUMENTS_CHANNELS.registerRendererFileOpenToken]: {
         args: [token: string];
         result: boolean;
@@ -103,18 +107,6 @@ export interface IDocumentsInvokeMap {
         }>];
         result: boolean;
     };
-    [DOCUMENTS_CHANNELS.createWorkingCopyFromData]: {
-        args: [fileName: string, data: Uint8Array, originalPath?: string];
-        result: Awaited<ReturnType<IDocumentsFileCapability['createWorkingCopyFromData']>>;
-    };
-    [DOCUMENTS_CHANNELS.createWorkingCopyFromPath]: {
-        args: [sourcePath: string, originalPath?: string];
-        result: Awaited<ReturnType<IDocumentsFileCapability['createWorkingCopyFromPath']>>;
-    };
-    [DOCUMENTS_CHANNELS.savePdfAs]: {
-        args: [workingPath: string, options: IPdfSaveAsOptions | undefined, revisionOptions?: IPdfSerializedSaveOptions];
-        result: Awaited<ReturnType<IDocumentsFileCapability['savePdfAs']>>;
-    };
     [DOCUMENTS_CHANNELS.savePdfDataAs]: {
         args: [
             workingPath: string,
@@ -133,127 +125,6 @@ export interface IDocumentsInvokeMap {
         ];
         result: IBeginSerializedPdfSaveAsResult;
     };
-    [DOCUMENTS_CHANNELS.savePdfDialog]: {
-        args: [suggestedName: string];
-        result: Awaited<ReturnType<IDocumentsFileCapability['savePdfDialog']>>;
-    };
-    [DOCUMENTS_CHANNELS.saveDocxAs]: {
-        args: [workingPath: string];
-        result: Awaited<ReturnType<IDocumentsFileCapability['saveDocxAs']>>;
-    };
-    [DOCUMENTS_CHANNELS.fileRead]: {
-        args: [path: string];
-        result: Awaited<ReturnType<IDocumentsFileCapability['readFile']>>;
-    };
-    [DOCUMENTS_CHANNELS.fileStat]: {
-        args: [path: string];
-        result: Awaited<ReturnType<IDocumentsFileCapability['statFile']>>;
-    };
-    [DOCUMENTS_CHANNELS.fileReadRange]: {
-        args: [path: string, offset: number, length: number];
-        result: Awaited<ReturnType<IDocumentsFileCapability['readFileRange']>>;
-    };
-    [DOCUMENTS_CHANNELS.fileCreateManagedHandle]: {
-        args: [path: string];
-        result: Awaited<ReturnType<NonNullable<IDocumentsFileCapability['createManagedTempFileHandle']>>>;
-    };
-    [DOCUMENTS_CHANNELS.fileReleaseManagedHandle]: {
-        args: [leaseId: string];
-        result: boolean;
-    };
-    [DOCUMENTS_CHANNELS.pdfOpeningGeometry]: {
-        args: [path: string];
-        result: Awaited<ReturnType<NonNullable<IDocumentsFileCapability['getPdfOpeningGeometry']>>>;
-    };
-    [DOCUMENTS_CHANNELS.pdfNativePageSizes]: {
-        args: [path: string];
-        result: Awaited<ReturnType<NonNullable<IDocumentsFileCapability['getPdfNativePageSizes']>>>;
-    };
-    [DOCUMENTS_CHANNELS.pdfNativePagePreviewCancel]: {
-        args: [requestId: string];
-        result: Awaited<ReturnType<NonNullable<IDocumentsFileCapability['cancelPdfNativePagePreview']>>>;
-    };
-    [DOCUMENTS_CHANNELS.pdfNativePagePreview]: {
-        args: [path: string, pageNumber: number, options?: IPdfNativePagePreviewOptions];
-        result: Awaited<ReturnType<NonNullable<IDocumentsFileCapability['renderPdfNativePagePreview']>>>;
-    };
-    [DOCUMENTS_CHANNELS.fileReadText]: {
-        args: [path: string];
-        result: Awaited<ReturnType<IDocumentsFileCapability['readTextFile']>>;
-    };
-    [DOCUMENTS_CHANNELS.fileExists]: {
-        args: [path: string];
-        result: Awaited<ReturnType<IDocumentsFileCapability['fileExists']>>;
-    };
-    [DOCUMENTS_CHANNELS.documentRevisionGet]: {
-        args: [path: string];
-        result: Awaited<ReturnType<IDocumentsFileCapability['getDocumentRevision']>>;
-    };
-    [DOCUMENTS_CHANNELS.pdfAnalyzeConformance]: {
-        args: [path: string];
-        result: Awaited<ReturnType<IDocumentsFileCapability['analyzePdfConformance']>>;
-    };
-    [DOCUMENTS_CHANNELS.pdfValidateData]: {
-        args: [data: Uint8Array, fileName?: string];
-        result: Awaited<ReturnType<IDocumentsFileCapability['validatePdfData']>>;
-    };
-    [DOCUMENTS_CHANNELS.pdfValidatePath]: {
-        args: [path: string];
-        result: Awaited<ReturnType<IDocumentsFileCapability['validatePdfPath']>>;
-    };
-    [DOCUMENTS_CHANNELS.pdfOpenInDefaultAppData]: {
-        args: [data: Uint8Array, fileName?: string];
-        result: Awaited<ReturnType<IDocumentsFileCapability['openPdfInDefaultAppData']>>;
-    };
-    [DOCUMENTS_CHANNELS.pdfOpenInDefaultAppPath]: {
-        args: [path: string, fileName?: string];
-        result: Awaited<ReturnType<IDocumentsFileCapability['openPdfInDefaultAppPath']>>;
-    };
-    [DOCUMENTS_CHANNELS.pdfPrintData]: {
-        args: [data: Uint8Array, fileName?: string];
-        result: Awaited<ReturnType<IDocumentsFileCapability['printPdfData']>>;
-    };
-    [DOCUMENTS_CHANNELS.pdfPrintPath]: {
-        args: [path: string, fileName?: string, pageNumbers?: number[]];
-        result: Awaited<ReturnType<IDocumentsFileCapability['printPdfPath']>>;
-    };
-    [DOCUMENTS_CHANNELS.fileWrite]: {
-        args: [path: string, data: Uint8Array, options?: IPdfSerializedSaveOptions];
-        result: Awaited<ReturnType<IDocumentsFileCapability['writeFile']>>;
-    };
-    [DOCUMENTS_CHANNELS.fileReplaceWorkingCopyFromPath]: {
-        args: [workingCopyPath: string, sourcePath: string, options?: IPdfSerializedSaveOptions];
-        result: Awaited<ReturnType<IDocumentsFileCapability['replaceWorkingCopyFromPath']>>;
-    };
-    [DOCUMENTS_CHANNELS.fileWriteDocx]: {
-        args: [path: string, data: Uint8Array];
-        result: Awaited<ReturnType<IDocumentsFileCapability['writeDocxFile']>>;
-    };
-    [DOCUMENTS_CHANNELS.fileSaveStructured]: {
-        args: [path: string, options?: IPdfSerializedSaveOptions];
-        result: Awaited<ReturnType<IDocumentsFileCapability['saveFileStructured']>>;
-    };
-    [DOCUMENTS_CHANNELS.fileResyncWorkingCopy]: {
-        args: [path: string];
-        result: Awaited<ReturnType<NonNullable<IDocumentsFileCapability['resyncWorkingCopy']>>>;
-    };
-    [DOCUMENTS_CHANNELS.fileRepairPdf]: {
-        args: [path: string, options?: IPdfSerializedSaveOptions];
-        result: Awaited<ReturnType<NonNullable<IDocumentsFileCapability['repairPdf']>>>;
-    };
-    [DOCUMENTS_CHANNELS.fileOptimizePdfForInteraction]: {
-        args: [path: string, options?: IPdfSerializedSaveOptions];
-        result: Awaited<ReturnType<NonNullable<IDocumentsFileCapability['optimizePdfForInteraction']>>>;
-    };
-    [DOCUMENTS_CHANNELS.fileOptimizePdfAsCopy]: {
-        args: [
-            path: string,
-            options: IPdfOptimizeOptions,
-            requestId?: string,
-            revisionOptions?: IDocumentMutationRevisionOptions,
-        ];
-        result: Awaited<ReturnType<NonNullable<IDocumentsFileCapability['optimizePdfAsCopy']>>>;
-    };
     [DOCUMENTS_CHANNELS.fileSavePdfData]: {
         args: [path: string, data: Uint8Array, options?: IPdfSerializedSaveOptions];
         result: Awaited<ReturnType<IDocumentsFileCapability['savePdfData']>>;
@@ -262,60 +133,15 @@ export interface IDocumentsInvokeMap {
         args: [path: string, totalBytes: number, options?: IPdfSerializedSaveOptions];
         result: IBeginSerializedPdfPersistenceResult;
     };
-    [DOCUMENTS_CHANNELS.fileSavePdfNoteTextUpdates]: {
-        args: [
-            path: string,
-            updates: Parameters<NonNullable<IDocumentsFileCapability['savePdfNoteTextUpdates']>>[1],
-            modifiedAt: string,
-            options?: IPdfSerializedSaveOptions,
-        ];
-        result: Awaited<ReturnType<NonNullable<IDocumentsFileCapability['savePdfNoteTextUpdates']>>>;
-    };
-    [DOCUMENTS_CHANNELS.fileSavePdfNoteChanges]: {
-        args: [
-            path: string,
-            changes: Parameters<NonNullable<IDocumentsFileCapability['savePdfNoteChanges']>>[1],
-            modifiedAt: string,
-            options?: IPdfSerializedSaveOptions,
-        ];
-        result: Awaited<ReturnType<NonNullable<IDocumentsFileCapability['savePdfNoteChanges']>>>;
-    };
-    [DOCUMENTS_CHANNELS.fileSavePdfNativeMutations]: {
-        args: [
-            path: string,
-            mutations: Parameters<NonNullable<IDocumentsFileCapability['savePdfNativeMutations']>>[1],
-            modifiedAt: string,
-            options?: IPdfSerializedSaveOptions,
-        ];
-        result: Awaited<ReturnType<NonNullable<IDocumentsFileCapability['savePdfNativeMutations']>>>;
-    };
-    [DOCUMENTS_CHANNELS.fileApplyPdfNativeMutationsToWorkingCopy]: {
-        args: [
-            path: string,
-            mutations: Parameters<NonNullable<IDocumentsFileCapability['applyPdfNativeMutationsToWorkingCopy']>>[1],
-            modifiedAt: string,
-            expectedBase: Parameters<NonNullable<IDocumentsFileCapability['applyPdfNativeMutationsToWorkingCopy']>>[3],
-            options?: IPdfSerializedSaveOptions,
-        ];
-        result: Awaited<ReturnType<NonNullable<IDocumentsFileCapability['applyPdfNativeMutationsToWorkingCopy']>>>;
-    };
-    [DOCUMENTS_CHANNELS.fileCommitStagedPdfNativeMutations]: {
-        args: [
-            path: string,
-            stagedOutput: Parameters<NonNullable<IDocumentsFileCapability['commitStagedPdfNativeMutations']>>[1],
-            options?: IPdfSerializedSaveOptions,
-        ];
-        result: Awaited<ReturnType<NonNullable<IDocumentsFileCapability['commitStagedPdfNativeMutations']>>>;
-    };
-    [DOCUMENTS_CHANNELS.fileCleanup]: {
-        args: [path: string];
-        result: undefined;
-    };
-    [DOCUMENTS_CHANNELS.fileCleanupOcrTemp]: {
-        args: [path: string];
-        result: Awaited<ReturnType<IDocumentsFileCapability['cleanupOcrTemp']>>;
-    };
 }
 
+export type IDocumentsInvokeMap =
+    IDocumentOpenInvokeMap
+    & IDocumentWorkingCopyInvokeMap
+    & IDocumentFilesInvokeMap
+    & IDocumentPdfInvokeMap
+    & IDocumentsDirectPersistenceInvokeMap;
+
+export interface IDocumentsEventMap {[DOCUMENTS_EVENT_CHANNELS.documentRevisionChanged]: IDocumentRevisionChangedEvent;}
 
 export type { TOpenFileResult } from '@contracts/electronApiDocuments';

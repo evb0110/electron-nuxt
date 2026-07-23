@@ -14,7 +14,7 @@ import {
     type IDocumentsInvokeMap,
 } from '@electron/features/documents/contract';
 import {
-    DOCUMENTS_SIMPLE_PLATFORM_FEATURES,
+    DOCUMENT_PLATFORM_FEATURES,
     type IDocumentMenuInvokeMap,
     type IDocumentPickerInvokeMap,
     type IDocumentRecentFilesInvokeMap,
@@ -77,11 +77,11 @@ type TDocumentsCombinedInvokeMap =
     & IDocumentMenuInvokeMap;
 const documentsCombinedChannels = {
     ...DOCUMENTS_CHANNELS,
-    ...Object.assign({}, ...DOCUMENTS_SIMPLE_PLATFORM_FEATURES.map(feature => feature.invokeChannels)),
+    ...Object.assign({}, ...DOCUMENT_PLATFORM_FEATURES.map(feature => feature.invokeChannels)),
 };
 const documentsCombinedCodecs = {
     ...DOCUMENTS_IPC_CODECS,
-    ...Object.assign({}, ...DOCUMENTS_SIMPLE_PLATFORM_FEATURES.map(feature => feature.ipcCodecs)),
+    ...Object.assign({}, ...DOCUMENT_PLATFORM_FEATURES.map(feature => feature.ipcCodecs)),
 };
 
 vi.mock('electron', () => ({
@@ -113,13 +113,26 @@ describe('in-process preload to validated IPC round trips', () => {
         mocks.isTrustedIpcInvokeSender.mockReturnValue(true);
     });
 
-    it('round-trips document binary arguments through the file preload client and adapter', async () => {
+    it('round-trips exact document paths and binary arguments through the file preload client and adapter', async () => {
+        const firstPath = '/documents/duplicate-source-a/duplicate-recent-source.pdf';
+        const secondPath = '/documents/duplicate-source-b/duplicate-recent-source.pdf';
+        const openDocumentDirect = vi.fn(async (
+            _context: unknown,
+            originalPath: string,
+        ) => ({
+            kind: 'pdf' as const,
+            originalPath,
+            workingPath: originalPath === firstPath
+                ? '/managed/duplicate-source-a.pdf'
+                : '/managed/duplicate-source-b.pdf',
+        }));
         const createWorkingCopyFromData = vi.fn(async () => '/tmp/working-copy.pdf');
         const beginSavePdfData = vi.fn(async () => ({sessionId: 'persistence-session-1'}));
         const receivedChunks: Uint8Array[] = [];
         const service = cast<IDocumentsService>({
             beginSavePdfData,
             createWorkingCopyFromData,
+            openDocumentDirect,
         });
         const harness = createInProcessIpcRoundTripHarness<TDocumentsCombinedInvokeMap, IDocumentsService, ReturnType<typeof createDocumentsPreloadFileClient>>({
             channels: documentsCombinedChannels,
@@ -209,6 +222,35 @@ describe('in-process preload to validated IPC round trips', () => {
                 4,
                 5,
             ]),
+        ]);
+
+        await expect(harness.client.openDocumentDirect(firstPath)).resolves.toMatchObject({
+            originalPath: firstPath,
+            workingPath: '/managed/duplicate-source-a.pdf',
+        });
+        await expect(harness.client.openDocumentDirect(secondPath)).resolves.toMatchObject({
+            originalPath: secondPath,
+            workingPath: '/managed/duplicate-source-b.pdf',
+        });
+        expect(openDocumentDirect).toHaveBeenNthCalledWith(
+            1,
+            expect.objectContaining({senderId: 7}),
+            firstPath,
+        );
+        expect(openDocumentDirect).toHaveBeenNthCalledWith(
+            2,
+            expect.objectContaining({senderId: 7}),
+            secondPath,
+        );
+        expect(harness.invokeCalls.slice(-2)).toEqual([
+            {
+                args: [firstPath],
+                channel: DOCUMENTS_CHANNELS.openDocumentDirect,
+            },
+            {
+                args: [secondPath],
+                channel: DOCUMENTS_CHANNELS.openDocumentDirect,
+            },
         ]);
     });
 

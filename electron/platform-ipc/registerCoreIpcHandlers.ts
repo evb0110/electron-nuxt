@@ -67,7 +67,7 @@ export function registerCoreIpcHandlers(
 ) {
     const windowTabsRegistrar = createValidatedIpcMainRegistrar<IWindowTabsInvokeMap>(ipcMain, {
         allowedChannels: WINDOW_TABS_PLATFORM_FEATURE.invokeChannelSet,
-        codecs: WINDOW_TABS_PLATFORM_FEATURE.ipcCodecs as never,
+        codecs: WINDOW_TABS_PLATFORM_FEATURE.ipcCodecs,
     });
     const eventRegistrar = createValidatedIpcMainEventRegistrar(ipcMain, {allowedChannels: CORE_RAW_EVENT_CHANNEL_SET});
     registerRendererLogBridge({

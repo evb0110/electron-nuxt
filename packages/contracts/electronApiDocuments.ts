@@ -736,7 +736,11 @@ export interface IDocumentsOpenCapability extends Pick<
     | 'openDocumentDirectBatch'
     | 'openPdfDirectBatch'
     | 'cancelOpenDocumentDirectBatch'
-> {}
+>, Pick<
+        IDocumentsMenuCapability,
+    | 'onOpenDocumentDirectBatchProgress'
+    | 'onOpenPdfDirectBatchProgress'
+    > {}
 
 export interface IDocumentsWorkingCopyCapability extends Pick<
     IDocumentsFileCapability,

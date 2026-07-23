@@ -7,6 +7,7 @@ import { AGENT_PLATFORM_FEATURE } from '@contracts/agentPlatformFeature';
 import { DJVU_PLATFORM_FEATURE } from '@contracts/djvuPlatformFeature';
 import {
     DOCUMENT_MENU_PLATFORM_FEATURE,
+    DOCUMENT_OPEN_PLATFORM_FEATURE,
     DOCUMENT_PICKER_PLATFORM_FEATURE,
     DOCUMENT_RECENT_FILES_PLATFORM_FEATURE,
     DOCUMENT_WINDOW_PLATFORM_FEATURE,
@@ -146,9 +147,9 @@ describe('feature IPC codec maps', () => {
             .toBe(DOCUMENT_PICKER_PLATFORM_FEATURE.invokeChannels.openDocumentDialog);
         expect(DOCUMENT_PICKER_PLATFORM_FEATURE.methods.openPdfDialog.aliasOf)
             .toBe('openDocumentDialog');
-        expect(DOCUMENT_MENU_PLATFORM_FEATURE.eventChannels.onOpenPdfDirectBatchProgress)
-            .toBe(DOCUMENT_MENU_PLATFORM_FEATURE.eventChannels.onOpenDocumentDirectBatchProgress);
-        expect(DOCUMENT_MENU_PLATFORM_FEATURE.events.onOpenPdfDirectBatchProgress.aliasOf)
+        expect(DOCUMENT_OPEN_PLATFORM_FEATURE.eventChannels.onOpenPdfDirectBatchProgress)
+            .toBe(DOCUMENT_OPEN_PLATFORM_FEATURE.eventChannels.onOpenDocumentDirectBatchProgress);
+        expect(DOCUMENT_OPEN_PLATFORM_FEATURE.events.onOpenPdfDirectBatchProgress.aliasOf)
             .toBe('onOpenDocumentDirectBatchProgress');
     });
 

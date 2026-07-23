@@ -10,10 +10,14 @@ import {
 import { DOCUMENTS_IPC_CODECS } from '@electron/features/documents/documentsIpcCodecs';
 import {
     DOCUMENT_MENU_PLATFORM_FEATURE,
+    DOCUMENT_FILES_PLATFORM_FEATURE,
+    DOCUMENT_OPEN_PLATFORM_FEATURE,
+    DOCUMENT_PDF_PLATFORM_FEATURE,
     DOCUMENT_PICKER_PLATFORM_FEATURE,
     DOCUMENT_RECENT_FILES_PLATFORM_FEATURE,
-    DOCUMENTS_SIMPLE_PLATFORM_FEATURES,
+    DOCUMENT_PLATFORM_FEATURES,
     DOCUMENT_WINDOW_PLATFORM_FEATURE,
+    DOCUMENT_WORKING_COPY_PLATFORM_FEATURE,
 } from '@contracts/documentsPlatformFeature';
 import { AGENT_PLATFORM_FEATURE } from '@contracts/agentPlatformFeature';
 import type { TAgentService } from '@electron/features/agent/createAgentService';
@@ -41,12 +45,16 @@ import {
 
 const DOCUMENTS_CHANNEL_SET = new Set([
     ...Object.values(DOCUMENTS_CHANNELS),
-    ...DOCUMENTS_SIMPLE_PLATFORM_FEATURES.flatMap(feature =>
+    ...DOCUMENT_PLATFORM_FEATURES.flatMap(feature =>
         [...feature.invokeChannelSet]),
 ]);
 const DOCUMENTS_COMBINED_IPC_CODECS = {
     ...DOCUMENTS_IPC_CODECS,
     ...DOCUMENT_PICKER_PLATFORM_FEATURE.ipcCodecs,
+    ...DOCUMENT_OPEN_PLATFORM_FEATURE.ipcCodecs,
+    ...DOCUMENT_WORKING_COPY_PLATFORM_FEATURE.ipcCodecs,
+    ...DOCUMENT_FILES_PLATFORM_FEATURE.ipcCodecs,
+    ...DOCUMENT_PDF_PLATFORM_FEATURE.ipcCodecs,
     ...DOCUMENT_RECENT_FILES_PLATFORM_FEATURE.ipcCodecs,
     ...DOCUMENT_WINDOW_PLATFORM_FEATURE.ipcCodecs,
     ...DOCUMENT_MENU_PLATFORM_FEATURE.ipcCodecs,

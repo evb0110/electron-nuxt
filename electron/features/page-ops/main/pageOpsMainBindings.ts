@@ -18,7 +18,7 @@ import type {
     TOpenBatchProgressOperation,
     TOpenDocumentDirectBatchProgress,
 } from '@contracts/electronApiDocuments';
-import { DOCUMENT_MENU_PLATFORM_FEATURE } from '@contracts/documentsPlatformFeature';
+import { DOCUMENT_OPEN_PLATFORM_FEATURE } from '@contracts/documentsPlatformFeature';
 import type {
     IPageOpsMutationOptions,
     IPageIdentityDelta,
@@ -88,7 +88,7 @@ function createOpenBatchProgressReporter(
     operation: TOpenBatchProgressOperation,
 ) {
     const pump = createIpcProgressPump<TOpenDocumentDirectBatchProgress>({
-        channel: DOCUMENT_MENU_PLATFORM_FEATURE.eventChannels.onOpenDocumentDirectBatchProgress,
+        channel: DOCUMENT_OPEN_PLATFORM_FEATURE.eventChannels.onOpenDocumentDirectBatchProgress,
         getTarget: () => context.sender,
         getKey: payload => payload.requestId,
         isTerminal: payload => payload.processed >= payload.total,

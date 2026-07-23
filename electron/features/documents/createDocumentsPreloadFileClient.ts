@@ -40,8 +40,17 @@ import {
     type IPdfPersistenceErrorFrame,
 } from '@contracts/documentPersistenceFrames';
 import {
+    DOCUMENT_FILES_PLATFORM_FEATURE,
+    DOCUMENT_OPEN_PLATFORM_FEATURE,
+    DOCUMENT_PDF_PLATFORM_FEATURE,
+    DOCUMENT_WORKING_COPY_PLATFORM_FEATURE,
+    type IDocumentFilesInvokeMap,
+    type IDocumentOpenInvokeMap,
+    type IDocumentPdfInvokeMap,
+    type IDocumentWorkingCopyInvokeMap,
+} from '@contracts/documentsPlatformFeature';
+import {
     DOCUMENTS_CHANNELS,
-    DOCUMENTS_EVENT_CHANNELS,
     type IDocumentsInvokeMap,
 } from '@electron/features/documents/contract';
 import {
@@ -92,7 +101,8 @@ interface ISerializedPdfPersistencePortResult {
     validation: Awaited<ReturnType<IDocumentsFileCapability['validatePdfData']>>;
 }
 
-interface IDocumentsFileEventMap {[DOCUMENTS_EVENT_CHANNELS.documentRevisionChanged]: IDocumentRevisionChangedEvent;}
+interface IDocumentsFileEventMap {[DOCUMENT_FILES_PLATFORM_FEATURE.eventChannels.onDocumentRevisionChanged]:
+IDocumentRevisionChangedEvent;}
 
 type TDocumentChunkSource = Parameters<IDocumentsFileCapability['savePdfDataChunks']>[2];
 
@@ -504,15 +514,37 @@ export function createDocumentsPreloadFileClient(
     ipcRenderer: TDocumentsFileIpcRenderer,
 ): TDocumentsPreloadFileClient {
     const invoke = createCodecIpcInvoker<IDocumentsInvokeMap>(ipcRenderer, DOCUMENTS_IPC_CODECS, {invokeTimeoutMsByChannel: DOCUMENTS_NATIVE_INVOKE_TIMEOUT_MS_BY_CHANNEL});
+    const invokeOpen = createCodecIpcInvoker<IDocumentOpenInvokeMap>(
+        ipcRenderer,
+        DOCUMENT_OPEN_PLATFORM_FEATURE.ipcCodecs,
+        {invokeTimeoutMsByChannel: DOCUMENTS_NATIVE_INVOKE_TIMEOUT_MS_BY_CHANNEL},
+    );
+    const invokeWorkingCopy = createCodecIpcInvoker<IDocumentWorkingCopyInvokeMap>(
+        ipcRenderer,
+        DOCUMENT_WORKING_COPY_PLATFORM_FEATURE.ipcCodecs,
+    );
+    const invokeFiles = createCodecIpcInvoker<IDocumentFilesInvokeMap>(
+        ipcRenderer,
+        DOCUMENT_FILES_PLATFORM_FEATURE.ipcCodecs,
+        {invokeTimeoutMsByChannel: DOCUMENTS_NATIVE_INVOKE_TIMEOUT_MS_BY_CHANNEL},
+    );
+    const invokePdf = createCodecIpcInvoker<IDocumentPdfInvokeMap>(
+        ipcRenderer,
+        DOCUMENT_PDF_PLATFORM_FEATURE.ipcCodecs,
+        {invokeTimeoutMsByChannel: DOCUMENTS_NATIVE_INVOKE_TIMEOUT_MS_BY_CHANNEL},
+    );
     const eventSubscriber = createTypedIpcEventSubscriber<IDocumentsFileEventMap>(ipcRenderer);
-    const openDocumentDirect = (path: string) => invoke(DOCUMENTS_CHANNELS.openDocumentDirect, path);
+    const openDocumentDirect = (path: string) => invokeOpen(
+        DOCUMENT_OPEN_PLATFORM_FEATURE.invokeChannels.openDocumentDirect,
+        path,
+    );
     const openDocumentDirectBatch = (
         paths: string[],
         requestId?: string,
         options?: {forceCombine?: boolean},
     ) => options === undefined
-        ? invoke(DOCUMENTS_CHANNELS.openDocumentDirectBatch, paths, requestId)
-        : invoke(DOCUMENTS_CHANNELS.openDocumentDirectBatch, paths, requestId, options);
+        ? invokeOpen(DOCUMENT_OPEN_PLATFORM_FEATURE.invokeChannels.openDocumentDirectBatch, paths, requestId)
+        : invokeOpen(DOCUMENT_OPEN_PLATFORM_FEATURE.invokeChannels.openDocumentDirectBatch, paths, requestId, options);
 
     return {
         openDocumentDirect,
@@ -520,10 +552,10 @@ export function createDocumentsPreloadFileClient(
         openDocumentDirectBatch,
         openPdfDirectBatch: openDocumentDirectBatch,
         cancelOpenDocumentDirectBatch: (requestId: string) =>
-            invoke(DOCUMENTS_CHANNELS.cancelOpenDocumentDirectBatch, requestId),
+            invokeOpen(DOCUMENT_OPEN_PLATFORM_FEATURE.invokeChannels.cancelOpenDocumentDirectBatch, requestId),
         savePdfAs: (workingPath, options, revisionOptions) =>
-            invoke(
-                DOCUMENTS_CHANNELS.savePdfAs,
+            invokeFiles(
+                DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.savePdfAs,
                 assertAbsolutePath(workingPath, 'savePdfAs.workingPath'),
                 assertPdfSaveAsOptions(options, 'savePdfAs.options'),
                 assertPdfSerializedSaveOptions(revisionOptions, 'savePdfAs.revisionOptions'),
@@ -561,40 +593,46 @@ export function createDocumentsPreloadFileClient(
                 checkedData.byteLength,
             );
         },
-        savePdfDialog: (suggestedName) => invoke(DOCUMENTS_CHANNELS.savePdfDialog, suggestedName),
-        saveDocxAs: (workingPath) => invoke(DOCUMENTS_CHANNELS.saveDocxAs, workingPath),
-        readFile: (path) => invoke(DOCUMENTS_CHANNELS.fileRead, path),
-        statFile: (path) => invoke(DOCUMENTS_CHANNELS.fileStat, path),
+        savePdfDialog: (suggestedName) => invokeFiles(
+            DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.savePdfDialog,
+            suggestedName,
+        ),
+        saveDocxAs: (workingPath) => invokeFiles(
+            DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.saveDocxAs,
+            workingPath,
+        ),
+        readFile: (path) => invokeFiles(DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.readFile, path),
+        statFile: (path) => invokeFiles(DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.statFile, path),
         readFileRange: (path, offset, length) =>
-            invoke(DOCUMENTS_CHANNELS.fileReadRange, path, offset, length),
+            invokeFiles(DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.readFileRange, path, offset, length),
         createManagedTempFileHandle: (path) =>
-            invoke(
-                DOCUMENTS_CHANNELS.fileCreateManagedHandle,
+            invokeFiles(
+                DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.createManagedTempFileHandle,
                 assertAbsolutePath(path, 'createManagedTempFileHandle.path'),
             ),
         releaseManagedTempFileHandle: (leaseId) =>
-            invoke(
-                DOCUMENTS_CHANNELS.fileReleaseManagedHandle,
+            invokeFiles(
+                DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.releaseManagedTempFileHandle,
                 assertNonEmptyString(leaseId, 'releaseManagedTempFileHandle.leaseId'),
             ),
         getPdfOpeningGeometry: (path) =>
-            invoke(
-                DOCUMENTS_CHANNELS.pdfOpeningGeometry,
+            invokeFiles(
+                DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.getPdfOpeningGeometry,
                 assertAbsolutePath(path, 'getPdfOpeningGeometry.path'),
             ),
         getPdfNativePageSizes: (path) =>
-            invoke(
-                DOCUMENTS_CHANNELS.pdfNativePageSizes,
+            invokeFiles(
+                DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.getPdfNativePageSizes,
                 assertAbsolutePath(path, 'getPdfNativePageSizes.path'),
             ),
         cancelPdfNativePagePreview: (requestId) =>
-            invoke(
-                DOCUMENTS_CHANNELS.pdfNativePagePreviewCancel,
+            invokeFiles(
+                DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.cancelPdfNativePagePreview,
                 assertNonEmptyString(requestId, 'cancelPdfNativePagePreview.requestId'),
             ),
         renderPdfNativePagePreview: (path, pageNumber, options) =>
-            invoke(
-                DOCUMENTS_CHANNELS.pdfNativePagePreview,
+            invokeFiles(
+                DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.renderPdfNativePagePreview,
                 assertAbsolutePath(path, 'renderPdfNativePagePreview.path'),
                 assertPositiveInteger(pageNumber, 'renderPdfNativePagePreview.pageNumber'),
                 assertPdfNativePagePreviewOptions(options, 'renderPdfNativePagePreview.options'),
@@ -602,13 +640,18 @@ export function createDocumentsPreloadFileClient(
         readFileChunks: async (path, options, onChunk) => {
             const checkedPath = assertAbsolutePath(path, 'readFileChunks.path');
             const chunkBytes = getChunkReadSize(options);
-            const { size } = await invoke(DOCUMENTS_CHANNELS.fileStat, checkedPath);
+            const { size } = await invokeFiles(DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.statFile, checkedPath);
             let bytesRead = 0;
             let chunks = 0;
             while (bytesRead < size) {
                 throwIfAborted(options?.signal);
                 const length = Math.min(chunkBytes, size - bytesRead);
-                const chunk = await invoke(DOCUMENTS_CHANNELS.fileReadRange, checkedPath, bytesRead, length);
+                const chunk = await invokeFiles(
+                    DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.readFileRange,
+                    checkedPath,
+                    bytesRead,
+                    length,
+                );
                 if (chunk.byteLength === 0) {
                     throw new Error(`Unexpected end of file after ${bytesRead} of ${size} bytes`);
                 }
@@ -625,65 +668,65 @@ export function createDocumentsPreloadFileClient(
                 chunks,
             };
         },
-        readTextFile: (path) => invoke(DOCUMENTS_CHANNELS.fileReadText, path),
-        fileExists: (path) => invoke(DOCUMENTS_CHANNELS.fileExists, path),
+        readTextFile: (path) => invokeFiles(DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.readTextFile, path),
+        fileExists: (path) => invokeFiles(DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.fileExists, path),
         getDocumentRevision: (path) =>
-            invoke(
-                DOCUMENTS_CHANNELS.documentRevisionGet,
+            invokeFiles(
+                DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.getDocumentRevision,
                 assertAbsolutePath(path, 'getDocumentRevision.path'),
             ),
         onDocumentRevisionChanged: (callback) => {
             return eventSubscriber.onDecodedPayload(
-                DOCUMENTS_EVENT_CHANNELS.documentRevisionChanged,
+                DOCUMENT_FILES_PLATFORM_FEATURE.eventChannels.onDocumentRevisionChanged,
                 decodeDocumentRevisionChangedEvent,
                 callback,
             );
         },
         analyzePdfConformance: (path) =>
-            invoke(
-                DOCUMENTS_CHANNELS.pdfAnalyzeConformance,
+            invokePdf(
+                DOCUMENT_PDF_PLATFORM_FEATURE.invokeChannels.analyzePdfConformance,
                 assertAbsolutePath(path, 'analyzePdfConformance.path'),
             ),
         validatePdfData: (data, fileName?: string) =>
-            invoke(
-                DOCUMENTS_CHANNELS.pdfValidateData,
+            invokePdf(
+                DOCUMENT_PDF_PLATFORM_FEATURE.invokeChannels.validatePdfData,
                 assertWriteData(data, 'validatePdfData.data'),
                 typeof fileName === 'string'
                     ? assertNonEmptyString(fileName, 'validatePdfData.fileName', MAX_IPC_FILE_NAME_LENGTH)
                     : undefined,
             ),
         validatePdfPath: (path) =>
-            invoke(
-                DOCUMENTS_CHANNELS.pdfValidatePath,
+            invokePdf(
+                DOCUMENT_PDF_PLATFORM_FEATURE.invokeChannels.validatePdfPath,
                 assertAbsolutePath(path, 'validatePdfPath.path'),
             ),
         openPdfInDefaultAppData: (data, fileName?: string) =>
-            invoke(
-                DOCUMENTS_CHANNELS.pdfOpenInDefaultAppData,
+            invokePdf(
+                DOCUMENT_PDF_PLATFORM_FEATURE.invokeChannels.openPdfInDefaultAppData,
                 assertWriteData(data, 'openPdfInDefaultAppData.data'),
                 typeof fileName === 'string'
                     ? assertNonEmptyString(fileName, 'openPdfInDefaultAppData.fileName', MAX_IPC_FILE_NAME_LENGTH)
                     : undefined,
             ),
         openPdfInDefaultAppPath: (path, fileName?: string) =>
-            invoke(
-                DOCUMENTS_CHANNELS.pdfOpenInDefaultAppPath,
+            invokePdf(
+                DOCUMENT_PDF_PLATFORM_FEATURE.invokeChannels.openPdfInDefaultAppPath,
                 assertAbsolutePath(path, 'openPdfInDefaultAppPath.path'),
                 typeof fileName === 'string'
                     ? assertNonEmptyString(fileName, 'openPdfInDefaultAppPath.fileName', MAX_IPC_FILE_NAME_LENGTH)
                     : undefined,
             ),
         printPdfData: (data, fileName?: string) =>
-            invoke(
-                DOCUMENTS_CHANNELS.pdfPrintData,
+            invokePdf(
+                DOCUMENT_PDF_PLATFORM_FEATURE.invokeChannels.printPdfData,
                 assertWriteData(data, 'printPdfData.data'),
                 typeof fileName === 'string'
                     ? assertNonEmptyString(fileName, 'printPdfData.fileName', MAX_IPC_FILE_NAME_LENGTH)
                     : undefined,
             ),
         printPdfPath: (path, fileName?: string, pageNumbers?: number[]) =>
-            invoke(
-                DOCUMENTS_CHANNELS.pdfPrintPath,
+            invokePdf(
+                DOCUMENT_PDF_PLATFORM_FEATURE.invokeChannels.printPdfPath,
                 assertAbsolutePath(path, 'printPdfPath.path'),
                 typeof fileName === 'string'
                     ? assertNonEmptyString(fileName, 'printPdfPath.fileName', MAX_IPC_FILE_NAME_LENGTH)
@@ -693,64 +736,64 @@ export function createDocumentsPreloadFileClient(
                     : undefined,
             ),
         writeFile: (path, data, options) =>
-            invoke(
-                DOCUMENTS_CHANNELS.fileWrite,
+            invokeFiles(
+                DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.writeFile,
                 assertAbsolutePath(path, 'writeFile.path'),
                 assertWriteData(data, 'writeFile.data'),
                 assertPdfSerializedSaveOptions(options, 'writeFile.options'),
             ),
         replaceWorkingCopyFromPath: (workingCopyPath, sourcePath, options) =>
-            invoke(
-                DOCUMENTS_CHANNELS.fileReplaceWorkingCopyFromPath,
+            invokeFiles(
+                DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.replaceWorkingCopyFromPath,
                 assertAbsolutePath(workingCopyPath, 'replaceWorkingCopyFromPath.workingCopyPath'),
                 assertAbsolutePath(sourcePath, 'replaceWorkingCopyFromPath.sourcePath'),
                 assertPdfSerializedSaveOptions(options, 'replaceWorkingCopyFromPath.options'),
             ),
         writeDocxFile: (path, data) =>
-            invoke(
-                DOCUMENTS_CHANNELS.fileWriteDocx,
+            invokeFiles(
+                DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.writeDocxFile,
                 assertAbsolutePath(path, 'writeDocxFile.path'),
                 assertWriteData(data, 'writeDocxFile.data'),
             ),
         createWorkingCopyFromData: (fileName, data, originalPath?: string) =>
-            invoke(
-                DOCUMENTS_CHANNELS.createWorkingCopyFromData,
+            invokeWorkingCopy(
+                DOCUMENT_WORKING_COPY_PLATFORM_FEATURE.invokeChannels.createWorkingCopyFromData,
                 assertWorkingCopyFileName(fileName, 'createWorkingCopyFromData.fileName'),
                 assertWriteData(data, 'createWorkingCopyFromData.data'),
                 assertOptionalAbsolutePath(originalPath, 'createWorkingCopyFromData.originalPath'),
             ),
         createWorkingCopyFromPath: (sourcePath, originalPath?: string) =>
-            invoke(
-                DOCUMENTS_CHANNELS.createWorkingCopyFromPath,
+            invokeWorkingCopy(
+                DOCUMENT_WORKING_COPY_PLATFORM_FEATURE.invokeChannels.createWorkingCopyFromPath,
                 assertAbsolutePath(sourcePath, 'createWorkingCopyFromPath.sourcePath'),
                 assertOptionalAbsolutePath(originalPath, 'createWorkingCopyFromPath.originalPath'),
             ),
         saveFileStructured: (path, options) =>
-            invoke(
-                DOCUMENTS_CHANNELS.fileSaveStructured,
+            invokeFiles(
+                DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.saveFileStructured,
                 assertAbsolutePath(path, 'saveFileStructured.path'),
                 assertPdfSerializedSaveOptions(options, 'saveFileStructured.options'),
             ),
         resyncWorkingCopy: (path) =>
-            invoke(
-                DOCUMENTS_CHANNELS.fileResyncWorkingCopy,
+            invokeFiles(
+                DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.resyncWorkingCopy,
                 assertAbsolutePath(path, 'resyncWorkingCopy.path'),
             ),
         repairPdf: (path, options) =>
-            invoke(
-                DOCUMENTS_CHANNELS.fileRepairPdf,
+            invokeFiles(
+                DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.repairPdf,
                 assertAbsolutePath(path, 'repairPdf.path'),
                 assertPdfSerializedSaveOptions(options, 'repairPdf.options'),
             ),
         optimizePdfForInteraction: (path, options) =>
-            invoke(
-                DOCUMENTS_CHANNELS.fileOptimizePdfForInteraction,
+            invokeFiles(
+                DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.optimizePdfForInteraction,
                 assertAbsolutePath(path, 'optimizePdfForInteraction.path'),
                 assertPdfSerializedSaveOptions(options, 'optimizePdfForInteraction.options'),
             ),
         optimizePdfAsCopy: (path, options, requestId, revisionOptions) =>
-            invoke(
-                DOCUMENTS_CHANNELS.fileOptimizePdfAsCopy,
+            invokeFiles(
+                DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.optimizePdfAsCopy,
                 assertAbsolutePath(path, 'optimizePdfAsCopy.path'),
                 assertPdfOptimizeOptions(options, 'optimizePdfAsCopy.options'),
                 typeof requestId === 'string'
@@ -792,32 +835,32 @@ export function createDocumentsPreloadFileClient(
             return result.validation;
         },
         savePdfNoteTextUpdates: (path, updates, modifiedAt, options) =>
-            invoke(
-                DOCUMENTS_CHANNELS.fileSavePdfNoteTextUpdates,
+            invokeFiles(
+                DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.savePdfNoteTextUpdates,
                 assertAbsolutePath(path, 'savePdfNoteTextUpdates.path'),
                 normalizePdfNativeNoteTextUpdates(updates, 'savePdfNoteTextUpdates.updates'),
                 normalizePdfNativeModifiedAt(modifiedAt, 'savePdfNoteTextUpdates.modifiedAt'),
                 assertPdfSerializedSaveOptions(options, 'savePdfNoteTextUpdates.options'),
             ),
         savePdfNoteChanges: (path, changes, modifiedAt, options) =>
-            invoke(
-                DOCUMENTS_CHANNELS.fileSavePdfNoteChanges,
+            invokeFiles(
+                DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.savePdfNoteChanges,
                 assertAbsolutePath(path, 'savePdfNoteChanges.path'),
                 normalizePdfNativeNoteChanges(changes, 'savePdfNoteChanges.changes'),
                 normalizePdfNativeModifiedAt(modifiedAt, 'savePdfNoteChanges.modifiedAt'),
                 assertPdfSerializedSaveOptions(options, 'savePdfNoteChanges.options'),
             ),
         savePdfNativeMutations: (path, mutations, modifiedAt, options) =>
-            invoke(
-                DOCUMENTS_CHANNELS.fileSavePdfNativeMutations,
+            invokeFiles(
+                DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.savePdfNativeMutations,
                 assertAbsolutePath(path, 'savePdfNativeMutations.path'),
                 normalizePdfNativeMutationSet(mutations, 'savePdfNativeMutations.mutations'),
                 normalizePdfNativeModifiedAt(modifiedAt, 'savePdfNativeMutations.modifiedAt'),
                 assertPdfSerializedSaveOptions(options, 'savePdfNativeMutations.options'),
             ),
         applyPdfNativeMutationsToWorkingCopy: (path, mutations, modifiedAt, expectedBase, options) =>
-            invoke(
-                DOCUMENTS_CHANNELS.fileApplyPdfNativeMutationsToWorkingCopy,
+            invokeFiles(
+                DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.applyPdfNativeMutationsToWorkingCopy,
                 assertAbsolutePath(path, 'applyPdfNativeMutationsToWorkingCopy.path'),
                 normalizePdfNativeMutationSet(mutations, 'applyPdfNativeMutationsToWorkingCopy.mutations'),
                 normalizePdfNativeModifiedAt(modifiedAt, 'applyPdfNativeMutationsToWorkingCopy.modifiedAt'),
@@ -825,13 +868,19 @@ export function createDocumentsPreloadFileClient(
                 assertPdfSerializedSaveOptions(options, 'applyPdfNativeMutationsToWorkingCopy.options'),
             ),
         commitStagedPdfNativeMutations: (path, stagedOutput, options) =>
-            invoke(
-                DOCUMENTS_CHANNELS.fileCommitStagedPdfNativeMutations,
+            invokeFiles(
+                DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.commitStagedPdfNativeMutations,
                 assertAbsolutePath(path, 'commitStagedPdfNativeMutations.path'),
                 stagedOutput,
                 assertPdfNativeStagedCommitOptions(options, 'commitStagedPdfNativeMutations.options'),
             ),
-        cleanupFile: (path) => invoke(DOCUMENTS_CHANNELS.fileCleanup, path),
-        cleanupOcrTemp: (path) => invoke(DOCUMENTS_CHANNELS.fileCleanupOcrTemp, path),
+        cleanupFile: (path) => invokeWorkingCopy(
+            DOCUMENT_WORKING_COPY_PLATFORM_FEATURE.invokeChannels.cleanupFile,
+            path,
+        ),
+        cleanupOcrTemp: (path) => invokeWorkingCopy(
+            DOCUMENT_WORKING_COPY_PLATFORM_FEATURE.invokeChannels.cleanupOcrTemp,
+            path,
+        ),
     };
 }

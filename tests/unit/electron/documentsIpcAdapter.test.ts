@@ -19,7 +19,7 @@ import {
     DOCUMENT_MENU_PLATFORM_FEATURE,
     DOCUMENT_PICKER_PLATFORM_FEATURE,
     DOCUMENT_RECENT_FILES_PLATFORM_FEATURE,
-    DOCUMENTS_SIMPLE_PLATFORM_FEATURES,
+    DOCUMENT_PLATFORM_FEATURES,
 } from '@contracts/documentsPlatformFeature';
 import { DOCUMENTS_CHANNELS } from '@electron/features/documents/contract';
 
@@ -92,7 +92,7 @@ describe('documents ipc adapter', () => {
 
         const expectedChannels = [...new Set([
             ...Object.values(DOCUMENTS_CHANNELS),
-            ...DOCUMENTS_SIMPLE_PLATFORM_FEATURES.flatMap(feature => [...feature.invokeChannelSet]),
+            ...DOCUMENT_PLATFORM_FEATURES.flatMap(feature => [...feature.invokeChannelSet]),
         ])];
         expect(registrations).toHaveLength(expectedChannels.length);
         for (const channel of expectedChannels) {
@@ -106,7 +106,7 @@ describe('documents ipc adapter', () => {
         const { assertDocumentsIpcSingleRegistrationInvariant } = await import('@electron/features/documents/registerDocumentsIpcAdapter');
         const registeredChannels = [...new Set([
             ...Object.values(DOCUMENTS_CHANNELS),
-            ...DOCUMENTS_SIMPLE_PLATFORM_FEATURES.flatMap(feature => [...feature.invokeChannelSet]),
+            ...DOCUMENT_PLATFORM_FEATURES.flatMap(feature => [...feature.invokeChannelSet]),
         ])];
 
         expect(() => assertDocumentsIpcSingleRegistrationInvariant([
@@ -119,7 +119,7 @@ describe('documents ipc adapter', () => {
         const { assertDocumentsIpcSingleRegistrationInvariant } = await import('@electron/features/documents/registerDocumentsIpcAdapter');
         const registeredChannels = [...new Set([
             ...Object.values(DOCUMENTS_CHANNELS),
-            ...DOCUMENTS_SIMPLE_PLATFORM_FEATURES.flatMap(feature => [...feature.invokeChannelSet]),
+            ...DOCUMENT_PLATFORM_FEATURES.flatMap(feature => [...feature.invokeChannelSet]),
         ])]
             .filter(channel => channel !== DOCUMENTS_CHANNELS.fileSavePdfDataPort);
 

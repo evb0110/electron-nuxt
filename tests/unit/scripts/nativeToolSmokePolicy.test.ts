@@ -158,10 +158,8 @@ describe('native tool smoke policy', () => {
 
         for (const smokeName of protocolSmokeNames) {
             const tool = GENERATED_RELEASE_NATIVE_TOOL_PROTOCOLS.find(
-                (candidate: {
-                    binaryName: string;
-                    protocolVersion: number
-                }) => `${candidate.binaryName}-protocol` === smokeName,
+                (candidate: (typeof GENERATED_RELEASE_NATIVE_TOOL_PROTOCOLS)[number]) =>
+                    `${candidate.binaryName}-protocol` === smokeName,
             );
             if (!tool) {
                 throw new Error(`Missing generated native protocol for ${smokeName}`);

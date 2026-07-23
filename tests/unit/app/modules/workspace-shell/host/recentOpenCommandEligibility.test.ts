@@ -6,32 +6,24 @@ import {
 import { isRecentOpenCommandEligible } from '@app/modules/workspace-shell/host/isRecentOpenCommandEligible';
 
 describe('Recent open command eligibility', () => {
-    it('allows a cold Recent open when its command owner is ready', () => {
+    it('allows a cold Recent open to queue while its viewer owner is mounting', () => {
         expect(isRecentOpenCommandEligible({
             activeOpenDocumentRef: null,
             documentRef: '/documents/cold.pdf',
-            ownerReady: true,
         })).toBe(true);
     });
 
-    it('blocks only the row already owned by the active open transaction', () => {
-        expect(isRecentOpenCommandEligible({
-            activeOpenDocumentRef: '/documents/opening.pdf',
-            documentRef: '/documents/opening.pdf',
-            ownerReady: true,
-        })).toBe(false);
-        expect(isRecentOpenCommandEligible({
-            activeOpenDocumentRef: '/documents/opening.pdf',
-            documentRef: '/documents/other.pdf',
-            ownerReady: true,
-        })).toBe(true);
-    });
+    it('blocks only the exact path already owned by the active open transaction', () => {
+        const firstPath = '/documents/duplicate-source-a/duplicate-recent-source.pdf';
+        const secondPath = '/documents/duplicate-source-b/duplicate-recent-source.pdf';
 
-    it('blocks commands until the workspace owner is mounted', () => {
         expect(isRecentOpenCommandEligible({
-            activeOpenDocumentRef: null,
-            documentRef: '/documents/cold.pdf',
-            ownerReady: false,
+            activeOpenDocumentRef: firstPath,
+            documentRef: firstPath,
         })).toBe(false);
+        expect(isRecentOpenCommandEligible({
+            activeOpenDocumentRef: secondPath,
+            documentRef: firstPath,
+        })).toBe(true);
     });
 });

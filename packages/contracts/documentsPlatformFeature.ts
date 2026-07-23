@@ -1,11 +1,7 @@
 import type {
-    IApplicationMenuDocumentState,
     ICreateCombinedPdfFromFilesOptions,
-    IPdfOptimizeProgress,
-    TOpenDocumentDirectBatchProgress,
-    TOpenFileResult,
-    TOpenFolderDialogResult,
-    TShowItemInFolderResult,
+    IDocumentChunkReadResult,
+    TDocumentChunkSource,
 } from '@contracts/electronApiDocuments';
 import {
     definePlatformFeature,
@@ -16,11 +12,75 @@ import {
     type TFeatureInvokeMap,
 } from '@contracts/platformFeature';
 import {
-    isFiniteNumber,
-    isOneOf,
-    isRecord,
-} from '@contracts/runtimeGuards';
-import type { IRecentFile } from '@contracts/shared';
+    applyNativeMutationsArgs,
+    booleanResult,
+    bytesResult,
+    cancelOpenBatchArgs,
+    cancelPagePreviewArgs,
+    cancelPagePreviewResult,
+    commitNativeMutationsArgs,
+    createWorkingCopyFromDataArgs,
+    createWorkingCopyFromPathArgs,
+    decodeConformanceResult,
+    decodePlatformOperationResult,
+    decodePrintResult,
+    documentRevisionArgs,
+    documentRevisionEvent,
+    documentSaveResult,
+    fileExistsArgs,
+    fileStatResult,
+    fixtureRevisionOptions,
+    folderDialogResult,
+    longNativeIpcTimeoutMs,
+    managedHandleArgs,
+    managedHandleResult,
+    menuStateArgs,
+    nativeMutationsArgs,
+    nativeNoteChangesArgs,
+    nativeNoteTextArgs,
+    nativeSaveResult,
+    noPayload,
+    nonNegativeInteger,
+    nullableStringResult,
+    openBatchProgress,
+    openDocumentDirectArgs,
+    openDocumentDirectBatchArgs,
+    openFileResult,
+    openingGeometryArgs,
+    openingGeometryResult,
+    openPdfPathArgs,
+    optimizeAsCopyArgs,
+    optimizeInteractionArgs,
+    optimizeProgress,
+    optimizeResult,
+    pagePreviewArgs,
+    pagePreviewResult,
+    pageSizesArgs,
+    pageSizesResult,
+    pathArgs,
+    pdfDataArgs,
+    pdfPathArgs,
+    printPdfPathArgs,
+    readFileArgs,
+    readFileRangeArgs,
+    readTextFileArgs,
+    recentFilesResult,
+    releaseManagedHandleArgs,
+    repairPdfArgs,
+    replaceWorkingCopyArgs,
+    revisionResult,
+    saveFileStructuredArgs,
+    savePdfAsArgs,
+    savePdfDialogArgs,
+    showItemResult,
+    statFileArgs,
+    validationResult,
+    writeDocxArgs,
+    writeFileArgs,
+    type TDocumentMethodArgs,
+    type TDocumentMethodResult,
+} from '@contracts/documentsPlatformFeatureSchemas';
+export {decodeOpenFileResult} from '@contracts/documentsPlatformFeatureSchemas';
 
 const optionalEverywhere = {
     browser: false,
@@ -33,6 +93,13 @@ const requiredEverywhere = {
 const browserImplementedOptional = {
     optionalWhenImplemented: true,
     required: optionalEverywhere,
+} as const;
+const electronImplementedOptional = {
+    ...browserImplementedOptional,
+    browser: {
+        unsupported: 'omitted',
+        reason: 'requires-native-backend',
+    },
 } as const;
 const noArgs = s.tuple([]);
 const voidResult = s.undefined();
@@ -112,228 +179,6 @@ function defineEvent<
     } as const;
 }
 
-function decodeOpeningGeometry(value: unknown) {
-    if (
-        !isRecord(value)
-        || value.pageNumber !== 1
-        || typeof value.pageCount !== 'number'
-        || !Number.isSafeInteger(value.pageCount)
-        || value.pageCount < 1
-        || !isFiniteNumber(value.width)
-        || value.width <= 0
-        || !isFiniteNumber(value.height)
-        || value.height <= 0
-        || typeof value.rotation !== 'number'
-        || !([
-            0,
-            90,
-            180,
-            270,
-        ] as const).includes(value.rotation as 0 | 90 | 180 | 270)
-        || typeof value.size !== 'number'
-        || !Number.isSafeInteger(value.size)
-        || value.size < 0
-        || typeof value.modifiedAt !== 'number'
-        || !Number.isSafeInteger(value.modifiedAt)
-        || value.modifiedAt < 0
-    ) {
-        fail('invalid PDF opening geometry result');
-    }
-    return {
-        pageNumber: 1 as const,
-        pageCount: value.pageCount,
-        width: value.width,
-        height: value.height,
-        rotation: value.rotation as 0 | 90 | 180 | 270,
-        size: value.size,
-        modifiedAt: value.modifiedAt,
-    };
-}
-
-export function decodeOpenFileResult(value: unknown): TOpenFileResult | null {
-    if (value === null) {
-        return null;
-    }
-    if (!isRecord(value) || (value.kind !== 'pdf' && value.kind !== 'djvu')) {
-        fail('invalid open-file result');
-    }
-    if (value.kind === 'djvu') {
-        if (value.workingPath !== '' || typeof value.originalPath !== 'string') {
-            fail('invalid DjVu open-file result');
-        }
-        return {
-            kind: 'djvu',
-            workingPath: '',
-            originalPath: value.originalPath,
-        };
-    }
-    if (
-        typeof value.workingPath !== 'string'
-        || typeof value.originalPath !== 'string'
-        || (value.isGenerated !== undefined && typeof value.isGenerated !== 'boolean')
-    ) {
-        fail('invalid PDF open-file result');
-    }
-    const openingGeometry = value.openingGeometry === undefined
-        ? undefined
-        : decodeOpeningGeometry(value.openingGeometry);
-    return {
-        kind: 'pdf',
-        workingPath: value.workingPath,
-        originalPath: value.originalPath,
-        ...(value.isGenerated === undefined ? {} : {isGenerated: value.isGenerated}),
-        ...(openingGeometry === undefined ? {} : {openingGeometry}),
-    };
-}
-
-function decodeRecentFile(value: unknown): IRecentFile {
-    if (
-        !isRecord(value)
-        || typeof value.originalPath !== 'string'
-        || typeof value.fileName !== 'string'
-        || !isFiniteNumber(value.timestamp)
-        || (value.backend !== undefined && value.backend !== 'electron' && value.backend !== 'browser')
-        || (value.fileSize !== undefined && (!isFiniteNumber(value.fileSize) || value.fileSize < 0))
-        || (value.modifiedAt !== undefined && (!Number.isSafeInteger(value.modifiedAt) || Number(value.modifiedAt) < 0))
-    ) {
-        fail('invalid recent file');
-    }
-    return {
-        originalPath: value.originalPath,
-        fileName: value.fileName,
-        timestamp: value.timestamp,
-        ...(value.backend === undefined ? {} : {backend: value.backend}),
-        ...(value.fileSize === undefined ? {} : {fileSize: value.fileSize}),
-        ...(value.modifiedAt === undefined ? {} : {modifiedAt: Number(value.modifiedAt)}),
-    };
-}
-
-const applicationMenuOptionalBooleanFields = [
-    'interactive',
-    'supportsSaveAs',
-    'canSaveAs',
-    'supportsRepairSave',
-    'canRepairSave',
-    'supportsOptimizePdf',
-    'canOptimizePdf',
-    'supportsPrint',
-    'canPrint',
-    'supportsExportDocx',
-    'canExportDocx',
-    'supportsRasterExport',
-    'canExportRaster',
-    'canUndo',
-    'canRedo',
-    'supportsPdfMutation',
-    'canMutatePages',
-    'supportsContinuousScroll',
-    'canContinuousScroll',
-    'continuousScroll',
-    'supportsViewMode',
-    'isActualSizeActive',
-    'isFitWidthActive',
-    'isFitHeightActive',
-    'canToggleAssistant',
-    'canCreatePane',
-    'canCloseTab',
-    'canTransferActiveTab',
-] as const satisfies ReadonlyArray<keyof IApplicationMenuDocumentState>;
-
-function decodeApplicationMenuDocumentState(value: unknown): boolean | IApplicationMenuDocumentState {
-    if (typeof value === 'boolean') {
-        return value;
-    }
-    if (!isRecord(value) || typeof value.hasDocument !== 'boolean' || typeof value.canSave !== 'boolean') {
-        fail('state must include boolean hasDocument and canSave fields');
-    }
-    for (const field of applicationMenuOptionalBooleanFields) {
-        if (value[field] !== undefined && typeof value[field] !== 'boolean') {
-            fail(`state.${field} must be a boolean`);
-        }
-    }
-    for (const field of [
-        'selectedPageCount',
-        'totalPages',
-    ] as const) {
-        if (value[field] !== undefined && (
-            typeof value[field] !== 'number'
-            || !Number.isSafeInteger(value[field])
-            || value[field] < 0
-        )) {
-            fail(`state.${field} must be a non-negative safe integer`);
-        }
-    }
-    if (
-        value.viewMode !== undefined
-        && !isOneOf([
-            'single',
-            'facing',
-            'facing-first-single',
-        ] as const, value.viewMode)
-    ) {
-        fail('state.viewMode must be a supported PDF view mode');
-    }
-    return {
-        ...value,
-        hasDocument: value.hasDocument,
-        canSave: value.canSave,
-    };
-}
-
-function decodeNonNegativeInteger(value: unknown, field: string) {
-    if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 0) {
-        fail(`${field} must be a non-negative safe integer`);
-    }
-    return value;
-}
-
-const openFileResult = s.fromParser<TFileResult>(decodeOpenFileResult, () => null);
-type TFileResult = TOpenFileResult | null;
-const nullableStringResult = s.fromParser<string | null>(
-    value => value === null || typeof value === 'string'
-        ? value
-        : fail('expected a nullable string'),
-    () => null,
-);
-const recentFilesResult = s.array(
-    s.fromParser(decodeRecentFile, () => ({
-        originalPath: '/tmp/document.pdf',
-        fileName: 'document.pdf',
-        timestamp: 0,
-    })),
-);
-const menuStateArgs = s.tuple([s.fromParser(decodeApplicationMenuDocumentState, () => false)]);
-const nonNegativeInteger = s.fromParser(
-    value => decodeNonNegativeInteger(value, 'value'),
-    () => 0,
-);
-const noPayload = s.undefined();
-const optimizeProgress = s.trustedDirect<IPdfOptimizeProgress>(() => ({
-    requestId: 'optimize-1',
-    preset: 'lossless',
-    phase: 'preparing',
-    processed: 0,
-    total: 1,
-    percent: 0,
-}));
-const openBatchProgress = s.trustedDirect<TOpenDocumentDirectBatchProgress>(() => ({
-    operation: 'document-open',
-    requestId: 'open-1',
-    processed: 0,
-    total: 1,
-    percent: 0,
-    elapsedMs: 0,
-    estimatedRemainingMs: null,
-}));
-const folderDialogResult = s.trustedDirect<TOpenFolderDialogResult>(() => ({
-    ok: false,
-    reason: 'not-implemented',
-}));
-const showItemResult = s.trustedDirect<TShowItemInFolderResult>(() => ({
-    ok: false,
-    reason: 'not-implemented',
-}));
-
 const openDocumentDialog = defineIpcMethod(
     'openDocumentDialog',
     'dialog:openPdf',
@@ -395,6 +240,454 @@ export const DOCUMENT_PICKER_PLATFORM_FEATURE = definePlatformFeature({
             ...defineLocalMethod('createCombinedPdfFromFiles', 'async', combinedFilesArgs, combinedPdfResult),
             ...browserImplementedOptional,
         },
+    },
+    events: {},
+});
+
+export const DOCUMENT_OPEN_PLATFORM_FEATURE = definePlatformFeature({
+    path: ['documentOpen'],
+    required: requiredEverywhere,
+    methods: {
+        openDocumentDirect: defineIpcMethod(
+            'openDocumentDirect',
+            'dialog:openPdfDirect',
+            openDocumentDirectArgs,
+            openFileResult,
+            'openDocumentDirect',
+            'sender',
+        ),
+        openPdfDirect: {
+            ...defineIpcMethod(
+                'openPdfDirect',
+                'dialog:openPdfDirect',
+                openDocumentDirectArgs,
+                openFileResult,
+                'openDocumentDirect',
+                'sender',
+            ),
+            aliasOf: 'openDocumentDirect',
+        },
+        openDocumentDirectBatch: {
+            ...defineIpcMethod(
+                'openDocumentDirectBatch',
+                'dialog:openPdfDirectBatch',
+                openDocumentDirectBatchArgs,
+                openFileResult,
+                'openDocumentDirectBatch',
+                'sender',
+            ),
+            ipc: {
+                args: openDocumentDirectBatchArgs,
+                result: openFileResult,
+                timeoutMs: longNativeIpcTimeoutMs,
+            },
+        },
+        openPdfDirectBatch: {
+            ...defineIpcMethod(
+                'openPdfDirectBatch',
+                'dialog:openPdfDirectBatch',
+                openDocumentDirectBatchArgs,
+                openFileResult,
+                'openDocumentDirectBatch',
+                'sender',
+            ),
+            aliasOf: 'openDocumentDirectBatch',
+            ipc: {
+                args: openDocumentDirectBatchArgs,
+                result: openFileResult,
+                timeoutMs: longNativeIpcTimeoutMs,
+            },
+        },
+        cancelOpenDocumentDirectBatch: {
+            ...defineIpcMethod(
+                'cancelOpenDocumentDirectBatch',
+                'dialog:openPdfDirectBatch:cancel',
+                cancelOpenBatchArgs,
+                booleanResult,
+                'cancelOpenDocumentDirectBatch',
+                'sender',
+            ),
+            ...electronImplementedOptional,
+        },
+    },
+    events: {
+        onOpenDocumentDirectBatchProgress: openDocumentBatchProgressEvent,
+        onOpenPdfDirectBatchProgress: {
+            ...openDocumentBatchProgressEvent,
+            aliasOf: 'onOpenDocumentDirectBatchProgress',
+            browser: {method: 'onOpenPdfDirectBatchProgress'},
+        },
+    },
+});
+
+export const DOCUMENT_WORKING_COPY_PLATFORM_FEATURE = definePlatformFeature({
+    path: ['documentWorkingCopy'],
+    required: requiredEverywhere,
+    methods: {
+        createWorkingCopyFromData: defineIpcMethod(
+            'createWorkingCopyFromData',
+            'working-copy:createFromData',
+            createWorkingCopyFromDataArgs,
+            stringResult,
+            'createWorkingCopyFromData',
+            'sender',
+        ),
+        createWorkingCopyFromPath: defineIpcMethod(
+            'createWorkingCopyFromPath',
+            'working-copy:createFromPath',
+            createWorkingCopyFromPathArgs,
+            stringResult,
+            'createWorkingCopyFromPath',
+            'sender',
+        ),
+        cleanupFile: defineIpcMethod(
+            'cleanupFile',
+            'file:cleanup',
+            pathArgs('path'),
+            voidResult,
+            'cleanupFile',
+            'sender',
+        ),
+        cleanupOcrTemp: defineIpcMethod(
+            'cleanupOcrTemp',
+            'file:cleanupOcrTemp',
+            pathArgs('path'),
+            s.declared<undefined>()(s.fromParser(
+                value => typeof value === 'boolean'
+                    ? value as never
+                    : fail('expected a boolean IPC result'),
+                () => undefined,
+            )),
+            'cleanupOcrTemp',
+            'sender',
+        ),
+    },
+    events: {},
+});
+
+const readFileChunksArgs = s.trustedDirect<TDocumentMethodArgs<'readFileChunks'>>(() => [
+    '/tmp/document.pdf',
+    {},
+    () => undefined,
+]);
+const readFileChunksResult = s.trustedDirect<IDocumentChunkReadResult>(() => ({
+    size: 1,
+    bytesRead: 1,
+    chunks: 1,
+}));
+const savePdfDataAsLocalArgs = s.trustedDirect<TDocumentMethodArgs<'savePdfDataAs'>>(() => [
+    '/tmp/working.pdf',
+    Uint8Array.of(1),
+    undefined,
+    fixtureRevisionOptions,
+]);
+const savePdfDataAsLocalResult = s.trustedDirect<TDocumentMethodResult<'savePdfDataAs'>>(() => ({
+    path: '/tmp/saved.pdf',
+    validation: null,
+}));
+const savePdfDataLocalArgs = s.trustedDirect<TDocumentMethodArgs<'savePdfData'>>(() => [
+    '/tmp/working.pdf',
+    Uint8Array.of(1),
+    fixtureRevisionOptions,
+]);
+const savePdfDataChunksLocalArgs = s.trustedDirect<TDocumentMethodArgs<'savePdfDataChunks'>>(() => [
+    '/tmp/working.pdf',
+    1,
+    [Uint8Array.of(1)] satisfies TDocumentChunkSource,
+    fixtureRevisionOptions,
+]);
+
+export const DOCUMENT_FILES_PLATFORM_FEATURE = definePlatformFeature({
+    path: ['documentFiles'],
+    required: requiredEverywhere,
+    methods: {
+        readFile: defineIpcMethod(
+            'readFile', 'file:read', readFileArgs, bytesResult, 'readFile', 'sender',
+        ),
+        statFile: defineIpcMethod(
+            'statFile', 'file:stat', statFileArgs, fileStatResult, 'statFile', 'sender',
+        ),
+        readFileRange: defineIpcMethod(
+            'readFileRange', 'file:readRange', readFileRangeArgs, bytesResult, 'readFileRange', 'sender',
+        ),
+        getPdfOpeningGeometry: {
+            ...defineIpcMethod(
+                'getPdfOpeningGeometry', 'pdf:openingGeometry', openingGeometryArgs,
+                openingGeometryResult, 'getPdfOpeningGeometry', 'sender',
+            ),
+            ipc: {
+                args: openingGeometryArgs,
+                result: openingGeometryResult,
+                timeoutMs: longNativeIpcTimeoutMs,
+            },
+            ...electronImplementedOptional,
+        },
+        getPdfNativePageSizes: {
+            ...defineIpcMethod(
+                'getPdfNativePageSizes', 'pdf:nativePageSizes', pageSizesArgs,
+                pageSizesResult, 'getPdfNativePageSizes', 'sender',
+            ),
+            ipc: {
+                args: pageSizesArgs,
+                result: pageSizesResult,
+                timeoutMs: longNativeIpcTimeoutMs,
+            },
+            ...electronImplementedOptional,
+        },
+        cancelPdfNativePagePreview: {
+            ...defineIpcMethod(
+                'cancelPdfNativePagePreview', 'pdf:nativePagePreview:cancel', cancelPagePreviewArgs,
+                cancelPagePreviewResult, 'cancelPdfNativePagePreview', 'sender',
+            ),
+            ...electronImplementedOptional,
+        },
+        renderPdfNativePagePreview: {
+            ...defineIpcMethod(
+                'renderPdfNativePagePreview', 'pdf:nativePagePreview', pagePreviewArgs,
+                pagePreviewResult, 'renderPdfNativePagePreview', 'sender',
+            ),
+            ipc: {
+                args: pagePreviewArgs,
+                result: pagePreviewResult,
+                timeoutMs: longNativeIpcTimeoutMs,
+            },
+            ...electronImplementedOptional,
+        },
+        readFileChunks: defineLocalMethod(
+            'readFileChunks', 'async', readFileChunksArgs, readFileChunksResult,
+        ),
+        readTextFile: defineIpcMethod(
+            'readTextFile', 'file:readText', readTextFileArgs, s.string(), 'readTextFile', 'sender',
+        ),
+        fileExists: defineIpcMethod(
+            'fileExists', 'file:exists', fileExistsArgs, booleanResult, 'fileExists', 'sender',
+        ),
+        getDocumentRevision: defineIpcMethod(
+            'getDocumentRevision', 'document:revision:get', documentRevisionArgs,
+            revisionResult, 'getDocumentRevision', 'sender',
+        ),
+        savePdfAs: defineIpcMethod(
+            'savePdfAs', 'dialog:savePdfAs', savePdfAsArgs, nullableStringResult, 'savePdfAs', 'sender',
+        ),
+        savePdfDataAs: defineLocalMethod(
+            'savePdfDataAs', 'async', savePdfDataAsLocalArgs, savePdfDataAsLocalResult,
+        ),
+        savePdfDialog: defineIpcMethod(
+            'savePdfDialog', 'dialog:savePdfDialog', savePdfDialogArgs,
+            nullableStringResult, 'savePdfDialog', 'sender',
+        ),
+        saveDocxAs: defineIpcMethod(
+            'saveDocxAs', 'dialog:saveDocxAs', pathArgs('workingPath'),
+            nullableStringResult, 'saveDocxAs', 'sender',
+        ),
+        writeFile: defineIpcMethod(
+            'writeFile', 'file:write', writeFileArgs, booleanResult, 'writeFile', 'sender',
+        ),
+        replaceWorkingCopyFromPath: defineIpcMethod(
+            'replaceWorkingCopyFromPath', 'file:replaceWorkingCopyFromPath', replaceWorkingCopyArgs,
+            booleanResult, 'replaceWorkingCopyFromPath', 'sender',
+        ),
+        writeDocxFile: defineIpcMethod(
+            'writeDocxFile', 'file:writeDocx', writeDocxArgs, booleanResult, 'writeDocxFile', 'sender',
+        ),
+        saveFileStructured: defineIpcMethod(
+            'saveFileStructured', 'file:saveStructured', saveFileStructuredArgs,
+            documentSaveResult, 'saveFileStructured', 'sender',
+        ),
+        resyncWorkingCopy: {
+            ...defineIpcMethod(
+                'resyncWorkingCopy', 'file:resyncWorkingCopy', pathArgs('path'),
+                documentSaveResult, 'resyncWorkingCopy', 'sender',
+            ),
+            ...browserImplementedOptional,
+        },
+        savePdfData: defineLocalMethod(
+            'savePdfData', 'async', savePdfDataLocalArgs, validationResult,
+        ),
+        savePdfDataChunks: defineLocalMethod(
+            'savePdfDataChunks', 'async', savePdfDataChunksLocalArgs, validationResult,
+        ),
+        createManagedTempFileHandle: {
+            ...defineIpcMethod(
+                'createManagedTempFileHandle', 'file:createManagedHandle', managedHandleArgs,
+                managedHandleResult, 'createManagedTempFileHandle', 'sender',
+            ),
+            ...electronImplementedOptional,
+        },
+        releaseManagedTempFileHandle: {
+            ...defineIpcMethod(
+                'releaseManagedTempFileHandle', 'file:releaseManagedHandle', releaseManagedHandleArgs,
+                booleanResult, 'releaseManagedTempFileHandle', 'sender',
+            ),
+            ...electronImplementedOptional,
+        },
+        repairPdf: {
+            ...defineIpcMethod(
+                'repairPdf', 'file:repairPdf', repairPdfArgs,
+                validationResult, 'repairPdf', 'sender',
+            ),
+            ipc: {
+                args: repairPdfArgs,
+                result: validationResult,
+                timeoutMs: longNativeIpcTimeoutMs,
+            },
+            ...electronImplementedOptional,
+        },
+        optimizePdfForInteraction: {
+            ...defineIpcMethod(
+                'optimizePdfForInteraction', 'file:optimizePdfForInteraction', optimizeInteractionArgs,
+                validationResult, 'optimizePdfForInteraction', 'sender',
+            ),
+            ipc: {
+                args: optimizeInteractionArgs,
+                result: validationResult,
+                timeoutMs: longNativeIpcTimeoutMs,
+            },
+            ...electronImplementedOptional,
+        },
+        optimizePdfAsCopy: {
+            ...defineIpcMethod(
+                'optimizePdfAsCopy', 'file:optimizePdfAsCopy', optimizeAsCopyArgs,
+                optimizeResult, 'optimizePdfAsCopy', 'sender',
+            ),
+            ipc: {
+                args: optimizeAsCopyArgs,
+                result: optimizeResult,
+                timeoutMs: longNativeIpcTimeoutMs,
+            },
+            ...electronImplementedOptional,
+        },
+        savePdfNoteTextUpdates: {
+            ...defineIpcMethod(
+                'savePdfNoteTextUpdates', 'file:savePdfNoteTextUpdates', nativeNoteTextArgs,
+                nativeSaveResult, 'savePdfNoteTextUpdates', 'sender',
+            ),
+            ipc: {
+                args: nativeNoteTextArgs,
+                result: nativeSaveResult,
+                timeoutMs: longNativeIpcTimeoutMs,
+            },
+            ...electronImplementedOptional,
+        },
+        savePdfNoteChanges: {
+            ...defineIpcMethod(
+                'savePdfNoteChanges', 'file:savePdfNoteChanges', nativeNoteChangesArgs,
+                nativeSaveResult, 'savePdfNoteChanges', 'sender',
+            ),
+            ipc: {
+                args: nativeNoteChangesArgs,
+                result: nativeSaveResult,
+                timeoutMs: longNativeIpcTimeoutMs,
+            },
+            ...electronImplementedOptional,
+        },
+        savePdfNativeMutations: {
+            ...defineIpcMethod(
+                'savePdfNativeMutations', 'file:savePdfNativeMutations', nativeMutationsArgs,
+                nativeSaveResult, 'savePdfNativeMutations', 'sender',
+            ),
+            ipc: {
+                args: nativeMutationsArgs,
+                result: nativeSaveResult,
+                timeoutMs: longNativeIpcTimeoutMs,
+            },
+            ...electronImplementedOptional,
+        },
+        applyPdfNativeMutationsToWorkingCopy: {
+            ...defineIpcMethod(
+                'applyPdfNativeMutationsToWorkingCopy', 'file:applyPdfNativeMutationsToWorkingCopy',
+                applyNativeMutationsArgs, nativeSaveResult, 'applyPdfNativeMutationsToWorkingCopy', 'sender',
+            ),
+            ipc: {
+                args: applyNativeMutationsArgs,
+                result: nativeSaveResult,
+                timeoutMs: longNativeIpcTimeoutMs,
+            },
+            ...electronImplementedOptional,
+        },
+        commitStagedPdfNativeMutations: {
+            ...defineIpcMethod(
+                'commitStagedPdfNativeMutations', 'file:commitStagedPdfNativeMutations',
+                commitNativeMutationsArgs, nativeSaveResult, 'commitStagedPdfNativeMutations', 'sender',
+            ),
+            ...electronImplementedOptional,
+        },
+    },
+    events: {onDocumentRevisionChanged: defineEvent(
+        'onDocumentRevisionChanged',
+        'document:revision:changed',
+        documentRevisionEvent,
+    )},
+});
+
+export const DOCUMENT_PDF_PLATFORM_FEATURE = definePlatformFeature({
+    path: ['documentPdf'],
+    required: requiredEverywhere,
+    methods: {
+        analyzePdfConformance: {
+            ...defineIpcMethod(
+                'analyzePdfConformance', 'pdf:analyzeConformance', pdfPathArgs,
+                s.fromParser(decodeConformanceResult, () => ({
+                    isSigned: false,
+                    isEncrypted: false,
+                    isTagged: false,
+                    pdfaLevel: null,
+                    hasAcroForm: false,
+                    hasXfa: false,
+                    canIncrementalSave: true,
+                    saveRestrictions: [],
+                })), 'analyzePdfConformance', 'sender',
+            ),
+            ipc: {
+                args: pdfPathArgs,
+                result: s.fromParser(decodeConformanceResult, () => ({
+                    isSigned: false,
+                    isEncrypted: false,
+                    isTagged: false,
+                    pdfaLevel: null,
+                    hasAcroForm: false,
+                    hasXfa: false,
+                    canIncrementalSave: true,
+                    saveRestrictions: [],
+                })),
+                timeoutMs: longNativeIpcTimeoutMs,
+            },
+        },
+        validatePdfData: defineIpcMethod(
+            'validatePdfData', 'pdf:validateData', pdfDataArgs,
+            validationResult, 'validatePdfData', 'none',
+        ),
+        validatePdfPath: {
+            ...defineIpcMethod(
+                'validatePdfPath', 'pdf:validatePath', pdfPathArgs,
+                validationResult, 'validatePdfPath', 'sender',
+            ),
+            ipc: {
+                args: pdfPathArgs,
+                result: validationResult,
+                timeoutMs: longNativeIpcTimeoutMs,
+            },
+        },
+        openPdfInDefaultAppData: defineIpcMethod(
+            'openPdfInDefaultAppData', 'pdf:openInDefaultAppData', pdfDataArgs,
+            s.fromParser(decodePlatformOperationResult, () => ({success: true})),
+            'openPdfInDefaultAppData', 'none',
+        ),
+        openPdfInDefaultAppPath: defineIpcMethod(
+            'openPdfInDefaultAppPath', 'pdf:openInDefaultAppPath', openPdfPathArgs,
+            s.fromParser(decodePlatformOperationResult, () => ({success: true})),
+            'openPdfInDefaultAppPath', 'sender',
+        ),
+        printPdfData: defineIpcMethod(
+            'printPdfData', 'pdf:printData', pdfDataArgs,
+            s.fromParser(decodePrintResult, () => ({success: true})),
+            'printPdfData', 'sender',
+        ),
+        printPdfPath: defineIpcMethod(
+            'printPdfPath', 'pdf:printPath', printPdfPathArgs,
+            s.fromParser(decodePrintResult, () => ({success: true})),
+            'printPdfPath', 'sender',
+        ),
     },
     events: {},
 });
@@ -500,24 +793,75 @@ export const DOCUMENT_MENU_PLATFORM_FEATURE = definePlatformFeature({
         onMenuOpenRecentFile: defineEvent('onMenuOpenRecentFile', 'menu:openRecentFile', stringResult),
         onMenuOpenExternalPaths: defineEvent('onMenuOpenExternalPaths', 'menu:openExternalPaths', stringArrayResult),
         onMenuClearRecentFiles: defineEvent('onMenuClearRecentFiles', 'menu:clearRecentFiles', noPayload),
-        onOpenDocumentDirectBatchProgress: openDocumentBatchProgressEvent,
-        onOpenPdfDirectBatchProgress: {
-            ...openDocumentBatchProgressEvent,
-            aliasOf: 'onOpenDocumentDirectBatchProgress',
-            browser: {method: 'onOpenPdfDirectBatchProgress'},
-        },
     },
 });
 
-export const DOCUMENTS_SIMPLE_PLATFORM_FEATURES = [
+export const DOCUMENT_PLATFORM_FEATURES = [
     DOCUMENT_PICKER_PLATFORM_FEATURE,
+    DOCUMENT_OPEN_PLATFORM_FEATURE,
+    DOCUMENT_WORKING_COPY_PLATFORM_FEATURE,
+    DOCUMENT_FILES_PLATFORM_FEATURE,
+    DOCUMENT_PDF_PLATFORM_FEATURE,
     DOCUMENT_RECENT_FILES_PLATFORM_FEATURE,
     DOCUMENT_WINDOW_PLATFORM_FEATURE,
     DOCUMENT_MENU_PLATFORM_FEATURE,
 ] as const;
 
+/**
+ * These public methods remain direct preload/browser bindings because their
+ * callback, AbortSignal, AsyncIterable, or MessagePort transfer semantics
+ * cannot be represented by invoke/event specs without changing the protocol.
+ */
+export const DOCUMENTS_DIRECT_BINDING_METHODS = [
+    'documentFiles.readFileChunks',
+    'documentFiles.savePdfDataAs',
+    'documentFiles.savePdfData',
+    'documentFiles.savePdfDataChunks',
+] as const;
+
+export const DOCUMENTS_AGGREGATE_PLATFORM_DESCRIPTOR = {
+    capabilities: [{
+        path: ['documents'],
+        required: requiredEverywhere,
+    }],
+    methods: DOCUMENT_PLATFORM_FEATURES.flatMap(feature =>
+        feature.platformDescriptors.methods.map(descriptor => ({
+            ...descriptor,
+            path: [
+                'documents',
+                ...descriptor.path.slice(1),
+            ],
+            required: descriptor.optionalWhenImplemented
+                ? descriptor.required
+                : requiredEverywhere,
+            aliasOf: descriptor.aliasOf ?? descriptor.path,
+        }))),
+} as const;
+
+export const DOCUMENT_MENU_OPEN_PROGRESS_PLATFORM_DESCRIPTOR = {
+    capabilities: [],
+    methods: DOCUMENT_OPEN_PLATFORM_FEATURE.platformDescriptors.methods
+        .filter(descriptor => descriptor.kind === 'event')
+        .map(descriptor => ({
+            ...descriptor,
+            path: [
+                'documentMenu',
+                ...descriptor.path.slice(1),
+            ],
+            aliasOf: descriptor.aliasOf ?? descriptor.path,
+        })),
+} as const;
+
 export type IDocumentPickerPlatformCapability =
     TFeatureCapability<typeof DOCUMENT_PICKER_PLATFORM_FEATURE>;
+export type IDocumentOpenPlatformCapability =
+    TFeatureCapability<typeof DOCUMENT_OPEN_PLATFORM_FEATURE>;
+export type IDocumentWorkingCopyPlatformCapability =
+    TFeatureCapability<typeof DOCUMENT_WORKING_COPY_PLATFORM_FEATURE>;
+export type IDocumentFilesPlatformCapability =
+    TFeatureCapability<typeof DOCUMENT_FILES_PLATFORM_FEATURE>;
+export type IDocumentPdfPlatformCapability =
+    TFeatureCapability<typeof DOCUMENT_PDF_PLATFORM_FEATURE>;
 export type IDocumentRecentFilesPlatformCapability =
     TFeatureCapability<typeof DOCUMENT_RECENT_FILES_PLATFORM_FEATURE>;
 export type IDocumentWindowPlatformCapability =
@@ -526,6 +870,14 @@ export type IDocumentMenuPlatformCapability =
     TFeatureCapability<typeof DOCUMENT_MENU_PLATFORM_FEATURE>;
 export type IDocumentPickerInvokeMap =
     TFeatureInvokeMap<typeof DOCUMENT_PICKER_PLATFORM_FEATURE>;
+export type IDocumentOpenInvokeMap =
+    TFeatureInvokeMap<typeof DOCUMENT_OPEN_PLATFORM_FEATURE>;
+export type IDocumentWorkingCopyInvokeMap =
+    TFeatureInvokeMap<typeof DOCUMENT_WORKING_COPY_PLATFORM_FEATURE>;
+export type IDocumentFilesInvokeMap =
+    TFeatureInvokeMap<typeof DOCUMENT_FILES_PLATFORM_FEATURE>;
+export type IDocumentPdfInvokeMap =
+    TFeatureInvokeMap<typeof DOCUMENT_PDF_PLATFORM_FEATURE>;
 export type IDocumentRecentFilesInvokeMap =
     TFeatureInvokeMap<typeof DOCUMENT_RECENT_FILES_PLATFORM_FEATURE>;
 export type IDocumentWindowInvokeMap =
@@ -534,3 +886,7 @@ export type IDocumentMenuInvokeMap =
     TFeatureInvokeMap<typeof DOCUMENT_MENU_PLATFORM_FEATURE>;
 export type IDocumentMenuEventMap =
     TFeatureEventMap<typeof DOCUMENT_MENU_PLATFORM_FEATURE>;
+export type IDocumentOpenEventMap =
+    TFeatureEventMap<typeof DOCUMENT_OPEN_PLATFORM_FEATURE>;
+export type IDocumentFilesEventMap =
+    TFeatureEventMap<typeof DOCUMENT_FILES_PLATFORM_FEATURE>;

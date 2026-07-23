@@ -35,6 +35,7 @@ import { SYSTEM_PLATFORM_FEATURE } from '@contracts/systemPlatformFeature';
 import { WINDOW_TABS_PLATFORM_FEATURE } from '@contracts/windowTabsPlatformFeature';
 import {
     DOCUMENT_MENU_PLATFORM_FEATURE,
+    DOCUMENT_OPEN_PLATFORM_FEATURE,
     DOCUMENT_PICKER_PLATFORM_FEATURE,
     DOCUMENT_RECENT_FILES_PLATFORM_FEATURE,
     DOCUMENT_WINDOW_PLATFORM_FEATURE,
@@ -401,16 +402,26 @@ export function createElectronApi(
     const documentMenu = createPlatformFeaturePreloadClient(
         ipcRenderer,
         DOCUMENT_MENU_PLATFORM_FEATURE,
-    ) satisfies IDocumentsMenuCapability;
+    );
+    const documentOpenFeature = createPlatformFeaturePreloadClient(
+        ipcRenderer,
+        DOCUMENT_OPEN_PLATFORM_FEATURE,
+    );
     const documentOpen = {
         openDocumentDirect,
         openPdfDirect: openDocumentDirect,
         openDocumentDirectBatch,
         openPdfDirectBatch: openDocumentDirectBatch,
-        ...(baseDocuments.cancelOpenDocumentDirectBatch
-            ? {cancelOpenDocumentDirectBatch: baseDocuments.cancelOpenDocumentDirectBatch}
-            : {}),
+        cancelOpenDocumentDirectBatch: baseDocuments.cancelOpenDocumentDirectBatch
+            ?? documentOpenFeature.cancelOpenDocumentDirectBatch!,
+        onOpenDocumentDirectBatchProgress: documentOpenFeature.onOpenDocumentDirectBatchProgress,
+        onOpenPdfDirectBatchProgress: documentOpenFeature.onOpenPdfDirectBatchProgress,
     } satisfies IDocumentsOpenCapability;
+    const documentMenuWithOpenProgress = {
+        ...documentMenu,
+        onOpenDocumentDirectBatchProgress: documentOpen.onOpenDocumentDirectBatchProgress,
+        onOpenPdfDirectBatchProgress: documentOpen.onOpenPdfDirectBatchProgress,
+    } satisfies IDocumentsMenuCapability;
     const documentWorkingCopy = {
         createWorkingCopyFromData: baseDocuments.createWorkingCopyFromData,
         createWorkingCopyFromPath: baseDocuments.createWorkingCopyFromPath,
@@ -488,7 +499,7 @@ export function createElectronApi(
         ...documentPdf,
         ...documentRecentFiles,
         ...documentWindow,
-        ...documentMenu,
+        ...documentMenuWithOpenProgress,
     };
 
     const api = {
@@ -501,7 +512,7 @@ export function createElectronApi(
         documentPdf,
         documentRecentFiles,
         documentWindow,
-        documentMenu,
+        documentMenu: documentMenuWithOpenProgress,
         pageOps,
         imageExport,
 

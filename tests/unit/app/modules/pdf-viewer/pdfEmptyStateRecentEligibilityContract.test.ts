@@ -15,6 +15,13 @@ describe('PdfEmptyState Recent eligibility contract', () => {
         const disabledStart = source.indexOf('function isRecentRowDisabled');
         const disabledEnd = source.indexOf('\n}', disabledStart);
         const disabledSource = source.slice(disabledStart, disabledEnd);
+        const hostSource = await readFile(
+            join(
+                process.cwd(),
+                'app/modules/workspace-shell/components/DeferredDocumentWorkspaceHost.vue',
+            ),
+            'utf8',
+        );
 
         expect(source).toContain(':data-recent-open-ready="isRecentOpenReady(file) ? \'true\' : \'false\'"');
         expect(source).toContain(':data-recent-open-exact-frame-ready="isRecentOpenExactFrameReady(file) ? \'true\' : \'false\'"');
@@ -22,5 +29,6 @@ describe('PdfEmptyState Recent eligibility contract', () => {
         expect(disabledSource).toContain('recentOpenDisabled || !isRecentOpenReady(file)');
         expect(disabledSource).not.toContain('return openInProgress');
         expect(disabledSource).not.toContain('isRecentOpenExactFrameReady');
+        expect(hostSource).not.toContain(':recent-open-disabled="!isRecentOpenOwnerReady"');
     });
 });
