@@ -56,7 +56,7 @@ const mocks = vi.hoisted(() => ({
     markWorkingCopySyncRequired: vi.fn(),
     markWorkingCopyContentChanged: vi.fn(),
     optimizePdfForSaveAs: vi.fn(),
-    optimizeLargePdfForSave: vi.fn(),
+    optimizeLargePdfForOrdinarySave: vi.fn(),
     copyFileCopyOnWrite: vi.fn(),
     transitionOriginalAndWorkingCopyRevision: vi.fn(),
 }));
@@ -68,7 +68,7 @@ vi.mock('@electron/utils/atomicReplace', () => ({
 vi.mock('@electron/features/documents/main/pdfConformance', () => ({validatePdfFile: (...args: unknown[]) => mocks.validatePdfFile(...args)}));
 vi.mock('@electron/features/documents/main/pdfSaveAsOptimization', () => ({
     optimizePdfForSaveAs: (...args: unknown[]) => mocks.optimizePdfForSaveAs(...args),
-    optimizeLargePdfForSave: (...args: unknown[]) => mocks.optimizeLargePdfForSave(...args),
+    optimizeLargePdfForOrdinarySave: (...args: unknown[]) => mocks.optimizeLargePdfForOrdinarySave(...args),
 }));
 vi.mock('@electron/file-access/workingCopyCreation', () => ({ensureWorkingCopyDirectory: (...args: unknown[]) => mocks.ensureWorkingCopyDirectory(...args)}));
 vi.mock('@electron/file-access/workingCopyStore', () => ({
@@ -160,7 +160,7 @@ describe('serializedPdfPersistence', () => {
                 : null;
         });
         mocks.optimizePdfForSaveAs.mockResolvedValue(null);
-        mocks.optimizeLargePdfForSave.mockResolvedValue(null);
+        mocks.optimizeLargePdfForOrdinarySave.mockResolvedValue(null);
         mocks.assertWorkingCopyMutationAllowed.mockResolvedValue(undefined);
         mocks.assertWorkingCopyRevisionCurrent.mockResolvedValue(undefined);
         mocks.refreshWorkingCopyOriginalFileExpectation.mockResolvedValue(true);
@@ -370,7 +370,7 @@ describe('serializedPdfPersistence', () => {
         });
         expect(readFileSyncUtf8(workingPath)).toBe('old-original');
         expect(readFileSyncUtf8(originalPath)).toBe('external-change');
-        expect(mocks.optimizeLargePdfForSave).toHaveBeenCalledWith(`${originalPath}.tmp`);
+        expect(mocks.optimizeLargePdfForOrdinarySave).toHaveBeenCalledWith(`${originalPath}.tmp`);
         expect(mocks.atomicReplace).not.toHaveBeenCalled();
         expect(mocks.refreshWorkingCopyOriginalFileExpectation).not.toHaveBeenCalled();
     });
@@ -489,7 +489,7 @@ describe('serializedPdfPersistence', () => {
         });
         expect(readFileSyncUtf8(originalPath)).toBe('old-original');
         expect(readFileSyncUtf8(workingPath)).toBe('old-working');
-        expect(mocks.optimizeLargePdfForSave).toHaveBeenCalledWith(`${originalPath}.tmp`);
+        expect(mocks.optimizeLargePdfForOrdinarySave).toHaveBeenCalledWith(`${originalPath}.tmp`);
         expect(mocks.refreshWorkingCopyOriginalFileExpectation).not.toHaveBeenCalled();
     });
 
@@ -573,9 +573,9 @@ describe('serializedPdfPersistence', () => {
         });
         expect(readFileSyncUtf8(originalPath)).toBe('new-pdf');
         expect(readFileSyncUtf8(workingPath)).toBe('new-pdf');
-        expect(mocks.optimizeLargePdfForSave).toHaveBeenCalledWith(`${originalPath}.tmp`);
+        expect(mocks.optimizeLargePdfForOrdinarySave).toHaveBeenCalledWith(`${originalPath}.tmp`);
         expect(
-            firstInvocationOrder(mocks.optimizeLargePdfForSave),
+            firstInvocationOrder(mocks.optimizeLargePdfForOrdinarySave),
         ).toBeLessThan(firstInvocationOrder(mocks.atomicReplace));
         expect(mocks.refreshWorkingCopyOriginalFileExpectation).toHaveBeenCalledWith(workingPath, 42);
         expect(firstInvocationOrder(mocks.copyFileCopyOnWrite))
@@ -605,7 +605,7 @@ describe('serializedPdfPersistence', () => {
         });
         expect(readFileSyncUtf8(workingPath)).toBe('staged-snapshot');
         expect(readFileSyncUtf8(originalPath)).toBe('old-original');
-        expect(mocks.optimizeLargePdfForSave).not.toHaveBeenCalled();
+        expect(mocks.optimizeLargePdfForOrdinarySave).not.toHaveBeenCalled();
         expect(mocks.transitionOriginalAndWorkingCopyRevision).not.toHaveBeenCalled();
         expect(mocks.markWorkingCopyContentChanged).toHaveBeenCalledWith(
             workingPath,

@@ -12,6 +12,7 @@ import { waitForDesktopPlatformBridge } from '@app/utils/platform';
 import { guardAsync } from '@app/utils/asyncGuard';
 import { getPerformanceProfile } from '@app/utils/performanceProfile';
 import type { IWorkspaceCheckpoint } from '@contracts/workspaceCheckpoint';
+import { resolveDocumentSavePerformanceTier } from '@contracts/hostResourceProfile';
 
 interface IUseWorkspaceCrashCheckpointOptions {
     enabled: Ref<boolean>;
@@ -30,7 +31,8 @@ export const useWorkspaceCrashCheckpoint = (options: IUseWorkspaceCrashCheckpoin
     let inFlight: Promise<void> | null = null;
     let pendingLatest: IWorkspaceCheckpoint | null = null;
     let disposed = false;
-    const debounceMs = getPerformanceProfile().tier === 'low' ? 1_500 : 500;
+    const deviceTier = resolveDocumentSavePerformanceTier(getPerformanceProfile().tier);
+    const debounceMs = deviceTier === 'low' ? 1_500 : 500;
 
     async function drainCheckpointWrites(initialCheckpoint: IWorkspaceCheckpoint) {
         let checkpoint: IWorkspaceCheckpoint | null = initialCheckpoint;

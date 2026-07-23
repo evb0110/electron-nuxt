@@ -5,6 +5,7 @@ import {
 } from 'vitest';
 import {
     decodeHostResourceProfileSnapshot,
+    resolveDocumentSavePerformanceTier,
     resolveDetectedHostResourceTier,
     resolveEffectiveHostResourceTier,
 } from '@contracts/hostResourceProfile';
@@ -136,6 +137,26 @@ describe('host resource profile contract', () => {
                 detectedTier,
                 performanceMode,
             )).toBe(expectedTier);
+        },
+    );
+
+    it.each([
+        [
+            'low',
+            'low',
+        ],
+        [
+            'medium',
+            'balanced',
+        ],
+        [
+            'high',
+            'high',
+        ],
+    ] as const)(
+        'maps host tier %s to document-save tier %s',
+        (hostTier, expectedTier) => {
+            expect(resolveDocumentSavePerformanceTier(hostTier)).toBe(expectedTier);
         },
     );
 

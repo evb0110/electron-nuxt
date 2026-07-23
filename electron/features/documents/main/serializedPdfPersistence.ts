@@ -65,7 +65,7 @@ import { originalPathSaveBaseMatches } from '@electron/features/documents/main/o
 import {transitionOriginalAndWorkingCopyRevision} from '@electron/features/documents/main/transitionOriginalAndWorkingCopyRevision';
 import { commitPdfTempFile } from '@electron/features/documents/main/commitPdfTempFile';
 import {
-    optimizeLargePdfForSave,
+    optimizeLargePdfForOrdinarySave,
     optimizePdfForSaveAs,
 } from '@electron/features/documents/main/pdfSaveAsOptimization';
 import type { IDocumentsWebContentsContext } from '@electron/features/documents/documentsService';
@@ -509,7 +509,7 @@ async function finishSession(session: ISerializedPdfPersistenceSession): Promise
     const optimizedValidation = session.mode === 'save_as'
         ? await optimizePdfForSaveAs(session.tempPath, session.saveAsOptions)
         : session.mode === 'save'
-            ? await optimizeLargePdfForSave(session.tempPath)
+            ? await optimizeLargePdfForOrdinarySave(session.tempPath)
             : null;
     const committedValidation = optimizedValidation ?? validation;
 

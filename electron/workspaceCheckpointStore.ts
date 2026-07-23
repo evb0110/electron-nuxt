@@ -183,17 +183,13 @@ function enqueueWorkspaceCheckpointBarrier<T>(operation: () => Promise<T>) {
 }
 
 export async function saveWorkspaceCheckpoint(checkpoint: IWorkspaceCheckpoint, ownerWebContentsId: number) {
-    const validatedCheckpoint = decodeWorkspaceCheckpoint(checkpoint);
-    if (!validatedCheckpoint) {
-        throw new Error('Invalid workspace checkpoint');
-    }
-    for (const tab of validatedCheckpoint.tabs) {
+    for (const tab of checkpoint.tabs) {
         if (tab.workingCopyRef && getWorkingCopyOwnerWebContentsId(tab.workingCopyRef) !== ownerWebContentsId) {
             throw new Error('Workspace checkpoint contains an unowned working copy');
         }
     }
     const canonicalCheckpoint = canonicalizeCheckpointSources(
-        validatedCheckpoint,
+        checkpoint,
         ownerWebContentsId,
         {rejectUnmappedWorkingCopy: true},
     );

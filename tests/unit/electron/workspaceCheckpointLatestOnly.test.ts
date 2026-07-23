@@ -121,6 +121,37 @@ describe('workspace checkpoint latest-only writer', () => {
         ]);
     });
 
+    it('continues with the latest pending checkpoint after an active save fails', async () => {
+        const firstGate = deferred();
+        mocks.atomicReplace
+            .mockImplementationOnce(async () => {
+                await firstGate.promise;
+                throw new Error('replace failed');
+            })
+            .mockImplementationOnce(async (source: string) => {
+                mocks.persisted = mocks.staged.get(source) ?? null;
+            });
+        const {saveWorkspaceCheckpoint} = await import('@electron/workspaceCheckpointStore');
+
+        const first = saveWorkspaceCheckpoint(createCheckpoint(1), 10);
+        const firstResult = first.then(
+            () => null,
+            (error: unknown) => error,
+        );
+        await vi.waitFor(() => expect(mocks.atomicReplace).toHaveBeenCalledTimes(1));
+        const second = saveWorkspaceCheckpoint(createCheckpoint(2), 10);
+        const third = saveWorkspaceCheckpoint(createCheckpoint(3), 10);
+
+        firstGate.resolve();
+        await Promise.all([
+            second,
+            third,
+        ]);
+
+        await expect(firstResult).resolves.toEqual(new Error('replace failed'));
+        expect(JSON.parse(mocks.persisted ?? '{}').checkpoint.capturedAt).toBe(3);
+    });
+
     it('drains pending saves before claim removes the checkpoint', async () => {
         const firstGate = deferred();
         const secondGate = deferred();

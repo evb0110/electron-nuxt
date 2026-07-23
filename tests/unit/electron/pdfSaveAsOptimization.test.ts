@@ -21,6 +21,7 @@ import {
 } from 'fs/promises';
 import { join } from 'path';
 import { tmpdir } from 'os';
+import type { THostResourceTier } from '@contracts/hostResourceProfile';
 
 const mocks = vi.hoisted(() => ({
     analyzePdfConformanceFile: vi.fn(),
@@ -28,6 +29,7 @@ const mocks = vi.hoisted(() => ({
     runNativeToolCommand: vi.fn(),
     atomicReplace: vi.fn(),
     makeSiblingTempPath: vi.fn((targetPath: string) => `${targetPath}.optimized`),
+    hostTier: 'high' as THostResourceTier,
 }));
 
 vi.mock('@electron/features/documents/main/pdfConformance', () => ({
@@ -46,6 +48,7 @@ vi.mock('@electron/utils/atomicReplace', () => ({
     atomicReplace: (...args: unknown[]) => mocks.atomicReplace(...args),
     makeSiblingTempPath: (...args: [string]) => mocks.makeSiblingTempPath(...args),
 }));
+vi.mock('@electron/resources/hostResourceProfile', () => ({getHostResourceProfileSnapshot: () => ({tier: mocks.hostTier})}));
 
 describe('pdfSaveAsOptimization', () => {
     let tempRoot = '';
@@ -53,6 +56,7 @@ describe('pdfSaveAsOptimization', () => {
     beforeEach(() => {
         vi.clearAllMocks();
         tempRoot = mkdtempSync(join(tmpdir(), 'evb-pdf-save-as-optimization-test-'));
+        mocks.hostTier = 'high';
         mocks.analyzePdfConformanceFile.mockResolvedValue({
             isSigned: false,
             isEncrypted: false,
@@ -150,9 +154,11 @@ describe('pdfSaveAsOptimization', () => {
         mocks.runNativeToolCommand.mockImplementation(async () => {
             await writeFile(optimizedPath, 'linearized-pdf');
         });
-        const { optimizeLargePdfForSave } = await import('@electron/features/documents/main/pdfSaveAsOptimization');
+        const { optimizeLargePdfForOrdinarySave } = await import(
+            '@electron/features/documents/main/pdfSaveAsOptimization'
+        );
 
-        await expect(optimizeLargePdfForSave(tempPath))
+        await expect(optimizeLargePdfForOrdinarySave(tempPath))
             .resolves
             .toMatchObject({ isValid: true });
 
@@ -162,6 +168,45 @@ describe('pdfSaveAsOptimization', () => {
             expect.objectContaining({ commandLabel: 'qpdf(save-optimize-large)' }),
         );
         expect(readFileSyncUtf8(tempPath)).toBe('linearized-pdf');
+    });
+
+    it('skips automatic ordinary-save optimization on the authoritative low tier', async () => {
+        const tempPath = join(tempRoot, 'large-low-tier.pdf');
+        writeFileSync(tempPath, 'large-pdf');
+        truncateSync(tempPath, (64 * 1024 * 1024) + 1);
+        mocks.hostTier = 'low';
+        const { optimizeLargePdfForOrdinarySave } = await import(
+            '@electron/features/documents/main/pdfSaveAsOptimization'
+        );
+
+        await expect(optimizeLargePdfForOrdinarySave(tempPath)).resolves.toBeNull();
+
+        expect(mocks.analyzePdfConformanceFile).not.toHaveBeenCalled();
+        expect(mocks.runNativeToolCommand).not.toHaveBeenCalled();
+    });
+
+    it('preserves automatic Save As optimization on the low tier', async () => {
+        const tempPath = join(tempRoot, 'large-save-as-low-tier.pdf');
+        const optimizedPath = `${tempPath}.optimized`;
+        writeFileSync(tempPath, 'large-pdf');
+        truncateSync(tempPath, (64 * 1024 * 1024) + 1);
+        mocks.hostTier = 'low';
+        mocks.runNativeToolCommand.mockImplementation(async () => {
+            await writeFile(optimizedPath, 'linearized-pdf');
+        });
+        const { optimizePdfForSaveAs } = await import(
+            '@electron/features/documents/main/pdfSaveAsOptimization'
+        );
+
+        await expect(optimizePdfForSaveAs(tempPath))
+            .resolves
+            .toMatchObject({isValid: true});
+
+        expect(mocks.runNativeToolCommand).toHaveBeenCalledWith(
+            '/native/qpdf',
+            expect.arrayContaining(['--linearize']),
+            expect.objectContaining({commandLabel: 'qpdf(save-optimize-large)'}),
+        );
     });
 
     it('optimizes generated PDFs without semantic preflight', async () => {

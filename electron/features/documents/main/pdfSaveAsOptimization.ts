@@ -4,6 +4,10 @@ import {
 } from 'fs/promises';
 import type { IPdfValidationResult } from '@contracts/pdfConformance';
 import type { IPdfSaveAsOptions } from '@contracts/electronApiDocuments';
+import {
+    resolveDocumentSavePerformanceTier,
+    type TDocumentSavePerformanceTier,
+} from '@contracts/hostResourceProfile';
 import { isRecord } from '@contracts/runtimeGuards';
 import {
     atomicReplace,
@@ -22,6 +26,7 @@ import {
     abortErrorFromSignal,
     isAbortError,
 } from '@electron/utils/abort';
+import { getHostResourceProfileSnapshot } from '@electron/resources/hostResourceProfile';
 
 const logger = createLogger('documents-pdfSaveAsOptimization');
 
@@ -44,6 +49,10 @@ interface IPdfSaveOptimizationOptions {
     label?: string;
     signal?: AbortSignal;
 }
+
+interface IExplicitPdfSaveOptimizationOptions extends IPdfSaveOptimizationOptions {force: true;}
+
+interface IOrdinaryPdfSaveOptimizationOptions {deviceTier?: TDocumentSavePerformanceTier;}
 
 export function normalizePdfSaveAsOptions(value: unknown): IPdfSaveAsOptions | undefined {
     if (!isRecord(value)) {
@@ -109,7 +118,7 @@ async function rewritePdfLosslessly(
     });
 }
 
-export async function optimizePdfForSave(
+async function optimizePdf(
     tempPath: string,
     options: IPdfSaveOptimizationOptions = {},
 ): Promise<IPdfValidationResult | null> {
@@ -179,15 +188,30 @@ export async function optimizePdfForSave(
     }
 }
 
-export function optimizeLargePdfForSave(tempPath: string) {
-    return optimizePdfForSave(tempPath, {label: 'qpdf(save-optimize-large)'});
+export function optimizePdfForSave(
+    tempPath: string,
+    options: IExplicitPdfSaveOptimizationOptions,
+) {
+    return optimizePdf(tempPath, options);
+}
+
+export function optimizeLargePdfForOrdinarySave(
+    tempPath: string,
+    options: IOrdinaryPdfSaveOptimizationOptions = {},
+) {
+    const deviceTier = options.deviceTier
+        ?? resolveDocumentSavePerformanceTier(getHostResourceProfileSnapshot().tier);
+    if (deviceTier === 'low') {
+        return Promise.resolve(null);
+    }
+    return optimizePdf(tempPath, {label: 'qpdf(save-optimize-large)'});
 }
 
 export function optimizeGeneratedPdfForInteraction(
     tempPath: string,
     options: { signal?: AbortSignal } = {},
 ) {
-    return optimizePdfForSave(tempPath, {
+    return optimizePdf(tempPath, {
         force: true,
         skipSemanticPreflight: true,
         label: 'qpdf(generated-pdf-optimize)',
@@ -200,10 +224,10 @@ export async function optimizePdfForSaveAs(
     options?: IPdfSaveAsOptions,
 ): Promise<IPdfValidationResult | null> {
     if (options?.optimizeLossless !== true) {
-        return optimizeLargePdfForSave(tempPath);
+        return optimizePdf(tempPath, {label: 'qpdf(save-optimize-large)'});
     }
 
-    return optimizePdfForSave(tempPath, {
+    return optimizePdf(tempPath, {
         force: true,
         label: 'qpdf(save-as-optimize)',
     });

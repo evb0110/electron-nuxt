@@ -1,6 +1,7 @@
 import { isRecord } from '@contracts/runtimeGuards';
 
 export type THostResourceTier = 'low' | 'medium' | 'high';
+export type TDocumentSavePerformanceTier = 'low' | 'balanced' | 'high';
 export type TPerformanceMode = 'auto' | THostResourceTier;
 
 export interface IHostGpuStatusSnapshot {[featureName: string]: string;}
@@ -87,6 +88,12 @@ export function resolveEffectiveHostResourceTier(
     performanceMode: TPerformanceMode,
 ): THostResourceTier {
     return performanceMode === 'auto' ? detectedTier : performanceMode;
+}
+
+export function resolveDocumentSavePerformanceTier(
+    tier: THostResourceTier,
+): TDocumentSavePerformanceTier {
+    return tier === 'medium' ? 'balanced' : tier;
 }
 
 export function decodeHostResourceProfileSnapshot(

@@ -80,10 +80,12 @@ export type { IElectronAPI } from '@contracts/electronApi';
 export {
     HOST_RESOURCE_PROFILE_ARGUMENT_PREFIX,
     decodeHostResourceProfileSnapshot,
+    resolveDocumentSavePerformanceTier,
     resolveDetectedHostResourceTier,
     resolveEffectiveHostResourceTier,
 } from '@contracts/hostResourceProfile';
 export type {
+    TDocumentSavePerformanceTier,
     IHostGpuStatusSnapshot,
     IHostResourceProfileSnapshot,
     IHostResourceTierInputs,

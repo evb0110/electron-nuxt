@@ -44,7 +44,7 @@ import { getPdfNativeToolPaths } from '@electron/pdf/nativeToolPaths';
 import { runNativeToolCommand } from '@electron/native-tools/runNativeToolCommand';
 import { parseIntegerEnv } from '@electron/utils/parseIntegerEnv';
 import {
-    optimizeLargePdfForSave,
+    optimizeLargePdfForOrdinarySave,
     optimizePdfForSave,
 } from '@electron/features/documents/main/pdfSaveAsOptimization';
 import type { IDocumentsSenderIdContext } from '@electron/features/documents/documentsService';
@@ -153,7 +153,7 @@ async function replaceOriginalWithValidatedTemp(
                 label: 'qpdf(optimize-current-pdf)',
             })
             : options.optimize === 'large'
-                ? await optimizeLargePdfForSave(tempPath)
+                ? await optimizeLargePdfForOrdinarySave(tempPath)
                 : null;
         const validation = optimizedValidation ?? await validatePdfFile(tempPath);
         if (!validation.isValid) {
