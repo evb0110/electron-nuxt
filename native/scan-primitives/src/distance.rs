@@ -33,11 +33,15 @@ pub fn squared_euclidean_distance(image: &BinaryImage) -> Vec<u32> {
         }
     }
     let mut output = vec![u32::MAX; width * height];
+    let mut scratch = TransformScratch::new(width);
     for y in 0..height {
         let row = &vertical[y * width..(y + 1) * width];
-        let transformed = transform_1d(row);
-        for x in 0..width {
-            output[y * width + x] = transformed[x].min(u32::MAX as i64) as u32;
+        transform_1d(row, &mut scratch);
+        for (target, &distance) in output[y * width..(y + 1) * width]
+            .iter_mut()
+            .zip(&scratch.output)
+        {
+            *target = distance.min(u32::MAX as i64) as u32;
         }
     }
     output
@@ -243,54 +247,143 @@ fn neighbors4(
     neighbors.into_iter().take(count)
 }
 
-fn transform_1d(values: &[i64]) -> Vec<i64> {
-    let seeds: Vec<usize> = values
-        .iter()
-        .enumerate()
-        .filter_map(|(index, &value)| (value < INF).then_some(index))
-        .collect();
-    if seeds.is_empty() {
-        return vec![INF; values.len()];
+struct TransformScratch {
+    seeds: Vec<usize>,
+    envelope: Vec<usize>,
+    boundaries: Vec<f64>,
+    output: Vec<i64>,
+}
+
+impl TransformScratch {
+    fn new(len: usize) -> Self {
+        Self {
+            seeds: Vec::with_capacity(len),
+            envelope: vec![0; len],
+            boundaries: vec![0.0; len.saturating_add(1)],
+            output: vec![0; len],
+        }
     }
-    let mut envelope = vec![0usize; seeds.len()];
-    let mut boundaries = vec![f64::NEG_INFINITY; seeds.len() + 1];
+}
+
+fn transform_1d(values: &[i64], scratch: &mut TransformScratch) {
+    scratch.envelope.resize(values.len(), 0);
+    scratch
+        .boundaries
+        .resize(values.len().saturating_add(1), 0.0);
+    scratch.output.resize(values.len(), 0);
+    scratch.seeds.clear();
+    scratch.seeds.extend(
+        values
+            .iter()
+            .enumerate()
+            .filter_map(|(index, &value)| (value < INF).then_some(index)),
+    );
+    if scratch.seeds.is_empty() {
+        scratch.output.fill(INF);
+        return;
+    }
+    scratch.boundaries[0] = f64::NEG_INFINITY;
     let mut top = 0usize;
-    envelope[0] = seeds[0];
-    boundaries[1] = f64::INFINITY;
-    for &seed in &seeds[1..] {
+    scratch.envelope[0] = scratch.seeds[0];
+    scratch.boundaries[1] = f64::INFINITY;
+    for &seed in &scratch.seeds[1..] {
         let mut intersection;
         loop {
-            let previous = envelope[top];
+            let previous = scratch.envelope[top];
             intersection = ((values[seed] + (seed * seed) as i64)
                 - (values[previous] + (previous * previous) as i64))
                 as f64
                 / (2.0 * (seed as f64 - previous as f64));
-            if intersection > boundaries[top] || top == 0 {
+            if intersection > scratch.boundaries[top] || top == 0 {
                 break;
             }
             top -= 1;
         }
         top += 1;
-        envelope[top] = seed;
-        boundaries[top] = intersection;
-        boundaries[top + 1] = f64::INFINITY;
+        scratch.envelope[top] = seed;
+        scratch.boundaries[top] = intersection;
+        scratch.boundaries[top + 1] = f64::INFINITY;
     }
-    let mut output = vec![0; values.len()];
     let mut candidate = 0usize;
-    for (x, target) in output.iter_mut().enumerate() {
-        while boundaries[candidate + 1] < x as f64 {
+    for (x, target) in scratch.output.iter_mut().enumerate() {
+        while scratch.boundaries[candidate + 1] < x as f64 {
             candidate += 1;
         }
-        let seed = envelope[candidate];
+        let seed = scratch.envelope[candidate];
         let d = x.abs_diff(seed) as i64;
         *target = d * d + values[seed];
     }
-    output
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn reference_transform_1d(values: &[i64]) -> Vec<i64> {
+        let seeds: Vec<usize> = values
+            .iter()
+            .enumerate()
+            .filter_map(|(index, &value)| (value < INF).then_some(index))
+            .collect();
+        if seeds.is_empty() {
+            return vec![INF; values.len()];
+        }
+        let mut envelope = vec![0usize; seeds.len()];
+        let mut boundaries = vec![f64::NEG_INFINITY; seeds.len() + 1];
+        let mut top = 0usize;
+        envelope[0] = seeds[0];
+        boundaries[1] = f64::INFINITY;
+        for &seed in &seeds[1..] {
+            let mut intersection;
+            loop {
+                let previous = envelope[top];
+                intersection = ((values[seed] + (seed * seed) as i64)
+                    - (values[previous] + (previous * previous) as i64))
+                    as f64
+                    / (2.0 * (seed as f64 - previous as f64));
+                if intersection > boundaries[top] || top == 0 {
+                    break;
+                }
+                top -= 1;
+            }
+            top += 1;
+            envelope[top] = seed;
+            boundaries[top] = intersection;
+            boundaries[top + 1] = f64::INFINITY;
+        }
+        let mut output = vec![0; values.len()];
+        let mut candidate = 0usize;
+        for (x, target) in output.iter_mut().enumerate() {
+            while boundaries[candidate + 1] < x as f64 {
+                candidate += 1;
+            }
+            let seed = envelope[candidate];
+            let d = x.abs_diff(seed) as i64;
+            *target = d * d + values[seed];
+        }
+        output
+    }
+
+    #[test]
+    fn reused_transform_scratch_is_bit_identical_to_allocating_reference() {
+        let mut state = 0x4544_545f_5034_4153_u64;
+        let mut scratch = TransformScratch::new(97);
+        for case in 0..200 {
+            let len = 1 + case % 97;
+            let mut values = vec![INF; len];
+            for (index, value) in values.iter_mut().enumerate() {
+                state = state
+                    .wrapping_mul(6_364_136_223_846_793_005)
+                    .wrapping_add(1_442_695_040_888_963_407);
+                if state >> 61 != 0 || index == case % len {
+                    *value = ((state >> 32) % 10_000) as i64;
+                }
+            }
+            transform_1d(&values, &mut scratch);
+            assert_eq!(scratch.output, reference_transform_1d(&values));
+        }
+    }
+
     #[test]
     fn matches_brute_force_for_deterministic_small_patterns() {
         for salt in 0..13 {

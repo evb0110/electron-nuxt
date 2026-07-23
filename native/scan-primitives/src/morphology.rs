@@ -283,18 +283,28 @@ pub fn reconstruct_binary(marker: &BinaryImage, mask: &BinaryImage) -> BinaryIma
     );
     let mut output = marker.and(mask);
     let mut queue = VecDeque::new();
+    let mut queued = vec![false; output.width().saturating_mul(output.height())];
     for y in 0..output.height() {
         for x in 0..output.width() {
-            if output.get(x, y) {
+            if output.get(x, y)
+                && neighbors4(x, y, output.width(), output.height())
+                    .any(|(nx, ny)| mask.get(nx, ny) && !output.get(nx, ny))
+            {
+                queued[y * output.width() + x] = true;
                 queue.push_back((x, y));
             }
         }
     }
     while let Some((x, y)) = queue.pop_front() {
+        queued[y * output.width() + x] = false;
         for (nx, ny) in neighbors4(x, y, output.width(), output.height()) {
             if mask.get(nx, ny) && !output.get(nx, ny) {
                 output.set(nx, ny, true);
-                queue.push_back((nx, ny));
+                let index = ny * output.width() + nx;
+                if !queued[index] {
+                    queued[index] = true;
+                    queue.push_back((nx, ny));
+                }
             }
         }
     }
@@ -316,39 +326,61 @@ pub fn reconstruct_gray(marker: &GrayImage, mask: &GrayImage) -> GrayImage {
     if output.width() == 0 || output.height() == 0 {
         return output;
     }
-    // A descending hierarchical queue solves the maximin-path form of
-    // geodesic reconstruction. Each pixel is finalized once, avoiding the
-    // long chains of incremental gray-level updates produced by a FIFO queue.
-    let mut buckets = (0..256).map(|_| Vec::<usize>::new()).collect::<Vec<_>>();
+
+    // Vincent's raster and anti-raster passes propagate values along the two
+    // causal half-neighborhoods before the FIFO handles the remaining fronts.
+    for y in 0..output.height() {
+        for x in 0..output.width() {
+            let mut value = output.get(x, y);
+            if x > 0 {
+                value = value.max(output.get(x - 1, y));
+            }
+            if y > 0 {
+                value = value.max(output.get(x, y - 1));
+            }
+            output.set(x, y, value.min(mask.get(x, y)));
+        }
+    }
+    for y in (0..output.height()).rev() {
+        for x in (0..output.width()).rev() {
+            let mut value = output.get(x, y);
+            if x + 1 < output.width() {
+                value = value.max(output.get(x + 1, y));
+            }
+            if y + 1 < output.height() {
+                value = value.max(output.get(x, y + 1));
+            }
+            output.set(x, y, value.min(mask.get(x, y)));
+        }
+    }
+
+    let mut queue = VecDeque::new();
+    let mut queued = vec![false; output.width() * output.height()];
     for y in 0..output.height() {
         for x in 0..output.width() {
             let value = output.get(x, y);
-            if value != 0 {
-                buckets[value as usize].push(y * output.width() + x);
+            if neighbors4(x, y, output.width(), output.height())
+                .any(|(nx, ny)| value.min(mask.get(nx, ny)) > output.get(nx, ny))
+            {
+                let index = y * output.width() + x;
+                queued[index] = true;
+                queue.push_back(index);
             }
         }
     }
-    let mut finalized = vec![false; output.width() * output.height()];
-    for level in (1..=255usize).rev() {
-        while let Some(index) = buckets[level].pop() {
-            if finalized[index] {
-                continue;
-            }
-            let x = index % output.width();
-            let y = index / output.width();
-            if output.get(x, y) as usize != level {
-                continue;
-            }
-            finalized[index] = true;
-            for (nx, ny) in neighbors4(x, y, output.width(), output.height()) {
+    while let Some(index) = queue.pop_front() {
+        queued[index] = false;
+        let x = index % output.width();
+        let y = index / output.width();
+        let value = output.get(x, y);
+        for (nx, ny) in neighbors4(x, y, output.width(), output.height()) {
+            let candidate = value.min(mask.get(nx, ny));
+            if candidate > output.get(nx, ny) {
+                output.set(nx, ny, candidate);
                 let neighbor_index = ny * output.width() + nx;
-                if finalized[neighbor_index] {
-                    continue;
-                }
-                let candidate = (level as u8).min(mask.get(nx, ny));
-                if candidate > output.get(nx, ny) {
-                    output.set(nx, ny, candidate);
-                    buckets[candidate as usize].push(neighbor_index);
+                if !queued[neighbor_index] {
+                    queued[neighbor_index] = true;
+                    queue.push_back(neighbor_index);
                 }
             }
         }
@@ -427,6 +459,78 @@ pub(crate) fn neighbors4(
 mod tests {
     use super::*;
 
+    fn next_random(state: &mut u64) -> u64 {
+        *state = state
+            .wrapping_mul(6_364_136_223_846_793_005)
+            .wrapping_add(1_442_695_040_888_963_407);
+        *state
+    }
+
+    fn reference_reconstruct_binary(marker: &BinaryImage, mask: &BinaryImage) -> BinaryImage {
+        let mut output = marker.and(mask);
+        let mut queue = VecDeque::new();
+        for y in 0..output.height() {
+            for x in 0..output.width() {
+                if output.get(x, y) {
+                    queue.push_back((x, y));
+                }
+            }
+        }
+        while let Some((x, y)) = queue.pop_front() {
+            for (nx, ny) in neighbors4(x, y, output.width(), output.height()) {
+                if mask.get(nx, ny) && !output.get(nx, ny) {
+                    output.set(nx, ny, true);
+                    queue.push_back((nx, ny));
+                }
+            }
+        }
+        output
+    }
+
+    fn reference_reconstruct_gray(marker: &GrayImage, mask: &GrayImage) -> GrayImage {
+        let mut output = marker.clone();
+        for y in 0..output.height() {
+            for x in 0..output.width() {
+                output.set(x, y, output.get(x, y).min(mask.get(x, y)));
+            }
+        }
+        let mut buckets = (0..256).map(|_| Vec::<usize>::new()).collect::<Vec<_>>();
+        for y in 0..output.height() {
+            for x in 0..output.width() {
+                let value = output.get(x, y);
+                if value != 0 {
+                    buckets[value as usize].push(y * output.width() + x);
+                }
+            }
+        }
+        let mut finalized = vec![false; output.width() * output.height()];
+        for level in (1..=255usize).rev() {
+            while let Some(index) = buckets[level].pop() {
+                if finalized[index] {
+                    continue;
+                }
+                let x = index % output.width();
+                let y = index / output.width();
+                if output.get(x, y) as usize != level {
+                    continue;
+                }
+                finalized[index] = true;
+                for (nx, ny) in neighbors4(x, y, output.width(), output.height()) {
+                    let neighbor_index = ny * output.width() + nx;
+                    if finalized[neighbor_index] {
+                        continue;
+                    }
+                    let candidate = (level as u8).min(mask.get(nx, ny));
+                    if candidate > output.get(nx, ny) {
+                        output.set(nx, ny, candidate);
+                        buckets[candidate as usize].push(neighbor_index);
+                    }
+                }
+            }
+        }
+        output
+    }
+
     fn fixture() -> BinaryImage {
         let mut image = BinaryImage::new(9, 7);
         for y in 2..5 {
@@ -483,6 +587,27 @@ mod tests {
         assert_eq!(reconstructed.and(&mask), reconstructed);
         assert_eq!(reconstructed.and(&marker), marker);
         assert!(reconstructed.count_black() > marker.count_black());
+    }
+
+    #[test]
+    fn boundary_seeded_binary_reconstruction_matches_all_marker_queue() {
+        let mut state = 0x5034_425f_5245_434f;
+        for _ in 0..160 {
+            let width = next_random(&mut state) as usize % 31;
+            let height = next_random(&mut state) as usize % 23;
+            let mut marker = BinaryImage::new(width, height);
+            let mut mask = BinaryImage::new(width, height);
+            for y in 0..height {
+                for x in 0..width {
+                    marker.set(x, y, next_random(&mut state) >> 62 == 0);
+                    mask.set(x, y, next_random(&mut state) >> 61 != 0);
+                }
+            }
+            assert_eq!(
+                reconstruct_binary(&marker, &mask),
+                reference_reconstruct_binary(&marker, &mask)
+            );
+        }
     }
 
     #[test]
@@ -569,5 +694,26 @@ mod tests {
             }
         }
         assert_eq!(reconstruct_gray(&marker, &mask), expected);
+    }
+
+    #[test]
+    fn vincent_gray_reconstruction_matches_hierarchical_queue() {
+        let mut state = 0x5034_475f_5245_434f;
+        for _ in 0..160 {
+            let width = next_random(&mut state) as usize % 29;
+            let height = next_random(&mut state) as usize % 21;
+            let mut marker = GrayImage::new(width, height, 0);
+            let mut mask = GrayImage::new(width, height, 0);
+            for y in 0..height {
+                for x in 0..width {
+                    marker.set(x, y, next_random(&mut state) as u8);
+                    mask.set(x, y, next_random(&mut state) as u8);
+                }
+            }
+            assert_eq!(
+                reconstruct_gray(&marker, &mask),
+                reference_reconstruct_gray(&marker, &mask)
+            );
+        }
     }
 }

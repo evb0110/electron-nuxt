@@ -59,6 +59,7 @@ impl Rect {
     pub fn bottom(self) -> f64 {
         self.y + self.height
     }
+    /// Returns whether the point lies inside the rectangle, including all four edges.
     pub fn contains(self, point: Point) -> bool {
         point.x >= self.x
             && point.y >= self.y
@@ -128,7 +129,7 @@ impl Projective {
         }
     }
     pub fn inverse(self) -> Option<Self> {
-        invert(self.matrix).map(|matrix| Self { matrix })
+        invert_projective(self.matrix).map(|matrix| Self { matrix })
     }
 }
 
@@ -145,10 +146,22 @@ fn multiply(a: [[f64; 3]; 3], b: [[f64; 3]; 3]) -> [[f64; 3]; 3] {
 }
 
 fn invert(matrix: [[f64; 3]; 3]) -> Option<[[f64; 3]; 3]> {
+    invert_with_cutoff(matrix, 1e-12)
+}
+
+fn invert_projective(matrix: [[f64; 3]; 3]) -> Option<[[f64; 3]; 3]> {
+    let scale = matrix
+        .iter()
+        .flatten()
+        .fold(0.0_f64, |maximum, value| maximum.max(value.abs()));
+    invert_with_cutoff(matrix, 1e-12 * scale.powi(3))
+}
+
+fn invert_with_cutoff(matrix: [[f64; 3]; 3], determinant_cutoff: f64) -> Option<[[f64; 3]; 3]> {
     let determinant = matrix[0][0] * (matrix[1][1] * matrix[2][2] - matrix[1][2] * matrix[2][1])
         - matrix[0][1] * (matrix[1][0] * matrix[2][2] - matrix[1][2] * matrix[2][0])
         + matrix[0][2] * (matrix[1][0] * matrix[2][1] - matrix[1][1] * matrix[2][0]);
-    if determinant.abs() <= 1e-12 {
+    if determinant.abs() <= determinant_cutoff {
         return None;
     }
     let m = matrix;
@@ -182,5 +195,43 @@ mod tests {
         let restored = transform.inverse().unwrap().apply(transform.apply(point));
         assert!((restored.x - point.x).abs() < 1e-9);
         assert!((restored.y - point.y).abs() < 1e-9);
+    }
+
+    #[test]
+    fn projective_inverse_cutoff_is_invariant_to_uniform_matrix_scale() {
+        let base = Projective {
+            matrix: [[1.0, 0.2, 3.0], [0.1, 0.9, -2.0], [0.001, -0.002, 1.0]],
+        };
+        let scaled = Projective {
+            matrix: base.matrix.map(|row| row.map(|value| value * 1e-6)),
+        };
+        let point = Point::new(10.5, 8.5);
+        let base_restored = base
+            .inverse()
+            .unwrap()
+            .apply(base.apply(point).unwrap())
+            .unwrap();
+        let scaled_restored = scaled
+            .inverse()
+            .unwrap()
+            .apply(scaled.apply(point).unwrap())
+            .unwrap();
+        assert!((base_restored.x - point.x).abs() < 1e-9);
+        assert!((base_restored.y - point.y).abs() < 1e-9);
+        assert!((scaled_restored.x - point.x).abs() < 1e-9);
+        assert!((scaled_restored.y - point.y).abs() < 1e-9);
+    }
+
+    #[test]
+    fn projective_inverse_rejects_large_scaled_near_singular_matrix() {
+        let scale = 1e6;
+        let transform = Projective {
+            matrix: [
+                [scale, scale, 0.0],
+                [scale, scale * (1.0 + 1e-13), 0.0],
+                [0.0, 0.0, scale],
+            ],
+        };
+        assert!(transform.inverse().is_none());
     }
 }
