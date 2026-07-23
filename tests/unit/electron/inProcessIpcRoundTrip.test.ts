@@ -5,15 +5,10 @@ import {
     it,
     vi,
 } from 'vitest';
-import type { IAgentService } from '@electron/features/agent/ports';
 import {
-    AGENT_CHANNELS,
-    AGENT_EVENT_CHANNELS,
+    AGENT_PLATFORM_FEATURE,
     type IAgentInvokeMap,
-} from '@electron/features/agent/contract';
-import { AGENT_IPC_CODECS } from '@electron/features/agent/agentIpcCodecs';
-import { createAgentPreloadClient } from '@electron/features/agent/createAgentPreloadClient';
-import { registerAgentIpcAdapter } from '@electron/features/agent/registerAgentIpcAdapter';
+} from '@contracts/agentPlatformFeature';
 import {
     DOCUMENTS_CHANNELS,
     type IDocumentsInvokeMap,
@@ -402,13 +397,28 @@ describe('in-process preload to validated IPC round trips', () => {
 
     it('round-trips an agent command response and renderer acknowledgement', async () => {
         const submitCommandResponse = vi.fn(async () => ({accepted: true}));
-        const service = cast<IAgentService>({submitCommandResponse});
-        const harness = createInProcessIpcRoundTripHarness<IAgentInvokeMap, IAgentService, ReturnType<typeof createAgentPreloadClient>>({
-            channels: AGENT_CHANNELS,
-            codecs: AGENT_IPC_CODECS,
-            createClient: createAgentPreloadClient,
-            register: registerAgentIpcAdapter,
-            service,
+        type TBindings = TFeatureMainBindings<typeof AGENT_PLATFORM_FEATURE, IpcMainInvokeEvent>;
+        const bindings = cast<TBindings>({submitCommandResponse});
+        const createClient = (ipcRenderer: Electron.IpcRenderer) =>
+            createPlatformFeaturePreloadClient(ipcRenderer, AGENT_PLATFORM_FEATURE);
+        const harness = createInProcessIpcRoundTripHarness<
+            IAgentInvokeMap,
+            TBindings,
+            ReturnType<typeof createClient>
+        >({
+            channels: AGENT_PLATFORM_FEATURE.invokeChannels,
+            codecs: cast<Parameters<typeof createInProcessIpcRoundTripHarness<
+                IAgentInvokeMap,
+                TBindings,
+                ReturnType<typeof createClient>
+            >>[0]['codecs']>(AGENT_PLATFORM_FEATURE.ipcCodecs),
+            createClient,
+            register: (registrar, service) => registerPlatformFeatureHandlers(
+                cast<Parameters<typeof registerPlatformFeatureHandlers>[0]>(registrar),
+                AGENT_PLATFORM_FEATURE,
+                service,
+            ),
+            service: bindings,
         });
         const response = {
             ok: true,
@@ -424,11 +434,11 @@ describe('in-process preload to validated IPC round trips', () => {
         const callback = vi.fn();
         harness.client.onCommandCancelRequest(callback);
 
-        harness.emit(AGENT_EVENT_CHANNELS.commandCancelRequest, {
+        harness.emit(AGENT_PLATFORM_FEATURE.eventChannels.onCommandCancelRequest, {
             requestId: 'command-1',
             windowId: 9,
         });
-        harness.emit(AGENT_EVENT_CHANNELS.commandCancelRequest, {requestId: ''});
+        harness.emit(AGENT_PLATFORM_FEATURE.eventChannels.onCommandCancelRequest, {requestId: ''});
 
         expect(callback).toHaveBeenCalledOnce();
         expect(callback).toHaveBeenCalledWith({

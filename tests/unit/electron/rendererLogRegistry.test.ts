@@ -44,7 +44,6 @@ vi.mock('electron', () => ({
 
 vi.mock('@contracts/externalUrl', () => ({sanitizeAllowedExternalUrl: (value: unknown) => value}));
 vi.mock('@electron/features/agent/createAgentService', () => ({createAgentService: mocks.createAgentService}));
-vi.mock('@electron/features/agent/registerAgentIpcAdapter', () => ({registerAgentIpcAdapter: vi.fn()}));
 vi.mock('@electron/features/documents/registerDocumentsIpcAdapter', () => ({registerDocumentsIpcAdapter: vi.fn()}));
 vi.mock('@electron/features/image-export/public', () => ({imageExportMainBindings: new Proxy({}, {get: () => vi.fn()})}));
 vi.mock('@electron/features/ocr/mainBindings', () => ({

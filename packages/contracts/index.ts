@@ -218,6 +218,7 @@ export type {
     ISearchMatchOptions,
     TPdfSearchUtf16Offset,
 } from '@contracts/search';
+export { AGENT_PLATFORM_FEATURE } from '@contracts/agentPlatformFeature';
 export {
     DJVU_PLATFORM_FEATURE,
     type IDjvuEventMap,

@@ -1,4 +1,7 @@
-import type { IAgentCapability } from '@contracts/agentCapability';
+import {
+    AGENT_PLATFORM_FEATURE,
+    type IAgentCapability,
+} from '@contracts/agentPlatformFeature';
 import {
     DJVU_PLATFORM_FEATURE,
     type IDjvuCapability,
@@ -575,66 +578,6 @@ const otherMethodPaths = defineMethodPaths([
         'windowTabs',
         'notifyRendererReady',
     ],
-    [
-        'agent',
-        'onWorkspaceSnapshotRequest',
-    ],
-    [
-        'agent',
-        'submitWorkspaceSnapshot',
-    ],
-    [
-        'agent',
-        'onCommandRequest',
-    ],
-    [
-        'agent',
-        'onCommandCancelRequest',
-    ],
-    [
-        'agent',
-        'submitCommandResponse',
-    ],
-    [
-        'agent',
-        'getMcpIntegrationStatus',
-    ],
-    [
-        'agent',
-        'setMcpIntegrationEnabled',
-    ],
-    [
-        'agent',
-        'getAssistantState',
-    ],
-    [
-        'agent',
-        'installAssistantCodex',
-    ],
-    [
-        'agent',
-        'startAssistantLogin',
-    ],
-    [
-        'agent',
-        'cancelAssistantLogin',
-    ],
-    [
-        'agent',
-        'sendAssistantMessage',
-    ],
-    [
-        'agent',
-        'interruptAssistant',
-    ],
-    [
-        'agent',
-        'resetAssistantChat',
-    ],
-    [
-        'agent',
-        'onAssistantEvent',
-    ],
 ] as const);
 
 export const LEGACY_PLATFORM_API_DESCRIPTOR_WITHOUT_MIGRATED_FEATURES = {
@@ -694,11 +637,6 @@ export const LEGACY_PLATFORM_API_DESCRIPTOR_WITHOUT_MIGRATED_FEATURES = {
         {
             path: ['scanCleanup'],
             required: requiredInElectron,
-        },
-        {
-            path: ['agent'],
-            required: requiredEverywhere,
-            manifestPath: ['agent'],
         },
         {
             path: [
@@ -786,6 +724,7 @@ export const LEGACY_PLATFORM_API_DESCRIPTOR_WITHOUT_MIGRATED_FEATURES = {
 } as const satisfies IPlatformApiDescriptor;
 
 export const PLATFORM_FEATURE_REGISTRY = [
+    AGENT_PLATFORM_FEATURE,
     SEARCH_PLATFORM_FEATURE,
     DJVU_PLATFORM_FEATURE,
     OCR_PLATFORM_FEATURE,

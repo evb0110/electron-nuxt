@@ -6,7 +6,7 @@ import {
 import {
     ASSISTANT_MAX_IMAGE_ATTACHMENTS,
     ASSISTANT_MAX_IMAGE_BYTES,
-} from '@electron/features/agent/codexAssistantConfig';
+} from '@contracts/agent';
 import {
     estimateBase64ByteSize,
     normalizeAssistantAttachmentName,

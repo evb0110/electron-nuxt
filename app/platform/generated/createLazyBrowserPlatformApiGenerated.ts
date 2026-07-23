@@ -236,11 +236,6 @@ export function createLazyBrowserPlatformApiGenerated({
     const settingsOnMenuOpenSettingsMethod = lazyEvent(pathDescriptors.settings.onMenuOpenSettings.path);
     const systemOnShutdownSaveFlushRequestMethod = lazyEvent(pathDescriptors.system.onShutdownSaveFlushRequest.path);
     const windowTabsNotifyRendererReadyMethod = lazyVoid(pathDescriptors.windowTabs.notifyRendererReady.path);
-    const agentOnWorkspaceSnapshotRequestMethod = lazyEvent(pathDescriptors.agent.onWorkspaceSnapshotRequest.path);
-    const agentSubmitWorkspaceSnapshotMethod = lazyAsync(pathDescriptors.agent.submitWorkspaceSnapshot.path);
-    const agentOnCommandRequestMethod = lazyEvent(pathDescriptors.agent.onCommandRequest.path);
-    const agentOnCommandCancelRequestMethod = lazyEvent(pathDescriptors.agent.onCommandCancelRequest.path);
-    const agentSubmitCommandResponseMethod = lazyAsync(pathDescriptors.agent.submitCommandResponse.path);
     const agentGetMcpIntegrationStatusMethod = lazyAsync(pathDescriptors.agent.getMcpIntegrationStatus.path);
     const agentSetMcpIntegrationEnabledMethod = lazyAsync(pathDescriptors.agent.setMcpIntegrationEnabled.path);
     const agentGetAssistantStateMethod = lazyAsync(pathDescriptors.agent.getAssistantState.path);
@@ -250,7 +245,12 @@ export function createLazyBrowserPlatformApiGenerated({
     const agentSendAssistantMessageMethod = lazyAsync(pathDescriptors.agent.sendAssistantMessage.path);
     const agentInterruptAssistantMethod = lazyAsync(pathDescriptors.agent.interruptAssistant.path);
     const agentResetAssistantChatMethod = lazyAsync(pathDescriptors.agent.resetAssistantChat.path);
+    const agentSubmitWorkspaceSnapshotMethod = lazyAsync(pathDescriptors.agent.submitWorkspaceSnapshot.path);
+    const agentSubmitCommandResponseMethod = lazyAsync(pathDescriptors.agent.submitCommandResponse.path);
     const agentOnAssistantEventMethod = lazyEvent(pathDescriptors.agent.onAssistantEvent.path);
+    const agentOnWorkspaceSnapshotRequestMethod = lazyEvent(pathDescriptors.agent.onWorkspaceSnapshotRequest.path);
+    const agentOnCommandCancelRequestMethod = lazyEvent(pathDescriptors.agent.onCommandCancelRequest.path);
+    const agentOnCommandRequestMethod = lazyEvent(pathDescriptors.agent.onCommandRequest.path);
     const searchRunMethod = lazyAsync(pathDescriptors.search.run.path);
     const searchWarmIndexMethod = lazyAsync(pathDescriptors.search.warmIndex.path);
     const searchCancelMethod = lazyAsync(pathDescriptors.search.cancel.path);
@@ -601,11 +601,6 @@ export function createLazyBrowserPlatformApiGenerated({
         onMenuCopyTabToPane: windowTabsOnMenuCopyTabToPaneMethod,
     },
     agent: {
-        onWorkspaceSnapshotRequest: agentOnWorkspaceSnapshotRequestMethod,
-        submitWorkspaceSnapshot: agentSubmitWorkspaceSnapshotMethod,
-        onCommandRequest: agentOnCommandRequestMethod,
-        onCommandCancelRequest: agentOnCommandCancelRequestMethod,
-        submitCommandResponse: agentSubmitCommandResponseMethod,
         getMcpIntegrationStatus: agentGetMcpIntegrationStatusMethod,
         setMcpIntegrationEnabled: agentSetMcpIntegrationEnabledMethod,
         getAssistantState: agentGetAssistantStateMethod,
@@ -615,7 +610,12 @@ export function createLazyBrowserPlatformApiGenerated({
         sendAssistantMessage: agentSendAssistantMessageMethod,
         interruptAssistant: agentInterruptAssistantMethod,
         resetAssistantChat: agentResetAssistantChatMethod,
+        submitWorkspaceSnapshot: agentSubmitWorkspaceSnapshotMethod,
+        submitCommandResponse: agentSubmitCommandResponseMethod,
         onAssistantEvent: agentOnAssistantEventMethod,
+        onWorkspaceSnapshotRequest: agentOnWorkspaceSnapshotRequestMethod,
+        onCommandCancelRequest: agentOnCommandCancelRequestMethod,
+        onCommandRequest: agentOnCommandRequestMethod,
     },
     search: {
         run: searchRunMethod,

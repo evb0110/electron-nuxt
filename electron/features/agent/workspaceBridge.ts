@@ -72,6 +72,7 @@ interface IPendingRequest<TResponse> {
 const pendingSnapshotRequests = new Map<string, IPendingRequest<IAgentWorkspaceSnapshot>>();
 const pendingCommandRequests = new Map<string, IPendingRequest<Record<string, unknown>>>();
 const snapshotCacheByWindowId = new Map<number, ICachedWorkspaceSnapshot>();
+type TAgentResponseSender = Pick<IpcMainInvokeEvent, 'sender'>;
 
 function rejectPendingRequest<TResponse>(
     pendingMap: Map<string, IPendingRequest<TResponse>>,
@@ -235,7 +236,7 @@ export function resolveAgentCommandRequestTimeoutMs(
     return DEFAULT_AGENT_REQUEST_TIMEOUT_MS;
 }
 
-function getResponseSenderWindowId(event: IpcMainInvokeEvent) {
+function getResponseSenderWindowId(event: TAgentResponseSender) {
     const sourceWindow = BrowserWindow.fromWebContents(event.sender);
     return sourceWindow && !sourceWindow.isDestroyed() ? sourceWindow.id : null;
 }
@@ -506,7 +507,7 @@ function isValidCommandResponse(response: unknown): response is IAgentCommandRes
 }
 
 function rejectPendingInvalidSnapshotResponse(
-    event: IpcMainInvokeEvent,
+    event: TAgentResponseSender,
     rawResponse: unknown,
 ) {
     if (!isRecord(rawResponse) || typeof rawResponse.requestId !== 'string' || rawResponse.requestId.trim().length === 0) {
@@ -620,7 +621,7 @@ export function requestAgentCommand(
 }
 
 export function submitAgentWorkspaceSnapshotResponse(
-    event: IpcMainInvokeEvent,
+    event: TAgentResponseSender,
     rawResponse: unknown,
 ) {
     if (!isValidSnapshotResponse(rawResponse)) {
@@ -703,7 +704,7 @@ export function submitAgentWorkspaceSnapshotResponse(
 }
 
 export function submitAgentCommandResponse(
-    event: IpcMainInvokeEvent,
+    event: TAgentResponseSender,
     rawResponse: unknown,
 ) {
     if (!isValidCommandResponse(rawResponse)) {

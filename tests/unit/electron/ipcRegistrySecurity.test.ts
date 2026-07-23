@@ -12,7 +12,7 @@ import type {
 import {
     ASSISTANT_MAX_IMAGE_ATTACHMENTS,
     ASSISTANT_MAX_IMAGE_BYTES,
-} from '@electron/features/agent/codexAssistantConfig';
+} from '@contracts/agent';
 
 const ipcRegistrySecurityImportTimeoutMs = 10_000;
 
@@ -379,7 +379,7 @@ describe('IPC registry sender trust', () => {
                     id: `image-${index}`,
                 }),
             ),
-        })).rejects.toThrow('Invalid assistant message payload');
+        })).rejects.toThrow('Invalid IPC arguments for agent:sendAssistantMessage');
 
         await expect(handler?.(event, {
             text: 'hello',
@@ -387,7 +387,7 @@ describe('IPC registry sender trust', () => {
                 ...imageAttachment,
                 sizeBytes: ASSISTANT_MAX_IMAGE_BYTES + 1,
             }],
-        })).rejects.toThrow('Invalid assistant message payload');
+        })).rejects.toThrow('Invalid IPC arguments for agent:sendAssistantMessage');
 
         await expect(handler?.(event, {
             text: 'hello',
@@ -395,7 +395,7 @@ describe('IPC registry sender trust', () => {
                 ...imageAttachment,
                 dataUrl: `data:image/png;base64,${'A'.repeat(Math.ceil(ASSISTANT_MAX_IMAGE_BYTES / 3) * 4 + 129)}`,
             }],
-        })).rejects.toThrow('Invalid assistant message payload');
+        })).rejects.toThrow('Invalid IPC arguments for agent:sendAssistantMessage');
     }, ipcRegistrySecurityImportTimeoutMs);
 
     it('rejects malformed tab transfer payloads before calling the transfer broker', async () => {

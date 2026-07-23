@@ -3,11 +3,12 @@ import type {
     WebContents,
 } from 'electron';
 import {
-    AGENT_EVENT_CHANNELS,
+    AGENT_PLATFORM_FEATURE,
     type IAgentEventMap,
-} from '@electron/features/agent/contract';
+} from '@contracts/agentPlatformFeature';
 
 type TAgentRendererEventChannel = Extract<keyof IAgentEventMap, string>;
+const eventChannels = AGENT_PLATFORM_FEATURE.eventChannels;
 
 function sendAgentRendererEvent<TChannel extends TAgentRendererEventChannel>(
     webContents: Pick<WebContents, 'send'>,
@@ -19,28 +20,28 @@ function sendAgentRendererEvent<TChannel extends TAgentRendererEventChannel>(
 
 export function sendAgentAssistantEvent(
     targetWindow: BrowserWindow,
-    payload: IAgentEventMap[typeof AGENT_EVENT_CHANNELS.assistantEvent],
+    payload: IAgentEventMap[typeof eventChannels.onAssistantEvent],
 ) {
-    sendAgentRendererEvent(targetWindow.webContents, AGENT_EVENT_CHANNELS.assistantEvent, payload);
+    sendAgentRendererEvent(targetWindow.webContents, eventChannels.onAssistantEvent, payload);
 }
 
 export function sendAgentWorkspaceSnapshotRequest(
     targetWindow: BrowserWindow,
-    request: IAgentEventMap[typeof AGENT_EVENT_CHANNELS.workspaceSnapshotRequest],
+    request: IAgentEventMap[typeof eventChannels.onWorkspaceSnapshotRequest],
 ) {
-    sendAgentRendererEvent(targetWindow.webContents, AGENT_EVENT_CHANNELS.workspaceSnapshotRequest, request);
+    sendAgentRendererEvent(targetWindow.webContents, eventChannels.onWorkspaceSnapshotRequest, request);
 }
 
 export function sendAgentCommandRequest(
     targetWindow: BrowserWindow,
-    request: IAgentEventMap[typeof AGENT_EVENT_CHANNELS.commandRequest],
+    request: IAgentEventMap[typeof eventChannels.onCommandRequest],
 ) {
-    sendAgentRendererEvent(targetWindow.webContents, AGENT_EVENT_CHANNELS.commandRequest, request);
+    sendAgentRendererEvent(targetWindow.webContents, eventChannels.onCommandRequest, request);
 }
 
 export function sendAgentCommandCancelRequest(
     targetWindow: BrowserWindow,
-    request: IAgentEventMap[typeof AGENT_EVENT_CHANNELS.commandCancelRequest],
+    request: IAgentEventMap[typeof eventChannels.onCommandCancelRequest],
 ) {
-    sendAgentRendererEvent(targetWindow.webContents, AGENT_EVENT_CHANNELS.commandCancelRequest, request);
+    sendAgentRendererEvent(targetWindow.webContents, eventChannels.onCommandCancelRequest, request);
 }

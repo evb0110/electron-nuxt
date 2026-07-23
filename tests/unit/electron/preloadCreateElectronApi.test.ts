@@ -6,7 +6,7 @@ import {
     it,
     vi,
 } from 'vitest';
-import { AGENT_EVENT_CHANNELS } from '@electron/features/agent/contract';
+import { AGENT_PLATFORM_FEATURE } from '@contracts/agentPlatformFeature';
 import { DOCUMENTS_CHANNELS } from '@electron/features/documents/contract';
 import { CORE_IPC_EVENT_CHANNELS } from '@electron/platform-ipc/coreContract';
 import { getPlatformDocumentCapabilityMirrors } from '@contracts/platformApi';
@@ -19,6 +19,7 @@ import { OCR_PLATFORM_FEATURE } from '@contracts/ocrPlatformFeature';
 import { UPDATES_PLATFORM_FEATURE } from '@contracts/updatesPlatformFeature';
 import { WINDOW_TABS_PLATFORM_FEATURE } from '@contracts/windowTabsPlatformFeature';
 
+const agentEventChannels = AGENT_PLATFORM_FEATURE.eventChannels;
 const documentsClientMock = vi.hoisted(() => ({
     openDocumentDialog: vi.fn(async () => null),
     openPdfDialog: vi.fn(async () => null),
@@ -560,8 +561,8 @@ describe('createElectronApi', () => {
 
         api.agent.onWorkspaceSnapshotRequest(snapshotCallback);
         api.agent.onCommandRequest(commandCallback);
-        const snapshotListener = listeners.get(AGENT_EVENT_CHANNELS.workspaceSnapshotRequest);
-        const commandListener = listeners.get(AGENT_EVENT_CHANNELS.commandRequest);
+        const snapshotListener = listeners.get(agentEventChannels.onWorkspaceSnapshotRequest);
+        const commandListener = listeners.get(agentEventChannels.onCommandRequest);
         if (!snapshotListener || !commandListener) {
             throw new Error('Expected agent request listeners to be registered');
         }
@@ -618,11 +619,11 @@ describe('createElectronApi', () => {
             },
         });
         expect(warningSpy).toHaveBeenCalledWith(
-            `Dropped invalid decoded IPC event payload for ${AGENT_EVENT_CHANNELS.workspaceSnapshotRequest}`,
+            `Dropped invalid decoded IPC event payload for ${agentEventChannels.onWorkspaceSnapshotRequest}`,
             expect.objectContaining({ requestId: '' }),
         );
         expect(warningSpy).toHaveBeenCalledWith(
-            `Dropped invalid decoded IPC event payload for ${AGENT_EVENT_CHANNELS.commandRequest}`,
+            `Dropped invalid decoded IPC event payload for ${agentEventChannels.onCommandRequest}`,
             expect.objectContaining({ requestId: 'command-bad' }),
         );
     });
@@ -652,7 +653,7 @@ describe('createElectronApi', () => {
         const callback = vi.fn();
 
         api.agent.onAssistantEvent(callback);
-        const listener = listeners.get(AGENT_EVENT_CHANNELS.assistantEvent);
+        const listener = listeners.get(agentEventChannels.onAssistantEvent);
         if (!listener) {
             throw new Error('Expected assistant event listener to be registered');
         }
@@ -689,7 +690,7 @@ describe('createElectronApi', () => {
             binding,
         });
         expect(warningSpy).toHaveBeenCalledWith(
-            `Dropped invalid decoded IPC event payload for ${AGENT_EVENT_CHANNELS.assistantEvent}`,
+            `Dropped invalid decoded IPC event payload for ${agentEventChannels.onAssistantEvent}`,
             expect.objectContaining({ type: 'state' }),
         );
     });

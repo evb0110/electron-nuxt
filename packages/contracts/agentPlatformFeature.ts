@@ -4,18 +4,32 @@ import type {
     IAgentAssistantChatMessage,
     IAgentAssistantEffortOption,
     IAgentAssistantErrorEnvelope,
+    IAgentAssistantEvent,
     IAgentAssistantImageAttachment,
     IAgentAssistantInstallResult,
+    IAgentAssistantLoginRequest,
     IAgentAssistantLoginResult,
     IAgentAssistantMcpStatus,
     IAgentAssistantModelOption,
     IAgentAssistantProviderStatus,
+    IAgentAssistantScopedRequest,
+    IAgentAssistantSendMessageRequest,
     IAgentAssistantSendMessageResult,
     IAgentAssistantServiceTierOption,
+    IAgentAssistantStateRequest,
+    IAgentCommandCancelRequest,
     IAgentCommandExecutionScope,
+    IAgentCommandRequest,
+    IAgentCommandResponse,
+    IAgentMcpIntegrationStatus,
+    IAgentMcpIntegrationUpdateResult,
+    IAgentRendererAck,
     IAgentAssistantState,
     IAgentAssistantStatus,
     IAgentAssistantTurnState,
+    IAgentWorkspaceSnapshot,
+    IAgentWorkspaceSnapshotRequest,
+    IAgentWorkspaceSnapshotResponse,
     TAgentCommand,
     TAgentWorkspaceCommandTarget,
 } from '@contracts/agent';
@@ -23,7 +37,10 @@ import {
     AGENT_ASSISTANT_ERROR_CODES,
     AGENT_ASSISTANT_EVENT_TYPES,
     AGENT_ASSISTANT_MESSAGE_ROLES,
+    AGENT_ASSISTANT_PRESET_IDS,
     AGENT_ASSISTANT_TURN_PHASES,
+    ASSISTANT_MAX_IMAGE_ATTACHMENTS,
+    ASSISTANT_MAX_IMAGE_BYTES,
     ASSISTANT_PROVIDER_IDS,
 } from '@contracts/agent';
 import type { TDocumentBackend } from '@contracts/documentRef';
@@ -36,7 +53,14 @@ import {
     isOneOf,
     isRecord,
 } from '@contracts/runtimeGuards';
-import type { IAgentEventMap } from '@electron/features/agent/contract';
+import {
+    definePlatformFeature,
+    runtimeSchema as s,
+    type IRuntimeSchema,
+    type TFeatureCapability,
+    type TFeatureEventMap,
+    type TFeatureInvokeMap,
+} from '@contracts/platformFeature';
 
 const AGENT_ASSISTANT_INSTALL_STATES = [
     'installed',
@@ -64,6 +88,257 @@ const AGENT_ASSISTANT_SPEED_MODES = [
     'fast',
     'standard',
 ] as const;
+const ASSISTANT_MAX_IMAGE_DATA_URL_LENGTH = Math.ceil(ASSISTANT_MAX_IMAGE_BYTES / 3) * 4 + 128;
+const ASSISTANT_IMAGE_DATA_URL_PREFIX_RE = /^data:image\/[a-z0-9.+-]+(?:;[a-z0-9.+-]+=[a-z0-9.+/-]+)*;base64,/iu;
+
+function requireArgs(args: readonly unknown[], count: number | {
+    min: number;
+    max: number;
+}) {
+    const min = typeof count === 'number' ? count : count.min;
+    const max = typeof count === 'number' ? count : count.max;
+    if (args.length < min || args.length > max) {
+        const expected = min === max ? String(min) : `${min}-${max}`;
+        throw new Error(`expected ${expected} arguments, received ${args.length}`);
+    }
+    return args;
+}
+
+function decodeOptionalSelection(
+    value: Record<PropertyKey, unknown>,
+): Pick<IAgentAssistantStateRequest, 'provider' | 'model' | 'effort' | 'speedMode'> {
+    if (
+        value.provider !== undefined && !isOneOf(ASSISTANT_PROVIDER_IDS, value.provider)
+        || value.model !== undefined && typeof value.model !== 'string'
+        || value.effort !== undefined && typeof value.effort !== 'string'
+        || value.speedMode !== undefined && value.speedMode !== 'fast' && value.speedMode !== 'standard'
+    ) {
+        throw new Error('invalid assistant selection');
+    }
+    return {
+        ...(value.provider === undefined ? {} : {provider: value.provider}),
+        ...(value.model === undefined ? {} : {model: value.model}),
+        ...(value.effort === undefined ? {} : {effort: value.effort}),
+        ...(value.speedMode === undefined ? {} : {speedMode: value.speedMode}),
+    };
+}
+
+function decodeOptionalScope(value: unknown) {
+    if (value === undefined || value === null) {
+        return value;
+    }
+    const scope = decodeAgentAssistantChatScope(value);
+    if (scope === null) {
+        throw new Error('invalid assistant scope');
+    }
+    return scope;
+}
+
+function decodeAssistantStateRequest(value: unknown): IAgentAssistantStateRequest | undefined {
+    if (value === undefined || value === null) {
+        return undefined;
+    }
+    if (!isRecord(value)) {
+        throw new Error('assistant state request must be an object');
+    }
+    const scope = decodeOptionalScope(value.scope);
+    return {
+        ...decodeOptionalSelection(value),
+        ...(scope === undefined ? {} : {scope}),
+    };
+}
+
+function decodeAssistantSendMessageRequest(value: unknown): IAgentAssistantSendMessageRequest {
+    if (!isRecord(value) || typeof value.text !== 'string') {
+        throw new Error('assistant message request must include text');
+    }
+    const scope = decodeOptionalScope(value.scope);
+    let attachments;
+    if (value.attachments !== undefined) {
+        if (!Array.isArray(value.attachments)) {
+            throw new Error('assistant attachments must be an array');
+        }
+        if (value.attachments.length > ASSISTANT_MAX_IMAGE_ATTACHMENTS) {
+            throw new Error(
+                `assistant attachments exceeds maximum item count (${ASSISTANT_MAX_IMAGE_ATTACHMENTS})`,
+            );
+        }
+        attachments = value.attachments.map((attachment) => {
+            const decoded = decodeAgentAssistantImageAttachment(attachment);
+            if (
+                decoded === null
+                || !decoded.mimeType.toLowerCase().startsWith('image/')
+                || decoded.sizeBytes > ASSISTANT_MAX_IMAGE_BYTES
+                || decoded.dataUrl.length > ASSISTANT_MAX_IMAGE_DATA_URL_LENGTH
+                || !ASSISTANT_IMAGE_DATA_URL_PREFIX_RE.test(decoded.dataUrl)
+            ) {
+                throw new Error('invalid assistant image attachment');
+            }
+            return decoded;
+        });
+    }
+    if (value.presetId !== undefined && !isOneOf(AGENT_ASSISTANT_PRESET_IDS, value.presetId)) {
+        throw new Error('invalid assistant preset');
+    }
+    return {
+        text: value.text,
+        ...decodeOptionalSelection(value),
+        ...(scope === undefined ? {} : {scope}),
+        ...(attachments === undefined ? {} : {attachments}),
+        ...(value.presetId === undefined ? {} : {presetId: value.presetId}),
+    };
+}
+
+function isWorkspaceSnapshot(value: unknown): value is IAgentWorkspaceSnapshot {
+    return isRecord(value)
+        && typeof value.capturedAt === 'string'
+        && (value.activePaneId === null || typeof value.activePaneId === 'string')
+        && (value.activeTabId === null || typeof value.activeTabId === 'string')
+        && isRecord(value.summary)
+        && Array.isArray(value.panes) && value.panes.length <= 10_000
+        && Array.isArray(value.tabs) && value.tabs.length <= 10_000
+        && Array.isArray(value.recentFiles) && value.recentFiles.length <= 10_000
+        && (value.layout === null || isRecord(value.layout));
+}
+
+function decodeWorkspaceSnapshotResponse(value: unknown): IAgentWorkspaceSnapshotResponse {
+    if (
+        !isRecord(value)
+        || typeof value.requestId !== 'string'
+        || typeof value.ok !== 'boolean'
+        || (value.windowId !== undefined && (typeof value.windowId !== 'number' || !Number.isSafeInteger(value.windowId)))
+        || (value.revision !== undefined && (typeof value.revision !== 'number' || !Number.isSafeInteger(value.revision)))
+        || (value.unchanged !== undefined && typeof value.unchanged !== 'boolean')
+        || (value.snapshot !== undefined && !isWorkspaceSnapshot(value.snapshot))
+        || (value.error !== undefined && typeof value.error !== 'string')
+    ) {
+        throw new Error('invalid workspace snapshot response');
+    }
+    return {
+        requestId: value.requestId,
+        ok: value.ok,
+        ...(value.windowId === undefined ? {} : {windowId: value.windowId}),
+        ...(value.snapshot === undefined ? {} : {snapshot: value.snapshot}),
+        ...(value.revision === undefined ? {} : {revision: value.revision}),
+        ...(value.unchanged === undefined ? {} : {unchanged: value.unchanged}),
+        ...(value.error === undefined ? {} : {error: value.error}),
+    };
+}
+
+function decodeCommandResponse(value: unknown): IAgentCommandResponse {
+    if (
+        !isRecord(value)
+        || typeof value.requestId !== 'string'
+        || typeof value.ok !== 'boolean'
+        || (value.windowId !== undefined && (typeof value.windowId !== 'number' || !Number.isSafeInteger(value.windowId)))
+        || (value.result !== undefined && !isRecord(value.result))
+        || (value.error !== undefined && typeof value.error !== 'string')
+    ) {
+        throw new Error('invalid agent command response');
+    }
+    return {
+        requestId: value.requestId,
+        ok: value.ok,
+        ...(value.windowId === undefined ? {} : {windowId: value.windowId}),
+        ...(value.result === undefined ? {} : {result: value.result}),
+        ...(value.error === undefined ? {} : {error: value.error}),
+    };
+}
+
+function decodeMcpStatus(value: unknown): IAgentMcpIntegrationStatus {
+    if (
+        !isRecord(value)
+        || typeof value.enabled !== 'boolean'
+        || typeof value.serverName !== 'string'
+        || typeof value.serverUrl !== 'string'
+        || typeof value.serverRunning !== 'boolean'
+        || typeof value.codexInstalled !== 'boolean'
+        || (value.codexPath !== null && typeof value.codexPath !== 'string')
+        || typeof value.codexConfigured !== 'boolean'
+        || (
+            value.codexRegistrationState !== 'configured'
+            && value.codexRegistrationState !== 'missing'
+            && value.codexRegistrationState !== 'mismatched'
+            && value.codexRegistrationState !== 'unknown'
+        )
+        || typeof value.installUrl !== 'string'
+        || typeof value.lastCheckedAt !== 'string'
+        || (value.error !== undefined && typeof value.error !== 'string')
+    ) {
+        throw new Error('invalid agent MCP status');
+    }
+    const setupSnippets = value.setupSnippets;
+    let decodedSetupSnippets: IAgentMcpIntegrationStatus['setupSnippets'];
+    if (
+        setupSnippets !== undefined
+        && (
+            !isRecord(setupSnippets)
+            || typeof setupSnippets.codex !== 'string'
+            || typeof setupSnippets.claude !== 'string'
+            || typeof setupSnippets.cursor !== 'string'
+        )
+    ) {
+        throw new Error('invalid agent MCP setup snippets');
+    }
+    if (isRecord(setupSnippets)) {
+        decodedSetupSnippets = {
+            codex: setupSnippets.codex as string,
+            claude: setupSnippets.claude as string,
+            cursor: setupSnippets.cursor as string,
+        };
+    }
+    return {
+        enabled: value.enabled,
+        serverName: value.serverName,
+        serverUrl: value.serverUrl,
+        serverRunning: value.serverRunning,
+        codexInstalled: value.codexInstalled,
+        codexPath: value.codexPath,
+        codexConfigured: value.codexConfigured,
+        codexRegistrationState: value.codexRegistrationState,
+        installUrl: value.installUrl,
+        lastCheckedAt: value.lastCheckedAt,
+        ...(decodedSetupSnippets === undefined ? {} : {setupSnippets: decodedSetupSnippets}),
+        ...(value.error === undefined ? {} : {error: value.error}),
+    };
+}
+
+function decodeMcpUpdateResult(value: unknown): IAgentMcpIntegrationUpdateResult {
+    if (
+        !isRecord(value)
+        || typeof value.ok !== 'boolean'
+        || (value.cancelled !== undefined && typeof value.cancelled !== 'boolean')
+        || (value.error !== undefined && typeof value.error !== 'string')
+    ) {
+        throw new Error('invalid agent MCP update result');
+    }
+    return {
+        ok: value.ok,
+        ...(value.cancelled === undefined ? {} : {cancelled: value.cancelled}),
+        status: decodeMcpStatus(value.status),
+        ...(value.error === undefined ? {} : {error: value.error}),
+    };
+}
+
+function decodeRendererAck(value: unknown): IAgentRendererAck {
+    if (
+        !isRecord(value)
+        || typeof value.accepted !== 'boolean'
+        || (
+            value.reason !== undefined
+            && value.reason !== 'invalid-payload'
+            && value.reason !== 'unexpected-sender'
+            && value.reason !== 'unknown-request'
+        )
+    ) {
+        throw new Error('invalid agent renderer acknowledgement');
+    }
+    const reason: IAgentRendererAck['reason'] = value.reason;
+    return {
+        accepted: value.accepted,
+        ...(reason === undefined ? {} : {reason}),
+    };
+}
 
 function normalizeNonEmptyString(value: unknown) {
     if (typeof value !== 'string') {
@@ -377,7 +652,7 @@ function decodeAssistantErrorEnvelope(value: unknown): IAgentAssistantErrorEnvel
     };
 }
 
-export function decodeAgentAssistantImageAttachment(value: unknown): IAgentAssistantImageAttachment | null {
+function decodeAgentAssistantImageAttachment(value: unknown): IAgentAssistantImageAttachment | null {
     if (
         !isRecord(value)
         || value.type !== 'image'
@@ -639,7 +914,7 @@ function decodeDocumentRevisionInfo(value: unknown) {
     };
 }
 
-export function decodeAgentAssistantChatScope(value: unknown): IAgentAssistantChatScope | null {
+function decodeAgentAssistantChatScope(value: unknown): IAgentAssistantChatScope | null {
     if (
         !isRecord(value)
         || value.kind !== 'document'
@@ -843,7 +1118,7 @@ function decodeAgentAssistantStatus(value: unknown): IAgentAssistantStatus | nul
     };
 }
 
-export function decodeAgentAssistantState(value: unknown): IAgentAssistantState | null {
+function decodeAgentAssistantState(value: unknown): IAgentAssistantState | null {
     if (!isRecord(value)) {
         return null;
     }
@@ -885,15 +1160,15 @@ function decodeAssistantOperationResult(
     };
 }
 
-export function decodeAgentAssistantInstallResult(value: unknown): IAgentAssistantInstallResult | null {
+function decodeAgentAssistantInstallResult(value: unknown): IAgentAssistantInstallResult | null {
     return decodeAssistantOperationResult(value);
 }
 
-export function decodeAgentAssistantSendMessageResult(value: unknown): IAgentAssistantSendMessageResult | null {
+function decodeAgentAssistantSendMessageResult(value: unknown): IAgentAssistantSendMessageResult | null {
     return decodeAssistantOperationResult(value);
 }
 
-export function decodeAgentAssistantLoginResult(value: unknown): IAgentAssistantLoginResult | null {
+function decodeAgentAssistantLoginResult(value: unknown): IAgentAssistantLoginResult | null {
     const result = decodeAssistantOperationResult(value);
     if (
         result === null
@@ -914,7 +1189,7 @@ export function decodeAgentAssistantLoginResult(value: unknown): IAgentAssistant
     };
 }
 
-export function decodeAgentWorkspaceSnapshotRequest(value: unknown): IAgentEventMap['agent:workspaceSnapshotRequest'] | null {
+function decodeAgentWorkspaceSnapshotRequest(value: unknown): IAgentWorkspaceSnapshotRequest | null {
     if (!isRecord(value)) {
         return null;
     }
@@ -935,7 +1210,7 @@ export function decodeAgentWorkspaceSnapshotRequest(value: unknown): IAgentEvent
     };
 }
 
-export function decodeAgentCommandRequest(value: unknown): IAgentEventMap['agent:commandRequest'] | null {
+function decodeAgentCommandRequest(value: unknown): IAgentCommandRequest | null {
     if (!isRecord(value)) {
         return null;
     }
@@ -956,9 +1231,9 @@ export function decodeAgentCommandRequest(value: unknown): IAgentEventMap['agent
     };
 }
 
-export function decodeAgentCommandCancelRequest(
+function decodeAgentCommandCancelRequest(
     value: unknown,
-): IAgentEventMap['agent:commandCancelRequest'] | null {
+): IAgentCommandCancelRequest | null {
     if (!isRecord(value)) {
         return null;
     }
@@ -975,12 +1250,12 @@ export function decodeAgentCommandCancelRequest(
     };
 }
 
-export function decodeAgentAssistantEvent(value: unknown): IAgentEventMap['agent:assistantEvent'] | null {
+function decodeAgentAssistantEvent(value: unknown): IAgentAssistantEvent | null {
     if (!isRecord(value) || !isAssistantEventType(value.type)) {
         return null;
     }
 
-    const event: IAgentEventMap['agent:assistantEvent'] = {type: value.type};
+    const event: IAgentAssistantEvent = {type: value.type};
     if (value.state !== undefined) {
         const state = decodeAgentAssistantState(value.state);
         if (state === null) {
@@ -1084,3 +1359,445 @@ export function decodeAgentAssistantEvent(value: unknown): IAgentEventMap['agent
 
     return event;
 }
+
+function argsSchema<TArgs extends unknown[]>(
+    decode: (args: readonly unknown[]) => TArgs,
+    example: () => TArgs,
+) {
+    return s.declared<TArgs>()(s.fromParser((value) => {
+        if (!Array.isArray(value)) {
+            throw new Error('expected IPC arguments');
+        }
+        return decode(value);
+    }, example));
+}
+
+function resultSchema<TResult>(
+    decode: (value: unknown) => TResult,
+    example: () => TResult,
+) {
+    return s.declared<TResult>()(s.fromParser(decode, example));
+}
+
+function nullableResultSchema<TResult>(
+    decode: (value: unknown) => TResult | null,
+    label: string,
+    example: () => TResult,
+) {
+    return s.declared<TResult>()(s.fromNullableDecoder(decode, label, example));
+}
+
+function decodeOptionalRequestArgs<T>(
+    args: readonly unknown[],
+    decode: (value: unknown) => T | undefined,
+): [request?: T] {
+    requireArgs(args, {
+        min: 0,
+        max: 1,
+    });
+    const request = decode(args[0]);
+    return request === undefined ? [] : [request];
+}
+
+const noArgs = s.tuple([]);
+const enabledArgs = argsSchema<[boolean]>(
+    args => {
+        requireArgs(args, 1);
+        if (typeof args[0] !== 'boolean') {
+            throw new Error('enabled must be a boolean');
+        }
+        return [args[0]];
+    },
+    () => [true],
+);
+const assistantStateArgs = argsSchema<[request?: IAgentAssistantStateRequest]>(
+    args => decodeOptionalRequestArgs(args, decodeAssistantStateRequest),
+    () => [],
+);
+const assistantLoginArgs = argsSchema<[IAgentAssistantLoginRequest]>(
+    args => {
+        requireArgs(args, 1);
+        if (!isRecord(args[0]) || (args[0].mode !== 'chatgpt' && args[0].mode !== 'device-code')) {
+            throw new Error('invalid assistant login request');
+        }
+        return [{mode: args[0].mode}];
+    },
+    () => [{mode: 'chatgpt'}],
+);
+const assistantMessageArgs = argsSchema<[IAgentAssistantSendMessageRequest]>(
+    args => {
+        requireArgs(args, 1);
+        return [decodeAssistantSendMessageRequest(args[0])];
+    },
+    () => [{text: 'Summarize this document'}],
+);
+const assistantScopedArgs = argsSchema<[request?: IAgentAssistantScopedRequest]>(
+    args => decodeOptionalRequestArgs(args, decodeAssistantStateRequest),
+    () => [],
+);
+const workspaceSnapshotResponseArgs = argsSchema<[IAgentWorkspaceSnapshotResponse]>(
+    args => {
+        requireArgs(args, 1);
+        return [decodeWorkspaceSnapshotResponse(args[0])];
+    },
+    () => [{
+        requestId: 'snapshot-1',
+        ok: false,
+        error: 'Snapshot unavailable',
+    }],
+);
+const commandResponseArgs = argsSchema<[IAgentCommandResponse]>(
+    args => {
+        requireArgs(args, 1);
+        return [decodeCommandResponse(args[0])];
+    },
+    () => [{
+        requestId: 'command-1',
+        ok: true,
+        result: {},
+    }],
+);
+
+function createMcpStatusExample(): IAgentMcpIntegrationStatus {
+    return {
+        enabled: true,
+        serverName: 'evb-viewer',
+        serverUrl: 'http://127.0.0.1:3000',
+        serverRunning: true,
+        codexInstalled: true,
+        codexPath: '/usr/local/bin/codex',
+        codexConfigured: true,
+        codexRegistrationState: 'configured',
+        installUrl: 'https://example.test/install',
+        lastCheckedAt: '2026-07-23T00:00:00.000Z',
+    };
+}
+
+function createAssistantStateExample(): IAgentAssistantState {
+    const model = {
+        id: 'gpt-5',
+        label: 'GPT-5',
+        reasoningEfforts: [{
+            id: 'high',
+            label: 'High',
+            isDefault: true,
+        }],
+        defaultReasoningEffort: 'high',
+        serviceTiers: [{
+            id: 'fast',
+            label: 'Fast',
+        }],
+        defaultServiceTier: 'fast',
+    };
+    const account = {
+        type: 'chatgpt',
+        email: 'reader@example.test',
+    } as const;
+    const provider: IAgentAssistantProviderStatus = {
+        id: 'codex',
+        label: 'Codex',
+        installState: 'installed',
+        authState: 'signed-in',
+        runtimeState: 'ready',
+        models: [model],
+        defaultModel: model.id,
+        activeModel: model.id,
+        modelSwitchMode: 'in-session',
+        availableEfforts: ['high'],
+        defaultEffort: 'high',
+        activeEffort: 'high',
+        availableSpeedModes: [
+            'fast',
+            'standard',
+        ],
+        defaultSpeedMode: 'fast',
+        activeSpeedMode: 'fast',
+        path: '/usr/local/bin/codex',
+        version: '1.0.0',
+        minimumVersion: '0.133.0',
+        versionSupported: true,
+        installUrl: 'https://example.test/install',
+        account,
+    };
+    return {
+        scope: null,
+        status: {
+            supported: true,
+            platform: 'darwin',
+            provider: provider.id,
+            providerLabel: provider.label,
+            providers: [provider],
+            model: model.id,
+            modelLabel: model.label,
+            models: [model],
+            modelSwitchMode: 'in-session',
+            effort: 'high',
+            availableEfforts: ['high'],
+            speedMode: 'fast',
+            availableSpeedModes: [
+                'fast',
+                'standard',
+            ],
+            installState: 'installed',
+            codexInstalled: true,
+            codexPath: provider.path,
+            codexVersion: provider.version,
+            minimumCodexVersion: '0.133.0',
+            codexVersionSupported: true,
+            installUrl: provider.installUrl,
+            installScriptUrl: 'https://example.test/install.sh',
+            managedInstallDir: '/tmp/codex',
+            authState: provider.authState,
+            account,
+            runtimeState: provider.runtimeState,
+            mcp: {
+                serverName: 'evb-viewer',
+                serverUrl: 'http://127.0.0.1:3000',
+                serverRunning: true,
+                toolCount: 4,
+            },
+            turn: {
+                id: null,
+                phase: 'idle',
+                reasoning: '',
+                toolActivity: [],
+                lastEventAtMs: null,
+                usage: null,
+            },
+            lastCheckedAt: '2026-07-23T00:00:00.000Z',
+        },
+        messages: [],
+    };
+}
+
+const assistantErrorEnvelope = s.declared<IAgentAssistantErrorEnvelope>()(
+    s.fromNullableDecoder(decodeAssistantErrorEnvelope, 'assistant error envelope', () => ({
+        code: 'INTERNAL',
+        message: 'Assistant unavailable',
+        retryable: true,
+        timestamp: 0,
+    })),
+);
+const mcpStatusResult = resultSchema<IAgentMcpIntegrationStatus>(
+    decodeMcpStatus,
+    createMcpStatusExample,
+);
+const mcpUpdateResult = resultSchema<IAgentMcpIntegrationUpdateResult>(decodeMcpUpdateResult, () => ({
+    ok: true,
+    status: createMcpStatusExample(),
+}));
+const assistantStateResult = nullableResultSchema(
+    decodeAgentAssistantState,
+    'assistant state',
+    createAssistantStateExample,
+);
+const assistantInstallResult = nullableResultSchema(
+    decodeAgentAssistantInstallResult,
+    'assistant install',
+    () => ({
+        ok: false,
+        state: createAssistantStateExample(),
+        errorEnvelope: assistantErrorEnvelope.example(),
+    }),
+);
+const assistantLoginResult = nullableResultSchema(
+    decodeAgentAssistantLoginResult,
+    'assistant login',
+    () => ({
+        ok: true,
+        state: createAssistantStateExample(),
+        loginId: 'login-1',
+    }),
+);
+const assistantMessageResult = nullableResultSchema(
+    decodeAgentAssistantSendMessageResult,
+    'assistant message',
+    () => ({
+        ok: true,
+        state: createAssistantStateExample(),
+    }),
+);
+const rendererAckResult = resultSchema<IAgentRendererAck>(
+    decodeRendererAck,
+    () => ({accepted: true}),
+);
+const workspaceSnapshotRequest = s.declared<IAgentWorkspaceSnapshotRequest>()(
+    s.fromNullableDecoder(
+        decodeAgentWorkspaceSnapshotRequest,
+        'agent workspace snapshot request',
+        () => ({requestId: 'snapshot-1'}),
+    ),
+);
+const commandRequest = s.declared<IAgentCommandRequest>()(
+    s.fromNullableDecoder(
+        decodeAgentCommandRequest,
+        'agent command request',
+        () => ({
+            requestId: 'command-1',
+            command: {
+                name: 'activate_tab',
+                arguments: {tabId: 'tab-1'},
+            },
+        }),
+    ),
+);
+const commandCancelRequest = s.declared<IAgentCommandCancelRequest>()(
+    s.fromNullableDecoder(
+        decodeAgentCommandCancelRequest,
+        'agent command cancellation request',
+        () => ({requestId: 'command-1'}),
+    ),
+);
+const assistantEvent = s.declared<IAgentAssistantEvent>()(
+    s.fromNullableDecoder(
+        decodeAgentAssistantEvent,
+        'agent assistant event',
+        () => ({
+            type: 'heartbeat',
+            binding: {
+                scopeFingerprint: 'scope',
+                sessionKey: 'codex:scope',
+                turnGeneration: 1,
+                windowId: 1,
+            },
+        }),
+    ),
+);
+
+function defineAgentMethod<
+    const TName extends string,
+    const TChannel extends string,
+    const TArgs extends IRuntimeSchema<unknown[]>,
+    const TResult extends IRuntimeSchema<unknown>,
+>(definition: {
+    name: TName;
+    channel: TChannel;
+    args: TArgs;
+    result: TResult;
+}) {
+    return {
+        kind: 'async',
+        channel: definition.channel,
+        ipc: {
+            args: definition.args,
+            result: definition.result,
+        },
+        main: {
+            method: definition.name,
+            context: 'sender',
+        },
+        browser: {method: definition.name},
+        lazy: 'forwarded',
+    } as const;
+}
+
+export const AGENT_PLATFORM_FEATURE = definePlatformFeature({
+    path: ['agent'],
+    required: {
+        browser: true,
+        electron: true,
+    },
+    manifestPath: ['agent'],
+    methods: {
+        getMcpIntegrationStatus: defineAgentMethod({
+            name: 'getMcpIntegrationStatus',
+            channel: 'agent:getMcpIntegrationStatus',
+            args: noArgs,
+            result: mcpStatusResult,
+        }),
+        setMcpIntegrationEnabled: defineAgentMethod({
+            name: 'setMcpIntegrationEnabled',
+            channel: 'agent:setMcpIntegrationEnabled',
+            args: enabledArgs,
+            result: mcpUpdateResult,
+        }),
+        getAssistantState: defineAgentMethod({
+            name: 'getAssistantState',
+            channel: 'agent:getAssistantState',
+            args: assistantStateArgs,
+            result: assistantStateResult,
+        }),
+        installAssistantCodex: defineAgentMethod({
+            name: 'installAssistantCodex',
+            channel: 'agent:installAssistantCodex',
+            args: noArgs,
+            result: assistantInstallResult,
+        }),
+        startAssistantLogin: defineAgentMethod({
+            name: 'startAssistantLogin',
+            channel: 'agent:startAssistantLogin',
+            args: assistantLoginArgs,
+            result: assistantLoginResult,
+        }),
+        cancelAssistantLogin: defineAgentMethod({
+            name: 'cancelAssistantLogin',
+            channel: 'agent:cancelAssistantLogin',
+            args: noArgs,
+            result: assistantStateResult,
+        }),
+        sendAssistantMessage: defineAgentMethod({
+            name: 'sendAssistantMessage',
+            channel: 'agent:sendAssistantMessage',
+            args: assistantMessageArgs,
+            result: assistantMessageResult,
+        }),
+        interruptAssistant: defineAgentMethod({
+            name: 'interruptAssistant',
+            channel: 'agent:interruptAssistant',
+            args: assistantScopedArgs,
+            result: assistantStateResult,
+        }),
+        resetAssistantChat: defineAgentMethod({
+            name: 'resetAssistantChat',
+            channel: 'agent:resetAssistantChat',
+            args: assistantScopedArgs,
+            result: assistantStateResult,
+        }),
+        submitWorkspaceSnapshot: defineAgentMethod({
+            name: 'submitWorkspaceSnapshot',
+            channel: 'agent:submitWorkspaceSnapshot',
+            args: workspaceSnapshotResponseArgs,
+            result: rendererAckResult,
+        }),
+        submitCommandResponse: defineAgentMethod({
+            name: 'submitCommandResponse',
+            channel: 'agent:submitCommandResponse',
+            args: commandResponseArgs,
+            result: rendererAckResult,
+        }),
+    },
+    events: {
+        onAssistantEvent: {
+            kind: 'event',
+            channel: 'agent:assistantEvent',
+            payload: assistantEvent,
+            browser: {method: 'onAssistantEvent'},
+            lazy: 'forwarded',
+        },
+        onWorkspaceSnapshotRequest: {
+            kind: 'event',
+            channel: 'agent:workspaceSnapshotRequest',
+            payload: workspaceSnapshotRequest,
+            browser: {method: 'onWorkspaceSnapshotRequest'},
+            lazy: 'forwarded',
+        },
+        onCommandCancelRequest: {
+            kind: 'event',
+            channel: 'agent:commandCancelRequest',
+            payload: commandCancelRequest,
+            browser: {method: 'onCommandCancelRequest'},
+            lazy: 'forwarded',
+        },
+        onCommandRequest: {
+            kind: 'event',
+            channel: 'agent:commandRequest',
+            payload: commandRequest,
+            browser: {method: 'onCommandRequest'},
+            lazy: 'forwarded',
+        },
+    },
+});
+
+export type IAgentCapability = TFeatureCapability<typeof AGENT_PLATFORM_FEATURE>;
+export type IAgentInvokeMap = TFeatureInvokeMap<typeof AGENT_PLATFORM_FEATURE>;
+export type IAgentEventMap = TFeatureEventMap<typeof AGENT_PLATFORM_FEATURE>;

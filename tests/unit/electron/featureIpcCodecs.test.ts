@@ -3,8 +3,7 @@ import {
     expect,
     it,
 } from 'vitest';
-import { AGENT_CHANNELS } from '@electron/features/agent/contract';
-import { AGENT_IPC_CODECS } from '@electron/features/agent/agentIpcCodecs';
+import { AGENT_PLATFORM_FEATURE } from '@contracts/agentPlatformFeature';
 import { DJVU_PLATFORM_FEATURE } from '@contracts/djvuPlatformFeature';
 import { DOCUMENTS_CHANNELS } from '@electron/features/documents/contract';
 import { DOCUMENTS_IPC_CODECS } from '@electron/features/documents/documentsIpcCodecs';
@@ -20,6 +19,8 @@ import { UPDATES_PLATFORM_FEATURE } from '@contracts/updatesPlatformFeature';
 import { WINDOW_TABS_PLATFORM_FEATURE } from '@contracts/windowTabsPlatformFeature';
 
 const IMAGE_EXPORT_CHANNELS = IMAGE_EXPORT_PLATFORM_FEATURE.invokeChannels;
+const AGENT_CHANNELS = AGENT_PLATFORM_FEATURE.invokeChannels;
+const AGENT_IPC_CODECS = AGENT_PLATFORM_FEATURE.ipcCodecs;
 const IMAGE_EXPORT_IPC_CODECS = IMAGE_EXPORT_PLATFORM_FEATURE.ipcCodecs;
 const PAGE_OPS_CHANNELS = PAGE_OPS_PLATFORM_FEATURE.invokeChannels;
 const PAGE_OPS_IPC_CODECS = PAGE_OPS_PLATFORM_FEATURE.ipcCodecs;
@@ -44,6 +45,7 @@ const OCR_IPC_CODECS = {
     ...OCR_PREPROCESSING_PLATFORM_FEATURE.ipcCodecs,
 };
 const djvuCodec = (channel: string) => DJVU_IPC_CODECS[channel]!;
+const agentCodec = (channel: string) => AGENT_IPC_CODECS[channel]!;
 const ocrCodec = (channel: string) => OCR_IPC_CODECS[channel]!;
 
 function expectExhaustiveMap(
@@ -70,7 +72,7 @@ describe('feature IPC codec maps', () => {
     });
 
     it('reject malformed main-process results at each feature boundary', () => {
-        expect(() => AGENT_IPC_CODECS[AGENT_CHANNELS.getMcpIntegrationStatus].decodeResult({enabled: 'yes'})).toThrow();
+        expect(() => agentCodec(AGENT_CHANNELS.getMcpIntegrationStatus).decodeResult({enabled: 'yes'})).toThrow();
         expect(() => djvuCodec(DJVU_CHANNELS.getInfo).decodeResult({pageCount: 'one'})).toThrow();
         expect(() => DOCUMENTS_IPC_CODECS[DOCUMENTS_CHANNELS.fileRead].decodeResult('bytes')).toThrow();
         expect(() => IMAGE_EXPORT_IPC_CODECS[IMAGE_EXPORT_CHANNELS.exportPdfToImages]!.decodeResult({success: 'yes'})).toThrow();
@@ -283,7 +285,7 @@ describe('feature IPC codec maps', () => {
     });
 
     it('reject malformed renderer arguments before handler dispatch', () => {
-        expect(() => AGENT_IPC_CODECS[AGENT_CHANNELS.setMcpIntegrationEnabled].decodeArgs(['yes'])).toThrow();
+        expect(() => agentCodec(AGENT_CHANNELS.setMcpIntegrationEnabled).decodeArgs(['yes'])).toThrow();
         expect(() => djvuCodec(DJVU_CHANNELS.getInfo).decodeArgs([''])).toThrow();
         expect(() => DOCUMENTS_IPC_CODECS[DOCUMENTS_CHANNELS.fileReadRange].decodeArgs([
             '/tmp/a.pdf',
@@ -311,10 +313,10 @@ describe('feature IPC codec maps', () => {
     });
 
     it('rejects oversized renderer collections before handler dispatch', () => {
-        expect(() => AGENT_IPC_CODECS[AGENT_CHANNELS.sendAssistantMessage].decodeArgs([{
+        expect(() => agentCodec(AGENT_CHANNELS.sendAssistantMessage).decodeArgs([{
             text: 'inspect',
-            attachments: Array.from({length: 65}, () => ({})),
-        }])).toThrow('assistant attachments exceeds maximum item count (64)');
+            attachments: Array.from({length: 9}, () => ({})),
+        }])).toThrow('assistant attachments exceeds maximum item count (8)');
 
         expect(() => DOCUMENTS_IPC_CODECS[DOCUMENTS_CHANNELS.allowRendererFileOpenBatch].decodeArgs(
             [Array.from({length: 4_097}, () => ({}))],

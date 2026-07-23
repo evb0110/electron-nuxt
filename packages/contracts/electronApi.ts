@@ -2,13 +2,13 @@ import type { IPlatformApi } from '@contracts/platformApi';
 import type { IUpdatesCapability } from '@contracts/updatesPlatformFeature';
 
 export type * from '@contracts/agent';
-export type * from '@contracts/agentCapability';
 export type * from '@contracts/pdfConformance';
 export type * from '@contracts/documentRevision';
 export type * from '@contracts/electronApiCommon';
 export type * from '@contracts/electronApiDocuments';
 export type * from '@contracts/electronApiOcr';
 export type * from '@contracts/ocrPlatformFeature';
+export type * from '@contracts/agentPlatformFeature';
 export type * from '@contracts/electronApiScanCleanup';
 export type * from '@contracts/updatesPlatformFeature';
 export type * from '@contracts/windowTabsPlatformFeature';

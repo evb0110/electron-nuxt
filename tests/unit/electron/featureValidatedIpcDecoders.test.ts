@@ -5,6 +5,10 @@ import {
 } from 'vitest';
 import type { IpcMainInvokeEvent } from 'electron';
 import {
+    AGENT_PLATFORM_FEATURE,
+    type IAgentInvokeMap,
+} from '@contracts/agentPlatformFeature';
+import {
     DJVU_PLATFORM_FEATURE,
     type IDjvuInvokeMap,
 } from '@contracts/djvuPlatformFeature';
@@ -90,6 +94,74 @@ async function runCases<TMap extends Record<keyof TMap, {
 }
 
 describe('feature validated IPC decoders', () => {
+    it('exhaustively validates Agent registrar tuples', async () => {
+        type TBindings = TFeatureMainBindings<typeof AGENT_PLATFORM_FEATURE, IpcMainInvokeEvent>;
+        const channels = AGENT_PLATFORM_FEATURE.invokeChannels;
+        await runCases<IAgentInvokeMap, TBindings>({
+            channels,
+            codecs: cast<Parameters<typeof runCases<IAgentInvokeMap, TBindings>>[0]['codecs']>(
+                AGENT_PLATFORM_FEATURE.ipcCodecs,
+            ),
+            register: (registrar, bindings) => registerPlatformFeatureHandlers(
+                cast<Parameters<typeof registerPlatformFeatureHandlers>[0]>(registrar),
+                AGENT_PLATFORM_FEATURE,
+                bindings,
+            ),
+            cases: [
+                {
+                    channel: channels.getMcpIntegrationStatus,
+                    validArgs: [],
+                },
+                {
+                    channel: channels.setMcpIntegrationEnabled,
+                    validArgs: [true],
+                },
+                {
+                    channel: channels.getAssistantState,
+                    validArgs: [],
+                },
+                {
+                    channel: channels.installAssistantCodex,
+                    validArgs: [],
+                },
+                {
+                    channel: channels.startAssistantLogin,
+                    validArgs: [{mode: 'chatgpt'}],
+                },
+                {
+                    channel: channels.cancelAssistantLogin,
+                    validArgs: [],
+                },
+                {
+                    channel: channels.sendAssistantMessage,
+                    validArgs: [{text: 'hello'}],
+                },
+                {
+                    channel: channels.interruptAssistant,
+                    validArgs: [],
+                },
+                {
+                    channel: channels.resetAssistantChat,
+                    validArgs: [],
+                },
+                {
+                    channel: channels.submitWorkspaceSnapshot,
+                    validArgs: [{
+                        requestId: 'snapshot-1',
+                        ok: false,
+                    }],
+                },
+                {
+                    channel: channels.submitCommandResponse,
+                    validArgs: [{
+                        requestId: 'command-1',
+                        ok: false,
+                    }],
+                },
+            ],
+        });
+    });
+
     it('exhaustively validates Search registrar tuples', async () => {
         type TBindings = TFeatureMainBindings<typeof SEARCH_PLATFORM_FEATURE, IpcMainInvokeEvent>;
         const channels = SEARCH_PLATFORM_FEATURE.invokeChannels;

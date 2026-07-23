@@ -6,6 +6,7 @@ import {
     vi,
 } from 'vitest';
 import { requireDocumentRevisionToken } from '@contracts/documentRevision';
+import { AGENT_PLATFORM_FEATURE } from '@contracts/agentPlatformFeature';
 import { DJVU_PLATFORM_FEATURE } from '@contracts/djvuPlatformFeature';
 import { createDocumentsPreloadFileClient } from '@electron/features/documents/createDocumentsPreloadFileClient';
 import { createDocumentsPreloadMenuClient } from '@electron/features/documents/createDocumentsPreloadMenuClient';
@@ -44,6 +45,62 @@ function createIpcRendererHarness() {
 }
 
 describe('preload global event fan-out', () => {
+    it('fans out all four decoded Agent streams through one listener per channel', () => {
+        const {
+            ipcRenderer,
+            listeners,
+        } = createIpcRendererHarness();
+        const client = createPlatformFeaturePreloadClient(ipcRenderer, AGENT_PLATFORM_FEATURE);
+        const cases = [
+            {
+                channel: AGENT_PLATFORM_FEATURE.eventChannels.onAssistantEvent,
+                subscribe: client.onAssistantEvent,
+                payload: {
+                    type: 'heartbeat',
+                    binding: {
+                        scopeFingerprint: 'scope',
+                        sessionKey: 'codex:scope',
+                        turnGeneration: 1,
+                        windowId: 1,
+                    },
+                },
+            },
+            {
+                channel: AGENT_PLATFORM_FEATURE.eventChannels.onWorkspaceSnapshotRequest,
+                subscribe: client.onWorkspaceSnapshotRequest,
+                payload: {requestId: 'snapshot-1'},
+            },
+            {
+                channel: AGENT_PLATFORM_FEATURE.eventChannels.onCommandCancelRequest,
+                subscribe: client.onCommandCancelRequest,
+                payload: {requestId: 'command-1'},
+            },
+            {
+                channel: AGENT_PLATFORM_FEATURE.eventChannels.onCommandRequest,
+                subscribe: client.onCommandRequest,
+                payload: {
+                    requestId: 'command-1',
+                    command: {
+                        name: 'activate_tab',
+                        arguments: {tabId: 'tab-1'},
+                    },
+                },
+            },
+        ] as const;
+        const callbacks = cases.map(() => Array.from({length: 24}, () => vi.fn()));
+        const unsubscribes = cases.flatMap((testCase, index) =>
+            callbacks[index]!.map(callback => testCase.subscribe(callback)));
+
+        expect(ipcRenderer.on).toHaveBeenCalledTimes(4);
+        cases.forEach((testCase, index) => {
+            listeners.get(testCase.channel)?.({}, testCase.payload);
+            expect(callbacks[index]!.every(callback => callback.mock.calls.length === 1)).toBe(true);
+        });
+
+        unsubscribes.forEach(unsubscribe => unsubscribe());
+        expect(ipcRenderer.removeListener).toHaveBeenCalledTimes(4);
+    });
+
     it('serves many document revision consumers with one native listener', () => {
         const {
             ipcRenderer,

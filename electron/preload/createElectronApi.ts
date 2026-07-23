@@ -19,6 +19,7 @@ import type { IHostResourceProfileSnapshot } from '@contracts/hostResourceProfil
 import { assertNonEmptyString } from '@contracts/ipcAssertions';
 import { IMAGE_EXPORT_PLATFORM_FEATURE } from '@contracts/imageExportPlatformFeature';
 import { DJVU_PLATFORM_FEATURE } from '@contracts/djvuPlatformFeature';
+import { AGENT_PLATFORM_FEATURE } from '@contracts/agentPlatformFeature';
 import {
     OCR_PLATFORM_FEATURE,
     OCR_PREPROCESSING_PLATFORM_FEATURE,
@@ -34,7 +35,6 @@ import { SYSTEM_PLATFORM_FEATURE } from '@contracts/systemPlatformFeature';
 import { WINDOW_TABS_PLATFORM_FEATURE } from '@contracts/windowTabsPlatformFeature';
 import { getDebugLogMessages } from '@electron/preload/debugLogBuffer';
 import { decodeDebugLogEntry } from '@electron/preload/installDebugLogListener';
-import { createAgentPreloadClient } from '@electron/features/agent/createAgentPreloadClient';
 import {createDocumentsPreloadClient} from '@electron/features/documents/createDocumentsPreloadClient';
 import { DOCUMENTS_IPC_CODECS } from '@electron/features/documents/documentsIpcCodecs';
 import {
@@ -573,7 +573,7 @@ export function createElectronApi(
 
         host: hostIpc,
 
-        agent: createAgentPreloadClient(ipcRenderer),
+        agent: createPlatformFeaturePreloadClient(ipcRenderer, AGENT_PLATFORM_FEATURE),
 
         windowTabs: {
             ...windowTabsIpc,

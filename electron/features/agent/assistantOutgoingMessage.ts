@@ -6,7 +6,7 @@ import type {
 import {
     ASSISTANT_MAX_IMAGE_ATTACHMENTS,
     ASSISTANT_MAX_IMAGE_BYTES,
-} from '@electron/features/agent/codexAssistantConfig';
+} from '@contracts/agent';
 
 interface IParsedAssistantImageDataUrl {
     base64: string;
