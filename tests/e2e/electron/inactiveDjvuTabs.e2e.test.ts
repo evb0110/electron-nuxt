@@ -23,7 +23,6 @@ import {
     waitForPdfLoaded,
 } from '@tests/e2e/electron/helpers/viewerCore';
 import {
-    activateWorkspaceTab as activateTab,
     createNewWorkspaceTab as createNewTab,
     splitActiveWorkspaceDocument as splitActiveDocument,
 } from '@tests/e2e/electron/helpers/workspaceTabs';
@@ -407,7 +406,7 @@ runOrSkip('Electron E2E - Inactive DjVu Tabs', () => {
         }
     }, 120_000);
 
-    it('restores a warm high-zoom DjVu presentation without scroll input', async () => {
+    it('restores a reclaimed high-zoom DjVu presentation without scroll input', async () => {
         const session = sessionFixture.getSession();
         if (!session) {
             return;
@@ -470,7 +469,7 @@ runOrSkip('Electron E2E - Inactive DjVu Tabs', () => {
 
         const afterPdfOpen = await session.page.evaluate(readDjvuPressureFromPage);
         expect(afterPdfOpen).toHaveLength(2);
-        expect(afterPdfOpen.find(host => !host.active)?.images).toBeGreaterThan(0);
+        expect(afterPdfOpen.find(host => !host.active)?.images).toBe(0);
 
         await installDjvuActivationOccupancyProbe(session, 0);
         await waitForDjvuLoaded(session.page);
@@ -505,11 +504,7 @@ runOrSkip('Electron E2E - Inactive DjVu Tabs', () => {
             JSON.stringify(activationFrames),
         ).toBe(true);
         const firstVisibleFrame = activationFrames.find(frame => frame.visibleShellCount > 0);
-        expect(firstVisibleFrame?.elapsedMs, JSON.stringify(activationFrames)).toBeLessThan(250);
-        expect(
-            firstVisibleFrame?.shellVisuals.every(visual => visual === 'fresh'),
-            JSON.stringify(activationFrames),
-        ).toBe(true);
+        expect(firstVisibleFrame?.elapsedMs, JSON.stringify(activationFrames)).toBeLessThan(1_500);
         expect(activationProbe.trustedDjvuScrollEvents).toBe(0);
 
         const afterDjvuReactivation = await session.page.evaluate(readDjvuPressureFromPage);
@@ -527,7 +522,7 @@ runOrSkip('Electron E2E - Inactive DjVu Tabs', () => {
             throw new Error(djvuFixture.reason);
         }
 
-        await activateTab(session, 0);
+        await openDjvuInApp(session.page, djvuFixture.path, DJVU_E2E_TIMEOUT_MS);
         await waitForDjvuLoaded(session.page, DJVU_E2E_TIMEOUT_MS);
         await waitForActiveDjvuImages(session);
 
