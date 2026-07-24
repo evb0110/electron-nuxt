@@ -28,9 +28,11 @@ import {
 import {
     decodeScanCleanupDetectionJobState,
     decodeScanCleanupPreviewResult,
-    SCAN_CLEANUP_IPC_CODECS,
-} from '@electron/features/scan-cleanup/scanCleanupIpcCodecs';
-import {SCAN_CLEANUP_CHANNELS} from '@electron/features/scan-cleanup/contract';
+} from '@contracts/scan-cleanup/ipcResultCodecs';
+import {SCAN_CLEANUP_PLATFORM_FEATURE} from '@contracts/scanCleanupPlatformFeature';
+
+const SCAN_CLEANUP_CHANNELS = SCAN_CLEANUP_PLATFORM_FEATURE.invokeChannels;
+const SCAN_CLEANUP_IPC_CODECS = SCAN_CLEANUP_PLATFORM_FEATURE.ipcCodecs;
 
 type TDetailPreviewManifest = Record<'pages', Array<Record<'options', Record<string, unknown>>>>;
 
@@ -90,8 +92,9 @@ function sender(id = 1) {
         id,
         isDestroyed: () => false,
         send: vi.fn(),
-        once: vi.fn((_event: 'destroyed', _listener: () => void) => undefined),
-        removeListener: vi.fn((_event: 'destroyed', _listener: () => void) => undefined),
+        on: vi.fn(),
+        once: vi.fn(),
+        removeListener: vi.fn(),
     } satisfies IScanCleanupDetectionSubscriber;
 }
 

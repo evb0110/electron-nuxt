@@ -25,8 +25,16 @@ export interface IMainJobErrorEnvelope<TCode extends string = string> {
     timestamp?: number;
     details?: string;
 }
-export interface IMainJobActor {
-    sender: WebContents;
+export interface IMainJobSender {
+    id: WebContents['id'];
+    isDestroyed: WebContents['isDestroyed'];
+    on: WebContents['on'];
+    once: WebContents['once'];
+    removeListener: WebContents['removeListener'];
+    send: WebContents['send'];
+}
+export interface IMainJobActor<TSender extends IMainJobSender = WebContents> {
+    sender: TSender;
     ownerId?: string;
     documentInstanceId?: TDocumentInstanceId;
     documentRevision?: string;
@@ -85,9 +93,14 @@ export interface IMainJobRunContext<TProgress, TResult, TError extends IMainJobE
     markCommitStarted(progress?: TProgress): void;
     terminal: IMainJobTerminalController<TProgress, TResult, TError>;
 }
-export interface IMainJobStartOptions<TProgress, TResult, TError extends IMainJobErrorEnvelope> {
+export interface IMainJobStartOptions<
+    TProgress,
+    TResult,
+    TError extends IMainJobErrorEnvelope,
+    TSender extends IMainJobSender = WebContents,
+> {
     jobId?: string;
-    owner: IMainJobActor;
+    owner: IMainJobActor<TSender>;
     operation: Pick<IMainOperationRegistration, 'kind' | 'workingCopyPath'>;
     initialProgress: TProgress;
     duplicate?: 'reject' | 'join';
@@ -103,7 +116,12 @@ export interface IMainJobHandle<TProgress, TResult, TError extends IMainJobError
     settled: Promise<void>;
     cancel(reason?: string): boolean;
 }
-export interface IMainJobRegistryOptions<TProgress, TResult, TError extends IMainJobErrorEnvelope> {
+export interface IMainJobRegistryOptions<
+    TProgress,
+    TResult,
+    TError extends IMainJobErrorEnvelope,
+    TSender extends IMainJobSender = WebContents,
+> {
     retention: {
         eventReplayTtlMs: number;
         terminalRecordTtlMs: number;
@@ -113,7 +131,7 @@ export interface IMainJobRegistryOptions<TProgress, TResult, TError extends IMai
         channel: string;
         intervalMs?: number;
         getEventKey(progress: TProgress): string | null;
-        send?(sender: WebContents, channel: string, progress: TProgress): void
+        send?(sender: TSender, channel: string, progress: TProgress): void
     };
     toError(cause: unknown, kind: TMainJobErrorKind): TError;
     terminalProgress: {
@@ -123,23 +141,33 @@ export interface IMainJobRegistryOptions<TProgress, TResult, TError extends IMai
     };
     now?: () => number;
 }
-export interface IMainJobRegistry<TProgress, TResult, TError extends IMainJobErrorEnvelope> {
-    start(options: IMainJobStartOptions<TProgress, TResult, TError>): IMainJobHandle<TProgress, TResult, TError>;
-    get(jobId: string, actor: IMainJobActor): TMainJobSnapshot<TProgress, TResult, TError> | null;
-    subscribe(jobId: string, actor: IMainJobActor, listener: (snapshot: TMainJobSnapshot<TProgress, TResult, TError>) => void): (() => void) | null;
-    subscribeOwner(actor: IMainJobActor): () => void;
-    cancel(jobId: string, actor: IMainJobActor, reason?: string): boolean;
-    await(jobId: string, actor: IMainJobActor): Promise<TMainJobTerminalSnapshot<TProgress, TResult, TError>>;
+export interface IMainJobRegistry<
+    TProgress,
+    TResult,
+    TError extends IMainJobErrorEnvelope,
+    TSender extends IMainJobSender = WebContents,
+> {
+    start(options: IMainJobStartOptions<TProgress, TResult, TError, TSender>): IMainJobHandle<TProgress, TResult, TError>;
+    get(jobId: string, actor: IMainJobActor<TSender>): TMainJobSnapshot<TProgress, TResult, TError> | null;
+    subscribe(jobId: string, actor: IMainJobActor<TSender>, listener: (snapshot: TMainJobSnapshot<TProgress, TResult, TError>) => void): (() => void) | null;
+    subscribeOwner(actor: IMainJobActor<TSender>): () => void;
+    cancel(jobId: string, actor: IMainJobActor<TSender>, reason?: string): boolean;
+    await(jobId: string, actor: IMainJobActor<TSender>): Promise<TMainJobTerminalSnapshot<TProgress, TResult, TError>>;
     clearForTests(): Promise<void>;
 }
-export function createMainJobRegistry<TProgress, TResult, TError extends IMainJobErrorEnvelope = IMainJobErrorEnvelope>(
-    options: IMainJobRegistryOptions<TProgress, TResult, TError>,
-): IMainJobRegistry<TProgress, TResult, TError> {
+export function createMainJobRegistry<
+    TProgress,
+    TResult,
+    TError extends IMainJobErrorEnvelope = IMainJobErrorEnvelope,
+    TSender extends IMainJobSender = WebContents,
+>(
+    options: IMainJobRegistryOptions<TProgress, TResult, TError, TSender>,
+): IMainJobRegistry<TProgress, TResult, TError, TSender> {
     type TSnapshot = TMainJobSnapshot<TProgress, TResult, TError>;
     type TTerminal = TMainJobTerminalSnapshot<TProgress, TResult, TError>;
     type THandle = IMainJobHandle<TProgress, TResult, TError>;
     interface IRecord {
-        actor: IMainJobActor;
+        actor: IMainJobActor<TSender>;
         owner: IMainJobOwnerKey;
         ownerKey: string;
         lifecycle: IMainJobOwnerLifecyclePolicy;
@@ -156,7 +184,7 @@ export function createMainJobRegistry<TProgress, TResult, TError extends IMainJo
         settled: boolean;
     }
     interface IBinding {
-        sender: WebContents;
+        sender: TSender;
         records: Set<IRecord>;
         destroyed: () => void;
         gone: () => void;
@@ -164,15 +192,15 @@ export function createMainJobRegistry<TProgress, TResult, TError extends IMainJo
     }
     const now = options.now ?? Date.now;
     const records = new Map<string, IRecord>(); const bindings = new Map<number, IBinding>();
-    const cancelHooks = new WeakMap<IRecord, IMainJobStartOptions<TProgress, TResult, TError>['onCancel']>();
+    const cancelHooks = new WeakMap<IRecord, IMainJobStartOptions<TProgress, TResult, TError, TSender>['onCancel']>();
     let deliveryTarget: IProgressPumpTarget<TProgress> | null = null; let publishingTerminal = false;
-    const ownerKeyOf = (actor: IMainJobActor | IMainJobOwnerKey) => JSON.stringify([
+    const ownerKeyOf = (actor: IMainJobActor<TSender> | IMainJobOwnerKey) => JSON.stringify([
         'sender' in actor ? actor.sender.id : actor.webContentsId,
         actor.ownerId,
         actor.documentInstanceId,
         actor.documentRevision,
     ]);
-    const ownerOf = (actor: IMainJobActor): IMainJobOwnerKey => ({
+    const ownerOf = (actor: IMainJobActor<TSender>): IMainJobOwnerKey => ({
         webContentsId: actor.sender.id,
         ...(actor.ownerId === undefined ? {} : {ownerId: actor.ownerId}),
         ...(actor.documentInstanceId === undefined ? {} : {documentInstanceId: actor.documentInstanceId}),
@@ -297,7 +325,7 @@ export function createMainJobRegistry<TProgress, TResult, TError extends IMainJo
         binding.records.add(record);
         if (record.actor.sender.isDestroyed()) ownerEnd(record, record.lifecycle.destroyed, 'Renderer destroyed');
     }
-    function start(startOptions: IMainJobStartOptions<TProgress, TResult, TError>): THandle {
+    function start(startOptions: IMainJobStartOptions<TProgress, TResult, TError, TSender>): THandle {
         const jobId = startOptions.jobId ?? randomUUID();
         const existing = records.get(jobId);
         if (existing) {
@@ -405,7 +433,7 @@ export function createMainJobRegistry<TProgress, TResult, TError extends IMainJo
             });
         return record.handle;
     }
-    const authorized = (jobId: string, actor: IMainJobActor) => {
+    const authorized = (jobId: string, actor: IMainJobActor<TSender>) => {
         const record = records.get(jobId); return record?.ownerKey === ownerKeyOf(actor) ? record : null;
     };
     return {

@@ -5,38 +5,17 @@ import {HOST_PLATFORM_FEATURE} from '@contracts/hostPlatformFeature';
 import {
     OCR_PLATFORM_FEATURE,
     OCR_PREPROCESSING_PLATFORM_FEATURE,
-    type IOcrCapability,
 } from '@contracts/ocrPlatformFeature';
-import type { IScanCleanupCapability } from '@contracts/electronApiScanCleanup';
+import {SCAN_CLEANUP_PLATFORM_FEATURE} from '@contracts/scanCleanupPlatformFeature';
 import {IMAGE_EXPORT_PLATFORM_FEATURE} from '@contracts/imageExportPlatformFeature';
 import {PAGE_OPS_PLATFORM_FEATURE} from '@contracts/pageOpsPlatformFeature';
-import {
-    SYSTEM_PLATFORM_FEATURE,
-    type ISystemCapability,
-} from '@contracts/systemPlatformFeature';
-import {
-    UPDATES_PLATFORM_FEATURE,
-    type IUpdatesCapability,
-} from '@contracts/updatesPlatformFeature';
-import {
-    WINDOW_TABS_PLATFORM_FEATURE,
-    type IWindowTabsCapability,
-} from '@contracts/windowTabsPlatformFeature';
-import type {
-    TPlatformBackend,
-    IPlatformRuntimeManifest,
-} from '@contracts/platformManifest';
+import {SYSTEM_PLATFORM_FEATURE} from '@contracts/systemPlatformFeature';
+import {UPDATES_PLATFORM_FEATURE} from '@contracts/updatesPlatformFeature';
+import {WINDOW_TABS_PLATFORM_FEATURE} from '@contracts/windowTabsPlatformFeature';
+import type {TPlatformBackend} from '@contracts/platformManifest';
 import {SEARCH_PLATFORM_FEATURE} from '@contracts/searchPlatformFeature';
-import {
-    SETTINGS_PLATFORM_FEATURE,
-    type ISettingsCapability,
-} from '@contracts/settingsPlatformFeature';
+import {SETTINGS_PLATFORM_FEATURE} from '@contracts/settingsPlatformFeature';
 import {SHELL_PLATFORM_FEATURE} from '@contracts/shellPlatformFeature';
-import type {
-    Get,
-    Join,
-    Paths,
-} from 'type-fest';
 import type {
     TPlatformMethodKind,
     IPlatformMethodDescriptor,
@@ -52,67 +31,6 @@ export type {
     IPlatformApiDescriptor,
 } from '@contracts/platformDescriptorTypes';
 
-/**
- * Stage 1A's remaining non-feature members. Remove this shape and its
- * type-fest path verification once scan-cleanup and the listed compatibility
- * members below are expressed by feature specs.
- */
-interface IPlatformApiShape {
-    manifest: IPlatformRuntimeManifest;
-    ocr: IOcrCapability;
-    scanCleanup?: IScanCleanupCapability;
-    settings: ISettingsCapability;
-    system: ISystemCapability;
-    updates: IUpdatesCapability;
-    windowTabs: IWindowTabsCapability;
-}
-
-type TPlatformApiPath = Extract<Paths<IPlatformApiShape, {maxRecursionDepth: 4}>, string>;
-type TPlatformPath = readonly string[];
-type TVoidResult = ReturnType<() => void>;
-type TPlatformMethodAtPath<TPath extends TPlatformPath> = NonNullable<Get<IPlatformApiShape, Extract<
-    Join<TPath, '.'>,
-    TPlatformApiPath
->, {strict: false}>>;
-type TPlatformMethodKindAtPath<TPath extends TPlatformPath> =
-    TPlatformMethodAtPath<TPath> extends (...args: never[]) => infer TResult
-        ? TResult extends PromiseLike<unknown>
-            ? 'async'
-            : TResult extends (...args: never[]) => void
-                ? 'event'
-                : TResult extends TVoidResult
-                    ? 'void'
-                    : 'sync'
-        : never;
-type TConventionMethodKind<TPath extends TPlatformPath> =
-    TPath extends readonly [...string[], infer TMethodName extends string]
-        ? TMethodName extends `on${string}`
-            ? 'event'
-            : TMethodName extends 'notifyRendererReady' | 'rendererLog'
-                ? 'void'
-                : 'async'
-        : never;
-type TVerifiedMethodPath<TPath extends TPlatformPath> = Join<TPath, '.'> extends TPlatformApiPath
-    ? TPlatformMethodAtPath<TPath> extends (...args: never[]) => unknown
-        ? TConventionMethodKind<TPath> extends TPlatformMethodKindAtPath<TPath>
-            ? TPlatformMethodKindAtPath<TPath> extends TConventionMethodKind<TPath>
-                ? TPath
-                : never
-            : never
-        : never
-    : never;
-type TVerifiedMethodPaths<TPaths extends readonly TPlatformPath[]> = {
-    readonly [TIndex in keyof TPaths]: TPaths[TIndex] extends TPlatformPath
-        ? TVerifiedMethodPath<TPaths[TIndex]>
-        : never;
-};
-
-function defineMethodPaths<const TPaths extends readonly TPlatformPath[]>(
-    paths: TPaths & TVerifiedMethodPaths<TPaths>,
-): TPaths {
-    return paths;
-}
-
 const requiredEverywhere = {
     browser: true,
     electron: true,
@@ -126,70 +44,10 @@ const requiredInBrowser = {
     electron: false,
 } as const satisfies Record<TPlatformBackend, boolean>;
 
-const legacyMethodPaths = defineMethodPaths([
+const legacyMethodPaths = [
     [
         'ocr',
         'installLanguages',
-    ],
-    [
-        'scanCleanup',
-        'preview',
-    ],
-    [
-        'scanCleanup',
-        'previewRaw',
-    ],
-    [
-        'scanCleanup',
-        'cancelPreview',
-    ],
-    [
-        'scanCleanup',
-        'detectAll',
-    ],
-    [
-        'scanCleanup',
-        'cancelDetection',
-    ],
-    [
-        'scanCleanup',
-        'getDetectionJobState',
-    ],
-    [
-        'scanCleanup',
-        'subscribeDetectionJob',
-    ],
-    [
-        'scanCleanup',
-        'start',
-    ],
-    [
-        'scanCleanup',
-        'cancel',
-    ],
-    [
-        'scanCleanup',
-        'getJobState',
-    ],
-    [
-        'scanCleanup',
-        'subscribeJob',
-    ],
-    [
-        'scanCleanup',
-        'reconnectJob',
-    ],
-    [
-        'scanCleanup',
-        'pruneGeneratedOutputs',
-    ],
-    [
-        'scanCleanup',
-        'onJobState',
-    ],
-    [
-        'scanCleanup',
-        'onDetectionJobState',
     ],
     [
         'settings',
@@ -219,7 +77,7 @@ const legacyMethodPaths = defineMethodPaths([
         'windowTabs',
         'notifyRendererReady',
     ],
-] as const);
+] as const;
 
 function resolveLegacyMethodKind(path: readonly string[]): TPlatformMethodKind {
     const methodName = path.at(-1);
@@ -247,10 +105,6 @@ const legacyCapabilities: readonly IPlatformCapabilityDescriptor[] = [
     {
         path: ['ocr'],
         required: requiredEverywhere,
-    },
-    {
-        path: ['scanCleanup'],
-        required: requiredInElectron,
     },
     {
         path: [
@@ -344,6 +198,7 @@ export const PLATFORM_FEATURE_REGISTRY = [
     DJVU_PLATFORM_FEATURE,
     OCR_PLATFORM_FEATURE,
     OCR_PREPROCESSING_PLATFORM_FEATURE,
+    SCAN_CLEANUP_PLATFORM_FEATURE,
     IMAGE_EXPORT_PLATFORM_FEATURE,
     PAGE_OPS_PLATFORM_FEATURE,
     SETTINGS_PLATFORM_FEATURE,

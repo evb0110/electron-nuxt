@@ -203,6 +203,91 @@ pub fn write_png<W: Write>(mut writer: W, pixels: PixelBuffer<'_>) -> Result<W, 
 pub fn encode_png(pixels: PixelBuffer<'_>) -> Result<Vec<u8>, RasterError> {
     write_png(Vec::new(), pixels)
 }
+pub fn decode_p4(
+    bytes: &[u8],
+    max_pixels: u64,
+    max_dimension: u32,
+) -> Result<GrayImage, RasterError> {
+    if bytes.get(..3) != Some(b"P4\n") {
+        return Err(RasterError::invalid("Invalid PBM P4 signature"));
+    }
+    let dimensions_end = bytes[3..]
+        .iter()
+        .position(|byte| *byte == b'\n')
+        .map(|offset| offset + 3)
+        .ok_or_else(|| RasterError::invalid("Truncated PBM P4 header"))?;
+    let dimensions = std::str::from_utf8(&bytes[3..dimensions_end])
+        .map_err(|_| RasterError::invalid("Invalid PBM P4 dimensions"))?
+        .split_ascii_whitespace()
+        .map(|value| {
+            value
+                .parse::<usize>()
+                .map_err(|_| RasterError::invalid("Invalid PBM P4 dimensions"))
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    if dimensions.len() != 2 {
+        return Err(RasterError::invalid("Invalid PBM P4 dimensions"));
+    }
+    let (width, height) = (dimensions[0], dimensions[1]);
+    if width == 0
+        || height == 0
+        || width > max_dimension as usize
+        || height > max_dimension as usize
+        || (width as u64).saturating_mul(height as u64) > max_pixels
+    {
+        return Err(RasterError::invalid(format!(
+            "PBM P4 dimensions exceed guardrails: {width}x{height}"
+        )));
+    }
+    let row_stride = width.div_ceil(8);
+    let bitmap = bytes
+        .get(dimensions_end + 1..)
+        .ok_or_else(|| RasterError::invalid("Truncated PBM P4 payload"))?;
+    if bitmap.len() != row_stride.saturating_mul(height) {
+        return Err(RasterError::invalid("PBM P4 payload length mismatch"));
+    }
+    let mut image = GrayImage::new(width, height, 255);
+    for y in 0..height {
+        for x in 0..width {
+            if bitmap[y * row_stride + x / 8] & (1 << (7 - x % 8)) != 0 {
+                image.set(x, y, 0);
+            }
+        }
+    }
+    Ok(image)
+}
+pub fn encode_p4(image: &GrayImage) -> Result<Vec<u8>, RasterError> {
+    if image.width() == 0 || image.height() == 0 {
+        return Err(RasterError::invalid("PBM P4 dimensions must be positive"));
+    }
+    let row_stride = image
+        .width()
+        .checked_add(7)
+        .ok_or_else(|| RasterError::invalid("PBM P4 row stride overflow"))?
+        / 8;
+    let bitmap_len = row_stride
+        .checked_mul(image.height())
+        .ok_or_else(|| RasterError::invalid("PBM P4 payload size overflow"))?;
+    let header = format!("P4\n{} {}\n", image.width(), image.height());
+    let mut bytes = Vec::with_capacity(header.len().saturating_add(bitmap_len));
+    bytes.extend_from_slice(header.as_bytes());
+    for y in 0..image.height() {
+        let row_start = bytes.len();
+        bytes.resize(row_start + row_stride, 0);
+        for (x, pixel) in image.row(y).iter().copied().enumerate() {
+            match pixel {
+                0 => bytes[row_start + x / 8] |= 1 << (7 - x % 8),
+                255 => {}
+                value => {
+                    return Err(RasterError::invalid(format!(
+                        "PBM P4 source contains non-binary sample {value} at ({x}, {y})"
+                    )));
+                }
+            }
+        }
+    }
+    Ok(bytes)
+}
 #[derive(Clone, Copy)]
 enum WalkMode {
     Dimensions(DecodeLimits),

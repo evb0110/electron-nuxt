@@ -192,6 +192,28 @@ describe('runNativeToolCommand', () => {
         );
     });
 
+    it('reports scan-cleanup protocol mismatches with the typed version error', async () => {
+        mocks.runNativeCommand.mockResolvedValueOnce({
+            exitCode: 0,
+            stderr: '',
+            stdout: '2\n',
+        });
+        const {
+            NativeToolProtocolVersionError,
+            verifyNativeToolProtocol,
+        } = await loadModule();
+
+        const mismatch = await verifyNativeToolProtocol('/tools/evb-scan-cleanup')
+            .catch((error: unknown) => error);
+
+        expect(mismatch).toBeInstanceOf(NativeToolProtocolVersionError);
+        expect(mismatch).toMatchObject({
+            toolName: 'evb-scan-cleanup',
+            expectedVersion: 3,
+            actualVersion: '2',
+        });
+    });
+
     it('retries failed native tool handshakes instead of caching them forever', async () => {
         mocks.runNativeCommand.mockResolvedValueOnce({
             exitCode: 0,

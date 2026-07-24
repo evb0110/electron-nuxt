@@ -1,26 +1,39 @@
 import {isRecord} from '@contracts/runtimeGuards';
 import type {
-    IScanCleanupDetectionRequest,
     IScanCleanupDocumentPrior,
-    IScanCleanupMarginsMm,
     IScanCleanupManualZones,
     IScanCleanupPageOverride,
+    TScanCleanupPageAlignment,
+} from '@contracts/scan-cleanup/domain';
+import {
+    SCAN_CLEANUP_AUTO_DEWARP_DEPTH_MAX,
+    SCAN_CLEANUP_AUTO_DEWARP_DEPTH_MIN,
+    SCAN_CLEANUP_MANUAL_SKEW_MAX_DEGREES,
+    SCAN_CLEANUP_MANUAL_SKEW_MIN_DEGREES,
+} from '@contracts/scan-cleanup/domain';
+import type {IScanCleanupMarginsMm} from '@contracts/scan-cleanup/geometry';
+import {SCAN_CLEANUP_MARGIN_MAX_MM} from '@contracts/scan-cleanup/geometry';
+import type {
+    IScanCleanupDetectionRequest,
     IScanCleanupPreviewCancelRequest,
     IScanCleanupPreviewMetadata,
     IScanCleanupRawPreviewRequest,
     IScanCleanupPreviewRequest,
     IScanCleanupStartRequest,
-    TScanCleanupPageAlignment,
-} from '@contracts/electronApiScanCleanup';
-import {
-    SCAN_CLEANUP_AUTO_DEWARP_DEPTH_MAX,
-    SCAN_CLEANUP_AUTO_DEWARP_DEPTH_MIN,
-    SCAN_CLEANUP_MARGIN_MAX_MM,
-    SCAN_CLEANUP_MANUAL_SKEW_MAX_DEGREES,
-    SCAN_CLEANUP_MANUAL_SKEW_MIN_DEGREES,
-} from '@contracts/electronApiScanCleanup';
-import {isScanCleanupOutputMode} from '@electron/features/scan-cleanup/isScanCleanupOutputMode';
-import {requireIpcArgumentCount} from '@electron/platform-ipc/ipcCodecValidation';
+} from '@contracts/scan-cleanup/ipc';
+import {isScanCleanupOutputMode} from '@contracts/scan-cleanup/outputModeGuards';
+
+function requireIpcArgumentCount(
+    args: readonly unknown[],
+    limits: {
+        min: number;
+        max: number
+    },
+) {
+    if (args.length < limits.min || args.length > limits.max) {
+        throw new Error(`expected ${limits.min}-${limits.max} arguments, received ${args.length}`);
+    }
+}
 
 export function decodePreviewCancelArgs(args: readonly unknown[]) {
     requireIpcArgumentCount(args, {

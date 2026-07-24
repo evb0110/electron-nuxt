@@ -781,16 +781,21 @@ fn batch_spread_png_writes_two_output_images_and_per_half_metadata() {
     }
     fs::write(&input, encode_gray(&image).unwrap()).unwrap();
     let payload = serde_json::json!({
-        "sharedOptions": {
-            "dpi": 150,
-            "layout": "force-two-page",
-            "rotation": 90,
-            "normalizeIllumination": false,
-            "marginsPixels": [0, 0, 0, 0]
-        },
+        "version": 3,
+        "operation": "render",
+        "renderMode": "final",
+        "canvasScope": "document",
         "pages": [{
             "inputPath": input,
             "sourcePageIndex": 7,
+            "pageMetadataPath": scratch.path("spread-page.json"),
+            "options": {
+                "dpi": 150,
+                "layout": "force-two-page",
+                "rotationDegrees": 90,
+                "normalizeIllumination": false,
+                "margins": {"leftMm": 0, "topMm": 0, "rightMm": 0, "bottomMm": 0}
+            },
             "outputs": [
                 {"outputPath": output_left, "metadataPath": metadata_left},
                 {"outputPath": output_right, "metadataPath": metadata_right}
@@ -799,11 +804,7 @@ fn batch_spread_png_writes_two_output_images_and_per_half_metadata() {
     });
     fs::write(&manifest, serde_json::to_vec_pretty(&payload).unwrap()).unwrap();
     let result = Command::new(env!("CARGO_BIN_EXE_evb-scan-cleanup"))
-        .args([
-            "--allow-manifest-v1",
-            "--manifest",
-            manifest.to_str().unwrap(),
-        ])
+        .args(["--manifest", manifest.to_str().unwrap()])
         .output()
         .unwrap();
     assert!(
@@ -811,8 +812,7 @@ fn batch_spread_png_writes_two_output_images_and_per_half_metadata() {
         "stderr={}",
         String::from_utf8_lossy(&result.stderr)
     );
-    assert!(String::from_utf8_lossy(&result.stderr)
-        .contains("DEPRECATED: accepting scan-cleanup manifest v1"));
+    assert_eq!(String::from_utf8_lossy(&result.stderr), "");
     for (path, metadata_path, expected_half) in [
         (&output_left, &metadata_left, "left"),
         (&output_right, &metadata_right, "right"),
@@ -868,41 +868,43 @@ fn classify_only_batch_writes_metadata_and_ndjson_but_no_output_images() {
     fs::write(&spread_input, encode_gray(&spread).unwrap()).unwrap();
     fs::write(&single_input, encode_gray(&single).unwrap()).unwrap();
     let payload = serde_json::json!({
-        "classifyOnly": true,
-        "sharedOptions": {
-            "dpi": 150,
-            "normalizeIllumination": false
-        },
+        "version": 3,
+        "operation": "analyze",
+        "renderMode": "final",
+        "canvasScope": "document",
         "pages": [
             {
                 "inputPath": spread_input,
                 "sourcePageIndex": 0,
-                "classifyOnly": true,
                 "pageMetadataPath": spread_page_metadata,
-                "outputPath": spread_output,
-                "metadataPath": spread_output_metadata
+                "options": {
+                    "dpi": 150,
+                    "normalizeIllumination": false
+                },
+                "outputs": [{
+                    "outputPath": spread_output,
+                    "metadataPath": spread_output_metadata
+                }]
             },
             {
                 "inputPath": single_input,
                 "sourcePageIndex": 1,
                 "pageMetadataPath": single_page_metadata,
-                "outputPath": single_output,
-                "metadataPath": single_output_metadata,
                 "options": {
                     "dpi": 150,
                     "layout": "force-single",
                     "normalizeIllumination": false
-                }
+                },
+                "outputs": [{
+                    "outputPath": single_output,
+                    "metadataPath": single_output_metadata
+                }]
             }
         ]
     });
     fs::write(&manifest, serde_json::to_vec_pretty(&payload).unwrap()).unwrap();
     let result = Command::new(env!("CARGO_BIN_EXE_evb-scan-cleanup"))
-        .args([
-            "--allow-manifest-v1",
-            "--manifest",
-            manifest.to_str().unwrap(),
-        ])
+        .args(["--manifest", manifest.to_str().unwrap()])
         .output()
         .unwrap();
     assert!(
@@ -967,14 +969,17 @@ fn classify_only_inside_page_options_with_declared_outputs_writes_no_images() {
     }
     fs::write(&input, encode_gray(&image).unwrap()).unwrap();
     let payload = serde_json::json!({
-        "sharedOptions": {},
+        "version": 3,
+        "operation": "analyze",
+        "renderMode": "final",
+        "canvasScope": "document",
         "pages": [{
             "inputPath": input,
             "sourcePageIndex": 40,
+            "pageMetadataPath": metadata_first,
             "options": {
                 "dpi": 150.0,
                 "layout": "auto",
-                "classifyOnly": true,
                 "normalizeIllumination": false
             },
             "outputs": [
@@ -986,11 +991,7 @@ fn classify_only_inside_page_options_with_declared_outputs_writes_no_images() {
     fs::write(&manifest, serde_json::to_vec_pretty(&payload).unwrap()).unwrap();
 
     let result = Command::new(env!("CARGO_BIN_EXE_evb-scan-cleanup"))
-        .args([
-            "--allow-manifest-v1",
-            "--manifest",
-            manifest.to_str().unwrap(),
-        ])
+        .args(["--manifest", manifest.to_str().unwrap()])
         .output()
         .unwrap();
     assert!(
@@ -1003,8 +1004,12 @@ fn classify_only_inside_page_options_with_declared_outputs_writes_no_images() {
         .lines()
         .map(|line| serde_json::from_str::<Value>(line).unwrap())
         .collect::<Vec<_>>();
-    assert!(lines[1]["progress"]["classification"].as_str().is_some());
-    assert_eq!(lines[1]["progress"]["outputPaths"], serde_json::json!([]));
+    let completed = lines
+        .iter()
+        .find(|line| line["progress"]["stage"] == "page-complete")
+        .unwrap();
+    assert!(completed["progress"]["classification"].as_str().is_some());
+    assert_eq!(completed["progress"]["outputPaths"], serde_json::json!([]));
 
     let metadata: Value = serde_json::from_slice(&fs::read(&metadata_first).unwrap()).unwrap();
     assert_eq!(metadata["sourcePageIndex"], 40);
@@ -1058,6 +1063,7 @@ fn parallel_batch_outputs_and_progress_are_deterministic() {
             serde_json::json!({
                 "inputPath": input,
                 "sourcePageIndex": index,
+                "pageMetadataPath": scratch.path(&format!("parallel-determinism-page-{index}.json")),
                 "options": {
                     "dpi": 150,
                     "layout": "force-single",
@@ -1070,16 +1076,19 @@ fn parallel_batch_outputs_and_progress_are_deterministic() {
         .collect::<Vec<_>>();
     fs::write(
         &manifest,
-        serde_json::to_vec_pretty(&serde_json::json!({"pages": pages})).unwrap(),
+        serde_json::to_vec_pretty(&serde_json::json!({
+            "version": 3,
+            "operation": "render",
+            "renderMode": "final",
+            "canvasScope": "document",
+            "pages": pages
+        }))
+        .unwrap(),
     )
     .unwrap();
     let run = || {
         Command::new(env!("CARGO_BIN_EXE_evb-scan-cleanup"))
-            .args([
-                "--allow-manifest-v1",
-                "--manifest",
-                manifest.to_str().unwrap(),
-            ])
+            .args(["--manifest", manifest.to_str().unwrap()])
             .output()
             .unwrap()
     };
@@ -1151,26 +1160,29 @@ fn sigterm_terminates_parallel_batch_promptly() {
                 "inputPath": input,
                 "sourcePageIndex": index,
                 "pageMetadataPath": metadata,
-                "classifyOnly": true,
                 "options": {
                     "dpi": 150,
                     "layout": "auto"
-                }
+                },
+                "outputs": []
             })
         })
         .collect::<Vec<_>>();
     fs::write(
         &manifest,
-        serde_json::to_vec_pretty(&serde_json::json!({"pages": pages})).unwrap(),
+        serde_json::to_vec_pretty(&serde_json::json!({
+            "version": 3,
+            "operation": "analyze",
+            "renderMode": "final",
+            "canvasScope": "document",
+            "pages": pages
+        }))
+        .unwrap(),
     )
     .unwrap();
 
     let mut child = Command::new(env!("CARGO_BIN_EXE_evb-scan-cleanup"))
-        .args([
-            "--allow-manifest-v1",
-            "--manifest",
-            manifest.to_str().unwrap(),
-        ])
+        .args(["--manifest", manifest.to_str().unwrap()])
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
         .spawn()
@@ -1242,20 +1254,15 @@ fn batch_applies_per_output_placement_over_document_default() {
     fs::write(&input_small, encode_gray(&small).unwrap()).unwrap();
     fs::write(&input_large, encode_gray(&large).unwrap()).unwrap();
     let payload = serde_json::json!({
-        "sharedOptions": {
-            "dpi": 300,
-            "layout": "force-single",
-            "normalizeIllumination": false,
-            "cropContent": false,
-            "outputMode": "grayscale",
-            "matchPageSize": true,
-            "pageAlignment": "top-left"
-        },
+        "version": 3,
+        "operation": "render",
+        "renderMode": "final",
+        "canvasScope": "document",
         "pages": [
             {
                 "inputPath": input_small,
-                "outputPath": output_small,
-                "metadataPath": metadata_small,
+                "sourcePageIndex": 0,
+                "pageMetadataPath": scratch.path("uniform-small-page.json"),
                 "options": {
                     "dpi": 300,
                     "layout": "force-single",
@@ -1265,22 +1272,29 @@ fn batch_applies_per_output_placement_over_document_default() {
                     "matchPageSize": true,
                     "pageAlignment": "top-left",
                     "placementOverrides": {"full": "bottom-right"}
-                }
+                },
+                "outputs": [{"outputPath": output_small, "metadataPath": metadata_small}]
             },
             {
                 "inputPath": input_large,
-                "outputPath": output_large,
-                "metadataPath": metadata_large
+                "sourcePageIndex": 1,
+                "pageMetadataPath": scratch.path("uniform-large-page.json"),
+                "options": {
+                    "dpi": 300,
+                    "layout": "force-single",
+                    "normalizeIllumination": false,
+                    "cropContent": false,
+                    "outputMode": "grayscale",
+                    "matchPageSize": true,
+                    "pageAlignment": "top-left"
+                },
+                "outputs": [{"outputPath": output_large, "metadataPath": metadata_large}]
             }
         ]
     });
     fs::write(&manifest, serde_json::to_vec_pretty(&payload).unwrap()).unwrap();
     let result = Command::new(env!("CARGO_BIN_EXE_evb-scan-cleanup"))
-        .args([
-            "--allow-manifest-v1",
-            "--manifest",
-            manifest.to_str().unwrap(),
-        ])
+        .args(["--manifest", manifest.to_str().unwrap()])
         .output()
         .unwrap();
     assert!(
@@ -1312,18 +1326,15 @@ fn batch_applies_per_output_placement_over_document_default() {
     assert_eq!(metadata_json["forwardTransform"]["matrix"][1][2], 0.0);
 
     let mut preview_payload = payload;
-    preview_payload["previewMode"] = Value::Bool(true);
+    preview_payload["renderMode"] = Value::String("preview".into());
+    preview_payload["canvasScope"] = Value::String("page".into());
     fs::write(
         &manifest,
         serde_json::to_vec_pretty(&preview_payload).unwrap(),
     )
     .unwrap();
     let preview_result = Command::new(env!("CARGO_BIN_EXE_evb-scan-cleanup"))
-        .args([
-            "--allow-manifest-v1",
-            "--manifest",
-            manifest.to_str().unwrap(),
-        ])
+        .args(["--manifest", manifest.to_str().unwrap()])
         .output()
         .unwrap();
     assert!(
@@ -1385,31 +1396,32 @@ fn matched_canvas_strictly_uses_the_largest_outlier() {
         fs::write(&input, encode_gray(&image).unwrap()).unwrap();
         pages.push(serde_json::json!({
             "inputPath": input,
-            "outputPath": output,
-            "metadataPath": metadata,
+            "sourcePageIndex": index,
+            "pageMetadataPath": scratch.path(&format!("matched-quantile-page-{index}.json")),
+            "options": {
+                "dpi": 300,
+                "layout": "force-single",
+                "normalizeIllumination": false,
+                "cropContent": false,
+                "outputMode": "grayscale",
+                "matchPageSize": true,
+                "pageAlignment": "center"
+            },
+            "outputs": [{"outputPath": output, "metadataPath": metadata}]
         }));
         output_paths.push(output);
         metadata_paths.push(metadata);
     }
     let payload = serde_json::json!({
-        "sharedOptions": {
-            "dpi": 300,
-            "layout": "force-single",
-            "normalizeIllumination": false,
-            "cropContent": false,
-            "outputMode": "grayscale",
-            "matchPageSize": true,
-            "pageAlignment": "center"
-        },
+        "version": 3,
+        "operation": "render",
+        "renderMode": "final",
+        "canvasScope": "document",
         "pages": pages
     });
     fs::write(&manifest, serde_json::to_vec_pretty(&payload).unwrap()).unwrap();
     let result = Command::new(env!("CARGO_BIN_EXE_evb-scan-cleanup"))
-        .args([
-            "--allow-manifest-v1",
-            "--manifest",
-            manifest.to_str().unwrap(),
-        ])
+        .args(["--manifest", manifest.to_str().unwrap()])
         .output()
         .unwrap();
     assert!(
@@ -1451,8 +1463,8 @@ fn matched_canvas_normalizes_equal_physical_pages_by_per_page_dpi() {
         fs::write(&input, encode_gray(&image).unwrap()).unwrap();
         pages.push(serde_json::json!({
             "inputPath": input,
-            "outputPath": output,
-            "metadataPath": metadata,
+            "sourcePageIndex": index,
+            "pageMetadataPath": scratch.path(&format!("matched-physical-page-{index}.json")),
             "options": {
                 "dpi": dpi,
                 "layout": "force-single",
@@ -1460,22 +1472,26 @@ fn matched_canvas_normalizes_equal_physical_pages_by_per_page_dpi() {
                 "cropContent": false,
                 "outputMode": "grayscale",
                 "matchPageSize": true
-            }
+            },
+            "outputs": [{"outputPath": output, "metadataPath": metadata}]
         }));
         outputs.push(output);
         metadata_paths.push(metadata);
     }
     fs::write(
         &manifest,
-        serde_json::to_vec_pretty(&serde_json::json!({"pages": pages})).unwrap(),
+        serde_json::to_vec_pretty(&serde_json::json!({
+            "version": 3,
+            "operation": "render",
+            "renderMode": "final",
+            "canvasScope": "document",
+            "pages": pages
+        }))
+        .unwrap(),
     )
     .unwrap();
     let result = Command::new(env!("CARGO_BIN_EXE_evb-scan-cleanup"))
-        .args([
-            "--allow-manifest-v1",
-            "--manifest",
-            manifest.to_str().unwrap(),
-        ])
+        .args(["--manifest", manifest.to_str().unwrap()])
         .output()
         .unwrap();
     assert!(
@@ -1516,28 +1532,34 @@ fn batch_preserves_asymmetric_margin_order_in_named_metadata() {
     }
     fs::write(&input, encode_gray(&image).unwrap()).unwrap();
     let payload = serde_json::json!({
-        "sharedOptions": {
-            "dpi": 150,
-            "layout": "force-single",
-            "normalizeIllumination": false,
-            "outputMode": "grayscale",
-            "cropContent": true,
-            "matchPageSize": false,
-            "marginsPixels": [7, 11, 17, 23]
-        },
+        "version": 3,
+        "operation": "render",
+        "renderMode": "final",
+        "canvasScope": "document",
         "pages": [{
             "inputPath": input,
-            "outputPath": output,
-            "metadataPath": metadata
+            "sourcePageIndex": 0,
+            "pageMetadataPath": scratch.path("asymmetric-margins-page.json"),
+            "options": {
+                "dpi": 150,
+                "layout": "force-single",
+                "normalizeIllumination": false,
+                "outputMode": "grayscale",
+                "cropContent": true,
+                "matchPageSize": false,
+                "margins": {
+                    "leftMm": 7.0 * 25.4 / 150.0,
+                    "topMm": 11.0 * 25.4 / 150.0,
+                    "rightMm": 17.0 * 25.4 / 150.0,
+                    "bottomMm": 23.0 * 25.4 / 150.0
+                }
+            },
+            "outputs": [{"outputPath": output, "metadataPath": metadata}]
         }]
     });
     fs::write(&manifest, serde_json::to_vec_pretty(&payload).unwrap()).unwrap();
     let result = Command::new(env!("CARGO_BIN_EXE_evb-scan-cleanup"))
-        .args([
-            "--allow-manifest-v1",
-            "--manifest",
-            manifest.to_str().unwrap(),
-        ])
+        .args(["--manifest", manifest.to_str().unwrap()])
         .output()
         .unwrap();
     assert!(

@@ -3,6 +3,7 @@ export type * from '@contracts/scan-cleanup/geometry';
 export type * from '@contracts/scan-cleanup/ipc';
 export type * from '@contracts/scan-cleanup/progress';
 export type * from '@contracts/scan-cleanup/nativeProtocolV3';
+export type {IScanCleanupCapability} from '@contracts/scanCleanupPlatformFeature';
 export {SCAN_CLEANUP_NATIVE_PROTOCOL_VERSION} from '@contracts/scan-cleanup/nativeProtocolV3';
 export {SCAN_CLEANUP_MARGIN_MAX_MM} from '@contracts/scan-cleanup/geometry';
 export {

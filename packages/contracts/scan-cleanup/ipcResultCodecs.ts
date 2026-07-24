@@ -1,37 +1,25 @@
-import type { TIpcCodecMap } from '@contracts/ipcMain';
 import { isRecord } from '@contracts/runtimeGuards';
 import {NATIVE_ERROR_CODES} from '@contracts/nativeErrors';
+import {SCAN_CLEANUP_SUMMARY_SCHEMA} from '@contracts/scan-cleanup/ipc';
+import {SCAN_CLEANUP_PROGRESS_SCHEMA} from '@contracts/scan-cleanup/progress';
 import type {
-    IScanCleanupProgress,
     IScanCleanupPreviewMetadata,
     IScanCleanupRawPreviewResult,
     IScanCleanupPreviewResult,
-    IScanCleanupSummary,
     TScanCleanupErrorCode,
     TScanCleanupDetectionJobState,
     TScanCleanupJobState,
-} from '@contracts/electronApiScanCleanup';
+} from '@contracts/scan-cleanup/ipc';
 import {
-    SCAN_CLEANUP_CHANNELS,
-    type IScanCleanupInvokeMap,
-} from '@electron/features/scan-cleanup/contract';
-import {
-    decodeDetectionArgs,
     decodeDocumentCanvasPlan,
     decodeDocumentPrior,
     decodeFiniteNumber,
-    decodeOpenPdfPaths,
-    decodeOwnedJobId,
-    decodePreviewArgs,
-    decodePreviewCancelArgs,
-    decodeRawPreviewArgs,
-    decodeStartArgs,
     isLayoutClassification,
-} from '@electron/features/scan-cleanup/scanCleanupIpcRequestCodecs';
+} from '@contracts/scan-cleanup/ipcRequestCodecs';
 import {
     isScanCleanupOutputMode,
     isScanCleanupOutputModeRecommendationReason,
-} from '@electron/features/scan-cleanup/isScanCleanupOutputMode';
+} from '@contracts/scan-cleanup/outputModeGuards';
 
 const PREVIEW_MAX_IMAGE_BYTES = 32 * 1024 * 1024;
 const PREVIEW_MAX_TOTAL_BYTES = 96 * 1024 * 1024;
@@ -423,7 +411,7 @@ export function decodeScanCleanupPreviewResult(value: unknown): IScanCleanupPrev
     };
 }
 
-function decodeScanCleanupRawPreviewResult(value: unknown): IScanCleanupRawPreviewResult {
+export function decodeScanCleanupRawPreviewResult(value: unknown): IScanCleanupRawPreviewResult {
     if (!isRecord(value)) throw new Error('invalid scan-cleanup raw preview result');
     const pageNumber = decodePositiveInteger(value.pageNumber, 'raw page number');
     const totalPages = decodePositiveInteger(value.totalPages, 'raw total pages');
@@ -584,7 +572,7 @@ function decodePreviewPageMetadata(value: unknown): IScanCleanupPreviewResult['p
     };
 }
 
-function decodeStartResult(value: unknown) {
+export function decodeStartResult(value: unknown) {
     if (!isRecord(value) || typeof value.started !== 'boolean' || typeof value.jobId !== 'string') throw new Error('invalid scan-cleanup start result');
     if (value.started) {
         if (typeof value.outputPdfPath !== 'string') throw new Error('successful scan-cleanup start requires outputPdfPath');
@@ -605,7 +593,7 @@ function decodeStartResult(value: unknown) {
     };
 }
 
-function decodeDetectionStartResult(value: unknown) {
+export function decodeDetectionStartResult(value: unknown) {
     if (!isRecord(value) || typeof value.started !== 'boolean' || typeof value.jobId !== 'string') {
         throw new Error('invalid scan-cleanup detection start result');
     }
@@ -626,18 +614,6 @@ function decodeDetectionStartResult(value: unknown) {
     };
 }
 
-function isScanCleanupStage(value: unknown): value is IScanCleanupProgress['stage'] {
-    return value === 'queued'
-        || value === 'normalizing'
-        || value === 'probing'
-        || value === 'rasterizing'
-        || value === 'classifying'
-        || value === 'rendering'
-        || value === 'assembling'
-        || value === 'handoff'
-        || value === 'detecting';
-}
-
 function isScanCleanupErrorCode(value: unknown): value is TScanCleanupErrorCode {
     return NATIVE_ERROR_CODES.includes(value as typeof NATIVE_ERROR_CODES[number])
         || value === 'tools-unavailable'
@@ -645,63 +621,11 @@ function isScanCleanupErrorCode(value: unknown): value is TScanCleanupErrorCode 
         || value === 'internal';
 }
 
-function decodeProgress(value: unknown): IScanCleanupProgress {
-    if (
-        !isRecord(value)
-        || !isScanCleanupStage(value.stage)
-        || typeof value.completedUnits !== 'number'
-        || !Number.isSafeInteger(value.completedUnits)
-        || value.completedUnits < 0
-        || typeof value.totalUnits !== 'number'
-        || !Number.isSafeInteger(value.totalUnits)
-        || value.totalUnits < 0
-        || value.completedUnits > value.totalUnits
-        || typeof value.percent !== 'number'
-        || !Number.isFinite(value.percent)
-        || value.percent < 0
-        || value.percent > 100
-    ) throw new Error('invalid scan-cleanup progress');
-    const completedPageNumbers = value.completedPageNumbers;
-    if (
-        completedPageNumbers !== undefined
-        && (!Array.isArray(completedPageNumbers)
-            || completedPageNumbers.length !== value.completedUnits
-            || new Set(completedPageNumbers).size !== completedPageNumbers.length
-            || completedPageNumbers.some(page => !Number.isSafeInteger(page) || Number(page) < 1))
-    ) throw new Error('invalid scan-cleanup completed page numbers');
-    return {
-        stage: value.stage,
-        completedUnits: value.completedUnits,
-        totalUnits: value.totalUnits,
-        percent: value.percent,
-        ...(completedPageNumbers === undefined ? {} : {completedPageNumbers: completedPageNumbers.map(Number)}),
-    };
-}
-
 function decodeNonNegativeInteger(value: unknown, fieldName: string) {
     if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 0) {
         throw new Error(`invalid scan-cleanup ${fieldName}`);
     }
     return value;
-}
-
-function decodeSummary(value: unknown): IScanCleanupSummary {
-    if (
-        !isRecord(value)
-        || !Array.isArray(value.warnings)
-        || value.warnings.some(item => typeof item !== 'string')
-    ) throw new Error('invalid scan-cleanup summary');
-    return {
-        inputPages: decodeNonNegativeInteger(value.inputPages, 'inputPages'),
-        outputPages: decodeNonNegativeInteger(value.outputPages, 'outputPages'),
-        spreadsSplit: decodeNonNegativeInteger(value.spreadsSplit, 'spreadsSplit'),
-        offcutsDiscarded: decodeNonNegativeInteger(value.offcutsDiscarded, 'offcutsDiscarded'),
-        deskewSkipped: decodeNonNegativeInteger(value.deskewSkipped, 'deskewSkipped'),
-        cropSkipped: decodeNonNegativeInteger(value.cropSkipped, 'cropSkipped'),
-        excludedPages: decodeNonNegativeInteger(value.excludedPages, 'excludedPages'),
-        blankPagesSkipped: decodeNonNegativeInteger(value.blankPagesSkipped, 'blankPagesSkipped'),
-        warnings: value.warnings.filter((item): item is string => typeof item === 'string'),
-    };
 }
 
 export function decodeScanCleanupJobState(value: unknown): TScanCleanupJobState | null {
@@ -718,7 +642,7 @@ export function decodeScanCleanupJobState(value: unknown): TScanCleanupJobState 
     }
     const base = {
         jobId: value.jobId,
-        progress: decodeProgress(value.progress),
+        progress: SCAN_CLEANUP_PROGRESS_SCHEMA.decode(value.progress),
         updatedAtMs: value.updatedAtMs,
     };
     if (value.status === 'queued' || value.status === 'running' || value.status === 'canceling' || value.status === 'handoff' || value.status === 'canceled') {
@@ -735,7 +659,7 @@ export function decodeScanCleanupJobState(value: unknown): TScanCleanupJobState 
             ...base,
             status: 'completed',
             outputPdfPath: value.outputPdfPath,
-            summary: decodeSummary(value.summary),
+            summary: SCAN_CLEANUP_SUMMARY_SCHEMA.decode(value.summary),
             partial: value.partial,
         };
     }
@@ -765,7 +689,7 @@ export function decodeScanCleanupDetectionJobState(value: unknown): TScanCleanup
         || !isRecord(value.progress)
         || !Array.isArray(value.results)
     ) throw new Error('invalid scan-cleanup detection job state');
-    const progress = decodeProgress(value.progress);
+    const progress = SCAN_CLEANUP_PROGRESS_SCHEMA.decode(value.progress);
     const results = value.results.map(result => {
         if (
             !isRecord(result)
@@ -869,83 +793,3 @@ export function decodeScanCleanupDetectionJobState(value: unknown): TScanCleanup
     }
     throw new Error('invalid scan-cleanup detection job status');
 }
-
-export const SCAN_CLEANUP_IPC_CODECS = {
-    [SCAN_CLEANUP_CHANNELS.previewRaw]: {
-        encodeArgs: decodeRawPreviewArgs,
-        decodeArgs: decodeRawPreviewArgs,
-        decodeResult: decodeScanCleanupRawPreviewResult,
-    },
-    [SCAN_CLEANUP_CHANNELS.preview]: {
-        encodeArgs: decodePreviewArgs,
-        decodeArgs: decodePreviewArgs,
-        decodeResult: decodeScanCleanupPreviewResult,
-    },
-    [SCAN_CLEANUP_CHANNELS.cancelPreview]: {
-        encodeArgs: decodePreviewCancelArgs,
-        decodeArgs: decodePreviewCancelArgs,
-        decodeResult: (value: unknown) => {
-            if (typeof value !== 'boolean') throw new Error('invalid scan-cleanup preview cancel result');
-            return value;
-        },
-    },
-    [SCAN_CLEANUP_CHANNELS.detectAll]: {
-        encodeArgs: decodeDetectionArgs,
-        decodeArgs: decodeDetectionArgs,
-        decodeResult: decodeDetectionStartResult,
-    },
-    [SCAN_CLEANUP_CHANNELS.cancelDetection]: {
-        encodeArgs: decodeOwnedJobId,
-        decodeArgs: decodeOwnedJobId,
-        decodeResult: (value: unknown) => {
-            if (typeof value !== 'boolean') throw new Error('invalid scan-cleanup detection cancel result');
-            return value;
-        },
-    },
-    [SCAN_CLEANUP_CHANNELS.getDetectionJobState]: {
-        encodeArgs: decodeOwnedJobId,
-        decodeArgs: decodeOwnedJobId,
-        decodeResult: decodeScanCleanupDetectionJobState,
-    },
-    [SCAN_CLEANUP_CHANNELS.subscribeDetectionJob]: {
-        encodeArgs: decodeOwnedJobId,
-        decodeArgs: decodeOwnedJobId,
-        decodeResult: decodeScanCleanupDetectionJobState,
-    },
-    [SCAN_CLEANUP_CHANNELS.start]: {
-        encodeArgs: decodeStartArgs,
-        decodeArgs: decodeStartArgs,
-        decodeResult: decodeStartResult,
-    },
-    [SCAN_CLEANUP_CHANNELS.cancel]: {
-        encodeArgs: decodeOwnedJobId,
-        decodeArgs: decodeOwnedJobId,
-        decodeResult: (value: unknown) => {
-            if (typeof value !== 'boolean') throw new Error('invalid scan-cleanup cancel result');
-            return value;
-        },
-    },
-    [SCAN_CLEANUP_CHANNELS.getJobState]: {
-        encodeArgs: decodeOwnedJobId,
-        decodeArgs: decodeOwnedJobId,
-        decodeResult: decodeScanCleanupJobState,
-    },
-    [SCAN_CLEANUP_CHANNELS.subscribeJob]: {
-        encodeArgs: decodeOwnedJobId,
-        decodeArgs: decodeOwnedJobId,
-        decodeResult: decodeScanCleanupJobState,
-    },
-    [SCAN_CLEANUP_CHANNELS.reconnectJob]: {
-        encodeArgs: decodeOwnedJobId,
-        decodeArgs: decodeOwnedJobId,
-        decodeResult: decodeScanCleanupJobState,
-    },
-    [SCAN_CLEANUP_CHANNELS.pruneGeneratedOutputs]: {
-        encodeArgs: decodeOpenPdfPaths,
-        decodeArgs: decodeOpenPdfPaths,
-        decodeResult: (value: unknown) => {
-            if (!Number.isSafeInteger(value) || Number(value) < 0) throw new Error('invalid scan-cleanup prune result');
-            return Number(value);
-        },
-    },
-} satisfies TIpcCodecMap<IScanCleanupInvokeMap>;

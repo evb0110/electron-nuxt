@@ -1,7 +1,5 @@
-import type {
-    IScanCleanupPreviewResult,
-    TScanCleanupOutputModeRecommendationReason,
-} from '@contracts/electronApiScanCleanup';
+import type {IScanCleanupPreviewResult} from '@contracts/scan-cleanup/ipc';
+import type {TScanCleanupOutputModeRecommendationReason} from '@contracts/scan-cleanup/domain';
 
 export function isScanCleanupOutputMode(
     value: unknown,

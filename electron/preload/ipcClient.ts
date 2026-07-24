@@ -230,7 +230,7 @@ export function createTypedIpcEventSubscriber<
 export function createPlatformFeaturePreloadClient<
     TFeature extends TAnyDefinedPlatformFeature,
 >(
-    ipcRenderer: IpcRenderer,
+    ipcRenderer: Pick<IpcRenderer, 'invoke' | 'on' | 'removeListener' | 'send'>,
     feature: TFeature,
     directBindings?: TFeatureDirectBindings<TFeature>,
 ): TFeatureCapability<TFeature> {

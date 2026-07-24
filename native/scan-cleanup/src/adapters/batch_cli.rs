@@ -10,7 +10,9 @@ use crate::{
     pipeline::{AnalysisOutputMetadata, CleanupMetadata, MatchedCanvasPolicy},
     png::{self, RgbImage},
     protocol::{
-        manifest_v3::{CanvasScope, DocumentCanvas, ManifestV3, Operation, RenderMode},
+        manifest_v3::{
+            CanvasScope, DocumentCanvas, ManifestV3, Operation, Page, PageOutput, RenderMode,
+        },
         progress::{PageStageTimings, Progress, ProgressEnvelope, ProgressStage},
         result::ResultEnvelope,
     },
@@ -20,7 +22,7 @@ use crate::{
 use evb_native_support::{NativeError, NativeErrorCode, NativeErrorEnvelope};
 use rayon::prelude::*;
 use scan_primitives::GrayImage;
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use std::{
     collections::HashSet,
     error::Error,
@@ -29,98 +31,6 @@ use std::{
     sync::{Arc, Mutex},
     time::Instant,
 };
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-struct PageJob {
-    input_path: PathBuf,
-    #[serde(default)]
-    output_path: Option<PathBuf>,
-    #[serde(default)]
-    metadata_path: Option<PathBuf>,
-    #[serde(default)]
-    outputs: Vec<PageOutputJob>,
-    #[serde(default)]
-    source_page_index: Option<usize>,
-    #[serde(default)]
-    page_metadata_path: Option<PathBuf>,
-    #[serde(default)]
-    options: Option<CleanupOptions>,
-    #[serde(default)]
-    classify_only: Option<bool>,
-    #[serde(default)]
-    document_prior: Option<crate::split::DocumentPrior>,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-struct PageOutputJob {
-    output_path: PathBuf,
-    metadata_path: PathBuf,
-    #[serde(default)]
-    bilevel_output_path: Option<PathBuf>,
-    #[serde(default)]
-    background_output_path: Option<PathBuf>,
-    #[serde(default)]
-    foreground_mask_output_path: Option<PathBuf>,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-struct BatchManifest {
-    #[serde(default)]
-    shared_options: CleanupOptions,
-    #[serde(default)]
-    classify_only: bool,
-    #[serde(default)]
-    preview_mode: bool,
-    #[serde(skip)]
-    canvas_scope: CanvasScope,
-    #[serde(skip)]
-    document_canvas: Option<DocumentCanvas>,
-    #[serde(skip)]
-    phase_progress: bool,
-    pages: Vec<PageJob>,
-}
-
-impl From<ManifestV3> for BatchManifest {
-    fn from(manifest: ManifestV3) -> Self {
-        let classify_only = manifest.operation == Operation::Analyze;
-        Self {
-            shared_options: CleanupOptions::default(),
-            classify_only,
-            preview_mode: manifest.render_mode == RenderMode::Preview,
-            canvas_scope: manifest.canvas_scope,
-            document_canvas: manifest.document_canvas,
-            phase_progress: true,
-            pages: manifest
-                .pages
-                .into_iter()
-                .map(|page| PageJob {
-                    input_path: page.input_path,
-                    output_path: None,
-                    metadata_path: None,
-                    outputs: page
-                        .outputs
-                        .into_iter()
-                        .map(|output| PageOutputJob {
-                            output_path: output.output_path,
-                            metadata_path: output.metadata_path,
-                            bilevel_output_path: output.bilevel_output_path,
-                            background_output_path: output.background_output_path,
-                            foreground_mask_output_path: output.foreground_mask_output_path,
-                        })
-                        .collect(),
-                    source_page_index: Some(page.source_page_index),
-                    page_metadata_path: Some(page.page_metadata_path),
-                    options: Some(page.options),
-                    classify_only: Some(classify_only),
-                    document_prior: page.document_prior,
-                })
-                .collect(),
-        }
-    }
-}
 
 struct WrittenOutput {
     output_path: PathBuf,
@@ -179,7 +89,7 @@ struct PageResultMetadata {
 struct PageRunResult {
     outputs: Vec<WrittenOutput>,
     metadata: PageResultMetadata,
-    page_metadata_path: Option<PathBuf>,
+    page_metadata_path: PathBuf,
     classification_only: bool,
     timings: PageStageTimings,
 }
@@ -196,14 +106,9 @@ fn manifest_cache() -> Arc<Mutex<ByteLru>> {
     Arc::new(Mutex::new(ByteLru::new(configured_cache_budget_bytes())))
 }
 
-fn page_cache_for(
-    job: &PageJob,
-    fallback_page_index: usize,
-    shared: &Arc<Mutex<ByteLru>>,
-) -> Result<PageCache, NativeError> {
-    let page_index = job.source_page_index.unwrap_or(fallback_page_index);
-    let source =
-        SourceFingerprint::from_path(&job.input_path, page_index).map_err(map_image_error)?;
+fn page_cache_for(page: &Page, shared: &Arc<Mutex<ByteLru>>) -> Result<PageCache, NativeError> {
+    let source = SourceFingerprint::from_path(&page.input_path, page.source_page_index)
+        .map_err(map_image_error)?;
     Ok(PageCache::new(Arc::clone(shared), source))
 }
 
@@ -221,10 +126,7 @@ pub fn run(args: impl IntoIterator<Item = String>) -> Result<(), Box<dyn Error>>
         let path = args
             .get(index + 1)
             .ok_or_else(|| invalid("--manifest requires a JSON path"))?;
-        let allow_v1 = args
-            .iter()
-            .any(|argument| argument == "--allow-manifest-v1");
-        return run_manifest(Path::new(path), allow_v1);
+        return run_manifest(Path::new(path));
     }
     let input = required_path(&args, "--input")?;
     let output = required_path(&args, "--output")?;
@@ -242,57 +144,31 @@ pub fn run(args: impl IntoIterator<Item = String>) -> Result<(), Box<dyn Error>>
     {
         options.experimental.auto_dewarp = true;
     }
-    let job = PageJob {
+    let page = Page {
         input_path: input,
-        output_path: Some(output),
-        metadata_path: Some(metadata),
         outputs: Vec::new(),
-        source_page_index: Some(0),
-        page_metadata_path: None,
-        options: Some(options),
-        classify_only: None,
+        source_page_index: 0,
+        page_metadata_path: metadata.clone(),
+        options,
         document_prior: None,
     };
     let cache = manifest_cache();
-    let page_cache = page_cache_for(&job, 0, &cache)?;
-    run_page(&job, None, 0, CanvasScope::Page, false, &page_cache).map(|_| ())
+    let page_cache = page_cache_for(&page, &cache)?;
+    run_page(
+        &page,
+        CanvasScope::Page,
+        false,
+        Some((&output, &metadata)),
+        &page_cache,
+    )
+    .map(|_| ())
 }
 
-fn run_manifest(path: &Path, allow_v1: bool) -> Result<(), Box<dyn Error>> {
+fn run_manifest(path: &Path) -> Result<(), Box<dyn Error>> {
     let bytes = fs::read(path)?;
-    let value: serde_json::Value = serde_json::from_slice(&bytes)
-        .map_err(|error| invalid(format!("Invalid batch manifest: {error}")))?;
-    let manifest = match value.get("version").and_then(serde_json::Value::as_u64) {
-        Some(3) => {
-            let manifest: ManifestV3 = serde_json::from_value(value)
-                .map_err(|error| invalid(format!("Invalid v3 batch manifest: {error}")))?;
-            manifest.validate()?;
-            BatchManifest::from(manifest)
-        }
-        None if allow_v1 => {
-            eprintln!("DEPRECATED: accepting scan-cleanup manifest v1 because --allow-manifest-v1 was supplied; migrate to manifest v3");
-            let mut value = value;
-            normalize_manifest_v1(&mut value);
-            let mut manifest: BatchManifest = serde_json::from_value(value)
-                .map_err(|error| invalid(format!("Invalid v1 batch manifest: {error}")))?;
-            manifest.canvas_scope = if manifest.preview_mode {
-                CanvasScope::Page
-            } else {
-                CanvasScope::Document
-            };
-            manifest
-        }
-        None => return Err(invalid("Manifest v1 requires --allow-manifest-v1").into()),
-        Some(version) => {
-            return Err(invalid(format!(
-                "Unsupported scan-cleanup manifest version {version}"
-            ))
-            .into())
-        }
-    };
-    if manifest.pages.is_empty() {
-        return Err(invalid("Batch manifest contains no pages").into());
-    }
+    let manifest: ManifestV3 = serde_json::from_slice(&bytes)
+        .map_err(|error| invalid(format!("Invalid v3 batch manifest: {error}")))?;
+    manifest.validate()?;
     let total = manifest.pages.len();
     let result = run_manifest_inner(&manifest);
     match result {
@@ -314,107 +190,7 @@ fn run_manifest(path: &Path, allow_v1: bool) -> Result<(), Box<dyn Error>> {
     }
 }
 
-fn normalize_manifest_v1(value: &mut serde_json::Value) {
-    let Some(root) = value.as_object_mut() else {
-        return;
-    };
-    if let Some(options) = root.get_mut("sharedOptions") {
-        normalize_options_v1(options);
-    }
-    let Some(pages) = root
-        .get_mut("pages")
-        .and_then(serde_json::Value::as_array_mut)
-    else {
-        return;
-    };
-    for page in pages {
-        let Some(page) = page.as_object_mut() else {
-            continue;
-        };
-        if let Some(mut options) = page.remove("options") {
-            if page.get("classifyOnly").is_none() {
-                if let Some(classify_only) = options
-                    .as_object_mut()
-                    .and_then(|options| options.remove("classifyOnly"))
-                {
-                    page.insert("classifyOnly".into(), classify_only);
-                }
-            }
-            normalize_options_v1(&mut options);
-            page.insert("options".into(), options);
-        }
-    }
-}
-
-fn normalize_options_v1(value: &mut serde_json::Value) {
-    let Some(options) = value.as_object_mut() else {
-        return;
-    };
-    for (old, new) in [
-        ("rotation", "rotationDegrees"),
-        ("maxDimension", "maxDimensionPx"),
-    ] {
-        if options.get(new).is_none() {
-            if let Some(value) = options.remove(old) {
-                options.insert(new.into(), value);
-            }
-        }
-    }
-    if options.get("experimental").is_none() {
-        if let Some(auto_dewarp) = options.remove("experimentalAutoDewarp") {
-            options.insert(
-                "experimental".into(),
-                serde_json::json!({"autoDewarp": auto_dewarp}),
-            );
-        }
-    }
-    if options.get("manualSplit").is_none() {
-        if let Some(split) = options.remove("manualSplitX") {
-            let rotation = options
-                .get("rotationDegrees")
-                .cloned()
-                .unwrap_or_else(|| serde_json::json!(0));
-            options.insert(
-                "manualSplit".into(),
-                serde_json::json!({
-                    "xNormalized": split,
-                    "rotationDegrees": rotation,
-                }),
-            );
-        }
-    }
-    if options.get("margins").is_none() {
-        let margins = options.remove("marginsMm").or_else(|| {
-            let pixels = options.remove("marginsPixels")?;
-            let dpi = options
-                .get("dpi")
-                .and_then(serde_json::Value::as_f64)
-                .unwrap_or(300.0);
-            Some(serde_json::Value::Array(
-                pixels
-                    .as_array()?
-                    .iter()
-                    .map(|pixel| serde_json::json!(pixel.as_f64().unwrap_or(0.0) * 25.4 / dpi))
-                    .collect(),
-            ))
-        });
-        if let Some(margins) = margins.and_then(|value| value.as_array().cloned()) {
-            if margins.len() == 4 {
-                options.insert(
-                    "margins".into(),
-                    serde_json::json!({
-                        "leftMm": margins[0],
-                        "topMm": margins[1],
-                        "rightMm": margins[2],
-                        "bottomMm": margins[3],
-                    }),
-                );
-            }
-        }
-    }
-}
-
-fn run_manifest_inner(manifest: &BatchManifest) -> Result<(), Box<dyn Error>> {
+fn run_manifest_inner(manifest: &ManifestV3) -> Result<(), Box<dyn Error>> {
     write_progress(Progress {
         stage: ProgressStage::Started,
         completed_pages: 0,
@@ -475,12 +251,10 @@ fn run_manifest_inner(manifest: &BatchManifest) -> Result<(), Box<dyn Error>> {
         }
         Ok(())
     };
-    let run_analysis = |(index, page): (usize, &PageJob)| -> Result<PageRunResult, NativeError> {
-        let page_cache = page_cache_for(page, index, &cache)?;
+    let run_analysis = |(index, page): (usize, &Page)| -> Result<PageRunResult, NativeError> {
+        let page_cache = page_cache_for(page, &cache)?;
         let result = run_classification(
             page,
-            Some(&manifest.shared_options),
-            index,
             manifest.canvas_scope,
             page.document_prior,
             &page_cache,
@@ -492,17 +266,17 @@ fn run_manifest_inner(manifest: &BatchManifest) -> Result<(), Box<dyn Error>> {
         report_analyzed(index)?;
         Ok(result)
     };
-    let run_one = |(index, page): (usize, &PageJob)| -> Result<PageRunResult, NativeError> {
-        let page_cache = page_cache_for(page, index, &cache)?;
+    let run_one = |(index, page): (usize, &Page)| -> Result<PageRunResult, NativeError> {
+        let page_cache = page_cache_for(page, &cache)?;
         run_manifest_page(manifest, page, index, &page_cache).map_err(|error| {
             let envelope = NativeErrorEnvelope::from_error(error.as_ref());
             NativeError::new(envelope.code, envelope.message)
         })
     };
-    let page_results = if manifest.classify_only {
+    let page_results = if manifest.operation == Operation::Analyze {
         run_page_jobs(manifest, run_analysis)?
     } else {
-        if manifest.phase_progress && !manifest.preview_mode {
+        if manifest.render_mode == RenderMode::Final {
             run_page_jobs(manifest, run_analysis)?;
         }
         run_page_jobs(manifest, run_one)?
@@ -512,24 +286,24 @@ fn run_manifest_inner(manifest: &BatchManifest) -> Result<(), Box<dyn Error>> {
     reconcile_classification_batch(manifest, &mut page_results, &cache)?;
     let mut written_outputs = Vec::new();
     for (index, page_result) in page_results.into_iter().enumerate() {
-        if let Some(path) = &page_result.page_metadata_path {
-            if let Err(error) = write_json_atomic(path, &page_result.metadata) {
-                for output in &page_result.outputs {
-                    let _ = fs::remove_file(&output.output_path);
-                    let _ = fs::remove_file(&output.metadata_path);
-                    if let Some(bilevel_path) = &output.bilevel_output_path {
-                        let _ = fs::remove_file(bilevel_path);
-                    }
-                    if let Some(background_path) = &output.background_output_path {
-                        let _ = fs::remove_file(background_path);
-                    }
-                    if let Some(mask_path) = &output.foreground_mask_output_path {
-                        let _ = fs::remove_file(mask_path);
-                    }
+        if let Err(error) =
+            write_json_atomic(&page_result.page_metadata_path, &page_result.metadata)
+        {
+            for output in &page_result.outputs {
+                let _ = fs::remove_file(&output.output_path);
+                let _ = fs::remove_file(&output.metadata_path);
+                if let Some(bilevel_path) = &output.bilevel_output_path {
+                    let _ = fs::remove_file(bilevel_path);
                 }
-                let _ = fs::remove_file(path);
-                return Err(error);
+                if let Some(background_path) = &output.background_output_path {
+                    let _ = fs::remove_file(background_path);
+                }
+                if let Some(mask_path) = &output.foreground_mask_output_path {
+                    let _ = fs::remove_file(mask_path);
+                }
             }
+            let _ = fs::remove_file(&page_result.page_metadata_path);
+            return Err(error);
         }
         let output_paths = page_result
             .outputs
@@ -564,7 +338,7 @@ fn run_manifest_inner(manifest: &BatchManifest) -> Result<(), Box<dyn Error>> {
     }
     match_page_sizes(
         &written_outputs,
-        manifest.preview_mode,
+        manifest.render_mode == RenderMode::Preview,
         manifest.document_canvas,
     )?;
     write_progress(Progress {
@@ -589,10 +363,10 @@ fn run_manifest_inner(manifest: &BatchManifest) -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-fn run_page_jobs<T, F>(manifest: &BatchManifest, task: F) -> Result<Vec<T>, Box<dyn Error>>
+fn run_page_jobs<T, F>(manifest: &ManifestV3, task: F) -> Result<Vec<T>, Box<dyn Error>>
 where
     T: Send,
-    F: Fn((usize, &PageJob)) -> Result<T, NativeError> + Send + Sync,
+    F: Fn((usize, &Page)) -> Result<T, NativeError> + Send + Sync,
 {
     let results = if manifest.pages.len() > 1 && pages_have_disjoint_destinations(manifest) {
         let worker_threads = manifest_worker_threads(manifest)?;
@@ -619,7 +393,7 @@ where
 }
 
 fn reconcile_classification_batch(
-    manifest: &BatchManifest,
+    manifest: &ManifestV3,
     results: &mut [PageRunResult],
     cache: &Arc<Mutex<ByteLru>>,
 ) -> Result<(), Box<dyn Error>> {
@@ -749,11 +523,9 @@ fn reconcile_classification_batch(
                     candidate_cutter_ratio: metadata.candidate_cutter_ratio,
                     whitespace_score: metadata.whitespace_score,
                 };
-                let page_cache = page_cache_for(&manifest.pages[index], index, cache)?;
+                let page_cache = page_cache_for(&manifest.pages[index], cache)?;
                 let mut rerun = run_classification(
                     &manifest.pages[index],
-                    Some(&manifest.shared_options),
-                    index,
                     manifest.canvas_scope,
                     Some(prior),
                     &page_cache,
@@ -866,48 +638,31 @@ fn write_progress(progress: Progress) -> Result<(), Box<dyn Error>> {
 }
 
 fn run_manifest_page(
-    manifest: &BatchManifest,
-    page: &PageJob,
-    index: usize,
+    manifest: &ManifestV3,
+    page: &Page,
+    _index: usize,
     cache: &PageCache,
 ) -> Result<PageRunResult, Box<dyn Error>> {
-    let classify_only = page.classify_only.unwrap_or_else(|| {
-        page.options
-            .as_ref()
-            .and_then(|options| options.classify_only)
-            .or(manifest.shared_options.classify_only)
-            .unwrap_or(manifest.classify_only)
-    });
-    if classify_only {
-        run_classification(
-            page,
-            Some(&manifest.shared_options),
-            index,
-            manifest.canvas_scope,
-            page.document_prior,
-            cache,
-        )
+    if manifest.operation == Operation::Analyze {
+        run_classification(page, manifest.canvas_scope, page.document_prior, cache)
     } else {
         run_page(
             page,
-            Some(&manifest.shared_options),
-            index,
             manifest.canvas_scope,
-            !manifest.preview_mode,
+            manifest.render_mode == RenderMode::Final,
+            None,
             cache,
         )
     }
 }
 
-fn pages_have_disjoint_destinations(manifest: &BatchManifest) -> bool {
+fn pages_have_disjoint_destinations(manifest: &ManifestV3) -> bool {
     let mut paths = HashSet::new();
     manifest.pages.iter().all(|page| {
         let page_paths = page
-            .output_path
+            .outputs
             .iter()
-            .chain(&page.metadata_path)
-            .chain(&page.page_metadata_path)
-            .chain(page.outputs.iter().flat_map(|output| {
+            .flat_map(|output| {
                 [
                     Some(&output.output_path),
                     Some(&output.metadata_path),
@@ -917,7 +672,8 @@ fn pages_have_disjoint_destinations(manifest: &BatchManifest) -> bool {
                 ]
                 .into_iter()
                 .flatten()
-            }));
+            })
+            .chain(std::iter::once(&page.page_metadata_path));
         page_paths
             .into_iter()
             .all(|path| paths.insert(path.clone()))
@@ -928,13 +684,13 @@ const FALLBACK_SYSTEM_MEMORY_BYTES: u64 = 4 * 1024 * 1024 * 1024;
 const GRAY_PEAK_BYTES_PER_PIXEL: u64 = 12;
 const COLOR_PEAK_BYTES_PER_PIXEL: u64 = 24;
 
-fn manifest_worker_threads(manifest: &BatchManifest) -> Result<usize, NativeError> {
+fn manifest_worker_threads(manifest: &ManifestV3) -> Result<usize, NativeError> {
     let available = std::thread::available_parallelism().map_or(2, usize::from);
     let peak_page_bytes = manifest
         .pages
         .iter()
         .map(|page| {
-            let options = page.options.as_ref().unwrap_or(&manifest.shared_options);
+            let options = &page.options;
             // Do not synchronously open pipes or other streaming inputs while
             // sizing the worker pool. Doing so would prevent completed regular
             // pages from reporting analysis progress until every stream opens.
@@ -1013,14 +769,13 @@ fn configured_cache_budget_bytes() -> usize {
 }
 
 fn run_page(
-    job: &PageJob,
-    shared: Option<&CleanupOptions>,
-    fallback_page_index: usize,
+    page: &Page,
     canvas_scope: CanvasScope,
     final_render: bool,
+    fallback_destination: Option<(&Path, &Path)>,
     cache: &PageCache,
 ) -> Result<PageRunResult, Box<dyn Error>> {
-    let options = job.options.as_ref().or(shared).cloned().unwrap_or_default();
+    let options = page.options.clone();
     options.validate().map_err(invalid)?;
     let mut timings = PageStageTimings::default();
     let decode_started = Instant::now();
@@ -1038,7 +793,7 @@ fn run_page(
             cached
         } else {
             let decoded = Arc::new(
-                png::read_image(&job.input_path, options.max_pixels, options.max_dimension)
+                png::read_image(&page.input_path, options.max_pixels, options.max_dimension)
                     .map_err(map_image_error)?,
             );
             let bytes = decoded
@@ -1065,7 +820,7 @@ fn run_page(
             cached
         } else {
             let decoded = Arc::new(
-                png::read_gray(&job.input_path, options.max_pixels, options.max_dimension)
+                png::read_gray(&page.input_path, options.max_pixels, options.max_dimension)
                     .map_err(map_image_error)?,
             );
             let bytes = decoded.data().len();
@@ -1087,8 +842,8 @@ fn run_page(
         input_gray,
         color_input.as_ref().map(|input| &input.rgb),
         &options,
-        job.source_page_index.unwrap_or(fallback_page_index),
-        job.document_prior,
+        page.source_page_index,
+        page.document_prior,
         cache,
         final_render,
         &mut timings,
@@ -1105,7 +860,7 @@ fn run_page(
         return Err(invalid("OCR mode changed output dimensions").into());
     }
     let page_metadata = PageResultMetadata {
-        source_page_index: job.source_page_index.unwrap_or(fallback_page_index),
+        source_page_index: page.source_page_index,
         layout_classification: result.classification,
         layout_confidence: result.layout_confidence,
         cutter_x_px: result.cutter_x,
@@ -1119,7 +874,7 @@ fn run_page(
         tier1_verdict: result.reconciliation.tier1_verdict,
         reconciled: result.reconciliation.reconciled,
         cluster_agreement: result.reconciliation.cluster_agreement,
-        document_prior: job.document_prior,
+        document_prior: page.document_prior,
         text_axis: None,
         recommended_output_mode: result
             .output_mode_recommendation
@@ -1153,7 +908,7 @@ fn run_page(
         reconciliation_eligible: false,
         tier1_confidence: result.layout_confidence,
     };
-    let destinations = resolve_destinations(job, result.outputs.len())?;
+    let destinations = resolve_destinations(page, result.outputs.len(), fallback_destination)?;
     let mut written = Vec::with_capacity(result.outputs.len());
     let write_started = Instant::now();
     let publication_result = (|| -> Result<(), Box<dyn Error>> {
@@ -1269,30 +1024,26 @@ fn run_page(
                 let _ = fs::remove_file(mask_path);
             }
         }
-        if let Some(page_metadata_path) = &job.page_metadata_path {
-            let _ = fs::remove_file(page_metadata_path);
-        }
+        let _ = fs::remove_file(&page.page_metadata_path);
         return Err(error);
     }
     timings.write_ms += write_started.elapsed().as_secs_f64() * 1_000.0;
     Ok(PageRunResult {
         outputs: written,
         metadata: page_metadata,
-        page_metadata_path: job.page_metadata_path.clone(),
+        page_metadata_path: page.page_metadata_path.clone(),
         classification_only: false,
         timings,
     })
 }
 
 fn run_classification(
-    job: &PageJob,
-    shared: Option<&CleanupOptions>,
-    fallback_page_index: usize,
+    page: &Page,
     canvas_scope: CanvasScope,
     document_prior: Option<crate::split::DocumentPrior>,
     cache: &PageCache,
 ) -> Result<PageRunResult, Box<dyn Error>> {
-    let options = job.options.as_ref().or(shared).cloned().unwrap_or_default();
+    let options = page.options.clone();
     options.validate().map_err(invalid)?;
     let mut timings = PageStageTimings::default();
     let decode_started = Instant::now();
@@ -1307,7 +1058,7 @@ fn run_classification(
             cached
         } else {
             let decoded = Arc::new(
-                png::read_image(&job.input_path, options.max_pixels, options.max_dimension)
+                png::read_image(&page.input_path, options.max_pixels, options.max_dimension)
                     .map_err(map_image_error)?,
             );
             let bytes = decoded
@@ -1334,7 +1085,7 @@ fn run_classification(
             cached
         } else {
             let decoded = Arc::new(
-                png::read_gray(&job.input_path, options.max_pixels, options.max_dimension)
+                png::read_gray(&page.input_path, options.max_pixels, options.max_dimension)
                     .map_err(map_image_error)?,
             );
             let bytes = decoded.data().len();
@@ -1362,7 +1113,7 @@ fn run_classification(
     )
     .map_err(invalid)?;
     let page_metadata = PageResultMetadata {
-        source_page_index: job.source_page_index.unwrap_or(fallback_page_index),
+        source_page_index: page.source_page_index,
         layout_classification: result.classification,
         layout_confidence: result.confidence,
         cutter_x_px: result.cutter_x,
@@ -1408,20 +1159,10 @@ fn run_classification(
             result.confidence
         },
     };
-    let metadata_path = job
-        .page_metadata_path
-        .as_ref()
-        .or_else(|| job.outputs.first().map(|output| &output.metadata_path))
-        .or(job.metadata_path.as_ref())
-        .ok_or_else(|| {
-            invalid(
-                "Classify-only page job requires pageMetadataPath, metadataPath, or a declared output metadataPath",
-            )
-        })?;
     Ok(PageRunResult {
         outputs: Vec::new(),
         metadata: page_metadata,
-        page_metadata_path: Some(metadata_path.clone()),
+        page_metadata_path: page.page_metadata_path.clone(),
         classification_only: true,
         timings,
     })
@@ -1710,48 +1451,32 @@ fn place_rgb_on_white_canvas(
 }
 
 fn resolve_destinations(
-    job: &PageJob,
+    page: &Page,
     output_count: usize,
-) -> Result<Vec<PageOutputJob>, NativeError> {
-    if !job.outputs.is_empty() {
-        if job.outputs.len() < output_count {
+    fallback: Option<(&Path, &Path)>,
+) -> Result<Vec<PageOutput>, NativeError> {
+    if !page.outputs.is_empty() {
+        if page.outputs.len() < output_count {
             return Err(invalid(format!(
                 "Cleanup produced {output_count} pages but only {} output destinations were supplied",
-                job.outputs.len()
+                page.outputs.len()
             )));
         }
-        return Ok(job
-            .outputs
-            .iter()
-            .take(output_count)
-            .map(|output| PageOutputJob {
-                output_path: output.output_path.clone(),
-                metadata_path: output.metadata_path.clone(),
-                bilevel_output_path: output.bilevel_output_path.clone(),
-                background_output_path: output.background_output_path.clone(),
-                foreground_mask_output_path: output.foreground_mask_output_path.clone(),
-            })
-            .collect());
+        return Ok(page.outputs.iter().take(output_count).cloned().collect());
     }
-    let output = job
-        .output_path
-        .as_ref()
-        .ok_or_else(|| invalid("Page job requires outputPath or outputs"))?;
-    let metadata = job
-        .metadata_path
-        .as_ref()
-        .ok_or_else(|| invalid("Page job requires metadataPath or outputs"))?;
+    let (output, metadata) =
+        fallback.ok_or_else(|| invalid("Render page requires output destinations"))?;
     if output_count == 1 {
-        return Ok(vec![PageOutputJob {
-            output_path: output.clone(),
-            metadata_path: metadata.clone(),
+        return Ok(vec![PageOutput {
+            output_path: output.to_path_buf(),
+            metadata_path: metadata.to_path_buf(),
             bilevel_output_path: None,
             background_output_path: None,
             foreground_mask_output_path: None,
         }]);
     }
     Ok((0..output_count)
-        .map(|index| PageOutputJob {
+        .map(|index| PageOutput {
             output_path: suffixed_path(output, index),
             metadata_path: suffixed_path(metadata, index),
             bilevel_output_path: None,

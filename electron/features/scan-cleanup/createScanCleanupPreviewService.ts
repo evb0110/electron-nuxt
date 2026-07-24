@@ -13,7 +13,6 @@ import {
 import type {
     IScanCleanupDetectionRequest,
     IScanCleanupDetectionResult,
-    IScanCleanupProgress,
     IScanCleanupOwnerContext,
     IScanCleanupPreviewMetadata,
     IScanCleanupPreviewCancelRequest,
@@ -23,6 +22,8 @@ import type {
     IScanCleanupPreviewResult,
     TScanCleanupDetectionStartResult,
     TScanCleanupDetectionJobState,
+    TScanCleanupErrorCode,
+    TScanCleanupProgress,
 } from '@contracts/electronApiScanCleanup';
 import {
     getScanCleanupPageOverride,
@@ -38,16 +39,18 @@ import {
     classifyScanCleanupError,
     resolveScanCleanupPath,
 } from '@electron/features/scan-cleanup/createScanCleanupService';
-import {SCAN_CLEANUP_EVENT_CHANNELS} from '@electron/features/scan-cleanup/contract';
+import {SCAN_CLEANUP_PLATFORM_FEATURE} from '@contracts/scanCleanupPlatformFeature';
 import {mainJobBroker} from '@electron/resources/jobBroker';
 import {getAppTempDir} from '@electron/utils/appTempDir';
 import {createLogger} from '@electron/utils/createLogger';
 import {getErrorMessage} from '@electron/utils/error';
 import {buildNativeScanCleanupManifest} from '@electron/features/scan-cleanup/policy/buildNativeScanCleanupManifest';
 import {
-    createOwnerScopedJobRegistry,
-    type IScanCleanupJobSubscriber,
-} from '@electron/features/scan-cleanup/createOwnerScopedJobRegistry';
+    createMainJobRegistry,
+    type IMainJobErrorEnvelope,
+    type IMainJobSender,
+    type TMainJobSnapshot,
+} from '@electron/operation-lifecycle/createMainJobRegistry';
 
 const PREVIEW_DPI = 150;
 const DEFAULT_SOURCE_DPI = 300;
@@ -95,13 +98,14 @@ interface IRawPreviewEntry {
     tail: Promise<IScanCleanupRawPreviewResult>;
 }
 
-interface IDetectionJob {
-    controller: AbortController;
-    state: TScanCleanupDetectionJobState;
-    subscribers: Set<IScanCleanupDetectionSubscriber>;
+interface IDetectionResult {
+    documentCanvasPlan?: TScanCleanupDetectionJobState['documentCanvasPlan'];
+    results: TScanCleanupDetectionJobState['results'];
 }
 
-export interface IScanCleanupDetectionSubscriber extends IScanCleanupJobSubscriber {send: (channel: string, state: TScanCleanupDetectionJobState) => void;}
+type TDetectionError = IMainJobErrorEnvelope<TScanCleanupErrorCode>;
+type TDetectionSnapshot = TMainJobSnapshot<TScanCleanupDetectionJobState, IDetectionResult, TDetectionError>;
+export interface IScanCleanupDetectionSubscriber extends IMainJobSender {id: number;}
 
 export interface IScanCleanupPreviewDependencies {
     getPageCount: typeof getPdfPageCount;
@@ -605,7 +609,7 @@ async function runDetection(
     signal: AbortSignal,
     rawCache: Map<string, IRawPreview>,
     dependencies: IScanCleanupPreviewDependencies,
-    publish: (results: IScanCleanupDetectionResult[], progress: IScanCleanupProgress) => void,
+    publish: (results: IScanCleanupDetectionResult[], progress: TScanCleanupProgress) => void,
 ) {
     const scratch = await mkdtemp(join(dependencies.getTempDir(), 'scan-cleanup-detect-'));
     try {
@@ -767,18 +771,69 @@ export function createScanCleanupPreviewService(
     const active = new Map<string, IPreviewEntry>();
     const activeRaw = new Map<string, IRawPreviewEntry>();
     const rawCache = new Map<string, IRawPreview>();
-    const detectionJobs = createOwnerScopedJobRegistry<IScanCleanupDetectionSubscriber, IDetectionJob>();
-    const publishDetection = (job: IDetectionJob, state: TScanCleanupDetectionJobState) => {
-        job.state = state;
-        for (const sender of job.subscribers) {
-            if (!sender.isDestroyed()) sender.send(SCAN_CLEANUP_EVENT_CHANNELS.detectionState, state);
+    const detectionJobs = createMainJobRegistry<
+        TScanCleanupDetectionJobState,
+        IDetectionResult,
+        TDetectionError,
+        IScanCleanupDetectionSubscriber
+    >({
+        retention: {
+            eventReplayTtlMs: 60_000,
+            terminalRecordTtlMs: 60_000,
+        },
+        toError: (cause, kind) => ({
+            code: classifyScanCleanupError(cause, kind === 'canceled'),
+            message: getErrorMessage(cause),
+        }),
+        terminalProgress: {
+            completed: (latest, result) => ({
+                jobId: latest.jobId,
+                status: 'completed',
+                progress: {
+                    stage: 'detecting',
+                    completedUnits: result.results.length,
+                    totalUnits: result.results.length,
+                    percent: 100,
+                    completedPageNumbers: result.results.map(item => item.pageNumber),
+                },
+                results: result.results,
+                ...(result.documentCanvasPlan === undefined
+                    ? {}
+                    : {documentCanvasPlan: result.documentCanvasPlan}),
+                updatedAtMs: Date.now(),
+            }),
+            canceled: latest => ({
+                ...latest,
+                status: 'canceled',
+                updatedAtMs: Date.now(),
+            }),
+            failed: (latest, error) => ({
+                ...latest,
+                status: 'failed',
+                error: error.message,
+                errorCode: error.code,
+                updatedAtMs: Date.now(),
+            }),
+        },
+    });
+    const detectionActor = (sender: IScanCleanupDetectionSubscriber, owner: IScanCleanupOwnerContext) => ({
+        sender,
+        ownerId: owner.ownerId,
+        documentRevision: owner.documentRevision,
+    });
+    const publicDetectionState = (snapshot: TDetectionSnapshot | null) => snapshot?.progress ?? null;
+    const subscribeDetection = (
+        sender: IScanCleanupDetectionSubscriber,
+        jobId: string,
+        owner: IScanCleanupOwnerContext,
+    ) => detectionJobs.subscribe(jobId, detectionActor(sender, owner), snapshot => {
+        if (!sender.isDestroyed()) {
+            sender.send(
+                SCAN_CLEANUP_PLATFORM_FEATURE.eventChannels.onDetectionJobState,
+                snapshot.progress,
+            );
         }
-        if ([
-            'completed',
-            'failed',
-            'canceled',
-        ].includes(state.status)) detectionJobs.expireTerminal(state.jobId);
-    };
+    });
     return {
         previewRaw(sender, request) {
             const activeKey = `${sender.id}\u0000${request.ownerId}\u0000${request.documentRevision}\u0000${request.sourcePdfPath}`;
@@ -853,10 +908,14 @@ export function createScanCleanupPreviewService(
                     errorCode: 'invalid-request',
                 });
             }
-            const controller = new AbortController();
-            const job: IDetectionJob = {
-                controller,
-                state: {
+            detectionJobs.start({
+                jobId,
+                owner: detectionActor(sender, request),
+                operation: {
+                    kind: 'abortable-work',
+                    workingCopyPath: request.sourcePdfPath,
+                },
+                initialProgress: {
                     jobId,
                     status: 'queued',
                     progress: {
@@ -869,101 +928,66 @@ export function createScanCleanupPreviewService(
                     results: [],
                     updatedAtMs: Date.now(),
                 },
-                subscribers: new Set<IScanCleanupDetectionSubscriber>(),
-            };
-            detectionJobs.add(jobId, sender, request, job);
-            void (async () => {
-                let lease: {release: () => boolean} | null = null;
-                let canceled = false;
-                try {
-                    const acquire = dependencies.acquireDetectionLease ?? defaultDependencies.acquireDetectionLease!;
-                    lease = await acquire(jobId, controller.signal);
-                    const detection = await runDetection(
-                        request,
-                        controller.signal,
-                        rawCache,
-                        dependencies,
-                        (nextResults, progress) => publishDetection(job, {
-                            jobId,
-                            status: 'running',
-                            progress,
-                            results: nextResults,
-                            updatedAtMs: Date.now(),
-                        }),
-                    );
-                    publishDetection(job, {
-                        jobId,
-                        status: 'completed',
-                        progress: {
-                            stage: 'detecting',
-                            completedUnits: detection.results.length,
-                            totalUnits: detection.results.length,
-                            percent: 100,
-                            completedPageNumbers: detection.results.map(result => result.pageNumber),
-                        },
-                        results: detection.results,
-                        ...(detection.documentCanvasPlan === undefined
-                            ? {}
-                            : {documentCanvasPlan: detection.documentCanvasPlan}),
-                        updatedAtMs: Date.now(),
-                    });
-                } catch (error) {
-                    const aborted = controller.signal.aborted;
-                    if (aborted) {
-                        canceled = true;
-                    } else {
-                        publishDetection(job, {
-                            ...job.state,
-                            status: 'failed',
-                            error: getErrorMessage(error),
-                            errorCode: classifyScanCleanupError(error, false),
-                            updatedAtMs: Date.now(),
-                        });
+                ownerLifecycle: {
+                    destroyed: 'detach',
+                    renderProcessGone: 'detach',
+                    mainFrameNavigation: 'detach',
+                },
+                run: async job => {
+                    let lease: {release: () => boolean} | null = null;
+                    try {
+                        const acquire = dependencies.acquireDetectionLease ?? defaultDependencies.acquireDetectionLease!;
+                        lease = await acquire(jobId, job.signal);
+                        const detection = await runDetection(
+                            request,
+                            job.signal,
+                            rawCache,
+                            dependencies,
+                            (nextResults, progress) => job.publish({
+                                jobId,
+                                status: 'running',
+                                progress,
+                                results: nextResults,
+                                updatedAtMs: Date.now(),
+                            }),
+                        );
+                        return {
+                            results: detection.results,
+                            ...(detection.documentCanvasPlan === undefined
+                                ? {}
+                                : {documentCanvasPlan: detection.documentCanvasPlan}),
+                        };
+                    } finally {
+                        lease?.release();
                     }
-                } finally {
-                    lease?.release();
-                    if (canceled) {
-                        publishDetection(job, {
-                            ...job.state,
-                            status: 'canceled',
-                            updatedAtMs: Date.now(),
-                        });
-                    }
-                }
-            })();
+                },
+            });
+            subscribeDetection(sender, jobId, request);
             return Promise.resolve({
                 started: true,
                 jobId,
             });
         },
         cancelDetection(sender, jobId, owner) {
-            const job = detectionJobs.getOwned(jobId, sender, owner);
-            if (!job || [
+            const actor = detectionActor(sender, owner);
+            const state = publicDetectionState(detectionJobs.get(jobId, actor));
+            if (!state || [
                 'completed',
                 'failed',
                 'canceled',
-            ].includes(job.state.status)) {
+            ].includes(state.status)) {
                 return false;
             }
-            publishDetection(job, {
-                ...job.state,
-                status: 'canceling',
-                updatedAtMs: Date.now(),
-            });
-            // AbortSignal is the sole transport. The lease and native adapters
-            // translate it into cooperative cancellation and forced teardown.
-            job.controller.abort(new DOMException('Scan cleanup detection canceled', 'AbortError'));
-            return true;
+            return detectionJobs.cancel(jobId, actor, 'Scan cleanup detection canceled');
         },
         getDetectionJobState(sender, jobId, owner) {
-            return detectionJobs.getOwned(jobId, sender, owner)?.state ?? null;
+            return publicDetectionState(detectionJobs.get(jobId, detectionActor(sender, owner)));
         },
         subscribeDetectionJob(sender, jobId, owner) {
-            const job = detectionJobs.subscribe(jobId, sender, owner);
-            if (!job) {
-                return null;
-            }
-            return job.state;
+            const actor = detectionActor(sender, owner);
+            const unsubscribe = subscribeDetection(sender, jobId, owner);
+            const state = publicDetectionState(detectionJobs.get(jobId, actor));
+            return unsubscribe ? state : null;
         },
     };
 }

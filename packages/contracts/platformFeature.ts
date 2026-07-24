@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
 import type {
     IPlatformApiDescriptor,
     IPlatformMethodDescriptor,
@@ -11,7 +10,21 @@ export interface IRuntimeSchema<T> {
     example: () => T;
 }
 
-export type TInferSchema<T> = T extends IRuntimeSchema<infer TValue> ? TValue : never;
+export type TInferSchema<T> = T extends {decode: (...args: never[]) => unknown}
+    ? ReturnType<T['decode']>
+    : never;
+type TSchemaPrimitive = string | number | boolean | null;
+type TSchemaValue = ReturnType<JSON['parse']>;
+type TSchemaObject = Readonly<Record<string, IRuntimeSchema<TSchemaValue>>>;
+type TOptionalSchemaKeys<TShape extends TSchemaObject> = {
+    [TKey in keyof TShape]: undefined extends ReturnType<TShape[TKey]['decode']> ? TKey : never
+}[keyof TShape];
+type TRequiredSchemaKeys<TShape extends TSchemaObject> = Exclude<keyof TShape, TOptionalSchemaKeys<TShape>>;
+type TDecodedSchemaObject<TShape extends TSchemaObject> = {
+    [TKey in TRequiredSchemaKeys<TShape>]: ReturnType<TShape[TKey]['decode']>
+} & {
+    [TKey in TOptionalSchemaKeys<TShape>]?: Exclude<ReturnType<TShape[TKey]['decode']>, undefined>
+};
 
 type TPlatformBrowserSpec = {method: string} | {
     unsupported: 'omitted';
@@ -37,13 +50,42 @@ export const runtimeSchema = {
         const decode = (value: unknown) => typeof value === 'boolean'
             ? value
             : fail('expected a boolean IPC result');
-        return schema(decode, () => example);
+        return schema<boolean>(decode, () => example);
     },
     string(example = '') {
         const decode = (value: unknown) => typeof value === 'string'
             ? value
             : fail('expected a string');
-        return schema(decode, () => example);
+        return schema<string>(decode, () => example);
+    },
+    number(options: {
+        integer?: boolean;
+        min?: number;
+        max?: number;
+        message?: string
+    } = {}) {
+        const decode = (value: unknown) => {
+            if (
+                typeof value !== 'number'
+                || !Number.isFinite(value)
+                || (options.integer === true && !Number.isSafeInteger(value))
+                || (options.min !== undefined && value < options.min)
+                || (options.max !== undefined && value > options.max)
+            ) {
+                fail(options.message ?? 'expected a finite number');
+            }
+            return value as number;
+        };
+        return schema<number>(decode, () => options.min ?? 0);
+    },
+    oneOf<const TValues extends readonly TSchemaPrimitive[]>(
+        values: TValues,
+        message = 'expected one of the declared values',
+    ) {
+        const decode = (value: unknown) => values.includes(value as TValues[number])
+            ? value as TValues[number]
+            : fail(message);
+        return schema<TValues[number]>(decode, () => values[0]!);
     },
     undefined() {
         const decode = (value: unknown) => value === undefined
@@ -68,18 +110,28 @@ export const runtimeSchema = {
             value => rebuild(value, true),
         );
     },
-    optional<T>(itemSchema: IRuntimeSchema<T>) {
-        return schema(
+    optional<T>(itemSchema: IRuntimeSchema<T>): IRuntimeSchema<T | undefined> {
+        return schema<T | undefined>(
             value => value === undefined ? undefined : itemSchema.decode(value),
             () => undefined,
             value => value === undefined ? undefined : itemSchema.encode(value),
         );
     },
-    array<T>(itemSchema: IRuntimeSchema<T>, example: readonly T[] = []) {
+    nullable<T>(itemSchema: IRuntimeSchema<T>): IRuntimeSchema<T | null> {
+        return schema<T | null>(
+            value => value === null ? null : itemSchema.decode(value),
+            () => null,
+            value => value === null ? null : itemSchema.encode(value),
+        );
+    },
+    array<T>(
+        itemSchema: IRuntimeSchema<T>,
+        example: readonly T[] = [],
+    ): IRuntimeSchema<T[]> {
         const decode = (value: unknown) => Array.isArray(value)
             ? value.map(item => itemSchema.decode(item))
             : fail('expected an array');
-        return schema(
+        return schema<T[]>(
             decode,
             () => example.map(item => itemSchema.decode(item)),
             value => value.map(item => itemSchema.encode(item)),
@@ -87,6 +139,85 @@ export const runtimeSchema = {
     },
     fromParser<T>(parse: (value: unknown) => T, example: () => T) {
         return schema(parse, example);
+    },
+    object<const TShape extends TSchemaObject>(
+        shape: TShape,
+        options: {
+            exact?: boolean;
+            message?: string
+        } = {},
+    ): IRuntimeSchema<TDecodedSchemaObject<TShape>> {
+        type TValue = TDecodedSchemaObject<TShape>;
+        const rebuild = (value: unknown, encode: boolean) => {
+            if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+                fail(options.message ?? 'expected an object');
+            }
+            const source = value as Record<string, unknown>;
+            if (
+                options.exact === true
+                && Object.keys(source).some(key => !Object.hasOwn(shape, key))
+            ) {
+                fail(options.message ?? 'unexpected object field');
+            }
+            const result: Record<string, unknown> = {};
+            for (const [
+                key,
+                itemSchema,
+            ] of Object.entries(shape)) {
+                const item: unknown = encode
+                    ? itemSchema.encode(source[key])
+                    : itemSchema.decode(source[key]);
+                if (item !== undefined) {
+                    result[key] = item;
+                }
+            }
+            return result as TValue;
+        };
+        return schema<TValue>(
+            value => rebuild(value, false),
+            () => rebuild(Object.fromEntries(
+                Object.entries(shape).map(([
+                    key,
+                    itemSchema,
+                ]) => [
+                    key,
+                    itemSchema.example(),
+                ]),
+            ), false),
+            value => rebuild(value, true),
+        );
+    },
+    refine<T>(
+        itemSchema: IRuntimeSchema<T>,
+        predicate: (value: T) => boolean,
+        message: string,
+    ): IRuntimeSchema<T> {
+        const decode = (value: unknown) => {
+            const decoded = itemSchema.decode(value);
+            return predicate(decoded) ? decoded : fail(message);
+        };
+        return schema<T>(
+            decode,
+            itemSchema.example,
+            value => itemSchema.encode(value),
+        );
+    },
+    union<const TSchemas extends ReadonlyArray<IRuntimeSchema<TSchemaValue>>>(
+        schemas: TSchemas,
+        message = 'value did not match any declared schema',
+    ) {
+        type TValue = TInferSchema<TSchemas[number]>;
+        const decode = (value: unknown): TValue => {
+            for (const itemSchema of schemas) {
+                try {
+                    return itemSchema.decode(value) as TValue;
+                } catch {
+                    continue;
+                }
+            }
+            return fail(message);
+        };
+        return schema<TValue>(decode, () => schemas[0]!.example() as TValue);
     },
     fromNullableDecoder<T>(decodeNullable: (value: unknown) => T | null, label: string, example: () => T) {
         const decode = (value: unknown) => decodeNullable(value) ?? fail(`invalid ${label}`);
@@ -202,7 +333,7 @@ export type TPlatformMethodSpec =
     | IPlatformLocalMethodSpec
     | IPlatformSyncMethodSpec;
 
-export interface IPlatformEventSpec<TPayload extends IRuntimeSchema<any> = IRuntimeSchema<any>> {
+export interface IPlatformEventSpec<TPayload extends IRuntimeSchema<TSchemaValue> = IRuntimeSchema<TSchemaValue>> {
     kind: 'event';
     channel: string;
     payload: TPayload;
@@ -309,7 +440,7 @@ export type TFeatureInvokeMap<T> = T extends IDefinedPlatformFeature<infer M, in
     ? TMethodInvokeMap<M> & TSubscriptionInvokeMap<E>
     : never;
 
-export type TFeatureEventMap<T> = T extends IDefinedPlatformFeature<any, infer E>
+export type TFeatureEventMap<T> = T extends {events: infer E extends TEvents}
     ? {[K in keyof E as E[K]['channel']]: TInferSchema<E[K]['payload']>}
     : never;
 

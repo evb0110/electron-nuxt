@@ -2,8 +2,8 @@ import {spawn} from 'child_process';
 import {createInterface} from 'readline';
 import type {TNativeErrorCode} from '@contracts/nativeErrors';
 import type {
-    INativeScanCleanupProgressV3,
-    IScanCleanupProgress,
+    TNativeScanCleanupProgressV3,
+    TScanCleanupProgress,
 } from '@contracts/electronApiScanCleanup';
 import type {TWorkerLog} from '@electron/ocr/worker/types';
 import {
@@ -15,6 +15,7 @@ import {
     decodeNativeScanCleanupEnvelope,
     parseNativeScanCleanupStderr,
 } from '@electron/features/scan-cleanup/native/protocolCodec';
+import {verifyNativeToolProtocol} from '@electron/native-tools/runNativeToolCommand';
 
 export class NativeScanCleanupError extends Error {
     constructor(readonly code: TNativeErrorCode, message: string) {
@@ -34,9 +35,13 @@ export async function runScanCleanupSidecar(
     manifestPath: string,
     signal: AbortSignal,
     log: TWorkerLog,
-    onProgress: (progress: IScanCleanupProgress, nativeProgress: INativeScanCleanupProgressV3) => void,
+    onProgress: (progress: TScanCleanupProgress, nativeProgress: TNativeScanCleanupProgressV3) => void,
 ) {
     if (signal.aborted) throw abortErrorFromSignal(signal);
+    await verifyNativeToolProtocol(binaryPath, {
+        signal,
+        log,
+    });
     const child = spawn(binaryPath, [
         '--manifest',
         manifestPath,

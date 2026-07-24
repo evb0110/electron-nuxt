@@ -16,7 +16,7 @@ import {
 import type {WebContents} from 'electron';
 import type {
     IScanCleanupOptions,
-    IScanCleanupProgress,
+    TScanCleanupProgress,
 } from '@contracts/electronApiScanCleanup';
 import {
     classifyScanCleanupError,
@@ -663,7 +663,7 @@ describe('scan cleanup pipeline', () => {
                 stderr: '',
             };
         });
-        const progress: IScanCleanupProgress[] = [];
+        const progress: TScanCleanupProgress[] = [];
 
         const summary = await runScanCleanupPipeline({
             sourcePdfPath: fixture.sourcePdfPath,

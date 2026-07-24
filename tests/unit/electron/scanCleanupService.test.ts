@@ -65,6 +65,7 @@ function sender(): WebContents {
         id: 42,
         isDestroyed: () => false,
         send: vi.fn(),
+        on: vi.fn(),
         once: vi.fn(),
         removeListener: vi.fn(),
     } as never;

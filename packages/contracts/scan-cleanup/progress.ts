@@ -1,19 +1,52 @@
-export type TScanCleanupProgressStage =
-    | 'queued'
-    | 'normalizing'
-    | 'probing'
-    | 'rasterizing'
-    | 'classifying'
-    | 'rendering'
-    | 'assembling'
-    | 'handoff'
-    | 'detecting';
+import {
+    runtimeSchema,
+    type TInferSchema,
+} from '@contracts/platformFeature';
 
-export interface IScanCleanupProgress {
-    stage: TScanCleanupProgressStage;
-    completedUnits: number;
-    totalUnits: number;
-    percent: number;
-    /** Exact one-based source pages completed so concurrent work never produces inferred ticks. */
-    completedPageNumbers?: number[];
-}
+const s = runtimeSchema;
+const progress = s.refine(s.object({
+    stage: s.oneOf([
+        'queued',
+        'normalizing',
+        'probing',
+        'rasterizing',
+        'classifying',
+        'rendering',
+        'assembling',
+        'handoff',
+        'detecting',
+    ] as const, 'invalid scan-cleanup progress'),
+    completedUnits: s.number({
+        integer: true,
+        min: 0,
+        message: 'invalid scan-cleanup progress',
+    }),
+    totalUnits: s.number({
+        integer: true,
+        min: 0,
+        message: 'invalid scan-cleanup progress',
+    }),
+    percent: s.number({
+        min: 0,
+        max: 100,
+        message: 'invalid scan-cleanup progress',
+    }),
+    completedPageNumbers: s.optional(s.array(s.number({
+        integer: true,
+        min: 1,
+        message: 'invalid scan-cleanup completed page numbers',
+    }))),
+}), value =>
+    value.completedUnits <= value.totalUnits
+    && (
+        value.completedPageNumbers === undefined
+        || (
+            value.completedPageNumbers.length === value.completedUnits
+            && new Set(value.completedPageNumbers).size === value.completedPageNumbers.length
+        )
+    ),
+'invalid scan-cleanup progress');
+
+export const SCAN_CLEANUP_PROGRESS_SCHEMA = progress;
+export type TScanCleanupProgress = TInferSchema<typeof progress>;
+export type TScanCleanupProgressStage = TScanCleanupProgress['stage'];

@@ -944,7 +944,7 @@ describe('scan cleanup workspace session detection guidance', () => {
         await vi.waitFor(() => expect(mounted.session.detection.authoritativeLayoutByPage.value.get(1))
             .toBe('two-page-spread'));
         await vi.waitFor(() => expect(vi.mocked(harness.value.preview).mock.calls.some(
-            ([request]) => request.pageNumber === 1
+            ([request]) => request?.pageNumber === 1
                 && request.documentPrior?.agreementStrength === 0.8,
         )).toBe(true));
         expect(mounted.session.detection.documentPriorByPage.get(1)).toMatchObject({
@@ -952,7 +952,7 @@ describe('scan cleanup workspace session detection guidance', () => {
             cutterRatioMedian: 0.5,
         });
         const pageOnePreviewCalls = () => vi.mocked(harness.value.preview).mock.calls
-            .filter(([request]) => request.pageNumber === 1).length;
+            .filter(([request]) => request?.pageNumber === 1).length;
         const callsBeforeRetry = pageOnePreviewCalls();
 
         mounted.session.preview.retry();
@@ -1013,7 +1013,7 @@ describe('scan cleanup workspace session detection guidance', () => {
         const mounted = mountSession(`page-cache-${Date.now()}`);
 
         await vi.waitFor(() => expect(vi.mocked(harness.value.preview).mock.calls.some(
-            ([request]) => request.pageNumber === 2,
+            ([request]) => request?.pageNumber === 2,
         )).toBe(true));
         mounted.session.selection.selectPage(2, 'single', [
             1,

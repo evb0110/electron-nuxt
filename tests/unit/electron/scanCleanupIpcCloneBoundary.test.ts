@@ -14,10 +14,12 @@ import type {
     IScanCleanupPreviewResult,
 } from '@contracts/electronApiScanCleanup';
 import {
-    SCAN_CLEANUP_CHANNELS,
+    SCAN_CLEANUP_PLATFORM_FEATURE,
     type IScanCleanupInvokeMap,
-} from '@electron/features/scan-cleanup/contract';
-import {createScanCleanupPreloadClient} from '@electron/features/scan-cleanup/createScanCleanupPreloadClient';
+} from '@contracts/scanCleanupPlatformFeature';
+import {createPlatformFeaturePreloadClient} from '@electron/preload/ipcClient';
+
+const SCAN_CLEANUP_CHANNELS = SCAN_CLEANUP_PLATFORM_FEATURE.invokeChannels;
 
 const owner = {
     ownerId: 'workspace-owner',
@@ -218,7 +220,10 @@ describe('scan-cleanup IPC structured-clone contract', () => {
             removeListener: vi.fn(),
             send: vi.fn(),
         } satisfies Pick<IpcRenderer, 'invoke' | 'on' | 'removeListener' | 'send'>;
-        const client = createScanCleanupPreloadClient(ipcRenderer);
+        const client = createPlatformFeaturePreloadClient(
+            ipcRenderer,
+            SCAN_CLEANUP_PLATFORM_FEATURE,
+        );
 
         const decodedResponses = await Promise.all([
             client.previewRaw({

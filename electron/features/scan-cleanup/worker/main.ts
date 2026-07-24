@@ -2,7 +2,7 @@ import {
     parentPort,
     workerData,
 } from 'worker_threads';
-import type { IScanCleanupProgress } from '@contracts/electronApiScanCleanup';
+import type {TScanCleanupProgress} from '@contracts/electronApiScanCleanup';
 import { createWorkerTaskErrorFrame } from '@electron/utils/workerTask';
 import {
     runScanCleanupPipeline,
@@ -25,7 +25,7 @@ try {
         data.request,
         data.paths,
         abortController.signal,
-        (progress: IScanCleanupProgress) => port.postMessage({
+        (progress: TScanCleanupProgress) => port.postMessage({
             type: 'progress',
             progress,
         }),

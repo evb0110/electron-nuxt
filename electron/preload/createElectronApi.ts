@@ -47,7 +47,7 @@ import {
     DOCUMENTS_CHANNELS,
     type IDocumentsInvokeMap,
 } from '@electron/features/documents/contract';
-import {createScanCleanupPreloadClient} from '@electron/features/scan-cleanup/createScanCleanupPreloadClient';
+import {SCAN_CLEANUP_PLATFORM_FEATURE} from '@contracts/scanCleanupPlatformFeature';
 import {
     createCodecIpcInvoker,
     createPlatformFeaturePreloadClient,
@@ -496,7 +496,7 @@ export function createElectronApi(
         imageExport,
 
         ocr,
-        scanCleanup: createScanCleanupPreloadClient(ipcRenderer),
+        scanCleanup: createPlatformFeaturePreloadClient(ipcRenderer, SCAN_CLEANUP_PLATFORM_FEATURE),
 
         search: createPlatformFeaturePreloadClient(ipcRenderer, SEARCH_PLATFORM_FEATURE),
 

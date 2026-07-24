@@ -2,9 +2,11 @@ import {dirname} from 'path';
 import { fileURLToPath } from 'url';
 import { isRecord } from '@contracts/runtimeGuards';
 import type {
-    IScanCleanupProgress,
-    IScanCleanupSummary,
+    TScanCleanupProgress,
+    TScanCleanupSummary,
 } from '@contracts/electronApiScanCleanup';
+import {SCAN_CLEANUP_SUMMARY_SCHEMA} from '@contracts/scan-cleanup/ipc';
+import {SCAN_CLEANUP_PROGRESS_SCHEMA} from '@contracts/scan-cleanup/progress';
 import type {
     IRunScanCleanupPipelineRequest,
     IScanCleanupWorkerPaths,
@@ -18,80 +20,32 @@ import { WORKER_BUNDLES_BY_ID } from '@electron-worker-bundles/electronWorkerBun
 const currentDir = dirname(fileURLToPath(import.meta.url));
 const workerFileName = WORKER_BUNDLES_BY_ID['scan-cleanup'].fileName;
 
-function decodeProgress(value: unknown): IScanCleanupProgress | null {
-    if (
-        !isRecord(value)
-        || value.type !== 'progress'
-        || !isRecord(value.progress)
-        || ![
-            'queued',
-            'normalizing',
-            'probing',
-            'rasterizing',
-            'classifying',
-            'rendering',
-            'assembling',
-            'handoff',
-        ].includes(String(value.progress.stage))
-        || typeof value.progress.completedUnits !== 'number'
-        || typeof value.progress.totalUnits !== 'number'
-        || typeof value.progress.percent !== 'number'
-        || (value.progress.completedPageNumbers !== undefined && (
-            !Array.isArray(value.progress.completedPageNumbers)
-            || value.progress.completedPageNumbers.some(page => !Number.isSafeInteger(page) || Number(page) < 1)
-        ))
-    ) {
+function decodeProgress(value: unknown): TScanCleanupProgress | null {
+    if (!isRecord(value) || value.type !== 'progress') {
         return null;
     }
-    return {
-        stage: value.progress.stage as IScanCleanupProgress['stage'],
-        completedUnits: value.progress.completedUnits,
-        totalUnits: value.progress.totalUnits,
-        percent: value.progress.percent,
-        ...(value.progress.completedPageNumbers === undefined
-            ? {}
-            : {completedPageNumbers: value.progress.completedPageNumbers.map(Number)}),
-    };
+    try {
+        return SCAN_CLEANUP_PROGRESS_SCHEMA.decode(value.progress);
+    } catch {
+        return null;
+    }
 }
 
-function decodeSummary(value: unknown): IScanCleanupSummary | null {
-    if (
-        !isRecord(value)
-        || ![
-            value.inputPages,
-            value.outputPages,
-            value.spreadsSplit,
-            value.offcutsDiscarded,
-            value.deskewSkipped,
-            value.cropSkipped,
-            value.excludedPages,
-            value.blankPagesSkipped,
-        ].every(item => typeof item === 'number' && Number.isSafeInteger(item) && item >= 0)
-        || !Array.isArray(value.warnings)
-        || value.warnings.some(item => typeof item !== 'string')
-    ) {
+function decodeSummary(value: unknown): TScanCleanupSummary | null {
+    try {
+        return SCAN_CLEANUP_SUMMARY_SCHEMA.decode(value);
+    } catch {
         return null;
     }
-    return {
-        inputPages: value.inputPages as number,
-        outputPages: value.outputPages as number,
-        spreadsSplit: value.spreadsSplit as number,
-        offcutsDiscarded: value.offcutsDiscarded as number,
-        deskewSkipped: value.deskewSkipped as number,
-        cropSkipped: value.cropSkipped as number,
-        excludedPages: value.excludedPages as number,
-        blankPagesSkipped: value.blankPagesSkipped as number,
-        warnings: value.warnings.filter((item): item is string => typeof item === 'string'),
-    };
 }
 
 export async function runScanCleanupWorkerTask(
     request: IRunScanCleanupPipelineRequest,
     paths: IScanCleanupWorkerPaths,
     signal: AbortSignal,
-    onProgress: (progress: IScanCleanupProgress) => void,
+    onProgress: (progress: TScanCleanupProgress) => void,
 ) {
-    const task = startStreamingWorkerTask<IScanCleanupSummary>({
+    const task = startStreamingWorkerTask<TScanCleanupSummary>({
         workerPath: resolveUnpackedWorkerPath(currentDir, workerFileName),
         workerData: {
             request,

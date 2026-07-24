@@ -18,9 +18,9 @@ import type {
     INativeScanCleanupBinarizationDiagnosticsV3,
     IScanCleanupOptions,
     IScanCleanupPixelRect,
-    IScanCleanupProgress,
     IScanCleanupSplitSeamPolyline,
-    IScanCleanupSummary,
+    TScanCleanupProgress,
+    TScanCleanupSummary,
     TScanCleanupOutputMode,
 } from '@contracts/electronApiScanCleanup';
 import {getScanCleanupPageOverride} from '@contracts/scanCleanupPageOverrides';
@@ -191,8 +191,8 @@ function resolveSafeRenderDpi(
 }
 
 function emitProgress(
-    callback: (progress: IScanCleanupProgress) => void,
-    stage: IScanCleanupProgress['stage'],
+    callback: (progress: TScanCleanupProgress) => void,
+    stage: TScanCleanupProgress['stage'],
     completedUnits: number,
     totalUnits: number,
     percent: number,
@@ -354,7 +354,7 @@ async function runLosslessScanCleanup(
     scratch: string,
     stagedPdfPath: string,
     signal: AbortSignal,
-    onProgress: (progress: IScanCleanupProgress) => void,
+    onProgress: (progress: TScanCleanupProgress) => void,
     log: TWorkerLog,
     dependencies: IRunScanCleanupPipelineDependencies,
 ) {
@@ -425,7 +425,7 @@ async function runLosslessScanCleanup(
         );
     });
 
-    const summary: IScanCleanupSummary = {
+    const summary: TScanCleanupSummary = {
         inputPages: pageNumbers.length,
         outputPages: 0,
         spreadsSplit: 0,
@@ -537,10 +537,10 @@ export async function runScanCleanupPipeline(
     request: IRunScanCleanupPipelineRequest,
     paths: IScanCleanupWorkerPaths,
     signal: AbortSignal,
-    onProgress: (progress: IScanCleanupProgress) => void,
+    onProgress: (progress: TScanCleanupProgress) => void,
     log: TWorkerLog = () => undefined,
     dependencies: IRunScanCleanupPipelineDependencies = defaultDependencies,
-): Promise<IScanCleanupSummary> {
+): Promise<TScanCleanupSummary> {
     const scratch = await mkdtemp(join(paths.tempDir, 'scan-cleanup-'));
     const sessionId = randomUUID();
     const stagedPdfPath = join(scratch, 'cleaned.pdf');
@@ -897,7 +897,7 @@ export async function runScanCleanupPipeline(
             resolvedOutputMode: TScanCleanupOutputMode;
             metadata: ICleanupMetadata
         }> = [];
-        const summary: IScanCleanupSummary = {
+        const summary: TScanCleanupSummary = {
             inputPages: pageCount,
             outputPages: 0,
             spreadsSplit: 0,

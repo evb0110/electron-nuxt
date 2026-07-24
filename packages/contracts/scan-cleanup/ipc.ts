@@ -20,7 +20,11 @@ import type {
     IScanCleanupSplitSeamPolyline,
 } from '@contracts/scan-cleanup/geometry';
 import type {INativeScanCleanupBinarizationDiagnosticsV3} from '@contracts/scan-cleanup/nativeProtocolV3';
-import type {IScanCleanupProgress} from '@contracts/scan-cleanup/progress';
+import type {TScanCleanupProgress} from '@contracts/scan-cleanup/progress';
+import {
+    runtimeSchema,
+    type TInferSchema,
+} from '@contracts/platformFeature';
 
 export interface IScanCleanupOwnerContext {
     /** Stable for one renderer tab/session; Electron combines this with the sending WebContents id. */
@@ -243,7 +247,7 @@ export interface IScanCleanupDetectionResult extends IScanCleanupReconciliationM
 
 interface IScanCleanupDetectionJobBase {
     jobId: string;
-    progress: IScanCleanupProgress;
+    progress: TScanCleanupProgress;
     results: IScanCleanupDetectionResult[];
     documentCanvasPlan?: IScanCleanupDocumentCanvasPlan;
     updatedAtMs: number;
@@ -277,21 +281,28 @@ export interface IScanCleanupStartRequest extends IScanCleanupOwnerContext {
     outputModeRecommendations?: Partial<Record<string, TScanCleanupOutputMode>>;
 }
 
-export interface IScanCleanupSummary {
-    inputPages: number;
-    outputPages: number;
-    spreadsSplit: number;
-    offcutsDiscarded: number;
-    deskewSkipped: number;
-    cropSkipped: number;
-    excludedPages: number;
-    blankPagesSkipped: number;
-    warnings: string[];
-}
+const s = runtimeSchema;
+const summaryCount = s.number({
+    integer: true,
+    min: 0,
+    message: 'invalid scan-cleanup summary',
+});
+export const SCAN_CLEANUP_SUMMARY_SCHEMA = s.object({
+    inputPages: summaryCount,
+    outputPages: summaryCount,
+    spreadsSplit: summaryCount,
+    offcutsDiscarded: summaryCount,
+    deskewSkipped: summaryCount,
+    cropSkipped: summaryCount,
+    excludedPages: summaryCount,
+    blankPagesSkipped: summaryCount,
+    warnings: s.array(s.string()),
+});
+export type TScanCleanupSummary = TInferSchema<typeof SCAN_CLEANUP_SUMMARY_SCHEMA>;
 
 interface IScanCleanupJobBase {
     jobId: string;
-    progress: IScanCleanupProgress;
+    progress: TScanCleanupProgress;
     updatedAtMs: number;
 }
 
@@ -300,7 +311,7 @@ export type TScanCleanupJobState =
     | IScanCleanupJobBase & {
         status: 'completed';
         outputPdfPath: string;
-        summary: IScanCleanupSummary;
+        summary: TScanCleanupSummary;
         partial: boolean
     }
     | IScanCleanupJobBase & {status: 'canceled'}
@@ -322,21 +333,3 @@ export type TScanCleanupStartResult =
         error: string;
         errorCode: TScanCleanupErrorCode
     };
-
-export interface IScanCleanupCapability {
-    previewRaw: (request: IScanCleanupRawPreviewRequest) => Promise<IScanCleanupRawPreviewResult>;
-    preview: (request: IScanCleanupPreviewRequest) => Promise<IScanCleanupPreviewResult>;
-    cancelPreview: (request: IScanCleanupPreviewCancelRequest) => Promise<boolean>;
-    detectAll: (request: IScanCleanupDetectionRequest) => Promise<TScanCleanupDetectionStartResult>;
-    cancelDetection: (jobId: string, owner: IScanCleanupOwnerContext) => Promise<boolean>;
-    getDetectionJobState: (jobId: string, owner: IScanCleanupOwnerContext) => Promise<TScanCleanupDetectionJobState | null>;
-    subscribeDetectionJob: (jobId: string, owner: IScanCleanupOwnerContext) => Promise<TScanCleanupDetectionJobState | null>;
-    start: (request: IScanCleanupStartRequest) => Promise<TScanCleanupStartResult>;
-    cancel: (jobId: string, owner: IScanCleanupOwnerContext) => Promise<boolean>;
-    getJobState: (jobId: string, owner: IScanCleanupOwnerContext) => Promise<TScanCleanupJobState | null>;
-    subscribeJob: (jobId: string, owner: IScanCleanupOwnerContext) => Promise<TScanCleanupJobState | null>;
-    reconnectJob: (jobId: string, owner: IScanCleanupOwnerContext) => Promise<TScanCleanupJobState | null>;
-    pruneGeneratedOutputs: (openPdfPaths: string[]) => Promise<number>;
-    onJobState: (callback: (state: TScanCleanupJobState) => void) => () => void;
-    onDetectionJobState: (callback: (state: TScanCleanupDetectionJobState) => void) => () => void;
-}

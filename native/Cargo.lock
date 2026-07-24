@@ -292,7 +292,7 @@ version = "0.1.0"
 dependencies = [
  "crc32fast",
  "evb-native-support",
- "flate2",
+ "evb-raster-io",
  "jpeg-encoder",
  "rayon",
  "scan-primitives",
