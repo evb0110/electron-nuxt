@@ -26,6 +26,10 @@ const supportedDeployTargets = new Set([
     'landing',
     'viewer',
 ]);
+const landingBuildCommand = [
+    'pnpm --dir landing run build',
+    'node scripts/deployVercelPrivate.mjs --promote-landing-output',
+].join(' && ');
 
 function isExcludedEnvFileName(fileName) {
     if (fileName === '.env' || fileName.startsWith('.env.')) {
@@ -125,6 +129,37 @@ function sanitizePnpmWorkspace(sourceRoot) {
     writeFileSync(workspacePath, filteredLines.join('\n'), 'utf8');
 }
 
+function configureLandingBuild(sourceRoot) {
+    const packageJsonPath = path.join(sourceRoot, 'package.json');
+    const packageJson = JSON.parse(readFileSync(packageJsonPath, 'utf8'));
+
+    packageJson.scripts = {
+        ...packageJson.scripts,
+        build: landingBuildCommand,
+    };
+    writeFileSync(packageJsonPath, `${JSON.stringify(packageJson, null, 2)}\n`, 'utf8');
+}
+
+export function promoteLandingVercelOutput(projectRoot = defaultProjectRoot) {
+    const landingOutputRoot = path.join(projectRoot, 'landing', '.vercel', 'output');
+    const landingConfigPath = path.join(landingOutputRoot, 'config.json');
+    const rootOutputRoot = path.join(projectRoot, '.vercel', 'output');
+
+    if (!existsSync(landingConfigPath)) {
+        throw new Error(`Landing build did not produce ${landingConfigPath}.`);
+    }
+
+    rmSync(rootOutputRoot, {
+        force: true,
+        recursive: true,
+    });
+    mkdirSync(path.dirname(rootOutputRoot), {recursive: true});
+    cpSync(landingOutputRoot, rootOutputRoot, {
+        force: true,
+        recursive: true,
+    });
+}
+
 export function preparePrivateDeploySource({
     deployTarget = 'viewer',
     projectRoot = defaultProjectRoot,
@@ -155,6 +190,9 @@ export function preparePrivateDeploySource({
     cpSync(projectJson, path.join(sourceRoot, '.vercel', 'project.json'));
     sanitizePnpmWorkspace(sourceRoot);
     sanitizeVercelIgnore(sourceRoot, deployTarget);
+    if (deployTarget === 'landing') {
+        configureLandingBuild(sourceRoot);
+    }
 
     return {
         cleanup: () => rmSync(scratchRoot, {
@@ -237,5 +275,9 @@ const isMain = process.argv[1]
     && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href;
 
 if (isMain) {
-    process.exitCode = runPrivateVercelDeploy();
+    if (process.argv.includes('--promote-landing-output')) {
+        promoteLandingVercelOutput();
+    } else {
+        process.exitCode = runPrivateVercelDeploy();
+    }
 }

@@ -27,6 +27,7 @@ interface IPrivateDeployModule {
         deployArgs: string[];
         deployTarget: string;
     };
+    promoteLandingVercelOutput: (projectRoot?: string) => void;
     preparePrivateDeploySource: (options?: {
         deployTarget?: string;
         projectRoot?: string;
@@ -36,6 +37,7 @@ interface IPrivateDeployModule {
 const {
     buildPrivateDeployArgs,
     parsePrivateDeployOptions,
+    promoteLandingVercelOutput,
     preparePrivateDeploySource,
 } = await import(
     pathToFileURL(resolve(process.cwd(), 'scripts/deployVercelPrivate.mjs')).href
@@ -55,6 +57,10 @@ function createProjectFixture() {
     writeFileSync(path.join(projectRoot, '.env.local'), 'SECRET=value\n');
     writeFileSync(path.join(projectRoot, '.env.example'), 'SAFE=value\n');
     writeFileSync(path.join(projectRoot, '.vercel', 'project.json'), '{"projectId":"project"}\n');
+    writeFileSync(
+        path.join(projectRoot, 'package.json'),
+        '{"name":"fixture","scripts":{"build":"viewer-build"}}\n',
+    );
     writeFileSync(path.join(projectRoot, 'app', 'index.ts'), 'export const app = true;\n');
     writeFileSync(
         path.join(projectRoot, 'landing', '.vercel', 'project.json'),
@@ -175,8 +181,48 @@ describe('private Vercel deployment source', () => {
             )).toContain('landing-project');
             expect(readFileSync(path.join(prepared.sourceRoot, '.vercelignore'), 'utf8'))
                 .not.toContain('landing/');
+            expect(JSON.parse(readFileSync(
+                path.join(prepared.sourceRoot, 'package.json'),
+                'utf8',
+            )).scripts.build).toBe(
+                'pnpm --dir landing run build'
+                + ' && node scripts/deployVercelPrivate.mjs --promote-landing-output',
+            );
         } finally {
             prepared?.cleanup();
+            rmSync(projectRoot, {
+                force: true,
+                recursive: true,
+            });
+        }
+    });
+
+    it('promotes the landing Build Output API directory to the deployment root', () => {
+        const projectRoot = createProjectFixture();
+
+        try {
+            const landingOutputRoot = path.join(projectRoot, 'landing', '.vercel', 'output');
+
+            mkdirSync(path.join(landingOutputRoot, 'static'), {recursive: true});
+            writeFileSync(path.join(landingOutputRoot, 'config.json'), '{"version":3}\n');
+            writeFileSync(path.join(landingOutputRoot, 'static', 'index.html'), 'landing\n');
+            mkdirSync(path.join(projectRoot, '.vercel', 'output'), {recursive: true});
+            writeFileSync(path.join(projectRoot, '.vercel', 'output', 'stale.txt'), 'stale\n');
+
+            promoteLandingVercelOutput(projectRoot);
+
+            expect(readFileSync(
+                path.join(projectRoot, '.vercel', 'output', 'config.json'),
+                'utf8',
+            )).toBe('{"version":3}\n');
+            expect(readFileSync(
+                path.join(projectRoot, '.vercel', 'output', 'static', 'index.html'),
+                'utf8',
+            )).toBe('landing\n');
+            expect(existsSync(
+                path.join(projectRoot, '.vercel', 'output', 'stale.txt'),
+            )).toBe(false);
+        } finally {
             rmSync(projectRoot, {
                 force: true,
                 recursive: true,
