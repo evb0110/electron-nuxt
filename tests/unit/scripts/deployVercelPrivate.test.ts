@@ -3,7 +3,9 @@ import {
     mkdirSync,
     mkdtempSync,
     readFileSync,
+    readlinkSync,
     rmSync,
+    symlinkSync,
     writeFileSync,
 } from 'node:fs';
 import {tmpdir} from 'node:os';
@@ -206,6 +208,11 @@ describe('private Vercel deployment source', () => {
             mkdirSync(path.join(landingOutputRoot, 'static'), {recursive: true});
             writeFileSync(path.join(landingOutputRoot, 'config.json'), '{"version":3}\n');
             writeFileSync(path.join(landingOutputRoot, 'static', 'index.html'), 'landing\n');
+            mkdirSync(path.join(landingOutputRoot, 'functions'), {recursive: true});
+            symlinkSync(
+                './__fallback.func',
+                path.join(landingOutputRoot, 'functions', 'index-isr.func'),
+            );
             mkdirSync(path.join(projectRoot, '.vercel', 'output'), {recursive: true});
             writeFileSync(path.join(projectRoot, '.vercel', 'output', 'stale.txt'), 'stale\n');
 
@@ -222,6 +229,9 @@ describe('private Vercel deployment source', () => {
             expect(existsSync(
                 path.join(projectRoot, '.vercel', 'output', 'stale.txt'),
             )).toBe(false);
+            expect(readlinkSync(
+                path.join(projectRoot, '.vercel', 'output', 'functions', 'index-isr.func'),
+            )).toBe('./__fallback.func');
         } finally {
             rmSync(projectRoot, {
                 force: true,

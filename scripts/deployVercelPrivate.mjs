@@ -157,6 +157,7 @@ export function promoteLandingVercelOutput(projectRoot = defaultProjectRoot) {
     cpSync(landingOutputRoot, rootOutputRoot, {
         force: true,
         recursive: true,
+        verbatimSymlinks: true,
     });
 }
 
