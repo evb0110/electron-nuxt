@@ -218,6 +218,7 @@ export function createBrowserDocumentsCapability(
             await fileCapability.recentFiles.remove(path);
             return undefined;
         },
+        removeIfMissing: fileCapability.recentFiles.removeIfMissing,
         clear: async () => {
             await fileCapability.recentFiles.clear();
             return undefined;

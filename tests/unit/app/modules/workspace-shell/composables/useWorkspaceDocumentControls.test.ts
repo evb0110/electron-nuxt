@@ -101,8 +101,7 @@ function createOptions() {
         closeFileWithViewerLifecycle: vi.fn(async () => {}),
         closeAllDropdowns: vi.fn(),
         emitOpenInNewTab: vi.fn(),
-        removeRecentFile: vi.fn(async () => {}),
-        notifyMissingRecentFile: vi.fn(),
+        removeRecentFileIfMissing: vi.fn(async () => false),
     };
 }
 

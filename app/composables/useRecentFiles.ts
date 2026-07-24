@@ -22,6 +22,7 @@ const ELECTRON_RECENT_FILES_RETRY_DELAY_MS = 750;
 
 export const useRecentFiles = () => {
     const { t } = useTypedI18n();
+    const toast = useToast();
     const { isDesktopRuntime } = useRuntimeEnvironment();
     const route = useRoute();
     const recentFilesCookie = useCookie<string | null>(RECENT_FILES_COOKIE_KEY, {
@@ -129,6 +130,31 @@ export const useRecentFiles = () => {
         }
     }
 
+    async function removeRecentFileIfMissing(file: IRecentFile) {
+        error.value = null;
+        try {
+            const removed = await (await getDocumentRecentFilesCapability())
+                .recentFiles.removeIfMissing(file.originalPath);
+            if (!removed) {
+                return false;
+            }
+            recentFiles.value = recentFiles.value.filter(
+                candidate => candidate.originalPath !== file.originalPath,
+            );
+            isResolved.value = true;
+            clearRetryTimer();
+            toast.add({
+                color: 'error',
+                title: t('errors.recent.notFoundTitle'),
+                description: t('errors.recent.notFoundDescription', {name: file.fileName}),
+            });
+            return true;
+        } catch (e) {
+            error.value = e instanceof Error ? e.message : t('errors.recent.remove');
+            return false;
+        }
+    }
+
     async function clearRecentFiles() {
         error.value = null;
         try {
@@ -151,6 +177,7 @@ export const useRecentFiles = () => {
         syncCookieFromRuntime,
         openRecentFile,
         removeRecentFile,
+        removeRecentFileIfMissing,
         clearRecentFiles,
     };
 };

@@ -452,6 +452,8 @@ export function registerDocumentsIpcAdapter(
             await service.removeRecentFile(originalPath);
             return undefined;
         },
+        removeRecentFileIfMissing: originalPath =>
+            service.removeRecentFileIfMissing(originalPath),
         clearRecentFiles: async () => {
             await service.clearRecentFiles();
             return undefined;

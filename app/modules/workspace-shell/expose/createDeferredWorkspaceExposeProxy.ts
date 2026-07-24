@@ -1,6 +1,5 @@
 import type { TDocumentRef } from '@contracts/documentRef';
 import type { TOpenFileResult } from '@contracts/electronApiDocuments';
-import type { IRecentFile } from '@contracts/shared';
 import type { TSplitPayload } from '@contracts/windowTabs';
 import type { IWorkspaceDocumentController } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
 import type { IDocumentOpenIntent } from '@app/modules/workspace-shell/document-sessions/documentOpenIntent';
@@ -265,10 +264,6 @@ export function createDeferredWorkspaceExposeProxy(
                 false,
             ) === true;
         },
-        openRecentFile: async (file: IRecentFile) => openQueued({
-            action: 'openRecentFile',
-            target: buildPendingTabDocumentHint(file),
-        }, async () => deps.withWorkspace('openRecentFile', workspace => workspace.openRecentFile(file))),
         captureSplitPayload: () => deps.getMounted()?.captureSplitPayload() ?? Promise.resolve({kind: 'empty'} satisfies TSplitPayload),
         restoreSplitPayload: async (payload: TSplitPayload) => {
             if (!deps.getMounted() && payload.kind === 'empty') {

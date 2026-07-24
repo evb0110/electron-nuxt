@@ -10,11 +10,7 @@ import type { TPdfSource } from '@app/types/pdfUi';
 import type { IRecentFile } from '@contracts/shared';
 import { waitUntilIdle } from '@app/utils/asyncHelpers';
 import { BrowserLogger } from '@app/utils/browserLogger';
-import {
-    getDocumentFilesCapability,
-    getDocumentPickerCapability,
-} from '@app/utils/platformDocuments';
-import { isBrowserDocumentRef } from '@app/utils/documentRef';
+import { getDocumentPickerCapability } from '@app/utils/platformDocuments';
 import { didOpenDocument } from '@app/types/documentOpenOutcome';
 import type { TDocumentOpenOutcome } from '@app/types/documentOpenOutcome';
 
@@ -59,8 +55,7 @@ export interface IPageFileOperationsDeps {
     closeFile: () => void | Promise<void>;
     closeAllDropdowns: () => void;
     emitOpenInNewTab: (pathOrResult: TDocumentRef | TOpenFileResult) => void;
-    removeRecentFile: (file: IRecentFile) => Promise<void>;
-    notifyMissingRecentFile: (file: IRecentFile) => void;
+    removeRecentFileIfMissing: (file: IRecentFile) => Promise<boolean>;
 }
 
 export const usePageFileOperations = (deps: IPageFileOperationsDeps) => {
@@ -87,8 +82,7 @@ export const usePageFileOperations = (deps: IPageFileOperationsDeps) => {
         closeFile,
         closeAllDropdowns,
         emitOpenInNewTab,
-        removeRecentFile,
-        notifyMissingRecentFile,
+        removeRecentFileIfMissing,
     } = deps;
     const lastOpenOutcome = ref<TPageFileOpenOutcome | null>(null);
 
@@ -390,48 +384,15 @@ export const usePageFileOperations = (deps: IPageFileOperationsDeps) => {
         return true;
     }
 
-    async function recentFilePathExists(path: TDocumentRef) {
-        try {
-            await getDocumentFilesCapability().readFileRange(path, 0, 1);
-            return {
-                exists: true,
-                permissionDenied: false,
-            };
-        } catch (probeError) {
-            const errorMessage = stringifyError(probeError);
-            BrowserLogger.warn(RECENT_OPEN_LOG_SECTION, 'Recent file probe failed', {
-                path,
-                error: errorMessage,
-            });
-            return {
-                exists: false,
-                permissionDenied: isRecentFileProbePermissionDenied(errorMessage),
-            };
-        }
-    }
-
-    function isRecentFileProbePermissionDenied(errorMessage: string) {
-        return /\b(?:capability|permission|token)\b/i.test(errorMessage)
-            && /\bden(?:ied|y)|\bunauthori[sz]ed\b|\bforbidden\b|\bnot allowed\b/i.test(errorMessage);
-    }
-
     async function openRecentFileDetailed(file: IRecentFile) {
         BrowserLogger.debug(RECENT_OPEN_LOG_SECTION, 'openRecentFile invoked', {path: file.originalPath});
 
-        if (isBrowserDocumentRef(file.originalPath)) {
-            const probeResult = await recentFilePathExists(file.originalPath);
-            if (probeResult.permissionDenied) {
-                return handleOpenFileDirectWithPersistDetailed(file.originalPath);
-            }
-            if (!probeResult.exists) {
-                BrowserLogger.warn(RECENT_OPEN_LOG_SECTION, 'Recent file no longer exists; removing from recents', {path: file.originalPath});
-                await removeRecentFile(file);
-                notifyMissingRecentFile(file);
-                return recordOpenOutcome({
-                    status: 'failed',
-                    error: 'Recent file no longer exists',
-                });
-            }
+        if (await removeRecentFileIfMissing(file)) {
+            BrowserLogger.warn(RECENT_OPEN_LOG_SECTION, 'Recent file no longer exists; removed from recents', {path: file.originalPath});
+            return recordOpenOutcome({
+                status: 'failed',
+                error: 'Recent file no longer exists',
+            });
         }
 
         return handleOpenFileDirectWithPersistDetailed(file.originalPath);

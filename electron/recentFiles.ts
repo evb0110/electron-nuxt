@@ -528,6 +528,26 @@ export async function removeRecentFile(originalPath: string) {
     });
 }
 
+export async function removeRecentFileIfMissing(originalPath: string) {
+    return enqueueRecentFilesOperation(async () => {
+        const data = await loadRecentFilesData();
+        if (!data.files.some(file => file.originalPath === originalPath)) {
+            return false;
+        }
+
+        const inspection = await inspectPath(originalPath);
+        if (inspection.status !== 'missing') {
+            return false;
+        }
+
+        data.files = data.files.filter(file => file.originalPath !== originalPath);
+        await saveRecentFilesData(data);
+        recentFilesCache = cloneRecentFiles(data.files);
+        cacheTimestamp = Date.now();
+        return true;
+    });
+}
+
 export async function clearRecentFiles() {
     await enqueueRecentFilesOperation(async () => {
         // Invalidate cache before mutation

@@ -172,6 +172,7 @@ export const useWorkspaceFileLifecycleController = (
         recentFiles,
         loadRecentFiles,
         removeRecentFile,
+        removeRecentFileIfMissing,
         clearRecentFiles,
     } = useRecentFiles();
 
@@ -384,6 +385,7 @@ export const useWorkspaceFileLifecycleController = (
         recentFiles,
         loadRecentFiles,
         removeRecentFile,
+        removeRecentFileIfMissing,
         clearRecentFiles,
 
         openFileWithViewerLifecycle,

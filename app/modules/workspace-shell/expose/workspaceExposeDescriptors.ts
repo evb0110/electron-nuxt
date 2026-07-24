@@ -218,13 +218,6 @@ export const workspaceExposeCommandRegistry = defineWorkspaceExposeCommandRegist
         deferred: 'mountWaitBoolean',
     },
     {
-        name: 'openRecentFile',
-        kind: 'async',
-        group: 'file',
-        real: 'passthrough',
-        deferred: 'custom',
-    },
-    {
         name: 'handleExportDocx',
         kind: 'async',
         toolbar: {eventName: 'export-docx'},

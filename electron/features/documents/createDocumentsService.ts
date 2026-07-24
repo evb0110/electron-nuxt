@@ -77,6 +77,7 @@ import {
     clearRecentFiles,
     getRecentFiles,
     removeRecentFile,
+    removeRecentFileIfMissing,
 } from '@electron/recentFiles';
 import {
     allowRevealPaths,
@@ -233,6 +234,16 @@ export function createDocumentsService(): IDocumentsService {
             removeAllowedOpenPath(originalPath);
             removeAllowedRevealPath(originalPath);
             updateRecentFilesMenu();
+        },
+        removeRecentFileIfMissing: async (...args: TDocumentsServiceArgs<'removeRecentFileIfMissing'>) => {
+            const [originalPath] = args;
+            const removed = await removeRecentFileIfMissing(originalPath);
+            if (removed) {
+                removeAllowedOpenPath(originalPath);
+                removeAllowedRevealPath(originalPath);
+                updateRecentFilesMenu();
+            }
+            return removed;
         },
         clearRecentFiles: async () => {
             const files = await getRecentFiles();

@@ -24,12 +24,15 @@ const electronBridgeReady = ref(true);
 const routePath = ref('/electron');
 const electronRecentFilesGet = vi.fn<() => Promise<IRecentFile[]>>();
 const electronRecentFilesRemove = vi.fn<(path: string) => Promise<void>>();
+const electronRecentFilesRemoveIfMissing = vi.fn<(path: string) => Promise<boolean>>();
 const electronRecentFilesClear = vi.fn<() => Promise<void>>();
 const electronOpenDocumentDirect = vi.fn<(path: string) => Promise<TOpenFileResult | null>>();
 const browserRecentFilesGet = vi.fn<() => Promise<IRecentFile[]>>();
+const toastAdd = vi.fn();
 const electronRecentFiles = {
     get: electronRecentFilesGet,
     remove: electronRecentFilesRemove,
+    removeIfMissing: electronRecentFilesRemoveIfMissing,
     clear: electronRecentFilesClear,
 };
 const electronPlatformApi = createElectronPlatformApiFixture({
@@ -96,6 +99,7 @@ function installRecentFilesStubs() {
     installNuxtStateTestStubs(cookieStore, stateStore);
     vi.stubGlobal('useRoute', () => ({path: routePath.value}));
     vi.stubGlobal('useTypedI18n', () => ({t: (key: string) => key}));
+    vi.stubGlobal('useToast', () => ({add: toastAdd}));
     vi.stubGlobal('onMounted', (_callback: () => void) => undefined);
 }
 
@@ -111,6 +115,7 @@ describe('useRecentFiles', () => {
         routePath.value = '/electron';
         electronRecentFilesGet.mockResolvedValue([]);
         electronRecentFilesRemove.mockResolvedValue();
+        electronRecentFilesRemoveIfMissing.mockResolvedValue(false);
         electronRecentFilesClear.mockResolvedValue();
         electronOpenDocumentDirect.mockResolvedValue(null);
         browserRecentFilesGet.mockResolvedValue([]);
@@ -197,6 +202,30 @@ describe('useRecentFiles', () => {
         expect(electronRecentFilesRemove).toHaveBeenCalledWith('/tmp/remove-me.pdf');
         expect(electronRecentFilesGet).toHaveBeenCalledOnce();
         expect(recentFiles.value).toEqual([expect.objectContaining({originalPath: '/tmp/remaining.pdf'})]);
+    });
+
+    it('prunes a missing recent file locally and surfaces the removal toast', async () => {
+        const file = recentFile('/tmp/missing.pdf');
+        electronRecentFilesGet.mockResolvedValue([file]);
+        electronRecentFilesRemoveIfMissing.mockResolvedValue(true);
+
+        const { useRecentFiles } = await import('@app/composables/useRecentFiles');
+        const {
+            loadRecentFiles,
+            recentFiles,
+            removeRecentFileIfMissing,
+        } = useRecentFiles();
+        await loadRecentFiles();
+
+        await expect(removeRecentFileIfMissing(file)).resolves.toBe(true);
+
+        expect(electronRecentFilesRemoveIfMissing).toHaveBeenCalledWith(file.originalPath);
+        expect(recentFiles.value).toEqual([]);
+        expect(toastAdd).toHaveBeenCalledWith({
+            color: 'error',
+            title: 'errors.recent.notFoundTitle',
+            description: 'errors.recent.notFoundDescription:{"name":"missing.pdf"}',
+        });
     });
 
     it('clears recent files through the split recent-files capability', async () => {

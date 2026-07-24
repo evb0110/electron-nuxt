@@ -465,6 +465,21 @@ describe('recentFiles persistence', () => {
         expect(await recentFiles.getRecentFiles()).toEqual([]);
     });
 
+    it('atomically removes a recent entry only after its source is deleted', async () => {
+        const filePath = writeFixture('deleted-after-load.pdf');
+        const recentFiles = await loadRecentFilesModule();
+        await recentFiles.addRecentFile(filePath);
+
+        await expect(recentFiles.removeRecentFileIfMissing(filePath)).resolves.toBe(false);
+        expect(recentFiles.getRecentFilesSync()).toEqual([filePath]);
+
+        unlinkSync(filePath);
+
+        await expect(recentFiles.removeRecentFileIfMissing(filePath)).resolves.toBe(true);
+        expect(recentFiles.getRecentFilesSync()).toEqual([]);
+        expect(await recentFiles.getRecentFiles()).toEqual([]);
+    });
+
     it('bootstraps the default interactive automation profile from canonical dev recents only once', async () => {
         process.env.EVB_AUTOMATION_BOOTSTRAP_DEV_PROFILE = '1';
         const filePath = writeFixture('bootstrap.pdf');

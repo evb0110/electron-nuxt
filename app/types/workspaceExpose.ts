@@ -10,7 +10,6 @@ import type {
 } from '@app/types/annotations';
 import type { IAnnotationNoteWindowViewModel } from '@app/types/annotationNoteWindow';
 import type {
-    IRecentFile,
     TFitMode,
     TPdfViewMode,
     TZoomMode,
@@ -156,7 +155,6 @@ export interface IWorkspaceFilePort {
     handleOpenFileDirectBatchWithPersist: (paths: TDocumentRef[]) => Promise<boolean>;
     handleOpenFileWithResult: (result: TOpenFileResult) => Promise<boolean>;
     handleCloseFileFromUi: (options?: ICloseFileFromUiOptions) => Promise<boolean>;
-    openRecentFile: (file: IRecentFile) => Promise<boolean>;
 }
 
 export interface IWorkspaceExportPort {

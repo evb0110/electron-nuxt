@@ -216,6 +216,7 @@ const {
     isResolved,
     loadRecentFiles,
     removeRecentFile,
+    removeRecentFileIfMissing,
     clearRecentFiles,
 } = useRecentFiles();
 const hasMountedWorkspace = computed(() => mountedWorkspace.value !== null);
@@ -587,6 +588,10 @@ async function handleOpenRecentFromPlaceholder(file: IRecentFile) {
         hasMountedWorkspace: hasMountedWorkspace.value,
     });
 
+    if (await removeRecentFileIfMissing(file)) {
+        return false;
+    }
+
     return activeDocumentSession.value.open({
         action: 'openRecentFromPlaceholder',
         preparedSourceModifiedAt: file.modifiedAt,
@@ -602,7 +607,10 @@ async function handleOpenRecentFromPlaceholder(file: IRecentFile) {
             return false;
         }
 
-        return withWorkspace('openRecentFromPlaceholder', workspace => workspace.openRecentFile(file));
+        return withWorkspace(
+            'openRecentFromPlaceholder',
+            workspace => workspace.handleOpenFileDirectWithPersist(file.originalPath),
+        );
     });
 }
 

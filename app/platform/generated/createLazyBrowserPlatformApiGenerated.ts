@@ -107,6 +107,7 @@ export function createLazyBrowserPlatformApiGenerated({
     const documentPdfPrintPdfPathMethod = lazyAsync(pathDescriptors.documentPdf.printPdfPath.path);
     const documentRecentFilesRecentFilesGetMethod = lazyAsync(pathDescriptors.documentRecentFiles.recentFiles.get.path);
     const documentRecentFilesRecentFilesRemoveMethod = lazyAsync(pathDescriptors.documentRecentFiles.recentFiles.remove.path);
+    const documentRecentFilesRecentFilesRemoveIfMissingMethod = lazyAsync(pathDescriptors.documentRecentFiles.recentFiles.removeIfMissing.path);
     const documentRecentFilesRecentFilesClearMethod = lazyAsync(pathDescriptors.documentRecentFiles.recentFiles.clear.path);
     const documentWindowSetWindowTitleMethod = lazyAsync(pathDescriptors.documentWindow.setWindowTitle.path);
     const documentWindowShowItemInFolderMethod = lazyAsync(pathDescriptors.documentWindow.showItemInFolder.path);
@@ -371,6 +372,7 @@ export function createLazyBrowserPlatformApiGenerated({
         recentFiles: {
             get: documentRecentFilesRecentFilesGetMethod,
             remove: documentRecentFilesRecentFilesRemoveMethod,
+            removeIfMissing: documentRecentFilesRecentFilesRemoveIfMissingMethod,
             clear: documentRecentFilesRecentFilesClearMethod,
         },
     },

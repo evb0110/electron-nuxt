@@ -24,7 +24,6 @@ import { useWorkspaceSidebarSearchSyncController } from '@app/modules/workspace-
 import { useWorkspaceAnnotationSession } from '@app/modules/workspace-shell/composables/useWorkspaceAnnotationSession';
 import type { TDocumentRef } from '@contracts/documentRef';
 import type { TOpenFileResult } from '@contracts/electronApiDocuments';
-import type { IRecentFile } from '@contracts/shared';
 import type { IAnnotationCommentSummary } from '@app/types/annotations';
 import { getDocumentPdfCapability } from '@app/utils/platformDocuments';
 import { useWorkspaceViewState } from '@app/modules/workspace-shell/composables/useWorkspaceViewState';
@@ -111,7 +110,7 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         djvuSourcePath,
         djvuSourceSizeBytes,
         loadRecentFiles,
-        removeRecentFile,
+        removeRecentFileIfMissing,
         pickFileToOpen,
         openFileWithViewerLifecycle,
         openFileDirectWithViewerLifecycle,
@@ -169,14 +168,6 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
             };
         }
     }, {immediate: true});
-    const toast = useToast();
-    function notifyMissingRecentFile(file: IRecentFile) {
-        toast.add({
-            color: 'error',
-            title: t('errors.recent.notFoundTitle'),
-            description: t('errors.recent.notFoundDescription', {name: file.fileName}),
-        });
-    }
     const sidebarSearch = useWorkspaceSidebarSearchSyncController({
         workingCopyPath,
         documentRevisionToken,
@@ -780,8 +771,7 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         closeFileWithViewerLifecycle,
         closeAllDropdowns,
         emitOpenInNewTab: (pathOrResult) => emit('open-in-new-tab', pathOrResult),
-        removeRecentFile,
-        notifyMissingRecentFile,
+        removeRecentFileIfMissing,
     });
 
     async function getPrintableSourceData() {

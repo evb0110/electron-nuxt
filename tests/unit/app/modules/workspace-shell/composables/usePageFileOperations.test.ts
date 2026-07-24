@@ -22,7 +22,6 @@ const {
     mockOpenFolderDialog,
     mockLegacyOpenCombineDialog,
     mockLegacyOpenFolderDialog,
-    mockReadFileRange,
 } = vi.hoisted(() => ({
     mockHasElectronAPI: vi.fn(() => true),
     mockOpenCombineDialog: vi.fn<() => Promise<TOpenFileResult | null>>(async () => null),
@@ -33,17 +32,13 @@ const {
     mockLegacyOpenFolderDialog: vi.fn(() => {
         throw new Error('legacy folder picker should not be used');
     }),
-    mockReadFileRange: vi.fn(async (_path: string, _offset: number, _length: number) => new Uint8Array([0])),
 }));
 
 vi.mock('@app/utils/platform', () => ({hasElectronAPI: () => mockHasElectronAPI()}));
-vi.mock('@app/utils/platformDocuments', () => ({
-    getDocumentFilesCapability: () => ({readFileRange: mockReadFileRange}),
-    getDocumentPickerCapability: () => ({
-        openCombineDialog: mockOpenCombineDialog,
-        openFolderDialog: mockOpenFolderDialog,
-    }),
-}));
+vi.mock('@app/utils/platformDocuments', () => ({getDocumentPickerCapability: () => ({
+    openCombineDialog: mockOpenCombineDialog,
+    openFolderDialog: mockOpenFolderDialog,
+})}));
 
 function openedOutcome(path = '/tmp/working.pdf'): TDocumentOpenOutcome {
     return {
@@ -89,8 +84,7 @@ function createDeps(overrides: Partial<Parameters<typeof usePageFileOperations>[
         closeFile: vi.fn(async () => {}),
         closeAllDropdowns: vi.fn(),
         emitOpenInNewTab: vi.fn(),
-        removeRecentFile: vi.fn(async () => {}),
-        notifyMissingRecentFile: vi.fn(),
+        removeRecentFileIfMissing: vi.fn(async () => false),
         ...overrides,
     });
 }
@@ -105,8 +99,6 @@ describe('usePageFileOperations', () => {
         mockOpenFolderDialog.mockResolvedValue(null);
         mockLegacyOpenCombineDialog.mockClear();
         mockLegacyOpenFolderDialog.mockClear();
-        mockReadFileRange.mockReset();
-        mockReadFileRange.mockResolvedValue(new Uint8Array([0]));
     });
 
     it('persists unsaved changes before closing by default', async () => {
@@ -437,13 +429,12 @@ describe('usePageFileOperations', () => {
         expect(deps.closeAllDropdowns).toHaveBeenCalledOnce();
     });
 
-    it('removes a missing browser recent file and notifies instead of opening it', async () => {
+    it('does not open a recent file removed by the missing-file preflight', async () => {
         const warnSpy = vi.spyOn(BrowserLogger, 'warn').mockImplementation(() => {});
-        mockReadFileRange.mockRejectedValueOnce(new Error('Browser document chunk missing'));
-        const deps = createDeps();
+        const deps = createDeps({removeRecentFileIfMissing: vi.fn(async () => true)});
         const { openRecentFile } = usePageFileOperations(deps);
         const file = {
-            originalPath: 'browser://documents/uuid/missing.pdf',
+            originalPath: '/tmp/missing.pdf',
             fileName: 'missing.pdf',
             timestamp: 0,
             fileSize: 0,
@@ -452,54 +443,15 @@ describe('usePageFileOperations', () => {
         await openRecentFile(file);
 
         expect(deps.openFileDirect).not.toHaveBeenCalled();
-        expect(deps.removeRecentFile).toHaveBeenCalledWith(file);
-        expect(deps.notifyMissingRecentFile).toHaveBeenCalledWith(file);
+        expect(deps.removeRecentFileIfMissing).toHaveBeenCalledWith(file);
         expect(warnSpy).toHaveBeenCalledWith(
             'recent-open',
-            'Recent file no longer exists; removing from recents',
-            {path: 'browser://documents/uuid/missing.pdf'},
+            'Recent file no longer exists; removed from recents',
+            {path: '/tmp/missing.pdf'},
         );
     });
 
-    it('removes a recent whose browser storage chunks were evicted', async () => {
-        mockReadFileRange.mockRejectedValueOnce(new Error('Browser document chunk missing: browser://documents/uuid/file.pdf#0'));
-        const deps = createDeps();
-        const { openRecentFile } = usePageFileOperations(deps);
-        const file = {
-            originalPath: 'browser://documents/uuid/file.pdf',
-            fileName: 'file.pdf',
-            timestamp: 0,
-            fileSize: 32_000_000,
-        };
-
-        await openRecentFile(file);
-
-        expect(deps.openFileDirect).not.toHaveBeenCalled();
-        expect(deps.removeRecentFile).toHaveBeenCalledWith(file);
-        expect(deps.notifyMissingRecentFile).toHaveBeenCalledWith(file);
-    });
-
-    it('opens a present browser recent file without removing or notifying', async () => {
-        mockReadFileRange.mockResolvedValueOnce(new Uint8Array([37]));
-        const deps = createDeps();
-        const { openRecentFile } = usePageFileOperations(deps);
-        const file = {
-            originalPath: 'browser://documents/uuid/present.pdf',
-            fileName: 'present.pdf',
-            timestamp: 0,
-            fileSize: 4096,
-        };
-
-        await openRecentFile(file);
-
-        expect(mockReadFileRange).toHaveBeenCalledWith('browser://documents/uuid/present.pdf', 0, 1);
-        expect(deps.openFileDirect).toHaveBeenCalledWith('browser://documents/uuid/present.pdf');
-        expect(deps.removeRecentFile).not.toHaveBeenCalled();
-        expect(deps.notifyMissingRecentFile).not.toHaveBeenCalled();
-    });
-
-    it('does not probe native recent paths before direct-open', async () => {
-        mockReadFileRange.mockRejectedValueOnce(new Error('Invalid file path: reads only allowed within temp directory'));
+    it('opens a recent file retained by the missing-file preflight', async () => {
         const deps = createDeps();
         const { openRecentFile } = usePageFileOperations(deps);
         const file = {
@@ -511,10 +463,8 @@ describe('usePageFileOperations', () => {
 
         await openRecentFile(file);
 
-        expect(mockReadFileRange).not.toHaveBeenCalled();
+        expect(deps.removeRecentFileIfMissing).toHaveBeenCalledWith(file);
         expect(deps.openFileDirect).toHaveBeenCalledWith('/tmp/present.pdf');
-        expect(deps.removeRecentFile).not.toHaveBeenCalled();
-        expect(deps.notifyMissingRecentFile).not.toHaveBeenCalled();
     });
 
     it('blocks close when save throws instead of bubbling an uncaught rejection', async () => {
@@ -538,21 +488,4 @@ describe('usePageFileOperations', () => {
         );
     });
 
-    it('keeps a browser recent entry when the probe is denied by capability or token policy', async () => {
-        mockReadFileRange.mockRejectedValueOnce(new Error('Capability token denied'));
-        const deps = createDeps();
-        const { openRecentFile } = usePageFileOperations(deps);
-        const file = {
-            originalPath: 'browser://documents/uuid/denied.pdf',
-            fileName: 'denied.pdf',
-            timestamp: 0,
-            fileSize: 4096,
-        };
-
-        await openRecentFile(file);
-
-        expect(deps.openFileDirect).toHaveBeenCalledWith('browser://documents/uuid/denied.pdf');
-        expect(deps.removeRecentFile).not.toHaveBeenCalled();
-        expect(deps.notifyMissingRecentFile).not.toHaveBeenCalled();
-    });
 });
