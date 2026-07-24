@@ -4,7 +4,7 @@ use crate::engine::render_plan::{
     content_result_for_dimensions, output_regions, ComposedRenderPlan,
 };
 use crate::engine::text_axis::{detect_text_axis, TextAxisHint};
-use crate::mode_select::{recommend_output_mode, OutputModeRecommendation, PreparedModeEvidence};
+use crate::mode_select::{OutputModeRecommendation, PreparedModeEvidence};
 use crate::{
     auto_dewarp::detect_curves_at_dpi_with_depth,
     background::{
@@ -723,6 +723,7 @@ fn classify_page_with_document_prior_impl(
         None,
         options,
         false,
+        true,
         document_prior,
         CalibrationConfig::default(),
         cache,
@@ -772,6 +773,7 @@ pub fn analyze_page_with_color_and_document_prior(
         color_source,
         options,
         document_prior,
+        true,
         None,
         &mut timings,
     )
@@ -782,6 +784,7 @@ pub(crate) fn analyze_page_with_color_and_document_prior_cached(
     color_source: Option<&RgbImage>,
     options: &CleanupOptions,
     document_prior: Option<DocumentPrior>,
+    recommend_output_mode: bool,
     cache: &PageCache,
     timings: &mut PageStageTimings,
 ) -> Result<PageAnalysisResult, String> {
@@ -790,6 +793,7 @@ pub(crate) fn analyze_page_with_color_and_document_prior_cached(
         color_source,
         options,
         document_prior,
+        recommend_output_mode,
         Some(cache),
         timings,
     )
@@ -808,6 +812,7 @@ pub(crate) fn analyze_page_with_document_prior_cached(
         None,
         options,
         document_prior,
+        true,
         cache,
         timings,
     )
@@ -818,6 +823,7 @@ fn analyze_page_with_color_and_document_prior_impl(
     color_source: Option<&RgbImage>,
     options: &CleanupOptions,
     document_prior: Option<DocumentPrior>,
+    recommend_output_mode: bool,
     cache: Option<&PageCache>,
     timings: &mut PageStageTimings,
 ) -> Result<PageAnalysisResult, String> {
@@ -849,6 +855,7 @@ fn analyze_page_with_color_and_document_prior_impl(
         color_source,
         options,
         true,
+        recommend_output_mode,
         document_prior,
         CalibrationConfig::default(),
         cache,
@@ -956,6 +963,19 @@ fn analyze_page_with_color_and_document_prior_impl(
     })
 }
 
+#[derive(Clone, Copy)]
+struct PageRenderPolicy {
+    create_mixed_layers: bool,
+    recommend_output_mode: bool,
+}
+
+impl PageRenderPolicy {
+    const COMPLETE: Self = Self {
+        create_mixed_layers: true,
+        recommend_output_mode: true,
+    };
+}
+
 pub fn clean_page(
     source: &GrayImage,
     options: &CleanupOptions,
@@ -970,7 +990,7 @@ pub fn clean_page(
         CalibrationConfig::default(),
         None,
         None,
-        true,
+        PageRenderPolicy::COMPLETE,
         &mut timings,
     )
 }
@@ -991,7 +1011,7 @@ pub fn clean_page_with_calibration_config(
         calibration_config,
         None,
         None,
-        true,
+        PageRenderPolicy::COMPLETE,
         &mut timings,
     )
 }
@@ -1011,7 +1031,7 @@ pub fn clean_page_with_color(
         CalibrationConfig::default(),
         None,
         None,
-        true,
+        PageRenderPolicy::COMPLETE,
         &mut timings,
     )
 }
@@ -1032,7 +1052,7 @@ pub fn clean_page_with_color_and_document_prior(
         CalibrationConfig::default(),
         document_prior,
         None,
-        true,
+        PageRenderPolicy::COMPLETE,
         &mut timings,
     )
 }
@@ -1045,6 +1065,7 @@ pub(crate) fn clean_page_with_color_and_document_prior_cached(
     document_prior: Option<DocumentPrior>,
     cache: &PageCache,
     create_mixed_layers: bool,
+    recommend_output_mode: bool,
     timings: &mut PageStageTimings,
 ) -> Result<PageCleanupResult, String> {
     clean_page_with_color_and_calibration_config(
@@ -1055,7 +1076,10 @@ pub(crate) fn clean_page_with_color_and_document_prior_cached(
         CalibrationConfig::default(),
         document_prior,
         Some(cache),
-        create_mixed_layers,
+        PageRenderPolicy {
+            create_mixed_layers,
+            recommend_output_mode,
+        },
         timings,
     )
 }
@@ -1068,7 +1092,7 @@ fn clean_page_with_color_and_calibration_config(
     calibration_config: CalibrationConfig,
     document_prior: Option<DocumentPrior>,
     cache: Option<&PageCache>,
-    create_mixed_layers: bool,
+    render_policy: PageRenderPolicy,
     timings: &mut PageStageTimings,
 ) -> Result<PageCleanupResult, String> {
     options.validate()?;
@@ -1097,6 +1121,7 @@ fn clean_page_with_color_and_calibration_config(
         calibration_config,
         document_prior,
         cache,
+        render_policy.recommend_output_mode,
         timings,
     );
     let mut resolved_options;
@@ -1148,7 +1173,7 @@ fn clean_page_with_color_and_calibration_config(
             half,
             cache,
             split_cache_key.as_ref(),
-            create_mixed_layers,
+            render_policy.create_mixed_layers,
             timings,
         )?);
     }
@@ -1178,6 +1203,7 @@ fn prepare_page(
     calibration_config: CalibrationConfig,
     document_prior: Option<DocumentPrior>,
     cache: Option<&PageCache>,
+    recommend_output_mode: bool,
     timings: &mut PageStageTimings,
 ) -> PreparedPage {
     let PreparedAnalysis {
@@ -1199,6 +1225,7 @@ fn prepare_page(
         color_source,
         options,
         true,
+        recommend_output_mode,
         document_prior,
         calibration_config,
         cache,
@@ -1282,6 +1309,7 @@ fn prepare_analysis_page(
     color_source: Option<&RgbImage>,
     options: &CleanupOptions,
     prepare_quality_raster: bool,
+    recommend_output_mode: bool,
     document_prior: Option<DocumentPrior>,
     calibration_config: CalibrationConfig,
     cache: Option<&PageCache>,
@@ -1292,6 +1320,7 @@ fn prepare_analysis_page(
             &cache.source,
             options,
             prepare_quality_raster,
+            recommend_output_mode,
             calibration_config,
         )
     });
@@ -1339,27 +1368,27 @@ fn prepare_analysis_page(
         let content_picture_mask = picture_mask
             .as_deref()
             .map(|mask| Arc::new(extend_picture_mask_for_content(&rotated, mask, calibration)));
-        let text_line_count = detect_content_and_margins_calibrated(
-            &layout_normalized,
-            picture_mask.as_deref(),
-            effective_dpi,
-            None,
-            Some([0.0; 4]),
-            calibration,
-        )
-        .diagnostics
-        .map(|diagnostics| diagnostics.text_mask.line_count)
-        .unwrap_or(0);
-        // The recommendation is a page diagnostic: it is computed from the page
-        // evidence for every configured mode so switching modes never strands it.
-        let output_mode_recommendation = Some(recommend_output_mode(PreparedModeEvidence {
-            analysis: &rotated,
-            analysis_rgb: analysis_rgb.as_ref(),
-            picture_mask: picture_mask
-                .as_deref()
-                .expect("analysis always prepares a picture mask"),
-            text_line_count,
-        }));
+        let output_mode_recommendation = recommend_output_mode.then(|| {
+            let text_line_count = detect_content_and_margins_calibrated(
+                &layout_normalized,
+                picture_mask.as_deref(),
+                effective_dpi,
+                None,
+                Some([0.0; 4]),
+                calibration,
+            )
+            .diagnostics
+            .map(|diagnostics| diagnostics.text_mask.line_count)
+            .unwrap_or(0);
+            crate::mode_select::recommend_output_mode(PreparedModeEvidence {
+                analysis: &rotated,
+                analysis_rgb: analysis_rgb.as_ref(),
+                picture_mask: picture_mask
+                    .as_deref()
+                    .expect("analysis always prepares a picture mask"),
+                text_line_count,
+            })
+        });
         let resolved_output_mode = if options.output_mode == OutputMode::Auto {
             output_mode_recommendation
                 .map(|recommendation| recommendation.mode)
@@ -1417,6 +1446,7 @@ fn prepare_analysis_page(
             &cache.source,
             options,
             prepare_quality_raster,
+            recommend_output_mode,
             calibration_config,
             document_prior,
         )

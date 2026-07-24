@@ -378,6 +378,93 @@ describe('scan cleanup run coordinator', () => {
         cleanup();
     });
 
+    it('holds the run guard and active job until the generated PDF finishes opening', async () => {
+        let listener: (state: TScanCleanupJobState) => void = () => undefined;
+        const openGate = Promise.withResolvers<boolean>();
+        capability.value = {
+            preview: vi.fn(),
+            previewRaw: vi.fn(),
+            cancelPreview: vi.fn(),
+            detectAll: vi.fn(),
+            cancelDetection: vi.fn(),
+            getDetectionJobState: vi.fn(),
+            subscribeDetectionJob: vi.fn(),
+            start: vi.fn(async () => ({
+                started: true as const,
+                jobId: 'job-open-gate',
+                outputPdfPath: '/managed/job-open-gate.pdf',
+            })),
+            cancel: vi.fn(async () => true),
+            getJobState: vi.fn(async () => null),
+            subscribeJob: vi.fn(async jobId => ({
+                jobId,
+                status: 'running' as const,
+                progress: progress(),
+                updatedAtMs: Date.now(),
+            })),
+            reconnectJob: vi.fn(async () => null),
+            pruneGeneratedOutputs: vi.fn(async () => 0),
+            onJobState: vi.fn(callback => {
+                listener = callback;
+                return () => undefined;
+            }),
+            onDetectionJobState: vi.fn(() => () => undefined),
+        };
+        const openGeneratedPdf = vi.fn(() => openGate.promise);
+        const toastAdd = vi.fn();
+        const coordinator = await import('@app/modules/scan-cleanup/runtime/scanCleanupRunCoordinator');
+        const cleanup = coordinator.installScanCleanupRunCoordinator({
+            openGeneratedPdf,
+            saveActiveDocumentAs: vi.fn(),
+            getOpenPdfPaths: () => [],
+            t: ((key: string) => key) as never,
+            toast: {add: toastAdd},
+        });
+        await coordinator.startScanCleanup({
+            ...ownerContext,
+            sourcePdfPath: '/source/book.pdf',
+            options: expect.anything() as never,
+        });
+        const completed: TScanCleanupJobState = {
+            jobId: 'job-open-gate',
+            status: 'completed',
+            outputPdfPath: '/managed/job-open-gate.pdf',
+            summary: {
+                inputPages: 1,
+                outputPages: 1,
+                spreadsSplit: 0,
+                offcutsDiscarded: 0,
+                deskewSkipped: 0,
+                cropSkipped: 0,
+                excludedPages: 0,
+                blankPagesSkipped: 0,
+                warnings: [],
+            },
+            partial: false,
+            progress: progress(1, 1),
+            updatedAtMs: Date.now(),
+        };
+        listener(completed);
+        await vi.waitFor(() => expect(openGeneratedPdf).toHaveBeenCalledOnce());
+
+        // While the output document is still being claimed, the run must stay
+        // observable as active so workspace detection cannot restart against
+        // the source document mid-handoff.
+        expect(coordinator.isScanCleanupRunning.value).toBe(true);
+        expect(coordinator.scanCleanupRun.activeJobId).toBe('job-open-gate');
+        expect(toastAdd).not.toHaveBeenCalled();
+
+        listener(completed);
+        await new Promise(resolve => setTimeout(resolve, 0));
+        expect(openGeneratedPdf).toHaveBeenCalledOnce();
+
+        openGate.resolve(true);
+        await vi.waitFor(() => expect(toastAdd).toHaveBeenCalledWith(expect.objectContaining({color: 'success'})));
+        expect(coordinator.isScanCleanupRunning.value).toBe(false);
+        expect(coordinator.scanCleanupRun.activeJobId).toBeNull();
+        cleanup();
+    });
+
     it('contains generated-document open failures and reports them', async () => {
         let listener: (state: TScanCleanupJobState) => void = () => undefined;
         capability.value = {

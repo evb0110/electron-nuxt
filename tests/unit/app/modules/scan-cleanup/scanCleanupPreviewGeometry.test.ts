@@ -530,4 +530,28 @@ describe('scan cleanup preview geometry', () => {
         expect(tokens).toContain('--app-scan-dialog-rail-width');
         expect(tokens).toContain('--app-scan-preview-crossfade-duration');
     });
+
+    it('stacks the settings rail before narrow panes can squeeze or hide the preview controls', () => {
+        const workspace = readFileSync('app/modules/scan-cleanup/components/ScanCleanupWorkspace.vue', 'utf8');
+        const previewStyles = readFileSync(
+            'app/modules/scan-cleanup/components/preview/PreviewShell.css',
+            'utf8',
+        );
+        const narrowWorkspace = workspace.match(
+            /@container \(width <= 52rem\) \{(?<rules>[\s\S]*?)\n\}/u,
+        )?.groups?.rules;
+        const narrowPreview = previewStyles.match(
+            /@container \(width <= 34rem\) \{(?<rules>[\s\S]*)\n\}/u,
+        )?.groups?.rules;
+
+        expect(narrowWorkspace).toContain('\'thumbnails preview\' minmax(16rem, 3fr)');
+        expect(narrowWorkspace).toContain('\'settings settings\' minmax(12rem, 2fr)');
+        expect(narrowWorkspace).toContain('minmax(var(--app-scan-page-list-collapsed-width), 8rem)');
+        expect(narrowWorkspace).toContain('overflow: auto');
+        expect(narrowWorkspace).not.toContain('display: none');
+        expect(narrowPreview).toMatch(/\.preview-header \{[\s\S]*?flex-wrap: wrap/u);
+        expect(narrowPreview).toMatch(/\.page-navigation \{[\s\S]*?width: 100%/u);
+        expect(narrowPreview).toMatch(/\.preview-controls \{[\s\S]*?width: 100%[\s\S]*?flex-wrap: wrap/u);
+        expect(narrowPreview).toContain('.preview-controls > *');
+    });
 });

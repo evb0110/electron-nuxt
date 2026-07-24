@@ -428,7 +428,7 @@ describe('CI topology policy', () => {
         expect(workflowJob(workflow, 'nightly_pdf_tabs_diagnostics')).toContain('run: pnpm run check:electron:install');
         expect(workflow).toMatch(/nightly_pdf_tabs_diagnostics:[\s\S]*if: \$\{\{ github\.event_name == 'schedule' \|\| github\.event_name == 'workflow_dispatch' \}\}[\s\S]*continue-on-error: true[\s\S]*run: pnpm run diag:pdf-tabs:ci/u);
         expect(workflow).toContain('run: pnpm run diag:pdf-tabs:ci');
-        expect(packageJson).toContain('"test:e2e:electron:regression": "pnpm run build:electron && vitest run --project e2e-regression --reporter verbose"');
+        expect(packageJson).toContain('"test:e2e:electron:regression": "pnpm run build:pdf-image-combine && pnpm run build:scan-cleanup && pnpm run build:electron && vitest run --project e2e-regression --reporter verbose"');
         expect(packageJson).not.toContain('"test:e2e:electron:smoke:no-build"');
         expect(packageJson).toContain('"test:e2e:electron:quarantine": "pnpm run build:pdf-image-combine && pnpm run build:scan-cleanup && pnpm run build:electron && vitest run --project e2e-quarantine --passWithNoTests --reporter verbose"');
         expect(sharedVitestConfig).toContain('retry: process.env.CI ? 2 : 1');

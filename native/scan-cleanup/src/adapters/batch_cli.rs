@@ -6,7 +6,7 @@ use crate::engine::render::{
 use crate::mode_select::OutputModeRecommendationReason;
 use crate::{
     cache::{ByteLru, PageCache, SourceFingerprint, StageCacheKey, DEFAULT_CACHE_BUDGET_BYTES},
-    io::pbm,
+    io::{pbm, raster},
     pipeline::{AnalysisOutputMetadata, CleanupMetadata, MatchedCanvasPolicy},
     png::{self, RgbImage},
     protocol::{
@@ -258,6 +258,8 @@ fn run_manifest_inner(manifest: &ManifestV3) -> Result<(), Box<dyn Error>> {
             page,
             manifest.canvas_scope,
             page.document_prior,
+            manifest.operation == Operation::Analyze
+                || page.options.output_mode == OutputMode::Auto,
             &page_cache,
         )
         .map_err(|error| {
@@ -529,6 +531,8 @@ fn reconcile_classification_batch(
                     &manifest.pages[index],
                     manifest.canvas_scope,
                     Some(prior),
+                    manifest.operation == Operation::Analyze
+                        || manifest.pages[index].options.output_mode == OutputMode::Auto,
                     &page_cache,
                 )?;
                 rerun.timings.decode_ms += results[index].timings.decode_ms;
@@ -645,7 +649,13 @@ fn run_manifest_page(
     cache: &PageCache,
 ) -> Result<PageRunResult, Box<dyn Error>> {
     if manifest.operation == Operation::Analyze {
-        run_classification(page, manifest.canvas_scope, page.document_prior, cache)
+        run_classification(
+            page,
+            manifest.canvas_scope,
+            page.document_prior,
+            true,
+            cache,
+        )
     } else {
         run_page(
             page,
@@ -699,9 +709,12 @@ fn manifest_worker_threads(manifest: &ManifestV3) -> Result<usize, NativeError> 
             {
                 return Ok(0);
             }
-            let (width, height) =
-                png::read_dimensions(&page.input_path, options.max_pixels, options.max_dimension)
-                    .map_err(map_image_error)?;
+            let (width, height) = raster::read_dimensions(
+                &page.input_path,
+                options.max_pixels,
+                options.max_dimension,
+            )
+            .map_err(map_image_error)?;
             Ok(estimate_peak_page_bytes(width, height, options.output_mode))
         })
         .collect::<Result<Vec<_>, NativeError>>()?
@@ -789,12 +802,12 @@ fn run_page(
             .shared
             .lock()
             .ok()
-            .and_then(|mut shared| shared.get::<png::DecodedPng>(&key));
+            .and_then(|mut shared| shared.get::<raster::DecodedRaster>(&key));
         Some(if let Some(cached) = cached {
             cached
         } else {
             let decoded = Arc::new(
-                png::read_image(&page.input_path, options.max_pixels, options.max_dimension)
+                raster::read_image(&page.input_path, options.max_pixels, options.max_dimension)
                     .map_err(map_image_error)?,
             );
             let bytes = decoded
@@ -821,7 +834,7 @@ fn run_page(
             cached
         } else {
             let decoded = Arc::new(
-                png::read_gray(&page.input_path, options.max_pixels, options.max_dimension)
+                raster::read_gray(&page.input_path, options.max_pixels, options.max_dimension)
                     .map_err(map_image_error)?,
             );
             let bytes = decoded.data().len();
@@ -853,7 +866,7 @@ fn run_page(
                     detail_plan.base_metadata_path.display(),
                 ))
             })?;
-        let base_source = png::read_gray(
+        let base_source = raster::read_gray(
             &detail_plan.base_raster_path,
             options.max_pixels,
             options.max_dimension,
@@ -878,6 +891,7 @@ fn run_page(
             page.document_prior,
             cache,
             final_render,
+            !final_render || options.output_mode == OutputMode::Auto,
             &mut timings,
         )
         .map_err(invalid)?
@@ -1074,27 +1088,28 @@ fn run_classification(
     page: &Page,
     canvas_scope: CanvasScope,
     document_prior: Option<crate::split::DocumentPrior>,
+    recommend_output_mode: bool,
     cache: &PageCache,
 ) -> Result<PageRunResult, Box<dyn Error>> {
     let options = page.options.clone();
     options.validate().map_err(invalid)?;
     let mut timings = PageStageTimings::default();
     let decode_started = Instant::now();
-    // Classification produces mode-independent diagnostics. Always decode RGB
-    // here so a page analyzed while a concrete mode is selected can still
-    // recommend color after the user switches back to Auto.
-    let color_input = {
+    // Analyze produces mode-independent diagnostics even when a concrete mode
+    // is selected. A concrete final render does not publish or consume those
+    // recommendations, so keep that lane grayscale-only.
+    let color_input = if recommend_output_mode {
         let key = StageCacheKey::decoded(&cache.source, true, &options);
         let cached = cache
             .shared
             .lock()
             .ok()
-            .and_then(|mut shared| shared.get::<png::DecodedPng>(&key));
+            .and_then(|mut shared| shared.get::<raster::DecodedRaster>(&key));
         Some(if let Some(cached) = cached {
             cached
         } else {
             let decoded = Arc::new(
-                png::read_image(&page.input_path, options.max_pixels, options.max_dimension)
+                raster::read_image(&page.input_path, options.max_pixels, options.max_dimension)
                     .map_err(map_image_error)?,
             );
             let bytes = decoded
@@ -1107,6 +1122,8 @@ fn run_classification(
             }
             decoded
         })
+    } else {
+        None
     };
     let gray_input = if color_input.is_none() {
         let key = StageCacheKey::decoded(&cache.source, false, &options);
@@ -1119,7 +1136,7 @@ fn run_classification(
             cached
         } else {
             let decoded = Arc::new(
-                png::read_gray(&page.input_path, options.max_pixels, options.max_dimension)
+                raster::read_gray(&page.input_path, options.max_pixels, options.max_dimension)
                     .map_err(map_image_error)?,
             );
             let bytes = decoded.data().len();
@@ -1142,6 +1159,7 @@ fn run_classification(
         color_input.as_ref().map(|decoded| &decoded.rgb),
         &options,
         document_prior,
+        recommend_output_mode,
         cache,
         &mut timings,
     )
@@ -1218,7 +1236,7 @@ fn match_page_sizes(
     let images = eligible
         .iter()
         .map(|output| {
-            png::read_gray(
+            raster::read_gray(
                 &output.output_path,
                 output.options.max_pixels,
                 output.options.max_dimension,
@@ -1281,7 +1299,7 @@ fn match_page_sizes(
 
             if !preview_mode && (available_width != 0 || available_height != 0) {
                 if output.is_color {
-                    let image = png::read_image(
+                    let image = raster::read_image(
                         &output.output_path,
                         output.options.max_pixels,
                         output.options.max_dimension,
@@ -1346,7 +1364,7 @@ fn match_page_sizes(
                         .round() as usize)
                         .max(1);
                     if output.is_color {
-                        let background = png::read_image(
+                        let background = raster::read_image(
                             background_path,
                             output.options.max_pixels,
                             output.options.max_dimension,
@@ -1371,7 +1389,7 @@ fn match_page_sizes(
                         png::write_rgb_atomic(background_path, &background)
                             .map_err(|message| NativeError::new(NativeErrorCode::Io, message))?;
                     } else {
-                        let background = png::read_gray(
+                        let background = raster::read_gray(
                             background_path,
                             output.options.max_pixels,
                             output.options.max_dimension,

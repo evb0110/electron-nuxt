@@ -264,6 +264,14 @@ fn final_manifest_writes_pbm_only_for_binary_outputs_and_marks_metadata() {
         .position(|event| event["progress"]["stage"] == "page-complete")
         .unwrap();
     assert!(analyzed_index < completed_index);
+    assert!(progress
+        .iter()
+        .filter(|event| event["progress"]["stage"] == "page-complete")
+        .all(|event| event["progress"]["recommendedOutputMode"].is_null()));
+    for page_metadata in [&bw_page_metadata, &gray_page_metadata] {
+        let page: Value = serde_json::from_slice(&fs::read(page_metadata).unwrap()).unwrap();
+        assert!(page["recommendedOutputMode"].is_null());
+    }
     assert!(fs::read(&bw_pbm).unwrap().starts_with(b"P4\n"));
     assert!(bw_output.exists());
     assert_eq!(
@@ -632,22 +640,27 @@ fn auto_resolved_bw_writes_bilevel_output_and_reports_recommendation() {
 }
 
 #[test]
-fn analyze_emits_mode_independent_recommendations() {
+fn analyze_keeps_colored_recommendations_mode_independent() {
     let scratch = Scratch::new("auto-analyze");
     let input = scratch.path("auto-analyze-input.png");
     let auto_metadata = scratch.path("auto-analyze-page.json");
     let concrete_metadata = scratch.path("concrete-analyze-page.json");
     let manifest = scratch.path("auto-analyze-manifest.json");
-    let mut image = GrayImage::new(360, 260, 245);
-    for y in (24..236).step_by(24) {
-        for x in 24..336 {
-            if x % 19 < 13 {
-                image.set(x, y, 24);
-                image.set(x, y + 1, 24);
-            }
+    let mut image = RgbImage::new(360, 260, [28, 74, 132]);
+    for y in 0..image.height() {
+        for x in 0..image.width() {
+            image.set(
+                x,
+                y,
+                [
+                    20 + ((x * 5 + y * 3) % 210) as u8,
+                    35 + ((x * 7 + y * 11) % 180) as u8,
+                    45 + ((x * 13 + y * 17) % 170) as u8,
+                ],
+            );
         }
     }
-    fs::write(&input, encode_gray(&image).unwrap()).unwrap();
+    fs::write(&input, encode_rgb(&image).unwrap()).unwrap();
     let auto = CleanupOptions {
         output_mode: OutputMode::Auto,
         dpi: 150.0,
@@ -708,6 +721,7 @@ fn analyze_emits_mode_independent_recommendations() {
         serde_json::from_slice(&fs::read(&concrete_metadata).unwrap()).unwrap();
     assert!(auto_page["recommendedOutputMode"].is_string());
     assert!(concrete_page["recommendedOutputMode"].is_string());
+    assert_eq!(auto_page["recommendedOutputMode"], "color");
     assert_eq!(
         concrete_page["recommendedOutputMode"],
         auto_page["recommendedOutputMode"]

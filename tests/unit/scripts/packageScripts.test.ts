@@ -292,6 +292,8 @@ describe('package scripts', () => {
         const scripts = await readPackageScripts();
 
         expect(scriptCommands(scripts, 'test:e2e:electron')).toEqual([
+            'pnpm run build:pdf-image-combine',
+            'pnpm run build:scan-cleanup',
             'pnpm run build:electron',
             'vitest run --project e2e-regression --reporter verbose',
         ]);
@@ -318,6 +320,8 @@ describe('package scripts', () => {
             'vitest run --project e2e-visible-window --reporter verbose',
         ]);
         expect(scriptCommands(scripts, 'test:e2e:electron:regression')).toEqual([
+            'pnpm run build:pdf-image-combine',
+            'pnpm run build:scan-cleanup',
             'pnpm run build:electron',
             'vitest run --project e2e-regression --reporter verbose',
         ]);

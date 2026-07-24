@@ -87,6 +87,7 @@ impl StageCacheKey {
         source: &SourceFingerprint,
         options: &CleanupOptions,
         prepare_quality_raster: bool,
+        recommend_output_mode: bool,
         calibration: CalibrationConfig,
     ) -> Self {
         let manual_zones =
@@ -101,6 +102,7 @@ impl StageCacheKey {
                 options.output_mode,
                 manual_zones,
                 prepare_quality_raster,
+                recommend_output_mode,
                 calibration_key(calibration),
             )),
         }
@@ -113,6 +115,7 @@ impl StageCacheKey {
         source: &SourceFingerprint,
         options: &CleanupOptions,
         prepare_quality_raster: bool,
+        recommend_output_mode: bool,
         calibration: CalibrationConfig,
         document_prior: Option<crate::split::DocumentPrior>,
     ) -> Self {
@@ -120,7 +123,14 @@ impl StageCacheKey {
             source: source.clone(),
             stage: CacheStage::Split,
             options: serialized(&(
-                Self::analysis(source, options, prepare_quality_raster, calibration).options,
+                Self::analysis(
+                    source,
+                    options,
+                    prepare_quality_raster,
+                    recommend_output_mode,
+                    calibration,
+                )
+                .options,
                 options.ocr_mode,
                 options.layout,
                 options.manual_split_x,
@@ -336,19 +346,23 @@ mod tests {
         let source = source(0);
         let mut options = CleanupOptions::default();
         let baseline =
-            StageCacheKey::analysis(&source, &options, true, CalibrationConfig::default());
+            StageCacheKey::analysis(&source, &options, true, true, CalibrationConfig::default());
         options.margins_mm = Some(MarginsMm {
             left_mm: 25.0,
             ..MarginsMm::default()
         });
         assert_eq!(
             baseline,
-            StageCacheKey::analysis(&source, &options, true, CalibrationConfig::default())
+            StageCacheKey::analysis(&source, &options, true, true, CalibrationConfig::default())
+        );
+        assert_ne!(
+            baseline,
+            StageCacheKey::analysis(&source, &options, true, false, CalibrationConfig::default())
         );
         options.rotation = OrthogonalRotation::Clockwise90;
         assert_ne!(
             baseline,
-            StageCacheKey::analysis(&source, &options, true, CalibrationConfig::default())
+            StageCacheKey::analysis(&source, &options, true, true, CalibrationConfig::default())
         );
     }
 

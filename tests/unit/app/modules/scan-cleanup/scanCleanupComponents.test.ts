@@ -21,6 +21,7 @@ import type {
     IScanCleanupNormalizedRect,
     IScanCleanupNormalizedSplit,
     IScanCleanupPreviewRequest,
+    IScanCleanupRawPreviewResult,
     IScanCleanupPreviewResult,
     TScanCleanupOutputHalf,
     TScanCleanupPageAlignment,
@@ -723,14 +724,16 @@ function mountPreviewZoomHarness(options: {
     onRequestDetail?: (
         viewports: NonNullable<IScanCleanupPreviewRequest['detail']>['viewports'],
     ) => void;
-    result?: IScanCleanupPreviewResult;
+    rawResult?: IScanCleanupRawPreviewResult | null;
+    result?: IScanCleanupPreviewResult | null;
     viewMode?: 'original' | 'cleaned';
 } = {}) {
     const viewMode = ref<'original' | 'cleaned'>(options.viewMode ?? 'original');
     const splitUpdates: IScanCleanupNormalizedSplit[] = [];
-    const previewResult = options.result ?? spreadPreviewResult();
+    const previewResult = options.result === undefined ? spreadPreviewResult() : options.result;
     const harness = mount(defineComponent({setup: () => () => h(ScanCleanupPreviewPane, {
         result: previewResult,
+        rawResult: options.rawResult ?? null,
         loading: false,
         error: '',
         viewMode: viewMode.value,
@@ -781,7 +784,7 @@ function mountPreviewZoomHarness(options: {
             if (options.canvasRect) {
                 return options.canvasRect(index, scale, panX, panY);
             }
-            const single = previewResult.outputs.length === 1;
+            const single = previewResult?.outputs.length === 1;
             const baseWidth = single ? 160 : 250;
             const baseHeight = 400;
             const baseLeft = single ? 170 : index * 250;
@@ -2177,6 +2180,124 @@ describe('Scan cleanup components', () => {
         await nextTick();
         expect(Number(harness.surface.dataset.previewZoomPercent)).toBeGreaterThan(100);
         expect(harness.surface.classList).toContain('is-pixelated-preview');
+    });
+
+    it('keeps wheel and double-click zoom available while only the original raster is ready', async () => {
+        const rawResult: IScanCleanupRawPreviewResult = {
+            pageNumber: 1,
+            totalPages: 3,
+            rawImageData: new Uint8Array([1]),
+            rawWidthPx: 1_000,
+            rawHeightPx: 800,
+        };
+        const wheelHarness = mountPreviewZoomHarness({
+            rawResult,
+            result: null,
+        });
+        const wheel = new WheelEvent('wheel', {
+            bubbles: true,
+            cancelable: true,
+            clientX: 250,
+            clientY: 200,
+            deltaY: -240,
+        });
+        wheelHarness.surface.dispatchEvent(wheel);
+        await nextTick();
+
+        expect(wheelHarness.host.querySelector('[data-testid="scan-cleanup-original-only"]')).not.toBeNull();
+        expect(wheel.defaultPrevented).toBe(true);
+        expect(wheelHarness.surface.dataset.previewZoomMode).toBe('custom');
+        expect(Number(wheelHarness.surface.dataset.previewZoomPercent)).toBeGreaterThan(50);
+
+        const doubleClickHarness = mountPreviewZoomHarness({
+            rawResult,
+            result: null,
+        });
+        doubleClickHarness.surface.dispatchEvent(new MouseEvent('dblclick', {
+            bubbles: true,
+            cancelable: true,
+            clientX: 250,
+            clientY: 200,
+        }));
+        await nextTick();
+
+        expect(doubleClickHarness.surface.dataset.previewZoomMode).toBe('custom');
+        expect(doubleClickHarness.surface.dataset.previewZoomPercent).toBe('100');
+        expect(doubleClickHarness.stage.style.transform).toContain('scale(2)');
+    });
+
+    it('tracks display-density changes with a re-registered resolution media query', async () => {
+        const originalMatchMedia = window.matchMedia;
+        const originalDevicePixelRatio = window.devicePixelRatio;
+        const queries: Array<{
+            listener: ((event: MediaQueryListEvent) => void) | null;
+            media: string;
+            remove: ReturnType<typeof vi.fn>;
+        }> = [];
+        Object.defineProperty(window, 'devicePixelRatio', {
+            configurable: true,
+            value: 1,
+        });
+        Object.defineProperty(window, 'matchMedia', {
+            configurable: true,
+            value: vi.fn((media: string) => {
+                const query = {
+                    listener: null as ((event: MediaQueryListEvent) => void) | null,
+                    media,
+                    remove: vi.fn(),
+                };
+                queries.push(query);
+                return {
+                    matches: true,
+                    media,
+                    onchange: null,
+                    addEventListener: (_type: string, listener: EventListenerOrEventListenerObject) => {
+                        if (typeof listener === 'function') {
+                            query.listener = listener as (event: MediaQueryListEvent) => void;
+                        }
+                    },
+                    removeEventListener: (_type: string, listener: EventListenerOrEventListenerObject) => {
+                        query.remove(listener);
+                        if (typeof listener === 'function' && query.listener === listener) {
+                            query.listener = null;
+                        }
+                    },
+                    addListener: vi.fn(),
+                    removeListener: vi.fn(),
+                    dispatchEvent: vi.fn(),
+                } satisfies MediaQueryList;
+            }),
+        });
+        try {
+            const harness = mountPreviewZoomHarness();
+            await nextTick();
+            expect(queries.map(query => query.media)).toEqual(['(resolution: 1dppx)']);
+
+            Object.defineProperty(window, 'devicePixelRatio', {
+                configurable: true,
+                value: 2,
+            });
+            queries[0]?.listener?.({} as MediaQueryListEvent);
+            await nextTick();
+
+            expect(queries.map(query => query.media)).toEqual([
+                '(resolution: 1dppx)',
+                '(resolution: 2dppx)',
+            ]);
+            expect(queries[0]?.remove).toHaveBeenCalledOnce();
+
+            harness.unmount();
+            expect(queries[1]?.remove).toHaveBeenCalledOnce();
+        } finally {
+            Object.defineProperty(window, 'devicePixelRatio', {
+                configurable: true,
+                value: originalDevicePixelRatio,
+            });
+            Object.defineProperty(window, 'matchMedia', {
+                configurable: true,
+                value: originalMatchMedia,
+            });
+        }
     });
 
     it('debounces a non-blocking high-detail viewport request and shimmers over the base preview', async () => {

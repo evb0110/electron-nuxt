@@ -166,27 +166,32 @@ function summaryText(state: Extract<TScanCleanupJobState, {status: 'completed'}>
 }
 
 async function handleTerminalState(state: TScanCleanupJobState) {
-    if (!dependencies || terminalJobs.has(state.jobId)) {
+    const terminalDependencies = dependencies;
+    if (!terminalDependencies || terminalJobs.has(state.jobId)) {
         return;
     }
     terminalJobs.add(state.jobId);
-    scanCleanupRun.activeJobId = null;
-    clearRunGuard();
-    persistActiveJob(null);
 
     if (state.status === 'completed') {
         dismissScanCleanupFirstRunGuidanceInStore();
-        const opened = await dependencies.openGeneratedPdf(state.outputPdfPath).catch(() => false);
-        dependencies.toast.add({
+        // The run guard, active job id, and session persistence stay in place
+        // until the generated PDF finishes opening: releasing them earlier
+        // lets source-document detection and preview restart mid-handoff and
+        // race the working-copy claim of the output document.
+        const opened = await terminalDependencies.openGeneratedPdf(state.outputPdfPath).catch(() => false);
+        scanCleanupRun.activeJobId = null;
+        clearRunGuard();
+        persistActiveJob(null);
+        terminalDependencies.toast.add({
             color: opened ? 'success' : 'error',
             title: opened
-                ? dependencies.t(state.partial
+                ? terminalDependencies.t(state.partial
                     ? 'scanCleanup.completedPartialTitle'
                     : 'scanCleanup.completedTitle')
-                : dependencies.t('scanCleanup.openResultFailed'),
+                : terminalDependencies.t('scanCleanup.openResultFailed'),
             description: opened ? summaryText(state) : state.outputPdfPath,
             ...(opened ? {actions: [{
-                label: dependencies.t('scanCleanup.saveAs'),
+                label: terminalDependencies.t('scanCleanup.saveAs'),
                 color: 'neutral' as const,
                 variant: 'outline' as const,
                 onClick: () => { void dependencies?.saveActiveDocumentAs(); },
@@ -194,6 +199,10 @@ async function handleTerminalState(state: TScanCleanupJobState) {
         });
         return;
     }
+
+    scanCleanupRun.activeJobId = null;
+    clearRunGuard();
+    persistActiveJob(null);
 
     if (state.status === 'failed') {
         if (scanCleanupRun.ownerId) {
@@ -203,12 +212,12 @@ async function handleTerminalState(state: TScanCleanupJobState) {
                 scanCleanupRun.ownerDocumentRef,
             );
         } else {
-            dependencies.toast.add({
+            terminalDependencies.toast.add({
                 color: 'error',
-                title: dependencies.t('scanCleanup.failed'),
+                title: terminalDependencies.t('scanCleanup.failed'),
                 description: state.error,
                 actions: [{
-                    label: dependencies.t('scanCleanup.details'),
+                    label: terminalDependencies.t('scanCleanup.details'),
                     color: 'neutral',
                     variant: 'outline',
                     onClick: requestOwningScanCleanupWorkspace,
@@ -219,9 +228,9 @@ async function handleTerminalState(state: TScanCleanupJobState) {
     }
 
     if (state.status === 'canceled' && (!scanCleanupRun.ownerId || !scanCleanupRun.workspaceOwnerIds.has(scanCleanupRun.ownerId))) {
-        dependencies.toast.add({
+        terminalDependencies.toast.add({
             color: 'info',
-            title: dependencies.t('scanCleanup.canceled'),
+            title: terminalDependencies.t('scanCleanup.canceled'),
         });
     }
 }

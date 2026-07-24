@@ -99,6 +99,7 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
     let jobDocumentRevision: string | null = null;
     let stopSubscription: (() => void) | null = null;
     let disposed = false;
+    let scheduledAutoDetection: ReturnType<typeof setTimeout> | null = null;
     const terminalWaiters = new Map<string, Set<() => void>>();
 
     function clearOutputModeRecommendations() {
@@ -187,16 +188,35 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
         return JSON.stringify({
             layoutMode: options.settings.layoutMode,
             layoutOverride: pageOverride.layoutOverride,
+            preserveOriginalQuality: lossless,
+            crop: options.settings.crop,
+            marginsMm: options.settings.marginsMm,
+            matchPageSize: options.settings.matchPageSize,
             normalizeIllumination: !lossless && (options.settings.normalizeIllumination ?? true),
             autoDewarp: !lossless && (options.settings.autoDewarp ?? false),
+            autoDewarpDepth: options.settings.autoDewarpDepth,
             rotationDegrees: pageOverride.rotationDegrees,
             excluded: pageOverride.excluded,
             manualSplit: pageOverride.manualSplit,
+            manualSkewDegrees: pageOverride.manualSkewDegrees,
+            manualContentBoxes: pageOverride.manualContentBoxes ?? {},
             manualZones: pageOverride.manualZones ?? {
                 picture: [],
                 fill: [],
             },
         });
+    }
+
+    function evidenceIsCurrent(evidenceSignatures: ReadonlyMap<number, string> = signatures) {
+        if (evidenceSignatures.size !== options.totalPages.value) {
+            return false;
+        }
+        for (let pageNumber = 1; pageNumber <= options.totalPages.value; pageNumber += 1) {
+            if (evidenceSignatures.get(pageNumber) !== signature(pageNumber)) {
+                return false;
+            }
+        }
+        return true;
     }
 
     function applyState(state: TScanCleanupDetectionJobState) {
@@ -223,7 +243,8 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
             }
         }
         jobState.value = state;
-        if (state.status === 'completed') {
+        const completedWithCurrentEvidence = state.status === 'completed' && evidenceIsCurrent();
+        if (completedWithCurrentEvidence) {
             documentCanvasPlan.value = state.documentCanvasPlan;
         }
         applyScanCleanupDetectionResults(
@@ -238,7 +259,7 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
             recommendedOutputModeReasonByPage,
         );
         if (state.status === 'failed') error.value = state.error;
-        if (!disposed && jobDocumentKey && state.status === 'completed') {
+        if (!disposed && jobDocumentKey && completedWithCurrentEvidence) {
             detectionSessionCache.set(jobDocumentKey, {
                 ownerId: options.ownerId,
                 results: state.results.map(result => ({...result})),
@@ -246,6 +267,10 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
                 state: structuredClone(state),
                 totalPages: state.progress.totalUnits,
             });
+        }
+        if (!disposed && state.status === 'completed' && !completedWithCurrentEvidence) {
+            jobState.value = null;
+            scheduleAutoDetect();
         }
     }
 
@@ -440,10 +465,8 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
         ) {
             return false;
         }
-        for (let pageNumber = 1; pageNumber <= options.totalPages.value; pageNumber += 1) {
-            if (entry.signatures.get(pageNumber) !== signature(pageNumber)) {
-                return false;
-            }
+        if (!evidenceIsCurrent(entry.signatures)) {
+            return false;
         }
         return entry.state.status === 'completed' && entry.results.length === options.totalPages.value;
     }
@@ -495,6 +518,16 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
         }
     }
 
+    function scheduleAutoDetect() {
+        if (disposed || scheduledAutoDetection !== null) {
+            return;
+        }
+        scheduledAutoDetection = setTimeout(() => {
+            scheduledAutoDetection = null;
+            void maybeAutoDetect();
+        }, 0);
+    }
+
     onMounted(() => {
         stopSubscription = getScanCleanupCapability()?.onDetectionJobState(applyState) ?? null;
         void maybeAutoDetect();
@@ -522,11 +555,11 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
         // The mounted hook owns the initial auto-detect; scheduling it here too
         // would race a just-started or just-completed job on the same document.
         if (previousKey !== undefined) {
-            void nextTick(maybeAutoDetect);
+            scheduleAutoDetect();
         }
     }, {immediate: true});
     watch(options.active, active => {
-        if (active) void nextTick(maybeAutoDetect);
+        if (active) scheduleAutoDetect();
     });
     // Recommendations are page diagnostics and survive output-mode changes.
     // Switching back to automatic mode must have usable recommendations, so a
@@ -540,7 +573,7 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
             }
             const key = options.lifecycleDocumentKey.value;
             if (key !== null) autoDetectionCanceledDocuments.delete(key);
-            void nextTick(maybeAutoDetect);
+            scheduleAutoDetect();
         },
     );
     watch(
@@ -573,28 +606,16 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
             documentCanvasPlan.value = undefined;
             if (!isDetecting.value) {
                 jobState.value = null;
-                void nextTick(maybeAutoDetect);
-            }
-        },
-    );
-    watch(
-        () => JSON.stringify({
-            crop: options.settings.crop,
-            layoutMode: options.settings.layoutMode,
-            marginsMm: options.settings.marginsMm,
-            pageOverrides: options.settings.pageOverrides,
-            preserveOriginalQuality: options.settings.preserveOriginalQuality === true,
-        }),
-        () => {
-            if (jobState.value?.status === 'completed') {
-                documentCanvasPlan.value = undefined;
-                const key = options.lifecycleDocumentKey.value;
-                if (key !== null) detectionSessionCache.delete(key);
+                scheduleAutoDetect();
             }
         },
     );
     onBeforeUnmount(() => {
         disposed = true;
+        if (scheduledAutoDetection !== null) {
+            clearTimeout(scheduledAutoDetection);
+            scheduledAutoDetection = null;
+        }
         stopSubscription?.();
         if (jobId && isDetecting.value) {
             void getScanCleanupCapability()?.cancelDetection(jobId, {

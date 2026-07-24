@@ -221,6 +221,7 @@ mod tests {
             None,
             &options,
             true,
+            true,
             None,
             CalibrationConfig::default(),
             None,
@@ -1866,7 +1867,10 @@ mod tests {
             CalibrationConfig::default(),
             None,
             None,
-            false,
+            PageRenderPolicy {
+                create_mixed_layers: false,
+                recommend_output_mode: true,
+            },
             &mut timings,
         )
         .unwrap()

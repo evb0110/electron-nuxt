@@ -9,6 +9,7 @@ import {
     buildPopplerEnv,
     preparePdfForPoppler,
     renderPdfPageToPng,
+    renderPdfPageToPpm,
 } from '@electron/ocr/worker/popplerStage';
 import type { IWorkerPaths } from '@electron/ocr/worker/types';
 
@@ -112,6 +113,36 @@ describe('renderPdfPageToPng', () => {
                 '/tmp/page-3',
             ],
             expect.objectContaining({commandLabel: 'pdftoppm(page=3,dpi=300)'}),
+        );
+    });
+
+    it('renders raw PPM without the PNG encoder flag for pipeline-internal rasters', async () => {
+        const log = vi.fn();
+
+        await renderPdfPageToPpm(
+            workerPaths,
+            log,
+            5,
+            '/tmp/source.pdf',
+            '/tmp/page-5.ppm',
+            360,
+        );
+
+        expect(mocks.runOcrCommand).toHaveBeenCalledWith(
+            '/bin/pdftoppm',
+            [
+                '-cropbox',
+                '-r',
+                '360',
+                '-f',
+                '5',
+                '-l',
+                '5',
+                '-singlefile',
+                '/tmp/source.pdf',
+                '/tmp/page-5',
+            ],
+            expect.objectContaining({commandLabel: 'pdftoppm(page=5,dpi=360)'}),
         );
     });
 

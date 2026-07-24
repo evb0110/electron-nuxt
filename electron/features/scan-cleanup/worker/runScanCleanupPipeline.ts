@@ -29,6 +29,7 @@ import { detectSourceDpiDetails } from '@electron/pdf/sourceDpiDetection';
 import {
     preparePdfForPoppler,
     renderPdfPageToPng,
+    renderPdfPageToPpm,
 } from '@electron/ocr/worker/popplerStage';
 import { runNativeToolCommand } from '@electron/native-tools/runNativeToolCommand';
 import type { TWorkerLog } from '@electron/ocr/worker/types';
@@ -76,6 +77,9 @@ interface ICleanupMetadata {
     illuminationNormalized?: boolean;
     binarizationMode?: IScanCleanupOptions['binarization'] | null;
     binarizationDiagnostics?: INativeScanCleanupBinarizationDiagnosticsV3 | null;
+    // The mode the native engine actually rendered with; for `auto` pages it
+    // carries the resolution the assembler must honor.
+    outputMode?: TScanCleanupOutputMode;
     despeckleFallback?: boolean;
     dewarpConfidence?: number | null;
     contentBox?: unknown;
@@ -128,6 +132,7 @@ export interface IRunScanCleanupPipelineDependencies {
     detectSourceDpi: typeof detectSourceDpiDetails;
     preparePdf: typeof preparePdfForPoppler;
     renderPage: typeof renderPdfPageToPng;
+    renderPagePpm: typeof renderPdfPageToPpm;
     runSidecar: typeof runScanCleanupSidecar;
     runCommand: typeof runNativeToolCommand;
 }
@@ -137,14 +142,20 @@ const defaultDependencies: IRunScanCleanupPipelineDependencies = {
     detectSourceDpi: detectSourceDpiDetails,
     preparePdf: preparePdfForPoppler,
     renderPage: renderPdfPageToPng,
+    renderPagePpm: renderPdfPageToPpm,
     runSidecar: runScanCleanupSidecar,
     runCommand: runNativeToolCommand,
 };
 
 const SCAN_CLEANUP_MAX_DIMENSION_PX = 40_000;
-const MODE_ANALYSIS_DPI = 150;
 const SIZE_PROBE_DPI = 72;
 const SCAN_CLEANUP_BILEVEL_FALLBACK_DPI = 600;
+// PPM removes the costly PNG encode/decode step for small cleanup scopes, but
+// retaining one uncompressed RGB raster for every page of a large book can
+// consume several gigabytes. Keep the fast handoff only when the complete
+// manifest has a known, bounded footprint; otherwise use compressed PNG.
+const SCAN_CLEANUP_RAW_RASTER_BUDGET_BYTES = 512 * 1024 * 1024;
+const PPM_HEADER_ESTIMATE_BYTES = 64;
 // Rome p1/p7/p49 at source DPI retained scan texture, fine text, and mixed
 // illustration edges at these settings. Color gets two extra quality points
 // for chroma detail; grayscale and mixed pages do not spend bytes on it.
@@ -189,6 +200,74 @@ function resolveSafeRenderDpi(
         maxDimensionDpi,
         maxPixelDpi,
     )));
+}
+
+interface IScanCleanupRasterHandoffPlan {
+    renderDpi: number;
+    raster: {
+        dpi: number;
+        width: number;
+        height: number
+    } | undefined;
+}
+
+function resolveRasterHandoff(
+    plans: readonly IScanCleanupRasterHandoffPlan[],
+) {
+    let estimatedBytes = 0;
+    for (const plan of plans) {
+        const raster = plan.raster;
+        if (
+            raster === undefined
+            || !Number.isFinite(plan.renderDpi)
+            || plan.renderDpi <= 0
+            || !Number.isFinite(raster.dpi)
+            || raster.dpi <= 0
+            || !Number.isFinite(raster.width)
+            || raster.width <= 0
+            || !Number.isFinite(raster.height)
+            || raster.height <= 0
+        ) {
+            return {
+                format: 'png' as const,
+                estimatedBytes: null,
+            };
+        }
+        const width = Math.max(1, Math.ceil(raster.width * plan.renderDpi / raster.dpi));
+        const height = Math.max(1, Math.ceil(raster.height * plan.renderDpi / raster.dpi));
+        const pageBytes = width * height * 3 + PPM_HEADER_ESTIMATE_BYTES;
+        if (!Number.isSafeInteger(pageBytes)) {
+            return {
+                format: 'png' as const,
+                estimatedBytes: null,
+            };
+        }
+        estimatedBytes += pageBytes;
+        if (
+            !Number.isSafeInteger(estimatedBytes)
+            || estimatedBytes > SCAN_CLEANUP_RAW_RASTER_BUDGET_BYTES
+        ) {
+            return {
+                format: 'png' as const,
+                estimatedBytes,
+            };
+        }
+    }
+    return {
+        format: 'ppm' as const,
+        estimatedBytes,
+    };
+}
+
+function logRasterHandoff(
+    log: TWorkerLog,
+    scope: string,
+    handoff: ReturnType<typeof resolveRasterHandoff>,
+) {
+    const footprint = handoff.estimatedBytes === null
+        ? 'unknown footprint'
+        : `${Math.ceil(handoff.estimatedBytes / (1024 * 1024))} MiB estimated footprint`;
+    log('debug', `Scan cleanup ${scope} raster handoff uses ${handoff.format.toUpperCase()} (${footprint})`);
 }
 
 function emitProgress(
@@ -375,22 +454,54 @@ async function runLosslessScanCleanup(
     });
     const pageSizes = (JSON.parse(await readFile(pageSizesPath, 'utf8')) as {pages: IPdfPageSize[]}).pages;
     const documentDpi = resolveSourceDpi(dpiDetails.documentDpi);
+    const rasterPlans = pageNumbers.map(pageNumber => {
+        const detected = dpiDetails.pageRasterByNumber.get(pageNumber);
+        const dpi = resolveSourceDpi(detected?.dpi, documentDpi);
+        return {
+            pageNumber,
+            dpi,
+            raster: detected === undefined
+                ? undefined
+                : {
+                    dpi: resolveSourceDpi(detected.dpi, documentDpi),
+                    width: detected.width,
+                    height: detected.height,
+                },
+        };
+    });
+    const rasterHandoff = resolveRasterHandoff(rasterPlans.map(plan => ({
+        renderDpi: plan.dpi,
+        raster: plan.raster,
+    })));
+    logRasterHandoff(log, 'lossless analysis', rasterHandoff);
     let rasterizedCount = 0;
     const rasterizedPageNumbers = new Set<number>();
     emitProgress(onProgress, 'rasterizing', 0, pageNumbers.length, 5, []);
-    const pageInputs = await mapScanCleanupRasterPages(pageNumbers, 3, async pageNumber => {
+    const pageInputs = await mapScanCleanupRasterPages(rasterPlans, 3, async plan => {
         signal.throwIfAborted();
-        const dpi = resolveSourceDpi(dpiDetails.pageDpiByNumber.get(pageNumber), documentDpi);
-        const inputPath = join(scratch, `analysis-${pageNumber}.png`);
-        await dependencies.renderPage(paths, log, pageNumber, preparedPdfPath, inputPath, dpi, undefined, signal);
+        const extension = rasterHandoff.format;
+        const inputPath = join(scratch, `analysis-${plan.pageNumber}.${extension}`);
+        const renderer = extension === 'ppm'
+            ? dependencies.renderPagePpm
+            : dependencies.renderPage;
+        await renderer(
+            paths,
+            log,
+            plan.pageNumber,
+            preparedPdfPath,
+            inputPath,
+            plan.dpi,
+            undefined,
+            signal,
+        );
         rasterizedCount += 1;
-        rasterizedPageNumbers.add(pageNumber);
+        rasterizedPageNumbers.add(plan.pageNumber);
         emitProgress(onProgress, 'rasterizing', rasterizedCount, pageNumbers.length, 5 + (35 * rasterizedCount / pageNumbers.length), rasterizedPageNumbers);
         return {
             inputPath,
-            pageNumber,
-            dpi,
-            pageMetadataPath: join(scratch, `analysis-${pageNumber}.json`),
+            pageNumber: plan.pageNumber,
+            dpi: plan.dpi,
+            pageMetadataPath: join(scratch, `analysis-${plan.pageNumber}.json`),
         };
     });
     const manifest = buildNativeScanCleanupManifest({
@@ -613,12 +724,12 @@ export async function runScanCleanupPipeline(
             emitProgress(onProgress, 'handoff', pageCount, pageCount, 100, pageNumbers);
             return summary;
         }
+        const detectedRasterByPage = dpiDetails.pageRasterByNumber;
         const sourceDpiByPage = new Map(pageNumbers.map(pageNumber => [
             pageNumber,
-            resolveSourceDpi(dpiDetails.pageDpiByNumber.get(pageNumber), documentDpi),
+            resolveSourceDpi(detectedRasterByPage.get(pageNumber)?.dpi, documentDpi),
         ]));
         const resolvedOutputModeByPage = new Map<number, TScanCleanupOutputMode>();
-        const unresolvedAutoPages: number[] = [];
         for (const pageNumber of pageNumbers) {
             const pageOverride = getScanCleanupPageOverride(request.options.pageOverrides, pageNumber);
             if (pageOverride.excluded) {
@@ -631,209 +742,146 @@ export async function runScanCleanupPipeline(
                 continue;
             }
             const recommendation = request.outputModeRecommendations?.[String(pageNumber)];
-            if (recommendation === undefined) {
-                unresolvedAutoPages.push(pageNumber);
-            } else {
+            // Pages without a recommendation stay `auto`: the single final
+            // render resolves them natively from full-resolution evidence and
+            // reports the resolution back through the page metadata.
+            if (recommendation !== undefined) {
                 resolvedOutputModeByPage.set(pageNumber, recommendation);
             }
         }
-        const probeDimensionsByPage = new Map<number, {
+        const requiresBilevelQuality = (pageNumber: number) => {
+            const mode = resolvedOutputModeByPage.get(pageNumber);
+            return mode === undefined || mode === 'bw' || mode === 'mixed';
+        };
+        // Pixel guardrails come from the pdfimages raster row for detected
+        // pages; only undetected pages that may produce a binary layer (and
+        // therefore take the synthesis DPI floor) pay for a 72-DPI probe.
+        const guardrailByPage = new Map<number, {
             dpi: number;
             width: number;
             height: number
         }>();
-        if (unresolvedAutoPages.length > 0) {
-            let analyzedRasterCount = 0;
-            emitProgress(onProgress, 'rasterizing', 0, unresolvedAutoPages.length, 5, []);
-            const analysisInputs = await mapScanCleanupRasterPages(
-                unresolvedAutoPages,
-                3,
-                async pageNumber => {
-                    signal.throwIfAborted();
-                    const inputPath = join(scratch, `mode-analysis-${pageNumber}.png`);
-                    await dependencies.renderPage(
-                        paths,
-                        log,
-                        pageNumber,
-                        prepared.pdfPath,
-                        inputPath,
-                        MODE_ANALYSIS_DPI,
-                        undefined,
-                        signal,
-                    );
-                    const dimensions = await readPngDimensions(inputPath);
-                    probeDimensionsByPage.set(pageNumber, {
-                        dpi: MODE_ANALYSIS_DPI,
-                        ...dimensions,
-                    });
-                    analyzedRasterCount += 1;
-                    emitProgress(
-                        onProgress,
-                        'rasterizing',
-                        analyzedRasterCount,
-                        unresolvedAutoPages.length,
-                        5 + (10 * analyzedRasterCount / unresolvedAutoPages.length),
-                    );
-                    return {
-                        inputPath,
-                        pageNumber,
-                        dpi: MODE_ANALYSIS_DPI,
-                        sourceDpi: sourceDpiByPage.get(pageNumber)!,
-                        requestedRenderDpi: MODE_ANALYSIS_DPI,
-                        pageMetadataPath: join(scratch, `mode-analysis-${pageNumber}.json`),
-                    };
-                },
-            );
-            const analysisManifest = buildNativeScanCleanupManifest({
-                operation: 'analyze',
-                renderMode: 'final',
-                canvasScope: 'page',
-                qualityPath: 'raster',
-                options: request.options,
-                pages: analysisInputs,
-            });
-            const analysisManifestPath = join(scratch, 'mode-analysis-manifest.json');
-            await writeFile(analysisManifestPath, JSON.stringify(analysisManifest));
-            emitProgress(onProgress, 'classifying', 0, unresolvedAutoPages.length, 15, []);
-            const classifiedPageNumbers = new Set<number>();
-            await dependencies.runSidecar(
-                paths.scanCleanupBinary,
-                analysisManifestPath,
-                signal,
-                log,
-                (_progress, nativeProgress) => {
-                    if (nativeProgress.pageNumber !== undefined) {
-                        classifiedPageNumbers.add(unresolvedAutoPages[nativeProgress.pageNumber - 1]!);
-                    }
-                    const completedUnits = classifiedPageNumbers.size;
-                    emitProgress(
-                        onProgress,
-                        'classifying',
-                        completedUnits,
-                        unresolvedAutoPages.length,
-                        15 + (10 * completedUnits / unresolvedAutoPages.length),
-                        classifiedPageNumbers,
-                    );
-                },
-            );
-            for (const page of analysisManifest.pages) {
-                const metadata = JSON.parse(
-                    await readFile(page.pageMetadataPath, 'utf8'),
-                ) as ICleanupPageMetadata;
-                if (metadata.recommendedOutputMode === undefined) {
-                    throw new Error(
-                        `Automatic output-mode analysis returned no recommendation for page ${page.sourcePageIndex + 1}`,
-                    );
-                }
-                resolvedOutputModeByPage.set(
-                    page.sourcePageIndex + 1,
-                    metadata.recommendedOutputMode,
-                );
+        for (const pageNumber of pageNumbers) {
+            const detected = detectedRasterByPage.get(pageNumber);
+            if (detected !== undefined) {
+                guardrailByPage.set(pageNumber, {
+                    dpi: sourceDpiByPage.get(pageNumber)!,
+                    width: detected.width,
+                    height: detected.height,
+                });
             }
         }
-        const supersampledPages = pageNumbers.filter(
-            pageNumber => {
-                const mode = resolvedOutputModeByPage.get(pageNumber);
-                return mode === 'bw' || mode === 'mixed';
-            },
+        const probePages = pageNumbers.filter(
+            pageNumber => !guardrailByPage.has(pageNumber) && requiresBilevelQuality(pageNumber),
         );
-        const finalRasterStartPercent = unresolvedAutoPages.length > 0 ? 25 : 15;
-        const probedBwPageNumbers = new Set(supersampledPages.filter(pageNumber => probeDimensionsByPage.has(pageNumber)));
-        emitProgress(
-            onProgress,
-            'probing',
-            probedBwPageNumbers.size,
-            supersampledPages.length,
-            finalRasterStartPercent,
-            probedBwPageNumbers,
-        );
-        await mapScanCleanupRasterPages(
-            supersampledPages.filter(pageNumber => !probeDimensionsByPage.has(pageNumber)),
-            3,
-            async pageNumber => {
+        if (probePages.length > 0) {
+            const probedPageNumbers = new Set<number>();
+            emitProgress(onProgress, 'probing', 0, probePages.length, 8, []);
+            await mapScanCleanupRasterPages(probePages, 3, async pageNumber => {
                 signal.throwIfAborted();
-                const inputPath = join(scratch, `size-probe-${pageNumber}.png`);
+                const probePath = join(scratch, `size-probe-${pageNumber}.png`);
                 await dependencies.renderPage(
                     paths,
                     log,
                     pageNumber,
                     prepared.pdfPath,
-                    inputPath,
+                    probePath,
                     SIZE_PROBE_DPI,
                     undefined,
                     signal,
                 );
-                probeDimensionsByPage.set(pageNumber, {
+                guardrailByPage.set(pageNumber, {
                     dpi: SIZE_PROBE_DPI,
-                    ...await readPngDimensions(inputPath),
+                    ...await readPngDimensions(probePath),
                 });
-                probedBwPageNumbers.add(pageNumber);
+                probedPageNumbers.add(pageNumber);
                 emitProgress(
                     onProgress,
                     'probing',
-                    probedBwPageNumbers.size,
-                    supersampledPages.length,
-                    finalRasterStartPercent,
-                    probedBwPageNumbers,
+                    probedPageNumbers.size,
+                    probePages.length,
+                    8,
+                    probedPageNumbers,
                 );
-            },
-        );
+            });
+        }
+        const rasterPlans = pageNumbers.map(pageNumber => {
+            const sourceDpi = sourceDpiByPage.get(pageNumber)!;
+            const resolvedOutputMode = resolvedOutputModeByPage.get(pageNumber);
+            const requestedRenderDpi = !detectedRasterByPage.has(pageNumber) && requiresBilevelQuality(pageNumber)
+                ? Math.max(sourceDpi, SCAN_CLEANUP_BILEVEL_FALLBACK_DPI)
+                : sourceDpi;
+            const guardrail = guardrailByPage.get(pageNumber);
+            const dpi = guardrail === undefined
+                ? requestedRenderDpi
+                : resolveSafeRenderDpi(
+                    requestedRenderDpi,
+                    resolveScanCleanupPipelineMaxPixels(resolvedOutputMode),
+                    guardrail,
+                );
+            return {
+                pageNumber,
+                sourceDpi,
+                resolvedOutputMode,
+                requestedRenderDpi,
+                dpi,
+                guardrail,
+            };
+        });
+        const rasterHandoff = resolveRasterHandoff(rasterPlans.map(plan => ({
+            renderDpi: plan.dpi,
+            raster: plan.guardrail,
+        })));
+        logRasterHandoff(log, 'final', rasterHandoff);
         const pageDpi = new Map<number, number>();
         let rasterizedCount = 0;
         const rasterizedPageNumbers = new Set<number>();
-        emitProgress(onProgress, 'rasterizing', 0, pageCount, finalRasterStartPercent, []);
-        const pageInputs = await mapScanCleanupRasterPages(pageNumbers, 3, async pageNumber => {
+        emitProgress(onProgress, 'rasterizing', 0, pageCount, 15, []);
+        const pageInputs = await mapScanCleanupRasterPages(rasterPlans, 3, async plan => {
             signal.throwIfAborted();
-            const sourceDpi = sourceDpiByPage.get(pageNumber)!;
-            const resolvedOutputMode = resolvedOutputModeByPage.get(pageNumber) ?? 'color';
-            // Bilevel and mixed text layers render at the detected source DPI:
-            // rendering above it interpolates pixels that carry no additional
-            // source detail while multiplying rasterization cost. The 600 DPI
-            // floor applies only when no raster source DPI was detected
-            // (vector or unprobeable pages), where poppler synthesizes the
-            // raster and higher DPI genuinely adds stroke fidelity.
-            const detectedSourceDpi = dpiDetails.pageDpiByNumber.get(pageNumber);
-            const supersampled = resolvedOutputMode === 'bw' || resolvedOutputMode === 'mixed';
-            const requestedRenderDpi = supersampled && detectedSourceDpi == null
-                ? Math.max(sourceDpi, SCAN_CLEANUP_BILEVEL_FALLBACK_DPI)
-                : sourceDpi;
-            const dpi = supersampled
-                ? resolveSafeRenderDpi(
-                    requestedRenderDpi,
-                    resolveScanCleanupPipelineMaxPixels(resolvedOutputMode),
-                    probeDimensionsByPage.get(pageNumber)!,
-                )
-                : sourceDpi;
-            pageDpi.set(pageNumber, dpi);
-            const inputPath = join(scratch, `source-${pageNumber}.png`);
-            await dependencies.renderPage(paths, log, pageNumber, prepared.pdfPath, inputPath, dpi, undefined, signal);
+            pageDpi.set(plan.pageNumber, plan.dpi);
+            const extension = rasterHandoff.format;
+            const inputPath = join(scratch, `source-${plan.pageNumber}.${extension}`);
+            const renderer = extension === 'ppm'
+                ? dependencies.renderPagePpm
+                : dependencies.renderPage;
+            await renderer(
+                paths,
+                log,
+                plan.pageNumber,
+                prepared.pdfPath,
+                inputPath,
+                plan.dpi,
+                undefined,
+                signal,
+            );
             const page = {
                 inputPath,
-                pageNumber,
-                dpi,
-                sourceDpi,
-                requestedRenderDpi,
-                resolvedOutputMode,
-                pageMetadataPath: join(scratch, `clean-${pageNumber}-page.json`),
+                pageNumber: plan.pageNumber,
+                dpi: plan.dpi,
+                sourceDpi: plan.sourceDpi,
+                requestedRenderDpi: plan.requestedRenderDpi,
+                ...(plan.resolvedOutputMode === undefined ? {} : {resolvedOutputMode: plan.resolvedOutputMode}),
+                pageMetadataPath: join(scratch, `clean-${plan.pageNumber}-page.json`),
                 outputs: [
                     0,
                     1,
                 ].map(outputIndex => ({
-                    outputPath: join(scratch, `clean-${pageNumber}-${outputIndex}.png`),
-                    metadataPath: join(scratch, `clean-${pageNumber}-${outputIndex}.json`),
-                    bilevelOutputPath: join(scratch, `clean-${pageNumber}-${outputIndex}.pbm`),
-                    backgroundOutputPath: join(scratch, `clean-${pageNumber}-${outputIndex}-background.png`),
-                    foregroundMaskOutputPath: join(scratch, `clean-${pageNumber}-${outputIndex}-mask.pbm`),
+                    outputPath: join(scratch, `clean-${plan.pageNumber}-${outputIndex}.png`),
+                    metadataPath: join(scratch, `clean-${plan.pageNumber}-${outputIndex}.json`),
+                    bilevelOutputPath: join(scratch, `clean-${plan.pageNumber}-${outputIndex}.pbm`),
+                    backgroundOutputPath: join(scratch, `clean-${plan.pageNumber}-${outputIndex}-background.png`),
+                    foregroundMaskOutputPath: join(scratch, `clean-${plan.pageNumber}-${outputIndex}-mask.pbm`),
                 })),
             };
             rasterizedCount += 1;
-            rasterizedPageNumbers.add(pageNumber);
+            rasterizedPageNumbers.add(plan.pageNumber);
             emitProgress(
                 onProgress,
                 'rasterizing',
                 rasterizedCount,
                 pageCount,
-                finalRasterStartPercent + (20 * rasterizedCount / pageCount),
+                15 + (20 * rasterizedCount / pageCount),
                 rasterizedPageNumbers,
             );
             return page;
@@ -1041,7 +1089,11 @@ export async function runScanCleanupPipeline(
                     dpi: metadata.renderDpi
                         ?? pageDpi.get(pageNumbers[pageIndex]!)
                         ?? documentDpi,
-                    resolvedOutputMode: resolvedOutputModeByPage.get(pageNumbers[pageIndex]!) ?? 'color',
+                    // The engine reports the mode it actually rendered with,
+                    // which is the only authority once `auto` resolves natively.
+                    resolvedOutputMode: metadata.outputMode
+                        ?? resolvedOutputModeByPage.get(pageNumbers[pageIndex]!)
+                        ?? 'color',
                     metadata,
                 });
                 if (!metadata.skewApplied) summary.deskewSkipped += 1;

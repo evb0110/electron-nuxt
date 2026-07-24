@@ -505,6 +505,18 @@ describe('ScanCleanupThumbnailRail', () => {
         expect(header?.querySelectorAll('button')).toHaveLength(0);
     });
 
+    it('keeps the 8rem rail controls usable in the compact workspace layout', () => {
+        expect(scanCleanupThumbnailRailSource).toContain('container-type: inline-size');
+        const compactRules = scanCleanupThumbnailRailSource.match(
+            /@container \(width <= 10rem\) \{(?<rules>[\s\S]*)\n\}/u,
+        )?.groups?.rules;
+
+        expect(compactRules).toMatch(/\.scan-thumbnail-rail-header \{[\s\S]*?padding-inline/u);
+        expect(compactRules).toMatch(/\.scan-thumbnail-rail-actions \{[\s\S]*?flex: 1/u);
+        expect(compactRules).toMatch(/\.scan-thumbnail-statuses \{[\s\S]*?flex-wrap: wrap/u);
+        expect(compactRules).toMatch(/\.scan-thumbnail-controls \{[\s\S]*?flex-wrap: wrap/u);
+    });
+
     it('portals the override menu outside the virtual list and renders complete item labels', async () => {
         const harness = mountRail();
         const list = harness.host.querySelector<HTMLElement>('[data-thumbnail-list-stub]')!;

@@ -41,10 +41,12 @@ const MAX_BILEVEL_PIXELS = 160_000_000;
 const MAX_CONTINUOUS_TONE_PIXELS = 80_000_000;
 const MAX_DIMENSION_PX = 40_000;
 
+// An unresolved (absent) mode gets the bilevel budget because the native
+// engine may still resolve the page to a supersampled binary layer.
 export function resolveScanCleanupPipelineMaxPixels(
-    outputMode: TScanCleanupOutputMode,
+    outputMode?: TScanCleanupOutputMode,
 ) {
-    return outputMode === 'bw'
+    return outputMode === undefined || outputMode === 'bw'
         ? MAX_BILEVEL_PIXELS
         : MAX_CONTINUOUS_TONE_PIXELS;
 }
@@ -112,9 +114,7 @@ export function resolveEffectiveScanCleanupOptions({
         rotationDegrees: pageOverride.rotationDegrees,
         excluded: pageOverride.excluded,
         skipBlankPages: !lossless && options.skipBlankPages,
-        maxPixels: resolvedOutputMode === undefined
-            ? MAX_BILEVEL_PIXELS
-            : resolveScanCleanupPipelineMaxPixels(resolvedOutputMode),
+        maxPixels: resolveScanCleanupPipelineMaxPixels(resolvedOutputMode),
         maxDimensionPx: MAX_DIMENSION_PX,
     };
 }

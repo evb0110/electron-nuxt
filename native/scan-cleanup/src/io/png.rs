@@ -1,4 +1,5 @@
-use evb_raster_io::{decode_png, encode_png, read_png_dimensions, DecodeLimits, PixelBuffer};
+use super::decode_limits;
+use evb_raster_io::{decode_png, encode_png, PixelBuffer};
 use scan_primitives::GrayImage;
 use std::{
     fs::{self, File},
@@ -6,42 +7,8 @@ use std::{
     path::{Path, PathBuf},
 };
 
-pub use evb_raster_io::DecodedPng;
+pub use evb_raster_io::DecodedRaster;
 pub use scan_primitives::RgbImage;
-
-const MAX_COMPRESSED_BYTES: usize = 512 * 1024 * 1024;
-
-fn limits(max_pixels: u64, max_dimension: u32) -> DecodeLimits {
-    DecodeLimits {
-        max_pixels,
-        max_dimension,
-        max_compressed_bytes: MAX_COMPRESSED_BYTES,
-    }
-}
-
-pub fn read_gray(path: &Path, max_pixels: u64, max_dimension: u32) -> Result<GrayImage, String> {
-    Ok(read_image(path, max_pixels, max_dimension)?.gray)
-}
-
-pub fn read_image(path: &Path, max_pixels: u64, max_dimension: u32) -> Result<DecodedPng, String> {
-    decode_png(
-        File::open(path).map_err(|error| error.to_string())?,
-        limits(max_pixels, max_dimension),
-    )
-    .map_err(|error| error.to_string())
-}
-
-pub fn read_dimensions(
-    path: &Path,
-    max_pixels: u64,
-    max_dimension: u32,
-) -> Result<(usize, usize), String> {
-    read_png_dimensions(
-        File::open(path).map_err(|error| error.to_string())?,
-        limits(max_pixels, max_dimension),
-    )
-    .map_err(|error| error.to_string())
-}
 
 pub fn decode_gray(bytes: &[u8], max_pixels: u64, max_dimension: u32) -> Result<GrayImage, String> {
     Ok(decode_image(bytes, max_pixels, max_dimension)?.gray)
@@ -51,8 +18,8 @@ pub fn decode_image(
     bytes: &[u8],
     max_pixels: u64,
     max_dimension: u32,
-) -> Result<DecodedPng, String> {
-    decode_png(Cursor::new(bytes), limits(max_pixels, max_dimension))
+) -> Result<DecodedRaster, String> {
+    decode_png(Cursor::new(bytes), decode_limits(max_pixels, max_dimension))
         .map_err(|error| error.to_string())
 }
 

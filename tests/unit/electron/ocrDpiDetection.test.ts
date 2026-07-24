@@ -37,6 +37,16 @@ describe('ocr dpi detection', () => {
         expect(result.documentDpi).toBe(239);
         expect(result.pageDpiByNumber.get(4)).toBe(72);
         expect(result.pageDpiByNumber.get(5)).toBe(239);
+        expect(result.pageRasterByNumber.get(4)).toEqual({
+            dpi: 72,
+            width: 2630,
+            height: 2159,
+        });
+        expect(result.pageRasterByNumber.get(5)).toEqual({
+            dpi: 239,
+            width: 1617,
+            height: 2800,
+        });
     });
 
     it('returns the document dpi for the legacy detector', async () => {

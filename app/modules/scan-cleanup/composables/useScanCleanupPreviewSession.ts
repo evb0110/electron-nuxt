@@ -28,7 +28,6 @@ interface IUseScanCleanupPreviewSessionOptions {
     documentPriorByPage: ReadonlyMap<number, IScanCleanupDocumentPrior>;
     documentCanvasPlan: ComputedRef<IScanCleanupDocumentCanvasPlan | undefined>;
     initialViewMode?: 'original' | 'cleaned' | undefined;
-    isRunning: ComputedRef<boolean>;
     lifecycleDocumentKey: ComputedRef<string | null>;
     ownerId: string;
     previewPage: Ref<number>;
@@ -36,7 +35,6 @@ interface IUseScanCleanupPreviewSessionOptions {
     settings: IScanCleanupOptions;
     sourcePath: ComputedRef<TDocumentRef | null>;
     totalPages: ComputedRef<number>;
-    whenRunStops: () => void;
 }
 
 export function createScanCleanupPreviewCacheKey(
@@ -192,14 +190,19 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
         detailRetryTimer = null;
     }
 
+    function invalidateDetailRequest() {
+        detailSequence += 1;
+        clearDetailRetry();
+        detailRetriesRemaining = 0;
+        detailLoading.value = false;
+    }
+
     function cancel(invalidateRawCache = true) {
         sequence += 1;
-        detailSequence += 1;
         prefetcher.supersede();
         clearTimer();
-        clearDetailRetry();
+        invalidateDetailRequest();
         loading.value = false;
-        detailLoading.value = false;
         if (!options.sourcePath.value) {
             return;
         }
@@ -245,13 +248,13 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
     }
 
     function schedule() {
+        // Base-preview identity owns detail identity. Invalidate detail work
+        // before the availability guard so source removal/deactivation cannot
+        // leave a retry or an older viewport render alive.
+        invalidateDetailRequest();
         if (!options.active() || !options.sourcePath.value) {
             return;
         }
-        detailSequence += 1;
-        clearDetailRetry();
-        detailRetriesRemaining = 0;
-        detailLoading.value = false;
         const capability = getScanCleanupCapability();
         if (!capability) {
             error.value = t('scanCleanup.preview.unavailable');
@@ -450,6 +453,7 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
         else cancel();
     }, {immediate: true});
     watch(options.lifecycleDocumentKey, () => {
+        invalidateDetailRequest();
         cache.clear();
         detailSourceCache.clear();
         metadataByPage.clear();
@@ -460,12 +464,6 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
         displayedDetailSourceKey = null;
     });
     watch(cacheKey, schedule);
-    watch(options.isRunning, running => {
-        if (!running && options.active()) {
-            schedule();
-            options.whenRunStops();
-        }
-    }, {flush: 'sync'});
     onBeforeUnmount(() => cancel());
 
     return {

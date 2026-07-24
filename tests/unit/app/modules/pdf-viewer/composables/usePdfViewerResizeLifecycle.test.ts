@@ -36,6 +36,7 @@ function createResizeLifecycle(
     isActive = ref(true),
     options?: {
         computeFitWidthScale?: () => boolean;
+        settlePreviewFitScale?: (commit?: boolean) => boolean;
         isLoading?: Ref<boolean>;
         isResizing?: Ref<boolean>;
         pdfDocument?: Ref<unknown | null>;
@@ -48,6 +49,9 @@ function createResizeLifecycle(
 ) {
     const getMostVisiblePage = vi.fn(() => 2);
     const computeFitWidthScale = vi.fn(options?.computeFitWidthScale ?? (() => true));
+    const settlePreviewFitScale = vi.fn(
+        options?.settlePreviewFitScale ?? (commit => commit === true),
+    );
     const scheduleResizeAwareRerender = vi.fn();
     const setResizeTransitionVisible = vi.fn();
     const submitResizeIntent = vi.fn();
@@ -69,7 +73,7 @@ function createResizeLifecycle(
         }),
         numPages: ref(10),
         computeFitWidthScale,
-        clearPreviewFitScale: vi.fn(),
+        settlePreviewFitScale,
         captureViewportAnchor: options?.captureViewportAnchor,
         getMostVisiblePage,
         summarizeViewerMetricsForLog: vi.fn(() => null),
@@ -82,6 +86,7 @@ function createResizeLifecycle(
     return {
         applyResizeAnchorPreview,
         computeFitWidthScale,
+        settlePreviewFitScale,
         getMostVisiblePage,
         isActive,
         isResizing,
@@ -507,6 +512,7 @@ describe('usePdfViewerResizeLifecycle inactive behavior', () => {
         const isResizing = ref(false);
         const {
             applyResizeAnchorPreview,
+            settlePreviewFitScale,
             computeFitWidthScale,
             scheduleResizeAwareRerender,
             submitResizeIntent,
@@ -541,6 +547,12 @@ describe('usePdfViewerResizeLifecycle inactive behavior', () => {
         expect(applyResizeAnchorPreview).toHaveBeenCalledTimes(6);
         expect(applyResizeAnchorPreview).toHaveBeenNthCalledWith(6, semanticAnchor);
         expect(scheduleResizeAwareRerender).toHaveBeenCalledOnce();
+        expect(computeFitWidthScale).toHaveBeenLastCalledWith(null, {
+            page: 4,
+            preview: true,
+        });
+        expect(settlePreviewFitScale).toHaveBeenCalledOnce();
+        expect(settlePreviewFitScale).toHaveBeenCalledWith(true);
         expect(scheduleResizeAwareRerender).toHaveBeenCalledWith(
             're-render visible pages after resize settle',
             expect.objectContaining({

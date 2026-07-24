@@ -766,6 +766,7 @@
 
 @container (width <= 34rem) {
     .preview-header {
+        width: 100%;
         height: auto;
         min-height: var(--app-scan-header-height);
         flex: 0 0 auto;
@@ -782,8 +783,13 @@
 
     .preview-controls {
         width: 100%;
+        min-width: 0;
         flex-wrap: wrap;
         justify-content: center;
+    }
+
+    .preview-controls > * {
+        max-width: 100%;
     }
 
     .preview-surface {

@@ -6,8 +6,8 @@
 //! synthetic rotation are excluded from `elapsed_ms`.
 
 use evb_scan_cleanup::{
-    background::normalize_illumination, engine::prepare::build_analysis_level, png::read_gray,
-    DEFAULT_MAX_DIMENSION, DEFAULT_MAX_PIXELS,
+    background::normalize_illumination, engine::prepare::build_analysis_level,
+    io::raster::read_gray, DEFAULT_MAX_DIMENSION, DEFAULT_MAX_PIXELS,
 };
 use scan_primitives::{threshold::otsu_threshold, GrayImage};
 use serde::Serialize;

@@ -11,9 +11,16 @@ const PDFIMAGES_TIMEOUT_MS = 30 * 1000;
 const PDFIMAGES_MAX_CONTIGUOUS_PROBE_SPAN = 48;
 const PDFIMAGES_PROBE_CONCURRENCY = 4;
 
+export interface IDetectedPageRaster {
+    dpi: number;
+    width: number;
+    height: number;
+}
+
 export interface ISourceDpiDetectionResult {
     documentDpi: number | null;
     pageDpiByNumber: Map<number, number>;
+    pageRasterByNumber: Map<number, IDetectedPageRaster>;
 }
 
 interface IPdfImagesProbe {
@@ -133,8 +140,7 @@ function createRecoverablePdfImagesLog(log: TSourceDpiLog): TSourceDpiLog {
 }
 
 function parsePdfImagesListOutput(output: string): ISourceDpiDetectionResult {
-    const pageDpiByNumber = new Map<number, number>();
-    const dominantAreaByPage = new Map<number, number>();
+    const pageRasterByNumber = new Map<number, IDetectedPageRaster>();
     const lines = compact(output.split(/\r?\n/).map(line => line.trim()));
 
     for (const line of lines) {
@@ -164,19 +170,39 @@ function parsePdfImagesListOutput(output: string): ISourceDpiDetectionResult {
             continue;
         }
 
-        const dominantArea = dominantAreaByPage.get(pageNumber) ?? 0;
-        if (pixelArea > dominantArea) {
-            dominantAreaByPage.set(pageNumber, pixelArea);
-            pageDpiByNumber.set(pageNumber, dpi);
-        } else if (pixelArea === dominantArea) {
-            pageDpiByNumber.set(pageNumber, Math.max(pageDpiByNumber.get(pageNumber) ?? 0, dpi));
+        const dominant = pageRasterByNumber.get(pageNumber);
+        const dominantArea = dominant === undefined ? 0 : dominant.width * dominant.height;
+        if (pixelArea > dominantArea || (pixelArea === dominantArea && dpi > dominant!.dpi)) {
+            pageRasterByNumber.set(pageNumber, {
+                dpi,
+                width,
+                height,
+            });
         }
     }
 
-    const documentDpi = Math.max(0, ...pageDpiByNumber.values());
+    return withDerivedPageDpi({
+        documentDpi: null,
+        pageRasterByNumber,
+    });
+}
+
+function withDerivedPageDpi(
+    result: Omit<ISourceDpiDetectionResult, 'pageDpiByNumber'>,
+): ISourceDpiDetectionResult {
+    const pageDpiByNumber = new Map<number, number>();
+    let documentDpi = 0;
+    for (const [
+        pageNumber,
+        raster,
+    ] of result.pageRasterByNumber) {
+        pageDpiByNumber.set(pageNumber, raster.dpi);
+        documentDpi = Math.max(documentDpi, raster.dpi);
+    }
     return {
-        documentDpi: documentDpi > 0 ? documentDpi : null,
+        documentDpi: documentDpi > 0 ? documentDpi : result.documentDpi,
         pageDpiByNumber,
+        pageRasterByNumber: result.pageRasterByNumber,
     };
 }
 
@@ -187,9 +213,15 @@ function mergeDpiDetectionResults(
     target.documentDpi = Math.max(target.documentDpi ?? 0, source.documentDpi ?? 0) || null;
     for (const [
         pageNumber,
-        dpi,
-    ] of source.pageDpiByNumber) {
-        target.pageDpiByNumber.set(pageNumber, Math.max(target.pageDpiByNumber.get(pageNumber) ?? 0, dpi));
+        raster,
+    ] of source.pageRasterByNumber) {
+        const existing = target.pageRasterByNumber.get(pageNumber);
+        const existingArea = existing === undefined ? 0 : existing.width * existing.height;
+        const incomingArea = raster.width * raster.height;
+        if (incomingArea > existingArea || (incomingArea === existingArea && raster.dpi > (existing?.dpi ?? 0))) {
+            target.pageRasterByNumber.set(pageNumber, raster);
+        }
+        target.pageDpiByNumber.set(pageNumber, Math.max(target.pageDpiByNumber.get(pageNumber) ?? 0, raster.dpi));
     }
 }
 
@@ -206,6 +238,7 @@ export async function detectSourceDpiDetails(
         return {
             documentDpi: null,
             pageDpiByNumber: new Map(),
+            pageRasterByNumber: new Map(),
         };
     }
     if (signal?.aborted) {
@@ -216,6 +249,7 @@ export async function detectSourceDpiDetails(
         const combinedResult: ISourceDpiDetectionResult = {
             documentDpi: null,
             pageDpiByNumber: new Map(),
+            pageRasterByNumber: new Map(),
         };
         const probes = buildPdfImagesProbes(pdfPath, pages);
         const totalPages = probes.reduce((total, probe) => total + probe.pageUnits, 0);
@@ -276,6 +310,7 @@ export async function detectSourceDpiDetails(
     return {
         documentDpi: null,
         pageDpiByNumber: new Map(),
+        pageRasterByNumber: new Map(),
     };
 }
 

@@ -168,7 +168,7 @@ describe('createDefaultWorkspaceToolbarSnapshot', () => {
             isPlacingPageNote: false,
             zoom: 1,
             effectiveZoom: 1,
-            zoomMode: 'fit-width',
+            zoomMode: 'custom',
             fitMode: 'width',
             viewMode: 'single',
             currentPage: 1,

@@ -64,7 +64,7 @@
             </div>
         </div>
         <div
-            class="scan-cleanup-workspace"
+            class="scan-cleanup-workspace app-scrollbar app-scroll-region--balanced"
             :aria-busy="isRunning"
         >
             <fieldset class="scan-cleanup-options-rail app-scrollbar app-scroll-region--balanced" :disabled="isRunning">
@@ -792,21 +792,11 @@ watch(isRunning, running => {
 @container (width <= 52rem) {
     .scan-cleanup-workspace {
         grid-template:
-            'thumbnails preview settings' minmax(0, 1fr) / minmax(var(--app-scan-page-list-collapsed-width), 8rem)
-            minmax(0, 1fr)
-            minmax(14rem, 16rem);
-    }
-}
-
-@container (width <= 40rem) {
-    .scan-cleanup-workspace {
-        grid-template:
-            'preview' minmax(16rem, 3fr)
-            'settings' minmax(12rem, 2fr) / minmax(0, 1fr);
-    }
-
-    .scan-cleanup-workspace > .scan-thumbnail-rail {
-        display: none;
+            'thumbnails preview' minmax(16rem, 3fr)
+            'settings settings' minmax(12rem, 2fr) / minmax(var(--app-scan-page-list-collapsed-width), 8rem)
+            minmax(0, 1fr);
+        overflow: auto;
+        overscroll-behavior: contain;
     }
 
     .scan-cleanup-options-rail {

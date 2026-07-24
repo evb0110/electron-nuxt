@@ -1164,6 +1164,7 @@ function handleKeydown(event: KeyboardEvent) {
     flex-direction: column;
     border-inline-end: var(--app-hairline-height) solid var(--ui-border);
     background: var(--ui-bg);
+    container-type: inline-size;
 }
 
 .scan-thumbnail-rail-header,
@@ -1471,5 +1472,47 @@ function handleKeydown(event: KeyboardEvent) {
 .scan-thumbnail-page-number.is-excluded {
     color: var(--ui-text-dimmed);
     text-decoration: line-through;
+}
+
+@container (width <= 10rem) {
+    .scan-thumbnail-rail-header {
+        gap: var(--app-space-xs);
+        padding-inline: var(--app-space-lg);
+    }
+
+    .scan-thumbnail-rail-heading {
+        flex: none;
+    }
+
+    .scan-thumbnail-rail-heading strong {
+        display: none;
+    }
+
+    .scan-thumbnail-rail-actions {
+        flex: 1;
+    }
+
+    .scan-thumbnail-statuses {
+        align-content: flex-start;
+        flex-wrap: wrap;
+        gap: var(--app-space-xs);
+        padding: var(--app-space-xs);
+    }
+
+    .scan-thumbnail-classification-badge {
+        min-width: 0;
+        max-width: 100%;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .scan-thumbnail-source-state {
+        padding: var(--app-space-lg);
+    }
+
+    .scan-thumbnail-controls {
+        flex-wrap: wrap;
+    }
 }
 </style>

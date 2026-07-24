@@ -278,9 +278,20 @@ export const usePdfScale = (
         return true;
     }
 
-    function clearPreviewFitScale() {
+    function settlePreviewFitScale(commit = false) {
+        const previewScale = previewFitScale.value;
         previewFitScale.value = null;
         lastPreviewFitScaleSignature.value = null;
+        if (
+            !commit
+            || previewScale === null
+            || Math.abs(previewScale - fitWidthScale.value) < 0.001
+        ) {
+            return false;
+        }
+        fitWidthScale.value = previewScale;
+        lastFitScaleSignature.value = null;
+        return true;
     }
 
     function isFitWidthScaleCurrent(container: HTMLElement | null, options?: IFitScalePageOptions) {
@@ -328,7 +339,7 @@ export const usePdfScale = (
             return false;
         }
         const nextScale = clampFitScale(scale);
-        clearPreviewFitScale();
+        settlePreviewFitScale();
         invalidateScaleCache();
         if (Math.abs(nextScale - fitWidthScale.value) < 0.001) {
             return false;
@@ -339,7 +350,7 @@ export const usePdfScale = (
 
     function resetScale() {
         fitWidthScale.value = 1;
-        clearPreviewFitScale();
+        settlePreviewFitScale();
         invalidateScaleCache();
     }
 
@@ -351,7 +362,7 @@ export const usePdfScale = (
         containerStyle,
         scaledMargin,
         computeFitWidthScale,
-        clearPreviewFitScale,
+        settlePreviewFitScale,
         isFitWidthScaleCurrent,
         invalidateScaleCache,
         seedOpeningFitScale,

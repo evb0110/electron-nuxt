@@ -109,7 +109,7 @@ export interface IUsePdfViewerRuntimeLifecycleOptions {
     basePageWidth: Ref<number | null>;
     basePageHeight: Ref<number | null>;
     computeFitWidthScale: (container: HTMLElement | null, options?: IFitScalePageOptions) => boolean;
-    clearPreviewFitScale?: (() => void) | undefined;
+    settlePreviewFitScale?: ((commit?: boolean) => boolean) | undefined;
     syncHorizontalScrollForZoomMode?: () => boolean;
     invalidateScaleCache: () => void;
     resetScale: () => void;
@@ -230,7 +230,7 @@ export const usePdfViewerRuntimeLifecycle = (options: IUsePdfViewerRuntimeLifecy
         basePageWidth,
         basePageHeight,
         computeFitWidthScale,
-        clearPreviewFitScale,
+        settlePreviewFitScale,
         captureViewportAnchor,
         syncHorizontalScrollForZoomMode,
         invalidateScaleCache,
@@ -468,7 +468,7 @@ export const usePdfViewerRuntimeLifecycle = (options: IUsePdfViewerRuntimeLifecy
         visibleRange,
         numPages,
         computeFitWidthScale,
-        clearPreviewFitScale,
+        settlePreviewFitScale,
         captureViewportAnchor,
         getMostVisiblePage,
         summarizeViewerMetricsForLog,

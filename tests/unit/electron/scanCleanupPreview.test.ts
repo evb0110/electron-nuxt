@@ -124,6 +124,21 @@ async function setup() {
     return dir;
 }
 
+async function waitForRelease(release: Promise<unknown>, signal: AbortSignal) {
+    await new Promise<void>((resolve, reject) => {
+        const onAbort = () => reject(signal.reason);
+        if (signal.aborted) {
+            onAbort();
+            return;
+        }
+        signal.addEventListener('abort', onAbort, {once: true});
+        void release.then(() => {
+            signal.removeEventListener('abort', onAbort);
+            resolve();
+        }, reject);
+    });
+}
+
 function dependencies(dir: string): IScanCleanupPreviewDependencies {
     return {
         getPageCount: vi.fn(async () => 3),
@@ -1103,7 +1118,7 @@ describe('scan cleanup preview', () => {
         ]});
     });
 
-    it('supersedes an older request before running the latest one', async () => {
+    it('preempts an in-flight adjacent base prefetch before running the visible request', async () => {
         const dir = await setup();
         const deps = dependencies(dir);
         const entered = Promise.withResolvers<undefined>();
@@ -1112,15 +1127,19 @@ describe('scan cleanup preview', () => {
             calls += 1;
             if (calls === 1) {
                 entered.resolve(undefined);
-                await new Promise<void>((_resolve, reject) => signal?.addEventListener('abort', () => reject(signal.reason), {once: true}));
+                await waitForRelease(Promise.withResolvers<never>().promise, signal!);
                 return;
             }
             await writeFile(outputPath, PNG);
         });
         const service = createScanCleanupPreviewService(deps);
-        const older = service.preview(sender(), request);
+        const previewSender = sender();
+        const older = service.preview(previewSender, {
+            ...request,
+            pageNumber: 2,
+        });
         await entered.promise;
-        const newer = service.preview(sender(), {
+        const newer = service.preview(previewSender, {
             ...request,
             options: {
                 ...request.options,
@@ -1146,7 +1165,7 @@ describe('scan cleanup preview', () => {
             if (sidecarCalls === 2) {
                 pendingBaseSignals.push(args[2]);
                 baseRenderEntered.resolve(undefined);
-                await releaseBaseRender.promise;
+                await waitForRelease(releaseBaseRender.promise, args[2]);
             }
             await originalSidecar(...args);
         });
@@ -1187,6 +1206,136 @@ describe('scan cleanup preview', () => {
         expect(pendingBaseSignals[0]?.aborted).toBe(false);
         releaseBaseRender.resolve(undefined);
         await expect(pendingBase).resolves.toMatchObject({pageNumber: 1});
+    });
+
+    it('does not republish an invalidated raw raster after its renderer ignores cancellation', async () => {
+        const dir = await setup();
+        const deps = dependencies(dir);
+        const originalRenderPage = deps.renderPage;
+        const rasterEntered = Promise.withResolvers<undefined>();
+        const releaseRaster = Promise.withResolvers<undefined>();
+        let renderCalls = 0;
+        deps.renderPage = vi.fn(async (...args: Parameters<typeof originalRenderPage>) => {
+            renderCalls += 1;
+            if (renderCalls === 1) {
+                rasterEntered.resolve(undefined);
+                await releaseRaster.promise;
+            }
+            await originalRenderPage(...args);
+        });
+        const service = createScanCleanupPreviewService(deps);
+        const previewSender = sender();
+        const pending = service.previewRaw(previewSender, request);
+        await rasterEntered.promise;
+
+        expect(service.cancel(previewSender, request)).toBe(true);
+        releaseRaster.resolve(undefined);
+        await expect(pending).rejects.toMatchObject({name: 'AbortError'});
+        await expect(service.previewRaw(previewSender, request)).resolves.toMatchObject({pageNumber: 1});
+
+        expect(deps.renderPage).toHaveBeenCalledTimes(2);
+    });
+
+    it('does not republish invalidated base geometry after its sidecar ignores cancellation', async () => {
+        const dir = await setup();
+        const deps = dependencies(dir);
+        const originalSidecar = deps.runSidecar;
+        const sidecarEntered = Promise.withResolvers<undefined>();
+        const releaseSidecar = Promise.withResolvers<undefined>();
+        deps.runSidecar = vi.fn(async (...args: Parameters<typeof originalSidecar>) => {
+            sidecarEntered.resolve(undefined);
+            await releaseSidecar.promise;
+            await originalSidecar(...args);
+        });
+        const service = createScanCleanupPreviewService(deps);
+        const previewSender = sender();
+        const pending = service.preview(previewSender, request);
+        await sidecarEntered.promise;
+
+        expect(service.cancel(previewSender, request)).toBe(true);
+        releaseSidecar.resolve(undefined);
+        await expect(pending).rejects.toMatchObject({name: 'AbortError'});
+        await expect(service.preview(previewSender, {
+            ...request,
+            detail: {
+                viewports: {full: {
+                    xNormalized: 0,
+                    yNormalized: 0,
+                    widthNormalized: 1,
+                    heightNormalized: 1,
+                    rotationDegrees: 0,
+                }},
+                outputMode: 'bw',
+            },
+        })).rejects.toThrow('detail geometry is unavailable');
+
+        expect(deps.runSidecar).toHaveBeenCalledOnce();
+    });
+
+    it('aborts a cleaned request when the same owner moves to another source path', async () => {
+        const dir = await setup();
+        const deps = dependencies(dir);
+        const originalRenderPage = deps.renderPage;
+        const staleEntered = Promise.withResolvers<undefined>();
+        const currentEntered = Promise.withResolvers<undefined>();
+        const releaseCurrent = Promise.withResolvers<undefined>();
+        const currentSignals: AbortSignal[] = [];
+        deps.renderPage = vi.fn(async (...args: Parameters<typeof originalRenderPage>) => {
+            const signal = args[7]!;
+            if (args[3] === request.sourcePdfPath) {
+                staleEntered.resolve(undefined);
+                await waitForRelease(Promise.withResolvers<never>().promise, signal);
+                return;
+            }
+            currentSignals.push(signal);
+            currentEntered.resolve(undefined);
+            await waitForRelease(releaseCurrent.promise, signal);
+            await originalRenderPage(...args);
+        });
+        const service = createScanCleanupPreviewService(deps);
+        const previewSender = sender();
+        const stale = service.preview(previewSender, request);
+        await staleEntered.promise;
+        const currentRequest = {
+            ...request,
+            sourcePdfPath: '/replacement.pdf',
+        };
+        const current = service.previewRaw(previewSender, currentRequest);
+        await currentEntered.promise;
+
+        await expect(stale).rejects.toMatchObject({name: 'AbortError'});
+        expect(service.cancel(previewSender, request)).toBe(false);
+        expect(currentSignals[0]?.aborted).toBe(false);
+        releaseCurrent.resolve(undefined);
+        await expect(current).resolves.toMatchObject({pageNumber: 1});
+    });
+
+    it('aborts a raw request when the same owner moves to another document revision', async () => {
+        const dir = await setup();
+        const deps = dependencies(dir);
+        const originalRenderPage = deps.renderPage;
+        const staleEntered = Promise.withResolvers<undefined>();
+        let renderCalls = 0;
+        deps.renderPage = vi.fn(async (...args: Parameters<typeof originalRenderPage>) => {
+            renderCalls += 1;
+            if (renderCalls === 1) {
+                staleEntered.resolve(undefined);
+                await waitForRelease(Promise.withResolvers<never>().promise, args[7]!);
+                return;
+            }
+            await originalRenderPage(...args);
+        });
+        const service = createScanCleanupPreviewService(deps);
+        const previewSender = sender();
+        const stale = service.previewRaw(previewSender, request);
+        await staleEntered.promise;
+        const current = service.preview(previewSender, {
+            ...request,
+            documentRevision: 'revision-2',
+        });
+
+        await expect(stale).rejects.toMatchObject({name: 'AbortError'});
+        await expect(current).resolves.toMatchObject({pageNumber: 1});
     });
 
     it('reuses the raw page raster across option changes until the dialog session is invalidated', async () => {

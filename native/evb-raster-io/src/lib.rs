@@ -46,7 +46,7 @@ pub struct CompressedPng {
     pub icc_profile: Option<Vec<u8>>,
 }
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct DecodedPng {
+pub struct DecodedRaster {
     pub gray: GrayImage,
     pub rgb: RgbImage,
 }
@@ -99,7 +99,7 @@ pub fn read_png_dimensions<R: Read>(
     let header = walk_chunks(reader, WalkMode::Dimensions(limits))?.header;
     Ok((header.width as usize, header.height as usize))
 }
-pub fn decode_png<R: Read>(reader: R, limits: DecodeLimits) -> Result<DecodedPng, RasterError> {
+pub fn decode_png<R: Read>(reader: R, limits: DecodeLimits) -> Result<DecodedRaster, RasterError> {
     let parsed = walk_chunks(reader, WalkMode::Decode(limits))?;
     let header = parsed.header;
     let channels = header.color_type.channels();
@@ -147,7 +147,7 @@ pub fn decode_png<R: Read>(reader: R, limits: DecodeLimits) -> Result<DecodedPng
         }
         std::mem::swap(&mut current, &mut previous);
     }
-    Ok(DecodedPng { gray, rgb })
+    Ok(DecodedRaster { gray, rgb })
 }
 pub fn write_png<W: Write>(mut writer: W, pixels: PixelBuffer<'_>) -> Result<W, RasterError> {
     let (width, height, stride, data, color_type) = match pixels {
@@ -288,6 +288,156 @@ pub fn encode_p4(image: &GrayImage) -> Result<Vec<u8>, RasterError> {
     }
     Ok(bytes)
 }
+const PPM_SIGNATURE: &[u8; 2] = b"P6";
+
+struct PpmHeader {
+    width: usize,
+    height: usize,
+    max_value: u32,
+}
+
+pub fn read_ppm_dimensions<R: Read>(
+    mut reader: R,
+    limits: DecodeLimits,
+) -> Result<(usize, usize), RasterError> {
+    let header = parse_ppm_header(&mut reader, limits)?;
+    Ok((header.width, header.height))
+}
+
+pub fn decode_ppm<R: Read>(
+    mut reader: R,
+    limits: DecodeLimits,
+) -> Result<DecodedRaster, RasterError> {
+    let header = parse_ppm_header(&mut reader, limits)?;
+    let row_bytes = header
+        .width
+        .checked_mul(3)
+        .ok_or_else(|| RasterError::invalid("PPM P6 row overflow"))?;
+    let expected = row_bytes
+        .checked_mul(header.height)
+        .ok_or_else(|| RasterError::invalid("PPM P6 payload size overflow"))?;
+    let mut data = Vec::new();
+    data.try_reserve_exact(expected)
+        .map_err(|_| RasterError::invalid("Unable to reserve PPM P6 image data"))?;
+    data.resize(expected, 0);
+    reader.read_exact(&mut data).map_err(|error| {
+        if error.kind() == io::ErrorKind::UnexpectedEof {
+            RasterError::invalid("Truncated PPM P6 payload")
+        } else {
+            error.into()
+        }
+    })?;
+    if reader.read(&mut [0u8; 1])? != 0 {
+        return Err(RasterError::invalid("PPM P6 payload has trailing bytes"));
+    }
+    let max_value = header.max_value;
+    let scale = |sample: u8| -> u8 {
+        if max_value == 255 {
+            sample
+        } else {
+            let clamped = u32::from(sample).min(max_value);
+            ((clamped * 255 + max_value / 2) / max_value) as u8
+        }
+    };
+    let mut gray = GrayImage::new(header.width, header.height, 255);
+    let mut rgb = RgbImage::new(header.width, header.height, [255; 3]);
+    for y in 0..header.height {
+        let row = &data[y * row_bytes..(y + 1) * row_bytes];
+        for (x, pixel) in row.chunks_exact(3).enumerate() {
+            let (r, g, b) = (scale(pixel[0]), scale(pixel[1]), scale(pixel[2]));
+            let gray_value =
+                ((u32::from(r) * 77 + u32::from(g) * 150 + u32::from(b) * 29 + 128) >> 8) as u8;
+            gray.set(x, y, gray_value);
+            rgb.set(x, y, [r, g, b]);
+        }
+    }
+    Ok(DecodedRaster { gray, rgb })
+}
+
+fn parse_ppm_header<R: Read>(
+    reader: &mut R,
+    limits: DecodeLimits,
+) -> Result<PpmHeader, RasterError> {
+    let mut magic = [0u8; 2];
+    reader.read_exact(&mut magic).map_err(|error| {
+        if error.kind() == io::ErrorKind::UnexpectedEof {
+            RasterError::invalid("Invalid PPM P6 signature")
+        } else {
+            error.into()
+        }
+    })?;
+    if &magic != PPM_SIGNATURE {
+        return Err(RasterError::invalid("Invalid PPM P6 signature"));
+    }
+    let width = read_ppm_number(reader, "width")?;
+    let height = read_ppm_number(reader, "height")?;
+    let max_value = read_ppm_number(reader, "max value")?;
+    if width == 0
+        || height == 0
+        || width > u64::from(limits.max_dimension)
+        || height > u64::from(limits.max_dimension)
+        || width * height > limits.max_pixels
+    {
+        return Err(RasterError::invalid(format!(
+            "PPM P6 dimensions exceed guardrails: {width}x{height}"
+        )));
+    }
+    if max_value == 0 || max_value > 255 {
+        return Err(RasterError::invalid(format!(
+            "Unsupported PPM P6 max value {max_value}: only 8-bit samples are supported"
+        )));
+    }
+    Ok(PpmHeader {
+        width: width as usize,
+        height: height as usize,
+        max_value: max_value as u32,
+    })
+}
+
+/// Reads one whitespace-terminated decimal header token, skipping leading
+/// whitespace and `#` comments. The terminating whitespace byte is consumed, so
+/// after the max-value token the reader is positioned exactly at the payload.
+fn read_ppm_number<R: Read>(reader: &mut R, label: &str) -> Result<u64, RasterError> {
+    let truncated = || RasterError::invalid(format!("Truncated PPM P6 header before its {label}"));
+    let mut byte = loop {
+        match read_ppm_byte(reader)?.ok_or_else(truncated)? {
+            b'#' => loop {
+                match read_ppm_byte(reader)?.ok_or_else(truncated)? {
+                    b'\n' => break,
+                    _ => continue,
+                }
+            },
+            candidate if candidate.is_ascii_whitespace() => continue,
+            candidate => break candidate,
+        }
+    };
+    let mut value = 0u64;
+    let mut digits = 0usize;
+    loop {
+        if !byte.is_ascii_digit() || digits >= 9 {
+            return Err(RasterError::invalid(format!("Invalid PPM P6 {label}")));
+        }
+        value = value * 10 + u64::from(byte - b'0');
+        digits += 1;
+        match read_ppm_byte(reader)?.ok_or_else(truncated)? {
+            candidate if candidate.is_ascii_whitespace() => return Ok(value),
+            candidate => byte = candidate,
+        }
+    }
+}
+
+fn read_ppm_byte<R: Read>(reader: &mut R) -> Result<Option<u8>, RasterError> {
+    let mut byte = [0u8; 1];
+    loop {
+        match reader.read(&mut byte) {
+            Ok(0) => return Ok(None),
+            Ok(_) => return Ok(Some(byte[0])),
+            Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
+            Err(error) => return Err(error.into()),
+        }
+    }
+}
+
 #[derive(Clone, Copy)]
 enum WalkMode {
     Dimensions(DecodeLimits),

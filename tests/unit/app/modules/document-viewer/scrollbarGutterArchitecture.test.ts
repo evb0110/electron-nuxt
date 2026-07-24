@@ -59,6 +59,7 @@ describe('balanced scrollbar-gutter architecture', () => {
             'app/modules/pdf-viewer/components/PdfAnnotationCommentsList.vue',
             'app/modules/pdf-viewer/components/PdfEmptyState.vue',
             'app/modules/pdf-viewer/components/PdfOutline.vue',
+            'app/modules/scan-cleanup/components/ScanCleanupWorkspace.vue',
             'app/modules/workspace-shell/components/DocumentViewerChassis.vue',
         ];
         const balancedByOwningComponent = [

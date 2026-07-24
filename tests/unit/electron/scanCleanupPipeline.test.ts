@@ -38,6 +38,45 @@ const PNG = Uint8Array.from(Buffer.from(
     'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
     'base64',
 ));
+const PPM = Buffer.concat([
+    Buffer.from('P6\n1 1\n255\n', 'ascii'),
+    Buffer.from([
+        0,
+        0,
+        0,
+    ]),
+]);
+
+function dpiDetails(
+    documentDpi: number | null,
+    pages: Array<[number, number, {
+        width: number;
+        height: number
+    }?]>,
+) {
+    return {
+        documentDpi,
+        pageDpiByNumber: new Map(pages.map(([
+            pageNumber,
+            dpi,
+        ]) => [
+            pageNumber,
+            dpi,
+        ])),
+        pageRasterByNumber: new Map(pages.map(([
+            pageNumber,
+            dpi,
+            dimensions,
+        ]) => [
+            pageNumber,
+            {
+                dpi,
+                width: dimensions?.width ?? 1_000,
+                height: dimensions?.height ?? 1_400,
+            },
+        ])),
+    };
+}
 
 function pngHeader(width: number, height: number, colorType = 0) {
     const header = Buffer.alloc(26);
@@ -121,25 +160,25 @@ function dependencies(
 ): IRunScanCleanupPipelineDependencies {
     return {
         getPageCount: vi.fn(async () => 2),
-        detectSourceDpi: vi.fn(async () => ({
-            documentDpi: 300,
-            pageDpiByNumber: new Map([
-                [
-                    1,
-                    300,
-                ],
-                [
-                    2,
-                    150,
-                ],
-            ]),
-        })),
+        detectSourceDpi: vi.fn(async () => dpiDetails(300, [
+            [
+                1,
+                300,
+            ],
+            [
+                2,
+                150,
+            ],
+        ])),
         preparePdf: vi.fn(async (_paths, _log, sourcePdfPath) => ({
             pdfPath: sourcePdfPath,
             warnings: [],
         })),
         renderPage: vi.fn(async (_paths, _log, pageNumber, _source, outputPath) => {
             await writeFile(outputPath, PNG);
+        }),
+        renderPagePpm: vi.fn(async (_paths, _log, _pageNumber, _source, outputPath) => {
+            await writeFile(outputPath, PPM);
         }),
         runSidecar,
         runCommand: vi.fn(async (_command, args) => {
@@ -163,6 +202,7 @@ async function writeCleanupOutput(
     matchedPageSize = false,
     layeredWritten = false,
     layeredBackgroundIsColor = false,
+    outputMode?: string,
 ) {
     await writeFile(output.outputPath, 'PNG-CLEAN');
     if (bilevelWritten) {
@@ -203,6 +243,7 @@ async function writeCleanupOutput(
         skewApplied,
         bilevelWritten,
         layeredWritten,
+        ...(outputMode === undefined ? {} : {outputMode}),
         ...(layeredWritten ? {layeredBackgroundDpi: Math.min(300, renderDpi)} : {}),
         contentBox: {
             x: 1,
@@ -433,9 +474,10 @@ describe('scan cleanup pipeline', () => {
         expect(peak).toBe(3);
     });
 
-    it('turns a spread into two pages and combines auto-resolved BW outputs as bilevel images', async () => {
+    it('renders unresolved Auto pages once at source DPI and assembles from native mode metadata', async () => {
         const fixture = await setup();
         let cleanupManifest: {pages: Array<{
+            inputPath: string;
             pageMetadataPath: string;
             options: IScanCleanupOptions & Record<string, unknown>;
             outputs: ICleanupOutput[]
@@ -443,19 +485,11 @@ describe('scan cleanup pipeline', () => {
         let combineManifest = '';
         const runSidecar: IRunScanCleanupPipelineDependencies['runSidecar'] = vi.fn(async (_binary, manifestPath, _signal, _log, onProgress) => {
             const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as {pages: Array<{
+                inputPath: string;
                 pageMetadataPath: string;
                 options: IScanCleanupOptions & Record<string, unknown>;
                 outputs: ICleanupOutput[]
             }>};
-            if (manifest.pages[0]?.outputs.length === 0) {
-                for (const [
-                    pageIndex,
-                    page,
-                ] of manifest.pages.entries()) {
-                    await writeFile(page.pageMetadataPath, JSON.stringify({recommendedOutputMode: pageIndex === 0 ? 'bw' : 'grayscale'}));
-                }
-                return;
-            }
             cleanupManifest = manifest;
             await writeFile(manifest.pages[0]!.pageMetadataPath, JSON.stringify({
                 layoutClassification: 'two-page-spread',
@@ -467,17 +501,18 @@ describe('scan cleanup pipeline', () => {
                 blankOutputsSkipped: 0,
                 outputCount: 2,
             }));
-            await writeCleanupOutput(manifest.pages[0]!.outputs[0]!, 'two-page-spread', true, true, Number(manifest.pages[0]!.options.dpi));
-            await writeCleanupOutput(manifest.pages[0]!.outputs[1]!, 'two-page-spread', true, true, Number(manifest.pages[0]!.options.dpi));
+            await writeCleanupOutput(manifest.pages[0]!.outputs[0]!, 'two-page-spread', true, true, Number(manifest.pages[0]!.options.dpi), false, false, false, 'bw');
+            await writeCleanupOutput(manifest.pages[0]!.outputs[1]!, 'two-page-spread', true, true, Number(manifest.pages[0]!.options.dpi), false, false, false, 'bw');
             await writeFile(manifest.pages[1]!.pageMetadataPath, JSON.stringify({
                 layoutClassification: 'single-uncut-page',
+                recommendedOutputMode: 'grayscale',
                 cutterXPx: null,
                 rotationDegrees: 0,
                 excluded: false,
                 blankOutputsSkipped: 0,
                 outputCount: 1,
             }));
-            await writeCleanupOutput(manifest.pages[1]!.outputs[0]!, 'single-uncut-page', false, false, Number(manifest.pages[1]!.options.dpi));
+            await writeCleanupOutput(manifest.pages[1]!.outputs[0]!, 'single-uncut-page', false, false, Number(manifest.pages[1]!.options.dpi), false, false, false, 'grayscale');
             onProgress({
                 stage: 'rendering',
                 completedUnits: 1,
@@ -531,28 +566,39 @@ describe('scan cleanup pipeline', () => {
             stage: 'handoff',
             percent: 100,
         }));
+        // Unresolved Auto reaches the native render as `auto` and each page
+        // rasterizes exactly once at its detected source DPI: no 150-DPI
+        // analysis pass and no 72-DPI size probe.
+        expect(runSidecar).toHaveBeenCalledOnce();
+        expect(pipelineDependencies.renderPage).not.toHaveBeenCalled();
+        const renderedDpis = vi.mocked(pipelineDependencies.renderPagePpm).mock.calls
+            .map(call => call[5]);
+        expect(renderedDpis).toEqual([
+            300,
+            150,
+        ]);
         expect(cleanupManifest).not.toBeNull();
         expect(cleanupManifest!.pages[0]!.options).toMatchObject({
             matchPageSize: true,
-            outputMode: 'bw',
+            outputMode: 'auto',
             sourceDpi: 300,
             requestedRenderDpi: 300,
             dpi: 300,
             pageAlignment: 'top-center',
         });
         expect(cleanupManifest!.pages[1]!.options).toMatchObject({
-            outputMode: 'grayscale',
+            outputMode: 'auto',
             sourceDpi: 150,
             requestedRenderDpi: 150,
             dpi: 150,
         });
-        expect(runSidecar).toHaveBeenCalledTimes(2);
         expect(cleanupManifest!.pages[0]!.outputs[0]).toMatchObject({
             outputPath: expect.stringMatching(/clean-1-0\.png$/u),
             bilevelOutputPath: expect.stringMatching(/clean-1-0\.pbm$/u),
             backgroundOutputPath: expect.stringMatching(/clean-1-0-background\.png$/u),
             foregroundMaskOutputPath: expect.stringMatching(/clean-1-0-mask\.pbm$/u),
         });
+        expect(cleanupManifest!.pages[0]!.inputPath).toMatch(/source-1\.ppm$/u);
         const recordKinds = combineManifest.trim().split('\n').map(line => line.split('\t')[0]);
         expect(recordKinds).toEqual([
             'image-bilevel',
@@ -565,6 +611,81 @@ describe('scan cleanup pipeline', () => {
         expect(combineManifest.trim().split('\n')[2]!.split('\t')[3]).toBe('85');
         const pageSizes = combineManifest.trim().split('\n').map(line => line.split('\t').slice(1, 3));
         expect(new Set(pageSizes.map(size => size.join('x')))).toEqual(new Set(['240.000000x336.000000']));
+    });
+
+    it('falls back to compressed handoff when the full-scope PPM footprint exceeds its scratch budget', async () => {
+        const fixture = await setup();
+        let inputPaths: string[] = [];
+        const runSidecar: IRunScanCleanupPipelineDependencies['runSidecar'] = vi.fn(async (_binary, manifestPath) => {
+            const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as {pages: Array<{
+                inputPath: string;
+                pageMetadataPath: string;
+                options: {dpi: number};
+                outputs: ICleanupOutput[]
+            }>};
+            inputPaths = manifest.pages.map(page => page.inputPath);
+            for (const page of manifest.pages) {
+                await writeFile(page.pageMetadataPath, JSON.stringify({
+                    layoutClassification: 'single-uncut-page',
+                    cutterXPx: null,
+                    rotationDegrees: 0,
+                    excluded: false,
+                    blankOutputsSkipped: 0,
+                    outputCount: 1,
+                }));
+                await writeCleanupOutput(
+                    page.outputs[0]!,
+                    'single-uncut-page',
+                    true,
+                    true,
+                    page.options.dpi,
+                );
+            }
+        });
+        const pipelineDependencies = dependencies(runSidecar);
+        pipelineDependencies.detectSourceDpi = vi.fn(async () => dpiDetails(300, [
+            [
+                1,
+                300,
+                {
+                    width: 10_000,
+                    height: 10_000,
+                },
+            ],
+            [
+                2,
+                300,
+                {
+                    width: 10_000,
+                    height: 10_000,
+                },
+            ],
+        ]));
+        const log = vi.fn();
+
+        await runScanCleanupPipeline(
+            {
+                sourcePdfPath: fixture.sourcePdfPath,
+                outputPdfPath: fixture.outputPdfPath,
+                options,
+            },
+            pipelinePaths(fixture.dir),
+            new AbortController().signal,
+            vi.fn(),
+            log,
+            pipelineDependencies,
+        );
+
+        expect(pipelineDependencies.renderPagePpm).not.toHaveBeenCalled();
+        expect(pipelineDependencies.renderPage).toHaveBeenCalledTimes(2);
+        expect(inputPaths).toEqual([
+            expect.stringMatching(/source-1\.png$/u),
+            expect.stringMatching(/source-2\.png$/u),
+        ]);
+        expect(log).toHaveBeenCalledWith(
+            'debug',
+            expect.stringContaining('final raster handoff uses PNG'),
+        );
     });
 
     it('processes and assembles only scoped source pages with scoped progress totals', async () => {
@@ -632,23 +753,20 @@ describe('scan cleanup pipeline', () => {
             onProgress,
         ) => {
             onProgress?.(2, 2);
-            return {
-                documentDpi: 300,
-                pageDpiByNumber: new Map([
-                    [
-                        2,
-                        300,
-                    ],
-                    [
-                        4,
-                        300,
-                    ],
-                ]),
-            };
+            return dpiDetails(300, [
+                [
+                    2,
+                    300,
+                ],
+                [
+                    4,
+                    300,
+                ],
+            ]);
         });
-        pipelineDependencies.renderPage = vi.fn(async (_paths, _log, pageNumber, _source, outputPath) => {
+        pipelineDependencies.renderPagePpm = vi.fn(async (_paths, _log, pageNumber, _source, outputPath) => {
             renderedSourcePages.push(pageNumber);
-            await writeFile(outputPath, PNG);
+            await writeFile(outputPath, PPM);
         });
         pipelineDependencies.runCommand = vi.fn(async (_command, args) => {
             const manifestIndex = args.indexOf('--compact-manifest');
@@ -1027,19 +1145,16 @@ describe('scan cleanup pipeline', () => {
             }
         });
         const pipelineDependencies = dependencies(runSidecar);
-        pipelineDependencies.detectSourceDpi = vi.fn(async () => ({
-            documentDpi: 720,
-            pageDpiByNumber: new Map([
-                [
-                    1,
-                    720,
-                ],
-                [
-                    2,
-                    640,
-                ],
-            ]),
-        }));
+        pipelineDependencies.detectSourceDpi = vi.fn(async () => dpiDetails(720, [
+            [
+                1,
+                720,
+            ],
+            [
+                2,
+                640,
+            ],
+        ]));
         pipelineDependencies.runCommand = vi.fn(async (_command, args) => {
             combineManifest = await readFile(args[args.indexOf('--compact-manifest') + 1]!, 'utf8');
             await writeFile(args[args.indexOf('--output') + 1]!, '%PDF-1.7\n%%EOF\n');
@@ -1056,6 +1171,7 @@ describe('scan cleanup pipeline', () => {
             options,
         }, pipelinePaths(fixture.dir), new AbortController().signal, vi.fn(), undefined, pipelineDependencies);
 
+        expect(pipelineDependencies.renderPage).not.toHaveBeenCalled();
         expect(finalOptions).toEqual([
             expect.objectContaining({
                 dpi: 720,
@@ -1112,27 +1228,16 @@ describe('scan cleanup pipeline', () => {
             );
         }));
         pipelineDependencies.getPageCount = vi.fn(async () => 1);
-        pipelineDependencies.detectSourceDpi = vi.fn(async () => ({
-            documentDpi: 1_200,
-            pageDpiByNumber: new Map([[
-                1,
-                1_200,
-            ]]),
-        }));
-        pipelineDependencies.renderPage = vi.fn(async (
-            _paths,
-            _log,
-            _pageNumber,
-            _source,
-            outputPath,
-            dpi,
-        ) => {
-            const scale = dpi / 72;
-            await writeFile(outputPath, pngHeader(
-                Math.round(800 * scale),
-                Math.round(1_100 * scale),
-            ));
-        });
+        // The detected raster row supplies the guardrail dimensions, so no
+        // probe render is needed to clamp a detected page.
+        pipelineDependencies.detectSourceDpi = vi.fn(async () => dpiDetails(1_200, [[
+            1,
+            1_200,
+            {
+                width: 16_000,
+                height: 16_000,
+            },
+        ]]));
 
         await runScanCleanupPipeline({
             sourcePdfPath: fixture.sourcePdfPath,
@@ -1140,10 +1245,11 @@ describe('scan cleanup pipeline', () => {
             options,
         }, pipelinePaths(fixture.dir), new AbortController().signal, vi.fn(), undefined, pipelineDependencies);
 
+        expect(pipelineDependencies.renderPage).not.toHaveBeenCalled();
         expect(requestedRenderDpi).toBe(1_200);
-        expect(finalDpi).toBe(970);
-        expect(800 * 1_100 * (finalDpi / 72) ** 2).toBeLessThanOrEqual(160_000_000);
-        expect(800 * 1_100 * (requestedRenderDpi / 72) ** 2).toBeGreaterThan(160_000_000);
+        expect(finalDpi).toBe(948);
+        expect(16_000 * 16_000 * (finalDpi / 1_200) ** 2).toBeLessThanOrEqual(160_000_000);
+        expect(16_000 * 16_000 * (requestedRenderDpi / 1_200) ** 2).toBeGreaterThan(160_000_000);
     });
 
     it('floors BW render DPI at 600 only when no source DPI was detected', async () => {
@@ -1179,13 +1285,10 @@ describe('scan cleanup pipeline', () => {
             );
         }));
         pipelineDependencies.getPageCount = vi.fn(async () => 1);
-        pipelineDependencies.detectSourceDpi = vi.fn(async () => ({
-            // Another page may establish a document summary. A missing
-            // page-specific dominant raster still means this page is vector or
-            // unprobeable and must retain the synthesis floor.
-            documentDpi: 300,
-            pageDpiByNumber: new Map<number, number>(),
-        }));
+        // Another page may establish a document summary. A missing
+        // page-specific dominant raster still means this page is vector or
+        // unprobeable and must retain the synthesis floor.
+        pipelineDependencies.detectSourceDpi = vi.fn(async () => dpiDetails(300, []));
 
         await runScanCleanupPipeline({
             sourcePdfPath: fixture.sourcePdfPath,
@@ -1193,6 +1296,10 @@ describe('scan cleanup pipeline', () => {
             options,
         }, pipelinePaths(fixture.dir), new AbortController().signal, vi.fn(), undefined, pipelineDependencies);
 
+        // Undetected binary-capable pages keep the bounded 72-DPI guardrail
+        // probe before rendering at the synthesis floor.
+        expect(pipelineDependencies.renderPage).toHaveBeenCalledOnce();
+        expect(vi.mocked(pipelineDependencies.renderPage).mock.calls[0]![5]).toBe(72);
         expect(requestedRenderDpi).toBe(600);
         expect(finalDpi).toBe(600);
     });
@@ -1230,13 +1337,10 @@ describe('scan cleanup pipeline', () => {
             );
         }));
         pipelineDependencies.getPageCount = vi.fn(async () => 1);
-        pipelineDependencies.detectSourceDpi = vi.fn(async () => ({
-            documentDpi: 200,
-            pageDpiByNumber: new Map([[
-                1,
-                200,
-            ]]),
-        }));
+        pipelineDependencies.detectSourceDpi = vi.fn(async () => dpiDetails(200, [[
+            1,
+            200,
+        ]]));
 
         await runScanCleanupPipeline({
             sourcePdfPath: fixture.sourcePdfPath,
@@ -1291,29 +1395,26 @@ describe('scan cleanup pipeline', () => {
                 stderr: '',
             };
         });
-        pipelineDependencies.detectSourceDpi = vi.fn(async () => ({
-            documentDpi: 720,
-            pageDpiByNumber: new Map([
-                [
-                    1,
-                    720,
-                ],
-                [
-                    2,
-                    640,
-                ],
-                [
-                    3,
-                    300,
-                ],
-                [
-                    4,
-                    150,
-                ],
-            ]),
-        }));
+        pipelineDependencies.detectSourceDpi = vi.fn(async () => dpiDetails(720, [
+            [
+                1,
+                720,
+            ],
+            [
+                2,
+                640,
+            ],
+            [
+                3,
+                300,
+            ],
+            [
+                4,
+                150,
+            ],
+        ]));
         pipelineDependencies.getPageCount = vi.fn(async () => 4);
-        pipelineDependencies.renderPage = vi.fn(async (
+        pipelineDependencies.renderPagePpm = vi.fn(async (
             _paths,
             _log,
             _page,
@@ -1322,7 +1423,7 @@ describe('scan cleanup pipeline', () => {
             dpi,
         ) => {
             renderedDpis.push(dpi);
-            await writeFile(outputPath, PNG);
+            await writeFile(outputPath, PPM);
         });
 
         await runScanCleanupPipeline({
@@ -1340,9 +1441,8 @@ describe('scan cleanup pipeline', () => {
             },
         }, pipelinePaths(fixture.dir), new AbortController().signal, vi.fn(), undefined, pipelineDependencies);
 
+        expect(pipelineDependencies.renderPage).not.toHaveBeenCalled();
         expect(renderedDpis).toEqual([
-            72,
-            72,
             720,
             640,
             300,
@@ -1425,13 +1525,10 @@ describe('scan cleanup pipeline', () => {
             }
         }));
         pipelineDependencies.getPageCount = vi.fn(async () => 4);
-        pipelineDependencies.detectSourceDpi = vi.fn(async () => ({
-            documentDpi: 300,
-            pageDpiByNumber: new Map([[
-                3,
-                300,
-            ]]),
-        }));
+        pipelineDependencies.detectSourceDpi = vi.fn(async () => dpiDetails(300, [[
+            3,
+            300,
+        ]]));
         pipelineDependencies.runCommand = vi.fn(async (_command, args) => {
             combineManifest = await readFile(args[args.indexOf('--compact-manifest') + 1]!, 'utf8');
             await writeFile(args[args.indexOf('--output') + 1]!, '%PDF-1.7\n%%EOF\n');

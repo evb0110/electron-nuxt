@@ -1327,19 +1327,53 @@ export function createScanCleanupPreviewService(
             );
         }
     });
+    const previewOwnerPrefix = (
+        sender: IScanCleanupDetectionSubscriber,
+        owner: IScanCleanupOwnerContext,
+    ) => `${sender.id}\u0000${owner.ownerId}\u0000`;
+    const previewDocumentPrefix = (
+        sender: IScanCleanupDetectionSubscriber,
+        request: IScanCleanupOwnerContext & {sourcePdfPath: string},
+    ) => `${previewOwnerPrefix(sender, request)}${request.documentRevision}\u0000${request.sourcePdfPath}\u0000`;
+    const abortStalePreviewEntries = (
+        entries: ReadonlyMap<string, {controller: AbortController}>,
+        ownerPrefix: string,
+        documentPrefix: string,
+        message: string,
+    ) => {
+        for (const [
+            key,
+            entry,
+        ] of entries) {
+            if (key.startsWith(ownerPrefix) && !key.startsWith(documentPrefix)) {
+                entry.controller.abort(new DOMException(message, 'AbortError'));
+            }
+        }
+    };
+    const abortStalePreviewRequests = (
+        sender: IScanCleanupDetectionSubscriber,
+        request: IScanCleanupOwnerContext & {sourcePdfPath: string},
+    ) => {
+        const ownerPrefix = previewOwnerPrefix(sender, request);
+        const documentPrefix = previewDocumentPrefix(sender, request);
+        abortStalePreviewEntries(
+            active,
+            ownerPrefix,
+            documentPrefix,
+            'Stale scan cleanup preview document',
+        );
+        abortStalePreviewEntries(
+            activeRaw,
+            ownerPrefix,
+            documentPrefix,
+            'Stale scan cleanup raw preview document',
+        );
+        return documentPrefix;
+    };
     return {
         previewRaw(sender, request) {
-            const ownerPrefix = `${sender.id}\u0000${request.ownerId}\u0000`;
-            const documentPrefix = `${ownerPrefix}${request.documentRevision}\u0000`;
-            const activeKey = `${documentPrefix}${request.pageNumber}\u0000${request.sourcePdfPath}`;
-            for (const [
-                key,
-                activePreview,
-            ] of activeRaw) {
-                if (key.startsWith(ownerPrefix) && !key.startsWith(documentPrefix)) {
-                    activePreview.controller.abort(new DOMException('Stale document revision', 'AbortError'));
-                }
-            }
+            const documentPrefix = abortStalePreviewRequests(sender, request);
+            const activeKey = `${documentPrefix}raw`;
             const previous = activeRaw.get(activeKey);
             previous?.controller.abort(new DOMException('Superseded scan cleanup raw preview', 'AbortError'));
             const controller = new AbortController();
@@ -1357,20 +1391,12 @@ export function createScanCleanupPreviewService(
             return tail;
         },
         preview(sender, request) {
-            // Detail tiles run in their own lane: a detail request must never
-            // abort or queue behind another page or the visible base preview.
+            // Adjacent base prefetches share the visible base lane so navigation
+            // preempts them. Detail tiles have a separate lane and never abort
+            // or queue behind the visible base preview.
             const lane = request.detail === undefined ? 'base' : 'detail';
-            const ownerPrefix = `${sender.id}\u0000${request.ownerId}\u0000`;
-            const documentPrefix = `${ownerPrefix}${request.documentRevision}\u0000`;
-            const activeKey = `${documentPrefix}${lane}\u0000${request.pageNumber}\u0000${request.sourcePdfPath}`;
-            for (const [
-                key,
-                activePreview,
-            ] of active) {
-                if (key.startsWith(ownerPrefix) && !key.startsWith(documentPrefix)) {
-                    activePreview.controller.abort(new DOMException('Stale document revision', 'AbortError'));
-                }
-            }
+            const documentPrefix = abortStalePreviewRequests(sender, request);
+            const activeKey = `${documentPrefix}${lane}`;
             const previous = active.get(activeKey);
             previous?.controller.abort(new DOMException('Superseded scan cleanup preview', 'AbortError'));
             const controller = new AbortController();
@@ -1394,7 +1420,7 @@ export function createScanCleanupPreviewService(
             return tail;
         },
         cancel(sender, request) {
-            const documentPrefix = `${sender.id}\u0000${request.ownerId}\u0000${request.documentRevision}\u0000`;
+            const documentPrefix = previewDocumentPrefix(sender, request);
             let canceled = false;
             for (const [
                 key,

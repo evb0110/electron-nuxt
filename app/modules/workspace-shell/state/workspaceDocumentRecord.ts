@@ -56,10 +56,6 @@ function normalizeWorkspaceToolbarSnapshot(
         return normalized;
     }
 
-    if (normalized.isOpeningDocument) {
-        normalized.zoom = 1;
-        normalized.effectiveZoom = 1;
-    }
     normalized.currentPage = 1;
     normalized.totalPages = 0;
     return normalized;

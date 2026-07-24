@@ -53,7 +53,7 @@ interface IUsePdfViewerResizeLifecycleOptions {
             preview?: boolean
         },
     ) => boolean;
-    clearPreviewFitScale?: (() => void) | undefined;
+    settlePreviewFitScale?: ((commit?: boolean) => boolean) | undefined;
     getMostVisiblePage: (container: HTMLElement | null, numPages: number) => number;
     summarizeViewerMetricsForLog: (container: HTMLElement | null) => TViewerMetrics;
     summarizeVisiblePageSnapshotForLog: (container: HTMLElement | null) => unknown;
@@ -620,7 +620,7 @@ export const usePdfViewerResizeLifecycle = (options: IUsePdfViewerResizeLifecycl
             const cancelledAnchor = dragResizeAnchor;
             dragResizeAnchor = null;
             dragSettleClaimed = false;
-            options.clearPreviewFitScale?.();
+            options.settlePreviewFitScale?.();
             scheduleEndResizeTransition(
                 cancelledAnchor.transitionToken,
                 'resize-settle-cancelled',
@@ -632,8 +632,14 @@ export const usePdfViewerResizeLifecycle = (options: IUsePdfViewerResizeLifecycl
         const anchor = dragResizeAnchor;
         dragResizeAnchor = null;
         captureResizeVisualSnapshots(anchor);
-        computeFitWidthScale(viewerContainer.value, {page: anchor.page});
-        options.clearPreviewFitScale?.();
+        computeFitWidthScale(viewerContainer.value, {
+            page: anchor.page,
+            preview: true,
+        });
+        if (!options.settlePreviewFitScale?.(true)) {
+            computeFitWidthScale(viewerContainer.value, {page: anchor.page});
+            options.settlePreviewFitScale?.();
+        }
         beginResizeTransaction(anchor, 'resize-settle');
         restoreResizeAnchorAfterLayout(anchor, PDF_RERENDER_SOURCE.ResizeSettle);
         const transactionId = pendingResizeTransactionId;
@@ -673,7 +679,7 @@ export const usePdfViewerResizeLifecycle = (options: IUsePdfViewerResizeLifecycl
             dragSettleClaimReleaseTimer = null;
         }
         cancelDebouncedResizeRender();
-        options.clearPreviewFitScale?.();
+        options.settlePreviewFitScale?.();
         cancelPendingResizeTransaction('disposed');
         resizeTransitionToken += 1;
         emitResizeTransitionSignal(false, 'unmount', resizeTransitionToken, currentPage.value);

@@ -37,6 +37,37 @@ export async function renderPdfPageToPng(
     signal?: AbortSignal,
     crop?: IPopplerPixelCrop,
 ) {
+    await renderPdfPage('png', paths, log, pageNumber, sourcePdfPath, outputPngPath, dpi, popplerEnv, signal, crop);
+}
+
+// Raw PPM P6 skips PNG deflate on both sides of the native handoff: pdftoppm
+// writes it an order of magnitude faster than PNG at scan DPI and the cleanup
+// engine reads it without inflating.
+export async function renderPdfPageToPpm(
+    paths: Pick<IWorkerPaths, 'pdftoppmBinary'>,
+    log: TWorkerLog,
+    pageNumber: number,
+    sourcePdfPath: string,
+    outputPpmPath: string,
+    dpi: number,
+    popplerEnv?: NodeJS.ProcessEnv,
+    signal?: AbortSignal,
+) {
+    await renderPdfPage('ppm', paths, log, pageNumber, sourcePdfPath, outputPpmPath, dpi, popplerEnv, signal);
+}
+
+async function renderPdfPage(
+    format: 'png' | 'ppm',
+    paths: Pick<IWorkerPaths, 'pdftoppmBinary'>,
+    log: TWorkerLog,
+    pageNumber: number,
+    sourcePdfPath: string,
+    outputPath: string,
+    dpi: number,
+    popplerEnv?: NodeJS.ProcessEnv,
+    signal?: AbortSignal,
+    crop?: IPopplerPixelCrop,
+) {
     if (crop !== undefined) {
         for (const field of [
             'x',
@@ -67,7 +98,7 @@ export async function renderPdfPageToPng(
     }
 
     const commandArgs = [
-        '-png',
+        ...(format === 'png' ? ['-png'] : []),
         '-cropbox',
         '-r',
         String(dpi),
@@ -91,7 +122,7 @@ export async function renderPdfPageToPng(
     }
     commandArgs.push(
         sourcePdfPath,
-        outputPngPath.replace(/\.png$/, ''),
+        outputPath.replace(format === 'png' ? /\.png$/ : /\.ppm$/, ''),
     );
 
     await runOcrCommand(paths.pdftoppmBinary, commandArgs, commandOptions);

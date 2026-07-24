@@ -26,11 +26,15 @@ const MAX_BW_MIDTONE_FRACTION: f64 = 0.16;
 const MIDTONE_HYSTERESIS: f64 = 0.02;
 const TONAL_MIDTONE_FRACTION: f64 = 0.24;
 const MIN_TEXT_LINES: usize = 2;
+const DENSE_TEXT_MIN_LINES: usize = 6;
+const DENSE_TEXT_BIMODALITY: f64 = 0.67;
+const DENSE_TEXT_MODE_DISTANCE: f64 = 78.0;
+const DENSE_TEXT_MAX_MIDTONE_FRACTION: f64 = 0.10;
 const STRONG_SINGLE_LINE_BIMODALITY: f64 = 0.85;
 const STRONG_SINGLE_LINE_MODE_DISTANCE: f64 = 144.0;
 const STRONG_SINGLE_LINE_MAX_MIDTONE_FRACTION: f64 = 0.08;
-const STRONG_SINGLE_LINE_MIN_INK_FRACTION: f64 = 0.01;
-const STRONG_SINGLE_LINE_MIN_EDGE_TO_INK_RATIO: f64 = 0.5;
+const MIN_TEXT_INK_FRACTION: f64 = 0.01;
+const MIN_TEXT_EDGE_TO_INK_RATIO: f64 = 0.5;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
@@ -230,6 +234,41 @@ pub(crate) fn recommend_output_mode(
         };
     }
 
+    // Bleed-through and paper texture widen the background mode and depress
+    // Otsu bimodality even when a page still has two well-separated luminance
+    // classes. Dense line structure can safely offset that weaker histogram
+    // score only when the remaining text evidence is emphatically binary.
+    let dense_text_bimodality_floor = DENSE_TEXT_BIMODALITY + BIMODALITY_HYSTERESIS;
+    let dense_text_mode_distance_floor = DENSE_TEXT_MODE_DISTANCE + LUMINANCE_DISTANCE_HYSTERESIS;
+    let dense_text_midtone_ceiling = DENSE_TEXT_MAX_MIDTONE_FRACTION - MIDTONE_HYSTERESIS;
+    let dense_text = evidence.text_line_count >= DENSE_TEXT_MIN_LINES
+        && picture_fraction + PICTURE_HYSTERESIS < PICTURE_NOISE_FLOOR
+        && luminance.bimodality >= dense_text_bimodality_floor
+        && luminance.mode_distance >= dense_text_mode_distance_floor
+        && luminance.midtone_fraction <= dense_text_midtone_ceiling
+        && luminance.ink_fraction >= MIN_TEXT_INK_FRACTION
+        && luminance.edge_fraction >= luminance.ink_fraction * MIN_TEXT_EDGE_TO_INK_RATIO;
+    if dense_text {
+        let bimodal_margin =
+            ((luminance.bimodality - dense_text_bimodality_floor) / 0.08).clamp(0.0, 1.0);
+        let separation_margin =
+            ((luminance.mode_distance - dense_text_mode_distance_floor) / 100.0).clamp(0.0, 1.0);
+        let tonal_margin = ((dense_text_midtone_ceiling - luminance.midtone_fraction)
+            / dense_text_midtone_ceiling)
+            .clamp(0.0, 1.0);
+        let text_margin = (evidence.text_line_count as f64 / 20.0).clamp(0.0, 1.0);
+        return OutputModeRecommendation {
+            mode: OutputMode::Bw,
+            confidence: (0.64
+                + 0.06 * bimodal_margin
+                + 0.06 * separation_margin
+                + 0.05 * tonal_margin
+                + 0.05 * text_margin)
+                .clamp(0.0, 0.8),
+            reason: OutputModeRecommendationReason::BimodalText,
+        };
+    }
+
     // Dense or tightly spaced text can collapse to one provisional line. Keep the
     // normal two-line safety gate and admit that case only with emphatically
     // binary, text-like luminance evidence. Apply the same cross-path hysteresis
@@ -243,9 +282,8 @@ pub(crate) fn recommend_output_mode(
         && luminance.bimodality >= single_line_bimodality_floor
         && luminance.mode_distance >= single_line_mode_distance_floor
         && luminance.midtone_fraction <= single_line_midtone_ceiling
-        && luminance.ink_fraction >= STRONG_SINGLE_LINE_MIN_INK_FRACTION
-        && luminance.edge_fraction
-            >= luminance.ink_fraction * STRONG_SINGLE_LINE_MIN_EDGE_TO_INK_RATIO;
+        && luminance.ink_fraction >= MIN_TEXT_INK_FRACTION
+        && luminance.edge_fraction >= luminance.ink_fraction * MIN_TEXT_EDGE_TO_INK_RATIO;
     if strong_single_line_text {
         let bimodal_margin =
             ((luminance.bimodality - single_line_bimodality_floor) / 0.1).clamp(0.0, 1.0);
@@ -997,6 +1035,98 @@ mod tests {
         assert_eq!(
             recommendation.reason,
             OutputModeRecommendationReason::TextWithPictures
+        );
+    }
+
+    #[test]
+    fn dense_bleed_through_text_trades_line_evidence_for_weaker_bimodality() {
+        let mut gray = GrayImage::new(360, 260, 210);
+        for y in 0..gray.height() {
+            for x in 0..gray.width() / 2 {
+                gray.set(x, y, 180);
+            }
+        }
+        for line in 0..8 {
+            let value = if line % 2 == 0 { 20 } else { 90 };
+            let top = 18 + line * 28;
+            for y in top..top + 2 {
+                for x in 20..260 {
+                    gray.set(x, y, value);
+                }
+            }
+        }
+        let picture_mask = BinaryImage::new(gray.width(), gray.height());
+        let luminance = luminance_evidence(&gray);
+        assert!(
+            (DENSE_TEXT_BIMODALITY + BIMODALITY_HYSTERESIS
+                ..STRONG_BIMODALITY + BIMODALITY_HYSTERESIS)
+                .contains(&luminance.bimodality),
+            "{luminance:?}"
+        );
+        assert!(
+            luminance.mode_distance >= DENSE_TEXT_MODE_DISTANCE + LUMINANCE_DISTANCE_HYSTERESIS,
+            "{luminance:?}"
+        );
+        assert!(
+            luminance.midtone_fraction <= DENSE_TEXT_MAX_MIDTONE_FRACTION - MIDTONE_HYSTERESIS,
+            "{luminance:?}"
+        );
+
+        let recommendation = recommend_output_mode(PreparedModeEvidence {
+            analysis: &gray,
+            analysis_rgb: None,
+            picture_mask: &picture_mask,
+            text_line_count: 8,
+        });
+        assert_eq!(recommendation.mode, OutputMode::Bw, "{recommendation:?}");
+        assert_eq!(
+            recommendation.reason,
+            OutputModeRecommendationReason::BimodalText
+        );
+        assert!(
+            (0.7..=0.8).contains(&recommendation.confidence),
+            "{recommendation:?}"
+        );
+
+        let mut low_contrast = gray.clone();
+        for value in low_contrast.data_mut() {
+            if *value <= 90 {
+                *value = 155;
+            }
+        }
+        let low_contrast_recommendation = recommend_output_mode(PreparedModeEvidence {
+            analysis: &low_contrast,
+            analysis_rgb: None,
+            picture_mask: &picture_mask,
+            text_line_count: 8,
+        });
+        assert_eq!(
+            low_contrast_recommendation.mode,
+            OutputMode::Grayscale,
+            "{low_contrast_recommendation:?}"
+        );
+
+        let mut tonal = gray.clone();
+        for y in 0..tonal.height() / 2 {
+            for x in 0..tonal.width() {
+                tonal.set(x, y, 110 + (x % 70) as u8);
+            }
+        }
+        let tonal_evidence = luminance_evidence(&tonal);
+        assert!(
+            tonal_evidence.midtone_fraction > DENSE_TEXT_MAX_MIDTONE_FRACTION - MIDTONE_HYSTERESIS,
+            "{tonal_evidence:?}"
+        );
+        let tonal_recommendation = recommend_output_mode(PreparedModeEvidence {
+            analysis: &tonal,
+            analysis_rgb: None,
+            picture_mask: &picture_mask,
+            text_line_count: 8,
+        });
+        assert_eq!(
+            tonal_recommendation.mode,
+            OutputMode::Grayscale,
+            "{tonal_recommendation:?}"
         );
     }
 

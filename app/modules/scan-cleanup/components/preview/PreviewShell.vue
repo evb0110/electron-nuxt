@@ -560,7 +560,7 @@ function watchDevicePixelScale() {
         return;
     }
     devicePixelMediaQuery = window.matchMedia(`(resolution: ${window.devicePixelRatio || 1}dppx)`);
-    devicePixelMediaQuery.addEventListener('change', handleDevicePixelScaleChange, {once: true});
+    devicePixelMediaQuery.addEventListener('change', handleDevicePixelScaleChange);
 }
 
 function handleDevicePixelScaleChange() {

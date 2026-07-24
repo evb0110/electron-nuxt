@@ -262,9 +262,9 @@ describe('electron e2e Vitest project topology', () => {
         expect(packageScripts['test:e2e:electron:visible-window'])
             .toBe('pnpm run build:electron && vitest run --project e2e-visible-window --reporter verbose');
         expect(packageScripts['test:e2e:electron'])
-            .toBe('pnpm run build:electron && vitest run --project e2e-regression --reporter verbose');
+            .toBe('pnpm run build:pdf-image-combine && pnpm run build:scan-cleanup && pnpm run build:electron && vitest run --project e2e-regression --reporter verbose');
         expect(packageScripts['test:e2e:electron:regression'])
-            .toBe('pnpm run build:electron && vitest run --project e2e-regression --reporter verbose');
+            .toBe('pnpm run build:pdf-image-combine && pnpm run build:scan-cleanup && pnpm run build:electron && vitest run --project e2e-regression --reporter verbose');
         expect(packageScripts['test:e2e:electron:smoke:no-build']).toBeUndefined();
         expect(packageScripts['test:e2e:electron:watch'])
             .toBe('vitest --project e2e-regression --reporter verbose');

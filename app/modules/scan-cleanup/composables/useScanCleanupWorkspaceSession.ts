@@ -65,7 +65,6 @@ export const useScanCleanupWorkspaceSession = (options: IUseScanCleanupWorkspace
         documentCanvasPlan: computed(() => detection.documentCanvasPlan.value),
         documentPriorByPage: detection.documentPriorByPage,
         initialViewMode: options.initialPreviewViewMode?.(),
-        isRunning: isScanCleanupRunning,
         lifecycleDocumentKey,
         ownerId,
         previewPage: selection.leader,
@@ -73,7 +72,6 @@ export const useScanCleanupWorkspaceSession = (options: IUseScanCleanupWorkspace
         settings: settings.values,
         sourcePath,
         totalPages,
-        whenRunStops: () => { void detection.maybeAutoDetect(); },
     });
     const run = useScanCleanupRunSession({
         active: options.active,
