@@ -536,8 +536,8 @@ describe('scan cleanup pipeline', () => {
             matchPageSize: true,
             outputMode: 'bw',
             sourceDpi: 300,
-            requestedRenderDpi: 600,
-            dpi: 600,
+            requestedRenderDpi: 300,
+            dpi: 300,
             pageAlignment: 'top-center',
         });
         expect(cleanupManifest!.pages[1]!.options).toMatchObject({
@@ -991,7 +991,7 @@ describe('scan cleanup pipeline', () => {
         expect(await readFile(fixture.outputPdfPath, 'utf8')).toContain('%PDF-1.7');
     });
 
-    it('renders BW pages above 600 DPI at 2x source with unchanged physical page size', async () => {
+    it('renders BW pages at their detected source DPI with unchanged physical page size', async () => {
         const fixture = await setup();
         let finalOptions: Array<{
             dpi: number;
@@ -1058,15 +1058,15 @@ describe('scan cleanup pipeline', () => {
 
         expect(finalOptions).toEqual([
             expect.objectContaining({
-                dpi: 1_440,
+                dpi: 720,
                 sourceDpi: 720,
-                requestedRenderDpi: 1_440,
+                requestedRenderDpi: 720,
                 outputMode: 'bw',
             }),
             expect.objectContaining({
-                dpi: 1_280,
+                dpi: 640,
                 sourceDpi: 640,
-                requestedRenderDpi: 1_280,
+                requestedRenderDpi: 640,
                 outputMode: 'bw',
             }),
         ]);
@@ -1113,10 +1113,10 @@ describe('scan cleanup pipeline', () => {
         }));
         pipelineDependencies.getPageCount = vi.fn(async () => 1);
         pipelineDependencies.detectSourceDpi = vi.fn(async () => ({
-            documentDpi: 600,
+            documentDpi: 1_200,
             pageDpiByNumber: new Map([[
                 1,
-                600,
+                1_200,
             ]]),
         }));
         pipelineDependencies.renderPage = vi.fn(async (
@@ -1146,7 +1146,58 @@ describe('scan cleanup pipeline', () => {
         expect(800 * 1_100 * (requestedRenderDpi / 72) ** 2).toBeGreaterThan(160_000_000);
     });
 
-    it('floors BW render DPI at 600 for low-DPI sources', async () => {
+    it('floors BW render DPI at 600 only when no source DPI was detected', async () => {
+        const fixture = await setup();
+        let finalDpi = 0;
+        let requestedRenderDpi = 0;
+        const pipelineDependencies = dependencies(vi.fn(async (_binary, manifestPath) => {
+            const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as {pages: Array<{
+                pageMetadataPath: string;
+                options: {
+                    dpi: number;
+                    requestedRenderDpi: number
+                };
+                outputs: ICleanupOutput[]
+            }>};
+            finalDpi = manifest.pages[0]!.options.dpi;
+            requestedRenderDpi = manifest.pages[0]!.options.requestedRenderDpi;
+            await writeFile(manifest.pages[0]!.pageMetadataPath, JSON.stringify({
+                layoutClassification: 'single-uncut-page',
+                cutterXPx: null,
+                rotationDegrees: 0,
+                excluded: false,
+                blankOutputsSkipped: 0,
+                outputCount: 1,
+            }));
+            await writeCleanupOutput(
+                manifest.pages[0]!.outputs[0]!,
+                'single-uncut-page',
+                true,
+                true,
+                finalDpi,
+                true,
+            );
+        }));
+        pipelineDependencies.getPageCount = vi.fn(async () => 1);
+        pipelineDependencies.detectSourceDpi = vi.fn(async () => ({
+            // Another page may establish a document summary. A missing
+            // page-specific dominant raster still means this page is vector or
+            // unprobeable and must retain the synthesis floor.
+            documentDpi: 300,
+            pageDpiByNumber: new Map<number, number>(),
+        }));
+
+        await runScanCleanupPipeline({
+            sourcePdfPath: fixture.sourcePdfPath,
+            outputPdfPath: fixture.outputPdfPath,
+            options,
+        }, pipelinePaths(fixture.dir), new AbortController().signal, vi.fn(), undefined, pipelineDependencies);
+
+        expect(requestedRenderDpi).toBe(600);
+        expect(finalDpi).toBe(600);
+    });
+
+    it('renders reliable low-DPI sources at their detected DPI without a floor', async () => {
         const fixture = await setup();
         let finalDpi = 0;
         let requestedRenderDpi = 0;
@@ -1193,11 +1244,11 @@ describe('scan cleanup pipeline', () => {
             options,
         }, pipelinePaths(fixture.dir), new AbortController().signal, vi.fn(), undefined, pipelineDependencies);
 
-        expect(requestedRenderDpi).toBe(600);
-        expect(finalDpi).toBe(600);
+        expect(requestedRenderDpi).toBe(200);
+        expect(finalDpi).toBe(200);
     });
 
-    it('supersamples BW and mixed recommendations while tonal-only pages stay at source DPI', async () => {
+    it('renders BW and mixed recommendations at source DPI alongside tonal pages', async () => {
         const fixture = await setup();
         const renderedDpis: number[] = [];
         let combineManifest = '';
@@ -1294,8 +1345,8 @@ describe('scan cleanup pipeline', () => {
             72,
             720,
             640,
-            600,
-            600,
+            300,
+            150,
         ]);
         expect(finalOptions).toEqual([
             expect.objectContaining({
@@ -1309,13 +1360,13 @@ describe('scan cleanup pipeline', () => {
                 outputMode: 'color',
             }),
             expect.objectContaining({
-                dpi: 600,
-                requestedRenderDpi: 600,
+                dpi: 300,
+                requestedRenderDpi: 300,
                 outputMode: 'bw',
             }),
             expect.objectContaining({
-                dpi: 600,
-                requestedRenderDpi: 600,
+                dpi: 150,
+                requestedRenderDpi: 150,
                 outputMode: 'mixed',
             }),
         ]);
@@ -1344,6 +1395,67 @@ describe('scan cleanup pipeline', () => {
             ],
         ]);
         expect(pipelineDependencies.runSidecar).toHaveBeenCalledOnce();
+    });
+
+    it('keys resolved output modes by real page numbers for nonconsecutive selections', async () => {
+        const fixture = await setup();
+        let combineManifest = '';
+        const pipelineDependencies = dependencies(vi.fn(async (_binary, manifestPath) => {
+            const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as {pages: Array<{
+                pageMetadataPath: string;
+                options: {dpi: number};
+                outputs: ICleanupOutput[];
+            }>};
+            for (const page of manifest.pages) {
+                await writeFile(page.pageMetadataPath, JSON.stringify({
+                    layoutClassification: 'single-uncut-page',
+                    cutterXPx: null,
+                    rotationDegrees: 0,
+                    excluded: false,
+                    blankOutputsSkipped: 0,
+                    outputCount: 1,
+                }));
+                await writeCleanupOutput(
+                    page.outputs[0]!,
+                    'single-uncut-page',
+                    true,
+                    false,
+                    page.options.dpi,
+                );
+            }
+        }));
+        pipelineDependencies.getPageCount = vi.fn(async () => 4);
+        pipelineDependencies.detectSourceDpi = vi.fn(async () => ({
+            documentDpi: 300,
+            pageDpiByNumber: new Map([[
+                3,
+                300,
+            ]]),
+        }));
+        pipelineDependencies.runCommand = vi.fn(async (_command, args) => {
+            combineManifest = await readFile(args[args.indexOf('--compact-manifest') + 1]!, 'utf8');
+            await writeFile(args[args.indexOf('--output') + 1]!, '%PDF-1.7\n%%EOF\n');
+            return {
+                exitCode: 0,
+                stdout: '',
+                stderr: '',
+            };
+        });
+
+        await runScanCleanupPipeline({
+            sourcePdfPath: fixture.sourcePdfPath,
+            outputPdfPath: fixture.outputPdfPath,
+            options: {
+                ...options,
+                outputMode: 'auto',
+            },
+            sourcePageNumbers: [3],
+            outputModeRecommendations: {'3': 'grayscale'},
+        }, pipelinePaths(fixture.dir), new AbortController().signal, vi.fn(), undefined, pipelineDependencies);
+
+        const record = combineManifest.trim().split('\t');
+        expect(record[0]).toBe('image-jpeg');
+        expect(record[3]).toBe('85');
     });
 
     it('kills work through the abort signal and leaves no partial final PDF', async () => {

@@ -632,7 +632,7 @@ fn auto_resolved_bw_writes_bilevel_output_and_reports_recommendation() {
 }
 
 #[test]
-fn analyze_auto_emits_recommendation_but_concrete_mode_omits_it() {
+fn analyze_emits_mode_independent_recommendations() {
     let scratch = Scratch::new("auto-analyze");
     let input = scratch.path("auto-analyze-input.png");
     let auto_metadata = scratch.path("auto-analyze-page.json");
@@ -701,17 +701,17 @@ fn analyze_auto_emits_recommendation_but_concrete_mode_omits_it() {
         .collect::<Vec<_>>();
     assert!(progress[0]["progress"]["recommendedOutputMode"].is_string());
     assert!(progress[0]["progress"]["recommendedOutputModeConfidence"].is_number());
-    assert!(progress[1]["progress"]
-        .get("recommendedOutputMode")
-        .is_none());
-    assert!(progress[1]["progress"]
-        .get("recommendedOutputModeConfidence")
-        .is_none());
+    assert!(progress[1]["progress"]["recommendedOutputMode"].is_string());
+    assert!(progress[1]["progress"]["recommendedOutputModeConfidence"].is_number());
     let auto_page: Value = serde_json::from_slice(&fs::read(&auto_metadata).unwrap()).unwrap();
     let concrete_page: Value =
         serde_json::from_slice(&fs::read(&concrete_metadata).unwrap()).unwrap();
     assert!(auto_page["recommendedOutputMode"].is_string());
-    assert!(concrete_page.get("recommendedOutputMode").is_none());
+    assert!(concrete_page["recommendedOutputMode"].is_string());
+    assert_eq!(
+        concrete_page["recommendedOutputMode"],
+        auto_page["recommendedOutputMode"]
+    );
 }
 
 #[test]

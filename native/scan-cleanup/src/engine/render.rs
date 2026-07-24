@@ -1331,44 +1331,42 @@ fn prepare_analysis_page(
         };
         let calibration =
             PageCalibration::estimate(&layout_normalized, effective_dpi, calibration_config);
-        let picture_mask = if options.output_mode == OutputMode::Auto || prepare_quality_raster {
+        let picture_mask = {
             let mut mask = detect_picture_mask(&rotated, effective_dpi, calibration);
             apply_manual_zones(&mut mask, options);
             Some(Arc::new(mask))
-        } else {
-            None
         };
         let content_picture_mask = picture_mask
             .as_deref()
             .map(|mask| Arc::new(extend_picture_mask_for_content(&rotated, mask, calibration)));
-        let text_line_count = if options.output_mode == OutputMode::Auto {
-            detect_content_and_margins_calibrated(
-                &layout_normalized,
-                picture_mask.as_deref(),
-                effective_dpi,
-                None,
-                Some([0.0; 4]),
-                calibration,
-            )
-            .diagnostics
-            .map(|diagnostics| diagnostics.text_mask.line_count)
-            .unwrap_or(0)
+        let text_line_count = detect_content_and_margins_calibrated(
+            &layout_normalized,
+            picture_mask.as_deref(),
+            effective_dpi,
+            None,
+            Some([0.0; 4]),
+            calibration,
+        )
+        .diagnostics
+        .map(|diagnostics| diagnostics.text_mask.line_count)
+        .unwrap_or(0);
+        // The recommendation is a page diagnostic: it is computed from the page
+        // evidence for every configured mode so switching modes never strands it.
+        let output_mode_recommendation = Some(recommend_output_mode(PreparedModeEvidence {
+            analysis: &rotated,
+            analysis_rgb: analysis_rgb.as_ref(),
+            picture_mask: picture_mask
+                .as_deref()
+                .expect("analysis always prepares a picture mask"),
+            text_line_count,
+        }));
+        let resolved_output_mode = if options.output_mode == OutputMode::Auto {
+            output_mode_recommendation
+                .map(|recommendation| recommendation.mode)
+                .unwrap_or(options.output_mode)
         } else {
-            0
+            options.output_mode
         };
-        let output_mode_recommendation = (options.output_mode == OutputMode::Auto).then(|| {
-            recommend_output_mode(PreparedModeEvidence {
-                analysis: &rotated,
-                analysis_rgb: analysis_rgb.as_ref(),
-                picture_mask: picture_mask
-                    .as_deref()
-                    .expect("automatic mode prepares a picture mask"),
-                text_line_count,
-            })
-        });
-        let resolved_output_mode = output_mode_recommendation
-            .map(|recommendation| recommendation.mode)
-            .unwrap_or(options.output_mode);
         let normalized = if options.normalize_illumination {
             if prepare_quality_raster {
                 if resolved_output_mode == OutputMode::Mixed {

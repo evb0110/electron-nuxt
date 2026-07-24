@@ -516,7 +516,7 @@ const {
     formatFitLabel: () => t('scanCleanup.preview.zoomFit'),
     formatZoomLabel: zoom => t('scanCleanup.preview.zoomValue', {zoom}),
     overlayBounds: dragOverlayBounds,
-    result: () => props.result,
+    result: () => props.result ?? props.rawResult ?? null,
     stageSize: cutterStageSize,
     surface: previewSurface,
     updateGeometry: () => updateOverlayGeometry(),
@@ -546,10 +546,37 @@ const {
 const effectiveViewMode = computed(() => props.lossless
     ? 'original'
     : props.viewMode ?? 'cleaned');
+const devicePixelScale = ref(typeof window === 'undefined' ? 1 : window.devicePixelRatio || 1);
+let devicePixelMediaQuery: MediaQueryList | null = null;
+
+function updateDevicePixelScale() {
+    devicePixelScale.value = window.devicePixelRatio || 1;
+}
+
+function watchDevicePixelScale() {
+    devicePixelMediaQuery?.removeEventListener('change', handleDevicePixelScaleChange);
+    if (typeof window.matchMedia !== 'function') {
+        devicePixelMediaQuery = null;
+        return;
+    }
+    devicePixelMediaQuery = window.matchMedia(`(resolution: ${window.devicePixelRatio || 1}dppx)`);
+    devicePixelMediaQuery.addEventListener('change', handleDevicePixelScaleChange, {once: true});
+}
+
+function handleDevicePixelScaleChange() {
+    updateDevicePixelScale();
+    watchDevicePixelScale();
+}
+// Detail rendering starts as soon as the fixed-DPI base raster is stretched
+// past one device pixel per raster pixel; the display density (not a zoom
+// percentage) decides when the base bitmap runs out of resolution.
+const detailDensityExceeded = computed(
+    () => previewEffectiveZoom.value * devicePixelScale.value > 1.001,
+);
 const detailLayerEligible = computed(() => effectiveViewMode.value === 'cleaned'
     && props.lossless !== true
     && Boolean(props.result?.outputs.length)
-    && previewEffectiveZoom.value >= 1.5);
+    && detailDensityExceeded.value);
 const detailResultMatchesPage = computed(() => detailLayerEligible.value
     && props.detailResult?.pageNumber === props.result?.pageNumber);
 const detailRegionStyles = computed<Partial<Record<TScanCleanupOutputHalf, CSSProperties>>>(() => {
@@ -1049,6 +1076,11 @@ function alignmentFromOffset(left: number, top: number, maxLeft: number, maxTop:
 }
 
 function startPlacementDrag(event: PointerEvent, output: IScanCleanupPlacementOverlayOutput) {
+    // At navigation zoom dragging the cleaned page pans the viewport; placement
+    // still moves via keyboard nudge or by dragging at fit zoom.
+    if (canPanPreview.value) {
+        return;
+    }
     updateOverlayGeometry(true);
     const canvasClientRect = outputCanvasRects[output.metadata.half] ?? output.canvasClientRect;
     if (!props.matchPageSize || canvasClientRect.width <= 0 || canvasClientRect.height <= 0) {
@@ -1162,7 +1194,7 @@ function scheduleDetailRequest() {
         || props.result.outputs.length === 0
         || props.loading
         || isStalePage.value
-        || previewEffectiveZoom.value < 1.5
+        || !detailDensityExceeded.value
         || panGesture.value !== null
         || dragTransaction.active.value
         || cutterStageSize.width <= 0
@@ -1222,6 +1254,7 @@ watch([
     effectiveViewMode,
     isStalePage,
     previewEffectiveZoom,
+    devicePixelScale,
     () => previewPan.x,
     () => previewPan.y,
     panGesture,
@@ -1229,7 +1262,14 @@ watch([
     () => props.loading,
     () => props.result?.pageNumber,
 ], scheduleDetailRequest);
+onMounted(() => {
+    window.addEventListener('resize', handleDevicePixelScaleChange);
+    watchDevicePixelScale();
+});
 onBeforeUnmount(() => {
+    window.removeEventListener('resize', handleDevicePixelScaleChange);
+    devicePixelMediaQuery?.removeEventListener('change', handleDevicePixelScaleChange);
+    devicePixelMediaQuery = null;
     if (detailTimer !== null) clearTimeout(detailTimer);
 });
 

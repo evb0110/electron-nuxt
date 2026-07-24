@@ -465,6 +465,7 @@ describe('scan cleanup workspace session detection guidance', () => {
 
         expect(harness.value.cancelDetection).toHaveBeenCalledOnce();
         expect(harness.value.start).toHaveBeenCalledOnce();
+        expect(scanCleanupAutoDetectionCanceledDocuments.size).toBe(0);
         mounted.unmount();
     });
 
@@ -649,7 +650,7 @@ describe('scan cleanup workspace session detection guidance', () => {
         mounted.unmount();
     });
 
-    it('clears auto-mode recommendations when the document output mode changes', async () => {
+    it('preserves recommendations across output-mode changes and keeps them usable back in auto', async () => {
         const harness = capabilityHarness();
         capability.value = harness.value;
         const mounted = mountSession(`output-mode-recommendation-${Date.now()}`);
@@ -670,11 +671,34 @@ describe('scan cleanup workspace session detection guidance', () => {
 
         mounted.session.settings.values.outputMode = 'bw';
         await nextTick();
-        expect(mounted.session.detection.recommendedOutputModeByPage.size).toBe(0);
-        expect(mounted.session.detection.recommendedOutputModeConfidenceByPage.size).toBe(0);
+        expect(mounted.session.detection.recommendedOutputModeByPage.get(1)).toBe('color');
+        expect(mounted.session.detection.recommendedOutputModeConfidenceByPage.get(1)).toBe(0.94);
 
         harness.emitDetection(completed);
+        expect(mounted.session.detection.recommendedOutputModeByPage.get(1)).toBe('color');
+
+        mounted.session.settings.values.outputMode = 'auto';
+        await nextTick();
+        await nextTick();
+        expect(mounted.session.detection.recommendedOutputModeByPage.get(1)).toBe('color');
+        expect(harness.value.detectAll).toHaveBeenCalledOnce();
+        mounted.unmount();
+    });
+
+    it('reschedules a canceled detection when switching back to automatic output mode', async () => {
+        const harness = capabilityHarness();
+        capability.value = harness.value;
+        const mounted = mountSession(`auto-mode-retry-${Date.now()}`);
+
+        await vi.waitFor(() => expect(harness.value.detectAll).toHaveBeenCalledOnce());
+        await mounted.session.detection.cancel();
+        harness.emitDetection(detectionState('detect-1', 'canceled'));
         expect(mounted.session.detection.recommendedOutputModeByPage.size).toBe(0);
+
+        mounted.session.settings.values.outputMode = 'bw';
+        await nextTick();
+        mounted.session.settings.values.outputMode = 'auto';
+        await vi.waitFor(() => expect(harness.value.detectAll).toHaveBeenCalledTimes(2));
         mounted.unmount();
     });
 

@@ -4,6 +4,7 @@
     min-width: 0;
     min-height: 0;
     flex-direction: column;
+    container-type: inline-size;
 }
 
 .preview-pane:focus-visible {
@@ -760,5 +761,33 @@
 @media (width <= 48rem) {
     .preview-controls {
         gap: var(--app-space-sm);
+    }
+}
+
+@container (width <= 34rem) {
+    .preview-header {
+        height: auto;
+        min-height: var(--app-scan-header-height);
+        flex: 0 0 auto;
+        flex-wrap: wrap;
+        justify-content: center;
+        gap: var(--app-space-sm);
+        padding: var(--app-space-sm) var(--app-space-lg);
+    }
+
+    .page-navigation {
+        width: 100%;
+        justify-content: center;
+    }
+
+    .preview-controls {
+        width: 100%;
+        flex-wrap: wrap;
+        justify-content: center;
+    }
+
+    .preview-surface {
+        margin: var(--app-space-lg);
+        padding: var(--app-space-lg);
     }
 }

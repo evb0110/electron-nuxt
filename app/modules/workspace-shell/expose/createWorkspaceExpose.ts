@@ -257,8 +257,11 @@ export function createWorkspaceExpose(deps: ICreateWorkspaceExposeDeps): IWorksp
         const totalPages = isOpeningDocument
             ? 0
             : normalizeToolbarSnapshotTotalPages(deps.totalPages.value, currentPage);
-        const zoom = isOpeningDocument ? 1 : deps.zoom.value;
-        const effectiveZoom = isOpeningDocument ? 1 : deps.effectiveZoom.value;
+        // Page/total metadata stays pending until the opening visual commits,
+        // but the prepared opening frame already owns visible geometry. Publish
+        // its live scale instead of labeling a fit-width page as 100%.
+        const zoom = deps.zoom.value;
+        const effectiveZoom = deps.effectiveZoom.value;
         return {
             hasPdf: deps.hasPdf.value,
             initialVisualReady: deps.initialVisualReady.value,

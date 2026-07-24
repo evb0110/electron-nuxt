@@ -1344,6 +1344,42 @@ describe('Electron E2E - Viewer Smoke', () => {
             const bounds = skeleton?.getBoundingClientRect();
             return Boolean(skeleton && bounds && bounds.width > 0 && bounds.height > 0);
         }, {timeout: 10_000});
+        const narrowWorkspaceLayout = await session.page.evaluate(() => {
+            const thumbnails = document.querySelector<HTMLElement>('.scan-thumbnail-rail');
+            const preview = document.querySelector<HTMLElement>('.preview-pane');
+            const previewHeader = preview?.querySelector<HTMLElement>('.preview-header');
+            const settings = document.querySelector<HTMLElement>('.scan-cleanup-options-rail');
+            const controls = previewHeader
+                ? Array.from(previewHeader.querySelectorAll<HTMLElement>('button, [role="radiogroup"]'))
+                : [];
+            const previewBounds = preview?.getBoundingClientRect();
+            const headerBounds = previewHeader?.getBoundingClientRect();
+            const settingsBounds = settings?.getBoundingClientRect();
+            const within = (inner: DOMRect, outer: DOMRect) => inner.left >= outer.left - 1
+                && inner.right <= outer.right + 1
+                && inner.top >= outer.top - 1
+                && inner.bottom <= outer.bottom + 1;
+            return {
+                controlsContained: Boolean(
+                    headerBounds
+                    && controls.length > 0
+                    && controls.every(control => within(control.getBoundingClientRect(), headerBounds)),
+                ),
+                previewWidth: previewBounds?.width ?? 0,
+                settingsBelowPreview: Boolean(
+                    previewBounds
+                    && settingsBounds
+                    && settingsBounds.top >= previewBounds.bottom - 1,
+                ),
+                thumbnailsHidden: thumbnails ? getComputedStyle(thumbnails).display === 'none' : false,
+            };
+        });
+        expect(narrowWorkspaceLayout).toMatchObject({
+            controlsContained: true,
+            settingsBelowPreview: true,
+            thumbnailsHidden: true,
+        });
+        expect(narrowWorkspaceLayout.previewWidth).toBeGreaterThan(500);
     }, 150_000);
 
     it('renders bounded native cleanup detail tiles for zoomed and panned scan regions', async () => {

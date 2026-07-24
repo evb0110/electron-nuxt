@@ -713,13 +713,13 @@ describe('scan cleanup preview', () => {
             await writeFile(output.outputPath, pngWithDimensions(region.widthPx, region.heightPx));
             await writeFile(output.metadataPath, JSON.stringify({
                 ...metadata,
-                outputWidthPx: 4_000,
-                outputHeightPx: 6_000,
-                canvasWidthPx: 4_000,
-                canvasHeightPx: 6_000,
+                outputWidthPx: 2_000,
+                outputHeightPx: 3_000,
+                canvasWidthPx: 2_000,
+                canvasHeightPx: 3_000,
                 sourceDpi: 300,
-                renderDpi: 600,
-                requestedRenderDpi: 600,
+                renderDpi: 300,
+                requestedRenderDpi: 300,
                 renderRegion: region,
             }));
         });
@@ -744,7 +744,7 @@ describe('scan cleanup preview', () => {
         expect(renderCalls).toHaveLength(2);
         expect(renderCalls[0]).toEqual({dpi: 150});
         expect(renderCalls[1]).toMatchObject({
-            dpi: 600,
+            dpi: 300,
             crop: {
                 x: expect.any(Number),
                 y: expect.any(Number),
@@ -763,8 +763,8 @@ describe('scan cleanup preview', () => {
         expect(detailPng.getUint32(16) * detailPng.getUint32(20)).toBeLessThanOrEqual(4_000_000);
         expect(manifestOptions).toMatchObject({
             sourceDpi: 300,
-            dpi: 600,
-            requestedRenderDpi: 600,
+            dpi: 300,
+            requestedRenderDpi: 300,
             outputMode: 'bw',
             matchPageSize: false,
         });
@@ -775,17 +775,17 @@ describe('scan cleanup preview', () => {
             widthPx: renderCalls[1]!.crop!.width,
             heightPx: renderCalls[1]!.crop!.height,
         });
-        expect(detailPlan!.renderRegion.widthPx / 4_000).toBeLessThan(0.5);
-        expect(detailPlan!.renderRegion.heightPx / 6_000).toBeLessThan(0.45);
+        expect(detailPlan!.renderRegion.widthPx / 2_000).toBeLessThanOrEqual(0.5);
+        expect(detailPlan!.renderRegion.heightPx / 3_000).toBeLessThanOrEqual(0.45);
         expect(
-            (detailPlan!.renderRegion.xPx + detailPlan!.renderRegion.widthPx / 2) / 4_000,
+            (detailPlan!.renderRegion.xPx + detailPlan!.renderRegion.widthPx / 2) / 2_000,
         ).toBeCloseTo(0.5, 2);
         expect(
-            (detailPlan!.renderRegion.yPx + detailPlan!.renderRegion.heightPx / 2) / 6_000,
+            (detailPlan!.renderRegion.yPx + detailPlan!.renderRegion.heightPx / 2) / 3_000,
         ).toBeCloseTo(0.425, 2);
         expect(result.outputs[0]?.metadata).toMatchObject({
-            renderDpi: 600,
-            requestedRenderDpi: 600,
+            renderDpi: 300,
+            requestedRenderDpi: 300,
             renderRegion: {
                 xPx: expect.any(Number),
                 yPx: expect.any(Number),
@@ -1130,6 +1130,63 @@ describe('scan cleanup preview', () => {
         await expect(older).rejects.toMatchObject({name: 'AbortError'});
         await expect(newer).resolves.toMatchObject({pageNumber: 1});
         expect(deps.runSidecar).toHaveBeenCalledOnce();
+    });
+
+    it('runs detail tiles in a separate lane that never cancels the visible base preview', async () => {
+        const dir = await setup();
+        const deps = dependencies(dir);
+        deps.detectSourceDpi = vi.fn(async () => 300);
+        const baseRenderEntered = Promise.withResolvers<undefined>();
+        const releaseBaseRender = Promise.withResolvers<undefined>();
+        const originalSidecar = deps.runSidecar;
+        let sidecarCalls = 0;
+        const pendingBaseSignals: AbortSignal[] = [];
+        deps.runSidecar = vi.fn(async (...args: Parameters<typeof originalSidecar>) => {
+            sidecarCalls += 1;
+            if (sidecarCalls === 2) {
+                pendingBaseSignals.push(args[2]);
+                baseRenderEntered.resolve(undefined);
+                await releaseBaseRender.promise;
+            }
+            await originalSidecar(...args);
+        });
+        const originalRenderPage = deps.renderPage;
+        deps.renderPage = vi.fn(async (...args: Parameters<typeof originalRenderPage>) => {
+            if (args[5] !== 150) {
+                throw new Error('detail lane executed');
+            }
+            await originalRenderPage(...args);
+        });
+        const service = createScanCleanupPreviewService(deps);
+        const previewSender = sender();
+
+        await service.preview(previewSender, request);
+        const pendingBase = service.preview(previewSender, {
+            ...request,
+            options: {
+                ...request.options,
+                thickness: 1,
+            },
+        });
+        await baseRenderEntered.promise;
+        const detail = service.preview(previewSender, {
+            ...request,
+            detail: {
+                viewports: {full: {
+                    xNormalized: 0.25,
+                    yNormalized: 0.2,
+                    widthNormalized: 0.5,
+                    heightNormalized: 0.45,
+                    rotationDegrees: 0,
+                }},
+                outputMode: 'bw',
+            },
+        });
+
+        await expect(detail).rejects.toThrow('detail lane executed');
+        expect(pendingBaseSignals[0]?.aborted).toBe(false);
+        releaseBaseRender.resolve(undefined);
+        await expect(pendingBase).resolves.toMatchObject({pageNumber: 1});
     });
 
     it('reuses the raw page raster across option changes until the dialog session is invalidated', async () => {

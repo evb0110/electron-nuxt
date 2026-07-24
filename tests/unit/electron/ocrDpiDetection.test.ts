@@ -19,7 +19,7 @@ describe('ocr dpi detection', () => {
         mocks.runOcrCommand.mockReset();
     });
 
-    it('keeps per-page source dpi while preserving document fallback dpi', async () => {
+    it('uses each page dominant raster instead of a tiny high-DPI object', async () => {
         mocks.runOcrCommand.mockResolvedValueOnce({
             stdout: [
                 'page   num  type   width height color comp bpc  enc interp  object ID x-ppi y-ppi size ratio',
@@ -34,9 +34,9 @@ describe('ocr dpi detection', () => {
 
         const result = await detectSourceDpiDetails('/tmp/input.pdf', '/bin/pdfimages', vi.fn());
 
-        expect(result.documentDpi).toBe(300);
+        expect(result.documentDpi).toBe(239);
         expect(result.pageDpiByNumber.get(4)).toBe(72);
-        expect(result.pageDpiByNumber.get(5)).toBe(300);
+        expect(result.pageDpiByNumber.get(5)).toBe(239);
     });
 
     it('returns the document dpi for the legacy detector', async () => {
