@@ -1,5 +1,6 @@
 import {
     mkdtemp,
+    open,
     readFile,
     rm,
     stat,
@@ -45,6 +46,7 @@ import {getAppTempDir} from '@electron/utils/appTempDir';
 import {createLogger} from '@electron/utils/createLogger';
 import {getErrorMessage} from '@electron/utils/error';
 import {buildNativeScanCleanupManifest} from '@electron/features/scan-cleanup/policy/buildNativeScanCleanupManifest';
+import {resolveScanCleanupPipelineMaxPixels} from '@electron/features/scan-cleanup/policy/effectiveOptions';
 import {
     createMainJobRegistry,
     type IMainJobErrorEnvelope,
@@ -230,7 +232,7 @@ async function materializeRawRaster(
     return raw;
 }
 
-function resolveDetailRenderDpi(
+function resolveDetailRenderPolicy(
     request: IScanCleanupPreviewRequest,
     raw: Pick<IRawPreview, 'width' | 'height'>,
     sourceDpi: number,
@@ -240,6 +242,7 @@ function resolveDetailRenderDpi(
         return {
             renderDpi: PREVIEW_DPI,
             requestedRenderDpi: PREVIEW_DPI,
+            renderCrop: undefined,
         };
     }
     const pageOverride = getScanCleanupPageOverride(request.options.pageOverrides, request.pageNumber);
@@ -250,25 +253,36 @@ function resolveDetailRenderDpi(
         + (margins.leftMm + margins.rightMm) / 25.4 * PREVIEW_DPI;
     const heightAtPreviewDpi = (swapsAxes ? raw.width : raw.height)
         + (margins.topMm + margins.bottomMm) / 25.4 * PREVIEW_DPI;
-    const canvasWidthAtPreviewDpi = request.options.matchPageSize && request.documentCanvasPlan
-        ? request.documentCanvasPlan.widthPoints / 72 * PREVIEW_DPI
-        : 0;
-    const canvasHeightAtPreviewDpi = request.options.matchPageSize && request.documentCanvasPlan
-        ? request.documentCanvasPlan.heightPoints / 72 * PREVIEW_DPI
-        : 0;
-    const budgetWidth = Math.max(1, widthAtPreviewDpi, canvasWidthAtPreviewDpi);
-    const budgetHeight = Math.max(1, heightAtPreviewDpi, canvasHeightAtPreviewDpi);
-    const budgetDpi = PREVIEW_DPI * Math.sqrt(detail.maxPixels / (budgetWidth * budgetHeight));
     const requestedRenderDpi = detail.outputMode === 'bw'
         ? Math.max(sourceDpi * 2, 600)
         : sourceDpi;
+    const widthAtRenderDpi = widthAtPreviewDpi / PREVIEW_DPI * requestedRenderDpi;
+    const heightAtRenderDpi = heightAtPreviewDpi / PREVIEW_DPI * requestedRenderDpi;
+    const requestedPixels = widthAtRenderDpi
+        * heightAtRenderDpi
+        * detail.viewport.widthNormalized
+        * detail.viewport.heightNormalized;
+    const scale = requestedPixels <= detail.maxPixels
+        ? 1
+        : Math.sqrt(detail.maxPixels * 0.99 / requestedPixels);
+    const widthNormalized = detail.viewport.widthNormalized * scale;
+    const heightNormalized = detail.viewport.heightNormalized * scale;
+    const centerX = detail.viewport.xNormalized + detail.viewport.widthNormalized / 2;
+    const centerY = detail.viewport.yNormalized + detail.viewport.heightNormalized / 2;
     return {
-        renderDpi: Math.max(1, Math.floor(Math.min(requestedRenderDpi, budgetDpi))),
+        renderDpi: requestedRenderDpi,
         requestedRenderDpi,
+        renderCrop: {
+            xNormalized: Math.min(1 - widthNormalized, Math.max(0, centerX - widthNormalized / 2)),
+            yNormalized: Math.min(1 - heightNormalized, Math.max(0, centerY - heightNormalized / 2)),
+            widthNormalized,
+            heightNormalized,
+            rotationDegrees: pageOverride.rotationDegrees,
+        },
     };
 }
 
-function readPngDimensions(bytes: Uint8Array) {
+function readPngDimensions(bytes: Uint8Array, maxPixels = 45_000_000) {
     const signature = [
         0x89,
         0x50,
@@ -285,13 +299,45 @@ function readPngDimensions(bytes: Uint8Array) {
     const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
     const width = view.getUint32(16);
     const height = view.getUint32(20);
-    if (width < 1 || height < 1 || width * height > 45_000_000) {
+    if (width < 1 || height < 1 || width * height > maxPixels) {
         throw new Error(`Scan cleanup preview PNG dimensions ${width}x${height} exceed limits`);
     }
     return {
         width,
         height,
     };
+}
+
+async function renderDetailRaster(
+    request: Pick<IScanCleanupPreviewRequest, 'sourcePdfPath'>,
+    pageNumber: number,
+    outputPath: string,
+    signal: AbortSignal,
+    dependencies: IScanCleanupPreviewDependencies,
+    renderDpi: number,
+    maxPixels: number,
+) {
+    await dependencies.renderPage(
+        {pdftoppmBinary: dependencies.getPdftoppmBinary()},
+        (level, message) => logger[level](message),
+        pageNumber,
+        request.sourcePdfPath,
+        outputPath,
+        renderDpi,
+        undefined,
+        signal,
+    );
+    const handle = await open(outputPath, 'r');
+    try {
+        const header = Buffer.alloc(24);
+        const {bytesRead} = await handle.read(header, 0, header.byteLength, 0);
+        if (bytesRead !== header.byteLength) {
+            throw new Error('Scan cleanup detail raster produced a truncated PNG');
+        }
+        return readPngDimensions(header, maxPixels);
+    } finally {
+        await handle.close();
+    }
 }
 
 async function readPreviewBytes(path: string) {
@@ -339,19 +385,32 @@ async function runPreview(
         const {
             renderDpi,
             requestedRenderDpi,
-        } = resolveDetailRenderDpi(request, baseRaw, sourceDpi);
-        const raw = renderDpi === PREVIEW_DPI
-            ? baseRaw
-            : await materializeRawRaster(
+            renderCrop,
+        } = resolveDetailRenderPolicy(request, baseRaw, sourceDpi);
+        if (request.detail && renderDpi !== PREVIEW_DPI) {
+            const maxSourcePixels = resolveScanCleanupPipelineMaxPixels(request.detail.outputMode);
+            const rasterScale = renderDpi / PREVIEW_DPI;
+            const detailWidth = Math.ceil(baseRaw.width * rasterScale);
+            const detailHeight = Math.ceil(baseRaw.height * rasterScale);
+            if (
+                detailWidth > 40_000
+                || detailHeight > 40_000
+                || detailWidth * detailHeight > maxSourcePixels
+            ) {
+                throw new Error(
+                    `Scan cleanup detail raster ${detailWidth}x${detailHeight} exceeds native limits`,
+                );
+            }
+            await renderDetailRaster(
                 request,
                 request.pageNumber,
                 inputPath,
                 signal,
-                rawCache,
                 dependencies,
-                baseRaw.totalPages,
                 renderDpi,
+                maxSourcePixels,
             );
+        }
         if (signal.aborted) throw signal.reason;
         const binary = dependencies.resolveBinary();
         if (!binary) throw new Error('Scan cleanup native tool is unavailable');
@@ -366,10 +425,10 @@ async function runPreview(
         const pageMetadataPath = join(scratch, 'page.json');
         const pageOverride = getScanCleanupPageOverride(request.options.pageOverrides, request.pageNumber);
         const lossless = request.options.preserveOriginalQuality === true;
-        const documentCanvas = request.options.matchPageSize
+        const documentCanvas = request.detail === undefined && request.options.matchPageSize
             ? request.documentCanvasPlan
             : undefined;
-        const effectiveOptions = documentCanvas === undefined && request.options.matchPageSize
+        const effectiveOptions = (documentCanvas === undefined && request.options.matchPageSize)
             ? {
                 ...request.options,
                 matchPageSize: false,
@@ -394,6 +453,7 @@ async function runPreview(
                 dpi: renderDpi,
                 sourceDpi: request.detail ? sourceDpi : PREVIEW_DPI,
                 requestedRenderDpi,
+                ...(renderCrop === undefined ? {} : {renderCrop}),
                 ...(request.detail === undefined ? {} : {resolvedOutputMode: request.detail.outputMode}),
                 pageMetadataPath,
                 outputs,
@@ -413,10 +473,10 @@ async function runPreview(
                 : Math.max(1, Math.ceil(documentCanvas.heightPoints / 72 * renderDpi));
             return {
                 pageNumber: request.pageNumber,
-                totalPages: raw.totalPages,
-                rawImageData: raw.bytes,
-                rawWidthPx: raw.width,
-                rawHeightPx: raw.height,
+                totalPages: baseRaw.totalPages,
+                rawImageData: baseRaw.bytes,
+                rawWidthPx: baseRaw.width,
+                rawHeightPx: baseRaw.height,
                 pageMetadata: {
                     ...pageMetadata,
                     outputDiagnostics: analyzedOutputs.map(output => ({
@@ -437,7 +497,7 @@ async function runPreview(
                         pageOverride.placementOverrides?.[output.half] ?? request.options.pageAlignment,
                     );
                     return {
-                        imageData: raw.bytes,
+                        imageData: baseRaw.bytes,
                         metadata: {
                             half: output.half,
                             layoutClassification: pageMetadata.layoutClassification,
@@ -500,10 +560,10 @@ async function runPreview(
         const diagnosticMetadata = cleaned[0]?.metadata;
         return {
             pageNumber: request.pageNumber,
-            totalPages: raw.totalPages,
-            rawImageData: raw.bytes,
-            rawWidthPx: raw.width,
-            rawHeightPx: raw.height,
+            totalPages: baseRaw.totalPages,
+            rawImageData: baseRaw.bytes,
+            rawWidthPx: baseRaw.width,
+            rawHeightPx: baseRaw.height,
             pageMetadata: {
                 ...pageMetadata,
                 ...(diagnosticMetadata?.detectedSkewDegrees === undefined

@@ -93,11 +93,25 @@ describe('native scan-cleanup manifest builder', () => {
             renderMode: testCase.renderMode,
             canvasScope: testCase.canvasScope,
             qualityPath: testCase.qualityPath,
-            options,
+            options: testCase.name === 'preview-raster-v3.json'
+                ? {
+                    ...options,
+                    matchPageSize: false,
+                }
+                : options,
             pages: [{
                 inputPath: '/fixtures/input/page-1.png',
                 pageNumber: 1,
                 dpi: 300,
+                ...(testCase.name === 'preview-raster-v3.json'
+                    ? {renderCrop: {
+                        xNormalized: 0.25,
+                        yNormalized: 0.2,
+                        widthNormalized: 0.5,
+                        heightNormalized: 0.4,
+                        rotationDegrees: 0 as const,
+                    }}
+                    : {}),
                 pageMetadataPath: '/fixtures/output/page-1.json',
                 outputs: testCase.withOutput ? [{
                     outputPath: '/fixtures/output/page-1.png',

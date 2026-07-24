@@ -122,6 +122,14 @@ pub struct CleanupMetadata {
     /// Intrinsic, unpadded cleaned-raster height.
     #[serde(rename = "outputHeightPx")]
     pub output_height: usize,
+    /// Actual preview payload bounds inside the full intrinsic output.
+    #[serde(
+        default,
+        rename = "renderRegion",
+        skip_serializing_if = "Option::is_none",
+        with = "optional_pixel_rect_serde"
+    )]
+    pub render_region: Option<Rect>,
     #[serde(rename = "canvasWidthPx")]
     pub canvas_width: usize,
     #[serde(rename = "canvasHeightPx")]
@@ -826,7 +834,7 @@ fn clean_page_with_color_and_calibration_config(
         )?);
     }
     let before_blank_filter = outputs.len();
-    if options.skip_blank_pages {
+    if options.skip_blank_pages && options.render_crop.is_none() {
         outputs.retain(|output| !output.effectively_blank);
     }
     let blank_outputs_skipped = before_blank_filter - outputs.len();
@@ -1504,31 +1512,76 @@ fn clean_region(
     } else {
         Rect::new(0.0, 0.0, working.width() as f64, working.height() as f64)
     };
+    let output_width = output_rect.width.ceil().max(1.0) as usize;
+    let output_height = output_rect.height.ceil().max(1.0) as usize;
+    let render_region = options.resolved_render_crop(output_width, output_height);
+    // Local threshold windows and connected-component cleanup need context
+    // beyond the visible tile. Sample a bounded apron, process it, then trim
+    // back to render_region so panning cannot change interior stroke weight.
+    let sampled_region = render_region.map(|crop| {
+        if matches!(options.output_mode, OutputMode::Bw | OutputMode::Mixed) {
+            const PROCESSING_APRON_PX: f64 = 256.0;
+            let left = (crop.x - PROCESSING_APRON_PX).max(0.0);
+            let top = (crop.y - PROCESSING_APRON_PX).max(0.0);
+            let right = (crop.right() + PROCESSING_APRON_PX).min(output_width as f64);
+            let bottom = (crop.bottom() + PROCESSING_APRON_PX).min(output_height as f64);
+            Rect::new(left, top, right - left, bottom - top)
+        } else {
+            crop
+        }
+    });
+    let render_rect = sampled_region.map_or(output_rect, |crop| {
+        Rect::new(
+            output_rect.x + crop.x,
+            output_rect.y + crop.y,
+            crop.width,
+            crop.height,
+        )
+    });
     let render_plan = ComposedRenderPlan::new(
         region,
         local_deskew_forward,
         local_deskew_inverse,
-        dewarp_model,
+        dewarp_model.clone(),
         working.width(),
         working.height(),
-        output_rect,
+        render_rect,
     );
-    let output_width = render_plan.output_width();
-    let output_height = render_plan.output_height();
+    let rendered_width = render_plan.output_width();
+    let rendered_height = render_plan.output_height();
 
     let render_started = Instant::now();
     let (rendered_gray, rendered_color, forward_transform, inverse_transform, dewarp_mapping) =
         if render_plan.has_dewarp() {
             let gray =
-                rasterize_inverse_area_with(normalized, output_width, output_height, |point| {
+                rasterize_inverse_area_with(normalized, rendered_width, rendered_height, |point| {
                     render_plan.output_to_source(point)
                 });
             let color = color_source.map(|source| {
-                rasterize_inverse_area_rgb_with(source, output_width, output_height, |point| {
+                rasterize_inverse_area_rgb_with(source, rendered_width, rendered_height, |point| {
                     render_plan.output_to_source(point)
                 })
             });
-            let grid = sampled_dewarp_grid(&render_plan, region);
+            let metadata_plan = render_region.map_or_else(
+                || render_plan.clone(),
+                |crop| {
+                    ComposedRenderPlan::new(
+                        region,
+                        local_deskew_forward,
+                        local_deskew_inverse,
+                        dewarp_model,
+                        working.width(),
+                        working.height(),
+                        Rect::new(
+                            output_rect.x + crop.x,
+                            output_rect.y + crop.y,
+                            crop.width,
+                            crop.height,
+                        ),
+                    )
+                },
+            );
+            let grid = sampled_dewarp_grid(&metadata_plan, region);
             (gray, color, None, None, Some(grid))
         } else {
             let inverse = render_plan
@@ -1538,33 +1591,41 @@ fn clean_region(
                 .inverse()
                 .ok_or("Cleanup transform is not invertible")?;
             (
-                render_affine_gray(normalized, output_width, output_height, inverse),
-                color_source
-                    .map(|color| render_affine_rgb(color, output_width, output_height, inverse)),
+                render_affine_gray(normalized, rendered_width, rendered_height, inverse),
+                color_source.map(|color| {
+                    render_affine_rgb(color, rendered_width, rendered_height, inverse)
+                }),
                 Some(forward),
                 Some(inverse),
                 None,
             )
         };
+    let (forward_transform, inverse_transform) =
+        if let (Some(forward), Some(region)) = (forward_transform, sampled_region) {
+            let intrinsic_forward = forward.then(Affine::translation(region.x, region.y));
+            (Some(intrinsic_forward), intrinsic_forward.inverse())
+        } else {
+            (forward_transform, inverse_transform)
+        };
     let rendered_picture_mask = source_picture_mask.map(|mask| {
-        render_binary_mask(mask, output_width, output_height, |point| {
+        render_binary_mask(mask, rendered_width, rendered_height, |point| {
             render_plan.output_to_source(point)
         })
     });
     let effectively_blank = is_effectively_blank(&rendered_gray, options.dpi);
     let fail_closed_blank = content.content.is_none() && effectively_blank;
     let (
-        image,
-        color_image,
+        mut image,
+        mut color_image,
         binarization_mode,
         binarization_diagnostics,
         despeckle_fallback,
-        mixed_layers,
+        mut mixed_layers,
     ) = if fail_closed_blank {
         (
-            GrayImage::new(output_width, output_height, 255),
+            GrayImage::new(rendered_width, rendered_height, 255),
             if options.output_mode == OutputMode::Color && rendered_color.is_some() {
-                Some(RgbImage::new(output_width, output_height, [255; 3]))
+                Some(RgbImage::new(rendered_width, rendered_height, [255; 3]))
             } else {
                 None
             },
@@ -1671,6 +1732,23 @@ fn clean_region(
             OutputMode::Auto => unreachable!("automatic output mode is resolved before render"),
         }
     };
+    if let (Some(requested), Some(sampled)) = (render_region, sampled_region) {
+        let payload_rect = Rect::new(
+            requested.x - sampled.x,
+            requested.y - sampled.y,
+            requested.width,
+            requested.height,
+        );
+        image = crop_gray(&image, payload_rect);
+        color_image = color_image.map(|source| crop_rgb(&source, payload_rect));
+        mixed_layers = mixed_layers.map(|layers| MixedLayers {
+            foreground_mask: crop_gray(&layers.foreground_mask, payload_rect),
+            background: crop_gray(&layers.background, payload_rect),
+            color_background: layers
+                .color_background
+                .map(|source| crop_rgb(&source, payload_rect)),
+        });
+    }
     timings.render_ms += render_started.elapsed().as_secs_f64() * 1_000.0;
     let mut warnings = if deskew.accepted || effective_dewarp.is_some() {
         Vec::new()
@@ -1752,6 +1830,7 @@ fn clean_region(
             input_height: source.height(),
             output_width,
             output_height,
+            render_region,
             canvas_width: output_width,
             canvas_height: output_height,
             placement_offset_x: 0,
@@ -2016,6 +2095,20 @@ fn crop_gray(source: &GrayImage, rect: Rect) -> GrayImage {
     let width = rect.width.round().max(1.0) as usize;
     let height = rect.height.round().max(1.0) as usize;
     let mut output = GrayImage::new(width, height, 255);
+    for y in 0..height.min(source.height().saturating_sub(top)) {
+        for x in 0..width.min(source.width().saturating_sub(left)) {
+            output.set(x, y, source.get(left + x, top + y));
+        }
+    }
+    output
+}
+
+fn crop_rgb(source: &RgbImage, rect: Rect) -> RgbImage {
+    let left = rect.x.round().clamp(0.0, source.width() as f64) as usize;
+    let top = rect.y.round().clamp(0.0, source.height() as f64) as usize;
+    let width = rect.width.round().max(1.0) as usize;
+    let height = rect.height.round().max(1.0) as usize;
+    let mut output = RgbImage::new(width, height, [255; 3]);
     for y in 0..height.min(source.height().saturating_sub(top)) {
         for x in 0..width.min(source.width().saturating_sub(left)) {
             output.set(x, y, source.get(left + x, top + y));

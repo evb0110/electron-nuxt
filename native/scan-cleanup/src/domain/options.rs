@@ -296,6 +296,8 @@ pub struct CleanupOptions {
     pub dpi: f64,
     pub source_dpi: Option<f64>,
     pub requested_render_dpi: Option<f64>,
+    /// Optional preview tile in normalized final intrinsic-output space.
+    pub render_crop: Option<NormalizedRect>,
     #[serde(skip)]
     pub classify_only: Option<bool>,
     pub binarization: BinarizationMode,
@@ -337,6 +339,7 @@ impl Default for CleanupOptions {
             dpi: 300.0,
             source_dpi: None,
             requested_render_dpi: None,
+            render_crop: None,
             classify_only: None,
             binarization: BinarizationMode::Auto,
             thickness: 0,
@@ -444,6 +447,7 @@ impl CleanupOptions {
             }
         }
         for rect in [
+            self.render_crop,
             self.manual_content_boxes.full,
             self.manual_content_boxes.left,
             self.manual_content_boxes.right,
@@ -462,7 +466,7 @@ impl CleanupOptions {
                 || rect.y + rect.height > 1.0
                 || rect.rotation != self.rotation
             {
-                return Err("Manual content rectangles must be normalized and authored under the page rotation".into());
+                return Err("Normalized render/content rectangles must be positive, bounded, and authored under the page rotation".into());
             }
         }
         for polygon in self
@@ -493,6 +497,24 @@ impl CleanupOptions {
 
     pub fn requested_render_dpi(&self) -> f64 {
         self.requested_render_dpi.unwrap_or(self.dpi)
+    }
+
+    pub fn resolved_render_crop(&self, width: usize, height: usize) -> Option<Rect> {
+        let crop = self.render_crop?;
+        let left = (crop.x * width as f64).floor() as usize;
+        let top = (crop.y * height as f64).floor() as usize;
+        let right = ((crop.x + crop.width) * width as f64).ceil() as usize;
+        let bottom = ((crop.y + crop.height) * height as f64).ceil() as usize;
+        Some(Rect::new(
+            left.min(width.saturating_sub(1)) as f64,
+            top.min(height.saturating_sub(1)) as f64,
+            right
+                .clamp(left.saturating_add(1), width)
+                .saturating_sub(left) as f64,
+            bottom
+                .clamp(top.saturating_add(1), height)
+                .saturating_sub(top) as f64,
+        ))
     }
 
     pub fn placement_for(&self, half: PageHalf) -> PageAlignment {

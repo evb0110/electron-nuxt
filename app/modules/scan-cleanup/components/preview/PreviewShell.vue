@@ -141,6 +141,7 @@
                             :active-placement-half="activePlacementHalf"
                             :alt-by-half="cleanedAltByHalf"
                             :detail-loading="detailLayerEligible && detailLoading"
+                            :detail-styles="detailRegionStyles"
                             :detail-urls="detailResultMatchesPage ? detailPixelUrls : {}"
                             :match-page-size="matchPageSize"
                             :outputs="renderedOutputs"
@@ -546,9 +547,32 @@ const effectiveViewMode = computed(() => props.lossless
     : props.viewMode ?? 'cleaned');
 const detailLayerEligible = computed(() => effectiveViewMode.value === 'cleaned'
     && props.lossless !== true
+    // A single crop rectangle is output-local. Split spreads retain the
+    // complete base preview until protocol v3 grows per-half crop rectangles.
+    && props.result?.outputs.length === 1
     && previewEffectiveZoom.value >= 1.5);
 const detailResultMatchesPage = computed(() => detailLayerEligible.value
     && props.detailResult?.pageNumber === props.result?.pageNumber);
+const detailRegionStyles = computed<Partial<Record<TScanCleanupOutputHalf, CSSProperties>>>(() => {
+    if (!detailResultMatchesPage.value) {
+        return {};
+    }
+    const styles: Partial<Record<TScanCleanupOutputHalf, CSSProperties>> = {};
+    for (const output of props.detailResult?.outputs ?? []) {
+        const region = output.metadata.renderRegion;
+        if (!region) {
+            styles[output.metadata.half] = {inset: '0'};
+            continue;
+        }
+        styles[output.metadata.half] = {
+            left: `${region.xPx / output.metadata.outputWidthPx * 100}%`,
+            top: `${region.yPx / output.metadata.outputHeightPx * 100}%`,
+            width: `${region.widthPx / output.metadata.outputWidthPx * 100}%`,
+            height: `${region.heightPx / output.metadata.outputHeightPx * 100}%`,
+        };
+    }
+    return styles;
+});
 const isStalePage = computed(() => props.stalePage
     ?? Boolean(props.result && props.result.pageNumber !== props.pageNumber));
 const viewModes = computed(() => props.lossless ? [{
@@ -1136,6 +1160,7 @@ function scheduleDetailRequest() {
         effectiveViewMode.value !== 'cleaned'
         || props.lossless === true
         || !props.result
+        || props.result.outputs.length !== 1
         || props.loading
         || isStalePage.value
         || previewEffectiveZoom.value < 1.5
@@ -1148,19 +1173,36 @@ function scheduleDetailRequest() {
     }
     detailTimer = setTimeout(() => {
         detailTimer = null;
-        const scale = Math.max(1, previewTransformScale.value);
-        const left = Math.max(0, Math.min(1,
-            0.5 - 0.5 / scale - previewPan.x / (scale * cutterStageSize.width),
+        updateOverlayGeometry();
+        const output = renderedOutputs.value[0];
+        const canvasRect = output && outputCanvasRects[output.metadata.half];
+        const surfaceRect = previewSurface.value?.getBoundingClientRect();
+        if (!output || !canvasRect || !surfaceRect || canvasRect.width <= 0 || canvasRect.height <= 0) {
+            return;
+        }
+        const imageRect = {
+            x: canvasRect.x
+                + output.placement.left / output.placement.canvasWidthPx * canvasRect.width,
+            y: canvasRect.y
+                + output.placement.top / output.placement.canvasHeightPx * canvasRect.height,
+            width: output.metadata.outputWidthPx
+                / output.placement.canvasWidthPx * canvasRect.width,
+            height: output.metadata.outputHeightPx
+                / output.placement.canvasHeightPx * canvasRect.height,
+        };
+        const left = Math.max(0, Math.min(1, (surfaceRect.left - imageRect.x) / imageRect.width));
+        const top = Math.max(0, Math.min(1, (surfaceRect.top - imageRect.y) / imageRect.height));
+        const right = Math.max(left, Math.min(
+            1,
+            (surfaceRect.right - imageRect.x) / imageRect.width,
         ));
-        const top = Math.max(0, Math.min(1,
-            0.5 - 0.5 / scale - previewPan.y / (scale * cutterStageSize.height),
+        const bottom = Math.max(top, Math.min(
+            1,
+            (surfaceRect.bottom - imageRect.y) / imageRect.height,
         ));
-        const right = Math.max(left, Math.min(1,
-            0.5 + 0.5 / scale - previewPan.x / (scale * cutterStageSize.width),
-        ));
-        const bottom = Math.max(top, Math.min(1,
-            0.5 + 0.5 / scale - previewPan.y / (scale * cutterStageSize.height),
-        ));
+        if (right <= left || bottom <= top) {
+            return;
+        }
         const quantizeDown = (value: number) => Math.floor(value * 64) / 64;
         const quantizeUp = (value: number) => Math.ceil(value * 64) / 64;
         const xNormalized = quantizeDown(left);

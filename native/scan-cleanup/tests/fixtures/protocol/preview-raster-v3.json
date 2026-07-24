@@ -12,6 +12,13 @@
         "dpi": 300,
         "sourceDpi": 300,
         "requestedRenderDpi": 300,
+        "renderCrop": {
+          "xNormalized": 0.25,
+          "yNormalized": 0.2,
+          "widthNormalized": 0.5,
+          "heightNormalized": 0.4,
+          "rotationDegrees": 0
+        },
         "binarization": "auto",
         "thickness": 0,
         "normalizeIllumination": true,
@@ -22,7 +29,7 @@
         "manualSplit": null,
         "manualContentBoxes": {},
         "cropContent": true,
-        "matchPageSize": true,
+        "matchPageSize": false,
         "pageAlignment": "top-center",
         "placementOverrides": {},
         "margins": {

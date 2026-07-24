@@ -716,14 +716,17 @@ function mockPreviewGeometry(host: HTMLElement, canvasRects: DOMRect[]) {
 }
 
 function mountPreviewZoomHarness(options: {
+    detailResult?: IScanCleanupPreviewResult | null;
     detailLoading?: boolean;
     onRequestDetail?: (viewport: IScanCleanupNormalizedRect) => void;
+    result?: IScanCleanupPreviewResult;
     viewMode?: 'original' | 'cleaned';
 } = {}) {
     const viewMode = ref<'original' | 'cleaned'>(options.viewMode ?? 'original');
     const splitUpdates: IScanCleanupNormalizedSplit[] = [];
+    const previewResult = options.result ?? spreadPreviewResult();
     const harness = mount(defineComponent({setup: () => () => h(ScanCleanupPreviewPane, {
-        result: spreadPreviewResult(),
+        result: previewResult,
         loading: false,
         error: '',
         viewMode: viewMode.value,
@@ -734,6 +737,7 @@ function mountPreviewZoomHarness(options: {
         manualSplit: null,
         readingOrder: 'ltr',
         detailLoading: options.detailLoading ?? false,
+        detailResult: options.detailResult ?? null,
         onRequestDetail: options.onRequestDetail,
         'onUpdate:manualSplit': (value: IScanCleanupNormalizedSplit | null) => {
             if (value) splitUpdates.push(value);
@@ -763,6 +767,24 @@ function mountPreviewZoomHarness(options: {
             500 * scale,
             400 * scale,
         );
+    });
+    harness.host.querySelectorAll<HTMLElement>('.uniform-canvas').forEach((canvas, index) => {
+        vi.spyOn(canvas, 'getBoundingClientRect').mockImplementation(() => {
+            const scale = Number(stage.style.transform.match(/scale\(([^)]+)\)/)?.[1] ?? 1);
+            const translation = stage.style.transform.match(/translate3d\(([^p]+)px, ([^p]+)px/);
+            const panX = Number(translation?.[1] ?? 0);
+            const panY = Number(translation?.[2] ?? 0);
+            const single = previewResult.outputs.length === 1;
+            const baseWidth = single ? 160 : 250;
+            const baseHeight = 400;
+            const baseLeft = single ? 170 : index * 250;
+            return domRect(
+                250 + (baseLeft - 250) * scale + panX,
+                200 + (0 - 200) * scale + panY,
+                baseWidth * scale,
+                baseHeight * scale,
+            );
+        });
     });
     mockPointerCapture(surface);
     return {
@@ -2149,6 +2171,7 @@ describe('Scan cleanup components', () => {
             const harness = mountPreviewZoomHarness({
                 detailLoading: true,
                 onRequestDetail: requestDetail,
+                result: rotatedSinglePreviewResult(),
                 viewMode: 'cleaned',
             });
             const zoom = new WheelEvent('wheel', {
@@ -2166,7 +2189,7 @@ describe('Scan cleanup components', () => {
             harness.surface.dispatchEvent(zoom);
             await nextTick();
             expect(Number(harness.surface.dataset.previewZoomPercent)).toBeGreaterThanOrEqual(150);
-            expect(harness.host.querySelectorAll('.preview-detail-shimmer')).toHaveLength(2);
+            expect(harness.host.querySelectorAll('.preview-detail-shimmer')).toHaveLength(1);
             expect(requestDetail).not.toHaveBeenCalled();
 
             vi.advanceTimersByTime(299);
@@ -2175,12 +2198,73 @@ describe('Scan cleanup components', () => {
             await nextTick();
 
             expect(requestDetail).toHaveBeenCalledOnce();
-            expect(requestDetail).toHaveBeenCalledWith(expect.objectContaining({rotationDegrees: 0}));
+            expect(requestDetail).toHaveBeenCalledWith(expect.objectContaining({rotationDegrees: 90}));
             const viewport = requestDetail.mock.calls[0]![0];
             expect(viewport.xNormalized).toBeGreaterThanOrEqual(0);
             expect(viewport.yNormalized).toBeGreaterThanOrEqual(0);
             expect(viewport.xNormalized + viewport.widthNormalized).toBeLessThanOrEqual(1);
             expect(viewport.yNormalized + viewport.heightNormalized).toBeLessThanOrEqual(1);
+            expect(viewport.widthNormalized).toBeGreaterThan(0.3);
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it('positions a cropped high-detail tile over its intrinsic output region', async () => {
+        const base = rotatedSinglePreviewResult();
+        const detail = structuredClone(base);
+        detail.outputs[0]!.metadata.renderRegion = {
+            xPx: 100,
+            yPx: 250,
+            widthPx: 200,
+            heightPx: 500,
+        };
+        const harness = mountPreviewZoomHarness({
+            detailResult: detail,
+            result: base,
+            viewMode: 'cleaned',
+        });
+
+        harness.surface.dispatchEvent(new WheelEvent('wheel', {
+            bubbles: true,
+            cancelable: true,
+            clientX: 250,
+            clientY: 200,
+            deltaY: -1_200,
+        }));
+        await nextTick();
+
+        const tile = harness.host.querySelector<HTMLElement>('.preview-detail-pixel');
+        expect(tile?.style.left).toBe('25%');
+        expect(tile?.style.top).toBe('25%');
+        expect(tile?.style.width).toBe('50%');
+        expect(tile?.style.height).toBe('50%');
+    });
+
+    it('keeps the complete base preview for split spreads with no ambiguous crop request', async () => {
+        vi.useFakeTimers();
+        try {
+            const requestDetail = vi.fn<(viewport: IScanCleanupNormalizedRect) => void>();
+            const harness = mountPreviewZoomHarness({
+                detailLoading: true,
+                onRequestDetail: requestDetail,
+                viewMode: 'cleaned',
+            });
+
+            harness.surface.dispatchEvent(new WheelEvent('wheel', {
+                bubbles: true,
+                cancelable: true,
+                clientX: 250,
+                clientY: 200,
+                deltaY: -1_200,
+            }));
+            await nextTick();
+            vi.advanceTimersByTime(300);
+            await nextTick();
+
+            expect(requestDetail).not.toHaveBeenCalled();
+            expect(harness.host.querySelectorAll('.preview-detail-shimmer')).toHaveLength(0);
+            expect(harness.host.querySelectorAll('.cleaned-image:not(.preview-detail-pixel)')).toHaveLength(2);
         } finally {
             vi.useRealTimers();
         }

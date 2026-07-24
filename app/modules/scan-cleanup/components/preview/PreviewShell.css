@@ -395,7 +395,6 @@
 .preview-detail-shimmer {
     position: absolute;
     z-index: var(--app-z-local-raised);
-    inset: 0;
 }
 
 .preview-detail-pixel {

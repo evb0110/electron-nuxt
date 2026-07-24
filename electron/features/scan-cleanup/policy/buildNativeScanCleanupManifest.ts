@@ -24,6 +24,7 @@ export interface IScanCleanupManifestPageInput {
     dpi: number;
     sourceDpi?: number;
     requestedRenderDpi?: number;
+    renderCrop?: INativeScanCleanupManifestV3['pages'][number]['options']['renderCrop'];
     resolvedOutputMode?: TScanCleanupOutputMode;
     pageMetadataPath: string;
     outputs?: INativeScanCleanupOutputV3[];
@@ -87,6 +88,7 @@ export function buildNativeScanCleanupManifest({
                     ...(page.requestedRenderDpi === undefined
                         ? {}
                         : {requestedRenderDpi: page.requestedRenderDpi}),
+                    ...(page.renderCrop === undefined ? {} : {renderCrop: page.renderCrop}),
                     ...(page.resolvedOutputMode === undefined
                         ? {}
                         : {resolvedOutputMode: page.resolvedOutputMode}),

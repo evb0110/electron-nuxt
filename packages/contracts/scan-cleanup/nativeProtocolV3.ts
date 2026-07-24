@@ -38,6 +38,11 @@ export interface INativeScanCleanupOptionsV3 {
     dpi: number;
     sourceDpi: number;
     requestedRenderDpi: number;
+    /**
+     * Optional preview-only tile in normalized final intrinsic-output space.
+     * Absence preserves the protocol-v3 full-page render contract.
+     */
+    renderCrop?: IScanCleanupNormalizedRect;
     binarization: TScanCleanupBinarizationMethod;
     thickness: number;
     normalizeIllumination: boolean;

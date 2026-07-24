@@ -170,6 +170,18 @@ impl ManifestV3 {
         }
         for page in &self.pages {
             page.options.validate().map_err(invalid)?;
+            if page.options.render_crop.is_some()
+                && (self.operation != Operation::Render || self.render_mode != RenderMode::Preview)
+            {
+                return Err(invalid(
+                    "Render crop is supported only by preview render manifests",
+                ));
+            }
+            if page.options.render_crop.is_some() && page.options.match_page_size {
+                return Err(invalid(
+                    "Render crop cannot be combined with matched page-size output",
+                ));
+            }
             if let Some(prior) = page.document_prior {
                 prior.validate().map_err(invalid)?;
             }
@@ -252,11 +264,48 @@ mod tests {
             crate::DespeckleLevel::Off
         );
         for page in &manifest.pages {
+            assert_eq!(page.options.render_crop, None);
             assert!(page.options.manual_zones.picture.is_empty());
             assert!(page.options.manual_zones.fill.is_empty());
             assert_eq!(page.options.manual_skew_degrees, None);
             assert_eq!(page.options.experimental.auto_dewarp_depth, None);
         }
+    }
+
+    #[test]
+    fn render_crop_is_additive_and_preview_only() {
+        let bytes = std::fs::read(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("tests/fixtures/protocol/preview-raster-v3.json"),
+        )
+        .unwrap();
+        let mut manifest: ManifestV3 = serde_json::from_slice(&bytes).unwrap();
+        manifest.validate().unwrap();
+        assert_eq!(
+            manifest.pages[0].options.render_crop,
+            Some(crate::NormalizedRect {
+                x: 0.25,
+                y: 0.2,
+                width: 0.5,
+                height: 0.4,
+                rotation: crate::OrthogonalRotation::None,
+            })
+        );
+
+        manifest.render_mode = RenderMode::Final;
+        assert!(manifest
+            .validate()
+            .unwrap_err()
+            .to_string()
+            .contains("preview render"));
+
+        manifest.render_mode = RenderMode::Preview;
+        manifest.pages[0].options.match_page_size = true;
+        assert!(manifest
+            .validate()
+            .unwrap_err()
+            .to_string()
+            .contains("matched page-size"));
     }
 
     #[test]

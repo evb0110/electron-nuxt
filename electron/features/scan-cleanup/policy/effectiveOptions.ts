@@ -26,6 +26,7 @@ export interface IResolveEffectiveScanCleanupOptionsInput {
     dpi: number;
     sourceDpi?: number;
     requestedRenderDpi?: number;
+    renderCrop?: INativeScanCleanupOptionsV3['renderCrop'];
     resolvedOutputMode?: TScanCleanupOutputMode;
     qualityPath: TScanCleanupQualityPath;
     experimental?: IScanCleanupExperimentalOptions;
@@ -61,6 +62,7 @@ export function resolveEffectiveScanCleanupOptions({
     dpi,
     sourceDpi = dpi,
     requestedRenderDpi = dpi,
+    renderCrop,
     resolvedOutputMode,
     qualityPath,
     experimental = DEFAULT_SCAN_CLEANUP_EXPERIMENTAL_OPTIONS,
@@ -78,6 +80,7 @@ export function resolveEffectiveScanCleanupOptions({
         dpi,
         sourceDpi,
         requestedRenderDpi,
+        ...(renderCrop === undefined ? {} : {renderCrop}),
         binarization: options.binarization ?? 'auto',
         thickness: lossless ? 0 : options.thickness,
         normalizeIllumination: !lossless && (options.normalizeIllumination ?? true),

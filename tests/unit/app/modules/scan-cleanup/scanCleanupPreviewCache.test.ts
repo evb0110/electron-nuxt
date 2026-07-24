@@ -7,7 +7,10 @@ import type {
     IScanCleanupOptions,
     IScanCleanupPreviewResult,
 } from '@contracts/electronApiScanCleanup';
-import {createScanCleanupPreviewCacheKey} from '@app/modules/scan-cleanup/composables/useScanCleanupPreviewSession';
+import {
+    createScanCleanupDetailTileCacheKey,
+    createScanCleanupPreviewCacheKey,
+} from '@app/modules/scan-cleanup/composables/useScanCleanupPreviewSession';
 import {createScanCleanupPreviewCache} from '@app/modules/scan-cleanup/runtime/createScanCleanupPreviewCache';
 
 const previewOptions: IScanCleanupOptions = {
@@ -88,6 +91,25 @@ function result(raw: Uint8Array, outputs: Uint8Array[]): IScanCleanupPreviewResu
 }
 
 describe('scan cleanup renderer preview cache', () => {
+    it('keeps high-detail pans distinct while reusing the exact same viewport tile', () => {
+        const firstPan = {
+            xNormalized: 0.1,
+            yNormalized: 0.2,
+            widthNormalized: 0.4,
+            heightNormalized: 0.5,
+            rotationDegrees: 0 as const,
+        };
+        const secondPan = {
+            ...firstPan,
+            xNormalized: 0.25,
+        };
+
+        expect(createScanCleanupDetailTileCacheKey('page-1:bw', firstPan))
+            .toBe(createScanCleanupDetailTileCacheKey('page-1:bw', {...firstPan}));
+        expect(createScanCleanupDetailTileCacheKey('page-1:bw', firstPan))
+            .not.toBe(createScanCleanupDetailTileCacheKey('page-1:bw', secondPan));
+    });
+
     it('keys sidecar-rendered placement and order options but ignores renderer-only placement overrides', () => {
         const base = createScanCleanupPreviewCacheKey(1, previewOptions, '/tmp/source.pdf');
         const withAlignment = createScanCleanupPreviewCacheKey(1, {

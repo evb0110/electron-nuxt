@@ -49,12 +49,14 @@
                         <span
                             v-if="detailLoading && !detailUrls[output.metadata.half]"
                             class="preview-detail-shimmer"
+                            :style="detailStyles?.[output.metadata.half] ?? {inset: '0'}"
                             aria-hidden="true"
                         />
                         <img
                             v-if="detailUrls[output.metadata.half]"
                             class="cleaned-image preview-detail-pixel"
                             :src="detailUrls[output.metadata.half]"
+                            :style="detailStyles?.[output.metadata.half] ?? {inset: '0'}"
                             alt=""
                             aria-hidden="true"
                         >
@@ -68,7 +70,10 @@
 </template>
 
 <script setup lang="ts">
-import type {ComponentPublicInstance} from 'vue';
+import type {
+    ComponentPublicInstance,
+    CSSProperties,
+} from 'vue';
 import type {TScanCleanupOutputHalf} from '@contracts/electronApiScanCleanup';
 import type {IRenderedScanCleanupOutput} from '@app/modules/scan-cleanup/runtime/scanCleanupPreviewPresentation';
 
@@ -77,6 +82,7 @@ defineProps<{
     altByHalf: Partial<Record<TScanCleanupOutputHalf, string>>;
     detailLoading?: boolean;
     detailUrls: Partial<Record<TScanCleanupOutputHalf, string>>;
+    detailStyles?: Partial<Record<TScanCleanupOutputHalf, CSSProperties>>;
     matchPageSize: boolean;
     outputs: IRenderedScanCleanupOutput[];
 }>();

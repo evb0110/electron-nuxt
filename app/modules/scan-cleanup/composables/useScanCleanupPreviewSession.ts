@@ -90,6 +90,16 @@ export function createScanCleanupPreviewCacheKey(
     });
 }
 
+export function createScanCleanupDetailTileCacheKey(
+    sourceKey: string,
+    viewport: IScanCleanupNormalizedRect,
+) {
+    return JSON.stringify({
+        sourceKey,
+        viewport,
+    });
+}
+
 export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSessionOptions) => {
     const {t} = useTypedI18n();
     const result = shallowRef<IScanCleanupPreviewResult | null>(null);
@@ -105,7 +115,6 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
         maxEntries: 4,
         maxBytes: 48 * 1024 * 1024,
     });
-    const detailTileAliases = new Map<string, string>();
     const metadataByPage = reactive(new Map<number, IScanCleanupPreviewResult['pageMetadata']>());
     let sequence = 0;
     let detailSequence = 0;
@@ -247,7 +256,8 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
         const requestSourcePath = options.sourcePath.value;
         const documentPrior = options.documentPriorByPage.get(requestPage);
         const key = cacheKey(requestPage, requestOptions, requestSourcePath);
-        if (displayedDetailSourceKey !== detailSourceKey(key, resolveDetailOutputMode(requestPage))) {
+        const activeDetailSourceKey = detailSourceKey(key, resolveDetailOutputMode(requestPage));
+        if (displayedDetailSourceKey !== activeDetailSourceKey) {
             detailResult.value = null;
             displayedDetailSourceKey = null;
         }
@@ -330,13 +340,6 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
         });
     }
 
-    function detailTileKey(sourceKey: string, viewport: IScanCleanupNormalizedRect) {
-        return JSON.stringify({
-            sourceKey,
-            viewport,
-        });
-    }
-
     async function requestDetail(viewport: IScanCleanupNormalizedRect) {
         if (
             !options.active()
@@ -350,18 +353,16 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
         if (!capability) {
             return;
         }
+        prefetcher.supersede();
         const requestPage = options.previewPage.value;
         const requestOptions = toPlainScanCleanupOptions(options.settings);
         const requestSourcePath = options.sourcePath.value;
         const outputMode = resolveDetailOutputMode(requestPage);
         const baseKey = cacheKey(requestPage, requestOptions, requestSourcePath);
         const sourceKey = detailSourceKey(baseKey, outputMode);
-        const tileKey = detailTileKey(sourceKey, viewport);
-        const aliasedSourceKey = detailTileAliases.get(tileKey);
-        const cached = detailSourceCache.get(aliasedSourceKey ?? sourceKey);
+        const tileKey = createScanCleanupDetailTileCacheKey(sourceKey, viewport);
+        const cached = detailSourceCache.get(tileKey);
         if (cached) {
-            detailTileAliases.delete(tileKey);
-            detailTileAliases.set(tileKey, sourceKey);
             detailResult.value = cached;
             displayedDetailSourceKey = sourceKey;
             detailLoading.value = false;
@@ -390,13 +391,7 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
             if (requestSequence !== detailSequence || baseKey !== cacheKey()) {
                 return;
             }
-            detailSourceCache.set(sourceKey, next);
-            detailTileAliases.set(tileKey, sourceKey);
-            while (detailTileAliases.size > 32) {
-                const oldestKey = detailTileAliases.keys().next().value;
-                if (oldestKey === undefined) break;
-                detailTileAliases.delete(oldestKey);
-            }
+            detailSourceCache.set(tileKey, next);
             detailResult.value = next;
             displayedDetailSourceKey = sourceKey;
         } catch (caught) {
@@ -428,7 +423,6 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
     watch(options.lifecycleDocumentKey, () => {
         cache.clear();
         detailSourceCache.clear();
-        detailTileAliases.clear();
         metadataByPage.clear();
         result.value = null;
         rawResult.value = null;

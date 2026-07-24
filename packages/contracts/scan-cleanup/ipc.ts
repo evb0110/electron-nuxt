@@ -46,7 +46,7 @@ export interface IScanCleanupPreviewRequest extends IScanCleanupOwnerContext {
     documentPrior?: IScanCleanupDocumentPrior;
     documentCanvasPlan?: IScanCleanupDocumentCanvasPlan;
     detail?: {
-        /** Renderer-visible viewport, used for tile identity when native rendering is whole-page. */
+        /** Renderer-visible viewport in final intrinsic-output space; drives crop rendering and tile identity. */
         viewport: IScanCleanupNormalizedRect;
         outputMode: TScanCleanupOutputMode;
         maxPixels: number;
@@ -159,6 +159,11 @@ export interface IScanCleanupPreviewMetadata {
     /** Intrinsic dimensions of the unpadded cleaned raster. */
     outputWidthPx: number;
     outputHeightPx: number;
+    /**
+     * Actual image payload bounds inside the intrinsic cleaned raster.
+     * Absent payloads cover the complete intrinsic raster.
+     */
+    renderRegion?: IScanCleanupPixelRect;
     /** Logical matched-page canvas dimensions; never smaller than the intrinsic raster. */
     canvasWidthPx: number;
     canvasHeightPx: number;

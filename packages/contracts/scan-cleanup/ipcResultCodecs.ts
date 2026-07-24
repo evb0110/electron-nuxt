@@ -293,6 +293,9 @@ function decodePreviewMetadata(value: unknown): IScanCleanupPreviewMetadata {
         },
         outputWidthPx: decodePositiveInteger(value.outputWidthPx, 'output width'),
         outputHeightPx: decodePositiveInteger(value.outputHeightPx, 'output height'),
+        ...(value.renderRegion === undefined
+            ? {}
+            : {renderRegion: decodePreviewRect(value.renderRegion, 'render region')}),
         canvasWidthPx: decodePositiveInteger(value.canvasWidthPx, 'canvas width'),
         canvasHeightPx: decodePositiveInteger(value.canvasHeightPx, 'canvas height'),
         canvasPolicy: (value.canvasPolicy ?? 'intrinsic') as NonNullable<
@@ -369,6 +372,19 @@ function decodePreviewMetadata(value: unknown): IScanCleanupPreviewMetadata {
         || metadata.placementOffsetYPx + metadata.outputHeightPx > metadata.canvasHeightPx
     ) {
         throw new Error('invalid scan-cleanup preview intrinsic/canvas placement');
+    }
+    if (
+        metadata.renderRegion
+        && (
+            metadata.renderRegion.xPx < 0
+            || metadata.renderRegion.yPx < 0
+            || metadata.renderRegion.widthPx <= 0
+            || metadata.renderRegion.heightPx <= 0
+            || metadata.renderRegion.xPx + metadata.renderRegion.widthPx > metadata.outputWidthPx
+            || metadata.renderRegion.yPx + metadata.renderRegion.heightPx > metadata.outputHeightPx
+        )
+    ) {
+        throw new Error('invalid scan-cleanup preview render region');
     }
     return metadata;
 }

@@ -74,6 +74,67 @@ fn normalized_content_rect_round_trips_with_named_units() {
 }
 
 #[test]
+fn normalized_render_crop_is_optional_bounded_and_resolves_outward() {
+    let default_options = CleanupOptions::default();
+    assert_eq!(default_options.render_crop, None);
+
+    let options = CleanupOptions {
+        render_crop: Some(NormalizedRect {
+            x: 0.101,
+            y: 0.202,
+            width: 0.303,
+            height: 0.404,
+            rotation: OrthogonalRotation::Clockwise90,
+        }),
+        rotation: OrthogonalRotation::Clockwise90,
+        ..CleanupOptions::default()
+    };
+    options.validate().unwrap();
+    assert_eq!(
+        options.resolved_render_crop(1_000, 500),
+        Some(Rect::new(101.0, 101.0, 303.0, 203.0)),
+    );
+
+    for crop in [
+        NormalizedRect {
+            x: -0.01,
+            y: 0.0,
+            width: 0.5,
+            height: 0.5,
+            rotation: OrthogonalRotation::None,
+        },
+        NormalizedRect {
+            x: 0.75,
+            y: 0.0,
+            width: 0.5,
+            height: 0.5,
+            rotation: OrthogonalRotation::None,
+        },
+        NormalizedRect {
+            x: 0.0,
+            y: 0.0,
+            width: f64::NAN,
+            height: 0.5,
+            rotation: OrthogonalRotation::None,
+        },
+        NormalizedRect {
+            x: 0.0,
+            y: 0.0,
+            width: 0.5,
+            height: 0.5,
+            rotation: OrthogonalRotation::Clockwise90,
+        },
+    ] {
+        assert!(CleanupOptions {
+            render_crop: Some(crop),
+            ..CleanupOptions::default()
+        }
+        .validate()
+        .is_err());
+    }
+}
+
+#[test]
 fn rotation_uses_the_numeric_contract_and_accepts_legacy_scalar_strings() {
     assert_eq!(
         serde_json::from_str::<OrthogonalRotation>("90").unwrap(),

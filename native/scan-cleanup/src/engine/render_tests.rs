@@ -1912,4 +1912,212 @@ mod tests {
             .iter()
             .any(|warning| warning.contains("limited to 875.000")));
     }
+
+    #[test]
+    fn render_crop_samples_only_the_true_dpi_region_after_every_geometry_stage() {
+        let source = rotated_text_page(3.0);
+        for rotation in [
+            OrthogonalRotation::None,
+            OrthogonalRotation::Clockwise90,
+            OrthogonalRotation::Clockwise180,
+            OrthogonalRotation::Clockwise270,
+        ] {
+            let (rotated_width, rotated_height) = match rotation {
+                OrthogonalRotation::None | OrthogonalRotation::Clockwise180 => {
+                    (source.width(), source.height())
+                }
+                OrthogonalRotation::Clockwise90 | OrthogonalRotation::Clockwise270 => {
+                    (source.height(), source.width())
+                }
+            };
+            let crop = crate::NormalizedRect {
+                x: 0.2,
+                y: 0.15,
+                width: 0.45,
+                height: 0.4,
+                rotation,
+            };
+            let base = CleanupOptions {
+                dpi: 1_200.0,
+                source_dpi: Some(600.0),
+                requested_render_dpi: Some(1_200.0),
+                output_mode: OutputMode::Grayscale,
+                normalize_illumination: false,
+                crop_content: true,
+                margins_mm: None,
+                margins_pixels: Some([7.0, 9.0, 11.0, 13.0]),
+                layout: crate::LayoutMode::Single,
+                manual_skew_degrees: Some(2.0),
+                dewarp: Some(crate::DewarpOptions {
+                    top_curve: vec![
+                        Point::new(0.0, 0.0),
+                        Point::new(rotated_width as f64 / 2.0, 8.0),
+                        Point::new(rotated_width as f64, 0.0),
+                    ],
+                    bottom_curve: vec![
+                        Point::new(0.0, rotated_height as f64),
+                        Point::new(
+                            rotated_width as f64 / 2.0,
+                            rotated_height as f64 - 8.0,
+                        ),
+                        Point::new(rotated_width as f64, rotated_height as f64),
+                    ],
+                    depth: 0.08,
+                }),
+                rotation,
+                match_page_size: false,
+                ..CleanupOptions::default()
+            };
+            let full = clean_page(&source, &base, 0)
+                .unwrap()
+                .outputs
+                .remove(0);
+            let tile = clean_page(
+                &source,
+                &CleanupOptions {
+                    render_crop: Some(crop),
+                    ..base
+                },
+                0,
+            )
+            .unwrap()
+            .outputs
+            .remove(0);
+            let region = tile.metadata.render_region.unwrap();
+
+            assert_eq!(tile.metadata.output_width, full.metadata.output_width);
+            assert_eq!(tile.metadata.output_height, full.metadata.output_height);
+            assert_eq!(tile.metadata.crop_rect, full.metadata.crop_rect);
+            assert_eq!(tile.metadata.render_dpi, 1_200.0);
+            assert_eq!(tile.metadata.requested_render_dpi, 1_200.0);
+            assert!(!tile.metadata.raster_scale_limited);
+            assert_eq!(tile.image.width(), region.width as usize);
+            assert_eq!(tile.image.height(), region.height as usize);
+            assert!(tile.image.width() * tile.image.height() <= 4_000_000);
+            let serialized_metadata = serde_json::to_value(&tile.metadata).unwrap();
+            assert_eq!(
+                serialized_metadata["renderRegion"]["xPx"],
+                serde_json::json!(region.x),
+            );
+            assert!(serialized_metadata.get("render_region").is_none());
+
+            for y in 0..tile.image.height() {
+                for x in 0..tile.image.width() {
+                    assert_eq!(
+                        tile.image.get(x, y),
+                        full.image.get(region.x as usize + x, region.y as usize + y),
+                        "rotation={rotation:?}, x={x}, y={y}",
+                    );
+                }
+            }
+            let tile_grid = tile.metadata.dewarp_mapping.unwrap();
+            assert_eq!(
+                tile_grid.output_origin,
+                Point::new(
+                    full.metadata.crop_rect.x + region.x,
+                    full.metadata.crop_rect.y + region.y,
+                ),
+            );
+            assert_eq!(
+                (tile_grid.output_width, tile_grid.output_height),
+                (tile.image.width(), tile.image.height()),
+            );
+        }
+
+        let crop = crate::NormalizedRect {
+            x: 0.2,
+            y: 0.15,
+            width: 0.45,
+            height: 0.4,
+            rotation: OrthogonalRotation::None,
+        };
+        let bw_options = CleanupOptions {
+            dpi: 600.0,
+            source_dpi: Some(300.0),
+            requested_render_dpi: Some(600.0),
+            output_mode: OutputMode::Bw,
+            normalize_illumination: false,
+            crop_content: false,
+            layout: crate::LayoutMode::Single,
+            ..CleanupOptions::default()
+        };
+        let full_bw = clean_page(&source, &bw_options, 0)
+            .unwrap()
+            .outputs
+            .remove(0);
+        let tile_bw = clean_page(
+            &source,
+            &CleanupOptions {
+                render_crop: Some(crop),
+                ..bw_options.clone()
+            },
+            0,
+        )
+        .unwrap()
+        .outputs
+        .remove(0);
+        let region = tile_bw.metadata.render_region.unwrap();
+        for y in 0..tile_bw.image.height() {
+            for x in 0..tile_bw.image.width() {
+                assert_eq!(
+                    tile_bw.image.get(x, y),
+                    full_bw
+                        .image
+                        .get(region.x as usize + x, region.y as usize + y),
+                    "BW processing apron must make crop and full-page interiors identical",
+                );
+            }
+        }
+
+        let affine_options = CleanupOptions {
+            output_mode: OutputMode::Grayscale,
+            normalize_illumination: false,
+            crop_content: false,
+            layout: crate::LayoutMode::Single,
+            ..CleanupOptions::default()
+        };
+        let full_affine = clean_page(&source, &affine_options, 0)
+            .unwrap()
+            .outputs
+            .remove(0);
+        let tile_affine = clean_page(
+            &source,
+            &CleanupOptions {
+                render_crop: Some(crop),
+                ..affine_options
+            },
+            0,
+        )
+        .unwrap()
+        .outputs
+        .remove(0);
+        let tile_forward = tile_affine.metadata.forward_transform.unwrap();
+        let full_forward = full_affine.metadata.forward_transform.unwrap();
+        for row in 0..3 {
+            for column in 0..3 {
+                assert!(
+                    (tile_forward.matrix[row][column] - full_forward.matrix[row][column]).abs()
+                        < 1e-9,
+                    "crop metadata keeps the canonical intrinsic-output affine",
+                );
+            }
+        }
+
+        let blank = GrayImage::new(800, 1_000, 255);
+        let blank_crop = clean_page(
+            &blank,
+            &CleanupOptions {
+                render_crop: Some(crop),
+                skip_blank_pages: true,
+                normalize_illumination: false,
+                crop_content: false,
+                layout: crate::LayoutMode::Single,
+                ..CleanupOptions::default()
+            },
+            0,
+        )
+        .unwrap();
+        assert_eq!(blank_crop.outputs.len(), 1);
+        assert_eq!(blank_crop.blank_outputs_skipped, 0);
+    }
 }
