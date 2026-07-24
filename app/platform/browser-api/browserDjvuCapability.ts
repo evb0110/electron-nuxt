@@ -55,7 +55,6 @@ import {
     type IBrowserDjvuPageMetrics as IDjvuPageMetrics,
 } from '@app/platform/browser-api/browserDjvuConversionPolicy';
 import { assertBrowserDjvuRasterDimensions } from '@app/platform/browser-api/assertBrowserDjvuRasterDimensions';
-import { getPerformanceProfile } from '@app/utils/performanceProfile';
 export {
     resolveBrowserDjvuCompactExportPlan,
     resolveBrowserDjvuConversionPreflight,
@@ -997,6 +996,7 @@ export const browserDjvuCapability: IDjvuCapability = {
                 percent: 0,
             });
             const renderSettings = resolveBrowserDjvuPdfRenderSettings(options);
+            const { getPerformanceProfile } = await import('@app/utils/performanceProfile');
             const renderConcurrency = resolveBrowserDjvuPdfRenderConcurrency(pageSizes, undefined, sourceBytes, getPerformanceProfile().tier);
             BrowserLogger.info('djvu-browser', 'Starting browser DjVu PDF conversion', {
                 jobId,
