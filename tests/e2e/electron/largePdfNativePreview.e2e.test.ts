@@ -68,7 +68,7 @@ function resolveNativeLargePdfFixtureAvailability(): IFixtureAvailability {
     if (size < PDFJS_NATIVE_PREVIEW_MIN_BYTES) {
         return {
             path: null,
-            reason: `Native large PDF fixture is ${formatBytes(size)}; native preview E2E requires at least ${formatBytes(PDFJS_NATIVE_PREVIEW_MIN_BYTES)}. Set EVB_E2E_LARGE_PDF_FIXTURE to an oversized PDF and ${NATIVE_LARGE_PDF_REQUIRE_ENV_VAR}=1 to require this lane.`,
+            reason: `Native large PDF fixture is ${formatBytes(size)}; native preview E2E requires at least ${formatBytes(PDFJS_NATIVE_PREVIEW_MIN_BYTES)}. Set EVB_E2E_LARGE_PDF_FIXTURE to an oversized PDF (generate one in under a second with scripts/generate-large-pdf-e2e-fixture.mjs) and ${NATIVE_LARGE_PDF_REQUIRE_ENV_VAR}=1 to require this lane.`,
             required,
         };
     }

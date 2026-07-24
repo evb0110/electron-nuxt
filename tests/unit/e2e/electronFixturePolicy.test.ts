@@ -451,6 +451,19 @@ describe('Electron E2E fixture policy', () => {
         expect(source).toContain('PDFJS_NATIVE_PREVIEW_MIN_BYTES');
         expect(source).toContain('EVB_E2E_REQUIRE_NATIVE_LARGE_PDF_FIXTURE');
         expect(source).toContain('Set EVB_E2E_LARGE_PDF_FIXTURE to an oversized PDF');
+        expect(source).toContain('scripts/generate-large-pdf-e2e-fixture.mjs');
+    });
+
+    it('documents the native-preview lane skip and its self-provisioning fixture in the lane README', async () => {
+        const readme = await readFile(
+            'tests/fixtures/electron/large-pdf-fixtures/README.md',
+            'utf8',
+        );
+
+        expect(readme).toContain('EVB_E2E_LARGE_PDF_FIXTURE');
+        expect(readme).toContain('EVB_E2E_REQUIRE_NATIVE_LARGE_PDF_FIXTURE=1');
+        expect(readme).toContain('scripts/generate-large-pdf-e2e-fixture.mjs');
+        expect(readme).toMatch(/skips? permanently/i);
     });
 });
 
