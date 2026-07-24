@@ -122,11 +122,32 @@ function setCanvasHost(
     width: 100%;
     height: 100%;
     background: var(--ui-bg-elevated);
-    animation: document-thumbnail-pulse 1.2s ease-in-out infinite alternate;
+    animation:
+        document-thumbnail-pulse
+        var(--app-animation-duration-skeleton)
+        ease-in-out infinite alternate;
+}
+
+:global(html.app-low-graphics) .document-thumbnail-list__item {
+    will-change: auto;
+}
+
+:global(html.app-low-graphics) .document-thumbnail-list__placeholder {
+    animation: none;
 }
 
 @keyframes document-thumbnail-pulse {
     from { opacity: 0.52; }
     to { opacity: 0.86; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .document-thumbnail-list__item {
+        will-change: auto;
+    }
+
+    .document-thumbnail-list__placeholder {
+        animation: none;
+    }
 }
 </style>

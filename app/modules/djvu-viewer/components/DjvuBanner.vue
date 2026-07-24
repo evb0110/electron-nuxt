@@ -65,13 +65,17 @@ function dismiss() {
     max-width: min(90%, 40rem);
     padding: var(--app-space-sm) var(--app-space-lg);
     background: color-mix(in srgb, var(--ui-bg-elevated) 88%, transparent);
-    backdrop-filter: blur(8px);
+    backdrop-filter: blur(var(--app-backdrop-blur-md));
     border: 1px solid var(--ui-border);
     border-radius: var(--app-radius-full);
     box-shadow: var(--shadow-popup);
     font-size: var(--app-text-size-body-sm);
     line-height: var(--app-line-height-snug);
     white-space: nowrap;
+}
+
+:global(html.app-low-graphics) .djvu-banner {
+    backdrop-filter: none;
 }
 
 .djvu-banner-icon {

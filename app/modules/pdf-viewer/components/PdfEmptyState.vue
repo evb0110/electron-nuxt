@@ -1060,6 +1060,11 @@ watch(() => openInProgress, (isOpening) => {
     }
 }
 
+:global(html.app-low-graphics) .recent-skeleton-icon::after,
+:global(html.app-low-graphics) .recent-skeleton-line::after {
+    animation: none;
+}
+
 @media (prefers-reduced-motion: reduce) {
     .recent-skeleton-icon::after,
     .recent-skeleton-line::after {
