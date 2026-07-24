@@ -198,7 +198,7 @@ export interface IScanCleanupService {
     pruneGeneratedOutputs: (openPdfPaths: string[]) => Promise<number>;
 }
 
-export function resolveScanCleanupRuntimePolicy(
+function resolveScanCleanupRuntimePolicy(
     profile: IHostResourceProfileSnapshot,
 ): IScanCleanupRuntimePolicy {
     return {rasterConcurrency: profile.tier === 'low'
