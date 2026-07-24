@@ -382,6 +382,12 @@ jobs:
             cargo +nightly fuzz run "$target" --fuzz-dir native/pdf-page-ops/fuzz -- -max_total_time=15
           done
 
+      - name: Fuzz JBIG2 codec
+        run: |
+          for target in decode roundtrip; do
+            cargo +nightly fuzz run "$target" --fuzz-dir native/jbig2-codec/fuzz -- -max_total_time=15
+          done
+
   manual_landing:
     name: Landing Quality Gates
     if: ${{ github.event_name == 'workflow_dispatch' }}

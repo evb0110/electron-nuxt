@@ -18,6 +18,10 @@ import {
     resolve,
 } from 'node:path';
 import {fileURLToPath} from 'node:url';
+import {
+    assertStagedCargoArtifactFresh,
+    collectCargoSourceInputs,
+} from '../cargo-artifacts.mjs';
 
 const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const defaultConfigPath = join(projectRoot, '.devkit/scan-cleanup-corpus.json');
@@ -38,6 +42,18 @@ const defaultCombineBinary = join(
     'bin',
     `evb-pdf-image-combine${binaryExtension}`,
 );
+const nativeTools = [
+    {
+        binaryPath: defaultScanCleanupBinary,
+        buildCommand: 'pnpm run build:scan-cleanup',
+        manifestPath: join(projectRoot, 'native/scan-cleanup/Cargo.toml'),
+    },
+    {
+        binaryPath: defaultCombineBinary,
+        buildCommand: 'pnpm run build:pdf-image-combine',
+        manifestPath: join(projectRoot, 'native/pdf-image-combine/Cargo.toml'),
+    },
+];
 const MAX_DIMENSION_PX = 40_000;
 const MAX_BILEVEL_PIXELS = 160_000_000;
 const MAX_CONTINUOUS_TONE_PIXELS = 80_000_000;
@@ -118,6 +134,33 @@ async function run(command, args, options = {}) {
             });
         });
     });
+}
+
+async function assertCorpusNativeBinariesFresh() {
+    for (const tool of nativeTools) {
+        if (!await readableFile(tool.binaryPath)) {
+            throw new Error(`Missing staged release binary: ${tool.binaryPath}\nRun ${tool.buildCommand} first.`);
+        }
+        const cargoMetadata = await run('cargo', [
+            'metadata',
+            '--manifest-path',
+            tool.manifestPath,
+            '--format-version',
+            '1',
+            '--locked',
+            '--no-deps',
+        ]);
+        let parsedMetadata;
+        try {
+            parsedMetadata = JSON.parse(cargoMetadata.stdout);
+        } catch (error) {
+            throw new Error(`Cargo metadata returned invalid JSON for ${tool.manifestPath}`, {cause: error});
+        }
+        await assertStagedCargoArtifactFresh({
+            ...tool,
+            sourcePaths: collectCargoSourceInputs(parsedMetadata, tool.manifestPath),
+        });
+    }
 }
 
 function assertionReporter(fixtureId) {
@@ -653,20 +696,13 @@ async function main() {
     if (!Array.isArray(config.fixtures) || config.fixtures.length === 0) {
         throw new Error('Corpus config must contain a non-empty fixtures array');
     }
+    await assertCorpusNativeBinariesFresh();
     const workRoot = args.workDir ?? join(
         projectRoot,
         '.devkit',
         `scan-cleanup-corpus-${new Date().toISOString().replaceAll(/[:.]/gu, '-')}`,
     );
     await mkdir(workRoot, {recursive: true});
-    for (const binary of [
-        defaultScanCleanupBinary,
-        defaultCombineBinary,
-    ]) {
-        if (!await readableFile(binary)) {
-            throw new Error(`Missing staged release binary: ${binary}\nRun pnpm run build:scan-cleanup and pnpm run build:pdf-image-combine first.`);
-        }
-    }
     const reports = [];
     for (const fixture of config.fixtures) {
         if (
