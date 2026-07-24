@@ -1,4 +1,5 @@
 import {
+    beforeEach,
     describe,
     expect,
     it,
@@ -8,7 +9,14 @@ import type {WebContents} from 'electron';
 import {createScanCleanupService} from '@electron/features/scan-cleanup/createScanCleanupService';
 
 const mocks = vi.hoisted(() => {
-    const runWorker = vi.fn(async () => ({
+    const acquire = vi.fn(async () => ({release: vi.fn()}));
+    const runWorker = vi.fn(async (
+        _request: unknown,
+        _paths: unknown,
+        _runtimePolicy: unknown,
+        _signal: unknown,
+        _onProgress: unknown,
+    ) => ({
         inputPages: 1,
         outputPages: 1,
         spreadsSplit: 0,
@@ -19,16 +27,22 @@ const mocks = vi.hoisted(() => {
         blankPagesSkipped: 0,
         warnings: [],
     }));
-    return {runWorker};
+    return {
+        acquire,
+        resourceTier: 'high' as 'low' | 'medium' | 'high',
+        runWorker,
+    };
 });
 
 vi.mock('@electron/features/scan-cleanup/runScanCleanupWorkerTask', () => (
     {runScanCleanupWorkerTask: mocks.runWorker}
 ));
 vi.mock('@electron/resources/jobBroker', () => {
-    const acquire = vi.fn(async () => ({release: vi.fn()}));
-    return {mainJobBroker: {acquire}};
+    return {mainJobBroker: {acquire: mocks.acquire}};
 });
+vi.mock('@electron/resources/hostResourceProfile', () => (
+    {getHostResourceProfileSnapshot: () => ({tier: mocks.resourceTier})}
+));
 vi.mock('@electron/pdf/nativeToolPaths', () => {
     const getPdfNativeToolPaths = () => ({
         qpdf: '/qpdf',
@@ -61,6 +75,30 @@ const owner = {
     ownerId: 'cleanup-owner',
     documentRevision: 'revision-1',
 };
+const startRequest = {
+    ...owner,
+    sourcePdfPath: '/source.pdf',
+    sourcePageNumbers: [3],
+    options: {
+        preserveOriginalQuality: false,
+        layoutMode: 'auto' as const,
+        outputMode: 'color' as const,
+        readingOrder: 'ltr' as const,
+        thickness: 0,
+        crop: true,
+        matchPageSize: true,
+        pageAlignment: 'top-center' as const,
+        marginsMm: {
+            leftMm: 5,
+            topMm: 5,
+            rightMm: 5,
+            bottomMm: 5,
+        },
+        despeckle: true,
+        skipBlankPages: false,
+        pageOverrides: {},
+    },
+};
 
 function sender(): WebContents {
     return {
@@ -74,33 +112,47 @@ function sender(): WebContents {
 }
 
 describe('scan cleanup service', () => {
+    beforeEach(() => {
+        mocks.acquire.mockClear();
+        mocks.runWorker.mockClear();
+        mocks.resourceTier = 'high';
+    });
+
+    it.each([
+        [
+            'low',
+            1,
+        ],
+        [
+            'medium',
+            2,
+        ],
+        [
+            'high',
+            3,
+        ],
+    ] as const)('uses %s-tier raster fan-out for worker policy and broker admission', async (
+        tier,
+        rasterConcurrency,
+    ) => {
+        mocks.resourceTier = tier;
+        const service = createScanCleanupService();
+        await service.start(sender(), startRequest);
+
+        await vi.waitFor(() => expect(mocks.runWorker).toHaveBeenCalledOnce());
+        expect(mocks.acquire).toHaveBeenCalledWith(expect.objectContaining({resources: {
+            cpuTokens: rasterConcurrency,
+            estimatedResidentBytes: rasterConcurrency * 128 * 1024 * 1024,
+            nativeProcesses: rasterConcurrency,
+            ioWeight: 4,
+        }}));
+        expect(mocks.runWorker.mock.calls[0]![2]).toEqual({rasterConcurrency});
+    });
+
     it('treats cancellation of an already-terminal owned job as a successful no-op', async () => {
         const service = createScanCleanupService();
         const webContents = sender();
-        const started = await service.start(webContents, {
-            ...owner,
-            sourcePdfPath: '/source.pdf',
-            sourcePageNumbers: [3],
-            options: {
-                preserveOriginalQuality: false,
-                layoutMode: 'auto',
-                outputMode: 'color',
-                readingOrder: 'ltr',
-                thickness: 0,
-                crop: true,
-                matchPageSize: true,
-                pageAlignment: 'top-center',
-                marginsMm: {
-                    leftMm: 5,
-                    topMm: 5,
-                    rightMm: 5,
-                    bottomMm: 5,
-                },
-                despeckle: true,
-                skipBlankPages: false,
-                pageOverrides: {},
-            },
-        });
+        const started = await service.start(webContents, startRequest);
         expect(started.started).toBe(true);
         if (!started.started) throw new Error('Expected scan cleanup to start');
 
