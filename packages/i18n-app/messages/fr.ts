@@ -1456,6 +1456,7 @@ export default {
         'performanceModeLow': 'Faible — réduire les tâches en arrière-plan',
         'performanceModeMedium': 'Moyen — équilibré',
         'performanceModeHigh': 'Élevé — vitesse maximale',
+        'performanceRestartNotice': 'Redémarrez l’application pour appliquer cette modification.',
     },
     'updates': {
         'checkingTitle': 'Recherche de mises à jour',

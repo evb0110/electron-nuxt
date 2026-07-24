@@ -1443,6 +1443,7 @@ export default {
         'performanceModeLow': 'Bassa — riduci il lavoro in background',
         'performanceModeMedium': 'Media — bilanciata',
         'performanceModeHigh': 'Alta — massimizza la velocità',
+        'performanceRestartNotice': 'Riavvia l’app per applicare questa modifica.',
     },
     'updates': {
         'checkingTitle': 'Controllo aggiornamenti',

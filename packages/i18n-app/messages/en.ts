@@ -1443,6 +1443,7 @@ export default {
         'performanceModeLow': 'Low — minimize background work',
         'performanceModeMedium': 'Medium — balanced',
         'performanceModeHigh': 'High — maximum speed',
+        'performanceRestartNotice': 'Restart to apply this change.',
     },
     'updates': {
         'checkingTitle': 'Checking for updates',
