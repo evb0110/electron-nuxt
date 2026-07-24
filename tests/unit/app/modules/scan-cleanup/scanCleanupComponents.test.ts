@@ -1838,6 +1838,7 @@ describe('Scan cleanup components', () => {
         expect(scopeGroup).not.toBeNull();
         expect(harness.host.querySelector('[role="tablist"]')).toBeNull();
         expect(harness.host.querySelectorAll('[aria-label="Page layout"]')).toHaveLength(1);
+        expect(harness.host.querySelector('[aria-label="Output mode for pages"]')).toBeNull();
         expect(harness.host.querySelector('[data-override-marker]')).toBeNull();
         expect(harness.host.querySelector('[data-reset-override]')).toBeNull();
         expect(harness.host.querySelector('[data-override-count="layout"]')?.textContent).toBe('1');
@@ -1872,6 +1873,12 @@ describe('Scan cleanup components', () => {
         const outputMode = harness.host.querySelector<HTMLSelectElement>(
             '[aria-label="Output mode for pages"]',
         )!;
+        const placement = harness.host.querySelector<HTMLElement>(
+            '[role="radiogroup"][aria-label="Content placement"]',
+        )!;
+        expect(outputMode).not.toBeNull();
+        expect(placement.compareDocumentPosition(outputMode) & Node.DOCUMENT_POSITION_FOLLOWING)
+            .toBeTruthy();
         expect(Array.from(outputMode.options).map(option => option.value)).toEqual([
             'mixed-values',
             'auto',
@@ -1903,6 +1910,7 @@ describe('Scan cleanup components', () => {
         expect(settingsScope.value).toBe('page');
         expect(harness.host.querySelector('[data-customized-scope="page"] .sr-only')?.textContent)
             .toBe('This page has custom settings');
+        expect(harness.host.querySelector('[aria-label="Output mode for pages"]')).not.toBeNull();
         expect(harness.host.querySelector('#scan-cleanup-apply-page-hint')).toBeNull();
         layout.value = 'keep-left';
         layout.dispatchEvent(new Event('change', {bubbles: true}));

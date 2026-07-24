@@ -103,51 +103,6 @@
                     @update:model-value="$emit('update-layout', $event)"
                 />
             </div>
-            <div v-if="scope !== 'all'" class="scan-cleanup-selection-field">
-                <div class="scan-cleanup-selection-field-label">
-                    <div class="scan-cleanup-control-label">
-                        <span>{{ t('scanCleanup.output.pageLabel') }}</span>
-                        <span
-                            v-if="overrideCounts.outputMode > 0"
-                            class="scan-cleanup-override-marker"
-                            data-override-marker="output-mode"
-                        ><span aria-hidden="true" />{{ t('scanCleanup.settings.override') }}</span>
-                    </div>
-                    <div class="scan-cleanup-control-affordances">
-                        <UBadge v-if="outputModeOverride.mixed" color="neutral" variant="soft" size="sm">
-                            {{ t('scanCleanup.settings.mixed') }}
-                        </UBadge>
-                        <UButton
-                            v-if="overrideCounts.outputMode > 0"
-                            type="button"
-                            color="primary"
-                            variant="ghost"
-                            size="xs"
-                            square
-                            icon="i-ph-arrow-u-up-left"
-                            data-reset-override="output-mode"
-                            :aria-label="t('scanCleanup.settings.resetToDocument')"
-                            @click="$emit('reset-control-override', 'output-mode')"
-                        />
-                    </div>
-                </div>
-                <USelect
-                    :model-value="outputModeOverrideModelValue"
-                    :items="outputModeOverrideItems"
-                    value-key="value"
-                    class="w-full"
-                    :aria-label="t('scanCleanup.output.pageLabel')"
-                    :title="settings.preserveOriginalQuality
-                        ? t('scanCleanup.pages.outputModeLosslessControlHint')
-                        : undefined"
-                    :disabled="settings.preserveOriginalQuality === true"
-                    @update:model-value="$emit('update-output-mode', $event)"
-                />
-                <p
-                    v-if="settings.preserveOriginalQuality"
-                    class="scan-cleanup-lossless-explanation"
-                >{{ t('scanCleanup.pages.outputModeLosslessControlHint') }}</p>
-            </div>
             <div class="scan-cleanup-selection-field">
                 <div class="scan-cleanup-selection-field-label">
                     <div class="scan-cleanup-control-label">
@@ -391,6 +346,52 @@
                 <p v-if="!settings.matchPageSize" class="scan-cleanup-selection-hint">
                     {{ t('scanCleanup.settings.enableMatchPageSize') }}
                 </p>
+            </div>
+
+            <div v-if="scope !== 'all'" class="scan-cleanup-selection-field">
+                <div class="scan-cleanup-selection-field-label">
+                    <div class="scan-cleanup-control-label">
+                        <span>{{ t('scanCleanup.output.pageLabel') }}</span>
+                        <span
+                            v-if="overrideCounts.outputMode > 0"
+                            class="scan-cleanup-override-marker"
+                            data-override-marker="output-mode"
+                        ><span aria-hidden="true" />{{ t('scanCleanup.settings.override') }}</span>
+                    </div>
+                    <div class="scan-cleanup-control-affordances">
+                        <UBadge v-if="outputModeOverride.mixed" color="neutral" variant="soft" size="sm">
+                            {{ t('scanCleanup.settings.mixed') }}
+                        </UBadge>
+                        <UButton
+                            v-if="overrideCounts.outputMode > 0"
+                            type="button"
+                            color="primary"
+                            variant="ghost"
+                            size="xs"
+                            square
+                            icon="i-ph-arrow-u-up-left"
+                            data-reset-override="output-mode"
+                            :aria-label="t('scanCleanup.settings.resetToDocument')"
+                            @click="$emit('reset-control-override', 'output-mode')"
+                        />
+                    </div>
+                </div>
+                <USelect
+                    :model-value="outputModeOverrideModelValue"
+                    :items="outputModeOverrideItems"
+                    value-key="value"
+                    class="w-full"
+                    :aria-label="t('scanCleanup.output.pageLabel')"
+                    :title="settings.preserveOriginalQuality
+                        ? t('scanCleanup.pages.outputModeLosslessControlHint')
+                        : undefined"
+                    :disabled="settings.preserveOriginalQuality === true"
+                    @update:model-value="$emit('update-output-mode', $event)"
+                />
+                <p
+                    v-if="settings.preserveOriginalQuality"
+                    class="scan-cleanup-lossless-explanation"
+                >{{ t('scanCleanup.pages.outputModeLosslessControlHint') }}</p>
             </div>
 
             <div class="scan-cleanup-apply-page-area">
