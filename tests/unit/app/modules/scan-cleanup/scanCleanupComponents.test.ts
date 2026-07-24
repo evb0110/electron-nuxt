@@ -20,6 +20,7 @@ import {
 import type {
     IScanCleanupNormalizedRect,
     IScanCleanupNormalizedSplit,
+    IScanCleanupPreviewRequest,
     IScanCleanupPreviewResult,
     TScanCleanupOutputHalf,
     TScanCleanupPageAlignment,
@@ -716,9 +717,12 @@ function mockPreviewGeometry(host: HTMLElement, canvasRects: DOMRect[]) {
 }
 
 function mountPreviewZoomHarness(options: {
+    canvasRect?: (index: number, scale: number, panX: number, panY: number) => DOMRect;
     detailResult?: IScanCleanupPreviewResult | null;
     detailLoading?: boolean;
-    onRequestDetail?: (viewport: IScanCleanupNormalizedRect) => void;
+    onRequestDetail?: (
+        viewports: NonNullable<IScanCleanupPreviewRequest['detail']>['viewports'],
+    ) => void;
     result?: IScanCleanupPreviewResult;
     viewMode?: 'original' | 'cleaned';
 } = {}) {
@@ -774,6 +778,9 @@ function mountPreviewZoomHarness(options: {
             const translation = stage.style.transform.match(/translate3d\(([^p]+)px, ([^p]+)px/);
             const panX = Number(translation?.[1] ?? 0);
             const panY = Number(translation?.[2] ?? 0);
+            if (options.canvasRect) {
+                return options.canvasRect(index, scale, panX, panY);
+            }
             const single = previewResult.outputs.length === 1;
             const baseWidth = single ? 160 : 250;
             const baseHeight = 400;
@@ -2167,7 +2174,9 @@ describe('Scan cleanup components', () => {
     it('debounces a non-blocking high-detail viewport request and shimmers over the base preview', async () => {
         vi.useFakeTimers();
         try {
-            const requestDetail = vi.fn<(viewport: IScanCleanupNormalizedRect) => void>();
+            const requestDetail = vi.fn<(
+                viewports: NonNullable<IScanCleanupPreviewRequest['detail']>['viewports'],
+            ) => void>();
             const harness = mountPreviewZoomHarness({
                 detailLoading: true,
                 onRequestDetail: requestDetail,
@@ -2198,8 +2207,8 @@ describe('Scan cleanup components', () => {
             await nextTick();
 
             expect(requestDetail).toHaveBeenCalledOnce();
-            expect(requestDetail).toHaveBeenCalledWith(expect.objectContaining({rotationDegrees: 90}));
-            const viewport = requestDetail.mock.calls[0]![0];
+            expect(requestDetail).toHaveBeenCalledWith({full: expect.objectContaining({rotationDegrees: 90})});
+            const viewport = requestDetail.mock.calls[0]![0].full!;
             expect(viewport.xNormalized).toBeGreaterThanOrEqual(0);
             expect(viewport.yNormalized).toBeGreaterThanOrEqual(0);
             expect(viewport.xNormalized + viewport.widthNormalized).toBeLessThanOrEqual(1);
@@ -2241,10 +2250,12 @@ describe('Scan cleanup components', () => {
         expect(tile?.style.height).toBe('50%');
     });
 
-    it('keeps the complete base preview for split spreads with no ambiguous crop request', async () => {
+    it('requests distinct output-local crops for both visible spread halves', async () => {
         vi.useFakeTimers();
         try {
-            const requestDetail = vi.fn<(viewport: IScanCleanupNormalizedRect) => void>();
+            const requestDetail = vi.fn<(
+                viewports: NonNullable<IScanCleanupPreviewRequest['detail']>['viewports'],
+            ) => void>();
             const harness = mountPreviewZoomHarness({
                 detailLoading: true,
                 onRequestDetail: requestDetail,
@@ -2262,9 +2273,52 @@ describe('Scan cleanup components', () => {
             vi.advanceTimersByTime(300);
             await nextTick();
 
-            expect(requestDetail).not.toHaveBeenCalled();
-            expect(harness.host.querySelectorAll('.preview-detail-shimmer')).toHaveLength(0);
+            expect(requestDetail).toHaveBeenCalledOnce();
+            const viewports = requestDetail.mock.calls[0]![0];
+            expect(viewports.left).toBeDefined();
+            expect(viewports.right).toBeDefined();
+            expect(viewports.left?.xNormalized).toBeGreaterThan(viewports.right?.xNormalized ?? 1);
+            expect(viewports.left?.xNormalized).not.toBe(viewports.right?.xNormalized);
+            expect(harness.host.querySelectorAll('.preview-detail-shimmer')).toHaveLength(2);
             expect(harness.host.querySelectorAll('.cleaned-image:not(.preview-detail-pixel)')).toHaveLength(2);
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it('omits an offscreen spread half from the batched detail request', async () => {
+        vi.useFakeTimers();
+        try {
+            const requestDetail = vi.fn<(
+                viewports: NonNullable<IScanCleanupPreviewRequest['detail']>['viewports'],
+            ) => void>();
+            const harness = mountPreviewZoomHarness({
+                canvasRect: index => index === 0
+                    ? domRect(0, 0, 250, 400)
+                    : domRect(700, 0, 250, 400),
+                onRequestDetail: requestDetail,
+                viewMode: 'cleaned',
+            });
+
+            harness.surface.dispatchEvent(new WheelEvent('wheel', {
+                bubbles: true,
+                cancelable: true,
+                clientX: 250,
+                clientY: 200,
+                deltaY: -1_200,
+            }));
+            await nextTick();
+            vi.advanceTimersByTime(300);
+            await nextTick();
+
+            expect(requestDetail).toHaveBeenCalledOnce();
+            expect(requestDetail.mock.calls[0]![0]).toEqual({left: {
+                xNormalized: 0,
+                yNormalized: 0,
+                widthNormalized: 1,
+                heightNormalized: 1,
+                rotationDegrees: 0,
+            }});
         } finally {
             vi.useRealTimers();
         }

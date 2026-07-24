@@ -2,7 +2,6 @@ import type {
     IScanCleanupOptions,
     IScanCleanupDocumentPrior,
     IScanCleanupDocumentCanvasPlan,
-    IScanCleanupNormalizedRect,
     IScanCleanupRawPreviewResult,
     IScanCleanupPreviewRequest,
     IScanCleanupPreviewResult,
@@ -92,11 +91,15 @@ export function createScanCleanupPreviewCacheKey(
 
 export function createScanCleanupDetailTileCacheKey(
     sourceKey: string,
-    viewport: IScanCleanupNormalizedRect,
+    viewports: NonNullable<IScanCleanupPreviewRequest['detail']>['viewports'],
 ) {
     return JSON.stringify({
         sourceKey,
-        viewport,
+        viewports: {
+            ...(viewports.full === undefined ? {} : {full: viewports.full}),
+            ...(viewports.left === undefined ? {} : {left: viewports.left}),
+            ...(viewports.right === undefined ? {} : {right: viewports.right}),
+        },
     });
 }
 
@@ -336,11 +339,12 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
         return JSON.stringify({
             baseKey,
             outputMode,
-            maxPixels: 4_000_000,
         });
     }
 
-    async function requestDetail(viewport: IScanCleanupNormalizedRect) {
+    async function requestDetail(
+        viewports: NonNullable<IScanCleanupPreviewRequest['detail']>['viewports'],
+    ) {
         if (
             !options.active()
             || !options.sourcePath.value
@@ -360,7 +364,7 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
         const outputMode = resolveDetailOutputMode(requestPage);
         const baseKey = cacheKey(requestPage, requestOptions, requestSourcePath);
         const sourceKey = detailSourceKey(baseKey, outputMode);
-        const tileKey = createScanCleanupDetailTileCacheKey(sourceKey, viewport);
+        const tileKey = createScanCleanupDetailTileCacheKey(sourceKey, viewports);
         const cached = detailSourceCache.get(tileKey);
         if (cached) {
             detailResult.value = cached;
@@ -383,9 +387,8 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
                     ? {}
                     : {documentCanvasPlan: options.documentCanvasPlan.value}),
                 detail: {
-                    viewport,
+                    viewports,
                     outputMode,
-                    maxPixels: 4_000_000,
                 },
             }));
             if (requestSequence !== detailSequence || baseKey !== cacheKey()) {

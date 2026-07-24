@@ -16,6 +16,19 @@ enum BackgroundModel {
     Reconstruction { image: GrayImage, floor: f64 },
 }
 
+#[derive(Clone, Debug)]
+pub(crate) struct ReusableIlluminationModel {
+    background: BackgroundModel,
+    color_policy: ReusableColorPolicy,
+}
+
+#[derive(Clone, Copy, Debug)]
+enum ReusableColorPolicy {
+    Background,
+    Conservative { low: f64, high: f64 },
+    Unchanged,
+}
+
 #[derive(Clone, Copy, Debug)]
 struct SurfaceDiagnostics {
     accepted_samples: usize,
@@ -72,6 +85,128 @@ fn background_model(source: &GrayImage, picture_mask: Option<&BinaryImage>) -> B
         }
         None => reconstruction_fallback(candidate),
     }
+}
+
+pub(crate) fn reusable_illumination_model(source: &GrayImage) -> ReusableIlluminationModel {
+    let background = background_model(source, None);
+    let color_policy = if paper_background_plausible(source, &background) {
+        ReusableColorPolicy::Background
+    } else {
+        let mut values = source
+            .data()
+            .iter()
+            .map(|&value| f64::from(value))
+            .collect::<Vec<_>>();
+        let low = percentile(&mut values, 0.02);
+        let high = percentile(&mut values, 0.98);
+        if high - low < 48.0 || (low <= 12.0 && high >= 243.0) {
+            ReusableColorPolicy::Unchanged
+        } else {
+            ReusableColorPolicy::Conservative { low, high }
+        }
+    };
+    ReusableIlluminationModel {
+        background,
+        color_policy,
+    }
+}
+
+pub(crate) fn normalize_region_with_reusable_model<F>(
+    source: &GrayImage,
+    model: &ReusableIlluminationModel,
+    normalized_coordinate: F,
+) -> GrayImage
+where
+    F: Fn(usize, usize) -> (f64, f64) + Sync,
+{
+    let mut normalized = GrayImage::new(source.width(), source.height(), 255);
+    normalized
+        .data_mut()
+        .par_chunks_mut(source.width())
+        .enumerate()
+        .for_each(|(y, output_row)| {
+            for (x, target) in output_row.iter_mut().enumerate() {
+                let (u, v) = normalized_coordinate(x, y);
+                let background = reusable_background_at(&model.background, u, v);
+                *target = (f64::from(source.get(x, y)) * 240.0 / background)
+                    .round()
+                    .clamp(0.0, 255.0) as u8;
+            }
+        });
+    normalized
+}
+
+pub(crate) fn normalize_rgb_region_with_reusable_model<F>(
+    luminance: &GrayImage,
+    source: &RgbImage,
+    model: &ReusableIlluminationModel,
+    normalized_coordinate: F,
+) -> RgbImage
+where
+    F: Fn(usize, usize) -> (f64, f64) + Sync,
+{
+    let mut normalized = source.clone();
+    normalized
+        .data_mut()
+        .par_chunks_mut(source.width() * 3)
+        .enumerate()
+        .for_each(|(y, output_row)| {
+            for (x, target) in output_row.chunks_exact_mut(3).enumerate() {
+                let source_pixel = source.get(x, y);
+                let source_luminance = f64::from(luminance.get(x, y));
+                let target_luminance = match model.color_policy {
+                    ReusableColorPolicy::Background => {
+                        let (u, v) = normalized_coordinate(x, y);
+                        source_luminance * 240.0 / reusable_background_at(&model.background, u, v)
+                    }
+                    ReusableColorPolicy::Conservative { low, high } => {
+                        let stretched = (12.0 + (source_luminance - low) * 231.0 / (high - low))
+                            .clamp(0.0, 255.0);
+                        source_luminance * (1.0 - CONSERVATIVE_LEVELS_BLEND)
+                            + stretched * CONSERVATIVE_LEVELS_BLEND
+                    }
+                    ReusableColorPolicy::Unchanged => source_luminance,
+                }
+                .clamp(0.0, 255.0);
+                if source_luminance <= f64::EPSILON {
+                    target.copy_from_slice(&source_pixel);
+                    continue;
+                }
+                let factor = target_luminance / source_luminance;
+                for channel in 0..3 {
+                    target[channel] = (f64::from(source_pixel[channel]) * factor)
+                        .round()
+                        .clamp(0.0, 255.0) as u8;
+                }
+            }
+        });
+    normalized
+}
+
+fn reusable_background_at(model: &BackgroundModel, u: f64, v: f64) -> f64 {
+    let u = u.clamp(0.0, 1.0);
+    let v = v.clamp(0.0, 1.0);
+    match model {
+        BackgroundModel::Surface(coefficients) => {
+            let x_basis = chebyshev_basis::<X_TERMS>(u * 2.0 - 1.0);
+            let y_basis = chebyshev_basis::<Y_TERMS>(v * 2.0 - 1.0);
+            let mut value = 0.0;
+            for y_term in 0..Y_TERMS {
+                for x_term in 0..X_TERMS {
+                    value +=
+                        coefficients[y_term * X_TERMS + x_term] * x_basis[x_term] * y_basis[y_term];
+                }
+            }
+            value
+        }
+        BackgroundModel::Reconstruction { image, floor } => sample_bilinear(
+            image,
+            u * image.width().saturating_sub(1) as f64,
+            v * image.height().saturating_sub(1) as f64,
+        )
+        .max(*floor),
+    }
+    .clamp(32.0, 255.0)
 }
 
 /// Stage-B split calibration is intentionally held against the pre-Stage-F

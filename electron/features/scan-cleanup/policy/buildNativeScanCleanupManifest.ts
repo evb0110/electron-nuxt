@@ -29,6 +29,7 @@ export interface IScanCleanupManifestPageInput {
     pageMetadataPath: string;
     outputs?: INativeScanCleanupOutputV3[];
     documentPrior?: IScanCleanupDocumentPrior;
+    detailRenderPlan?: INativeScanCleanupManifestV3['pages'][number]['detailRenderPlan'];
 }
 
 export interface IBuildNativeScanCleanupManifestInput {
@@ -98,6 +99,7 @@ export function buildNativeScanCleanupManifest({
             ),
             outputs: page.outputs ?? [],
             ...(page.documentPrior === undefined ? {} : {documentPrior: page.documentPrior}),
+            ...(page.detailRenderPlan === undefined ? {} : {detailRenderPlan: page.detailRenderPlan}),
         })),
     };
 }

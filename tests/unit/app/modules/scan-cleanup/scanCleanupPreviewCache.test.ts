@@ -91,7 +91,7 @@ function result(raw: Uint8Array, outputs: Uint8Array[]): IScanCleanupPreviewResu
 }
 
 describe('scan cleanup renderer preview cache', () => {
-    it('keeps high-detail pans distinct while reusing the exact same viewport tile', () => {
+    it('keeps high-detail pans distinct and canonicalizes half-key insertion order', () => {
         const firstPan = {
             xNormalized: 0.1,
             yNormalized: 0.2,
@@ -104,10 +104,17 @@ describe('scan cleanup renderer preview cache', () => {
             xNormalized: 0.25,
         };
 
-        expect(createScanCleanupDetailTileCacheKey('page-1:bw', firstPan))
-            .toBe(createScanCleanupDetailTileCacheKey('page-1:bw', {...firstPan}));
-        expect(createScanCleanupDetailTileCacheKey('page-1:bw', firstPan))
-            .not.toBe(createScanCleanupDetailTileCacheKey('page-1:bw', secondPan));
+        expect(createScanCleanupDetailTileCacheKey('page-1:bw', {
+            left: firstPan,
+            right: secondPan,
+        })).toBe(createScanCleanupDetailTileCacheKey('page-1:bw', {
+            right: {...secondPan},
+            left: {...firstPan},
+        }));
+        expect(createScanCleanupDetailTileCacheKey('page-1:bw', {left: firstPan}))
+            .not.toBe(createScanCleanupDetailTileCacheKey('page-1:bw', {left: secondPan}));
+        expect(createScanCleanupDetailTileCacheKey('page-1:bw', {full: firstPan}))
+            .not.toBe(createScanCleanupDetailTileCacheKey('page-1:bw', {left: firstPan}));
     });
 
     it('keys sidecar-rendered placement and order options but ignores renderer-only placement overrides', () => {

@@ -46,10 +46,9 @@ export interface IScanCleanupPreviewRequest extends IScanCleanupOwnerContext {
     documentPrior?: IScanCleanupDocumentPrior;
     documentCanvasPlan?: IScanCleanupDocumentCanvasPlan;
     detail?: {
-        /** Renderer-visible viewport in final intrinsic-output space; drives crop rendering and tile identity. */
-        viewport: IScanCleanupNormalizedRect;
+        /** Renderer-visible regions keyed by final output half; drives crop rendering and tile identity. */
+        viewports: Partial<Record<TScanCleanupOutputHalf, IScanCleanupNormalizedRect>>;
         outputMode: TScanCleanupOutputMode;
-        maxPixels: number;
     };
 }
 

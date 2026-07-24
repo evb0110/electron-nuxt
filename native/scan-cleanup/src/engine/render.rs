@@ -10,6 +10,8 @@ use crate::{
     background::{
         normalize_illumination, normalize_illumination_for_layout, normalize_illumination_rgb,
         normalize_illumination_rgb_with_picture_mask, normalize_illumination_with_picture_mask,
+        normalize_region_with_reusable_model, normalize_rgb_region_with_reusable_model,
+        reusable_illumination_model,
     },
     bw::{
         binarize_normalized_with_diagnostics, binarize_normalized_with_diagnostics_excluding,
@@ -24,7 +26,10 @@ use crate::{
     },
     picture::{apply_manual_zones, detect_picture_mask, extend_picture_mask_for_content},
     png::RgbImage,
-    protocol::{manifest_v3::ContentDiagnostics, progress::PageStageTimings},
+    protocol::{
+        manifest_v3::{ContentDiagnostics, DetailRenderPlan},
+        progress::PageStageTimings,
+    },
     split::{
         detect_split_at_analysis_level_with_threshold, DocumentPrior, LayoutClassification,
         ReconciliationMetadata, SplitResult,
@@ -183,6 +188,320 @@ pub struct PageCleanupResult {
     pub excluded: bool,
     pub rotation: OrthogonalRotation,
     pub output_mode_recommendation: Option<OutputModeRecommendation>,
+}
+
+pub(crate) fn clean_detail_page_with_color(
+    source_crop: &GrayImage,
+    color_source_crop: Option<&RgbImage>,
+    base_source: &GrayImage,
+    options: &CleanupOptions,
+    source_page_index: usize,
+    plan: &DetailRenderPlan,
+    base_metadata: &CleanupMetadata,
+) -> Result<PageCleanupResult, String> {
+    options.validate()?;
+    if options.output_mode == OutputMode::Mixed {
+        return Err("Mixed-mode detail rendering requires the full-page picture mask".into());
+    }
+    if !options.manual_zones.picture.is_empty() || !options.manual_zones.fill.is_empty() {
+        return Err("Detail rendering with manual zones requires the full-page source".into());
+    }
+    let scale = plan.scale;
+    let source_crop_rect = plan.source_crop.as_rect();
+    let render_region = plan.render_region.as_rect();
+    let sampled_region = plan.sampled_region.as_rect();
+    if source_crop_rect.width.ceil() as usize != source_crop.width()
+        || source_crop_rect.height.ceil() as usize != source_crop.height()
+    {
+        return Err("Detail source crop dimensions do not match its raster".into());
+    }
+    let normalized_gray;
+    let normalized_color;
+    let processing_source = if options.normalize_illumination {
+        let (rotated_base, _) = rotate_orthogonal(base_source, options.rotation);
+        let model = reusable_illumination_model(&rotated_base);
+        let coordinate = |x, y| {
+            rotated_normalized_detail_coordinate(
+                source_crop_rect.x + x as f64,
+                source_crop_rect.y + y as f64,
+                plan.full_source_width_px,
+                plan.full_source_height_px,
+                options.rotation,
+            )
+        };
+        normalized_gray = normalize_region_with_reusable_model(source_crop, &model, coordinate);
+        normalized_color = color_source_crop.map(|source| {
+            normalize_rgb_region_with_reusable_model(source_crop, source, &model, coordinate)
+        });
+        &normalized_gray
+    } else {
+        normalized_color = color_source_crop.cloned();
+        source_crop
+    };
+    let processing_color = normalized_color.as_ref();
+    let sampled_width = sampled_region.width.ceil().max(1.0) as usize;
+    let sampled_height = sampled_region.height.ceil().max(1.0) as usize;
+    let map_output = |point: Point| {
+        let target_output = Point::new(sampled_region.x + point.x, sampled_region.y + point.y);
+        let base_output = Point::new(target_output.x / scale, target_output.y / scale);
+        let rotated_source = if let Some(inverse) = base_metadata.inverse_transform {
+            inverse.apply(base_output)
+        } else if let Some(grid) = &base_metadata.dewarp_mapping {
+            interpolate_dewarp_output_to_source(grid, base_output)?
+        } else {
+            return None;
+        };
+        let base_source = inverse_rotate_point(
+            rotated_source,
+            base_metadata.input_width,
+            base_metadata.input_height,
+            base_metadata.rotation,
+        );
+        let cropped = Point::new(
+            base_source.x * scale - source_crop_rect.x,
+            base_source.y * scale - source_crop_rect.y,
+        );
+        Some(cropped)
+    };
+    let mapped_gray =
+        rasterize_inverse_area_with(processing_source, sampled_width, sampled_height, map_output);
+    let mapped_color = processing_color.map(|source| {
+        rasterize_inverse_area_rgb_with(source, sampled_width, sampled_height, map_output)
+    });
+
+    // Geometry is replayed from the trusted base metadata above. Reuse the
+    // ordinary cleanup pipeline for tonal normalization, mixed routing,
+    // binarization, thickness, and despeckle so detail tiles cannot grow a
+    // second processing implementation.
+    let mut tile_options = options.clone();
+    tile_options.render_crop = None;
+    tile_options.rotation = OrthogonalRotation::None;
+    tile_options.layout = crate::LayoutMode::Single;
+    tile_options.manual_split_x = None;
+    tile_options.manual_skew_degrees = Some(0.0);
+    tile_options.manual_content_boxes = Default::default();
+    tile_options.manual_zones = Default::default();
+    tile_options.normalize_illumination = false;
+    tile_options.crop_content = false;
+    tile_options.match_page_size = false;
+    tile_options.margins_mm = None;
+    tile_options.margins_pixels = None;
+    tile_options.dewarp = None;
+    tile_options.experimental = Default::default();
+    tile_options.skip_blank_pages = false;
+    let mut processed = clean_page_with_color(
+        &mapped_gray,
+        mapped_color.as_ref(),
+        &tile_options,
+        source_page_index,
+    )?;
+    let mut output = processed
+        .outputs
+        .pop()
+        .ok_or("Detail processing produced no output")?;
+    let payload_rect = Rect::new(
+        render_region.x - sampled_region.x,
+        render_region.y - sampled_region.y,
+        render_region.width,
+        render_region.height,
+    );
+    output.image = crop_gray(&output.image, payload_rect);
+    output.color_image = output
+        .color_image
+        .map(|image| crop_rgb(&image, payload_rect));
+    output.mixed_layers = output.mixed_layers.map(|layers| MixedLayers {
+        foreground_mask: crop_gray(&layers.foreground_mask, payload_rect),
+        background: crop_gray(&layers.background, payload_rect),
+        color_background: layers
+            .color_background
+            .map(|image| crop_rgb(&image, payload_rect)),
+    });
+
+    let mut metadata = scale_detail_metadata(base_metadata, scale);
+    metadata.source_page_index = source_page_index;
+    metadata.render_region = Some(render_region);
+    metadata.input_width = plan.full_source_width_px;
+    metadata.input_height = plan.full_source_height_px;
+    metadata.output_mode = options.output_mode;
+    metadata.binarization_mode = output.metadata.binarization_mode;
+    metadata.binarization_diagnostics = output.metadata.binarization_diagnostics;
+    metadata.despeckle_fallback = output.metadata.despeckle_fallback;
+    metadata.illumination_normalized = output.metadata.illumination_normalized;
+    metadata.source_dpi = options.source_dpi();
+    metadata.render_dpi = options.dpi;
+    metadata.requested_render_dpi = options.requested_render_dpi();
+    metadata.raster_scale_limited = options.dpi + f64::EPSILON < options.requested_render_dpi();
+    metadata.canvas_scope = crate::protocol::manifest_v3::CanvasScope::Page;
+    metadata.warnings = output.metadata.warnings;
+    output.metadata = metadata;
+    output.effectively_blank = false;
+
+    let classification = base_metadata.layout_classification;
+    let split_seam = base_metadata.split_seam.as_ref().map(|seam| {
+        let mut seam = seam.clone();
+        for point in &mut seam.points {
+            point.x *= scale;
+            point.y *= scale;
+        }
+        seam
+    });
+    Ok(PageCleanupResult {
+        outputs: vec![output],
+        classification,
+        layout_confidence: base_metadata.layout_confidence,
+        cutter_x: base_metadata.cutter_x.map(|x| x * scale),
+        split_seam,
+        reconciliation: ReconciliationMetadata {
+            tier1_verdict: classification,
+            reconciled: false,
+            cluster_agreement: 0.0,
+        },
+        blank_outputs_skipped: 0,
+        excluded: false,
+        rotation: base_metadata.rotation,
+        output_mode_recommendation: None,
+    })
+}
+
+fn rotated_normalized_detail_coordinate(
+    x: f64,
+    y: f64,
+    source_width: usize,
+    source_height: usize,
+    rotation: OrthogonalRotation,
+) -> (f64, f64) {
+    let (rotated_x, rotated_y, rotated_width, rotated_height) = match rotation {
+        OrthogonalRotation::None => (x, y, source_width, source_height),
+        OrthogonalRotation::Clockwise90 => (
+            source_height as f64 - 1.0 - y,
+            x,
+            source_height,
+            source_width,
+        ),
+        OrthogonalRotation::Clockwise180 => (
+            source_width as f64 - 1.0 - x,
+            source_height as f64 - 1.0 - y,
+            source_width,
+            source_height,
+        ),
+        OrthogonalRotation::Clockwise270 => (
+            y,
+            source_width as f64 - 1.0 - x,
+            source_height,
+            source_width,
+        ),
+    };
+    (
+        rotated_x / rotated_width.saturating_sub(1).max(1) as f64,
+        rotated_y / rotated_height.saturating_sub(1).max(1) as f64,
+    )
+}
+
+fn inverse_rotate_point(
+    point: Point,
+    source_width: usize,
+    source_height: usize,
+    rotation: OrthogonalRotation,
+) -> Point {
+    match rotation {
+        OrthogonalRotation::None => point,
+        OrthogonalRotation::Clockwise90 => Point::new(point.y, source_height as f64 - point.x),
+        OrthogonalRotation::Clockwise180 => Point::new(
+            source_width as f64 - point.x,
+            source_height as f64 - point.y,
+        ),
+        OrthogonalRotation::Clockwise270 => Point::new(source_width as f64 - point.y, point.x),
+    }
+}
+
+fn interpolate_dewarp_output_to_source(grid: &DewarpMappingGrid, output: Point) -> Option<Point> {
+    if grid.columns < 2 || grid.rows < 2 || grid.output_width == 0 || grid.output_height == 0 {
+        return None;
+    }
+    let grid_x = (output.x / grid.output_width as f64 * (grid.columns - 1) as f64)
+        .clamp(0.0, (grid.columns - 1) as f64);
+    let grid_y = (output.y / grid.output_height as f64 * (grid.rows - 1) as f64)
+        .clamp(0.0, (grid.rows - 1) as f64);
+    let left = grid_x.floor() as usize;
+    let top = grid_y.floor() as usize;
+    let right = (left + 1).min(grid.columns - 1);
+    let bottom = (top + 1).min(grid.rows - 1);
+    let tx = grid_x - left as f64;
+    let ty = grid_y - top as f64;
+    let at = |column: usize, row: usize| {
+        grid.output_to_source
+            .get(row * grid.columns + column)
+            .copied()
+    };
+    let top_left = at(left, top)?;
+    let top_right = at(right, top)?;
+    let bottom_left = at(left, bottom)?;
+    let bottom_right = at(right, bottom)?;
+    Some(Point::new(
+        (top_left.x * (1.0 - tx) + top_right.x * tx) * (1.0 - ty)
+            + (bottom_left.x * (1.0 - tx) + bottom_right.x * tx) * ty,
+        (top_left.y * (1.0 - tx) + top_right.y * tx) * (1.0 - ty)
+            + (bottom_left.y * (1.0 - tx) + bottom_right.y * tx) * ty,
+    ))
+}
+
+fn scale_detail_metadata(base: &CleanupMetadata, scale: f64) -> CleanupMetadata {
+    let mut metadata = base.clone();
+    let scale_rect = |rect: Rect| {
+        Rect::new(
+            rect.x * scale,
+            rect.y * scale,
+            rect.width * scale,
+            rect.height * scale,
+        )
+    };
+    metadata.source_region = scale_rect(metadata.source_region);
+    metadata.content_box = metadata.content_box.map(scale_rect);
+    metadata.crop_rect = scale_rect(metadata.crop_rect);
+    metadata.applied_margins.left_px *= scale;
+    metadata.applied_margins.top_px *= scale;
+    metadata.applied_margins.right_px *= scale;
+    metadata.applied_margins.bottom_px *= scale;
+    metadata.soft_margins_pixels = metadata
+        .soft_margins_pixels
+        .map(|value| (value as f64 * scale).round() as usize);
+    for transform in [
+        metadata.forward_transform.as_mut(),
+        metadata.inverse_transform.as_mut(),
+    ]
+    .into_iter()
+    .flatten()
+    {
+        transform.matrix[0][2] *= scale;
+        transform.matrix[1][2] *= scale;
+    }
+    if let Some(mapping) = &mut metadata.dewarp_mapping {
+        mapping.output_origin.x *= scale;
+        mapping.output_origin.y *= scale;
+        mapping.output_width = (mapping.output_width as f64 * scale).round().max(1.0) as usize;
+        mapping.output_height = (mapping.output_height as f64 * scale).round().max(1.0) as usize;
+        for point in mapping
+            .output_to_source
+            .iter_mut()
+            .chain(&mut mapping.source_to_output)
+        {
+            point.x *= scale;
+            point.y *= scale;
+        }
+    }
+    metadata.output_width = (metadata.output_width as f64 * scale).round().max(1.0) as usize;
+    metadata.output_height = (metadata.output_height as f64 * scale).round().max(1.0) as usize;
+    metadata.canvas_width = metadata.output_width;
+    metadata.canvas_height = metadata.output_height;
+    metadata.placement_offset_x = 0;
+    metadata.placement_offset_y = 0;
+    metadata.matched_canvas_target_width = None;
+    metadata.matched_canvas_target_height = None;
+    metadata.matched_canvas_target_width_points = None;
+    metadata.matched_canvas_target_height_points = None;
+    metadata.canvas_policy = MatchedCanvasPolicy::Intrinsic;
+    metadata.canvas_overflow = false;
+    metadata
 }
 
 pub struct PageClassificationResult {

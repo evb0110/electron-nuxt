@@ -11,7 +11,10 @@ import {
     SCAN_CLEANUP_MANUAL_SKEW_MAX_DEGREES,
     SCAN_CLEANUP_MANUAL_SKEW_MIN_DEGREES,
 } from '@contracts/scan-cleanup/domain';
-import type {IScanCleanupMarginsMm} from '@contracts/scan-cleanup/geometry';
+import type {
+    IScanCleanupMarginsMm,
+    IScanCleanupNormalizedRect,
+} from '@contracts/scan-cleanup/geometry';
 import {SCAN_CLEANUP_MARGIN_MAX_MM} from '@contracts/scan-cleanup/geometry';
 import type {
     IScanCleanupDetectionRequest,
@@ -181,25 +184,11 @@ function decodePageOverride(value: unknown): IScanCleanupPageOverride {
             xNormalized: decodeNormalizedValue(value.manualSplit.xNormalized, 'manual split x'),
             rotationDegrees: decodeGeometryRotation(value.manualSplit.rotationDegrees, rotationDegrees, 'manual split'),
         };
-    const manualContentBoxes = decodeOutputMap(value.manualContentBoxes, (item, label) => {
-        if (!isRecord(item)) throw new Error(`invalid scan-cleanup ${label}`);
-        const rect = {
-            xNormalized: decodeNormalizedValue(item.xNormalized, `${label} x`),
-            yNormalized: decodeNormalizedValue(item.yNormalized, `${label} y`),
-            widthNormalized: decodeNormalizedValue(item.widthNormalized, `${label} width`),
-            heightNormalized: decodeNormalizedValue(item.heightNormalized, `${label} height`),
-            rotationDegrees: decodeGeometryRotation(item.rotationDegrees, rotationDegrees, label),
-        };
-        if (
-            rect.widthNormalized <= 0
-            || rect.heightNormalized <= 0
-            || rect.xNormalized + rect.widthNormalized > 1
-            || rect.yNormalized + rect.heightNormalized > 1
-        ) {
-            throw new Error(`invalid scan-cleanup ${label}`);
-        }
-        return rect;
-    }, 'manual content box');
+    const manualContentBoxes = decodeOutputMap(
+        value.manualContentBoxes,
+        (item, label) => decodeNormalizedRect(item, label, rotationDegrees),
+        'manual content box',
+    );
     const manualZones = decodeManualZones(value.manualZones, rotationDegrees);
     const placementOverrides = decodeOutputMap(value.placementOverrides, (item, label) => {
         if (!SCAN_CLEANUP_ALIGNMENTS.includes(String(item) as TScanCleanupAlignmentValue)) {
@@ -298,6 +287,39 @@ function decodeNormalizedValue(value: unknown, label: string) {
     const decoded = decodeFiniteNumber(value, label);
     if (decoded < 0 || decoded > 1) throw new Error(`invalid scan-cleanup ${label}`);
     return decoded;
+}
+
+function decodeNormalizedRect(
+    value: unknown,
+    label: string,
+    expectedRotation?: IScanCleanupNormalizedRect['rotationDegrees'],
+): IScanCleanupNormalizedRect {
+    if (!isRecord(value)) throw new Error(`invalid scan-cleanup ${label}`);
+    const rotationDegrees = expectedRotation === undefined
+        ? value.rotationDegrees
+        : decodeGeometryRotation(value.rotationDegrees, expectedRotation, label);
+    const rect = {
+        xNormalized: decodeNormalizedValue(value.xNormalized, `${label} x`),
+        yNormalized: decodeNormalizedValue(value.yNormalized, `${label} y`),
+        widthNormalized: decodeNormalizedValue(value.widthNormalized, `${label} width`),
+        heightNormalized: decodeNormalizedValue(value.heightNormalized, `${label} height`),
+        rotationDegrees,
+    };
+    if (
+        rect.widthNormalized <= 0
+        || rect.heightNormalized <= 0
+        || rect.xNormalized + rect.widthNormalized > 1
+        || rect.yNormalized + rect.heightNormalized > 1
+        || ![
+            0,
+            90,
+            180,
+            270,
+        ].includes(Number(rect.rotationDegrees))
+    ) {
+        throw new Error(`invalid scan-cleanup ${label}`);
+    }
+    return rect as IScanCleanupNormalizedRect;
 }
 
 function decodeMarginsMm(value: unknown, label: string): IScanCleanupMarginsMm {
@@ -522,39 +544,39 @@ function decodePreviewRequest(value: unknown): IScanCleanupPreviewRequest {
         : (() => {
             if (
                 !isRecord(value.detail)
-                || !isRecord(value.detail.viewport)
+                || !isRecord(value.detail.viewports)
                 || !isScanCleanupOutputMode(value.detail.outputMode)
-                || !Number.isSafeInteger(value.detail.maxPixels)
-                || Number(value.detail.maxPixels) < 1
-                || Number(value.detail.maxPixels) > 4_000_000
             ) {
                 throw new Error('invalid scan-cleanup detail preview request');
             }
-            const viewport = {
-                xNormalized: decodeNormalizedValue(value.detail.viewport.xNormalized, 'detail viewport x'),
-                yNormalized: decodeNormalizedValue(value.detail.viewport.yNormalized, 'detail viewport y'),
-                widthNormalized: decodeNormalizedValue(value.detail.viewport.widthNormalized, 'detail viewport width'),
-                heightNormalized: decodeNormalizedValue(value.detail.viewport.heightNormalized, 'detail viewport height'),
-                rotationDegrees: value.detail.viewport.rotationDegrees,
-            };
+            const halves = [
+                'full',
+                'left',
+                'right',
+            ] as const;
             if (
-                viewport.widthNormalized <= 0
-                || viewport.heightNormalized <= 0
-                || viewport.xNormalized + viewport.widthNormalized > 1
-                || viewport.yNormalized + viewport.heightNormalized > 1
-                || ![
-                    0,
-                    90,
-                    180,
-                    270,
-                ].includes(Number(viewport.rotationDegrees))
+                Object.keys(value.detail.viewports).length === 0
+                || Object.keys(value.detail.viewports).some(half => !halves.includes(
+                    half as typeof halves[number],
+                ))
             ) {
-                throw new Error('invalid scan-cleanup detail preview viewport');
+                throw new Error('invalid scan-cleanup detail preview request');
+            }
+            const viewports: NonNullable<IScanCleanupPreviewRequest['detail']>['viewports'] = {};
+            for (const half of halves) {
+                const encodedViewport = value.detail.viewports[half];
+                if (encodedViewport === undefined) continue;
+                viewports[half] = decodeNormalizedRect(
+                    encodedViewport,
+                    'detail preview viewport',
+                );
+            }
+            if (Object.keys(viewports).length === 0) {
+                throw new Error('invalid scan-cleanup detail preview request');
             }
             return {
-                viewport: viewport as NonNullable<IScanCleanupPreviewRequest['detail']>['viewport'],
+                viewports,
                 outputMode: value.detail.outputMode,
-                maxPixels: Number(value.detail.maxPixels),
             };
         })();
     return {

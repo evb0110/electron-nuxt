@@ -1,3 +1,4 @@
+/* eslint-disable max-lines -- This established service owns one preview lifecycle, including its detail-raster geometry and caches. */
 import {
     mkdtemp,
     open,
@@ -15,6 +16,8 @@ import type {
     IScanCleanupDetectionRequest,
     IScanCleanupDetectionResult,
     IScanCleanupOwnerContext,
+    IScanCleanupNormalizedRect,
+    IScanCleanupPixelPoint,
     IScanCleanupPreviewMetadata,
     IScanCleanupPreviewCancelRequest,
     IScanCleanupRawPreviewRequest,
@@ -26,6 +29,7 @@ import type {
     TScanCleanupErrorCode,
     TScanCleanupProgress,
 } from '@contracts/electronApiScanCleanup';
+import type {INativeScanCleanupReusableGeometryV3} from '@contracts/scan-cleanup/nativeProtocolV3';
 import {
     getScanCleanupPageOverride,
     resolveScanCleanupMarginsMm,
@@ -55,6 +59,7 @@ import {
 } from '@electron/operation-lifecycle/createMainJobRegistry';
 
 const PREVIEW_DPI = 150;
+const DETAIL_TILE_MAX_PIXELS = 4_000_000;
 const DEFAULT_SOURCE_DPI = 300;
 const PREVIEW_MAX_IMAGE_BYTES = 32 * 1024 * 1024;
 const RAW_CACHE_PAGE_LIMIT = 32;
@@ -86,7 +91,16 @@ interface ILosslessPreviewAnalysisOutput {
 
 type ILosslessPreviewPageMetadata = IScanCleanupPreviewResult['pageMetadata'] & {outputs?: ILosslessPreviewAnalysisOutput[]};
 
-interface INativePreviewOutputMetadata extends IScanCleanupPreviewMetadata {dewarpModel?: unknown;}
+type INativePreviewOutputMetadata = IScanCleanupPreviewMetadata
+    & INativeScanCleanupReusableGeometryV3 & {dewarpModel?: unknown;};
+
+interface IBasePreviewAnalysis {
+    sourcePdfPath: string;
+    documentRevision: string;
+    mtimeMs: number;
+    pageMetadata: IScanCleanupPreviewResult['pageMetadata'];
+    outputs: Partial<Record<IScanCleanupPreviewMetadata['half'], INativePreviewOutputMetadata>>;
+}
 
 interface IPreviewEntry {
     controller: AbortController;
@@ -232,53 +246,232 @@ async function materializeRawRaster(
     return raw;
 }
 
-function resolveDetailRenderPolicy(
-    request: IScanCleanupPreviewRequest,
+function baseAnalysisKey(request: Omit<IScanCleanupPreviewRequest, 'detail'>) {
+    return JSON.stringify({
+        sourcePdfPath: request.sourcePdfPath,
+        documentRevision: request.documentRevision,
+        pageNumber: request.pageNumber,
+        options: request.options,
+        documentPrior: request.documentPrior ?? null,
+        documentCanvasPlan: request.documentCanvasPlan ?? null,
+    });
+}
+
+function resolveFallbackDetailDpi(
+    request: IScanCleanupPreviewRequest & {detail: NonNullable<IScanCleanupPreviewRequest['detail']>},
     raw: Pick<IRawPreview, 'width' | 'height'>,
     sourceDpi: number,
 ) {
-    const detail = request.detail;
-    if (!detail) {
-        return {
-            renderDpi: PREVIEW_DPI,
-            requestedRenderDpi: PREVIEW_DPI,
-            renderCrop: undefined,
-        };
-    }
     const pageOverride = getScanCleanupPageOverride(request.options.pageOverrides, request.pageNumber);
-    const rotation = pageOverride.rotationDegrees;
-    const swapsAxes = rotation === 90 || rotation === 270;
+    const swapsAxes = pageOverride.rotationDegrees === 90 || pageOverride.rotationDegrees === 270;
     const margins = resolveScanCleanupMarginsMm(request.options.marginsMm, pageOverride);
     const widthAtPreviewDpi = (swapsAxes ? raw.height : raw.width)
         + (margins.leftMm + margins.rightMm) / 25.4 * PREVIEW_DPI;
     const heightAtPreviewDpi = (swapsAxes ? raw.width : raw.height)
         + (margins.topMm + margins.bottomMm) / 25.4 * PREVIEW_DPI;
-    const requestedRenderDpi = detail.outputMode === 'bw'
-        ? Math.max(sourceDpi * 2, 600)
-        : sourceDpi;
-    const widthAtRenderDpi = widthAtPreviewDpi / PREVIEW_DPI * requestedRenderDpi;
-    const heightAtRenderDpi = heightAtPreviewDpi / PREVIEW_DPI * requestedRenderDpi;
-    const requestedPixels = widthAtRenderDpi
-        * heightAtRenderDpi
-        * detail.viewport.widthNormalized
-        * detail.viewport.heightNormalized;
-    const scale = requestedPixels <= detail.maxPixels
-        ? 1
-        : Math.sqrt(detail.maxPixels * 0.99 / requestedPixels);
-    const widthNormalized = detail.viewport.widthNormalized * scale;
-    const heightNormalized = detail.viewport.heightNormalized * scale;
-    const centerX = detail.viewport.xNormalized + detail.viewport.widthNormalized / 2;
-    const centerY = detail.viewport.yNormalized + detail.viewport.heightNormalized / 2;
+    const canvasWidth = request.options.matchPageSize && request.documentCanvasPlan
+        ? request.documentCanvasPlan.widthPoints / 72 * PREVIEW_DPI
+        : 0;
+    const canvasHeight = request.options.matchPageSize && request.documentCanvasPlan
+        ? request.documentCanvasPlan.heightPoints / 72 * PREVIEW_DPI
+        : 0;
+    const budgetDpi = PREVIEW_DPI * Math.sqrt(
+        DETAIL_TILE_MAX_PIXELS
+        / (Math.max(1, widthAtPreviewDpi, canvasWidth)
+            * Math.max(1, heightAtPreviewDpi, canvasHeight)),
+    );
+    const requestedRenderDpi = Math.max(sourceDpi, PREVIEW_DPI);
     return {
-        renderDpi: requestedRenderDpi,
+        renderDpi: Math.max(1, Math.floor(Math.min(requestedRenderDpi, budgetDpi))),
         requestedRenderDpi,
-        renderCrop: {
-            xNormalized: Math.min(1 - widthNormalized, Math.max(0, centerX - widthNormalized / 2)),
-            yNormalized: Math.min(1 - heightNormalized, Math.max(0, centerY - heightNormalized / 2)),
-            widthNormalized,
-            heightNormalized,
-            rotationDegrees: pageOverride.rotationDegrees,
-        },
+    };
+}
+
+function applyPreviewAffine(
+    affine: NonNullable<IScanCleanupPreviewMetadata['forwardTransform']>,
+    point: IScanCleanupPixelPoint,
+) {
+    return {
+        x: affine.matrix[0]![0]! * point.x
+            + affine.matrix[0]![1]! * point.y
+            + affine.matrix[0]![2]!,
+        y: affine.matrix[1]![0]! * point.x
+            + affine.matrix[1]![1]! * point.y
+            + affine.matrix[1]![2]!,
+    };
+}
+
+function interpolateDewarpOutputToSource(
+    mapping: NonNullable<INativeScanCleanupReusableGeometryV3['dewarpMapping']>,
+    point: IScanCleanupPixelPoint,
+) {
+    if (
+        mapping.columns < 2
+        || mapping.rows < 2
+        || mapping.outputWidth <= 0
+        || mapping.outputHeight <= 0
+        || mapping.outputToSource.length !== mapping.columns * mapping.rows
+    ) {
+        throw new Error('Scan cleanup base preview has an invalid dewarp mapping');
+    }
+    const gridX = Math.max(0, Math.min(
+        mapping.columns - 1,
+        point.x / mapping.outputWidth * (mapping.columns - 1),
+    ));
+    const gridY = Math.max(0, Math.min(
+        mapping.rows - 1,
+        point.y / mapping.outputHeight * (mapping.rows - 1),
+    ));
+    const left = Math.floor(gridX);
+    const top = Math.floor(gridY);
+    const right = Math.min(mapping.columns - 1, left + 1);
+    const bottom = Math.min(mapping.rows - 1, top + 1);
+    const tx = gridX - left;
+    const ty = gridY - top;
+    const at = (column: number, row: number) => mapping.outputToSource[row * mapping.columns + column]!;
+    const topLeft = at(left, top);
+    const topRight = at(right, top);
+    const bottomLeft = at(left, bottom);
+    const bottomRight = at(right, bottom);
+    return {
+        x: (topLeft.x * (1 - tx) + topRight.x * tx) * (1 - ty)
+            + (bottomLeft.x * (1 - tx) + bottomRight.x * tx) * ty,
+        y: (topLeft.y * (1 - tx) + topRight.y * tx) * (1 - ty)
+            + (bottomLeft.y * (1 - tx) + bottomRight.y * tx) * ty,
+    };
+}
+
+function inverseRotatePreviewPoint(
+    point: IScanCleanupPixelPoint,
+    metadata: Pick<
+        IScanCleanupPreviewMetadata,
+        'inputWidthPx' | 'inputHeightPx' | 'rotationDegrees'
+    >,
+) {
+    switch (metadata.rotationDegrees) {
+        case 90:
+            return {
+                x: point.y,
+                y: metadata.inputHeightPx - point.x,
+            };
+        case 180:
+            return {
+                x: metadata.inputWidthPx - point.x,
+                y: metadata.inputHeightPx - point.y,
+            };
+        case 270:
+            return {
+                x: metadata.inputWidthPx - point.y,
+                y: point.x,
+            };
+        default:
+            return point;
+    }
+}
+
+function mapBaseOutputToRawSource(
+    metadata: INativePreviewOutputMetadata,
+    point: IScanCleanupPixelPoint,
+) {
+    const rotated = metadata.inverseTransform
+        ? applyPreviewAffine(metadata.inverseTransform, point)
+        : metadata.dewarpMapping
+            ? interpolateDewarpOutputToSource(metadata.dewarpMapping, point)
+            : null;
+    if (!rotated) {
+        throw new Error('Scan cleanup base preview has no reusable detail geometry');
+    }
+    return inverseRotatePreviewPoint(rotated, metadata);
+}
+
+function resolveBoundedViewport(
+    viewport: IScanCleanupNormalizedRect,
+    metadata: INativePreviewOutputMetadata,
+    renderScale: number,
+    maxPixels: number,
+) {
+    const targetWidth = metadata.outputWidthPx * renderScale;
+    const targetHeight = metadata.outputHeightPx * renderScale;
+    const requestedPixels = targetWidth
+        * targetHeight
+        * viewport.widthNormalized
+        * viewport.heightNormalized;
+    const budgetScale = requestedPixels <= maxPixels
+        ? 1
+        : Math.sqrt(maxPixels * 0.98 / requestedPixels);
+    const widthNormalized = viewport.widthNormalized * budgetScale;
+    const heightNormalized = viewport.heightNormalized * budgetScale;
+    const centerX = viewport.xNormalized + viewport.widthNormalized / 2;
+    const centerY = viewport.yNormalized + viewport.heightNormalized / 2;
+    const xNormalized = Math.min(1 - widthNormalized, Math.max(0, centerX - widthNormalized / 2));
+    const yNormalized = Math.min(1 - heightNormalized, Math.max(0, centerY - heightNormalized / 2));
+    const left = Math.floor(xNormalized * targetWidth);
+    const top = Math.floor(yNormalized * targetHeight);
+    const right = Math.min(Math.round(targetWidth), Math.ceil((xNormalized + widthNormalized) * targetWidth));
+    const bottom = Math.min(Math.round(targetHeight), Math.ceil((yNormalized + heightNormalized) * targetHeight));
+    return {
+        xPx: left,
+        yPx: top,
+        widthPx: Math.max(1, right - left),
+        heightPx: Math.max(1, bottom - top),
+    };
+}
+
+function resolveDetailSourceCrop(
+    metadata: INativePreviewOutputMetadata,
+    sampledRegion: IScanCleanupPreviewMetadata['sourceRegion'],
+    renderScale: number,
+    fullWidth: number,
+    fullHeight: number,
+) {
+    const baseLeft = sampledRegion.xPx / renderScale;
+    const baseTop = sampledRegion.yPx / renderScale;
+    const baseRight = (sampledRegion.xPx + sampledRegion.widthPx) / renderScale;
+    const baseBottom = (sampledRegion.yPx + sampledRegion.heightPx) / renderScale;
+    const xSamples = [
+        baseLeft,
+        baseRight,
+    ];
+    const ySamples = [
+        baseTop,
+        baseBottom,
+    ];
+    const mapping = metadata.inverseTransform ? null : metadata.dewarpMapping;
+    if (mapping) {
+        for (let column = 1; column < mapping.columns - 1; column += 1) {
+            const x = mapping.outputWidth * column / (mapping.columns - 1);
+            if (x > baseLeft && x < baseRight) xSamples.push(x);
+        }
+        for (let row = 1; row < mapping.rows - 1; row += 1) {
+            const y = mapping.outputHeight * row / (mapping.rows - 1);
+            if (y > baseTop && y < baseBottom) ySamples.push(y);
+        }
+    }
+    // An affine reaches its extrema at the rectangle corners. A bilinear
+    // dewarp cell does too, so including every crossed grid boundary is exact.
+    const points = xSamples.flatMap(x => ySamples.map(y => mapBaseOutputToRawSource(metadata, {
+        x,
+        y,
+    })));
+    const padding = 24;
+    const left = Math.max(0, Math.floor(Math.min(...points.map(point => point.x)) * renderScale) - padding);
+    const top = Math.max(0, Math.floor(Math.min(...points.map(point => point.y)) * renderScale) - padding);
+    const right = Math.min(
+        fullWidth,
+        Math.ceil(Math.max(...points.map(point => point.x)) * renderScale) + padding,
+    );
+    const bottom = Math.min(
+        fullHeight,
+        Math.ceil(Math.max(...points.map(point => point.y)) * renderScale) + padding,
+    );
+    if (right <= left || bottom <= top) {
+        throw new Error('Scan cleanup detail geometry resolved outside the source page');
+    }
+    return {
+        x: left,
+        y: top,
+        width: right - left,
+        height: bottom - top,
     };
 }
 
@@ -316,6 +509,12 @@ async function renderDetailRaster(
     dependencies: IScanCleanupPreviewDependencies,
     renderDpi: number,
     maxPixels: number,
+    crop: {
+        x: number;
+        y: number;
+        width: number;
+        height: number;
+    },
 ) {
     await dependencies.renderPage(
         {pdftoppmBinary: dependencies.getPdftoppmBinary()},
@@ -326,6 +525,7 @@ async function renderDetailRaster(
         renderDpi,
         undefined,
         signal,
+        crop,
     );
     const handle = await open(outputPath, 'r');
     try {
@@ -350,10 +550,203 @@ async function readPreviewBytes(path: string) {
     return bytes;
 }
 
+async function runDetailPreview(
+    request: IScanCleanupPreviewRequest & {detail: NonNullable<IScanCleanupPreviewRequest['detail']>},
+    signal: AbortSignal,
+    baseRaw: IRawPreview,
+    baseRasterPath: string,
+    analysis: IBasePreviewAnalysis,
+    scratch: string,
+    dependencies: IScanCleanupPreviewDependencies,
+): Promise<IScanCleanupPreviewResult> {
+    const sourceDpiCandidate = await dependencies.detectSourceDpi?.(
+        request.sourcePdfPath,
+        request.pageNumber,
+        signal,
+    );
+    const sourceDpi = sourceDpiCandidate !== null
+        && sourceDpiCandidate !== undefined
+        && Number.isFinite(sourceDpiCandidate)
+        && sourceDpiCandidate > 0
+        ? sourceDpiCandidate
+        : DEFAULT_SOURCE_DPI;
+    const requestedRenderDpi = request.detail.outputMode === 'bw'
+        ? Math.max(sourceDpi * 2, 600)
+        : Math.max(sourceDpi, PREVIEW_DPI);
+    const renderScale = requestedRenderDpi / PREVIEW_DPI;
+    const fullSourceWidth = Math.max(1, Math.round(baseRaw.width * renderScale));
+    const fullSourceHeight = Math.max(1, Math.round(baseRaw.height * renderScale));
+    const maxSourcePixels = resolveScanCleanupPipelineMaxPixels(request.detail.outputMode);
+    const binary = dependencies.resolveBinary();
+    if (!binary) throw new Error('Scan cleanup native tool is unavailable');
+
+    const pageOverride = getScanCleanupPageOverride(request.options.pageOverrides, request.pageNumber);
+    const effectiveOptions = request.options.matchPageSize
+        ? {
+            ...request.options,
+            matchPageSize: false,
+        }
+        : request.options;
+    const pageInputs = [];
+    const outputFiles: Array<{
+        outputPath: string;
+        metadataPath: string;
+    }> = [];
+    for (const half of [
+        'full',
+        'left',
+        'right',
+    ] as const) {
+        const viewport = request.detail.viewports[half];
+        const baseMetadata = analysis.outputs[half];
+        if (!viewport || !baseMetadata) continue;
+        if (viewport.rotationDegrees !== pageOverride.rotationDegrees) {
+            throw new Error('Scan cleanup detail viewport rotation is stale');
+        }
+        const renderRegion = resolveBoundedViewport(
+            viewport,
+            baseMetadata,
+            renderScale,
+            DETAIL_TILE_MAX_PIXELS,
+        );
+        const outputWidth = Math.max(1, Math.round(baseMetadata.outputWidthPx * renderScale));
+        const outputHeight = Math.max(1, Math.round(baseMetadata.outputHeightPx * renderScale));
+        const processingApron = request.detail.outputMode === 'bw' || request.detail.outputMode === 'mixed'
+            ? 256
+            : 8;
+        const sampledRegion = {
+            xPx: Math.max(0, renderRegion.xPx - processingApron),
+            yPx: Math.max(0, renderRegion.yPx - processingApron),
+            widthPx: 0,
+            heightPx: 0,
+        };
+        const sampledRight = Math.min(
+            outputWidth,
+            renderRegion.xPx + renderRegion.widthPx + processingApron,
+        );
+        const sampledBottom = Math.min(
+            outputHeight,
+            renderRegion.yPx + renderRegion.heightPx + processingApron,
+        );
+        sampledRegion.widthPx = sampledRight - sampledRegion.xPx;
+        sampledRegion.heightPx = sampledBottom - sampledRegion.yPx;
+        const sourceCrop = resolveDetailSourceCrop(
+            baseMetadata,
+            sampledRegion,
+            renderScale,
+            fullSourceWidth,
+            fullSourceHeight,
+        );
+        if (
+            sourceCrop.width > 40_000
+            || sourceCrop.height > 40_000
+            || sourceCrop.width * sourceCrop.height > maxSourcePixels
+        ) {
+            throw new Error(
+                `Scan cleanup detail source crop ${sourceCrop.width}x${sourceCrop.height} exceeds native limits`,
+            );
+        }
+        const inputPath = join(scratch, `detail-source-${half}.png`);
+        const renderedSource = await renderDetailRaster(
+            request,
+            request.pageNumber,
+            inputPath,
+            signal,
+            dependencies,
+            requestedRenderDpi,
+            maxSourcePixels,
+            sourceCrop,
+        );
+        // Poppler clips -W/-H at the physical page edge. The 150-DPI base
+        // dimensions can round up by a few scaled pixels, so trust the actual
+        // cropped PNG dimensions passed to native.
+        sourceCrop.width = renderedSource.width;
+        sourceCrop.height = renderedSource.height;
+        const baseMetadataPath = join(scratch, `base-metadata-${half}.json`);
+        await writeFile(baseMetadataPath, JSON.stringify(baseMetadata));
+        const output = {
+            outputPath: join(scratch, `detail-clean-${half}.png`),
+            metadataPath: join(scratch, `detail-clean-${half}.json`),
+        };
+        outputFiles.push(output);
+        pageInputs.push({
+            inputPath,
+            pageNumber: request.pageNumber,
+            dpi: requestedRenderDpi,
+            sourceDpi,
+            requestedRenderDpi,
+            resolvedOutputMode: request.detail.outputMode,
+            pageMetadataPath: join(scratch, `detail-page-${half}.json`),
+            outputs: [output],
+            detailRenderPlan: {
+                baseMetadataPath,
+                baseRasterPath,
+                sourceCrop: {
+                    xPx: sourceCrop.x,
+                    yPx: sourceCrop.y,
+                    widthPx: sourceCrop.width,
+                    heightPx: sourceCrop.height,
+                },
+                fullSourceWidthPx: fullSourceWidth,
+                fullSourceHeightPx: fullSourceHeight,
+                scale: renderScale,
+                renderRegion,
+                sampledRegion,
+            },
+        });
+    }
+    if (pageInputs.length === 0) {
+        throw new Error('Scan cleanup detail request has no matching base output');
+    }
+    const manifest = buildNativeScanCleanupManifest({
+        operation: 'render',
+        renderMode: 'preview',
+        canvasScope: 'page',
+        qualityPath: 'raster',
+        options: effectiveOptions,
+        experimental: {autoDewarp: false},
+        pages: pageInputs,
+    });
+    const manifestPath = join(scratch, 'detail-manifest.json');
+    await writeFile(manifestPath, JSON.stringify(manifest));
+    await dependencies.runSidecar(
+        binary,
+        manifestPath,
+        signal,
+        (level, message) => logger[level](message),
+        () => undefined,
+    );
+    const cleaned = [] as IScanCleanupPreviewResult['outputs'];
+    for (const output of outputFiles) {
+        const nativeMetadata = JSON.parse(
+            await readFile(output.metadataPath, 'utf8'),
+        ) as INativePreviewOutputMetadata;
+        cleaned.push({
+            imageData: await readPreviewBytes(output.outputPath),
+            metadata: {
+                ...nativeMetadata,
+                ...(nativeMetadata.dewarpModel === undefined
+                    ? {}
+                    : {dewarpApplied: nativeMetadata.dewarpModel !== null}),
+            },
+        });
+    }
+    return {
+        pageNumber: request.pageNumber,
+        totalPages: baseRaw.totalPages,
+        rawImageData: baseRaw.bytes,
+        rawWidthPx: baseRaw.width,
+        rawHeightPx: baseRaw.height,
+        pageMetadata: analysis.pageMetadata,
+        outputs: cleaned,
+    };
+}
+
 async function runPreview(
     request: IScanCleanupPreviewRequest,
     signal: AbortSignal,
     rawCache: Map<string, IRawPreview>,
+    baseAnalysisCache: Map<string, IBasePreviewAnalysis>,
     dependencies: IScanCleanupPreviewDependencies,
 ): Promise<IScanCleanupPreviewResult> {
     if (!isAbsolute(request.sourcePdfPath)) throw new Error('Scan cleanup preview requires an absolute source path');
@@ -369,47 +762,65 @@ async function runPreview(
             rawCache,
             dependencies,
         );
-        const sourceDpiCandidate = request.detail
-            ? await dependencies.detectSourceDpi?.(
+        let renderDpi = PREVIEW_DPI;
+        let requestedRenderDpi = PREVIEW_DPI;
+        let sourceDpi = PREVIEW_DPI;
+        let fallbackDetail = false;
+        if (request.detail) {
+            const {
+                detail: _detail,
+                ...baseRequest
+            } = request;
+            const analysis = baseAnalysisCache.get(baseAnalysisKey(baseRequest));
+            if (!analysis || analysis.mtimeMs !== baseRaw.mtimeMs) {
+                throw new Error('Scan cleanup detail geometry is unavailable; rebuild the base preview');
+            }
+            const detailRequest = request as IScanCleanupPreviewRequest & {detail: NonNullable<IScanCleanupPreviewRequest['detail']>;};
+            const pageOverride = getScanCleanupPageOverride(
+                request.options.pageOverrides,
+                request.pageNumber,
+            );
+            const hasManualZones = (pageOverride.manualZones?.picture.length ?? 0) > 0
+                || (pageOverride.manualZones?.fill.length ?? 0) > 0;
+            if (request.detail.outputMode !== 'mixed' && !hasManualZones) {
+                return await runDetailPreview(
+                    detailRequest,
+                    signal,
+                    baseRaw,
+                    inputPath,
+                    analysis,
+                    scratch,
+                    dependencies,
+                );
+            }
+            fallbackDetail = true;
+            const sourceDpiCandidate = await dependencies.detectSourceDpi?.(
                 request.sourcePdfPath,
                 request.pageNumber,
                 signal,
-            )
-            : null;
-        const sourceDpi = sourceDpiCandidate !== null
-            && sourceDpiCandidate !== undefined
-            && Number.isFinite(sourceDpiCandidate)
-            && sourceDpiCandidate > 0
-            ? sourceDpiCandidate
-            : DEFAULT_SOURCE_DPI;
-        const {
-            renderDpi,
-            requestedRenderDpi,
-            renderCrop,
-        } = resolveDetailRenderPolicy(request, baseRaw, sourceDpi);
-        if (request.detail && renderDpi !== PREVIEW_DPI) {
-            const maxSourcePixels = resolveScanCleanupPipelineMaxPixels(request.detail.outputMode);
-            const rasterScale = renderDpi / PREVIEW_DPI;
-            const detailWidth = Math.ceil(baseRaw.width * rasterScale);
-            const detailHeight = Math.ceil(baseRaw.height * rasterScale);
-            if (
-                detailWidth > 40_000
-                || detailHeight > 40_000
-                || detailWidth * detailHeight > maxSourcePixels
-            ) {
-                throw new Error(
-                    `Scan cleanup detail raster ${detailWidth}x${detailHeight} exceeds native limits`,
+            );
+            sourceDpi = sourceDpiCandidate !== null
+                && sourceDpiCandidate !== undefined
+                && Number.isFinite(sourceDpiCandidate)
+                && sourceDpiCandidate > 0
+                ? sourceDpiCandidate
+                : DEFAULT_SOURCE_DPI;
+            ({
+                renderDpi,
+                requestedRenderDpi,
+            } = resolveFallbackDetailDpi(detailRequest, baseRaw, sourceDpi));
+            if (renderDpi !== PREVIEW_DPI) {
+                await materializeRawRaster(
+                    request,
+                    request.pageNumber,
+                    inputPath,
+                    signal,
+                    rawCache,
+                    dependencies,
+                    baseRaw.totalPages,
+                    renderDpi,
                 );
             }
-            await renderDetailRaster(
-                request,
-                request.pageNumber,
-                inputPath,
-                signal,
-                dependencies,
-                renderDpi,
-                maxSourcePixels,
-            );
         }
         if (signal.aborted) throw signal.reason;
         const binary = dependencies.resolveBinary();
@@ -425,7 +836,7 @@ async function runPreview(
         const pageMetadataPath = join(scratch, 'page.json');
         const pageOverride = getScanCleanupPageOverride(request.options.pageOverrides, request.pageNumber);
         const lossless = request.options.preserveOriginalQuality === true;
-        const documentCanvas = request.detail === undefined && request.options.matchPageSize
+        const documentCanvas = (!request.detail || fallbackDetail) && request.options.matchPageSize
             ? request.documentCanvasPlan
             : undefined;
         const effectiveOptions = (documentCanvas === undefined && request.options.matchPageSize)
@@ -451,10 +862,11 @@ async function runPreview(
                 inputPath,
                 pageNumber: request.pageNumber,
                 dpi: renderDpi,
-                sourceDpi: request.detail ? sourceDpi : PREVIEW_DPI,
+                sourceDpi,
                 requestedRenderDpi,
-                ...(renderCrop === undefined ? {} : {renderCrop}),
-                ...(request.detail === undefined ? {} : {resolvedOutputMode: request.detail.outputMode}),
+                ...(request.detail === undefined
+                    ? {}
+                    : {resolvedOutputMode: request.detail.outputMode}),
                 pageMetadataPath,
                 outputs,
                 ...(request.documentPrior === undefined ? {} : {documentPrior: request.documentPrior}),
@@ -539,11 +951,13 @@ async function runPreview(
             };
         }
         const cleaned = [] as IScanCleanupPreviewResult['outputs'];
+        const nativeOutputs: IBasePreviewAnalysis['outputs'] = {};
         for (const output of outputs) {
             try {
                 const nativeMetadata = JSON.parse(
                     await readFile(output.metadataPath, 'utf8'),
                 ) as INativePreviewOutputMetadata;
+                nativeOutputs[nativeMetadata.half] = nativeMetadata;
                 cleaned.push({
                     imageData: await readPreviewBytes(output.outputPath),
                     metadata: {
@@ -558,7 +972,7 @@ async function runPreview(
             }
         }
         const diagnosticMetadata = cleaned[0]?.metadata;
-        return {
+        const result: IScanCleanupPreviewResult = {
             pageNumber: request.pageNumber,
             totalPages: baseRaw.totalPages,
             rawImageData: baseRaw.bytes,
@@ -600,6 +1014,23 @@ async function runPreview(
             },
             outputs: cleaned,
         };
+        if (!fallbackDetail) {
+            const analysisKey = baseAnalysisKey(request);
+            baseAnalysisCache.delete(analysisKey);
+            baseAnalysisCache.set(analysisKey, {
+                sourcePdfPath: request.sourcePdfPath,
+                documentRevision: request.documentRevision,
+                mtimeMs: baseRaw.mtimeMs,
+                pageMetadata: result.pageMetadata,
+                outputs: nativeOutputs,
+            });
+            while (baseAnalysisCache.size > RAW_CACHE_PAGE_LIMIT) {
+                const oldest = baseAnalysisCache.keys().next().value;
+                if (typeof oldest !== 'string') break;
+                baseAnalysisCache.delete(oldest);
+            }
+        }
+        return result;
     } finally {
         await rm(scratch, {
             recursive: true,
@@ -831,6 +1262,7 @@ export function createScanCleanupPreviewService(
     const active = new Map<string, IPreviewEntry>();
     const activeRaw = new Map<string, IRawPreviewEntry>();
     const rawCache = new Map<string, IRawPreview>();
+    const baseAnalysisCache = new Map<string, IBasePreviewAnalysis>();
     const detectionJobs = createMainJobRegistry<
         TScanCleanupDetectionJobState,
         IDetectionResult,
@@ -929,7 +1361,13 @@ export function createScanCleanupPreviewService(
             const controller = new AbortController();
             const generation = (previous?.generation ?? 0) + 1;
             const priorTail = previous?.tail.catch(() => undefined) ?? Promise.resolve();
-            const tail = priorTail.then(() => runPreview(request, controller.signal, rawCache, dependencies));
+            const tail = priorTail.then(() => runPreview(
+                request,
+                controller.signal,
+                rawCache,
+                baseAnalysisCache,
+                dependencies,
+            ));
             active.set(activeKey, {
                 controller,
                 generation,
@@ -953,6 +1391,17 @@ export function createScanCleanupPreviewService(
                 ] of rawCache) {
                     if (raw.sourcePdfPath === request.sourcePdfPath && raw.documentRevision === request.documentRevision) {
                         rawCache.delete(key);
+                    }
+                }
+                for (const [
+                    key,
+                    analysis,
+                ] of baseAnalysisCache) {
+                    if (
+                        analysis.sourcePdfPath === request.sourcePdfPath
+                        && analysis.documentRevision === request.documentRevision
+                    ) {
+                        baseAnalysisCache.delete(key);
                     }
                 }
             }

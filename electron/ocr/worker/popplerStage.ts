@@ -19,6 +19,13 @@ export interface IPreparedPopplerPdf {
     warnings: string[];
 }
 
+export interface IPopplerPixelCrop {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+}
+
 export async function renderPdfPageToPng(
     paths: Pick<IWorkerPaths, 'pdftoppmBinary'>,
     log: TWorkerLog,
@@ -28,7 +35,25 @@ export async function renderPdfPageToPng(
     dpi: number,
     popplerEnv?: NodeJS.ProcessEnv,
     signal?: AbortSignal,
+    crop?: IPopplerPixelCrop,
 ) {
+    if (crop !== undefined) {
+        for (const field of [
+            'x',
+            'y',
+            'width',
+            'height',
+        ] as const) {
+            const value = crop[field];
+            const minimum = field === 'x' || field === 'y' ? 0 : 1;
+            if (!Number.isSafeInteger(value) || value < minimum) {
+                throw new TypeError(
+                    `Poppler pixel crop ${field} must be a ${minimum === 0 ? 'non-negative' : 'positive'} safe integer`,
+                );
+            }
+        }
+    }
+
     const commandOptions: TOcrRunCommandOptions = {
         commandLabel: `pdftoppm(page=${pageNumber},dpi=${dpi})`,
         timeoutMs: PDFTOPPM_TIMEOUT_MS,
@@ -41,7 +66,7 @@ export async function renderPdfPageToPng(
         commandOptions.signal = signal;
     }
 
-    await runOcrCommand(paths.pdftoppmBinary, [
+    const commandArgs = [
         '-png',
         '-cropbox',
         '-r',
@@ -51,9 +76,25 @@ export async function renderPdfPageToPng(
         '-l',
         String(pageNumber),
         '-singlefile',
+    ];
+    if (crop !== undefined) {
+        commandArgs.push(
+            '-x',
+            String(crop.x),
+            '-y',
+            String(crop.y),
+            '-W',
+            String(crop.width),
+            '-H',
+            String(crop.height),
+        );
+    }
+    commandArgs.push(
         sourcePdfPath,
         outputPngPath.replace(/\.png$/, ''),
-    ], commandOptions);
+    );
+
+    await runOcrCommand(paths.pdftoppmBinary, commandArgs, commandOptions);
 }
 
 export async function preparePdfForPoppler(

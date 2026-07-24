@@ -347,6 +347,7 @@ import type {
     IScanCleanupNormalizedRect,
     IScanCleanupNormalizedSplit,
     IScanCleanupPreviewMetadata,
+    IScanCleanupPreviewRequest,
     IScanCleanupPixelRect,
     IScanCleanupRawPreviewResult,
     IScanCleanupPreviewResult,
@@ -463,7 +464,7 @@ const emit = defineEmits<{
     'update:manualZones': [value: IScanCleanupManualZones];
     'update:placement': [half: TScanCleanupOutputHalf, value: TScanCleanupPageAlignment];
     useMixedOutput: [];
-    requestDetail: [viewport: IScanCleanupNormalizedRect];
+    requestDetail: [viewports: NonNullable<IScanCleanupPreviewRequest['detail']>['viewports']];
 }>();
 const {t} = useTypedI18n();
 const previewSurface = ref<HTMLElement | null>(null);
@@ -547,9 +548,7 @@ const effectiveViewMode = computed(() => props.lossless
     : props.viewMode ?? 'cleaned');
 const detailLayerEligible = computed(() => effectiveViewMode.value === 'cleaned'
     && props.lossless !== true
-    // A single crop rectangle is output-local. Split spreads retain the
-    // complete base preview until protocol v3 grows per-half crop rectangles.
-    && props.result?.outputs.length === 1
+    && Boolean(props.result?.outputs.length)
     && previewEffectiveZoom.value >= 1.5);
 const detailResultMatchesPage = computed(() => detailLayerEligible.value
     && props.detailResult?.pageNumber === props.result?.pageNumber);
@@ -1160,7 +1159,7 @@ function scheduleDetailRequest() {
         effectiveViewMode.value !== 'cleaned'
         || props.lossless === true
         || !props.result
-        || props.result.outputs.length !== 1
+        || props.result.outputs.length === 0
         || props.loading
         || isStalePage.value
         || previewEffectiveZoom.value < 1.5
@@ -1174,46 +1173,48 @@ function scheduleDetailRequest() {
     detailTimer = setTimeout(() => {
         detailTimer = null;
         updateOverlayGeometry();
-        const output = renderedOutputs.value[0];
-        const canvasRect = output && outputCanvasRects[output.metadata.half];
         const surfaceRect = previewSurface.value?.getBoundingClientRect();
-        if (!output || !canvasRect || !surfaceRect || canvasRect.width <= 0 || canvasRect.height <= 0) {
-            return;
-        }
-        const imageRect = {
-            x: canvasRect.x
-                + output.placement.left / output.placement.canvasWidthPx * canvasRect.width,
-            y: canvasRect.y
-                + output.placement.top / output.placement.canvasHeightPx * canvasRect.height,
-            width: output.metadata.outputWidthPx
-                / output.placement.canvasWidthPx * canvasRect.width,
-            height: output.metadata.outputHeightPx
-                / output.placement.canvasHeightPx * canvasRect.height,
-        };
-        const left = Math.max(0, Math.min(1, (surfaceRect.left - imageRect.x) / imageRect.width));
-        const top = Math.max(0, Math.min(1, (surfaceRect.top - imageRect.y) / imageRect.height));
-        const right = Math.max(left, Math.min(
-            1,
-            (surfaceRect.right - imageRect.x) / imageRect.width,
-        ));
-        const bottom = Math.max(top, Math.min(
-            1,
-            (surfaceRect.bottom - imageRect.y) / imageRect.height,
-        ));
-        if (right <= left || bottom <= top) {
+        if (!surfaceRect) {
             return;
         }
         const quantizeDown = (value: number) => Math.floor(value * 64) / 64;
         const quantizeUp = (value: number) => Math.ceil(value * 64) / 64;
-        const xNormalized = quantizeDown(left);
-        const yNormalized = quantizeDown(top);
-        emit('requestDetail', {
-            xNormalized,
-            yNormalized,
-            widthNormalized: Math.max(1 / 64, Math.min(1, quantizeUp(right)) - xNormalized),
-            heightNormalized: Math.max(1 / 64, Math.min(1, quantizeUp(bottom)) - yNormalized),
-            rotationDegrees: props.result?.pageMetadata.rotationDegrees ?? 0,
-        });
+        const viewports: NonNullable<IScanCleanupPreviewRequest['detail']>['viewports'] = {};
+        for (const output of renderedOutputs.value) {
+            const canvasRect = outputCanvasRects[output.metadata.half];
+            if (!canvasRect || canvasRect.width <= 0 || canvasRect.height <= 0) continue;
+            const imageRect = {
+                x: canvasRect.x
+                    + output.placement.left / output.placement.canvasWidthPx * canvasRect.width,
+                y: canvasRect.y
+                    + output.placement.top / output.placement.canvasHeightPx * canvasRect.height,
+                width: output.metadata.outputWidthPx
+                    / output.placement.canvasWidthPx * canvasRect.width,
+                height: output.metadata.outputHeightPx
+                    / output.placement.canvasHeightPx * canvasRect.height,
+            };
+            const left = Math.max(0, Math.min(1, (surfaceRect.left - imageRect.x) / imageRect.width));
+            const top = Math.max(0, Math.min(1, (surfaceRect.top - imageRect.y) / imageRect.height));
+            const right = Math.max(left, Math.min(
+                1,
+                (surfaceRect.right - imageRect.x) / imageRect.width,
+            ));
+            const bottom = Math.max(top, Math.min(
+                1,
+                (surfaceRect.bottom - imageRect.y) / imageRect.height,
+            ));
+            if (right <= left || bottom <= top) continue;
+            const xNormalized = quantizeDown(left);
+            const yNormalized = quantizeDown(top);
+            viewports[output.metadata.half] = {
+                xNormalized,
+                yNormalized,
+                widthNormalized: Math.max(1 / 64, Math.min(1, quantizeUp(right)) - xNormalized),
+                heightNormalized: Math.max(1 / 64, Math.min(1, quantizeUp(bottom)) - yNormalized),
+                rotationDegrees: props.result?.pageMetadata.rotationDegrees ?? 0,
+            };
+        }
+        if (Object.keys(viewports).length > 0) emit('requestDetail', viewports);
     }, 300);
 }
 

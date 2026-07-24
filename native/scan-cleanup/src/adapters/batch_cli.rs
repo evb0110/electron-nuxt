@@ -1,6 +1,6 @@
 use crate::adapters::single_ocr_cli::{invalid, optional_value, parse_options, required_path};
 use crate::engine::render::{
-    analyze_page_with_color_and_document_prior_cached,
+    analyze_page_with_color_and_document_prior_cached, clean_detail_page_with_color,
     clean_page_with_color_and_document_prior_cached, downscale_rgb_to_dimensions,
 };
 use crate::mode_select::OutputModeRecommendationReason;
@@ -151,6 +151,7 @@ pub fn run(args: impl IntoIterator<Item = String>) -> Result<(), Box<dyn Error>>
         page_metadata_path: metadata.clone(),
         options,
         document_prior: None,
+        detail_render_plan: None,
     };
     let cache = manifest_cache();
     let page_cache = page_cache_for(&page, &cache)?;
@@ -838,17 +839,49 @@ fn run_page(
         .map(|input| &input.gray)
         .or(gray_input.as_deref())
         .expect("cleanup input is initialized");
-    let mut result = clean_page_with_color_and_document_prior_cached(
-        input_gray,
-        color_input.as_ref().map(|input| &input.rgb),
-        &options,
-        page.source_page_index,
-        page.document_prior,
-        cache,
-        final_render,
-        &mut timings,
-    )
-    .map_err(invalid)?;
+    let mut result = if let Some(detail_plan) = &page.detail_render_plan {
+        let metadata_bytes = fs::read(&detail_plan.base_metadata_path).map_err(|error| {
+            invalid(format!(
+                "Failed to read detail base metadata {}: {error}",
+                detail_plan.base_metadata_path.display(),
+            ))
+        })?;
+        let base_metadata: CleanupMetadata =
+            serde_json::from_slice(&metadata_bytes).map_err(|error| {
+                invalid(format!(
+                    "Invalid detail base metadata {}: {error}",
+                    detail_plan.base_metadata_path.display(),
+                ))
+            })?;
+        let base_source = png::read_gray(
+            &detail_plan.base_raster_path,
+            options.max_pixels,
+            options.max_dimension,
+        )
+        .map_err(map_image_error)?;
+        clean_detail_page_with_color(
+            input_gray,
+            color_input.as_ref().map(|input| &input.rgb),
+            &base_source,
+            &options,
+            page.source_page_index,
+            detail_plan,
+            &base_metadata,
+        )
+        .map_err(invalid)?
+    } else {
+        clean_page_with_color_and_document_prior_cached(
+            input_gray,
+            color_input.as_ref().map(|input| &input.rgb),
+            &options,
+            page.source_page_index,
+            page.document_prior,
+            cache,
+            final_render,
+            &mut timings,
+        )
+        .map_err(invalid)?
+    };
     for output in &mut result.outputs {
         output.metadata.canvas_scope = canvas_scope;
     }

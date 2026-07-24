@@ -20,7 +20,10 @@ import type {
     IScanCleanupMarginsMm,
     IScanCleanupNormalizedRect,
     IScanCleanupNormalizedSplit,
+    IScanCleanupPixelPoint,
     IScanCleanupPixelPolygon,
+    IScanCleanupPixelRect,
+    IScanCleanupPreviewAffine,
     IScanCleanupSplitSeamPolyline,
 } from '@contracts/scan-cleanup/geometry';
 
@@ -133,6 +136,37 @@ export interface INativeScanCleanupPageDiagnosticsV3 {
     clusterAgreement?: number;
 }
 
+export interface INativeScanCleanupDetailRenderPlanV3 {
+    /** Trusted metadata from the completed 150-DPI base preview. */
+    baseMetadataPath: string;
+    /** Full 150-DPI source raster used to reuse page-global processing models. */
+    baseRasterPath: string;
+    /** Actual Poppler crop in full, unrotated source-raster pixels at detail DPI. */
+    sourceCrop: IScanCleanupPixelRect;
+    fullSourceWidthPx: number;
+    fullSourceHeightPx: number;
+    /** Detail pixels per base-preview pixel. */
+    scale: number;
+    /** Requested payload bounds in final intrinsic-output pixels at detail DPI. */
+    renderRegion: IScanCleanupPixelRect;
+    /** Geometry/processing apron rendered before trimming to renderRegion. */
+    sampledRegion: IScanCleanupPixelRect;
+}
+
+/** Native-only inverse geometry persisted beside a preview output for detail reuse. */
+export interface INativeScanCleanupReusableGeometryV3 {
+    inverseTransform?: IScanCleanupPreviewAffine;
+    dewarpMapping?: {
+        columns: number;
+        rows: number;
+        outputOrigin: IScanCleanupPixelPoint;
+        outputWidth: number;
+        outputHeight: number;
+        outputToSource: IScanCleanupPixelPoint[];
+        sourceToOutput: IScanCleanupPixelPoint[];
+    } | null;
+}
+
 export interface INativeScanCleanupPageV3 {
     inputPath: string;
     sourcePageIndex: number;
@@ -140,6 +174,7 @@ export interface INativeScanCleanupPageV3 {
     options: INativeScanCleanupOptionsV3;
     outputs: INativeScanCleanupOutputV3[];
     documentPrior?: IScanCleanupDocumentPrior;
+    detailRenderPlan?: INativeScanCleanupDetailRenderPlanV3;
 }
 
 export interface INativeScanCleanupManifestV3 {

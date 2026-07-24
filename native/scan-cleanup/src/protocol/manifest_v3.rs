@@ -123,6 +123,34 @@ pub struct PageOutput {
 
 #[derive(Clone, Debug, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct DetailPixelRect {
+    pub x_px: f64,
+    pub y_px: f64,
+    pub width_px: f64,
+    pub height_px: f64,
+}
+
+impl DetailPixelRect {
+    pub fn as_rect(&self) -> scan_primitives::Rect {
+        scan_primitives::Rect::new(self.x_px, self.y_px, self.width_px, self.height_px)
+    }
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct DetailRenderPlan {
+    pub base_metadata_path: PathBuf,
+    pub base_raster_path: PathBuf,
+    pub source_crop: DetailPixelRect,
+    pub full_source_width_px: usize,
+    pub full_source_height_px: usize,
+    pub scale: f64,
+    pub render_region: DetailPixelRect,
+    pub sampled_region: DetailPixelRect,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct Page {
     pub input_path: PathBuf,
     pub source_page_index: usize,
@@ -132,6 +160,8 @@ pub struct Page {
     pub options: CleanupOptions,
     #[serde(default)]
     pub document_prior: Option<DocumentPrior>,
+    #[serde(default)]
+    pub detail_render_plan: Option<DetailRenderPlan>,
     pub outputs: Vec<PageOutput>,
 }
 
@@ -182,6 +212,45 @@ impl ManifestV3 {
                     "Render crop cannot be combined with matched page-size output",
                 ));
             }
+            if let Some(detail) = &page.detail_render_plan {
+                if self.operation != Operation::Render || self.render_mode != RenderMode::Preview {
+                    return Err(invalid(
+                        "Detail source rendering is supported only by preview render manifests",
+                    ));
+                }
+                if page.options.render_crop.is_some() || page.options.match_page_size {
+                    return Err(invalid(
+                        "Detail source rendering cannot combine with render crop or matched page size",
+                    ));
+                }
+                if !detail.scale.is_finite()
+                    || detail.scale <= 0.0
+                    || detail.full_source_width_px == 0
+                    || detail.full_source_height_px == 0
+                    || !valid_detail_rect(&detail.source_crop)
+                    || !valid_detail_rect(&detail.render_region)
+                    || !valid_detail_rect(&detail.sampled_region)
+                {
+                    return Err(invalid("Detail render plan dimensions are invalid"));
+                }
+                let source = detail.source_crop.as_rect();
+                if source.right() > detail.full_source_width_px as f64
+                    || source.bottom() > detail.full_source_height_px as f64
+                {
+                    return Err(invalid("Detail source crop exceeds the full source raster"));
+                }
+                let render = detail.render_region.as_rect();
+                let sampled = detail.sampled_region.as_rect();
+                if render.x < sampled.x
+                    || render.y < sampled.y
+                    || render.right() > sampled.right()
+                    || render.bottom() > sampled.bottom()
+                {
+                    return Err(invalid(
+                        "Detail render region must be contained by the sampled region",
+                    ));
+                }
+            }
             if let Some(prior) = page.document_prior {
                 prior.validate().map_err(invalid)?;
             }
@@ -193,6 +262,17 @@ impl ManifestV3 {
         }
         Ok(())
     }
+}
+
+fn valid_detail_rect(rect: &DetailPixelRect) -> bool {
+    rect.x_px.is_finite()
+        && rect.y_px.is_finite()
+        && rect.width_px.is_finite()
+        && rect.height_px.is_finite()
+        && rect.x_px >= 0.0
+        && rect.y_px >= 0.0
+        && rect.width_px > 0.0
+        && rect.height_px > 0.0
 }
 
 fn invalid(message: impl Into<String>) -> NativeError {
@@ -306,6 +386,67 @@ mod tests {
             .unwrap_err()
             .to_string()
             .contains("matched page-size"));
+    }
+
+    #[test]
+    fn detail_render_plan_is_preview_only_and_bounded() {
+        let bytes = std::fs::read(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("tests/fixtures/protocol/preview-raster-v3.json"),
+        )
+        .unwrap();
+        let mut manifest: ManifestV3 = serde_json::from_slice(&bytes).unwrap();
+        manifest.pages[0].options.render_crop = None;
+        manifest.pages[0].detail_render_plan = Some(DetailRenderPlan {
+            base_metadata_path: PathBuf::from("base.json"),
+            base_raster_path: PathBuf::from("base.png"),
+            source_crop: DetailPixelRect {
+                x_px: 10.0,
+                y_px: 20.0,
+                width_px: 100.0,
+                height_px: 120.0,
+            },
+            full_source_width_px: 400,
+            full_source_height_px: 600,
+            scale: 4.0,
+            render_region: DetailPixelRect {
+                x_px: 80.0,
+                y_px: 100.0,
+                width_px: 120.0,
+                height_px: 160.0,
+            },
+            sampled_region: DetailPixelRect {
+                x_px: 64.0,
+                y_px: 84.0,
+                width_px: 152.0,
+                height_px: 192.0,
+            },
+        });
+        manifest.validate().unwrap();
+
+        manifest.pages[0]
+            .detail_render_plan
+            .as_mut()
+            .unwrap()
+            .source_crop
+            .width_px = 1_000.0;
+        assert!(manifest
+            .validate()
+            .unwrap_err()
+            .to_string()
+            .contains("full source raster"));
+        manifest.pages[0]
+            .detail_render_plan
+            .as_mut()
+            .unwrap()
+            .source_crop
+            .width_px = 100.0;
+        manifest.render_mode = RenderMode::Final;
+        assert!(manifest
+            .validate()
+            .unwrap_err()
+            .to_string()
+            .contains("preview render"));
     }
 
     #[test]

@@ -114,4 +114,95 @@ describe('renderPdfPageToPng', () => {
             expect.objectContaining({commandLabel: 'pdftoppm(page=3,dpi=300)'}),
         );
     });
+
+    it('renders only the requested positive pixel crop', async () => {
+        const log = vi.fn();
+
+        await renderPdfPageToPng(
+            workerPaths,
+            log,
+            3,
+            '/tmp/source.pdf',
+            '/tmp/page-3.png',
+            300,
+            undefined,
+            undefined,
+            {
+                x: 11,
+                y: 22,
+                width: 333,
+                height: 444,
+            },
+        );
+
+        expect(mocks.runOcrCommand).toHaveBeenCalledWith(
+            '/bin/pdftoppm',
+            [
+                '-png',
+                '-cropbox',
+                '-r',
+                '300',
+                '-f',
+                '3',
+                '-l',
+                '3',
+                '-singlefile',
+                '-x',
+                '11',
+                '-y',
+                '22',
+                '-W',
+                '333',
+                '-H',
+                '444',
+                '/tmp/source.pdf',
+                '/tmp/page-3',
+            ],
+            expect.objectContaining({commandLabel: 'pdftoppm(page=3,dpi=300)'}),
+        );
+    });
+
+    it.each([
+        [
+            'x',
+            -1,
+        ],
+        [
+            'y',
+            -1,
+        ],
+        [
+            'width',
+            1.5,
+        ],
+        [
+            'height',
+            Number.MAX_SAFE_INTEGER + 1,
+        ],
+    ] as const)('rejects an invalid %s crop value', async (field, value) => {
+        const crop = {
+            x: 1,
+            y: 2,
+            width: 3,
+            height: 4,
+            [field]: value,
+        };
+
+        await expect(renderPdfPageToPng(
+            workerPaths,
+            vi.fn(),
+            3,
+            '/tmp/source.pdf',
+            '/tmp/page-3.png',
+            300,
+            undefined,
+            undefined,
+            crop,
+        )).rejects.toThrow(
+            `Poppler pixel crop ${field} must be a ${
+                field === 'x' || field === 'y' ? 'non-negative' : 'positive'
+            } safe integer`,
+        );
+        expect(mocks.runOcrCommand).not.toHaveBeenCalled();
+    });
 });

@@ -1346,6 +1346,233 @@ describe('Electron E2E - Viewer Smoke', () => {
         }, {timeout: 10_000});
     }, 150_000);
 
+    it('renders bounded native cleanup detail tiles for zoomed and panned scan regions', async () => {
+        let session = sessionFixture.getSession();
+        if (!session) {
+            return;
+        }
+
+        session = await sessionFixture.restart({
+            clean: true,
+            sessionName: () => `e2e-viewer-scan-cleanup-detail-tile-${Date.now()}`,
+        });
+        if (!session) {
+            return;
+        }
+
+        await session.page.setViewport({
+            deviceScaleFactor: 1,
+            height: 900,
+            width: 1_440,
+        });
+        const fixturePath = await createLargeScannedFixturePdf(
+            `viewer-scan-cleanup-detail-tile-${Date.now()}.pdf`,
+            1,
+            0,
+        );
+        await openPdfInApp(session.page, fixturePath, VIEWER_SMOKE_OPEN_TIMEOUT_MS);
+        await waitForPdfLoaded(session.page, VIEWER_SMOKE_OPEN_TIMEOUT_MS);
+
+        await clickVisibleToolbarButton(session.page, 'Scan cleanup');
+        await session.page.waitForSelector('.scan-cleanup-surface', {
+            timeout: 10_000,
+            visible: true,
+        });
+        await session.page.evaluate(() => {
+            const dismiss = Array.from(document.querySelectorAll<HTMLButtonElement>('button'))
+                .find(button => (button.textContent ?? '').trim() === 'Got it');
+            dismiss?.click();
+        });
+        await session.page.evaluate(() => {
+            const bw = Array.from(document.querySelectorAll<HTMLButtonElement>('button[role="radio"]'))
+                .find(button => button.getAttribute('aria-label') === 'Black and white'
+                    || (button.textContent ?? '').trim() === 'B&W');
+            if (!bw) {
+                throw new Error('Scan Cleanup black-and-white output control was not found');
+            }
+            bw.click();
+        });
+        await waitForFunctionInPage(session.page, () => Array.from(
+            document.querySelectorAll<HTMLButtonElement>('button[role="radio"]'),
+        ).some(button => button.getAttribute('aria-label') === 'Black and white'
+            && button.getAttribute('aria-checked') === 'true'), {timeout: 10_000});
+        await session.page.waitForSelector(
+            '.preview-result-layer img.cleaned-image.preview-pixel:not(.is-outgoing):not(.is-incoming)',
+            {
+                timeout: 60_000,
+                visible: true,
+            },
+        );
+
+        await waitForFunctionInPage(session.page, () => (
+            document.querySelectorAll('.preview-result-layer .output-fit-area').length === 1
+            && document.querySelectorAll('.preview-result-layer .placed-image').length === 1
+        ), {timeout: 60_000});
+
+        await session.page.click('.preview-zoom-value');
+        for (let step = 0; step < 3; step += 1) {
+            await session.page.click('button[aria-label="Zoom in"]');
+        }
+        await waitForFunctionInPage(session.page, () => {
+            const surface = document.querySelector<HTMLElement>('.preview-surface');
+            return Boolean(
+                surface?.classList.contains('can-pan-preview')
+                && Number(surface.dataset.previewZoomPercent ?? 0) >= 175,
+            );
+        }, {timeout: 10_000});
+        await waitForFunctionInPage(session.page, () => {
+            const detail = document.querySelector<HTMLImageElement>(
+                '.preview-result-layer img.preview-detail-pixel',
+            );
+            return Boolean(detail?.src.startsWith('blob:')
+                && detail.complete
+                && detail.naturalWidth > 0
+                && detail.naturalHeight > 0);
+        }, {timeout: 60_000});
+
+        const readDetailTile = () => session.page.evaluate(() => {
+            const detail = document.querySelector<HTMLImageElement>(
+                '.preview-result-layer img.preview-detail-pixel',
+            );
+            const placedImage = detail?.closest<HTMLElement>('.placed-image');
+            const base = placedImage?.querySelector<HTMLImageElement>(
+                'img.cleaned-image.preview-pixel:not(.is-outgoing):not(.is-incoming)',
+            );
+            const output = detail?.closest<HTMLElement>('.output-fit-area');
+            if (!detail || !placedImage || !base || !output) {
+                throw new Error('Cleanup detail tile geometry was not found');
+            }
+            const detailRect = detail.getBoundingClientRect();
+            const baseRect = base.getBoundingClientRect();
+            const leftRatio = Number.parseFloat(detail.style.left) / 100;
+            const topRatio = Number.parseFloat(detail.style.top) / 100;
+            const widthRatio = Number.parseFloat(detail.style.width) / 100;
+            const heightRatio = Number.parseFloat(detail.style.height) / 100;
+            return {
+                baseNaturalHeight: base.naturalHeight,
+                baseNaturalWidth: base.naturalWidth,
+                contained: detailRect.left >= baseRect.left - 1
+                    && detailRect.top >= baseRect.top - 1
+                    && detailRect.right <= baseRect.right + 1
+                    && detailRect.bottom <= baseRect.bottom + 1,
+                heightRatio,
+                leftRatio,
+                naturalHeight: detail.naturalHeight,
+                naturalWidth: detail.naturalWidth,
+                outputCount: document.querySelectorAll(
+                    '.preview-result-layer .output-fit-area',
+                ).length,
+                outputHalf: output.dataset.outputHalf ?? null,
+                renderedHeightRatio: detailRect.height / baseRect.height,
+                renderedLeftRatio: (detailRect.left - baseRect.left) / baseRect.width,
+                renderedTopRatio: (detailRect.top - baseRect.top) / baseRect.height,
+                renderedWidthRatio: detailRect.width / baseRect.width,
+                sameBaseOutput: detail.parentElement === base.parentElement,
+                src: detail.src,
+                topRatio,
+                widthRatio,
+            };
+        });
+        const initialTile = await readDetailTile();
+
+        await session.page.click('button[role="radio"][aria-label="Original"]');
+        await session.page.waitForSelector('button[role="radio"][aria-label="Original"][aria-checked="true"]');
+        const pan = await session.page.evaluate(() => {
+            const surface = document.querySelector<HTMLElement>('.preview-surface');
+            if (!surface) {
+                throw new Error('Cleanup preview surface was not found');
+            }
+            const rect = surface.getBoundingClientRect();
+            const interactiveSelector = [
+                'button',
+                'input',
+                'select',
+                'textarea',
+                '.content-overlay',
+                '.placement-control',
+                '.cutter-control',
+            ].join(',');
+            for (const yFraction of [
+                0.15,
+                0.5,
+                0.85,
+            ]) {
+                for (const xFraction of [
+                    0.15,
+                    0.5,
+                    0.85,
+                ]) {
+                    const x = rect.left + rect.width * xFraction;
+                    const y = rect.top + rect.height * yFraction;
+                    const target = document.elementFromPoint(x, y);
+                    if (target instanceof Element && !target.closest(interactiveSelector)) {
+                        const direction = xFraction <= 0.5 ? 1 : -1;
+                        return {
+                            endX: x + direction * Math.min(240, rect.width * 0.25),
+                            endY: y,
+                            startX: x,
+                            startY: y,
+                        };
+                    }
+                }
+            }
+            throw new Error('No non-interactive cleanup preview pan target was found');
+        });
+        await session.page.mouse.move(pan.startX, pan.startY);
+        await session.page.mouse.down();
+        await session.page.mouse.move(pan.endX, pan.endY, {steps: 8});
+        await session.page.mouse.up();
+        await session.page.click('button[role="radio"][aria-label="Cleaned"]');
+        await session.page.waitForSelector('button[role="radio"][aria-label="Cleaned"][aria-checked="true"]');
+        await waitForFunctionInPage(session.page, (previousSrc: string) => {
+            const detail = document.querySelector<HTMLImageElement>(
+                '.preview-result-layer img.preview-detail-pixel',
+            );
+            return Boolean(
+                detail?.src.startsWith('blob:')
+                && detail.src !== previousSrc
+                && detail.complete
+                && detail.naturalWidth > 0
+                && detail.naturalHeight > 0,
+            );
+        }, {timeout: 60_000}, initialTile.src);
+        const pannedTile = await readDetailTile();
+
+        for (const tile of [
+            initialTile,
+            pannedTile,
+        ]) {
+            const geometryTolerance = 0.01;
+            const tileAspect = tile.naturalWidth / tile.naturalHeight;
+            const regionAspect = tile.widthRatio * tile.baseNaturalWidth
+                / (tile.heightRatio * tile.baseNaturalHeight);
+            expect(tile.src.startsWith('blob:')).toBe(true);
+            expect(tile.outputCount).toBe(1);
+            expect(tile.outputHalf).toBe('full');
+            expect(tile.sameBaseOutput).toBe(true);
+            expect(tile.contained).toBe(true);
+            expect(tile.naturalWidth * tile.naturalHeight).toBeLessThanOrEqual(4_000_000);
+            expect(tile.widthRatio < 0.99 || tile.heightRatio < 0.99).toBe(true);
+            expect(tile.leftRatio).toBeGreaterThanOrEqual(0);
+            expect(tile.topRatio).toBeGreaterThanOrEqual(0);
+            expect(tile.leftRatio + tile.widthRatio).toBeLessThanOrEqual(1);
+            expect(tile.topRatio + tile.heightRatio).toBeLessThanOrEqual(1);
+            expect(Math.abs(tile.renderedLeftRatio - tile.leftRatio)).toBeLessThanOrEqual(geometryTolerance);
+            expect(Math.abs(tile.renderedTopRatio - tile.topRatio)).toBeLessThanOrEqual(geometryTolerance);
+            expect(
+                Math.abs(tile.renderedWidthRatio - tile.widthRatio),
+                JSON.stringify(tile),
+            ).toBeLessThanOrEqual(geometryTolerance);
+            expect(Math.abs(tile.renderedHeightRatio - tile.heightRatio)).toBeLessThanOrEqual(geometryTolerance);
+            expect(Math.abs(tileAspect - regionAspect) / regionAspect).toBeLessThanOrEqual(geometryTolerance);
+        }
+        expect(pannedTile.src).not.toBe(initialTile.src);
+        expect(
+            Math.abs(pannedTile.leftRatio - initialTile.leftRatio)
+            + Math.abs(pannedTile.topRatio - initialTile.topRatio),
+        ).toBeGreaterThan(0);
+    }, 150_000);
+
     it('keeps crop and screenshot selection overlays attached to the visible scrolled viewport', async () => {
         let session = sessionFixture.getSession();
         if (!session) {

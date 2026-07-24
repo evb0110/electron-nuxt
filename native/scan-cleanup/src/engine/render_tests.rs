@@ -2120,4 +2120,146 @@ mod tests {
         assert_eq!(blank_crop.outputs.len(), 1);
         assert_eq!(blank_crop.blank_outputs_skipped, 0);
     }
+
+    #[test]
+    fn detail_source_crop_replays_base_geometry_without_rendering_the_full_raster() {
+        let mut base_source = GrayImage::new(120, 90, 245);
+        for y in 0..base_source.height() {
+            for x in 0..base_source.width() {
+                base_source.set(x, y, ((x * 5 + y * 3) % 220 + 20) as u8);
+            }
+        }
+        let mut detail_source = GrayImage::new(240, 180, 255);
+        for y in 0..detail_source.height() {
+            for x in 0..detail_source.width() {
+                detail_source.set(x, y, base_source.get(x / 2, y / 2));
+            }
+        }
+        let base_options = CleanupOptions {
+            dpi: 150.0,
+            source_dpi: Some(150.0),
+            requested_render_dpi: Some(150.0),
+            output_mode: OutputMode::Grayscale,
+            normalize_illumination: true,
+            manual_skew_degrees: Some(2.0),
+            crop_content: false,
+            margins_mm: None,
+            margins_pixels: Some([0.0; 4]),
+            layout: crate::LayoutMode::Single,
+            ..CleanupOptions::default()
+        };
+        let base_metadata = clean_page(&base_source, &base_options, 0)
+            .unwrap()
+            .outputs
+            .remove(0)
+            .metadata;
+        let detail_options = CleanupOptions {
+            dpi: 300.0,
+            source_dpi: Some(150.0),
+            requested_render_dpi: Some(300.0),
+            ..base_options
+        };
+        let source_crop = Rect::new(46.0, 24.0, 148.0, 120.0);
+        let cropped_source = crop_gray(&detail_source, source_crop);
+        let render_region = Rect::new(60.0, 40.0, 100.0, 70.0);
+        let sampled_region = Rect::new(46.0, 24.0, 148.0, 120.0);
+        let detail_plan = DetailRenderPlan {
+            base_metadata_path: std::path::PathBuf::from("unused-in-engine-test.json"),
+            base_raster_path: std::path::PathBuf::from("unused-in-engine-test.png"),
+            source_crop: crate::protocol::manifest_v3::DetailPixelRect {
+                x_px: source_crop.x,
+                y_px: source_crop.y,
+                width_px: source_crop.width,
+                height_px: source_crop.height,
+            },
+            full_source_width_px: detail_source.width(),
+            full_source_height_px: detail_source.height(),
+            scale: 2.0,
+            render_region: crate::protocol::manifest_v3::DetailPixelRect {
+                x_px: render_region.x,
+                y_px: render_region.y,
+                width_px: render_region.width,
+                height_px: render_region.height,
+            },
+            sampled_region: crate::protocol::manifest_v3::DetailPixelRect {
+                x_px: sampled_region.x,
+                y_px: sampled_region.y,
+                width_px: sampled_region.width,
+                height_px: sampled_region.height,
+            },
+        };
+        let detail = clean_detail_page_with_color(
+            &cropped_source,
+            None,
+            &base_source,
+            &detail_options,
+            0,
+            &detail_plan,
+            &base_metadata,
+        )
+        .unwrap()
+        .outputs
+        .remove(0);
+        let full = clean_page(&detail_source, &detail_options, 0)
+            .unwrap()
+            .outputs
+            .remove(0);
+        let expected = crop_gray(&full.image, render_region);
+        let mean_error = detail
+            .image
+            .data()
+            .iter()
+            .zip(expected.data())
+            .map(|(&actual, &expected)| f64::from(actual.abs_diff(expected)))
+            .sum::<f64>()
+            / detail.image.data().len() as f64;
+        assert!(
+            mean_error <= 2.0,
+            "detail source crop must preserve normalized non-identity geometry, mean error={mean_error:.3}",
+        );
+        assert_eq!(detail.metadata.render_region, Some(render_region));
+        assert_eq!(detail.metadata.input_width, detail_source.width());
+        assert_eq!(detail.metadata.input_height, detail_source.height());
+        assert_eq!(detail.metadata.output_width, full.metadata.output_width);
+        assert_eq!(detail.metadata.output_height, full.metadata.output_height);
+
+        let manual_zone_options = CleanupOptions {
+            manual_zones: crate::ManualZones {
+                picture: vec![crate::PictureZone {
+                    polygon: normalized_box_polygon(0.25, 0.25, 0.75, 0.75),
+                    layer: crate::PictureZoneLayer::Painter2,
+                }],
+                fill: vec![],
+            },
+            ..detail_options.clone()
+        };
+        assert!(clean_detail_page_with_color(
+            &cropped_source,
+            None,
+            &base_source,
+            &manual_zone_options,
+            0,
+            &detail_plan,
+            &base_metadata,
+        )
+        .err()
+        .expect("detail rendering with manual zones must fail closed")
+        .contains("manual zones requires the full-page source"));
+        let mixed_options = CleanupOptions {
+            output_mode: OutputMode::Mixed,
+            ..detail_options
+        };
+        assert!(clean_detail_page_with_color(
+            &cropped_source,
+            None,
+            &base_source,
+            &mixed_options,
+            0,
+            &detail_plan,
+            &base_metadata,
+        )
+        .err()
+        .expect("mixed detail must fail closed")
+        .contains("full-page picture mask"));
+    }
 }

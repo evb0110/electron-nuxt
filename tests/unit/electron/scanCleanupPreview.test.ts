@@ -36,6 +36,20 @@ const SCAN_CLEANUP_IPC_CODECS = SCAN_CLEANUP_PLATFORM_FEATURE.ipcCodecs;
 
 type TDetailPreviewManifest = Record<'pages', Array<{
     options: Record<string, unknown>;
+    detailRenderPlan?: {
+        sourceCrop: {
+            xPx: number;
+            yPx: number;
+            widthPx: number;
+            heightPx: number;
+        };
+        renderRegion: {
+            xPx: number;
+            yPx: number;
+            widthPx: number;
+            heightPx: number;
+        };
+    };
     outputs: Array<{
         outputPath: string;
         metadataPath: string;
@@ -247,6 +261,23 @@ function dependencies(dir: string): IScanCleanupPreviewDependencies {
                         1,
                     ],
                 ]},
+                inverseTransform: {matrix: [
+                    [
+                        1,
+                        0,
+                        0,
+                    ],
+                    [
+                        0,
+                        1,
+                        0,
+                    ],
+                    [
+                        0,
+                        0,
+                        1,
+                    ],
+                ]},
                 warnings: [],
             }));
         }),
@@ -405,19 +436,18 @@ describe('scan cleanup preview', () => {
             .toEqual([normalizedRequest]);
     });
 
-    it('validates high-detail viewport requests and their pixel budget', () => {
+    it('validates high-detail viewport requests', () => {
         const detailRequest: IScanCleanupPreviewRequest = {
             ...request,
             detail: {
-                viewport: {
+                viewports: {left: {
                     xNormalized: 0.125,
                     yNormalized: 0.25,
                     widthNormalized: 0.5,
                     heightNormalized: 0.4,
                     rotationDegrees: 0,
-                },
+                }},
                 outputMode: 'bw',
-                maxPixels: 4_000_000,
             },
         };
 
@@ -427,7 +457,14 @@ describe('scan cleanup preview', () => {
             ...detailRequest,
             detail: {
                 ...detailRequest.detail!,
-                maxPixels: 4_000_001,
+                viewports: {},
+            },
+        }])).toThrow('invalid scan-cleanup detail preview request');
+        expect(() => SCAN_CLEANUP_IPC_CODECS[SCAN_CLEANUP_CHANNELS.preview].decodeArgs([{
+            ...detailRequest,
+            detail: {
+                ...detailRequest.detail!,
+                viewports: {left: undefined},
             },
         }])).toThrow('invalid scan-cleanup detail preview request');
     });
@@ -607,7 +644,15 @@ describe('scan cleanup preview', () => {
     it('renders only the requested zoom region at true output DPI within the tile budget', async () => {
         const dir = await setup();
         const deps = dependencies(dir);
-        const renderedDpis: number[] = [];
+        const renderCalls: Array<{
+            dpi: number;
+            crop?: {
+                x: number;
+                y: number;
+                width: number;
+                height: number;
+            };
+        }> = [];
         deps.detectSourceDpi = vi.fn(async () => 300);
         deps.renderPage = vi.fn(async (
             _paths,
@@ -616,67 +661,99 @@ describe('scan cleanup preview', () => {
             _source,
             outputPath,
             dpi,
+            _environment,
+            _signal,
+            crop,
         ) => {
-            renderedDpis.push(dpi);
+            renderCalls.push({
+                dpi,
+                ...(crop === undefined ? {} : {crop}),
+            });
             await writeFile(outputPath, pngWithDimensions(
-                Math.round(1_000 * dpi / 150),
-                Math.round(1_500 * dpi / 150),
+                crop?.width ?? Math.round(1_000 * dpi / 150),
+                crop?.height ?? Math.round(1_500 * dpi / 150),
             ));
         });
         const originalSidecar = deps.runSidecar;
         let manifestOptions: Record<string, unknown> | undefined;
+        let detailPlan: TDetailPreviewManifest['pages'][number]['detailRenderPlan'];
         deps.runSidecar = vi.fn(async (binary, manifestPath, signal, log, onProgress) => {
             const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as TDetailPreviewManifest;
             manifestOptions = manifest.pages[0]?.options;
             await originalSidecar(binary, manifestPath, signal, log, onProgress);
-            const crop = manifestOptions?.renderCrop as NonNullable<
-                IScanCleanupPreviewRequest['detail']
-            >['viewport'];
             const output = manifest.pages[0]!.outputs[0]!;
             const metadata = JSON.parse(await readFile(output.metadataPath, 'utf8')) as Record<string, unknown>;
-            const fullWidth = 4_000;
-            const fullHeight = 6_000;
-            const left = Math.floor(crop.xNormalized * fullWidth);
-            const top = Math.floor(crop.yNormalized * fullHeight);
-            const right = Math.ceil((crop.xNormalized + crop.widthNormalized) * fullWidth);
-            const bottom = Math.ceil((crop.yNormalized + crop.heightNormalized) * fullHeight);
-            await writeFile(output.outputPath, pngWithDimensions(right - left, bottom - top));
+            detailPlan = manifest.pages[0]?.detailRenderPlan;
+            if (!detailPlan) {
+                await writeFile(output.outputPath, pngWithDimensions(1_000, 1_500));
+                await writeFile(output.metadataPath, JSON.stringify({
+                    ...metadata,
+                    sourceRegion: {
+                        xPx: 0,
+                        yPx: 0,
+                        widthPx: 1_000,
+                        heightPx: 1_500,
+                    },
+                    contentBox: {
+                        xPx: 0,
+                        yPx: 0,
+                        widthPx: 1_000,
+                        heightPx: 1_500,
+                    },
+                    outputWidthPx: 1_000,
+                    outputHeightPx: 1_500,
+                    canvasWidthPx: 1_000,
+                    canvasHeightPx: 1_500,
+                    inputWidthPx: 1_000,
+                    inputHeightPx: 1_500,
+                }));
+                return;
+            }
+            const region = detailPlan.renderRegion;
+            await writeFile(output.outputPath, pngWithDimensions(region.widthPx, region.heightPx));
             await writeFile(output.metadataPath, JSON.stringify({
                 ...metadata,
-                outputWidthPx: fullWidth,
-                outputHeightPx: fullHeight,
-                canvasWidthPx: fullWidth,
-                canvasHeightPx: fullHeight,
+                outputWidthPx: 4_000,
+                outputHeightPx: 6_000,
+                canvasWidthPx: 4_000,
+                canvasHeightPx: 6_000,
                 sourceDpi: 300,
                 renderDpi: 600,
                 requestedRenderDpi: 600,
-                renderRegion: {
-                    xPx: left,
-                    yPx: top,
-                    widthPx: right - left,
-                    heightPx: bottom - top,
-                },
+                renderRegion: region,
             }));
         });
 
-        const result = await createScanCleanupPreviewService(deps).preview(sender(), {
+        const service = createScanCleanupPreviewService(deps);
+        const previewSender = sender();
+        await service.preview(previewSender, request);
+        const result = await service.preview(previewSender, {
             ...request,
             detail: {
-                viewport: {
+                viewports: {full: {
                     xNormalized: 0.25,
                     yNormalized: 0.2,
                     widthNormalized: 0.5,
                     heightNormalized: 0.45,
                     rotationDegrees: 0,
-                },
+                }},
                 outputMode: 'bw',
-                maxPixels: 4_000_000,
             },
         });
 
-        expect(renderedDpis).toHaveLength(2);
-        expect(renderedDpis[0]).toBe(150);
-        expect(renderedDpis[1]).toBe(600);
+        expect(renderCalls).toHaveLength(2);
+        expect(renderCalls[0]).toEqual({dpi: 150});
+        expect(renderCalls[1]).toMatchObject({
+            dpi: 600,
+            crop: {
+                x: expect.any(Number),
+                y: expect.any(Number),
+                width: expect.any(Number),
+                height: expect.any(Number),
+            },
+        });
+        expect(renderCalls[1]!.crop!.width * renderCalls[1]!.crop!.height)
+            .toBeLessThan(4_000 * 6_000);
         expect(result.rawWidthPx * result.rawHeightPx).toBeLessThanOrEqual(4_000_000);
         const detailPng = new DataView(
             result.outputs[0]!.imageData.buffer,
@@ -690,15 +767,22 @@ describe('scan cleanup preview', () => {
             requestedRenderDpi: 600,
             outputMode: 'bw',
             matchPageSize: false,
-            renderCrop: {rotationDegrees: 0},
         });
-        const renderedCrop = manifestOptions?.renderCrop as NonNullable<
-            IScanCleanupPreviewRequest['detail']
-        >['viewport'];
-        expect(renderedCrop.widthNormalized).toBeLessThan(0.5);
-        expect(renderedCrop.heightNormalized).toBeLessThan(0.45);
-        expect(renderedCrop.xNormalized + renderedCrop.widthNormalized / 2).toBeCloseTo(0.5);
-        expect(renderedCrop.yNormalized + renderedCrop.heightNormalized / 2).toBeCloseTo(0.425);
+        expect(manifestOptions).not.toHaveProperty('renderCrop');
+        expect(detailPlan?.sourceCrop).toEqual({
+            xPx: renderCalls[1]!.crop!.x,
+            yPx: renderCalls[1]!.crop!.y,
+            widthPx: renderCalls[1]!.crop!.width,
+            heightPx: renderCalls[1]!.crop!.height,
+        });
+        expect(detailPlan!.renderRegion.widthPx / 4_000).toBeLessThan(0.5);
+        expect(detailPlan!.renderRegion.heightPx / 6_000).toBeLessThan(0.45);
+        expect(
+            (detailPlan!.renderRegion.xPx + detailPlan!.renderRegion.widthPx / 2) / 4_000,
+        ).toBeCloseTo(0.5, 2);
+        expect(
+            (detailPlan!.renderRegion.yPx + detailPlan!.renderRegion.heightPx / 2) / 6_000,
+        ).toBeCloseTo(0.425, 2);
         expect(result.outputs[0]?.metadata).toMatchObject({
             renderDpi: 600,
             requestedRenderDpi: 600,
@@ -709,6 +793,88 @@ describe('scan cleanup preview', () => {
                 heightPx: expect.any(Number),
             },
         });
+
+        const mixedFallback = await service.preview(previewSender, {
+            ...request,
+            detail: {
+                viewports: {full: {
+                    xNormalized: 0.25,
+                    yNormalized: 0.2,
+                    widthNormalized: 0.5,
+                    heightNormalized: 0.45,
+                    rotationDegrees: 0,
+                }},
+                outputMode: 'mixed',
+            },
+        });
+        expect(renderCalls[2]).toEqual({dpi: 233});
+        expect(detailPlan).toBeUndefined();
+        expect(manifestOptions).toMatchObject({
+            dpi: 233,
+            sourceDpi: 300,
+            requestedRenderDpi: 300,
+            outputMode: 'mixed',
+        });
+        expect(mixedFallback.outputs).toHaveLength(1);
+        expect(mixedFallback.outputs[0]?.metadata.renderRegion).toBeUndefined();
+
+        const manualZoneOptions = {
+            ...request.options,
+            pageOverrides: {'1': {
+                rotationDegrees: 0 as const,
+                layoutOverride: 'auto' as const,
+                excluded: false,
+                manualSplit: null,
+                manualZones: {
+                    picture: [{
+                        layer: 'painter2' as const,
+                        polygon: {
+                            points: [
+                                {
+                                    xNormalized: 0.25,
+                                    yNormalized: 0.25,
+                                },
+                                {
+                                    xNormalized: 0.75,
+                                    yNormalized: 0.25,
+                                },
+                                {
+                                    xNormalized: 0.75,
+                                    yNormalized: 0.75,
+                                },
+                            ],
+                            rotationDegrees: 0 as const,
+                        },
+                    }],
+                    fill: [],
+                },
+            }},
+        };
+        await service.preview(previewSender, {
+            ...request,
+            options: manualZoneOptions,
+        });
+        const manualZoneFallback = await service.preview(previewSender, {
+            ...request,
+            options: manualZoneOptions,
+            detail: {
+                viewports: {full: {
+                    xNormalized: 0.25,
+                    yNormalized: 0.2,
+                    widthNormalized: 0.5,
+                    heightNormalized: 0.45,
+                    rotationDegrees: 0,
+                }},
+                outputMode: 'bw',
+            },
+        });
+        expect(renderCalls).toHaveLength(3);
+        expect(detailPlan).toBeUndefined();
+        expect(manifestOptions).toMatchObject({
+            dpi: 233,
+            outputMode: 'bw',
+        });
+        expect(manualZoneFallback.outputs[0]?.metadata.renderRegion).toBeUndefined();
     });
 
     it('accepts unbounded nonnegative skew evidence and rejects invalid values at both metadata boundaries', async () => {
