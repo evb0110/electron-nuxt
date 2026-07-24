@@ -4,6 +4,7 @@ import type {
 } from '@contracts/electronApiScanCleanup';
 
 export interface IScanCleanupDetectionSessionCacheEntry {
+    ownerId: string;
     results: IScanCleanupDetectionResult[];
     signatures: Map<number, string>;
     state: TScanCleanupDetectionJobState;

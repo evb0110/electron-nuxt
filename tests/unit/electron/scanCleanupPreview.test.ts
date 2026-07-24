@@ -32,7 +32,17 @@ import {
 } from '@electron/features/scan-cleanup/scanCleanupIpcCodecs';
 import {SCAN_CLEANUP_CHANNELS} from '@electron/features/scan-cleanup/contract';
 
+type TDetailPreviewManifest = Record<'pages', Array<Record<'options', Record<string, unknown>>>>;
+
 const PNG = Uint8Array.from(Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=', 'base64'));
+
+function pngWithDimensions(width: number, height: number) {
+    const png = PNG.slice();
+    const view = new DataView(png.buffer, png.byteOffset, png.byteLength);
+    view.setUint32(16, width);
+    view.setUint32(20, height);
+    return png;
+}
 const dirs: string[] = [];
 const request: IScanCleanupPreviewRequest = {
     ownerId: 'preview-owner',
@@ -117,6 +127,9 @@ function dependencies(dir: string): IScanCleanupPreviewDependencies {
                 excluded: false,
                 blankOutputsSkipped: 0,
                 outputCount: 1,
+                recommendedOutputMode: 'mixed',
+                recommendedOutputModeConfidence: 0.92,
+                recommendedOutputModeReason: 'text-with-pictures',
             }));
             await writeFile(output.outputPath, PNG);
             await writeFile(output.metadataPath, JSON.stringify({
@@ -383,6 +396,33 @@ describe('scan cleanup preview', () => {
             .toEqual([normalizedRequest]);
     });
 
+    it('validates high-detail viewport requests and their pixel budget', () => {
+        const detailRequest: IScanCleanupPreviewRequest = {
+            ...request,
+            detail: {
+                viewport: {
+                    xNormalized: 0.125,
+                    yNormalized: 0.25,
+                    widthNormalized: 0.5,
+                    heightNormalized: 0.4,
+                    rotationDegrees: 0,
+                },
+                outputMode: 'bw',
+                maxPixels: 4_000_000,
+            },
+        };
+
+        expect(SCAN_CLEANUP_IPC_CODECS[SCAN_CLEANUP_CHANNELS.preview].decodeArgs([detailRequest]))
+            .toEqual([detailRequest]);
+        expect(() => SCAN_CLEANUP_IPC_CODECS[SCAN_CLEANUP_CHANNELS.preview].decodeArgs([{
+            ...detailRequest,
+            detail: {
+                ...detailRequest.detail!,
+                maxPixels: 4_000_001,
+            },
+        }])).toThrow('invalid scan-cleanup detail preview request');
+    });
+
     it('serializes nested reactive page overrides for every IPC request', () => {
         const reactiveOptions = reactive({
             ...request.options,
@@ -540,8 +580,74 @@ describe('scan cleanup preview', () => {
                     }],
                 },
             }}],
-            pageMetadata: {skewConfidence: 2.4},
+            pageMetadata: {
+                skewConfidence: 2.4,
+                recommendedOutputModeReason: 'text-with-pictures',
+                outputDiagnostics: [{
+                    half: 'full',
+                    contentDiagnostics: {
+                        sideConfidence: {left: 0.7},
+                        acceptedTrims: [{side: 'top'}],
+                        protectedBlocks: [{headingEvidence: true}],
+                    },
+                }],
+            },
         });
+    });
+
+    it('rerenders stable zoom detail at output policy DPI capped by the whole-page tile budget', async () => {
+        const dir = await setup();
+        const deps = dependencies(dir);
+        const renderedDpis: number[] = [];
+        deps.detectSourceDpi = vi.fn(async () => 300);
+        deps.renderPage = vi.fn(async (
+            _paths,
+            _log,
+            _page,
+            _source,
+            outputPath,
+            dpi,
+        ) => {
+            renderedDpis.push(dpi);
+            await writeFile(outputPath, pngWithDimensions(
+                Math.round(1_000 * dpi / 150),
+                Math.round(1_500 * dpi / 150),
+            ));
+        });
+        const originalSidecar = deps.runSidecar;
+        let manifestOptions: Record<string, unknown> | undefined;
+        deps.runSidecar = vi.fn(async (binary, manifestPath, signal, log, onProgress) => {
+            const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as TDetailPreviewManifest;
+            manifestOptions = manifest.pages[0]?.options;
+            await originalSidecar(binary, manifestPath, signal, log, onProgress);
+        });
+
+        const result = await createScanCleanupPreviewService(deps).preview(sender(), {
+            ...request,
+            detail: {
+                viewport: {
+                    xNormalized: 0.25,
+                    yNormalized: 0.2,
+                    widthNormalized: 0.5,
+                    heightNormalized: 0.45,
+                    rotationDegrees: 0,
+                },
+                outputMode: 'bw',
+                maxPixels: 4_000_000,
+            },
+        });
+
+        expect(renderedDpis).toHaveLength(2);
+        expect(renderedDpis[0]).toBe(150);
+        expect(renderedDpis[1]).toBeGreaterThan(150);
+        expect(renderedDpis[1]).toBeLessThan(600);
+        expect(result.rawWidthPx * result.rawHeightPx).toBeLessThanOrEqual(4_000_000);
+        expect(manifestOptions).toMatchObject({
+            sourceDpi: 300,
+            requestedRenderDpi: 600,
+            outputMode: 'bw',
+        });
+        expect(manifestOptions).not.toHaveProperty('viewport');
     });
 
     it('accepts unbounded nonnegative skew evidence and rejects invalid values at both metadata boundaries', async () => {

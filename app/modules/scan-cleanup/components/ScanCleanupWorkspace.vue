@@ -132,6 +132,7 @@
                 :preserve-original-quality="settings.preserveOriginalQuality === true"
                 :recommended-output-modes="recommendedOutputModeByPage"
                 :recommended-output-mode-confidences="recommendedOutputModeConfidenceByPage"
+                :recommended-output-mode-reasons="recommendedOutputModeReasonByPage"
                 :text-axes="detectedTextAxisByPage"
                 :disabled="isRunning"
                 :processed-pages="processedPages"
@@ -143,6 +144,8 @@
             <div class="scan-cleanup-preview-hero">
                 <ScanCleanupPreviewPane
                     :result="previewResult"
+                    :detail-result="previewDetailResult"
+                    :detail-loading="previewDetailLoading"
                     :raw-result="previewRawResult"
                     :loading="previewLoading"
                     :error="previewError"
@@ -167,6 +170,7 @@
                     @previous="navigatePreview(-1)"
                     @next="navigatePreview(1)"
                     @retry="retryPreview"
+                    @request-detail="requestPreviewDetail"
                     @update:view-mode="previewViewMode = $event"
                     @update:manual-split="updateCurrentManualSplit"
                     @update:manual-content-box="updateCurrentManualContentBox"
@@ -306,10 +310,13 @@ const {
     progressText: detectionProgressText,
     recommendedOutputModeByPage: detectedRecommendedOutputModeByPage,
     recommendedOutputModeConfidenceByPage: detectedRecommendedOutputModeConfidenceByPage,
+    recommendedOutputModeReasonByPage: detectedRecommendedOutputModeReasonByPage,
     textAxisByPage: detectedTextAxisByPage,
 } = workspaceSession.detection;
 const {
     error: previewError,
+    detailLoading: previewDetailLoading,
+    detailResult: previewDetailResult,
     loading: previewLoading,
     metadataByPage: previewMetadataByPage,
     navigate: navigatePreview,
@@ -317,6 +324,7 @@ const {
     rawResult: previewRawResult,
     resultCurrent: previewResultCurrent = computed(() => true),
     retry: retryPreview,
+    requestDetail: requestPreviewDetail,
     totalPages: previewTotalPages,
     viewMode: previewViewMode,
 } = workspaceSession.preview;
@@ -528,26 +536,19 @@ const recommendedOutputModeByPage = computed(() => {
     if (settings.preserveOriginalQuality === true || settings.outputMode !== 'auto') {
         return new Map<number, TScanCleanupOutputMode>();
     }
-    const modes = new Map(detectedRecommendedOutputModeByPage);
-    const preview = previewResultCurrent.value ? previewResult.value : null;
-    if (preview?.pageMetadata.recommendedOutputMode !== undefined) {
-        modes.set(preview.pageNumber, preview.pageMetadata.recommendedOutputMode);
-    }
-    return modes;
+    return new Map(detectedRecommendedOutputModeByPage);
 });
 const recommendedOutputModeConfidenceByPage = computed(() => {
     if (settings.preserveOriginalQuality === true || settings.outputMode !== 'auto') {
         return new Map<number, number>();
     }
-    const confidences = new Map(detectedRecommendedOutputModeConfidenceByPage);
-    const preview = previewResultCurrent.value ? previewResult.value : null;
-    if (preview?.pageMetadata.recommendedOutputModeConfidence !== undefined) {
-        confidences.set(
-            preview.pageNumber,
-            preview.pageMetadata.recommendedOutputModeConfidence,
-        );
+    return new Map(detectedRecommendedOutputModeConfidenceByPage);
+});
+const recommendedOutputModeReasonByPage = computed(() => {
+    if (settings.preserveOriginalQuality === true || settings.outputMode !== 'auto') {
+        return new Map();
     }
-    return confidences;
+    return new Map(detectedRecommendedOutputModeReasonByPage);
 });
 const previewOutputMode = computed<TScanCleanupOutputMode>(() => {
     if (settings.preserveOriginalQuality === true) {
@@ -560,7 +561,11 @@ const previewOutputMode = computed<TScanCleanupOutputMode>(() => {
     if (settings.outputMode !== 'auto') {
         return settings.outputMode;
     }
-    return recommendedOutputModeByPage.value.get(previewPage.value) ?? 'bw';
+    return recommendedOutputModeByPage.value.get(previewPage.value)
+        ?? (previewResultCurrent.value && previewResult.value?.pageNumber === previewPage.value
+            ? previewResult.value.pageMetadata.recommendedOutputMode
+            : undefined)
+        ?? 'bw';
 });
 const scopeInclusionItems = computed(() => [
     ...(scopeExcluded.value.mixed ? [{

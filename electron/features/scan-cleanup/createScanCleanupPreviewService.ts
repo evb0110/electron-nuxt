@@ -26,10 +26,12 @@ import type {
 } from '@contracts/electronApiScanCleanup';
 import {
     getScanCleanupPageOverride,
+    resolveScanCleanupMarginsMm,
     resolveScanCleanupPlacementOffset,
 } from '@contracts/scanCleanupPageOverrides';
 import {getPdfPageCount} from '@electron/pdf/pdfPageCount';
 import {getPdfNativeToolPaths} from '@electron/pdf/nativeToolPaths';
+import {detectSourceDpiDetails} from '@electron/pdf/sourceDpiDetection';
 import {renderPdfPageToPng} from '@electron/ocr/worker/popplerStage';
 import {runScanCleanupSidecar} from '@electron/features/scan-cleanup/worker/runScanCleanupSidecar';
 import {
@@ -48,6 +50,7 @@ import {
 } from '@electron/features/scan-cleanup/createOwnerScopedJobRegistry';
 
 const PREVIEW_DPI = 150;
+const DEFAULT_SOURCE_DPI = 300;
 const PREVIEW_MAX_IMAGE_BYTES = 32 * 1024 * 1024;
 const RAW_CACHE_PAGE_LIMIT = 32;
 const RAW_CACHE_BYTE_LIMIT = 128 * 1024 * 1024;
@@ -107,6 +110,7 @@ export interface IScanCleanupPreviewDependencies {
     resolveBinary: () => string | null;
     getTempDir: () => string;
     getPdftoppmBinary: () => string;
+    detectSourceDpi?: (sourcePdfPath: string, pageNumber: number, signal: AbortSignal) => Promise<number | null>;
     acquireDetectionLease?: (jobId: string, signal: AbortSignal) => Promise<{release: () => boolean}>;
     getSourceMtimeMs?: (sourcePdfPath: string) => Promise<number>;
 }
@@ -118,6 +122,18 @@ const defaultDependencies: IScanCleanupPreviewDependencies = {
     resolveBinary: resolveScanCleanupPath,
     getTempDir: getAppTempDir,
     getPdftoppmBinary: () => getPdfNativeToolPaths().pdftoppm,
+    detectSourceDpi: async (sourcePdfPath, pageNumber, signal) => {
+        const paths = getPdfNativeToolPaths();
+        const result = await detectSourceDpiDetails(
+            sourcePdfPath,
+            paths.pdfimages,
+            (level, message) => logger[level](message),
+            undefined,
+            signal,
+            [pageNumber],
+        );
+        return result.pageDpiByNumber.get(pageNumber) ?? result.documentDpi;
+    },
     acquireDetectionLease: (jobId, signal) => mainJobBroker.acquire({
         ownerId: jobId,
         kind: 'scan-cleanup-detect-all',
@@ -157,6 +173,7 @@ async function materializeRawRaster(
     rawCache: Map<string, IRawPreview>,
     dependencies: IScanCleanupPreviewDependencies,
     knownTotalPages?: number,
+    dpi = PREVIEW_DPI,
 ) {
     const mtimeMs = await dependencies.getSourceMtimeMs?.(request.sourcePdfPath) ?? 0;
     for (const [
@@ -175,7 +192,7 @@ async function materializeRawRaster(
         request.documentRevision,
         mtimeMs,
         pageNumber,
-        PREVIEW_DPI,
+        dpi,
     ]);
     const cached = rawCache.get(cacheKey);
     if (cached) {
@@ -191,7 +208,7 @@ async function materializeRawRaster(
         pageNumber,
         request.sourcePdfPath,
         outputPath,
-        PREVIEW_DPI,
+        dpi,
         undefined,
         signal,
     );
@@ -207,6 +224,44 @@ async function materializeRawRaster(
     };
     storeRawPreview(rawCache, cacheKey, raw);
     return raw;
+}
+
+function resolveDetailRenderDpi(
+    request: IScanCleanupPreviewRequest,
+    raw: Pick<IRawPreview, 'width' | 'height'>,
+    sourceDpi: number,
+) {
+    const detail = request.detail;
+    if (!detail) {
+        return {
+            renderDpi: PREVIEW_DPI,
+            requestedRenderDpi: PREVIEW_DPI,
+        };
+    }
+    const pageOverride = getScanCleanupPageOverride(request.options.pageOverrides, request.pageNumber);
+    const rotation = pageOverride.rotationDegrees;
+    const swapsAxes = rotation === 90 || rotation === 270;
+    const margins = resolveScanCleanupMarginsMm(request.options.marginsMm, pageOverride);
+    const widthAtPreviewDpi = (swapsAxes ? raw.height : raw.width)
+        + (margins.leftMm + margins.rightMm) / 25.4 * PREVIEW_DPI;
+    const heightAtPreviewDpi = (swapsAxes ? raw.width : raw.height)
+        + (margins.topMm + margins.bottomMm) / 25.4 * PREVIEW_DPI;
+    const canvasWidthAtPreviewDpi = request.options.matchPageSize && request.documentCanvasPlan
+        ? request.documentCanvasPlan.widthPoints / 72 * PREVIEW_DPI
+        : 0;
+    const canvasHeightAtPreviewDpi = request.options.matchPageSize && request.documentCanvasPlan
+        ? request.documentCanvasPlan.heightPoints / 72 * PREVIEW_DPI
+        : 0;
+    const budgetWidth = Math.max(1, widthAtPreviewDpi, canvasWidthAtPreviewDpi);
+    const budgetHeight = Math.max(1, heightAtPreviewDpi, canvasHeightAtPreviewDpi);
+    const budgetDpi = PREVIEW_DPI * Math.sqrt(detail.maxPixels / (budgetWidth * budgetHeight));
+    const requestedRenderDpi = detail.outputMode === 'bw'
+        ? Math.max(sourceDpi * 2, 600)
+        : sourceDpi;
+    return {
+        renderDpi: Math.max(1, Math.floor(Math.min(requestedRenderDpi, budgetDpi))),
+        requestedRenderDpi,
+    };
 }
 
 function readPngDimensions(bytes: Uint8Array) {
@@ -256,7 +311,7 @@ async function runPreview(
     const scratch = await mkdtemp(join(dependencies.getTempDir(), 'scan-cleanup-preview-'));
     try {
         const inputPath = join(scratch, 'source.png');
-        const raw = await materializeRawRaster(
+        const baseRaw = await materializeRawRaster(
             request,
             request.pageNumber,
             inputPath,
@@ -264,6 +319,35 @@ async function runPreview(
             rawCache,
             dependencies,
         );
+        const sourceDpiCandidate = request.detail
+            ? await dependencies.detectSourceDpi?.(
+                request.sourcePdfPath,
+                request.pageNumber,
+                signal,
+            )
+            : null;
+        const sourceDpi = sourceDpiCandidate !== null
+            && sourceDpiCandidate !== undefined
+            && Number.isFinite(sourceDpiCandidate)
+            && sourceDpiCandidate > 0
+            ? sourceDpiCandidate
+            : DEFAULT_SOURCE_DPI;
+        const {
+            renderDpi,
+            requestedRenderDpi,
+        } = resolveDetailRenderDpi(request, baseRaw, sourceDpi);
+        const raw = renderDpi === PREVIEW_DPI
+            ? baseRaw
+            : await materializeRawRaster(
+                request,
+                request.pageNumber,
+                inputPath,
+                signal,
+                rawCache,
+                dependencies,
+                baseRaw.totalPages,
+                renderDpi,
+            );
         if (signal.aborted) throw signal.reason;
         const binary = dependencies.resolveBinary();
         if (!binary) throw new Error('Scan cleanup native tool is unavailable');
@@ -303,7 +387,10 @@ async function runPreview(
             pages: [{
                 inputPath,
                 pageNumber: request.pageNumber,
-                dpi: PREVIEW_DPI,
+                dpi: renderDpi,
+                sourceDpi: request.detail ? sourceDpi : PREVIEW_DPI,
+                requestedRenderDpi,
+                ...(request.detail === undefined ? {} : {resolvedOutputMode: request.detail.outputMode}),
                 pageMetadataPath,
                 outputs,
                 ...(request.documentPrior === undefined ? {} : {documentPrior: request.documentPrior}),
@@ -316,17 +403,25 @@ async function runPreview(
             const analyzedOutputs = pageMetadata.outputs ?? [];
             const canvasWidthPx = documentCanvas === undefined
                 ? null
-                : Math.max(1, Math.ceil(documentCanvas.widthPoints / 72 * PREVIEW_DPI));
+                : Math.max(1, Math.ceil(documentCanvas.widthPoints / 72 * renderDpi));
             const canvasHeightPx = documentCanvas === undefined
                 ? null
-                : Math.max(1, Math.ceil(documentCanvas.heightPoints / 72 * PREVIEW_DPI));
+                : Math.max(1, Math.ceil(documentCanvas.heightPoints / 72 * renderDpi));
             return {
                 pageNumber: request.pageNumber,
                 totalPages: raw.totalPages,
                 rawImageData: raw.bytes,
                 rawWidthPx: raw.width,
                 rawHeightPx: raw.height,
-                pageMetadata,
+                pageMetadata: {
+                    ...pageMetadata,
+                    outputDiagnostics: analyzedOutputs.map(output => ({
+                        half: output.half,
+                        ...(output.contentDiagnostics === undefined
+                            ? {}
+                            : {contentDiagnostics: output.contentDiagnostics}),
+                    })),
+                },
                 outputs: analyzedOutputs.map(output => {
                     const outputWidthPx = Math.max(1, Math.round(output.cropRect.widthPx));
                     const outputHeightPx = Math.max(1, Math.round(output.cropRect.heightPx));
@@ -363,9 +458,9 @@ async function runPreview(
                             rotationDegrees: pageMetadata.rotationDegrees,
                             canvasScope: 'page',
                             resamplePasses: 0,
-                            sourceDpi: PREVIEW_DPI,
-                            renderDpi: PREVIEW_DPI,
-                            requestedRenderDpi: PREVIEW_DPI,
+                            sourceDpi: request.detail ? sourceDpi : PREVIEW_DPI,
+                            renderDpi,
+                            requestedRenderDpi,
                             rasterScaleLimited: false,
                             canvasPolicy: documentCanvas === undefined ? 'intrinsic' : 'strict-maximum',
                             canvasOverflow: false,
@@ -431,9 +526,12 @@ async function runPreview(
                 ...(diagnosticMetadata?.dewarpApplied === undefined
                     ? {}
                     : {dewarpApplied: diagnosticMetadata.dewarpApplied}),
-                ...(diagnosticMetadata?.contentDiagnostics === undefined
-                    ? {}
-                    : {contentSideConfidence: diagnosticMetadata.contentDiagnostics.sideConfidence}),
+                outputDiagnostics: cleaned.map(output => ({
+                    half: output.metadata.half,
+                    ...(output.metadata.contentDiagnostics === undefined
+                        ? {}
+                        : {contentDiagnostics: output.metadata.contentDiagnostics}),
+                })),
                 autoDewarpAttempted: request.options.autoDewarp === true,
             },
             outputs: cleaned,

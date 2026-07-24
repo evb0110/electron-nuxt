@@ -91,6 +91,9 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
         new Map<number, NonNullable<IScanCleanupDetectionResult['recommendedOutputMode']>>(),
     );
     const recommendedOutputModeConfidenceByPage = reactive(new Map<number, number>());
+    const recommendedOutputModeReasonByPage = reactive(
+        new Map<number, NonNullable<IScanCleanupDetectionResult['recommendedOutputModeReason']>>(),
+    );
     let jobId: string | null = null;
     let jobDocumentKey: string | null = null;
     let jobDocumentRevision: string | null = null;
@@ -101,6 +104,7 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
     function clearOutputModeRecommendations() {
         recommendedOutputModeByPage.clear();
         recommendedOutputModeConfidenceByPage.clear();
+        recommendedOutputModeReasonByPage.clear();
     }
 
     const manualLayoutOverrideByPage = computed<ReadonlyMap<number, TScanCleanupLayoutClassification>>(() => {
@@ -238,10 +242,12 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
             textAxisByPage,
             recommendedOutputModeByPage,
             recommendedOutputModeConfidenceByPage,
+            recommendedOutputModeReasonByPage,
         );
         if (state.status === 'failed') error.value = state.error;
         if (!disposed && jobDocumentKey && state.status === 'completed') {
             detectionSessionCache.set(jobDocumentKey, {
+                ownerId: options.ownerId,
                 results: state.results.map(result => ({...result})),
                 signatures: new Map(signatures),
                 state: structuredClone(state),
@@ -438,7 +444,11 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
     }
 
     function cacheIsFresh(entry: IDetectionSessionCacheEntry) {
-        if (entry.totalPages !== options.totalPages.value || entry.signatures.size !== options.totalPages.value) {
+        if (
+            entry.ownerId !== options.ownerId
+            || entry.totalPages !== options.totalPages.value
+            || entry.signatures.size !== options.totalPages.value
+        ) {
             return false;
         }
         for (let pageNumber = 1; pageNumber <= options.totalPages.value; pageNumber += 1) {
@@ -470,6 +480,7 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
             textAxisByPage,
             recommendedOutputModeByPage,
             recommendedOutputModeConfidenceByPage,
+            recommendedOutputModeReasonByPage,
         );
         return true;
     }
@@ -545,6 +556,7 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
                 if (currentZones[index] !== previousZones[index]) {
                     recommendedOutputModeByPage.delete(index + 1);
                     recommendedOutputModeConfidenceByPage.delete(index + 1);
+                    recommendedOutputModeReasonByPage.delete(index + 1);
                 }
             }
         },
@@ -594,6 +606,7 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
         progressText,
         recommendedOutputModeByPage,
         recommendedOutputModeConfidenceByPage,
+        recommendedOutputModeReasonByPage,
         textAxisByPage,
     };
 };

@@ -391,6 +391,35 @@
     inset: 0;
 }
 
+.preview-detail-pixel,
+.preview-detail-shimmer {
+    position: absolute;
+    z-index: var(--app-z-local-raised);
+    inset: 0;
+}
+
+.preview-detail-pixel {
+    pointer-events: none;
+}
+
+.preview-detail-shimmer {
+    background: linear-gradient(
+        105deg,
+        transparent 35%,
+        color-mix(in srgb, var(--ui-bg) 35%, transparent) 48%,
+        transparent 61%
+    );
+    background-size: 200% 100%;
+    pointer-events: none;
+    animation: scan-preview-detail-shimmer 1.2s ease-in-out infinite;
+}
+
+@keyframes scan-preview-detail-shimmer {
+    to {
+        background-position-x: -200%;
+    }
+}
+
 .preview-pixel {
     transition: opacity var(--app-scan-preview-crossfade-duration);
 }

@@ -143,6 +143,7 @@ vi.mock('@app/modules/scan-cleanup/composables/useScanCleanupWorkspaceSession', 
             }),
             recommendedOutputModeByPage: session.recommendedOutputModeByPage ?? reactive(new Map()),
             recommendedOutputModeConfidenceByPage: session.recommendedOutputModeConfidenceByPage ?? reactive(new Map()),
+            recommendedOutputModeReasonByPage: session.recommendedOutputModeReasonByPage ?? reactive(new Map()),
             textAxisByPage: session.detectedTextAxisByPage ?? reactive(new Map()),
         },
         preview: {
@@ -714,8 +715,12 @@ function mockPreviewGeometry(host: HTMLElement, canvasRects: DOMRect[]) {
     });
 }
 
-function mountPreviewZoomHarness() {
-    const viewMode = ref<'original' | 'cleaned'>('original');
+function mountPreviewZoomHarness(options: {
+    detailLoading?: boolean;
+    onRequestDetail?: (viewport: IScanCleanupNormalizedRect) => void;
+    viewMode?: 'original' | 'cleaned';
+} = {}) {
+    const viewMode = ref<'original' | 'cleaned'>(options.viewMode ?? 'original');
     const splitUpdates: IScanCleanupNormalizedSplit[] = [];
     const harness = mount(defineComponent({setup: () => () => h(ScanCleanupPreviewPane, {
         result: spreadPreviewResult(),
@@ -728,6 +733,8 @@ function mountPreviewZoomHarness() {
         totalPages: 3,
         manualSplit: null,
         readingOrder: 'ltr',
+        detailLoading: options.detailLoading ?? false,
+        onRequestDetail: options.onRequestDetail,
         'onUpdate:manualSplit': (value: IScanCleanupNormalizedSplit | null) => {
             if (value) splitUpdates.push(value);
         },
@@ -2133,6 +2140,50 @@ describe('Scan cleanup components', () => {
         await nextTick();
         expect(Number(harness.surface.dataset.previewZoomPercent)).toBeGreaterThan(100);
         expect(harness.surface.classList).toContain('is-pixelated-preview');
+    });
+
+    it('debounces a non-blocking high-detail viewport request and shimmers over the base preview', async () => {
+        vi.useFakeTimers();
+        try {
+            const requestDetail = vi.fn<(viewport: IScanCleanupNormalizedRect) => void>();
+            const harness = mountPreviewZoomHarness({
+                detailLoading: true,
+                onRequestDetail: requestDetail,
+                viewMode: 'cleaned',
+            });
+            const zoom = new WheelEvent('wheel', {
+                bubbles: true,
+                cancelable: true,
+                clientX: 250,
+                clientY: 200,
+                deltaY: -1_200,
+            });
+            Object.defineProperties(zoom, {
+                clientX: {value: 250},
+                clientY: {value: 200},
+            });
+
+            harness.surface.dispatchEvent(zoom);
+            await nextTick();
+            expect(Number(harness.surface.dataset.previewZoomPercent)).toBeGreaterThanOrEqual(150);
+            expect(harness.host.querySelectorAll('.preview-detail-shimmer')).toHaveLength(2);
+            expect(requestDetail).not.toHaveBeenCalled();
+
+            vi.advanceTimersByTime(299);
+            expect(requestDetail).not.toHaveBeenCalled();
+            vi.advanceTimersByTime(1);
+            await nextTick();
+
+            expect(requestDetail).toHaveBeenCalledOnce();
+            expect(requestDetail).toHaveBeenCalledWith(expect.objectContaining({rotationDegrees: 0}));
+            const viewport = requestDetail.mock.calls[0]![0];
+            expect(viewport.xNormalized).toBeGreaterThanOrEqual(0);
+            expect(viewport.yNormalized).toBeGreaterThanOrEqual(0);
+            expect(viewport.xNormalized + viewport.widthNormalized).toBeLessThanOrEqual(1);
+            expect(viewport.yNormalized + viewport.heightNormalized).toBeLessThanOrEqual(1);
+        } finally {
+            vi.useRealTimers();
+        }
     });
 
     it('maps cutter dragging through 2x preview zoom and pan', async () => {

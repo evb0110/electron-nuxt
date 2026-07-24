@@ -504,6 +504,46 @@ function decodePreviewRequest(value: unknown): IScanCleanupPreviewRequest {
         || !Number.isSafeInteger(value.pageNumber)
         || Number(value.pageNumber) < 1
     ) throw new Error('invalid scan-cleanup preview request');
+    const detail = value.detail === undefined
+        ? undefined
+        : (() => {
+            if (
+                !isRecord(value.detail)
+                || !isRecord(value.detail.viewport)
+                || !isScanCleanupOutputMode(value.detail.outputMode)
+                || !Number.isSafeInteger(value.detail.maxPixels)
+                || Number(value.detail.maxPixels) < 1
+                || Number(value.detail.maxPixels) > 4_000_000
+            ) {
+                throw new Error('invalid scan-cleanup detail preview request');
+            }
+            const viewport = {
+                xNormalized: decodeNormalizedValue(value.detail.viewport.xNormalized, 'detail viewport x'),
+                yNormalized: decodeNormalizedValue(value.detail.viewport.yNormalized, 'detail viewport y'),
+                widthNormalized: decodeNormalizedValue(value.detail.viewport.widthNormalized, 'detail viewport width'),
+                heightNormalized: decodeNormalizedValue(value.detail.viewport.heightNormalized, 'detail viewport height'),
+                rotationDegrees: value.detail.viewport.rotationDegrees,
+            };
+            if (
+                viewport.widthNormalized <= 0
+                || viewport.heightNormalized <= 0
+                || viewport.xNormalized + viewport.widthNormalized > 1
+                || viewport.yNormalized + viewport.heightNormalized > 1
+                || ![
+                    0,
+                    90,
+                    180,
+                    270,
+                ].includes(Number(viewport.rotationDegrees))
+            ) {
+                throw new Error('invalid scan-cleanup detail preview viewport');
+            }
+            return {
+                viewport: viewport as NonNullable<IScanCleanupPreviewRequest['detail']>['viewport'],
+                outputMode: value.detail.outputMode,
+                maxPixels: Number(value.detail.maxPixels),
+            };
+        })();
     return {
         sourcePdfPath: value.sourcePdfPath,
         ...decodeOwnerContext(value),
@@ -513,6 +553,7 @@ function decodePreviewRequest(value: unknown): IScanCleanupPreviewRequest {
         ...(value.documentCanvasPlan === undefined
             ? {}
             : {documentCanvasPlan: decodeDocumentCanvasPlan(value.documentCanvasPlan)}),
+        ...(detail === undefined ? {} : {detail}),
     };
 }
 

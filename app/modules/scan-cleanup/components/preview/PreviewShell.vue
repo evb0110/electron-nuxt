@@ -140,6 +140,8 @@
                             v-else-if="result"
                             :active-placement-half="activePlacementHalf"
                             :alt-by-half="cleanedAltByHalf"
+                            :detail-loading="detailLayerEligible && detailLoading"
+                            :detail-urls="detailResultMatchesPage ? detailPixelUrls : {}"
                             :match-page-size="matchPageSize"
                             :outputs="renderedOutputs"
                             @complete="completeCleanedPixelSwap"
@@ -338,6 +340,7 @@
 </template>
 
 <script setup lang="ts">
+/* eslint-disable max-lines -- This established preview surface co-locates its geometry-sensitive interaction layers. */
 import type {
     IScanCleanupManualZones,
     IScanCleanupNormalizedRect,
@@ -424,6 +427,8 @@ interface IPlacementDragGeometry {
 type TScanCleanupDragGeometry = ICutterDragGeometry | IContentDragGeometry | IPlacementDragGeometry;
 const props = defineProps<{
     result: IScanCleanupPreviewResult | null;
+    detailResult?: IScanCleanupPreviewResult | null;
+    detailLoading?: boolean;
     rawResult?: IScanCleanupRawPreviewResult | null;
     loading: boolean;
     error: string;
@@ -457,6 +462,7 @@ const emit = defineEmits<{
     'update:manualZones': [value: IScanCleanupManualZones];
     'update:placement': [half: TScanCleanupOutputHalf, value: TScanCleanupPageAlignment];
     useMixedOutput: [];
+    requestDetail: [viewport: IScanCleanupNormalizedRect];
 }>();
 const {t} = useTypedI18n();
 const previewSurface = ref<HTMLElement | null>(null);
@@ -538,6 +544,11 @@ const {
 const effectiveViewMode = computed(() => props.lossless
     ? 'original'
     : props.viewMode ?? 'cleaned');
+const detailLayerEligible = computed(() => effectiveViewMode.value === 'cleaned'
+    && props.lossless !== true
+    && previewEffectiveZoom.value >= 1.5);
+const detailResultMatchesPage = computed(() => detailLayerEligible.value
+    && props.detailResult?.pageNumber === props.result?.pageNumber);
 const isStalePage = computed(() => props.stalePage
     ?? Boolean(props.result && props.result.pageNumber !== props.pageNumber));
 const viewModes = computed(() => props.lossless ? [{
@@ -1100,6 +1111,7 @@ const {
     cleanedPixelSwaps,
     completeCleanedPixelSwap,
     completeRawPixelSwap,
+    detailPixelUrls,
     loadCleanedPixelSwap,
     loadRawPixelSwap,
     rawPixelSwap,
@@ -1111,7 +1123,72 @@ const {
             observeCutterStage();
         }
     });
-}, () => props.rawResult ?? null);
+}, () => props.rawResult ?? null, () => props.detailResult ?? null);
+
+let detailTimer: ReturnType<typeof setTimeout> | null = null;
+
+function scheduleDetailRequest() {
+    if (detailTimer !== null) {
+        clearTimeout(detailTimer);
+        detailTimer = null;
+    }
+    if (
+        effectiveViewMode.value !== 'cleaned'
+        || props.lossless === true
+        || !props.result
+        || props.loading
+        || isStalePage.value
+        || previewEffectiveZoom.value < 1.5
+        || panGesture.value !== null
+        || dragTransaction.active.value
+        || cutterStageSize.width <= 0
+        || cutterStageSize.height <= 0
+    ) {
+        return;
+    }
+    detailTimer = setTimeout(() => {
+        detailTimer = null;
+        const scale = Math.max(1, previewTransformScale.value);
+        const left = Math.max(0, Math.min(1,
+            0.5 - 0.5 / scale - previewPan.x / (scale * cutterStageSize.width),
+        ));
+        const top = Math.max(0, Math.min(1,
+            0.5 - 0.5 / scale - previewPan.y / (scale * cutterStageSize.height),
+        ));
+        const right = Math.max(left, Math.min(1,
+            0.5 + 0.5 / scale - previewPan.x / (scale * cutterStageSize.width),
+        ));
+        const bottom = Math.max(top, Math.min(1,
+            0.5 + 0.5 / scale - previewPan.y / (scale * cutterStageSize.height),
+        ));
+        const quantizeDown = (value: number) => Math.floor(value * 64) / 64;
+        const quantizeUp = (value: number) => Math.ceil(value * 64) / 64;
+        const xNormalized = quantizeDown(left);
+        const yNormalized = quantizeDown(top);
+        emit('requestDetail', {
+            xNormalized,
+            yNormalized,
+            widthNormalized: Math.max(1 / 64, Math.min(1, quantizeUp(right)) - xNormalized),
+            heightNormalized: Math.max(1 / 64, Math.min(1, quantizeUp(bottom)) - yNormalized),
+            rotationDegrees: props.result?.pageMetadata.rotationDegrees ?? 0,
+        });
+    }, 300);
+}
+
+watch([
+    effectiveViewMode,
+    isStalePage,
+    previewEffectiveZoom,
+    () => previewPan.x,
+    () => previewPan.y,
+    panGesture,
+    () => dragTransaction.active.value,
+    () => props.loading,
+    () => props.result?.pageNumber,
+], scheduleDetailRequest);
+onBeforeUnmount(() => {
+    if (detailTimer !== null) clearTimeout(detailTimer);
+});
 
 watch(() => dragTransaction.active.value, active => {
     if (!active) {

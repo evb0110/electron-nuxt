@@ -22,6 +22,7 @@ const LIFECYCLE_KEY = `${DOCUMENT_KEY}\u0000revision-1`;
 
 function cacheEntry() {
     return {
+        ownerId: 'owner-1',
         results: [],
         signatures: new Map<number, string>(),
         state: {

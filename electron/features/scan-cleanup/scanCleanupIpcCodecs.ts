@@ -488,6 +488,20 @@ function decodePreviewPageMetadata(value: unknown): IScanCleanupPreviewResult['p
             || value.recommendedOutputModeConfidence < 0
             || value.recommendedOutputModeConfidence > 1
         ))
+        || (value.recommendedOutputModeReason !== undefined
+            && !isScanCleanupOutputModeRecommendationReason(value.recommendedOutputModeReason))
+        || (value.outputDiagnostics !== undefined && (
+            !Array.isArray(value.outputDiagnostics)
+            || value.outputDiagnostics.length > 2
+            || value.outputDiagnostics.some(output => (
+                !isRecord(output)
+                || ![
+                    'full',
+                    'left',
+                    'right',
+                ].includes(String(output.half))
+            ))
+        ))
     ) throw new Error('invalid scan-cleanup preview page metadata');
     return {
         layoutClassification: value.layoutClassification as IScanCleanupPreviewResult['pageMetadata']['layoutClassification'],
@@ -545,14 +559,27 @@ function decodePreviewPageMetadata(value: unknown): IScanCleanupPreviewResult['p
             : {dewarpConfidence: value.dewarpConfidence === null
                 ? null
                 : decodeUnitInterval(value.dewarpConfidence, 'page dewarp confidence')}),
-        ...(value.contentSideConfidence === undefined
+        ...(value.outputDiagnostics === undefined
             ? {}
-            : {contentSideConfidence: decodeContentSideConfidence(value.contentSideConfidence)}),
+            : {outputDiagnostics: value.outputDiagnostics.map((output: unknown) => {
+                if (!isRecord(output)) throw new Error('invalid scan-cleanup preview output diagnostics');
+                return {
+                    half: output.half as NonNullable<
+                        IScanCleanupPreviewResult['pageMetadata']['outputDiagnostics']
+                    >[number]['half'],
+                    ...(output.contentDiagnostics === undefined
+                        ? {}
+                        : {contentDiagnostics: decodeContentDiagnostics(output.contentDiagnostics)}),
+                };
+            })}),
         ...(isScanCleanupOutputMode(value.recommendedOutputMode)
             ? {recommendedOutputMode: value.recommendedOutputMode}
             : {}),
         ...(typeof value.recommendedOutputModeConfidence === 'number'
             ? {recommendedOutputModeConfidence: value.recommendedOutputModeConfidence}
+            : {}),
+        ...(isScanCleanupOutputModeRecommendationReason(value.recommendedOutputModeReason)
+            ? {recommendedOutputModeReason: value.recommendedOutputModeReason}
             : {}),
     };
 }

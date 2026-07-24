@@ -678,6 +678,61 @@ describe('scan cleanup workspace session detection guidance', () => {
         mounted.unmount();
     });
 
+    it('reopens with stored overrides, no cached recommendations, and repopulates from fresh detection', async () => {
+        const harness = capabilityHarness();
+        capability.value = harness.value;
+        const documentKey = `reopen-overrides-${Date.now()}`;
+        const first = mountSession(documentKey);
+
+        first.session.settings.values.pageOverrides['2'] = {
+            rotationDegrees: 0,
+            layoutOverride: 'auto',
+            excluded: false,
+            manualSplit: null,
+            outputModeOverride: 'color',
+        };
+        await vi.waitFor(() => expect(JSON.parse(
+            localStorage.getItem('evb.scanCleanup.documentOverrides.v1') ?? '{}',
+        )[documentKey]?.overrides?.['2']?.outputModeOverride).toBe('color'));
+        await vi.waitFor(() => expect(harness.value.detectAll).toHaveBeenCalledOnce());
+        const firstCompleted = detectionState('detect-1', 'completed');
+        firstCompleted.results[0] = {
+            ...firstCompleted.results[0]!,
+            recommendedOutputMode: 'bw',
+            recommendedOutputModeConfidence: 0.92,
+            recommendedOutputModeReason: 'bimodal-text',
+        };
+        harness.emitDetection(firstCompleted);
+        await vi.waitFor(() => expect(
+            first.session.detection.recommendedOutputModeByPage.get(1),
+        ).toBe('bw'));
+        first.unmount();
+
+        const reopened = mountSession(documentKey);
+        expect(reopened.session.settings.values.pageOverrides['2']?.outputModeOverride).toBe('color');
+        expect(reopened.session.detection.recommendedOutputModeByPage.size).toBe(0);
+        expect(reopened.session.detection.recommendedOutputModeConfidenceByPage.size).toBe(0);
+        expect(reopened.session.detection.recommendedOutputModeReasonByPage.size).toBe(0);
+        await vi.waitFor(() => expect(harness.value.detectAll).toHaveBeenCalledTimes(2));
+
+        const refreshed = detectionState('detect-2', 'completed');
+        refreshed.results[0] = {
+            ...refreshed.results[0]!,
+            recommendedOutputMode: 'mixed',
+            recommendedOutputModeConfidence: 0.95,
+            recommendedOutputModeReason: 'text-with-pictures',
+        };
+        harness.emitDetection(refreshed);
+        await vi.waitFor(() => expect(
+            reopened.session.detection.recommendedOutputModeByPage.get(1),
+        ).toBe('mixed'));
+        expect(reopened.session.detection.recommendedOutputModeConfidenceByPage.get(1)).toBe(0.95);
+        expect(reopened.session.detection.recommendedOutputModeReasonByPage.get(1))
+            .toBe('text-with-pictures');
+        expect(reopened.session.settings.values.pageOverrides['2']?.outputModeOverride).toBe('color');
+        reopened.unmount();
+    });
+
     it('clears only the page recommendation whose picture or fill zones changed', async () => {
         const harness = capabilityHarness();
         capability.value = harness.value;
@@ -768,7 +823,7 @@ describe('scan cleanup workspace session detection guidance', () => {
         mounted.unmount();
     });
 
-    it('reuses fresh results but re-detects when the saved detection signature is stale', async () => {
+    it('re-detects for each reopened owner and after detection settings change', async () => {
         const harness = capabilityHarness();
         capability.value = harness.value;
         const documentKey = `stale-${Date.now()}`;
@@ -779,13 +834,12 @@ describe('scan cleanup workspace session detection guidance', () => {
         first.unmount();
 
         const fresh = mountSession(documentKey);
-        await new Promise(resolve => setTimeout(resolve, 20));
-        expect(harness.value.detectAll).toHaveBeenCalledOnce();
+        await vi.waitFor(() => expect(harness.value.detectAll).toHaveBeenCalledTimes(2));
         fresh.unmount();
 
         getScanCleanupPreferencesStore().layoutMode = 'force-single';
         const stale = mountSession(documentKey);
-        await vi.waitFor(() => expect(harness.value.detectAll).toHaveBeenCalledTimes(2));
+        await vi.waitFor(() => expect(harness.value.detectAll).toHaveBeenCalledTimes(3));
         stale.unmount();
     });
 

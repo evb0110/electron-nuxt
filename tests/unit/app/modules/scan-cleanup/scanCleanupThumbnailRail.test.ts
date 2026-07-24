@@ -20,6 +20,7 @@ import {readFileSync} from 'node:fs';
 import type {
     IScanCleanupPageOverride,
     IScanCleanupPreviewMetadata,
+    IScanCleanupPreviewPageMetadata,
     IScanCleanupTextAxis,
     TScanCleanupPageOverrides,
 } from '@contracts/electronApiScanCleanup';
@@ -119,6 +120,58 @@ const messages: Record<string, string> = {
     'scanCleanup.pages.sourceUnavailable': 'Source pages are unavailable',
     'scanCleanup.pages.sourceUnavailableHint': 'Reopen Scan Cleanup',
     'scanCleanup.pages.detectionPending': 'Detecting page {page}',
+    'scanCleanup.pages.diagnostics.open': 'Show diagnostics for page {page}',
+    'scanCleanup.pages.diagnostics.title': 'Page {page} diagnostics',
+    'scanCleanup.pages.diagnostics.modeDecision': 'Mode decision',
+    'scanCleanup.pages.diagnostics.contentTrim': 'Content trim',
+    'scanCleanup.pages.diagnostics.geometry': 'Geometry',
+    'scanCleanup.pages.diagnostics.recommendedMode': 'Recommended mode',
+    'scanCleanup.pages.diagnostics.recommendedModeValue': '{mode} · {confidence}',
+    'scanCleanup.pages.diagnostics.reason': 'Reason',
+    'scanCleanup.pages.diagnostics.modeReason.text-with-pictures': 'Text with picture regions',
+    'scanCleanup.pages.diagnostics.layout': 'Layout',
+    'scanCleanup.pages.diagnostics.layoutValue': '{layout} · {confidence}',
+    'scanCleanup.pages.diagnostics.reconciled': 'Reconciled by document-level evidence',
+    'scanCleanup.pages.diagnostics.splitAbstained': 'The split detector abstained',
+    'scanCleanup.pages.diagnostics.deskew': 'Deskew',
+    'scanCleanup.pages.diagnostics.deskewValue': '{angle}° · {confidence}',
+    'scanCleanup.pages.diagnostics.deskewManualValue': '{angle}° · manual',
+    'scanCleanup.pages.diagnostics.binarization': 'Binarization',
+    'scanCleanup.pages.diagnostics.contrastIllumination': 'Contrast / light',
+    'scanCleanup.pages.diagnostics.contrastIlluminationValue': '{contrast} / {illumination}',
+    'scanCleanup.pages.diagnostics.edgeStroke': 'Edges / stroke',
+    'scanCleanup.pages.diagnostics.edgeStrokeValue': '{edge} / {stroke} px',
+    'scanCleanup.pages.diagnostics.borderAgreement': 'Dark border / agreement',
+    'scanCleanup.pages.diagnostics.borderAgreementValue': '{border} / {agreement}',
+    'scanCleanup.pages.diagnostics.despeckleFallback': 'Despeckle fallback',
+    'scanCleanup.pages.diagnostics.fallbackUsed': 'Used',
+    'scanCleanup.pages.diagnostics.fallbackNotUsed': 'Not used',
+    'scanCleanup.pages.diagnostics.dewarp': 'Auto-dewarp',
+    'scanCleanup.pages.diagnostics.dewarpApplied': 'Applied · {confidence}',
+    'scanCleanup.pages.diagnostics.dewarpGated': 'Not applied by quality gate · {confidence}',
+    'scanCleanup.pages.diagnostics.acceptedTrim': 'Accepted trim',
+    'scanCleanup.pages.diagnostics.acceptedTrimValue': '{side} · {score} ≥ {threshold}',
+    'scanCleanup.pages.diagnostics.removedBounds': 'Removed bounds',
+    'scanCleanup.pages.diagnostics.protectedBounds': 'Protected bounds',
+    'scanCleanup.pages.diagnostics.trimResult': 'Result',
+    'scanCleanup.pages.diagnostics.noTrim': 'No trim accepted',
+    'scanCleanup.pages.diagnostics.pictureEvidence': 'picture',
+    'scanCleanup.pages.diagnostics.headingEvidence': 'heading',
+    'scanCleanup.pages.diagnostics.grayscaleEvidence': 'tonal',
+    'scanCleanup.pages.diagnostics.noProtectedEvidence': 'no picture/heading evidence',
+    'scanCleanup.pages.diagnostics.boundsValue': '{x}, {y} · {width}×{height} px · {evidence}',
+    'scanCleanup.pages.diagnostics.sideConfidence': 'Edge confidence',
+    'scanCleanup.pages.diagnostics.sideConfidenceValue': '{side} {confidence}',
+    'scanCleanup.pages.diagnostics.trimSide.left': 'Left',
+    'scanCleanup.pages.diagnostics.trimSide.top': 'Top',
+    'scanCleanup.pages.diagnostics.trimSide.right': 'Right',
+    'scanCleanup.pages.diagnostics.trimSide.bottom': 'Bottom',
+    'scanCleanup.pages.diagnostics.unavailable': 'Unavailable',
+    'scanCleanup.pages.diagnostics.notApplicable': 'Not applicable',
+    'scanCleanup.preview.outputHalf.full': 'full page',
+    'scanCleanup.preview.outputHalf.left': 'left half',
+    'scanCleanup.preview.outputHalf.right': 'right half',
+    'scanCleanup.advanced.binarization.otsu': 'Otsu',
     'scanCleanup.output.auto': 'Auto',
     'scanCleanup.output.bw': 'Black and white',
     'scanCleanup.output.bwShort': 'B&W',
@@ -269,7 +322,13 @@ const TooltipStub = defineComponent({
 const PopoverStub = defineComponent({
     props: {open: Boolean},
     emits: ['update:open'],
-    setup: (props, {slots}) => () => h('span', {'data-popover-root': ''}, [
+    setup: (props, {
+        emit,
+        slots,
+    }) => () => h('span', {
+        'data-popover-root': '',
+        onClick: () => emit('update:open', true),
+    }, [
         slots.default?.(),
         props.open
             ? h(Teleport, {to: 'body'}, h('div', {
@@ -312,6 +371,9 @@ function mountRail(options: {
     confidences?: ReadonlyMap<number, number>;
     recommendedOutputModes?: ReadonlyMap<number, 'bw' | 'mixed' | 'grayscale' | 'color'>;
     recommendedOutputModeConfidences?: ReadonlyMap<number, number>;
+    recommendedOutputModeReasons?: ReadonlyMap<number, 'blank' | 'color-chroma' | 'text-with-pictures'
+        | 'continuous-tone' | 'bimodal-text' | 'uncertain-tonal'>;
+    diagnostics?: ReadonlyMap<number, IScanCleanupPreviewPageMetadata>;
     documentOutputMode?: 'auto' | 'bw' | 'grayscale' | 'color';
     preserveOriginalQuality?: boolean;
     textAxes?: ReadonlyMap<number, IScanCleanupTextAxis>;
@@ -341,6 +403,8 @@ function mountRail(options: {
         preserveOriginalQuality: options.preserveOriginalQuality ?? false,
         recommendedOutputModes: options.recommendedOutputModes ?? new Map(),
         recommendedOutputModeConfidences: options.recommendedOutputModeConfidences ?? new Map(),
+        recommendedOutputModeReasons: options.recommendedOutputModeReasons ?? new Map(),
+        diagnostics: options.diagnostics ?? new Map(),
         textAxes: options.textAxes ?? new Map(),
         processedPages: options.processed ?? new Set(),
         disabled: false,
@@ -863,6 +927,150 @@ describe('ScanCleanupThumbnailRail', () => {
         expect(losslessBadge.getAttribute('aria-label')).toContain(
             'preserving original quality forces color',
         );
+    });
+
+    it('restores override badges without stale recommendations, then accepts fresh detection badges', async () => {
+        const recommendations = reactive(new Map<number, 'bw' | 'mixed' | 'grayscale' | 'color'>());
+        const confidences = reactive(new Map<number, number>());
+        const harness = mountRail({
+            overrides: {'2': {
+                rotationDegrees: 0,
+                layoutOverride: 'auto',
+                excluded: false,
+                manualSplit: null,
+                outputModeOverride: 'color',
+            }},
+            recommendedOutputModes: recommendations,
+            recommendedOutputModeConfidences: confidences,
+        });
+
+        const page2 = harness.host.querySelector<HTMLButtonElement>(
+            '[data-page-number="2"] .scan-thumbnail-output-mode',
+        )!;
+        expect(page2.textContent?.trim()).toBe('Color');
+        expect(page2.classList).toContain('is-override');
+        expect(page2.classList).not.toContain('is-recommendation');
+        expect(harness.host.querySelector(
+            '[data-page-number="1"] .scan-thumbnail-output-mode',
+        )).toBeNull();
+
+        recommendations.set(1, 'bw');
+        recommendations.set(2, 'grayscale');
+        confidences.set(1, 0.96);
+        confidences.set(2, 0.91);
+        await nextTick();
+
+        const page1 = harness.host.querySelector<HTMLButtonElement>(
+            '[data-page-number="1"] .scan-thumbnail-output-mode',
+        )!;
+        expect(page1.textContent?.trim()).toBe('B&W');
+        expect(page1.classList).toContain('is-recommendation');
+        expect(page2.textContent?.trim()).toBe('Color');
+        expect(page2.classList).toContain('is-override');
+        expect(page2.classList).not.toContain('is-recommendation');
+    });
+
+    it('groups rich scan-cleanup diagnostics into mode, trim, and geometry rows', async () => {
+        const diagnostics: IScanCleanupPreviewPageMetadata = {
+            canvasScope: 'page',
+            layoutClassification: 'single-uncut-page',
+            layoutConfidence: 0.88,
+            cutterXPx: null,
+            rotationDegrees: 0,
+            excluded: false,
+            blankOutputsSkipped: 0,
+            tier1Verdict: 'single-uncut-page',
+            reconciled: true,
+            clusterAgreement: 0.82,
+            detectedSkewDegrees: -0.73,
+            skewConfidence: 0.91,
+            recommendedOutputMode: 'mixed',
+            recommendedOutputModeConfidence: 0.94,
+            recommendedOutputModeReason: 'text-with-pictures',
+            binarizationMode: 'otsu',
+            binarizationDiagnostics: {
+                route: 'otsu',
+                robustContrast: 52.4,
+                illuminationDeviation: 7.1,
+                edgeDensity: 0.22,
+                estimatedStrokeWidthPx: 2.4,
+                darkBorderCoverage: 0.03,
+                otsuAdaptiveAgreement: 0.89,
+            },
+            despeckleFallback: false,
+            autoDewarpAttempted: true,
+            dewarpApplied: true,
+            dewarpConfidence: 0.86,
+            outputDiagnostics: [{
+                half: 'full',
+                contentDiagnostics: {
+                    sideConfidence: {
+                        left: 0.91,
+                        top: 0.82,
+                        right: 0.74,
+                        bottom: 0.68,
+                    },
+                    textMask: {
+                        analysisWidthPx: 800,
+                        analysisHeightPx: 1100,
+                        inkPixels: 28_000,
+                        lineCount: 31,
+                    },
+                    acceptedTrims: [{
+                        side: 'left',
+                        iteration: 1,
+                        score: 0.83,
+                        threshold: 0.71,
+                        contentDistanceSum: 22,
+                        garbageDistanceSum: 4,
+                        removedBlocks: [{
+                            bounds: {
+                                xPx: 0,
+                                yPx: 0,
+                                widthPx: 48,
+                                heightPx: 1100,
+                            },
+                            pictureMaskOverlapPixels: 240,
+                            headingEvidence: false,
+                            grayscaleEvidence: true,
+                        }],
+                    }],
+                    protectedBlocks: [{
+                        bounds: {
+                            xPx: 64,
+                            yPx: 90,
+                            widthPx: 320,
+                            heightPx: 180,
+                        },
+                        pictureMaskOverlapPixels: 1_300,
+                        headingEvidence: true,
+                        grayscaleEvidence: false,
+                    }],
+                },
+            }],
+        };
+        const diagnosticsByPage = new Map<number, IScanCleanupPreviewPageMetadata>();
+        diagnosticsByPage.set(2, diagnostics);
+        const harness = mountRail({diagnostics: diagnosticsByPage});
+
+        harness.host.querySelector<HTMLButtonElement>(
+            '[data-page-number="2"] .scan-thumbnail-diagnostics',
+        )?.click();
+        await nextTick();
+
+        const popover = document.body.querySelector<HTMLElement>(
+            '.scan-thumbnail-diagnostics-popover',
+        )!;
+        expect(popover.textContent).toContain('Mode decision');
+        expect(popover.textContent).toContain('Text + pictures · 94%');
+        expect(popover.textContent).toContain('Text with picture regions');
+        expect(popover.textContent).toContain('Contrast / light');
+        expect(popover.textContent).toContain('Content trim');
+        expect(popover.textContent).toContain('Left · 83% ≥ 71%');
+        expect(popover.textContent).toContain('48×1100 px · picture, tonal');
+        expect(popover.textContent).toContain('Geometry');
+        expect(popover.textContent).toContain('-0.73° · 91%');
+        expect(popover.textContent).toContain('Edge confidence');
     });
 
     it('shows the sideways-text hint and wires its page-local rotation selector', async () => {

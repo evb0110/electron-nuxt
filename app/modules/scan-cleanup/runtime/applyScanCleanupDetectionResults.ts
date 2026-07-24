@@ -14,6 +14,7 @@ export function applyScanCleanupDetectionResults(
     textAxes?: Map<number, IScanCleanupTextAxis>,
     recommendedModes?: Map<number, NonNullable<IScanCleanupDetectionResult['recommendedOutputMode']>>,
     recommendedModeConfidences?: Map<number, number>,
+    recommendedModeReasons?: Map<number, NonNullable<IScanCleanupDetectionResult['recommendedOutputModeReason']>>,
 ) {
     classifications.clear();
     confidences.clear();
@@ -21,6 +22,7 @@ export function applyScanCleanupDetectionResults(
     textAxes?.clear();
     recommendedModes?.clear();
     recommendedModeConfidences?.clear();
+    recommendedModeReasons?.clear();
     for (const result of results) {
         if (!accepts(result.pageNumber)) {
             continue;
@@ -49,6 +51,11 @@ export function applyScanCleanupDetectionResults(
                 result.pageNumber,
                 result.recommendedOutputModeConfidence,
             );
+        }
+        if (result.recommendedOutputModeReason === undefined) {
+            recommendedModeReasons?.delete(result.pageNumber);
+        } else {
+            recommendedModeReasons?.set(result.pageNumber, result.recommendedOutputModeReason);
         }
     }
 }

@@ -105,40 +105,122 @@
                                         page: naturalPage(position),
                                     }) }}</strong>
                                     <dl>
-                                        <div class="scan-thumbnail-diagnostic-row">
-                                            <dt>{{ t('scanCleanup.pages.diagnostics.layout') }}</dt>
-                                            <dd>{{ diagnosticLayout(naturalPage(position)) }}</dd>
+                                        <div class="scan-thumbnail-diagnostic-group">
+                                            <h4>{{ t('scanCleanup.pages.diagnostics.modeDecision') }}</h4>
+                                            <div class="scan-thumbnail-diagnostic-row">
+                                                <dt>{{ t('scanCleanup.pages.diagnostics.recommendedMode') }}</dt>
+                                                <dd>{{ diagnosticRecommendation(naturalPage(position)) }}</dd>
+                                            </div>
+                                            <div class="scan-thumbnail-diagnostic-row">
+                                                <dt>{{ t('scanCleanup.pages.diagnostics.reason') }}</dt>
+                                                <dd>{{ diagnosticRecommendationReason(naturalPage(position)) }}</dd>
+                                            </div>
+                                            <div class="scan-thumbnail-diagnostic-row">
+                                                <dt>{{ t('scanCleanup.pages.diagnostics.binarization') }}</dt>
+                                                <dd>{{ diagnosticBinarization(naturalPage(position)) }}</dd>
+                                            </div>
+                                            <template v-if="diagnosticBinarizationEvidence(naturalPage(position))">
+                                                <div class="scan-thumbnail-diagnostic-row">
+                                                    <dt>{{ t('scanCleanup.pages.diagnostics.contrastIllumination') }}</dt>
+                                                    <dd>{{ diagnosticBinarizationEvidence(naturalPage(position))?.contrast }}</dd>
+                                                </div>
+                                                <div class="scan-thumbnail-diagnostic-row">
+                                                    <dt>{{ t('scanCleanup.pages.diagnostics.edgeStroke') }}</dt>
+                                                    <dd>{{ diagnosticBinarizationEvidence(naturalPage(position))?.edge }}</dd>
+                                                </div>
+                                                <div class="scan-thumbnail-diagnostic-row">
+                                                    <dt>{{ t('scanCleanup.pages.diagnostics.borderAgreement') }}</dt>
+                                                    <dd>{{ diagnosticBinarizationEvidence(naturalPage(position))?.border }}</dd>
+                                                </div>
+                                            </template>
+                                            <div class="scan-thumbnail-diagnostic-row">
+                                                <dt>{{ t('scanCleanup.pages.diagnostics.despeckleFallback') }}</dt>
+                                                <dd>{{ diagnosticDespeckleFallback(naturalPage(position)) }}</dd>
+                                            </div>
                                         </div>
-                                        <div
-                                            v-if="diagnosticsFor(naturalPage(position))?.reconciled"
-                                            class="scan-thumbnail-diagnostic-note"
-                                        >
-                                            {{ t('scanCleanup.pages.diagnostics.reconciled') }}
+                                        <div class="scan-thumbnail-diagnostic-group">
+                                            <h4>{{ t('scanCleanup.pages.diagnostics.contentTrim') }}</h4>
+                                            <template
+                                                v-for="output in diagnosticOutputs(naturalPage(position))"
+                                                :key="output.half"
+                                            >
+                                                <div
+                                                    v-if="diagnosticOutputs(naturalPage(position)).length > 1"
+                                                    class="scan-thumbnail-diagnostic-note"
+                                                >{{ outputHalfLabel(output.half) }}</div>
+                                                <div
+                                                    v-for="(trim, trimIndex) in output.contentDiagnostics?.acceptedTrims ?? []"
+                                                    :key="`${output.half}-trim-${trimIndex}`"
+                                                    class="scan-thumbnail-diagnostic-row"
+                                                >
+                                                    <dt>{{ t('scanCleanup.pages.diagnostics.acceptedTrim') }}</dt>
+                                                    <dd>{{ diagnosticTrim(trim) }}</dd>
+                                                </div>
+                                                <div
+                                                    v-for="(block, blockIndex) in removedBlocks(output)"
+                                                    :key="`${output.half}-removed-${blockIndex}`"
+                                                    class="scan-thumbnail-diagnostic-row"
+                                                >
+                                                    <dt>{{ t('scanCleanup.pages.diagnostics.removedBounds') }}</dt>
+                                                    <dd>{{ diagnosticBlock(block) }}</dd>
+                                                </div>
+                                                <div
+                                                    v-for="(block, blockIndex) in output.contentDiagnostics?.protectedBlocks ?? []"
+                                                    :key="`${output.half}-protected-${blockIndex}`"
+                                                    class="scan-thumbnail-diagnostic-row"
+                                                >
+                                                    <dt>{{ t('scanCleanup.pages.diagnostics.protectedBounds') }}</dt>
+                                                    <dd>{{ diagnosticBlock(block) }}</dd>
+                                                </div>
+                                                <div
+                                                    v-if="!(output.contentDiagnostics?.acceptedTrims?.length)
+                                                        && !(output.contentDiagnostics?.protectedBlocks?.length)"
+                                                    class="scan-thumbnail-diagnostic-row"
+                                                >
+                                                    <dt>{{ t('scanCleanup.pages.diagnostics.trimResult') }}</dt>
+                                                    <dd>{{ t('scanCleanup.pages.diagnostics.noTrim') }}</dd>
+                                                </div>
+                                            </template>
+                                            <div
+                                                v-if="diagnosticOutputs(naturalPage(position)).length === 0"
+                                                class="scan-thumbnail-diagnostic-row"
+                                            >
+                                                <dt>{{ t('scanCleanup.pages.diagnostics.trimResult') }}</dt>
+                                                <dd>{{ t('scanCleanup.pages.diagnostics.unavailable') }}</dd>
+                                            </div>
                                         </div>
-                                        <div
-                                            v-if="diagnosticsFor(naturalPage(position))?.splitAbstained"
-                                            class="scan-thumbnail-diagnostic-note"
-                                        >
-                                            {{ t('scanCleanup.pages.diagnostics.splitAbstained') }}
-                                        </div>
-                                        <div class="scan-thumbnail-diagnostic-row">
-                                            <dt>{{ t('scanCleanup.pages.diagnostics.deskew') }}</dt>
-                                            <dd>{{ diagnosticDeskew(naturalPage(position)) }}</dd>
-                                        </div>
-                                        <div class="scan-thumbnail-diagnostic-row">
-                                            <dt>{{ t('scanCleanup.pages.diagnostics.binarization') }}</dt>
-                                            <dd>{{ diagnosticBinarization(naturalPage(position)) }}</dd>
-                                        </div>
-                                        <div class="scan-thumbnail-diagnostic-row">
-                                            <dt>{{ t('scanCleanup.pages.diagnostics.despeckleFallback') }}</dt>
-                                            <dd>{{ diagnosticDespeckleFallback(naturalPage(position)) }}</dd>
-                                        </div>
-                                        <div
-                                            v-if="diagnosticsFor(naturalPage(position))?.autoDewarpAttempted"
-                                            class="scan-thumbnail-diagnostic-row"
-                                        >
-                                            <dt>{{ t('scanCleanup.pages.diagnostics.dewarp') }}</dt>
-                                            <dd>{{ diagnosticDewarp(naturalPage(position)) }}</dd>
+                                        <div class="scan-thumbnail-diagnostic-group">
+                                            <h4>{{ t('scanCleanup.pages.diagnostics.geometry') }}</h4>
+                                            <div class="scan-thumbnail-diagnostic-row">
+                                                <dt>{{ t('scanCleanup.pages.diagnostics.layout') }}</dt>
+                                                <dd>{{ diagnosticLayout(naturalPage(position)) }}</dd>
+                                            </div>
+                                            <div
+                                                v-if="diagnosticsFor(naturalPage(position))?.reconciled"
+                                                class="scan-thumbnail-diagnostic-note"
+                                            >{{ t('scanCleanup.pages.diagnostics.reconciled') }}</div>
+                                            <div
+                                                v-if="diagnosticsFor(naturalPage(position))?.splitAbstained"
+                                                class="scan-thumbnail-diagnostic-note"
+                                            >{{ t('scanCleanup.pages.diagnostics.splitAbstained') }}</div>
+                                            <div class="scan-thumbnail-diagnostic-row">
+                                                <dt>{{ t('scanCleanup.pages.diagnostics.deskew') }}</dt>
+                                                <dd>{{ diagnosticDeskew(naturalPage(position)) }}</dd>
+                                            </div>
+                                            <div
+                                                v-if="diagnosticSideConfidence(naturalPage(position))"
+                                                class="scan-thumbnail-diagnostic-row"
+                                            >
+                                                <dt>{{ t('scanCleanup.pages.diagnostics.sideConfidence') }}</dt>
+                                                <dd>{{ diagnosticSideConfidence(naturalPage(position)) }}</dd>
+                                            </div>
+                                            <div
+                                                v-if="diagnosticsFor(naturalPage(position))?.autoDewarpAttempted"
+                                                class="scan-thumbnail-diagnostic-row"
+                                            >
+                                                <dt>{{ t('scanCleanup.pages.diagnostics.dewarp') }}</dt>
+                                                <dd>{{ diagnosticDewarp(naturalPage(position)) }}</dd>
+                                            </div>
                                         </div>
                                     </dl>
                                 </div>
@@ -395,14 +477,19 @@
 </template>
 
 <script setup lang="ts">
+/* eslint-disable max-lines -- This established rail co-locates its virtual-list slots, interactions, and popover styles. */
 import type {
     IScanCleanupPageOverride,
+    IScanCleanupContentBlockEvidence,
+    IScanCleanupContentAcceptedTrim,
+    IScanCleanupPageOutputDiagnostics,
     IScanCleanupPreviewMetadata,
     IScanCleanupPreviewPageMetadata,
     TScanCleanupPageLayoutOverride,
     TScanCleanupPageOverrides,
     TScanCleanupPageRotation,
     TScanCleanupOutputMode,
+    TScanCleanupOutputModeRecommendationReason,
     TScanCleanupOutputModeSetting,
     IScanCleanupTextAxis,
 } from '@contracts/electronApiScanCleanup';
@@ -431,6 +518,7 @@ const props = defineProps<{
     preserveOriginalQuality: boolean;
     recommendedOutputModes?: ReadonlyMap<number, TScanCleanupOutputMode>;
     recommendedOutputModeConfidences?: ReadonlyMap<number, number>;
+    recommendedOutputModeReasons?: ReadonlyMap<number, TScanCleanupOutputModeRecommendationReason>;
     textAxes?: ReadonlyMap<number, IScanCleanupTextAxis>;
     disabled: boolean;
     processedPages?: ReadonlySet<number>;
@@ -849,6 +937,104 @@ function diagnosticBinarization(page: number) {
         : t('scanCleanup.pages.diagnostics.notApplicable');
 }
 
+function diagnosticRecommendation(page: number) {
+    const diagnostics = diagnosticsFor(page);
+    const mode = props.recommendedOutputModes?.get(page) ?? diagnostics?.recommendedOutputMode;
+    const confidence = props.recommendedOutputModeConfidences?.get(page)
+        ?? diagnostics?.recommendedOutputModeConfidence;
+    return mode === undefined
+        ? t('scanCleanup.pages.diagnostics.unavailable')
+        : t('scanCleanup.pages.diagnostics.recommendedModeValue', {
+            mode: outputModeLabel(mode),
+            confidence: formatConfidence(confidence),
+        });
+}
+
+function diagnosticRecommendationReason(page: number) {
+    const reason = props.recommendedOutputModeReasons?.get(page)
+        ?? diagnosticsFor(page)?.recommendedOutputModeReason;
+    return reason === undefined
+        ? t('scanCleanup.pages.diagnostics.unavailable')
+        : t(`scanCleanup.pages.diagnostics.modeReason.${reason}`);
+}
+
+function diagnosticBinarizationEvidence(page: number) {
+    const evidence = diagnosticsFor(page)?.binarizationDiagnostics;
+    if (!evidence) {
+        return null;
+    }
+    return {
+        contrast: t('scanCleanup.pages.diagnostics.contrastIlluminationValue', {
+            contrast: evidence.robustContrast.toFixed(1),
+            illumination: evidence.illuminationDeviation.toFixed(1),
+        }),
+        edge: t('scanCleanup.pages.diagnostics.edgeStrokeValue', {
+            edge: formatConfidence(evidence.edgeDensity),
+            stroke: evidence.estimatedStrokeWidthPx.toFixed(1),
+        }),
+        border: t('scanCleanup.pages.diagnostics.borderAgreementValue', {
+            border: formatConfidence(evidence.darkBorderCoverage),
+            agreement: formatConfidence(evidence.otsuAdaptiveAgreement),
+        }),
+    };
+}
+
+function diagnosticOutputs(page: number) {
+    return diagnosticsFor(page)?.outputDiagnostics ?? [];
+}
+
+function removedBlocks(output: IScanCleanupPageOutputDiagnostics) {
+    return (output.contentDiagnostics?.acceptedTrims ?? [])
+        .flatMap(trim => trim.removedBlocks);
+}
+
+function diagnosticTrim(trim: IScanCleanupContentAcceptedTrim) {
+    return t('scanCleanup.pages.diagnostics.acceptedTrimValue', {
+        side: t(`scanCleanup.pages.diagnostics.trimSide.${trim.side}`),
+        score: formatConfidence(trim.score),
+        threshold: formatConfidence(trim.threshold),
+    });
+}
+
+function diagnosticBlock(block: IScanCleanupContentBlockEvidence) {
+    const evidence = [
+        block.pictureMaskOverlapPixels > 0 ? t('scanCleanup.pages.diagnostics.pictureEvidence') : '',
+        block.headingEvidence ? t('scanCleanup.pages.diagnostics.headingEvidence') : '',
+        block.grayscaleEvidence ? t('scanCleanup.pages.diagnostics.grayscaleEvidence') : '',
+    ].filter(Boolean).join(', ') || t('scanCleanup.pages.diagnostics.noProtectedEvidence');
+    return t('scanCleanup.pages.diagnostics.boundsValue', {
+        x: Math.round(block.bounds.xPx),
+        y: Math.round(block.bounds.yPx),
+        width: Math.round(block.bounds.widthPx),
+        height: Math.round(block.bounds.heightPx),
+        evidence,
+    });
+}
+
+function outputHalfLabel(half: IScanCleanupPageOutputDiagnostics['half']) {
+    return {
+        full: t('scanCleanup.preview.outputHalf.full'),
+        left: t('scanCleanup.preview.outputHalf.left'),
+        right: t('scanCleanup.preview.outputHalf.right'),
+    }[half];
+}
+
+function diagnosticSideConfidence(page: number) {
+    const sideConfidence = diagnosticOutputs(page)[0]?.contentDiagnostics?.sideConfidence;
+    if (!sideConfidence) {
+        return null;
+    }
+    return ([
+        'left',
+        'top',
+        'right',
+        'bottom',
+    ] as const).map(side => t('scanCleanup.pages.diagnostics.sideConfidenceValue', {
+        side: t(`scanCleanup.pages.diagnostics.trimSide.${side}`),
+        confidence: formatConfidence(sideConfidence[side]),
+    })).join(' · ');
+}
+
 function diagnosticDespeckleFallback(page: number) {
     const fallback = diagnosticsFor(page)?.despeckleFallback;
     return fallback === undefined
@@ -1110,7 +1296,20 @@ function handleKeydown(event: KeyboardEvent) {
 
 .scan-thumbnail-diagnostics-popover dl {
     display: grid;
+    gap: var(--app-space-5xl);
+}
+
+.scan-thumbnail-diagnostic-group {
+    display: grid;
     gap: var(--app-space-3xl);
+}
+
+.scan-thumbnail-diagnostic-group h4 {
+    margin: 0;
+    color: var(--ui-text);
+    font-size: var(--app-text-size-kicker);
+    font-weight: var(--app-font-weight-heading);
+    text-transform: uppercase;
 }
 
 .scan-thumbnail-diagnostic-row {
@@ -1125,8 +1324,10 @@ function handleKeydown(event: KeyboardEvent) {
 }
 
 .scan-thumbnail-diagnostic-row dd {
+    max-width: 68%;
     margin-inline-start: var(--app-space-3xl);
     text-align: end;
+    overflow-wrap: anywhere;
 }
 
 .scan-thumbnail-diagnostic-note {

@@ -2,6 +2,7 @@ import type {
     IScanCleanupOptions,
     IScanCleanupDocumentPrior,
     IScanCleanupDocumentCanvasPlan,
+    IScanCleanupNormalizedRect,
     IScanCleanupRawPreviewResult,
     IScanCleanupPreviewRequest,
     IScanCleanupPreviewResult,
@@ -94,12 +95,21 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
     const result = shallowRef<IScanCleanupPreviewResult | null>(null);
     const rawResult = shallowRef<IScanCleanupRawPreviewResult | null>(null);
     const resultKey = shallowRef<string | null>(null);
+    const detailResult = shallowRef<IScanCleanupPreviewResult | null>(null);
+    const detailLoading = ref(false);
     const loading = ref(false);
     const error = ref('');
     const viewMode = ref<'original' | 'cleaned'>(options.initialViewMode ?? 'cleaned');
     const cache = createScanCleanupPreviewCache();
+    const detailSourceCache = createScanCleanupPreviewCache({
+        maxEntries: 4,
+        maxBytes: 48 * 1024 * 1024,
+    });
+    const detailTileAliases = new Map<string, string>();
     const metadataByPage = reactive(new Map<number, IScanCleanupPreviewResult['pageMetadata']>());
     let sequence = 0;
+    let detailSequence = 0;
+    let displayedDetailSourceKey: string | null = null;
     let timer: ReturnType<typeof setTimeout> | null = null;
 
     const totalPages = computed(() => rawResult.value?.totalPages
@@ -165,9 +175,11 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
 
     function cancel(invalidateRawCache = true) {
         sequence += 1;
+        detailSequence += 1;
         prefetcher.supersede();
         clearTimer();
         loading.value = false;
+        detailLoading.value = false;
         if (!options.sourcePath.value) {
             return;
         }
@@ -235,6 +247,10 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
         const requestSourcePath = options.sourcePath.value;
         const documentPrior = options.documentPriorByPage.get(requestPage);
         const key = cacheKey(requestPage, requestOptions, requestSourcePath);
+        if (displayedDetailSourceKey !== detailSourceKey(key, resolveDetailOutputMode(requestPage))) {
+            detailResult.value = null;
+            displayedDetailSourceKey = null;
+        }
         const cached = cache.get(key);
         if (cached) {
             result.value = cached;
@@ -290,6 +306,111 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
         timer = setTimeout(() => { void runPreview(); }, result.value && result.value.pageNumber !== requestPage ? 0 : 250);
     }
 
+    function resolveDetailOutputMode(pageNumber = options.previewPage.value) {
+        const pageOverride = getScanCleanupPageOverride(options.settings.pageOverrides, pageNumber);
+        if (options.settings.preserveOriginalQuality) {
+            return 'color' as const;
+        }
+        if (pageOverride.outputModeOverride) {
+            return pageOverride.outputModeOverride;
+        }
+        if (options.settings.outputMode !== 'auto') {
+            return options.settings.outputMode;
+        }
+        return result.value?.pageNumber === pageNumber
+            ? result.value.pageMetadata.recommendedOutputMode ?? 'bw'
+            : 'bw';
+    }
+
+    function detailSourceKey(baseKey: string, outputMode: ReturnType<typeof resolveDetailOutputMode>) {
+        return JSON.stringify({
+            baseKey,
+            outputMode,
+            maxPixels: 4_000_000,
+        });
+    }
+
+    function detailTileKey(sourceKey: string, viewport: IScanCleanupNormalizedRect) {
+        return JSON.stringify({
+            sourceKey,
+            viewport,
+        });
+    }
+
+    async function requestDetail(viewport: IScanCleanupNormalizedRect) {
+        if (
+            !options.active()
+            || !options.sourcePath.value
+            || options.settings.preserveOriginalQuality
+            || !resultCurrent.value
+        ) {
+            return;
+        }
+        const capability = getScanCleanupCapability();
+        if (!capability) {
+            return;
+        }
+        const requestPage = options.previewPage.value;
+        const requestOptions = toPlainScanCleanupOptions(options.settings);
+        const requestSourcePath = options.sourcePath.value;
+        const outputMode = resolveDetailOutputMode(requestPage);
+        const baseKey = cacheKey(requestPage, requestOptions, requestSourcePath);
+        const sourceKey = detailSourceKey(baseKey, outputMode);
+        const tileKey = detailTileKey(sourceKey, viewport);
+        const aliasedSourceKey = detailTileAliases.get(tileKey);
+        const cached = detailSourceCache.get(aliasedSourceKey ?? sourceKey);
+        if (cached) {
+            detailTileAliases.delete(tileKey);
+            detailTileAliases.set(tileKey, sourceKey);
+            detailResult.value = cached;
+            displayedDetailSourceKey = sourceKey;
+            detailLoading.value = false;
+            return;
+        }
+        const requestSequence = ++detailSequence;
+        detailLoading.value = true;
+        try {
+            const documentPrior = options.documentPriorByPage.get(requestPage);
+            const next = await capability.preview(toBridgeSafeScanCleanupPayload({
+                sourcePdfPath: requestSourcePath,
+                ownerId: options.ownerId,
+                documentRevision: options.documentRevision.value,
+                pageNumber: requestPage,
+                options: requestOptions,
+                ...(documentPrior === undefined ? {} : {documentPrior}),
+                ...(options.documentCanvasPlan.value === undefined
+                    ? {}
+                    : {documentCanvasPlan: options.documentCanvasPlan.value}),
+                detail: {
+                    viewport,
+                    outputMode,
+                    maxPixels: 4_000_000,
+                },
+            }));
+            if (requestSequence !== detailSequence || baseKey !== cacheKey()) {
+                return;
+            }
+            detailSourceCache.set(sourceKey, next);
+            detailTileAliases.set(tileKey, sourceKey);
+            while (detailTileAliases.size > 32) {
+                const oldestKey = detailTileAliases.keys().next().value;
+                if (oldestKey === undefined) break;
+                detailTileAliases.delete(oldestKey);
+            }
+            detailResult.value = next;
+            displayedDetailSourceKey = sourceKey;
+        } catch (caught) {
+            if (!(caught instanceof Error && caught.name === 'AbortError')) {
+                detailResult.value = null;
+                displayedDetailSourceKey = null;
+            }
+        } finally {
+            if (requestSequence === detailSequence) {
+                detailLoading.value = false;
+            }
+        }
+    }
+
     function retry() {
         cache.delete(cacheKey(options.previewPage.value));
         schedule();
@@ -306,10 +427,14 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
     }, {immediate: true});
     watch(options.lifecycleDocumentKey, () => {
         cache.clear();
+        detailSourceCache.clear();
+        detailTileAliases.clear();
         metadataByPage.clear();
         result.value = null;
         rawResult.value = null;
         resultKey.value = null;
+        detailResult.value = null;
+        displayedDetailSourceKey = null;
     });
     watch(cacheKey, schedule);
     watch(options.isRunning, running => {
@@ -324,6 +449,8 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
         cancel,
         classificationDiffersByPage,
         error,
+        detailLoading,
+        detailResult,
         loading,
         metadataByPage,
         navigate,
@@ -331,6 +458,7 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
         rawResult,
         resultCurrent,
         retry,
+        requestDetail,
         schedule,
         totalPages,
         viewMode,

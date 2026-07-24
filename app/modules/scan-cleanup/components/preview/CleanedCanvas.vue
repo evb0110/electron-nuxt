@@ -46,6 +46,18 @@
                             alt=""
                             @load="$emit('load', output.metadata.half, output.pixelSwap.incomingUrl)"
                         >
+                        <span
+                            v-if="detailLoading && !detailUrls[output.metadata.half]"
+                            class="preview-detail-shimmer"
+                            aria-hidden="true"
+                        />
+                        <img
+                            v-if="detailUrls[output.metadata.half]"
+                            class="cleaned-image preview-detail-pixel"
+                            :src="detailUrls[output.metadata.half]"
+                            alt=""
+                            aria-hidden="true"
+                        >
                         <span class="margin-overlay" aria-hidden="true" />
                     </div>
                     <slot name="paper-overlay" :output="output" />
@@ -63,6 +75,8 @@ import type {IRenderedScanCleanupOutput} from '@app/modules/scan-cleanup/runtime
 defineProps<{
     activePlacementHalf: TScanCleanupOutputHalf | null;
     altByHalf: Partial<Record<TScanCleanupOutputHalf, string>>;
+    detailLoading?: boolean;
+    detailUrls: Partial<Record<TScanCleanupOutputHalf, string>>;
     matchPageSize: boolean;
     outputs: IRenderedScanCleanupOutput[];
 }>();

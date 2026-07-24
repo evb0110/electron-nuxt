@@ -81,9 +81,11 @@ export const useScanCleanupPreviewImages = (
     result: MaybeRefOrGetter<IScanCleanupPreviewResult | null>,
     onImagesChanged?: (hadPreviousResult: boolean) => void,
     rawResult: MaybeRefOrGetter<IScanCleanupRawPreviewResult | null> = result,
+    detailResult: MaybeRefOrGetter<IScanCleanupPreviewResult | null> = () => null,
 ) => {
     const rawPixelSwap = ref(createPreviewImageSwap());
     const cleanedPixelSwaps = reactive<Partial<Record<TScanCleanupOutputHalf, IScanCleanupPreviewImageSwap>>>({});
+    const detailPixelUrls = reactive<Partial<Record<TScanCleanupOutputHalf, string>>>({});
 
     function revokeBlobUrl(url: string) {
         URL.revokeObjectURL(url);
@@ -96,6 +98,11 @@ export const useScanCleanupPreviewImages = (
             const state = cleanedPixelSwaps[half];
             if (state) disposePreviewImageSwap(state, revokeBlobUrl);
             Reflect.deleteProperty(cleanedPixelSwaps, half);
+        }
+        for (const half of Object.keys(detailPixelUrls) as TScanCleanupOutputHalf[]) {
+            const url = detailPixelUrls[half];
+            if (url) revokeBlobUrl(url);
+            Reflect.deleteProperty(detailPixelUrls, half);
         }
     }
 
@@ -155,12 +162,31 @@ export const useScanCleanupPreviewImages = (
         onImagesChanged?.(Boolean(previousResult));
     }, {immediate: true});
 
+    watch(() => toValue(detailResult), (nextResult) => {
+        const activeHalves = new Set<TScanCleanupOutputHalf>();
+        for (const output of nextResult?.outputs ?? []) {
+            const half = output.metadata.half;
+            activeHalves.add(half);
+            const previous = detailPixelUrls[half];
+            if (previous) revokeBlobUrl(previous);
+            detailPixelUrls[half] = pngUrl(output.imageData);
+        }
+        for (const half of Object.keys(detailPixelUrls) as TScanCleanupOutputHalf[]) {
+            if (!activeHalves.has(half)) {
+                const url = detailPixelUrls[half];
+                if (url) revokeBlobUrl(url);
+                Reflect.deleteProperty(detailPixelUrls, half);
+            }
+        }
+    }, {immediate: true});
+
     onBeforeUnmount(revokeUrls);
 
     return {
         cleanedPixelSwaps,
         completeCleanedPixelSwap,
         completeRawPixelSwap,
+        detailPixelUrls,
         loadCleanedPixelSwap,
         loadRawPixelSwap,
         rawPixelSwap,

@@ -7,12 +7,14 @@ import type {
     TScanCleanupBinarizationMethod,
     TScanCleanupCanvasScope,
     TScanCleanupLayoutClassification,
+    TScanCleanupOutputHalf,
     TScanCleanupOutputMode,
     TScanCleanupOutputModeRecommendationReason,
     TScanCleanupPageRotation,
 } from '@contracts/scan-cleanup/domain';
 import type {
     IScanCleanupAppliedMargins,
+    IScanCleanupNormalizedRect,
     IScanCleanupPixelRect,
     IScanCleanupPreviewAffine,
     IScanCleanupSplitSeamPolyline,
@@ -39,6 +41,12 @@ export interface IScanCleanupPreviewRequest extends IScanCleanupOwnerContext {
     options: IScanCleanupOptions;
     documentPrior?: IScanCleanupDocumentPrior;
     documentCanvasPlan?: IScanCleanupDocumentCanvasPlan;
+    detail?: {
+        /** Renderer-visible viewport, used for tile identity when native rendering is whole-page. */
+        viewport: IScanCleanupNormalizedRect;
+        outputMode: TScanCleanupOutputMode;
+        maxPixels: number;
+    };
 }
 
 export interface IScanCleanupRawPreviewRequest extends IScanCleanupOwnerContext {
@@ -120,7 +128,13 @@ export interface IScanCleanupPageDiagnostics {
     autoDewarpAttempted?: boolean;
     dewarpApplied?: boolean;
     dewarpConfidence?: number | null;
-    contentSideConfidence?: IScanCleanupContentSideConfidence;
+    outputDiagnostics?: IScanCleanupPageOutputDiagnostics[];
+    recommendedOutputModeReason?: TScanCleanupOutputModeRecommendationReason;
+}
+
+export interface IScanCleanupPageOutputDiagnostics {
+    half: TScanCleanupOutputHalf;
+    contentDiagnostics?: IScanCleanupContentDiagnostics;
 }
 
 export interface IScanCleanupPreviewMetadata {
@@ -192,6 +206,7 @@ export interface IScanCleanupPreviewPageMetadata extends IScanCleanupReconciliat
     blankOutputsSkipped: number;
     recommendedOutputMode?: TScanCleanupOutputMode;
     recommendedOutputModeConfidence?: number;
+    recommendedOutputModeReason?: TScanCleanupOutputModeRecommendationReason;
 }
 
 export interface IScanCleanupPreviewOutput {
