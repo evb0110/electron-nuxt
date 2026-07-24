@@ -422,12 +422,21 @@ function openFile() {
     emit('open-file');
 }
 
+const pendingRecentOpenPath = ref<string | null>(null);
+
 function openRecent(file: IRecentFile) {
+    // The host registers its open transaction asynchronously, so a rapid
+    // second click can slip through before eligibility flips; dedupe here.
+    if (pendingRecentOpenPath.value === file.originalPath) {
+        return;
+    }
+    pendingRecentOpenPath.value = file.originalPath;
     recentFilesBeforeOpen.value ??= recentFiles.slice();
     emit('open-recent', file);
     void nextTick().then(() => {
         if (!openInProgress) {
             recentFilesBeforeOpen.value = null;
+            pendingRecentOpenPath.value = null;
         }
     });
 }
@@ -477,6 +486,7 @@ watch(() => startSection, (section) => {
 watch(() => openInProgress, (isOpening) => {
     if (!isOpening) {
         recentFilesBeforeOpen.value = null;
+        pendingRecentOpenPath.value = null;
     }
 });
 

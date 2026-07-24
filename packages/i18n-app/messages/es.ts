@@ -1442,7 +1442,7 @@ export default {
         'performanceModeAuto': 'Automático (recomendado)',
         'performanceModeLow': 'Bajo — minimizar el trabajo en segundo plano',
         'performanceModeMedium': 'Medio — equilibrado',
-        'performanceModeHigh': 'Alto — maximizar el rendimiento',
+        'performanceModeHigh': 'Alto — máxima velocidad',
     },
     'updates': {
         'checkingTitle': 'Buscando actualizaciones',

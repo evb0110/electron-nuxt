@@ -1481,7 +1481,7 @@ export default {
         'performanceModeAuto': 'Авто (рекомендуется)',
         'performanceModeLow': 'Низкий — минимум фоновой работы',
         'performanceModeMedium': 'Средний — сбалансированный',
-        'performanceModeHigh': 'Высокий — максимальная пропускная способность',
+        'performanceModeHigh': 'Высокий — максимальная скорость',
     },
     'updates': {
         'checkingTitle': 'Проверка обновлений',

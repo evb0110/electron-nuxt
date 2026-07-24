@@ -239,6 +239,16 @@ function onSave() {
     transform: scale(1.15);
 }
 
+:global(html.app-low-graphics) .status-save-dot-button.is-saving .status-save-dot {
+    animation: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .status-save-dot-button.is-saving .status-save-dot {
+        animation: none;
+    }
+}
+
 @keyframes status-save-dot-pulse {
     0%,
     100% {

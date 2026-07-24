@@ -1455,7 +1455,7 @@ export default {
         'performanceModeAuto': 'Auto (recommandé)',
         'performanceModeLow': 'Faible — réduire les tâches en arrière-plan',
         'performanceModeMedium': 'Moyen — équilibré',
-        'performanceModeHigh': 'Élevé — maximiser le débit',
+        'performanceModeHigh': 'Élevé — vitesse maximale',
     },
     'updates': {
         'checkingTitle': 'Recherche de mises à jour',
