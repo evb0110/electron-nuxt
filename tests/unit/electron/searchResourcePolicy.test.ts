@@ -9,7 +9,9 @@ import type {
 } from '@contracts/hostResourceProfile';
 import {
     decodeScanCleanupRuntimePolicy,
+    decodeSearchWorkerData,
     decodeSearchWorkerResourcePolicy,
+    parseBoundedEnvInt,
 } from '@contracts/resourcePolicies';
 import { resolveSearchResourcePolicy } from '@electron/features/search/main/searchResourcePolicy';
 
@@ -135,5 +137,74 @@ describe('resolveSearchResourcePolicy', () => {
         expect(decodeScanCleanupRuntimePolicy({rasterConcurrency: 2}))
             .toEqual({rasterConcurrency: 2});
         expect(decodeScanCleanupRuntimePolicy({rasterConcurrency: 4})).toBeNull();
+    });
+});
+
+describe('parseBoundedEnvInt', () => {
+    it('parses a valid override and applies the ceiling only when max is set', () => {
+        expect(parseBoundedEnvInt('42', {
+            fallback: 1,
+            min: 1,
+        })).toBe(42);
+        expect(parseBoundedEnvInt('999', {
+            fallback: 1,
+            min: 1,
+            max: 256,
+        })).toBe(256);
+        expect(parseBoundedEnvInt('10', {
+            fallback: 1,
+            min: 1,
+            max: 256,
+        })).toBe(10);
+    });
+
+    it('falls back for undefined, non-numeric, and below-minimum values', () => {
+        expect(parseBoundedEnvInt(undefined, {
+            fallback: 7,
+            min: 2,
+        })).toBe(7);
+        expect(parseBoundedEnvInt('nope', {
+            fallback: 7,
+            min: 2,
+        })).toBe(7);
+        expect(parseBoundedEnvInt('1', {
+            fallback: 7,
+            min: 2,
+        })).toBe(7);
+        expect(parseBoundedEnvInt('2', {
+            fallback: 7,
+            min: 2,
+        })).toBe(2);
+    });
+});
+
+describe('decodeSearchWorkerData', () => {
+    const validEnvelope = {
+        nativeServiceIdleTimeoutMs: 60_000,
+        resourcePolicy: {
+            indexCacheMaxEntries: 1,
+            indexCacheTtlMs: 2 * 60_000,
+            maxPageTextBytes: 2 * MIB,
+            maxTotalTextBytes: 48 * MIB,
+        },
+    };
+
+    it('accepts a well-formed envelope and returns the typed value', () => {
+        expect(decodeSearchWorkerData(validEnvelope)).toEqual(validEnvelope);
+    });
+
+    it('rejects a non-record, a bad idle timeout, and a malformed resource policy', () => {
+        expect(decodeSearchWorkerData(null)).toBeNull();
+        expect(decodeSearchWorkerData({
+            ...validEnvelope,
+            nativeServiceIdleTimeoutMs: 0,
+        })).toBeNull();
+        expect(decodeSearchWorkerData({
+            ...validEnvelope,
+            resourcePolicy: {
+                ...validEnvelope.resourcePolicy,
+                maxTotalTextBytes: 0,
+            },
+        })).toBeNull();
     });
 });

@@ -24,6 +24,13 @@ export interface IHostResourceTierInputs {
 export const HOST_RESOURCE_PROFILE_ARGUMENT_PREFIX =
     '--evb-host-resource-profile=';
 
+export const HOST_TIER_LOW_RAM_MAX_GIB = 8;
+export const HOST_TIER_MODEST_RAM_MAX_GIB = 12;
+export const HOST_TIER_HIGH_RAM_MIN_GIB = 16;
+export const HOST_TIER_LOW_CPU_MAX = 2;
+export const HOST_TIER_MODEST_CPU_MAX = 4;
+export const HOST_TIER_HIGH_CPU_MIN = 8;
+
 const GIB = 1024 ** 3;
 
 function isHostResourceTier(value: unknown): value is THostResourceTier {
@@ -71,13 +78,13 @@ export function resolveDetectedHostResourceTier(
 
     const ramGiB = totalRamBytes / GIB;
     if (
-        ramGiB <= 8
-        || logicalCpus <= 2
-        || (ramGiB <= 12 && logicalCpus <= 4)
+        ramGiB <= HOST_TIER_LOW_RAM_MAX_GIB
+        || logicalCpus <= HOST_TIER_LOW_CPU_MAX
+        || (ramGiB <= HOST_TIER_MODEST_RAM_MAX_GIB && logicalCpus <= HOST_TIER_MODEST_CPU_MAX)
     ) {
         return 'low';
     }
-    if (ramGiB >= 16 && logicalCpus >= 8) {
+    if (ramGiB >= HOST_TIER_HIGH_RAM_MIN_GIB && logicalCpus >= HOST_TIER_HIGH_CPU_MIN) {
         return 'high';
     }
     return 'medium';

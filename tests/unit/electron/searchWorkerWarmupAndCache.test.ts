@@ -465,7 +465,7 @@ describe('search worker warmup and cache behavior', () => {
         };
 
         await expect(import('@electron/search/worker'))
-            .rejects.toThrow('Invalid search workerData.resourcePolicy');
+            .rejects.toThrow('Invalid search workerData');
         expect(mocks.parentPort.on).not.toHaveBeenCalled();
     });
 
