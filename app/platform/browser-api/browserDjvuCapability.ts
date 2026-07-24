@@ -55,6 +55,7 @@ import {
     type IBrowserDjvuPageMetrics as IDjvuPageMetrics,
 } from '@app/platform/browser-api/browserDjvuConversionPolicy';
 import { assertBrowserDjvuRasterDimensions } from '@app/platform/browser-api/assertBrowserDjvuRasterDimensions';
+import { getPerformanceProfile } from '@app/utils/performanceProfile';
 export {
     resolveBrowserDjvuCompactExportPlan,
     resolveBrowserDjvuConversionPreflight,
@@ -84,7 +85,6 @@ const DJVU_BROWSER_COMPACT_PHOTO_PPI_CAP = 300;
 const DJVU_BROWSER_COMPACT_PHOTO_PAGE_SPEC_MAX_BYTES = 192 * 1024 * 1024;
 const DJVU_INFO_TEXT_SAMPLE_PAGES = 3;
 const DJVU_ESTIMATE_SAMPLE_PAGES = 3;
-
 interface IDjvuJobRecord {
     workers: Set<IDjvuWorker>;
     abortController: AbortController;
@@ -997,7 +997,7 @@ export const browserDjvuCapability: IDjvuCapability = {
                 percent: 0,
             });
             const renderSettings = resolveBrowserDjvuPdfRenderSettings(options);
-            const renderConcurrency = resolveBrowserDjvuPdfRenderConcurrency(pageSizes, undefined, sourceBytes);
+            const renderConcurrency = resolveBrowserDjvuPdfRenderConcurrency(pageSizes, undefined, sourceBytes, getPerformanceProfile().tier);
             BrowserLogger.info('djvu-browser', 'Starting browser DjVu PDF conversion', {
                 jobId,
                 pageCount,

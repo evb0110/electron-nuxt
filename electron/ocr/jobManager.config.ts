@@ -1,6 +1,10 @@
 import { parseIntegerEnv } from '@electron/utils/parseIntegerEnv';
+import { getOcrRuntimePolicy } from '@electron/ocr/ocrRuntimePolicy';
 
-export const OCR_WORKER_POOL_SIZE = parseIntegerEnv('EVB_OCR_WORKER_POOL_SIZE', 2, 1);
+export function getOcrWorkerPoolSize() {
+    return getOcrRuntimePolicy().workerPoolSize;
+}
+
 export const OCR_QUEUE_MAX_SIZE = parseIntegerEnv('EVB_OCR_QUEUE_MAX_SIZE', 8, 1);
 export const OCR_QUEUE_MAX_BUFFERED_BYTES = parseIntegerEnv('EVB_OCR_QUEUE_MAX_BUFFERED_MB', 768, 32) * 1024 * 1024;
 export const OCR_QUEUE_MAX_DOCUMENT_PAGE_WORK = parseIntegerEnv('EVB_OCR_DOCUMENT_PAGE_WORK_MAX', 96, 1);

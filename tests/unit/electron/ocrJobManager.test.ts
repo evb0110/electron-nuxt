@@ -45,6 +45,7 @@ const mocks = vi.hoisted(() => ({
     unlink: vi.fn(async () => {}),
     sendPlatformEvent: vi.fn(),
     getWorkingCopyRevision: vi.fn(),
+    hostResourceTier: 'high' as 'low' | 'medium' | 'high',
 }));
 
 vi.mock('electron', () => ({
@@ -103,9 +104,9 @@ vi.mock('@electron/resources/hostResourceProfile', () => ({getHostResourceProfil
     logicalCpus: 8,
     totalRamBytes: 16 * 1024 * 1024 * 1024,
     safeMode: false,
-    detectedTier: 'high',
+    detectedTier: mocks.hostResourceTier,
     performanceMode: 'auto',
-    tier: 'high',
+    tier: mocks.hostResourceTier,
 })}));
 
 function createDocumentRevision(documentRef: string) {
@@ -220,6 +221,7 @@ describe('ocr job manager preparing-stage robustness', {timeout: 20_000}, () => 
         mocks.ensureRuntimeTessdataSeeded.mockResolvedValue(undefined);
         mocks.ensureTessdataLanguages.mockReset();
         mocks.workerInstances.length = 0;
+        mocks.hostResourceTier = 'high';
         mocks.stat.mockResolvedValue({
             size: 1024,
             isFile: () => true,
@@ -232,6 +234,57 @@ describe('ocr job manager preparing-stage robustness', {timeout: 20_000}, () => 
         vi.unstubAllEnvs();
         const { shutdownOcrJobManager } = await import('@electron/ocr/jobManager');
         await shutdownOcrJobManager();
+    });
+
+    it.each([
+        [
+            'low',
+            1,
+        ],
+        [
+            'medium',
+            2,
+        ],
+        [
+            'high',
+            2,
+        ],
+    ] as const)('caps the %s-tier OCR worker pool at %i', async (tier, workerPoolSize) => {
+        mocks.hostResourceTier = tier;
+        mocks.ensureTessdataLanguages.mockResolvedValue(undefined);
+        const {
+            handleOcrCancel,
+            handleOcrCreateSearchablePdfAsync,
+        } = await import('@electron/ocr/jobManager');
+        const contexts = Array.from(
+            {length: workerPoolSize + 1},
+            (_value, index) => createContext(200 + index),
+        );
+
+        for (let index = 0; index < workerPoolSize; index += 1) {
+            await expect(startOcrJob(
+                handleOcrCreateSearchablePdfAsync,
+                contexts[index]!,
+                `${tier}-job-${index}`,
+            )).resolves.toMatchObject({started: true});
+            await vi.waitFor(() => {
+                expect(mocks.workerInstances).toHaveLength(index + 1);
+            });
+        }
+
+        await expect(startOcrJob(
+            handleOcrCreateSearchablePdfAsync,
+            contexts[workerPoolSize]!,
+            `${tier}-job-${workerPoolSize}`,
+        )).resolves.toMatchObject({started: true});
+        await vi.waitFor(() => {
+            expect(mocks.ensureTessdataLanguages).toHaveBeenCalledTimes(workerPoolSize + 1);
+        });
+        expect(mocks.workerInstances).toHaveLength(workerPoolSize);
+
+        contexts.forEach((context, index) => {
+            expect(handleOcrCancel(context, `${tier}-job-${index}`)).toEqual({canceled: true});
+        });
     });
 
     it('counts preparing jobs toward queue capacity', async () => {

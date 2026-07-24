@@ -5,7 +5,7 @@ import {
     OCR_QUEUE_MAX_AGE_MS,
     OCR_QUEUE_MAX_SIZE,
     OCR_RESULT_FILE_ACK_TTL_MS,
-    OCR_WORKER_POOL_SIZE,
+    getOcrWorkerPoolSize,
 } from '@electron/ocr/jobManager.config';
 import { prepareLanguageModelsForJob } from '@electron/ocr/prepareLanguageModelsForJob.modelPrep';
 import {
@@ -263,8 +263,9 @@ function ensureQueueCapacity(
 }
 
 function logQueueDepth(context: string) {
+    const workerPoolSize = getOcrWorkerPoolSize();
     log.debug(
-        `${context}: active=${activeJobs.size}/${OCR_WORKER_POOL_SIZE}, broker-pending=${preparingJobs.size}/${OCR_QUEUE_MAX_SIZE}, bufferedMB=${(getBufferedOcrBytes({
+        `${context}: active=${activeJobs.size}/${workerPoolSize}, broker-pending=${preparingJobs.size}/${OCR_QUEUE_MAX_SIZE}, bufferedMB=${(getBufferedOcrBytes({
             activeJobs: activeJobs.values(),
             preparingJobs,
         }) / (1024 * 1024)).toFixed(1)}`,
@@ -615,6 +616,7 @@ async function admitPreparedOcrJob(
     preparingJob: IOcrPreparingJob,
     queuedJob: IOcrQueuedJob,
 ) {
+    const workerPoolSize = getOcrWorkerPoolSize();
     const timeoutController = new AbortController();
     const queueTimeout = setTimeout(() => {
         timeoutController.abort(new DOMException(
@@ -635,7 +637,7 @@ async function admitPreparedOcrJob(
             kind: 'ocr-worker',
             priority: 'user',
             resources: OCR_WORKER_ADMISSION_RESOURCES,
-            perOwnerLimit: OCR_WORKER_POOL_SIZE,
+            perOwnerLimit: workerPoolSize,
             signal: admissionSignal,
         });
         if (
