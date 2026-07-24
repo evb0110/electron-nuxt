@@ -44,6 +44,9 @@ export function parseSavePipelineBenchmarkArgs(argv) {
     for (let index = 0; index < argv.length; index += 1) {
         const argument = argv[index];
         const value = argv[index + 1];
+        if (argument === '--') {
+            continue;
+        }
         if (argument === '--fixture' || argument === '--pdf') {
             options.fixture = value ?? null;
             index += 1;
@@ -143,6 +146,26 @@ function assertSemanticParity(results) {
     }
 }
 
+export function buildSavePipelineBenchmarkReport(options, scenarios, meta) {
+    return {
+        schemaVersion: 1,
+        generatedAt: meta.generatedAt,
+        fixturePath: options.fixture,
+        fixtureBytes: meta.fixtureBytes,
+        inputPath: options.fixture,
+        outputPath: options.output,
+        warmups: options.warmups,
+        iterations: options.iterations,
+        hostProfile: scenarios[0]?.hostProfile ?? null,
+        hostTier: scenarios[0]?.hostProfile?.tier ?? null,
+        cloneMode: {
+            measured: 'auto',
+            forcedNoClone: 'unavailable',
+        },
+        scenarios,
+    };
+}
+
 export async function runSavePipelineBenchmark(rawOptions) {
     const options = validateSavePipelineBenchmarkOptions(rawOptions);
     const fixtureStat = await stat(options.fixture);
@@ -164,23 +187,10 @@ export async function runSavePipelineBenchmark(rawOptions) {
             results.push(await runScenario(options, scenario, temporaryDirectory));
         }
         assertSemanticParity(results);
-        const report = {
-            schemaVersion: 1,
-            generatedAt: new Date().toISOString(),
-            fixturePath: options.fixture,
+        const report = buildSavePipelineBenchmarkReport(options, results, {
             fixtureBytes: fixtureStat.size,
-            inputPath: options.fixture,
-            outputPath: options.output,
-            warmups: options.warmups,
-            iterations: options.iterations,
-            hostProfile: results[0]?.hostProfile ?? null,
-            hostTier: results[0]?.hostProfile?.tier ?? null,
-            cloneMode: {
-                measured: 'auto',
-                forcedNoClone: 'unavailable',
-            },
-            scenarios: results,
-        };
+            generatedAt: new Date().toISOString(),
+        });
         await mkdir(dirname(options.output), {recursive: true});
         await writeFile(options.output, `${JSON.stringify(report, null, 2)}\n`);
         process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
