@@ -996,8 +996,7 @@ export const browserDjvuCapability: IDjvuCapability = {
                 percent: 0,
             });
             const renderSettings = resolveBrowserDjvuPdfRenderSettings(options);
-            const { getPerformanceProfile } = await import('@app/utils/performanceProfile');
-            const renderConcurrency = resolveBrowserDjvuPdfRenderConcurrency(pageSizes, undefined, sourceBytes, getPerformanceProfile().tier);
+            const renderConcurrency = resolveBrowserDjvuPdfRenderConcurrency(pageSizes, undefined, sourceBytes, options.hostTier ?? 'medium');
             BrowserLogger.info('djvu-browser', 'Starting browser DjVu PDF conversion', {
                 jobId,
                 pageCount,
