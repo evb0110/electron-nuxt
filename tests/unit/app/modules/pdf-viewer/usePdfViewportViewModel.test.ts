@@ -16,6 +16,12 @@ import {
 } from 'vue';
 import { usePdfViewportViewModel } from '@app/modules/pdf-viewer/runtime/viewport/usePdfViewportViewModel';
 import {createTestPdfViewportWritePort} from '@tests/helpers/createTestPdfViewportWritePort';
+import { resolvePdfRenderPerformancePolicy } from '@app/modules/pdf-viewer/engine/pdf-render-performance/resolvePdfRenderPerformancePolicy';
+
+const performancePolicy = resolvePdfRenderPerformancePolicy({
+    lowCpu: false,
+    lowMemory: false,
+});
 
 class ResizeObserverDouble {
     public static instances: ResizeObserverDouble[] = [];
@@ -70,6 +76,7 @@ describe('usePdfViewportViewModel', () => {
         container.scrollLeft = 0;
 
         const viewModel = scope.run(() => usePdfViewportViewModel({
+            performancePolicy,
             viewportWritePort: createTestPdfViewportWritePort().port,
             viewerContainer: ref(container),
             bufferPages: computed(() => 2),

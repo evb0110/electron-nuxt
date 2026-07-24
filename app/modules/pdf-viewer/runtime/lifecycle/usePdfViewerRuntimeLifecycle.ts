@@ -49,6 +49,7 @@ import type {
 import type { TZoomInteractionLockOperationId } from '@app/modules/pdf-viewer/runtime/zoom/pdfViewerZoomTypes';
 import type { IPdfViewportWritePort } from '@app/modules/pdf-viewer/runtime/viewport/pdfViewportWritePort';
 import type { IPdfSemanticAnchor } from '@app/modules/pdf-viewer/runtime/viewport/pdfViewportGeometry';
+import type { IPdfRenderPerformancePolicy } from '@app/modules/pdf-viewer/engine/pdf-render-performance/resolvePdfRenderPerformancePolicy';
 
 type TPdfDocumentResult = ReturnType<typeof usePdfDocument>;
 type TPdfViewerRuntimeTransactionController = ReturnType<typeof usePdfViewerTransactionController>;
@@ -60,6 +61,7 @@ interface IZoomRerenderBusySignal {
 
 
 export interface IUsePdfViewerRuntimeLifecycleOptions {
+    performancePolicy: IPdfRenderPerformancePolicy;
     viewportWritePort: IPdfViewportWritePort;
     submitResizeIntent: (anchor?: IPdfSemanticAnchor | null) => void;
     applyResizeAnchorPreview?: ((anchor?: IPdfSemanticAnchor | null) => unknown) | undefined;
@@ -540,6 +542,7 @@ export const usePdfViewerRuntimeLifecycle = (options: IUsePdfViewerRuntimeLifecy
         emit,
     });
     const zoomRerenderQueue = usePdfViewerZoomRerenderQueue({
+        performancePolicy: options.performancePolicy,
         pdfDocument,
         isLoading,
         viewerContainer,

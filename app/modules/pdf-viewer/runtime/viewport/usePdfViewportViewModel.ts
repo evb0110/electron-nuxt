@@ -14,8 +14,10 @@ import type {
 } from '@app/types/pdfContracts';
 import type { IPdfPageMetric } from '@app/types/pdfUi';
 import type { IPdfViewportWritePort } from '@app/modules/pdf-viewer/runtime/viewport/pdfViewportWritePort';
+import type { IPdfRenderPerformancePolicy } from '@app/modules/pdf-viewer/engine/pdf-render-performance/resolvePdfRenderPerformancePolicy';
 
 interface IUsePdfViewportViewModelOptions {
+    performancePolicy: IPdfRenderPerformancePolicy;
     viewerContainer: Ref<HTMLElement | null>;
     bufferPages: ComputedRef<number>;
     viewMode: ComputedRef<TPdfViewMode>;

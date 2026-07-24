@@ -13,6 +13,12 @@ import {
     shouldDeferPdfDprRerenderForResize,
     usePdfViewerOutputScale,
 } from '@app/modules/pdf-viewer/runtime/composables/usePdfViewerOutputScale';
+import { resolvePdfRenderPerformancePolicy } from '@app/modules/pdf-viewer/engine/pdf-render-performance/resolvePdfRenderPerformancePolicy';
+
+const performancePolicy = resolvePdfRenderPerformancePolicy({
+    lowCpu: false,
+    lowMemory: false,
+});
 
 interface IMediaQueryListDouble {
     media: string;
@@ -76,7 +82,7 @@ describe('usePdfViewerOutputScale', () => {
 
     it('keeps the resolution media listener stable across same-DPR resizes', () => {
         const scope = effectScope();
-        const outputScale = scope.run(() => usePdfViewerOutputScale());
+        const outputScale = scope.run(() => usePdfViewerOutputScale(performancePolicy));
         if (!outputScale) {
             throw new Error('Failed to create output scale composable');
         }

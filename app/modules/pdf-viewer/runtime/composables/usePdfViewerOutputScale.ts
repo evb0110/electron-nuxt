@@ -1,3 +1,5 @@
+import type { IPdfRenderPerformancePolicy } from '@app/modules/pdf-viewer/engine/pdf-render-performance/resolvePdfRenderPerformancePolicy';
+
 const PDF_CANONICAL_OUTPUT_SCALE = 2;
 
 function readWindowOutputScale() {
@@ -10,7 +12,7 @@ export function shouldDeferPdfDprRerenderForResize(isResizing: boolean) {
     return isResizing;
 }
 
-export const usePdfViewerOutputScale = () => {
+export const usePdfViewerOutputScale = (_performancePolicy: IPdfRenderPerformancePolicy) => {
     const outputScale = ref(readWindowOutputScale());
     let mediaQuery: MediaQueryList | null = null;
 

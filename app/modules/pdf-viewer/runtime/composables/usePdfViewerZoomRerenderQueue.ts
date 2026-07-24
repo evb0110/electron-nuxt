@@ -20,6 +20,7 @@ import type {
 } from '@app/modules/pdf-viewer/engine/pdf-viewer-transaction/pdfViewerTransactionTypes';
 import type { TZoomInteractionLockOperationId } from '@app/modules/pdf-viewer/runtime/zoom/pdfViewerZoomTypes';
 import { PDF_RESIZE_DEFERRED_BEHIND_ZOOM_MAX_MS } from '@app/constants/timeouts';
+import type { IPdfRenderPerformancePolicy } from '@app/modules/pdf-viewer/engine/pdf-render-performance/resolvePdfRenderPerformancePolicy';
 
 const ZOOM_QUEUE_LOG_THROTTLE_MS = 420;
 const ZOOM_RERENDER_DEFER_WHILE_GESTURE_MS = 80;
@@ -52,6 +53,7 @@ interface IZoomQueueTransactionController {
 interface IPendingZoomSyncOptions extends ICurrentPageSyncOptions {transactionId?: number | undefined;}
 
 interface IUsePdfViewerZoomRerenderQueueOptions {
+    performancePolicy: IPdfRenderPerformancePolicy;
     pdfDocument: Ref<PDFDocumentProxy | null>;
     isLoading: Ref<boolean>;
     viewerContainer: Ref<HTMLElement | null>;

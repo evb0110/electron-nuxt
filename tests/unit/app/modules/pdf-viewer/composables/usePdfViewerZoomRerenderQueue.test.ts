@@ -13,9 +13,14 @@ import { usePdfViewerZoomRerenderQueue } from '@app/modules/pdf-viewer/runtime/c
 import type { PDFDocumentProxy } from '@app/types/pdfContracts';
 import type { IPdfViewerTransaction } from '@app/modules/pdf-viewer/engine/pdf-viewer-transaction/pdfViewerTransactionTypes';
 import { cast } from '@tests/helpers/cast';
+import { resolvePdfRenderPerformancePolicy } from '@app/modules/pdf-viewer/engine/pdf-render-performance/resolvePdfRenderPerformancePolicy';
 
 type TQueueOptions = Parameters<typeof usePdfViewerZoomRerenderQueue>[0];
 type TQueueTransactionController = NonNullable<TQueueOptions['transactionController']>;
+const performancePolicy = resolvePdfRenderPerformancePolicy({
+    lowCpu: false,
+    lowMemory: false,
+});
 
 function createViewerMetrics() {
     return {
@@ -53,6 +58,7 @@ function createQueueHarness(overrides: Partial<TQueueOptions> = {}) {
     const reRenderVisiblePagesAndSyncCurrentPage = vi.fn<TQueueOptions['reRenderVisiblePagesAndSyncCurrentPage']>(async () => {});
     const setZoomRerenderBusy = vi.fn();
     const queue = usePdfViewerZoomRerenderQueue({
+        performancePolicy,
         pdfDocument: shallowRef<PDFDocumentProxy | null>(cast<PDFDocumentProxy>({ fingerprint: 'doc' })),
         isLoading: ref(false),
         viewerContainer: ref(null),

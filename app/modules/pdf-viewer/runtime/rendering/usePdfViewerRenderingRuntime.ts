@@ -21,8 +21,10 @@ import type { TPdfRasterDisplayProfile } from '@app/types/pdfRasterDisplayProfil
 import type { IPdfPageSlotRegistry } from '@app/modules/pdf-viewer/runtime/page-slots/pdfPageSlotRegistry';
 import type { IPdfViewportWritePort } from '@app/modules/pdf-viewer/runtime/viewport/pdfViewportWritePort';
 import type { IPdfCanvasDomCommit } from '@app/modules/pdf-viewer/runtime/rendering/pdfRendererTypes';
+import type { IPdfRenderPerformancePolicy } from '@app/modules/pdf-viewer/engine/pdf-render-performance/resolvePdfRenderPerformancePolicy';
 
 interface IUsePdfViewerRenderingRuntimeOptions {
+    performancePolicy: IPdfRenderPerformancePolicy;
     viewerContainer: Ref<HTMLElement | null>;
     document: IUsePdfPageRendererOptions['document'];
     currentPage: Ref<number>;
