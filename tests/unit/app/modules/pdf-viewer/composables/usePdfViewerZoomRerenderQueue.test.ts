@@ -265,6 +265,41 @@ describe('usePdfViewerZoomRerenderQueue', () => {
         }
     });
 
+    it('applies a normal-tier toolbar zoom-mode change without waiting for input quiet', async () => {
+        vi.useFakeTimers();
+        vi.setSystemTime(1_000);
+        const {
+            queue,
+            reRenderVisiblePagesAndSyncCurrentPage,
+        } = createQueueHarness({isZoomInteractionLocked: () => true});
+
+        try {
+            queue.enqueueZoomSync({
+                source: 'zoom-gesture-change',
+                resizeAnchor: createResizeAnchor(1),
+            });
+            await flushQueuedRerenderFrame();
+            expect(reRenderVisiblePagesAndSyncCurrentPage).toHaveBeenCalledOnce();
+
+            queue.enqueueZoomSync({
+                source: 'zoom-mode-change',
+                resizeAnchor: createResizeAnchor(2),
+            });
+            await Promise.resolve();
+            await Promise.resolve();
+
+            expect(reRenderVisiblePagesAndSyncCurrentPage).toHaveBeenCalledTimes(2);
+            expect(reRenderVisiblePagesAndSyncCurrentPage).toHaveBeenLastCalledWith(
+                expect.objectContaining({
+                    source: 'zoom-mode-change',
+                    resizeAnchor: expect.objectContaining({page: 2}),
+                }),
+            );
+        } finally {
+            queue.cleanupZoomRerenderQueue();
+        }
+    });
+
     it('signals render completion with the current zoom lock operation id', async () => {
         vi.useFakeTimers();
         vi.setSystemTime(1_000);

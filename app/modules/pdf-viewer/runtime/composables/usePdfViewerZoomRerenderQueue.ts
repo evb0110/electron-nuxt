@@ -505,6 +505,16 @@ export const usePdfViewerZoomRerenderQueue = (options: IUsePdfViewerZoomRerender
     }
 
     function shouldDeferZoomRerenderDuringGesture() {
+        // A toolbar mode selection is a complete discrete intent. It may arrive
+        // while the broad zoom lock still reflects the preceding input, but it
+        // must not inherit gesture packet throttling.
+        if (
+            normalizePdfRerenderSource(pendingZoomSyncOptions?.source)
+            === PDF_RERENDER_SOURCE.ZoomModeChange
+        ) {
+            lastZoomRerenderFrameAtMs = 0;
+            return false;
+        }
         const gestureLocked = isZoomInteractionLocked?.() ?? false;
         if (!gestureLocked) {
             lastZoomRerenderFrameAtMs = 0;
