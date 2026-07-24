@@ -1090,6 +1090,7 @@ fn run_page(
         job.source_page_index.unwrap_or(fallback_page_index),
         job.document_prior,
         cache,
+        final_render,
         &mut timings,
     )
     .map_err(invalid)?;
@@ -1217,7 +1218,7 @@ fn run_page(
                     } else if !options.match_page_size && background_dpi < options.dpi {
                         let background = layers
                             .background
-                            .downscale_to_fit(background_width, background_height);
+                            .downscale_to_dimensions(background_width, background_height);
                         png::write_gray_atomic(background_path, &background)?;
                     } else {
                         png::write_gray_atomic(background_path, &layers.background)?;
@@ -1613,7 +1614,7 @@ fn match_page_sizes(
                             )
                         };
                         let background =
-                            background.downscale_to_fit(background_width, background_height);
+                            background.downscale_to_dimensions(background_width, background_height);
                         png::write_gray_atomic(background_path, &background)
                             .map_err(|message| NativeError::new(NativeErrorCode::Io, message))?;
                     }

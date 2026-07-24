@@ -11,7 +11,7 @@
       }
     },
     "rome-selected": {
-      "expectedOutputBytes": 2135347,
+      "expectedOutputBytes": 2795244,
       "pages": {
         "1": {"mode": "color", "reason": "color-chroma", "minConfidence": 0.75, "outputCount": 1},
         "2": {"mode": "bw", "reason": "blank", "minConfidence": 0.75, "outputCount": 1},

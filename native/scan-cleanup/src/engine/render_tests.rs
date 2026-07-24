@@ -1639,7 +1639,8 @@ mod tests {
             gray.set(x, 24, 54);
         }
 
-        let (mixed, _, layers) = compose_mixed(&gray, None, &binary, &mask, 300.0);
+        let (mixed, _, layers) = compose_mixed(&gray, None, &binary, &mask, 300.0, true);
+        let layers = layers.expect("final mixed render retains separable layers");
 
         assert!(
             (30..90).all(|x| mixed.get(x, 15) >= 248),
@@ -1657,6 +1658,108 @@ mod tests {
             layers.background.get(12, 36),
             255,
             "text pixels are filled from the normalized background instead of leaking into JPEG"
+        );
+    }
+
+    #[test]
+    fn mixed_caption_touching_picture_boundary_is_covered_by_at_least_one_layer() {
+        let mut gray = GrayImage::new(96, 72, 242);
+        let mut picture_mask = BinaryImage::new(96, 72);
+        for y in 8..64 {
+            for x in 48..88 {
+                picture_mask.set(x, y, true);
+                gray.set(x, y, 176);
+            }
+        }
+        let caption_pixels = (42..53)
+            .flat_map(|x| (38..41).map(move |y| (x, y)))
+            .collect::<Vec<_>>();
+        for &(x, y) in &caption_pixels {
+            gray.set(x, y, 24);
+        }
+        let options = CleanupOptions {
+            dpi: 300.0,
+            output_mode: OutputMode::Mixed,
+            normalize_illumination: false,
+            crop_content: false,
+            layout: crate::LayoutMode::Single,
+            ..CleanupOptions::default()
+        };
+        let calibration =
+            PageCalibration::estimate(&gray, options.dpi, CalibrationConfig::default());
+        let (stencil, _, _) = binarize_normalized_with_diagnostics_excluding(
+            &gray,
+            &options,
+            calibration,
+            &picture_mask,
+        );
+        let (_, _, layers) =
+            compose_mixed(&gray, None, &stencil, &picture_mask, options.dpi, true);
+        let layers = layers.expect("final mixed render retains separable layers");
+
+        assert!(
+            caption_pixels.iter().all(|&(x, y)| {
+                stencil.get(x, y) || layers.background.get(x, y) <= 64
+            }),
+            "every source caption stroke must survive in the stencil/background union"
+        );
+        assert!(
+            caption_pixels
+                .iter()
+                .any(|&(x, y)| !stencil.get(x, y) && layers.background.get(x, y) <= 64),
+            "fixture must exercise caption pixels removed by picture-mask dilation"
+        );
+    }
+
+    #[test]
+    fn mixed_preview_builds_only_the_composite() {
+        let mut gray = GrayImage::new(120, 80, 242);
+        for y in 15..65 {
+            for x in 60..105 {
+                gray.set(x, y, 72 + ((x + y) % 100) as u8);
+            }
+        }
+        for y in 30..34 {
+            for x in 12..48 {
+                gray.set(x, y, 28);
+            }
+        }
+        let options = CleanupOptions {
+            dpi: 300.0,
+            output_mode: OutputMode::Mixed,
+            normalize_illumination: false,
+            crop_content: false,
+            layout: crate::LayoutMode::Single,
+            manual_zones: crate::ManualZones {
+                picture: vec![crate::PictureZone {
+                    polygon: normalized_box_polygon(0.5, 0.1, 0.9, 0.9),
+                    layer: crate::PictureZoneLayer::Painter2,
+                }],
+                fill: vec![],
+            },
+            ..CleanupOptions::default()
+        };
+        let mut timings = PageStageTimings::default();
+        let output = clean_page_with_color_and_calibration_config(
+            &gray,
+            None,
+            &options,
+            0,
+            CalibrationConfig::default(),
+            None,
+            None,
+            false,
+            &mut timings,
+        )
+        .unwrap()
+        .outputs
+        .remove(0);
+
+        assert!(output.mixed_layers.is_none());
+        assert!(
+            output.image.data().contains(&0)
+                && output.image.data().iter().any(|&value| !matches!(value, 0 | 255)),
+            "preview keeps the mixed composite without retaining layer buffers"
         );
     }
 

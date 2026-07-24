@@ -643,6 +643,7 @@ pub fn clean_page(
         CalibrationConfig::default(),
         None,
         None,
+        true,
         &mut timings,
     )
 }
@@ -663,6 +664,7 @@ pub fn clean_page_with_calibration_config(
         calibration_config,
         None,
         None,
+        true,
         &mut timings,
     )
 }
@@ -682,6 +684,7 @@ pub fn clean_page_with_color(
         CalibrationConfig::default(),
         None,
         None,
+        true,
         &mut timings,
     )
 }
@@ -702,6 +705,7 @@ pub fn clean_page_with_color_and_document_prior(
         CalibrationConfig::default(),
         document_prior,
         None,
+        true,
         &mut timings,
     )
 }
@@ -713,6 +717,7 @@ pub(crate) fn clean_page_with_color_and_document_prior_cached(
     source_page_index: usize,
     document_prior: Option<DocumentPrior>,
     cache: &PageCache,
+    create_mixed_layers: bool,
     timings: &mut PageStageTimings,
 ) -> Result<PageCleanupResult, String> {
     clean_page_with_color_and_calibration_config(
@@ -723,6 +728,7 @@ pub(crate) fn clean_page_with_color_and_document_prior_cached(
         CalibrationConfig::default(),
         document_prior,
         Some(cache),
+        create_mixed_layers,
         timings,
     )
 }
@@ -735,6 +741,7 @@ fn clean_page_with_color_and_calibration_config(
     calibration_config: CalibrationConfig,
     document_prior: Option<DocumentPrior>,
     cache: Option<&PageCache>,
+    create_mixed_layers: bool,
     timings: &mut PageStageTimings,
 ) -> Result<PageCleanupResult, String> {
     options.validate()?;
@@ -814,6 +821,7 @@ fn clean_page_with_color_and_calibration_config(
             half,
             cache,
             split_cache_key.as_ref(),
+            create_mixed_layers,
             timings,
         )?);
     }
@@ -1256,6 +1264,7 @@ fn clean_region(
     half: PageHalf,
     cache: Option<&PageCache>,
     split_cache_key: Option<&StageCacheKey>,
+    create_mixed_layers: bool,
     timings: &mut PageStageTimings,
 ) -> Result<CleanupResult, String> {
     let working = crop_gray(normalized, region);
@@ -1645,6 +1654,7 @@ fn clean_region(
                         &binary,
                         picture_mask,
                         options.dpi,
+                        create_mixed_layers,
                     );
                     (
                         mixed_gray,
@@ -1652,7 +1662,7 @@ fn clean_region(
                         Some(mode),
                         Some(diagnostics),
                         despeckle_fallback,
-                        Some(layers),
+                        layers,
                     )
                 }
             }
@@ -1791,9 +1801,13 @@ fn compose_mixed(
     binary: &BinaryImage,
     picture_mask: &BinaryImage,
     dpi: f64,
-) -> (GrayImage, Option<RgbImage>, MixedLayers) {
-    let mut background = GrayImage::new(gray.width(), gray.height(), 255);
-    let mut color_background = color.map(|_| RgbImage::new(gray.width(), gray.height(), [255; 3]));
+    create_layers: bool,
+) -> (GrayImage, Option<RgbImage>, Option<MixedLayers>) {
+    // The final stencil owns only its black pixels. Everything excluded from it,
+    // including the picture-mask dilation halo, must retain source tone here so
+    // no source content can disappear from both layers.
+    let mut mixed_gray = gray.clone();
+    let mut mixed_color = color.cloned();
     let feather_radius = (dpi * 3.0 / 25.4).round().clamp(4.0, 48.0) as usize;
     let distance_to_binary = squared_euclidean_distance(&picture_mask.invert());
     for y in 0..gray.height() {
@@ -1810,8 +1824,8 @@ fn compose_mixed(
                         .round()
                         .clamp(0.0, 255.0) as u8,
                 );
-                background.set(x, y, value);
-                if let (Some(source), Some(output)) = (color, color_background.as_mut()) {
+                mixed_gray.set(x, y, value);
+                if let (Some(source), Some(output)) = (color, mixed_color.as_mut()) {
                     output.set(
                         x,
                         y,
@@ -1825,12 +1839,9 @@ fn compose_mixed(
             }
         }
     }
-    let foreground_mask = binary_to_gray(binary);
-    let mut mixed_gray = background.clone();
-    let mut mixed_color = color_background.clone();
     for y in 0..gray.height() {
         for x in 0..gray.width() {
-            if foreground_mask.get(x, y) == 0 {
+            if binary.get(x, y) {
                 mixed_gray.set(x, y, 0);
                 if let Some(output) = mixed_color.as_mut() {
                     output.set(x, y, [0; 3]);
@@ -1838,15 +1849,27 @@ fn compose_mixed(
             }
         }
     }
-    (
-        mixed_gray,
-        mixed_color,
+    let layers = create_layers.then(|| {
+        let foreground_mask = binary_to_gray(binary);
+        let mut background = mixed_gray.clone();
+        let mut color_background = mixed_color.clone();
+        for y in 0..gray.height() {
+            for x in 0..gray.width() {
+                if binary.get(x, y) {
+                    background.set(x, y, 255);
+                    if let Some(output) = color_background.as_mut() {
+                        output.set(x, y, [255; 3]);
+                    }
+                }
+            }
+        }
         MixedLayers {
             foreground_mask,
             background,
             color_background,
-        },
-    )
+        }
+    });
+    (mixed_gray, mixed_color, layers)
 }
 
 fn reserve_gray_endpoint(value: u8) -> u8 {

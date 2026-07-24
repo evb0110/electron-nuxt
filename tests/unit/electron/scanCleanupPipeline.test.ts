@@ -39,8 +39,8 @@ const PNG = Uint8Array.from(Buffer.from(
     'base64',
 ));
 
-function pngHeader(width: number, height: number) {
-    const header = Buffer.alloc(24);
+function pngHeader(width: number, height: number, colorType = 0) {
+    const header = Buffer.alloc(26);
     Buffer.from([
         0x89,
         0x50,
@@ -53,7 +53,16 @@ function pngHeader(width: number, height: number) {
     ]).copy(header);
     header.writeUInt32BE(width, 16);
     header.writeUInt32BE(height, 20);
+    header[24] = 8;
+    header[25] = colorType;
     return header;
+}
+
+function pbm(width: number, height: number) {
+    return Buffer.concat([
+        Buffer.from(`P4\n${width} ${height}\n`, 'ascii'),
+        Buffer.alloc(Math.ceil(width / 8) * height),
+    ]);
 }
 interface ICleanupOutput {
     outputPath: string;
@@ -142,6 +151,7 @@ async function writeCleanupOutput(
     renderDpi = 300,
     matchedPageSize = false,
     layeredWritten = false,
+    layeredBackgroundIsColor = false,
 ) {
     await writeFile(output.outputPath, 'PNG-CLEAN');
     if (bilevelWritten) {
@@ -155,8 +165,18 @@ async function writeCleanupOutput(
         ) {
             throw new Error('Missing test mixed layer output paths');
         }
-        await writeFile(output.backgroundOutputPath, PNG);
-        await writeFile(output.foregroundMaskOutputPath, 'P4\n1 1\n\x80');
+        const canvasWidth = Math.round(renderDpi / 72 * 240);
+        const canvasHeight = Math.round(renderDpi / 72 * 336);
+        const layeredBackgroundDpi = Math.min(300, renderDpi);
+        await writeFile(
+            output.backgroundOutputPath,
+            pngHeader(
+                Math.round(canvasWidth * layeredBackgroundDpi / renderDpi),
+                Math.round(canvasHeight * layeredBackgroundDpi / renderDpi),
+                layeredBackgroundIsColor ? 2 : 0,
+            ),
+        );
+        await writeFile(output.foregroundMaskOutputPath, pbm(canvasWidth, canvasHeight));
     }
     await writeFile(output.metadataPath, JSON.stringify({
         outputWidthPx: Math.round(renderDpi / 72 * 240),
@@ -172,6 +192,7 @@ async function writeCleanupOutput(
         skewApplied,
         bilevelWritten,
         layeredWritten,
+        ...(layeredWritten ? {layeredBackgroundDpi: Math.min(300, renderDpi)} : {}),
         contentBox: {
             x: 1,
             y: 1,
@@ -800,6 +821,7 @@ describe('scan cleanup pipeline', () => {
                     page.options.dpi,
                     false,
                     pageIndex === 0,
+                    pageIndex === 0,
                 );
             }
         });
@@ -841,7 +863,7 @@ describe('scan cleanup pipeline', () => {
             'layered-jpeg',
             'image-bilevel',
         ]);
-        expect(records[0]![3]).toBe('85');
+        expect(records[0]![3]).toBe('87');
         expect(records[0]![4]).toMatch(/clean-1-0-background\.png$/u);
         expect(records[0]![5]).toMatch(/clean-1-0-mask\.pbm$/u);
         expect(records[1]![3]).toMatch(/clean-2-0\.pbm$/u);
@@ -915,10 +937,90 @@ describe('scan cleanup pipeline', () => {
             'image-jpeg',
             'layered-jpeg',
         ]);
+        expect(combineManifest.trim().split('\n')[1]!.split('\t')[3]).toBe('85');
         expect(log).toHaveBeenCalledWith(
             'warn',
-            expect.stringContaining('Page 1 mixed layers are missing or unreadable; using composite JPEG fallback'),
+            expect.stringContaining('Page 1 mixed layers are missing, malformed, or mismatched; using composite JPEG fallback'),
         );
+    });
+
+    it('falls back to composite JPEG when a declared PBM layer is malformed', async () => {
+        const fixture = await setup();
+        let combineManifest = '';
+        const runSidecar: IRunScanCleanupPipelineDependencies['runSidecar'] = vi.fn(async (_binary, manifestPath) => {
+            const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as {pages: Array<{
+                pageMetadataPath: string;
+                options: {dpi: number};
+                outputs: ICleanupOutput[]
+            }>};
+            for (const page of manifest.pages) {
+                await writeFile(page.pageMetadataPath, JSON.stringify({
+                    layoutClassification: 'single-uncut-page',
+                    cutterXPx: null,
+                    rotationDegrees: 0,
+                    excluded: false,
+                    blankOutputsSkipped: 0,
+                    outputCount: 1,
+                }));
+                await writeCleanupOutput(
+                    page.outputs[0]!,
+                    'single-uncut-page',
+                    true,
+                    false,
+                    page.options.dpi,
+                    false,
+                    true,
+                );
+            }
+            await writeFile(
+                manifest.pages[0]!.outputs[0]!.foregroundMaskOutputPath!,
+                'P4\nnot-a-size\n',
+            );
+        });
+        const pipelineDependencies = dependencies(runSidecar);
+        pipelineDependencies.runCommand = vi.fn(async (_command, args) => {
+            combineManifest = await readFile(args[args.indexOf('--compact-manifest') + 1]!, 'utf8');
+            await writeFile(args[args.indexOf('--output') + 1]!, '%PDF-1.7\n%%EOF\n');
+            return {
+                exitCode: 0,
+                stdout: '',
+                stderr: '',
+            };
+        });
+        const log = vi.fn();
+
+        const summary = await runScanCleanupPipeline(
+            {
+                sourcePdfPath: fixture.sourcePdfPath,
+                outputPdfPath: fixture.outputPdfPath,
+                options: {
+                    ...options,
+                    outputMode: 'mixed',
+                },
+            },
+            {
+                qpdfBinary: '/qpdf',
+                pdftoppmBinary: '/pdftoppm',
+                scanCleanupBinary: '/cleanup',
+                pdfImageCombineBinary: '/combine',
+                tempDir: fixture.dir,
+            },
+            new AbortController().signal,
+            vi.fn(),
+            log,
+            pipelineDependencies,
+        );
+
+        expect(summary.outputPages).toBe(2);
+        expect(combineManifest.trim().split('\n').map(line => line.split('\t')[0])).toEqual([
+            'image-jpeg',
+            'layered-jpeg',
+        ]);
+        expect(log).toHaveBeenCalledWith(
+            'warn',
+            expect.stringContaining('Page 1 mixed layers are missing, malformed, or mismatched; using composite JPEG fallback'),
+        );
+        expect(await readFile(fixture.outputPdfPath, 'utf8')).toContain('%PDF-1.7');
     });
 
     it('renders BW pages above 600 DPI at 2x source with unchanged physical page size', async () => {
@@ -1145,7 +1247,7 @@ describe('scan cleanup pipeline', () => {
         expect(finalDpi).toBe(600);
     });
 
-    it('reuses detect-all tonal recommendations in one pass without supersampling', async () => {
+    it('supersamples BW and mixed recommendations while tonal-only pages stay at source DPI', async () => {
         const fixture = await setup();
         const renderedDpis: number[] = [];
         let combineManifest = '';
@@ -1199,8 +1301,17 @@ describe('scan cleanup pipeline', () => {
                     2,
                     640,
                 ],
+                [
+                    3,
+                    300,
+                ],
+                [
+                    4,
+                    150,
+                ],
             ]),
         }));
+        pipelineDependencies.getPageCount = vi.fn(async () => 4);
         pipelineDependencies.renderPage = vi.fn(async (
             _paths,
             _log,
@@ -1223,6 +1334,8 @@ describe('scan cleanup pipeline', () => {
             outputModeRecommendations: {
                 '1': 'grayscale',
                 '2': 'color',
+                '3': 'bw',
+                '4': 'mixed',
             },
         }, {
             qpdfBinary: '/qpdf',
@@ -1233,8 +1346,12 @@ describe('scan cleanup pipeline', () => {
         }, new AbortController().signal, vi.fn(), undefined, pipelineDependencies);
 
         expect(renderedDpis).toEqual([
+            72,
+            72,
             720,
             640,
+            600,
+            600,
         ]);
         expect(finalOptions).toEqual([
             expect.objectContaining({
@@ -1246,6 +1363,16 @@ describe('scan cleanup pipeline', () => {
                 dpi: 640,
                 requestedRenderDpi: 640,
                 outputMode: 'color',
+            }),
+            expect.objectContaining({
+                dpi: 600,
+                requestedRenderDpi: 600,
+                outputMode: 'bw',
+            }),
+            expect.objectContaining({
+                dpi: 600,
+                requestedRenderDpi: 600,
+                outputMode: 'mixed',
             }),
         ]);
         expect(combineManifest.trim().split('\n').map(line => {
@@ -1262,6 +1389,14 @@ describe('scan cleanup pipeline', () => {
             [
                 'image-jpeg',
                 '87',
+            ],
+            [
+                'image',
+                expect.stringMatching(/clean-3-0\.png$/u),
+            ],
+            [
+                'image-jpeg',
+                '85',
             ],
         ]);
         expect(pipelineDependencies.runSidecar).toHaveBeenCalledOnce();

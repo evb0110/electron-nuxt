@@ -523,6 +523,8 @@ fn encode_mask_payload(mask: &PbmP4Image) -> Result<BilevelPayload> {
     }) {
         Ok(data) => Some(data),
         Err(error) => {
+            // Keep the verified source stencil and select a lossless CCITT/Flate
+            // payload below; a JBIG2 failure is not a reason to discard valid MRC layers.
             eprintln!(
                 "warning: verified JBIG2 encoding failed for {width}x{height} bilevel image; falling back: {error}"
             );

@@ -28,18 +28,26 @@ session fixture and Rome pages 1, 2, and 49.
 Grayscale and color scan-cleanup outputs use plain `image-jpeg` records because
 their raster is already at final DPI; unlike `photo-jpeg`, this does not apply
 another PPI cap. Mixed pages use `layered-jpeg`: a quality-85 tonal background
-under a full-render-DPI 1-bit text mask. The background is capped at source DPI
+for grayscale or quality 87 for RGB under a full-render-DPI 1-bit text mask.
+The background is capped at source DPI
 (`min(source DPI, render DPI)`), so supersampling sharpens the JBIG2 text layer
-without spending JPEG bytes on invented picture detail. Text pixels are removed
-from the tonal layer before JPEG encoding, and the existing 3 mm distance feather
-blends picture-mask boundaries without preserving dark text ghosts. Grayscale
-uses quality 85 and color uses 87; the combiner keeps the lossless Flate
-candidate whenever it is smaller.
+without spending JPEG bytes on invented picture detail. Final-stencil pixels use
+paper fill in the tonal layer; pixels excluded from the stencil by picture-mask
+dilation retain source tone so content cannot disappear from both layers. The
+existing 3 mm distance feather still blends picture-mask boundaries without
+preserving dark text ghosts. The combiner keeps the lossless Flate candidate
+whenever it is smaller.
 
 The July 2026 MRC follow-up changed the `rome-selected` three-page corpus
 expectation from 3,247,404 B to 2,135,347 B. Luther p6–9 remains byte-identical
 at 727,236 B; the Rome reduction comes from page 49 moving from a flattened
 mixed JPEG to a JPEG background plus JBIG2 text stencil.
+
+The supersampling/content-coverage fix then changed `rome-selected` from
+2,135,347 B to 2,795,244 B. Luther p6–9 remains byte-identical at 727,236 B.
+Rome page 49 now carries a 720-DPI stencil over its unchanged 360-DPI background;
+the standalone page changed from 287,787 B to 941,353 B because the full-resolution
+stencil and non-stencil source tones are retained.
 
 ## Navigation blink trace
 

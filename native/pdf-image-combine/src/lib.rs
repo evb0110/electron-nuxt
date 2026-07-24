@@ -755,6 +755,45 @@ mod tests {
     }
 
     #[test]
+    fn layered_jpeg_background_keeps_flate_when_the_jpeg_candidate_is_larger() {
+        let pixels = vec![248; 256 * 256];
+        let png = evb_raster_io::encode_png(PixelBuffer::Gray {
+            width: 256,
+            height: 256,
+            stride: 256,
+            data: &pixels,
+        })
+        .unwrap();
+        let pdf = write_pdf(
+            Vec::new(),
+            [PageSpec::Layered {
+                page_size: PAGE,
+                background: ImageSpec {
+                    source: InputSource::Bytes {
+                        file_name: "blank.png",
+                        data: &png,
+                    },
+                    compression: ImageCompression::JpegWithFlateFallback { quality: 85 },
+                    processing: ImageProcessing::None,
+                    size_guardrail: None,
+                },
+                foreground_mask: InputSource::Bytes {
+                    file_name: "mask.pbm",
+                    data: b"P4\n1 1\n\x80",
+                },
+                foreground_color: None,
+            }],
+            &PdfBuildOptions::default(),
+            |_| {},
+        )
+        .unwrap();
+        let text = String::from_utf8_lossy(&pdf);
+
+        assert!(text.contains("/Filter /FlateDecode"));
+        assert!(!text.contains("/Filter /DCTDecode"));
+    }
+
+    #[test]
     fn synthetic_tonal_page_uses_jpeg_and_is_materially_smaller_than_flate() {
         let width = 768usize;
         let height = 1_024usize;

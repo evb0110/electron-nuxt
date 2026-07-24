@@ -103,6 +103,16 @@ impl GrayImage {
         let scaled_dimension = |length: usize| ((length as f64 / scale).round() as usize).max(1);
         let out_width = scaled_dimension(self.width);
         let out_height = scaled_dimension(self.height);
+        self.downscale_to_dimensions(out_width, out_height)
+    }
+
+    /// Downscales with area averaging to the exact requested dimensions.
+    pub fn downscale_to_dimensions(&self, out_width: usize, out_height: usize) -> Self {
+        assert!(out_width > 0);
+        assert!(out_height > 0);
+        if self.width == out_width && self.height == out_height {
+            return self.clone();
+        }
         let sample_bounds = |index: usize, source_len: usize, output_len: usize| {
             let start = index * source_len / output_len;
             let end = ((index + 1) * source_len / output_len)
@@ -194,6 +204,14 @@ mod tests {
         let image = GrayImage::from_vec(2, 2, 3, vec![0, 10, 99, 20, 30, 99]).unwrap();
         assert_eq!(image.view().row(1), &[20, 30]);
         assert_eq!(image.downscale_to_fit(1, 1).get(0, 0), 15);
+    }
+
+    #[test]
+    fn exact_dimension_downscale_honors_independently_rounded_non_integer_ratio() {
+        let image = GrayImage::new(1_000, 1_001, 127);
+        let output = image.downscale_to_dimensions(667, 667);
+
+        assert_eq!((output.width(), output.height()), (667, 667));
     }
 
     #[test]
