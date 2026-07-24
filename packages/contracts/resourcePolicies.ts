@@ -7,7 +7,31 @@ export interface ISearchWorkerResourcePolicy {
     maxTotalTextBytes: number;
 }
 
+export interface ISearchWorkerData {
+    nativeServiceIdleTimeoutMs: number;
+    resourcePolicy: ISearchWorkerResourcePolicy;
+}
+
 export interface IScanCleanupRuntimePolicy {rasterConcurrency: 1 | 2 | 3;}
+
+export function parseBoundedEnvInt(
+    value: string | undefined,
+    {
+        fallback,
+        min,
+        max,
+    }: {
+        fallback: number;
+        min: number;
+        max?: number;
+    },
+): number {
+    const parsed = Number.parseInt(value ?? '', 10);
+    if (!Number.isFinite(parsed) || parsed < min) {
+        return fallback;
+    }
+    return max === undefined ? parsed : Math.min(parsed, max);
+}
 
 function isPositiveSafeInteger(value: unknown): value is number {
     return typeof value === 'number'
@@ -33,6 +57,27 @@ export function decodeSearchWorkerResourcePolicy(
         indexCacheTtlMs: value.indexCacheTtlMs,
         maxPageTextBytes: value.maxPageTextBytes,
         maxTotalTextBytes: value.maxTotalTextBytes,
+    };
+}
+
+export function decodeSearchWorkerData(
+    value: unknown,
+): ISearchWorkerData | null {
+    if (!isRecord(value)) {
+        return null;
+    }
+
+    const resourcePolicy = decodeSearchWorkerResourcePolicy(value.resourcePolicy);
+    if (
+        resourcePolicy === null
+        || !isPositiveSafeInteger(value.nativeServiceIdleTimeoutMs)
+    ) {
+        return null;
+    }
+
+    return {
+        nativeServiceIdleTimeoutMs: value.nativeServiceIdleTimeoutMs,
+        resourcePolicy,
     };
 }
 
