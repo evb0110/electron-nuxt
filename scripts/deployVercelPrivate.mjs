@@ -100,7 +100,19 @@ function sanitizePnpmWorkspace(sourceRoot) {
 
     const content = readFileSync(workspacePath, 'utf8');
     const lines = content.split(/\r?\n/u);
+    let isPackagesSection = false;
     const filteredLines = lines.filter((line) => {
+        if (/^packages:\s*(?:#.*)?$/u.test(line)) {
+            isPackagesSection = true;
+            return true;
+        }
+        if (/^[^\s#][^:]*:/u.test(line)) {
+            isPackagesSection = false;
+        }
+        if (!isPackagesSection) {
+            return true;
+        }
+
         const packageEntry = line.match(/^\s*-\s*['"]([^'"]+)['"]\s*$/u)?.[1];
 
         if (!packageEntry || /[*?[{]/u.test(packageEntry)) {

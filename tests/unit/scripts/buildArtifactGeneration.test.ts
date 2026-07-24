@@ -16,6 +16,7 @@ import {
     createElectronBuilderResourcePlan,
     renderElectronBuilderResources,
 } from '@scripts/generateElectronBuilderResources';
+import { generateBuildArtifacts } from '@scripts/generateBuildArtifacts';
 import {
     createPlatformApiArtifactPlan,
     generatePlatformApiArtifacts,
@@ -49,6 +50,38 @@ describe('build artifact generation', () => {
             await writeFile(outputPath, '// drift\n', 'utf8');
             await expect(generatePlatformApiArtifacts({projectRoot: root})).resolves.toBe(true);
             await expect(readFile(outputPath, 'utf8')).resolves.toBe(firstArtifact.content);
+        } finally {
+            await rm(root, {
+                force: true,
+                recursive: true,
+            });
+        }
+    });
+
+    it('generates only web artifacts when Vercel omits desktop resources', async () => {
+        const root = await mkdtemp(path.join(tmpdir(), 'evb-vercel-artifacts-'));
+        try {
+            await expect(generateBuildArtifacts({
+                env: {VERCEL: '1'},
+                projectRoot: root,
+            })).resolves.toBe(true);
+
+            const [firstPlatformArtifact] = createPlatformApiArtifactPlan();
+            if (!firstPlatformArtifact) {
+                throw new Error('Missing platform API artifact plan');
+            }
+            await expect(readFile(
+                path.join(root, firstPlatformArtifact.relativePath),
+                'utf8',
+            )).resolves.toBe(firstPlatformArtifact.content);
+            await expect(readFile(
+                path.join(root, '.tmp/generated-electron-builder-resources.yml'),
+                'utf8',
+            )).rejects.toMatchObject({code: 'ENOENT'});
+            await expect(readFile(
+                path.join(root, 'native/evb-native-support/src/generated_native_tool_protocols.rs'),
+                'utf8',
+            )).rejects.toMatchObject({code: 'ENOENT'});
         } finally {
             await rm(root, {
                 force: true,

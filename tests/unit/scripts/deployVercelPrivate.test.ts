@@ -69,7 +69,16 @@ function createProjectFixture() {
     );
     writeFileSync(
         path.join(projectRoot, 'pnpm-workspace.yaml'),
-        'packages:\n  - \'.\'\n  - \'landing\'\n  - \'packages/*\'\n',
+        [
+            'packages:',
+            '  - \'.\'',
+            '  - \'landing\'',
+            '  - \'packages/*\'',
+            '',
+            'ignoredBuiltDependencies:',
+            '  - \'@parcel/watcher\'',
+            '',
+        ].join('\n'),
     );
     writeFileSync(path.join(projectRoot, '.vercelignore'), 'native/\napp/keep.txt\n# comment\n');
 
@@ -96,7 +105,15 @@ describe('private Vercel deployment source', () => {
             expect(readFileSync(
                 path.join(prepared.sourceRoot, 'pnpm-workspace.yaml'),
                 'utf8',
-            )).toBe('packages:\n  - \'.\'\n  - \'packages/*\'\n');
+            )).toBe([
+                'packages:',
+                '  - \'.\'',
+                '  - \'packages/*\'',
+                '',
+                'ignoredBuiltDependencies:',
+                '  - \'@parcel/watcher\'',
+                '',
+            ].join('\n'));
             expect(readFileSync(
                 path.join(prepared.sourceRoot, '.vercel', 'project.json'),
                 'utf8',
