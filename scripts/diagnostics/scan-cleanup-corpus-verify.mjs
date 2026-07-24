@@ -57,6 +57,55 @@ const nativeTools = [
 const MAX_DIMENSION_PX = 40_000;
 const MAX_BILEVEL_PIXELS = 160_000_000;
 const MAX_CONTINUOUS_TONE_PIXELS = 80_000_000;
+const OUTPUT_MODES = [
+    'bw',
+    'grayscale',
+    'color',
+    'mixed',
+];
+
+export function resolveFixtureExpectations(fixture, canonicalExpected) {
+    const resolved = canonicalExpected ? {...canonicalExpected} : {};
+    if (fixture.expectedOutputBytes !== undefined) {
+        if (!Number.isSafeInteger(fixture.expectedOutputBytes) || fixture.expectedOutputBytes <= 0) {
+            throw new Error(`Invalid expectedOutputBytes for fixture "${fixture.id}"`);
+        }
+        resolved.expectedOutputBytes = fixture.expectedOutputBytes;
+    }
+    if (fixture.expectedModeDistribution !== undefined) {
+        const distribution = fixture.expectedModeDistribution;
+        if (
+            distribution === null
+            || typeof distribution !== 'object'
+            || Array.isArray(distribution)
+            || Object.keys(distribution).length === 0
+            || Object.keys(distribution).some(mode => !OUTPUT_MODES.includes(mode))
+            || Object.values(distribution).some(count => !Number.isSafeInteger(count) || count < 0)
+            || Object.values(distribution).reduce((sum, count) => sum + count, 0) === 0
+        ) {
+            throw new Error(`Invalid expectedModeDistribution for fixture "${fixture.id}"`);
+        }
+        resolved.expectedModeDistribution = {...distribution};
+    }
+    return resolved;
+}
+
+export function compareModeDistribution(outputModes, expectedDistribution) {
+    const actual = Object.fromEntries(OUTPUT_MODES.map(mode => [
+        mode,
+        outputModes.filter(outputMode => outputMode === mode).length,
+    ]));
+    const expected = Object.fromEntries(OUTPUT_MODES.map(mode => [
+        mode,
+        expectedDistribution[mode] ?? 0,
+    ]));
+    return {
+        actual,
+        expected,
+        passed: outputModes.length === Object.values(expected).reduce((sum, count) => sum + count, 0)
+            && OUTPUT_MODES.every(mode => actual[mode] === expected[mode]),
+    };
+}
 
 function parseArgs(argv) {
     const parsed = {
@@ -665,6 +714,21 @@ async function verifyFixture(fixture, expectedFixture, workRoot) {
     );
 
     const outputBytes = (await stat(outputPdfPath)).size;
+    if (expectedFixture?.expectedModeDistribution) {
+        const modeDistribution = compareModeDistribution(
+            combinedPages.map(page => page.mode),
+            expectedFixture.expectedModeDistribution,
+        );
+        const formatDistribution = distribution => OUTPUT_MODES
+            .filter(mode => distribution[mode] > 0)
+            .map(mode => `${mode}=${String(distribution[mode])}`)
+            .join(', ');
+        report.add(
+            'output mode distribution',
+            modeDistribution.passed,
+            `${formatDistribution(modeDistribution.actual)} (expected ${formatDistribution(modeDistribution.expected)})`,
+        );
+    }
     if (expectedFixture?.expectedOutputBytes) {
         const lower = expectedFixture.expectedOutputBytes * 0.7;
         const upper = expectedFixture.expectedOutputBytes * 1.3;
@@ -696,6 +760,22 @@ async function main() {
     if (!Array.isArray(config.fixtures) || config.fixtures.length === 0) {
         throw new Error('Corpus config must contain a non-empty fixtures array');
     }
+    const fixtureRuns = config.fixtures.map(fixture => {
+        if (
+            typeof fixture.id !== 'string'
+            || typeof fixture.pdfPath !== 'string'
+            || !isAbsolute(fixture.pdfPath)
+            || !Array.isArray(fixture.pages)
+            || fixture.pages.some(page => !Number.isSafeInteger(page) || page < 1)
+        ) throw new Error(`Invalid corpus fixture config: ${JSON.stringify(fixture)}`);
+        return {
+            expectations: resolveFixtureExpectations(
+                fixture,
+                expected.fixtures?.[fixture.id],
+            ),
+            fixture,
+        };
+    });
     await assertCorpusNativeBinariesFresh();
     const workRoot = args.workDir ?? join(
         projectRoot,
@@ -704,14 +784,10 @@ async function main() {
     );
     await mkdir(workRoot, {recursive: true});
     const reports = [];
-    for (const fixture of config.fixtures) {
-        if (
-            typeof fixture.id !== 'string'
-            || typeof fixture.pdfPath !== 'string'
-            || !isAbsolute(fixture.pdfPath)
-            || !Array.isArray(fixture.pages)
-            || fixture.pages.some(page => !Number.isSafeInteger(page) || page < 1)
-        ) throw new Error(`Invalid corpus fixture config: ${JSON.stringify(fixture)}`);
+    for (const {
+        expectations,
+        fixture,
+    } of fixtureRuns) {
         if (!await readableFile(fixture.pdfPath)) {
             if (fixture.optional) {
                 console.log(`\n[SKIP] ${fixture.id}: optional fixture is absent (${fixture.pdfPath})`);
@@ -719,7 +795,7 @@ async function main() {
             }
             throw new Error(`Required corpus fixture is absent: ${fixture.pdfPath}`);
         }
-        reports.push(await verifyFixture(fixture, expected.fixtures?.[fixture.id], workRoot));
+        reports.push(await verifyFixture(fixture, expectations, workRoot));
     }
     const assertionCount = reports.flatMap(report => report.assertions).length;
     const failed = reports.flatMap(report => report.assertions).filter(assertion => !assertion.passed);
@@ -735,7 +811,9 @@ async function main() {
     }
 }
 
-await main().catch(error => {
-    console.error(`\n[FATAL] ${error instanceof Error ? error.message : String(error)}`);
-    process.exitCode = 1;
-});
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+    await main().catch(error => {
+        console.error(`\n[FATAL] ${error instanceof Error ? error.message : String(error)}`);
+        process.exitCode = 1;
+    });
+}

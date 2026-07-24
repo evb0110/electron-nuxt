@@ -30,12 +30,33 @@ interface ICargoArtifactFreshnessModule {
     collectCargoSourceInputs: (metadata: unknown, rootManifestPath: string) => string[];
 }
 
+interface ICorpusVerifyModule {
+    compareModeDistribution: (
+        outputModes: string[],
+        expectedDistribution: Record<string, number>,
+    ) => {
+        actual: Record<string, number>;
+        expected: Record<string, number>;
+        passed: boolean;
+    };
+    resolveFixtureExpectations: (
+        fixture: Record<string, unknown>,
+        canonicalExpected?: Record<string, unknown>,
+    ) => Record<string, unknown>;
+}
+
 const {
     assertStagedCargoArtifactFresh,
     collectCargoSourceInputs,
 } = await import(
     pathToFileURL(path.join(process.cwd(), 'scripts/cargo-artifacts.mjs')).href
 ) as ICargoArtifactFreshnessModule;
+const {
+    compareModeDistribution,
+    resolveFixtureExpectations,
+} = await import(
+    pathToFileURL(path.join(process.cwd(), 'scripts/diagnostics/scan-cleanup-corpus-verify.mjs')).href
+) as ICorpusVerifyModule;
 
 const tempRoots: string[] = [];
 
@@ -123,5 +144,54 @@ describe('scan-cleanup corpus native freshness', () => {
             `${workspaceRoot}/evb-native-support/src`,
         ]));
         expect(inputs).not.toContain(`${workspaceRoot}/pdf-search/src`);
+    });
+});
+
+describe('scan-cleanup corpus local expectations', () => {
+    it('merges config-local distribution and size over canonical fixture expectations', () => {
+        expect(resolveFixtureExpectations({
+            id: 'linguae-armenian',
+            expectedModeDistribution: {bw: 8},
+            expectedOutputBytes: 1_000_000,
+        }, {
+            expectedOutputBytes: 900_000,
+            pages: {'1': {mode: 'bw'}},
+        })).toEqual({
+            expectedModeDistribution: {bw: 8},
+            expectedOutputBytes: 1_000_000,
+            pages: {'1': {mode: 'bw'}},
+        });
+    });
+
+    it.each([
+        {expectedModeDistribution: {}},
+        {expectedModeDistribution: {sepia: 8}},
+        {expectedModeDistribution: {bw: -1}},
+        {expectedOutputBytes: 0},
+    ])('rejects invalid config-local expectation %#', expectation => {
+        expect(() => resolveFixtureExpectations({
+            id: 'invalid-fixture',
+            ...expectation,
+        })).toThrow('Invalid expected');
+    });
+
+    it('requires the exact output-mode distribution, including absent modes', () => {
+        expect(compareModeDistribution([
+            'bw',
+            'bw',
+            'grayscale',
+        ], {
+            bw: 2,
+            grayscale: 1,
+        })).toMatchObject({passed: true});
+        expect(compareModeDistribution([
+            'bw',
+            'bw',
+            'grayscale',
+        ], {bw: 2})).toMatchObject({passed: false});
+        expect(compareModeDistribution([
+            'bw',
+            'future-mode',
+        ], {bw: 1})).toMatchObject({passed: false});
     });
 });

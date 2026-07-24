@@ -17,6 +17,12 @@ pnpm run build:pdf-image-combine
 pnpm run diag:scan-cleanup-corpus-verify -- --keep-artifacts
 ```
 
+Machine-local fixture entries may include `expectedModeDistribution` (counts by
+final output page for `bw`, `grayscale`, `color`, and `mixed`) and
+`expectedOutputBytes`. These local values override the checked-in expectation for
+the same fixture ID, so private corpora can enforce regression expectations without
+committing fixture paths or results.
+
 The diagnostic detects each selected page's dominant source DPI with `pdfimages`,
 rasterizes with `pdftoppm`, runs protocol-v3 auto analysis and final rendering,
 combines the output with the release PDF combiner, and reports every mode, codec,
