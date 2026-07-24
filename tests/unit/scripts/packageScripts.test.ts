@@ -346,6 +346,8 @@ describe('package scripts', () => {
         ]);
         expect(scripts['test:e2e:electron:draw-shapes:no-build']).toBe('vitest run --project e2e-draw-shapes --reporter verbose');
         expect(scriptCommands(packageJson, 'test:e2e:electron:quarantine')).toEqual([
+            'pnpm run build:pdf-image-combine',
+            'pnpm run build:scan-cleanup',
             'pnpm run build:electron',
             'pnpm run test:e2e:electron:quarantine:no-build',
         ]);

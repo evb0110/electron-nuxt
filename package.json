@@ -98,7 +98,7 @@
     "test:e2e:electron:draw-shapes:no-build": "vitest run --project e2e-draw-shapes --reporter verbose",
     "test:e2e:electron:large": "pnpm run build:pdf-page-ops && EVB_E2E_REQUIRE_LARGE_PDF_FIXTURE=1 pnpm run build:electron && EVB_E2E_REQUIRE_LARGE_PDF_FIXTURE=1 pnpm run test:e2e:electron:large:no-build",
     "test:e2e:electron:large:no-build": "EVB_PDF_PAGE_OPS_ENABLE=1 EVB_E2E_REQUIRE_LARGE_PDF_FIXTURE=1 vitest run --project e2e-large-pdf --reporter verbose",
-    "test:e2e:electron:quarantine": "pnpm run build:electron && pnpm run test:e2e:electron:quarantine:no-build",
+    "test:e2e:electron:quarantine": "pnpm run build:pdf-image-combine && pnpm run build:scan-cleanup && pnpm run build:electron && pnpm run test:e2e:electron:quarantine:no-build",
     "test:e2e:electron:quarantine:no-build": "vitest run --project e2e-quarantine --passWithNoTests --reporter verbose",
     "test:e2e:electron:rapid-navigation": "pnpm run build:electron && pnpm run test:e2e:electron:rapid-navigation:no-build",
     "test:e2e:electron:rapid-navigation:no-build": "vitest run --project e2e-rapid-navigation --reporter verbose",
