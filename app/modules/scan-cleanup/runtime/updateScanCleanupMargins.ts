@@ -10,8 +10,6 @@ export interface IScanCleanupMarginSideField {
 }
 
 /** Axis-paired editor order: vertical row (top, bottom), then horizontal row (left, right). */
-// Fallow cannot trace this export's Vue SFC consumer.
-// fallow-ignore-next-line unused-export
 export const SCAN_CLEANUP_MARGIN_SIDES: IScanCleanupMarginSideField[] = [
     {
         key: 'topMm',

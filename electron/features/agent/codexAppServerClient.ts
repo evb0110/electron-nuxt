@@ -195,8 +195,6 @@ export class CodexAppServerClient {
         });
     }
 
-    // Fallow cannot trace calls through the runtime's client contract.
-    // fallow-ignore-next-line unused-class-member
     async requestDecoded<T>(
         method: string,
         params: unknown,

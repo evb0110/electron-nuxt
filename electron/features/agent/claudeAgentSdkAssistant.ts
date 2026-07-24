@@ -892,24 +892,18 @@ export class ClaudeAgentAssistantSession {
         this.queryFastMode = shouldUseClaudeAssistantFastMode(this.currentModel, this.currentSpeedMode);
     }
 
-    // fallow-ignore-next-line unused-class-member
     get model() {
         return this.currentModel;
     }
 
-    // Fallow cannot trace access through the assistant session's shared state type.
-    // fallow-ignore-next-line unused-class-member
     get effort() {
         return this.currentEffort;
     }
 
-    // fallow-ignore-next-line unused-class-member
     get speedMode() {
         return this.currentSpeedMode;
     }
 
-    // Fallow cannot trace access through the assistant session's shared state type.
-    // fallow-ignore-next-line unused-class-member
     get fastMode() {
         return this.queryFastMode;
     }
@@ -929,8 +923,6 @@ export class ClaudeAgentAssistantSession {
         return turnId;
     }
 
-    // Fallow cannot trace calls through the assistant session's shared state type.
-    // fallow-ignore-next-line unused-class-member
     async interrupt() {
         if (!this.query || !this.currentTurnId) {
             return;
