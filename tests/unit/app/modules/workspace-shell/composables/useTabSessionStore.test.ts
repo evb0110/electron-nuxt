@@ -166,6 +166,7 @@ describe('tab session memory policy', () => {
                 'c',
             ],
             policy: 'conservative',
+            tier: 'high',
             targetWarmViewers,
         });
 
@@ -198,6 +199,7 @@ describe('tab session memory policy', () => {
                 'c',
             ],
             policy: 'aggressive',
+            tier: 'high',
             targetWarmViewers,
         });
 
@@ -233,6 +235,7 @@ describe('tab session memory policy', () => {
                 'b',
             ],
             policy: 'aggressive',
+            tier: 'low',
             targetWarmViewers: 0,
         });
 
@@ -264,5 +267,46 @@ describe('tab session memory policy', () => {
                 viewerResidency: 'hibernated',
             },
         });
+    });
+
+    it.each([
+        {
+            policy: 'conservative' as const,
+            expectedWarmTabIds: ['d'],
+        },
+        {
+            policy: 'aggressive' as const,
+            expectedWarmTabIds: [],
+        },
+    ])('caps low-tier inactive warm tabs in $policy mode', ({
+        policy,
+        expectedWarmTabIds,
+    }) => {
+        const states = resolveTabLifecycleStates({
+            tabs: [
+                tab('a'),
+                tab('b'),
+                tab('c'),
+                tab('d'),
+            ],
+            panes: [pane('pane-1', 'a', [
+                'a',
+                'b',
+                'c',
+                'd',
+            ])],
+            activationOrder: [
+                'a',
+                'd',
+                'b',
+                'c',
+            ],
+            policy,
+            tier: 'low',
+            targetWarmViewers: 5,
+        });
+
+        expect(states.filter(state => state.temperature === 'warm').map(state => state.tabId))
+            .toEqual(expectedWarmTabIds);
     });
 });
