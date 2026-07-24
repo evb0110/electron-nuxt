@@ -10,7 +10,7 @@ import {
     createDocumentConformance,
     type IPdfConformanceIdleScheduler,
 } from '@app/modules/workspace-shell/composables/document-session/createDocumentConformance';
-import { createDocumentSessionState } from '@app/modules/workspace-shell/composables/document-session/createDocumentSessionState';
+import { createDocumentSessionState } from '@app/modules/workspace-shell/viewers/workspaceDocumentDriver';
 
 const { mockReadPdfConformanceProfile } = vi.hoisted(() => (
     {mockReadPdfConformanceProfile: vi.fn()}

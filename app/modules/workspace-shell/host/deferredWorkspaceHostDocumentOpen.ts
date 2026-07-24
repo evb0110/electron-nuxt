@@ -1,10 +1,7 @@
 import type { TDocumentRef } from '@contracts/documentRef';
 import type { IPdfOpeningGeometry } from '@contracts/electronApiDocuments';
 import type { TTabUpdate } from '@app/types/tabs';
-import type {
-    IWorkspaceDocumentTransaction,
-    TWorkspaceDocumentTransactionKind,
-} from '@app/modules/workspace-shell/document-sessions/documentSessionTypes';
+import type { IWorkspaceDocumentTransaction } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
 
 export type { IDocumentOpenIntent } from '@app/modules/workspace-shell/document-sessions/documentOpenIntent';
 
@@ -29,17 +26,6 @@ export function shouldSeedPendingTabHint({
         && !hasWorkspaceOpenedDocument
         && !hasWorkspaceSessionOpenedDocument,
     );
-}
-
-export function resolveDocumentOpenTransactionKind(action: string): TWorkspaceDocumentTransactionKind {
-    return action.toLowerCase().includes('restore') ? 'restore' : 'open';
-}
-
-export function resolveTransactionDocumentRef(
-    target: TTabUpdate | null,
-    fallbackDocumentPath: TDocumentRef | null,
-) {
-    return target?.originalPath ?? fallbackDocumentPath;
 }
 
 /**

@@ -1,18 +1,96 @@
 import type { TDjvuPdfExportStrategy } from '@contracts/electronApiDjvu';
+import type { Ref } from 'vue';
+import type { TDocumentRef } from '@contracts/documentRef';
+import type { TOpenFileResult } from '@contracts/electronApiDocuments';
 import { usePdfFile } from '@app/modules/workspace-shell/composables/usePdfFile';
 import { useDjvu } from '@app/composables/useDjvu';
 import { useRecentFiles } from '@app/composables/useRecentFiles';
-import { useWorkspaceFileSwitch } from '@app/modules/workspace-shell/composables/useWorkspaceFileSwitch';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { createWorkspaceViewerLifecycleHooks } from '@app/modules/workspace-shell/viewers/workspaceViewerAdapters';
+import type { IWorkspaceViewerLifecycleHooks } from '@app/modules/workspace-shell/viewers/workspaceViewerAdapterTypes';
 import type { IAnalyticsDocumentScope } from '@app/composables/useAnalytics';
 import type { TPdfProjectionReason } from '@app/utils/document-viewer/session/documentSession';
 import type { IDocumentOpenSurfaceSession } from '@app/utils/document-viewer/chassis/documentOpenSurfaceSession';
 import type { TDocumentOpenOutcome } from '@app/types/documentOpenOutcome';
+import type { TDocumentDirectOpenOptions } from '@app/modules/workspace-shell/composables/document-session/createDocumentOpenFlow';
 
 interface IUseWorkspaceFileLifecycleControllerOptions {
     analyticsDocumentScope?: IAnalyticsDocumentScope | undefined;
     openSurface?: IDocumentOpenSurfaceSession | undefined;
+}
+
+function createWorkspaceFileSwitch(deps: {
+    workingCopyPath: Ref<TDocumentRef | null>;
+    viewerLifecycleHooks: IWorkspaceViewerLifecycleHooks[];
+    pickFileToOpen: () => Promise<TOpenFileResult | null>;
+    openFile: (preSelected?: TOpenFileResult) => Promise<TDocumentOpenOutcome>;
+    openFileDirect: (path: TDocumentRef, options?: TDocumentDirectOpenOptions) => Promise<TDocumentOpenOutcome>;
+    openFileDirectBatch: (paths: TDocumentRef[]) => Promise<TDocumentOpenOutcome>;
+    finalizeOpen: (outcome: TDocumentOpenOutcome) => Promise<TDocumentOpenOutcome>;
+    closeFile: () => void;
+}) {
+    let lifecycleGeneration = 0;
+
+    function markOutcomeStale(outcome: TDocumentOpenOutcome): TDocumentOpenOutcome {
+        return 'result' in outcome
+            ? {
+                status: 'stale',
+                result: outcome.result,
+            }
+            : outcome;
+    }
+
+    async function openWithViewerLifecycle(
+        openDocument: () => Promise<TDocumentOpenOutcome>,
+    ) {
+        const generation = ++lifecycleGeneration;
+        const previousWorkingCopyPath = deps.workingCopyPath.value;
+        for (const hooks of deps.viewerLifecycleHooks) {
+            await hooks.beforeOpen?.();
+        }
+        const preparedOutcome = await openDocument();
+        if (generation !== lifecycleGeneration) {
+            return markOutcomeStale(preparedOutcome);
+        }
+        const outcome = await deps.finalizeOpen(preparedOutcome);
+        if (generation !== lifecycleGeneration) {
+            return markOutcomeStale(outcome);
+        }
+        for (const hooks of deps.viewerLifecycleHooks) {
+            await hooks.afterOpen?.(outcome, { previousWorkingCopyPath });
+            if (generation !== lifecycleGeneration) {
+                return markOutcomeStale(outcome);
+            }
+        }
+        return outcome;
+    }
+
+    async function closeFileWithViewerLifecycle() {
+        const generation = ++lifecycleGeneration;
+        for (const hooks of deps.viewerLifecycleHooks) {
+            await hooks.beforeClose?.();
+        }
+        if (generation === lifecycleGeneration) {
+            deps.closeFile();
+            // Source watchers own derived navigation, toolbar, and chassis
+            // cleanup; let them observe the empty source before close commits.
+            await nextTick();
+        }
+    }
+
+    return {
+        pickFileToOpen: deps.pickFileToOpen,
+        openFileWithViewerLifecycle: (preSelected?: TOpenFileResult) => openWithViewerLifecycle(
+            () => deps.openFile(preSelected),
+        ),
+        openFileDirectWithViewerLifecycle: (path: TDocumentRef, options?: TDocumentDirectOpenOptions) => openWithViewerLifecycle(
+            () => deps.openFileDirect(path, options),
+        ),
+        openFileDirectBatchWithViewerLifecycle: (paths: TDocumentRef[]) => openWithViewerLifecycle(
+            () => deps.openFileDirectBatch(paths),
+        ),
+        closeFileWithViewerLifecycle,
+    };
 }
 
 export const useWorkspaceFileLifecycleController = (
@@ -189,7 +267,7 @@ export const useWorkspaceFileLifecycleController = (
         openFileDirectWithViewerLifecycle,
         openFileDirectBatchWithViewerLifecycle,
         closeFileWithViewerLifecycle,
-    } = useWorkspaceFileSwitch({
+    } = createWorkspaceFileSwitch({
         workingCopyPath,
         viewerLifecycleHooks: createWorkspaceViewerLifecycleHooks({
             cleanupDjvuTemp,

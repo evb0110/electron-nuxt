@@ -9,7 +9,7 @@ import {
     createDocumentHistory,
     type IPdfLoadedState,
 } from '@app/modules/workspace-shell/composables/document-session/createDocumentHistory';
-import { createDocumentSessionState } from '@app/modules/workspace-shell/composables/document-session/createDocumentSessionState';
+import { createDocumentSessionState } from '@app/modules/workspace-shell/viewers/workspaceDocumentDriver';
 import {
     createMissingRevisionError,
     createStaleRevisionError,

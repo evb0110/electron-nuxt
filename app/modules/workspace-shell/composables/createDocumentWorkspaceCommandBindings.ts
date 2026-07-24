@@ -6,7 +6,7 @@ import type { IDocumentOpeningPageFrameAuthority } from '@app/utils/document-vie
 import type { IWorkspaceSplitCacheSessionState } from '@app/modules/workspace-shell/composables/workspaceSplitTypes';
 import type { ITabViewSessionState } from '@app/modules/workspace-shell/tabs/tabSessionStoreTypes';
 import type { IWorkspaceDocumentRecord } from '@app/modules/workspace-shell/state/workspaceDocumentRecord';
-import type { IWorkspaceDocumentSessionController } from '@app/modules/workspace-shell/document-sessions/documentSessionTypes';
+import type { IWorkspaceDocumentController } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
 
 export interface IDocumentWorkspaceProps {
     tabId: string;
@@ -16,7 +16,7 @@ export interface IDocumentWorkspaceProps {
     isFullscreen: boolean;
     fullscreenSupported: boolean;
     isWorkspaceLayoutResizing?: boolean | undefined;
-    documentSession?: IWorkspaceDocumentSessionController | null | undefined;
+    documentSession: IWorkspaceDocumentController;
     initialViewState?: ITabViewSessionState | null | undefined;
     pendingDocumentOpen?: boolean | undefined;
     pendingDocumentPath?: TDocumentRef | null | undefined;

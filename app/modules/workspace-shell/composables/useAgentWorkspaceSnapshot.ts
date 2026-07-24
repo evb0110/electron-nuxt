@@ -31,7 +31,7 @@ import { BrowserLogger } from '@app/utils/browserLogger';
 import { getErrorMessage } from '@app/utils/error';
 import { buildAgentWorkspaceSnapshot } from '@app/modules/workspace-shell/agent/buildAgentWorkspaceSnapshot';
 import type { IWorkspaceDocumentRecord } from '@app/modules/workspace-shell/state/workspaceDocumentRecord';
-import type { IWorkspaceDocumentSessionController } from '@app/modules/workspace-shell/document-sessions/documentSessionTypes';
+import type { IWorkspaceDocumentController } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
 import { resolveDocumentRefBackend } from '@app/utils/documentRef';
 
 const AGENT_BRIDGE_RETRY_DELAY_MS = 250;
@@ -46,7 +46,7 @@ interface IUseAgentWorkspaceSnapshotOptions {
     recentFilesResolved?: Ref<boolean>;
     workspaceRefs: Ref<Map<string, IWorkspaceExpose>>;
     documentRecordsByTabId: Ref<Record<string, IWorkspaceDocumentRecord>>;
-    documentSessionsByTabId?: Ref<Record<string, IWorkspaceDocumentSessionController>>;
+    documentSessionsByTabId?: Ref<Record<string, IWorkspaceDocumentController>>;
     shouldWaitForDesktopBridge: () => boolean;
     getPaneByTabId(tabId: string): IEditorPaneState | null;
     activateTab(paneId: string, tabId: string): void;

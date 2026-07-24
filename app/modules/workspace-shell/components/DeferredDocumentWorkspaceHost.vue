@@ -90,7 +90,6 @@ import DocumentWorkspaceFailurePanel from '@app/modules/workspace-shell/componen
 import { handleDocumentWorkspaceCrash } from '@app/modules/workspace-shell/checkpoint/handleDocumentWorkspaceCrash';
 import { useWorkspaceSplitCache } from '@app/modules/workspace-shell/composables/useWorkspaceSplitCache';
 import { resolveWorkspaceRequestedState } from '@app/modules/workspace-shell/host/resolveWorkspaceRequestedState';
-import { createImmediateSerializedQueue } from '@app/modules/workspace-shell/host/createImmediateSerializedQueue';
 import { createDeferredWorkspaceLoadGateway } from '@app/modules/workspace-shell/host/createDeferredWorkspaceLoadGateway';
 import { shouldPreloadWorkspaceOnHostMount } from '@app/modules/workspace-shell/host/shouldPreloadWorkspaceOnHostMount';
 import {
@@ -117,12 +116,12 @@ import {
     createWorkspaceDocumentRecord,
     type IWorkspaceDocumentRecord,
 } from '@app/modules/workspace-shell/state/workspaceDocumentRecord';
-import { createWorkspaceDocumentSessionCore } from '@app/modules/workspace-shell/document-sessions/createWorkspaceDocumentSessionCore';
 import { createWorkspaceSplitCacheSessionState } from '@app/modules/workspace-shell/document-sessions/createWorkspaceSplitCacheSessionState';
 import type {
-    IWorkspaceDocumentSessionController,
-    IWorkspaceDocumentSessionSnapshot,
-} from '@app/modules/workspace-shell/document-sessions/documentSessionTypes';
+    IWorkspaceDocumentController,
+    IWorkspaceDocumentSnapshot,
+    IWorkspaceDocumentTransaction,
+} from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
 import { useDeferredWorkspaceChunkLoader } from '@app/modules/workspace-shell/composables/useDeferredWorkspaceChunkLoader';
 import {
     createDeferredWorkspaceHostBindings,
@@ -136,8 +135,6 @@ import {
     resolveDocumentOpenRunResult,
     resolveOpenSurfaceDocumentId,
     resolvePreparedPdfOpeningGeometry,
-    resolveDocumentOpenTransactionKind,
-    resolveTransactionDocumentRef,
     shouldWaitForPreparedOpeningOwner,
     shouldSeedPendingTabHint as shouldSeedPendingTabHintForDocumentOpen,
 } from '@app/modules/workspace-shell/host/deferredWorkspaceHostDocumentOpen';
@@ -154,7 +151,7 @@ const {
     hasDocumentHint = false,
     documentPath = null,
     documentRecord = null,
-    documentSession = null,
+    documentSession,
     isActive,
     isFullscreen,
     isRenderActive = isActive,
@@ -173,7 +170,7 @@ const {
     hasDocumentHint?: boolean | undefined;
     documentPath?: TDocumentRef | null | undefined;
     documentRecord?: IWorkspaceDocumentRecord | null | undefined;
-    documentSession?: IWorkspaceDocumentSessionController | null | undefined;
+    documentSession: IWorkspaceDocumentController;
     initialViewState?: ITabViewSessionState | null | undefined;
     startSection?: TStartSection | undefined;
     isFullscreen: boolean;
@@ -213,11 +210,7 @@ let isHostUnmounted = false;
 const restoreAttemptState = createWorkspaceRestoreAttemptState();
 const filePickerInFlightCount = ref(0);
 const workspaceSplitCache = useWorkspaceSplitCache();
-const fallbackDocumentSession = createWorkspaceDocumentSessionCore({
-    tabId,
-    initialRecord: documentRecord ?? createWorkspaceDocumentRecord(),
-});
-const activeDocumentSession = computed(() => documentSession ?? fallbackDocumentSession);
+const activeDocumentSession = computed(() => documentSession);
 const {
     handleDocumentRecordUpdate,
     handleStartSectionUpdate,
@@ -230,7 +223,6 @@ const {
     handleWorkspaceExposeReleased: releaseWorkspaceExposeBinding,
 } = createDeferredWorkspaceHostBindings({
     emit,
-    hasExternalDocumentSession: Boolean(documentSession),
     activeDocumentSession,
     mountedWorkspace,
 });
@@ -367,7 +359,6 @@ const isFilePickerInFlight = computed(() => filePickerInFlightCount.value > 0);
 // Startup open-claim is a background probe. Mark the open UI busy only once the
 // user or restore flow is actually opening a document.
 const isOpenUiBusy = computed(() => isDocumentOpenInFlight.value || isFilePickerInFlight.value);
-const enqueueSerializedDocumentOpen = createImmediateSerializedQueue();
 const isHostErrorVisible = computed(() => hasWorkspaceChunkLoadError.value && workspaceRequested.value && !hasMountedWorkspace.value);
 const loaderVariant = computed(() => {
     if (isHostErrorVisible.value) {
@@ -425,7 +416,7 @@ const workspaceHasSuccessfulInitialVisual = () => {
 };
 const workspaceSessionHasOpenedDocument = () => getWorkspaceSessionHasOpenedDocument(activeDocumentSession.value.snapshot.value);
 function markWorkspaceRestoreAttemptFinished(
-    snapshot: IWorkspaceDocumentSessionSnapshot,
+    snapshot: IWorkspaceDocumentSnapshot,
     path: TDocumentRef,
     result: unknown,
 ) {
@@ -596,7 +587,10 @@ let pendingPreOwnerGoToPage: {
 } | null = null;
 let documentOpenAttemptCounter = 0;
 
-function beginDocumentOpenTransaction(intent: IDocumentOpenIntent) {
+function beginDocumentOpenTransaction(
+    intent: IDocumentOpenIntent,
+    sessionTransaction: IWorkspaceDocumentTransaction,
+) {
     const target = intent.target ?? null;
     const currentSurface = documentOpenSurface.snapshot.value;
     const canUsePreparedRecentFrame = intent.action === 'openRecentFromPlaceholder'
@@ -611,18 +605,6 @@ function beginDocumentOpenTransaction(intent: IDocumentOpenIntent) {
             size: intent.preparedSourceSize,
         })
         : null;
-    const sessionTransaction = activeDocumentSession.value.beginTransaction({
-        kind: resolveDocumentOpenTransactionKind(intent.action),
-        documentRef: resolveTransactionDocumentRef(target, documentPath ?? null),
-    });
-    if (!sessionTransaction) {
-        BrowserLogger.debug(DEFERRED_WORKSPACE_HOST_POLICY.RECENT_OPEN_LOG_SECTION, 'Document open transaction deferred because another transaction is active', {
-            tabId: tabId,
-            action: intent.action,
-            activeTransaction: activeDocumentSession.value.snapshot.value.activeTransaction,
-        });
-        return null;
-    }
     const transaction: IDocumentOpenTransactionRun = {
         sessionTransaction,
         action: intent.action,
@@ -667,7 +649,6 @@ function beginDocumentOpenTransaction(intent: IDocumentOpenIntent) {
                 restoredInitialPage ?? ownedOpeningGeometry?.pageNumber ?? 1,
             );
         if (generation === null) {
-            activeDocumentSession.value.finishTransaction(sessionTransaction.id, 'failed');
             BrowserLogger.warn(DEFERRED_WORKSPACE_HOST_POLICY.RECENT_OPEN_LOG_SECTION, 'Document open transaction rejected because the prepared page frame could not be committed atomically', {
                 tabId,
                 action: intent.action,
@@ -767,12 +748,8 @@ async function waitForDocumentOpenTerminalState(transaction: IDocumentOpenTransa
     return workspaceHasSuccessfulInitialVisual();
 }
 
-function finishDocumentOpenTransaction(transaction: IDocumentOpenTransactionRun, opened: boolean) {
+function finishDocumentOpenPresentation(transaction: IDocumentOpenTransactionRun, opened: boolean) {
     pendingPreOwnerGoToPage = null;
-    activeDocumentSession.value.finishTransaction(
-        transaction.sessionTransaction.id,
-        opened ? 'committed' : 'failed',
-    );
 
     if (!opened && transaction.seededTabHint && !workspaceHasDocumentOrOpenError()) {
         handleDocumentRecordUpdate(createWorkspaceDocumentRecord());
@@ -832,12 +809,10 @@ async function ensurePreparedOpeningOwnerReady(
 
 async function runWithDocumentOpenInFlight<T>(
     intent: IDocumentOpenIntent,
+    sessionTransaction: IWorkspaceDocumentTransaction,
     run: () => Promise<T>,
 ): Promise<T | false> {
     if (isHostUnmounted) {
-        return false;
-    }
-    if (intent.commandTarget && !activeDocumentSession.value.validateCommandTarget(intent.commandTarget).ok) {
         return false;
     }
     // Keep the already-mounted path in the click call stack. Awaiting an async
@@ -846,7 +821,7 @@ async function runWithDocumentOpenInFlight<T>(
     // commands can overtake the open transaction.
     const preparedOpeningGeometryAvailable = hasPreparedOpeningGeometry(intent);
     documentOpenAttemptCounter += 1;
-    const transaction = beginDocumentOpenTransaction(intent);
+    const transaction = beginDocumentOpenTransaction(intent, sessionTransaction);
     if (!transaction) {
         pendingPreOwnerGoToPage = null;
         return false;
@@ -895,7 +870,7 @@ async function runWithDocumentOpenInFlight<T>(
         opened = true;
         return settledResult;
     } finally {
-        finishDocumentOpenTransaction(transaction, opened);
+        finishDocumentOpenPresentation(transaction, opened);
     }
 }
 
@@ -910,7 +885,10 @@ async function enqueueDocumentOpen<T>(
     // Routing even the first command through Promise.then leaves Recent visible
     // for a full async preparation interval before the canonical page owner can
     // claim its already-prepared frame.
-    return enqueueSerializedDocumentOpen(() => runWithDocumentOpenInFlight(intent, run));
+    return activeDocumentSession.value.open(
+        intent,
+        transaction => runWithDocumentOpenInFlight(intent, transaction, run),
+    );
 }
 
 async function pickFileFromUi() {

@@ -2,7 +2,7 @@ import type { TDocumentRef } from '@contracts/documentRef';
 import type { TOpenFileResult } from '@contracts/electronApiDocuments';
 import type { IRecentFile } from '@contracts/shared';
 import type { TSplitPayload } from '@contracts/windowTabs';
-import type { IWorkspaceDocumentSessionController } from '@app/modules/workspace-shell/document-sessions/documentSessionTypes';
+import type { IWorkspaceDocumentController } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
 import type { IDocumentOpenIntent } from '@app/modules/workspace-shell/document-sessions/documentOpenIntent';
 import type { TWorkspaceCommandTarget } from '@app/modules/workspace-shell/document-sessions/workspaceCommandTarget';
 import {
@@ -24,7 +24,7 @@ import {
 } from '@app/modules/workspace-shell/expose/workspaceExposeDescriptors';
 
 interface ICreateDeferredWorkspaceExposeProxyDeps {
-    documentSession?: IWorkspaceDocumentSessionController | null | undefined;
+    documentSession?: IWorkspaceDocumentController | null | undefined;
     enqueueDocumentOpen: <T>(
         intent: IDocumentOpenIntent,
         run: () => Promise<T>,

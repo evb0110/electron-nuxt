@@ -3,7 +3,7 @@ import type {
     TPdfSaveMode,
 } from '@app/types/pdfContracts';
 import type { TDocumentRef } from '@contracts/documentRef';
-import type { IDocumentSessionState } from '@app/modules/workspace-shell/composables/document-session/createDocumentSessionState';
+import type { IDocumentSessionState } from '@app/modules/workspace-shell/viewers/workspaceDocumentDriver';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { readPdfConformanceProfile } from '@app/services/pdf-file/readPdfConformanceProfile';
 import { shouldForcePdfSaveAs } from '@app/services/pdf-file/shouldForcePdfSaveAs';

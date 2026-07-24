@@ -20,7 +20,7 @@ import type {
     IWorkspaceToolbarSnapshot,
 } from '@app/types/workspaceExpose';
 import type { IWorkspaceDocumentRecord } from '@app/modules/workspace-shell/state/workspaceDocumentRecord';
-import type { IWorkspaceDocumentSessionController } from '@app/modules/workspace-shell/document-sessions/documentSessionTypes';
+import type { IWorkspaceDocumentController } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
 import { resolveDocumentRefBackend } from '@app/utils/documentRef';
 
 interface IBuildAgentWorkspaceSnapshotOptions {
@@ -33,7 +33,7 @@ interface IBuildAgentWorkspaceSnapshotOptions {
     recentFilesResolved?: Ref<boolean>;
     workspaceRefs: Ref<Map<string, IWorkspaceExpose>>;
     documentRecordsByTabId: Ref<Record<string, IWorkspaceDocumentRecord>>;
-    documentSessionsByTabId?: Ref<Record<string, IWorkspaceDocumentSessionController>>;
+    documentSessionsByTabId?: Ref<Record<string, IWorkspaceDocumentController>>;
     getPaneByTabId(tabId: string): IEditorPaneState | null;
 }
 
@@ -169,7 +169,7 @@ function buildAgentTabSnapshot(
     pane: IEditorPaneState | null,
     workspace: IWorkspaceExpose | null,
     record: IWorkspaceDocumentRecord | null,
-    session: IWorkspaceDocumentSessionController | null,
+    session: IWorkspaceDocumentController | null,
 ): IAgentTabSnapshot {
     const toolbarSnapshot = record?.toolbarSnapshot ?? null;
     const kind = inferDocumentKind(tab, toolbarSnapshot);

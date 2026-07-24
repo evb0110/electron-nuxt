@@ -6,7 +6,7 @@ import {
 } from 'vitest';
 import type { IDocumentRevisionInfo } from '@contracts/documentRevision';
 import { requireDocumentInstanceId } from '@contracts/documentInstanceId';
-import { createWorkspaceDocumentSessionCore } from '@app/modules/workspace-shell/document-sessions/createWorkspaceDocumentSessionCore';
+import { createWorkspaceDocumentController } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
 import { createWorkspaceDocumentRecord } from '@app/modules/workspace-shell/state/workspaceDocumentRecord';
 import {
     createDefaultWorkspaceViewerCapabilities,
@@ -30,9 +30,9 @@ function createWorkspace() {
     return cast<IWorkspaceExpose>({hasPdf: true});
 }
 
-describe('createWorkspaceDocumentSessionCore', () => {
+describe('WorkspaceDocumentController', () => {
     it('publishes document identity from workspace records', () => {
-        const session = createWorkspaceDocumentSessionCore({
+        const session = createWorkspaceDocumentController({
             tabId: 'tab-1',
             sessionId: 'session-1',
         });
@@ -70,7 +70,7 @@ describe('createWorkspaceDocumentSessionCore', () => {
     });
 
     it('does not infer readiness from document identity and viewer capabilities alone', () => {
-        const session = createWorkspaceDocumentSessionCore({
+        const session = createWorkspaceDocumentController({
             tabId: 'tab-1',
             sessionId: 'session-1',
         });
@@ -92,7 +92,7 @@ describe('createWorkspaceDocumentSessionCore', () => {
     });
 
     it('preserves a failed open phase until a visual-ready record arrives', () => {
-        const session = createWorkspaceDocumentSessionCore({
+        const session = createWorkspaceDocumentController({
             tabId: 'tab-1',
             sessionId: 'session-1',
         });
@@ -128,7 +128,7 @@ describe('createWorkspaceDocumentSessionCore', () => {
     });
 
     it('mints a document session key and preserves it across revision changes', () => {
-        const session = createWorkspaceDocumentSessionCore({
+        const session = createWorkspaceDocumentController({
             tabId: 'tab-1',
             sessionId: 'session-1',
             initialRecord: createWorkspaceDocumentRecord({
@@ -153,7 +153,7 @@ describe('createWorkspaceDocumentSessionCore', () => {
     });
 
     it('remints the document session key when the logical document changes', () => {
-        const session = createWorkspaceDocumentSessionCore({
+        const session = createWorkspaceDocumentController({
             tabId: 'tab-1',
             sessionId: 'session-1',
             initialRecord: createWorkspaceDocumentRecord({
@@ -184,7 +184,7 @@ describe('createWorkspaceDocumentSessionCore', () => {
     });
 
     it('clears the document session key when an explicit close makes the session empty', () => {
-        const session = createWorkspaceDocumentSessionCore({
+        const session = createWorkspaceDocumentController({
             tabId: 'tab-1',
             sessionId: 'session-1',
             initialRecord: createWorkspaceDocumentRecord({
@@ -211,7 +211,7 @@ describe('createWorkspaceDocumentSessionCore', () => {
     });
 
     it('ignores a transient empty record while remounting a live document session', () => {
-        const session = createWorkspaceDocumentSessionCore({
+        const session = createWorkspaceDocumentController({
             tabId: 'tab-1',
             sessionId: 'session-1',
             initialRecord: createWorkspaceDocumentRecord({
@@ -227,14 +227,14 @@ describe('createWorkspaceDocumentSessionCore', () => {
         session.applyWorkspaceRecord(createWorkspaceDocumentRecord(), 'workspace');
 
         expect(session.snapshot.value.identity).toEqual(identityBeforeRemount);
-        expect(session.toDocumentRecord().tab).toMatchObject({
+        expect(session.toWorkspaceRecord().tab).toMatchObject({
             fileName: 'A.pdf',
             originalPath: '/tmp/a.pdf',
         });
     });
 
     it('supersedes an active transaction with the latest document operation', () => {
-        const session = createWorkspaceDocumentSessionCore({
+        const session = createWorkspaceDocumentController({
             tabId: 'tab-1',
             sessionId: 'session-1',
             createTransactionId: input => `tx-${input.nextTransactionIndex}`,
@@ -262,7 +262,7 @@ describe('createWorkspaceDocumentSessionCore', () => {
     });
 
     it('fences stale open records after a superseding close wins', () => {
-        const session = createWorkspaceDocumentSessionCore({
+        const session = createWorkspaceDocumentController({
             tabId: 'tab-1',
             sessionId: 'session-1',
             createTransactionId: input => `tx-${input.nextTransactionIndex}`,
@@ -303,7 +303,7 @@ describe('createWorkspaceDocumentSessionCore', () => {
     });
 
     it('rejects stale revision command targets after identity changes', () => {
-        const session = createWorkspaceDocumentSessionCore({
+        const session = createWorkspaceDocumentController({
             tabId: 'tab-1',
             sessionId: 'session-1',
         });
@@ -328,7 +328,7 @@ describe('createWorkspaceDocumentSessionCore', () => {
 
     it('rejects stale command targets when a same-revision reopen mints a new document instance', () => {
         let nextInstanceId = 0;
-        const session = createWorkspaceDocumentSessionCore({
+        const session = createWorkspaceDocumentController({
             tabId: 'tab-1',
             sessionId: 'session-1',
             createDocumentInstanceId: () => {
@@ -366,7 +366,7 @@ describe('createWorkspaceDocumentSessionCore', () => {
     });
 
     it('rejects pending workspace waiters when a target goes stale', async () => {
-        const session = createWorkspaceDocumentSessionCore({
+        const session = createWorkspaceDocumentController({
             tabId: 'tab-1',
             sessionId: 'session-1',
             workspaceWaitTimeoutMs: 1000,
@@ -383,7 +383,7 @@ describe('createWorkspaceDocumentSessionCore', () => {
     });
 
     it('resolves current workspace waiters when the workspace attaches', async () => {
-        const session = createWorkspaceDocumentSessionCore({
+        const session = createWorkspaceDocumentController({
             tabId: 'tab-1',
             sessionId: 'session-1',
         });
@@ -400,7 +400,7 @@ describe('createWorkspaceDocumentSessionCore', () => {
     it('keeps the default workspace mount wait open for slow large documents', async () => {
         vi.useFakeTimers();
         try {
-            const session = createWorkspaceDocumentSessionCore({
+            const session = createWorkspaceDocumentController({
                 tabId: 'tab-1',
                 sessionId: 'session-1',
             });
@@ -420,7 +420,7 @@ describe('createWorkspaceDocumentSessionCore', () => {
     });
 
     it('does not change command revision for view-only updates or mounting', () => {
-        const session = createWorkspaceDocumentSessionCore({
+        const session = createWorkspaceDocumentController({
             tabId: 'tab-1',
             sessionId: 'session-1',
         });

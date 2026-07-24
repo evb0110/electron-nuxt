@@ -1,8 +1,8 @@
-import type { IWorkspaceDocumentSessionSnapshot } from '@app/modules/workspace-shell/document-sessions/documentSessionTypes';
+import type { IWorkspaceDocumentSnapshot } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
 import type { IDocumentOpenSurfaceSnapshot } from '@app/utils/document-viewer/chassis/documentOpenSurfaceSession';
 
 export function shouldResetDocumentOpenSurfaceForEmptySession(
-    session: IWorkspaceDocumentSessionSnapshot,
+    session: IWorkspaceDocumentSnapshot,
     surface: IDocumentOpenSurfaceSnapshot,
 ) {
     return session.phase === 'empty'

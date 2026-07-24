@@ -12,7 +12,7 @@ import type {
     IPathHistoryEntry,
     TPdfHistoryEntry,
 } from '@app/services/pdf-file/pdfHistoryEntryTypes';
-import type { IDocumentSessionState } from '@app/modules/workspace-shell/composables/document-session/createDocumentSessionState';
+import type { IDocumentSessionState } from '@app/modules/workspace-shell/viewers/workspaceDocumentDriver';
 import { appendHistoryEntry } from '@app/services/pdf-file/appendHistoryEntry';
 import { areByteArraysEqual } from '@app/utils/areByteArraysEqual';
 import { BrowserLogger } from '@app/utils/browserLogger';

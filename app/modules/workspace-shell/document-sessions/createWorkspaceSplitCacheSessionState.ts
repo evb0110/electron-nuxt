@@ -1,9 +1,9 @@
 import type { IWorkspaceSplitCacheSessionState } from '@app/modules/workspace-shell/composables/workspaceSplitTypes';
-import type { IWorkspaceDocumentSessionController } from '@app/modules/workspace-shell/document-sessions/documentSessionTypes';
+import type { IWorkspaceDocumentController } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
 import { resolveDocumentRefBackend } from '@app/utils/documentRef';
 
 export function createWorkspaceSplitCacheSessionState(
-    session: IWorkspaceDocumentSessionController | null | undefined,
+    session: IWorkspaceDocumentController | null | undefined,
 ): IWorkspaceSplitCacheSessionState | null {
     const snapshot = session?.snapshot.value;
     if (!snapshot) {

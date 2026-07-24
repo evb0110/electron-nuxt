@@ -16,7 +16,7 @@ import type {
     IPdfSerializedSaveOptions,
 } from '@contracts/electronApiDocuments';
 import { isStaleRevisionError } from '@contracts/documentMutationErrors';
-import type { IDocumentSessionState } from '@app/modules/workspace-shell/composables/document-session/createDocumentSessionState';
+import type { IDocumentSessionState } from '@app/modules/workspace-shell/viewers/workspaceDocumentDriver';
 import type {
     ILazyHistoryBaseline,
     IPdfLoadedState,

@@ -18,7 +18,7 @@ import { getWindowTabsCapability } from '@app/utils/platformWindowTabs';
 import { getErrorMessage } from '@app/utils/error';
 import { withTimeout } from 'es-toolkit/promise';
 import { createWorkspaceSplitCacheSessionState } from '@app/modules/workspace-shell/document-sessions/createWorkspaceSplitCacheSessionState';
-import type { IWorkspaceDocumentSessionController } from '@app/modules/workspace-shell/document-sessions/documentSessionTypes';
+import type { IWorkspaceDocumentController } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
 import type { TWorkspaceCommandTarget } from '@app/modules/workspace-shell/document-sessions/workspaceCommandTarget';
 import { resolveDocumentRefBackend } from '@app/utils/documentRef';
 
@@ -70,7 +70,7 @@ interface IUseWindowTabTransfersOptions {
     cleanupEmptyPanes: () => void;
     closeTabInState: (paneId: string, tabId: string) => void;
     workspaceRefs: Ref<Map<string, IWorkspaceExpose>>;
-    documentSessionsByTabId?: Ref<Record<string, IWorkspaceDocumentSessionController>>;
+    documentSessionsByTabId?: Ref<Record<string, IWorkspaceDocumentController>>;
     waitForWorkspace: (tabId: string, timeoutMs?: number) => Promise<IWorkspaceExpose | null>;
     workspaceRestoreTracker: {
         start: (tabId: string) => void;
@@ -85,9 +85,9 @@ const MERGE_CAPTURE_TIMEOUT_MS = 4000;
 
 function buildTransferredTabState(
     tab: ITab,
-    session: IWorkspaceDocumentSessionController | null,
+    session: IWorkspaceDocumentController | null,
 ): ITransferredTabState {
-    const sessionTab = session?.toDocumentRecord().tab;
+    const sessionTab = session?.toWorkspaceRecord().tab;
     const originalPath = sessionTab?.originalPath ?? tab.originalPath;
     const originalBackend = resolveDocumentRefBackend(originalPath);
     const documentInstanceId = sessionTab?.documentInstanceId ?? tab.documentInstanceId ?? null;
@@ -146,7 +146,7 @@ export const useWindowTabTransfers = (options: IUseWindowTabTransfersOptions) =>
     }
 
     function isCommandTargetCurrent(
-        session: IWorkspaceDocumentSessionController | null,
+        session: IWorkspaceDocumentController | null,
         target: TWorkspaceCommandTarget | null,
     ) {
         return !target || session?.validateCommandTarget(target).ok === true;
@@ -471,7 +471,8 @@ export const useWindowTabTransfers = (options: IUseWindowTabTransfersOptions) =>
 
         options.workspaceRestoreTracker.start(tabId);
         try {
-            return await workspace.handleCloseFileFromUi({persist: false});
+            return await getDocumentSession(tabId)?.close({persist: false})
+                ?? await workspace.handleCloseFileFromUi({persist: false});
         } catch (error) {
             BrowserLogger.error('tabs', 'Failed to close source workspace after transfer', {
                 tabId,

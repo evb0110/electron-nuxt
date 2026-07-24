@@ -30,7 +30,7 @@
                     :document-record="documentRecordsByTabId[tab.id] ?? null"
                     :has-document-hint="tabHasDocumentHint(tab)"
                     :initial-view-state="viewStateByTabId[tab.id] ?? null"
-                    :document-session="documentSessionsByTabId[tab.id] ?? null"
+                    :document-session="documentSessionsByTabId[tab.id]!"
                     :is-startup-open-claim-pending="isStartupOpenClaimPending"
                     :is-active="pane.paneId === activePaneId && tab.id === pane.activeTabId"
                     :is-render-active="tab.id === pane.activeTabId"
@@ -69,7 +69,7 @@ import type {
     ITabViewSessionState,
 } from '@app/modules/workspace-shell/tabs/tabSessionStoreTypes';
 import type { IWorkspaceDocumentRecord } from '@app/modules/workspace-shell/state/workspaceDocumentRecord';
-import type { IWorkspaceDocumentSessionController } from '@app/modules/workspace-shell/document-sessions/documentSessionTypes';
+import type { IWorkspaceDocumentController } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
 import { tabHasDocumentHint } from '@app/modules/workspace-shell/tabs/tabHasDocumentHint';
 import DeferredDocumentWorkspaceHost from '@app/modules/workspace-shell/components/DeferredDocumentWorkspaceHost.vue';
 import TabBar from '@app/modules/workspace-shell/components/layout/TabBar.vue';
@@ -93,7 +93,7 @@ const {
     tabLifecycleById: Record<string, ITabLifecycleState>;
     viewStateByTabId: Record<string, ITabViewSessionState>;
     documentRecordsByTabId: Record<string, IWorkspaceDocumentRecord>;
-    documentSessionsByTabId: Record<string, IWorkspaceDocumentSessionController>;
+    documentSessionsByTabId: Record<string, IWorkspaceDocumentController>;
     zenMode: boolean;
     zenActiveTabId: string | null;
     isFullscreen: boolean;

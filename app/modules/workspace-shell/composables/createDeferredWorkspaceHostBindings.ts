@@ -7,7 +7,7 @@ import type { TOpenFileResult } from '@contracts/electronApiDocuments';
 import type { TStartSection } from '@app/types/startSection';
 import type { IWorkspaceExpose } from '@app/types/workspaceExpose';
 import type { IWorkspaceDocumentRecord } from '@app/modules/workspace-shell/state/workspaceDocumentRecord';
-import type { IWorkspaceDocumentSessionController } from '@app/modules/workspace-shell/document-sessions/documentSessionTypes';
+import type { IWorkspaceDocumentController } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
 import type { ITabViewSessionState } from '@app/modules/workspace-shell/tabs/tabSessionStoreTypes';
 
 export interface IDeferredWorkspaceHostEmits {
@@ -25,15 +25,11 @@ export interface IDeferredWorkspaceHostEmits {
 
 export function createDeferredWorkspaceHostBindings(options: {
     emit: EmitFn<IDeferredWorkspaceHostEmits>;
-    hasExternalDocumentSession: boolean;
-    activeDocumentSession: ComputedRef<IWorkspaceDocumentSessionController>;
+    activeDocumentSession: ComputedRef<IWorkspaceDocumentController>;
     mountedWorkspace: ShallowRef<IWorkspaceExpose | null>;
 }) {
     return {
         handleDocumentRecordUpdate(record: IWorkspaceDocumentRecord) {
-            if (!options.hasExternalDocumentSession) {
-                options.activeDocumentSession.value.applyWorkspaceRecord(record, 'workspace');
-            }
             options.emit('update-document-record', record);
         },
         handleStartSectionUpdate: (section: TStartSection) => options.emit('update:start-section', section),

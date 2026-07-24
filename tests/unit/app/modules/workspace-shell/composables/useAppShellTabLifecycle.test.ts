@@ -17,7 +17,7 @@ import { useAppShellTabLifecycle } from '@app/modules/workspace-shell/composable
 import { useShellWorkspaceToolbar } from '@app/modules/workspace-shell/composables/useShellWorkspaceToolbar';
 import { useWorkspaceDocumentSessions } from '@app/modules/workspace-shell/document-sessions/useWorkspaceDocumentSessions';
 import { useWorkspaceShellState } from '@app/modules/workspace-shell/composables/useWorkspaceShellState';
-import { createWorkspaceDocumentSessionCore } from '@app/modules/workspace-shell/document-sessions/createWorkspaceDocumentSessionCore';
+import { createWorkspaceDocumentController } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
 import {
     createWorkspaceDocumentRecord,
     type IWorkspaceDocumentRecord,
@@ -202,7 +202,7 @@ describe('useAppShellTabLifecycle', () => {
         expect(lifecycle.isTabTransitionBusy.value).toBe(false);
     });
 
-    it('wraps workspace close commands in a document session close transaction', async () => {
+    it('delegates workspace close commands to the document controller transaction', async () => {
         const pane = {
             paneId: 'pane-1',
             activeTabId: 'tab-1',
@@ -215,7 +215,7 @@ describe('useAppShellTabLifecycle', () => {
             isDirty: false,
             isDjvu: false,
         };
-        const session = createWorkspaceDocumentSessionCore({
+        const session = createWorkspaceDocumentController({
             tabId: 'tab-1',
             sessionId: 'session-1',
             initialRecord: createWorkspaceDocumentRecord({tab: {
@@ -226,13 +226,21 @@ describe('useAppShellTabLifecycle', () => {
             }}),
             createTransactionId: () => 'close-transaction-1',
         });
-        const beginTransaction = vi.spyOn(session, 'beginTransaction');
-        const finishTransaction = vi.spyOn(session, 'finishTransaction');
         const workspace = cast<IWorkspaceExpose>({
             hasPdf: true,
             getToolbarSnapshot: vi.fn(() => ({viewerCapabilities: {closeableDocument: true}})),
-            handleCloseFileFromUi: vi.fn(async () => true),
+            handleCloseFileFromUi: vi.fn(async () => {
+                expect(session.snapshot.value.phase).toBe('closing');
+                expect(session.snapshot.value.activeTransaction).toMatchObject({
+                    id: 'close-transaction-1',
+                    kind: 'close',
+                    documentRef: '/tmp/sample.pdf',
+                    persist: true,
+                });
+                return true;
+            }),
         });
+        session.attachWorkspace(workspace);
 
         const lifecycle = useAppShellTabLifecycle({
             panes: ref([pane]),
@@ -269,13 +277,9 @@ describe('useAppShellTabLifecycle', () => {
 
         await lifecycle.handleCloseTab('pane-1', 'tab-1');
 
-        expect(beginTransaction).toHaveBeenCalledWith({
-            kind: 'close',
-            documentRef: '/tmp/sample.pdf',
-            persist: true,
-        });
         expect(workspace.handleCloseFileFromUi).toHaveBeenCalledWith({persist: true});
-        expect(finishTransaction).toHaveBeenCalledWith('close-transaction-1', 'committed');
+        expect(session.snapshot.value.activeTransaction).toBeNull();
+        expect(session.snapshot.value.phase).toBe('empty');
     });
 
     it('keeps document, tab, and save projections empty after close despite stale publishes', async () => {

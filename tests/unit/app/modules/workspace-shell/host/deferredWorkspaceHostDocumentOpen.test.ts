@@ -80,11 +80,11 @@ describe('deferredWorkspaceHostDocumentOpen', () => {
         const runStart = hostSource.indexOf('async function runWithDocumentOpenInFlight');
         const runEnd = hostSource.indexOf('\nasync function enqueueDocumentOpen', runStart);
         const runSource = hostSource.slice(runStart, runEnd);
-        const transactionAt = runSource.indexOf('const transaction = beginDocumentOpenTransaction(intent);');
+        const transactionAt = runSource.indexOf('const transaction = beginDocumentOpenTransaction(intent, sessionTransaction);');
         const ownerWaitAt = runSource.indexOf('&& !await ensurePreparedOpeningOwnerReady(');
         const sourceOpenAt = runSource.indexOf('const result = await run();');
         const finallyAt = runSource.indexOf('finally {');
-        const finishAt = runSource.indexOf('finishDocumentOpenTransaction(transaction, opened);');
+        const finishAt = runSource.indexOf('finishDocumentOpenPresentation(transaction, opened);');
 
         expect(transactionAt).toBeGreaterThanOrEqual(0);
         expect(ownerWaitAt).toBeGreaterThan(transactionAt);

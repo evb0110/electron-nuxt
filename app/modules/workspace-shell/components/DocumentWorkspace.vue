@@ -449,7 +449,7 @@ const {
     isWorkspaceLayoutResizing: isExternalWorkspaceLayoutResizing = false,
     isRenderActive = isActive,
     isTabTransitionBusy,
-    documentSession = null,
+    documentSession,
     initialViewState = null,
     pendingDocumentOpen: pendingDocumentOpenProp = false,
     pendingDocumentPath = null,
@@ -490,7 +490,7 @@ const workspaceCommandBindings = createDocumentWorkspaceCommandBindings(emit);
 const { t } = useTypedI18n();
 const analytics = useAnalytics();
 const analyticsDocumentScope = analytics.createDocumentScope(
-    `workspace-document:${documentSession?.snapshot.value.sessionId ?? tabId}`,
+    `workspace-document:${documentSession.snapshot.value.sessionId}`,
     { activate: isActive },
 );
 const toast = useToast();
@@ -544,8 +544,9 @@ const orchestration = useWorkspaceOrchestration({
     isActive: isActiveRef,
     initialViewState,
     preserveInitialStateForFirstSource: Boolean(initialViewState
-        && documentSession?.snapshot.value.phase === 'ready'
+        && documentSession.snapshot.value.phase === 'ready'
         && documentSession.snapshot.value.toolbarSnapshot.initialVisualReady),
+    operationLease: documentSession.operationLease,
     openSurface: documentOpenSurface,
     pendingDocumentPath: pendingDocumentStatusPath,
     pendingDocumentSize: computed(() => (
@@ -1520,7 +1521,7 @@ useDocumentWorkspaceDocumentRecord({
     djvuSourcePath,
     toolbarSnapshot: workspaceToolbarSnapshot,
     currentViewState: computed(() => {
-        const retainedState = documentSession?.snapshot.value.viewState ?? initialViewState;
+        const retainedState = documentSession.snapshot.value.viewState ?? initialViewState;
         return retainedState
             ? {
                 ...retainedState,
