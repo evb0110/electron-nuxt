@@ -26,6 +26,11 @@ const MAX_BW_MIDTONE_FRACTION: f64 = 0.16;
 const MIDTONE_HYSTERESIS: f64 = 0.02;
 const TONAL_MIDTONE_FRACTION: f64 = 0.24;
 const MIN_TEXT_LINES: usize = 2;
+const STRONG_SINGLE_LINE_BIMODALITY: f64 = 0.85;
+const STRONG_SINGLE_LINE_MODE_DISTANCE: f64 = 144.0;
+const STRONG_SINGLE_LINE_MAX_MIDTONE_FRACTION: f64 = 0.08;
+const STRONG_SINGLE_LINE_MIN_INK_FRACTION: f64 = 0.01;
+const STRONG_SINGLE_LINE_MIN_EDGE_TO_INK_RATIO: f64 = 0.5;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
@@ -221,6 +226,41 @@ pub(crate) fn recommend_output_mode(
                 + 0.06 * tonal_margin
                 + 0.06 * text_margin)
                 .clamp(0.0, 1.0),
+            reason: OutputModeRecommendationReason::BimodalText,
+        };
+    }
+
+    // Dense or tightly spaced text can collapse to one provisional line. Keep the
+    // normal two-line safety gate and admit that case only with emphatically
+    // binary, text-like luminance evidence. Apply the same cross-path hysteresis
+    // margins as the normal B&W gate.
+    let single_line_bimodality_floor = STRONG_SINGLE_LINE_BIMODALITY + BIMODALITY_HYSTERESIS;
+    let single_line_mode_distance_floor =
+        STRONG_SINGLE_LINE_MODE_DISTANCE + LUMINANCE_DISTANCE_HYSTERESIS;
+    let single_line_midtone_ceiling = STRONG_SINGLE_LINE_MAX_MIDTONE_FRACTION - MIDTONE_HYSTERESIS;
+    let strong_single_line_text = evidence.text_line_count == 1
+        && picture_fraction + PICTURE_HYSTERESIS < PICTURE_NOISE_FLOOR
+        && luminance.bimodality >= single_line_bimodality_floor
+        && luminance.mode_distance >= single_line_mode_distance_floor
+        && luminance.midtone_fraction <= single_line_midtone_ceiling
+        && luminance.ink_fraction >= STRONG_SINGLE_LINE_MIN_INK_FRACTION
+        && luminance.edge_fraction
+            >= luminance.ink_fraction * STRONG_SINGLE_LINE_MIN_EDGE_TO_INK_RATIO;
+    if strong_single_line_text {
+        let bimodal_margin =
+            ((luminance.bimodality - single_line_bimodality_floor) / 0.1).clamp(0.0, 1.0);
+        let separation_margin =
+            ((luminance.mode_distance - single_line_mode_distance_floor) / 100.0).clamp(0.0, 1.0);
+        let tonal_margin = ((single_line_midtone_ceiling - luminance.midtone_fraction)
+            / single_line_midtone_ceiling)
+            .clamp(0.0, 1.0);
+        return OutputModeRecommendation {
+            mode: OutputMode::Bw,
+            confidence: (0.62
+                + 0.03 * bimodal_margin
+                + 0.03 * separation_margin
+                + 0.02 * tonal_margin)
+                .clamp(0.0, 0.7),
             reason: OutputModeRecommendationReason::BimodalText,
         };
     }
@@ -957,6 +997,97 @@ mod tests {
         assert_eq!(
             recommendation.reason,
             OutputModeRecommendationReason::TextWithPictures
+        );
+    }
+
+    #[test]
+    fn one_detected_line_needs_exceptionally_strong_text_evidence() {
+        let (gray, _) = text_page([245; 3]);
+        let picture_mask = BinaryImage::new(gray.width(), gray.height());
+        let recommendation = recommend_output_mode(PreparedModeEvidence {
+            analysis: &gray,
+            analysis_rgb: None,
+            picture_mask: &picture_mask,
+            text_line_count: 1,
+        });
+        report("strong-single-line-text", recommendation);
+        assert_eq!(recommendation.mode, OutputMode::Bw, "{recommendation:?}");
+        assert_eq!(
+            recommendation.reason,
+            OutputModeRecommendationReason::BimodalText
+        );
+        assert!(
+            (0.62..=0.7).contains(&recommendation.confidence),
+            "{recommendation:?}"
+        );
+
+        let no_line_recommendation = recommend_output_mode(PreparedModeEvidence {
+            analysis: &gray,
+            analysis_rgb: None,
+            picture_mask: &picture_mask,
+            text_line_count: 0,
+        });
+        assert_eq!(
+            no_line_recommendation.mode,
+            OutputMode::Grayscale,
+            "{no_line_recommendation:?}"
+        );
+
+        let mut faint = gray.clone();
+        for value in faint.data_mut() {
+            if *value < 230 {
+                *value = 215;
+            }
+        }
+        let faint_recommendation = recommend_output_mode(PreparedModeEvidence {
+            analysis: &faint,
+            analysis_rgb: None,
+            picture_mask: &picture_mask,
+            text_line_count: 1,
+        });
+        assert_eq!(
+            faint_recommendation.mode,
+            OutputMode::Grayscale,
+            "{faint_recommendation:?}"
+        );
+
+        let mut sparse = GrayImage::new(gray.width(), gray.height(), 245);
+        for mark in 0..20 {
+            let left = 12 + mark * 17;
+            for y in 120..135 {
+                for x in left..left + 2 {
+                    sparse.set(x, y, 35);
+                }
+            }
+        }
+        let sparse_recommendation = recommend_output_mode(PreparedModeEvidence {
+            analysis: &sparse,
+            analysis_rgb: None,
+            picture_mask: &picture_mask,
+            text_line_count: 1,
+        });
+        assert_eq!(
+            sparse_recommendation.mode,
+            OutputMode::Grayscale,
+            "{sparse_recommendation:?}"
+        );
+
+        let mut solid_blob = GrayImage::new(gray.width(), gray.height(), 245);
+        for y in 40..220 {
+            for x in 40..320 {
+                solid_blob.set(x, y, 35);
+            }
+        }
+        let blob_recommendation = recommend_output_mode(PreparedModeEvidence {
+            analysis: &solid_blob,
+            analysis_rgb: None,
+            picture_mask: &picture_mask,
+            text_line_count: 1,
+        });
+        assert_eq!(
+            blob_recommendation.mode,
+            OutputMode::Grayscale,
+            "{blob_recommendation:?}"
         );
     }
 
