@@ -420,6 +420,56 @@ describe('document page sources', () => {
         source.dispose();
     });
 
+    it('admits independent required surfaces for two visible DjVu panes under pressure', async () => {
+        const budget = createWorkspaceSurfaceBudgetController(600);
+        let nextObjectUrl = 0;
+        const createPreviewSource = () => ({
+            getPageSizes: vi.fn().mockResolvedValue([{
+                width: 10,
+                height: 10,
+                dpi: 300,
+            }]),
+            renderPageObjectUrl: vi.fn().mockImplementation(async () => ({
+                objectUrl: `blob:visible-pane-${String(++nextObjectUrl)}`,
+                renderedPx: 10,
+            })),
+            revokeObjectURL: vi.fn(),
+            terminate: vi.fn(),
+        }) satisfies IPagePreviewSource;
+        const firstPreviewSource = createPreviewSource();
+        const secondPreviewSource = createPreviewSource();
+        const firstSource = await createDjvuPageSource('first.djvu', firstPreviewSource, budget);
+        const secondSource = await createDjvuPageSource('second.djvu', secondPreviewSource, budget);
+        const firstSurface = await firstSource.renderPage({
+            pageNumber: 1,
+            widthPx: 10,
+            priority: 'navigation',
+            signal: new AbortController().signal,
+        });
+
+        budget.setPressureLevel('emergency');
+        const secondSurface = await secondSource.renderPage({
+            pageNumber: 1,
+            widthPx: 10,
+            priority: 'navigation',
+            signal: new AbortController().signal,
+        });
+
+        expect(firstSurface.surface).toBe('blob:visible-pane-1');
+        expect(secondSurface.surface).toBe('blob:visible-pane-2');
+        expect(firstPreviewSource.revokeObjectURL).not.toHaveBeenCalled();
+        expect(secondPreviewSource.revokeObjectURL).not.toHaveBeenCalled();
+        expect(budget.getSnapshot()).toMatchObject({
+            effectiveMaxBytes: 150,
+            leaseCount: 2,
+            reservedBytes: 800,
+        });
+        firstSurface.release();
+        secondSurface.release();
+        firstSource.dispose();
+        secondSource.dispose();
+    });
+
     it('promotes a completed DjVu surface lease without rerendering the page', async () => {
         const previewSource = {
             getPageSizes: vi.fn().mockResolvedValue([{

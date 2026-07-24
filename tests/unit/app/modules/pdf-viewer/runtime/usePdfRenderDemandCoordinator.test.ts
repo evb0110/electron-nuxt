@@ -391,6 +391,49 @@ describe('usePdfRenderDemandCoordinator', () => {
         harness.scope.stop();
     });
 
+    it('starts a constrained jump target initial canvas before quiet-gated refinement', () => {
+        const harness = createHarness({
+            clampedVisibleRefineMode: 'input-idle',
+            enableLayerPrewarm: true,
+        });
+        harness.pageSlots.markMounted(43);
+        harness.pageSlots.markMounted(44);
+        harness.ready.add(43);
+        harness.layerReady.add(43);
+        harness.protectedVisibleRange.value = {
+            start: 44,
+            end: 44,
+        };
+        harness.activeVisualTransaction.value = true;
+        harness.inputPending.value = true;
+        harness.coordinator?.notifyPageMounted();
+
+        harness.flushFrame();
+
+        expect(harness.visibleRange.value).toEqual({
+            start: 43,
+            end: 43,
+        });
+        expect(harness.renderVisiblePages).toHaveBeenCalledOnce();
+        expect(harness.renderVisiblePages).toHaveBeenCalledWith(
+            {
+                start: 44,
+                end: 44,
+            },
+            {
+                bufferOverride: 0,
+                coordinatorDemand: {
+                    kind: 'required',
+                    renderGeneration: 1,
+                },
+                preserveInFlightRequiredPages: true,
+                preserveRenderedPages: true,
+            },
+        );
+        expect(harness.qualityRefineIdleCallbacks.size).toBe(0);
+        harness.scope.stop();
+    });
+
     it('reasserts unsatisfied visible demand only through the bounded watchdog', async () => {
         const harness = createHarness();
         harness.pageSlots.markMounted(43);

@@ -108,29 +108,49 @@ describe('workspace memory pressure monitor', () => {
                 isDirty: false,
                 isDjvu: false,
             },
+            {
+                id: 'visible-split',
+                fileName: 'visible-split.djvu',
+                originalPath: '/docs/visible-split.djvu',
+                isDirty: false,
+                isDjvu: true,
+            },
         ] satisfies ITab[];
-        const panes = [{
-            paneId: 'pane',
-            activeTabId: 'active',
-            tabIds: [
-                'active',
-                'inactive',
-            ],
-        }] satisfies IEditorPaneState[];
-        const inactiveTemperature = computed(() => resolveTabLifecycleStates({
+        const panes = [
+            {
+                paneId: 'pane',
+                activeTabId: 'active',
+                tabIds: [
+                    'active',
+                    'inactive',
+                ],
+            },
+            {
+                paneId: 'split-pane',
+                activeTabId: 'visible-split',
+                tabIds: ['visible-split'],
+            },
+        ] satisfies IEditorPaneState[];
+        const lifecycleById = computed(() => Object.fromEntries(resolveTabLifecycleStates({
             activationOrder: [
                 'active',
                 'inactive',
+                'visible-split',
             ],
             panes,
             policy: 'conservative',
             tabs,
             targetWarmViewers: budget.value.targetWarmViewers,
-        }).find(state => state.tabId === 'inactive')?.temperature);
+        }).map(state => [
+            state.tabId,
+            state,
+        ])));
 
         expect(isReadonly(budget)).toBe(true);
         expect(budget.value.targetWarmViewers).toBe(5);
-        expect(inactiveTemperature.value).toBe('warm');
+        expect(lifecycleById.value.inactive?.temperature).toBe('warm');
+        expect(lifecycleById.value.active?.viewerResidency).toBe('active');
+        expect(lifecycleById.value['visible-split']?.viewerResidency).toBe('active');
         expect(mocks.useIntervalFn).toHaveBeenCalledOnce();
         expect(mocks.intervalCallbacks).toHaveLength(1);
 
@@ -143,6 +163,16 @@ describe('workspace memory pressure monitor', () => {
 
         expect(mocks.setPressureLevel).toHaveBeenLastCalledWith('emergency');
         expect(budget.value.targetWarmViewers).toBe(0);
-        expect(inactiveTemperature.value).toBe('cold');
+        expect(lifecycleById.value.inactive?.temperature).toBe('cold');
+        expect(lifecycleById.value.active).toMatchObject({
+            shouldMountHost: true,
+            temperature: 'hot',
+            viewerResidency: 'active',
+        });
+        expect(lifecycleById.value['visible-split']).toMatchObject({
+            shouldMountHost: true,
+            temperature: 'hot',
+            viewerResidency: 'active',
+        });
     });
 });

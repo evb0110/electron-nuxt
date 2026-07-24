@@ -182,7 +182,7 @@ export const usePdfRenderDemandCoordinator = (options: IUsePdfRenderDemandCoordi
         if (!isOperational()) {
             return [];
         }
-        const range = getClampedVisibleRange();
+        const range = getClampedProtectedVisibleRange();
         const pages: number[] = [];
         for (let pageNumber = range.start; pageNumber <= range.end; pageNumber += 1) {
             if (options.pageSlots.isMounted(pageNumber)) {

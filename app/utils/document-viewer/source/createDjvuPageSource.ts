@@ -52,6 +52,12 @@ const previewPriorityByClass: Record<TDocumentRenderPriority, number> = {
     prefetch: 10,
 };
 
+function isRequiredVisiblePriority(priority: TDocumentRenderPriority) {
+    // Required pane content may temporarily exceed the soft cap after lower-priority
+    // eviction; only speculative work is allowed to fail budget admission.
+    return priority === 'navigation' || priority === 'visible';
+}
+
 export async function createDjvuPageSource(
     documentRef: TDocumentRef,
     previewSource: IPagePreviewSource,
@@ -121,19 +127,17 @@ export async function createDjvuPageSource(
         ));
         const transientBytes = transientWidthPx * transientHeightPx * 4;
         const transientPriority = previewPriorityByClass[request.priority];
-        const transientLease = surfaceBudget.tryReserve?.({
+        const transientReservation = {
             scopeId,
             category: 'djvu-preview',
             bytes: transientBytes,
             priority: transientPriority,
             canEvict: () => false,
-        }) ?? (surfaceBudget.tryReserve ? null : surfaceBudget.reserve({
-            scopeId,
-            category: 'djvu-preview',
-            bytes: transientBytes,
-            priority: transientPriority,
-            canEvict: () => false,
-        }));
+        } as const;
+        const transientLease = isRequiredVisiblePriority(request.priority)
+            ? surfaceBudget.reserve(transientReservation)
+            : surfaceBudget.tryReserve?.(transientReservation)
+                ?? (surfaceBudget.tryReserve ? null : surfaceBudget.reserve(transientReservation));
         if (!transientLease) {
             throw new RangeError('DjVu preview exceeds the available raster surface budget');
         }
@@ -168,7 +172,7 @@ export async function createDjvuPageSource(
         };
         let priority = previewPriorityByClass[request.priority];
         urlLeases.set(rendered.objectUrl, leaseEntry);
-        leaseEntry.lease = surfaceBudget.tryReserve?.({
+        const retainedReservation = {
             scopeId,
             category: 'djvu-preview',
             bytes,
@@ -181,20 +185,11 @@ export async function createDjvuPageSource(
                 leaseEntry.invalidationListeners.clear();
                 releaseUrl(rendered.objectUrl);
             },
-        }) ?? (surfaceBudget.tryReserve ? null : surfaceBudget.reserve({
-            scopeId,
-            category: 'djvu-preview',
-            bytes,
-            priority,
-            canEvict: () => priority < previewPriorityByClass.visible,
-            evict: () => {
-                for (const listener of leaseEntry.invalidationListeners) {
-                    listener();
-                }
-                leaseEntry.invalidationListeners.clear();
-                releaseUrl(rendered.objectUrl);
-            },
-        }));
+        } as const;
+        leaseEntry.lease = isRequiredVisiblePriority(request.priority)
+            ? surfaceBudget.reserve(retainedReservation)
+            : surfaceBudget.tryReserve?.(retainedReservation)
+                ?? (surfaceBudget.tryReserve ? null : surfaceBudget.reserve(retainedReservation));
         if (!leaseEntry.lease) {
             urlLeases.delete(rendered.objectUrl);
             previewSource.revokeObjectURL(rendered.objectUrl);
