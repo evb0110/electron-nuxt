@@ -252,19 +252,19 @@ describe('electron e2e Vitest project topology', () => {
             expect(JSON.stringify(packageScripts)).not.toContain(obsoleteEnvFlag);
             expect(largePdfSource).not.toContain(obsoleteEnvFlag);
         }
-        expect(packageScripts['test:e2e:electron:draw-shapes:no-build'])
-            .toBe('vitest run --project e2e-draw-shapes --reporter verbose');
-        expect(packageScripts['test:e2e:electron:large:no-build'])
-            .toBe('EVB_PDF_PAGE_OPS_ENABLE=1 EVB_E2E_REQUIRE_LARGE_PDF_FIXTURE=1 vitest run --project e2e-large-pdf --reporter verbose');
+        expect(packageScripts['test:e2e:electron:draw-shapes'])
+            .toBe('pnpm run build:electron && vitest run --project e2e-draw-shapes --reporter verbose');
         expect(packageScripts['test:e2e:electron:large']).toContain('pnpm run build:pdf-page-ops');
-        expect(packageScripts['test:e2e:electron:rapid-navigation:no-build'])
-            .toBe('vitest run --project e2e-rapid-navigation --reporter verbose');
-        expect(packageScripts['test:e2e:electron:visible-window:no-build'])
-            .toBe('vitest run --project e2e-visible-window --reporter verbose');
+        expect(packageScripts['test:e2e:electron:large'])
+            .toContain('EVB_PDF_PAGE_OPS_ENABLE=1 EVB_E2E_REQUIRE_LARGE_PDF_FIXTURE=1 vitest run --project e2e-large-pdf --reporter verbose');
+        expect(packageScripts['test:e2e:electron:rapid-navigation'])
+            .toBe('pnpm run build:electron && vitest run --project e2e-rapid-navigation --reporter verbose');
+        expect(packageScripts['test:e2e:electron:visible-window'])
+            .toBe('pnpm run build:electron && vitest run --project e2e-visible-window --reporter verbose');
         expect(packageScripts['test:e2e:electron'])
-            .toBe('pnpm run build:electron && pnpm run test:e2e:electron:regression:no-build');
-        expect(packageScripts['test:e2e:electron:regression:no-build'])
-            .toBe('vitest run --project e2e-regression --reporter verbose');
+            .toBe('pnpm run build:electron && vitest run --project e2e-regression --reporter verbose');
+        expect(packageScripts['test:e2e:electron:regression'])
+            .toBe('pnpm run build:electron && vitest run --project e2e-regression --reporter verbose');
         expect(packageScripts['test:e2e:electron:smoke:no-build']).toBeUndefined();
         expect(packageScripts['test:e2e:electron:watch'])
             .toBe('vitest --project e2e-regression --reporter verbose');
@@ -279,7 +279,7 @@ describe('electron e2e quarantine Vitest project', () => {
         const quarantineProject = projectByName(config, vitestProjectNames.electronE2EQuarantine);
 
         expect(quarantineProject.test?.include).toEqual(electronE2EQuarantineTestFiles);
-        expect(packageScripts['test:e2e:electron:quarantine:no-build'])
-            .toBe('vitest run --project e2e-quarantine --passWithNoTests --reporter verbose');
+        expect(packageScripts['test:e2e:electron:quarantine'])
+            .toBe('pnpm run build:pdf-image-combine && pnpm run build:scan-cleanup && pnpm run build:electron && vitest run --project e2e-quarantine --passWithNoTests --reporter verbose');
     });
 });

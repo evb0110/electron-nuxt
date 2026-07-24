@@ -7,7 +7,7 @@ const baselinePath = resolve(projectRoot, '.fallow-dupes-baseline.json');
 
 if (!existsSync(baselinePath)) {
     console.error('Duplication baseline missing: .fallow-dupes-baseline.json');
-    console.error('Regenerate with: pnpm run fallow:dupes:baseline');
+    console.error('Regenerate with: pnpm exec fallow dupes --production --threshold 10 --save-baseline .fallow-dupes-baseline.json --summary');
     process.exit(1);
 }
 
@@ -43,5 +43,5 @@ for (const group of newGroups) {
     }
     console.error('');
 }
-console.error('Deduplicate the new clones, or if intentional refresh the baseline with: pnpm run fallow:dupes:baseline');
+console.error('Deduplicate the new clones, or if intentional refresh the baseline with: pnpm exec fallow dupes --production --threshold 10 --save-baseline .fallow-dupes-baseline.json --summary');
 process.exit(1);

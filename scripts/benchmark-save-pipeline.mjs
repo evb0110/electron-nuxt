@@ -191,7 +191,7 @@ export async function runSavePipelineBenchmark(rawOptions) {
 
 function printUsage() {
     process.stdout.write(
-        'Usage: pnpm run benchmark:save-pipeline -- --fixture /absolute/input.pdf --iterations 10 --output .devkit/analysis/wp4-save-pipeline.json [--warmups 5]\n',
+        'Usage: node scripts/benchmark-save-pipeline.mjs --fixture /absolute/input.pdf --iterations 10 --output .devkit/analysis/wp4-save-pipeline.json [--warmups 5]\n',
     );
 }
 

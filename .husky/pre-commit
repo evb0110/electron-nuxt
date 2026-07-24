@@ -1,3 +1,3 @@
-pnpm run gate:commit
-pnpm run check:locales
-pnpm run check:icons:bundle
+pnpm exec lint-staged
+node --import tsx scripts/checkLocales.ts --target=app
+node --import tsx scripts/checkIconBundle.ts --target=app

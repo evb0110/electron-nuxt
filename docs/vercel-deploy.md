@@ -26,7 +26,7 @@
 - Desktop release artifacts are intentionally written to `release/`, not `dist/`, so they cannot be mistaken for web output during Vercel deploys.
 - Local Vercel link metadata lives in `.vercel/` and is gitignored.
 - Vercel needs the root workspace package and the shared packages under `packages/`. The landing app is in the same workspace but remains excluded from this browser-app deploy source.
-- `pnpm run check:web-deploy-source` verifies the local deploy source stays below Vercel upload limits and that Electron, native, fixture, coverage, and other local-only paths remain excluded.
+- `pnpm run check:static:assets` verifies the local deploy source stays below Vercel upload limits and that Electron, native, fixture, coverage, and other local-only paths remain excluded.
 
 ## Suggested Dashboard Settings
 

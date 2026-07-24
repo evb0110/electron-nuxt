@@ -10,8 +10,8 @@
 - `pnpm lint && pnpm typecheck && pnpm build`
 - `pnpm run test:electron-bundle-static-integrity:no-build`
 - `pnpm exec vitest run --project unit-policy tests/unit/scripts/releasePolicy.test.ts`
-- `pnpm run validate:changed`
-- `pnpm run fallow:changed`
+- `pnpm exec vitest run --changed origin/main --project unit-core --project unit-app --project unit-electron --project unit-scripts --project unit-policy --passWithNoTests`
+- `pnpm exec fallow dead-code --changed-since origin/main`
 - `pnpm validate`
 
 ## Intended Use
@@ -41,10 +41,10 @@
 
 ## Broader Gates
 
-- `pnpm run check:architecture` validates app/module boundaries. Normal `lint` runs the focused import/boundary subset through `check:architecture:imports`.
+- `pnpm run check:architecture` validates app/module boundaries. Normal `lint` runs the same focused import/boundary subset directly.
 - `pnpm validate` is the broad local gate: lint, split static report/assets
   checks, typecheck, unit tests, type coverage, strict build, and fallow checks.
-- Changed or fast loops are for iteration only: `pnpm run validate:changed`
+- Changed or fast loops are for iteration only: use Vitest's `--changed origin/main`
   runs cached ESLint, changed Vitest tests, and changed fallow checks;
   `pnpm exec vitest run --project unit-policy tests/unit/scripts/releasePolicy.test.ts`
   keeps release/local policy edits tight. Run the broader gate before relying
