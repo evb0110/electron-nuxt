@@ -54,10 +54,7 @@ const pdfjsState: {
 
 vi.mock('pdfjs-dist', () => pdfjsState);
 
-const electronApi = createElectronPlatformApiFixture({
-    documents: {readFileRange: vi.fn()},
-    documentFiles: {readFileRange: vi.fn()},
-});
+const electronApi = createElectronPlatformApiFixture({documentFiles: {readFileRange: vi.fn()}});
 
 vi.mock('@app/utils/platform', () => ({getPlatformAPI: () => electronApi}));
 
@@ -73,8 +70,6 @@ describe('usePdfDocument range loading', () => {
     beforeEach(() => {
         vi.clearAllMocks();
         electronApi.documentFiles.readFileRange.mockReset();
-        electronApi.documents.readFileRange.mockReset();
-        electronApi.documents.readFileRange.mockRejectedValue(new Error('Legacy documents electronApi.documentFiles.readFileRange should not be used'));
         vi.stubGlobal('URL', {
             ...URL,
             createObjectURL: createObjectURLMock,
@@ -147,7 +142,6 @@ describe('usePdfDocument range loading', () => {
 
         const { getPdfjsAssetDir } = await import('@app/utils/viewerAssets');
         expect(pdfjsState.getDocument).toHaveBeenCalledTimes(1);
-        expect(electronApi.documents.readFileRange).not.toHaveBeenCalled();
         expect(pdfjsState.getDocument).toHaveBeenCalledWith(expect.objectContaining({
             range: expect.any(MockPdfDataRangeTransport),
             length: size,

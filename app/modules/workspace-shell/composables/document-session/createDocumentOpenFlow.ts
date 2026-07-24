@@ -33,7 +33,6 @@ import { getDocumentRefBaseName } from '@app/utils/documentRef';
 import { getErrorMessage } from '@app/utils/error';
 import {
     getDocumentFilesCapability,
-    getDocumentMenuCapability,
     getDocumentOpenCapability,
     getDocumentPickerCapability,
 } from '@app/utils/platformDocuments';
@@ -473,7 +472,6 @@ export function createDocumentOpenFlow(
         state.openBatchProgress.value = null;
         try {
             const documentOpen = getDocumentOpenCapability();
-            const documentMenu = getDocumentMenuCapability();
             const normalizedPaths = paths
                 .map((path) => path.trim())
                 .filter((path) => path.length > 0);
@@ -498,7 +496,7 @@ export function createDocumentOpenFlow(
                 estimatedRemainingMs: null,
             };
 
-            const stopProgress = documentMenu.onOpenDocumentDirectBatchProgress(
+            const stopProgress = documentOpen.onOpenDocumentDirectBatchProgress(
                 (progress) => {
                     if (
                         progress.operation !== 'document-open'

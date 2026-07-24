@@ -25,17 +25,9 @@ import {requireDocumentRevisionToken} from '@contracts';
 
 vi.mock('@app/utils/documentBytes', () => ({ readDocumentBytes: vi.fn() }));
 
-const platformMocks = vi.hoisted(() => ({
-    documentFilesCapability: {},
-    getDocumentsCapability: vi.fn(() => {
-        throw new Error('usePdfSerialization should use getDocumentFilesCapability for native PDF mutations');
-    }),
-}));
+const platformMocks = vi.hoisted(() => ({documentFilesCapability: {}}));
 
-vi.mock('@app/utils/platformDocuments', () => ({
-    getDocumentFilesCapability: () => platformMocks.documentFilesCapability,
-    getDocumentsCapability: platformMocks.getDocumentsCapability,
-}));
+vi.mock('@app/utils/platformDocuments', () => ({getDocumentFilesCapability: () => platformMocks.documentFilesCapability}));
 
 const ONE_PIXEL_PNG = Uint8Array.from(Buffer.from(
     'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO7Z0ioAAAAASUVORK5CYII=',
@@ -45,7 +37,6 @@ const TEST_DOCUMENT_REVISION_TOKEN = requireDocumentRevisionToken('drt1:test:ser
 
 beforeEach(() => {
     platformMocks.documentFilesCapability = {};
-    platformMocks.getDocumentsCapability.mockClear();
     vi.mocked(readDocumentBytes).mockReset();
 });
 

@@ -56,7 +56,6 @@ const browserShellApi: IPlatformApi['shell'] = { openExternal(url: string) {
 
 export const browserPlatformApi = {
     manifest: BROWSER_PLATFORM_MANIFEST,
-    documents: browserDocumentCapabilities.documents,
     documentPicker: browserDocumentCapabilities.documentPicker,
     documentOpen: browserDocumentCapabilities.documentOpen,
     documentWorkingCopy: browserDocumentCapabilities.documentWorkingCopy,

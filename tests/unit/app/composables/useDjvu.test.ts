@@ -40,16 +40,6 @@ const mockElectronAPI = createElectronPlatformApiFixture({
         cancel: vi.fn(),
         cleanupTemp: vi.fn(),
     },
-    documents: {
-        setWindowTitle: vi.fn(),
-        savePdfDialog: vi.fn(() => {
-            throw new Error('Legacy documents.savePdfDialog should not be used for DjVu export');
-        }),
-        openPdfDirect: vi.fn(),
-        cleanupFile: vi.fn(() => {
-            throw new Error('Legacy documents.cleanupFile should not be used for DjVu export');
-        }),
-    },
     documentFiles: mockDocumentFilesCapability,
     documentWorkingCopy: mockDocumentWorkingCopyCapability,
 });
@@ -71,9 +61,6 @@ const mockDjvuModeState = {
 
 vi.mock('@app/utils/platform', () => ({getPlatformAPI: () => mockElectronAPI}));
 vi.mock('@app/utils/platformDocuments', () => ({
-    getDocumentsCapability: () => {
-        throw new Error('Legacy documents facade should not be used for DjVu export');
-    },
     getDocumentFilesCapability: () => mockElectronAPI.documentFiles,
     getDocumentWorkingCopyCapability: () => mockElectronAPI.documentWorkingCopy,
 }));
@@ -201,7 +188,6 @@ describe('useDjvu', () => {
 
             const djvu = useDjvu();
             await djvu.openDjvuFile('/path/to/doc.djvu');
-            expect(mockElectronAPI.documents.setWindowTitle).not.toHaveBeenCalled();
             expect(djvu.isLoadingPages.value).toBe(false);
         });
 
@@ -245,7 +231,6 @@ describe('useDjvu', () => {
                 'browser://documents/source/%25D0%2593%25D0%25BB%25D0%25B0%25D0%25B2%25D0%25B0.djvu',
             );
 
-            expect(mockElectronAPI.documents.setWindowTitle).not.toHaveBeenCalled();
         });
 
         it('throws when openForViewing fails', async () => {
@@ -411,7 +396,6 @@ describe('useDjvu', () => {
             await djvu.convertToPdf(1, true, 'direct', createUnusedConvertedPdfOpen());
 
             expect(mockDocumentFilesCapability.savePdfDialog).toHaveBeenCalledWith('input.pdf');
-            expect(mockElectronAPI.documents.savePdfDialog).not.toHaveBeenCalled();
         });
 
         it('turns the DjVu fallback into a PDF suggestion only when the source has no basename', async () => {
@@ -427,7 +411,6 @@ describe('useDjvu', () => {
             await djvu.convertToPdf(1, true, 'direct', createUnusedConvertedPdfOpen());
 
             expect(mockDocumentFilesCapability.savePdfDialog).toHaveBeenCalledWith('djvu.documentFallback.pdf');
-            expect(mockElectronAPI.documents.savePdfDialog).not.toHaveBeenCalled();
         });
 
         it('shows a conversion toast without poisoning the DjVu viewing error', async () => {
@@ -453,7 +436,6 @@ describe('useDjvu', () => {
             }));
             expect(djvu.conversionState.value.isConverting).toBe(false);
             expect(mockDocumentWorkingCopyCapability.cleanupFile).not.toHaveBeenCalled();
-            expect(mockElectronAPI.documents.cleanupFile).not.toHaveBeenCalled();
         });
 
         it('cancels a conversion whose native handle arrives after cancellation', async () => {
@@ -556,7 +538,6 @@ describe('useDjvu', () => {
             }));
             expect(mockDocumentWorkingCopyCapability.cleanupFile)
                 .toHaveBeenCalledWith('browser://documents/output/out.pdf');
-            expect(mockElectronAPI.documents.cleanupFile).not.toHaveBeenCalled();
         });
 
         it('opens the converted PDF through the workspace direct-open flow', async () => {

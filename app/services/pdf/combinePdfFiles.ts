@@ -1,7 +1,6 @@
 import type { TOpenFileResult } from '@contracts/electronApiDocuments';
 import { hasElectronAPI } from '@app/utils/platform';
 import {
-    getDocumentMenuCapability,
     getDocumentOpenCapability,
     getDocumentPickerCapability,
     getDocumentWorkingCopyCapability,
@@ -136,7 +135,6 @@ function toMonotonicInProgress(
 async function combineElectronFiles(options: ICombinePdfFilesOptions): Promise<TOpenFileResult> {
     const documentPicker = getDocumentPickerCapability();
     const documentOpen = getDocumentOpenCapability();
-    const documentMenu = getDocumentMenuCapability();
     const inputPaths = documentPicker.getPathsForFiles(options.files.map(entry => entry.file))
         .filter(path => path.length > 0);
 
@@ -146,7 +144,7 @@ async function combineElectronFiles(options: ICombinePdfFilesOptions): Promise<T
 
     const requestId = crypto.randomUUID();
     let latestProgress: ICombinePdfProgress | null = null;
-    const stopProgress = documentMenu.onOpenDocumentDirectBatchProgress((nextProgress) => {
+    const stopProgress = documentOpen.onOpenDocumentDirectBatchProgress((nextProgress) => {
         if (
             nextProgress.operation !== 'document-open'
             || nextProgress.requestId !== requestId

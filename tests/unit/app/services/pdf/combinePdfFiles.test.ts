@@ -41,30 +41,17 @@ const mocks = vi.hoisted(() => {
         documentOpen: {
             openDocumentDirectBatch: vi.fn(),
             cancelOpenDocumentDirectBatch: vi.fn(async () => true),
+            onOpenDocumentDirectBatchProgress,
         },
-        documentMenu: { onOpenDocumentDirectBatchProgress },
         documentWorkingCopy: { createWorkingCopyFromData: vi.fn() },
-        legacyDocuments: {
-            getPathsForFiles: vi.fn(() => {
-                throw new Error('legacy combine path extraction should not be used');
-            }),
-            openDocumentDirectBatch: vi.fn(() => {
-                throw new Error('legacy combine direct batch open should not be used');
-            }),
-            createWorkingCopyFromData: vi.fn(() => {
-                throw new Error('legacy combine working copy creation should not be used');
-            }),
-        },
     };
 });
 
 vi.mock('@app/utils/platform', () => ({hasElectronAPI: () => mocks.hasElectronAPI()}));
 vi.mock('@app/utils/platformDocuments', () => ({
-    getDocumentMenuCapability: () => mocks.documentMenu,
     getDocumentOpenCapability: () => mocks.documentOpen,
     getDocumentPickerCapability: () => mocks.documentPicker,
     getDocumentWorkingCopyCapability: () => mocks.documentWorkingCopy,
-    getDocumentsCapability: () => mocks.legacyDocuments,
 }));
 
 function createFile(name: string) {
@@ -99,7 +86,7 @@ describe('combinePdfFiles', () => {
         vi.unstubAllGlobals();
     });
 
-    it('uses split picker, open, and menu capabilities for Electron combine batches', async () => {
+    it('uses split picker and open capabilities for Electron combine batches', async () => {
         const firstFile = createFile('first.pdf');
         const secondFile = createFile('second.pdf');
         const onProgress = vi.fn<(progress: ICombinePdfProgress) => void>();
@@ -149,7 +136,7 @@ describe('combinePdfFiles', () => {
             '/tmp/first.pdf',
             '/tmp/second.pdf',
         ], 'combine-request-1', {forceCombine: true});
-        expect(mocks.documentMenu.onOpenDocumentDirectBatchProgress).toHaveBeenCalledOnce();
+        expect(mocks.documentOpen.onOpenDocumentDirectBatchProgress).toHaveBeenCalledOnce();
         expect(mocks.stopProgress).toHaveBeenCalledOnce();
         expect(onProgress).toHaveBeenNthCalledWith(1, {
             processed: 1,
@@ -165,8 +152,6 @@ describe('combinePdfFiles', () => {
             elapsedMs: 25,
             estimatedRemainingMs: null,
         });
-        expect(mocks.legacyDocuments.getPathsForFiles).not.toHaveBeenCalled();
-        expect(mocks.legacyDocuments.openDocumentDirectBatch).not.toHaveBeenCalled();
     });
 
     it('creates browser generated output through the split working-copy capability', async () => {
@@ -215,7 +200,6 @@ describe('combinePdfFiles', () => {
             'combined.pdf',
             combinedBytes,
         );
-        expect(mocks.legacyDocuments.createWorkingCopyFromData).not.toHaveBeenCalled();
     });
 
     it('keeps fallback progress monotonic and reserves 100 percent for completion', async () => {

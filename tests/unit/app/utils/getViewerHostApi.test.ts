@@ -7,15 +7,6 @@ import {
 } from 'vitest';
 
 const mocks = vi.hoisted(() => {
-    const documents = {
-        statFile: vi.fn(),
-        readFile: vi.fn(),
-        readFileRange: vi.fn(),
-        openDocumentDialog: vi.fn(),
-        openDocumentDirect: vi.fn(),
-        writeFile: vi.fn(),
-        savePdfDialog: vi.fn(),
-    };
     const documentOpen = {openDocumentDirect: vi.fn()};
     const documentPicker = {openDocumentDialog: vi.fn()};
     const documentFiles = {
@@ -30,7 +21,6 @@ const mocks = vi.hoisted(() => {
         documentOpen,
         documentFiles,
         documentPicker,
-        documents,
         hasElectronAPI: vi.fn(() => true),
         search: {source: 'search'},
         settings: {source: 'settings'},
@@ -68,10 +58,6 @@ describe('getViewerHostApi', () => {
             originalPath: '/tmp/recent.pdf',
             workingPath: '/tmp/recent-working.pdf',
         });
-        mocks.documents.openDocumentDialog.mockRejectedValue(new Error('legacy picker should not be used'));
-        mocks.documents.openDocumentDirect.mockRejectedValue(new Error('legacy open should not be used'));
-        mocks.documents.writeFile.mockRejectedValue(new Error('legacy write should not be used'));
-        mocks.documents.savePdfDialog.mockRejectedValue(new Error('legacy save dialog should not be used'));
         mocks.documentFiles.writeFile.mockResolvedValue(true);
         mocks.documentFiles.savePdfDialog.mockResolvedValue('/tmp/saved.pdf');
     });
@@ -89,9 +75,6 @@ describe('getViewerHostApi', () => {
         expect(mocks.documentFiles.statFile).toHaveBeenCalledWith('/tmp/source.pdf');
         expect(mocks.documentFiles.readFile).toHaveBeenCalledWith('/tmp/source.pdf');
         expect(mocks.documentFiles.readFileRange).toHaveBeenCalledWith('/tmp/source.pdf', 10, 5);
-        expect(mocks.documents.statFile).not.toHaveBeenCalled();
-        expect(mocks.documents.readFile).not.toHaveBeenCalled();
-        expect(mocks.documents.readFileRange).not.toHaveBeenCalled();
     });
 
     it('routes viewer host picker, open, and saves through split capabilities when available', async () => {
@@ -122,12 +105,8 @@ describe('getViewerHostApi', () => {
 
         expect(mocks.documentPicker.openDocumentDialog).toHaveBeenCalledOnce();
         expect(mocks.documentOpen.openDocumentDirect).toHaveBeenCalledWith('/tmp/recent.pdf');
-        expect(mocks.documents.openDocumentDialog).not.toHaveBeenCalled();
-        expect(mocks.documents.openDocumentDirect).not.toHaveBeenCalled();
         expect(mocks.documentFiles.savePdfDialog).toHaveBeenCalledWith('output.pdf');
         expect(mocks.documentFiles.writeFile).toHaveBeenCalledWith('/tmp/output.pdf', bytes);
         expect(mocks.documentFiles.writeFile).toHaveBeenCalledWith('/tmp/saved.pdf', bytes);
-        expect(mocks.documents.savePdfDialog).not.toHaveBeenCalled();
-        expect(mocks.documents.writeFile).not.toHaveBeenCalled();
     });
 });

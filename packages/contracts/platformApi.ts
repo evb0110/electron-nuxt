@@ -1,7 +1,6 @@
 import type { IAgentCapability } from '@contracts/agentPlatformFeature';
 import type { IDjvuCapability } from '@contracts/djvuPlatformFeature';
 import type {
-    IDocumentsCapability,
     IDocumentsFileIoCapability,
     IDocumentsMenuCapability,
     IDocumentsOpenCapability,
@@ -36,22 +35,20 @@ export {
     PLATFORM_CONTRACT_VERSION,
 } from '@contracts/platformManifest';
 export {
-    getPlatformDocumentCapabilityMirrors,
     getPlatformMethodDescriptor,
     PLATFORM_API_DESCRIPTOR,
 } from '@contracts/platformApiDescriptor';
 
 export interface IPlatformApi {
     manifest: IPlatformRuntimeManifest;
-    documents: IDocumentsCapability;
-    documentPicker?: IDocumentsPickerCapability;
-    documentOpen?: IDocumentsOpenCapability;
-    documentWorkingCopy?: IDocumentsWorkingCopyCapability;
-    documentFiles?: IDocumentsFileIoCapability;
-    documentPdf?: IDocumentsPdfCapability;
-    documentRecentFiles?: IDocumentsRecentFilesCapability;
-    documentWindow?: IDocumentsWindowCapability;
-    documentMenu?: IDocumentsMenuCapability;
+    documentPicker: IDocumentsPickerCapability;
+    documentOpen: IDocumentsOpenCapability;
+    documentWorkingCopy: IDocumentsWorkingCopyCapability;
+    documentFiles: IDocumentsFileIoCapability;
+    documentPdf: IDocumentsPdfCapability;
+    documentRecentFiles: IDocumentsRecentFilesCapability;
+    documentWindow: IDocumentsWindowCapability;
+    documentMenu: IDocumentsMenuCapability;
     pageOps: IPageOpsCapability;
     imageExport: IImageExportCapability;
     ocr: IOcrCapability;

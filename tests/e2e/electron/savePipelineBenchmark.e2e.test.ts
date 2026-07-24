@@ -93,10 +93,7 @@ async function forceSerializedFallback(page: Page) {
             applied: false,
             validation: null,
         });
-        const capabilities = [
-            window.electronAPI?.documents,
-            window.electronAPI?.documentFiles,
-        ].filter((value, index, values) => value && values.indexOf(value) === index);
+        const capabilities = [window.electronAPI?.documentFiles];
         for (const capability of capabilities) {
             if (!capability) {
                 continue;

@@ -43,10 +43,6 @@ vi.mock('@app/utils/platformDocuments', () => ({
         openCombineDialog: mockOpenCombineDialog,
         openFolderDialog: mockOpenFolderDialog,
     }),
-    getDocumentsCapability: () => ({
-        openCombineDialog: mockLegacyOpenCombineDialog,
-        openFolderDialog: mockLegacyOpenFolderDialog,
-    }),
 }));
 
 function openedOutcome(path = '/tmp/working.pdf'): TDocumentOpenOutcome {

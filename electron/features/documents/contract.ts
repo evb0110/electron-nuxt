@@ -19,16 +19,9 @@ import type {
 } from '@electron/features/documents/serializedPdfPersistenceContract';
 import type { ITypedStagedArtifact } from '@contracts/stagedArtifacts';
 
-/**
- * Compatibility names for existing Electron callers. Every invoke/event channel
- * that can be represented by a platform feature is derived from that feature;
- * only renderer authorization and MessagePort-backed persistence remain local.
- */
 export const DOCUMENTS_CHANNELS = {
     openDocumentDirect: DOCUMENT_OPEN_PLATFORM_FEATURE.invokeChannels.openDocumentDirect,
-    openPdfDirect: DOCUMENT_OPEN_PLATFORM_FEATURE.invokeChannels.openPdfDirect,
     openDocumentDirectBatch: DOCUMENT_OPEN_PLATFORM_FEATURE.invokeChannels.openDocumentDirectBatch,
-    openPdfDirectBatch: DOCUMENT_OPEN_PLATFORM_FEATURE.invokeChannels.openPdfDirectBatch,
     cancelOpenDocumentDirectBatch: DOCUMENT_OPEN_PLATFORM_FEATURE.invokeChannels.cancelOpenDocumentDirectBatch,
     registerRendererFileOpenToken: 'dialog:registerRendererFileOpenToken',
     registerRendererFileOpenTokens: 'dialog:registerRendererFileOpenTokens',

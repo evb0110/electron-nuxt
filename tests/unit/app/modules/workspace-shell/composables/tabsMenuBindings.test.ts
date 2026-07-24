@@ -51,7 +51,7 @@ function createDeps(overrides: Partial<Parameters<typeof registerTabsMenuBinding
     });
 }
 
-function createMenuApi(options: { legacyDocumentsMenu?: boolean } = {}) {
+function createMenuApi() {
     let onMenuOpenPdf: (() => void) | null = null;
     let onMenuRepairSave: (() => void) | null = null;
     let onMenuOptimizePdfForInteraction: (() => void) | null = null;
@@ -104,21 +104,13 @@ function createMenuApi(options: { legacyDocumentsMenu?: boolean } = {}) {
             };
         }),
     };
-    const api = cast<Parameters<typeof registerTabsMenuBindings>[0]>(options.legacyDocumentsMenu
-        ? {
-            documents: menuApi,
-            settings: {},
-            updates: {},
-            djvu: {},
-            windowTabs: {},
-        }
-        : {
-            documentMenu: menuApi,
-            settings: {},
-            updates: {},
-            djvu: {},
-            windowTabs: {},
-        });
+    const api = cast<Parameters<typeof registerTabsMenuBindings>[0]>({
+        documentMenu: menuApi,
+        settings: {},
+        updates: {},
+        djvu: {},
+        windowTabs: {},
+    });
 
     return {
         api,
@@ -186,18 +178,6 @@ describe('registerTabsMenuBindings', () => {
         await flushMicrotasks();
 
         expect(handleFallbackToolbarOpenFile).toHaveBeenCalledTimes(1);
-    });
-
-    it('does not fall back to legacy aggregate documents menu callbacks', async () => {
-        const handleFallbackToolbarOpenFile = vi.fn(async () => {});
-        const deps = createDeps({ handleFallbackToolbarOpenFile });
-        const menuApi = createMenuApi({ legacyDocumentsMenu: true });
-
-        registerTabsMenuBindings(menuApi.api, deps);
-        menuApi.emitOpenPdf();
-        await flushMicrotasks();
-
-        expect(handleFallbackToolbarOpenFile).not.toHaveBeenCalled();
     });
 
     it('routes the repair-save menu command to the active workspace', async () => {

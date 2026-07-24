@@ -25,7 +25,6 @@ interface ISourceInventory {
     fileCount: number;
     propertyChains: Set<string>;
     propertyNames: Set<string>;
-    aggregateDocumentsCallSites: string[];
 }
 
 const SOURCE_EXTENSIONS = new Set([
@@ -49,18 +48,6 @@ const IGNORED_DIRECTORY_NAMES = new Set([
     'coverage',
     'generated',
 ]);
-
-export const AGGREGATE_DOCUMENTS_ALLOWED_FILES = [
-    'app/platform/browser-api/createDjvuWorkerFromPath.ts',
-    'app/platform/browserPlatformApi.ts',
-    'app/platform/lazyBrowserPlatformApi.ts',
-    'app/utils/platformDocuments.ts',
-    'app/platform/validatePlatformApi.ts',
-] as const;
-
-export const AGGREGATE_DOCUMENTS_UNAPPROVED_BASELINE = 0;
-
-const aggregateDocumentsAllowedFileSet = new Set<string>(AGGREGATE_DOCUMENTS_ALLOWED_FILES);
 
 function toPosix(filePath: string) {
     return filePath.split(path.sep).join('/');
@@ -147,18 +134,6 @@ function getPropertyAccessChain(node: ts.PropertyAccessExpression): string[] {
     return names;
 }
 
-function isAggregateDocumentsAccess(node: ts.PropertyAccessExpression) {
-    return node.name.text === 'documents'
-        && !ts.isPropertyAccessExpression(node.parent)
-        && !ts.isPropertyAssignment(node.parent)
-        && !ts.isShorthandPropertyAssignment(node.parent);
-}
-
-function lineAndColumn(sourceFile: ts.SourceFile, node: ts.Node) {
-    const position = sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile));
-    return `${position.line + 1}:${position.character + 1}`;
-}
-
 function scanSourceBlock(block: ISourceBlock, inventory: ISourceInventory) {
     const sourceFile = ts.createSourceFile(
         block.file,
@@ -177,34 +152,11 @@ function scanSourceBlock(block: ISourceBlock, inventory: ISourceInventory) {
             for (let index = 0; index < chain.length; index += 1) {
                 inventory.propertyChains.add(chain.slice(index).join('.'));
             }
-            if (
-                isAggregateDocumentsAccess(node)
-                && !aggregateDocumentsAllowedFileSet.has(block.file)
-            ) {
-                inventory.aggregateDocumentsCallSites.push(`${block.file}:${lineAndColumn(sourceFile, node)}`);
-            }
         }
         ts.forEachChild(node, visit);
     }
 
     visit(sourceFile);
-}
-
-export function collectAggregateDocumentsCallSites(file: string, sourceText: string) {
-    const inventory: ISourceInventory = {
-        fileCount: 1,
-        propertyChains: new Set(),
-        propertyNames: new Set(),
-        aggregateDocumentsCallSites: [],
-    };
-    for (const block of collectSourceBlocks(file, sourceText)) {
-        scanSourceBlock(block, inventory);
-    }
-    return inventory.aggregateDocumentsCallSites.sort();
-}
-
-export function isAggregateDocumentsBaselineSatisfied(unapprovedCallSiteCount: number) {
-    return unapprovedCallSiteCount <= AGGREGATE_DOCUMENTS_UNAPPROVED_BASELINE;
 }
 
 function isManifestDescriptor(value: unknown): value is IManifestEntry {
@@ -246,7 +198,6 @@ async function buildInventory() {
         fileCount: files.length,
         propertyChains: new Set(),
         propertyNames: new Set(),
-        aggregateDocumentsCallSites: [],
     };
 
     for (const file of files) {
@@ -256,41 +207,24 @@ async function buildInventory() {
         }
     }
 
-    inventory.aggregateDocumentsCallSites.sort();
     return inventory;
 }
 
-export async function runPlatformManifestConsumerCheck() {
+export async function reportPlatformManifestConsumers() {
     const entries = collectManifestEntries(platformMethodManifest)
         .sort((a, b) => a.path.join('.').localeCompare(b.path.join('.')));
     const inventory = await buildInventory();
     const zeroConsumerEntries = entries.filter(entry => !hasConsumer(entry, inventory));
-    const legacyDocumentsEntries = entries.filter(entry => entry.path[0] === 'documents');
 
-    console.log('[platform-manifest-consumers] Strict aggregate-capability boundary check.');
+    console.log('[platform-manifest-consumers] Platform capability consumer report.');
     console.log(`[platform-manifest-consumers] App source files scanned: ${inventory.fileCount}`);
     console.log(`[platform-manifest-consumers] Manifest entries: ${entries.length}`);
-    console.log(`[platform-manifest-consumers] Compatibility-only documents entries: ${legacyDocumentsEntries.length}`);
     console.log(`[platform-manifest-consumers] Entries with no app-side consumer signal: ${zeroConsumerEntries.length}`);
     for (const entry of zeroConsumerEntries.slice(0, 25)) {
         console.log(`  - ${entry.path.join('.')} (${entry.kind})`);
     }
     if (zeroConsumerEntries.length > 25) {
         console.log(`  ... ${zeroConsumerEntries.length - 25} more`);
-    }
-
-    console.log(`[platform-manifest-consumers] Unapproved aggregate documents call sites: ${inventory.aggregateDocumentsCallSites.length}`);
-    console.log(`[platform-manifest-consumers] Allowed baseline: ${AGGREGATE_DOCUMENTS_UNAPPROVED_BASELINE}`);
-    for (const callSite of inventory.aggregateDocumentsCallSites.slice(0, 25)) {
-        console.log(`  - ${callSite}`);
-    }
-    if (inventory.aggregateDocumentsCallSites.length > 25) {
-        console.log(`  ... ${inventory.aggregateDocumentsCallSites.length - 25} more`);
-    }
-
-    if (!isAggregateDocumentsBaselineSatisfied(inventory.aggregateDocumentsCallSites.length)) {
-        console.error('[platform-manifest-consumers] New aggregate documents capability access is forbidden. Use a narrow capability or explicitly approve the access at the platform boundary.');
-        return false;
     }
 
     return true;
@@ -300,7 +234,7 @@ const isDirectRun = process.argv[1] !== undefined
     && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
 
 if (isDirectRun) {
-    runPlatformManifestConsumerCheck()
+    reportPlatformManifestConsumers()
         .then((passed) => {
             if (!passed) {
                 process.exitCode = 1;

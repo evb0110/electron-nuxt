@@ -7,23 +7,13 @@ import {
 } from 'vitest';
 import { readPdfConformanceProfile } from '@app/services/pdf-file/readPdfConformanceProfile';
 
-const mocks = vi.hoisted(() => {
-    const analyzePdfConformance = vi.fn(() => {
-        throw new Error('legacy analyzePdfConformance should not be used');
-    });
-
-    return {
-        browserLogger: { warn: vi.fn() },
-        documentPdf: { analyzePdfConformance: vi.fn() },
-        legacyDocuments: { analyzePdfConformance },
-    };
-});
+const mocks = vi.hoisted(() => ({
+    browserLogger: { warn: vi.fn() },
+    documentPdf: { analyzePdfConformance: vi.fn() },
+}));
 
 vi.mock('@app/utils/browserLogger', () => ({ BrowserLogger: mocks.browserLogger }));
-vi.mock('@app/utils/platformDocuments', () => ({
-    getDocumentPdfCapability: () => mocks.documentPdf,
-    getDocumentsCapability: () => mocks.legacyDocuments,
-}));
+vi.mock('@app/utils/platformDocuments', () => ({getDocumentPdfCapability: () => mocks.documentPdf}));
 
 describe('readPdfConformanceProfile', () => {
     beforeEach(() => {
@@ -46,7 +36,6 @@ describe('readPdfConformanceProfile', () => {
             hasSignatures: false,
         });
         expect(mocks.documentPdf.analyzePdfConformance).toHaveBeenCalledWith('/tmp/working.pdf');
-        expect(mocks.legacyDocuments.analyzePdfConformance).not.toHaveBeenCalled();
     });
 
     it('logs and returns null when conformance analysis fails', async () => {

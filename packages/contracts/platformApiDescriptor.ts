@@ -1,10 +1,6 @@
 import {AGENT_PLATFORM_FEATURE} from '@contracts/agentPlatformFeature';
 import {DJVU_PLATFORM_FEATURE} from '@contracts/djvuPlatformFeature';
-import {
-    DOCUMENTS_AGGREGATE_PLATFORM_DESCRIPTOR,
-    DOCUMENT_MENU_OPEN_PROGRESS_PLATFORM_DESCRIPTOR,
-    DOCUMENT_PLATFORM_FEATURES,
-} from '@contracts/documentsPlatformFeature';
+import {DOCUMENT_PLATFORM_FEATURES} from '@contracts/documentsPlatformFeature';
 import {HOST_PLATFORM_FEATURE} from '@contracts/hostPlatformFeature';
 import {
     OCR_PLATFORM_FEATURE,
@@ -423,29 +419,11 @@ function mergePlatformDescriptors(
 }
 
 export const PLATFORM_API_DESCRIPTOR = mergePlatformDescriptors(
-    [
-        LEGACY_PLATFORM_API_DESCRIPTOR_WITHOUT_MIGRATED_FEATURES,
-        DOCUMENTS_AGGREGATE_PLATFORM_DESCRIPTOR,
-        DOCUMENT_MENU_OPEN_PROGRESS_PLATFORM_DESCRIPTOR,
-    ],
+    [LEGACY_PLATFORM_API_DESCRIPTOR_WITHOUT_MIGRATED_FEATURES],
     PLATFORM_FEATURE_REGISTRY,
 );
 
 export function getPlatformMethodDescriptor(path: readonly string[]) {
     const formattedPath = path.join('.');
     return PLATFORM_API_DESCRIPTOR.methods.find(descriptor => descriptor.path.join('.') === formattedPath);
-}
-
-export function getPlatformDocumentCapabilityMirrors() {
-    return PLATFORM_API_DESCRIPTOR.methods
-        .filter(descriptor =>
-            descriptor.aliasOf !== undefined
-            && (
-                descriptor.path[0] === 'documents'
-                || descriptor.path[0]?.startsWith('document') === true
-            ))
-        .map(descriptor => ({
-            legacyPath: descriptor.path,
-            splitPath: descriptor.aliasOf!,
-        }));
 }

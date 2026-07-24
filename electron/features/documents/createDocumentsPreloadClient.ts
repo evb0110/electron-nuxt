@@ -1,6 +1,6 @@
 import type {IpcRenderer} from 'electron';
 import type {
-    IDocumentsCapability,
+    IDocumentsFileCapability,
     IDocumentsMenuCapability,
     IDocumentsPickerCapability,
     IDocumentsRecentFilesCapability,
@@ -20,7 +20,7 @@ type TDocumentsOptionalDirectMethod =
 
 export function createDocumentsPreloadClient(
     ipcRenderer: IpcRenderer,
-): Omit<IDocumentsCapability, TDocumentsMigratedMethod>
-    & Partial<Pick<IDocumentsCapability, TDocumentsOptionalDirectMethod>> {
+): Omit<IDocumentsFileCapability, TDocumentsMigratedMethod>
+    & Partial<Pick<IDocumentsFileCapability, TDocumentsOptionalDirectMethod>> {
     return createDocumentsPreloadFileClient(ipcRenderer);
 }

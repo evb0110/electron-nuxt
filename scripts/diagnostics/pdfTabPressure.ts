@@ -198,12 +198,6 @@ async function openFixtureInActiveTab(fixture: string) {
                 await automationGrant(path);
             }
 
-            try {
-                await window.electronAPI?.documents?.recentFiles?.add?.(path);
-            } catch {
-                // Recent-file writes are not required for diagnostics.
-            }
-
             const openFileDirect = window.__openFileDirect;
             if (typeof openFileDirect !== 'function') {
                 throw new Error('window.__openFileDirect is not available');

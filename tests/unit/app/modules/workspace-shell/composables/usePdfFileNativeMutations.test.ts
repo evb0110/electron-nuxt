@@ -94,7 +94,6 @@ vi.mock('@app/modules/pdf-viewer/runtime/composables/pdf/useOcrTextContent', () 
 vi.mock('@app/utils/platformDocuments', () => ({
     getDocumentFilesCapability: () => documentsMock,
     getDocumentWorkingCopyCapability: () => documentsMock,
-    getDocumentsCapability: () => documentsMock,
     shouldRefreshWorkingCopyAfterSaveAs: () => false,
 }));
 

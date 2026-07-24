@@ -35,14 +35,12 @@ const mockDocuments = {
 };
 const mockElectronAPI = createElectronPlatformApiFixture({
     ocr: mockOcr,
-    documents: mockDocuments,
     documentFiles: mockDocuments,
     documentWorkingCopy: mockDocuments,
 });
 
 vi.mock('@app/utils/getOcrCapability', () => ({ getOcrCapability: () => mockElectronAPI.ocr }));
 vi.mock('@app/utils/platformDocuments', () => ({
-    getDocumentsCapability: () => mockElectronAPI.documents,
     getDocumentFilesCapability: () => mockElectronAPI.documentFiles,
     getDocumentWorkingCopyCapability: () => mockElectronAPI.documentWorkingCopy,
 }));

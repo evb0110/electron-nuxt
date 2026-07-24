@@ -21,33 +21,12 @@ const mocks = vi.hoisted(() => ({
         cleanupFile: vi.fn(),
         createWorkingCopyFromData: vi.fn(),
     },
-    legacyDocuments: {
-        cleanupFile: vi.fn(() => {
-            throw new Error('legacy cleanupFile should not be used');
-        }),
-        createWorkingCopyFromData: vi.fn(() => {
-            throw new Error('legacy createWorkingCopyFromData should not be used');
-        }),
-        savePdfAs: vi.fn(() => {
-            throw new Error('legacy savePdfAs should not be used');
-        }),
-        savePdfDataAs: vi.fn(() => {
-            throw new Error('legacy savePdfDataAs should not be used');
-        }),
-        validatePdfData: vi.fn(() => {
-            throw new Error('legacy validatePdfData should not be used');
-        }),
-        writeFile: vi.fn(() => {
-            throw new Error('legacy writeFile should not be used');
-        }),
-    },
 }));
 
 vi.mock('@app/utils/platformDocuments', () => ({
     getDocumentFilesCapability: () => mocks.documentFiles,
     getDocumentPdfCapability: () => mocks.documentPdf,
     getDocumentWorkingCopyCapability: () => mocks.documentWorkingCopy,
-    getDocumentsCapability: () => mocks.legacyDocuments,
 }));
 
 const SERIALIZED_SAVE_OPTIONS = { expectedDocumentRevisionToken: requireDocumentRevisionToken('drt1:test:serialized-base') };
@@ -103,7 +82,6 @@ describe('savePdfBytesAs', () => {
         );
         expect(mocks.documentPdf.validatePdfData).not.toHaveBeenCalled();
         expect(mocks.documentWorkingCopy.createWorkingCopyFromData).not.toHaveBeenCalled();
-        expect(mocks.legacyDocuments.savePdfDataAs).not.toHaveBeenCalled();
     });
 
     it('stages fallback Save As bytes without mutating the active working copy', async () => {
@@ -129,9 +107,6 @@ describe('savePdfBytesAs', () => {
             { expectedDocumentRevisionToken: STAGED_REVISION.token },
         );
         expect(mocks.documentWorkingCopy.cleanupFile).toHaveBeenCalledWith('/tmp/staged.pdf');
-        expect(mocks.legacyDocuments.createWorkingCopyFromData).not.toHaveBeenCalled();
-        expect(mocks.legacyDocuments.savePdfAs).not.toHaveBeenCalled();
-        expect(mocks.legacyDocuments.cleanupFile).not.toHaveBeenCalled();
     });
 
     it('returns invalid fallback validation without staging or saving', async () => {

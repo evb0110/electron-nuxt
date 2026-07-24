@@ -17,7 +17,6 @@ import { tmpdir } from 'os';
 import { EventEmitter } from 'node:events';
 import {
     DOCUMENT_MENU_PLATFORM_FEATURE,
-    DOCUMENT_PICKER_PLATFORM_FEATURE,
     DOCUMENT_RECENT_FILES_PLATFORM_FEATURE,
     DOCUMENT_PLATFORM_FEATURES,
 } from '@contracts/documentsPlatformFeature';
@@ -125,29 +124,6 @@ describe('documents ipc adapter', () => {
 
         expect(() => assertDocumentsIpcSingleRegistrationInvariant(registeredChannels))
             .toThrow(/Missing documents IPC channel registration/u);
-    });
-
-    it('keeps documents ipc aliases explicit while counting shared channel values once', async () => {
-        const { DOCUMENTS_IPC_CHANNEL_ALIASES } = await import('@electron/features/documents/registerDocumentsIpcAdapter');
-
-        expect(DOCUMENTS_IPC_CHANNEL_ALIASES).toEqual([
-            {
-                aliasKey: 'openPdfDirect',
-                ownerKey: 'openDocumentDirect',
-            },
-            {
-                aliasKey: 'openPdfDirectBatch',
-                ownerKey: 'openDocumentDirectBatch',
-            },
-        ]);
-        for (const {
-            aliasKey,
-            ownerKey,
-        } of DOCUMENTS_IPC_CHANNEL_ALIASES) {
-            expect(DOCUMENTS_CHANNELS[aliasKey]).toBe(DOCUMENTS_CHANNELS[ownerKey]);
-        }
-        expect(DOCUMENT_PICKER_PLATFORM_FEATURE.methods.openPdfDialog.aliasOf)
-            .toBe('openDocumentDialog');
     });
 
     it('attaches serialized pdf persistence ports from the documents raw event channel', async () => {

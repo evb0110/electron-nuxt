@@ -63,7 +63,6 @@ const mocks = vi.hoisted(() => {
 vi.mock('@app/utils/platformDocuments', () => ({
     getDocumentFilesCapability: () => mocks.documentFilesCapability,
     getDocumentWorkingCopyCapability: () => mocks.documentWorkingCopyCapability,
-    getDocumentsCapability: () => mocks.documentsCapability,
     shouldRefreshWorkingCopyAfterSaveAs: mocks.shouldRefreshWorkingCopyAfterSaveAs,
 }));
 vi.mock('@app/services/pdf-file/savePdfBytesToWorkingCopy', () => ({savePdfBytesToWorkingCopy: mocks.savePdfBytesToWorkingCopy}));

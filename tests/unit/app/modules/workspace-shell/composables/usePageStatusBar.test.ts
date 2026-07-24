@@ -9,13 +9,9 @@ import { ref } from 'vue';
 import { usePageStatusBar } from '@app/modules/workspace-shell/composables/usePageStatusBar';
 
 const {
-    legacyShowItemInFolderMock,
     showItemInFolderMock,
     statFileMock,
 } = vi.hoisted(() => ({
-    legacyShowItemInFolderMock: vi.fn(() => {
-        throw new Error('legacy documents window capability should not be used');
-    }),
     showItemInFolderMock: vi.fn(async () => true),
     statFileMock: vi.fn(async () => ({ size: 0 })),
 }));
@@ -23,7 +19,6 @@ const {
 vi.mock('@app/utils/platformDocuments', () => ({
     getDocumentWindowCapability: () => ({ showItemInFolder: showItemInFolderMock }),
     getDocumentFilesCapability: () => ({ statFile: statFileMock }),
-    getDocumentsCapability: () => ({ showItemInFolder: legacyShowItemInFolderMock }),
 }));
 
 function createDeps(overrides: Partial<Parameters<typeof usePageStatusBar>[0]> = {}) {
@@ -45,7 +40,6 @@ function createDeps(overrides: Partial<Parameters<typeof usePageStatusBar>[0]> =
 describe('usePageStatusBar', () => {
     beforeEach(() => {
         showItemInFolderMock.mockClear();
-        legacyShowItemInFolderMock.mockClear();
         statFileMock.mockClear();
         statFileMock.mockResolvedValue({ size: 0 });
     });
@@ -78,7 +72,6 @@ describe('usePageStatusBar', () => {
         await statusBar.handleStatusShowInFolderClick();
 
         expect(showItemInFolderMock).not.toHaveBeenCalled();
-        expect(legacyShowItemInFolderMock).not.toHaveBeenCalled();
     });
 
     it('reveals filesystem-backed refs through the window capability', async () => {
@@ -88,7 +81,6 @@ describe('usePageStatusBar', () => {
         await statusBar.handleStatusShowInFolderClick();
 
         expect(showItemInFolderMock).toHaveBeenCalledWith('/tmp/example.pdf');
-        expect(legacyShowItemInFolderMock).not.toHaveBeenCalled();
     });
 
     it('explains browser-backed documents instead of saying no file is open', () => {

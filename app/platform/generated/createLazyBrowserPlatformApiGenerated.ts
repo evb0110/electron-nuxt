@@ -64,181 +64,88 @@ export function createLazyBrowserPlatformApiGenerated({
     const systemOnShutdownSaveFlushRequestMethod = lazyEvent(pathDescriptors.system.onShutdownSaveFlushRequest.path);
     const windowTabsNotifyRendererReadyMethod = lazyVoid(pathDescriptors.windowTabs.notifyRendererReady.path);
     const documentPickerOpenDocumentDialogMethod = lazyAsync(pathDescriptors.documentPicker.openDocumentDialog.path);
-    const documentsOpenDocumentDialogMethod = documentPickerOpenDocumentDialogMethod;
-    const documentsOpenPdfDialogMethod = documentPickerOpenDocumentDialogMethod;
-    const documentPickerOpenPdfDialogMethod = documentPickerOpenDocumentDialogMethod;
     const documentPickerOpenCombineDialogMethod = lazyAsync(pathDescriptors.documentPicker.openCombineDialog.path);
-    const documentsOpenCombineDialogMethod = documentPickerOpenCombineDialogMethod;
     const documentPickerOpenFolderDialogMethod = lazyAsync(pathDescriptors.documentPicker.openFolderDialog.path);
-    const documentsOpenFolderDialogMethod = documentPickerOpenFolderDialogMethod;
     const documentPickerOpenFolderDialogStructuredMethod = lazyAsync(pathDescriptors.documentPicker.openFolderDialogStructured.path);
-    const documentsOpenFolderDialogStructuredMethod = documentPickerOpenFolderDialogStructuredMethod;
     const documentPickerOpenImageDialogMethod = lazyAsync(pathDescriptors.documentPicker.openImageDialog.path);
-    const documentsOpenImageDialogMethod = documentPickerOpenImageDialogMethod;
     const documentPickerGetPathForFileMethod = getPathForFile;
-    const documentsGetPathForFileMethod = documentPickerGetPathForFileMethod;
     const documentPickerGetPathsForFilesMethod = getPathsForFiles;
-    const documentsGetPathsForFilesMethod = documentPickerGetPathsForFilesMethod;
     const documentPickerRegisterFilesForOpenMethod = lazyAsync(pathDescriptors.documentPicker.registerFilesForOpen.path);
-    const documentsRegisterFilesForOpenMethod = documentPickerRegisterFilesForOpenMethod;
     const documentPickerCreateCombinedPdfFromFilesMethod = lazyAsync(pathDescriptors.documentPicker.createCombinedPdfFromFiles.path);
-    const documentsCreateCombinedPdfFromFilesMethod = documentPickerCreateCombinedPdfFromFilesMethod;
     const documentOpenOpenDocumentDirectMethod = lazyAsync(pathDescriptors.documentOpen.openDocumentDirect.path);
-    const documentsOpenDocumentDirectMethod = documentOpenOpenDocumentDirectMethod;
-    const documentsOpenPdfDirectMethod = documentOpenOpenDocumentDirectMethod;
-    const documentOpenOpenPdfDirectMethod = documentOpenOpenDocumentDirectMethod;
     const documentOpenOpenDocumentDirectBatchMethod = lazyAsync(pathDescriptors.documentOpen.openDocumentDirectBatch.path);
-    const documentsOpenDocumentDirectBatchMethod = documentOpenOpenDocumentDirectBatchMethod;
-    const documentsOpenPdfDirectBatchMethod = documentOpenOpenDocumentDirectBatchMethod;
-    const documentOpenOpenPdfDirectBatchMethod = documentOpenOpenDocumentDirectBatchMethod;
     const documentOpenOnOpenDocumentDirectBatchProgressMethod = lazyEvent(pathDescriptors.documentOpen.onOpenDocumentDirectBatchProgress.path);
-    const documentsOnOpenDocumentDirectBatchProgressMethod = documentOpenOnOpenDocumentDirectBatchProgressMethod;
-    const documentsOnOpenPdfDirectBatchProgressMethod = documentOpenOnOpenDocumentDirectBatchProgressMethod;
-    const documentMenuOnOpenDocumentDirectBatchProgressMethod = documentOpenOnOpenDocumentDirectBatchProgressMethod;
-    const documentMenuOnOpenPdfDirectBatchProgressMethod = documentOpenOnOpenDocumentDirectBatchProgressMethod;
-    const documentOpenOnOpenPdfDirectBatchProgressMethod = documentOpenOnOpenDocumentDirectBatchProgressMethod;
     const documentWorkingCopyCreateWorkingCopyFromDataMethod = lazyAsync(pathDescriptors.documentWorkingCopy.createWorkingCopyFromData.path);
-    const documentsCreateWorkingCopyFromDataMethod = documentWorkingCopyCreateWorkingCopyFromDataMethod;
     const documentWorkingCopyCreateWorkingCopyFromPathMethod = lazyAsync(pathDescriptors.documentWorkingCopy.createWorkingCopyFromPath.path);
-    const documentsCreateWorkingCopyFromPathMethod = documentWorkingCopyCreateWorkingCopyFromPathMethod;
     const documentWorkingCopyCleanupFileMethod = lazyAsync(pathDescriptors.documentWorkingCopy.cleanupFile.path);
-    const documentsCleanupFileMethod = documentWorkingCopyCleanupFileMethod;
     const documentWorkingCopyCleanupOcrTempMethod = lazyAsync(pathDescriptors.documentWorkingCopy.cleanupOcrTemp.path);
-    const documentsCleanupOcrTempMethod = documentWorkingCopyCleanupOcrTempMethod;
     const documentFilesReadFileMethod = lazyAsync(pathDescriptors.documentFiles.readFile.path);
-    const documentsReadFileMethod = documentFilesReadFileMethod;
     const documentFilesStatFileMethod = lazyAsync(pathDescriptors.documentFiles.statFile.path);
-    const documentsStatFileMethod = documentFilesStatFileMethod;
     const documentFilesReadFileRangeMethod = lazyAsync(pathDescriptors.documentFiles.readFileRange.path);
-    const documentsReadFileRangeMethod = documentFilesReadFileRangeMethod;
     const documentFilesReadFileChunksMethod = lazyAsync(pathDescriptors.documentFiles.readFileChunks.path);
-    const documentsReadFileChunksMethod = documentFilesReadFileChunksMethod;
     const documentFilesReadTextFileMethod = lazyAsync(pathDescriptors.documentFiles.readTextFile.path);
-    const documentsReadTextFileMethod = documentFilesReadTextFileMethod;
     const documentFilesFileExistsMethod = lazyAsync(pathDescriptors.documentFiles.fileExists.path);
-    const documentsFileExistsMethod = documentFilesFileExistsMethod;
     const documentFilesGetDocumentRevisionMethod = lazyAsync(pathDescriptors.documentFiles.getDocumentRevision.path);
-    const documentsGetDocumentRevisionMethod = documentFilesGetDocumentRevisionMethod;
     const documentFilesSavePdfAsMethod = lazyAsync(pathDescriptors.documentFiles.savePdfAs.path);
-    const documentsSavePdfAsMethod = documentFilesSavePdfAsMethod;
     const documentFilesSavePdfDataAsMethod = lazyAsync(pathDescriptors.documentFiles.savePdfDataAs.path);
-    const documentsSavePdfDataAsMethod = documentFilesSavePdfDataAsMethod;
     const documentFilesSavePdfDialogMethod = lazyAsync(pathDescriptors.documentFiles.savePdfDialog.path);
-    const documentsSavePdfDialogMethod = documentFilesSavePdfDialogMethod;
     const documentFilesSaveDocxAsMethod = lazyAsync(pathDescriptors.documentFiles.saveDocxAs.path);
-    const documentsSaveDocxAsMethod = documentFilesSaveDocxAsMethod;
     const documentFilesWriteFileMethod = lazyAsync(pathDescriptors.documentFiles.writeFile.path);
-    const documentsWriteFileMethod = documentFilesWriteFileMethod;
     const documentFilesReplaceWorkingCopyFromPathMethod = lazyAsync(pathDescriptors.documentFiles.replaceWorkingCopyFromPath.path);
-    const documentsReplaceWorkingCopyFromPathMethod = documentFilesReplaceWorkingCopyFromPathMethod;
     const documentFilesWriteDocxFileMethod = lazyAsync(pathDescriptors.documentFiles.writeDocxFile.path);
-    const documentsWriteDocxFileMethod = documentFilesWriteDocxFileMethod;
     const documentFilesSaveFileStructuredMethod = lazyAsync(pathDescriptors.documentFiles.saveFileStructured.path);
-    const documentsSaveFileStructuredMethod = documentFilesSaveFileStructuredMethod;
     const documentFilesResyncWorkingCopyMethod = lazyAsync(pathDescriptors.documentFiles.resyncWorkingCopy.path);
-    const documentsResyncWorkingCopyMethod = documentFilesResyncWorkingCopyMethod;
     const documentFilesSavePdfDataMethod = lazyAsync(pathDescriptors.documentFiles.savePdfData.path);
-    const documentsSavePdfDataMethod = documentFilesSavePdfDataMethod;
     const documentFilesSavePdfDataChunksMethod = lazyAsync(pathDescriptors.documentFiles.savePdfDataChunks.path);
-    const documentsSavePdfDataChunksMethod = documentFilesSavePdfDataChunksMethod;
     const documentFilesOnDocumentRevisionChangedMethod = lazyEvent(pathDescriptors.documentFiles.onDocumentRevisionChanged.path);
-    const documentsOnDocumentRevisionChangedMethod = documentFilesOnDocumentRevisionChangedMethod;
     const documentPdfAnalyzePdfConformanceMethod = lazyAsync(pathDescriptors.documentPdf.analyzePdfConformance.path);
-    const documentsAnalyzePdfConformanceMethod = documentPdfAnalyzePdfConformanceMethod;
     const documentPdfValidatePdfDataMethod = lazyAsync(pathDescriptors.documentPdf.validatePdfData.path);
-    const documentsValidatePdfDataMethod = documentPdfValidatePdfDataMethod;
     const documentPdfValidatePdfPathMethod = lazyAsync(pathDescriptors.documentPdf.validatePdfPath.path);
-    const documentsValidatePdfPathMethod = documentPdfValidatePdfPathMethod;
     const documentPdfOpenPdfInDefaultAppDataMethod = lazyAsync(pathDescriptors.documentPdf.openPdfInDefaultAppData.path);
-    const documentsOpenPdfInDefaultAppDataMethod = documentPdfOpenPdfInDefaultAppDataMethod;
     const documentPdfOpenPdfInDefaultAppPathMethod = lazyAsync(pathDescriptors.documentPdf.openPdfInDefaultAppPath.path);
-    const documentsOpenPdfInDefaultAppPathMethod = documentPdfOpenPdfInDefaultAppPathMethod;
     const documentPdfPrintPdfDataMethod = lazyAsync(pathDescriptors.documentPdf.printPdfData.path);
-    const documentsPrintPdfDataMethod = documentPdfPrintPdfDataMethod;
     const documentPdfPrintPdfPathMethod = lazyAsync(pathDescriptors.documentPdf.printPdfPath.path);
-    const documentsPrintPdfPathMethod = documentPdfPrintPdfPathMethod;
     const documentRecentFilesRecentFilesGetMethod = lazyAsync(pathDescriptors.documentRecentFiles.recentFiles.get.path);
-    const documentsRecentFilesGetMethod = documentRecentFilesRecentFilesGetMethod;
     const documentRecentFilesRecentFilesRemoveMethod = lazyAsync(pathDescriptors.documentRecentFiles.recentFiles.remove.path);
-    const documentsRecentFilesRemoveMethod = documentRecentFilesRecentFilesRemoveMethod;
     const documentRecentFilesRecentFilesClearMethod = lazyAsync(pathDescriptors.documentRecentFiles.recentFiles.clear.path);
-    const documentsRecentFilesClearMethod = documentRecentFilesRecentFilesClearMethod;
     const documentWindowSetWindowTitleMethod = lazyAsync(pathDescriptors.documentWindow.setWindowTitle.path);
-    const documentsSetWindowTitleMethod = documentWindowSetWindowTitleMethod;
     const documentWindowShowItemInFolderMethod = lazyAsync(pathDescriptors.documentWindow.showItemInFolder.path);
-    const documentsShowItemInFolderMethod = documentWindowShowItemInFolderMethod;
     const documentWindowShowItemInFolderStructuredMethod = lazyAsync(pathDescriptors.documentWindow.showItemInFolderStructured.path);
-    const documentsShowItemInFolderStructuredMethod = documentWindowShowItemInFolderStructuredMethod;
     const documentMenuSetMenuDocumentStateMethod = lazyAsync(pathDescriptors.documentMenu.setMenuDocumentState.path);
-    const documentsSetMenuDocumentStateMethod = documentMenuSetMenuDocumentStateMethod;
     const documentMenuSetMenuTabCountMethod = lazyAsync(pathDescriptors.documentMenu.setMenuTabCount.path);
-    const documentsSetMenuTabCountMethod = documentMenuSetMenuTabCountMethod;
     const documentMenuOnPdfOptimizeProgressMethod = lazyEvent(pathDescriptors.documentMenu.onPdfOptimizeProgress.path);
-    const documentsOnPdfOptimizeProgressMethod = documentMenuOnPdfOptimizeProgressMethod;
     const documentMenuOnMenuOpenPdfMethod = lazyEvent(pathDescriptors.documentMenu.onMenuOpenPdf.path);
-    const documentsOnMenuOpenPdfMethod = documentMenuOnMenuOpenPdfMethod;
     const documentMenuOnMenuInsertImageFromFileMethod = lazyEvent(pathDescriptors.documentMenu.onMenuInsertImageFromFile.path);
-    const documentsOnMenuInsertImageFromFileMethod = documentMenuOnMenuInsertImageFromFileMethod;
     const documentMenuOnMenuPasteImageFromClipboardMethod = lazyEvent(pathDescriptors.documentMenu.onMenuPasteImageFromClipboard.path);
-    const documentsOnMenuPasteImageFromClipboardMethod = documentMenuOnMenuPasteImageFromClipboardMethod;
     const documentMenuOnMenuSaveMethod = lazyEvent(pathDescriptors.documentMenu.onMenuSave.path);
-    const documentsOnMenuSaveMethod = documentMenuOnMenuSaveMethod;
     const documentMenuOnMenuRepairSaveMethod = lazyEvent(pathDescriptors.documentMenu.onMenuRepairSave.path);
-    const documentsOnMenuRepairSaveMethod = documentMenuOnMenuRepairSaveMethod;
     const documentMenuOnMenuOptimizePdfForInteractionMethod = lazyEvent(pathDescriptors.documentMenu.onMenuOptimizePdfForInteraction.path);
-    const documentsOnMenuOptimizePdfForInteractionMethod = documentMenuOnMenuOptimizePdfForInteractionMethod;
     const documentMenuOnMenuSaveAsMethod = lazyEvent(pathDescriptors.documentMenu.onMenuSaveAs.path);
-    const documentsOnMenuSaveAsMethod = documentMenuOnMenuSaveAsMethod;
     const documentMenuOnMenuPrintMethod = lazyEvent(pathDescriptors.documentMenu.onMenuPrint.path);
-    const documentsOnMenuPrintMethod = documentMenuOnMenuPrintMethod;
     const documentMenuOnMenuPrintCurrentPageMethod = lazyEvent(pathDescriptors.documentMenu.onMenuPrintCurrentPage.path);
-    const documentsOnMenuPrintCurrentPageMethod = documentMenuOnMenuPrintCurrentPageMethod;
     const documentMenuOnMenuExportDocxMethod = lazyEvent(pathDescriptors.documentMenu.onMenuExportDocx.path);
-    const documentsOnMenuExportDocxMethod = documentMenuOnMenuExportDocxMethod;
     const documentMenuOnMenuExportImagesMethod = lazyEvent(pathDescriptors.documentMenu.onMenuExportImages.path);
-    const documentsOnMenuExportImagesMethod = documentMenuOnMenuExportImagesMethod;
     const documentMenuOnMenuExportMultiPageTiffMethod = lazyEvent(pathDescriptors.documentMenu.onMenuExportMultiPageTiff.path);
-    const documentsOnMenuExportMultiPageTiffMethod = documentMenuOnMenuExportMultiPageTiffMethod;
     const documentMenuOnMenuZoomInMethod = lazyEvent(pathDescriptors.documentMenu.onMenuZoomIn.path);
-    const documentsOnMenuZoomInMethod = documentMenuOnMenuZoomInMethod;
     const documentMenuOnMenuZoomOutMethod = lazyEvent(pathDescriptors.documentMenu.onMenuZoomOut.path);
-    const documentsOnMenuZoomOutMethod = documentMenuOnMenuZoomOutMethod;
     const documentMenuOnMenuActualSizeMethod = lazyEvent(pathDescriptors.documentMenu.onMenuActualSize.path);
-    const documentsOnMenuActualSizeMethod = documentMenuOnMenuActualSizeMethod;
     const documentMenuOnMenuFitWidthMethod = lazyEvent(pathDescriptors.documentMenu.onMenuFitWidth.path);
-    const documentsOnMenuFitWidthMethod = documentMenuOnMenuFitWidthMethod;
     const documentMenuOnMenuFitHeightMethod = lazyEvent(pathDescriptors.documentMenu.onMenuFitHeight.path);
-    const documentsOnMenuFitHeightMethod = documentMenuOnMenuFitHeightMethod;
     const documentMenuOnMenuToggleContinuousScrollMethod = lazyEvent(pathDescriptors.documentMenu.onMenuToggleContinuousScroll.path);
-    const documentsOnMenuToggleContinuousScrollMethod = documentMenuOnMenuToggleContinuousScrollMethod;
     const documentMenuOnMenuViewModeSingleMethod = lazyEvent(pathDescriptors.documentMenu.onMenuViewModeSingle.path);
-    const documentsOnMenuViewModeSingleMethod = documentMenuOnMenuViewModeSingleMethod;
     const documentMenuOnMenuViewModeFacingMethod = lazyEvent(pathDescriptors.documentMenu.onMenuViewModeFacing.path);
-    const documentsOnMenuViewModeFacingMethod = documentMenuOnMenuViewModeFacingMethod;
     const documentMenuOnMenuViewModeFacingFirstSingleMethod = lazyEvent(pathDescriptors.documentMenu.onMenuViewModeFacingFirstSingle.path);
-    const documentsOnMenuViewModeFacingFirstSingleMethod = documentMenuOnMenuViewModeFacingFirstSingleMethod;
     const documentMenuOnMenuToggleAssistantMethod = lazyEvent(pathDescriptors.documentMenu.onMenuToggleAssistant.path);
-    const documentsOnMenuToggleAssistantMethod = documentMenuOnMenuToggleAssistantMethod;
     const documentMenuOnMenuUndoMethod = lazyEvent(pathDescriptors.documentMenu.onMenuUndo.path);
-    const documentsOnMenuUndoMethod = documentMenuOnMenuUndoMethod;
     const documentMenuOnMenuRedoMethod = lazyEvent(pathDescriptors.documentMenu.onMenuRedo.path);
-    const documentsOnMenuRedoMethod = documentMenuOnMenuRedoMethod;
     const documentMenuOnMenuDeletePagesMethod = lazyEvent(pathDescriptors.documentMenu.onMenuDeletePages.path);
-    const documentsOnMenuDeletePagesMethod = documentMenuOnMenuDeletePagesMethod;
     const documentMenuOnMenuExtractPagesMethod = lazyEvent(pathDescriptors.documentMenu.onMenuExtractPages.path);
-    const documentsOnMenuExtractPagesMethod = documentMenuOnMenuExtractPagesMethod;
     const documentMenuOnMenuRotateCwMethod = lazyEvent(pathDescriptors.documentMenu.onMenuRotateCw.path);
-    const documentsOnMenuRotateCwMethod = documentMenuOnMenuRotateCwMethod;
     const documentMenuOnMenuRotateCcwMethod = lazyEvent(pathDescriptors.documentMenu.onMenuRotateCcw.path);
-    const documentsOnMenuRotateCcwMethod = documentMenuOnMenuRotateCcwMethod;
     const documentMenuOnMenuInsertPagesMethod = lazyEvent(pathDescriptors.documentMenu.onMenuInsertPages.path);
-    const documentsOnMenuInsertPagesMethod = documentMenuOnMenuInsertPagesMethod;
     const documentMenuOnMenuOpenRecentFileMethod = lazyEvent(pathDescriptors.documentMenu.onMenuOpenRecentFile.path);
-    const documentsOnMenuOpenRecentFileMethod = documentMenuOnMenuOpenRecentFileMethod;
     const documentMenuOnMenuOpenExternalPathsMethod = lazyEvent(pathDescriptors.documentMenu.onMenuOpenExternalPaths.path);
-    const documentsOnMenuOpenExternalPathsMethod = documentMenuOnMenuOpenExternalPathsMethod;
     const documentMenuOnMenuClearRecentFilesMethod = lazyEvent(pathDescriptors.documentMenu.onMenuClearRecentFiles.path);
-    const documentsOnMenuClearRecentFilesMethod = documentMenuOnMenuClearRecentFilesMethod;
     const agentGetMcpIntegrationStatusMethod = lazyAsync(pathDescriptors.agent.getMcpIntegrationStatus.path);
     const agentSetMcpIntegrationEnabledMethod = lazyAsync(pathDescriptors.agent.setMcpIntegrationEnabled.path);
     const agentGetAssistantStateMethod = lazyAsync(pathDescriptors.agent.getAssistantState.path);
@@ -410,7 +317,6 @@ export function createLazyBrowserPlatformApiGenerated({
     },
     documentPicker: {
         openDocumentDialog: documentPickerOpenDocumentDialogMethod,
-        openPdfDialog: documentPickerOpenPdfDialogMethod,
         openCombineDialog: documentPickerOpenCombineDialogMethod,
         openFolderDialog: documentPickerOpenFolderDialogMethod,
         openFolderDialogStructured: documentPickerOpenFolderDialogStructuredMethod,
@@ -420,143 +326,10 @@ export function createLazyBrowserPlatformApiGenerated({
         registerFilesForOpen: documentPickerRegisterFilesForOpenMethod,
         createCombinedPdfFromFiles: documentPickerCreateCombinedPdfFromFilesMethod,
     },
-    documents: {
-        openDocumentDialog: documentsOpenDocumentDialogMethod,
-        openPdfDialog: documentsOpenPdfDialogMethod,
-        openCombineDialog: documentsOpenCombineDialogMethod,
-        openFolderDialog: documentsOpenFolderDialogMethod,
-        openFolderDialogStructured: documentsOpenFolderDialogStructuredMethod,
-        openImageDialog: documentsOpenImageDialogMethod,
-        getPathForFile: documentsGetPathForFileMethod,
-        getPathsForFiles: documentsGetPathsForFilesMethod,
-        registerFilesForOpen: documentsRegisterFilesForOpenMethod,
-        createCombinedPdfFromFiles: documentsCreateCombinedPdfFromFilesMethod,
-        openDocumentDirect: documentsOpenDocumentDirectMethod,
-        openPdfDirect: documentsOpenPdfDirectMethod,
-        openDocumentDirectBatch: documentsOpenDocumentDirectBatchMethod,
-        openPdfDirectBatch: documentsOpenPdfDirectBatchMethod,
-        onOpenDocumentDirectBatchProgress: documentsOnOpenDocumentDirectBatchProgressMethod,
-        onOpenPdfDirectBatchProgress: documentsOnOpenPdfDirectBatchProgressMethod,
-        createWorkingCopyFromData: documentsCreateWorkingCopyFromDataMethod,
-        createWorkingCopyFromPath: documentsCreateWorkingCopyFromPathMethod,
-        cleanupFile: documentsCleanupFileMethod,
-        cleanupOcrTemp: documentsCleanupOcrTempMethod,
-        readFile: documentsReadFileMethod,
-        statFile: documentsStatFileMethod,
-        readFileRange: documentsReadFileRangeMethod,
-        readFileChunks: documentsReadFileChunksMethod,
-        readTextFile: documentsReadTextFileMethod,
-        fileExists: documentsFileExistsMethod,
-        getDocumentRevision: documentsGetDocumentRevisionMethod,
-        savePdfAs: documentsSavePdfAsMethod,
-        savePdfDataAs: documentsSavePdfDataAsMethod,
-        savePdfDialog: documentsSavePdfDialogMethod,
-        saveDocxAs: documentsSaveDocxAsMethod,
-        writeFile: documentsWriteFileMethod,
-        replaceWorkingCopyFromPath: documentsReplaceWorkingCopyFromPathMethod,
-        writeDocxFile: documentsWriteDocxFileMethod,
-        saveFileStructured: documentsSaveFileStructuredMethod,
-        resyncWorkingCopy: documentsResyncWorkingCopyMethod,
-        savePdfData: documentsSavePdfDataMethod,
-        savePdfDataChunks: documentsSavePdfDataChunksMethod,
-        onDocumentRevisionChanged: documentsOnDocumentRevisionChangedMethod,
-        analyzePdfConformance: documentsAnalyzePdfConformanceMethod,
-        validatePdfData: documentsValidatePdfDataMethod,
-        validatePdfPath: documentsValidatePdfPathMethod,
-        openPdfInDefaultAppData: documentsOpenPdfInDefaultAppDataMethod,
-        openPdfInDefaultAppPath: documentsOpenPdfInDefaultAppPathMethod,
-        printPdfData: documentsPrintPdfDataMethod,
-        printPdfPath: documentsPrintPdfPathMethod,
-        recentFiles: {
-            get: documentsRecentFilesGetMethod,
-            remove: documentsRecentFilesRemoveMethod,
-            clear: documentsRecentFilesClearMethod,
-        },
-        setWindowTitle: documentsSetWindowTitleMethod,
-        showItemInFolder: documentsShowItemInFolderMethod,
-        showItemInFolderStructured: documentsShowItemInFolderStructuredMethod,
-        setMenuDocumentState: documentsSetMenuDocumentStateMethod,
-        setMenuTabCount: documentsSetMenuTabCountMethod,
-        onPdfOptimizeProgress: documentsOnPdfOptimizeProgressMethod,
-        onMenuOpenPdf: documentsOnMenuOpenPdfMethod,
-        onMenuInsertImageFromFile: documentsOnMenuInsertImageFromFileMethod,
-        onMenuPasteImageFromClipboard: documentsOnMenuPasteImageFromClipboardMethod,
-        onMenuSave: documentsOnMenuSaveMethod,
-        onMenuRepairSave: documentsOnMenuRepairSaveMethod,
-        onMenuOptimizePdfForInteraction: documentsOnMenuOptimizePdfForInteractionMethod,
-        onMenuSaveAs: documentsOnMenuSaveAsMethod,
-        onMenuPrint: documentsOnMenuPrintMethod,
-        onMenuPrintCurrentPage: documentsOnMenuPrintCurrentPageMethod,
-        onMenuExportDocx: documentsOnMenuExportDocxMethod,
-        onMenuExportImages: documentsOnMenuExportImagesMethod,
-        onMenuExportMultiPageTiff: documentsOnMenuExportMultiPageTiffMethod,
-        onMenuZoomIn: documentsOnMenuZoomInMethod,
-        onMenuZoomOut: documentsOnMenuZoomOutMethod,
-        onMenuActualSize: documentsOnMenuActualSizeMethod,
-        onMenuFitWidth: documentsOnMenuFitWidthMethod,
-        onMenuFitHeight: documentsOnMenuFitHeightMethod,
-        onMenuToggleContinuousScroll: documentsOnMenuToggleContinuousScrollMethod,
-        onMenuViewModeSingle: documentsOnMenuViewModeSingleMethod,
-        onMenuViewModeFacing: documentsOnMenuViewModeFacingMethod,
-        onMenuViewModeFacingFirstSingle: documentsOnMenuViewModeFacingFirstSingleMethod,
-        onMenuToggleAssistant: documentsOnMenuToggleAssistantMethod,
-        onMenuUndo: documentsOnMenuUndoMethod,
-        onMenuRedo: documentsOnMenuRedoMethod,
-        onMenuDeletePages: documentsOnMenuDeletePagesMethod,
-        onMenuExtractPages: documentsOnMenuExtractPagesMethod,
-        onMenuRotateCw: documentsOnMenuRotateCwMethod,
-        onMenuRotateCcw: documentsOnMenuRotateCcwMethod,
-        onMenuInsertPages: documentsOnMenuInsertPagesMethod,
-        onMenuOpenRecentFile: documentsOnMenuOpenRecentFileMethod,
-        onMenuOpenExternalPaths: documentsOnMenuOpenExternalPathsMethod,
-        onMenuClearRecentFiles: documentsOnMenuClearRecentFilesMethod,
-    },
     documentOpen: {
         openDocumentDirect: documentOpenOpenDocumentDirectMethod,
-        openPdfDirect: documentOpenOpenPdfDirectMethod,
         openDocumentDirectBatch: documentOpenOpenDocumentDirectBatchMethod,
-        openPdfDirectBatch: documentOpenOpenPdfDirectBatchMethod,
         onOpenDocumentDirectBatchProgress: documentOpenOnOpenDocumentDirectBatchProgressMethod,
-        onOpenPdfDirectBatchProgress: documentOpenOnOpenPdfDirectBatchProgressMethod,
-    },
-    documentMenu: {
-        onOpenDocumentDirectBatchProgress: documentMenuOnOpenDocumentDirectBatchProgressMethod,
-        onOpenPdfDirectBatchProgress: documentMenuOnOpenPdfDirectBatchProgressMethod,
-        setMenuDocumentState: documentMenuSetMenuDocumentStateMethod,
-        setMenuTabCount: documentMenuSetMenuTabCountMethod,
-        onPdfOptimizeProgress: documentMenuOnPdfOptimizeProgressMethod,
-        onMenuOpenPdf: documentMenuOnMenuOpenPdfMethod,
-        onMenuInsertImageFromFile: documentMenuOnMenuInsertImageFromFileMethod,
-        onMenuPasteImageFromClipboard: documentMenuOnMenuPasteImageFromClipboardMethod,
-        onMenuSave: documentMenuOnMenuSaveMethod,
-        onMenuRepairSave: documentMenuOnMenuRepairSaveMethod,
-        onMenuOptimizePdfForInteraction: documentMenuOnMenuOptimizePdfForInteractionMethod,
-        onMenuSaveAs: documentMenuOnMenuSaveAsMethod,
-        onMenuPrint: documentMenuOnMenuPrintMethod,
-        onMenuPrintCurrentPage: documentMenuOnMenuPrintCurrentPageMethod,
-        onMenuExportDocx: documentMenuOnMenuExportDocxMethod,
-        onMenuExportImages: documentMenuOnMenuExportImagesMethod,
-        onMenuExportMultiPageTiff: documentMenuOnMenuExportMultiPageTiffMethod,
-        onMenuZoomIn: documentMenuOnMenuZoomInMethod,
-        onMenuZoomOut: documentMenuOnMenuZoomOutMethod,
-        onMenuActualSize: documentMenuOnMenuActualSizeMethod,
-        onMenuFitWidth: documentMenuOnMenuFitWidthMethod,
-        onMenuFitHeight: documentMenuOnMenuFitHeightMethod,
-        onMenuToggleContinuousScroll: documentMenuOnMenuToggleContinuousScrollMethod,
-        onMenuViewModeSingle: documentMenuOnMenuViewModeSingleMethod,
-        onMenuViewModeFacing: documentMenuOnMenuViewModeFacingMethod,
-        onMenuViewModeFacingFirstSingle: documentMenuOnMenuViewModeFacingFirstSingleMethod,
-        onMenuToggleAssistant: documentMenuOnMenuToggleAssistantMethod,
-        onMenuUndo: documentMenuOnMenuUndoMethod,
-        onMenuRedo: documentMenuOnMenuRedoMethod,
-        onMenuDeletePages: documentMenuOnMenuDeletePagesMethod,
-        onMenuExtractPages: documentMenuOnMenuExtractPagesMethod,
-        onMenuRotateCw: documentMenuOnMenuRotateCwMethod,
-        onMenuRotateCcw: documentMenuOnMenuRotateCcwMethod,
-        onMenuInsertPages: documentMenuOnMenuInsertPagesMethod,
-        onMenuOpenRecentFile: documentMenuOnMenuOpenRecentFileMethod,
-        onMenuOpenExternalPaths: documentMenuOnMenuOpenExternalPathsMethod,
-        onMenuClearRecentFiles: documentMenuOnMenuClearRecentFilesMethod,
     },
     documentWorkingCopy: {
         createWorkingCopyFromData: documentWorkingCopyCreateWorkingCopyFromDataMethod,
@@ -605,6 +378,43 @@ export function createLazyBrowserPlatformApiGenerated({
         setWindowTitle: documentWindowSetWindowTitleMethod,
         showItemInFolder: documentWindowShowItemInFolderMethod,
         showItemInFolderStructured: documentWindowShowItemInFolderStructuredMethod,
+    },
+    documentMenu: {
+        setMenuDocumentState: documentMenuSetMenuDocumentStateMethod,
+        setMenuTabCount: documentMenuSetMenuTabCountMethod,
+        onPdfOptimizeProgress: documentMenuOnPdfOptimizeProgressMethod,
+        onMenuOpenPdf: documentMenuOnMenuOpenPdfMethod,
+        onMenuInsertImageFromFile: documentMenuOnMenuInsertImageFromFileMethod,
+        onMenuPasteImageFromClipboard: documentMenuOnMenuPasteImageFromClipboardMethod,
+        onMenuSave: documentMenuOnMenuSaveMethod,
+        onMenuRepairSave: documentMenuOnMenuRepairSaveMethod,
+        onMenuOptimizePdfForInteraction: documentMenuOnMenuOptimizePdfForInteractionMethod,
+        onMenuSaveAs: documentMenuOnMenuSaveAsMethod,
+        onMenuPrint: documentMenuOnMenuPrintMethod,
+        onMenuPrintCurrentPage: documentMenuOnMenuPrintCurrentPageMethod,
+        onMenuExportDocx: documentMenuOnMenuExportDocxMethod,
+        onMenuExportImages: documentMenuOnMenuExportImagesMethod,
+        onMenuExportMultiPageTiff: documentMenuOnMenuExportMultiPageTiffMethod,
+        onMenuZoomIn: documentMenuOnMenuZoomInMethod,
+        onMenuZoomOut: documentMenuOnMenuZoomOutMethod,
+        onMenuActualSize: documentMenuOnMenuActualSizeMethod,
+        onMenuFitWidth: documentMenuOnMenuFitWidthMethod,
+        onMenuFitHeight: documentMenuOnMenuFitHeightMethod,
+        onMenuToggleContinuousScroll: documentMenuOnMenuToggleContinuousScrollMethod,
+        onMenuViewModeSingle: documentMenuOnMenuViewModeSingleMethod,
+        onMenuViewModeFacing: documentMenuOnMenuViewModeFacingMethod,
+        onMenuViewModeFacingFirstSingle: documentMenuOnMenuViewModeFacingFirstSingleMethod,
+        onMenuToggleAssistant: documentMenuOnMenuToggleAssistantMethod,
+        onMenuUndo: documentMenuOnMenuUndoMethod,
+        onMenuRedo: documentMenuOnMenuRedoMethod,
+        onMenuDeletePages: documentMenuOnMenuDeletePagesMethod,
+        onMenuExtractPages: documentMenuOnMenuExtractPagesMethod,
+        onMenuRotateCw: documentMenuOnMenuRotateCwMethod,
+        onMenuRotateCcw: documentMenuOnMenuRotateCcwMethod,
+        onMenuInsertPages: documentMenuOnMenuInsertPagesMethod,
+        onMenuOpenRecentFile: documentMenuOnMenuOpenRecentFileMethod,
+        onMenuOpenExternalPaths: documentMenuOnMenuOpenExternalPathsMethod,
+        onMenuClearRecentFiles: documentMenuOnMenuClearRecentFilesMethod,
     },
     agent: {
         getMcpIntegrationStatus: agentGetMcpIntegrationStatusMethod,

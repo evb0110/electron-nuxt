@@ -24,9 +24,6 @@ const mocks = vi.hoisted(() => ({
     repair: vi.fn(),
     optimize: vi.fn(),
     optimizeAsCopy: vi.fn(),
-    legacyPicker: vi.fn(),
-    legacyDirect: vi.fn(),
-    legacyBatch: vi.fn(),
 }));
 
 const electronApi = createElectronPlatformApiFixture({
@@ -58,11 +55,6 @@ const electronApi = createElectronPlatformApiFixture({
         validatePdfData: mocks.validatePdfData,
     },
     documentWorkingCopy: {cleanupFile: mocks.cleanup},
-    documents: {
-        openDocumentDialog: mocks.legacyPicker,
-        openDocumentDirect: mocks.legacyDirect,
-        openDocumentDirectBatch: mocks.legacyBatch,
-    },
 });
 
 vi.mock('@app/utils/platform', () => ({
@@ -216,22 +208,18 @@ describe('usePdfFile façade', () => {
         [
             'picker',
             mocks.picker,
-            mocks.legacyPicker,
         ],
         [
             'direct',
             mocks.direct,
-            mocks.legacyDirect,
         ],
         [
             'batch',
             mocks.batch,
-            mocks.legacyBatch,
         ],
     ] as const)('routes %s opens through the split capability', async (
         entryPoint,
         splitMethod,
-        legacyMethod,
     ) => {
         splitMethod.mockResolvedValue(pdfResult(entryPoint));
 
@@ -239,7 +227,6 @@ describe('usePdfFile façade', () => {
         await expect(invokeOpen(file, entryPoint, entryPoint)).resolves.toMatchObject({status: 'opened'});
 
         expect(splitMethod).toHaveBeenCalledOnce();
-        expect(legacyMethod).not.toHaveBeenCalled();
         expect(file.workingCopyPath.value).toBe(`/tmp/${entryPoint}.pdf`);
     });
 

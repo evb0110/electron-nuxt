@@ -646,9 +646,7 @@ export function createDocumentsPreloadFileClient(
 
     return {
         openDocumentDirect,
-        openPdfDirect: openDocumentDirect,
         openDocumentDirectBatch,
-        openPdfDirectBatch: openDocumentDirectBatch,
         cancelOpenDocumentDirectBatch: (requestId: string) =>
             invokeOpen(DOCUMENT_OPEN_PLATFORM_FEATURE.invokeChannels.cancelOpenDocumentDirectBatch, requestId),
         savePdfAs: (workingPath, options, revisionOptions) =>

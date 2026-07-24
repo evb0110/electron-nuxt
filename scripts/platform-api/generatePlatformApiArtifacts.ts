@@ -160,9 +160,6 @@ function renderDescriptorOutput() {
 }
 
 function getLazyExpressionForDescriptor(descriptor: IPlatformMethodDescriptor) {
-    if (descriptor.aliasOf !== undefined) {
-        return variableNameForPath(descriptor.aliasOf);
-    }
     const descriptorAccessor = descriptorAccessorForPath(descriptor.path);
     const formattedPath = formatPath(descriptor.path);
     if (formattedPath === 'documentPicker.getPathForFile') {
@@ -170,18 +167,6 @@ function getLazyExpressionForDescriptor(descriptor: IPlatformMethodDescriptor) {
     }
     if (formattedPath === 'documentPicker.getPathsForFiles') {
         return 'getPathsForFiles';
-    }
-    if (formattedPath === 'documents.getPathForFile') {
-        return variableNameForPath([
-            'documentPicker',
-            'getPathForFile',
-        ]);
-    }
-    if (formattedPath === 'documents.getPathsForFiles') {
-        return variableNameForPath([
-            'documentPicker',
-            'getPathsForFiles',
-        ]);
     }
     if (formattedPath === 'system.getMemoryInfo') {
         return 'getMemoryInfo';
@@ -192,30 +177,8 @@ function getLazyExpressionForDescriptor(descriptor: IPlatformMethodDescriptor) {
     return `${helperNameForKind(descriptor.kind)}(${descriptorAccessor})`;
 }
 
-function orderLazyDescriptors(descriptors: readonly IPlatformMethodDescriptor[]) {
-    const pending = [...descriptors];
-    const availablePaths = new Set<string>();
-    const descriptorPaths = new Set(pending.map(descriptor => formatPath(descriptor.path)));
-    const ordered: IPlatformMethodDescriptor[] = [];
-    while (pending.length > 0) {
-        const index = pending.findIndex(descriptor =>
-            descriptor.aliasOf === undefined
-            || availablePaths.has(formatPath(descriptor.aliasOf))
-            || !descriptorPaths.has(formatPath(descriptor.aliasOf)));
-        if (index < 0) {
-            throw new Error('Platform API descriptor aliases contain a cycle');
-        }
-        const [descriptor] = pending.splice(index, 1);
-        ordered.push(descriptor!);
-        availablePaths.add(formatPath(descriptor!.path));
-    }
-    return ordered;
-}
-
 function renderLazyOutput() {
-    const browserMethodDescriptors = orderLazyDescriptors(
-        PLATFORM_API_DESCRIPTOR.methods.filter(isBrowserMethodImplemented),
-    );
+    const browserMethodDescriptors = PLATFORM_API_DESCRIPTOR.methods.filter(isBrowserMethodImplemented);
     const methodVariables = browserMethodDescriptors
         .map(descriptor => `    const ${variableNameForPath(descriptor.path)} = ${getLazyExpressionForDescriptor(descriptor)};`)
         .join('\n');

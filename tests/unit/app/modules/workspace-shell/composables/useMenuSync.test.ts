@@ -18,19 +18,11 @@ import { createElectronPlatformApiFixture } from '@tests/helpers/createElectronP
 const mocks = vi.hoisted(() => ({
     setMenuDocumentState: vi.fn(async () => {}),
     setMenuTabCount: vi.fn(async () => {}),
-    legacySetMenuDocumentState: vi.fn(async () => {}),
-    legacySetMenuTabCount: vi.fn(async () => {}),
 }));
-const mockPlatformApi = createElectronPlatformApiFixture({
-    documents: {
-        setMenuDocumentState: mocks.legacySetMenuDocumentState,
-        setMenuTabCount: mocks.legacySetMenuTabCount,
-    },
-    documentMenu: {
-        setMenuDocumentState: mocks.setMenuDocumentState,
-        setMenuTabCount: mocks.setMenuTabCount,
-    },
-});
+const mockPlatformApi = createElectronPlatformApiFixture({documentMenu: {
+    setMenuDocumentState: mocks.setMenuDocumentState,
+    setMenuTabCount: mocks.setMenuTabCount,
+}});
 
 vi.mock('@app/utils/platform', () => ({ getPlatformAPI: () => mockPlatformApi }));
 
@@ -91,8 +83,6 @@ describe('useMenuSync', () => {
             continuousScroll: true,
         }));
         expect(mocks.setMenuTabCount).toHaveBeenLastCalledWith(2);
-        expect(mocks.legacySetMenuDocumentState).not.toHaveBeenCalled();
-        expect(mocks.legacySetMenuTabCount).not.toHaveBeenCalled();
     });
 
     it('syncs save availability separately from document presence', async () => {

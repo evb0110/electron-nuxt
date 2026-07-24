@@ -25,7 +25,7 @@ export interface IValidatedRegistrarCase {
 
 export function createFeatureRegistrarCases(feature: TAnyDefinedPlatformFeature): IValidatedRegistrarCase[] {
     const methodCases = Object.values(feature.methods).flatMap((spec) => {
-        if (spec.kind === 'sync' || 'local' in spec || spec.aliasOf !== undefined) {
+        if (spec.kind === 'sync' || 'local' in spec) {
             return [];
         }
         return [{
@@ -34,7 +34,7 @@ export function createFeatureRegistrarCases(feature: TAnyDefinedPlatformFeature)
         }];
     });
     const subscriptionCases = Object.values(feature.events).flatMap((spec) => (
-        spec.aliasOf === undefined && spec.subscription
+        spec.subscription
             ? [{
                 channel: spec.subscription.channel,
                 validArgs: [],

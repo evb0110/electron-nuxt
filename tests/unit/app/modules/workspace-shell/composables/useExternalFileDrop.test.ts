@@ -80,19 +80,13 @@ describe('useExternalFileDrop', () => {
 
     it('opens supported dropped files', async () => {
         const openPathsInAppropriateTab = vi.fn(async (_paths: string[]) => {});
-        const legacyRegisterFilesForOpen = vi.fn(() => {
-            throw new Error('legacy drop path extraction should not be used');
-        });
         const pickerRegisterFilesForOpen = vi.fn(async (files: Array<{ name: string }>) => files.map((file) =>
             file.name === 'file-0' ? '/docs/a.pdf' : '/docs/b.djvu',
         ));
 
         vi.stubGlobal('window', {
             ...globalThis,
-            electronAPI: createElectronPlatformApiFixture({
-                documentPicker: { registerFilesForOpen: pickerRegisterFilesForOpen },
-                documents: { registerFilesForOpen: legacyRegisterFilesForOpen },
-            }),
+            electronAPI: createElectronPlatformApiFixture({documentPicker: { registerFilesForOpen: pickerRegisterFilesForOpen }}),
         });
 
         useExternalFileDrop({ openPathsInAppropriateTab });
@@ -108,7 +102,6 @@ describe('useExternalFileDrop', () => {
             '/docs/b.djvu',
         ]);
         expect(pickerRegisterFilesForOpen).toHaveBeenCalledTimes(2);
-        expect(legacyRegisterFilesForOpen).not.toHaveBeenCalled();
     });
 
     it('ignores unsupported extensions and non-file drags', async () => {
@@ -116,7 +109,7 @@ describe('useExternalFileDrop', () => {
 
         vi.stubGlobal('window', {
             ...globalThis,
-            electronAPI: createElectronPlatformApiFixture({ documents: { registerFilesForOpen: vi.fn(async () => ['/docs/readme.txt']) } }),
+            electronAPI: createElectronPlatformApiFixture({ documentPicker: { registerFilesForOpen: vi.fn(async () => ['/docs/readme.txt']) } }),
         });
 
         useExternalFileDrop({ openPathsInAppropriateTab });
@@ -138,7 +131,7 @@ describe('useExternalFileDrop', () => {
 
         vi.stubGlobal('window', {
             ...globalThis,
-            electronAPI: createElectronPlatformApiFixture({ documents: { registerFilesForOpen: vi.fn(async () => ['/docs/a.pdf']) } }),
+            electronAPI: createElectronPlatformApiFixture({ documentPicker: { registerFilesForOpen: vi.fn(async () => ['/docs/a.pdf']) } }),
         });
 
         useExternalFileDrop({ openPathsInAppropriateTab });
@@ -166,13 +159,13 @@ describe('useExternalFileDrop', () => {
             }
         });
 
-        const documents = { registerFilesForOpen: vi.fn(async (files: Array<{ name: string }>) => files.map((file) =>
+        const documentPicker = { registerFilesForOpen: vi.fn(async (files: Array<{ name: string }>) => files.map((file) =>
             file.name === 'file-0' ? '/docs/a.pdf' : '/docs/b.png',
         )) };
 
         vi.stubGlobal('window', {
             ...globalThis,
-            electronAPI: createElectronPlatformApiFixture({ documents }),
+            electronAPI: createElectronPlatformApiFixture({ documentPicker }),
         });
 
         const { cleanup } = useExternalFileDrop({ openPathsInAppropriateTab });

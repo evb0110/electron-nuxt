@@ -45,14 +45,14 @@ describe('validatePlatformApi', () => {
 
     it('requires structured save method when the manifest advertises structured saves', () => {
         const api = createBrowserApiFixture();
-        delete (api.documents as {saveFileStructured?: unknown}).saveFileStructured;
+        delete (api.documentFiles as {saveFileStructured?: unknown}).saveFileStructured;
 
         const result = validatePlatformApi(api, 'browser');
 
         expect(result.ok).toBe(false);
         expect(result.failures).toEqual(expect.arrayContaining([expect.objectContaining({
             code: 'missing-required-method',
-            path: 'documents.saveFileStructured',
+            path: 'documentFiles.saveFileStructured',
         })]));
     });
 });

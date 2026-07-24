@@ -58,19 +58,11 @@ export interface IDocumentsOpenPathContext { owner?: TOpenPathOwner; }
 
 export interface IDocumentsService {
     openDocumentDialog: (context: IDocumentsDialogContext) => Promise<TOpenFileResult | null>;
-    openPdfDialog: (context: IDocumentsDialogContext) => Promise<TOpenFileResult | null>;
     openCombineDialog: (context: IDocumentsDialogContext) => Promise<TOpenFileResult | null>;
     openFolderDialog: (context: IDocumentsDialogContext) => Promise<TOpenFileResult | null>;
     openImageDialog: (context: IDocumentsDialogContext) => Promise<string | null>;
     openDocumentDirect: (context: IDocumentsWebContentsContext, filePath: string) => Promise<TOpenFileResult | null>;
-    openPdfDirect: (context: IDocumentsWebContentsContext, filePath: string) => Promise<TOpenFileResult | null>;
     openDocumentDirectBatch: (
-        context: IDocumentsWebContentsContext,
-        filePaths: string[],
-        requestId?: string,
-        options?: {forceCombine?: boolean},
-    ) => Promise<TOpenFileResult | null>;
-    openPdfDirectBatch: (
         context: IDocumentsWebContentsContext,
         filePaths: string[],
         requestId?: string,

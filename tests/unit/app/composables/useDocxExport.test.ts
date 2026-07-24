@@ -24,21 +24,9 @@ const documentFilesMock = vi.hoisted(() => ({
     writeDocxFile: vi.fn(async () => {}),
 }));
 const documentWorkingCopyMock = vi.hoisted(() => ({cleanupFile: vi.fn(async () => {})}));
-const legacyDocumentsMock = vi.hoisted(() => ({
-    saveDocxAs: vi.fn(() => {
-        throw new Error('Legacy documents.saveDocxAs should not be used for DOCX export');
-    }),
-    writeDocxFile: vi.fn(() => {
-        throw new Error('Legacy documents.writeDocxFile should not be used for DOCX export');
-    }),
-    cleanupFile: vi.fn(() => {
-        throw new Error('Legacy documents.cleanupFile should not be used for DOCX export');
-    }),
-}));
 const TEST_DOCUMENT_REVISION = requireDocumentRevisionToken('revision-token');
 
 vi.mock('@app/utils/platformDocuments', () => ({
-    getDocumentsCapability: () => legacyDocumentsMock,
     getDocumentFilesCapability: () => documentFilesMock,
     getDocumentWorkingCopyCapability: () => documentWorkingCopyMock,
 }));
@@ -93,9 +81,6 @@ describe('useDocxExport', () => {
             ]),
         );
         expect(documentWorkingCopyMock.cleanupFile).not.toHaveBeenCalled();
-        expect(legacyDocumentsMock.saveDocxAs).not.toHaveBeenCalled();
-        expect(legacyDocumentsMock.writeDocxFile).not.toHaveBeenCalled();
-        expect(legacyDocumentsMock.cleanupFile).not.toHaveBeenCalled();
         expect(toastAddMock).toHaveBeenCalledWith(expect.objectContaining({
             color: 'success',
             title: expect.any(String),
@@ -126,9 +111,6 @@ describe('useDocxExport', () => {
         expect(exportState.docxExportError.value).toBe('errors.ocr.noText');
         expect(documentFilesMock.writeDocxFile).not.toHaveBeenCalled();
         expect(documentWorkingCopyMock.cleanupFile).not.toHaveBeenCalled();
-        expect(legacyDocumentsMock.saveDocxAs).not.toHaveBeenCalled();
-        expect(legacyDocumentsMock.writeDocxFile).not.toHaveBeenCalled();
-        expect(legacyDocumentsMock.cleanupFile).not.toHaveBeenCalled();
         expect(toastAddMock).not.toHaveBeenCalled();
     });
 
@@ -148,8 +130,5 @@ describe('useDocxExport', () => {
         expect(result).toBe(false);
         expect(documentFilesMock.writeDocxFile).not.toHaveBeenCalled();
         expect(documentWorkingCopyMock.cleanupFile).toHaveBeenCalledWith('browser://documents/output/empty.docx');
-        expect(legacyDocumentsMock.saveDocxAs).not.toHaveBeenCalled();
-        expect(legacyDocumentsMock.writeDocxFile).not.toHaveBeenCalled();
-        expect(legacyDocumentsMock.cleanupFile).not.toHaveBeenCalled();
     });
 });

@@ -8,7 +8,7 @@ import {
 import { PDFDocument } from 'pdf-lib';
 import type {
     IDocumentsFileCapability,
-    IDocumentsMenuCapability,
+    IDocumentsOpenCapability,
 } from '@contracts/electronApiDocuments';
 import type { BrowserDocumentStore } from '@app/platform/browserDocumentStore';
 import {
@@ -146,9 +146,11 @@ async function loadCreateCombinedPdfFromPaths() {
     return module.createBrowserCombinedPdfFromPaths;
 }
 
-async function loadBrowserDocumentsMenuCapability(): Promise<IDocumentsMenuCapability> {
+async function loadBrowserOpenProgressListener(): Promise<
+    IDocumentsOpenCapability['onOpenDocumentDirectBatchProgress']
+> {
     const module = await import('@app/platform/browser-api/documentsMenuCapability');
-    return module.browserDocumentsMenuCapability;
+    return module.onBrowserOpenDocumentDirectBatchProgress;
 }
 
 async function loadBrowserDocumentsFileCapability(
@@ -317,8 +319,8 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
             windowOverrides: { showOpenFilePicker },
         });
 
-        await expect(capability.openPdfDialog()).resolves.toBeNull();
-        const fallbackResult = await capability.openPdfDialog();
+        await expect(capability.openDocumentDialog()).resolves.toBeNull();
+        const fallbackResult = await capability.openDocumentDialog();
 
         expect(showOpenFilePicker).toHaveBeenCalledTimes(1);
         expect(fallbackResult?.kind).toBe('pdf');
@@ -376,10 +378,10 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
         const { browserDocumentStore } = await loadBrowserDocumentsFileCapability();
         const [
             createCombinedPdfFromPaths,
-            browserDocumentsMenuCapability,
+            onOpenDocumentDirectBatchProgress,
         ] = await Promise.all([
             loadCreateCombinedPdfFromPaths(),
-            loadBrowserDocumentsMenuCapability(),
+            loadBrowserOpenProgressListener(),
         ]);
         const firstRef = await browserDocumentStore.createStoredDocument(
             'first.pdf',
@@ -403,7 +405,7 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
             elapsedMs: number;
             estimatedRemainingMs: number | null;
         }> = [];
-        const stopListening = browserDocumentsMenuCapability.onOpenPdfDirectBatchProgress((progress) => {
+        const stopListening = onOpenDocumentDirectBatchProgress((progress) => {
             progressEvents.push(progress);
         });
 
@@ -737,7 +739,7 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
         );
         await browserDocumentStore.touchRecentFile(sourceRef);
 
-        await expect(capability.openPdfDirect(sourceRef)).resolves.toBeNull();
+        await expect(capability.openDocumentDirect(sourceRef)).resolves.toBeNull();
         const recentFiles = await capability.recentFiles.get();
         expect(recentFiles).toEqual([expect.objectContaining({
             originalPath: sourceRef,
@@ -773,7 +775,7 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
             },
         );
 
-        const result = await capability.openPdfDirect(sourceRef);
+        const result = await capability.openDocumentDirect(sourceRef);
         const sourceEntry = await browserDocumentStore.requireEntry(sourceRef);
         const workingEntry = result
             ? await browserDocumentStore.requireEntry(result.workingPath)

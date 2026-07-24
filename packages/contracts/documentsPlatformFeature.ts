@@ -202,10 +202,6 @@ export const DOCUMENT_PICKER_PLATFORM_FEATURE = definePlatformFeature({
     ],
     methods: {
         openDocumentDialog,
-        openPdfDialog: {
-            ...openDocumentDialog,
-            aliasOf: 'openDocumentDialog',
-        },
         openCombineDialog: defineIpcMethod(
             'openCombineDialog', 'dialog:openCombine', noArgs, openFileResult, 'openCombineDialog', 'sender',
         ),
@@ -256,17 +252,6 @@ export const DOCUMENT_OPEN_PLATFORM_FEATURE = definePlatformFeature({
             'openDocumentDirect',
             'sender',
         ),
-        openPdfDirect: {
-            ...defineIpcMethod(
-                'openPdfDirect',
-                'dialog:openPdfDirect',
-                openDocumentDirectArgs,
-                openFileResult,
-                'openDocumentDirect',
-                'sender',
-            ),
-            aliasOf: 'openDocumentDirect',
-        },
         openDocumentDirectBatch: {
             ...defineIpcMethod(
                 'openDocumentDirectBatch',
@@ -276,22 +261,6 @@ export const DOCUMENT_OPEN_PLATFORM_FEATURE = definePlatformFeature({
                 'openDocumentDirectBatch',
                 'sender',
             ),
-            ipc: {
-                args: openDocumentDirectBatchArgs,
-                result: openFileResult,
-                timeoutMs: longNativeIpcTimeoutMs,
-            },
-        },
-        openPdfDirectBatch: {
-            ...defineIpcMethod(
-                'openPdfDirectBatch',
-                'dialog:openPdfDirectBatch',
-                openDocumentDirectBatchArgs,
-                openFileResult,
-                'openDocumentDirectBatch',
-                'sender',
-            ),
-            aliasOf: 'openDocumentDirectBatch',
             ipc: {
                 args: openDocumentDirectBatchArgs,
                 result: openFileResult,
@@ -310,14 +279,7 @@ export const DOCUMENT_OPEN_PLATFORM_FEATURE = definePlatformFeature({
             ...electronImplementedOptional,
         },
     },
-    events: {
-        onOpenDocumentDirectBatchProgress: openDocumentBatchProgressEvent,
-        onOpenPdfDirectBatchProgress: {
-            ...openDocumentBatchProgressEvent,
-            aliasOf: 'onOpenDocumentDirectBatchProgress',
-            browser: {method: 'onOpenPdfDirectBatchProgress'},
-        },
-    },
+    events: {onOpenDocumentDirectBatchProgress: openDocumentBatchProgressEvent},
 });
 
 export const DOCUMENT_WORKING_COPY_PLATFORM_FEATURE = definePlatformFeature({
@@ -818,39 +780,6 @@ export const DOCUMENTS_DIRECT_BINDING_METHODS = [
     'documentFiles.savePdfData',
     'documentFiles.savePdfDataChunks',
 ] as const;
-
-export const DOCUMENTS_AGGREGATE_PLATFORM_DESCRIPTOR = {
-    capabilities: [{
-        path: ['documents'],
-        required: requiredEverywhere,
-    }],
-    methods: DOCUMENT_PLATFORM_FEATURES.flatMap(feature =>
-        feature.platformDescriptors.methods.map(descriptor => ({
-            ...descriptor,
-            path: [
-                'documents',
-                ...descriptor.path.slice(1),
-            ],
-            required: descriptor.optionalWhenImplemented
-                ? descriptor.required
-                : requiredEverywhere,
-            aliasOf: descriptor.aliasOf ?? descriptor.path,
-        }))),
-} as const;
-
-export const DOCUMENT_MENU_OPEN_PROGRESS_PLATFORM_DESCRIPTOR = {
-    capabilities: [],
-    methods: DOCUMENT_OPEN_PLATFORM_FEATURE.platformDescriptors.methods
-        .filter(descriptor => descriptor.kind === 'event')
-        .map(descriptor => ({
-            ...descriptor,
-            path: [
-                'documentMenu',
-                ...descriptor.path.slice(1),
-            ],
-            aliasOf: descriptor.aliasOf ?? descriptor.path,
-        })),
-} as const;
 
 export type IDocumentPickerPlatformCapability =
     TFeatureCapability<typeof DOCUMENT_PICKER_PLATFORM_FEATURE>;

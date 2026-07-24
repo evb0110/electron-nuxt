@@ -486,13 +486,6 @@ async function openPathInApp(
                             await automationGrant(path);
                         }
 
-                        const documents = (window as IE2EWindow & IAutomationFileOpenGrantApi).electronAPI?.documents;
-                        try {
-                            await documents?.recentFiles?.add?.(path);
-                        } catch {
-                            // Direct-open also exists in browser-like automation contexts where recent files are unavailable.
-                        }
-
                         const openFileDirect = (window as IE2EWindow & { __openFileDirect?: (value: string) => Promise<boolean> }).__openFileDirect;
                         if (typeof openFileDirect !== 'function') {
                             return false;
@@ -580,13 +573,6 @@ export async function triggerOpenPathInApp(page: Page, path: string, timeoutMs =
                     const automationGrant = (window as IE2EWindow & IAutomationFileOpenGrantApi).__allowRendererFileOpenForAutomation;
                     if (typeof automationGrant === 'function') {
                         await automationGrant(path);
-                    }
-
-                    const documents = (window as IE2EWindow & IAutomationFileOpenGrantApi).electronAPI?.documents;
-                    try {
-                        await documents?.recentFiles?.add?.(path);
-                    } catch {
-                        // Direct-open also exists in browser-like automation contexts where recent files are unavailable.
                     }
 
                     const openFileDirect = (window as IE2EWindow & { __openFileDirect?: (value: string) => Promise<boolean> }).__openFileDirect;

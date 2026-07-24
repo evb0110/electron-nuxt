@@ -5,10 +5,6 @@ import {
 } from 'vitest';
 import { AGENT_PLATFORM_FEATURE } from '@contracts/agentPlatformFeature';
 import { DJVU_PLATFORM_FEATURE } from '@contracts/djvuPlatformFeature';
-import {
-    DOCUMENT_OPEN_PLATFORM_FEATURE,
-    DOCUMENT_PICKER_PLATFORM_FEATURE,
-} from '@contracts/documentsPlatformFeature';
 import { PLATFORM_FEATURE_REGISTRY } from '@contracts/platformApiDescriptor';
 import { DOCUMENTS_CHANNELS } from '@electron/features/documents/contract';
 import { DOCUMENTS_IPC_CODECS } from '@electron/features/documents/documentsIpcCodecs';
@@ -70,17 +66,6 @@ describe('feature IPC codec maps', () => {
             expectExhaustiveMap(feature.invokeChannels, feature.ipcCodecs);
         }
         expectExhaustiveMap(DOCUMENTS_CHANNELS, DOCUMENTS_IPC_CODECS, [DOCUMENTS_CHANNELS.fileSavePdfDataPort]);
-    });
-
-    it('retains intentional documents channel aliases', () => {
-        expect(DOCUMENT_PICKER_PLATFORM_FEATURE.invokeChannels.openPdfDialog)
-            .toBe(DOCUMENT_PICKER_PLATFORM_FEATURE.invokeChannels.openDocumentDialog);
-        expect(DOCUMENT_PICKER_PLATFORM_FEATURE.methods.openPdfDialog.aliasOf)
-            .toBe('openDocumentDialog');
-        expect(DOCUMENT_OPEN_PLATFORM_FEATURE.eventChannels.onOpenPdfDirectBatchProgress)
-            .toBe(DOCUMENT_OPEN_PLATFORM_FEATURE.eventChannels.onOpenDocumentDirectBatchProgress);
-        expect(DOCUMENT_OPEN_PLATFORM_FEATURE.events.onOpenPdfDirectBatchProgress.aliasOf)
-            .toBe('onOpenDocumentDirectBatchProgress');
     });
 
     it('preserves the source identity needed to validate cached opening geometry', () => {

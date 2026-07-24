@@ -6,7 +6,6 @@ import type { IElectronAPI } from '@contracts/electronApi';
 import { ELECTRON_PLATFORM_MANIFEST } from '@contracts/platformManifest';
 import type {
     IDocumentsFileIoCapability,
-    IDocumentsMenuCapability,
     IDocumentsOpenCapability,
     IDocumentsPdfCapability,
     IDocumentsPickerCapability,
@@ -409,19 +408,11 @@ export function createElectronApi(
     );
     const documentOpen = {
         openDocumentDirect,
-        openPdfDirect: openDocumentDirect,
         openDocumentDirectBatch,
-        openPdfDirectBatch: openDocumentDirectBatch,
         cancelOpenDocumentDirectBatch: baseDocuments.cancelOpenDocumentDirectBatch
             ?? documentOpenFeature.cancelOpenDocumentDirectBatch!,
         onOpenDocumentDirectBatchProgress: documentOpenFeature.onOpenDocumentDirectBatchProgress,
-        onOpenPdfDirectBatchProgress: documentOpenFeature.onOpenPdfDirectBatchProgress,
     } satisfies IDocumentsOpenCapability;
-    const documentMenuWithOpenProgress = {
-        ...documentMenu,
-        onOpenDocumentDirectBatchProgress: documentOpen.onOpenDocumentDirectBatchProgress,
-        onOpenPdfDirectBatchProgress: documentOpen.onOpenPdfDirectBatchProgress,
-    } satisfies IDocumentsMenuCapability;
     const documentWorkingCopy = {
         createWorkingCopyFromData: baseDocuments.createWorkingCopyFromData,
         createWorkingCopyFromPath: baseDocuments.createWorkingCopyFromPath,
@@ -491,20 +482,8 @@ export function createElectronApi(
         printPdfData: baseDocuments.printPdfData,
         printPdfPath: baseDocuments.printPdfPath,
     } satisfies IDocumentsPdfCapability;
-    const documents = {
-        ...documentPicker,
-        ...documentOpen,
-        ...documentWorkingCopy,
-        ...documentFiles,
-        ...documentPdf,
-        ...documentRecentFiles,
-        ...documentWindow,
-        ...documentMenuWithOpenProgress,
-    };
-
     const api = {
         manifest: ELECTRON_PLATFORM_MANIFEST,
-        documents,
         documentPicker,
         documentOpen,
         documentWorkingCopy,
@@ -512,7 +491,7 @@ export function createElectronApi(
         documentPdf,
         documentRecentFiles,
         documentWindow,
-        documentMenu: documentMenuWithOpenProgress,
+        documentMenu,
         pageOps,
         imageExport,
 

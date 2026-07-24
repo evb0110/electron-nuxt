@@ -117,11 +117,6 @@ async function waitForCondition(condition: () => boolean, timeoutMs = 300) {
 }
 
 function installSplitImagePickerPlatform(imagePath: string, options: { cleanupError?: Error } = {}) {
-    const legacyDocuments = {
-        openImageDialog: vi.fn(() => Promise.reject(new Error('legacy image dialog should not be used'))),
-        readFile: vi.fn(() => Promise.reject(new Error('legacy image read should not be used'))),
-        cleanupFile: vi.fn(() => Promise.reject(new Error('legacy image cleanup should not be used'))),
-    };
     const imageBytes = Uint8Array.of(1, 2, 3);
     const cleanupFile = vi.fn(() => (
         options.cleanupError
@@ -141,7 +136,6 @@ function installSplitImagePickerPlatform(imagePath: string, options: { cleanupEr
             documentFiles,
             documentPicker,
             documentWorkingCopy,
-            documents: legacyDocuments,
         }),
     });
 
@@ -149,7 +143,6 @@ function installSplitImagePickerPlatform(imagePath: string, options: { cleanupEr
         documentFiles,
         documentPicker,
         documentWorkingCopy,
-        legacyDocuments,
     };
 }
 
@@ -799,7 +792,6 @@ describe('usePageAnnotationActions', () => {
             documentFiles,
             documentPicker,
             documentWorkingCopy,
-            legacyDocuments,
         } = installSplitImagePickerPlatform('/tmp/test.png');
 
         await actions.insertImageFromFileAt(2, 0.25, 0.5);
@@ -827,9 +819,6 @@ describe('usePageAnnotationActions', () => {
         expect(documentFiles.statFile).toHaveBeenCalledWith('/tmp/test.png');
         expect(documentFiles.readFile).toHaveBeenCalledWith('/tmp/test.png');
         expect(documentWorkingCopy.cleanupFile).not.toHaveBeenCalled();
-        expect(legacyDocuments.openImageDialog).not.toHaveBeenCalled();
-        expect(legacyDocuments.readFile).not.toHaveBeenCalled();
-        expect(legacyDocuments.cleanupFile).not.toHaveBeenCalled();
     });
 
     it('cleans up browser image refs through the split working-copy capability', async () => {
@@ -842,7 +831,6 @@ describe('usePageAnnotationActions', () => {
             documentFiles,
             documentPicker,
             documentWorkingCopy,
-            legacyDocuments,
         } = installSplitImagePickerPlatform(imagePath, { cleanupError: new Error('cleanup failed') });
 
         await expect(actions.insertImageFromFileAt(2, 0.25, 0.5)).resolves.toBeUndefined();
@@ -855,9 +843,6 @@ describe('usePageAnnotationActions', () => {
         expect(documentFiles.statFile).toHaveBeenCalledWith(imagePath);
         expect(documentFiles.readFile).toHaveBeenCalledWith(imagePath);
         expect(documentWorkingCopy.cleanupFile).toHaveBeenCalledWith(imagePath);
-        expect(legacyDocuments.openImageDialog).not.toHaveBeenCalled();
-        expect(legacyDocuments.readFile).not.toHaveBeenCalled();
-        expect(legacyDocuments.cleanupFile).not.toHaveBeenCalled();
     });
 
     it('finalizes a placed image by embedding it into the reloaded PDF', async () => {

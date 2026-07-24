@@ -5,7 +5,7 @@ import {
     CombinePdfError,
     type ICombinePdfProgress,
 } from '@app/services/pdf/combinePdfFiles';
-import {getDocumentsCapability} from '@app/utils/platformDocuments';
+import {getDocumentFilesCapability} from '@app/utils/platformDocuments';
 import {removeCompletedCombineSnapshot} from '@app/services/pdf/combineOperationSnapshot';
 
 export const useCombinePdfOperation = <T extends {
@@ -90,7 +90,7 @@ export const useCombinePdfOperation = <T extends {
             return;
         }
         try {
-            const savedPath = await getDocumentsCapability().savePdfAs(pending.workingPath, undefined);
+            const savedPath = await getDocumentFilesCapability().savePdfAs(pending.workingPath, undefined);
             if (savedPath) combineError.value = null;
         } catch {
             combineError.value = options.translate('errors.file.save');

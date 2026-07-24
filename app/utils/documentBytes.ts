@@ -48,7 +48,7 @@ export async function readDocumentBytes(
     options: IReadDocumentBytesOptions = {},
 ) {
     options.signal?.throwIfAborted();
-    const documents = getDocumentFilesCapability();
+    const documentFiles = getDocumentFilesCapability();
     const size = await resolveDocumentSize(path, options.knownSize);
     options.signal?.throwIfAborted();
 
@@ -58,7 +58,7 @@ export async function readDocumentBytes(
 
     const chunkSize = normalizeChunkSize(options.chunkSize);
     if (size <= chunkSize) {
-        const data = normalizeBytes(await documents.readFile(path));
+        const data = normalizeBytes(await documentFiles.readFile(path));
         options.signal?.throwIfAborted();
         assertWithinReadLimit(data.byteLength, options.maxBytes);
         assertReadSize(path, data.byteLength, size);
@@ -71,7 +71,7 @@ export async function readDocumentBytes(
     while (offset < size) {
         options.signal?.throwIfAborted();
         const nextChunkLength = Math.min(chunkSize, size - offset);
-        const chunk = await documents.readFileRange(path, offset, nextChunkLength);
+        const chunk = await documentFiles.readFileRange(path, offset, nextChunkLength);
         options.signal?.throwIfAborted();
         assertReadSize(path, chunk.byteLength, nextChunkLength);
         output.set(chunk, offset);

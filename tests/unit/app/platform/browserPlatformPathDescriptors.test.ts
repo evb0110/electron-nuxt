@@ -62,85 +62,11 @@ interface IDescriptorLike {
     path: readonly string[];
 }
 
-interface IPathMirror {
-    splitPath: readonly string[];
-    legacyPath: readonly string[];
-}
-
-const splitDocumentCapabilityNames = [
-    'documentPicker',
-    'documentOpen',
-    'documentWorkingCopy',
-    'documentFiles',
-    'documentPdf',
-    'documentRecentFiles',
-    'documentWindow',
-    'documentMenu',
-] as const;
-
-const directDocumentPathMirrors = [
-    {
-        splitPath: [
-            'documentPicker',
-            'getPathForFile',
-        ],
-        legacyPath: [
-            'documents',
-            'getPathForFile',
-        ],
-    },
-    {
-        splitPath: [
-            'documentPicker',
-            'getPathsForFiles',
-        ],
-        legacyPath: [
-            'documents',
-            'getPathsForFiles',
-        ],
-    },
-] as const satisfies readonly IPathMirror[];
-
 function isDescriptorLike(value: unknown): value is IDescriptorLike {
     return isRecord(value)
         && (value.kind === 'async' || value.kind === 'event' || value.kind === 'void')
         && Array.isArray(value.path)
         && value.path.every(pathPart => typeof pathPart === 'string');
-}
-
-function collectDescriptorLikes(
-    value: unknown,
-    descriptors: IDescriptorLike[] = [],
-) {
-    if (isDescriptorLike(value)) {
-        descriptors.push(value);
-        return descriptors;
-    }
-    if (!isRecord(value)) {
-        return descriptors;
-    }
-
-    for (const child of Object.values(value)) {
-        collectDescriptorLikes(child, descriptors);
-    }
-
-    return descriptors;
-}
-
-function collectSplitDocumentDescriptorMirrors() {
-    return splitDocumentCapabilityNames.flatMap((capabilityName) =>
-        collectDescriptorLikes(browserPlatformPathDescriptors[capabilityName]).map((descriptor) => {
-            const legacyPath = [
-                'documents',
-                ...descriptor.path.slice(1),
-            ];
-            return {
-                kind: descriptor.kind,
-                legacyPath,
-                splitPath: descriptor.path,
-            };
-        }),
-    );
 }
 
 describe('browser platform path descriptors', () => {
@@ -155,8 +81,6 @@ describe('browser platform path descriptors', () => {
         expect(paths).toContain('documentRecentFiles.recentFiles.get');
         expect(paths).toContain('documentWindow.showItemInFolder');
         expect(paths).toContain('documentMenu.onMenuSave');
-        expect(paths).toContain('documents.openDocumentDialog');
-        expect(paths).toContain('documents.recentFiles.get');
         expect(paths).toContain('ocr.preprocessing.validate');
         expect(paths).toContain('windowTabs.notifyRendererReady');
         expect(paths).toContain('agent.onAssistantEvent');
@@ -214,44 +138,4 @@ describe('browser platform path descriptors', () => {
         unsubscribe();
     });
 
-    it('keeps split document descriptor kinds aligned with legacy documents descriptors', () => {
-        const mirroredDescriptors = collectSplitDocumentDescriptorMirrors();
-
-        expect(mirroredDescriptors.length).toBeGreaterThan(0);
-
-        for (const {
-            kind,
-            legacyPath,
-            splitPath,
-        } of mirroredDescriptors) {
-            const legacyDescriptor = readPath(browserPlatformPathDescriptors, legacyPath);
-
-            expect(
-                isDescriptorLike(legacyDescriptor),
-                `legacy descriptor ${formatPath(legacyPath)} for ${formatPath(splitPath)}`,
-            ).toBe(true);
-            if (isDescriptorLike(legacyDescriptor)) {
-                expect(legacyDescriptor.kind, formatPath(splitPath)).toBe(kind);
-            }
-        }
-    });
-
-    it('composes split document fields from the same legacy functions', () => {
-        const mirroredPaths = [
-            ...collectSplitDocumentDescriptorMirrors(),
-            ...directDocumentPathMirrors,
-        ];
-
-        for (const {
-            splitPath,
-            legacyPath,
-        } of mirroredPaths) {
-            expect(readPath(browserPlatformApi, splitPath), `browser ${formatPath(splitPath)}`).toBe(
-                readPath(browserPlatformApi, legacyPath),
-            );
-            expect(readPath(lazyBrowserPlatformApi, splitPath), `lazy ${formatPath(splitPath)}`).toBe(
-                readPath(lazyBrowserPlatformApi, legacyPath),
-            );
-        }
-    });
 });

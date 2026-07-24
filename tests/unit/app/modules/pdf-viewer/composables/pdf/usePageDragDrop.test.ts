@@ -95,9 +95,6 @@ describe('usePageDragDrop', () => {
     });
 
     it('registers external dropped paths through the split picker capability', async () => {
-        const legacyRegisterFilesForOpen = vi.fn(() => {
-            throw new Error('legacy page drop path extraction should not be used');
-        });
         const pickerRegisterFilesForOpen = vi.fn(async () => [
             '/docs/a.pdf',
             '/docs/b.png',
@@ -106,10 +103,7 @@ describe('usePageDragDrop', () => {
         ]);
         vi.stubGlobal('window', {
             ...globalThis,
-            electronAPI: createElectronPlatformApiFixture({
-                documentPicker: { registerFilesForOpen: pickerRegisterFilesForOpen },
-                documents: { registerFilesForOpen: legacyRegisterFilesForOpen },
-            }),
+            electronAPI: createElectronPlatformApiFixture({documentPicker: { registerFilesForOpen: pickerRegisterFilesForOpen }}),
         });
 
         const onExternalFileDrop = vi.fn();
@@ -132,7 +126,6 @@ describe('usePageDragDrop', () => {
             '/docs/b.png',
         ]);
         expect(pickerRegisterFilesForOpen).toHaveBeenCalledTimes(2);
-        expect(legacyRegisterFilesForOpen).not.toHaveBeenCalled();
     });
 
     it('reports failed page-insert registration and inserts remaining valid files', async () => {

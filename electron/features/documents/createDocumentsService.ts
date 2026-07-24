@@ -105,14 +105,11 @@ type TDocumentsServiceArgs<TMethod extends keyof IDocumentsService> =
 export function createDocumentsService(): IDocumentsService {
     const service: IDocumentsService = {
         openDocumentDialog: handleOpenPdfDialog,
-        openPdfDialog: handleOpenPdfDialog,
         openCombineDialog: (...args: TDocumentsServiceArgs<'openCombineDialog'>) => handleOpenCombineDialog(...args),
         openFolderDialog: (...args: TDocumentsServiceArgs<'openFolderDialog'>) => handleOpenFolderDialog(...args),
         openImageDialog: (...args: TDocumentsServiceArgs<'openImageDialog'>) => handleOpenImageDialog(...args),
         openDocumentDirect: handleOpenPdfDirect,
-        openPdfDirect: handleOpenPdfDirect,
         openDocumentDirectBatch: handleOpenPdfDirectBatch,
-        openPdfDirectBatch: handleOpenPdfDirectBatch,
         cancelOpenDocumentDirectBatch: handleCancelOpenDocumentDirectBatch,
         createWorkingCopyFromData: (...args: TDocumentsServiceArgs<'createWorkingCopyFromData'>) =>
             handleCreateWorkingCopyFromData(...args),

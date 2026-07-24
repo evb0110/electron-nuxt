@@ -26,7 +26,6 @@ export type {
     IAgentWorkspaceSnapshotResponse,
     IDebugLogEntry,
     IDjvuCapability,
-    IDocumentsCapability,
     IDocumentsFileCapability,
     IDocumentsFileIoCapability,
     IDocumentsMenuCapability,
@@ -71,7 +70,6 @@ export type {
     TPlatformMethodKind,
 } from '@contracts/platformApi';
 export {
-    getPlatformDocumentCapabilityMirrors,
     getPlatformMethodDescriptor,
     PLATFORM_API_DESCRIPTOR,
 } from '@contracts/platformApi';

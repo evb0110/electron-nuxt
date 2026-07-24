@@ -46,9 +46,6 @@ const mockImageExportCapability = {
 };
 
 vi.mock('@app/utils/platformDocuments', () => ({
-    getDocumentsCapability: () => {
-        throw new Error('Legacy documents facade should not be used for workspace export cleanup');
-    },
     getDocumentWorkingCopyCapability: () => mockDocumentWorkingCopyCapability,
     getImageExportCapability: () => mockImageExportCapability,
 }));

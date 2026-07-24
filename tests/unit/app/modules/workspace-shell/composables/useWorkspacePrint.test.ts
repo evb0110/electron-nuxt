@@ -74,7 +74,7 @@ vi.mock('@app/utils/pdfPrintShared', () => ({
 }));
 
 vi.mock('@app/utils/platformDocuments', () => ({
-    getDocumentsCapability: () => documentsCapabilityMock,
+    getDocumentPdfCapability: () => documentsCapabilityMock,
     isNativePrintCapabilityUnavailable: (result: {
         success: boolean;
         canceled?: boolean;

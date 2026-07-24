@@ -5,7 +5,6 @@ import type {
 import { BrowserWindow } from 'electron';
 import { existsSync } from 'fs';
 import { isAbsolute } from 'path';
-import type { Entries } from 'type-fest';
 import type {
     IIpcMainRegistrar,
     TIpcMainInvokeHandler,
@@ -53,20 +52,6 @@ type TDocumentsIpcRegistrar = IIpcMainRegistrar<IDocumentsInvokeMap, IpcMainInvo
 type TDocumentsIpcChannel = Extract<keyof IDocumentsInvokeMap, string>;
 type TDocumentsIpcArgs<TChannel extends TDocumentsIpcChannel> = IDocumentsInvokeMap[TChannel]['args'];
 
-export const DOCUMENTS_IPC_CHANNEL_ALIASES = [
-    {
-        aliasKey: 'openPdfDirect',
-        ownerKey: 'openDocumentDirect',
-    },
-    {
-        aliasKey: 'openPdfDirectBatch',
-        ownerKey: 'openDocumentDirectBatch',
-    },
-] as const satisfies ReadonlyArray<{
-    aliasKey: keyof typeof DOCUMENTS_CHANNELS;
-    ownerKey: keyof typeof DOCUMENTS_CHANNELS;
-}>;
-
 const RENDERER_FILE_OPEN_TOKEN_TTL_MS = 5 * 60 * 1000;
 const MAX_RENDERER_FILE_OPEN_TOKENS_PER_SENDER = 128;
 const RENDERER_FILE_OPEN_TOKEN_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
@@ -82,57 +67,7 @@ function getDistinctDocumentsChannelValues() {
     ])];
 }
 
-function assertDocumentsIpcChannelAliasesAreExplicit() {
-    const aliasByKey = new Map<keyof typeof DOCUMENTS_CHANNELS, keyof typeof DOCUMENTS_CHANNELS>(
-        DOCUMENTS_IPC_CHANNEL_ALIASES.map(alias => [
-            alias.aliasKey,
-            alias.ownerKey,
-        ]),
-    );
-    const keysByChannel = new Map<string, Array<keyof typeof DOCUMENTS_CHANNELS>>();
-    for (const [
-        key,
-        channel,
-    ] of Object.entries(DOCUMENTS_CHANNELS) as Entries<typeof DOCUMENTS_CHANNELS>) {
-        const keys = keysByChannel.get(channel) ?? [];
-        keys.push(key);
-        keysByChannel.set(channel, keys);
-    }
-
-    for (const {
-        aliasKey,
-        ownerKey,
-    } of DOCUMENTS_IPC_CHANNEL_ALIASES) {
-        if (DOCUMENTS_CHANNELS[aliasKey] !== DOCUMENTS_CHANNELS[ownerKey]) {
-            throw new Error(`Documents IPC alias ${String(aliasKey)} does not share ${String(ownerKey)} channel value`);
-        }
-    }
-
-    for (const keys of keysByChannel.values()) {
-        if (keys.length <= 1) {
-            continue;
-        }
-
-        const firstKey = keys[0];
-        if (!firstKey) {
-            continue;
-        }
-        const explicitAliasCount = keys.filter(key => aliasByKey.has(key)).length;
-        if (explicitAliasCount !== keys.length - 1) {
-            throw new Error(`Documents IPC channel aliases must be explicit for channel value ${DOCUMENTS_CHANNELS[firstKey]}`);
-        }
-        for (const key of keys) {
-            const ownerKey = aliasByKey.get(key);
-            if (ownerKey && !keys.includes(ownerKey)) {
-                throw new Error(`Documents IPC alias ${String(key)} points outside its channel group`);
-            }
-        }
-    }
-}
-
 export function assertDocumentsIpcSingleRegistrationInvariant(registrations: readonly string[]) {
-    assertDocumentsIpcChannelAliasesAreExplicit();
-
     const expectedChannels = getDistinctDocumentsChannelValues();
     const expectedChannelSet = new Set(expectedChannels);
     const registrationCounts = new Map<string, number>();

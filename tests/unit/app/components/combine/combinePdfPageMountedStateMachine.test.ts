@@ -31,7 +31,7 @@ vi.mock('@app/services/pdf/combinePdfFiles', () => ({
     },
     combinePdfFiles: mocks.combinePdfFiles,
 }));
-vi.mock('@app/utils/platformDocuments', () => ({getDocumentsCapability: () => ({ savePdfAs: mocks.savePdfAs })}));
+vi.mock('@app/utils/platformDocuments', () => ({getDocumentFilesCapability: () => ({ savePdfAs: mocks.savePdfAs })}));
 
 interface IQueueFile {
     id: string;

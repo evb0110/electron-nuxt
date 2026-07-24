@@ -34,11 +34,6 @@ vi.mock('@app/utils/platformDocuments', () => ({
         getDocumentRevision: mocks.getDocumentRevision,
         savePdfData: mocks.savePdfData,
     }),
-    getDocumentsCapability: () => ({
-        createWorkingCopyFromPath: mocks.legacyCreateWorkingCopyFromPath,
-        createWorkingCopyFromData: mocks.legacyCreateWorkingCopyFromData,
-        cleanupFile: mocks.legacyCleanupFile,
-    }),
 }));
 
 vi.mock('@app/utils/documentBytes', () => ({ readDocumentBytes: mocks.readDocumentBytes }));

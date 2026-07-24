@@ -27,28 +27,18 @@ const mocks = vi.hoisted(() => ({
         statFile: vi.fn(),
         writeFile: vi.fn(),
     },
-    documentMenu: { onOpenDocumentDirectBatchProgress: vi.fn(() => vi.fn()) },
     documentOpen: {
+        onOpenDocumentDirectBatchProgress: vi.fn(() => vi.fn()),
         openDocumentDirect: vi.fn(),
         openDocumentDirectBatch: vi.fn(),
     },
     documentPicker: { openDocumentDialog: vi.fn() },
-    legacyDocuments: {
-        statFile: vi.fn(async () => {
-            throw new Error('legacy statFile should not be used');
-        }),
-        writeFile: vi.fn(async () => {
-            throw new Error('legacy writeFile should not be used');
-        }),
-    },
 }));
 
 vi.mock('@app/utils/platformDocuments', () => ({
     getDocumentFilesCapability: () => mocks.documentFiles,
-    getDocumentMenuCapability: () => mocks.documentMenu,
     getDocumentOpenCapability: () => mocks.documentOpen,
     getDocumentPickerCapability: () => mocks.documentPicker,
-    getDocumentsCapability: () => mocks.legacyDocuments,
 }));
 
 const PDF_BYTES = Uint8Array.from([
@@ -124,7 +114,6 @@ describe('createDocumentOpenFlow', () => {
         expect(nextState.pdfData).toEqual(PDF_BYTES);
         expect(mocks.documentFiles.statFile).toHaveBeenCalledWith('/tmp/work.pdf');
         expect(mocks.documentFiles.readFile).toHaveBeenCalledWith('/tmp/work.pdf');
-        expect(mocks.legacyDocuments.statFile).not.toHaveBeenCalled();
     });
 
     it('keeps PDFs above the direct IPC ceiling path-backed', async () => {
@@ -163,7 +152,6 @@ describe('createDocumentOpenFlow', () => {
         await openFlow.loadPdfFromData(snapshot, { persistWorkingCopy: true });
 
         expect(mocks.documentFiles.writeFile).toHaveBeenCalledWith('/tmp/work.pdf', snapshot, undefined);
-        expect(mocks.legacyDocuments.writeFile).not.toHaveBeenCalled();
     });
 
     it('tracks preselected DjVu opens without statting the external source path', async () => {
@@ -184,7 +172,6 @@ describe('createDocumentOpenFlow', () => {
         expect(outcome.status).toBe('prepared');
         expect(state.pendingDjvu.value).toBe('/tmp/scan.djvu');
         expect(mocks.documentFiles.statFile).not.toHaveBeenCalledWith('/tmp/scan.djvu');
-        expect(mocks.legacyDocuments.statFile).not.toHaveBeenCalled();
         expect(analyticsDocumentScope.set).toHaveBeenCalledWith(expect.objectContaining({
             documentKind: 'djvu',
             fileExtension: 'djvu',

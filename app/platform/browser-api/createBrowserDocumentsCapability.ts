@@ -1,5 +1,4 @@
 import type {
-    IDocumentsCapability,
     IDocumentsFileIoCapability,
     IDocumentsMenuCapability,
     IDocumentsOpenCapability,
@@ -37,7 +36,10 @@ import {
     writeBytesToHandle,
 } from '@app/platform/browser-api/browserFilePickerAdapter';
 import { createBrowserImageExportCapability } from '@app/platform/browser-api/createBrowserImageExportCapability';
-import { browserDocumentsMenuCapability } from '@app/platform/browser-api/documentsMenuCapability';
+import {
+    browserDocumentsMenuCapability,
+    onBrowserOpenDocumentDirectBatchProgress,
+} from '@app/platform/browser-api/documentsMenuCapability';
 import { createBrowserPageOpsCapability } from '@app/platform/browser-api/createBrowserPageOpsCapability';
 import {
     DEFAULT_LOCALE,
@@ -58,7 +60,6 @@ import { safeDecodeURIComponent } from '@app/utils/browserSafe';
 interface ICreateBrowserDocumentsCapabilityOptions {clearSearchCaches: (pdfPath?: string) => void | Promise<void>;}
 
 export interface IBrowserDocumentCapabilities {
-    documents: IDocumentsCapability;
     documentPicker: IDocumentsPickerCapability;
     documentOpen: IDocumentsOpenCapability;
     documentWorkingCopy: IDocumentsWorkingCopyCapability;
@@ -138,7 +139,6 @@ export function createBrowserDocumentsCapability(
     });
     const documentPicker = {
         openDocumentDialog: fileCapability.openDocumentDialog,
-        openPdfDialog: fileCapability.openPdfDialog,
         openCombineDialog: fileCapability.openCombineDialog,
         openFolderDialog: fileCapability.openFolderDialog,
         openFolderDialogStructured: fileCapability.openFolderDialogStructured!,
@@ -151,11 +151,8 @@ export function createBrowserDocumentsCapability(
         & TFeatureBrowserBindings<typeof DOCUMENT_PICKER_PLATFORM_FEATURE>;
     const documentOpen = {
         openDocumentDirect: fileCapability.openDocumentDirect,
-        openPdfDirect: fileCapability.openPdfDirect,
         openDocumentDirectBatch: fileCapability.openDocumentDirectBatch,
-        openPdfDirectBatch: fileCapability.openPdfDirectBatch,
-        onOpenDocumentDirectBatchProgress: browserDocumentsMenuCapability.onOpenDocumentDirectBatchProgress,
-        onOpenPdfDirectBatchProgress: browserDocumentsMenuCapability.onOpenPdfDirectBatchProgress,
+        onOpenDocumentDirectBatchProgress: onBrowserOpenDocumentDirectBatchProgress,
     } satisfies IDocumentsOpenCapability
         & TFeatureBrowserBindings<typeof DOCUMENT_OPEN_PLATFORM_FEATURE>;
     const documentWorkingCopy = {
@@ -239,19 +236,7 @@ export function createBrowserDocumentsCapability(
         & TFeatureBrowserBindings<typeof DOCUMENT_WINDOW_PLATFORM_FEATURE>;
     const documentMenu = {...browserDocumentsMenuCapability} satisfies IDocumentsMenuCapability
         & TFeatureBrowserBindings<typeof DOCUMENT_MENU_PLATFORM_FEATURE>;
-    const documentsCapability = {
-        ...documentPicker,
-        ...documentOpen,
-        ...documentWorkingCopy,
-        ...documentFiles,
-        ...documentPdf,
-        ...documentRecentFiles,
-        ...documentWindow,
-        ...documentMenu,
-    };
-
     return {
-        documents: documentsCapability,
         documentPicker,
         documentOpen,
         documentWorkingCopy,

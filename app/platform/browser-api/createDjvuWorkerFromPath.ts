@@ -129,7 +129,7 @@ function getDesktopDocumentsCapability(path: TDocumentRef) {
         return null;
     }
 
-    const documentFiles = platform.documentFiles ?? platform.documents;
+    const documentFiles = platform.documentFiles;
     if (!documentFiles) {
         throw new Error(`Browser document not found: ${path}`);
     }
@@ -159,12 +159,12 @@ async function shouldUseNativeDesktopDjvuPreview(path: TDocumentRef) {
     }
 
     try {
-        const documents = getDesktopDocumentsCapability(path);
-        if (!documents) {
+        const documentFiles = getDesktopDocumentsCapability(path);
+        if (!documentFiles) {
             return nativeDjvu;
         }
 
-        const { size } = await documents.statFile(path);
+        const { size } = await documentFiles.statFile(path);
         return size > DJVU_DESKTOP_DJVUJS_PREVIEW_MAX_BYTES ? nativeDjvu : null;
     } catch {
         return nativeDjvu;
@@ -175,20 +175,20 @@ async function readDesktopDocumentBytes(
     path: TDocumentRef,
     options: IDjvuWorkerReadOptions = {},
 ) {
-    const documents = getDesktopDocumentsCapability(path);
-    if (!documents) {
+    const documentFiles = getDesktopDocumentsCapability(path);
+    if (!documentFiles) {
         return readBrowserDocumentBytes(path, options);
     }
 
     throwIfCanceled(options.signal);
-    const { size } = await documents.statFile(path);
+    const { size } = await documentFiles.statFile(path);
     throwIfCanceled(options.signal);
     if (size <= 0) {
         return new Uint8Array();
     }
 
     if (size <= DJVU_READ_CHUNK_BYTES) {
-        const bytes = await documents.readFile(path);
+        const bytes = await documentFiles.readFile(path);
         throwIfCanceled(options.signal);
         return bytes;
     }
@@ -198,7 +198,7 @@ async function readDesktopDocumentBytes(
     while (offset < size) {
         throwIfCanceled(options.signal);
         const chunkLength = Math.min(DJVU_READ_CHUNK_BYTES, size - offset);
-        const chunk = await documents.readFileRange(path, offset, chunkLength);
+        const chunk = await documentFiles.readFileRange(path, offset, chunkLength);
         throwIfCanceled(options.signal);
         output.set(chunk, offset);
         offset += chunk.byteLength;

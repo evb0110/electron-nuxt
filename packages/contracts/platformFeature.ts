@@ -153,7 +153,6 @@ export interface IPlatformIpcMethodSpec<
 > {
     kind: 'async' | 'void';
     channel: string;
-    aliasOf?: string;
     ipc: {
         args: TArgs;
         result: TResult;
@@ -175,7 +174,6 @@ export interface IPlatformSyncMethodSpec<
     TResult extends IRuntimeSchema<unknown> = IRuntimeSchema<unknown>,
 > {
     kind: 'sync';
-    aliasOf?: string;
     args: TArgs;
     result: TResult;
     browser: TPlatformBrowserSpec;
@@ -189,7 +187,6 @@ export interface IPlatformLocalMethodSpec<
     TResult extends IRuntimeSchema<unknown> = IRuntimeSchema<unknown>,
 > {
     kind: 'async' | 'void';
-    aliasOf?: string;
     local: {
         args: TArgs;
         result: TResult;
@@ -208,7 +205,6 @@ export type TPlatformMethodSpec =
 export interface IPlatformEventSpec<TPayload extends IRuntimeSchema<any> = IRuntimeSchema<any>> {
     kind: 'event';
     channel: string;
-    aliasOf?: string;
     payload: TPayload;
     subscription?: {
         channel: string;
@@ -336,9 +332,7 @@ export type TFeatureMainBindings<T, TEvent> = T extends {
     events: infer E extends TEvents;
 }
     ? {[K in keyof M as M[K] extends IPlatformIpcMethodSpec
-        ? M[K] extends {aliasOf: string}
-            ? never
-            : M[K] extends {main: {method: infer Name extends string}} ? Name : never
+        ? M[K] extends {main: {method: infer Name extends string}} ? Name : never
         : never]: M[K] extends IPlatformIpcMethodSpec ? TMainMethod<M[K], TEvent> : never} & {
             [K in keyof E as E[K]['subscription'] extends
             {main: {method: infer Name extends string}} ? Name : never]:
@@ -399,7 +393,6 @@ export function definePlatformFeature<const M extends TMethods, const E extends 
     type TFeature = IDefinedPlatformFeature<M, E>;
     const events = definition.events ?? {} as E;
     const seen = new Set<string>();
-    const channelsByName = new Map<string, string>();
     const invokeChannels: Record<string, string> = {};
     const eventChannels: Record<string, string> = {};
     const ipcCodecs: Record<string, {
@@ -409,26 +402,17 @@ export function definePlatformFeature<const M extends TMethods, const E extends 
     }> = {};
     const methods: IPlatformMethodDescriptor[] = [];
     const fixtureMethods: Array<TFeature['fixtureMethods'][number]> = [];
-    const addChannel = (name: string, channel: string, aliasOf?: string) => {
-        if (aliasOf !== undefined) {
-            if (channelsByName.get(aliasOf) !== channel) {
-                fail(`Platform feature alias ${name} must share the ${aliasOf} channel`);
-            }
-            channelsByName.set(name, channel);
-            return;
-        }
+    const addChannel = (channel: string) => {
         if (seen.has(channel)) {
             fail(`Duplicate platform feature channel: ${channel}`);
         }
         seen.add(channel);
-        channelsByName.set(name, channel);
     };
     const addDescriptor = (
         name: string,
         spec: {
             kind: IPlatformMethodDescriptor['kind'];
             lazy: 'forwarded' | 'direct';
-            aliasOf?: string;
         },
         required: Record<TPlatformBackend, boolean>,
         example: () => unknown,
@@ -442,12 +426,6 @@ export function definePlatformFeature<const M extends TMethods, const E extends 
             kind: spec.kind,
             required,
             ...(optionalWhenImplemented ? {optionalWhenImplemented: true} : {}),
-            ...(spec.aliasOf === undefined
-                ? {}
-                : {aliasOf: [
-                    ...definition.path,
-                    spec.aliasOf,
-                ]}),
             browserLazy: spec.lazy,
         };
         methods.push(descriptor);
@@ -469,15 +447,13 @@ export function definePlatformFeature<const M extends TMethods, const E extends 
                 : spec.local.result.example, spec.optionalWhenImplemented);
             continue;
         }
-        addChannel(name, spec.channel, spec.aliasOf);
+        addChannel(spec.channel);
         invokeChannels[name] = spec.channel;
-        if (spec.aliasOf === undefined) {
-            ipcCodecs[spec.channel] = {
-                encodeArgs: value => spec.ipc.args.encode(value) as unknown[],
-                decodeArgs: value => spec.ipc.args.decode(value),
-                decodeResult: spec.ipc.result.decode,
-            };
-        }
+        ipcCodecs[spec.channel] = {
+            encodeArgs: value => spec.ipc.args.encode(value) as unknown[],
+            decodeArgs: value => spec.ipc.args.decode(value),
+            decodeResult: spec.ipc.result.decode,
+        };
         addDescriptor(name, spec, {
             ...definition.required,
             ...spec.required,
@@ -487,11 +463,11 @@ export function definePlatformFeature<const M extends TMethods, const E extends 
         name,
         spec,
     ] of Object.entries(events)) {
-        addChannel(name, spec.channel, spec.aliasOf);
+        addChannel(spec.channel);
         eventChannels[name] = spec.channel;
         addDescriptor(name, spec, definition.required, () => () => undefined);
         if (spec.subscription) {
-            addChannel(spec.subscription.main.method, spec.subscription.channel);
+            addChannel(spec.subscription.channel);
             invokeChannels[spec.subscription.main.method] = spec.subscription.channel;
             const noArgs = runtimeSchema.tuple([]);
             ipcCodecs[spec.subscription.channel] = {

@@ -250,7 +250,7 @@ describe('createDjvuWorkerFromPath', () => {
         expect(mocks.unload).not.toHaveBeenCalled();
     });
 
-    it('prefers desktop documentFiles over legacy documents for desktop paths', async () => {
+    it('uses desktop documentFiles for desktop paths', async () => {
         const bytes = new Uint8Array([
             4,
             5,
@@ -263,21 +263,7 @@ describe('createDjvuWorkerFromPath', () => {
                 throw new Error('split readFileRange should not be used for small files');
             }),
         };
-        const legacyDocuments = {
-            statFile: vi.fn(async () => {
-                throw new Error('legacy statFile should not be used');
-            }),
-            readFile: vi.fn(async () => {
-                throw new Error('legacy readFile should not be used');
-            }),
-            readFileRange: vi.fn(async () => {
-                throw new Error('legacy readFileRange should not be used');
-            }),
-        };
-        vi.stubGlobal('window', { electronAPI: createElectronPlatformApiFixture({
-            documentFiles,
-            documents: legacyDocuments,
-        }) });
+        vi.stubGlobal('window', { electronAPI: createElectronPlatformApiFixture({documentFiles}) });
         const { createDjvuWorkerFromPath } =
             await import('@app/platform/browser-api/createDjvuWorkerFromPath');
 
@@ -286,9 +272,6 @@ describe('createDjvuWorkerFromPath', () => {
         expect(documentFiles.statFile).toHaveBeenCalledWith('/Users/test/desktop-book.djvu');
         expect(documentFiles.readFile).toHaveBeenCalledWith('/Users/test/desktop-book.djvu');
         expect(documentFiles.readFileRange).not.toHaveBeenCalled();
-        expect(legacyDocuments.statFile).not.toHaveBeenCalled();
-        expect(legacyDocuments.readFile).not.toHaveBeenCalled();
-        expect(legacyDocuments.readFileRange).not.toHaveBeenCalled();
         expect(mocks.stat).not.toHaveBeenCalled();
         expect(mocks.read).not.toHaveBeenCalled();
         expect(mocks.readRange).not.toHaveBeenCalled();

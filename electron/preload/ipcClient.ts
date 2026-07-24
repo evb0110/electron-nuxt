@@ -257,14 +257,6 @@ export function createPlatformFeaturePreloadClient<
         name,
         spec,
     ] of Object.entries(feature.methods)) {
-        if (spec.aliasOf !== undefined) {
-            const target = client[spec.aliasOf];
-            if (typeof target !== 'function') {
-                throw new Error(`Missing platform feature alias target: ${spec.aliasOf}`);
-            }
-            client[name] = target;
-            continue;
-        }
         if (spec.kind === 'sync' || 'local' in spec) {
             const binding = untypedDirectBindings?.[name];
             if (typeof binding !== 'function') {
@@ -287,14 +279,6 @@ export function createPlatformFeaturePreloadClient<
         name,
         spec,
     ] of Object.entries(feature.events)) {
-        if (spec.aliasOf !== undefined) {
-            const target = client[spec.aliasOf];
-            if (typeof target !== 'function') {
-                throw new Error(`Missing platform feature alias target: ${spec.aliasOf}`);
-            }
-            client[name] = target;
-            continue;
-        }
         client[name] = (callback: (payload: unknown) => void) => {
             const unsubscribe = eventSubscriber.onDecodedPayload(
                 spec.channel,

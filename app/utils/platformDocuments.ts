@@ -1,5 +1,4 @@
 import type {
-    IDocumentsCapability,
     IDocumentsFileIoCapability,
     IDocumentsMenuCapability,
     IDocumentsOpenCapability,
@@ -18,48 +17,36 @@ import { yieldToBrowser } from '@app/utils/yieldToBrowser';
 import { getPlatformAPI } from '@app/utils/platform';
 import { isBrowserFullReadTooLargeError } from '@app/platform/browser/browserDocumentReadError';
 
-export function getDocumentsCapability(): IDocumentsCapability {
-    return getPlatformAPI().documents;
-}
-
 export function getDocumentPickerCapability(): IDocumentsPickerCapability {
-    const platform = getPlatformAPI();
-    return platform.documentPicker ?? platform.documents;
+    return getPlatformAPI().documentPicker;
 }
 
 export function getDocumentOpenCapability(): IDocumentsOpenCapability {
-    const platform = getPlatformAPI();
-    return platform.documentOpen ?? platform.documents;
+    return getPlatformAPI().documentOpen;
 }
 
 export function getDocumentWorkingCopyCapability(): IDocumentsWorkingCopyCapability {
-    const platform = getPlatformAPI();
-    return platform.documentWorkingCopy ?? platform.documents;
+    return getPlatformAPI().documentWorkingCopy;
 }
 
 export function getDocumentFilesCapability(): IDocumentsFileIoCapability {
-    const platform = getPlatformAPI();
-    return platform.documentFiles ?? platform.documents;
+    return getPlatformAPI().documentFiles;
 }
 
 export function getDocumentPdfCapability(): IDocumentsPdfCapability {
-    const platform = getPlatformAPI();
-    return platform.documentPdf ?? platform.documents;
+    return getPlatformAPI().documentPdf;
 }
 
 export function getDocumentRecentFilesCapability(): IDocumentsRecentFilesCapability {
-    const platform = getPlatformAPI();
-    return platform.documentRecentFiles ?? platform.documents;
+    return getPlatformAPI().documentRecentFiles;
 }
 
 export function getDocumentWindowCapability(): IDocumentsWindowCapability {
-    const platform = getPlatformAPI();
-    return platform.documentWindow ?? platform.documents;
+    return getPlatformAPI().documentWindow;
 }
 
 export function getDocumentMenuCapability(): IDocumentsMenuCapability {
-    const platform = getPlatformAPI();
-    return platform.documentMenu ?? platform.documents;
+    return getPlatformAPI().documentMenu;
 }
 
 export function getPageOpsCapability(): IPageOpsCapability {
@@ -73,21 +60,21 @@ export function getImageExportCapability(): IImageExportCapability {
 const FULL_READ_FALLBACK_CHUNK_SIZE = 4 * 1024 * 1024;
 
 export async function readDocumentFileFully(path: TDocumentRef) {
-    const documents = getDocumentFilesCapability();
+    const documentFiles = getDocumentFilesCapability();
     try {
-        return await documents.readFile(path);
+        return await documentFiles.readFile(path);
     } catch (error) {
         if (!isBrowserFullReadTooLargeError(error)) {
             throw error;
         }
     }
 
-    const { size } = await documents.statFile(path);
+    const { size } = await documentFiles.statFile(path);
     const output = new Uint8Array(assertDocumentAllocationSize(size));
     let offset = 0;
     while (offset < size) {
         const length = Math.min(FULL_READ_FALLBACK_CHUNK_SIZE, size - offset);
-        const chunk = await documents.readFileRange(path, offset, length);
+        const chunk = await documentFiles.readFileRange(path, offset, length);
         if (chunk.byteLength === 0) {
             throw new Error(`Range read returned no bytes before EOF at offset ${offset} of ${size}`);
         }

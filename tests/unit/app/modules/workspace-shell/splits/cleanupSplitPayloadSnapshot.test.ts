@@ -14,10 +14,7 @@ const mocks = vi.hoisted(() => ({
     loggerWarn: vi.fn(),
 }));
 
-vi.mock('@app/utils/platformDocuments', () => ({
-    getDocumentWorkingCopyCapability: () => ({ cleanupFile: mocks.cleanupFile }),
-    getDocumentsCapability: () => ({ cleanupFile: mocks.legacyCleanupFile }),
-}));
+vi.mock('@app/utils/platformDocuments', () => ({getDocumentWorkingCopyCapability: () => ({ cleanupFile: mocks.cleanupFile })}));
 
 vi.mock('@app/utils/browserLogger', () => ({ BrowserLogger: { warn: mocks.loggerWarn } }));
 

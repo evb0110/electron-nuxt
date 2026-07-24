@@ -4,10 +4,7 @@ import {
     it,
     vi,
 } from 'vitest';
-import {
-    getPlatformDocumentCapabilityMirrors,
-    PLATFORM_API_DESCRIPTOR,
-} from '@contracts/platformApi';
+import { PLATFORM_API_DESCRIPTOR } from '@contracts/platformApi';
 import { createDefaultPlatformApiFixtureMethod } from '@tests/helpers/createDefaultPlatformApiFixtureMethod';
 import { createElectronPlatformApiFixture } from '@tests/helpers/createElectronPlatformApiFixture';
 import type { TPlatformApiFixtureOverrides } from '@tests/helpers/createPlatformApiFixture';
@@ -43,40 +40,27 @@ describe('createElectronPlatformApiFixture', () => {
         }
     });
 
-    it('keeps split and legacy document mirrors on the same function', () => {
-        const api = createElectronPlatformApiFixture();
-
-        for (const {
-            legacyPath,
-            splitPath,
-        } of getPlatformDocumentCapabilityMirrors()) {
-            expect(readPath(api, legacyPath), formatPath(legacyPath)).toBe(readPath(api, splitPath));
-        }
-    });
-
-    it('deep-merges split overrides into legacy documents unless legacy is explicit', () => {
+    it('deep-merges split capability overrides', () => {
         const registerFilesForOpen = vi.fn(async () => ['/tmp/split.pdf']);
         const openDocumentDialog = vi.fn(async () => null);
-        const api = createElectronPlatformApiFixture({
-            documentPicker: {registerFilesForOpen},
-            documents: {openDocumentDialog},
-        });
+        const api = createElectronPlatformApiFixture({documentPicker: {
+            registerFilesForOpen,
+            openDocumentDialog,
+        }});
 
-        expect(api.documentPicker?.registerFilesForOpen).toBe(registerFilesForOpen);
-        expect(api.documents.registerFilesForOpen).toBe(registerFilesForOpen);
-        expect(api.documents.openDocumentDialog).toBe(openDocumentDialog);
-        expect(api.documentPicker?.openDocumentDialog).toBe(openDocumentDialog);
-        expect(api.documents.recentFiles.remove).toEqual(expect.any(Function));
+        expect(api.documentPicker.registerFilesForOpen).toBe(registerFilesForOpen);
+        expect(api.documentPicker.openDocumentDialog).toBe(openDocumentDialog);
+        expect(api.documentRecentFiles.recentFiles.remove).toEqual(expect.any(Function));
     });
 
     it('generates electron native optional methods from the platform manifest', () => {
         const api = createElectronPlatformApiFixture();
 
-        expect(api.documentFiles?.repairPdf).toEqual(expect.any(Function));
-        expect(api.documentFiles?.getPdfOpeningGeometry).toEqual(expect.any(Function));
-        expect(api.documentFiles?.getPdfNativePageSizes).toEqual(expect.any(Function));
-        expect(api.documentFiles?.cancelPdfNativePagePreview).toEqual(expect.any(Function));
-        expect(api.documents.renderPdfNativePagePreview).toEqual(expect.any(Function));
+        expect(api.documentFiles.repairPdf).toEqual(expect.any(Function));
+        expect(api.documentFiles.getPdfOpeningGeometry).toEqual(expect.any(Function));
+        expect(api.documentFiles.getPdfNativePageSizes).toEqual(expect.any(Function));
+        expect(api.documentFiles.cancelPdfNativePagePreview).toEqual(expect.any(Function));
+        expect(api.documentFiles.renderPdfNativePagePreview).toEqual(expect.any(Function));
     });
 
     it('uses migrated schema examples for Search defaults', async () => {
@@ -93,7 +77,7 @@ describe('createElectronPlatformApiFixture', () => {
     });
 
     it('rejects overrides that remove a required manifest method', () => {
-        const overrides = asFixtureOverrides({documents: {readFile: undefined}});
+        const overrides = asFixtureOverrides({documentFiles: {readFile: undefined}});
 
         expect(() => createElectronPlatformApiFixture(overrides))
             .toThrow('Missing platform API fixture method documentFiles.readFile');

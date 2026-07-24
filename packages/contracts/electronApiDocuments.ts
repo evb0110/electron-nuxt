@@ -539,25 +539,16 @@ export interface IDocumentsMenuCapability {
     onMenuOpenRecentFile: (callback: (path: TDocumentRef) => void) => TMenuEventUnsubscribe;
     onMenuOpenExternalPaths: (callback: (paths: TDocumentRef[]) => void) => TMenuEventUnsubscribe;
     onMenuClearRecentFiles: (callback: TMenuEventCallback) => TMenuEventUnsubscribe;
-    onOpenDocumentDirectBatchProgress: (callback: (progress: TOpenDocumentDirectBatchProgress) => void) => TMenuEventUnsubscribe;
-    onOpenPdfDirectBatchProgress: (callback: (progress: IOpenPdfDirectBatchProgress) => void) => TMenuEventUnsubscribe;
 }
 
 export interface IDocumentsFileCapability {
     openDocumentDialog: () => Promise<TOpenFileResult | null>;
-    openPdfDialog: () => Promise<TOpenFileResult | null>;
     openCombineDialog: () => Promise<TOpenFileResult | null>;
     openFolderDialog: () => Promise<TOpenFileResult | null>;
     openFolderDialogStructured?: () => Promise<TOpenFolderDialogResult>;
     openImageDialog: () => Promise<string | null>;
     openDocumentDirect: (path: TDocumentRef) => Promise<TOpenFileResult | null>;
-    openPdfDirect: (path: TDocumentRef) => Promise<TOpenFileResult | null>;
     openDocumentDirectBatch: (
-        paths: TDocumentRef[],
-        requestId?: string,
-        options?: {forceCombine?: boolean},
-    ) => Promise<TOpenFileResult | null>;
-    openPdfDirectBatch: (
         paths: TDocumentRef[],
         requestId?: string,
         options?: {forceCombine?: boolean},
@@ -728,7 +719,6 @@ export interface IDocumentsFileCapability {
 export interface IDocumentsPickerCapability extends Pick<
     IDocumentsFileCapability,
     | 'openDocumentDialog'
-    | 'openPdfDialog'
     | 'openCombineDialog'
     | 'openFolderDialog'
     | 'openFolderDialogStructured'
@@ -742,15 +732,11 @@ export interface IDocumentsPickerCapability extends Pick<
 export interface IDocumentsOpenCapability extends Pick<
     IDocumentsFileCapability,
     | 'openDocumentDirect'
-    | 'openPdfDirect'
     | 'openDocumentDirectBatch'
-    | 'openPdfDirectBatch'
     | 'cancelOpenDocumentDirectBatch'
->, Pick<
-        IDocumentsMenuCapability,
-    | 'onOpenDocumentDirectBatchProgress'
-    | 'onOpenPdfDirectBatchProgress'
-    > {}
+> {onOpenDocumentDirectBatchProgress: (
+    callback: (progress: TOpenDocumentDirectBatchProgress) => void,
+) => TMenuEventUnsubscribe;}
 
 export interface IDocumentsWorkingCopyCapability extends Pick<
     IDocumentsFileCapability,
@@ -835,7 +821,3 @@ export interface IDocumentsWindowCapability extends Pick<
     | 'showItemInFolder'
     | 'showItemInFolderStructured'
 > {}
-
-export interface IDocumentsCapability extends
-    IDocumentsFileCapability,
-    IDocumentsMenuCapability {}

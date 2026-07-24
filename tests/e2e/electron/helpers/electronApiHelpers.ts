@@ -204,7 +204,7 @@ export async function rotatePages(page: Page, workingCopyPath: string, pages: nu
         const api = (window as IE2EWindow).electronAPI;
 
         const rotate = api?.pageOps?.rotate;
-        const getDocumentRevision = api?.documents?.getDocumentRevision;
+        const getDocumentRevision = api?.documentFiles?.getDocumentRevision;
         if (!rotate || !getDocumentRevision) {
             throw new Error('electronAPI page rotation capability is unavailable');
         }
@@ -217,4 +217,3 @@ export async function rotatePages(page: Page, workingCopyPath: string, pages: nu
         targetAngle: angle,
     });
 }
-

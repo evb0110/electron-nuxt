@@ -16,26 +16,11 @@ const mocks = vi.hoisted(() => ({
         writeFile: vi.fn(),
     },
     documentPdf: { validatePdfData: vi.fn() },
-    legacyDocuments: {
-        saveFileStructured: vi.fn(() => {
-            throw new Error('legacy saveFileStructured should not be used');
-        }),
-        savePdfData: vi.fn(() => {
-            throw new Error('legacy savePdfData should not be used');
-        }),
-        validatePdfData: vi.fn(() => {
-            throw new Error('legacy validatePdfData should not be used');
-        }),
-        writeFile: vi.fn(() => {
-            throw new Error('legacy writeFile should not be used');
-        }),
-    },
 }));
 
 vi.mock('@app/utils/platformDocuments', () => ({
     getDocumentFilesCapability: () => mocks.documentFiles,
     getDocumentPdfCapability: () => mocks.documentPdf,
-    getDocumentsCapability: () => mocks.legacyDocuments,
 }));
 
 const SERIALIZED_SAVE_OPTIONS = { expectedDocumentRevisionToken: requireDocumentRevisionToken('drt1:test:serialized-base') };
@@ -82,7 +67,6 @@ describe('savePdfBytesToWorkingCopy', () => {
         expect(mocks.documentPdf.validatePdfData).not.toHaveBeenCalled();
         expect(mocks.documentFiles.writeFile).not.toHaveBeenCalled();
         expect(mocks.documentFiles.saveFileStructured).not.toHaveBeenCalled();
-        expect(mocks.legacyDocuments.savePdfData).not.toHaveBeenCalled();
     });
 
     it('validates before writing and saving through split capabilities', async () => {
@@ -101,9 +85,6 @@ describe('savePdfBytesToWorkingCopy', () => {
         expect(mocks.documentPdf.validatePdfData).toHaveBeenCalledWith(data);
         expect(mocks.documentFiles.writeFile).toHaveBeenCalledWith('/tmp/working.pdf', data, SERIALIZED_SAVE_OPTIONS);
         expect(mocks.documentFiles.saveFileStructured).toHaveBeenCalledWith('/tmp/working.pdf', SERIALIZED_SAVE_OPTIONS);
-        expect(mocks.legacyDocuments.validatePdfData).not.toHaveBeenCalled();
-        expect(mocks.legacyDocuments.writeFile).not.toHaveBeenCalled();
-        expect(mocks.legacyDocuments.saveFileStructured).not.toHaveBeenCalled();
     });
 
     it('returns a failed validation result when the target save is canceled', async () => {

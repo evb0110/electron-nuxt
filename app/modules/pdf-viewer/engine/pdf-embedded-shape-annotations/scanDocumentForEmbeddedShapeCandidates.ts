@@ -74,11 +74,11 @@ export async function documentHasEmbeddedShapeCandidates(
     path: TDocumentRef,
     options: {signal?: AbortSignal} = {},
 ) {
-    const documents = getDocumentFilesCapability();
+    const documentFiles = getDocumentFilesCapability();
     let tail = new Uint8Array(0);
 
     try {
-        await documents.readFileChunks(
+        await documentFiles.readFileChunks(
             path,
             {
                 chunkBytes: EMBEDDED_SHAPE_SCAN_CHUNK_BYTES,

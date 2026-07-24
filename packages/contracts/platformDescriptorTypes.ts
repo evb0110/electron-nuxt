@@ -8,7 +8,6 @@ export interface IPlatformMethodDescriptor {
     kind: TPlatformMethodKind;
     required: Record<TPlatformBackend, boolean>;
     optionalWhenImplemented?: boolean;
-    aliasOf?: readonly string[];
     browserLazy: TBrowserPlatformLazyMode;
 }
 

@@ -6,7 +6,6 @@ import {
     vi,
 } from 'vitest';
 import {
-    getPlatformDocumentCapabilityMirrors,
     PLATFORM_API_DESCRIPTOR,
     type IPlatformApi,
 } from '@contracts/platformApi';
@@ -69,22 +68,17 @@ function expectCallablePathParity(
     }
 }
 
-function expectDocumentAliasIdentity(api: IPlatformApi) {
-    for (const {
-        legacyPath,
-        splitPath,
-    } of getPlatformDocumentCapabilityMirrors()) {
-        const splitMethod = readPath(api, splitPath);
-        const legacyMethod = readPath(api, legacyPath);
-        if (typeof splitMethod === 'function' || typeof legacyMethod === 'function') {
-            expect(legacyMethod, `${formatPath(legacyPath)} -> ${formatPath(splitPath)}`).toBe(splitMethod);
-        }
-    }
-}
-
 async function createMockedElectronApi() {
     const fixture = createElectronPlatformApiFixture();
-    vi.doMock('@electron/features/documents/createDocumentsPreloadClient', () => ({createDocumentsPreloadClient: () => fixture.documents}));
+    vi.doMock('@electron/features/documents/createDocumentsPreloadClient', () => ({createDocumentsPreloadClient: () => ({
+        ...fixture.documentOpen,
+        ...fixture.documentWorkingCopy,
+        ...fixture.documentFiles,
+        ...fixture.documentPdf,
+        createCombinedPdfFromFiles: fixture.documentPicker.createCombinedPdfFromFiles,
+        openFolderDialogStructured: fixture.documentPicker.openFolderDialogStructured,
+        showItemInFolderStructured: fixture.documentWindow.showItemInFolderStructured,
+    })}));
     vi.doMock('@electron/preload/debugLogBuffer', () => ({getDebugLogMessages: () => []}));
 
     const { createElectronApi } = await import('@electron/preload/createElectronApi');
@@ -110,8 +104,6 @@ describe('platform API contract parity', () => {
 
         expectCallablePathParity(browserPlatformApi, browserPaths);
         expectCallablePathParity(lazyBrowserPlatformApi, browserPaths);
-        expectDocumentAliasIdentity(browserPlatformApi);
-        expectDocumentAliasIdentity(lazyBrowserPlatformApi);
     });
 
     it('keeps the Electron fixture descriptor-complete', () => {
@@ -119,7 +111,6 @@ describe('platform API contract parity', () => {
         const descriptorPaths = PLATFORM_API_DESCRIPTOR.methods.map(descriptor => descriptor.path);
 
         expectCallablePathParity(api, descriptorPaths);
-        expectDocumentAliasIdentity(api);
     });
 
     it('keeps mocked Electron preload descriptor-complete', async () => {
@@ -127,6 +118,5 @@ describe('platform API contract parity', () => {
         const descriptorPaths = PLATFORM_API_DESCRIPTOR.methods.map(descriptor => descriptor.path);
 
         expectCallablePathParity(api, descriptorPaths);
-        expectDocumentAliasIdentity(api);
     });
 });

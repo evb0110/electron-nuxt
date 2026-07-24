@@ -3,10 +3,7 @@ import type {
     IPlatformRuntimeManifest,
     TPlatformBackend,
 } from '@contracts/platformApi';
-import {
-    getPlatformDocumentCapabilityMirrors,
-    PLATFORM_API_DESCRIPTOR,
-} from '@contracts/platformApi';
+import { PLATFORM_API_DESCRIPTOR } from '@contracts/platformApi';
 import {
     PLATFORM_FEATURE_REGISTRY,
     type IPlatformMethodDescriptor,
@@ -54,17 +51,6 @@ function readPath(root: unknown, path: readonly string[]) {
         value = value[segment];
     }
     return value;
-}
-
-function hasPath(root: unknown, path: readonly string[]) {
-    let value = root;
-    for (const segment of path) {
-        if (!isRecord(value) || !(segment in value)) {
-            return false;
-        }
-        value = value[segment];
-    }
-    return true;
 }
 
 function cloneValue<T>(value: T): T {
@@ -117,9 +103,6 @@ function createBasePlatformApiFixture(manifest: IPlatformRuntimeManifest) {
             ] as const)),
     );
     for (const descriptor of methods) {
-        if (descriptor.aliasOf !== undefined) {
-            continue;
-        }
         setPath(
             api,
             descriptor.path,
@@ -129,36 +112,11 @@ function createBasePlatformApiFixture(manifest: IPlatformRuntimeManifest) {
             ),
         );
     }
-    for (const {
-        legacyPath,
-        splitPath,
-    } of getPlatformDocumentCapabilityMirrors()) {
-        setPath(api, legacyPath, readPath(api, splitPath));
-    }
     return api;
 }
 
-function mirrorDocumentOverrides(api: Record<string, unknown>, overrides: TPlatformApiFixtureOverrides) {
-    for (const {
-        legacyPath,
-        splitPath,
-    } of getPlatformDocumentCapabilityMirrors()) {
-        const hasSplitOverride = hasPath(overrides, splitPath);
-        const hasLegacyOverride = hasPath(overrides, legacyPath);
-        if (hasSplitOverride && !hasLegacyOverride) {
-            setPath(api, legacyPath, readPath(api, splitPath));
-        } else if (hasLegacyOverride && !hasSplitOverride) {
-            setPath(api, splitPath, readPath(api, legacyPath));
-        } else if (!hasSplitOverride && !hasLegacyOverride) {
-            setPath(api, legacyPath, readPath(api, splitPath));
-        }
-    }
-}
-
 function assertPlatformApiFixture(api: Record<string, unknown>): asserts api is Record<string, unknown> & IPlatformApi {
-    const canonicalThenAliases = [...PLATFORM_API_DESCRIPTOR.methods]
-        .sort((left, right) => Number(left.aliasOf !== undefined) - Number(right.aliasOf !== undefined));
-    for (const descriptor of canonicalThenAliases) {
+    for (const descriptor of PLATFORM_API_DESCRIPTOR.methods) {
         if (typeof readPath(api, descriptor.path) !== 'function') {
             throw new TypeError(`Missing platform API fixture method ${descriptor.path.join('.')}`);
         }
@@ -171,7 +129,6 @@ export function createPlatformApiFixture<TOverrides extends TPlatformApiFixtureO
 }: ICreatePlatformApiFixtureOptions<TOverrides>): IPlatformApi & TOverrides {
     const api = createBasePlatformApiFixture(manifest);
     deepMerge(api, overrides);
-    mirrorDocumentOverrides(api, overrides);
     assertPlatformApiFixture(api);
     return api as IPlatformApi & TOverrides;
 }

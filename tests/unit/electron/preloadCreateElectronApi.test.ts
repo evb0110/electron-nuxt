@@ -9,7 +9,6 @@ import {
 import { AGENT_PLATFORM_FEATURE } from '@contracts/agentPlatformFeature';
 import { DOCUMENTS_CHANNELS } from '@electron/features/documents/contract';
 import { CORE_IPC_EVENT_CHANNELS } from '@electron/platform-ipc/coreContract';
-import { getPlatformDocumentCapabilityMirrors } from '@contracts/platformApi';
 import {
     HOST_RESOURCE_PROFILE_ARGUMENT_PREFIX,
     type IHostResourceProfileSnapshot,
@@ -22,7 +21,6 @@ import { WINDOW_TABS_PLATFORM_FEATURE } from '@contracts/windowTabsPlatformFeatu
 const agentEventChannels = AGENT_PLATFORM_FEATURE.eventChannels;
 const documentsClientMock = vi.hoisted(() => ({
     openDocumentDialog: vi.fn(async () => null),
-    openPdfDialog: vi.fn(async () => null),
     openCombineDialog: vi.fn(async () => null),
     openFolderDialog: vi.fn(async () => null),
     openFolderDialogStructured: vi.fn(async () => ({
@@ -31,9 +29,7 @@ const documentsClientMock = vi.hoisted(() => ({
     })),
     openImageDialog: vi.fn(async () => null),
     openDocumentDirect: vi.fn(async (path: string) => ({ path })),
-    openPdfDirect: vi.fn(async (path: string) => ({ path })),
     openDocumentDirectBatch: vi.fn(async (paths: string[]) => paths),
-    openPdfDirectBatch: vi.fn(async (paths: string[]) => paths),
     savePdfAs: vi.fn(async () => null),
     savePdfDataAs: vi.fn(async () => ({
         path: null,
@@ -159,20 +155,9 @@ const documentsClientMock = vi.hoisted(() => ({
     onMenuOpenExternalPaths: vi.fn(),
     onMenuClearRecentFiles: vi.fn(),
     onOpenDocumentDirectBatchProgress: vi.fn(),
-    onOpenPdfDirectBatchProgress: vi.fn(),
 }));
 vi.mock('@electron/features/documents/createDocumentsPreloadClient', () => ({createDocumentsPreloadClient: () => documentsClientMock}));
 vi.mock('@electron/preload/debugLogBuffer', () => ({ getDebugLogMessages: () => [] }));
-
-const splitDocumentCapabilityMirrors = getPlatformDocumentCapabilityMirrors();
-const splitDocumentCapabilityRoots = [...new Set(
-    splitDocumentCapabilityMirrors.flatMap((mirror) => {
-        const root = mirror.splitPath[0];
-        return root === undefined ? [] : [root];
-    }),
-)];
-
-const expectedLegacyDocumentFunctionPaths = splitDocumentCapabilityMirrors.map(mirror => mirror.legacyPath);
 
 let expectedDecodedEventWarningSpy: ReturnType<typeof vi.spyOn> | null = null;
 
@@ -180,21 +165,6 @@ function silenceExpectedDecodedEventWarnings() {
     expectedDecodedEventWarningSpy?.mockRestore();
     expectedDecodedEventWarningSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     return expectedDecodedEventWarningSpy;
-}
-
-function readPropertyPath(root: unknown, path: readonly string[]) {
-    let value = root;
-    for (const key of path) {
-        if (typeof value !== 'object' || value === null || Array.isArray(value)) {
-            return undefined;
-        }
-        value = (value as Record<string, unknown>)[key];
-    }
-    return value;
-}
-
-function formatPath(path: readonly string[]) {
-    return path.join('.');
 }
 
 describe('createElectronApi', () => {
@@ -225,7 +195,7 @@ describe('createElectronApi', () => {
             {waitForDocumentOpenDirect},
         );
 
-        const openPromise = api.documents.openDocumentDirect('/tmp/deferred.pdf');
+        const openPromise = api.documentOpen.openDocumentDirect('/tmp/deferred.pdf');
         await vi.waitFor(() => expect(waitForDocumentOpenDirect).toHaveBeenCalledWith('/tmp/deferred.pdf'));
         expect(documentsClientMock.openDocumentDirect).not.toHaveBeenCalled();
 
@@ -234,7 +204,7 @@ describe('createElectronApi', () => {
         expect(documentsClientMock.openDocumentDirect).toHaveBeenCalledWith('/tmp/deferred.pdf');
     });
 
-    it('keeps page operations and image export out of the documents capability', async () => {
+    it('exposes page operations and image export on their own capabilities', async () => {
         const ipcRenderer = {
             invoke: vi.fn(async () => undefined),
             on: vi.fn(),
@@ -245,8 +215,6 @@ describe('createElectronApi', () => {
             ipcRenderer as never,
             { getPathForFile: () => '' },
         );
-        expect('pageOps' in api.documents).toBe(false);
-        expect('exportPdfToImages' in api.documents).toBe(false);
         expect(typeof api.pageOps.rotate).toBe('function');
         expect(typeof api.imageExport.exportPdfToImages).toBe('function');
         expect(typeof api.system.getMemoryInfo).toBe('function');
@@ -397,7 +365,7 @@ describe('createElectronApi', () => {
         expect(ipcRenderer.invoke).not.toHaveBeenCalled();
     });
 
-    it('exposes top-level document capability slices from the same preload behavior as legacy documents', async () => {
+    it('exposes top-level document capability slices from the preload behavior', async () => {
         const ipcRenderer = {
             invoke: vi.fn(async () => undefined),
             on: vi.fn(),
@@ -410,65 +378,14 @@ describe('createElectronApi', () => {
             { getPathForFile },
         );
 
-        for (const splitRoot of splitDocumentCapabilityRoots) {
-            expect(readPropertyPath(api, [splitRoot]), splitRoot).toBeDefined();
-        }
-
-        for (const {
-            splitPath,
-            legacyPath,
-        } of splitDocumentCapabilityMirrors) {
-            expect(readPropertyPath(api, splitPath), formatPath(splitPath)).toBe(
-                readPropertyPath(api, legacyPath),
-            );
-        }
-
-        expect(api.documentPicker?.getPathForFile({} as File)).toBe('/tmp/split-picker.pdf');
-        await api.documentOpen?.openDocumentDirect('/tmp/direct-from-split.pdf');
-        await api.documentFiles?.readTextFile('/tmp/direct-from-split.pdf');
-        await api.documentPdf?.printPdfPath('/tmp/direct-from-split.pdf');
+        expect(api.documentPicker.getPathForFile({} as File)).toBe('/tmp/split-picker.pdf');
+        await api.documentOpen.openDocumentDirect('/tmp/direct-from-split.pdf');
+        await api.documentFiles.readTextFile('/tmp/direct-from-split.pdf');
+        await api.documentPdf.printPdfPath('/tmp/direct-from-split.pdf');
 
         expect(documentsClientMock.openDocumentDirect).toHaveBeenCalledWith('/tmp/direct-from-split.pdf');
         expect(documentsClientMock.readTextFile).toHaveBeenCalledWith('/tmp/direct-from-split.pdf');
         expect(documentsClientMock.printPdfPath).toHaveBeenCalledWith('/tmp/direct-from-split.pdf');
-    });
-
-    it('keeps the legacy documents facade method-compatible with the preload documents client', async () => {
-        const ipcRenderer = {
-            invoke: vi.fn(async () => undefined),
-            on: vi.fn(),
-            send: vi.fn(),
-        };
-        const { createElectronApi } = await import('@electron/preload/createElectronApi');
-        const api = createElectronApi(
-            ipcRenderer as never,
-            { getPathForFile: () => '' },
-        );
-
-        for (const path of expectedLegacyDocumentFunctionPaths) {
-            expect(typeof readPropertyPath(api, path), formatPath(path)).toBe('function');
-        }
-    });
-
-    it('keeps menu, recent-files, and window methods on split fields and the legacy facade', async () => {
-        const ipcRenderer = {
-            invoke: vi.fn(async () => undefined),
-            on: vi.fn(),
-            send: vi.fn(),
-        };
-        const { createElectronApi } = await import('@electron/preload/createElectronApi');
-        const api = createElectronApi(
-            ipcRenderer as never,
-            { getPathForFile: () => '' },
-        );
-
-        expect(api.documentMenu?.setMenuDocumentState).toBe(api.documents.setMenuDocumentState);
-        expect(api.documentMenu?.onMenuClearRecentFiles).toBe(api.documents.onMenuClearRecentFiles);
-        expect(api.documentRecentFiles?.recentFiles.get).toBe(api.documents.recentFiles.get);
-        expect(api.documentRecentFiles?.recentFiles.remove).toBe(api.documents.recentFiles.remove);
-        expect(api.documentRecentFiles?.recentFiles.clear).toBe(api.documents.recentFiles.clear);
-        expect(api.documentWindow?.setWindowTitle).toBe(api.documents.setWindowTitle);
-        expect(api.documentWindow?.showItemInFolder).toBe(api.documents.showItemInFolder);
     });
 
     it('routes window tab context menu through the preload IPC contract', async () => {
@@ -894,16 +811,12 @@ describe('createElectronApi', () => {
             { getPathForFile: () => '/tmp/from-picker.pdf' },
         );
 
-        expect(api.documentPicker?.getPathForFile({} as File)).toBe('/tmp/from-picker.pdf');
-        expect(api.documentOpen?.openPdfDirect).toBe(api.documents.openPdfDirect);
-        const openPromise = api.documentOpen?.openPdfDirect('/tmp/from-picker.pdf');
-        if (!openPromise) {
-            throw new Error('Expected documentOpen.openPdfDirect to be available');
-        }
+        expect(api.documentPicker.getPathForFile({} as File)).toBe('/tmp/from-picker.pdf');
+        const openPromise = api.documentOpen.openDocumentDirect('/tmp/from-picker.pdf');
         for (let i = 0; i < 5 && !allowDeferred.resolve; i += 1) {
             await Promise.resolve();
         }
-        expect(documentsClientMock.openPdfDirect).not.toHaveBeenCalled();
+        expect(documentsClientMock.openDocumentDirect).not.toHaveBeenCalled();
 
         if (!allowDeferred.resolve) {
             throw new Error('Expected renderer file-open authorization to be pending');
@@ -935,10 +848,9 @@ describe('createElectronApi', () => {
             { getPathForFile: () => '/tmp/denied-from-picker.pdf' },
         );
 
-        expect(api.documentPicker?.getPathForFile({} as File)).toBe('/tmp/denied-from-picker.pdf');
-        expect(api.documentOpen?.openDocumentDirect).toBe(api.documents.openDocumentDirect);
+        expect(api.documentPicker.getPathForFile({} as File)).toBe('/tmp/denied-from-picker.pdf');
 
-        await expect(api.documentOpen?.openDocumentDirect('/tmp/denied-from-picker.pdf')).resolves.toBeNull();
+        await expect(api.documentOpen.openDocumentDirect('/tmp/denied-from-picker.pdf')).resolves.toBeNull();
         expect(documentsClientMock.openDocumentDirect).not.toHaveBeenCalled();
     });
 
@@ -969,11 +881,11 @@ describe('createElectronApi', () => {
             { getPathForFile: () => '/tmp/repeated-picker.pdf' },
         );
 
-        expect(api.documents.getPathForFile({} as File)).toBe('/tmp/repeated-picker.pdf');
-        expect(api.documents.getPathForFile({} as File)).toBe('/tmp/repeated-picker.pdf');
+        expect(api.documentPicker.getPathForFile({} as File)).toBe('/tmp/repeated-picker.pdf');
+        expect(api.documentPicker.getPathForFile({} as File)).toBe('/tmp/repeated-picker.pdf');
         await flushMicrotasks();
 
-        const openPromise = api.documents.openPdfDirect('/tmp/repeated-picker.pdf');
+        const openPromise = api.documentOpen.openDocumentDirect('/tmp/repeated-picker.pdf');
         allowResolvers.get('00000000-0000-4000-8000-000000000003')?.(true);
         await flushMicrotasks();
         expect(documentsClientMock.openDocumentDirect).not.toHaveBeenCalled();
@@ -1011,7 +923,7 @@ describe('createElectronApi', () => {
             { getPathForFile },
         );
 
-        const paths = api.documentPicker?.getPathsForFiles([
+        const paths = api.documentPicker.getPathsForFiles([
             { path: '/tmp/batch-a.pdf' } as File & { path: string },
             { path: '/tmp/batch-b.pdf' } as File & { path: string },
         ]) ?? [];
@@ -1020,11 +932,7 @@ describe('createElectronApi', () => {
             '/tmp/batch-b.pdf',
         ]);
 
-        expect(api.documentOpen?.openPdfDirectBatch).toBe(api.documents.openPdfDirectBatch);
-        const openPromise = api.documentOpen?.openPdfDirectBatch(paths, 'batch-open-1');
-        if (!openPromise) {
-            throw new Error('Expected documentOpen.openPdfDirectBatch to be available');
-        }
+        const openPromise = api.documentOpen.openDocumentDirectBatch(paths, 'batch-open-1');
         await flushMicrotasks();
         expect(documentsClientMock.openDocumentDirectBatch).not.toHaveBeenCalled();
 
@@ -1082,13 +990,12 @@ describe('createElectronApi', () => {
             { getPathForFile },
         );
 
-        const paths = api.documentPicker?.getPathsForFiles([
+        const paths = api.documentPicker.getPathsForFiles([
             { path: '/tmp/denied-batch-a.pdf' } as File & { path: string },
             { path: '/tmp/denied-batch-b.pdf' } as File & { path: string },
         ]) ?? [];
 
-        expect(api.documentOpen?.openDocumentDirectBatch).toBe(api.documents.openDocumentDirectBatch);
-        await expect(api.documentOpen?.openDocumentDirectBatch(paths, 'batch-open-denied')).resolves.toBeNull();
+        await expect(api.documentOpen.openDocumentDirectBatch(paths, 'batch-open-denied')).resolves.toBeNull();
         expect(documentsClientMock.openDocumentDirectBatch).not.toHaveBeenCalled();
     });
 });

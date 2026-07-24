@@ -74,10 +74,7 @@ const defaultBrowserLargeSaveHandleHintProvider = () => (
     'Use a browser with local file system access enabled to save large documents.'
 );
 
-type TCanonicalDocumentsFileCapability = Omit<
-    IDocumentsFileCapability,
-    'openPdfDialog' | 'openPdfDirect' | 'openPdfDirectBatch'
->;
+type TCanonicalDocumentsFileCapability = IDocumentsFileCapability;
 
 function createCanceledSaveValidationResult(validation: IPdfValidationResult): IPdfValidationResult {
     return {
@@ -908,10 +905,5 @@ export function createBrowserDocumentsFileCapability(
         },
     };
 
-    return {
-        ...capability,
-        openPdfDialog: capability.openDocumentDialog,
-        openPdfDirect: capability.openDocumentDirect,
-        openPdfDirectBatch: capability.openDocumentDirectBatch,
-    };
+    return capability;
 }

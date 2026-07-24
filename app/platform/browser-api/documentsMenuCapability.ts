@@ -17,7 +17,7 @@ export function emitBrowserOpenDocumentDirectBatchProgress(
     });
 }
 
-const onOpenDocumentDirectBatchProgress = (
+export const onBrowserOpenDocumentDirectBatchProgress = (
     callback: (progress: IOpenPdfDirectBatchProgress) => void,
 ) => {
     openDocumentDirectBatchProgressListeners.add(callback);
@@ -62,7 +62,5 @@ export const browserDocumentsMenuCapability = {
     onMenuOpenRecentFile: noopUnsubscribe,
     onMenuOpenExternalPaths: noopUnsubscribe,
     onMenuClearRecentFiles: noopUnsubscribe,
-    onOpenDocumentDirectBatchProgress,
-    onOpenPdfDirectBatchProgress: onOpenDocumentDirectBatchProgress,
 } satisfies IDocumentsMenuCapability
     & TFeatureBrowserBindings<typeof DOCUMENT_MENU_PLATFORM_FEATURE>;

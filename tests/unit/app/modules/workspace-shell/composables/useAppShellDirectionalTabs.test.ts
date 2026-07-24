@@ -22,10 +22,7 @@ const mocks = vi.hoisted(() => ({
     }),
 }));
 
-vi.mock('@app/utils/platformDocuments', () => ({
-    getDocumentWorkingCopyCapability: () => ({ createWorkingCopyFromPath: mocks.createWorkingCopyFromPath }),
-    getDocumentsCapability: () => ({ createWorkingCopyFromPath: mocks.legacyCreateWorkingCopyFromPath }),
-}));
+vi.mock('@app/utils/platformDocuments', () => ({getDocumentWorkingCopyCapability: () => ({ createWorkingCopyFromPath: mocks.createWorkingCopyFromPath })}));
 
 function createPayload(): TSplitPayload {
     return {

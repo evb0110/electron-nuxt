@@ -25,41 +25,21 @@ const routePath = ref('/electron');
 const electronRecentFilesGet = vi.fn<() => Promise<IRecentFile[]>>();
 const electronRecentFilesRemove = vi.fn<(path: string) => Promise<void>>();
 const electronRecentFilesClear = vi.fn<() => Promise<void>>();
-const legacyElectronRecentFilesGet = vi.fn<() => Promise<IRecentFile[]>>();
-const legacyElectronRecentFilesRemove = vi.fn<(path: string) => Promise<void>>();
-const legacyElectronRecentFilesClear = vi.fn<() => Promise<void>>();
 const electronOpenDocumentDirect = vi.fn<(path: string) => Promise<TOpenFileResult | null>>();
-const legacyElectronOpenDocumentDirect = vi.fn<(path: string) => Promise<TOpenFileResult | null>>();
 const browserRecentFilesGet = vi.fn<() => Promise<IRecentFile[]>>();
-const legacyBrowserRecentFilesGet = vi.fn<() => Promise<IRecentFile[]>>();
 const electronRecentFiles = {
     get: electronRecentFilesGet,
     remove: electronRecentFilesRemove,
     clear: electronRecentFilesClear,
 };
-const legacyElectronRecentFiles = {
-    get: legacyElectronRecentFilesGet,
-    remove: legacyElectronRecentFilesRemove,
-    clear: legacyElectronRecentFilesClear,
-};
 const electronPlatformApi = createElectronPlatformApiFixture({
-    documents: {
-        recentFiles: legacyElectronRecentFiles,
-        openDocumentDirect: legacyElectronOpenDocumentDirect,
-    },
     documentOpen: {openDocumentDirect: electronOpenDocumentDirect},
     documentRecentFiles: {recentFiles: electronRecentFiles},
 });
 const browserPlatformApi = createPlatformApiFixture({
     backend: 'browser',
     manifest: BROWSER_PLATFORM_MANIFEST,
-    overrides: {
-        documents: {
-            recentFiles: {get: legacyBrowserRecentFilesGet},
-            openDocumentDirect: vi.fn(),
-        },
-        documentRecentFiles: {recentFiles: {get: browserRecentFilesGet}},
-    },
+    overrides: {documentRecentFiles: {recentFiles: {get: browserRecentFilesGet}}},
 });
 
 vi.mock('@app/utils/platform', () => ({
@@ -132,13 +112,8 @@ describe('useRecentFiles', () => {
         electronRecentFilesGet.mockResolvedValue([]);
         electronRecentFilesRemove.mockResolvedValue();
         electronRecentFilesClear.mockResolvedValue();
-        legacyElectronRecentFilesGet.mockRejectedValue(new Error('legacy documents recent files get should not be used'));
-        legacyElectronRecentFilesRemove.mockRejectedValue(new Error('legacy documents recent files remove should not be used'));
-        legacyElectronRecentFilesClear.mockRejectedValue(new Error('legacy documents recent files clear should not be used'));
         electronOpenDocumentDirect.mockResolvedValue(null);
-        legacyElectronOpenDocumentDirect.mockRejectedValue(new Error('legacy documents direct open should not be used'));
         browserRecentFilesGet.mockResolvedValue([]);
-        legacyBrowserRecentFilesGet.mockRejectedValue(new Error('legacy browser documents recent files get should not be used'));
         installRecentFilesStubs();
     });
 
@@ -161,7 +136,6 @@ describe('useRecentFiles', () => {
         expect(isResolved.value).toBe(true);
         expect(recentFiles.value).toEqual([expect.objectContaining({originalPath: '/tmp/example.pdf'})]);
         expect(electronRecentFilesGet).toHaveBeenCalledOnce();
-        expect(legacyElectronRecentFilesGet).not.toHaveBeenCalled();
     });
 
     it('waits for the Electron bridge instead of falling back to browser recent files', async () => {
@@ -222,7 +196,6 @@ describe('useRecentFiles', () => {
 
         expect(electronRecentFilesRemove).toHaveBeenCalledWith('/tmp/remove-me.pdf');
         expect(electronRecentFilesGet).toHaveBeenCalledOnce();
-        expect(legacyElectronRecentFilesRemove).not.toHaveBeenCalled();
         expect(recentFiles.value).toEqual([expect.objectContaining({originalPath: '/tmp/remaining.pdf'})]);
     });
 
@@ -248,7 +221,6 @@ describe('useRecentFiles', () => {
         await clearRecentFiles();
 
         expect(electronRecentFilesClear).toHaveBeenCalledOnce();
-        expect(legacyElectronRecentFilesClear).not.toHaveBeenCalled();
         expect(recentFiles.value).toEqual([]);
         expect(isResolved.value).toBe(true);
     });
@@ -260,7 +232,6 @@ describe('useRecentFiles', () => {
         await openRecentFile(recentFile('/tmp/open-me.pdf'));
 
         expect(electronOpenDocumentDirect).toHaveBeenCalledWith('/tmp/open-me.pdf');
-        expect(legacyElectronOpenDocumentDirect).not.toHaveBeenCalled();
         expect(electronRecentFilesGet).not.toHaveBeenCalled();
     });
 
@@ -342,7 +313,6 @@ describe('useRecentFiles', () => {
         await loadRecentFiles();
 
         expect(browserRecentFilesGet).toHaveBeenCalledOnce();
-        expect(legacyBrowserRecentFilesGet).not.toHaveBeenCalled();
         expect(isResolved.value).toBe(true);
         expect(recentFiles.value).toEqual([expect.objectContaining({originalPath: '/tmp/full.pdf'})]);
     });

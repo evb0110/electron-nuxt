@@ -343,18 +343,11 @@ async function openPathDirectOnce(page: Page, pdfPath: string) {
         const diagnosticWindow = window as Window & {
             __allowRendererFileOpenForAutomation?: (value: string) => Promise<boolean>;
             __openFileDirect?: (value: string) => Promise<boolean>;
-            electronAPI?: {documents?: {recentFiles?: {add?: (value: string) => Promise<void>;};};};
         };
 
         const automationGrant = diagnosticWindow.__allowRendererFileOpenForAutomation;
         if (typeof automationGrant === 'function') {
             await automationGrant(path);
-        }
-
-        try {
-            await diagnosticWindow.electronAPI?.documents?.recentFiles?.add?.(path);
-        } catch {
-            // The direct-open path is what this diagnostic needs; recent-file seeding is best effort.
         }
 
         const openFileDirect = diagnosticWindow.__openFileDirect;
