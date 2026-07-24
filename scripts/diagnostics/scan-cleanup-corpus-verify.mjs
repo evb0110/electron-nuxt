@@ -244,7 +244,10 @@ function parseDominantSourceDpi(output, pageNumber) {
             && candidate.yPpi > 0);
     candidates.sort((left, right) => right.area - left.area);
     const dominant = candidates[0];
-    return dominant ? Math.max(1, Math.round(Math.max(dominant.xPpi, dominant.yPpi))) : 300;
+    return {
+        detected: dominant !== undefined,
+        dpi: dominant ? Math.max(1, Math.round(Math.max(dominant.xPpi, dominant.yPpi))) : 300,
+    };
 }
 
 function nativeOptions(dpi, sourceDpi, requestedRenderDpi, outputMode = 'auto') {
@@ -426,7 +429,10 @@ async function verifyFixture(fixture, expectedFixture, workRoot) {
             '-list',
             fixture.pdfPath,
         ]);
-        const sourceDpi = parseDominantSourceDpi(dpiListing.stdout, pageNumber);
+        const {
+            detected: sourceDpiDetected,
+            dpi: sourceDpi,
+        } = parseDominantSourceDpi(dpiListing.stdout, pageNumber);
         const sourceRaster = await rasterize(
             fixture.pdfPath,
             pageNumber,
@@ -452,8 +458,8 @@ async function verifyFixture(fixture, expectedFixture, workRoot) {
         const analysis = JSON.parse(await readFile(analysisMetadataPath, 'utf8'));
         const supersampled = analysis.recommendedOutputMode === 'bw'
             || analysis.recommendedOutputMode === 'mixed';
-        const requestedRenderDpi = supersampled
-            ? Math.max(sourceDpi * 2, 600)
+        const requestedRenderDpi = supersampled && !sourceDpiDetected
+            ? Math.max(sourceDpi, 600)
             : sourceDpi;
         const renderDpi = supersampled
             ? resolveSafeRenderDpi(

@@ -152,7 +152,7 @@ const defaultDependencies: IScanCleanupPreviewDependencies = {
             signal,
             [pageNumber],
         );
-        return result.pageDpiByNumber.get(pageNumber) ?? result.documentDpi;
+        return result.pageDpiByNumber.get(pageNumber) ?? null;
     },
     acquireDetectionLease: (jobId, signal) => mainJobBroker.acquire({
         ownerId: jobId,
@@ -233,6 +233,7 @@ async function materializeRawRaster(
         signal,
     );
     const bytes = await readPreviewBytes(outputPath);
+    signal.throwIfAborted();
     const raw = {
         bytes,
         documentRevision: request.documentRevision,
@@ -564,14 +565,13 @@ async function runDetailPreview(
         request.pageNumber,
         signal,
     );
-    const sourceDpi = sourceDpiCandidate !== null
+    const sourceDpiDetected = sourceDpiCandidate !== null
         && sourceDpiCandidate !== undefined
         && Number.isFinite(sourceDpiCandidate)
-        && sourceDpiCandidate > 0
-        ? sourceDpiCandidate
-        : DEFAULT_SOURCE_DPI;
+        && sourceDpiCandidate > 0;
+    const sourceDpi = sourceDpiDetected ? Number(sourceDpiCandidate) : DEFAULT_SOURCE_DPI;
     const requestedRenderDpi = request.detail.outputMode === 'bw'
-        ? Math.max(sourceDpi * 2, 600)
+        ? sourceDpiDetected ? sourceDpi : Math.max(sourceDpi, 600)
         : Math.max(sourceDpi, PREVIEW_DPI);
     const renderScale = requestedRenderDpi / PREVIEW_DPI;
     const fullSourceWidth = Math.max(1, Math.round(baseRaw.width * renderScale));
@@ -1015,6 +1015,7 @@ async function runPreview(
             outputs: cleaned,
         };
         if (!fallbackDetail) {
+            signal.throwIfAborted();
             const analysisKey = baseAnalysisKey(request);
             baseAnalysisCache.delete(analysisKey);
             baseAnalysisCache.set(analysisKey, {
@@ -1328,7 +1329,17 @@ export function createScanCleanupPreviewService(
     });
     return {
         previewRaw(sender, request) {
-            const activeKey = `${sender.id}\u0000${request.ownerId}\u0000${request.documentRevision}\u0000${request.sourcePdfPath}`;
+            const ownerPrefix = `${sender.id}\u0000${request.ownerId}\u0000`;
+            const documentPrefix = `${ownerPrefix}${request.documentRevision}\u0000`;
+            const activeKey = `${documentPrefix}${request.pageNumber}\u0000${request.sourcePdfPath}`;
+            for (const [
+                key,
+                activePreview,
+            ] of activeRaw) {
+                if (key.startsWith(ownerPrefix) && !key.startsWith(documentPrefix)) {
+                    activePreview.controller.abort(new DOMException('Stale document revision', 'AbortError'));
+                }
+            }
             const previous = activeRaw.get(activeKey);
             previous?.controller.abort(new DOMException('Superseded scan cleanup raw preview', 'AbortError'));
             const controller = new AbortController();
@@ -1346,13 +1357,17 @@ export function createScanCleanupPreviewService(
             return tail;
         },
         preview(sender, request) {
-            const activeKey = `${sender.id}\u0000${request.ownerId}\u0000${request.documentRevision}\u0000${request.sourcePdfPath}`;
+            // Detail tiles run in their own lane: a detail request must never
+            // abort or queue behind another page or the visible base preview.
+            const lane = request.detail === undefined ? 'base' : 'detail';
             const ownerPrefix = `${sender.id}\u0000${request.ownerId}\u0000`;
+            const documentPrefix = `${ownerPrefix}${request.documentRevision}\u0000`;
+            const activeKey = `${documentPrefix}${lane}\u0000${request.pageNumber}\u0000${request.sourcePdfPath}`;
             for (const [
                 key,
                 activePreview,
             ] of active) {
-                if (key !== activeKey && key.startsWith(ownerPrefix) && key.endsWith(`\u0000${request.sourcePdfPath}`)) {
+                if (key.startsWith(ownerPrefix) && !key.startsWith(documentPrefix)) {
                     activePreview.controller.abort(new DOMException('Stale document revision', 'AbortError'));
                 }
             }
@@ -1379,11 +1394,26 @@ export function createScanCleanupPreviewService(
             return tail;
         },
         cancel(sender, request) {
-            const activeKey = `${sender.id}\u0000${request.ownerId}\u0000${request.documentRevision}\u0000${request.sourcePdfPath}`;
-            const entry = active.get(activeKey);
-            entry?.controller.abort(new DOMException('Canceled scan cleanup preview', 'AbortError'));
-            const rawEntry = activeRaw.get(activeKey);
-            rawEntry?.controller.abort(new DOMException('Canceled scan cleanup raw preview', 'AbortError'));
+            const documentPrefix = `${sender.id}\u0000${request.ownerId}\u0000${request.documentRevision}\u0000`;
+            let canceled = false;
+            for (const [
+                key,
+                entry,
+            ] of active) {
+                if (key.startsWith(documentPrefix)) {
+                    entry.controller.abort(new DOMException('Canceled scan cleanup preview', 'AbortError'));
+                    canceled = true;
+                }
+            }
+            for (const [
+                key,
+                entry,
+            ] of activeRaw) {
+                if (key.startsWith(documentPrefix)) {
+                    entry.controller.abort(new DOMException('Canceled scan cleanup raw preview', 'AbortError'));
+                    canceled = true;
+                }
+            }
             if (request.invalidateRawCache !== false) {
                 for (const [
                     key,
@@ -1405,7 +1435,7 @@ export function createScanCleanupPreviewService(
                     }
                 }
             }
-            return Boolean(entry ?? rawEntry);
+            return canceled;
         },
         detectAll(sender, request) {
             const jobId = `scan-cleanup-detect-${randomUUID()}`;

@@ -308,9 +308,9 @@ const {
     outputEstimate,
     pending: detectionPending,
     progressText: detectionProgressText,
-    recommendedOutputModeByPage: detectedRecommendedOutputModeByPage,
-    recommendedOutputModeConfidenceByPage: detectedRecommendedOutputModeConfidenceByPage,
-    recommendedOutputModeReasonByPage: detectedRecommendedOutputModeReasonByPage,
+    recommendedOutputModeByPage,
+    recommendedOutputModeConfidenceByPage,
+    recommendedOutputModeReasonByPage,
     textAxisByPage: detectedTextAxisByPage,
 } = workspaceSession.detection;
 const {
@@ -532,24 +532,6 @@ const scopeOutputModeOverrideItems = computed(() => [
         label: t('scanCleanup.output.mixed'),
     },
 ]);
-const recommendedOutputModeByPage = computed(() => {
-    if (settings.preserveOriginalQuality === true || settings.outputMode !== 'auto') {
-        return new Map<number, TScanCleanupOutputMode>();
-    }
-    return new Map(detectedRecommendedOutputModeByPage);
-});
-const recommendedOutputModeConfidenceByPage = computed(() => {
-    if (settings.preserveOriginalQuality === true || settings.outputMode !== 'auto') {
-        return new Map<number, number>();
-    }
-    return new Map(detectedRecommendedOutputModeConfidenceByPage);
-});
-const recommendedOutputModeReasonByPage = computed(() => {
-    if (settings.preserveOriginalQuality === true || settings.outputMode !== 'auto') {
-        return new Map();
-    }
-    return new Map(detectedRecommendedOutputModeReasonByPage);
-});
 const previewOutputMode = computed<TScanCleanupOutputMode>(() => {
     if (settings.preserveOriginalQuality === true) {
         return 'color';
@@ -561,7 +543,7 @@ const previewOutputMode = computed<TScanCleanupOutputMode>(() => {
     if (settings.outputMode !== 'auto') {
         return settings.outputMode;
     }
-    return recommendedOutputModeByPage.value.get(previewPage.value)
+    return recommendedOutputModeByPage.get(previewPage.value)
         ?? (previewResultCurrent.value && previewResult.value?.pageNumber === previewPage.value
             ? previewResult.value.pageMetadata.recommendedOutputMode
             : undefined)
@@ -781,6 +763,7 @@ watch(isRunning, running => {
     flex: 1;
     flex-direction: column;
     background: var(--ui-bg);
+    container-type: inline-size;
 }
 
 .scan-cleanup-workspace {
@@ -792,6 +775,44 @@ watch(isRunning, running => {
         minmax(0, 1fr)
         var(--app-scan-dialog-rail-width);
     overflow: hidden;
+}
+
+/* Constrained widths (split panes, narrow windows): the side rails give way
+   first so the center preview keeps a usable width while every control stays
+   reachable through its rail's own scrolling. */
+@container (width <= 72rem) {
+    .scan-cleanup-workspace {
+        grid-template:
+            'thumbnails preview settings' minmax(0, 1fr) / minmax(var(--app-scan-page-list-collapsed-width), 14rem)
+            minmax(0, 1fr)
+            minmax(16rem, var(--app-scan-dialog-rail-width));
+    }
+}
+
+@container (width <= 52rem) {
+    .scan-cleanup-workspace {
+        grid-template:
+            'thumbnails preview settings' minmax(0, 1fr) / minmax(var(--app-scan-page-list-collapsed-width), 8rem)
+            minmax(0, 1fr)
+            minmax(14rem, 16rem);
+    }
+}
+
+@container (width <= 40rem) {
+    .scan-cleanup-workspace {
+        grid-template:
+            'preview' minmax(16rem, 3fr)
+            'settings' minmax(12rem, 2fr) / minmax(0, 1fr);
+    }
+
+    .scan-cleanup-workspace > .scan-thumbnail-rail {
+        display: none;
+    }
+
+    .scan-cleanup-options-rail {
+        border-block-start: var(--app-hairline-height) solid var(--ui-border);
+        border-inline-start: 0;
+    }
 }
 
 .scan-cleanup-blank-hint-anchor {

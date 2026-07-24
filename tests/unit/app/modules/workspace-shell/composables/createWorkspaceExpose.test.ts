@@ -376,7 +376,7 @@ describe('createWorkspaceExpose', () => {
         expect(snapshot.value.currentPage).toBe(6);
     });
 
-    it('keeps toolbar page and zoom metadata pending while the document visual is opening', () => {
+    it('keeps page metadata pending while publishing the prepared opening scale', () => {
         const documentViewerRef = ref<IWorkspaceDocumentViewerNavigationPort | null>({
             getCurrentPage: () => 99,
             scrollToPage: vi.fn(),
@@ -396,8 +396,8 @@ describe('createWorkspaceExpose', () => {
             isOpeningDocument: true,
             currentPage: 1,
             totalPages: 0,
-            zoom: 1,
-            effectiveZoom: 1,
+            zoom: 2.38,
+            effectiveZoom: 2.38,
         });
     });
 

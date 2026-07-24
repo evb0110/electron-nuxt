@@ -144,6 +144,7 @@ const defaultDependencies: IRunScanCleanupPipelineDependencies = {
 const SCAN_CLEANUP_MAX_DIMENSION_PX = 40_000;
 const MODE_ANALYSIS_DPI = 150;
 const SIZE_PROBE_DPI = 72;
+const SCAN_CLEANUP_BILEVEL_FALLBACK_DPI = 600;
 // Rome p1/p7/p49 at source DPI retained scan texture, fine text, and mixed
 // illustration edges at these settings. Color gets two extra quality points
 // for chroma detail; grayscale and mixed pages do not spend bytes on it.
@@ -376,6 +377,7 @@ async function runLosslessScanCleanup(
     const documentDpi = resolveSourceDpi(dpiDetails.documentDpi);
     let rasterizedCount = 0;
     const rasterizedPageNumbers = new Set<number>();
+    emitProgress(onProgress, 'rasterizing', 0, pageNumbers.length, 5, []);
     const pageInputs = await mapScanCleanupRasterPages(pageNumbers, 3, async pageNumber => {
         signal.throwIfAborted();
         const dpi = resolveSourceDpi(dpiDetails.pageDpiByNumber.get(pageNumber), documentDpi);
@@ -642,6 +644,7 @@ export async function runScanCleanupPipeline(
         }>();
         if (unresolvedAutoPages.length > 0) {
             let analyzedRasterCount = 0;
+            emitProgress(onProgress, 'rasterizing', 0, unresolvedAutoPages.length, 5, []);
             const analysisInputs = await mapScanCleanupRasterPages(
                 unresolvedAutoPages,
                 3,
@@ -778,16 +781,21 @@ export async function runScanCleanupPipeline(
         const pageDpi = new Map<number, number>();
         let rasterizedCount = 0;
         const rasterizedPageNumbers = new Set<number>();
+        emitProgress(onProgress, 'rasterizing', 0, pageCount, finalRasterStartPercent, []);
         const pageInputs = await mapScanCleanupRasterPages(pageNumbers, 3, async pageNumber => {
             signal.throwIfAborted();
             const sourceDpi = sourceDpiByPage.get(pageNumber)!;
             const resolvedOutputMode = resolvedOutputModeByPage.get(pageNumber) ?? 'color';
-            // Bilevel and mixed text layers floor at 600 DPI: below that, thin
-            // strokes fragment during binarization while 1-bit encoding keeps
-            // the byte cost small.
+            // Bilevel and mixed text layers render at the detected source DPI:
+            // rendering above it interpolates pixels that carry no additional
+            // source detail while multiplying rasterization cost. The 600 DPI
+            // floor applies only when no raster source DPI was detected
+            // (vector or unprobeable pages), where poppler synthesizes the
+            // raster and higher DPI genuinely adds stroke fidelity.
+            const detectedSourceDpi = dpiDetails.pageDpiByNumber.get(pageNumber);
             const supersampled = resolvedOutputMode === 'bw' || resolvedOutputMode === 'mixed';
-            const requestedRenderDpi = supersampled
-                ? Math.max(sourceDpi * 2, 600)
+            const requestedRenderDpi = supersampled && detectedSourceDpi == null
+                ? Math.max(sourceDpi, SCAN_CLEANUP_BILEVEL_FALLBACK_DPI)
                 : sourceDpi;
             const dpi = supersampled
                 ? resolveSafeRenderDpi(
@@ -943,7 +951,7 @@ export async function runScanCleanupPipeline(
                     } catch (error) {
                         log(
                             'warn',
-                            `Page ${pageIndex + 1} bilevel output is missing or unreadable; using PNG fallback: ${(error as Error).message}`,
+                            `Page ${pageNumbers[pageIndex]} bilevel output is missing or unreadable; using PNG fallback: ${(error as Error).message}`,
                         );
                     }
                 }
@@ -980,7 +988,7 @@ export async function runScanCleanupPipeline(
                             readPbmDimensions(output.foregroundMaskOutputPath),
                         ]);
                         const renderDpi = metadata.renderDpi
-                            ?? pageDpi.get(pageIndex + 1)
+                            ?? pageDpi.get(pageNumbers[pageIndex]!)
                             ?? documentDpi;
                         const backgroundDpi = metadata.layeredBackgroundDpi;
                         if (
@@ -1020,7 +1028,7 @@ export async function runScanCleanupPipeline(
                     } catch (error) {
                         log(
                             'warn',
-                            `Page ${pageIndex + 1} mixed layers are missing, malformed, or mismatched; using composite JPEG fallback: ${(error as Error).message}`,
+                            `Page ${pageNumbers[pageIndex]} mixed layers are missing, malformed, or mismatched; using composite JPEG fallback: ${(error as Error).message}`,
                         );
                     }
                 }
@@ -1033,7 +1041,7 @@ export async function runScanCleanupPipeline(
                     dpi: metadata.renderDpi
                         ?? pageDpi.get(pageNumbers[pageIndex]!)
                         ?? documentDpi,
-                    resolvedOutputMode: resolvedOutputModeByPage.get(pageIndex + 1) ?? 'color',
+                    resolvedOutputMode: resolvedOutputModeByPage.get(pageNumbers[pageIndex]!) ?? 'color',
                     metadata,
                 });
                 if (!metadata.skewApplied) summary.deskewSkipped += 1;

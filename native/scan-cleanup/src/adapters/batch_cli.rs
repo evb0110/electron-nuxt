@@ -1080,7 +1080,10 @@ fn run_classification(
     options.validate().map_err(invalid)?;
     let mut timings = PageStageTimings::default();
     let decode_started = Instant::now();
-    let color_input = if options.output_mode == OutputMode::Auto {
+    // Classification produces mode-independent diagnostics. Always decode RGB
+    // here so a page analyzed while a concrete mode is selected can still
+    // recommend color after the user switches back to Auto.
+    let color_input = {
         let key = StageCacheKey::decoded(&cache.source, true, &options);
         let cached = cache
             .shared
@@ -1104,8 +1107,6 @@ fn run_classification(
             }
             decoded
         })
-    } else {
-        None
     };
     let gray_input = if color_input.is_none() {
         let key = StageCacheKey::decoded(&cache.source, false, &options);

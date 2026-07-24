@@ -26,7 +26,7 @@ interface IUseScanCleanupPreviewZoomOptions {
     formatFitLabel: () => string;
     formatZoomLabel: (zoom: number) => string;
     overlayBounds: IScanCleanupDragRect;
-    result: () => IScanCleanupPreviewResult | null;
+    result: () => Pick<IScanCleanupPreviewResult, 'rawWidthPx' | 'rawHeightPx'> | null;
     stageSize: IPreviewStageSize;
     surface: Ref<HTMLElement | null>;
     updateGeometry: () => void;
@@ -161,14 +161,16 @@ export const useScanCleanupPreviewZoom = (options: IUseScanCleanupPreviewZoomOpt
         );
     }
 
+    // Full-surface overlays (placement control, content box) intentionally stay
+    // pannable: they cover the whole cleaned page, so blocking them would make
+    // navigation impossible at zoom. Their editing affordances are the discrete
+    // handles and controls matched here.
     function pointerTargetIsInteractive(target: EventTarget | null) {
         return target instanceof Element && target.closest([
             'button',
             'input',
             'select',
             'textarea',
-            '.content-overlay',
-            '.placement-control',
             '.cutter-control',
         ].join(',')) !== null;
     }

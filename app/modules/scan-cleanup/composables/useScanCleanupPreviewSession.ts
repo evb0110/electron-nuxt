@@ -123,6 +123,8 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
     let detailSequence = 0;
     let displayedDetailSourceKey: string | null = null;
     let timer: ReturnType<typeof setTimeout> | null = null;
+    let detailRetryTimer: ReturnType<typeof setTimeout> | null = null;
+    let detailRetriesRemaining = 0;
 
     const totalPages = computed(() => rawResult.value?.totalPages
         ?? result.value?.totalPages
@@ -185,11 +187,17 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
         timer = null;
     }
 
+    function clearDetailRetry() {
+        if (detailRetryTimer !== null) clearTimeout(detailRetryTimer);
+        detailRetryTimer = null;
+    }
+
     function cancel(invalidateRawCache = true) {
         sequence += 1;
         detailSequence += 1;
         prefetcher.supersede();
         clearTimer();
+        clearDetailRetry();
         loading.value = false;
         detailLoading.value = false;
         if (!options.sourcePath.value) {
@@ -240,6 +248,10 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
         if (!options.active() || !options.sourcePath.value) {
             return;
         }
+        detailSequence += 1;
+        clearDetailRetry();
+        detailRetriesRemaining = 0;
+        detailLoading.value = false;
         const capability = getScanCleanupCapability();
         if (!capability) {
             error.value = t('scanCleanup.preview.unavailable');
@@ -344,6 +356,7 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
 
     async function requestDetail(
         viewports: NonNullable<IScanCleanupPreviewRequest['detail']>['viewports'],
+        isRetry = false,
     ) {
         if (
             !options.active()
@@ -352,6 +365,10 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
             || !resultCurrent.value
         ) {
             return;
+        }
+        if (!isRetry) {
+            clearDetailRetry();
+            detailRetriesRemaining = 2;
         }
         const capability = getScanCleanupCapability();
         if (!capability) {
@@ -365,6 +382,7 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
         const baseKey = cacheKey(requestPage, requestOptions, requestSourcePath);
         const sourceKey = detailSourceKey(baseKey, outputMode);
         const tileKey = createScanCleanupDetailTileCacheKey(sourceKey, viewports);
+        const requestSequence = ++detailSequence;
         const cached = detailSourceCache.get(tileKey);
         if (cached) {
             detailResult.value = cached;
@@ -372,7 +390,6 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
             detailLoading.value = false;
             return;
         }
-        const requestSequence = ++detailSequence;
         detailLoading.value = true;
         try {
             const documentPrior = options.documentPriorByPage.get(requestPage);
@@ -401,6 +418,15 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
             if (!(caught instanceof Error && caught.name === 'AbortError')) {
                 detailResult.value = null;
                 displayedDetailSourceKey = null;
+                // A failed detail render retries on its own: the viewport is
+                // stationary, so no user gesture would otherwise re-request it.
+                if (requestSequence === detailSequence && detailRetriesRemaining > 0) {
+                    detailRetriesRemaining -= 1;
+                    detailRetryTimer = setTimeout(() => {
+                        detailRetryTimer = null;
+                        void requestDetail(viewports, true);
+                    }, 1_000);
+                }
             }
         } finally {
             if (requestSequence === detailSequence) {
@@ -439,7 +465,7 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
             schedule();
             options.whenRunStops();
         }
-    });
+    }, {flush: 'sync'});
     onBeforeUnmount(() => cancel());
 
     return {

@@ -2422,6 +2422,46 @@ describe('Scan cleanup components', () => {
         expect(harness.surface.classList).not.toContain('is-panning-preview');
     });
 
+    it('pans the cleaned view by dragging the full-surface placement overlay at navigation zoom', async () => {
+        const harness = mountPreviewZoomHarness({viewMode: 'cleaned'});
+        harness.surface.dispatchEvent(new MouseEvent('dblclick', {
+            bubbles: true,
+            cancelable: true,
+            clientX: 250,
+            clientY: 200,
+        }));
+        await nextTick();
+        expect(harness.stage.style.transform).toContain('scale(2)');
+
+        const placementControl = harness.host.querySelector<HTMLElement>('.placement-control');
+        expect(placementControl).not.toBeNull();
+        placementControl!.dispatchEvent(new PointerEvent('pointerdown', {
+            bubbles: true,
+            cancelable: true,
+            button: 0,
+            clientX: 250,
+            clientY: 200,
+            pointerId: 51,
+        }));
+        harness.surface.dispatchEvent(new PointerEvent('pointermove', {
+            bubbles: true,
+            cancelable: true,
+            clientX: 300,
+            clientY: 225,
+            pointerId: 51,
+        }));
+        await nextTick();
+
+        expect(harness.surface.classList).toContain('is-panning-preview');
+        expect(harness.stage.style.transform).toContain('translate3d(50px, 25px, 0) scale(2)');
+        harness.surface.dispatchEvent(new PointerEvent('pointerup', {
+            bubbles: true,
+            pointerId: 51,
+        }));
+        await nextTick();
+        expect(harness.surface.classList).not.toContain('is-panning-preview');
+    });
+
     it('toggles preview zoom between fit and bitmap 100% on double-click', async () => {
         const harness = mountPreviewZoomHarness();
 

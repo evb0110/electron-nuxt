@@ -134,8 +134,8 @@ function createRecoverablePdfImagesLog(log: TSourceDpiLog): TSourceDpiLog {
 
 function parsePdfImagesListOutput(output: string): ISourceDpiDetectionResult {
     const pageDpiByNumber = new Map<number, number>();
+    const dominantAreaByPage = new Map<number, number>();
     const lines = compact(output.split(/\r?\n/).map(line => line.trim()));
-    let documentDpi = 0;
 
     for (const line of lines) {
         const parts = line.split(/\s+/);
@@ -143,20 +143,37 @@ function parsePdfImagesListOutput(output: string): ISourceDpiDetectionResult {
             continue;
         }
         const pageNumber = parseInt(parts[0] ?? '', 10);
+        const type = parts[2];
+        const width = parseInt(parts[3] ?? '', 10);
+        const height = parseInt(parts[4] ?? '', 10);
         const xPpi = parseInt(parts[12] ?? '', 10);
         const yPpi = parseInt(parts[13] ?? '', 10);
         const dpi = Math.max(
             Number.isFinite(xPpi) ? xPpi : 0,
             Number.isFinite(yPpi) ? yPpi : 0,
         );
-        if (!Number.isFinite(pageNumber) || pageNumber <= 0 || dpi <= 0) {
+        const pixelArea = width * height;
+        if (
+            type !== 'image'
+            || !Number.isFinite(pageNumber)
+            || pageNumber <= 0
+            || !Number.isSafeInteger(pixelArea)
+            || pixelArea <= 0
+            || dpi <= 0
+        ) {
             continue;
         }
 
-        documentDpi = Math.max(documentDpi, dpi);
-        pageDpiByNumber.set(pageNumber, Math.max(pageDpiByNumber.get(pageNumber) ?? 0, dpi));
+        const dominantArea = dominantAreaByPage.get(pageNumber) ?? 0;
+        if (pixelArea > dominantArea) {
+            dominantAreaByPage.set(pageNumber, pixelArea);
+            pageDpiByNumber.set(pageNumber, dpi);
+        } else if (pixelArea === dominantArea) {
+            pageDpiByNumber.set(pageNumber, Math.max(pageDpiByNumber.get(pageNumber) ?? 0, dpi));
+        }
     }
 
+    const documentDpi = Math.max(0, ...pageDpiByNumber.values());
     return {
         documentDpi: documentDpi > 0 ? documentDpi : null,
         pageDpiByNumber,

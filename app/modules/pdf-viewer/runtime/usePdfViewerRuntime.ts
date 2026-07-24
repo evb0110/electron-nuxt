@@ -63,7 +63,10 @@ export const usePdfViewerRuntime = (options: IUsePdfViewerRuntimeOptions) => {
     });
 
     watch(
-        () => scale.effectiveScale.value,
+        // The toolbar is a projection of the geometry currently on screen.
+        // During divider/window resize that is the live preview scale; the
+        // canonical fit scale catches up at settle without a visible jump.
+        () => scale.layoutScale.value,
         value => reloadTransition.emitEffectiveZoom(value),
         { immediate: true },
     );
