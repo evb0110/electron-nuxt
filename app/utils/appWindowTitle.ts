@@ -1,5 +1,3 @@
-import { formatBrowserPageTitle } from '@app/utils/formatBrowserPageTitle';
-
 interface IResolveAppWindowTitleOptions {
     appTitle: string;
     webTitle: string;
@@ -8,6 +6,20 @@ interface IResolveAppWindowTitleOptions {
 }
 
 const MAX_WINDOW_TITLE_FILE_NAME_LENGTH = 60;
+
+function formatBrowserPageTitle(options: {
+    appName: string;
+    fileName?: string | null;
+}) {
+    const appName = options.appName.trim();
+    const fileName = options.fileName?.trim() ?? '';
+
+    if (!fileName) {
+        return appName;
+    }
+
+    return `${fileName} - ${appName}`;
+}
 
 function normalizeTitle(value: string | null | undefined) {
     return value?.trim() ?? '';

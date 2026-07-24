@@ -1,5 +1,6 @@
 import {
     beforeAll,
+    beforeEach,
     describe,
     expect,
     it,
@@ -448,100 +449,6 @@ async function clickVisibleButtonByAriaLabel(
     await session.page.mouse.click(point.x, point.y);
 }
 
-async function clickVisibleElementByText(
-    session: IElectronE2ESession,
-    selector: string,
-    text: string,
-) {
-    await session.page.waitForFunction((targetSelector: string, targetText: string) => {
-        return Array.from(document.querySelectorAll<HTMLElement>(targetSelector))
-            .some((candidate) => {
-                const rect = candidate.getBoundingClientRect();
-                const style = window.getComputedStyle(candidate);
-                return candidate.textContent?.trim() === targetText
-                    && !candidate.hasAttribute('disabled')
-                    && rect.width > 8
-                    && rect.height > 8
-                    && style.display !== 'none'
-                    && style.visibility !== 'hidden';
-            });
-    }, {timeout: 15_000}, selector, text);
-
-    const point = await session.page.evaluate((targetSelector: string, targetText: string) => {
-        const candidate = Array.from(document.querySelectorAll<HTMLElement>(targetSelector))
-            .find((element) => {
-                const rect = element.getBoundingClientRect();
-                const style = window.getComputedStyle(element);
-                return element.textContent?.trim() === targetText
-                    && !element.hasAttribute('disabled')
-                    && rect.width > 8
-                    && rect.height > 8
-                    && style.display !== 'none'
-                    && style.visibility !== 'hidden';
-            });
-        if (!candidate) {
-            return null;
-        }
-        const rect = candidate.getBoundingClientRect();
-        return {
-            x: Math.round(rect.left + rect.width / 2),
-            y: Math.round(rect.top + rect.height / 2),
-        };
-    }, selector, text);
-    if (!point) {
-        throw new Error(`Unable to find visible ${text} control`);
-    }
-    await session.page.mouse.click(point.x, point.y);
-}
-
-async function clickFirstVisibleElement(session: IElectronE2ESession, selector: string) {
-    const point = await session.page.waitForFunction((targetSelector: string) => {
-        const candidate = Array.from(document.querySelectorAll<HTMLElement>(targetSelector))
-            .find((element) => {
-                const rect = element.getBoundingClientRect();
-                const style = window.getComputedStyle(element);
-                return !element.hasAttribute('disabled')
-                    && rect.width > 8
-                    && rect.height > 8
-                    && style.display !== 'none'
-                    && style.visibility !== 'hidden';
-            });
-        if (!candidate) {
-            return null;
-        }
-        const rect = candidate.getBoundingClientRect();
-        return {
-            x: Math.round(rect.left + rect.width / 2),
-            y: Math.round(rect.top + rect.height / 2),
-        };
-    }, {timeout: 15_000}, selector);
-    const coordinates = await point.jsonValue();
-    if (!coordinates) {
-        throw new Error(`Unable to find visible ${selector} control`);
-    }
-    await session.page.mouse.click(coordinates.x, coordinates.y);
-}
-
-async function hasVisibleButtonByAriaLabel(
-    session: IElectronE2ESession,
-    selector: string,
-    label: string,
-) {
-    return session.page.evaluate((targetSelector: string, targetLabel: string) => (
-        Array.from(document.querySelectorAll<HTMLButtonElement>(targetSelector))
-            .some((candidate) => {
-                const rect = candidate.getBoundingClientRect();
-                const style = window.getComputedStyle(candidate);
-                return candidate.getAttribute('aria-label') === targetLabel
-                    && !candidate.disabled
-                    && rect.width > 8
-                    && rect.height > 8
-                    && style.display !== 'none'
-                    && style.visibility !== 'hidden';
-            })
-    ), selector, label);
-}
-
 async function waitForToolbarCurrentPage(session: IElectronE2ESession, pageNumber: number) {
     await session.page.waitForFunction((targetPageNumber: number) => {
         const toolbarPage = (window as IRapidNavigationProbeWindow)
@@ -565,8 +472,12 @@ async function waitForToolbarCurrentPage(session: IElectronE2ESession, pageNumbe
 
 async function waitForVisiblePageCanvas(session: IElectronE2ESession, pageNumber: number, timeout = 10_000) {
     return session.page.waitForFunction((targetPageNumber: number) => {
-        const viewer = document.querySelector<HTMLElement>('#pdf-viewer');
-        const container = document.querySelector<HTMLElement>(`.page_container[data-page="${targetPageNumber}"]`);
+        const viewer = document.querySelector<HTMLElement>(
+            '.editor-pane.is-active .workspace-host[data-workspace-active="true"] #pdf-viewer',
+        );
+        const container = viewer?.querySelector<HTMLElement>(
+            `.page_container[data-page="${targetPageNumber}"]`,
+        ) ?? null;
         const canvas = container?.querySelector<HTMLCanvasElement>('.page_canvas canvas') ?? null;
         const viewerRect = viewer?.getBoundingClientRect();
         const rect = container?.getBoundingClientRect();
@@ -687,6 +598,7 @@ async function jumpToPageAndWaitForCanvas(session: IElectronE2ESession, pageNumb
 describe('Electron E2E - paged fit-height backward wheel regression', () => {
     let pdfPath: string | null = null;
     const sessionFixture = createElectronE2ESessionFixture({
+        restartBeforeEach: false,
         sessionName: () => `e2e-pdf-paged-fit-height-backward-${Date.now()}`,
         timeoutMs: 180_000,
     });
@@ -701,14 +613,16 @@ describe('Electron E2E - paged fit-height backward wheel regression', () => {
         await openPdfInApp(session.page, pdfPath, 45_000);
     }, 90_000);
 
-    it('returns from page 6 to page 1 and closes cleanly using only mouse input', async () => {
+    it('returns from page 6 to page 1 and closes cleanly using mouse wheel navigation', async () => {
         const session = sessionFixture.getSession();
         if (!session || !pdfPath) {
             return;
         }
         const states: unknown[] = [];
         const collectState = () => session.page.evaluate(() => {
-            const viewport = document.querySelector<HTMLElement>('#pdf-viewer');
+            const viewport = document.querySelector<HTMLElement>(
+                '.editor-pane.is-active .workspace-host[data-workspace-active="true"] #pdf-viewer',
+            );
             const chassis = viewport?.closest<HTMLElement>('.document-viewer-chassis') ?? null;
             const currentPage = (window as IRapidNavigationProbeWindow).__evbTestApi
                 ?.getActiveToolbarSnapshot?.()?.currentPage ?? null;
@@ -735,8 +649,8 @@ describe('Electron E2E - paged fit-height backward wheel regression', () => {
 
         const initialToolbar = await getWorkspaceToolbarSnapshot(session.page);
         if (initialToolbar?.zoomMode !== 'fit-height') {
-            await clickFirstVisibleElement(session, '.zoom-controls-display');
-            await clickVisibleElementByText(session, '.zoom-toggle-btn', 'Fit Height');
+            const fitHeight = await callWorkspaceCommand(session.page, 'handleFitHeight');
+            expect(fitHeight.called).toBe(true);
         }
         await session.page.waitForFunction(() => (
             (window as IRapidNavigationProbeWindow).__evbTestApi
@@ -744,17 +658,8 @@ describe('Electron E2E - paged fit-height backward wheel regression', () => {
         ), {timeout: 15_000});
         const fitHeightToolbar = await getWorkspaceToolbarSnapshot(session.page);
         if (fitHeightToolbar?.continuousScroll !== false) {
-            const continuousScrollIsInline = await hasVisibleButtonByAriaLabel(
-                session,
-                '.toolbar-btn[aria-label]',
-                'Continuous Scroll',
-            );
-            if (continuousScrollIsInline) {
-                await clickVisibleButtonByAriaLabel(session, '.toolbar-btn[aria-label]', 'Continuous Scroll');
-            } else {
-                await clickVisibleButtonByAriaLabel(session, 'button[aria-label]', 'More tools');
-                await clickVisibleElementByText(session, '.overflow-menu-item', 'Continuous Scroll');
-            }
+            const paged = await callWorkspaceCommand(session.page, 'handleToggleContinuousScroll');
+            expect(paged.called).toBe(true);
         }
         await session.page.waitForFunction(() => (
             (window as IRapidNavigationProbeWindow).__evbTestApi
@@ -764,7 +669,9 @@ describe('Electron E2E - paged fit-height backward wheel regression', () => {
         expect(await waitForVisiblePageCanvas(session, 1, 20_000)).toBe(true);
 
         const viewportPoint = await session.page.evaluate(() => {
-            const viewport = document.querySelector<HTMLElement>('#pdf-viewer');
+            const viewport = document.querySelector<HTMLElement>(
+                '.editor-pane.is-active .workspace-host[data-workspace-active="true"] #pdf-viewer',
+            );
             if (!viewport) {
                 return null;
             }
@@ -834,6 +741,7 @@ describe('Electron E2E - PDF Page Jump Rendering', () => {
     let pageJumpReady = false;
 
     const sessionFixture = createElectronE2ESessionFixture({
+        restartBeforeEach: false,
         sessionName: () => `e2e-pdf-page-jump-${Date.now()}`,
         timeoutMs: 180_000,
     });
@@ -849,6 +757,22 @@ describe('Electron E2E - PDF Page Jump Rendering', () => {
         await openPdfInApp(session.page, pageJumpPdfPath, 45_000);
         pageJumpReady = true;
     }, 90_000);
+
+    beforeEach(async () => {
+        const session = sessionFixture.getSession();
+        if (!session || !pageJumpReady) {
+            return;
+        }
+        const toolbar = await getWorkspaceToolbarSnapshot(session.page);
+        if (toolbar?.continuousScroll === false) {
+            const continuous = await callWorkspaceCommand(session.page, 'handleToggleContinuousScroll');
+            expect(continuous.called).toBe(true);
+            await session.page.waitForFunction(() => (
+                (window as IRapidNavigationProbeWindow).__evbTestApi
+                    ?.getActiveToolbarSnapshot?.()?.continuousScroll === true
+            ), {timeout: 15_000});
+        }
+    }, 20_000);
 
     it('keeps the toolbar on the final page after Last Page navigation settles', async () => {
         const session = sessionFixture.getSession();

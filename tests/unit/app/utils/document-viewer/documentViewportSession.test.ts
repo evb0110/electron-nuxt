@@ -11,14 +11,14 @@ import {
     collectDocumentViewportSessionInvariantViolations,
     createEmptyDocumentViewportSession,
     reduceDocumentViewportSession,
-} from '@app/utils/document-viewer/session/documentViewportSession';
+} from '@app/utils/document-viewer/chassis/documentOpenSurfaceSession';
 import type {
     IDocumentViewportCommitFence,
     IDocumentViewportRenderFence,
     IDocumentViewportSessionState,
     TDocumentViewportSessionEffect,
     TDocumentViewportSessionEvent,
-} from '@app/utils/document-viewer/session/documentViewportSession';
+} from '@app/utils/document-viewer/chassis/documentOpenSurfaceSession';
 
 const identity = {
     documentId: 'document-a',

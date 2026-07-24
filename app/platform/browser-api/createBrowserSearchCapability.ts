@@ -32,15 +32,63 @@ import {
 import { yieldToBrowser } from '@app/platform/browser-api/browserYield';
 import { browserDocumentStore } from '@app/platform/browserDocumentStore';
 import type { IOcrWord } from '@contracts/shared';
-import {
-    clearStore,
-    deleteStoreValue,
-    isIndexedDbAvailable,
-    readStoreValue,
-    writeStoreValue,
-} from '@app/platform/browser-api/browserIndexeddb';
 import { createBrowserSafeId } from '@app/utils/browserSafe';
 import { BrowserLogger } from '@app/utils/browserLogger';
+
+function isIndexedDbAvailable() {
+    return typeof indexedDB !== 'undefined';
+}
+
+function idbRequestToPromise<T>(
+    request: IDBRequest<T>,
+    errorMessage: string,
+): Promise<T> {
+    return new Promise((resolve, reject) => {
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => reject(request.error ?? new Error(errorMessage));
+    });
+}
+
+function readStoreValue<T>(
+    store: IDBObjectStore,
+    key: IDBValidKey,
+    errorMessage: string,
+    decode: (value: unknown) => T | null,
+): Promise<T | null> {
+    return idbRequestToPromise<unknown>(store.get(key), errorMessage)
+        .then((value) => value === undefined ? null : decode(value));
+}
+
+function writeStoreValue(
+    store: IDBObjectStore,
+    value: unknown,
+    errorMessage: string,
+    key?: IDBValidKey,
+) {
+    const request = typeof key === 'undefined'
+        ? store.put(value)
+        : store.put(value, key);
+
+    return idbRequestToPromise(request, errorMessage)
+        .then(() => undefined);
+}
+
+function deleteStoreValue(
+    store: IDBObjectStore,
+    key: IDBValidKey,
+    errorMessage: string,
+) {
+    return idbRequestToPromise(store.delete(key), errorMessage)
+        .then(() => undefined);
+}
+
+function clearStore(
+    store: IDBObjectStore,
+    errorMessage: string,
+) {
+    return idbRequestToPromise(store.clear(), errorMessage)
+        .then(() => undefined);
+}
 
 interface IPreparedSearchDocumentCache {
     pageCount: number | null;

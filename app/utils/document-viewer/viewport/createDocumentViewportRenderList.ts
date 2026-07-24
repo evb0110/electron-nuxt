@@ -6,9 +6,9 @@ import {
     type TDocumentViewerPageDirection,
 } from '@app/utils/document-viewer/virtualization/pageVirtualization';
 
-export type TDocumentViewportScrollDirection = TDocumentViewerPageDirection;
+type TDocumentViewportScrollDirection = TDocumentViewerPageDirection;
 
-export interface ICreateDocumentViewportRenderListOptions {
+interface ICreateDocumentViewportRenderListOptions {
     anchorPage: number;
     direction?: TDocumentViewportScrollDirection | undefined;
     directionalPrefetchPages?: number | undefined;

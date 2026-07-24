@@ -17,3 +17,7 @@ scan-primitives = { version = "0.1.0", path = "../scan-primitives" }
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
+
+[dev-dependencies]
+jpeg-encoder = "0.7.0"
+zune-jpeg = "0.5.15"

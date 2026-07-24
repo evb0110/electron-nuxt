@@ -5,26 +5,26 @@ import {
 } from '@app/utils/document-viewer/virtualization/pageVirtualization';
 import { normalizeDocumentPageNumber } from '@app/utils/document-viewer/documentPageRange';
 
-export interface IDocumentContinuousScrollWindow {
+interface IDocumentContinuousScrollWindow {
     start: number;
     end: number;
     mostVisiblePage: number | null;
     pageNumbers: number[];
 }
 
-export interface IDocumentContinuousScrollGeometry {
+interface IDocumentContinuousScrollGeometry {
     pageHeights: number[];
     pageTops: number[];
     totalHeight: number;
 }
 
-export interface IResolveDocumentContinuousScrollGeometryOptions {
+interface IResolveDocumentContinuousScrollGeometryOptions {
     pageGapPx: number;
     pageHeights: readonly number[];
     totalPages: number;
 }
 
-export interface IResolveDocumentContinuousScrollWindowOptions {
+interface IResolveDocumentContinuousScrollWindowOptions {
     currentPage: number;
     geometry?: IDocumentContinuousScrollGeometry | undefined;
     pageGapPx: number;
@@ -36,7 +36,7 @@ export interface IResolveDocumentContinuousScrollWindowOptions {
     overscanViewports: number;
 }
 
-export interface IResolveDocumentViewportPageNumbersOptions {
+interface IResolveDocumentViewportPageNumbersOptions {
     geometry: IDocumentContinuousScrollGeometry;
     pageGapPx: number;
     scrollTop: number;
@@ -45,7 +45,7 @@ export interface IResolveDocumentViewportPageNumbersOptions {
     overscanViewports: number;
 }
 
-export interface IResolveNearestDocumentPageOptions {
+interface IResolveNearestDocumentPageOptions {
     geometry: IDocumentContinuousScrollGeometry;
     scrollTop: number;
     totalPages: number;
