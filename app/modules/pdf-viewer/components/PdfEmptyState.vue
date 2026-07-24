@@ -351,6 +351,7 @@ const openPanelButtonId = useId();
 const recentSearch = ref('');
 const activeSection = ref<TStartSection>(startSection);
 const clearHistoryDialogOpen = ref(false);
+const recentFilesBeforeOpen = shallowRef<readonly IRecentFile[] | null>(null);
 
 const rootRef = ref<HTMLElement | null>(null);
 const { width: rootWidth } = useElementSize(rootRef);
@@ -359,12 +360,13 @@ const recentClearLabelProps = computed(() => (
     isRecentControlsCompact.value ? {} : { label: t('emptyState.clearHistory') }
 ));
 
+const displayedRecentFiles = computed(() => recentFilesBeforeOpen.value ?? recentFiles);
 const filteredRecentFiles = computed(() => {
     const query = recentSearch.value.trim().toLocaleLowerCase();
     if (!query) {
-        return recentFiles;
+        return displayedRecentFiles.value;
     }
-    return recentFiles.filter((file) => {
+    return displayedRecentFiles.value.filter((file) => {
         const haystack = `${file.fileName} ${String(file.originalPath)}`.toLocaleLowerCase();
         return haystack.includes(query);
     });
@@ -421,7 +423,13 @@ function openFile() {
 }
 
 function openRecent(file: IRecentFile) {
+    recentFilesBeforeOpen.value ??= recentFiles.slice();
     emit('open-recent', file);
+    void nextTick().then(() => {
+        if (!openInProgress) {
+            recentFilesBeforeOpen.value = null;
+        }
+    });
 }
 
 function openRecentFromRow(file: IRecentFile) {
@@ -466,6 +474,11 @@ function setActiveSection(section: TStartSection) {
 watch(() => startSection, (section) => {
     activeSection.value = section;
 }, { immediate: true });
+watch(() => openInProgress, (isOpening) => {
+    if (!isOpening) {
+        recentFilesBeforeOpen.value = null;
+    }
+});
 
 </script>
 
