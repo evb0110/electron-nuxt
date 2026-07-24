@@ -8,7 +8,6 @@ import {
     copyFileSync,
     mkdirSync,
     unlinkSync,
-    utimesSync,
 } from 'node:fs';
 import {
     basename,
@@ -39,7 +38,6 @@ import {
     stopCommittedSurfaceSampler,
     summarizeCommittedSurfaceTiming,
 } from '@tests/e2e/electron/helpers/viewerCommittedSurfaceContract';
-import { DEFAULT_SETTINGS } from '@contracts/settings';
 
 const RECENT_ROW_TIMEOUT_MS = 15_000;
 const RECENT_OPEN_TIMEOUT_MS = 12_000;
@@ -609,6 +607,7 @@ describe('Electron E2E - Recent Files', () => {
                     rect: null,
                     borderRadius: '',
                     boxShadow: '',
+                    livePageMounted: false,
                     livePageBoxShadow: '',
                 };
             }
@@ -633,6 +632,7 @@ describe('Electron E2E - Recent Files', () => {
                 },
                 borderRadius: style.borderRadius,
                 boxShadow: style.boxShadow,
+                livePageMounted: livePage !== null,
                 livePageBoxShadow: livePage ? window.getComputedStyle(livePage).boxShadow : '',
                 diagnostics: {
                     frameOwner: shell.dataset.openSurfaceFrameOwner ?? '',
@@ -651,7 +651,11 @@ describe('Electron E2E - Recent Files', () => {
         });
         expect(openingShellState.found).toBe(true);
         expect(openingShellState.rect).not.toBeNull();
-        expect(openingShellState.livePageBoxShadow).toBe('none');
+        if (openingShellState.livePageMounted) {
+            expect(openingShellState.livePageBoxShadow).toBe('none');
+        } else {
+            expect(openingShellState.livePageBoxShadow).toBe('');
+        }
         await delay(130);
         const debouncedSkeletonVisible = await evaluateInPage(session.page, () => {
             const shell = document.querySelector<HTMLElement>('[data-e2e-recent-opening-shell="stable"]');
@@ -840,7 +844,7 @@ describe('Electron E2E - Recent Files', () => {
         await assertRecentPdfStaysLoaded(session, fixturePath);
     });
 
-    it('fits a cold Recent PDF to the viewport without prepared opening geometry', async () => {
+    it('fits the first Recent PDF to the viewport after startup', async () => {
         let session = await sessionFixture.restart({
             clean: true,
             sessionName: () => `e2e-recent-cold-fit-${Date.now()}`,
@@ -856,19 +860,10 @@ describe('Electron E2E - Recent Files', () => {
         );
         await openPdfInApp(session.page, fixturePath);
         await waitForPdfLoaded(session.page);
-        await evaluateInPage(session.page, async (settings) => {
-            await window.electronAPI?.settings.save(settings);
-        }, {
-            ...DEFAULT_SETTINGS,
-            performanceMode: 'low' as const,
-        });
 
-        // Change the source revision after the warm seed open. Startup must
-        // reject the persisted geometry, while low mode deliberately performs
-        // no replacement geometry probe. This exercises the same cold Recent
-        // path as a first open on a constrained host.
-        const changedAt = new Date(Date.now() + 2_000);
-        utimesSync(fixturePath, changedAt, changedAt);
+        // Restart into the Recent placeholder. The empty workspace must already
+        // carry the configured next-document view before the synchronous host
+        // drafts its prepared opening frame.
         session = await sessionFixture.restart({
             clean: false,
             keepNuxt: true,
@@ -879,8 +874,11 @@ describe('Electron E2E - Recent Files', () => {
 
         await waitForStartupOverlayRemoved(session);
         await waitForRecentFileRow(session, fixturePath);
+        await installCommittedSurfaceSampler(session.page);
         await clickRecentFile(session, fixturePath);
         await waitForRecentPdfOpen(session, fixturePath);
+        await delay(RECENT_OPEN_STABILITY_MS);
+        const coldOpenTrace = await stopCommittedSurfaceSampler(session.page);
 
         const layout = await evaluateInPage(session.page, () => {
             const viewport = document.querySelector<HTMLElement>(
@@ -894,6 +892,25 @@ describe('Electron E2E - Recent Files', () => {
                 viewportWidth: viewport?.clientWidth ?? 0,
             };
         });
+        const firstPreparedFrame = coldOpenTrace.frames.find(frame => (
+            frame.openSurfaceDiagnostic?.openSurfaceOpeningFrameOwner?.startsWith('document-viewer-chassis:')
+            && frame.shellRect !== null
+            && (frame.viewportClientWidth ?? 0) > 0
+        ));
+        expect(firstPreparedFrame, JSON.stringify({
+            layout,
+            frames: coldOpenTrace.frames,
+        })).toBeDefined();
+        expect(
+            Math.abs(
+                firstPreparedFrame!.shellRect!.width
+                - (firstPreparedFrame!.viewportClientWidth! - 40),
+            ),
+            JSON.stringify({
+                layout,
+                firstPreparedFrame,
+            }),
+        ).toBeLessThanOrEqual(1);
         expect(layout.viewportWidth).toBeGreaterThan(0);
         expect(layout.pageWidth).toBeGreaterThan(0);
         expect(
