@@ -10,7 +10,20 @@ import {
 import type { TPdfViewMode } from '@contracts/shared';
 import { usePdfViewerVirtualization } from '@app/modules/pdf-viewer/runtime/composables/usePdfViewerVirtualization';
 import { getPageRowBoundsForViewMode } from '@app/modules/pdf-viewer/engine/pdf-page-layout/getPageRowBoundsForViewMode';
+import {
+    resolvePdfRenderPerformancePolicy,
+    type IPdfRenderPerformancePolicy,
+} from '@app/modules/pdf-viewer/engine/pdf-render-performance/resolvePdfRenderPerformancePolicy';
 import type { IPdfPageMetric } from '@app/types/pdfUi';
+
+const normalPerformancePolicy = resolvePdfRenderPerformancePolicy({
+    lowCpu: false,
+    lowMemory: false,
+});
+const constrainedPerformancePolicy = resolvePdfRenderPerformancePolicy({
+    lowCpu: true,
+    lowMemory: false,
+});
 
 describe('getPageRowBoundsForViewMode', () => {
     it('returns the current spread bounds without building full layout metrics', () => {
@@ -45,6 +58,7 @@ function createVirtualizationHarness(viewMode: TPdfViewMode) {
     })));
 
     return usePdfViewerVirtualization({
+        performancePolicy: normalPerformancePolicy,
         bufferPages: computed(() => 0),
         viewMode: computed(() => viewMode),
         numPages,
@@ -71,6 +85,7 @@ function createPagedHarness(options?: {
     currentPage?: number;
     navigationAnchorPage?: number | null;
     bufferPages?: number;
+    performancePolicy?: IPdfRenderPerformancePolicy;
     visibleRange?: {
         start: number;
         end: number;
@@ -84,6 +99,7 @@ function createPagedHarness(options?: {
     })));
 
     return usePdfViewerVirtualization({
+        performancePolicy: options?.performancePolicy ?? normalPerformancePolicy,
         bufferPages: computed(() => options?.bufferPages ?? 2),
         viewMode: computed(() => options?.viewMode ?? 'single'),
         numPages,
@@ -223,6 +239,7 @@ describe('usePdfViewerVirtualization', () => {
             height: 520,
         };
         const virtualization = usePdfViewerVirtualization({
+            performancePolicy: normalPerformancePolicy,
             bufferPages: computed(() => 0),
             viewMode: computed(() => 'single'),
             numPages: ref(6),
@@ -261,6 +278,7 @@ describe('usePdfViewerVirtualization', () => {
 
     it('clamps continuous-mode placeholder mounts while layout metrics are unavailable', () => {
         const virtualization = usePdfViewerVirtualization({
+            performancePolicy: normalPerformancePolicy,
             bufferPages: computed(() => 2),
             viewMode: computed(() => 'single'),
             numPages: ref(2_000),
@@ -293,6 +311,7 @@ describe('usePdfViewerVirtualization', () => {
             end: 2,
         });
         const virtualization = usePdfViewerVirtualization({
+            performancePolicy: normalPerformancePolicy,
             bufferPages: computed(() => 2),
             viewMode: computed(() => 'single'),
             numPages: ref(1_000),
@@ -355,6 +374,7 @@ describe('usePdfViewerVirtualization', () => {
             windowEnd: 34,
         });
         const virtualization = usePdfViewerVirtualization({
+            performancePolicy: normalPerformancePolicy,
             bufferPages: computed(() => 0),
             viewMode: computed(() => 'single'),
             numPages: ref(60),
@@ -385,8 +405,23 @@ describe('usePdfViewerVirtualization', () => {
         expect(virtualization.bottomVirtualSpacerStyle.value).not.toEqual({height: '5678px'});
     });
 
-    it('owns the continuous virtual window with the navigation anchor buffer', () => {
+    it.each([
+        {
+            name: 'normal tier',
+            performancePolicy: normalPerformancePolicy,
+            radius: 18,
+        },
+        {
+            name: 'constrained tier',
+            performancePolicy: constrainedPerformancePolicy,
+            radius: 8,
+        },
+    ])('applies the $name navigation-anchor mount floor', ({
+        performancePolicy,
+        radius,
+    }) => {
         const virtualization = usePdfViewerVirtualization({
+            performancePolicy,
             bufferPages: computed(() => 0),
             viewMode: computed(() => 'single'),
             numPages: ref(100),
@@ -410,15 +445,81 @@ describe('usePdfViewerVirtualization', () => {
             zoomVirtualizationFreeze: ref(null),
         });
 
-        expect(virtualization.virtualWindowStart.value).toBe(22);
-        expect(virtualization.virtualWindowEnd.value).toBe(58);
-        expect(virtualization.pagesToRender.value).toContain(22);
-        expect(virtualization.pagesToRender.value).toContain(58);
+        expect(virtualization.virtualWindowStart.value).toBe(40 - radius);
+        expect(virtualization.virtualWindowEnd.value).toBe(40 + radius);
+        expect(virtualization.pagesToRender.value.at(0)).toBe(40 - radius);
+        expect(virtualization.pagesToRender.value.at(-1)).toBe(40 + radius);
+    });
+
+    it.each([
+        {
+            name: 'normal tier',
+            performancePolicy: normalPerformancePolicy,
+            navigationBounds: {
+                start: 19,
+                end: 80,
+            },
+            resizeBounds: {
+                start: 39,
+                end: 100,
+            },
+        },
+        {
+            name: 'constrained tier',
+            performancePolicy: constrainedPerformancePolicy,
+            navigationBounds: {
+                start: 37,
+                end: 62,
+            },
+            resizeBounds: {
+                start: 57,
+                end: 82,
+            },
+        },
+    ])('applies the $name layout-pending floor around transaction anchors', ({
+        performancePolicy,
+        navigationBounds,
+        resizeBounds,
+    }) => {
+        const navigationAnchorPage = ref<number | null>(50);
+        const virtualization = usePdfViewerVirtualization({
+            performancePolicy,
+            bufferPages: computed(() => 0),
+            viewMode: computed(() => 'facing'),
+            numPages: ref(120),
+            currentPage: ref(115),
+            continuousScroll: computed(() => true),
+            basePageWidth: ref(300),
+            basePageHeight: ref(100),
+            pageMetrics: ref([]),
+            pageMetricsVersion: ref(0),
+            effectiveScale: ref(0),
+            scaledMargin: ref(20),
+            visibleRange: ref({
+                start: 115,
+                end: 115,
+            }),
+            navigationAnchorPage,
+            resizeTransitionAnchorPage: ref(70),
+            zoomVirtualizationFreeze: ref(null),
+        });
+
+        expect(virtualization.pagesToRender.value.at(0)).toBe(navigationBounds.start);
+        expect(virtualization.pagesToRender.value.at(-1)).toBe(navigationBounds.end);
+        expect(virtualization.pagesToRender.value).toContain(50);
+
+        navigationAnchorPage.value = null;
+
+        expect(virtualization.pagesToRender.value.at(0)).toBe(resizeBounds.start);
+        expect(virtualization.pagesToRender.value.at(-1)).toBe(resizeBounds.end);
+        expect(virtualization.pagesToRender.value).toContain(70);
+        expect(virtualization.pagesToRender.value).not.toContain(115);
     });
 
     it('lets an active navigation anchor supersede a compatible zoom freeze', () => {
         const effectiveScale = ref(1);
         const virtualization = usePdfViewerVirtualization({
+            performancePolicy: normalPerformancePolicy,
             bufferPages: computed(() => 0),
             viewMode: computed(() => 'single'),
             numPages: ref(60),

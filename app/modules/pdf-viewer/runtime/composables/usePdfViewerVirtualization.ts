@@ -12,6 +12,7 @@ import { getPageRowBounds } from '@app/modules/pdf-viewer/engine/pdf-page-layout
 import { getPageRowBoundsForViewMode } from '@app/modules/pdf-viewer/engine/pdf-page-layout/getPageRowBoundsForViewMode';
 import { getTrailingSpacerHeightForPage } from '@app/modules/pdf-viewer/engine/pdf-page-layout/getTrailingSpacerHeightForPage';
 import { normalizePageMetrics } from '@app/modules/pdf-viewer/engine/pdf-page-layout/normalizePageMetrics';
+import type { IPdfRenderPerformancePolicy } from '@app/modules/pdf-viewer/engine/pdf-render-performance/resolvePdfRenderPerformancePolicy';
 import {
     createAnchorPageWindow,
     expandVirtualWindowForAnchor,
@@ -33,6 +34,7 @@ export interface IPdfVirtualPageSegment {
 }
 
 interface IUsePdfViewerVirtualizationOptions {
+    performancePolicy: IPdfRenderPerformancePolicy;
     bufferPages: ComputedRef<number>;
     viewMode: ComputedRef<TPdfViewMode>;
     numPages: Ref<number>;
@@ -54,10 +56,8 @@ interface IUsePdfViewerVirtualizationOptions {
 }
 
 const VIRTUAL_MOUNT_BUFFER_MIN = 6;
-const NAVIGATION_ANCHOR_VIRTUAL_BUFFER_MIN = 18;
 const PAGED_MOUNT_ROW_BUFFER_BEFORE_MIN = 1;
 const PAGED_MOUNT_ROW_BUFFER_AFTER_MIN = 2;
-const CONTINUOUS_LAYOUT_PENDING_FALLBACK_RADIUS = 30;
 
 function createVirtualSpacerStyle(height: number) {
     const value = `${height}px`;
@@ -70,6 +70,7 @@ function createVirtualSpacerStyle(height: number) {
 
 export const usePdfViewerVirtualization = (options: IUsePdfViewerVirtualizationOptions) => {
     const {
+        performancePolicy,
         bufferPages,
         viewMode,
         numPages,
@@ -156,7 +157,11 @@ export const usePdfViewerVirtualization = (options: IUsePdfViewerVirtualizationO
 
     const virtualMountBuffer = computed(() =>
         isNavigationAnchorActive.value
-            ? Math.max(NAVIGATION_ANCHOR_VIRTUAL_BUFFER_MIN, VIRTUAL_MOUNT_BUFFER_MIN, bufferPages.value + 2)
+            ? Math.max(
+                performancePolicy.navigationAnchorRadius,
+                VIRTUAL_MOUNT_BUFFER_MIN,
+                bufferPages.value + 2,
+            )
             : Math.max(VIRTUAL_MOUNT_BUFFER_MIN, bufferPages.value + 2),
     );
 
@@ -388,9 +393,28 @@ export const usePdfViewerVirtualization = (options: IUsePdfViewerVirtualizationO
                     ? range(bounds.start, bounds.end + 1)
                     : [];
             }
-            const start = Math.max(1, currentPage.value - CONTINUOUS_LAYOUT_PENDING_FALLBACK_RADIUS);
-            const end = Math.min(numPages.value, currentPage.value + CONTINUOUS_LAYOUT_PENDING_FALLBACK_RADIUS);
-            return range(start, end + 1);
+            const anchorPage = navigationAnchorPage.value
+                ?? resizeTransitionAnchorPage.value
+                ?? currentPage.value;
+            const window = createAnchorPageWindow({
+                anchorPage,
+                totalPages: numPages.value,
+                radiusPages: performancePolicy.layoutPendingRadius,
+            });
+            if (!window) {
+                return [];
+            }
+            const startBounds = getPageRowBoundsForViewMode({
+                pageNumber: window.start,
+                viewMode: viewMode.value,
+                totalPages: numPages.value,
+            });
+            const endBounds = getPageRowBoundsForViewMode({
+                pageNumber: window.end,
+                viewMode: viewMode.value,
+                totalPages: numPages.value,
+            });
+            return range(startBounds.start, endBounds.end + 1);
         }
 
         if (!continuousScroll.value) {

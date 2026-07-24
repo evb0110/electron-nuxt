@@ -89,6 +89,7 @@ export const usePdfViewportViewModel = (options: IUsePdfViewportViewModelOptions
     );
 
     const virtualization = usePdfViewerVirtualization({
+        performancePolicy: options.performancePolicy,
         bufferPages: options.bufferPages,
         viewMode: options.viewMode,
         numPages: options.numPages,
