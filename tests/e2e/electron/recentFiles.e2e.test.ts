@@ -8,6 +8,7 @@ import {
     copyFileSync,
     mkdirSync,
     unlinkSync,
+    utimesSync,
 } from 'node:fs';
 import {
     basename,
@@ -38,6 +39,7 @@ import {
     stopCommittedSurfaceSampler,
     summarizeCommittedSurfaceTiming,
 } from '@tests/e2e/electron/helpers/viewerCommittedSurfaceContract';
+import { DEFAULT_SETTINGS } from '@contracts/settings';
 
 const RECENT_ROW_TIMEOUT_MS = 15_000;
 const RECENT_OPEN_TIMEOUT_MS = 12_000;
@@ -836,6 +838,68 @@ describe('Electron E2E - Recent Files', () => {
             }),
         ).toEqual([]);
         await assertRecentPdfStaysLoaded(session, fixturePath);
+    });
+
+    it('fits a cold Recent PDF to the viewport without prepared opening geometry', async () => {
+        let session = await sessionFixture.restart({
+            clean: true,
+            sessionName: () => `e2e-recent-cold-fit-${Date.now()}`,
+        });
+        if (!session) {
+            return;
+        }
+
+        const fixturePath = await createLargeScannedFixturePdf(
+            `recent-cold-fit-${Date.now()}.pdf`,
+            3,
+            0,
+        );
+        await openPdfInApp(session.page, fixturePath);
+        await waitForPdfLoaded(session.page);
+        await evaluateInPage(session.page, async (settings) => {
+            await window.electronAPI?.settings.save(settings);
+        }, {
+            ...DEFAULT_SETTINGS,
+            performanceMode: 'low' as const,
+        });
+
+        // Change the source revision after the warm seed open. Startup must
+        // reject the persisted geometry, while low mode deliberately performs
+        // no replacement geometry probe. This exercises the same cold Recent
+        // path as a first open on a constrained host.
+        const changedAt = new Date(Date.now() + 2_000);
+        utimesSync(fixturePath, changedAt, changedAt);
+        session = await sessionFixture.restart({
+            clean: false,
+            keepNuxt: true,
+        });
+        if (!session) {
+            return;
+        }
+
+        await waitForStartupOverlayRemoved(session);
+        await waitForRecentFileRow(session, fixturePath);
+        await clickRecentFile(session, fixturePath);
+        await waitForRecentPdfOpen(session, fixturePath);
+
+        const layout = await evaluateInPage(session.page, () => {
+            const viewport = document.querySelector<HTMLElement>(
+                '.editor-pane.is-active [data-document-viewer-chassis-viewport]',
+            );
+            const page = document.querySelector<HTMLElement>(
+                '.editor-pane.is-active #pdf-viewer .page_container[data-page="1"] .page_canvas',
+            );
+            return {
+                pageWidth: page?.getBoundingClientRect().width ?? 0,
+                viewportWidth: viewport?.clientWidth ?? 0,
+            };
+        });
+        expect(layout.viewportWidth).toBeGreaterThan(0);
+        expect(layout.pageWidth).toBeGreaterThan(0);
+        expect(
+            Math.abs(layout.pageWidth - (layout.viewportWidth - 40)),
+            JSON.stringify(layout),
+        ).toBeLessThanOrEqual(1);
     });
 
     it('removes a deleted Recent file without starting a visible open transaction', async () => {

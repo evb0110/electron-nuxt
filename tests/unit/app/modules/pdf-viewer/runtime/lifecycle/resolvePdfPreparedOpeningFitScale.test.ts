@@ -17,7 +17,7 @@ function createSnapshot(
         geometry: null,
         openingPageFrame: {
             generation: 4,
-            ownerId: 'test-owner',
+            ownerId: 'document-viewer-chassis:1',
             pageNumber: 2,
             intentKey: 'test-intent',
             style: { width: '800px' },
@@ -45,6 +45,16 @@ describe('resolvePdfPreparedOpeningFitScale', () => {
     it('does not seed custom zoom or a completed opening session', () => {
         expect(resolvePdfPreparedOpeningFitScale(createSnapshot(), true)).toBeNull();
         expect(resolvePdfPreparedOpeningFitScale(createSnapshot({ phase: 'ready' }), false)).toBeNull();
+    });
+
+    it('does not feed a renderer-owned cold placeholder frame back into its fit scale', () => {
+        const openingPageFrame = {
+            ...createSnapshot().openingPageFrame!,
+            ownerId: 'pdfjs:1',
+            style: {width: '400px'},
+        };
+
+        expect(resolvePdfPreparedOpeningFitScale(createSnapshot({openingPageFrame}), false)).toBeNull();
     });
 
     it('rejects stale frame generations and unusable geometry', () => {
