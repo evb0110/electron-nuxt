@@ -99,6 +99,39 @@ describe('runNativeToolCommand', () => {
         });
     });
 
+    it('forwards every execution limit after completing the shared handshake', async () => {
+        const {runNativeToolCommand} = await loadModule();
+
+        await runNativeToolCommand('/tools/evb-pdf-search.exe', ['search'], {
+            allowedExitCodes: [
+                0,
+                2,
+            ],
+            commandLabel: 'search request',
+            maxStderrBytes: 2_048,
+            maxStdoutBytes: 4_096,
+            rejectOnStdoutTruncation: true,
+            timeoutMs: 12_000,
+        });
+
+        expect(mocks.runNativeCommand).toHaveBeenNthCalledWith(
+            2,
+            '/tools/evb-pdf-search.exe',
+            ['search'],
+            expect.objectContaining({
+                allowedExitCodes: [
+                    0,
+                    2,
+                ],
+                commandLabel: 'search request',
+                maxStderrBytes: 2_048,
+                maxStdoutBytes: 4_096,
+                rejectOnStdoutTruncation: true,
+                timeoutMs: 12_000,
+            }),
+        );
+    });
+
     it('lets one caller abort its wait without canceling a shared protocol handshake', async () => {
         const handshake = createDeferred<{
             exitCode: number;
@@ -209,6 +242,26 @@ describe('runNativeToolCommand', () => {
             expectedVersion: 3,
             actualVersion: '2',
         });
+    });
+
+    it('reports empty and unknown native tool protocol responses', async () => {
+        mocks.runNativeCommand.mockResolvedValueOnce({
+            exitCode: 0,
+            stderr: '',
+            stdout: '',
+        });
+        const {verifyNativeToolProtocol} = await loadModule();
+
+        await expect(verifyNativeToolProtocol('/tools/evb-pdf-search'))
+            .rejects.toMatchObject({
+                actualVersion: '<empty>',
+                expectedVersion: 1,
+            });
+        await expect(verifyNativeToolProtocol('/tools/evb-unknown-tool'))
+            .rejects.toMatchObject({
+                actualVersion: 'unknown tool',
+                expectedVersion: -1,
+            });
     });
 
     it('retries failed native tool handshakes instead of caching them forever', async () => {
