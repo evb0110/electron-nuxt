@@ -456,6 +456,14 @@ function isPerformanceMode(value: unknown): value is TPerformanceMode {
 }
 
 function readLaunchPerformanceMode(value: unknown) {
+    // Automation-only override; remove if the E2E harness gains a settings
+    // handoff that survives session relaunches.
+    const automationMode = automationUserDataDir
+        ? process.env.EVB_TEST_PERFORMANCE_MODE
+        : undefined;
+    if (isPerformanceMode(automationMode)) {
+        return automationMode;
+    }
     return isRecord(value) && isPerformanceMode(value.performanceMode)
         ? value.performanceMode
         : 'auto';
