@@ -1,7 +1,7 @@
 import type { TPdfLayerVisualSnapshotRelease } from '@app/modules/pdf-viewer/engine/pdf-layer-visual-snapshot/pdfLayerVisualSnapshotRelease';
 
 const RESIZE_SNAPSHOT_CLASS = 'pdf-resize-canvas-snapshot';
-const RESIZE_SNAPSHOT_PAGE_CLASS = 'page_container--resize-visual-snapshot';
+const RESIZE_SNAPSHOT_CANVAS_CLASS = 'page_canvas--resize-visual-snapshot';
 
 export interface IPdfResizeCanvasVisualSnapshot {
     hasReplacementCanvas: () => boolean;
@@ -52,7 +52,11 @@ export function preservePdfResizeCanvasVisualSnapshot(
     }
     context.drawImage(sourceCanvas, 0, 0);
 
-    pageContainer.classList.add(RESIZE_SNAPSHOT_PAGE_CLASS);
+    // PdfViewerPage owns the page container's dynamic class binding and may
+    // reconcile it while rendered state changes. Keep the imperative snapshot
+    // marker on the stable canvas shell so Vue cannot erase the protection
+    // before the replacement canvas is presentation-ready.
+    pageCanvas.classList.add(RESIZE_SNAPSHOT_CANVAS_CLASS);
     pageCanvas.append(snapshot);
 
     let released = false;
@@ -76,7 +80,7 @@ export function preservePdfResizeCanvasVisualSnapshot(
             released = true;
             snapshot.remove();
             if (!pageCanvas.querySelector(`.${RESIZE_SNAPSHOT_CLASS}`)) {
-                pageContainer.classList.remove(RESIZE_SNAPSHOT_PAGE_CLASS);
+                pageCanvas.classList.remove(RESIZE_SNAPSHOT_CANVAS_CLASS);
             }
         },
     };

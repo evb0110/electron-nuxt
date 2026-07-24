@@ -9,6 +9,7 @@ import type { IElectronE2ESession } from '@tests/e2e/electron/helpers/startElect
 import {assertInactiveDocumentPressureReleased} from '@tests/e2e/electron/helpers/assertInactiveDocumentPressureReleased';
 import {waitForWorkspaceToolbarSnapshot} from '@tests/e2e/electron/helpers/workspaceExpose';
 import {
+    clickVisibleToolbarButton,
     goToPageViaToolbar,
     getToolbarCurrentPage,
     openPdfInApp,
@@ -40,6 +41,13 @@ interface IWorkspaceHostPressure {
     noteWindows: number;
     popups: number;
 }
+
+interface IRightFileFlashProbeResult {
+    flashCount: number;
+    snapshotSeen: boolean;
+}
+
+interface IRightFileFlashProbe {finish: () => IRightFileFlashProbeResult;}
 
 function readHostPressureFromPage(): IWorkspaceHostPressure[] {
     const isVisible = (element: HTMLElement) => {
@@ -224,6 +232,113 @@ describe('Electron E2E - Inactive PDF Tabs', () => {
         expect(pressure.filter(host => host.active).length).toBeGreaterThanOrEqual(2);
         expect(pressure.filter(host => host.active).every(host => host.renderedPages > 0)).toBe(true);
     });
+
+    it('keeps the rendered right PDF visible while activating scan cleanup on the left', async () => {
+        const session = sessionFixture.getSession();
+        expect(session).toBeTruthy();
+        if (!session) {
+            return;
+        }
+
+        await session.page.setViewport({
+            deviceScaleFactor: 2,
+            height: 982,
+            width: 1_512,
+        });
+        const sourcePath = await createMultiPageTextFixturePdf(
+            `split-activation-source-${Date.now()}.pdf`,
+            6,
+        );
+        const cleanedPath = await createMultiPageTextFixturePdf(
+            `split-activation-cleaned-${Date.now()}.pdf`,
+            1,
+        );
+        await openPdfInApp(session.page, sourcePath, 90_000);
+        await waitForPdfLoaded(session.page, 90_000);
+        await clickVisibleToolbarButton(session.page, 'Scan cleanup');
+        await session.page.waitForSelector('.scan-cleanup-surface', {
+            timeout: 30_000,
+            visible: true,
+        });
+
+        await splitActiveDocument(session, 'right');
+        await openPdfInApp(session.page, cleanedPath, 90_000);
+        await waitForPdfLoaded(session.page, 90_000);
+        await session.page.waitForFunction(() => {
+            const panes = Array.from(document.querySelectorAll<HTMLElement>('.editor-pane'));
+            return panes.length === 2
+                && panes[0]?.querySelector('.scan-cleanup-surface') !== null
+                && panes[1]?.querySelector('.page_container--rendered canvas') !== null
+                && panes[1]?.classList.contains('is-active') === true;
+        }, {timeout: 30_000});
+
+        await session.page.evaluate(() => {
+            const rightPane = document.querySelectorAll<HTMLElement>('.editor-pane')[1];
+            if (!rightPane) {
+                throw new Error('Right editor pane is unavailable');
+            }
+            const state = {
+                flashCount: 0,
+                snapshotSeen: false,
+                stopped: false,
+            };
+            const sample = () => {
+                const page = rightPane.querySelector<HTMLElement>('.page_container');
+                const skeleton = rightPane.querySelector<HTMLElement>('.document-page-skeleton');
+                if (page?.querySelector('.page_canvas--resize-visual-snapshot')) {
+                    state.snapshotSeen = true;
+                }
+                if (!skeleton || !page) {
+                    return;
+                }
+                const bounds = skeleton.getBoundingClientRect();
+                const style = getComputedStyle(skeleton);
+                if (
+                    skeleton.isConnected
+                    && bounds.width > 0
+                    && bounds.height > 0
+                    && style.display !== 'none'
+                    && style.visibility !== 'hidden'
+                    && Number(style.opacity || '1') > 0
+                ) {
+                    state.flashCount += 1;
+                }
+            };
+            const observer = new MutationObserver(sample);
+            observer.observe(rightPane, {
+                attributes: true,
+                childList: true,
+                subtree: true,
+            });
+            const sampleFrame = () => {
+                sample();
+                if (!state.stopped) {
+                    requestAnimationFrame(sampleFrame);
+                }
+            };
+            requestAnimationFrame(sampleFrame);
+            const finish = () => {
+                state.stopped = true;
+                observer.disconnect();
+                sample();
+                return state;
+            };
+            Object.assign(window, {__rightFileFlashProbe: {finish}});
+        });
+
+        await session.page.click('.editor-pane:not(.is-active) .scan-cleanup-surface');
+        await new Promise(resolve => setTimeout(resolve, 1_500));
+        const result = await session.page.evaluate(() => {
+            if (!('__rightFileFlashProbe' in window)) {
+                throw new Error('Right file flash probe is unavailable');
+            }
+            const probe = window.__rightFileFlashProbe as IRightFileFlashProbe;
+            return probe.finish();
+        });
+
+        expect(result.snapshotSeen).toBe(true);
+        expect(result.flashCount).toBe(0);
+    }, 180_000);
 
     it('keeps the exact PDF pane, tab, document surface, and viewport anchor while closing an empty split', async () => {
         let session = sessionFixture.getSession();

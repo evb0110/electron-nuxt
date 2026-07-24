@@ -36,7 +36,7 @@ describe('preservePdfResizeCanvasVisualSnapshot', () => {
 
         expect(snapshot).not.toBeNull();
         expect(drawImage).toHaveBeenCalledWith(sourceCanvas, 0, 0);
-        expect(pageContainer.classList.contains('page_container--resize-visual-snapshot')).toBe(true);
+        expect(pageCanvas.classList.contains('page_canvas--resize-visual-snapshot')).toBe(true);
         expect(pageCanvas.querySelector('.pdf-resize-canvas-snapshot')).not.toBeNull();
         expect(snapshot?.hasReplacementCanvas()).toBe(false);
         expect(snapshot?.isValid()).toBe(true);
@@ -47,7 +47,7 @@ describe('preservePdfResizeCanvasVisualSnapshot', () => {
 
         snapshot?.release();
         expect(snapshot?.isValid()).toBe(false);
-        expect(pageContainer.classList.contains('page_container--resize-visual-snapshot')).toBe(false);
+        expect(pageCanvas.classList.contains('page_canvas--resize-visual-snapshot')).toBe(false);
         expect(pageCanvas.querySelector('.pdf-resize-canvas-snapshot')).toBeNull();
         expect(canvasHost.firstElementChild).toBe(replacementCanvas);
     });
@@ -94,7 +94,7 @@ describe('preservePdfResizeCanvasVisualSnapshot', () => {
 
         first?.release();
 
-        expect(pageContainer.classList.contains('page_container--resize-visual-snapshot')).toBe(false);
+        expect(pageCanvas.classList.contains('page_canvas--resize-visual-snapshot')).toBe(false);
     });
 
     it('removes an invalid orphan before recapturing', () => {

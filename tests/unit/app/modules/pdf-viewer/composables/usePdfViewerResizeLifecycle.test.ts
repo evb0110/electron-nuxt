@@ -270,11 +270,62 @@ describe('usePdfViewerResizeLifecycle inactive behavior', () => {
         sourceCanvas.height = 0;
         lifecycle.captureResizeVisualSnapshots(anchor);
 
-        expect(page.classList.contains('page_container--resize-visual-snapshot')).toBe(true);
+        expect(pageCanvas.classList.contains('page_canvas--resize-visual-snapshot')).toBe(true);
         expect(pageCanvas.querySelectorAll('.pdf-resize-canvas-snapshot')).toHaveLength(1);
 
         lifecycle.cleanupResizeLifecycle();
         expect(pageCanvas.querySelector('.pdf-resize-canvas-snapshot')).toBeNull();
+        document.body.replaceChildren();
+    });
+
+    it('retains the resize snapshot until the replacement canvas is presentation-ready', () => {
+        vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue({drawImage: vi.fn()} as never);
+        const animationFrames: FrameRequestCallback[] = [];
+        const requestAnimationFrame = vi.spyOn(window, 'requestAnimationFrame')
+            .mockImplementation((callback) => {
+                animationFrames.push(callback);
+                return animationFrames.length;
+            });
+        const viewer = document.createElement('div');
+        const page = document.createElement('div');
+        page.className = 'page_container page_container--rendered';
+        page.dataset.page = '4';
+        const pageCanvas = document.createElement('div');
+        pageCanvas.className = 'page_canvas';
+        const renderLayer = document.createElement('div');
+        renderLayer.className = 'page_canvas__render-layer';
+        const sourceCanvas = document.createElement('canvas');
+        sourceCanvas.width = 640;
+        sourceCanvas.height = 960;
+        renderLayer.append(sourceCanvas);
+        pageCanvas.append(renderLayer);
+        page.append(pageCanvas);
+        viewer.append(page);
+        document.body.append(viewer);
+        const { lifecycle } = createResizeLifecycle(ref(true), {viewerContainer: ref(viewer)});
+        const anchor = lifecycle.buildResizeAnchorContext();
+
+        lifecycle.captureResizeVisualSnapshots(anchor);
+        page.classList.remove('page_container--rendered');
+        const replacementCanvas = document.createElement('canvas');
+        replacementCanvas.width = 640;
+        replacementCanvas.height = 960;
+        renderLayer.replaceChildren(replacementCanvas);
+
+        animationFrames.shift()?.(0);
+        animationFrames.shift()?.(16);
+
+        expect(pageCanvas.classList.contains('page_canvas--resize-visual-snapshot')).toBe(true);
+        expect(pageCanvas.querySelector('.pdf-resize-canvas-snapshot')).not.toBeNull();
+
+        page.classList.add('page_container--rendered');
+        animationFrames.shift()?.(32);
+
+        expect(pageCanvas.classList.contains('page_canvas--resize-visual-snapshot')).toBe(false);
+        expect(pageCanvas.querySelector('.pdf-resize-canvas-snapshot')).toBeNull();
+
+        lifecycle.cleanupResizeLifecycle();
+        requestAnimationFrame.mockRestore();
         document.body.replaceChildren();
     });
 

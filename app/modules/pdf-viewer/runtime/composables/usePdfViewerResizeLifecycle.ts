@@ -1,6 +1,7 @@
 import type { Ref } from 'vue';
 import {useResizeObserver} from '@vueuse/core';
 import { BrowserLogger } from '@app/utils/browserLogger';
+import { pdfViewerDomClasses } from '@app/modules/pdf-viewer/dom/pdf-viewer-dom/pdfViewerDomClasses';
 import { preservePdfResizeCanvasVisualSnapshot } from '@app/modules/pdf-viewer/engine/pdf-resize-visual-snapshot/preservePdfResizeCanvasVisualSnapshot';
 import { schedulePdfLayerVisualSnapshotRelease } from '@app/modules/pdf-viewer/engine/pdf-layer-visual-snapshot/schedulePdfLayerVisualSnapshotRelease';
 import type {
@@ -424,7 +425,13 @@ export const usePdfViewerResizeLifecycle = (options: IUsePdfViewerResizeLifecycl
             schedulePdfLayerVisualSnapshotRelease(release, {
                 forceReleaseAfterMaxDelay: false,
                 minFrames: 2,
-                waitFor: () => !snapshot.isValid() || snapshot.hasReplacementCanvas(),
+                waitFor: () => (
+                    !snapshot.isValid()
+                    || (
+                        snapshot.hasReplacementCanvas()
+                        && pageContainer.classList.contains(pdfViewerDomClasses.renderedPageContainer)
+                    )
+                ),
             });
         }
     }
