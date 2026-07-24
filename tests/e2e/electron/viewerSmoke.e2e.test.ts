@@ -1116,11 +1116,8 @@ describe('Electron E2E - Viewer Smoke', () => {
                 placementY: placement?.getBoundingClientRect().y ?? null,
             };
         });
-        // Per-page output mode was added after this smoke assertion. It is a
-        // real scope-specific row above placement, so equal absolute Y values
-        // would now mean that the new control overlaps or escapes the flow.
         expect(pageScopePlacement.outputModeVisible).toBe(true);
-        expect(pageScopePlacement.placementY).toBeGreaterThan(placementYAllScope ?? 0);
+        expect(pageScopePlacement.placementY).toBe(placementYAllScope);
         await session.page.click('[data-settings-scope="all"]');
         expect(await session.page.evaluate(readPlacementGridY)).toBe(placementYAllScope);
         const headerBottomEdges = await session.page.$$eval(
@@ -1361,6 +1358,7 @@ describe('Electron E2E - Viewer Smoke', () => {
             return Boolean(skeleton && bounds && bounds.width > 0 && bounds.height > 0);
         }, {timeout: 10_000});
         const narrowWorkspaceLayout = await session.page.evaluate(() => {
+            const workspace = document.querySelector<HTMLElement>('.scan-cleanup-workspace');
             const thumbnails = document.querySelector<HTMLElement>('.scan-thumbnail-rail');
             const preview = document.querySelector<HTMLElement>('.preview-pane');
             const previewHeader = preview?.querySelector<HTMLElement>('.preview-header');
@@ -1382,20 +1380,23 @@ describe('Electron E2E - Viewer Smoke', () => {
                     && controls.every(control => within(control.getBoundingClientRect(), headerBounds)),
                 ),
                 previewWidth: previewBounds?.width ?? 0,
+                workspaceWidth: workspace?.clientWidth ?? 0,
                 settingsBelowPreview: Boolean(
                     previewBounds
                     && settingsBounds
                     && settingsBounds.top >= previewBounds.bottom - 1,
                 ),
                 thumbnailsHidden: thumbnails ? getComputedStyle(thumbnails).display === 'none' : false,
+                workspaceContained: Boolean(workspace && workspace.scrollWidth <= workspace.clientWidth),
             };
         });
         expect(narrowWorkspaceLayout).toMatchObject({
             controlsContained: true,
             settingsBelowPreview: true,
             thumbnailsHidden: true,
+            workspaceContained: true,
         });
-        expect(narrowWorkspaceLayout.previewWidth).toBeGreaterThan(500);
+        expect(narrowWorkspaceLayout.previewWidth).toBe(narrowWorkspaceLayout.workspaceWidth);
     }, 150_000);
 
     it('renders bounded native cleanup detail tiles for zoomed and panned scan regions', async () => {

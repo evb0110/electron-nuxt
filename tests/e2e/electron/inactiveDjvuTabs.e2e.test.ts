@@ -504,7 +504,7 @@ runOrSkip('Electron E2E - Inactive DjVu Tabs', () => {
         }
     }, 120_000);
 
-    it('restores a reclaimed high-zoom DjVu presentation without scroll input', async () => {
+    it('retains a warm high-zoom DjVu presentation without scroll input', async () => {
         const session = sessionFixture.getSession();
         if (!session) {
             return;
@@ -567,7 +567,7 @@ runOrSkip('Electron E2E - Inactive DjVu Tabs', () => {
 
         const afterPdfOpen = await session.page.evaluate(readDjvuPressureFromPage);
         expect(afterPdfOpen).toHaveLength(2);
-        expect(afterPdfOpen.find(host => !host.active)?.images).toBe(0);
+        expect(afterPdfOpen.find(host => !host.active)?.images).toBeGreaterThan(0);
 
         await installDjvuActivationOccupancyProbe(session, 0);
         await waitForDjvuLoaded(session.page);
