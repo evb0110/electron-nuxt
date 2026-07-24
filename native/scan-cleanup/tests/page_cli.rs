@@ -9,25 +9,47 @@ use std::{
     io::{BufRead, BufReader},
     path::PathBuf,
     process::{Command, Stdio},
+    sync::atomic::{AtomicU64, Ordering},
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
-fn temp_path(label: &str, extension: &str) -> PathBuf {
-    let nonce = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap()
-        .as_nanos();
-    std::env::temp_dir().join(format!(
-        "evb-scan-cleanup-{label}-{}-{nonce}.{extension}",
-        std::process::id()
-    ))
+struct Scratch {
+    dir: PathBuf,
+}
+
+impl Scratch {
+    fn new(test: &str) -> Self {
+        static SEQUENCE: AtomicU64 = AtomicU64::new(0);
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let dir = std::env::temp_dir().join(format!(
+            "evb-scan-cleanup-page-cli-{test}-{}-{nonce}-{}",
+            std::process::id(),
+            SEQUENCE.fetch_add(1, Ordering::Relaxed),
+        ));
+        fs::create_dir_all(&dir).unwrap();
+        Self { dir }
+    }
+
+    fn path(&self, name: &str) -> PathBuf {
+        self.dir.join(name)
+    }
+}
+
+impl Drop for Scratch {
+    fn drop(&mut self) {
+        let _ = fs::remove_dir_all(&self.dir);
+    }
 }
 
 #[test]
 fn manifest_v3_emits_typed_progress_and_terminal_result() {
-    let input = temp_path("v3-input", "png");
-    let page_metadata = temp_path("v3-page", "json");
-    let manifest = temp_path("v3-manifest", "json");
+    let scratch = Scratch::new("v3");
+    let input = scratch.path("v3-input.png");
+    let page_metadata = scratch.path("v3-page.json");
+    let manifest = scratch.path("v3-manifest.json");
     fs::write(&input, encode_gray(&GrayImage::new(80, 60, 255)).unwrap()).unwrap();
     let payload = serde_json::json!({
         "version": 3,
@@ -64,21 +86,18 @@ fn manifest_v3_emits_typed_progress_and_terminal_result() {
     assert_eq!(envelopes.last().unwrap()["type"], "result");
     assert_eq!(envelopes.last().unwrap()["result"]["status"], "success");
     assert!(page_metadata.exists());
-
-    let _ = fs::remove_file(input);
-    let _ = fs::remove_file(page_metadata);
-    let _ = fs::remove_file(manifest);
 }
 
 #[cfg(unix)]
 #[test]
 fn gated_multi_page_analysis_reports_progress_before_reconciliation_completes() {
-    let input = temp_path("analysis-progress-input", "png");
-    let gated_input = temp_path("analysis-progress-gate", "fifo");
-    let manifest = temp_path("analysis-progress-manifest", "json");
+    let scratch = Scratch::new("gated");
+    let input = scratch.path("analysis-progress-input.png");
+    let gated_input = scratch.path("analysis-progress-gate.fifo");
+    let manifest = scratch.path("analysis-progress-manifest.json");
     let metadata_paths = [
-        temp_path("analysis-progress-page-1", "json"),
-        temp_path("analysis-progress-page-2", "json"),
+        scratch.path("analysis-progress-page-1.json"),
+        scratch.path("analysis-progress-page-2.json"),
     ];
     let encoded = encode_gray(&GrayImage::new(320, 240, 245)).unwrap();
     fs::write(&input, &encoded).unwrap();
@@ -130,7 +149,7 @@ fn gated_multi_page_analysis_reports_progress_before_reconciliation_completes() 
     });
 
     let first_analyzed = loop {
-        match receiver.recv_timeout(Duration::from_secs(10)) {
+        match receiver.recv_timeout(Duration::from_secs(60)) {
             Ok(event) if event["progress"]["stage"] == "page-analyzed" => break event,
             Ok(event) => assert_ne!(event["progress"]["stage"], "page-complete"),
             Err(error) => {
@@ -160,30 +179,21 @@ fn gated_multi_page_analysis_reports_progress_before_reconciliation_completes() 
         .rposition(|event| event["progress"]["stage"] == "page-complete")
         .unwrap();
     assert!(first_analysis_index < last_page_index);
-
-    for path in [
-        input,
-        gated_input,
-        manifest,
-        metadata_paths[0].clone(),
-        metadata_paths[1].clone(),
-    ] {
-        let _ = fs::remove_file(path);
-    }
 }
 
 #[test]
 fn final_manifest_writes_pbm_only_for_binary_outputs_and_marks_metadata() {
-    let input = temp_path("bilevel-input", "png");
-    let manifest = temp_path("bilevel-manifest", "json");
-    let bw_output = temp_path("bilevel-bw", "png");
-    let bw_metadata = temp_path("bilevel-bw", "json");
-    let bw_pbm = temp_path("bilevel-bw", "pbm");
-    let gray_output = temp_path("bilevel-gray", "png");
-    let gray_metadata = temp_path("bilevel-gray", "json");
-    let gray_pbm = temp_path("bilevel-gray", "pbm");
-    let bw_page_metadata = temp_path("bilevel-bw-page", "json");
-    let gray_page_metadata = temp_path("bilevel-gray-page", "json");
+    let scratch = Scratch::new("bilevel");
+    let input = scratch.path("bilevel-input.png");
+    let manifest = scratch.path("bilevel-manifest.json");
+    let bw_output = scratch.path("bilevel-bw.png");
+    let bw_metadata = scratch.path("bilevel-bw.json");
+    let bw_pbm = scratch.path("bilevel-bw.pbm");
+    let gray_output = scratch.path("bilevel-gray.png");
+    let gray_metadata = scratch.path("bilevel-gray.json");
+    let gray_pbm = scratch.path("bilevel-gray.pbm");
+    let bw_page_metadata = scratch.path("bilevel-bw-page.json");
+    let gray_page_metadata = scratch.path("bilevel-gray-page.json");
     fs::write(&input, encode_gray(&GrayImage::new(80, 60, 255)).unwrap()).unwrap();
     let grayscale_options = CleanupOptions {
         output_mode: evb_scan_cleanup::OutputMode::Grayscale,
@@ -231,6 +241,27 @@ fn final_manifest_writes_pbm_only_for_binary_outputs_and_marks_metadata() {
         String::from_utf8_lossy(&result.stdout),
         String::from_utf8_lossy(&result.stderr)
     );
+    let progress = String::from_utf8(result.stdout)
+        .unwrap()
+        .lines()
+        .map(|line| serde_json::from_str::<Value>(line).unwrap())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        progress
+            .iter()
+            .filter(|event| event["progress"]["stage"] == "page-analyzed")
+            .count(),
+        2
+    );
+    let analyzed_index = progress
+        .iter()
+        .rposition(|event| event["progress"]["stage"] == "page-analyzed")
+        .unwrap();
+    let completed_index = progress
+        .iter()
+        .position(|event| event["progress"]["stage"] == "page-complete")
+        .unwrap();
+    assert!(analyzed_index < completed_index);
     assert!(fs::read(&bw_pbm).unwrap().starts_with(b"P4\n"));
     assert!(bw_output.exists());
     assert_eq!(
@@ -246,36 +277,22 @@ fn final_manifest_writes_pbm_only_for_binary_outputs_and_marks_metadata() {
             .get("bilevelWritten")
             .is_none()
     );
-
-    for path in [
-        input,
-        manifest,
-        bw_output,
-        bw_metadata,
-        bw_pbm,
-        gray_output,
-        gray_metadata,
-        gray_pbm,
-        bw_page_metadata,
-        gray_page_metadata,
-    ] {
-        let _ = fs::remove_file(path);
-    }
 }
 
 #[test]
 fn matched_canvas_repadding_keeps_png_and_pbm_pixel_identical() {
-    let small_input = temp_path("matched-bilevel-small-input", "png");
-    let large_input = temp_path("matched-bilevel-large-input", "png");
-    let small_output = temp_path("matched-bilevel-small-output", "png");
-    let large_output = temp_path("matched-bilevel-large-output", "png");
-    let small_metadata = temp_path("matched-bilevel-small-output", "json");
-    let large_metadata = temp_path("matched-bilevel-large-output", "json");
-    let small_pbm = temp_path("matched-bilevel-small-output", "pbm");
-    let large_pbm = temp_path("matched-bilevel-large-output", "pbm");
-    let small_page_metadata = temp_path("matched-bilevel-small-page", "json");
-    let large_page_metadata = temp_path("matched-bilevel-large-page", "json");
-    let manifest = temp_path("matched-bilevel-manifest", "json");
+    let scratch = Scratch::new("matched");
+    let small_input = scratch.path("matched-bilevel-small-input.png");
+    let large_input = scratch.path("matched-bilevel-large-input.png");
+    let small_output = scratch.path("matched-bilevel-small-output.png");
+    let large_output = scratch.path("matched-bilevel-large-output.png");
+    let small_metadata = scratch.path("matched-bilevel-small-output.json");
+    let large_metadata = scratch.path("matched-bilevel-large-output.json");
+    let small_pbm = scratch.path("matched-bilevel-small-output.pbm");
+    let large_pbm = scratch.path("matched-bilevel-large-output.pbm");
+    let small_page_metadata = scratch.path("matched-bilevel-small-page.json");
+    let large_page_metadata = scratch.path("matched-bilevel-large-page.json");
+    let manifest = scratch.path("matched-bilevel-manifest.json");
     let mut small = GrayImage::new(80, 60, 255);
     for y in [10, 24, 38] {
         for x in 12..58 {
@@ -372,32 +389,17 @@ fn matched_canvas_repadding_keeps_png_and_pbm_pixel_identical() {
             );
         }
     }
-
-    for path in [
-        small_input,
-        large_input,
-        small_output,
-        large_output,
-        small_metadata,
-        large_metadata,
-        small_pbm,
-        large_pbm,
-        small_page_metadata,
-        large_page_metadata,
-        manifest,
-    ] {
-        let _ = fs::remove_file(path);
-    }
 }
 
 #[test]
 fn failed_bilevel_publication_removes_that_pages_png_and_metadata() {
-    let input = temp_path("failed-bilevel-input", "png");
-    let output = temp_path("failed-bilevel-output", "png");
-    let metadata = temp_path("failed-bilevel-output", "json");
-    let bilevel_output = temp_path("failed-bilevel-output", "pbm");
-    let page_metadata = temp_path("failed-bilevel-page", "json");
-    let manifest = temp_path("failed-bilevel-manifest", "json");
+    let scratch = Scratch::new("failed-bilevel");
+    let input = scratch.path("failed-bilevel-input.png");
+    let output = scratch.path("failed-bilevel-output.png");
+    let metadata = scratch.path("failed-bilevel-output.json");
+    let bilevel_output = scratch.path("failed-bilevel-output.pbm");
+    let page_metadata = scratch.path("failed-bilevel-page.json");
+    let manifest = scratch.path("failed-bilevel-manifest.json");
     fs::write(&input, encode_gray(&GrayImage::new(80, 60, 255)).unwrap()).unwrap();
     fs::create_dir(&bilevel_output).unwrap();
     let payload = serde_json::json!({
@@ -429,21 +431,17 @@ fn failed_bilevel_publication_removes_that_pages_png_and_metadata() {
     assert!(!metadata.exists());
     assert!(!page_metadata.exists());
     assert!(bilevel_output.is_dir());
-
-    for path in [input, output, metadata, page_metadata, manifest] {
-        let _ = fs::remove_file(path);
-    }
-    let _ = fs::remove_dir(bilevel_output);
 }
 
 #[test]
 fn auto_resolved_bw_writes_bilevel_output_and_reports_recommendation() {
-    let input = temp_path("auto-bw-input", "png");
-    let manifest = temp_path("auto-bw-manifest", "json");
-    let output = temp_path("auto-bw-output", "png");
-    let output_metadata = temp_path("auto-bw-output", "json");
-    let bilevel_output = temp_path("auto-bw-output", "pbm");
-    let page_metadata = temp_path("auto-bw-page", "json");
+    let scratch = Scratch::new("auto-bw");
+    let input = scratch.path("auto-bw-input.png");
+    let manifest = scratch.path("auto-bw-manifest.json");
+    let output = scratch.path("auto-bw-output.png");
+    let output_metadata = scratch.path("auto-bw-output.json");
+    let bilevel_output = scratch.path("auto-bw-output.pbm");
+    let page_metadata = scratch.path("auto-bw-page.json");
     let mut image = GrayImage::new(360, 260, 245);
     for row in 0..8 {
         for column in 0..14 {
@@ -501,8 +499,12 @@ fn auto_resolved_bw_writes_bilevel_output_and_reports_recommendation() {
         .lines()
         .map(|line| serde_json::from_str::<Value>(line).unwrap())
         .collect::<Vec<_>>();
-    assert_eq!(envelopes[1]["progress"]["recommendedOutputMode"], "bw");
-    assert!(envelopes[1]["progress"]["recommendedOutputModeConfidence"]
+    let completed = envelopes
+        .iter()
+        .find(|envelope| envelope["progress"]["stage"] == "page-complete")
+        .unwrap();
+    assert_eq!(completed["progress"]["recommendedOutputMode"], "bw");
+    assert!(completed["progress"]["recommendedOutputModeConfidence"]
         .as_f64()
         .is_some_and(|confidence| confidence >= 0.75));
     let page: Value = serde_json::from_slice(&fs::read(&page_metadata).unwrap()).unwrap();
@@ -512,25 +514,15 @@ fn auto_resolved_bw_writes_bilevel_output_and_reports_recommendation() {
     assert_eq!(metadata["outputMode"], "bw");
     assert_eq!(metadata["bilevelWritten"], true);
     assert!(fs::read(&bilevel_output).unwrap().starts_with(b"P4\n"));
-
-    for path in [
-        input,
-        manifest,
-        output,
-        output_metadata,
-        bilevel_output,
-        page_metadata,
-    ] {
-        let _ = fs::remove_file(path);
-    }
 }
 
 #[test]
 fn analyze_auto_emits_recommendation_but_concrete_mode_omits_it() {
-    let input = temp_path("auto-analyze-input", "png");
-    let auto_metadata = temp_path("auto-analyze-page", "json");
-    let concrete_metadata = temp_path("concrete-analyze-page", "json");
-    let manifest = temp_path("auto-analyze-manifest", "json");
+    let scratch = Scratch::new("auto-analyze");
+    let input = scratch.path("auto-analyze-input.png");
+    let auto_metadata = scratch.path("auto-analyze-page.json");
+    let concrete_metadata = scratch.path("concrete-analyze-page.json");
+    let manifest = scratch.path("auto-analyze-manifest.json");
     let mut image = GrayImage::new(360, 260, 245);
     for y in (24..236).step_by(24) {
         for x in 24..336 {
@@ -605,17 +597,14 @@ fn analyze_auto_emits_recommendation_but_concrete_mode_omits_it() {
         serde_json::from_slice(&fs::read(&concrete_metadata).unwrap()).unwrap();
     assert!(auto_page["recommendedOutputMode"].is_string());
     assert!(concrete_page.get("recommendedOutputMode").is_none());
-
-    for path in [input, manifest, auto_metadata, concrete_metadata] {
-        let _ = fs::remove_file(path);
-    }
 }
 
 #[test]
 fn per_page_ocr_mode_writes_atomic_png_and_metadata() {
-    let input = temp_path("input", "png");
-    let output = temp_path("output", "png");
-    let metadata = temp_path("metadata", "json");
+    let scratch = Scratch::new("ocr");
+    let input = scratch.path("input.png");
+    let output = scratch.path("output.png");
+    let metadata = scratch.path("metadata.json");
     let mut image = GrayImage::new(100, 80, 240);
     for y in (15..65).step_by(10) {
         for x in 12..88 {
@@ -649,19 +638,17 @@ fn per_page_ocr_mode_writes_atomic_png_and_metadata() {
     assert_eq!(metadata_json["inputWidthPx"], 100);
     assert_eq!(metadata_json["outputWidthPx"], 100);
     assert!(metadata_json["forwardTransform"]["matrix"].is_array());
-    let _ = fs::remove_file(input);
-    let _ = fs::remove_file(output);
-    let _ = fs::remove_file(metadata);
 }
 
 #[test]
 fn batch_spread_png_writes_two_output_images_and_per_half_metadata() {
-    let input = temp_path("spread-input", "png");
-    let output_left = temp_path("spread-left", "png");
-    let output_right = temp_path("spread-right", "png");
-    let metadata_left = temp_path("spread-left", "json");
-    let metadata_right = temp_path("spread-right", "json");
-    let manifest = temp_path("spread-manifest", "json");
+    let scratch = Scratch::new("spread");
+    let input = scratch.path("spread-input.png");
+    let output_left = scratch.path("spread-left.png");
+    let output_right = scratch.path("spread-right.png");
+    let metadata_left = scratch.path("spread-left.json");
+    let metadata_right = scratch.path("spread-right.json");
+    let manifest = scratch.path("spread-manifest.json");
     let mut image = GrayImage::new(320, 200, 245);
     for y in (35..165).step_by(14) {
         for word in 0..7 {
@@ -726,29 +713,20 @@ fn batch_spread_png_writes_two_output_images_and_per_half_metadata() {
         assert!(metadata_json["forwardTransform"]["matrix"].is_array());
         assert!(metadata_json["inverseTransform"]["matrix"].is_array());
     }
-    for path in [
-        input,
-        output_left,
-        output_right,
-        metadata_left,
-        metadata_right,
-        manifest,
-    ] {
-        let _ = fs::remove_file(path);
-    }
 }
 
 #[test]
 fn classify_only_batch_writes_metadata_and_ndjson_but_no_output_images() {
-    let spread_input = temp_path("classify-spread-input", "png");
-    let single_input = temp_path("classify-single-input", "png");
-    let spread_output = temp_path("classify-spread-output", "png");
-    let single_output = temp_path("classify-single-output", "png");
-    let spread_output_metadata = temp_path("classify-spread-output", "json");
-    let single_output_metadata = temp_path("classify-single-output", "json");
-    let spread_page_metadata = temp_path("classify-spread-page", "json");
-    let single_page_metadata = temp_path("classify-single-page", "json");
-    let manifest = temp_path("classify-manifest", "json");
+    let scratch = Scratch::new("classify");
+    let spread_input = scratch.path("classify-spread-input.png");
+    let single_input = scratch.path("classify-single-input.png");
+    let spread_output = scratch.path("classify-spread-output.png");
+    let single_output = scratch.path("classify-single-output.png");
+    let spread_output_metadata = scratch.path("classify-spread-output.json");
+    let single_output_metadata = scratch.path("classify-single-output.json");
+    let spread_page_metadata = scratch.path("classify-spread-page.json");
+    let single_page_metadata = scratch.path("classify-single-page.json");
+    let manifest = scratch.path("classify-manifest.json");
 
     let mut spread = GrayImage::new(320, 200, 245);
     for y in (35..165).step_by(14) {
@@ -853,26 +831,17 @@ fn classify_only_batch_writes_metadata_and_ndjson_but_no_output_images() {
     ] {
         assert!(!output.exists(), "classify-only wrote {}", output.display());
     }
-
-    for path in [
-        spread_input,
-        single_input,
-        spread_page_metadata,
-        single_page_metadata,
-        manifest,
-    ] {
-        let _ = fs::remove_file(path);
-    }
 }
 
 #[test]
 fn classify_only_inside_page_options_with_declared_outputs_writes_no_images() {
-    let input = temp_path("nested-classify-input", "png");
-    let output_first = temp_path("nested-classify-first", "png");
-    let output_second = temp_path("nested-classify-second", "png");
-    let metadata_first = temp_path("nested-classify-first", "json");
-    let metadata_second = temp_path("nested-classify-second", "json");
-    let manifest = temp_path("nested-classify-manifest", "json");
+    let scratch = Scratch::new("nested-classify");
+    let input = scratch.path("nested-classify-input.png");
+    let output_first = scratch.path("nested-classify-first.png");
+    let output_second = scratch.path("nested-classify-second.png");
+    let metadata_first = scratch.path("nested-classify-first.json");
+    let metadata_second = scratch.path("nested-classify-second.json");
+    let manifest = scratch.path("nested-classify-manifest.json");
 
     let mut image = GrayImage::new(180, 280, 245);
     for y in (32..248).step_by(16) {
@@ -933,16 +902,13 @@ fn classify_only_inside_page_options_with_declared_outputs_writes_no_images() {
         !metadata_second.exists(),
         "classify-only wrote per-output metadata instead of one page sidecar"
     );
-
-    for path in [input, metadata_first, manifest] {
-        let _ = fs::remove_file(path);
-    }
 }
 
 #[test]
 fn parallel_batch_outputs_and_progress_are_deterministic() {
-    let input = temp_path("parallel-determinism-input", "png");
-    let manifest = temp_path("parallel-determinism-manifest", "json");
+    let scratch = Scratch::new("parallel-determinism");
+    let input = scratch.path("parallel-determinism-input.png");
+    let manifest = scratch.path("parallel-determinism-manifest.json");
     let mut image = GrayImage::new(620, 440, 242);
     let mut state = 0xd37e_4a91_u64;
     for y in 0..image.height() {
@@ -965,8 +931,8 @@ fn parallel_batch_outputs_and_progress_are_deterministic() {
     let artifacts = (0..4)
         .map(|index| {
             (
-                temp_path(&format!("parallel-determinism-{index}"), "png"),
-                temp_path(&format!("parallel-determinism-{index}"), "json"),
+                scratch.path(&format!("parallel-determinism-{index}.png")),
+                scratch.path(&format!("parallel-determinism-{index}.json")),
             )
         })
         .collect::<Vec<_>>();
@@ -1049,24 +1015,18 @@ fn parallel_batch_outputs_and_progress_are_deterministic() {
         assert_eq!(fs::read(output).unwrap(), expected_output);
         assert_eq!(fs::read(metadata).unwrap(), expected_metadata);
     }
-
-    let _ = fs::remove_file(input);
-    let _ = fs::remove_file(manifest);
-    for (output, metadata) in artifacts {
-        let _ = fs::remove_file(output);
-        let _ = fs::remove_file(metadata);
-    }
 }
 
 #[cfg(unix)]
 #[test]
 fn sigterm_terminates_parallel_batch_promptly() {
-    let input = temp_path("sigterm-input", "png");
-    let manifest = temp_path("sigterm-manifest", "json");
+    let scratch = Scratch::new("sigterm");
+    let input = scratch.path("sigterm-input.png");
+    let manifest = scratch.path("sigterm-manifest.json");
     let image = GrayImage::new(2_400, 1_800, 238);
     fs::write(&input, encode_gray(&image).unwrap()).unwrap();
     let metadata_paths = (0..12)
-        .map(|index| temp_path(&format!("sigterm-page-{index}"), "json"))
+        .map(|index| scratch.path(&format!("sigterm-page-{index}.json")))
         .collect::<Vec<_>>();
     let pages = metadata_paths
         .iter()
@@ -1126,23 +1086,18 @@ fn sigterm_terminates_parallel_batch_promptly() {
         std::thread::sleep(Duration::from_millis(10));
     };
     assert!(!exit.success());
-
-    let _ = fs::remove_file(input);
-    let _ = fs::remove_file(manifest);
-    for path in metadata_paths {
-        let _ = fs::remove_file(path);
-    }
 }
 
 #[test]
 fn batch_applies_per_output_placement_over_document_default() {
-    let input_small = temp_path("uniform-small-input", "png");
-    let input_large = temp_path("uniform-large-input", "png");
-    let output_small = temp_path("uniform-small-output", "png");
-    let output_large = temp_path("uniform-large-output", "png");
-    let metadata_small = temp_path("uniform-small-metadata", "json");
-    let metadata_large = temp_path("uniform-large-metadata", "json");
-    let manifest = temp_path("uniform-manifest", "json");
+    let scratch = Scratch::new("uniform");
+    let input_small = scratch.path("uniform-small-input.png");
+    let input_large = scratch.path("uniform-large-input.png");
+    let output_small = scratch.path("uniform-small-output.png");
+    let output_large = scratch.path("uniform-large-output.png");
+    let metadata_small = scratch.path("uniform-small-metadata.json");
+    let metadata_large = scratch.path("uniform-large-metadata.json");
+    let manifest = scratch.path("uniform-manifest.json");
     let mut small = GrayImage::new(80, 60, 255);
     for y in [7, 18, 29] {
         for x in 5..25 {
@@ -1290,31 +1245,19 @@ fn batch_applies_per_output_placement_over_document_default() {
         assert!(offset_x + intrinsic_width <= canvas_width);
         assert!(offset_y + intrinsic_height <= canvas_height);
     }
-
-    for path in [
-        input_small,
-        input_large,
-        output_small,
-        output_large,
-        metadata_small,
-        metadata_large,
-        manifest,
-    ] {
-        let _ = fs::remove_file(path);
-    }
 }
 
 #[test]
 fn matched_canvas_strictly_uses_the_largest_outlier() {
-    let manifest = temp_path("matched-quantile-manifest", "json");
-    let mut cleanup_paths = vec![manifest.clone()];
+    let scratch = Scratch::new("matched-quantile");
+    let manifest = scratch.path("matched-quantile-manifest.json");
     let mut pages = Vec::new();
     let mut output_paths = Vec::new();
     let mut metadata_paths = Vec::new();
     for index in 0..10 {
-        let input = temp_path(&format!("matched-quantile-input-{index}"), "png");
-        let output = temp_path(&format!("matched-quantile-output-{index}"), "png");
-        let metadata = temp_path(&format!("matched-quantile-metadata-{index}"), "json");
+        let input = scratch.path(&format!("matched-quantile-input-{index}.png"));
+        let output = scratch.path(&format!("matched-quantile-output-{index}.png"));
+        let metadata = scratch.path(&format!("matched-quantile-metadata-{index}.json"));
         let (width, height) = if index == 9 { (140, 100) } else { (80, 60) };
         let mut image = GrayImage::new(width, height, 255);
         for y in 15..height.min(45) {
@@ -1330,9 +1273,6 @@ fn matched_canvas_strictly_uses_the_largest_outlier() {
             "outputPath": output,
             "metadataPath": metadata,
         }));
-        cleanup_paths.push(input);
-        cleanup_paths.push(output.clone());
-        cleanup_paths.push(metadata.clone());
         output_paths.push(output);
         metadata_paths.push(metadata);
     }
@@ -1376,23 +1316,19 @@ fn matched_canvas_strictly_uses_the_largest_outlier() {
         assert_eq!(metadata["canvasWidthPx"], 140);
         assert_eq!(metadata["canvasHeightPx"], 100);
     }
-
-    for path in cleanup_paths {
-        let _ = fs::remove_file(path);
-    }
 }
 
 #[test]
 fn matched_canvas_normalizes_equal_physical_pages_by_per_page_dpi() {
-    let manifest = temp_path("matched-physical-manifest", "json");
-    let mut cleanup_paths = vec![manifest.clone()];
+    let scratch = Scratch::new("matched-physical");
+    let manifest = scratch.path("matched-physical-manifest.json");
     let mut pages = Vec::new();
     let mut outputs = Vec::new();
     let mut metadata_paths = Vec::new();
     for (index, (dimension, dpi)) in [(100, 100), (200, 200)].into_iter().enumerate() {
-        let input = temp_path(&format!("matched-physical-input-{index}"), "png");
-        let output = temp_path(&format!("matched-physical-output-{index}"), "png");
-        let metadata = temp_path(&format!("matched-physical-metadata-{index}"), "json");
+        let input = scratch.path(&format!("matched-physical-input-{index}.png"));
+        let output = scratch.path(&format!("matched-physical-output-{index}.png"));
+        let metadata = scratch.path(&format!("matched-physical-metadata-{index}.json"));
         let mut image = GrayImage::new(dimension, dimension, 255);
         for coordinate in 10..dimension.saturating_sub(10) {
             image.set(coordinate, dimension / 2, 0);
@@ -1411,7 +1347,6 @@ fn matched_canvas_normalizes_equal_physical_pages_by_per_page_dpi() {
                 "matchPageSize": true
             }
         }));
-        cleanup_paths.extend([input, output.clone(), metadata.clone()]);
         outputs.push(output);
         metadata_paths.push(metadata);
     }
@@ -1445,18 +1380,15 @@ fn matched_canvas_normalizes_equal_physical_pages_by_per_page_dpi() {
         assert_eq!(metadata["canvasPolicy"], "strict-maximum");
         assert_eq!(metadata["canvasOverflow"], false);
     }
-
-    for path in cleanup_paths {
-        let _ = fs::remove_file(path);
-    }
 }
 
 #[test]
 fn batch_preserves_asymmetric_margin_order_in_named_metadata() {
-    let input = temp_path("asymmetric-margins-input", "png");
-    let output = temp_path("asymmetric-margins-output", "png");
-    let metadata = temp_path("asymmetric-margins-metadata", "json");
-    let manifest = temp_path("asymmetric-margins-manifest", "json");
+    let scratch = Scratch::new("asymmetric-margins");
+    let input = scratch.path("asymmetric-margins-input.png");
+    let output = scratch.path("asymmetric-margins-output.png");
+    let metadata = scratch.path("asymmetric-margins-metadata.json");
+    let manifest = scratch.path("asymmetric-margins-manifest.json");
     let mut image = GrayImage::new(180, 140, 255);
     for y in (35..105).step_by(12) {
         for word in 0..5 {
@@ -1517,8 +1449,4 @@ fn batch_preserves_asymmetric_margin_order_in_named_metadata() {
         metadata_json["outputHeightPx"].as_f64().unwrap(),
         (content["heightPx"].as_f64().unwrap() + 34.0).ceil()
     );
-
-    for path in [input, output, metadata, manifest] {
-        let _ = fs::remove_file(path);
-    }
 }

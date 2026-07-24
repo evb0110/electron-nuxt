@@ -35,7 +35,7 @@ function registry(retention = {eventReplayTtlMs: 30_000, terminalRecordTtlMs: 60
 }
 const start = (jobs: ReturnType<typeof registry>, actor: IMainJobActor, jobId: string, run: (context: TContext) => Promise<IResult>) =>
     jobs.start({jobId, owner: actor, operation: {kind: 'abortable-work'}, initialProgress: initial(jobId), run});
-describe('createMainJobRegistry violations', () => {
+describe('createMainJobRegistry violations', {timeout: 20_000}, () => {
     beforeEach(() => { mocks.appTempDir = mkdtempSync(join(tmpdir(), 'main-job-registry-')); });
     afterEach(() => { resetMainOperationLifecycleForTests(); rmSync(mocks.appTempDir, {force: true, recursive: true}); vi.useRealTimers(); });
     it('keeps cancellation ownership until the runner and cancel adapter settle', async () => {

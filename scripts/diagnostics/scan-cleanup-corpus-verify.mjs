@@ -184,6 +184,16 @@ function nativeOptions(dpi, sourceDpi, requestedRenderDpi) {
     };
 }
 
+function tonalJpegQuality(mode) {
+    if (mode === 'color') {
+        return 87;
+    }
+    if (mode === 'grayscale' || mode === 'mixed') {
+        return 85;
+    }
+    return null;
+}
+
 async function rasterize(pdfPath, pageNumber, dpi, outputPrefix) {
     await run('pdftoppm', [
         '-f',
@@ -361,6 +371,7 @@ async function verifyFixture(fixture, expectedFixture, workRoot) {
             combinedPages.push({
                 bilevelPath,
                 metadata,
+                mode: page.analysis.recommendedOutputMode,
                 outputPath: output.outputPath,
                 renderDpi: metadata.renderDpi ?? page.renderDpi,
             });
@@ -391,14 +402,34 @@ async function verifyFixture(fixture, expectedFixture, workRoot) {
     }
 
     const compactManifestPath = join(fixtureDir, 'combine-manifest.tsv');
-    await writeFile(compactManifestPath, combinedPages.map(page => [
-        page.bilevelPath ? 'image-bilevel' : 'image',
-        (page.metadata.matchedCanvasTargetWidthPoints
+    await writeFile(compactManifestPath, combinedPages.map(page => {
+        const pageSize = [
+            (page.metadata.matchedCanvasTargetWidthPoints
             ?? page.metadata.canvasWidthPx / page.renderDpi * 72).toFixed(6),
-        (page.metadata.matchedCanvasTargetHeightPoints
+            (page.metadata.matchedCanvasTargetHeightPoints
             ?? page.metadata.canvasHeightPx / page.renderDpi * 72).toFixed(6),
-        page.bilevelPath ?? page.outputPath,
-    ].join('\t')).join('\n') + '\n');
+        ];
+        if (page.bilevelPath) {
+            return [
+                'image-bilevel',
+                ...pageSize,
+                page.bilevelPath,
+            ].join('\t');
+        }
+        const jpegQuality = page.metadata.bilevelWritten ? null : tonalJpegQuality(page.mode);
+        return jpegQuality === null
+            ? [
+                'image',
+                ...pageSize,
+                page.outputPath,
+            ].join('\t')
+            : [
+                'image-jpeg',
+                ...pageSize,
+                jpegQuality,
+                page.outputPath,
+            ].join('\t');
+    }).join('\n') + '\n');
     const outputPdfPath = join(fixtureDir, `${fixture.id}.pdf`);
     const combine = await run(defaultCombineBinary, [
         '--output',

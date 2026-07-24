@@ -4,6 +4,7 @@ import {NATIVE_ERROR_CODES} from '@contracts/nativeErrors';
 import type {
     IScanCleanupProgress,
     IScanCleanupPreviewMetadata,
+    IScanCleanupRawPreviewResult,
     IScanCleanupPreviewResult,
     IScanCleanupSummary,
     TScanCleanupErrorCode,
@@ -23,6 +24,7 @@ import {
     decodeOwnedJobId,
     decodePreviewArgs,
     decodePreviewCancelArgs,
+    decodeRawPreviewArgs,
     decodeStartArgs,
     isLayoutClassification,
 } from '@electron/features/scan-cleanup/scanCleanupIpcRequestCodecs';
@@ -279,7 +281,7 @@ function decodePreviewMetadata(value: unknown): IScanCleanupPreviewMetadata {
             : {detectedSkewDegrees: decodeFiniteNumber(value.detectedSkewDegrees, 'detected skew')}),
         ...(value.skewConfidence === undefined
             ? {}
-            : {skewConfidence: decodeUnitInterval(value.skewConfidence, 'skew confidence')}),
+            : {skewConfidence: decodeNonNegativeFiniteNumber(value.skewConfidence, 'skew confidence')}),
         ...(value.skewApplied === undefined ? {} : {skewApplied: value.skewApplied}),
         ...(value.manualSkew === undefined ? {} : {manualSkew: value.manualSkew}),
         sourceRegion: decodePreviewRect(value.sourceRegion, 'source region'),
@@ -421,6 +423,20 @@ export function decodeScanCleanupPreviewResult(value: unknown): IScanCleanupPrev
     };
 }
 
+function decodeScanCleanupRawPreviewResult(value: unknown): IScanCleanupRawPreviewResult {
+    if (!isRecord(value)) throw new Error('invalid scan-cleanup raw preview result');
+    const pageNumber = decodePositiveInteger(value.pageNumber, 'raw page number');
+    const totalPages = decodePositiveInteger(value.totalPages, 'raw total pages');
+    if (pageNumber > totalPages) throw new Error('invalid scan-cleanup raw preview page number');
+    return {
+        pageNumber,
+        totalPages,
+        rawImageData: decodePreviewBytes(value.rawImageData, 'raw image'),
+        rawWidthPx: decodePositiveInteger(value.rawWidthPx, 'raw width'),
+        rawHeightPx: decodePositiveInteger(value.rawHeightPx, 'raw height'),
+    };
+}
+
 function decodePreviewPageMetadata(value: unknown): IScanCleanupPreviewResult['pageMetadata'] {
     if (
         !isRecord(value)
@@ -503,7 +519,7 @@ function decodePreviewPageMetadata(value: unknown): IScanCleanupPreviewResult['p
             : {detectedSkewDegrees: decodeFiniteNumber(value.detectedSkewDegrees, 'page detected skew')}),
         ...(value.skewConfidence === undefined
             ? {}
-            : {skewConfidence: decodeUnitInterval(value.skewConfidence, 'page skew confidence')}),
+            : {skewConfidence: decodeNonNegativeFiniteNumber(value.skewConfidence, 'page skew confidence')}),
         ...(value.manualSkew === undefined ? {} : {manualSkew: value.manualSkew}),
         ...(value.binarizationMode === undefined
             ? {}
@@ -586,8 +602,10 @@ function decodeDetectionStartResult(value: unknown) {
 function isScanCleanupStage(value: unknown): value is IScanCleanupProgress['stage'] {
     return value === 'queued'
         || value === 'normalizing'
+        || value === 'probing'
         || value === 'rasterizing'
-        || value === 'cleaning'
+        || value === 'classifying'
+        || value === 'rendering'
         || value === 'assembling'
         || value === 'handoff'
         || value === 'detecting';
@@ -617,13 +635,12 @@ function decodeProgress(value: unknown): IScanCleanupProgress {
         || value.percent > 100
     ) throw new Error('invalid scan-cleanup progress');
     const completedPageNumbers = value.completedPageNumbers;
-    const totalUnits = value.totalUnits;
     if (
         completedPageNumbers !== undefined
         && (!Array.isArray(completedPageNumbers)
             || completedPageNumbers.length !== value.completedUnits
             || new Set(completedPageNumbers).size !== completedPageNumbers.length
-            || completedPageNumbers.some(page => !Number.isSafeInteger(page) || Number(page) < 1 || Number(page) > totalUnits))
+            || completedPageNumbers.some(page => !Number.isSafeInteger(page) || Number(page) < 1))
     ) throw new Error('invalid scan-cleanup completed page numbers');
     return {
         stage: value.stage,
@@ -684,13 +701,15 @@ export function decodeScanCleanupJobState(value: unknown): TScanCleanupJobState 
         };
     }
     if (value.status === 'completed') {
-        if (typeof value.outputPdfPath !== 'string') throw new Error('completed scan-cleanup state requires outputPdfPath');
+        if (typeof value.outputPdfPath !== 'string' || typeof value.partial !== 'boolean') {
+            throw new Error('completed scan-cleanup state requires outputPdfPath and partial flag');
+        }
         return {
             ...base,
             status: 'completed',
             outputPdfPath: value.outputPdfPath,
             summary: decodeSummary(value.summary),
-            runOcrAfterCleanup: value.runOcrAfterCleanup === true,
+            partial: value.partial,
         };
     }
     if (value.status === 'failed') {
@@ -825,6 +844,11 @@ export function decodeScanCleanupDetectionJobState(value: unknown): TScanCleanup
 }
 
 export const SCAN_CLEANUP_IPC_CODECS = {
+    [SCAN_CLEANUP_CHANNELS.previewRaw]: {
+        encodeArgs: decodeRawPreviewArgs,
+        decodeArgs: decodeRawPreviewArgs,
+        decodeResult: decodeScanCleanupRawPreviewResult,
+    },
     [SCAN_CLEANUP_CHANNELS.preview]: {
         encodeArgs: decodePreviewArgs,
         decodeArgs: decodePreviewArgs,

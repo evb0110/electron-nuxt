@@ -20,7 +20,6 @@ export interface IScanCleanupGlobalPreferences extends Omit<
     despeckleLevel: TScanCleanupDespeckleLevel;
     normalizeIllumination: boolean;
     firstRunGuidanceDismissed: boolean;
-    runOcrAfterCleanup: boolean;
 }
 
 export const DEFAULT_SCAN_CLEANUP_PREFERENCES: Readonly<IScanCleanupGlobalPreferences> = Object.freeze({
@@ -44,7 +43,6 @@ export const DEFAULT_SCAN_CLEANUP_PREFERENCES: Readonly<IScanCleanupGlobalPrefer
     autoDewarpDepth: undefined,
     skipBlankPages: false,
     firstRunGuidanceDismissed: false,
-    runOcrAfterCleanup: false,
 });
 
 export function scanCleanupPreferenceRecord(value: unknown): Record<string, unknown> | null {
@@ -168,9 +166,6 @@ export function decodeScanCleanupGlobalPreferences(value: unknown): IScanCleanup
         firstRunGuidanceDismissed: typeof stored.firstRunGuidanceDismissed === 'boolean'
             ? stored.firstRunGuidanceDismissed
             : defaults.firstRunGuidanceDismissed,
-        runOcrAfterCleanup: typeof stored.runOcrAfterCleanup === 'boolean'
-            ? stored.runOcrAfterCleanup
-            : defaults.runOcrAfterCleanup,
     };
 }
 

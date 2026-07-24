@@ -110,7 +110,8 @@ export function createScanCleanupService(): IScanCleanupService {
                     errorCode: 'invalid-request',
                 };
             }
-            const outputPdfPath = await createScanCleanupGeneratedOutputPath(request.sourcePdfPath);
+            const partial = request.sourcePageNumbers !== undefined;
+            const outputPdfPath = await createScanCleanupGeneratedOutputPath(request.sourcePdfPath, partial);
             const workerRequest = {
                 ...request,
                 outputPdfPath,
@@ -197,13 +198,14 @@ export function createScanCleanupService(): IScanCleanupService {
                         status: 'completed',
                         outputPdfPath,
                         summary,
-                        runOcrAfterCleanup: request.runOcrAfterCleanup === true,
+                        partial,
                         progress: {
                             stage: 'handoff',
                             completedUnits: summary.inputPages,
                             totalUnits: summary.inputPages,
                             percent: 100,
-                            completedPageNumbers: Array.from({length: summary.inputPages}, (_, index) => index + 1),
+                            completedPageNumbers: request.sourcePageNumbers
+                                ?? Array.from({length: summary.inputPages}, (_, index) => index + 1),
                         },
                         updatedAtMs: Date.now(),
                     };
@@ -247,12 +249,15 @@ export function createScanCleanupService(): IScanCleanupService {
         },
         cancel(sender, jobId, owner) {
             const job = jobs.getOwned(jobId, sender, owner);
-            if (!job || [
+            if (!job) {
+                return false;
+            }
+            if ([
                 'completed',
                 'failed',
                 'canceled',
             ].includes(job.state.status)) {
-                return false;
+                return true;
             }
             publish(job, {
                 ...job.state,

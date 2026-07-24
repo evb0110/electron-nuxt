@@ -74,7 +74,7 @@
                             role="status"
                             aria-live="polite"
                             :aria-label="progressText"
-                        >{{ processedCount }} / {{ cleanupTotal }}</span>
+                        >{{ progressText }}</span>
                     </template>
                     <template v-else-if="isDetecting">
                         <span
@@ -109,12 +109,6 @@
             </div>
 
             <div class="scan-cleanup-toolbar-zone scan-cleanup-toolbar-zone-right">
-                <UCheckbox
-                    :model-value="runOcrAfterCleanup"
-                    :label="t('scanCleanup.runOcrAfterCleanup')"
-                    :disabled="isRunning"
-                    @update:model-value="updateRunOcrAfterCleanup"
-                />
                 <div class="scan-cleanup-toolbar-primary-slot">
                     <UButton
                         v-if="isRunning"
@@ -129,7 +123,7 @@
                     />
                     <AppTooltip
                         v-else
-                        :text="runDisabledReason || t('scanCleanup.cleanUp')"
+                        :text="runDisabledReason || runLabel"
                         usefulness="always"
                     >
                         <UButton
@@ -138,7 +132,7 @@
                             color="primary"
                             size="sm"
                             icon="i-ph-play"
-                            :label="transitionText || t('scanCleanup.cleanUp')"
+                            :label="transitionText || runLabel"
                             :disabled="!canRun"
                             @click="emit('run')"
                         />
@@ -165,7 +159,6 @@ const {
     canDetectAll,
     canRun,
     cancelRequested,
-    cleanupTotal,
     detectionCancelRequested,
     detectionError,
     detectionProgressText,
@@ -173,17 +166,15 @@ const {
     isRunning,
     outputEstimate,
     percent,
-    processedCount,
     progressText,
+    runLabel,
     runDisabledReason,
-    runOcrAfterCleanup,
     zoneEditing,
     transitionText,
 } = defineProps<{
     canDetectAll: boolean;
     canRun: boolean;
     cancelRequested: boolean;
-    cleanupTotal: number;
     detectionCancelRequested: boolean;
     detectionError: string;
     detectionProgressText: string;
@@ -191,10 +182,9 @@ const {
     isRunning: boolean;
     outputEstimate: string;
     percent: number;
-    processedCount: number;
     progressText: string;
+    runLabel: string;
     runDisabledReason: string;
-    runOcrAfterCleanup: boolean;
     zoneEditing?: boolean;
     transitionText: string;
 }>();
@@ -204,7 +194,6 @@ const emit = defineEmits<{
     'detect-all': [];
     done: [];
     run: [];
-    'update:runOcrAfterCleanup': [value: boolean];
     'update:zoneEditing': [value: boolean];
 }>();
 const {t} = useTypedI18n();
@@ -225,9 +214,6 @@ const steps = computed(() => [
     },
 ]);
 
-function updateRunOcrAfterCleanup(value: boolean | 'indeterminate') {
-    emit('update:runOcrAfterCleanup', value === true);
-}
 </script>
 
 <style scoped>

@@ -25,6 +25,12 @@ optional: mark them with `"optional": true` and they are reported as skipped whe
 their absolute path is absent. The checked-in expectations cover the Luther p6–9
 session fixture and Rome pages 1, 2, and 49.
 
+Tonal scan-cleanup outputs use plain `image-jpeg` records because their raster is
+already at final DPI; unlike `photo-jpeg`, this does not apply another PPI cap.
+Grayscale and mixed composites use quality 85, while color uses 87 to retain
+chroma detail. These settings were checked at source DPI on Rome pages 1, 7, and
+49; the combiner keeps the lossless Flate candidate whenever it is smaller.
+
 ## Navigation blink trace
 
 Use the blink trace for blank frames, delayed skeletons, or canvas/skeleton flicker:

@@ -7,7 +7,23 @@ import type {
     IDocumentRevisionInfo,
     TDocumentRevisionToken,
 } from '@contracts/documentRevision';
-import { getDocumentFilesCapability } from '@app/utils/platformDocuments';
+import {getDocumentFilesCapability} from '@app/utils/platformDocuments';
+import { getOcrCapability } from '@app/utils/getOcrCapability';
+import { getSearchCapability } from '@app/utils/getSearchCapability';
+import { isStaleRevisionError } from '@contracts/documentMutationErrors';
+import type { IOcrSearchablePdfResult } from '@app/utils/ocr/ocrTypes';
+import { BrowserLogger } from '@app/utils/browserLogger';
+import type { TDocumentOperationKind } from '@app/types/documentOperationKind';
+
+interface IOcrCompletePayload extends IOcrSearchablePdfResult {
+    sourceWorkingCopyPath: TDocumentRef;
+    sourcePageToRestore?: number;
+}
+
+interface IOcrApplyReloadResult {
+    restorePromise: Promise<void>;
+    getRestoreError: () => unknown;
+}
 
 interface IWorkspaceDocumentLifecycleEffectsOptions extends IDocumentTransitionDeps {
     documentRevisionInfo: Ref<IDocumentRevisionInfo | null>;
@@ -19,6 +35,14 @@ interface IWorkspaceDocumentLifecycleEffectsOptions extends IDocumentTransitionD
     } | null>;
     showSettings: Ref<boolean>;
     emitOpenSettings: () => void;
+    clearOcrCache: (path: TDocumentRef) => void;
+    ensureHistoryBaselineForExternalMutation: () => Promise<boolean>;
+    reloadWorkingCopyIntoHistory: (opts?: {markDirty?: boolean}) => Promise<boolean>;
+    waitForPdfReload: (page: number) => Promise<void>;
+    runWithDocumentOperationLease?: <T>(
+        kind: TDocumentOperationKind,
+        operation: () => Promise<T>,
+    ) => Promise<T>;
 }
 
 export const useWorkspaceDocumentLifecycleEffects = (options: IWorkspaceDocumentLifecycleEffectsOptions) => {
@@ -62,9 +86,16 @@ export const useWorkspaceDocumentLifecycleEffects = (options: IWorkspaceDocument
         consumePreservedSourceReloadMetadata,
         hasPendingProgrammaticPageNavigation,
         clearProgrammaticPageNavigation,
+        clearOcrCache,
+        ensureHistoryBaselineForExternalMutation,
+        reloadWorkingCopyIntoHistory,
+        waitForPdfReload,
+        runWithDocumentOperationLease,
     } = options;
 
     const documentFiles = getDocumentFilesCapability();
+    const {t} = useTypedI18n();
+    const toast = useToast();
     let revisionRefreshRequestId = 0;
 
     async function refreshDocumentRevision(path: TDocumentRef) {
@@ -157,4 +188,150 @@ export const useWorkspaceDocumentLifecycleEffects = (options: IWorkspaceDocument
         hasPendingProgrammaticPageNavigation,
         clearProgrammaticPageNavigation,
     });
+
+    async function acknowledgeOcrResultFile(payload: IOcrCompletePayload) {
+        if (!payload.requiresCleanupAck) {
+            return;
+        }
+        try {
+            const result = await getOcrCapability().acknowledgeResultFile(
+                payload.requestId,
+                payload.pdfPath,
+            );
+            if (!result.cleaned && result.error) {
+                BrowserLogger.warn('ocr', 'OCR cleanup acknowledgement was rejected', {
+                    requestId: payload.requestId,
+                    path: payload.pdfPath,
+                    error: result.error,
+                });
+            }
+        } catch (error) {
+            BrowserLogger.warn('ocr', 'Failed to acknowledge OCR temp result file', {
+                requestId: payload.requestId,
+                path: payload.pdfPath,
+                error,
+            });
+        }
+    }
+
+    async function replaceOcrWorkingCopy(
+        payload: IOcrCompletePayload,
+        pageToRestore: number,
+    ): Promise<IOcrApplyReloadResult | null> {
+        if (workingCopyPath.value !== payload.sourceWorkingCopyPath) {
+            await acknowledgeOcrResultFile(payload);
+            return null;
+        }
+
+        let restoreError: unknown = null;
+        let restorePromise: Promise<void> | null = null;
+        let didReplaceWorkingCopy = false;
+        clearOcrCache(payload.sourceWorkingCopyPath);
+        resetSearchCache();
+        try {
+            if (!await ensureHistoryBaselineForExternalMutation()) {
+                await acknowledgeOcrResultFile(payload);
+                throw new Error('Failed to prime OCR history before applying searchable PDF result');
+            }
+            if (workingCopyPath.value !== payload.sourceWorkingCopyPath) {
+                await acknowledgeOcrResultFile(payload);
+                return null;
+            }
+            await documentFiles.replaceWorkingCopyFromPath(
+                payload.sourceWorkingCopyPath,
+                payload.pdfPath,
+                {expectedDocumentRevisionToken: payload.sourceDocumentRevisionToken},
+            );
+            didReplaceWorkingCopy = true;
+            if (workingCopyPath.value !== payload.sourceWorkingCopyPath) {
+                return null;
+            }
+
+            restorePromise = waitForPdfReload(pageToRestore).catch((error: unknown) => {
+                restoreError = error;
+            });
+            if (!await reloadWorkingCopyIntoHistory({markDirty: true})) {
+                void restorePromise;
+                return null;
+            }
+        } catch (error) {
+            void restorePromise;
+            throw error;
+        } finally {
+            if (didReplaceWorkingCopy) {
+                await acknowledgeOcrResultFile(payload);
+            }
+        }
+        return {
+            restorePromise,
+            getRestoreError: () => restoreError,
+        };
+    }
+
+    async function applyOcrCompleteResult(payload: IOcrCompletePayload) {
+        const pageToRestore = payload.sourcePageToRestore ?? currentPage.value;
+        const warmupPageCountHint = totalPages.value > 0
+            ? totalPages.value
+            : undefined;
+        const applyReload = () => replaceOcrWorkingCopy(payload, pageToRestore);
+        const result = runWithDocumentOperationLease
+            ? await runWithDocumentOperationLease('ocr-apply', applyReload)
+            : await applyReload();
+        if (!result) {
+            return;
+        }
+
+        await result.restorePromise;
+        if (workingCopyPath.value !== payload.sourceWorkingCopyPath) {
+            return;
+        }
+        const restoreError = result.getRestoreError();
+        if (restoreError) {
+            BrowserLogger.warn('ocr', 'OCR result was applied but page restore failed', {
+                sourceWorkingCopyPath: payload.sourceWorkingCopyPath,
+                pageToRestore,
+                error: restoreError,
+            });
+        }
+        void getSearchCapability().warmIndex(payload.sourceWorkingCopyPath, {...(warmupPageCountHint === undefined
+            ? {}
+            : {pageCount: warmupPageCountHint})}).catch((error: unknown) => {
+            BrowserLogger.debug('pdf-search', 'Failed to prewarm search index after OCR', {
+                path: payload.sourceWorkingCopyPath,
+                pageCount: warmupPageCountHint,
+                error,
+            });
+        });
+        toast.add({
+            color: 'success',
+            title: t('ocr.complete'),
+        });
+    }
+
+    async function handleOcrComplete(payload: IOcrCompletePayload) {
+        try {
+            await applyOcrCompleteResult(payload);
+        } catch (error) {
+            if (isStaleRevisionError(error)) {
+                await acknowledgeOcrResultFile(payload);
+                toast.add({
+                    color: 'error',
+                    title: t('errors.ocr.changedReload'),
+                });
+                return;
+            }
+            BrowserLogger.error('ocr', 'Failed to apply OCR result', {
+                requestId: payload.requestId,
+                sourceWorkingCopyPath: payload.sourceWorkingCopyPath,
+                pdfPath: payload.pdfPath,
+                error,
+            });
+            toast.add({
+                color: 'error',
+                title: t('errors.ocr.createSearchablePdf'),
+            });
+        }
+    }
+
+    return {handleOcrComplete};
 };

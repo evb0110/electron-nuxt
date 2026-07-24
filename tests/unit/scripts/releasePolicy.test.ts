@@ -27,11 +27,6 @@ type TRunCommand = (
     args: string[],
     options: IRunCommandOptions,
 ) => unknown;
-type TGeneratedResourceRunCommand = (
-    command: string,
-    args: string[],
-    options: { env: TReleaseEnv },
-) => unknown;
 type TSleepFn = (duration: number) => Promise<void>;
 
 interface IReleaseTarget {
@@ -161,17 +156,11 @@ interface IReleaseVerifyModule {
 }
 
 interface IReleasePackageModule {
-    getGeneratedNativeResourceCommands: (target: IReleaseTarget) => IReleaseCommand[];
     getLocalReleaseBuildCommand: () => IReleaseCommand;
     getPackagingArgs: (
         target: IReleaseTarget,
         env?: TReleaseEnv,
     ) => string[];
-    prepareGeneratedNativeResources: (
-        target: IReleaseTarget,
-        env: TReleaseEnv,
-        runCommand?: TGeneratedResourceRunCommand,
-    ) => void;
 }
 
 interface IAssertBuildArtifactsOptions {
@@ -302,10 +291,8 @@ const {
     runLocalReleaseVerify,
 } = await import(pathToFileURL(resolve(process.cwd(), 'scripts/release/verify-local.mjs')).href) as IReleaseVerifyModule;
 const {
-    getGeneratedNativeResourceCommands,
     getLocalReleaseBuildCommand,
     getPackagingArgs,
-    prepareGeneratedNativeResources,
 } = await import(pathToFileURL(resolve(process.cwd(), 'scripts/release/verify-local-package.mjs')).href) as IReleasePackageModule;
 const { assertBuildArtifacts } = await import(pathToFileURL(resolve(process.cwd(), 'scripts/release/assert-build-artifacts.mjs')).href) as IAssertBuildArtifactsModule;
 const {
@@ -830,7 +817,6 @@ describe('release policy', () => {
             'build:pdf-page-ops',
             'build:pdf-search',
             'build:scan-cleanup',
-            'check:generated-native-resources:host',
             'check:resources:matrix',
             'check:wasm:portable',
             'fallow:all',
@@ -850,7 +836,6 @@ describe('release policy', () => {
         expect(scriptNames).not.toContain('build:strict');
         expect(scriptNames).not.toContain('validate');
         expect(scriptNames).not.toContain('test:release');
-        expect(scriptNames).not.toContain('test:python-page-processor');
         expect(scriptNames).not.toContain('check:architecture:all');
         expect(scriptNames).not.toContain('db:generate');
         expect(scriptNames).not.toContain('db:migrate');
@@ -872,6 +857,9 @@ describe('release policy', () => {
             'scripts/afterPack.cjs',
             'scripts/afterSign.cjs',
             'scripts/ci/classify-changed-areas.mjs',
+            'scripts/generateBuildArtifacts.ts',
+            'scripts/generateElectronBuilderResources.ts',
+            'scripts/generateNativeToolProtocols.ts',
             'scripts/nativeResourceManifest.ts',
             'scripts/nativeResourceManifestCli.ts',
             'scripts/release/**',
@@ -887,6 +875,8 @@ describe('release policy', () => {
         expect(changedAreas.landing.paths).toEqual(expect.arrayContaining([
             '.github/workflows/**',
             'landing/**',
+            'pnpm-lock.yaml',
+            'pnpm-workspace.yaml',
             'packages/release-selection/**',
             'scripts/ci/classify-changed-areas.mjs',
             'scripts/release/policy.mjs',
@@ -984,7 +974,7 @@ describe('release policy', () => {
     it('can ignore landing-only worktree changes for main app releases', () => {
         expect(filterIgnoredFiles([
             'package.json',
-            'landing/vendor/contracts/index.ts',
+            'landing/app/pages/index.vue',
             'landing/package.json',
             'app/app.vue',
         ], [ 'landing' ])).toEqual([
@@ -1241,64 +1231,6 @@ describe('release policy', () => {
         expect(scripts['test:electron-bundle-static-integrity:no-build']).toBe(
             'vitest run --project electron-bundle-static-integrity',
         );
-    });
-
-    it('does not generate optional page-processor resources during local release packaging', () => {
-        for (const target of [
-            {
-                arch: 'arm64',
-                platform: 'mac',
-            },
-            {
-                arch: 'x64',
-                platform: 'linux',
-            },
-            {
-                arch: 'x64',
-                platform: 'win',
-            },
-        ]) {
-            expect(getGeneratedNativeResourceCommands(target)).toEqual([]);
-        }
-    });
-
-    it('leaves page-processor copying disabled during local packaging by default', () => {
-        for (const target of [
-            {
-                arch: 'arm64',
-                platform: 'mac',
-            },
-            {
-                arch: 'x64',
-                platform: 'linux',
-            },
-            {
-                arch: 'x64',
-                platform: 'win',
-            },
-        ]) {
-            const env: Record<string, string> = {};
-            const calls: Array<{
-                args: string[];
-                command: string;
-                env: Record<string, string>;
-            }> = [];
-
-            prepareGeneratedNativeResources(target, env, (
-                command: string,
-                args: string[],
-                options: { env: Record<string, string> },
-            ) => {
-                calls.push({
-                    args,
-                    command,
-                    env: options.env,
-                });
-            });
-
-            expect(env.EVB_INCLUDE_PAGE_PROCESSOR).toBeUndefined();
-            expect(calls).toEqual([]);
-        }
     });
 
     it('uses a ZIP-only local package check for supplemental macOS Intel builds', () => {

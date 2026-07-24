@@ -8,7 +8,6 @@
             :can-detect-all="canDetectAll"
             :can-run="canRun"
             :cancel-requested="cancelRequested"
-            :cleanup-total="cleanupProgressTotal"
             :detection-cancel-requested="detectionCancelRequested"
             :detection-error="detectionError"
             :detection-progress-text="detectionProgressText"
@@ -16,10 +15,9 @@
             :is-running="isRunning"
             :output-estimate="outputEstimate"
             :percent="jobProgress.percent"
-            :processed-count="jobProgress.completedUnits"
             :progress-text="progressText"
+            :run-label="runLabel"
             :run-disabled-reason="runDisabledReason"
-            :run-ocr-after-cleanup="runOcrAfterCleanup"
             :zone-editing="zoneEditing"
             :transition-text="transitionText"
             @cancel="cancel"
@@ -27,7 +25,6 @@
             @detect-all="detectAllPages"
             @done="done"
             @run="run"
-            @update:run-ocr-after-cleanup="runOcrAfterCleanup = $event"
             @update:zone-editing="zoneEditing = $event"
         />
     </Teleport>
@@ -75,6 +72,7 @@
                     :alignment-items="alignmentItems"
                     :apply-scope-items="applyScopeItems"
                     :content-boxes="scopeContentBoxes"
+                    :customized-counts="scopeCustomizedCounts"
                     :excluded="scopeExcluded"
                     :has-scope-overrides="hasScopeOverrides"
                     :highlighted-scope="highlightedScope"
@@ -145,6 +143,7 @@
             <div class="scan-cleanup-preview-hero">
                 <ScanCleanupPreviewPane
                     :result="previewResult"
+                    :raw-result="previewRawResult"
                     :loading="previewLoading"
                     :error="previewError"
                     :source="pageSource"
@@ -256,7 +255,6 @@ const {
     outputItems,
     readingOrderItems,
     resetPageOverrides,
-    runOcrAfterCleanup,
     showFirstRunGuidance,
     dismissFirstRunGuidance,
     thicknessLabel,
@@ -316,6 +314,7 @@ const {
     metadataByPage: previewMetadataByPage,
     navigate: navigatePreview,
     result: previewResult,
+    rawResult: previewRawResult,
     resultCurrent: previewResultCurrent = computed(() => true),
     retry: retryPreview,
     totalPages: previewTotalPages,
@@ -331,6 +330,7 @@ const {
     processedPages,
     progress: jobProgress,
     progressText,
+    runLabel,
     runDisabledReason,
     run,
     transitionText,
@@ -354,7 +354,6 @@ watch(() => [
 ], () => {
     blankPageHintDismissed.value = false;
 });
-const cleanupProgressTotal = computed(() => Math.max(jobProgress.value.totalUnits, previewTotalPages.value));
 const allPageNumbers = computed(() => Array.from(
     {length: Math.max(1, previewTotalPages.value)},
     (_, index) => index + 1,
@@ -366,6 +365,16 @@ const scopePageNumbers = computed(() => settingsScope.value === 'all'
         : [...selectedPages.value].sort((left, right) => left - right));
 const scopePageOverrides = computed(() => scopePageNumbers.value
     .map(page => getScanCleanupPageOverride(settings.pageOverrides, page)));
+const scopeCustomizedCounts = computed(() => {
+    const customizedPages = new Set(Object.keys(settings.pageOverrides)
+        .map(Number)
+        .filter(page => Number.isInteger(page) && page >= 1 && page <= previewTotalPages.value));
+    return {
+        all: customizedPages.size,
+        page: customizedPages.has(selectionLeader.value) ? 1 : 0,
+        selected: [...selectedPages.value].filter(page => customizedPages.has(page)).length,
+    };
+});
 const scopeLayout = computed(() => settingsScope.value === 'all'
     ? resolveScanCleanupMixedValue([settings.layoutMode])
     : resolveScanCleanupMixedValue(scopePageOverrides.value.map(override => override.layoutOverride)));
@@ -568,30 +577,39 @@ const scopeInclusionItems = computed(() => [
         label: t('scanCleanup.pages.excludedFromOutput'),
     },
 ]);
-const applyScopeItems = computed(() => ([
-    [
-        'all',
-        'allPages',
-    ],
-    [
-        'from-here',
-        'fromHere',
-    ],
-    [
-        'every-other',
-        'everyOther',
-    ],
-    ...(selectedPages.value.size >= 2 ? [[
-        'selected',
-        'selectedPages',
-    ] as const] : []),
-] as const).map(([
-    scope,
-    label,
-]) => ({
-    label: t(`scanCleanup.settings.applyScopes.${label}`),
-    onSelect: () => applyLeaderOverrides(scope),
-})));
+const applyScopeItems = computed(() => {
+    const actions = ([
+        [
+            'all',
+            'allPages',
+        ],
+        [
+            'from-here',
+            'fromHere',
+        ],
+        [
+            'every-other',
+            'everyOther',
+        ],
+        ...(selectedPages.value.size >= 2 ? [[
+            'selected',
+            'selectedPages',
+        ] as const] : []),
+    ] as const).map(([
+        scope,
+        label,
+    ]) => ({
+        label: t(`scanCleanup.settings.applyScopes.${label}`),
+        onSelect: () => applyLeaderOverrides(scope),
+    }));
+    return [
+        {
+            type: 'label' as const,
+            label: t('scanCleanup.settings.applyScopes.menuLabel'),
+        },
+        ...actions,
+    ];
+});
 
 function done() {
     emit('done');
@@ -606,7 +624,7 @@ function updateDocumentSetting(
 
 function useMixedOutput() {
     settings.preserveOriginalQuality = false;
-    settings.outputMode = 'mixed';
+    updateSelectionOutputModeOverride('mixed', [previewPage.value]);
 }
 
 function handleScopeLayout(value: string | number) {
@@ -923,24 +941,16 @@ watch(isRunning, running => {
     gap: var(--app-space-3xl);
 }
 
-.scan-cleanup-selection-field-label,
-.scan-cleanup-selection-reset-row,
-.scan-cleanup-selection-reset-row > div {
+.scan-cleanup-selection-field-label {
     display: flex;
     align-items: center;
     gap: var(--app-space-sm);
 }
 
-.scan-cleanup-selection-field-label,
-.scan-cleanup-selection-reset-row {
+.scan-cleanup-selection-field-label {
     justify-content: space-between;
     color: var(--ui-text);
     font-size: var(--app-text-size-body-sm);
-}
-
-.scan-cleanup-selection-reset-row > div {
-    min-width: 0;
-    flex-wrap: wrap;
 }
 
 .scan-cleanup-footnote {

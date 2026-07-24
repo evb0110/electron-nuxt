@@ -1,8 +1,10 @@
 export type TScanCleanupProgressStage =
     | 'queued'
     | 'normalizing'
+    | 'probing'
     | 'rasterizing'
-    | 'cleaning'
+    | 'classifying'
+    | 'rendering'
     | 'assembling'
     | 'handoff'
     | 'detecting';

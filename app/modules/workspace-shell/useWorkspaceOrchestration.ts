@@ -24,11 +24,7 @@ import { useWorkspaceSidebarSearchSyncController } from '@app/modules/workspace-
 import { useWorkspaceAnnotationSession } from '@app/modules/workspace-shell/composables/useWorkspaceAnnotationSession';
 import type { TDocumentRef } from '@contracts/documentRef';
 import type { TOpenFileResult } from '@contracts/electronApiDocuments';
-import type {
-    IRecentFile,
-    TPdfViewMode,
-    TPrintOrientation,
-} from '@contracts/shared';
+import type { IRecentFile } from '@contracts/shared';
 import type { IAnnotationCommentSummary } from '@app/types/annotations';
 import { getDocumentPdfCapability } from '@app/utils/platformDocuments';
 import { useWorkspaceViewState } from '@app/modules/workspace-shell/composables/useWorkspaceViewState';
@@ -39,25 +35,21 @@ import { useDocumentOperationLease } from '@app/modules/workspace-shell/composab
 import { createPageMutationAnnotationMaterializer } from '@app/modules/workspace-shell/composables/createPageMutationAnnotationMaterializer';
 import type { ITabViewSessionState } from '@app/modules/workspace-shell/tabs/tabSessionStoreTypes';
 import type { IBrowserPrintDocument } from '@app/utils/pdfPrintShared';
-import { getDjvuCapability } from '@app/utils/getDjvuCapability';
 import { logPdfRenderTrace } from '@app/utils/pdfRenderTrace';
-import { useWorkspaceActiveViewerAdapter } from '@app/modules/workspace-shell/viewers/useWorkspaceActiveViewerAdapter';
+import {
+    useWorkspaceDocumentDriver,
+    type IWorkspaceDriverPrintRequest,
+} from '@app/modules/workspace-shell/viewers/workspaceDocumentDriver';
 import type { IAnalyticsDocumentScope } from '@app/composables/useAnalytics';
 import type { IDocumentOpenSurfaceSession } from '@app/utils/document-viewer/chassis/documentOpenSurfaceSession';
-import type {
-    IDocumentPageSource,
-    IDocumentSourceCapabilities,
-} from '@app/utils/document-viewer/source/documentPageSource';
-import {
-    createDocumentSession,
-    ensurePdfProjection,
-} from '@app/utils/document-viewer/session/documentSession';
+import type { IDocumentSourceCapabilities } from '@app/utils/document-viewer/source/documentPageSource';
 
 interface IWorkspaceOrchestrationDeps {
     analyticsDocumentScope?: IAnalyticsDocumentScope | undefined;
     isActive: Ref<boolean>;
     initialViewState?: ITabViewSessionState | null;
     pendingDocumentPath?: TReadableRef<TDocumentRef | null> | undefined;
+    pendingDocumentSize?: TReadableRef<number | null> | undefined;
     openSurface?: IDocumentOpenSurfaceSession | undefined;
     preserveInitialStateForFirstSource?: boolean | undefined;
     sourceCapabilities: Ref<IDocumentSourceCapabilities>;
@@ -68,39 +60,9 @@ interface IWorkspaceOrchestrationDeps {
     };
 }
 
-interface IWorkspacePrintSubmitPayload {
-    pageNumbers?: number[];
-    viewMode: TPdfViewMode;
-    orientation: TPrintOrientation;
-}
 type TReadableRef<T> = ComputedRef<T> | Ref<T>;
 const INVISIBLE_NOTE_PLACEHOLDER_RE = /[\u200B\uFEFF]/gu;
 
-function createDjvuPrintRequestId() {
-    return globalThis.crypto?.randomUUID?.()
-        ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`;
-}
-function createDjvuPrintAbortError() {
-    const error = new Error('Print preparation was canceled');
-    error.name = 'AbortError';
-    return error;
-}
-function throwIfDjvuPrintAborted(signal: AbortSignal | undefined) {
-    if (signal?.aborted) {
-        throw createDjvuPrintAbortError();
-    }
-}
-function createPrintProjectionSource(kind: 'pdf' | 'djvu', documentRef: TDocumentRef): IDocumentPageSource {
-    const unavailable = () => Promise.reject(new Error('Print projection source cannot render pages'));
-    return {
-        kind,
-        documentRef,
-        pageCount: 0,
-        getPageMetrics: unavailable,
-        renderPage: unavailable,
-        dispose() {},
-    };
-}
 export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => {
     const {
         isActive,
@@ -149,6 +111,18 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         markDirty,
         setWorkspaceCommandSink,
     } = fileLifecycle;
+    const documentDriver = useWorkspaceDocumentDriver({
+        djvuSourcePath,
+        isDjvuMode,
+        pdfSrc,
+        workingCopyPath,
+        ...(deps.pendingDocumentPath === undefined
+            ? {}
+            : {pendingDocumentPath: deps.pendingDocumentPath}),
+        ...(deps.pendingDocumentSize === undefined
+            ? {}
+            : {pendingDocumentSize: deps.pendingDocumentSize}),
+    });
     const toast = useToast();
     function notifyMissingRecentFile(file: IRecentFile) {
         toast.add({
@@ -262,6 +236,18 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         exportDocx,
         clearDocxExportError,
     } = useDocxExport();
+    const isExportingDocx = computed(() => isDocxExporting.value);
+    async function handleExportDocx(selectedLanguages?: string[]) {
+        const exported = await exportDocx({
+            workingCopyPath: workingCopyPath.value,
+            documentRevisionToken: documentRevisionToken.value,
+            pdfDocument: pdfDocument.value,
+            ...(selectedLanguages === undefined ? {} : {selectedLanguages}),
+        });
+        if (!exported) {
+            openDropdown('ocr');
+        }
+    }
 
     const annotationSession = useWorkspaceAnnotationSession({
         pdfViewerRef,
@@ -390,14 +376,6 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         pdfData,
         pdfDocument,
         pdfViewerRef,
-        requestDocxExport: (selectedLanguages?: string[]) => exportDocx({
-            workingCopyPath: workingCopyPath.value,
-            documentRevisionToken: documentRevisionToken.value,
-            pdfDocument: pdfDocument.value,
-            ...(selectedLanguages !== undefined ? { selectedLanguages } : {}),
-        }),
-        openOcrPopup: () => openDropdown('ocr'),
-        isExportingDocx: isDocxExporting,
         workingCopyPath,
         originalPath,
         documentRevisionToken,
@@ -436,22 +414,16 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         saveWorkingCopyAs,
         optimizePdfOnSaveAs: computed(() => appSettings.value.optimizePdfOnSaveAs),
         persistAllAnnotationNotes: (force) => persistAllAnnotationNotes(force),
-        clearAnnotationHistory: () => pdfViewerRef.value?.clearAnnotationHistory?.(),
         loadRecentFiles: () => {
             void loadRecentFiles();
         },
-        clearOcrCache: (path) => clearOcrCache(path),
-        ensureHistoryBaselineForExternalMutation,
-        reloadWorkingCopyIntoHistory,
         currentPage,
-        waitForPdfReload: (page) => waitForPdfReload(page),
         resetSearchCache,
         runWithDocumentOperationLease: documentOperationLease.runExclusive,
     });
     const {
         handleSave,
         isAnySaving,
-        isExportingDocx,
         canSave,
         embedPlacedImageToPage,
         getSourcePdfData,
@@ -473,8 +445,10 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
 
     const exportControls = useWorkspaceExport({
         workingCopyPath,
-        sourceKind: computed(() => isDjvuMode.value ? 'djvu' : 'pdf'),
-        sourcePath: computed(() => isDjvuMode.value ? djvuSourcePath.value : workingCopyPath.value),
+        sourceKind: computed(() => documentDriver.activeDocumentDriver.value?.source.kind ?? 'pdf'),
+        sourcePath: computed(() => (
+            documentDriver.activeDocumentDriver.value?.source.path ?? workingCopyPath.value
+        )),
         totalPages,
         ensureWorkingCopyFreshForRead,
     });
@@ -623,12 +597,13 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
     });
     const preparePdfReloadWaiter = pdfHistory.preparePdfReloadWaiter;
     const waitForPdfReload = pdfHistory.waitForPdfReload;
-    const { activeViewerAdapter } = useWorkspaceActiveViewerAdapter({
-        djvuSourcePath,
-        isDjvuMode,
-        pdfSrc,
-    });
-    const hasOpenDocument = computed(() => hasPdf.value || activeViewerAdapter.value?.capabilities.closeableDocument === true);
+    const hasOpenDocument = computed(() => (
+        hasPdf.value
+        || (
+            documentDriver.activeDocumentDriver.value?.capabilities.closeableDocument === true
+            && documentDriver.activeDocumentDriver.value.source.path !== null
+        )
+    ));
     const canMutatePages = computed(() => deps.sourceCapabilities.value.pageEdits);
     const materializeAnnotationsForPageMutation = createPageMutationAnnotationMaterializer({
         annotationDirty,
@@ -828,72 +803,29 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         }
         await viewer.renderLoadedPdfPagesForBrowserPrint(targetDocument, pageNumbers, options);
     }
-    async function printDjvuSource(
-        payload: IWorkspacePrintSubmitPayload,
+    async function printDriverSource(
+        payload: IWorkspaceDriverPrintRequest,
         options?: {
             onNativePrintHandoffStart?: () => void;
             signal?: AbortSignal;
         },
     ) {
-        const sourcePath = djvuSourcePath.value;
-        if (!isDjvuMode.value || !sourcePath) {
+        const driver = documentDriver.activeDocumentDriver.value;
+        if (!driver) {
             throw new Error('DjVu printing is unavailable');
         }
-        const requestId = createDjvuPrintRequestId();
-        const jobId = `djvu-print-${requestId}`;
-        let cancelRequested = false;
-        const cancelPrint = () => {
-            cancelRequested = true;
-            void getDjvuCapability().cancel(jobId).catch(() => undefined);
-        };
-        throwIfDjvuPrintAborted(options?.signal);
-        options?.signal?.addEventListener('abort', cancelPrint, { once: true });
-        try {
-            const printSession = createDocumentSession({
-                id: `${String(sourcePath)}:${requestId}`,
-                originalRef: sourcePath,
-                source: createPrintProjectionSource('djvu', sourcePath),
-                capabilities: deps.sourceCapabilities.value,
-            });
-            const projectionSignal = options?.signal ?? new AbortController().signal;
-            await ensurePdfProjection(printSession, {build: async () => {
-                const result = await getDjvuCapability().printDjvuPath(sourcePath, {
-                    ...payload,
-                    requestId,
-                    pdfStrategy: 'compact-djvu-aware',
-                    ...(fileName.value ? { fileName: fileName.value } : {}),
-                });
-                if (options?.signal?.aborted || cancelRequested || result.canceled) {
-                    throw createDjvuPrintAbortError();
-                }
-                if (!result.success) {
-                    throw new Error(result.error ?? 'DjVu print preparation failed');
-                }
-                const outputState = await getDjvuCapability().getJobState(result.jobId ?? jobId);
-                if (
-                    outputState?.operation !== 'djvu-print'
-                        || (outputState.status !== 'handoff' && outputState.status !== 'completed')
-                        || !('artifactPath' in outputState)
-                        || !outputState.artifactPath
-                ) {
-                    throw new Error('DjVu print completed without an accepted output-service handoff');
-                }
-                return {
-                    documentRef: outputState.artifactPath,
-                    source: createPrintProjectionSource('pdf', outputState.artifactPath),
-                    capabilities: {
-                        annotations: true,
-                        directImageExport: true,
-                        outline: true,
-                        pageEdits: true,
-                        search: true,
-                        text: true,
-                    },
-                };
-            }}, 'print', projectionSignal);
-            options?.onNativePrintHandoffStart?.();
-        } finally {
-            options?.signal?.removeEventListener('abort', cancelPrint);
+        const result = await driver.run({
+            kind: 'prepare-print',
+            request: payload,
+            fileName: fileName.value,
+            sourceCapabilities: deps.sourceCapabilities.value,
+            ...(options?.onNativePrintHandoffStart === undefined
+                ? {}
+                : {onNativePrintHandoffStart: options.onNativePrintHandoffStart}),
+            ...(options?.signal === undefined ? {} : {signal: options.signal}),
+        });
+        if (result.status === 'unavailable') {
+            throw new Error('DjVu printing is unavailable');
         }
     }
     const workspacePrint = useWorkspacePrint({
@@ -905,13 +837,15 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         fileName,
         hasPendingUnsavedChanges,
         hasPendingPrintSerializationChanges,
-        canPrintDjvuSource: computed(() => isDjvuMode.value && Boolean(djvuSourcePath.value)),
+        canPrintDjvuSource: computed(() => (
+            documentDriver.activeDocumentDriver.value?.canPreparePrint === true
+        )),
         getCurrentPrintPage: () => documentViewerRef.value?.getCurrentPage?.() ?? currentPage.value,
         getQuickPrintPageMetrics,
         ensurePrintReady,
         getPrintableSourceData,
         renderLoadedPdfPagesForBrowserPrint,
-        printDjvuSource,
+        printDjvuSource: printDriverSource,
     });
     const interactionControls = useWorkspaceInteractionControls({
         isActive,
@@ -925,7 +859,7 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         zoomMode,
         pdfSrc,
         canPrint: computed(() => (
-            activeViewerAdapter.value?.capabilities.print === true
+            documentDriver.activeDocumentDriver.value?.capabilities.print === true
             && (hasPdf.value || deps.sourceCapabilities.value.directImageExport)
         )),
         canSave,
@@ -966,7 +900,7 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         preserveInitialStateForFirstSource: deps.preserveInitialStateForFirstSource,
         runWithDocumentOperationLease: documentOperationLease.runExclusive,
     });
-    useWorkspaceDocumentLifecycleEffects({
+    const {handleOcrComplete} = useWorkspaceDocumentLifecycleEffects({
         currentPage,
         totalPages,
         pdfDocument,
@@ -1008,8 +942,14 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         loadRecentFiles: () => {
             void loadRecentFiles();
         },
+        clearOcrCache,
+        ensureHistoryBaselineForExternalMutation,
+        reloadWorkingCopyIntoHistory,
+        waitForPdfReload,
+        runWithDocumentOperationLease: documentOperationLease.runExclusive,
     });
     return {
+        documentDriver,
         fileLifecycle,
         viewerShell: sidebarSearch,
         annotationSession: {
@@ -1051,6 +991,9 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
             isHistoryBusy,
             docxExportError,
             hasPendingUnsavedChanges,
+            handleExportDocx,
+            handleOcrComplete,
+            isExportingDocx,
         },
         printWorkflow: workspacePrint,
         workspaceSettings: { appSettings },

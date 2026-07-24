@@ -11,6 +11,7 @@ import type {
 } from '@contracts/electronApiDocuments';
 import type {
     DOCUMENT_MENU_PLATFORM_FEATURE,
+    DOCUMENT_OPEN_PLATFORM_FEATURE,
     DOCUMENT_PICKER_PLATFORM_FEATURE,
     DOCUMENT_RECENT_FILES_PLATFORM_FEATURE,
     DOCUMENT_WINDOW_PLATFORM_FEATURE,
@@ -153,7 +154,10 @@ export function createBrowserDocumentsCapability(
         openPdfDirect: fileCapability.openPdfDirect,
         openDocumentDirectBatch: fileCapability.openDocumentDirectBatch,
         openPdfDirectBatch: fileCapability.openPdfDirectBatch,
-    } satisfies IDocumentsOpenCapability;
+        onOpenDocumentDirectBatchProgress: browserDocumentsMenuCapability.onOpenDocumentDirectBatchProgress,
+        onOpenPdfDirectBatchProgress: browserDocumentsMenuCapability.onOpenPdfDirectBatchProgress,
+    } satisfies IDocumentsOpenCapability
+        & TFeatureBrowserBindings<typeof DOCUMENT_OPEN_PLATFORM_FEATURE>;
     const documentWorkingCopy = {
         createWorkingCopyFromData: fileCapability.createWorkingCopyFromData,
         createWorkingCopyFromPath: fileCapability.createWorkingCopyFromPath,

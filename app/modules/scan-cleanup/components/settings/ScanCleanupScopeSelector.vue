@@ -27,9 +27,23 @@
                     <span v-if="modelValue === item.value" />
                 </span>
                 <span class="scan-cleanup-scope-label">{{ item.label }}</span>
-                <UBadge color="neutral" variant="soft" size="sm" aria-hidden="true">
-                    {{ item.badge }}
-                </UBadge>
+                <span
+                    v-if="customizedCounts[item.value] > 0 && item.value !== 'page'"
+                    class="scan-cleanup-scope-customized"
+                    :data-customized-scope="item.value"
+                >
+                    {{ t('scanCleanup.settings.scope.customized', {
+                        count: customizedCounts[item.value],
+                    }) }}
+                </span>
+                <span
+                    v-else-if="customizedCounts[item.value] > 0"
+                    class="scan-cleanup-scope-page-customized"
+                    data-customized-scope="page"
+                >
+                    <span aria-hidden="true" />
+                    <span class="sr-only">{{ t('scanCleanup.settings.scope.pageCustomized') }}</span>
+                </span>
             </button>
         </div>
     </div>
@@ -39,6 +53,7 @@
 import type {TScanCleanupSettingsScope} from '@app/modules/scan-cleanup/composables/useScanCleanupSelection';
 
 const props = defineProps<{
+    customizedCounts: Record<TScanCleanupSettingsScope, number>;
     highlightedScope: TScanCleanupSettingsScope | null;
     modelValue: TScanCleanupSettingsScope;
     pageNumber: number;
@@ -52,17 +67,14 @@ const scopeItems = computed(() => [
     {
         value: 'all' as const,
         label: t('scanCleanup.settings.scope.all', {count: props.totalPages}),
-        badge: String(props.totalPages),
     },
     {
         value: 'page' as const,
         label: t('scanCleanup.settings.scope.page', {page: props.pageNumber}),
-        badge: t('scanCleanup.settings.scope.pageBadge', {page: props.pageNumber}),
     },
     ...(props.selectedCount >= 2 ? [{
         value: 'selected' as const,
         label: t('scanCleanup.settings.scope.selected', {count: props.selectedCount}),
-        badge: String(props.selectedCount),
     }] : []),
 ]);
 </script>
@@ -140,6 +152,30 @@ const scopeItems = computed(() => [
 .scan-cleanup-scope-label {
     min-width: 0;
     font-size: var(--app-text-size-body-sm);
+}
+
+.scan-cleanup-scope-customized {
+    border-radius: var(--app-radius-full);
+    background: color-mix(in srgb, var(--ui-primary) 16%, var(--ui-bg));
+    padding: var(--app-space-xs) var(--app-space-xl);
+    color: var(--ui-primary);
+    font-size: var(--app-text-size-kicker);
+    font-weight: 700;
+    white-space: nowrap;
+}
+
+.scan-cleanup-scope-page-customized {
+    display: grid;
+    width: var(--app-icon-size-xs);
+    height: var(--app-icon-size-xs);
+    place-items: center;
+}
+
+.scan-cleanup-scope-page-customized > span:first-child {
+    width: var(--app-space-3xl);
+    height: var(--app-space-3xl);
+    border-radius: var(--app-radius-full);
+    background: var(--ui-primary);
 }
 
 </style>

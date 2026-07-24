@@ -74,6 +74,8 @@ struct BatchManifest {
     canvas_scope: CanvasScope,
     #[serde(skip)]
     document_canvas: Option<DocumentCanvas>,
+    #[serde(skip)]
+    phase_progress: bool,
     pages: Vec<PageJob>,
 }
 
@@ -86,6 +88,7 @@ impl From<ManifestV3> for BatchManifest {
             preview_mode: manifest.render_mode == RenderMode::Preview,
             canvas_scope: manifest.canvas_scope,
             document_canvas: manifest.document_canvas,
+            phase_progress: true,
             pages: manifest
                 .pages
                 .into_iter()
@@ -424,26 +427,23 @@ fn run_manifest_inner(manifest: &BatchManifest) -> Result<(), Box<dyn Error>> {
         recommended_output_mode_reason: None,
     })?;
     let cache = manifest_cache();
-    let analyzed_pages = Mutex::new(0usize);
-    let run_one = |(index, page): (usize, &PageJob)| -> Result<PageRunResult, NativeError> {
-        let page_cache = page_cache_for(page, index, &cache)?;
-        let result = run_manifest_page(manifest, page, index, &page_cache).map_err(|error| {
-            let envelope = NativeErrorEnvelope::from_error(error.as_ref());
-            NativeError::new(envelope.code, envelope.message)
+    let analyzed_pages = Mutex::new((vec![false; manifest.pages.len()], 0usize));
+    let report_analyzed = |index: usize| -> Result<(), NativeError> {
+        let mut state = analyzed_pages.lock().map_err(|_| {
+            NativeError::new(
+                NativeErrorCode::NativeFailure,
+                "Unable to publish scan-cleanup page progress",
+            )
         })?;
-        if manifest.classify_only {
-            let mut completed = analyzed_pages.lock().map_err(|_| {
-                NativeError::new(
-                    NativeErrorCode::NativeFailure,
-                    "Unable to publish scan-cleanup analysis progress",
-                )
-            })?;
-            *completed += 1;
+        state.0[index] = true;
+        while state.1 < state.0.len() && state.0[state.1] {
+            let page_index = state.1;
+            state.1 += 1;
             write_progress(Progress {
                 stage: ProgressStage::PageAnalyzed,
-                completed_pages: *completed,
+                completed_pages: state.1,
                 total_pages: manifest.pages.len(),
-                page_number: Some(index + 1),
+                page_number: Some(page_index + 1),
                 output_paths: None,
                 classification: None,
                 confidence: None,
@@ -461,32 +461,46 @@ fn run_manifest_inner(manifest: &BatchManifest) -> Result<(), Box<dyn Error>> {
             .map_err(|error| {
                 NativeError::new(
                     NativeErrorCode::NativeFailure,
-                    format!("Unable to publish scan-cleanup analysis progress: {error}"),
+                    format!("Unable to publish scan-cleanup page progress: {error}"),
                 )
             })?;
         }
+        Ok(())
+    };
+    let run_analysis = |(index, page): (usize, &PageJob)| -> Result<PageRunResult, NativeError> {
+        let page_cache = page_cache_for(page, index, &cache)?;
+        let result = run_classification(
+            page,
+            Some(&manifest.shared_options),
+            index,
+            manifest.canvas_scope,
+            page.document_prior,
+            &page_cache,
+        )
+        .map_err(|error| {
+            let envelope = NativeErrorEnvelope::from_error(error.as_ref());
+            NativeError::new(envelope.code, envelope.message)
+        })?;
+        report_analyzed(index)?;
         Ok(result)
     };
-    let page_results = if manifest.pages.len() > 1 && pages_have_disjoint_destinations(manifest) {
-        let worker_threads = manifest_worker_threads(manifest)?;
-        rayon::ThreadPoolBuilder::new()
-            .num_threads(worker_threads)
-            .thread_name(|index| format!("scan-cleanup-page-{index}"))
-            .build()
-            .map_err(|error| invalid(format!("Unable to initialize page workers: {error}")))?
-            .install(|| {
-                manifest
-                    .pages
-                    .par_iter()
-                    .enumerate()
-                    .map(run_one)
-                    .collect::<Vec<_>>()
-            })
+    let run_one = |(index, page): (usize, &PageJob)| -> Result<PageRunResult, NativeError> {
+        let page_cache = page_cache_for(page, index, &cache)?;
+        run_manifest_page(manifest, page, index, &page_cache).map_err(|error| {
+            let envelope = NativeErrorEnvelope::from_error(error.as_ref());
+            NativeError::new(envelope.code, envelope.message)
+        })
+    };
+    let page_results = if manifest.classify_only {
+        run_page_jobs(manifest, run_analysis)?
     } else {
-        manifest.pages.iter().enumerate().map(run_one).collect()
+        if manifest.phase_progress && !manifest.preview_mode {
+            run_page_jobs(manifest, run_analysis)?;
+        }
+        run_page_jobs(manifest, run_one)?
     };
 
-    let mut page_results = page_results.into_iter().collect::<Result<Vec<_>, _>>()?;
+    let mut page_results = page_results;
     reconcile_classification_batch(manifest, &mut page_results, &cache)?;
     let mut written_outputs = Vec::new();
     for (index, page_result) in page_results.into_iter().enumerate() {
@@ -559,6 +573,35 @@ fn run_manifest_inner(manifest: &BatchManifest) -> Result<(), Box<dyn Error>> {
         recommended_output_mode_reason: None,
     })?;
     Ok(())
+}
+
+fn run_page_jobs<T, F>(manifest: &BatchManifest, task: F) -> Result<Vec<T>, Box<dyn Error>>
+where
+    T: Send,
+    F: Fn((usize, &PageJob)) -> Result<T, NativeError> + Send + Sync,
+{
+    let results = if manifest.pages.len() > 1 && pages_have_disjoint_destinations(manifest) {
+        let worker_threads = manifest_worker_threads(manifest)?;
+        rayon::ThreadPoolBuilder::new()
+            .num_threads(worker_threads)
+            .thread_name(|index| format!("scan-cleanup-page-{index}"))
+            .build()
+            .map_err(|error| invalid(format!("Unable to initialize page workers: {error}")))?
+            .install(|| {
+                manifest
+                    .pages
+                    .par_iter()
+                    .enumerate()
+                    .map(&task)
+                    .collect::<Vec<_>>()
+            })
+    } else {
+        manifest.pages.iter().enumerate().map(task).collect()
+    };
+    results
+        .into_iter()
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(Into::into)
 }
 
 fn reconcile_classification_batch(

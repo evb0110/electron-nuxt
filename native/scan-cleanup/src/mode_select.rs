@@ -1,5 +1,5 @@
-use crate::{io::png::RgbImage, OutputMode};
-use scan_primitives::{threshold::otsu_threshold, BinaryImage, ComponentMap, GrayImage};
+use crate::{content::border_artifact_mask, io::png::RgbImage, OutputMode};
+use scan_primitives::{threshold::otsu_threshold, BinaryImage, Component, ComponentMap, GrayImage};
 use serde::{Deserialize, Serialize};
 
 const CHROMA_NOISE_FLOOR: f64 = 18.0;
@@ -113,10 +113,22 @@ pub(crate) fn recommend_output_mode(
         .width()
         .saturating_mul(evidence.analysis.height())
         .max(1);
-    let picture_pixels = ComponentMap::from_binary(evidence.picture_mask)
+    let picture_map = ComponentMap::from_binary(evidence.picture_mask);
+    let border_artifacts = border_artifact_mask(evidence.analysis);
+    let gutter_shadow = has_gutter_shadow(evidence.analysis);
+    let picture_pixels = picture_map
         .components()
         .iter()
         .filter(|component| component.area >= MIN_PICTURE_COMPONENT_PIXELS)
+        .filter(|component| {
+            !is_border_artifact_picture_component(
+                &picture_map,
+                component,
+                &border_artifacts,
+                evidence.analysis,
+                gutter_shadow,
+            )
+        })
         .map(|component| component.area)
         .sum::<usize>();
     let picture_fraction = picture_pixels as f64 / pixel_count as f64;
@@ -214,6 +226,87 @@ pub(crate) fn recommend_output_mode(
         .clamp(0.0, 1.0),
         reason: OutputModeRecommendationReason::UncertainTonal,
     }
+}
+
+fn is_border_artifact_picture_component(
+    picture_map: &ComponentMap,
+    component: &Component,
+    border_artifacts: &BinaryImage,
+    analysis: &GrayImage,
+    gutter_shadow: bool,
+) -> bool {
+    let page_width = analysis.width();
+    let page_height = analysis.height();
+    let width = component.right - component.left + 1;
+    let height = component.bottom - component.top + 1;
+    let horizontal_edge_zone = page_width.div_ceil(40).max(1);
+    let vertical_edge_zone = page_height.div_ceil(40).max(1);
+    let vertical_shadow = (component.top < vertical_edge_zone
+        || component.bottom.saturating_add(vertical_edge_zone) >= page_height)
+        && height.saturating_mul(2) >= page_height
+        && height >= width.saturating_mul(4)
+        && width.saturating_mul(5) <= page_width;
+    let horizontal_shadow = (component.left < horizontal_edge_zone
+        || component.right.saturating_add(horizontal_edge_zone) >= page_width)
+        && width.saturating_mul(2) >= page_width
+        && width >= height.saturating_mul(4)
+        && height.saturating_mul(5) <= page_height;
+    if vertical_shadow || horizontal_shadow {
+        return true;
+    }
+
+    let mut overlap = 0usize;
+    let mut midtones = 0usize;
+    for y in component.top..=component.bottom {
+        for x in component.left..=component.right {
+            if picture_map.label_at(x, y) == component.label {
+                overlap += usize::from(border_artifacts.get(x, y));
+                midtones += usize::from((40..=224).contains(&analysis.get(x, y)));
+            }
+        }
+    }
+    if overlap >= 16 && overlap.saturating_mul(100) >= component.area {
+        return true;
+    }
+
+    let touches_vertical_edge = component.top < vertical_edge_zone
+        || component.bottom.saturating_add(vertical_edge_zone) >= page_height;
+    let center = page_width / 2;
+    let crosses_gutter = component.left <= center.saturating_add(horizontal_edge_zone)
+        && component.right.saturating_add(horizontal_edge_zone) >= center;
+    let page_filling = width.saturating_mul(5) >= page_width.saturating_mul(4)
+        && height.saturating_mul(5) >= page_height.saturating_mul(4);
+    let sparse_midtones = midtones.saturating_mul(100) <= component.area.saturating_mul(8);
+    gutter_shadow && touches_vertical_edge && crosses_gutter && !page_filling && sparse_midtones
+}
+
+fn has_gutter_shadow(analysis: &GrayImage) -> bool {
+    if analysis.width() <= analysis.height() || analysis.width() < 100 {
+        return false;
+    }
+    let window_width = analysis.width().div_ceil(100).max(1);
+    let column_ink = (0..analysis.width())
+        .map(|x| {
+            (0..analysis.height())
+                .filter(|&y| analysis.get(x, y) <= BLANK_INK_LUMINANCE_CUTOFF)
+                .count()
+        })
+        .collect::<Vec<_>>();
+    let central_left = analysis.width() * 3 / 10;
+    let central_right = analysis.width() * 7 / 10;
+    let mut windows = (central_left..central_right.saturating_sub(window_width))
+        .map(|left| {
+            column_ink[left..left + window_width].iter().sum::<usize>() as f64
+                / window_width.saturating_mul(analysis.height()).max(1) as f64
+        })
+        .collect::<Vec<_>>();
+    if windows.is_empty() {
+        return false;
+    }
+    windows.sort_unstable_by(f64::total_cmp);
+    let median = windows[windows.len() / 2];
+    let maximum = windows[windows.len() - 1];
+    maximum >= 0.12 && maximum >= (median + 0.01) * 4.0
 }
 
 fn chroma_evidence(gray: &GrayImage, rgb: Option<&RgbImage>) -> ChromaEvidence {
@@ -406,6 +499,10 @@ mod tests {
     use super::*;
     use crate::engine::render::analyze_page_with_color_and_document_prior;
     use crate::CleanupOptions;
+    use crate::{
+        calibration::{CalibrationConfig, PageCalibration},
+        picture::detect_picture_mask,
+    };
 
     fn text_page(background: [u8; 3]) -> (GrayImage, RgbImage) {
         let mut rgb = RgbImage::new(360, 260, background);
@@ -689,6 +786,84 @@ mod tests {
         assert_eq!(
             recommendation.reason,
             OutputModeRecommendationReason::TextWithPictures
+        );
+    }
+
+    #[test]
+    fn scanner_edge_bars_and_gutter_shadow_do_not_veto_bw() {
+        let (_, half_page) = text_page([245; 3]);
+        let mut rgb = RgbImage::new(760, 300, [245; 3]);
+        for y in 0..half_page.height() {
+            for x in 0..half_page.width() {
+                rgb.set(x + 10, y + 20, half_page.get(x, y));
+                rgb.set(x + 390, y + 20, half_page.get(x, y));
+            }
+        }
+        for y in 0..rgb.height() {
+            for x in 0..10 {
+                rgb.set(x, y, [18; 3]);
+                rgb.set(rgb.width() - 1 - x, y, [18; 3]);
+            }
+            for x in 370_usize..390 {
+                let distance = x.abs_diff(379).min(8) as u8;
+                let texture = ((x * 17 + y * 29 + x * y % 31) % 28) as u8;
+                let value = 34_u8
+                    .saturating_add(distance.saturating_mul(12))
+                    .saturating_add(texture);
+                rgb.set(x, y, [value; 3]);
+            }
+        }
+        let gray = rgb_to_gray(&rgb);
+        let calibration = PageCalibration::estimate(&gray, 150.0, CalibrationConfig::default());
+        let raw_picture_mask = detect_picture_mask(&gray, 150.0, calibration);
+        let raw_picture_pixels = ComponentMap::from_binary(&raw_picture_mask)
+            .components()
+            .iter()
+            .filter(|component| component.area >= MIN_PICTURE_COMPONENT_PIXELS)
+            .map(|component| component.area)
+            .sum::<usize>();
+        assert!(
+            raw_picture_pixels as f64 / gray.width().saturating_mul(gray.height()) as f64
+                >= PICTURE_NOISE_FLOOR,
+            "fixture must exercise the aggregate picture veto"
+        );
+
+        let recommendation = classify(&gray, Some(&rgb));
+        report("scanner-border-and-gutter", recommendation);
+        assert_eq!(recommendation.mode, OutputMode::Bw, "{recommendation:?}");
+        assert_eq!(
+            recommendation.reason,
+            OutputModeRecommendationReason::BimodalText
+        );
+    }
+
+    #[test]
+    fn full_page_halftone_plate_touching_edges_stays_tonal() {
+        let mut gray = GrayImage::new(360, 260, 238);
+        for y in 0..gray.height() {
+            for x in 0..gray.width() {
+                let coarse_tone = 28 + (x * 176 / gray.width()) as u8;
+                let irregular_screen = ((x * 17 + y * 29 + x * y % 53) % 45) as u8;
+                gray.set(x, y, coarse_tone.saturating_add(irregular_screen));
+            }
+        }
+        let mut picture_mask = BinaryImage::new(gray.width(), gray.height());
+        for y in 0..picture_mask.height() {
+            for x in 0..picture_mask.width() {
+                picture_mask.set(x, y, true);
+            }
+        }
+        let recommendation = recommend_output_mode(PreparedModeEvidence {
+            analysis: &gray,
+            analysis_rgb: None,
+            picture_mask: &picture_mask,
+            text_line_count: 0,
+        });
+        report("full-page-edge-halftone", recommendation);
+        assert_eq!(
+            recommendation.mode,
+            OutputMode::Grayscale,
+            "{recommendation:?}"
         );
     }
 

@@ -26,8 +26,10 @@ function decodeProgress(value: unknown): IScanCleanupProgress | null {
         || ![
             'queued',
             'normalizing',
+            'probing',
             'rasterizing',
-            'cleaning',
+            'classifying',
+            'rendering',
             'assembling',
             'handoff',
         ].includes(String(value.progress.stage))

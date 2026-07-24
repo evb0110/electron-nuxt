@@ -134,7 +134,9 @@ export async function restoreWorkspaceCheckpoint(
         if (!restored) {
             continue;
         }
-        await applyViewState(checkpointTab, restored.workspace);
+        if (getRestoreTarget(checkpointTab)) {
+            await applyViewState(checkpointTab, restored.workspace);
+        }
         if (checkpointTab === activeCheckpointTab) {
             restoredActiveTabId = restored.tabId;
         }

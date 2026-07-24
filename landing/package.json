@@ -3,16 +3,17 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "pnpm run check:vendor && nuxt build",
+    "build": "nuxt build",
     "dev": "nuxt dev",
     "lint": "eslint . --max-warnings=0",
     "preview": "nuxt preview",
     "postinstall": "nuxt prepare",
-    "typecheck": "nuxt typecheck",
-    "sync:vendor": "node scripts/vendor.mjs",
-    "check:vendor": "node scripts/vendor.mjs --check"
+    "typecheck": "nuxt typecheck"
   },
   "dependencies": {
+    "@evb/contracts": "workspace:*",
+    "@evb/i18n-core": "workspace:*",
+    "@evb/releaseSelection": "workspace:*",
     "@iconify-json/circle-flags": "^1.2.10",
     "@iconify-json/ph": "^1.2.2",
     "@iconify-json/simple-icons": "^1.2.85",
@@ -38,30 +39,5 @@
     "typescript": "^5.9.3",
     "vue-tsc": "^3.3.3",
     "whatwg-fetch": "^3.6.20"
-  },
-  "packageManager": "pnpm@10.32.1",
-  "pnpm": {
-    "overrides": {
-      "@hono/node-server": "2.0.10",
-      "@babel/core": "7.29.6",
-      "@nuxt/cli": "3.36.1",
-      "@tiptap/y-tiptap": "3.0.4",
-      "@vue/compiler-sfc": "3.5.35",
-      "@eslint/config-inspector@^1.0.0>esbuild": "0.28.1",
-      "bundle-require@^5.0.0>esbuild": "0.28.1",
-      "fast-uri": "3.1.4",
-      "fontless@^0.2.0>esbuild": "0.28.1",
-      "hono": "4.12.27",
-      "immutable": "5.1.8",
-      "js-yaml": "4.3.0",
-      "launch-editor": "2.14.1",
-      "minimatch@^10.0.0>brace-expansion": "5.0.7",
-      "shell-quote": "1.9.0",
-      "svgo": "4.0.2",
-      "tar": "7.5.19",
-      "tsx@^4.0.0>esbuild": "0.28.1",
-      "vite@^7.0.0>esbuild": "0.28.1",
-      "ws": "8.21.0"
-    }
   }
 }

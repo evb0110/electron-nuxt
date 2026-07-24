@@ -301,7 +301,7 @@ fn parse_compact_manifest_line(
         )),
         "image-jpeg" if parts.len() == 5 => Ok(image(
             source(4)?,
-            ImageCompression::Jpeg {
+            ImageCompression::JpegWithFlateFallback {
                 quality: parse_jpeg_quality(parts.get(3).copied(), line_number)?,
             },
             ImageProcessing::None,

@@ -22,6 +22,7 @@ export function createScanCleanupPreloadClient(
     const invoke = createCodecIpcInvoker<IScanCleanupInvokeMap>(ipcRenderer, SCAN_CLEANUP_IPC_CODECS);
     const events = createTypedIpcEventSubscriber<IScanCleanupEventMap>(ipcRenderer);
     return {
+        previewRaw: request => invoke(SCAN_CLEANUP_CHANNELS.previewRaw, request),
         preview: request => invoke(SCAN_CLEANUP_CHANNELS.preview, request),
         cancelPreview: request => invoke(SCAN_CLEANUP_CHANNELS.cancelPreview, request),
         detectAll: request => invoke(SCAN_CLEANUP_CHANNELS.detectAll, request),

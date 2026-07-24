@@ -72,7 +72,7 @@ describe('deferredWorkspaceHostDocumentOpen', () => {
         expect(canBeginDocumentOpenSynchronously('restoreColdDocument', true, true)).toBe(false);
     });
 
-    it('starts a ready Recent transaction without yielding the click call stack', () => {
+    it('claims an early startup Recent command before queueing for its viewer owner', () => {
         const hostSource = readFileSync(join(
             process.cwd(),
             'app/modules/workspace-shell/components/DeferredDocumentWorkspaceHost.vue',
@@ -80,11 +80,16 @@ describe('deferredWorkspaceHostDocumentOpen', () => {
         const runStart = hostSource.indexOf('async function runWithDocumentOpenInFlight');
         const runEnd = hostSource.indexOf('\nasync function enqueueDocumentOpen', runStart);
         const runSource = hostSource.slice(runStart, runEnd);
+        const transactionAt = runSource.indexOf('const transaction = beginDocumentOpenTransaction(intent);');
+        const ownerWaitAt = runSource.indexOf('&& !await ensurePreparedOpeningOwnerReady(');
+        const sourceOpenAt = runSource.indexOf('const result = await run();');
+        const finallyAt = runSource.indexOf('finally {');
+        const finishAt = runSource.indexOf('finishDocumentOpenTransaction(transaction, opened);');
 
-        expect(runSource).toContain('canBeginDocumentOpenSynchronously(');
-        expect(runSource).toContain('&& !await ensurePreparedOpeningOwnerReady(');
-        expect(runSource.indexOf('canBeginDocumentOpenSynchronously(')).toBeLessThan(
-            runSource.indexOf('const transaction = beginDocumentOpenTransaction(intent);'),
-        );
+        expect(transactionAt).toBeGreaterThanOrEqual(0);
+        expect(ownerWaitAt).toBeGreaterThan(transactionAt);
+        expect(sourceOpenAt).toBeGreaterThan(ownerWaitAt);
+        expect(finallyAt).toBeGreaterThan(sourceOpenAt);
+        expect(finishAt).toBeGreaterThan(finallyAt);
     });
 });

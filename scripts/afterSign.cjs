@@ -229,9 +229,8 @@ function signOptionsForCodeFile(filePath, identity) {
     // Every Mach-O executable must enable the hardened runtime, or notarization
     // rejects the app with "The executable does not have the hardened runtime
     // enabled" for that file. The app's permissive entitlements (JIT, unsigned
-    // executable memory, dyld environment variables) are applied so the PyInstaller
-    // page-processor keeps working; they are harmless for the plain C/C++ native
-    // tools and the bundled Electron/Squirrel helper executables.
+    // executable memory, dyld environment variables) are applied to the native
+    // tools and bundled Electron/Squirrel helper executables.
     if (!fs.existsSync(HARDENED_RUNTIME_ENTITLEMENTS)) {
         throw new Error(`[afterSign] Hardened-runtime entitlements not found: ${HARDENED_RUNTIME_ENTITLEMENTS}`);
     }

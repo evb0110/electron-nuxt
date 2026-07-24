@@ -607,6 +607,10 @@
     font-size: var(--app-text-size-kicker);
 }
 
+.overlay-legend.is-space-reserved {
+    visibility: hidden;
+}
+
 .overlay-legend > span {
     display: inline-flex;
     align-items: center;

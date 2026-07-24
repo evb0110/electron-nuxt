@@ -22,51 +22,157 @@ export class MemoryStorage {
 
 class FakeIdbRequest<T> {
     public result!: T;
+    public error: Error | null = null;
     public onsuccess: ((event: Event) => void) | null = null;
     public onerror: ((event: Event) => void) | null = null;
     public onupgradeneeded: ((event: Event) => void) | null = null;
     public onblocked: ((event: Event) => void) | null = null;
 }
 
-class FakeObjectStore {
+interface IFakeStoreState {
+    records: Map<string, unknown>;
+    keyPath: string;
+    indexes: Map<string, string>;
+}
+
+class FakeIndex {
     public constructor(
-        private readonly records: Map<string, unknown>,
+        private readonly state: IFakeStoreState,
         private readonly keyPath: string,
     ) {}
 
-    public put(record: Record<string, unknown>) {
+    public getAllKeys(value: IDBValidKey) {
+        const request = new FakeIdbRequest<IDBValidKey[]>();
+        queueMicrotask(() => {
+            request.result = Array.from(this.state.records.entries())
+                .filter(([
+                    , record,
+                ]) => (
+                    typeof record === 'object'
+                    && record !== null
+                    && !Array.isArray(record)
+                    && String((record as Record<string, unknown>)[this.keyPath]) === String(value)
+                ))
+                .map(([key]) => key);
+            request.onsuccess?.(new Event('success'));
+        });
+        return cast<IDBRequest<IDBValidKey[]>>(request);
+    }
+
+    public openCursor(_query?: IDBValidKey | IDBKeyRange | null, direction?: IDBCursorDirection) {
+        const request = new FakeIdbRequest<IDBCursorWithValue | null>();
+        const entries = Array.from(this.state.records.entries()).sort((first, second) => (
+            Number((first[1] as Record<string, unknown>)[this.keyPath])
+            - Number((second[1] as Record<string, unknown>)[this.keyPath])
+        ));
+        if (direction === 'prev' || direction === 'prevunique') {
+            entries.reverse();
+        }
+        let cursorIndex = 0;
+        const advance = () => queueMicrotask(() => {
+            const entry = entries[cursorIndex];
+            if (!entry) {
+                request.result = null;
+                request.onsuccess?.(new Event('success'));
+                return;
+            }
+            const [
+                key,
+                value,
+            ] = entry;
+            request.result = cast<IDBCursorWithValue>({
+                key,
+                primaryKey: key,
+                value,
+                continue: () => {
+                    cursorIndex += 1;
+                    advance();
+                },
+                delete: () => {
+                    this.state.records.delete(key);
+                    return new FakeIdbRequest<undefined>();
+                },
+            });
+            request.onsuccess?.(new Event('success'));
+        });
+        advance();
+        return cast<IDBRequest<IDBCursorWithValue | null>>(request);
+    }
+}
+
+class FakeObjectStore {
+    public readonly indexNames = { contains: (name: string) => this.state.indexes.has(name) };
+
+    public constructor(
+        private readonly state: IFakeStoreState,
+    ) {}
+
+    public createIndex(name: string, keyPath: string, _options?: { unique?: boolean }) {
+        this.state.indexes.set(name, keyPath);
+        return cast<IDBIndex>(new FakeIndex(this.state, keyPath));
+    }
+
+    public index(name: string) {
+        const keyPath = this.state.indexes.get(name);
+        if (!keyPath) {
+            throw new Error(`Missing fake IndexedDB index: ${name}`);
+        }
+        return cast<IDBIndex>(new FakeIndex(this.state, keyPath));
+    }
+
+    public put(record: unknown, key?: IDBValidKey) {
         const request = new FakeIdbRequest<unknown>();
         queueMicrotask(() => {
-            this.records.set(String(record[this.keyPath]), record);
+            const recordKey = key ?? (
+                typeof record === 'object' && record !== null && !Array.isArray(record)
+                    ? (record as Record<string, unknown>)[this.state.keyPath]
+                    : undefined
+            );
+            if (recordKey === undefined) {
+                request.error = new Error('Fake IndexedDB record key is missing');
+                request.onerror?.(new Event('error'));
+                return;
+            }
+            this.state.records.set(String(recordKey), record);
             request.result = record;
             request.onsuccess?.(new Event('success'));
         });
         return cast<IDBRequest<unknown>>(request);
     }
 
-    public get(ref: string) {
+    public get(ref: IDBValidKey) {
         const request = new FakeIdbRequest<unknown>();
         queueMicrotask(() => {
-            request.result = this.records.get(ref);
+            request.result = this.state.records.get(String(ref));
             request.onsuccess?.(new Event('success'));
         });
         return cast<IDBRequest<unknown>>(request);
     }
 
-    public delete(ref: string) {
+    public delete(ref: IDBValidKey) {
         const request = new FakeIdbRequest<unknown>();
         queueMicrotask(() => {
-            this.records.delete(ref);
+            this.state.records.delete(String(ref));
             request.result = undefined;
             request.onsuccess?.(new Event('success'));
         });
         return cast<IDBRequest<unknown>>(request);
     }
 
+    public clear() {
+        const request = new FakeIdbRequest<undefined>();
+        queueMicrotask(() => {
+            this.state.records.clear();
+            request.result = undefined;
+            request.onsuccess?.(new Event('success'));
+        });
+        return cast<IDBRequest<undefined>>(request);
+    }
+
     public getAll() {
         const request = new FakeIdbRequest<unknown[]>();
         queueMicrotask(() => {
-            request.result = Array.from(this.records.values());
+            request.result = Array.from(this.state.records.values());
             request.onsuccess?.(new Event('success'));
         });
         return cast<IDBRequest<unknown[]>>(request);
@@ -75,7 +181,7 @@ class FakeObjectStore {
     public getAllKeys() {
         const request = new FakeIdbRequest<IDBValidKey[]>();
         queueMicrotask(() => {
-            request.result = Array.from(this.records.keys());
+            request.result = Array.from(this.state.records.keys());
             request.onsuccess?.(new Event('success'));
         });
         return cast<IDBRequest<IDBValidKey[]>>(request);
@@ -98,10 +204,7 @@ class FakeTransaction {
 }
 
 class FakeDatabase {
-    private readonly storesByName = new Map<string, {
-        records: Map<string, unknown>;
-        keyPath: string;
-    }>();
+    private readonly storesByName = new Map<string, IFakeStoreState>();
     private readonly storeNames = new Set<string>();
 
     public readonly objectStoreNames = { contains: (name: string) => this.storeNames.has(name) };
@@ -111,18 +214,20 @@ class FakeDatabase {
         const store = {
             records: new Map<string, unknown>(),
             keyPath: options?.keyPath ?? 'ref',
+            indexes: new Map<string, string>(),
         };
         this.storesByName.set(name, store);
-        return cast<IDBObjectStore>(new FakeObjectStore(store.records, store.keyPath));
+        return cast<IDBObjectStore>(new FakeObjectStore(store));
     }
 
     public transaction(name: string, _mode: IDBTransactionMode) {
         const store = this.storesByName.get(name) ?? {
             records: new Map<string, unknown>(),
             keyPath: 'ref',
+            indexes: new Map<string, string>(),
         };
         this.storesByName.set(name, store);
-        return cast<IDBTransaction>(new FakeTransaction(new FakeObjectStore(store.records, store.keyPath)));
+        return cast<IDBTransaction>(new FakeTransaction(new FakeObjectStore(store)));
     }
 
     public getStoreRecords(name: string) {
@@ -131,6 +236,14 @@ class FakeDatabase {
     }
 
     public close() {}
+
+    public rejectNextTransaction(error: Error) {
+        const transaction = this.transaction.bind(this);
+        this.transaction = ((_name: string, _mode: IDBTransactionMode) => {
+            this.transaction = transaction;
+            throw error;
+        }) as typeof this.transaction;
+    }
 }
 
 export class FakeIndexedDbFactory {

@@ -4,7 +4,6 @@ import {
 } from '@contracts/nativeErrors';
 import {isRecord} from '@contracts/runtimeGuards';
 import type {
-    IScanCleanupDocumentPrior,
     IScanCleanupTextAxis,
     INativeScanCleanupProgressEnvelopeV3,
     INativeScanCleanupProgressV3,
@@ -13,6 +12,7 @@ import type {
 } from '@contracts/electronApiScanCleanup';
 import {SCAN_CLEANUP_NATIVE_PROTOCOL_VERSION} from '@contracts/electronApiScanCleanup';
 import {isScanCleanupOutputModeRecommendationReason} from '@electron/features/scan-cleanup/isScanCleanupOutputMode';
+import {decodeDocumentPrior} from '@electron/features/scan-cleanup/scanCleanupIpcRequestCodecs';
 
 function isNonNegativeInteger(value: unknown) {
     return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0;
@@ -33,40 +33,6 @@ function isClassification(value: unknown): value is NonNullable<INativeScanClean
 
 function isOutputMode(value: unknown): value is NonNullable<INativeScanCleanupProgressV3['recommendedOutputMode']> {
     return value === 'bw' || value === 'mixed' || value === 'grayscale' || value === 'color';
-}
-
-function decodeDocumentPrior(value: unknown): IScanCleanupDocumentPrior {
-    if (
-        !isRecord(value)
-        || !isClassification(value.dominantLayout)
-        || !isRecord(value.clusterDims)
-        || typeof value.clusterDims.widthPx !== 'number'
-        || !Number.isFinite(value.clusterDims.widthPx)
-        || value.clusterDims.widthPx <= 0
-        || typeof value.clusterDims.heightPx !== 'number'
-        || !Number.isFinite(value.clusterDims.heightPx)
-        || value.clusterDims.heightPx <= 0
-        || typeof value.agreementStrength !== 'number'
-        || !Number.isFinite(value.agreementStrength)
-        || value.agreementStrength < 0
-        || value.agreementStrength > 1
-        || !(value.cutterRatioMedian === null || (
-            typeof value.cutterRatioMedian === 'number'
-            && Number.isFinite(value.cutterRatioMedian)
-            && value.cutterRatioMedian >= 0.2
-            && value.cutterRatioMedian <= 0.8
-        ))
-        || (value.dominantLayout === 'two-page-spread' && value.cutterRatioMedian === null)
-    ) throw new Error('Invalid evb-scan-cleanup document prior');
-    return {
-        dominantLayout: value.dominantLayout,
-        cutterRatioMedian: value.cutterRatioMedian,
-        clusterDims: {
-            widthPx: value.clusterDims.widthPx,
-            heightPx: value.clusterDims.heightPx,
-        },
-        agreementStrength: value.agreementStrength,
-    };
 }
 
 function decodeTextAxis(value: unknown): IScanCleanupTextAxis {

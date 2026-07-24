@@ -5,6 +5,7 @@ import type {
     IIpcMainRegistrar,
     TIpcCodecMap,
 } from '@contracts/ipcMain';
+import type { TAnyDefinedPlatformFeature } from '@contracts/platformFeature';
 import {
     createChannelSet,
     createValidatedIpcMainRegistrar,
@@ -20,6 +21,30 @@ export type TCapturedIpcHandler = (
 export interface IValidatedRegistrarCase {
     channel: string;
     validArgs: unknown[];
+}
+
+export function createFeatureRegistrarCases(feature: TAnyDefinedPlatformFeature): IValidatedRegistrarCase[] {
+    const methodCases = Object.values(feature.methods).flatMap((spec) => {
+        if (spec.kind === 'sync' || 'local' in spec || spec.aliasOf !== undefined) {
+            return [];
+        }
+        return [{
+            channel: spec.channel,
+            validArgs: spec.ipc.args.example(),
+        }];
+    });
+    const subscriptionCases = Object.values(feature.events).flatMap((spec) => (
+        spec.aliasOf === undefined && spec.subscription
+            ? [{
+                channel: spec.subscription.channel,
+                validArgs: [],
+            }]
+            : []
+    ));
+    return [
+        ...methodCases,
+        ...subscriptionCases,
+    ];
 }
 
 export function createValidatedRegistrarHarness<

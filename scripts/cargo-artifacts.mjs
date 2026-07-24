@@ -6,6 +6,27 @@ import {
 } from 'node:fs/promises';
 import path from 'node:path';
 
+export function parseCargoToolBuildRequest(argv, usage) {
+    if (argv.includes('--help') || argv.includes('-h')) {
+        return {
+            dryRun: false,
+            help: true,
+        };
+    }
+
+    const dryRun = argv.includes('--dry-run');
+    const positional = argv.filter(arg => arg !== '--dry-run');
+    if (positional.length !== 1) {
+        throw new Error(usage);
+    }
+
+    return {
+        dryRun,
+        help: false,
+        toolId: positional[0],
+    };
+}
+
 export function parseCargoTargetDirectory(metadataOutput) {
     let metadata;
     try {

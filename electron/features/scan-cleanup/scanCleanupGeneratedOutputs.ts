@@ -19,13 +19,14 @@ export function getScanCleanupOutputRoot(appTempDir = getAppTempDir()) {
     return join(appTempDir, 'scan-cleanup', 'output');
 }
 
-function humanOutputName(sourcePdfPath: string) {
+function humanOutputName(sourcePdfPath: string, partial: boolean) {
     const sourceName = basename(sourcePdfPath, extname(sourcePdfPath)).trim() || 'document';
-    return `${sourceName} — cleaned.pdf`;
+    return `${sourceName} — cleaned${partial ? ' selection' : ''}.pdf`;
 }
 
 export async function createScanCleanupGeneratedOutputPath(
     sourcePdfPath: string,
+    partial = false,
     appTempDir = getAppTempDir(),
 ) {
     const outputDirectory = join(getScanCleanupOutputRoot(appTempDir), randomUUID());
@@ -33,7 +34,7 @@ export async function createScanCleanupGeneratedOutputPath(
         recursive: true,
         mode: 0o700,
     });
-    return join(outputDirectory, humanOutputName(sourcePdfPath));
+    return join(outputDirectory, humanOutputName(sourcePdfPath, partial));
 }
 
 export async function pruneScanCleanupGeneratedOutputs(options: {

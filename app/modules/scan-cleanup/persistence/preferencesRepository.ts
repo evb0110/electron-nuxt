@@ -65,8 +65,12 @@ export function saveScanCleanupPreferences(
     assertFiniteScanCleanupPreferences(value);
     const {
         outputMode: _ignoredLegacyOutputMode,
+        runOcrAfterCleanup: _ignoredLegacyRunOcr,
         ...globalPreferences
-    } = value as IScanCleanupGlobalPreferences & {outputMode?: unknown};
+    } = value as IScanCleanupGlobalPreferences & {
+        outputMode?: unknown;
+        runOcrAfterCleanup?: unknown;
+    };
     storage.set(SETTINGS_KEY, JSON.stringify({
         ...globalPreferences,
         marginsMm: decodeScanCleanupMarginsMm(value.marginsMm),

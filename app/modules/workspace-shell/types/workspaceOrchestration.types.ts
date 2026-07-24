@@ -6,7 +6,6 @@ export type {
     IWorkspacePdfViewerAgentAnnotationNotePort,
     IWorkspacePdfViewerAgentPageImageCapturePort,
     IWorkspacePdfViewerAgentPort,
-    IWorkspacePdfViewerAnnotationChangesPort,
     IWorkspacePdfViewerAnnotationSessionPort,
     IWorkspacePdfViewerCropPort,
     IWorkspacePdfViewerDocumentControlsPort,

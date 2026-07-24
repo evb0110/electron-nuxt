@@ -1,6 +1,11 @@
 import { pdfLayerVisualSnapshotActiveClass } from '@app/modules/pdf-viewer/engine/pdf-layer-visual-snapshot/pdfLayerVisualSnapshotActiveClass';
 import { pdfLayerVisualSnapshotClass } from '@app/modules/pdf-viewer/engine/pdf-layer-visual-snapshot/pdfLayerVisualSnapshotClass';
 import { pdfLayerVisualSnapshotSourceClass } from '@app/modules/pdf-viewer/engine/pdf-layer-visual-snapshot/pdfLayerVisualSnapshotSourceClass';
+import {
+    isPdfLayerVisualElementVisiblyPainted,
+    isPdfLayerVisualSnapshotElement,
+    queryPdfLayerVisualSnapshotElements,
+} from '@app/modules/pdf-viewer/engine/pdf-layer-visual-snapshot/pdfLayerVisualSnapshotDom';
 import type { TPdfLayerVisualSnapshotRelease } from '@app/modules/pdf-viewer/engine/pdf-layer-visual-snapshot/pdfLayerVisualSnapshotRelease';
 
 const DRAW_LAYER_VISUAL_SELECTOR = [
@@ -27,22 +32,13 @@ let snapshotSvgIdSequence = 0;
 
 const activeSnapshotHostCounts = new WeakMap<Element, number>();
 
-function queryAll<T extends Element>(
-    root: ParentNode | null | undefined,
-    selector: string,
-) {
-    return typeof root?.querySelectorAll === 'function'
-        ? Array.from(root.querySelectorAll<T>(selector))
-        : [];
-}
-
 function disableSnapshotInteractivity(snapshot: Element) {
     snapshot.setAttribute('aria-hidden', 'true');
     if (snapshot instanceof HTMLElement) {
         snapshot.inert = true;
     }
 
-    queryAll<HTMLElement>(snapshot, 'a, button, input, select, textarea, [tabindex]')
+    queryPdfLayerVisualSnapshotElements<HTMLElement>(snapshot, 'a, button, input, select, textarea, [tabindex]')
         .forEach((element) => {
             element.tabIndex = -1;
         });
@@ -67,25 +63,10 @@ function createRelease(
     };
 }
 
-function isSnapshotElement(element: Element) {
-    return element.classList.contains(pdfLayerVisualSnapshotClass)
-        || Boolean(element.closest?.(`.${pdfLayerVisualSnapshotClass}`));
-}
-
-function isSnapshotSourceElement(element: Element) {
-    return element.classList.contains(pdfLayerVisualSnapshotSourceClass)
-        || Boolean(element.closest?.(`.${pdfLayerVisualSnapshotSourceClass}`));
-}
-
-function isInsideActiveSnapshotHost(element: Element) {
-    return element.classList.contains(pdfLayerVisualSnapshotActiveClass)
-        || Boolean(element.closest?.(`.${pdfLayerVisualSnapshotActiveClass}`));
-}
-
 function getElementAndDescendants(element: Element) {
     return [
         element,
-        ...queryAll(element, '*'),
+        ...queryPdfLayerVisualSnapshotElements(element, '*'),
     ];
 }
 
@@ -168,68 +149,18 @@ function hideLiveElementDuringSnapshot(element: HTMLElement | SVGElement) {
     };
 }
 
-function isElementVisiblyPainted(element: Element) {
-    if (
-        isSnapshotElement(element)
-        || isSnapshotSourceElement(element)
-        || isInsideActiveSnapshotHost(element)
-    ) {
-        return false;
-    }
-    return isElementPotentiallyPainted(element, { ignoreActiveSnapshotHostVisibility: false });
-}
-
-function isElementPotentiallyPainted(
-    element: Element,
-    options: { ignoreActiveSnapshotHostVisibility: boolean },
-) {
-    const isHtmlElement = typeof HTMLElement !== 'undefined' && element instanceof HTMLElement;
-    const isSvgElement = typeof SVGElement !== 'undefined' && element instanceof SVGElement;
-    if (!isHtmlElement && !isSvgElement) {
-        return false;
-    }
-    if (isHtmlElement && element.hidden) {
-        return false;
-    }
-
-    try {
-        const style = typeof window !== 'undefined' && typeof window.getComputedStyle === 'function'
-            ? window.getComputedStyle(element)
-            : null;
-        const activeSnapshotSuppressed = options.ignoreActiveSnapshotHostVisibility
-            && isInsideActiveSnapshotHost(element);
-        if (
-            style
-            && (
-                style.display === 'none'
-                || (style.visibility === 'hidden' && !activeSnapshotSuppressed)
-                || Number(style.opacity || '1') <= 0
-            )
-        ) {
-            return false;
-        }
-
-        const rect = typeof element.getBoundingClientRect === 'function'
-            ? element.getBoundingClientRect()
-            : null;
-        return !rect || (rect.width > 0 && rect.height > 0);
-    } catch {
-        return true;
-    }
-}
-
 export function preservePdfDrawLayerVisualSnapshot(canvasHost: HTMLElement | null | undefined) {
     if (!canvasHost) {
         return null;
     }
 
-    const drawNodes = queryAll<SVGElement>(
+    const drawNodes = queryPdfLayerVisualSnapshotElements<SVGElement>(
         canvasHost,
         DRAW_LAYER_VISUAL_SELECTOR,
     ).filter(drawNode => (
-        !isSnapshotElement(drawNode)
+        !isPdfLayerVisualSnapshotElement(drawNode)
         && !drawNode.classList.contains(COMPOSITE_SOURCE_CLASS)
-        && isElementVisiblyPainted(drawNode)
+        && isPdfLayerVisualElementVisiblyPainted(drawNode)
     ));
     if (drawNodes.length === 0) {
         return null;

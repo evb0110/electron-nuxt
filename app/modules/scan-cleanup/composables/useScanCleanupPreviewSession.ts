@@ -2,6 +2,7 @@ import type {
     IScanCleanupOptions,
     IScanCleanupDocumentPrior,
     IScanCleanupDocumentCanvasPlan,
+    IScanCleanupRawPreviewResult,
     IScanCleanupPreviewRequest,
     IScanCleanupPreviewResult,
 } from '@contracts/electronApiScanCleanup';
@@ -91,6 +92,7 @@ export function createScanCleanupPreviewCacheKey(
 export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSessionOptions) => {
     const {t} = useTypedI18n();
     const result = shallowRef<IScanCleanupPreviewResult | null>(null);
+    const rawResult = shallowRef<IScanCleanupRawPreviewResult | null>(null);
     const resultKey = shallowRef<string | null>(null);
     const loading = ref(false);
     const error = ref('');
@@ -100,7 +102,9 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
     let sequence = 0;
     let timer: ReturnType<typeof setTimeout> | null = null;
 
-    const totalPages = computed(() => result.value?.totalPages ?? Math.max(1, options.totalPages.value));
+    const totalPages = computed(() => rawResult.value?.totalPages
+        ?? result.value?.totalPages
+        ?? Math.max(1, options.totalPages.value));
     const resultCurrent = computed(() => result.value !== null && resultKey.value === cacheKey());
     const classificationDiffersByPage = computed<ReadonlyMap<number, boolean>>(() => {
         const differences = new Map<number, boolean>();
@@ -234,6 +238,7 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
         const cached = cache.get(key);
         if (cached) {
             result.value = cached;
+            rawResult.value = cached;
             resultKey.value = key;
             loading.value = false;
             error.value = '';
@@ -245,6 +250,16 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
         const runPreview = async () => {
             timer = null;
             try {
+                const nextRawResult = await capability.previewRaw({
+                    sourcePdfPath: requestSourcePath,
+                    ownerId: options.ownerId,
+                    documentRevision: options.documentRevision.value,
+                    pageNumber: requestPage,
+                });
+                if (requestSequence !== sequence) {
+                    return;
+                }
+                rawResult.value = nextRawResult;
                 const previewResult = await capability.preview(toBridgeSafeScanCleanupPayload({
                     sourcePdfPath: requestSourcePath,
                     ownerId: options.ownerId,
@@ -293,6 +308,7 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
         cache.clear();
         metadataByPage.clear();
         result.value = null;
+        rawResult.value = null;
         resultKey.value = null;
     });
     watch(cacheKey, schedule);
@@ -312,6 +328,7 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
         metadataByPage,
         navigate,
         result,
+        rawResult,
         resultCurrent,
         retry,
         schedule,

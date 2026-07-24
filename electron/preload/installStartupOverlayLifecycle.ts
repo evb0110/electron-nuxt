@@ -136,7 +136,6 @@ export function installStartupOverlayLifecycle(deps: IStartupOverlayLifecycleDep
     let checkInterval: number | null = null;
     let appReadyRemovalTimer: number | null = null;
     let devRemovalTimer: number | null = null;
-    let startupOpenClaimFallbackTimer: number | null = null;
     let hardDeadlineTimer: number | null = null;
 
     function clearAppReadyRemovalTimer() {
@@ -155,15 +154,6 @@ export function installStartupOverlayLifecycle(deps: IStartupOverlayLifecycleDep
 
         window.clearTimeout(devRemovalTimer);
         devRemovalTimer = null;
-    }
-
-    function clearStartupOpenClaimFallbackTimer() {
-        if (startupOpenClaimFallbackTimer === null) {
-            return;
-        }
-
-        window.clearTimeout(startupOpenClaimFallbackTimer);
-        startupOpenClaimFallbackTimer = null;
     }
 
     function clearHardDeadlineTimer() {
@@ -188,7 +178,6 @@ export function installStartupOverlayLifecycle(deps: IStartupOverlayLifecycleDep
         clearCheckInterval();
         clearAppReadyRemovalTimer();
         clearDevRemovalTimer();
-        clearStartupOpenClaimFallbackTimer();
         clearHardDeadlineTimer();
         window.removeEventListener(APP_READY_EVENT_NAME, handleAppReady);
         window.removeEventListener(STARTUP_OPEN_CLAIMED_EVENT_NAME, handleStartupOpenClaimed);
@@ -243,33 +232,10 @@ export function installStartupOverlayLifecycle(deps: IStartupOverlayLifecycleDep
         removeWithDelay();
     }
 
-    function scheduleStartupOpenClaimFallbackRemoval(reason: string) {
-        if (startupOpenClaimFallbackTimer !== null || overlayRemoved) {
-            return;
-        }
-
-        const timeoutMs = Math.max(
-            0,
-            MAX_WAIT_MS - (Date.now() - overlayLifecycleStartedAt),
-        );
-        startupOpenClaimFallbackTimer = window.setTimeout(() => {
-            startupOpenClaimFallbackTimer = null;
-            if (startupOpenClaimSeen || waitingForStartupOpenVisual) {
-                return;
-            }
-
-            deps.forwardPreloadLogToMain('warn', 'loader', 'Startup overlay timed out waiting for startup open claim', {
-                variant: 'startup-overlay',
-                reason,
-                timeoutMs,
-            });
-            requestOverlayUnmount('startup-open-claim-timeout');
-        }, timeoutMs);
-    }
-
     function scheduleAppReadyRemoval(reason: string) {
         appReadySeen = true;
         clearCheckInterval();
+        clearHardDeadlineTimer();
         clearAppReadyRemovalTimer();
 
         appReadyRemovalTimer = window.setTimeout(() => {
@@ -287,8 +253,6 @@ export function installStartupOverlayLifecycle(deps: IStartupOverlayLifecycleDep
                     variant: 'startup-overlay',
                     reason,
                 });
-                clearHardDeadlineTimer();
-                scheduleStartupOpenClaimFallbackRemoval(reason);
                 return;
             }
 
@@ -312,7 +276,6 @@ export function installStartupOverlayLifecycle(deps: IStartupOverlayLifecycleDep
 
     function handleStartupOpenClaimed(event: Event) {
         startupOpenClaimSeen = true;
-        clearStartupOpenClaimFallbackTimer();
         clearHardDeadlineTimer();
         const pathCount = getStartupOpenPathCount(event);
         if (pathCount > 0) {
@@ -364,7 +327,7 @@ export function installStartupOverlayLifecycle(deps: IStartupOverlayLifecycleDep
 
     hardDeadlineTimer = window.setTimeout(() => {
         hardDeadlineTimer = null;
-        if (startupOpenClaimSeen || waitingForStartupOpenVisual) {
+        if (appReadySeen || startupOpenClaimSeen || waitingForStartupOpenVisual) {
             return;
         }
         requestOverlayUnmount('timeout');

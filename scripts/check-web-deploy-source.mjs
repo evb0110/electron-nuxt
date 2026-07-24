@@ -44,7 +44,6 @@ export const WEB_DEPLOY_SOURCE_EXCLUDED_DIRECTORY_NAMES = [
     'native',
     'node_modules',
     'nuxt-output',
-    'python',
     'release',
     'resources',
     'tests',

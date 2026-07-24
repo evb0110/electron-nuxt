@@ -8,6 +8,10 @@ import {
 } from 'vitest';
 import { delay } from 'es-toolkit/promise';
 import type { TOpenPath } from '@electron/file-access/openPathCapabilities';
+import {
+    createDeferred,
+    createTestEventSender,
+} from '@tests/helpers/electronEventEmitterHarness';
 
 const mocks = vi.hoisted(() => {
     class MockDjvuPdfWorkerStartupError extends Error {
@@ -146,48 +150,8 @@ const {
 
 const trustedDjvuPath = '/tmp/input.djvu' as TOpenPath;
 
-function deferred<T>() {
-    let resolve!: (value: T) => void;
-    const promise = new Promise<T>((resolvePromise) => {
-        resolve = resolvePromise;
-    });
-    return {
-        promise,
-        resolve,
-    };
-}
-
 function createEvent(senderId: number) {
-    const listeners = new Map<string, Array<(...args: unknown[]) => void>>();
-    const sender = {
-        id: senderId,
-        send: vi.fn(),
-        isDestroyed: vi.fn(() => false),
-        on: vi.fn((event: string, listener: (...args: unknown[]) => void) => {
-            const eventListeners = listeners.get(event) ?? [];
-            eventListeners.push(listener);
-            listeners.set(event, eventListeners);
-            return sender;
-        }),
-        once: vi.fn((event: string, listener: (...args: unknown[]) => void) => {
-            const eventListeners = listeners.get(event) ?? [];
-            eventListeners.push(listener);
-            listeners.set(event, eventListeners);
-            return sender;
-        }),
-        removeListener: vi.fn((event: string, listener: (...args: unknown[]) => void) => {
-            listeners.set(event, (listeners.get(event) ?? []).filter(candidate => candidate !== listener));
-            return sender;
-        }),
-        emit: (event: string, ...args: unknown[]) => {
-            const eventListeners = listeners.get(event) ?? [];
-            listeners.delete(event);
-            for (const listener of eventListeners) {
-                listener(...args);
-            }
-        },
-    };
-    return { sender };
+    return {sender: createTestEventSender(senderId)};
 }
 
 function createOperationContext(senderId: number) {
@@ -415,16 +379,33 @@ describe('handleDjvuConvertToPdf', () => {
         expect(mocks.getDjvuOutline).not.toHaveBeenCalled();
     });
 
-    it('keeps explicit direct PDF strategy on the existing direct conversion path', async () => {
+    it.each([
+        {
+            strategy: 'direct' as const,
+            options: {
+                pdfStrategy: 'direct' as const,
+                preserveBookmarks: false,
+                subsample: 2,
+            },
+            expectedSubsample: 2,
+        },
+        {
+            strategy: 'auto' as const,
+            options: {
+                pdfStrategy: 'auto' as const,
+                preserveBookmarks: false,
+            },
+            expectedSubsample: undefined,
+        },
+    ])('routes the $strategy strategy through direct conversion', async ({
+        expectedSubsample,
+        options,
+    }) => {
         const result = await handleDjvuConvertToPdf(
             createOperationContext(7) as never,
             trustedDjvuPath,
             '/tmp/output.pdf',
-            {
-                pdfStrategy: 'direct',
-                preserveBookmarks: false,
-                subsample: 2,
-            },
+            options,
         );
 
         expect(result).toMatchObject({
@@ -438,35 +419,10 @@ describe('handleDjvuConvertToPdf', () => {
             'djvu-convert-convert-123',
             expect.objectContaining({
                 pageCount: 2,
-                subsample: 2,
+                ...(expectedSubsample === undefined ? {} : {subsample: expectedSubsample}),
             }),
         );
         expect(mocks.createDjvuPdfBookmarkTask).not.toHaveBeenCalled();
-    });
-
-    it('resolves auto PDF strategy to the Stage A direct conversion path', async () => {
-        const result = await handleDjvuConvertToPdf(
-            createOperationContext(7) as never,
-            trustedDjvuPath,
-            '/tmp/output.pdf',
-            {
-                pdfStrategy: 'auto',
-                preserveBookmarks: false,
-            },
-        );
-
-        expect(result).toMatchObject({
-            success: true,
-            pdfPath: '/tmp/output.pdf',
-            jobId: 'djvu-convert-convert-123',
-        });
-        expect(mocks.convertDjvuToPdfFile).toHaveBeenCalledTimes(1);
-        expect(mocks.convertDjvuToPdfFile).toHaveBeenCalledWith(
-            trustedDjvuPath,
-            '/tmp/djvu-export-test/convert-123.convert.pdf',
-            'djvu-convert-convert-123',
-            expect.objectContaining({pageCount: 2}),
-        );
     });
 
     it('reserves visible progress for final direct-conversion stages', async () => {
@@ -1142,7 +1098,7 @@ describe('handleDjvuConvertToPdf', () => {
 
     it('retains a durable open across reload in its originating WebContents', async () => {
         const context = createOperationContext(21);
-        const work = deferred<{
+        const work = createDeferred<{
             success: true;
             pageCount: number
         }>();

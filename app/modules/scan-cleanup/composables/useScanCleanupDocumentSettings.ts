@@ -75,7 +75,6 @@ export const useScanCleanupDocumentSettings = (options: IUseScanCleanupDocumentS
     const {t} = useTypedI18n();
     const preferences = getScanCleanupPreferencesStore();
     const firstRunGuidanceDismissed = toRef(preferences, 'firstRunGuidanceDismissed');
-    const runOcrAfterCleanup = toRef(preferences, 'runOcrAfterCleanup');
     const marginsLinked = ref(true);
     const values: IScanCleanupOptions = reactive({
         preserveOriginalQuality: toRef(preferences, 'preserveOriginalQuality'),
@@ -129,11 +128,6 @@ export const useScanCleanupDocumentSettings = (options: IUseScanCleanupDocumentS
             value: 'bw' as const,
             label: t('scanCleanup.output.bwShort'),
             fullLabel: t('scanCleanup.output.bw'),
-        },
-        {
-            value: 'mixed' as const,
-            label: t('scanCleanup.output.mixedShort'),
-            fullLabel: t('scanCleanup.output.mixed'),
         },
         {
             value: 'grayscale' as const,
@@ -200,7 +194,16 @@ export const useScanCleanupDocumentSettings = (options: IUseScanCleanupDocumentS
 
     watch(options.documentLifecycleKey, () => {
         values.pageOverrides = loadScanCleanupDocumentOverrides(options.preferenceDocumentKey.value);
-        values.outputMode = loadScanCleanupDocumentOutputMode(options.preferenceDocumentKey.value);
+        const persistedOutputMode = loadScanCleanupDocumentOutputMode(options.preferenceDocumentKey.value);
+        values.outputMode = persistedOutputMode === 'mixed'
+            ? DEFAULT_SCAN_CLEANUP_DOCUMENT_OUTPUT_MODE
+            : persistedOutputMode;
+        if (persistedOutputMode === 'mixed') {
+            saveScanCleanupDocumentOutputMode(
+                options.preferenceDocumentKey.value,
+                DEFAULT_SCAN_CLEANUP_DOCUMENT_OUTPUT_MODE,
+            );
+        }
         Object.assign(values.marginsMm, loadScanCleanupDocumentMargins(options.preferenceDocumentKey.value)
             ?? preferences.marginsMm);
         marginsLinked.value = scanCleanupMarginsUniform(values.marginsMm);
@@ -225,7 +228,6 @@ export const useScanCleanupDocumentSettings = (options: IUseScanCleanupDocumentS
         outputItems,
         readingOrderItems,
         resetPageOverrides,
-        runOcrAfterCleanup,
         setMarginsLinked,
         showFirstRunGuidance,
         thicknessLabel,

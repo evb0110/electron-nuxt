@@ -46,10 +46,6 @@ APT_PACKAGES=(
   libxkbcommon0
   libpango-1.0-0
   libcairo2
-  python3-numpy
-  python3-opencv
-  python3-pil
-  python3-img2pdf
 )
 
 echo "Installing Linux host packages..."
@@ -90,9 +86,6 @@ rustup target add wasm32-unknown-unknown --toolchain "$RUST_TOOLCHAIN"
 
 echo "Installing root workspace dependencies..."
 node scripts/ci-install-dependencies.mjs --frozen-lockfile
-
-echo "Installing landing workspace dependencies..."
-pnpm --dir landing install --frozen-lockfile
 
 echo "Installing Playwright Chromium..."
 pnpm exec playwright install chromium

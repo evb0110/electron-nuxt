@@ -397,10 +397,16 @@ describe('createDjvuWorkerFromPath', () => {
     });
 
     it('uses native desktop page previews when reading the full DjVu into djvu.js is unavailable', async () => {
-        vi.stubGlobal('window', { electronAPI: createElectronPlatformApiFixture({ djvu: {
-            getPageSizes: mocks.nativeGetPageSizes,
-            renderPagePreview: mocks.nativeRenderPagePreview,
-        } }) });
+        const documentFiles = {statFile: vi.fn(async () => {
+            throw new Error('document read unavailable');
+        })};
+        vi.stubGlobal('window', { electronAPI: createElectronPlatformApiFixture({
+            documentFiles,
+            djvu: {
+                getPageSizes: mocks.nativeGetPageSizes,
+                renderPagePreview: mocks.nativeRenderPagePreview,
+            },
+        }) });
         vi.stubGlobal('URL', {
             createObjectURL: vi.fn(() => 'blob:native-preview'),
             revokeObjectURL: vi.fn(),
@@ -429,6 +435,7 @@ describe('createDjvuWorkerFromPath', () => {
         });
 
         expect(mocks.loadDjvuJs).not.toHaveBeenCalled();
+        expect(documentFiles.statFile).toHaveBeenCalledWith('/Users/test/book.djvu');
         expect(mocks.stat).not.toHaveBeenCalled();
         expect(mocks.read).not.toHaveBeenCalled();
         expect(mocks.nativeRenderPagePreview).toHaveBeenCalledWith('/Users/test/book.djvu', 1, {

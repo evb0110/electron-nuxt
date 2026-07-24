@@ -56,7 +56,7 @@ describe('document search architecture boundaries', () => {
         const featurePack = read('app/modules/workspace-shell/components/DocumentPageSourceFeaturePack.vue');
         const pageVisual = read('app/modules/workspace-shell/components/DocumentPageSourcePageVisual.vue');
         const searchLayer = read('app/modules/workspace-shell/components/DocumentPageSourceSearchLayer.vue');
-        const binding = read('app/modules/workspace-shell/viewers/useWorkspaceViewerAdapterBinding.ts');
+        const binding = read('app/modules/workspace-shell/viewers/workspaceDocumentDriver.ts');
 
         expect(binding).toContain('searchResults: options.documentSourceSearchResults.value');
         expect(binding).toContain('currentSearchResultIndex: options.documentSourceCurrentResultIndex.value');

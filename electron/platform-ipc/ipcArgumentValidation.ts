@@ -30,17 +30,6 @@ export function decodeStringArg(args: readonly unknown[], index: number, fieldNa
     return value;
 }
 
-export function decodeOptionalStringArg(args: readonly unknown[], index: number, fieldName: string): string | undefined {
-    const value = args[index];
-    if (value === undefined || value === null) {
-        return undefined;
-    }
-    if (typeof value !== 'string') {
-        throw new Error(`${fieldName} must be a string`);
-    }
-    return value;
-}
-
 export function decodeSafeIntegerArg(args: readonly unknown[], index: number, fieldName: string, min = 0): number {
     const value = args[index];
     if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < min) {
@@ -63,16 +52,6 @@ export function decodeUint8ArrayArg(
         throw new Error(`${fieldName} exceeds maximum size (${maxBytes} bytes)`);
     }
     return value;
-}
-
-export function decodePositiveIntegerArrayArg(args: readonly unknown[], index: number, fieldName: string): number[] {
-    const items = decodeBoundedArray(args[index], fieldName);
-    for (const item of items) {
-        if (typeof item !== 'number' || !Number.isSafeInteger(item) || item < 1) {
-            throw new Error(`${fieldName} must contain positive safe integers`);
-        }
-    }
-    return items as number[];
 }
 
 export function decodeStringArrayArg(args: readonly unknown[], index: number, fieldName: string): string[] {

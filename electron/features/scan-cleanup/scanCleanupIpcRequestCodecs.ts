@@ -7,6 +7,7 @@ import type {
     IScanCleanupPageOverride,
     IScanCleanupPreviewCancelRequest,
     IScanCleanupPreviewMetadata,
+    IScanCleanupRawPreviewRequest,
     IScanCleanupPreviewRequest,
     IScanCleanupStartRequest,
     TScanCleanupPageAlignment,
@@ -38,6 +39,26 @@ export function decodePreviewCancelArgs(args: readonly unknown[]) {
         ...decodeOwnerContext(value),
         ...(value.invalidateRawCache === undefined ? {} : {invalidateRawCache: value.invalidateRawCache}),
     }] as [IScanCleanupPreviewCancelRequest];
+}
+
+export function decodeRawPreviewArgs(args: readonly unknown[]) {
+    requireIpcArgumentCount(args, {
+        min: 1,
+        max: 1,
+    });
+    const value = args[0];
+    if (
+        !isRecord(value)
+        || typeof value.sourcePdfPath !== 'string'
+        || value.sourcePdfPath.trim().length === 0
+        || !Number.isSafeInteger(value.pageNumber)
+        || Number(value.pageNumber) < 1
+    ) throw new Error('invalid scan-cleanup raw preview request');
+    return [{
+        sourcePdfPath: value.sourcePdfPath,
+        ...decodeOwnerContext(value),
+        pageNumber: Number(value.pageNumber),
+    }] as [IScanCleanupRawPreviewRequest];
 }
 
 export function decodeOwnedJobId(args: readonly unknown[]) {
@@ -440,12 +461,25 @@ function decodeStartRequest(value: unknown): IScanCleanupStartRequest {
                 IScanCleanupStartRequest['outputModeRecommendations']
             >;
         })();
+    const sourcePageNumbers = value.sourcePageNumbers === undefined
+        ? undefined
+        : (() => {
+            if (
+                !Array.isArray(value.sourcePageNumbers)
+                || value.sourcePageNumbers.length === 0
+                || value.sourcePageNumbers.some(pageNumber => !Number.isSafeInteger(pageNumber) || Number(pageNumber) < 1)
+                || new Set(value.sourcePageNumbers).size !== value.sourcePageNumbers.length
+            ) {
+                throw new Error('invalid scan-cleanup source page numbers');
+            }
+            return value.sourcePageNumbers.map(Number);
+        })();
     return {
         sourcePdfPath: value.sourcePdfPath,
         ...decodeOwnerContext(value),
         options: decodeOptions(value.options),
+        ...(sourcePageNumbers === undefined ? {} : {sourcePageNumbers}),
         ...(outputModeRecommendations === undefined ? {} : {outputModeRecommendations}),
-        ...(typeof value.runOcrAfterCleanup === 'boolean' ? {runOcrAfterCleanup: value.runOcrAfterCleanup} : {}),
     };
 }
 

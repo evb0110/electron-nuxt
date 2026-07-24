@@ -34,9 +34,12 @@ describe('scan cleanup generated output pruning', () => {
     it('creates a managed, human-readable output path without a save dialog', async () => {
         const appTempDir = await mkdtemp(join(tmpdir(), 'scan-cleanup-output-path-test-'));
         tempDirs.push(appTempDir);
-        const path = await createScanCleanupGeneratedOutputPath('/books/My scan.pdf', appTempDir);
+        const path = await createScanCleanupGeneratedOutputPath('/books/My scan.pdf', false, appTempDir);
         expect(path).toMatch(/scan-cleanup[/\\]output[/\\][^/\\]+[/\\]My scan — cleaned\.pdf$/u);
         await expect(stat(join(path, '..'))).resolves.toBeDefined();
+
+        const partialPath = await createScanCleanupGeneratedOutputPath('/books/My scan.pdf', true, appTempDir);
+        expect(partialPath).toMatch(/My scan — cleaned selection\.pdf$/u);
     });
 
     it('removes only stale output entries that are not open', async () => {

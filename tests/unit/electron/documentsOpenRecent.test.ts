@@ -80,14 +80,23 @@ describe('document direct-open recent authorization', () => {
         mocks.openInputPaths.mockResolvedValue(null);
     });
 
-    it('allows a trusted recent file to open after an Electron restart clears renderer capabilities', async () => {
-        const recentPath = '/tmp/restart-recent.pdf';
-        mocks.getRecentFiles.mockResolvedValue([{
-            originalPath: recentPath,
-            fileName: 'restart-recent.pdf',
-            timestamp: 1,
-            fileSize: 64,
-        }]);
+    it('opens the exact trusted recent path after restart when another recent file shares its basename', async () => {
+        const recentPath = '/tmp/duplicate-source-a/restart-recent.pdf';
+        const siblingPath = '/tmp/duplicate-source-b/restart-recent.pdf';
+        mocks.getRecentFiles.mockResolvedValue([
+            {
+                originalPath: siblingPath,
+                fileName: 'restart-recent.pdf',
+                timestamp: 2,
+                fileSize: 64,
+            },
+            {
+                originalPath: recentPath,
+                fileName: 'restart-recent.pdf',
+                timestamp: 1,
+                fileSize: 64,
+            },
+        ]);
         mocks.openInputPaths.mockResolvedValue({
             kind: 'pdf',
             originalPath: recentPath,

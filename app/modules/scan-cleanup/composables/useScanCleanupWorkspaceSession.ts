@@ -84,7 +84,15 @@ export const useScanCleanupWorkspaceSession = (options: IUseScanCleanupWorkspace
         onCompleted: settings.dismissFirstRunGuidance,
         ownerId,
         previewTotalPages: () => previewResult?.totalPages.value ?? Math.max(1, totalPages.value),
-        runOcrAfterCleanup: settings.runOcrAfterCleanup,
+        sourcePageNumbers: computed(() => {
+            if (selection.settingsScope.value === 'all') {
+                return null;
+            }
+            if (selection.settingsScope.value === 'page') {
+                return [selection.leader.value];
+            }
+            return [...selection.selectedPages.value].sort((left, right) => left - right);
+        }),
         recommendedOutputModeByPage: detection.recommendedOutputModeByPage,
         settings: settings.values,
         sourcePath,

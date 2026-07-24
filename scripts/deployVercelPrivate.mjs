@@ -22,6 +22,10 @@ import {
 const defaultProjectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const excludedDirectoryNames = new Set(WEB_DEPLOY_SOURCE_EXCLUDED_DIRECTORY_NAMES);
 const excludedFileNames = new Set(WEB_DEPLOY_SOURCE_EXCLUDED_FILE_NAMES);
+const supportedDeployTargets = new Set([
+    'landing',
+    'viewer',
+]);
 
 function isExcludedEnvFileName(fileName) {
     if (fileName === '.env' || fileName.startsWith('.env.')) {
@@ -31,7 +35,7 @@ function isExcludedEnvFileName(fileName) {
     return false;
 }
 
-export function shouldCopyPrivateDeployPath(sourcePath, projectRoot) {
+export function shouldCopyPrivateDeployPath(sourcePath, projectRoot, deployTarget = 'viewer') {
     const relativePath = path.relative(projectRoot, sourcePath);
 
     if (relativePath === '') {
@@ -40,7 +44,10 @@ export function shouldCopyPrivateDeployPath(sourcePath, projectRoot) {
 
     const segments = relativePath.split(/[\\/]+/u);
 
-    if (segments.some(segment => excludedDirectoryNames.has(segment))) {
+    if (segments.some(segment => (
+        excludedDirectoryNames.has(segment)
+        && !(deployTarget === 'landing' && segment === 'landing')
+    ))) {
         return false;
     }
 
@@ -62,7 +69,7 @@ function shouldKeepVercelIgnoreLine(line, sourceRoot) {
     return !firstSegment || existsSync(path.join(sourceRoot, firstSegment));
 }
 
-function sanitizeVercelIgnore(sourceRoot) {
+function sanitizeVercelIgnore(sourceRoot, deployTarget) {
     const vercelIgnorePath = path.join(sourceRoot, '.vercelignore');
 
     if (!existsSync(vercelIgnorePath)) {
@@ -71,13 +78,53 @@ function sanitizeVercelIgnore(sourceRoot) {
 
     const content = readFileSync(vercelIgnorePath, 'utf8');
     const lines = content.split(/\r?\n/u);
-    const filteredLines = lines.filter(line => shouldKeepVercelIgnoreLine(line, sourceRoot));
+    const filteredLines = lines.filter((line) => {
+        const normalizedLine = line.trim().replace(/^\/+|\/+$/gu, '');
+
+        if (deployTarget === 'landing' && normalizedLine === 'landing') {
+            return false;
+        }
+
+        return shouldKeepVercelIgnoreLine(line, sourceRoot);
+    });
 
     writeFileSync(vercelIgnorePath, filteredLines.join('\n'), 'utf8');
 }
 
-export function preparePrivateDeploySource({projectRoot = defaultProjectRoot} = {}) {
-    const projectJson = path.join(projectRoot, '.vercel', 'project.json');
+function sanitizePnpmWorkspace(sourceRoot) {
+    const workspacePath = path.join(sourceRoot, 'pnpm-workspace.yaml');
+
+    if (!existsSync(workspacePath)) {
+        return;
+    }
+
+    const content = readFileSync(workspacePath, 'utf8');
+    const lines = content.split(/\r?\n/u);
+    const filteredLines = lines.filter((line) => {
+        const packageEntry = line.match(/^\s*-\s*['"]([^'"]+)['"]\s*$/u)?.[1];
+
+        if (!packageEntry || /[*?[{]/u.test(packageEntry)) {
+            return true;
+        }
+
+        return existsSync(path.join(sourceRoot, packageEntry));
+    });
+
+    writeFileSync(workspacePath, filteredLines.join('\n'), 'utf8');
+}
+
+export function preparePrivateDeploySource({
+    deployTarget = 'viewer',
+    projectRoot = defaultProjectRoot,
+} = {}) {
+    if (!supportedDeployTargets.has(deployTarget)) {
+        throw new Error(`Unsupported deploy target: ${deployTarget}`);
+    }
+
+    const projectLinkRoot = deployTarget === 'landing'
+        ? path.join(projectRoot, 'landing')
+        : projectRoot;
+    const projectJson = path.join(projectLinkRoot, '.vercel', 'project.json');
 
     if (!existsSync(projectJson)) {
         throw new Error(`Missing ${projectJson}. Run \`vercel link\` in this project first.`);
@@ -87,14 +134,15 @@ export function preparePrivateDeploySource({projectRoot = defaultProjectRoot} = 
     const sourceRoot = path.join(scratchRoot, 'source');
 
     cpSync(projectRoot, sourceRoot, {
-        filter: sourcePath => shouldCopyPrivateDeployPath(sourcePath, projectRoot),
+        filter: sourcePath => shouldCopyPrivateDeployPath(sourcePath, projectRoot, deployTarget),
         force: true,
         recursive: true,
         verbatimSymlinks: true,
     });
     mkdirSync(path.join(sourceRoot, '.vercel'), {recursive: true});
     cpSync(projectJson, path.join(sourceRoot, '.vercel', 'project.json'));
-    sanitizeVercelIgnore(sourceRoot);
+    sanitizePnpmWorkspace(sourceRoot);
+    sanitizeVercelIgnore(sourceRoot, deployTarget);
 
     return {
         cleanup: () => rmSync(scratchRoot, {
@@ -103,6 +151,25 @@ export function preparePrivateDeploySource({projectRoot = defaultProjectRoot} = 
         }),
         scratchRoot,
         sourceRoot,
+    };
+}
+
+export function parsePrivateDeployOptions(rawArgs = []) {
+    const targetArgs = rawArgs.filter(arg => arg.startsWith('--target='));
+
+    if (targetArgs.length > 1) {
+        throw new Error(`Expected at most one deploy target, received: ${targetArgs.join(', ')}`);
+    }
+
+    const deployTarget = targetArgs[0]?.slice('--target='.length) || 'viewer';
+
+    if (!supportedDeployTargets.has(deployTarget)) {
+        throw new Error(`Unsupported deploy target: ${deployTarget}`);
+    }
+
+    return {
+        deployArgs: rawArgs.filter(arg => !arg.startsWith('--target=')),
+        deployTarget,
     };
 }
 
@@ -125,8 +192,15 @@ export function runPrivateVercelDeploy({
     projectRoot = defaultProjectRoot,
     rawArgs = process.argv.slice(2),
 } = {}) {
-    const prepared = preparePrivateDeploySource({projectRoot});
-    const commandArgs = buildPrivateDeployArgs(prepared.sourceRoot, rawArgs);
+    const {
+        deployArgs,
+        deployTarget,
+    } = parsePrivateDeployOptions(rawArgs);
+    const prepared = preparePrivateDeploySource({
+        deployTarget,
+        projectRoot,
+    });
+    const commandArgs = buildPrivateDeployArgs(prepared.sourceRoot, deployArgs);
 
     try {
         console.log(`> ${command} ${commandArgs.join(' ')}`);

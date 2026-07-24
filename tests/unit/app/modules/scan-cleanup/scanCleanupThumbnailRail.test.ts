@@ -98,6 +98,7 @@ const messages: Record<string, string> = {
     'scanCleanup.pages.rotateCurrent': 'Rotate page (currently {rotation}°)',
     'scanCleanup.pages.includeInOutput': 'Include in output',
     'scanCleanup.pages.excludedFromOutput': 'Excluded from output',
+    'scanCleanup.pages.excludedBadge': 'Excluded',
     'scanCleanup.pages.lowConfidence': 'Low-confidence detection',
     'scanCleanup.pages.lowConfidenceHint': 'Detected as "{classification}" with low confidence — check this page and set its layout manually if wrong.',
     'scanCleanup.pages.textAxisHint': 'Text appears sideways — set rotation (90° or 270°).',
@@ -660,10 +661,30 @@ describe('ScanCleanupThumbnailRail', () => {
         expect(page2.querySelector('[data-icon="i-ph-check-circle"]')).not.toBeNull();
         expect(page3.textContent).toContain('Keep left half');
         expect(page3.classList.contains('is-excluded')).toBe(true);
-        expect(page3.querySelector('[data-icon="i-ph-eye-slash"]')).not.toBeNull();
+        expect(page3.querySelector('.scan-thumbnail-excluded-badge')?.textContent).toContain('Excluded');
+        expect(page3.querySelector('.scan-thumbnail-excluded-badge [data-icon="i-ph-eye-slash"]')).not.toBeNull();
         expect(page3.parentElement?.querySelector('.scan-thumbnail-page-number')?.classList.contains('is-excluded')).toBe(true);
         expect(page3.querySelector('.scan-thumbnail-controls')).toBeNull();
         expect(page3.querySelector('[data-icon="i-ph-check-circle"]')).toBeNull();
+        const page2Toggle = page2.parentElement?.querySelector<HTMLButtonElement>('.scan-thumbnail-exclude-toggle');
+        const page3Toggle = page3.parentElement?.querySelector<HTMLButtonElement>('.scan-thumbnail-exclude-toggle');
+        const page1Toggle = harness.host.querySelector<HTMLButtonElement>(
+            '[data-page-number="1"]',
+        )?.parentElement?.querySelector<HTMLButtonElement>('.scan-thumbnail-exclude-toggle');
+        expect(page2Toggle?.classList).toContain('is-visible');
+        expect(page3Toggle?.classList).toContain('is-visible');
+        expect(page3Toggle?.getAttribute('role')).toBe('switch');
+        expect(page3Toggle?.getAttribute('aria-checked')).toBe('false');
+        expect(page1Toggle?.classList).not.toContain('is-visible');
+        expect(scanCleanupThumbnailRailSource).toMatch(
+            /data-document-thumbnail-item\]:hover\) \.scan-thumbnail-exclude-toggle/,
+        );
+
+        page3Toggle?.click();
+        expect(harness.overrideUpdates.at(-1)).toEqual([
+            3,
+            expect.objectContaining({excluded: false}),
+        ]);
 
         const rotate = page2.parentElement?.querySelector<HTMLButtonElement>('[aria-label="Rotate page (currently 90°)"]');
         rotate?.click();

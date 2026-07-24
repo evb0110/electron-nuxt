@@ -18,7 +18,10 @@ import {
 import type {ISearchDjvuTextOptions} from '@electron/djvu/textSearch';
 import { DJVU_PLATFORM_FEATURE } from '@contracts/djvuPlatformFeature';
 import { registerPlatformFeatureHandlers } from '@electron/platform-ipc/validatedIpcRegistrar';
-
+import {
+    createDeferred,
+    createTestEventSender,
+} from '@tests/helpers/electronEventEmitterHarness';
 
 const mocks = vi.hoisted(() => ({
     handlers: new Map<string, TRegisteredHandler>(),
@@ -125,48 +128,7 @@ configureMainJobBroker({
 });
 
 function createIpcEvent(senderId: number) {
-    type TListener = (...args: unknown[]) => void;
-    const listeners = new Map<string, TListener[]>();
-    let isDestroyed = false;
-    const sender = {
-        id: senderId,
-        on: vi.fn(),
-        emit: (event: string, ...args: unknown[]) => {
-            if (event === 'destroyed') {
-                isDestroyed = true;
-            }
-            const eventListeners = listeners.get(event) ?? [];
-            listeners.delete(event);
-            for (const listener of eventListeners) {
-                listener(...args);
-            }
-            return eventListeners.length > 0;
-        },
-        isDestroyed: vi.fn(() => isDestroyed),
-        once: vi.fn(),
-        removeListener: vi.fn(),
-        send: mocks.senderSend,
-    };
-    sender.on.mockImplementation((event: string, listener: TListener) => {
-        listeners.set(event, [
-            ...(listeners.get(event) ?? []),
-            listener,
-        ]);
-        return sender;
-    });
-    sender.once.mockImplementation((event: string, listener: TListener) => {
-        listeners.set(event, [
-            ...(listeners.get(event) ?? []),
-            listener,
-        ]);
-        return sender;
-    });
-    sender.removeListener.mockImplementation((event: string, listener: TListener) => {
-        listeners.set(event, (listeners.get(event) ?? []).filter(candidate => candidate !== listener));
-        return sender;
-    });
-
-    return {sender};
+    return {sender: createTestEventSender(senderId, mocks.senderSend)};
 }
 
 function getHandler(channel: string) {
@@ -175,21 +137,6 @@ function getHandler(channel: string) {
         throw new Error(`IPC handler is not registered for channel "${channel}"`);
     }
     return handler;
-}
-
-function createDeferred<T>() {
-    let resolve!: (value: T | PromiseLike<T>) => void;
-    let reject!: (error: unknown) => void;
-    const promise = new Promise<T>((resolvePromise, rejectPromise) => {
-        resolve = resolvePromise;
-        reject = rejectPromise;
-    });
-
-    return {
-        promise,
-        reject,
-        resolve,
-    };
 }
 
 async function createAuthorizedSearchHarness(senderId: number) {
@@ -220,6 +167,29 @@ function getSentTextSearchProgress() {
         processed: number;
         status: string
     }] : []);
+}
+
+interface IPreviewResult {
+    bytes: Uint8Array;
+    width: number;
+    height: number;
+}
+
+function createPendingPreviews(count: number) {
+    const previews = Array.from({length: count}, () => createDeferred<IPreviewResult>());
+    previews.forEach(preview => mocks.renderDjvuPagePreview.mockReturnValueOnce(preview.promise));
+    return previews;
+}
+
+function resolvePreview(
+    preview: ReturnType<typeof createDeferred<IPreviewResult>>,
+    byte: number,
+) {
+    preview.resolve({
+        bytes: new Uint8Array([byte]),
+        width: 100,
+        height: 200,
+    });
 }
 
 describe('registerDjvuIpcAdapter', () => {
@@ -821,19 +791,10 @@ describe('registerDjvuIpcAdapter', () => {
         try {
             const realPath = join(tempRoot, 'real.djvu');
             writeFileSync(realPath, new Uint8Array([1]));
-            const firstPreview = createDeferred<{
-                bytes: Uint8Array;
-                width: number;
-                height: number;
-            }>();
-            const secondPreview = createDeferred<{
-                bytes: Uint8Array;
-                width: number;
-                height: number;
-            }>();
-            mocks.renderDjvuPagePreview
-                .mockReturnValueOnce(firstPreview.promise)
-                .mockReturnValueOnce(secondPreview.promise);
+            const [
+                firstPreview,
+                secondPreview,
+            ] = createPendingPreviews(2);
 
             const { allowOpenPath } = await import('@electron/file-access/openPathCapabilities');
             const firstEvent = createIpcEvent(21);
@@ -872,16 +833,8 @@ describe('registerDjvuIpcAdapter', () => {
             expect(mocks.cancelConversion).toHaveBeenCalledWith('djvu-preview:21:shared-preview-id');
             expect(mocks.cancelConversion).not.toHaveBeenCalledWith('djvu-preview:22:shared-preview-id');
 
-            firstPreview.resolve({
-                bytes: new Uint8Array([1]),
-                width: 100,
-                height: 200,
-            });
-            secondPreview.resolve({
-                bytes: new Uint8Array([2]),
-                width: 100,
-                height: 200,
-            });
+            resolvePreview(firstPreview!, 1);
+            resolvePreview(secondPreview!, 2);
             await expect(firstRun).resolves.toMatchObject({width: 100});
             await expect(secondRun).resolves.toMatchObject({width: 100});
         } finally {
@@ -897,19 +850,10 @@ describe('registerDjvuIpcAdapter', () => {
         try {
             const realPath = join(tempRoot, 'real.djvu');
             writeFileSync(realPath, new Uint8Array([1]));
-            const firstPreview = createDeferred<{
-                bytes: Uint8Array;
-                width: number;
-                height: number;
-            }>();
-            const secondPreview = createDeferred<{
-                bytes: Uint8Array;
-                width: number;
-                height: number;
-            }>();
-            mocks.renderDjvuPagePreview
-                .mockReturnValueOnce(firstPreview.promise)
-                .mockReturnValueOnce(secondPreview.promise);
+            const [
+                firstPreview,
+                secondPreview,
+            ] = createPendingPreviews(2);
 
             const { allowOpenPath } = await import('@electron/file-access/openPathCapabilities');
             const event = createIpcEvent(24);
@@ -929,21 +873,13 @@ describe('registerDjvuIpcAdapter', () => {
             await vi.waitFor(() => expect(mocks.renderDjvuPagePreview).toHaveBeenCalledTimes(2));
             const secondSignal = mocks.renderDjvuPagePreview.mock.calls[1]?.[3]?.signal as AbortSignal | undefined;
 
-            firstPreview.resolve({
-                bytes: new Uint8Array([1]),
-                width: 100,
-                height: 200,
-            });
+            resolvePreview(firstPreview!, 1);
             await expect(firstRun).resolves.toMatchObject({width: 100});
 
             await expect(cancelHandler(event, 'reused-preview-id')).resolves.toEqual({canceled: true});
             expect(secondSignal?.aborted).toBe(true);
 
-            secondPreview.resolve({
-                bytes: new Uint8Array([2]),
-                width: 100,
-                height: 200,
-            });
+            resolvePreview(secondPreview!, 2);
             await expect(secondRun).resolves.toMatchObject({width: 100});
         } finally {
             rmSync(tempRoot, {
@@ -971,25 +907,11 @@ describe('registerDjvuIpcAdapter', () => {
             const realPath = join(tempRoot, 'real.djvu');
             writeFileSync(realPath, new Uint8Array([1]));
             const canonicalRealPath = realpathSync.native(realPath);
-            const firstPreview = createDeferred<{
-                bytes: Uint8Array;
-                width: number;
-                height: number;
-            }>();
-            const secondPreview = createDeferred<{
-                bytes: Uint8Array;
-                width: number;
-                height: number;
-            }>();
-            const fourthPreview = createDeferred<{
-                bytes: Uint8Array;
-                width: number;
-                height: number;
-            }>();
-            mocks.renderDjvuPagePreview
-                .mockReturnValueOnce(firstPreview.promise)
-                .mockReturnValueOnce(secondPreview.promise)
-                .mockReturnValueOnce(fourthPreview.promise);
+            const [
+                firstPreview,
+                secondPreview,
+                fourthPreview,
+            ] = createPendingPreviews(3);
 
             const { allowOpenPath } = await import('@electron/file-access/openPathCapabilities');
             const event = createIpcEvent(9);
@@ -1017,11 +939,7 @@ describe('registerDjvuIpcAdapter', () => {
 
             await vi.waitFor(() => expect(mocks.renderDjvuPagePreview).toHaveBeenCalledTimes(2));
 
-            firstPreview.resolve({
-                bytes: new Uint8Array([1]),
-                width: 100,
-                height: 200,
-            });
+            resolvePreview(firstPreview!, 1);
 
             await thirdRejection;
             await Promise.resolve();
@@ -1035,16 +953,8 @@ describe('registerDjvuIpcAdapter', () => {
                 signal: expect.any(AbortSignal),
             }));
 
-            secondPreview.resolve({
-                bytes: new Uint8Array([2]),
-                width: 100,
-                height: 200,
-            });
-            fourthPreview.resolve({
-                bytes: new Uint8Array([4]),
-                width: 100,
-                height: 200,
-            });
+            resolvePreview(secondPreview!, 2);
+            resolvePreview(fourthPreview!, 4);
 
             await expect(firstRun).resolves.toMatchObject({width: 100});
             await expect(secondRun).resolves.toMatchObject({width: 100});
@@ -1062,19 +972,10 @@ describe('registerDjvuIpcAdapter', () => {
         try {
             const realPath = join(tempRoot, 'real.djvu');
             writeFileSync(realPath, new Uint8Array([1]));
-            const firstPreview = createDeferred<{
-                bytes: Uint8Array;
-                width: number;
-                height: number;
-            }>();
-            const secondPreview = createDeferred<{
-                bytes: Uint8Array;
-                width: number;
-                height: number;
-            }>();
-            mocks.renderDjvuPagePreview
-                .mockReturnValueOnce(firstPreview.promise)
-                .mockReturnValueOnce(secondPreview.promise);
+            const [
+                firstPreview,
+                secondPreview,
+            ] = createPendingPreviews(2);
 
             const { allowOpenPath } = await import('@electron/file-access/openPathCapabilities');
             const event = createIpcEvent(12);
@@ -1107,16 +1008,8 @@ describe('registerDjvuIpcAdapter', () => {
             expect(secondSignal?.aborted).toBe(true);
             expect(mocks.renderDjvuPagePreview).toHaveBeenCalledTimes(2);
 
-            firstPreview.resolve({
-                bytes: new Uint8Array([1]),
-                width: 100,
-                height: 200,
-            });
-            secondPreview.resolve({
-                bytes: new Uint8Array([2]),
-                width: 100,
-                height: 200,
-            });
+            resolvePreview(firstPreview!, 1);
+            resolvePreview(secondPreview!, 2);
             await expect(firstRun).resolves.toMatchObject({width: 100});
             await expect(secondRun).resolves.toMatchObject({width: 100});
         } finally {
@@ -1132,19 +1025,10 @@ describe('registerDjvuIpcAdapter', () => {
         try {
             const realPath = join(tempRoot, 'real.djvu');
             writeFileSync(realPath, new Uint8Array([1]));
-            const firstPreview = createDeferred<{
-                bytes: Uint8Array;
-                width: number;
-                height: number
-            }>();
-            const secondPreview = createDeferred<{
-                bytes: Uint8Array;
-                width: number;
-                height: number
-            }>();
-            mocks.renderDjvuPagePreview
-                .mockReturnValueOnce(firstPreview.promise)
-                .mockReturnValueOnce(secondPreview.promise);
+            const [
+                firstPreview,
+                secondPreview,
+            ] = createPendingPreviews(2);
 
             const { allowOpenPath } = await import('@electron/file-access/openPathCapabilities');
             const event = createIpcEvent(14);
@@ -1160,16 +1044,8 @@ describe('registerDjvuIpcAdapter', () => {
             await expect(cancelHandler(event, 'preview-queued')).resolves.toEqual({canceled: true});
             await expect(queuedRun).rejects.toThrow('DjVu preview request canceled');
 
-            firstPreview.resolve({
-                bytes: new Uint8Array([1]),
-                width: 100,
-                height: 200,
-            });
-            secondPreview.resolve({
-                bytes: new Uint8Array([2]),
-                width: 100,
-                height: 200,
-            });
+            resolvePreview(firstPreview!, 1);
+            resolvePreview(secondPreview!, 2);
             await expect(firstRun).resolves.toMatchObject({width: 100});
             await expect(secondRun).resolves.toMatchObject({width: 100});
             expect(mocks.renderDjvuPagePreview).toHaveBeenCalledTimes(2);
@@ -1226,31 +1102,12 @@ describe('registerDjvuIpcAdapter', () => {
             const realPath = join(tempRoot, 'real.djvu');
             writeFileSync(realPath, new Uint8Array([1]));
             const canonicalRealPath = realpathSync.native(realPath);
-            const firstPreview = createDeferred<{
-                bytes: Uint8Array;
-                width: number;
-                height: number;
-            }>();
-            const secondPreview = createDeferred<{
-                bytes: Uint8Array;
-                width: number;
-                height: number;
-            }>();
-            const visiblePreview = createDeferred<{
-                bytes: Uint8Array;
-                width: number;
-                height: number;
-            }>();
-            const retainedPreview = createDeferred<{
-                bytes: Uint8Array;
-                width: number;
-                height: number;
-            }>();
-            mocks.renderDjvuPagePreview
-                .mockReturnValueOnce(firstPreview.promise)
-                .mockReturnValueOnce(secondPreview.promise)
-                .mockReturnValueOnce(visiblePreview.promise)
-                .mockReturnValueOnce(retainedPreview.promise);
+            const [
+                firstPreview,
+                secondPreview,
+                visiblePreview,
+                retainedPreview,
+            ] = createPendingPreviews(4);
 
             const { allowOpenPath } = await import('@electron/file-access/openPathCapabilities');
             const event = createIpcEvent(10);
@@ -1281,11 +1138,7 @@ describe('registerDjvuIpcAdapter', () => {
 
             await vi.waitFor(() => expect(mocks.renderDjvuPagePreview).toHaveBeenCalledTimes(2));
 
-            firstPreview.resolve({
-                bytes: new Uint8Array([1]),
-                width: 100,
-                height: 200,
-            });
+            resolvePreview(firstPreview!, 1);
 
             await vi.waitFor(() => expect(mocks.renderDjvuPagePreview).toHaveBeenCalledTimes(3));
             expect(mocks.renderDjvuPagePreview).toHaveBeenNthCalledWith(3, canonicalRealPath, 3, {
@@ -1297,11 +1150,7 @@ describe('registerDjvuIpcAdapter', () => {
                 signal: expect.any(AbortSignal),
             }));
 
-            secondPreview.resolve({
-                bytes: new Uint8Array([2]),
-                width: 100,
-                height: 200,
-            });
+            resolvePreview(secondPreview!, 2);
 
             await vi.waitFor(() => expect(mocks.renderDjvuPagePreview).toHaveBeenCalledTimes(4));
             expect(mocks.renderDjvuPagePreview).toHaveBeenNthCalledWith(4, canonicalRealPath, 8, {
@@ -1313,16 +1162,8 @@ describe('registerDjvuIpcAdapter', () => {
                 signal: expect.any(AbortSignal),
             }));
 
-            visiblePreview.resolve({
-                bytes: new Uint8Array([3]),
-                width: 100,
-                height: 200,
-            });
-            retainedPreview.resolve({
-                bytes: new Uint8Array([8]),
-                width: 100,
-                height: 200,
-            });
+            resolvePreview(visiblePreview!, 3);
+            resolvePreview(retainedPreview!, 8);
 
             await expect(firstRun).resolves.toMatchObject({width: 100});
             await expect(secondRun).resolves.toMatchObject({width: 100});
@@ -1342,25 +1183,11 @@ describe('registerDjvuIpcAdapter', () => {
             const realPath = join(tempRoot, 'real.djvu');
             writeFileSync(realPath, new Uint8Array([1]));
             const canonicalRealPath = realpathSync.native(realPath);
-            const firstPreview = createDeferred<{
-                bytes: Uint8Array;
-                width: number;
-                height: number;
-            }>();
-            const secondPreview = createDeferred<{
-                bytes: Uint8Array;
-                width: number;
-                height: number;
-            }>();
-            const nextGenerationPreview = createDeferred<{
-                bytes: Uint8Array;
-                width: number;
-                height: number;
-            }>();
-            mocks.renderDjvuPagePreview
-                .mockReturnValueOnce(firstPreview.promise)
-                .mockReturnValueOnce(secondPreview.promise)
-                .mockReturnValueOnce(nextGenerationPreview.promise);
+            const [
+                firstPreview,
+                secondPreview,
+                nextGenerationPreview,
+            ] = createPendingPreviews(3);
 
             const { allowOpenPath } = await import('@electron/file-access/openPathCapabilities');
             const event = createIpcEvent(11);
@@ -1393,11 +1220,7 @@ describe('registerDjvuIpcAdapter', () => {
             await vi.waitFor(() => expect(mocks.renderDjvuPagePreview).toHaveBeenCalledTimes(2));
             await staleRejection;
 
-            firstPreview.resolve({
-                bytes: new Uint8Array([1]),
-                width: 100,
-                height: 200,
-            });
+            resolvePreview(firstPreview!, 1);
 
             await vi.waitFor(() => expect(mocks.renderDjvuPagePreview).toHaveBeenCalledTimes(3));
             expect(mocks.renderDjvuPagePreview).toHaveBeenNthCalledWith(3, canonicalRealPath, 3, {
@@ -1409,16 +1232,8 @@ describe('registerDjvuIpcAdapter', () => {
                 signal: expect.any(AbortSignal),
             }));
 
-            secondPreview.resolve({
-                bytes: new Uint8Array([2]),
-                width: 100,
-                height: 200,
-            });
-            nextGenerationPreview.resolve({
-                bytes: new Uint8Array([3]),
-                width: 100,
-                height: 200,
-            });
+            resolvePreview(secondPreview!, 2);
+            resolvePreview(nextGenerationPreview!, 3);
 
             await expect(firstRun).resolves.toMatchObject({width: 100});
             await expect(secondRun).resolves.toMatchObject({width: 100});

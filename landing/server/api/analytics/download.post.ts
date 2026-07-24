@@ -12,12 +12,12 @@ import {
 import {
     RELEASE_ARCHES,
     RELEASE_PLATFORMS,
-} from '~~/vendor/contracts/release';
+} from '@contracts/release';
 import type {
     TReleaseArch,
     TReleasePlatform,
-} from '~~/vendor/contracts/release';
-import { isOneOf } from '~~/vendor/contracts/runtimeGuards';
+} from '@contracts/release';
+import { isOneOf } from '@contracts/runtimeGuards';
 
 function isRecord(value: unknown): value is Record<string, unknown> {
     return typeof value === 'object' && value !== null;

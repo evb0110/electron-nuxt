@@ -240,7 +240,7 @@ elif ! find "resources/tesseract/tessdata" -maxdepth 1 -type f -name '*.trainedd
   missing=1
 else
   echo "OK tessdata directory and traineddata files present"
-  pnpm run check:ocr-language-model-registry
+  node --import tsx scripts/generateElectronBuilderResources.ts
 fi
 
 if [ "$missing" -ne 0 ]; then

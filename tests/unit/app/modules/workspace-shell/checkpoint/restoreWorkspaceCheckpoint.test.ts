@@ -168,4 +168,56 @@ describe('restoreWorkspaceCheckpoint', () => {
             isGenerated: true,
         });
     });
+
+    it('restores a blank tab without waiting for document visual readiness', async () => {
+        const waitForDocumentOpenSettled = vi.fn().mockResolvedValue(undefined);
+        const workspace = cast<IWorkspaceExpose>({
+            waitForDocumentOpenSettled,
+            getAutomationStateSnapshot: () => ({}),
+        });
+        const activateTab = vi.fn();
+
+        await restoreWorkspaceCheckpoint({
+            version: 1,
+            capturedAt: 123,
+            activePaneId: 'pane-1',
+            activeTabId: 'tab-1',
+            layout: {
+                type: 'leaf',
+                paneId: 'pane-1',
+            },
+            panes: [{
+                paneId: 'pane-1',
+                tabIds: ['tab-1'],
+                activeTabId: 'tab-1',
+            }],
+            tabs: [{
+                tabId: 'tab-1',
+                paneId: 'pane-1',
+                fileName: null,
+                sourceRef: null,
+                workingCopyRef: null,
+                isDirty: false,
+                isDjvu: false,
+                currentPage: null,
+                zoom: null,
+                zoomMode: null,
+            }],
+        }, {
+            tabs: ref([{
+                id: 'tab-1',
+                fileName: null,
+                originalPath: null,
+                isDirty: false,
+                isDjvu: false,
+            }]),
+            workspaceRefs: ref(new Map<string, IWorkspaceExpose>().set('tab-1', workspace)),
+            restoreGraph: vi.fn(),
+            openPathInReservedTab: vi.fn(),
+            activateTab,
+        });
+
+        expect(waitForDocumentOpenSettled).not.toHaveBeenCalled();
+        expect(activateTab).toHaveBeenCalledWith('tab-1');
+    });
 });

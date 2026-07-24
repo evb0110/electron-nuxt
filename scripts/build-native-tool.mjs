@@ -10,6 +10,7 @@ import { tsImport } from 'tsx/esm/api';
 import {
     copyCargoArtifactVerified,
     getCargoArtifactPath,
+    parseCargoToolBuildRequest,
     resolveCargoTargetDirectory,
 } from './cargo-artifacts.mjs';
 import { getRequestedNativeRustTarget } from './native-rust-targets.mjs';
@@ -54,25 +55,25 @@ async function resolveTool(toolId) {
 }
 
 export async function runNativeToolBuilder(argv = process.argv.slice(2)) {
-    if (argv.includes('--help') || argv.includes('-h')) {
+    const request = parseCargoToolBuildRequest(argv, usage);
+    if (request.help) {
         console.log(usage);
         return;
     }
 
-    const dryRun = argv.includes('--dry-run');
-    const positional = argv.filter(arg => arg !== '--dry-run');
-    if (positional.length !== 1) {
-        throw new Error(usage);
-    }
-
-    const tool = await resolveTool(positional[0]);
+    const { generateNativeToolProtocols } = await tsImport(
+        './generateNativeToolProtocols.ts',
+        import.meta.url,
+    );
+    await generateNativeToolProtocols();
+    const tool = await resolveTool(request.toolId);
     const target = getRequestedNativeRustTarget();
     const plan = createNativeToolBuildPlan({
         projectRoot,
         target,
         tool,
     });
-    if (dryRun) {
+    if (request.dryRun) {
         console.log(JSON.stringify({
             tool,
             ...plan,

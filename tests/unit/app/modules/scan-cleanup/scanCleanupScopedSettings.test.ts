@@ -254,6 +254,40 @@ describe('scan cleanup selection override state', () => {
         });
     });
 
+    it('keeps mixed output as a current-page override without changing the document mode', () => {
+        const settings = reactive<IScanCleanupOptions>({
+            preserveOriginalQuality: false,
+            layoutMode: 'auto',
+            outputMode: 'auto',
+            readingOrder: 'ltr',
+            thickness: 0,
+            crop: true,
+            matchPageSize: true,
+            pageAlignment: 'top-center',
+            marginsMm: {
+                leftMm: 5,
+                topMm: 5,
+                rightMm: 5,
+                bottomMm: 5,
+            },
+            despeckle: true,
+            skipBlankPages: false,
+            pageOverrides: {},
+        });
+        const selection = useScanCleanupSelection({
+            initialPage: 2,
+            previewResult: () => null,
+            previewTotalPages: () => 3,
+            settings,
+        });
+
+        selection.updateOutputModeOverride('mixed', [2]);
+
+        expect(settings.outputMode).toBe('auto');
+        expect(getScanCleanupPageOverride(settings.pageOverrides, 1).outputModeOverride).toBeUndefined();
+        expect(getScanCleanupPageOverride(settings.pageOverrides, 2).outputModeOverride).toBe('mixed');
+    });
+
     it('resolves per-side margin patches touching only the edited keys', () => {
         expect(resolveScanCleanupMarginPatch('topMm', 12)).toEqual({topMm: 12});
         expect(resolveScanCleanupMarginPatch('all', 30)).toEqual({

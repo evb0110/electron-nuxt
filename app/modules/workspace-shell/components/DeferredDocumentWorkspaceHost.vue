@@ -846,20 +846,6 @@ async function runWithDocumentOpenInFlight<T>(
     // commands can overtake the open transaction.
     const preparedOpeningGeometryAvailable = hasPreparedOpeningGeometry(intent);
     documentOpenAttemptCounter += 1;
-    if (
-        !canBeginDocumentOpenSynchronously(
-            intent.action,
-            preparedOpeningGeometryAvailable,
-            isViewerOwnerMounted.value,
-        )
-        && !await ensurePreparedOpeningOwnerReady(
-            intent,
-            preparedOpeningGeometryAvailable,
-        )
-    ) {
-        pendingPreOwnerGoToPage = null;
-        return false;
-    }
     const transaction = beginDocumentOpenTransaction(intent);
     if (!transaction) {
         pendingPreOwnerGoToPage = null;
@@ -867,6 +853,25 @@ async function runWithDocumentOpenInFlight<T>(
     }
     let opened = false;
     try {
+        // Claim the session transaction and opening surface before waiting for
+        // an async workspace owner. Startup deliberately exposes Recent before
+        // DocumentWorkspace finishes mounting; keeping this wait ahead of the
+        // claim made an accepted click indistinguishable from a dropped one
+        // and left the new tab eligible to consume overlapping commands.
+        if (
+            !canBeginDocumentOpenSynchronously(
+                intent.action,
+                preparedOpeningGeometryAvailable,
+                isViewerOwnerMounted.value,
+            )
+            && !await ensurePreparedOpeningOwnerReady(
+                intent,
+                preparedOpeningGeometryAvailable,
+            )
+        ) {
+            pendingPreOwnerGoToPage = null;
+            return false;
+        }
         // `beginPrepared()` transfers ownership synchronously. Flush that
         // state into the already-mounted chassis before source loading starts;
         // readiness itself remains driven exclusively by joined render and

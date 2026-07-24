@@ -87,21 +87,35 @@ describe('ocr dpi detection', () => {
     });
 
     it('probes every page in bounded chunks for long documents', async () => {
+        const firstBatchEntered = Promise.withResolvers<undefined>();
+        let activeProbes = 0;
+        let peakProbes = 0;
+        let enteredProbes = 0;
         mocks.runOcrCommand.mockImplementation(async (_binary, args: string[]) => {
-            const firstPage = Number(args[args.indexOf('-f') + 1]);
-            const lastPage = Number(args[args.indexOf('-l') + 1]);
-            return {
-                stdout: [
-                    'page   num  type   width height color comp bpc  enc interp  object ID x-ppi y-ppi size ratio',
-                    ...Array.from({length: lastPage - firstPage + 1}, (_value, index) => {
-                        const page = firstPage + index;
-                        return `   ${page}     0 image    1800  2700  gray    1   8  image  no      3421  0   360   360 1.0K 1.0%`;
-                    }),
-                ].join('\n'),
-                stderr: '',
-                exitCode: 0,
-            };
+            activeProbes += 1;
+            peakProbes = Math.max(peakProbes, activeProbes);
+            enteredProbes += 1;
+            if (enteredProbes === 4) firstBatchEntered.resolve(undefined);
+            await firstBatchEntered.promise;
+            try {
+                const firstPage = Number(args[args.indexOf('-f') + 1]);
+                const lastPage = Number(args[args.indexOf('-l') + 1]);
+                return {
+                    stdout: [
+                        'page   num  type   width height color comp bpc  enc interp  object ID x-ppi y-ppi size ratio',
+                        ...Array.from({length: lastPage - firstPage + 1}, (_value, index) => {
+                            const page = firstPage + index;
+                            return `   ${page}     0 image    1800  2700  gray    1   8  image  no      3421  0   360   360 1.0K 1.0%`;
+                        }),
+                    ].join('\n'),
+                    stderr: '',
+                    exitCode: 0,
+                };
+            } finally {
+                activeProbes -= 1;
+            }
         });
+        const progress: Array<[number, number]> = [];
 
         const result = await detectSourceDpiDetails(
             '/tmp/input.pdf',
@@ -110,9 +124,18 @@ describe('ocr dpi detection', () => {
             undefined,
             undefined,
             Array.from({ length: 392 }, (_value, index) => index + 1),
+            (completed, total) => progress.push([
+                completed,
+                total,
+            ]),
         );
 
         expect(mocks.runOcrCommand).toHaveBeenCalledTimes(9);
+        expect(peakProbes).toBe(4);
+        expect(progress.at(-1)).toEqual([
+            392,
+            392,
+        ]);
         expect(mocks.runOcrCommand.mock.calls[0]?.[1]).toEqual([
             '-f',
             '1',

@@ -33,7 +33,7 @@
             </div>
             <div class="preview-controls">
                 <div
-                    v-if="result"
+                    v-if="result || rawResult"
                     class="preview-zoom-controls"
                     role="group"
                     :aria-label="t('scanCleanup.preview.zoomControls')"
@@ -104,15 +104,16 @@
             @wheel="handlePreviewWheel"
         >
             <div
-                v-if="result"
+                v-if="result || (rawResult && effectiveViewMode === 'original')"
                 class="preview-result-layer"
+                :data-testid="result ? undefined : 'scan-cleanup-original-only'"
                 :class="{
                     'is-cutter-source-dimmed': cutterSourceUnderlayVisible,
                     'is-source-underlay-dimmed': sourceUnderlayVisible,
                 }"
             >
                 <div
-                    v-if="result.outputs.length === 0 && effectiveViewMode === 'cleaned'"
+                    v-if="result && result.outputs.length === 0 && effectiveViewMode === 'cleaned'"
                     class="preview-message"
                     :class="{'is-stale-content': isStalePage}"
                 >
@@ -129,14 +130,14 @@
                     >
                         <OriginalCanvas
                             v-if="effectiveViewMode === 'original'"
-                            :alt="t('scanCleanup.preview.originalAlt', {page: result.pageNumber})"
+                            :alt="t('scanCleanup.preview.originalAlt', {page: result?.pageNumber ?? pageNumber})"
                             :crop-overlay-styles="losslessCropOverlayStyles"
                             :pixel-swap="rawPixelSwap"
                             @complete="completeRawPixelSwap"
                             @load="loadRawPixelSwap"
                         />
                         <CleanedCanvas
-                            v-else
+                            v-else-if="result"
                             :active-placement-half="activePlacementHalf"
                             :alt-by-half="cleanedAltByHalf"
                             :match-page-size="matchPageSize"
@@ -187,7 +188,7 @@
                     <UIcon name="i-ph-circle-notch" class="size-4 is-spinning" />
                     <span class="sr-only">{{ t('scanCleanup.preview.refreshing') }}</span>
                 </div>
-                <div v-if="error" class="preview-refresh-error" role="alert">
+                <div v-if="error && effectiveViewMode === 'cleaned'" class="preview-refresh-error" role="alert">
                     <span>{{ t('scanCleanup.preview.unavailable') }}</span>
                     <UButton
                         type="button"
@@ -203,7 +204,7 @@
                     </details>
                 </div>
             </div>
-            <div v-if="!result" class="preview-empty-layer">
+            <div v-if="!result && !(rawResult && effectiveViewMode === 'original')" class="preview-empty-layer">
                 <div v-if="!error" class="preview-viewport-layout preview-loading" role="status">
                     <div ref="cutterStage" class="cutter-stage">
                         <div
@@ -323,7 +324,12 @@
             </aside>
         </div>
 
-        <div v-if="effectiveViewMode === 'cleaned' || lossless" class="overlay-legend" :aria-label="t('scanCleanup.preview.legend')">
+        <div
+            class="overlay-legend"
+            :class="{'is-space-reserved': effectiveViewMode === 'original' && !lossless}"
+            :aria-hidden="effectiveViewMode === 'original' && !lossless"
+            :aria-label="t('scanCleanup.preview.legend')"
+        >
             <span><i class="legend-swatch is-content" />{{ t('scanCleanup.preview.contentBox') }}</span>
             <span><i class="legend-swatch is-margin" />{{ t('scanCleanup.preview.marginBox') }}</span>
             <span v-if="matchPageSize"><i class="legend-swatch is-canvas" />{{ t('scanCleanup.preview.canvas') }}</span>
@@ -338,6 +344,7 @@ import type {
     IScanCleanupNormalizedSplit,
     IScanCleanupPreviewMetadata,
     IScanCleanupPixelRect,
+    IScanCleanupRawPreviewResult,
     IScanCleanupPreviewResult,
     TScanCleanupOutputHalf,
     TScanCleanupOutputMode,
@@ -402,13 +409,11 @@ interface ICutterDragGeometry {
     kind: 'cutter';
     value: IScanCleanupNormalizedSplit;
 }
-
 interface IContentDragGeometry {
     half: TScanCleanupOutputHalf;
     kind: 'content';
     value: IScanCleanupNormalizedRect;
 }
-
 interface IPlacementDragGeometry {
     alignment: TScanCleanupPageAlignment;
     half: TScanCleanupOutputHalf;
@@ -416,11 +421,10 @@ interface IPlacementDragGeometry {
     left: number;
     top: number;
 }
-
 type TScanCleanupDragGeometry = ICutterDragGeometry | IContentDragGeometry | IPlacementDragGeometry;
-
 const props = defineProps<{
     result: IScanCleanupPreviewResult | null;
+    rawResult?: IScanCleanupRawPreviewResult | null;
     loading: boolean;
     error: string;
     viewMode?: 'original' | 'cleaned';
@@ -442,7 +446,6 @@ const props = defineProps<{
     layoutClassification?: IScanCleanupPreviewMetadata['layoutClassification'] | undefined;
     rotationDegrees?: TScanCleanupPageRotation;
 }>();
-
 const emit = defineEmits<{
     'dismiss-first-run-guidance': [];
     previous: [];
@@ -455,7 +458,6 @@ const emit = defineEmits<{
     'update:placement': [half: TScanCleanupOutputHalf, value: TScanCleanupPageAlignment];
     useMixedOutput: [];
 }>();
-
 const {t} = useTypedI18n();
 const previewSurface = ref<HTMLElement | null>(null);
 const cutterStage = ref<HTMLElement | null>(null);
@@ -759,12 +761,10 @@ const cutterStyle = computed(() => {
     const visualRatio = props.readingOrder === 'rtl' ? 1 - sourceRatio : sourceRatio;
     return {insetInlineStart: `${visualRatio * 100}%`};
 });
-
 function navigateFromKeyboard(direction: 'previous' | 'next') {
     if (direction === 'previous' && props.pageNumber > 1) emit('previous');
     if (direction === 'next' && props.pageNumber < props.totalPages) emit('next');
 }
-
 function handlePaneKeydown(event: KeyboardEvent) {
     if (event.target !== event.currentTarget) {
         return;
@@ -1111,7 +1111,7 @@ const {
             observeCutterStage();
         }
     });
-});
+}, () => props.rawResult ?? null);
 
 watch(() => dragTransaction.active.value, active => {
     if (!active) {

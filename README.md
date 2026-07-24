@@ -214,9 +214,6 @@ pnpm run validate:changed
 # Full contributor validation
 pnpm validate
 
-# Python page processor syntax + lightweight CLI smoke
-pnpm run test:python-page-processor
-
 # Native-resource sanity check
 pnpm run check:resources:matrix
 
@@ -252,8 +249,10 @@ file-scoped loops such as `pnpm run validate:changed`,
 `pnpm exec vitest run --project unit-policy tests/unit/scripts/releasePolicy.test.ts`, or
 `pnpm run test:electron-bundle-static-integrity:no-build` after
 `dist-electron/` already exists. Direct pushes to `main` run
-`pnpm lint`, `pnpm typecheck`, and `pnpm run test:release`; native, landing,
-and Python page-processor changes also get path-filtered checks. Electron E2E
+`pnpm lint`, `pnpm typecheck`, and `pnpm run test:release`; native and landing
+changes also get path-filtered checks. The dormant Python page-processor was
+removed after the native scan-cleanup pipeline superseded it and remains
+recoverable from git history. Electron E2E
 and PDF tab diagnostics run in nightly/manual diagnostics until they are stable
 enough to promote into a blocking release gate.
 

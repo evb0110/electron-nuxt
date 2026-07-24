@@ -70,6 +70,7 @@ pub fn fuzz_parse_netpbm(data: &[u8]) {
 pub enum ImageCompression {
     Auto,
     Jpeg { quality: u8 },
+    JpegWithFlateFallback { quality: u8 },
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -450,6 +451,9 @@ impl From<ImageCompression> for PdfImageCompression {
         match compression {
             ImageCompression::Auto => Self::Auto,
             ImageCompression::Jpeg { quality } => Self::Jpeg { quality },
+            ImageCompression::JpegWithFlateFallback { quality } => {
+                Self::JpegWithFlateFallback { quality }
+            }
         }
     }
 }
@@ -728,6 +732,84 @@ mod tests {
     }
 
     #[test]
+    fn image_jpeg_record_keeps_flate_when_the_jpeg_candidate_is_larger() {
+        let pixels = vec![248; 256 * 256];
+        let png = evb_raster_io::encode_png(PixelBuffer::Gray {
+            width: 256,
+            height: 256,
+            stride: 256,
+            data: &pixels,
+        })
+        .unwrap();
+        let pdf = write_pdf(
+            Vec::new(),
+            [jpeg_with_flate_fallback_page("blank.png", &png, 85)],
+            &PdfBuildOptions::default(),
+            |_| {},
+        )
+        .unwrap();
+        let text = String::from_utf8_lossy(&pdf);
+
+        assert!(text.contains("/Filter /FlateDecode"));
+        assert!(!text.contains("/Filter /DCTDecode"));
+    }
+
+    #[test]
+    fn synthetic_tonal_page_uses_jpeg_and_is_materially_smaller_than_flate() {
+        let width = 768usize;
+        let height = 1_024usize;
+        let mut pixels = Vec::with_capacity(width * height);
+        let mut noise = 0x1234_5678u32;
+        for y in 0..height {
+            for x in 0..width {
+                noise = noise.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+                let paper = 218 + ((x * 19 / width + y * 13 / height) % 24) as i16;
+                let texture = ((noise >> 28) as i16) - 8;
+                let text = (y % 37 < 3 && x % 97 > 8) || (x % 211 < 2 && y % 113 > 20);
+                pixels.push(if text {
+                    (35 + texture).clamp(0, 255) as u8
+                } else {
+                    (paper + texture).clamp(0, 255) as u8
+                });
+            }
+        }
+        let png = evb_raster_io::encode_png(PixelBuffer::Gray {
+            width,
+            height,
+            stride: width,
+            data: &pixels,
+        })
+        .unwrap();
+        let flate_pdf = write_pdf(
+            Vec::new(),
+            [image_page(
+                "tonal.png",
+                &png,
+                Some(PAGE),
+                FramePolicy::ExactlyOne,
+            )],
+            &PdfBuildOptions::default(),
+            |_| {},
+        )
+        .unwrap();
+        let jpeg_pdf = write_pdf(
+            Vec::new(),
+            [jpeg_with_flate_fallback_page("tonal.png", &png, 85)],
+            &PdfBuildOptions::default(),
+            |_| {},
+        )
+        .unwrap();
+
+        assert!(String::from_utf8_lossy(&jpeg_pdf).contains("/Filter /DCTDecode"));
+        assert!(
+            jpeg_pdf.len() * 2 < flate_pdf.len(),
+            "expected JPEG PDF to be less than half the Flate PDF: jpeg={} flate={}",
+            jpeg_pdf.len(),
+            flate_pdf.len()
+        );
+    }
+
+    #[test]
     fn frame_policy_all_streams_tiff_frames_in_order_and_exactly_one_rejects() {
         let tiff = two_page_tiff();
         let mut progress = Vec::new();
@@ -947,6 +1029,23 @@ mod tests {
                 size_guardrail: None,
             },
             frames,
+        }
+    }
+
+    fn jpeg_with_flate_fallback_page<'a>(
+        file_name: &'a str,
+        data: &'a [u8],
+        quality: u8,
+    ) -> PdfPageSpec<'a> {
+        PageSpec::Image {
+            page_size: Some(PAGE),
+            image: ImageSpec {
+                source: InputSource::Bytes { file_name, data },
+                compression: ImageCompression::JpegWithFlateFallback { quality },
+                processing: ImageProcessing::None,
+                size_guardrail: None,
+            },
+            frames: FramePolicy::ExactlyOne,
         }
     }
 

@@ -297,12 +297,17 @@
                                 </template>
                             </UPopover>
                         </AppTooltip>
-                        <UIcon
+                        <UBadge
                             v-if="pageOverride(naturalPage(position)).excluded"
-                            name="i-ph-eye-slash"
-                            class="scan-thumbnail-excluded-icon"
+                            class="scan-thumbnail-excluded-badge"
+                            color="neutral"
+                            variant="soft"
+                            size="sm"
                             :aria-label="t('scanCleanup.pages.excludedFromOutput')"
-                        />
+                        >
+                            <UIcon name="i-ph-eye-slash" aria-hidden="true" />
+                            <span>{{ t('scanCleanup.pages.excludedBadge') }}</span>
+                        </UBadge>
                         <span
                             v-if="pageOverride(naturalPage(position)).rotationDegrees !== 0"
                             class="scan-thumbnail-rotation"
@@ -316,6 +321,31 @@
                             class="scan-thumbnail-processed"
                             :aria-label="t('scanCleanup.pages.processed')"
                         />
+                        <AppTooltip
+                            :text="includeLabel(naturalPage(position))"
+                            usefulness="always"
+                        >
+                            <UButton
+                                type="button"
+                                class="scan-thumbnail-exclude-toggle"
+                                :class="{
+                                    'is-visible': selectedPages.has(naturalPage(position))
+                                        || pageOverride(naturalPage(position)).excluded,
+                                }"
+                                :color="pageOverride(naturalPage(position)).excluded ? 'neutral' : 'primary'"
+                                variant="soft"
+                                size="xs"
+                                square
+                                :icon="pageOverride(naturalPage(position)).excluded ? 'i-ph-eye-slash' : 'i-ph-eye'"
+                                role="switch"
+                                :aria-checked="!pageOverride(naturalPage(position)).excluded"
+                                :aria-label="includeLabel(naturalPage(position))"
+                                :disabled="disabled"
+                                @click="updateOverride(naturalPage(position), {
+                                    excluded: !pageOverride(naturalPage(position)).excluded,
+                                })"
+                            />
+                        </AppTooltip>
                     </div>
                 </div>
             </template>
@@ -355,21 +385,6 @@
                                 :aria-label="t('scanCleanup.pages.rotateCurrent', {rotation: pageOverride(naturalPage(position)).rotationDegrees})"
                                 :disabled="disabled"
                                 @click="rotate(naturalPage(position))"
-                            />
-                        </AppTooltip>
-                        <AppTooltip :text="includeLabel(naturalPage(position))">
-                            <UButton
-                                type="button"
-                                :color="pageOverride(naturalPage(position)).excluded ? 'neutral' : 'primary'"
-                                variant="soft"
-                                size="xs"
-                                square
-                                :icon="pageOverride(naturalPage(position)).excluded ? 'i-ph-eye-slash' : 'i-ph-eye'"
-                                role="switch"
-                                :aria-checked="!pageOverride(naturalPage(position)).excluded"
-                                :aria-label="includeLabel(naturalPage(position))"
-                                :disabled="disabled"
-                                @click="updateOverride(naturalPage(position), {excluded: !pageOverride(naturalPage(position)).excluded})"
                             />
                         </AppTooltip>
                     </span>
@@ -1056,7 +1071,8 @@ function handleKeydown(event: KeyboardEvent) {
     padding: var(--app-space-sm);
 }
 
-.scan-thumbnail-low-confidence {
+.scan-thumbnail-low-confidence,
+.scan-thumbnail-text-axis {
     display: inline-grid;
     width: var(--app-control-height-xs);
     height: var(--app-control-height-xs);
@@ -1066,10 +1082,13 @@ function handleKeydown(event: KeyboardEvent) {
     background: var(--ui-warning);
     color: var(--ui-bg);
     cursor: pointer;
-    font: inherit;
-    font-weight: var(--app-font-weight-heading);
     padding: 0;
     pointer-events: auto;
+}
+
+.scan-thumbnail-low-confidence {
+    font: inherit;
+    font-weight: var(--app-font-weight-heading);
 }
 
 .scan-thumbnail-diagnostics {
@@ -1077,7 +1096,10 @@ function handleKeydown(event: KeyboardEvent) {
     pointer-events: auto;
 }
 
-.scan-thumbnail-diagnostics-popover {
+.scan-thumbnail-diagnostics-popover,
+.scan-thumbnail-low-confidence-popover,
+.scan-thumbnail-text-axis-popover,
+.scan-thumbnail-output-mode-popover {
     display: grid;
     width: var(--app-scan-low-confidence-popover-width);
     gap: var(--app-space-5xl);
@@ -1111,44 +1133,11 @@ function handleKeydown(event: KeyboardEvent) {
     font-size: var(--app-text-size-kicker);
 }
 
-.scan-thumbnail-text-axis {
-    display: inline-grid;
-    width: var(--app-control-height-xs);
-    height: var(--app-control-height-xs);
-    place-items: center;
-    border: 0;
-    border-radius: var(--app-radius-full);
-    background: var(--ui-warning);
-    color: var(--ui-bg);
-    cursor: pointer;
-    padding: 0;
-    pointer-events: auto;
-}
-
 .scan-thumbnail-low-confidence:focus-visible,
 .scan-thumbnail-text-axis:focus-visible,
 .scan-thumbnail-output-mode:focus-visible {
     outline: var(--app-hairline-height) solid var(--ui-primary);
     outline-offset: var(--app-space-xs);
-}
-
-.scan-thumbnail-low-confidence-popover {
-    display: grid;
-    width: var(--app-scan-low-confidence-popover-width);
-    gap: var(--app-space-5xl);
-    padding: var(--app-space-5xl);
-    color: var(--ui-text);
-    font-size: var(--app-text-size-body-sm);
-}
-
-.scan-thumbnail-text-axis-popover,
-.scan-thumbnail-output-mode-popover {
-    display: grid;
-    width: var(--app-scan-low-confidence-popover-width);
-    gap: var(--app-space-5xl);
-    padding: var(--app-space-5xl);
-    color: var(--ui-text);
-    font-size: var(--app-text-size-body-sm);
 }
 
 .scan-thumbnail-low-confidence-popover p,
@@ -1159,14 +1148,8 @@ function handleKeydown(event: KeyboardEvent) {
     line-height: var(--app-line-height-body);
 }
 
-.scan-thumbnail-popover-override-select {
-    width: 100%;
-}
-
-.scan-thumbnail-popover-rotation-select {
-    width: 100%;
-}
-
+.scan-thumbnail-popover-override-select,
+.scan-thumbnail-popover-rotation-select,
 .scan-thumbnail-popover-output-mode-select {
     width: 100%;
 }
@@ -1211,13 +1194,14 @@ function handleKeydown(event: KeyboardEvent) {
     background: var(--ui-primary);
 }
 
-.scan-thumbnail-excluded-icon,
+.scan-thumbnail-excluded-badge,
 .scan-thumbnail-processed,
 .scan-thumbnail-rotation {
     flex: none;
 }
 
-.scan-thumbnail-excluded-icon {
+.scan-thumbnail-excluded-badge {
+    gap: var(--app-space-xs);
     color: var(--ui-text-muted);
 }
 
@@ -1256,6 +1240,23 @@ function handleKeydown(event: KeyboardEvent) {
     line-height: var(--app-thumbnail-min-label-height);
 }
 
+.scan-thumbnail-exclude-toggle {
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity var(--app-transition-fast);
+}
+
+.scan-thumbnail-exclude-toggle.is-visible,
+.scan-thumbnail-list :deep([data-document-thumbnail-item]:hover) .scan-thumbnail-exclude-toggle {
+    opacity: 1;
+    pointer-events: auto;
+}
+
+.scan-thumbnail-exclude-toggle:focus-visible {
+    opacity: 1;
+    pointer-events: auto;
+}
+
 .scan-thumbnail-override-select {
     min-width: 0;
     flex: 1;
@@ -1270,5 +1271,4 @@ function handleKeydown(event: KeyboardEvent) {
     color: var(--ui-text-dimmed);
     text-decoration: line-through;
 }
-
 </style>

@@ -100,7 +100,7 @@
         >
             <template #sidebar>
                 <PdfSidebar
-                    v-if="showStandardPdfViewer"
+                    v-if="driverShowsPdfSidebar"
                     v-model:active-tab="sidebarTab"
                     v-model:search-query="searchQuery"
                     :submitted-search-query="submittedSearchQuery"
@@ -182,7 +182,7 @@
                 <template #document>
                     <component
                         :is="activeViewerComponent"
-                        v-if="mountedViewerAdapter"
+                        v-if="mountedDocumentDriver"
                         :ref="bindActiveViewerRef"
                         v-bind="activeViewerProps"
                         v-on="activeViewerListeners"
@@ -414,7 +414,7 @@ import { formatEtaDuration } from '@app/utils/progressFormatting';
 import { getErrorMessage } from '@app/utils/error';
 import { DESKTOP_EDITOR_READER_COMMAND_SURFACE } from '@app/utils/readerCommandSurface';
 import type { IRecentFile } from '@contracts/shared';
-import { useWorkspaceViewerAdapterBinding } from '@app/modules/workspace-shell/viewers/useWorkspaceViewerAdapterBinding';
+import { useWorkspaceDocumentDriverBinding } from '@app/modules/workspace-shell/viewers/workspaceDocumentDriver';
 import type { IDocumentPageSource } from '@app/utils/document-viewer/source/documentPageSource';
 import { createDocumentWorkspaceAutomationHandlers } from '@app/modules/workspace-shell/automation/createDocumentWorkspaceAutomationHandlers';
 import { useDocumentOpenedAutomationEvent } from '@app/modules/workspace-shell/automation/useDocumentOpenedAutomationEvent';
@@ -428,7 +428,6 @@ import {
     documentOpenSurfaceSessionKey,
     injectDocumentOpenSurfaceSession,
 } from '@app/utils/document-viewer/chassis/documentOpenSurfaceSession';
-import { getWorkspaceViewerAdapter } from '@app/modules/workspace-shell/viewers/workspaceViewerAdapters';
 import {
     createDocumentWorkspaceCommandBindings,
     type IDocumentWorkspaceEmits,
@@ -549,10 +548,14 @@ const orchestration = useWorkspaceOrchestration({
         && documentSession.snapshot.value.toolbarSnapshot.initialVisualReady),
     openSurface: documentOpenSurface,
     pendingDocumentPath: pendingDocumentStatusPath,
+    pendingDocumentSize: computed(() => (
+        documentOpenSurface.snapshot.value.openingPageGeometry?.size ?? null
+    )),
     sourceCapabilities: documentSourceCapabilities,
     emit,
 });
 const {
+    documentDriver,
     fileLifecycle,
     viewerShell,
     annotationSession,
@@ -566,6 +569,10 @@ const {
     printWorkflow,
     workspaceSettings,
 } = orchestration;
+const {
+    activeDocumentDriver,
+    mountedDocumentDriver,
+} = documentDriver;
 const {
     pdfSrc,
     pdfReloadSrc,
@@ -863,13 +870,11 @@ const {
 });
 
 const {
-    activeViewerAdapter,
-    activeViewerCapabilities,
-    nativePdfSourcePath,
-    showNativePdfViewer,
-    showStandardPdfViewer,
-    showDjvuSource,
-    showNativePreviewViewer,
+    activeDriverCapabilities,
+    driverShowsNativePdf,
+    driverShowsPdfSidebar,
+    driverShowsDjvuSource,
+    driverStartupVisualSource,
     isDocumentOpenPlaceholderVisible,
     isOpeningDocumentForToolbar,
     toolbarDocumentBusy,
@@ -879,27 +884,21 @@ const {
     canRepairSave,
     canOptimizePdf,
 } = useWorkspaceViewerVisibility({
+    activeDocumentDriver,
     conversionState,
     djvuOpeningPath,
-    djvuSourcePath,
     hasPdf,
     hasQueuedSplitRestore,
     isAnySaving,
-    isDjvuMode,
     isExternallyRestoring,
     isHistoryBusy,
     isOcrRunning,
     isRestoringSplitPayload,
     pendingDocumentOpen,
-    pendingDocumentPath: pendingDocumentStatusPath,
-    pendingDocumentSize: computed(() => (
-        documentOpenSurface.snapshot.value.openingPageGeometry?.size ?? null
-    )),
-    pdfSrc,
     showSidebar,
 });
 useDocumentWorkspacePageSessionRestore({
-    activeViewerAdapter,
+    activeViewerAdapter: activeDocumentDriver,
     currentPage,
     documentViewerRef,
     initialPage: initialViewState?.currentPage,
@@ -907,8 +906,7 @@ useDocumentWorkspacePageSessionRestore({
     onRestore: handleGoToPage,
     totalPages,
 });
-useWorkspaceSourceCapabilityProjection(activeViewerAdapter, documentSourceCapabilities);
-const mountedViewerAdapter = computed(() => activeViewerAdapter.value ?? getWorkspaceViewerAdapter('pdf'));
+useWorkspaceSourceCapabilityProjection(activeDocumentDriver, documentSourceCapabilities);
 
 const {
     scheduleStartupOpenVisualReady,
@@ -931,8 +929,8 @@ const {
     isLoading,
     pdfError,
     djvuError,
-    showDjvuSource,
-    showNativePdfViewer,
+    showDjvuSource: driverShowsDjvuSource,
+    showNativePdfViewer: driverShowsNativePdf,
     openSurface: documentOpenSurface,
     markAnnotationCommentsLoading,
 });
@@ -993,10 +991,10 @@ const {
     activeViewerProps,
     activeViewerListeners,
     bindActiveViewerRef,
-} = useWorkspaceViewerAdapterBinding({
-    activeViewerAdapter: mountedViewerAdapter,
+} = useWorkspaceDocumentDriverBinding({
+    activeDocumentDriver: mountedDocumentDriver,
     onSourceCapabilitiesUpdate: (capabilities) => {
-        if (activeViewerAdapter.value) {
+        if (activeDocumentDriver.value) {
             documentSourceCapabilities.value = capabilities;
         }
     },
@@ -1012,13 +1010,11 @@ const {
     documentSourceCurrentResultIndex: computed(() => isActiveRef.value && showSidebar.value ? documentSourceSidebar.searchSession.currentResultIndex.value : -1),
     documentSourceSearchResults: computed(() => isActiveRef.value && showSidebar.value ? documentSourceSidebar.searchSession.results.value : []),
     currentPage,
-    djvuSourcePath,
     dragMode,
     fitMode,
     isAnySaving,
     isRenderActive: computed(() => isRenderActive),
     isWorkspaceLayoutResizing: isActiveViewerLayoutResizing,
-    nativePdfSourcePath,
     pageMatches: viewerSearchPageMatches,
     pdfReloadSrc,
     pdfRasterDisplayProfile,
@@ -1056,7 +1052,7 @@ const {
     onNavigationFeedbackPageUpdate: value => { navigationFeedbackPage.value = value; if (value !== null) beginProgrammaticPageNavigation(value); },
     onShapeContextMenu: annotationSession.handleShapeContextMenu,
     onTotalPagesUpdate: (value) => {
-        if (activeViewerAdapter.value || value === 0) {
+        if (activeDocumentDriver.value || value === 0) {
             handleViewerTotalPagesUpdate(value);
         }
     },
@@ -1095,7 +1091,7 @@ const {
     showDjvuConversionUi,
     showWorkspaceViewerDocument: showWorkspaceViewerDocumentFromAdapter,
 } = useDocumentWorkspaceViewerPresentation({
-    activeViewerCapabilities: computed(() => activeViewerCapabilities.value ?? null),
+    activeViewerCapabilities: computed(() => activeDriverCapabilities.value ?? null),
     canUseDjvu,
     conversionState,
     documentOpenReady: computed(() => documentOpenSurface.snapshot.value.phase === 'ready'),
@@ -1103,9 +1099,9 @@ const {
     djvuShowBanner,
     initialDocumentVisualReady,
     pendingDjvuDocumentOpen,
-    showDjvuSource,
-    showNativePdfViewer,
-    showStandardPdfViewer,
+    showDjvuSource: driverShowsDjvuSource,
+    showNativePdfViewer: driverShowsNativePdf,
+    showStandardPdfViewer: driverShowsPdfSidebar,
 });
 const showWorkspaceViewerDocument = computed(() => {
     const phase = documentOpenSurface.snapshot.value.phase;
@@ -1251,10 +1247,10 @@ function handlePdfViewerLoadError(error: unknown) {
     const message = getErrorMessage(error).trim();
     pdfError.value = message || t('errors.file.open');
 }
-watch(showNativePreviewViewer, (visible) => {
-    if (visible) {
+watch(driverStartupVisualSource, (source) => {
+    if (source) {
         navigationFeedbackPage.value = null;
-        scheduleStartupOpenVisualReady(showNativePdfViewer.value ? 'native-pdf-src' : 'djvu-src');
+        scheduleStartupOpenVisualReady(source);
     }
 });
 useDocumentOpenedAutomationEvent({
@@ -1342,7 +1338,7 @@ const {
     closeShapeProperties: annotationSession.closeShapeProperties,
     closeTextMarkupProperties: annotationSession.closeTextMarkupProperties,
     continuousScroll,
-    viewerCapabilities: computed(() => activeViewerCapabilities.value ?? createDefaultWorkspaceViewerCapabilities()),
+    viewerCapabilities: computed(() => activeDriverCapabilities.value ?? createDefaultWorkspaceViewerCapabilities()),
     currentPage,
     documentIdentity: documentRevisionInfo,
     fitMode,
@@ -1483,7 +1479,7 @@ const workspaceExpose: IWorkspaceExpose = createWorkspaceExpose({
     pageOpsInsert: documentControls.pageOpsInsert,
     totalPages,
     isDjvuMode,
-    viewerCapabilities: computed(() => activeViewerCapabilities.value ?? createDefaultWorkspaceViewerCapabilities()),
+    viewerCapabilities: computed(() => activeDriverCapabilities.value ?? createDefaultWorkspaceViewerCapabilities()),
     openConvertDialog,
     captureSplitPayload,
     restoreSplitPayload,

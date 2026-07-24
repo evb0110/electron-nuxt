@@ -42,21 +42,6 @@ const removableRulePatterns = [
     '#outerContainer.viewsManager',
 ];
 
-function parseArgs(args) {
-    const parsed = {check: false};
-
-    for (const arg of args) {
-        if (arg === '--check') {
-            parsed.check = true;
-            continue;
-        }
-
-        throw new Error(`Unknown argument: ${arg}`);
-    }
-
-    return parsed;
-}
-
 function collectBlockRanges(cssText, shouldRemoveBlock) {
     const ranges = [];
     const stack = [{ segmentStart: 0 }];
@@ -246,81 +231,6 @@ async function syncImages(imageNames) {
     }));
 }
 
-async function readTargetImageNames() {
-    try {
-        return (await readdir(targetImagesDir))
-            .filter(imageName => !imageName.startsWith('.'))
-            .sort((left, right) => left.localeCompare(right));
-    } catch (error) {
-        if (error?.code === 'ENOENT') {
-            return [];
-        }
-
-        throw error;
-    }
-}
-
-function arraysEqual(left, right) {
-    return left.length === right.length && left.every((value, index) => value === right[index]);
-}
-
-async function assertImageFreshness(referencedImages) {
-    const targetImageNames = await readTargetImageNames();
-    const drifted = [];
-
-    if (!arraysEqual(targetImageNames, referencedImages)) {
-        drifted.push(`public/pdfjs/images image list (expected ${referencedImages.join(', ') || '<none>'}; received ${targetImageNames.join(', ') || '<none>'})`);
-    }
-
-    await Promise.all(referencedImages.map(async (imageName) => {
-        const [
-            sourceImage,
-            targetImage,
-        ] = await Promise.all([
-            readFile(path.join(sourceImagesDir, imageName)),
-            readFile(path.join(targetImagesDir, imageName)).catch((error) => {
-                if (error?.code === 'ENOENT') {
-                    return null;
-                }
-                throw error;
-            }),
-        ]);
-
-        if (targetImage === null || Buffer.compare(sourceImage, targetImage) !== 0) {
-            drifted.push(`public/pdfjs/images/${imageName}`);
-        }
-    }));
-
-    return drifted;
-}
-
-async function assertFreshness({
-    normalizedCss,
-    referencedImages,
-}) {
-    const drifted = [];
-    const targetCss = await readFile(targetCssPath, 'utf8').catch((error) => {
-        if (error?.code === 'ENOENT') {
-            return null;
-        }
-        throw error;
-    });
-
-    if (targetCss !== normalizedCss) {
-        drifted.push(path.relative(projectRoot, targetCssPath));
-    }
-
-    drifted.push(...await assertImageFreshness(referencedImages));
-
-    if (drifted.length > 0) {
-        throw new Error([
-            'PDF.js viewer CSS assets are out of sync:',
-            ...drifted.map(file => `  ${file}`),
-            'Run `pnpm run copy:pdfjs` and commit the regenerated assets.',
-        ].join('\n'));
-    }
-}
-
 export async function createPdfjsViewerCssSyncPlan() {
     const [
         sourceCss,
@@ -350,38 +260,28 @@ export async function createPdfjsViewerCssSyncPlan() {
     };
 }
 
-export async function syncPdfjsViewerCss({check = false} = {}) {
+export async function syncPdfjsViewerCss() {
     const plan = await createPdfjsViewerCssSyncPlan();
     const {
         normalizedCss,
         referencedImages,
     } = plan;
 
-    if (check) {
-        await assertFreshness(plan);
-        return {
-            checked: true,
-            imageCount: referencedImages.length,
-        };
-    }
-
     await mkdir(path.dirname(targetCssPath), { recursive: true });
     await writeFile(targetCssPath, normalizedCss, 'utf8');
     await syncImages(referencedImages);
 
-    return {
-        checked: false,
-        imageCount: referencedImages.length,
-    };
+    return {imageCount: referencedImages.length};
 }
 
 async function main() {
-    const args = parseArgs(process.argv.slice(2));
-    const result = await syncPdfjsViewerCss({check: args.check});
-
-    console.log(result.checked
-        ? `PDF.js viewer CSS is fresh (${result.imageCount} image assets): ${path.relative(projectRoot, targetCssPath)}`
-        : `Synced PDF.js viewer CSS (${result.imageCount} image assets): ${path.relative(projectRoot, targetCssPath)}`);
+    if (process.argv.length > 2) {
+        throw new Error('Usage: node scripts/sync-pdfjs-viewer-css.mjs');
+    }
+    const result = await syncPdfjsViewerCss();
+    console.log(
+        `Synced PDF.js viewer CSS (${result.imageCount} image assets): ${path.relative(projectRoot, targetCssPath)}`,
+    );
 }
 
 const isDirectCliRun = process.argv[1]

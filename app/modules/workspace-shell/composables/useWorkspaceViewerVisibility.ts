@@ -3,49 +3,34 @@ import type {
     Ref,
 } from 'vue';
 import type { TDocumentRef } from '@contracts/documentRef';
-import type { TPdfSource } from '@app/types/pdfUi';
-import { useWorkspaceActiveViewerAdapter } from '@app/modules/workspace-shell/viewers/useWorkspaceActiveViewerAdapter';
+import type { IWorkspaceDocumentDriver } from '@app/modules/workspace-shell/viewers/workspaceDocumentDriver';
 
 interface IWorkspaceViewerVisibilityOptions {
+    activeDocumentDriver: ComputedRef<IWorkspaceDocumentDriver | null>;
     djvuOpeningPath: Ref<TDocumentRef | null>;
-    djvuSourcePath: Ref<TDocumentRef | null>;
     hasPdf: ComputedRef<boolean> | Ref<boolean>;
     hasQueuedSplitRestore: ComputedRef<boolean> | Ref<boolean>;
     isAnySaving: ComputedRef<boolean> | Ref<boolean>;
-    isDjvuMode: Ref<boolean>;
     isExternallyRestoring: Ref<boolean>;
     isHistoryBusy: ComputedRef<boolean> | Ref<boolean>;
     isOcrRunning: Ref<boolean>;
     isRestoringSplitPayload: Ref<boolean>;
     pendingDocumentOpen: ComputedRef<boolean> | Ref<boolean>;
-    pendingDocumentPath: ComputedRef<TDocumentRef | null> | Ref<TDocumentRef | null>;
-    pendingDocumentSize?: ComputedRef<number | null> | Ref<number | null>;
-    pdfSrc: Ref<TPdfSource | null>;
     showSidebar: Ref<boolean>;
     conversionState: Ref<{isConverting: boolean;}>;
 }
 
 export const useWorkspaceViewerVisibility = (options: IWorkspaceViewerVisibilityOptions) => {
-    const {
-        activeViewerAdapter,
-        activeViewerCapabilities,
-        nativePdfSourcePath,
-    } = useWorkspaceActiveViewerAdapter({
-        djvuSourcePath: options.djvuSourcePath,
-        isDjvuMode: options.isDjvuMode,
-        pdfSrc: options.pdfSrc,
-        pendingDocumentPath: options.pendingDocumentPath,
-        ...(options.pendingDocumentSize === undefined
-            ? {}
-            : {pendingDocumentSize: options.pendingDocumentSize}),
-    });
-    const showNativePdfViewer = computed(() => activeViewerAdapter.value?.id === 'native-pdf');
-    const showStandardPdfViewer = computed(() => activeViewerAdapter.value?.id === 'pdf');
-    const showDjvuSource = computed(() => activeViewerAdapter.value?.id === 'djvu');
-    const showNativePreviewViewer = computed(() => !activeViewerCapabilities.value?.sidebar && Boolean(activeViewerAdapter.value));
+    const activeDriverCapabilities = computed(() => options.activeDocumentDriver.value?.capabilities);
+    const driverShowsNativePdf = computed(() => options.activeDocumentDriver.value?.view.showNativePdf === true);
+    const driverShowsPdfSidebar = computed(() => options.activeDocumentDriver.value?.view.showPdfSidebar === true);
+    const driverShowsDjvuSource = computed(() => options.activeDocumentDriver.value?.view.showDjvuSource === true);
+    const driverStartupVisualSource = computed(() => (
+        options.activeDocumentDriver.value?.view.startupVisualSource ?? null
+    ));
     const isDjvuOpening = computed(() => (
         Boolean(options.djvuOpeningPath.value)
-        && !showDjvuSource.value
+        && !driverShowsDjvuSource.value
     ));
     const isDocumentOpenPlaceholderVisible = computed(() => (
         options.pendingDocumentOpen.value
@@ -62,8 +47,8 @@ export const useWorkspaceViewerVisibility = (options: IWorkspaceViewerVisibility
     const toolbarHasPdf = computed(() => (
         options.hasPdf.value
         || options.pendingDocumentOpen.value
-        || showNativePdfViewer.value
-        || showDjvuSource.value
+        || driverShowsNativePdf.value
+        || driverShowsDjvuSource.value
         || isDjvuOpening.value
         || options.hasQueuedSplitRestore.value
         || options.isRestoringSplitPayload.value
@@ -71,11 +56,11 @@ export const useWorkspaceViewerVisibility = (options: IWorkspaceViewerVisibility
     ));
     const toolbarShowSidebar = computed(() => (
         options.showSidebar.value
-        && activeViewerCapabilities.value?.sidebar === true
+        && activeDriverCapabilities.value?.sidebar === true
     ));
     const canToggleSidebar = computed(() => (
         toolbarHasPdf.value
-        && activeViewerCapabilities.value?.sidebar === true
+        && activeDriverCapabilities.value?.sidebar === true
         && !toolbarDocumentBusy.value
     ));
     const canRepairSave = computed(() => (
@@ -83,17 +68,15 @@ export const useWorkspaceViewerVisibility = (options: IWorkspaceViewerVisibility
         && !toolbarDocumentBusy.value
         && !options.isAnySaving.value
         && !options.isHistoryBusy.value
-        && activeViewerCapabilities.value?.repairSave === true
+        && activeDriverCapabilities.value?.repairSave === true
     ));
 
     return {
-        activeViewerAdapter,
-        activeViewerCapabilities,
-        nativePdfSourcePath,
-        showNativePdfViewer,
-        showStandardPdfViewer,
-        showDjvuSource,
-        showNativePreviewViewer,
+        activeDriverCapabilities,
+        driverShowsNativePdf,
+        driverShowsPdfSidebar,
+        driverShowsDjvuSource,
+        driverStartupVisualSource,
         isDjvuOpening,
         isDocumentOpenPlaceholderVisible,
         isOpeningDocumentForToolbar,

@@ -8,6 +8,11 @@ import {
 import type { TRegisteredHandler } from '@tests/unit/electron/helpers/ipcRegistryHarness';
 import { IMAGE_EXPORT_PLATFORM_FEATURE } from '@contracts/imageExportPlatformFeature';
 import { registerPlatformFeatureHandlers } from '@electron/platform-ipc/validatedIpcRegistrar';
+import {
+    createDeferred,
+    createTestEventSender,
+    type ITestEventSender,
+} from '@tests/helpers/electronEventEmitterHarness';
 
 const mocks = vi.hoisted(() => ({
     ensureWorkingCopyDirectory: vi.fn(async () => true),
@@ -66,16 +71,6 @@ function registerImageExportHandlers(registrar: {handle: (channel: string, handl
     );
 }
 
-interface ITestSender {
-    id: number;
-    destroyed: boolean;
-    isDestroyed: () => boolean;
-    once: ReturnType<typeof vi.fn>;
-    on: ReturnType<typeof vi.fn>;
-    removeListener: ReturnType<typeof vi.fn>;
-    send: ReturnType<typeof vi.fn>;
-}
-
 interface ITestProgressPayload {
     phase: 'rendering' | 'combining';
     processed: number;
@@ -87,20 +82,11 @@ interface ITestProgressOptions { onProgress?: (progress: ITestProgressPayload) =
 
 let nextSenderId = 7;
 
-function createSender(): ITestSender {
-    const sender: ITestSender = {
-        id: nextSenderId++,
-        destroyed: false,
-        isDestroyed: () => sender.destroyed,
-        once: vi.fn(),
-        on: vi.fn(),
-        removeListener: vi.fn(),
-        send: vi.fn(),
-    };
-    return sender;
+function createSender() {
+    return createTestEventSender(nextSenderId++);
 }
 
-function createContext(sender: ITestSender) {
+function createContext(sender: ITestEventSender) {
     return {
         sender: sender as never,
         senderId: sender.id,
@@ -108,36 +94,16 @@ function createContext(sender: ITestSender) {
     };
 }
 
-function createDeferred<T>() {
-    let resolve!: (value: T | PromiseLike<T>) => void;
-    const promise = new Promise<T>((resolvePromise) => {
-        resolve = resolvePromise;
-    });
-    return {
-        promise,
-        resolve,
-    };
-}
-
-function createIpcEvent(sender: ITestSender) {
+function createIpcEvent(sender: ITestEventSender) {
     return {sender: sender as never};
 }
 
-function triggerRenderProcessGone(sender: ITestSender) {
-    const handler = sender.once.mock.calls
-        .find(call => call[0] === 'render-process-gone')?.[1] as (() => void) | undefined;
-    handler?.();
+function triggerRenderProcessGone(sender: ITestEventSender) {
+    sender.emit('render-process-gone');
 }
 
-function triggerMainFrameNavigation(sender: ITestSender) {
-    const handler = sender.on.mock.calls
-        .find(call => call[0] === 'did-start-navigation')?.[1] as ((
-            event: unknown,
-            url: string,
-            isInPlace: boolean,
-            isMainFrame: boolean,
-        ) => void) | undefined;
-    handler?.({}, 'app://reload', false, true);
+function triggerMainFrameNavigation(sender: ITestEventSender) {
+    sender.emit('did-start-navigation', {}, 'app://reload', false, true);
 }
 
 describe('image export IPC lifecycle', () => {
@@ -254,53 +220,59 @@ describe('image export IPC lifecycle', () => {
         expect(mocks.exportPdfPagesAsImages).not.toHaveBeenCalled();
     });
 
-    it('rejects malformed page number arrays before opening an image export dialog', async () => {
-        const sender = createSender();
-
-        await expect(handlePdfExportImages(
-            createContext(sender),
-            '/tmp/working.pdf',
-            [
+    it.each([
+        {
+            name: 'malformed page numbers',
+            pageCount: 10,
+            pages: [
                 1,
                 '2' as never,
             ],
-        )).rejects.toThrow('Invalid page number at index 1');
-
-        expect(mocks.showSaveDialog).not.toHaveBeenCalled();
-        expect(mocks.exportPdfPagesAsImages).not.toHaveBeenCalled();
-    });
-
-    it('rejects duplicate page numbers before opening an image export dialog', async () => {
-        const sender = createSender();
-
-        await expect(handlePdfExportImages(
-            createContext(sender),
-            '/tmp/working.pdf',
-            [
+            error: 'Invalid page number at index 1',
+        },
+        {
+            name: 'duplicate page numbers',
+            pageCount: 10,
+            pages: [
                 2,
                 2,
             ],
-        )).rejects.toThrow('Duplicate page number: 2');
-
-        expect(mocks.showSaveDialog).not.toHaveBeenCalled();
-        expect(mocks.exportPdfPagesAsImages).not.toHaveBeenCalled();
-    });
-
-    it('rejects page numbers beyond the PDF page count before opening an image export dialog', async () => {
+            error: 'Duplicate page number: 2',
+        },
+        {
+            name: 'page numbers beyond the document',
+            pageCount: 3,
+            pages: [4],
+            error: 'Page number 4 exceeds PDF page count (3)',
+        },
+    ])('rejects $name before opening an image export dialog', async ({
+        error,
+        pageCount,
+        pages,
+    }) => {
         const sender = createSender();
-        mocks.getPdfPageCount.mockResolvedValueOnce(3);
+        mocks.getPdfPageCount.mockReset().mockResolvedValue(pageCount);
 
         await expect(handlePdfExportImages(
             createContext(sender),
             '/tmp/working.pdf',
-            [4],
-        )).rejects.toThrow('Page number 4 exceeds PDF page count (3)');
+            pages,
+        )).rejects.toThrow(error);
 
         expect(mocks.showSaveDialog).not.toHaveBeenCalled();
         expect(mocks.exportPdfPagesAsImages).not.toHaveBeenCalled();
     });
 
-    it('aborts page image export when the owning renderer crashes', async () => {
+    it.each([
+        {
+            name: 'crashes',
+            endLifecycle: triggerRenderProcessGone,
+        },
+        {
+            name: 'navigates its main frame',
+            endLifecycle: triggerMainFrameNavigation,
+        },
+    ])('aborts page image export when the owning renderer $name', async ({endLifecycle}) => {
         const sender = createSender();
         const exportState: {signal: AbortSignal | undefined} = { signal: undefined };
         mocks.exportPdfPagesAsImages.mockImplementation(async (
@@ -325,41 +297,7 @@ describe('image export IPC lifecycle', () => {
         await vi.waitFor(() => {
             expect(mocks.exportPdfPagesAsImages).toHaveBeenCalledOnce();
         });
-        triggerRenderProcessGone(sender);
-
-        await expect(resultPromise).resolves.toEqual({
-            success: false,
-            canceled: true,
-        });
-        expect(exportState.signal?.aborted).toBe(true);
-    });
-
-    it('cancels active image export when the renderer main frame navigates', async () => {
-        const sender = createSender();
-        const exportState: {signal: AbortSignal | undefined} = { signal: undefined };
-        mocks.exportPdfPagesAsImages.mockImplementation(async (
-            _sourcePath: string,
-            _outputPath: string,
-            options: { signal?: AbortSignal },
-        ) => {
-            exportState.signal = options.signal;
-            return new Promise<string[]>((_resolve, reject) => {
-                options.signal?.addEventListener('abort', () => {
-                    reject(new Error('Renderer lifecycle ended'));
-                }, { once: true });
-            });
-        });
-
-        const resultPromise = handlePdfExportImages(
-            createContext(sender),
-            '/tmp/working.pdf',
-            [1],
-        );
-
-        await vi.waitFor(() => {
-            expect(mocks.exportPdfPagesAsImages).toHaveBeenCalledOnce();
-        });
-        triggerMainFrameNavigation(sender);
+        endLifecycle(sender);
 
         await expect(resultPromise).resolves.toEqual({
             success: false,

@@ -9,6 +9,7 @@ import { tsImport } from 'tsx/esm/api';
 import {
     copyCargoArtifactVerified,
     getCargoArtifactPath,
+    parseCargoToolBuildRequest,
     resolveCargoTargetDirectory,
 } from './cargo-artifacts.mjs';
 import {
@@ -61,26 +62,26 @@ async function resolveTool(toolId) {
 }
 
 export async function runWasmToolBuilder(argv = process.argv.slice(2)) {
-    if (argv.includes('--help') || argv.includes('-h')) {
+    const request = parseCargoToolBuildRequest(argv, usage);
+    if (request.help) {
         console.log(usage);
         return;
     }
 
-    const dryRun = argv.includes('--dry-run');
-    const positional = argv.filter(arg => arg !== '--dry-run');
-    if (positional.length !== 1) {
-        throw new Error(usage);
-    }
-
+    const { generateNativeToolProtocols } = await tsImport(
+        './generateNativeToolProtocols.ts',
+        import.meta.url,
+    );
+    await generateNativeToolProtocols();
     const {
         artifact,
         tool,
-    } = await resolveTool(positional[0]);
+    } = await resolveTool(request.toolId);
     const plan = createWasmToolBuildPlan({
         artifact,
         projectRoot,
     });
-    if (dryRun) {
+    if (request.dryRun) {
         console.log(JSON.stringify({
             tool,
             ...plan,

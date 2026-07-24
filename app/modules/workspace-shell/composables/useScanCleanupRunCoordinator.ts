@@ -36,11 +36,6 @@ export const useScanCleanupRunCoordinator = (
                 })
                 : false;
         },
-        runOcrOnActiveDocument: async () => {
-            await nextTick();
-            const result = await activeWorkspace.value?.runAgentAction('ocr.start', {});
-            return result?.ok === true;
-        },
         saveActiveDocumentAs: async () => activeWorkspace.value?.handleSaveAs() ?? false,
         openScanCleanupForDocument: async (documentRef) => {
             const owner = Object.entries(documentSessionsByTabId.value).find(([

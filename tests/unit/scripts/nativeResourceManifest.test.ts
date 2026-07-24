@@ -102,7 +102,7 @@ describe('native resource manifest', () => {
         }
 
         expect(NATIVE_TOOL_RESOURCE_FAMILIES
-            .filter(family => family.sourceKind === 'generated')
+            .filter(family => family.sourceRootSegments[0] === '.tmp')
             .map(family => family.sourceRootSegments.join('/'))).toEqual([
             '.tmp/pdf-image-combine',
             '.tmp/pdf-page-ops',

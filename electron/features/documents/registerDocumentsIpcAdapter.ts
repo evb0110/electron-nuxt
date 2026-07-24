@@ -12,10 +12,14 @@ import type {
 } from '@contracts/ipcMain';
 import {
     DOCUMENT_MENU_PLATFORM_FEATURE,
+    DOCUMENT_FILES_PLATFORM_FEATURE,
+    DOCUMENT_OPEN_PLATFORM_FEATURE,
+    DOCUMENT_PDF_PLATFORM_FEATURE,
     DOCUMENT_PICKER_PLATFORM_FEATURE,
     DOCUMENT_RECENT_FILES_PLATFORM_FEATURE,
-    DOCUMENTS_SIMPLE_PLATFORM_FEATURES,
+    DOCUMENT_PLATFORM_FEATURES,
     DOCUMENT_WINDOW_PLATFORM_FEATURE,
+    DOCUMENT_WORKING_COPY_PLATFORM_FEATURE,
 } from '@contracts/documentsPlatformFeature';
 import type { TFeatureMainBindings } from '@contracts/platformFeature';
 import { isRecord } from '@contracts/runtimeGuards';
@@ -29,7 +33,6 @@ import type {
     IDocumentsSenderIdContext,
     IDocumentsService,
     IDocumentsWebContentsContext,
-    IDocumentsWindowContext,
 } from '@electron/features/documents/documentsService';
 import { attachSerializedPdfPersistencePort } from '@electron/features/documents/public';
 import {
@@ -74,7 +77,7 @@ const rendererFileOpenTokenCleanupSenders = new Set<number>();
 function getDistinctDocumentsChannelValues() {
     return [...new Set<string>([
         ...Object.values(DOCUMENTS_CHANNELS),
-        ...DOCUMENTS_SIMPLE_PLATFORM_FEATURES.flatMap(feature =>
+        ...DOCUMENT_PLATFORM_FEATURES.flatMap(feature =>
             [...feature.invokeChannelSet]),
     ])];
 }
@@ -180,13 +183,6 @@ function createDialogContext(event: IpcMainInvokeEvent): IDocumentsDialogContext
     return {
         ...createWebContentsContext(event),
         parentWindow: BrowserWindow.fromWebContents(event.sender),
-    };
-}
-
-function createWindowContext(event: IpcMainInvokeEvent): IDocumentsWindowContext {
-    return {
-        senderId: getSenderId(event),
-        window: BrowserWindow.fromWebContents(event.sender),
     };
 }
 
@@ -332,11 +328,17 @@ function isValidRendererFileOpenPath(filePath: string) {
     return existsSync(filePath) && isSupportedOpenPath(filePath);
 }
 
-async function requireWorkingCopySourcePath(event: IpcMainInvokeEvent, sourcePath: string): Promise<TOpenPath> {
+async function requireWorkingCopySourcePath(
+    context: {
+        sender: IpcMainInvokeEvent['sender'];
+        senderId: number;
+    },
+    sourcePath: string,
+): Promise<TOpenPath> {
     try {
-        return requireOpenPath(sourcePath, event.sender);
+        return requireOpenPath(sourcePath, context.sender);
     } catch {
-        return requireManagedWorkingCopyPath(sourcePath, getSenderId(event));
+        return requireManagedWorkingCopyPath(sourcePath, context.senderId);
     }
 }
 
@@ -393,6 +395,123 @@ export function registerDocumentsIpcAdapter(
             ...context,
             parentWindow: BrowserWindow.fromWebContents(context.sender),
         }),
+        openDocumentDirect: (context, filePath) =>
+            service.openDocumentDirect(context, filePath),
+        openDocumentDirectBatch: (context, filePaths, requestId, batchOptions) =>
+            service.openDocumentDirectBatch(context, filePaths, requestId, batchOptions),
+        cancelOpenDocumentDirectBatch: (context, requestId) =>
+            service.cancelOpenDocumentDirectBatch(context, requestId),
+        createWorkingCopyFromData: (context, fileName, data, originalPath) =>
+            service.createWorkingCopyFromData(context, fileName, data, originalPath),
+        createWorkingCopyFromPath: async (context, sourcePath, originalPath) => {
+            const trustedSourcePath = await requireWorkingCopySourcePath(context, sourcePath);
+            return service.createWorkingCopyFromPath(context, trustedSourcePath, originalPath);
+        },
+        cleanupFile: (context, workingPath) =>
+            service.cleanupFile(context, workingPath).then(() => undefined),
+        cleanupOcrTemp: (context, filePath) =>
+            service.cleanupOcrTemp(context, filePath).then(() => undefined),
+        readFile: (context, filePath) =>
+            service.readFile(context, filePath),
+        statFile: (context, filePath) =>
+            service.statFile(context, filePath),
+        readFileRange: (context, filePath, offset, length) =>
+            service.readFileRange(context, filePath, offset, length),
+        createManagedTempFileHandle: (context, filePath) =>
+            service.createManagedTempFileHandle(context, filePath),
+        releaseManagedTempFileHandle: (context, leaseId) =>
+            service.releaseManagedTempFileHandle(context, leaseId),
+        getPdfOpeningGeometry: (context, filePath) =>
+            service.getPdfOpeningGeometry(context, filePath),
+        getPdfNativePageSizes: (context, filePath) =>
+            service.getPdfNativePageSizes(context, filePath),
+        cancelPdfNativePagePreview: (context, requestId) =>
+            service.cancelPdfNativePagePreview(context, requestId),
+        renderPdfNativePagePreview: (context, filePath, pageNumber, previewOptions) =>
+            service.renderPdfNativePagePreview(context, filePath, pageNumber, previewOptions),
+        readTextFile: (context, filePath) =>
+            service.readTextFile(context, filePath),
+        fileExists: (context, filePath) =>
+            service.fileExists(context, filePath),
+        getDocumentRevision: (context, filePath) =>
+            service.getDocumentRevision(context, filePath),
+        savePdfAs: (context, workingPath, saveOptions, revisionOptions) =>
+            service.savePdfAs({
+                ...context,
+                parentWindow: BrowserWindow.fromWebContents(context.sender),
+            }, workingPath, saveOptions, revisionOptions),
+        savePdfDialog: (context, suggestedName) =>
+            service.savePdfDialog({
+                ...context,
+                parentWindow: BrowserWindow.fromWebContents(context.sender),
+            }, suggestedName),
+        saveDocxAs: (context, workingPath) =>
+            service.saveDocxAs({
+                ...context,
+                parentWindow: BrowserWindow.fromWebContents(context.sender),
+            }, workingPath),
+        writeFile: (context, filePath, data, revisionOptions) =>
+            service.writeFile(context, filePath, data, revisionOptions),
+        replaceWorkingCopyFromPath: (context, workingPath, sourcePath, revisionOptions) =>
+            service.replaceWorkingCopyFromPath(context, workingPath, sourcePath, revisionOptions),
+        writeDocxFile: (context, filePath, data) =>
+            service.writeDocxFile(context, filePath, data),
+        saveFileStructured: (context, workingPath, revisionOptions) =>
+            service.saveFileStructured(context, workingPath, revisionOptions),
+        resyncWorkingCopy: (context, workingPath) =>
+            service.resyncWorkingCopy(context, workingPath),
+        repairPdf: (context, workingPath, revisionOptions) =>
+            service.repairPdf(context, workingPath, revisionOptions),
+        optimizePdfForInteraction: (context, workingPath, revisionOptions) =>
+            service.optimizePdfForInteraction(context, workingPath, revisionOptions),
+        optimizePdfAsCopy: (context, workingPath, optimizeOptions, requestId, revisionOptions) =>
+            service.optimizePdfAsCopy({
+                ...context,
+                parentWindow: BrowserWindow.fromWebContents(context.sender),
+            }, workingPath, optimizeOptions, requestId, revisionOptions),
+        savePdfNoteTextUpdates: (context, workingPath, updates, modifiedAt, revisionOptions) =>
+            service.savePdfNoteTextUpdates(context, workingPath, updates, modifiedAt, revisionOptions),
+        savePdfNoteChanges: (context, workingPath, changes, modifiedAt, revisionOptions) =>
+            service.savePdfNoteChanges(context, workingPath, changes, modifiedAt, revisionOptions),
+        savePdfNativeMutations: (context, workingPath, mutations, modifiedAt, revisionOptions) =>
+            service.savePdfNativeMutations(context, workingPath, mutations, modifiedAt, revisionOptions),
+        applyPdfNativeMutationsToWorkingCopy: (
+            context,
+            workingPath,
+            mutations,
+            modifiedAt,
+            expectedBase,
+            revisionOptions,
+        ) => service.applyPdfNativeMutationsToWorkingCopy(
+            context,
+            workingPath,
+            mutations,
+            modifiedAt,
+            expectedBase,
+            revisionOptions,
+        ),
+        commitStagedPdfNativeMutations: (context, workingPath, stagedOutput, revisionOptions) =>
+            service.commitStagedPdfNativeMutations(context, workingPath, stagedOutput, revisionOptions),
+        analyzePdfConformance: (context, filePath) =>
+            service.analyzePdfConformance(context, filePath),
+        validatePdfData: (data, fileName) =>
+            service.validatePdfData(data, fileName),
+        validatePdfPath: (context, filePath) =>
+            service.validatePdfPath(context, filePath),
+        openPdfInDefaultAppData: (data, fileName) =>
+            service.openPdfInDefaultAppData(data, fileName),
+        openPdfInDefaultAppPath: (context, filePath, fileName) =>
+            service.openPdfInDefaultAppPath(context, filePath, fileName),
+        printPdfData: (context, data, fileName) =>
+            service.printPdfData({
+                senderId: context.senderId,
+                window: BrowserWindow.fromWebContents(context.sender),
+            }, data, fileName),
+        printPdfPath: (context, filePath, fileName, pageNumbers) =>
+            service.printPdfPath({
+                senderId: context.senderId,
+                window: BrowserWindow.fromWebContents(context.sender),
+            }, filePath, fileName, pageNumbers),
         getRecentFiles: context => service.getRecentFiles(context),
         removeRecentFile: async (originalPath) => {
             await service.removeRecentFile(originalPath);
@@ -427,50 +546,22 @@ export function registerDocumentsIpcAdapter(
         },
     } satisfies
         TFeatureMainBindings<typeof DOCUMENT_PICKER_PLATFORM_FEATURE, IpcMainInvokeEvent>
+        & TFeatureMainBindings<typeof DOCUMENT_OPEN_PLATFORM_FEATURE, IpcMainInvokeEvent>
+        & TFeatureMainBindings<typeof DOCUMENT_WORKING_COPY_PLATFORM_FEATURE, IpcMainInvokeEvent>
+        & TFeatureMainBindings<typeof DOCUMENT_FILES_PLATFORM_FEATURE, IpcMainInvokeEvent>
+        & TFeatureMainBindings<typeof DOCUMENT_PDF_PLATFORM_FEATURE, IpcMainInvokeEvent>
         & TFeatureMainBindings<typeof DOCUMENT_RECENT_FILES_PLATFORM_FEATURE, IpcMainInvokeEvent>
         & TFeatureMainBindings<typeof DOCUMENT_WINDOW_PLATFORM_FEATURE, IpcMainInvokeEvent>
         & TFeatureMainBindings<typeof DOCUMENT_MENU_PLATFORM_FEATURE, IpcMainInvokeEvent>;
     registerPlatformFeatureHandlers(featureRegistrar as never, DOCUMENT_PICKER_PLATFORM_FEATURE, featureBindings);
+    registerPlatformFeatureHandlers(featureRegistrar as never, DOCUMENT_OPEN_PLATFORM_FEATURE, featureBindings);
+    registerPlatformFeatureHandlers(featureRegistrar as never, DOCUMENT_WORKING_COPY_PLATFORM_FEATURE, featureBindings);
+    registerPlatformFeatureHandlers(featureRegistrar as never, DOCUMENT_FILES_PLATFORM_FEATURE, featureBindings);
+    registerPlatformFeatureHandlers(featureRegistrar as never, DOCUMENT_PDF_PLATFORM_FEATURE, featureBindings);
     registerPlatformFeatureHandlers(featureRegistrar as never, DOCUMENT_RECENT_FILES_PLATFORM_FEATURE, featureBindings);
     registerPlatformFeatureHandlers(featureRegistrar as never, DOCUMENT_WINDOW_PLATFORM_FEATURE, featureBindings);
     registerPlatformFeatureHandlers(featureRegistrar as never, DOCUMENT_MENU_PLATFORM_FEATURE, featureBindings);
 
-    register(DOCUMENTS_CHANNELS.openDocumentDirect, (
-        event: IpcMainInvokeEvent,
-        ...[filePath]: TDocumentsIpcArgs<typeof DOCUMENTS_CHANNELS.openDocumentDirect>
-    ) =>
-        service.openDocumentDirect(createWebContentsContext(event), filePath));
-    register(DOCUMENTS_CHANNELS.openDocumentDirectBatch, (
-        event: IpcMainInvokeEvent,
-        ...[
-            filePaths,
-            requestId,
-            options,
-        ]: TDocumentsIpcArgs<typeof DOCUMENTS_CHANNELS.openDocumentDirectBatch>
-    ) =>
-        service.openDocumentDirectBatch(createWebContentsContext(event), filePaths, requestId, options));
-    register(DOCUMENTS_CHANNELS.cancelOpenDocumentDirectBatch, (
-        event: IpcMainInvokeEvent,
-        ...[requestId]: TDocumentsIpcArgs<typeof DOCUMENTS_CHANNELS.cancelOpenDocumentDirectBatch>
-    ) => service.cancelOpenDocumentDirectBatch(createWebContentsContext(event), requestId));
-    register(DOCUMENTS_CHANNELS.createWorkingCopyFromData, (
-        event: IpcMainInvokeEvent,
-        ...[
-            fileName,
-            data,
-            originalPath,
-        ]: TDocumentsIpcArgs<typeof DOCUMENTS_CHANNELS.createWorkingCopyFromData>
-    ) =>
-        service.createWorkingCopyFromData(createSenderIdContext(event), fileName, data, originalPath));
-    register(DOCUMENTS_CHANNELS.savePdfAs, (
-        event: IpcMainInvokeEvent,
-        ...[
-            workingPath,
-            options,
-            revisionOptions,
-        ]: TDocumentsIpcArgs<typeof DOCUMENTS_CHANNELS.savePdfAs>
-    ) =>
-        service.savePdfAs(createDialogContext(event), workingPath, options, revisionOptions));
     register(DOCUMENTS_CHANNELS.savePdfDataAs, (
         event: IpcMainInvokeEvent,
         ...[
@@ -491,196 +582,6 @@ export function registerDocumentsIpcAdapter(
         ]: TDocumentsIpcArgs<typeof DOCUMENTS_CHANNELS.savePdfDataAsBegin>
     ) =>
         service.beginSavePdfDataAs(createDialogContext(event), workingPath, totalBytes, options, serializedSaveOptions));
-    register(DOCUMENTS_CHANNELS.savePdfDialog, (
-        event: IpcMainInvokeEvent,
-        ...[suggestedName]: TDocumentsIpcArgs<typeof DOCUMENTS_CHANNELS.savePdfDialog>
-    ) =>
-        service.savePdfDialog(createDialogContext(event), suggestedName));
-    register(DOCUMENTS_CHANNELS.saveDocxAs, (
-        event: IpcMainInvokeEvent,
-        ...[workingPath]: TDocumentsIpcArgs<typeof DOCUMENTS_CHANNELS.saveDocxAs>
-    ) =>
-        service.saveDocxAs(createDialogContext(event), workingPath));
-    register(DOCUMENTS_CHANNELS.fileRead, (
-        event: IpcMainInvokeEvent,
-        ...[filePath]: TDocumentsIpcArgs<typeof DOCUMENTS_CHANNELS.fileRead>
-    ) => service.readFile(createSenderIdContext(event), filePath));
-    register(DOCUMENTS_CHANNELS.fileStat, (
-        event: IpcMainInvokeEvent,
-        ...[filePath]: TDocumentsIpcArgs<typeof DOCUMENTS_CHANNELS.fileStat>
-    ) => service.statFile(createSenderIdContext(event), filePath));
-    register(DOCUMENTS_CHANNELS.fileReadRange, (
-        event: IpcMainInvokeEvent,
-        ...[
-            filePath,
-            offset,
-            length,
-        ]: TDocumentsIpcArgs<typeof DOCUMENTS_CHANNELS.fileReadRange>
-    ) =>
-        service.readFileRange(createSenderIdContext(event), filePath, offset, length));
-    register(DOCUMENTS_CHANNELS.fileCreateManagedHandle, (
-        event: IpcMainInvokeEvent,
-        ...[filePath]: TDocumentsIpcArgs<typeof DOCUMENTS_CHANNELS.fileCreateManagedHandle>
-    ) => service.createManagedTempFileHandle(createSenderIdContext(event), filePath));
-    register(DOCUMENTS_CHANNELS.fileReleaseManagedHandle, (
-        event: IpcMainInvokeEvent,
-        ...[leaseId]: TDocumentsIpcArgs<typeof DOCUMENTS_CHANNELS.fileReleaseManagedHandle>
-    ) => service.releaseManagedTempFileHandle(createSenderIdContext(event), leaseId));
-    register(DOCUMENTS_CHANNELS.pdfOpeningGeometry, (
-        event: IpcMainInvokeEvent,
-        ...[filePath]: TDocumentsIpcArgs<typeof DOCUMENTS_CHANNELS.pdfOpeningGeometry>
-    ) =>
-        service.getPdfOpeningGeometry(createSenderIdContext(event), filePath));
-    register(DOCUMENTS_CHANNELS.pdfNativePageSizes, (
-        event: IpcMainInvokeEvent,
-        ...[filePath]: TDocumentsIpcArgs<typeof DOCUMENTS_CHANNELS.pdfNativePageSizes>
-    ) =>
-        service.getPdfNativePageSizes(createSenderIdContext(event), filePath));
-    register(DOCUMENTS_CHANNELS.pdfNativePagePreviewCancel, (
-        event: IpcMainInvokeEvent,
-        ...[requestId]: TDocumentsIpcArgs<typeof DOCUMENTS_CHANNELS.pdfNativePagePreviewCancel>
-    ) =>
-        service.cancelPdfNativePagePreview(createSenderIdContext(event), requestId));
-    register(DOCUMENTS_CHANNELS.pdfNativePagePreview, (
-        event: IpcMainInvokeEvent,
-        ...[
-            filePath,
-            pageNumber,
-            options,
-        ]: TDocumentsIpcArgs<typeof DOCUMENTS_CHANNELS.pdfNativePagePreview>
-    ) =>
-        service.renderPdfNativePagePreview(createSenderIdContext(event), filePath, pageNumber, options));
-    register(DOCUMENTS_CHANNELS.fileReadText, (
-        event: IpcMainInvokeEvent,
-        ...[filePath]: TDocumentsIpcArgs<typeof DOCUMENTS_CHANNELS.fileReadText>
-    ) =>
-        service.readTextFile(createSenderIdContext(event), filePath));
-    register(DOCUMENTS_CHANNELS.fileExists, (
-        event: IpcMainInvokeEvent,
-        ...[filePath]: TDocumentsIpcArgs<typeof DOCUMENTS_CHANNELS.fileExists>
-    ) =>
-        service.fileExists(createSenderIdContext(event), filePath));
-    register(DOCUMENTS_CHANNELS.documentRevisionGet, (
-        event: IpcMainInvokeEvent,
-        ...[filePath]: TDocumentsIpcArgs<typeof DOCUMENTS_CHANNELS.documentRevisionGet>
-    ) =>
-        service.getDocumentRevision(createSenderIdContext(event), filePath));
-    register(DOCUMENTS_CHANNELS.pdfAnalyzeConformance, (
-        event: IpcMainInvokeEvent,
-        ...[filePath]: TDocumentsIpcArgs<typeof DOCUMENTS_CHANNELS.pdfAnalyzeConformance>
-    ) =>
-        service.analyzePdfConformance(createSenderIdContext(event), filePath));
-    register(DOCUMENTS_CHANNELS.pdfValidateData, (
-        event: IpcMainInvokeEvent,
-        ...[
-            data,
-            fileName,
-        ]: TDocumentsIpcArgs<typeof DOCUMENTS_CHANNELS.pdfValidateData>
-    ) =>
-        service.validatePdfData(data, fileName));
-    register(DOCUMENTS_CHANNELS.pdfValidatePath, (
-        event: IpcMainInvokeEvent,
-        ...[filePath]: TDocumentsIpcArgs<typeof DOCUMENTS_CHANNELS.pdfValidatePath>
-    ) =>
-        service.validatePdfPath(createSenderIdContext(event), filePath));
-    register(DOCUMENTS_CHANNELS.pdfOpenInDefaultAppData, (
-        _event: IpcMainInvokeEvent,
-        ...[
-            data,
-            fileName,
-        ]: TDocumentsIpcArgs<typeof DOCUMENTS_CHANNELS.pdfOpenInDefaultAppData>
-    ) =>
-        service.openPdfInDefaultAppData(data, fileName));
-    register(DOCUMENTS_CHANNELS.pdfOpenInDefaultAppPath, (
-        event: IpcMainInvokeEvent,
-        ...[
-            filePath,
-            fileName,
-        ]: TDocumentsIpcArgs<typeof DOCUMENTS_CHANNELS.pdfOpenInDefaultAppPath>
-    ) =>
-        service.openPdfInDefaultAppPath(createSenderIdContext(event), filePath, fileName));
-    register(DOCUMENTS_CHANNELS.pdfPrintData, (
-        event: IpcMainInvokeEvent,
-        ...[
-            data,
-            fileName,
-        ]: TDocumentsIpcArgs<typeof DOCUMENTS_CHANNELS.pdfPrintData>
-    ) =>
-        service.printPdfData(createWindowContext(event), data, fileName));
-    register(DOCUMENTS_CHANNELS.pdfPrintPath, (
-        event: IpcMainInvokeEvent,
-        ...[
-            filePath,
-            fileName,
-            pageNumbers,
-        ]: TDocumentsIpcArgs<typeof DOCUMENTS_CHANNELS.pdfPrintPath>
-    ) =>
-        service.printPdfPath(createWindowContext(event), filePath, fileName, pageNumbers));
-    register(DOCUMENTS_CHANNELS.fileWrite, (
-        event: IpcMainInvokeEvent,
-        ...[
-            filePath,
-            data,
-            options,
-        ]: TDocumentsIpcArgs<typeof DOCUMENTS_CHANNELS.fileWrite>
-    ) =>
-        service.writeFile(createSenderIdContext(event), filePath, data, options));
-    register(DOCUMENTS_CHANNELS.fileReplaceWorkingCopyFromPath, (
-        event: IpcMainInvokeEvent,
-        ...[
-            workingCopyPath,
-            sourcePath,
-            options,
-        ]: TDocumentsIpcArgs<typeof DOCUMENTS_CHANNELS.fileReplaceWorkingCopyFromPath>
-    ) =>
-        service.replaceWorkingCopyFromPath(createSenderIdContext(event), workingCopyPath, sourcePath, options));
-    register(DOCUMENTS_CHANNELS.fileWriteDocx, (
-        event: IpcMainInvokeEvent,
-        ...[
-            filePath,
-            data,
-        ]: TDocumentsIpcArgs<typeof DOCUMENTS_CHANNELS.fileWriteDocx>
-    ) =>
-        service.writeDocxFile(createSenderIdContext(event), filePath, data));
-    register(DOCUMENTS_CHANNELS.fileSaveStructured, (
-        event: IpcMainInvokeEvent,
-        ...[
-            workingPath,
-            options,
-        ]: TDocumentsIpcArgs<typeof DOCUMENTS_CHANNELS.fileSaveStructured>
-    ) =>
-        service.saveFileStructured(createSenderIdContext(event), workingPath, options));
-    register(DOCUMENTS_CHANNELS.fileResyncWorkingCopy, (
-        event: IpcMainInvokeEvent,
-        ...[workingPath]: TDocumentsIpcArgs<typeof DOCUMENTS_CHANNELS.fileResyncWorkingCopy>
-    ) =>
-        service.resyncWorkingCopy(createSenderIdContext(event), workingPath));
-    register(DOCUMENTS_CHANNELS.fileRepairPdf, (
-        event: IpcMainInvokeEvent,
-        ...[
-            workingPath,
-            options,
-        ]: TDocumentsIpcArgs<typeof DOCUMENTS_CHANNELS.fileRepairPdf>
-    ) =>
-        service.repairPdf(createSenderIdContext(event), workingPath, options));
-    register(DOCUMENTS_CHANNELS.fileOptimizePdfForInteraction, (
-        event: IpcMainInvokeEvent,
-        ...[
-            workingPath,
-            options,
-        ]: TDocumentsIpcArgs<typeof DOCUMENTS_CHANNELS.fileOptimizePdfForInteraction>
-    ) =>
-        service.optimizePdfForInteraction(createSenderIdContext(event), workingPath, options));
-    register(DOCUMENTS_CHANNELS.fileOptimizePdfAsCopy, (
-        event: IpcMainInvokeEvent,
-        ...[
-            workingPath,
-            options,
-            requestId,
-            revisionOptions,
-        ]: TDocumentsIpcArgs<typeof DOCUMENTS_CHANNELS.fileOptimizePdfAsCopy>
-    ) =>
-        service.optimizePdfAsCopy(createDialogContext(event), workingPath, options, requestId, revisionOptions));
     register(DOCUMENTS_CHANNELS.fileSavePdfData, (
         event: IpcMainInvokeEvent,
         ...[
@@ -690,67 +591,6 @@ export function registerDocumentsIpcAdapter(
         ]: TDocumentsIpcArgs<typeof DOCUMENTS_CHANNELS.fileSavePdfData>
     ) =>
         service.savePdfData(createSenderIdContext(event), workingPath, data, options));
-    register(DOCUMENTS_CHANNELS.fileSavePdfNoteTextUpdates, (
-        event: IpcMainInvokeEvent,
-        ...[
-            workingPath,
-            updates,
-            modifiedAt,
-            options,
-        ]: TDocumentsIpcArgs<typeof DOCUMENTS_CHANNELS.fileSavePdfNoteTextUpdates>
-    ) =>
-        service.savePdfNoteTextUpdates(createSenderIdContext(event), workingPath, updates, modifiedAt, options));
-    register(DOCUMENTS_CHANNELS.fileSavePdfNoteChanges, (
-        event: IpcMainInvokeEvent,
-        ...[
-            workingPath,
-            changes,
-            modifiedAt,
-            options,
-        ]: TDocumentsIpcArgs<typeof DOCUMENTS_CHANNELS.fileSavePdfNoteChanges>
-    ) =>
-        service.savePdfNoteChanges(createSenderIdContext(event), workingPath, changes, modifiedAt, options));
-    register(DOCUMENTS_CHANNELS.fileSavePdfNativeMutations, (
-        event: IpcMainInvokeEvent,
-        ...[
-            workingPath,
-            mutations,
-            modifiedAt,
-            options,
-        ]: TDocumentsIpcArgs<typeof DOCUMENTS_CHANNELS.fileSavePdfNativeMutations>
-    ) =>
-        service.savePdfNativeMutations(createSenderIdContext(event), workingPath, mutations, modifiedAt, options));
-    register(DOCUMENTS_CHANNELS.fileApplyPdfNativeMutationsToWorkingCopy, (
-        event: IpcMainInvokeEvent,
-        ...[
-            workingPath,
-            mutations,
-            modifiedAt,
-            expectedBase,
-            options,
-        ]: TDocumentsIpcArgs<typeof DOCUMENTS_CHANNELS.fileApplyPdfNativeMutationsToWorkingCopy>
-    ) =>
-        service.applyPdfNativeMutationsToWorkingCopy(
-            createSenderIdContext(event),
-            workingPath,
-            mutations,
-            modifiedAt,
-            expectedBase,
-            options,
-        ));
-    register(DOCUMENTS_CHANNELS.fileCommitStagedPdfNativeMutations, (
-        event: IpcMainInvokeEvent,
-        ...[
-            workingPath,
-            stagedOutput,
-            options,
-        ]: TDocumentsIpcArgs<typeof DOCUMENTS_CHANNELS.fileCommitStagedPdfNativeMutations>
-    ) => service.commitStagedPdfNativeMutations(
-        createSenderIdContext(event),
-        workingPath,
-        stagedOutput,
-        options,
-    ));
     register(DOCUMENTS_CHANNELS.fileSavePdfDataBegin, (
         event: IpcMainInvokeEvent,
         ...[
@@ -782,11 +622,6 @@ export function registerDocumentsIpcAdapter(
         sessionId,
         stagedOutput,
     ));
-    register(DOCUMENTS_CHANNELS.fileCleanupOcrTemp, (
-        event: IpcMainInvokeEvent,
-        ...[filePath]: TDocumentsIpcArgs<typeof DOCUMENTS_CHANNELS.fileCleanupOcrTemp>
-    ) =>
-        service.cleanupOcrTemp(createSenderIdContext(event), filePath));
     register(DOCUMENTS_CHANNELS.registerRendererFileOpenToken, (event: IpcMainInvokeEvent, token: unknown) => {
         const normalizedToken = typeof token === 'string' ? token.trim() : '';
         return registerRendererFileOpenTokens(event, [normalizedToken]);
@@ -823,24 +658,6 @@ export function registerDocumentsIpcAdapter(
         }
         return requests.every(request => allowOpenPath(request.filePath, event.sender) !== null);
     });
-    register(
-        DOCUMENTS_CHANNELS.createWorkingCopyFromPath,
-        (
-            event: IpcMainInvokeEvent,
-            ...[
-                sourcePath,
-                originalPath,
-            ]: TDocumentsIpcArgs<typeof DOCUMENTS_CHANNELS.createWorkingCopyFromPath>
-        ) =>
-            requireWorkingCopySourcePath(event, sourcePath)
-                .then(trustedSourcePath =>
-                    service.createWorkingCopyFromPath(createSenderIdContext(event), trustedSourcePath, originalPath)),
-    );
-    register(DOCUMENTS_CHANNELS.fileCleanup, (
-        event: IpcMainInvokeEvent,
-        ...[workingPath]: TDocumentsIpcArgs<typeof DOCUMENTS_CHANNELS.fileCleanup>
-    ) => service.cleanupFile(createSenderIdContext(event), workingPath)
-        .then(() => undefined));
     registerRawEvent(DOCUMENTS_CHANNELS.fileSavePdfDataPort, (event: IpcMainEvent, sessionId: unknown) => {
         try {
             attachSerializedPdfPersistencePort(event, sessionId);

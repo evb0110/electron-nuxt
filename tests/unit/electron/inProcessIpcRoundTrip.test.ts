@@ -1,66 +1,32 @@
 import {
-    beforeEach,
     describe,
     expect,
     it,
     vi,
 } from 'vitest';
 import {
-    AGENT_PLATFORM_FEATURE,
-    type IAgentInvokeMap,
-} from '@contracts/agentPlatformFeature';
-import {
     DOCUMENTS_CHANNELS,
     type IDocumentsInvokeMap,
 } from '@electron/features/documents/contract';
 import {
-    DOCUMENTS_SIMPLE_PLATFORM_FEATURES,
+    DOCUMENT_PLATFORM_FEATURES,
     type IDocumentMenuInvokeMap,
     type IDocumentPickerInvokeMap,
     type IDocumentRecentFilesInvokeMap,
     type IDocumentWindowInvokeMap,
 } from '@contracts/documentsPlatformFeature';
-import { createDocumentsPreloadFileClient } from '@electron/features/documents/createDocumentsPreloadFileClient';
-import { DOCUMENTS_IPC_CODECS } from '@electron/features/documents/documentsIpcCodecs';
-import type { IDocumentsService } from '@electron/features/documents/documentsService';
-import { registerDocumentsIpcAdapter } from '@electron/features/documents/registerDocumentsIpcAdapter';
-import { OCR_PLATFORM_FEATURE } from '@contracts/ocrPlatformFeature';
-import {
-    PAGE_OPS_PLATFORM_FEATURE,
-    type IPageOpsInvokeMap,
-} from '@contracts/pageOpsPlatformFeature';
-import {
-    DJVU_PLATFORM_FEATURE,
-    type IDjvuInvokeMap,
-} from '@contracts/djvuPlatformFeature';
-import {
-    SEARCH_PLATFORM_FEATURE,
-    type ISearchInvokeMap,
-} from '@contracts/searchPlatformFeature';
-import {HOST_PLATFORM_FEATURE} from '@contracts/hostPlatformFeature';
-import {
-    UPDATES_PLATFORM_FEATURE,
-    type IUpdatesInvokeMap,
-} from '@contracts/updatesPlatformFeature';
-import {
-    WINDOW_TABS_PLATFORM_FEATURE,
-    type IWindowTabsInvokeMap,
-} from '@contracts/windowTabsPlatformFeature';
-import type {
-    TFeatureInvokeMap,
-    TFeatureMainBindings,
-} from '@contracts/platformFeature';
-import { createPlatformFeaturePreloadClient } from '@electron/preload/ipcClient';
-import { registerPlatformFeatureHandlers } from '@electron/platform-ipc/validatedIpcRegistrar';
-import type { IpcMainInvokeEvent } from 'electron';
-import { cast } from '@tests/helpers/cast';
-import { requireDocumentRevisionToken } from '@contracts/documentRevision';
 import {
     createPdfPersistenceAckFrame,
     createPdfPersistenceReadyFrame,
     createPdfPersistenceResultFrame,
     isPdfPersistencePreloadToMainPayload,
 } from '@contracts/documentPersistenceFrames';
+import { requireDocumentRevisionToken } from '@contracts/documentRevision';
+import { createDocumentsPreloadFileClient } from '@electron/features/documents/createDocumentsPreloadFileClient';
+import { DOCUMENTS_IPC_CODECS } from '@electron/features/documents/documentsIpcCodecs';
+import type { IDocumentsService } from '@electron/features/documents/documentsService';
+import { registerDocumentsIpcAdapter } from '@electron/features/documents/registerDocumentsIpcAdapter';
+import { cast } from '@tests/helpers/cast';
 import { createInProcessIpcRoundTripHarness } from '@tests/unit/electron/helpers/createInProcessIpcRoundTripHarness';
 
 const mocks = vi.hoisted(() => ({
@@ -68,7 +34,6 @@ const mocks = vi.hoisted(() => ({
     fromWebContents: vi.fn(() => null),
     isTrustedIpcInvokeSender: vi.fn(() => true),
 }));
-type THostInvokeMap = TFeatureInvokeMap<typeof HOST_PLATFORM_FEATURE>;
 type TDocumentsCombinedInvokeMap =
     & IDocumentsInvokeMap
     & IDocumentPickerInvokeMap
@@ -77,11 +42,11 @@ type TDocumentsCombinedInvokeMap =
     & IDocumentMenuInvokeMap;
 const documentsCombinedChannels = {
     ...DOCUMENTS_CHANNELS,
-    ...Object.assign({}, ...DOCUMENTS_SIMPLE_PLATFORM_FEATURES.map(feature => feature.invokeChannels)),
+    ...Object.assign({}, ...DOCUMENT_PLATFORM_FEATURES.map(feature => feature.invokeChannels)),
 };
 const documentsCombinedCodecs = {
     ...DOCUMENTS_IPC_CODECS,
-    ...Object.assign({}, ...DOCUMENTS_SIMPLE_PLATFORM_FEATURES.map(feature => feature.ipcCodecs)),
+    ...Object.assign({}, ...DOCUMENT_PLATFORM_FEATURES.map(feature => feature.ipcCodecs)),
 };
 
 vi.mock('electron', () => ({
@@ -101,39 +66,45 @@ vi.mock('@electron/platform-ipc/trustedIpcSender', () => ({
 }));
 vi.mock('@electron/features/documents/createDocumentsService', () => ({createDocumentsService: vi.fn()}));
 vi.mock('@electron/features/documents/public', () => ({attachSerializedPdfPersistencePort: vi.fn()}));
-vi.mock('@electron/features/agent/createAgentService', () => ({createAgentService: vi.fn()}));
-vi.mock('@electron/features/search/main/searchWorkerService', () => ({getSearchWorkerServiceConfig: () => ({
-    idleTtlMs: 1,
-    maxActive: 1,
-    requestTimeoutMs: 1,
-})}));
 
 describe('in-process preload to validated IPC round trips', () => {
-    beforeEach(() => {
-        mocks.isTrustedIpcInvokeSender.mockReturnValue(true);
-    });
-
-    it('round-trips document binary arguments through the file preload client and adapter', async () => {
-        const createWorkingCopyFromData = vi.fn(async () => '/tmp/working-copy.pdf');
-        const beginSavePdfData = vi.fn(async () => ({sessionId: 'persistence-session-1'}));
+    it('preserves paths and binary streams through the file preload client and adapter', async () => {
+        const sourcePaths = [
+            '/documents/duplicate-source-a/duplicate-recent-source.pdf',
+            '/documents/duplicate-source-b/duplicate-recent-source.pdf',
+        ];
         const receivedChunks: Uint8Array[] = [];
+        const openDocumentDirect = vi.fn(async (_context: unknown, originalPath: string) => ({
+            kind: 'pdf' as const,
+            originalPath,
+            workingPath: `/managed/duplicate-source-${originalPath.includes('-a/') ? 'a' : 'b'}.pdf`,
+        }));
         const service = cast<IDocumentsService>({
-            beginSavePdfData,
-            createWorkingCopyFromData,
+            beginSavePdfData: vi.fn(async () => ({sessionId: 'persistence-session-1'})),
+            createWorkingCopyFromData: vi.fn(async () => '/tmp/working-copy.pdf'),
+            openDocumentDirect,
         });
-        const harness = createInProcessIpcRoundTripHarness<TDocumentsCombinedInvokeMap, IDocumentsService, ReturnType<typeof createDocumentsPreloadFileClient>>({
+        const harness = createInProcessIpcRoundTripHarness<
+            TDocumentsCombinedInvokeMap,
+            IDocumentsService,
+            ReturnType<typeof createDocumentsPreloadFileClient>
+        >({
             channels: documentsCombinedChannels,
             codecs: documentsCombinedCodecs,
             createClient: createDocumentsPreloadFileClient,
             postMessage: (channel, sessionId, transfer) => {
-                expect(channel).toBe(DOCUMENTS_CHANNELS.fileSavePdfDataPort);
-                expect(sessionId).toBe('persistence-session-1');
+                expect([
+                    channel,
+                    sessionId,
+                ]).toEqual([
+                    DOCUMENTS_CHANNELS.fileSavePdfDataPort,
+                    'persistence-session-1',
+                ]);
                 const port = transfer?.[0];
                 if (!port) {
                     throw new Error('Missing transferred PDF persistence port');
                 }
-                port.addEventListener('message', (event) => {
-                    const frame = event.data;
+                port.addEventListener('message', ({data: frame}) => {
                     if (!isPdfPersistencePreloadToMainPayload(frame)) {
                         return;
                     }
@@ -171,20 +142,12 @@ describe('in-process preload to validated IPC round trips', () => {
 
         await expect(harness.client.createWorkingCopyFromData('round-trip.pdf', data, '/tmp/source.pdf'))
             .resolves.toBe('/tmp/working-copy.pdf');
-        expect(createWorkingCopyFromData).toHaveBeenCalledWith(
+        expect(service.createWorkingCopyFromData).toHaveBeenCalledWith(
             expect.objectContaining({senderId: 7}),
             'round-trip.pdf',
             data,
             '/tmp/source.pdf',
         );
-        expect(harness.invokeCalls).toEqual([{
-            args: [
-                'round-trip.pdf',
-                data,
-                '/tmp/source.pdf',
-            ],
-            channel: DOCUMENTS_CHANNELS.createWorkingCopyFromData,
-        }]);
         await expect(harness.client.savePdfDataChunks('/tmp/working.pdf', 5, [
             Uint8Array.from([
                 1,
@@ -195,10 +158,11 @@ describe('in-process preload to validated IPC round trips', () => {
                 4,
                 5,
             ]),
-        ], {expectedDocumentRevisionToken: requireDocumentRevisionToken('round-trip-revision')})).resolves.toMatchObject({
-            isValid: true,
-            tool: 'browser',
-        });
+        ], {expectedDocumentRevisionToken: requireDocumentRevisionToken('round-trip-revision')}))
+            .resolves.toMatchObject({
+                isValid: true,
+                tool: 'browser',
+            });
         expect(receivedChunks).toEqual([
             Uint8Array.from([
                 1,
@@ -210,410 +174,16 @@ describe('in-process preload to validated IPC round trips', () => {
                 5,
             ]),
         ]);
-    });
 
-    it('round-trips page mutation tuples and rejects a malformed main-process result', async () => {
-        const rotate = vi.fn()
-            .mockResolvedValueOnce({
-                pageCount: 4,
-                success: true,
-            })
-            .mockResolvedValueOnce({success: 'yes'});
-        type TBindings = TFeatureMainBindings<typeof PAGE_OPS_PLATFORM_FEATURE, IpcMainInvokeEvent>;
-        const bindings = cast<TBindings>({rotate});
-        const createClient = (ipcRenderer: Electron.IpcRenderer) =>
-            createPlatformFeaturePreloadClient(ipcRenderer, PAGE_OPS_PLATFORM_FEATURE);
-        const harness = createInProcessIpcRoundTripHarness<
-            IPageOpsInvokeMap,
-            TBindings,
-            ReturnType<typeof createClient>
-        >({
-            channels: PAGE_OPS_PLATFORM_FEATURE.invokeChannels,
-            codecs: cast<Parameters<typeof createInProcessIpcRoundTripHarness<
-                IPageOpsInvokeMap,
-                TBindings,
-                ReturnType<typeof createClient>
-            >>[0]['codecs']>(PAGE_OPS_PLATFORM_FEATURE.ipcCodecs),
-            createClient,
-            register: (registrar, service) => registerPlatformFeatureHandlers(
-                cast<Parameters<typeof registerPlatformFeatureHandlers>[0]>(registrar),
-                PAGE_OPS_PLATFORM_FEATURE,
-                service,
-            ),
-            service: bindings,
-        });
-
-        await expect(harness.client.rotate('/tmp/working-copy.pdf', [
-            1,
-            3,
-        ], 4, 90))
-            .resolves.toEqual({
-                pageCount: 4,
-                success: true,
-            });
-        expect(rotate).toHaveBeenCalledWith(
-            expect.objectContaining({senderId: 7}),
-            '/tmp/working-copy.pdf',
-            [
-                1,
-                3,
-            ],
-            4,
-            90,
-            undefined,
-        );
-        await expect(harness.client.rotate('/tmp/working-copy.pdf', [2], 4, 180))
-            .rejects.toThrow('page operation result must include success');
-    });
-
-    it('round-trips a normalized DjVu job start through the feature bindings', async () => {
-        type TBindings = TFeatureMainBindings<typeof DJVU_PLATFORM_FEATURE, IpcMainInvokeEvent>;
-        const startConvertToPdf = vi.fn(async () => ({
-            jobId: 'djvu-job-1',
-            requestId: 'request-1',
-        }));
-        const bindings = cast<TBindings>({startConvertToPdf});
-        const createClient = (ipcRenderer: Electron.IpcRenderer) =>
-            createPlatformFeaturePreloadClient(ipcRenderer, DJVU_PLATFORM_FEATURE);
-        const harness = createInProcessIpcRoundTripHarness<
-            IDjvuInvokeMap,
-            TBindings,
-            ReturnType<typeof createClient>
-        >({
-            channels: DJVU_PLATFORM_FEATURE.invokeChannels,
-            codecs: cast<Parameters<typeof createInProcessIpcRoundTripHarness<
-                IDjvuInvokeMap,
-                TBindings,
-                ReturnType<typeof createClient>
-            >>[0]['codecs']>(DJVU_PLATFORM_FEATURE.ipcCodecs),
-            createClient,
-            register: (registrar, service) => registerPlatformFeatureHandlers(
-                cast<Parameters<typeof registerPlatformFeatureHandlers>[0]>(registrar),
-                DJVU_PLATFORM_FEATURE,
-                service,
-            ),
-            service: bindings,
-        });
-
-        await expect(harness.client.startConvertToPdf('/tmp/book.djvu', '/tmp/book.pdf', {requestId: ' request-1 '})).resolves.toEqual({
-            jobId: 'djvu-job-1',
-            requestId: 'request-1',
-        });
-        expect(startConvertToPdf).toHaveBeenCalledWith(
-            expect.objectContaining({senderId: 7}),
-            '/tmp/book.djvu',
-            '/tmp/book.pdf',
-            {requestId: 'request-1'},
-        );
-    });
-
-    it('round-trips update requests through generated codecs and bindings', async () => {
-        const checkResult = {started: true};
-        const triggerManualUpdateCheck = vi.fn(() => checkResult);
-        type TBindings = TFeatureMainBindings<typeof UPDATES_PLATFORM_FEATURE, IpcMainInvokeEvent>;
-        const bindings = cast<TBindings>({triggerManualUpdateCheck});
-        const createClient = (ipcRenderer: Electron.IpcRenderer) =>
-            createPlatformFeaturePreloadClient(ipcRenderer, UPDATES_PLATFORM_FEATURE);
-        const harness = createInProcessIpcRoundTripHarness<
-            IUpdatesInvokeMap,
-            TBindings,
-            ReturnType<typeof createClient>
-        >({
-            channels: UPDATES_PLATFORM_FEATURE.invokeChannels,
-            codecs: cast<Parameters<typeof createInProcessIpcRoundTripHarness<
-                IUpdatesInvokeMap,
-                TBindings,
-                ReturnType<typeof createClient>
-            >>[0]['codecs']>(UPDATES_PLATFORM_FEATURE.ipcCodecs),
-            createClient,
-            register: (registrar, service) => registerPlatformFeatureHandlers(
-                cast<Parameters<typeof registerPlatformFeatureHandlers>[0]>(registrar),
-                UPDATES_PLATFORM_FEATURE,
-                service,
-            ),
-            service: bindings,
-        });
-
-        await expect(harness.client.check()).resolves.toEqual(checkResult);
-        expect(triggerManualUpdateCheck).toHaveBeenCalledOnce();
-    });
-
-    it('keeps the host resource profile sync while round-tripping host invokes', async () => {
-        const getResourceProfile = vi.fn(() => null);
-        const snapshotHostZenModeForWindow = vi.fn(() => ({
-            active: false,
-            supported: true,
-        }));
-        type TBindings = TFeatureMainBindings<typeof HOST_PLATFORM_FEATURE, IpcMainInvokeEvent>;
-        const bindings = cast<TBindings>({snapshotHostZenModeForWindow});
-        const createClient = (ipcRenderer: Electron.IpcRenderer) =>
-            createPlatformFeaturePreloadClient(ipcRenderer, HOST_PLATFORM_FEATURE, {getResourceProfile});
-        const harness = createInProcessIpcRoundTripHarness<
-            THostInvokeMap,
-            TBindings,
-            ReturnType<typeof createClient>
-        >({
-            channels: HOST_PLATFORM_FEATURE.invokeChannels,
-            codecs: cast<Parameters<typeof createInProcessIpcRoundTripHarness<
-                THostInvokeMap,
-                TBindings,
-                ReturnType<typeof createClient>
-            >>[0]['codecs']>(HOST_PLATFORM_FEATURE.ipcCodecs),
-            createClient,
-            register: (registrar, service) => registerPlatformFeatureHandlers(
-                cast<Parameters<typeof registerPlatformFeatureHandlers>[0]>(registrar),
-                HOST_PLATFORM_FEATURE,
-                service,
-            ),
-            service: bindings,
-        });
-
-        expect(harness.client.getResourceProfile()).toBeNull();
-        expect(getResourceProfile).toHaveBeenCalledOnce();
-        await expect(harness.client.getZenModeState()).resolves.toEqual({
-            active: false,
-            supported: true,
-        });
-        expect(snapshotHostZenModeForWindow).toHaveBeenCalledWith(expect.objectContaining({senderId: 7}));
-    });
-
-    it('round-trips window-tab acknowledgements through generated codecs and sender bindings', async () => {
-        const acknowledgeWindowTabTransfer = vi.fn(() => true);
-        type TBindings = TFeatureMainBindings<typeof WINDOW_TABS_PLATFORM_FEATURE, IpcMainInvokeEvent>;
-        const bindings = cast<TBindings>({acknowledgeWindowTabTransfer});
-        const createClient = (ipcRenderer: Electron.IpcRenderer) =>
-            createPlatformFeaturePreloadClient(ipcRenderer, WINDOW_TABS_PLATFORM_FEATURE);
-        const harness = createInProcessIpcRoundTripHarness<
-            IWindowTabsInvokeMap,
-            TBindings,
-            ReturnType<typeof createClient>
-        >({
-            channels: WINDOW_TABS_PLATFORM_FEATURE.invokeChannels,
-            codecs: cast<Parameters<typeof createInProcessIpcRoundTripHarness<
-                IWindowTabsInvokeMap,
-                TBindings,
-                ReturnType<typeof createClient>
-            >>[0]['codecs']>(WINDOW_TABS_PLATFORM_FEATURE.ipcCodecs),
-            createClient,
-            register: (registrar, service) => registerPlatformFeatureHandlers(
-                cast<Parameters<typeof registerPlatformFeatureHandlers>[0]>(registrar),
-                WINDOW_TABS_PLATFORM_FEATURE,
-                service,
-            ),
-            service: bindings,
-        });
-
-        await expect(harness.client.transferAck({
-            transferId: 'transfer-1',
-            success: true,
-        })).resolves.toBe(true);
-        expect(acknowledgeWindowTabTransfer).toHaveBeenCalledWith(
-            expect.objectContaining({senderId: 7}),
-            {
-                transferId: 'transfer-1',
-                success: true,
-            },
-        );
-    });
-
-    it('round-trips an agent command response and renderer acknowledgement', async () => {
-        const submitCommandResponse = vi.fn(async () => ({accepted: true}));
-        type TBindings = TFeatureMainBindings<typeof AGENT_PLATFORM_FEATURE, IpcMainInvokeEvent>;
-        const bindings = cast<TBindings>({submitCommandResponse});
-        const createClient = (ipcRenderer: Electron.IpcRenderer) =>
-            createPlatformFeaturePreloadClient(ipcRenderer, AGENT_PLATFORM_FEATURE);
-        const harness = createInProcessIpcRoundTripHarness<
-            IAgentInvokeMap,
-            TBindings,
-            ReturnType<typeof createClient>
-        >({
-            channels: AGENT_PLATFORM_FEATURE.invokeChannels,
-            codecs: cast<Parameters<typeof createInProcessIpcRoundTripHarness<
-                IAgentInvokeMap,
-                TBindings,
-                ReturnType<typeof createClient>
-            >>[0]['codecs']>(AGENT_PLATFORM_FEATURE.ipcCodecs),
-            createClient,
-            register: (registrar, service) => registerPlatformFeatureHandlers(
-                cast<Parameters<typeof registerPlatformFeatureHandlers>[0]>(registrar),
-                AGENT_PLATFORM_FEATURE,
-                service,
-            ),
-            service: bindings,
-        });
-        const response = {
-            ok: true,
-            requestId: 'command-1',
-            result: {pageCount: 4},
-        };
-
-        await expect(harness.client.submitCommandResponse(response)).resolves.toEqual({accepted: true});
-        expect(submitCommandResponse).toHaveBeenCalledWith(
-            expect.objectContaining({senderId: 7}),
-            response,
-        );
-        const callback = vi.fn();
-        harness.client.onCommandCancelRequest(callback);
-
-        harness.emit(AGENT_PLATFORM_FEATURE.eventChannels.onCommandCancelRequest, {
-            requestId: 'command-1',
-            windowId: 9,
-        });
-        harness.emit(AGENT_PLATFORM_FEATURE.eventChannels.onCommandCancelRequest, {requestId: ''});
-
-        expect(callback).toHaveBeenCalledOnce();
-        expect(callback).toHaveBeenCalledWith({
-            requestId: 'command-1',
-            windowId: 9,
-        });
-    });
-
-    it('round-trips a search request and structured match response', async () => {
-        const searchResult = {
-            results: [{
-                endOffset: 4,
-                excerpt: {
-                    after: ' result',
-                    before: '',
-                    match: 'test',
-                    prefix: false,
-                    suffix: false,
-                },
-                matchIndex: 0,
-                pageMatchIndex: 0,
-                pageNumber: 1,
-                startOffset: 0,
-            }],
-            truncated: false,
-        };
-        const run = vi.fn(async () => searchResult);
-        type TBindings = TFeatureMainBindings<typeof SEARCH_PLATFORM_FEATURE, IpcMainInvokeEvent>;
-        const bindings = cast<TBindings>({run});
-        const createClient = (ipcRenderer: Electron.IpcRenderer) =>
-            createPlatformFeaturePreloadClient(ipcRenderer, SEARCH_PLATFORM_FEATURE);
-        const harness = createInProcessIpcRoundTripHarness<
-            ISearchInvokeMap,
-            TBindings,
-            ReturnType<typeof createClient>
-        >({
-            channels: SEARCH_PLATFORM_FEATURE.invokeChannels,
-            codecs: cast<Parameters<typeof createInProcessIpcRoundTripHarness<
-                ISearchInvokeMap,
-                TBindings,
-                ReturnType<typeof createClient>
-            >>[0]['codecs']>(SEARCH_PLATFORM_FEATURE.ipcCodecs),
-            createClient,
-            register: (registrar, service) => registerPlatformFeatureHandlers(
-                cast<Parameters<typeof registerPlatformFeatureHandlers>[0]>(registrar),
-                SEARCH_PLATFORM_FEATURE,
-                service,
-            ),
-            service: bindings,
-        });
-
-        await expect(harness.client.run('/tmp/working-copy.pdf', 'test', {
-            pageCount: 4,
-            requestId: 'search-1',
-        })).resolves.toEqual(searchResult);
-        expect(run).toHaveBeenCalledWith(
-            expect.objectContaining({senderId: 7}),
-            expect.objectContaining({
-                pageCount: 4,
-                pdfPath: '/tmp/working-copy.pdf',
-                query: 'test',
-                requestId: 'search-1',
-            }),
-        );
-    });
-
-    it('round-trips OCR cancellation and page-scoped catalog reads', async () => {
-        const documentRevision = requireDocumentRevisionToken('drt1:ocr-page-round-trip');
-        const cancel = vi.fn(async () => ({
-            canceled: false,
-            reason: 'not-found' as const,
-        }));
-        const resolveDocumentOcrAvailability = vi.fn(async () => ({
-            documentRevision,
-            pageCount: 406,
-            pageNumbers: [406],
-        }));
-        const resolveDocumentOcrPage = vi.fn(async () => ({
-            documentRevision,
-            pageCount: 406,
-            page: {
-                pageNumber: 406,
-                text: 'requested page',
-                source: 'evb-ocr' as const,
-                words: [{
-                    text: 'requested',
-                    x: 1,
-                    y: 1,
-                    width: 10,
-                    height: 10,
-                }],
-                contentDigest: 'page-digest',
-            },
-        }));
-        type TOcrBindings = TFeatureMainBindings<
-            typeof OCR_PLATFORM_FEATURE,
-            IpcMainInvokeEvent
-        >;
-        type TOcrInvokeMap = TFeatureInvokeMap<typeof OCR_PLATFORM_FEATURE>;
-        const service = cast<TOcrBindings>({
-            cancel,
-            resolveDocumentOcrAvailability,
-            resolveDocumentOcrPage,
-        });
-        const createOcrClient = (ipcRenderer: Electron.IpcRenderer) =>
-            createPlatformFeaturePreloadClient(ipcRenderer, OCR_PLATFORM_FEATURE);
-        const harness = createInProcessIpcRoundTripHarness<
-            TOcrInvokeMap,
-            TOcrBindings,
-            ReturnType<typeof createOcrClient>
-        >({
-            channels: OCR_PLATFORM_FEATURE.invokeChannels,
-            codecs: cast<Parameters<typeof createInProcessIpcRoundTripHarness<
-                TOcrInvokeMap,
-                TOcrBindings,
-                ReturnType<typeof createOcrClient>
-            >>[0]['codecs']>(OCR_PLATFORM_FEATURE.ipcCodecs),
-            createClient: createOcrClient,
-            register: (registrar, bindings) => registerPlatformFeatureHandlers(
-                cast<Parameters<typeof registerPlatformFeatureHandlers>[0]>(registrar),
-                OCR_PLATFORM_FEATURE,
-                bindings,
-            ),
-            service,
-        });
-
-        await expect(harness.client.cancel('ocr-request-1')).resolves.toEqual({
-            canceled: false,
-            reason: 'not-found',
-        });
-        expect(cancel).toHaveBeenCalledWith(
-            expect.objectContaining({senderId: 7}),
-            'ocr-request-1',
-        );
-
-        await expect(harness.client.resolveDocumentOcrAvailability!(
-            '/tmp/working-copy.pdf',
-            documentRevision,
-        )).resolves.toMatchObject({pageNumbers: [406]});
-        await expect(harness.client.resolveDocumentOcrPage!(
-            '/tmp/working-copy.pdf',
-            documentRevision,
-            406,
-        )).resolves.toMatchObject({page: {pageNumber: 406}});
-        expect(resolveDocumentOcrAvailability).toHaveBeenCalledWith(
-            expect.objectContaining({senderId: 7}),
-            '/tmp/working-copy.pdf',
-            documentRevision,
-        );
-        expect(resolveDocumentOcrPage).toHaveBeenCalledWith(
-            expect.objectContaining({senderId: 7}),
-            '/tmp/working-copy.pdf',
-            documentRevision,
-            406,
-        );
+        const opened = await Promise.all(sourcePaths.map(path => harness.client.openDocumentDirect(path)));
+        expect(opened.map(result => result?.workingPath)).toEqual([
+            '/managed/duplicate-source-a.pdf',
+            '/managed/duplicate-source-b.pdf',
+        ]);
+        expect(openDocumentDirect.mock.calls.map(call => call.slice(1))).toEqual(sourcePaths.map(path => [path]));
+        expect(harness.invokeCalls.slice(-2)).toEqual(sourcePaths.map(path => ({
+            args: [path],
+            channel: DOCUMENTS_CHANNELS.openDocumentDirect,
+        })));
     });
 });

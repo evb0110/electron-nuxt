@@ -259,12 +259,23 @@ type TPublicMethod<TSpec extends TPlatformMethodSpec> =
                     : TInferSchema<TSpec['ipc']['result']>
                 : never;
 
-type TCapability<TMethodMap extends TMethods, TEventMap extends TEvents> = {
-    [TKey in keyof TMethodMap]: TPublicMethod<TMethodMap[TKey]>
-} & {
-    [TKey in keyof TEventMap]:
-    (callback: (payload: TInferSchema<TEventMap[TKey]['payload']>) => void) => (() => void)
+type TRequiredCapabilityMethods<TMethodMap extends TMethods> = {
+    [TKey in keyof TMethodMap as TMethodMap[TKey] extends {optionalWhenImplemented: true}
+        ? never
+        : TKey]: TPublicMethod<TMethodMap[TKey]>
 };
+type TOptionalCapabilityMethods<TMethodMap extends TMethods> = {
+    [TKey in keyof TMethodMap as TMethodMap[TKey] extends {optionalWhenImplemented: true}
+        ? TKey
+        : never]?: TPublicMethod<TMethodMap[TKey]>
+};
+type TCapability<TMethodMap extends TMethods, TEventMap extends TEvents> =
+    TRequiredCapabilityMethods<TMethodMap>
+    & TOptionalCapabilityMethods<TMethodMap>
+    & {
+        [TKey in keyof TEventMap]:
+        (callback: (payload: TInferSchema<TEventMap[TKey]['payload']>) => void) => (() => void)
+    };
 
 export type TFeatureCapability<T> = T extends IDefinedPlatformFeature<infer M, infer E>
     ? TCapability<M, E>
@@ -284,6 +295,18 @@ type TSubscriptionInvokeMap<E extends TEvents> = {
         args: [];
         result: undefined;
     }
+};
+type TFeatureCodecMap<M extends TMethods, E extends TEvents> = {
+    [TChannel in keyof (TMethodInvokeMap<M> & TSubscriptionInvokeMap<E>)]:
+    (TMethodInvokeMap<M> & TSubscriptionInvokeMap<E>)[TChannel] extends {
+        args: infer TArgs extends unknown[];
+        result: infer TResult;
+    } ? {
+            encodeArgs: (value: unknown[]) => TArgs;
+            decodeArgs: (value: readonly unknown[]) => TArgs;
+            decodeResult: (value: unknown) => TResult;
+        }
+        : never;
 };
 
 export type TFeatureInvokeMap<T> = T extends IDefinedPlatformFeature<infer M, infer E>
@@ -339,12 +362,6 @@ export type TFeatureDirectBindings<T> = T extends {methods: infer M extends TMet
     : never;
 export type TFeatureSyncBindings<T> = TFeatureDirectBindings<T>;
 
-interface IPlatformFeatureCodec {
-    encodeArgs: (value: unknown[]) => unknown[];
-    decodeArgs: (value: readonly unknown[]) => unknown[];
-    decodeResult: (value: unknown) => unknown;
-}
-
 type TFeatureInvokeChannels<M extends TMethods, E extends TEvents> =
     {readonly [K in keyof M as M[K] extends IPlatformIpcMethodSpec ? K : never]:
         M[K] extends IPlatformIpcMethodSpec ? M[K]['channel'] : never} & {
@@ -354,6 +371,12 @@ type TFeatureInvokeChannels<M extends TMethods, E extends TEvents> =
 
 type TFeatureEventChannels<E extends TEvents> = {readonly [K in keyof E]: E[K]['channel']};
 
+interface IPlatformFeatureCodec {
+    encodeArgs: (value: unknown[]) => unknown[];
+    decodeArgs: (value: readonly unknown[]) => unknown[];
+    decodeResult: (value: unknown) => unknown;
+}
+
 export interface IDefinedPlatformFeature<M extends TMethods, E extends TEvents>
     extends IFeatureInput<M, E> {
     events: E;
@@ -361,7 +384,7 @@ export interface IDefinedPlatformFeature<M extends TMethods, E extends TEvents>
     invokeChannels: TFeatureInvokeChannels<M, E>;
     invokeChannelSet: ReadonlySet<string>;
     eventChannels: TFeatureEventChannels<E>;
-    ipcCodecs: Readonly<Record<string, IPlatformFeatureCodec>>;
+    ipcCodecs: TFeatureCodecMap<M, E> & Readonly<Record<string, IPlatformFeatureCodec>>;
     fixtureMethods: ReadonlyArray<{
         descriptor: IPlatformMethodDescriptor;
         example: () => unknown;
@@ -379,7 +402,11 @@ export function definePlatformFeature<const M extends TMethods, const E extends 
     const channelsByName = new Map<string, string>();
     const invokeChannels: Record<string, string> = {};
     const eventChannels: Record<string, string> = {};
-    const ipcCodecs: Record<string, IPlatformFeatureCodec> = {};
+    const ipcCodecs: Record<string, {
+        encodeArgs: (value: unknown[]) => unknown[];
+        decodeArgs: (value: readonly unknown[]) => unknown[];
+        decodeResult: (value: unknown) => unknown;
+    }> = {};
     const methods: IPlatformMethodDescriptor[] = [];
     const fixtureMethods: Array<TFeature['fixtureMethods'][number]> = [];
     const addChannel = (name: string, channel: string, aliasOf?: string) => {
@@ -488,7 +515,7 @@ export function definePlatformFeature<const M extends TMethods, const E extends 
         invokeChannels: invokeChannels as TFeature['invokeChannels'],
         invokeChannelSet: new Set(Object.values(invokeChannels)),
         eventChannels: eventChannels as TFeature['eventChannels'],
-        ipcCodecs,
+        ipcCodecs: Object.assign({} as TFeature['ipcCodecs'], ipcCodecs),
         fixtureMethods,
     } satisfies TFeature;
 }

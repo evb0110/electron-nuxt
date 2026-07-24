@@ -53,14 +53,18 @@ describe('installStartupOverlayLifecycle', () => {
         Reflect.deleteProperty(process, 'defaultApp');
     });
 
-    it('retains app-ready-only startup through the old five-second fallback', () => {
+    it('retains app-ready-only startup until the startup-open claim arrives', () => {
         install();
         dispatchAppReady();
 
         vi.advanceTimersByTime(300);
         expect(document.getElementById(OVERLAY_ID)).not.toBeNull();
-        vi.advanceTimersByTime(4_700);
+        vi.advanceTimersByTime(60_000);
         expect(document.getElementById(OVERLAY_ID)).not.toBeNull();
+
+        dispatchClaim(0);
+        vi.advanceTimersByTime(300);
+        expect(document.getElementById(OVERLAY_ID)).toBeNull();
     });
 
     it('removes after app-ready and an empty claim', () => {

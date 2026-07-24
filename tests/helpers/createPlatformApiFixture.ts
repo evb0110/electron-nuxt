@@ -156,7 +156,9 @@ function mirrorDocumentOverrides(api: Record<string, unknown>, overrides: TPlatf
 }
 
 function assertPlatformApiFixture(api: Record<string, unknown>): asserts api is Record<string, unknown> & IPlatformApi {
-    for (const descriptor of PLATFORM_API_DESCRIPTOR.methods) {
+    const canonicalThenAliases = [...PLATFORM_API_DESCRIPTOR.methods]
+        .sort((left, right) => Number(left.aliasOf !== undefined) - Number(right.aliasOf !== undefined));
+    for (const descriptor of canonicalThenAliases) {
         if (typeof readPath(api, descriptor.path) !== 'function') {
             throw new TypeError(`Missing platform API fixture method ${descriptor.path.join('.')}`);
         }
