@@ -16,6 +16,7 @@ export interface IRenderVisiblePagesOptions {
     transactionRequest?: IPdfViewerTransactionRenderRequest;
     continuationPriority?: TPdfRenderContinuationPriority;
     maxCanvasPixels?: number;
+    preserveCommittedVisual?: boolean;
     coordinatorDemand?: {
         kind: 'required' | 'buffer';
         renderGeneration: number;

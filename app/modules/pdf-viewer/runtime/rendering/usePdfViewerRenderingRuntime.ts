@@ -137,5 +137,8 @@ export const usePdfViewerRenderingRuntime = (options: IUsePdfViewerRenderingRunt
         isPageFreshlyRenderedForNavigation,
         isPageRenderedForClass,
         isPageCanvasCommitted: rendering.isPageCanvasCommitted,
+        isPageQualityRefineEligible: rendering.isPageQualityRefineEligible,
+        getCommittedRasterQuality: rendering.getCommittedRasterQuality,
+        clampedVisibleRefineMode: options.performancePolicy.clampedVisibleRefineMode,
     };
 };

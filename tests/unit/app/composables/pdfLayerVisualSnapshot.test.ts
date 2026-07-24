@@ -137,6 +137,34 @@ describe('pdfLayerVisualSnapshot', () => {
         }
     });
 
+    it('retains an invariant-owned snapshot past the max delay until readiness', () => {
+        const animationFrame = installRequestAnimationFrameQueue();
+        const dateNow = vi.spyOn(Date, 'now');
+        let now = 0;
+        let ready = false;
+        dateNow.mockImplementation(() => now);
+        try {
+            const release = vi.fn();
+
+            schedulePdfLayerVisualSnapshotRelease(release, {
+                forceReleaseAfterMaxDelay: false,
+                maxDelayMs: 100,
+                waitFor: () => ready,
+            });
+
+            now = 500;
+            animationFrame.runNextFrame();
+            expect(release).not.toHaveBeenCalled();
+
+            ready = true;
+            animationFrame.runNextFrame();
+            expect(release).toHaveBeenCalledOnce();
+        } finally {
+            dateNow.mockRestore();
+            animationFrame.restore();
+        }
+    });
+
     it('keeps a non-interactive layer clone until released', () => {
         const page = createElement();
         const layer = createElement();

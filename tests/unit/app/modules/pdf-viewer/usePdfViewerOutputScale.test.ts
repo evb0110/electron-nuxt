@@ -19,6 +19,10 @@ const performancePolicy = resolvePdfRenderPerformancePolicy({
     lowCpu: false,
     lowMemory: false,
 });
+const constrainedPerformancePolicy = resolvePdfRenderPerformancePolicy({
+    lowCpu: true,
+    lowMemory: false,
+});
 
 interface IMediaQueryListDouble {
     media: string;
@@ -79,6 +83,43 @@ describe('usePdfViewerOutputScale', () => {
         });
         vi.restoreAllMocks();
     });
+
+    it.each([
+        [
+            1,
+            1,
+            2,
+        ],
+        [
+            1.5,
+            1.5,
+            2,
+        ],
+        [
+            3,
+            3,
+            3,
+        ],
+    ])(
+        'resolves DPR %s to the policy floor',
+        (devicePixelRatio, constrainedScale, normalScale) => {
+            setDevicePixelRatio(devicePixelRatio);
+            const constrainedScope = effectScope();
+            const normalScope = effectScope();
+            const constrainedOutputScale = constrainedScope.run(
+                () => usePdfViewerOutputScale(constrainedPerformancePolicy),
+            );
+            const normalOutputScale = normalScope.run(
+                () => usePdfViewerOutputScale(performancePolicy),
+            );
+
+            expect(constrainedOutputScale?.value).toBe(constrainedScale);
+            expect(normalOutputScale?.value).toBe(normalScale);
+
+            constrainedScope.stop();
+            normalScope.stop();
+        },
+    );
 
     it('keeps the resolution media listener stable across same-DPR resizes', () => {
         const scope = effectScope();

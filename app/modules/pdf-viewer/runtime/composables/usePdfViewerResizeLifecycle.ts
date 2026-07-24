@@ -20,6 +20,7 @@ import {
     PDF_RESIZE_TRANSITION_HIDE_MS,
 } from '@app/constants/timeouts';
 import { delay } from 'es-toolkit/promise';
+import type { IPdfResizeCanvasVisualSnapshot } from '@app/modules/pdf-viewer/engine/pdf-resize-visual-snapshot/preservePdfResizeCanvasVisualSnapshot';
 
 type TViewerMetrics = ReturnType<typeof summarizeViewerMetrics>;
 
@@ -84,6 +85,13 @@ interface IResizeLifecycleTransactionController {
     isTransactionCurrent: (transactionId: number) => boolean;
 }
 
+interface IActiveResizeVisualSnapshotLease {
+    document: unknown;
+    pageContainer: HTMLElement;
+    released: boolean;
+    snapshot: IPdfResizeCanvasVisualSnapshot;
+}
+
 export const usePdfViewerResizeLifecycle = (options: IUsePdfViewerResizeLifecycleOptions) => {
     const {
         viewerContainer,
@@ -102,10 +110,9 @@ export const usePdfViewerResizeLifecycle = (options: IUsePdfViewerResizeLifecycl
     } = options;
 
     const ZOOM_QUEUE_LOG_THROTTLE_MS = 420;
-    const PDF_RESIZE_VISUAL_SNAPSHOT_MAX_DELAY_MS = 2_500;
     let resizeTransitionToken = 0;
     let pendingResizeTransitionHideTimer: ReturnType<typeof setTimeout> | null = null;
-    const activeResizeVisualSnapshotReleases = new Map<number, () => void>();
+    const activeResizeVisualSnapshots = new Map<number, IActiveResizeVisualSnapshotLease>();
     let pendingResizeAnchor: IResizeAnchorContext | null = null;
     let pendingResizeTransactionId: number | null = null;
     let dragResizeAnchor: IResizeAnchorContext | null = null;
@@ -374,6 +381,20 @@ export const usePdfViewerResizeLifecycle = (options: IUsePdfViewerResizeLifecycl
             const pageContainer = container.querySelector<HTMLElement>(
                 `.page_container[data-page="${page}"]`,
             );
+            const activeLease = activeResizeVisualSnapshots.get(page);
+            const isActiveLeaseValid = Boolean(
+                activeLease
+                && !activeLease.released
+                && activeLease.document === pdfDocument.value
+                && activeLease.pageContainer === pageContainer
+                && pageContainer?.dataset.page === String(page)
+                && activeLease.snapshot.isValid(),
+            );
+            if (isActiveLeaseValid) {
+                continue;
+            }
+            activeLease?.snapshot.release();
+            activeResizeVisualSnapshots.delete(page);
             const snapshot = preservePdfResizeCanvasVisualSnapshot(pageContainer);
             if (!snapshot) {
                 // A rapid zoom packet can arrive after the renderer has cleared
@@ -382,18 +403,28 @@ export const usePdfViewerResizeLifecycle = (options: IUsePdfViewerResizeLifecycl
                 // page shell during that gap.
                 continue;
             }
-            activeResizeVisualSnapshotReleases.get(page)?.();
-            const release = () => {
+            if (!pageContainer) {
                 snapshot.release();
-                if (activeResizeVisualSnapshotReleases.get(page) === release) {
-                    activeResizeVisualSnapshotReleases.delete(page);
+                continue;
+            }
+            const lease: IActiveResizeVisualSnapshotLease = {
+                document: pdfDocument.value,
+                pageContainer,
+                released: false,
+                snapshot,
+            };
+            const release = () => {
+                lease.released = true;
+                snapshot.release();
+                if (activeResizeVisualSnapshots.get(page) === lease) {
+                    activeResizeVisualSnapshots.delete(page);
                 }
             };
-            activeResizeVisualSnapshotReleases.set(page, release);
+            activeResizeVisualSnapshots.set(page, lease);
             schedulePdfLayerVisualSnapshotRelease(release, {
-                maxDelayMs: PDF_RESIZE_VISUAL_SNAPSHOT_MAX_DELAY_MS,
+                forceReleaseAfterMaxDelay: false,
                 minFrames: 2,
-                waitFor: snapshot.hasReplacementCanvas,
+                waitFor: () => !snapshot.isValid() || snapshot.hasReplacementCanvas(),
             });
         }
     }
@@ -616,8 +647,11 @@ export const usePdfViewerResizeLifecycle = (options: IUsePdfViewerResizeLifecycl
     }, {flush: 'sync'});
 
     function cleanupResizeLifecycle() {
-        activeResizeVisualSnapshotReleases.forEach(release => release());
-        activeResizeVisualSnapshotReleases.clear();
+        activeResizeVisualSnapshots.forEach((lease) => {
+            lease.released = true;
+            lease.snapshot.release();
+        });
+        activeResizeVisualSnapshots.clear();
         if (pendingResizeTransitionHideTimer !== null) {
             clearTimeout(pendingResizeTransitionHideTimer);
             pendingResizeTransitionHideTimer = null;

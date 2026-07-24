@@ -1,6 +1,7 @@
 import type { TPdfLayerVisualSnapshotRelease } from '@app/modules/pdf-viewer/engine/pdf-layer-visual-snapshot/pdfLayerVisualSnapshotRelease';
 
 interface IPdfLayerVisualSnapshotReleaseOptions {
+    forceReleaseAfterMaxDelay?: boolean;
     maxDelayMs?: number;
     minFrames?: number;
     waitFor?: () => boolean;
@@ -48,6 +49,9 @@ export function schedulePdfLayerVisualSnapshotRelease(
         }
         if (!options.waitFor || options.waitFor()) {
             return true;
+        }
+        if (options.forceReleaseAfterMaxDelay === false) {
+            return false;
         }
         return Date.now() - startTime >= maxDelayMs;
     };

@@ -21,6 +21,7 @@ export interface ICurrentPageSyncOptions {
     source?: string;
     stabilize?: boolean;
     resizeAnchor?: IResizeAnchorContext | null;
+    zoomGestureSessionId?: number | undefined;
     zoomLockOperationId?: TZoomInteractionLockOperationId | null;
     transactionId?: number | undefined;
 }

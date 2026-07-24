@@ -844,6 +844,23 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
         return Boolean(canvas && canvas.isConnected && canvas.width > 0 && canvas.height > 0);
     }
 
+    function isCommittedVisualCurrent(pageNumber: number) {
+        const slot = pageRenderState.getSlot(pageNumber);
+        const currentScale = toValue(options.effectiveScale);
+        const currentOutputScale = toValue(outputScale);
+        const scaleTolerance = Math.max(1, Math.abs(currentScale)) * Number.EPSILON * 8;
+        const outputScaleTolerance = Math.max(1, Math.abs(currentOutputScale)) * Number.EPSILON * 8;
+        return (
+            slot.visual === 'ready'
+            && slot.documentToken === getRenderDocumentToken()
+            && slot.targetScale !== null
+            && Math.abs(slot.targetScale - currentScale) <= scaleTolerance
+            && slot.targetOutputScale !== null
+            && Math.abs(slot.targetOutputScale - currentOutputScale) <= outputScaleTolerance
+            && hasNonzeroMountedPageCanvas(pageNumber)
+        );
+    }
+
     function renderTransactionPages(request: IPdfViewerTransactionRenderRequest) {
         return visibleRenderController.renderTransactionPages(request);
     }
@@ -913,22 +930,17 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
         },
         isPageRendered: (pageNumber: number) => pageRenderState.getSlot(pageNumber).visual === 'ready',
         isPageFreshlyRendered: (pageNumber: number) => pageRenderState.getSlot(pageNumber).visual === 'ready',
-        isPageCanvasCommitted: (pageNumber: number) => {
+        isPageCanvasCommitted: isCommittedVisualCurrent,
+        isPageQualityRefineEligible: (pageNumber: number) => {
             const slot = pageRenderState.getSlot(pageNumber);
-            const currentScale = toValue(options.effectiveScale);
-            const currentOutputScale = toValue(outputScale);
-            const scaleTolerance = Math.max(1, Math.abs(currentScale)) * Number.EPSILON * 8;
-            const outputScaleTolerance = Math.max(1, Math.abs(currentOutputScale)) * Number.EPSILON * 8;
-            return (
-                slot.visual === 'ready'
-                && slot.documentToken === getRenderDocumentToken()
-                && slot.targetScale !== null
-                && Math.abs(slot.targetScale - currentScale) <= scaleTolerance
-                && slot.targetOutputScale !== null
-                && Math.abs(slot.targetOutputScale - currentOutputScale) <= outputScaleTolerance
-                && hasNonzeroMountedPageCanvas(pageNumber)
-            );
+            return isCommittedVisualCurrent(pageNumber)
+                && slot.job === 'idle'
+                && slot.committedRasterQuality?.wasClamped === true
+                && slot.committedRasterQuality.intent === 'buffer-preview';
         },
+        getCommittedRasterQuality: (pageNumber: number) => (
+            pageRenderState.getSlot(pageNumber).committedRasterQuality
+        ),
         isPageRendering: (pageNumber: number) => pageRenderState.getSlot(pageNumber).job === 'rendering',
         isPageRenderFailed: (pageNumber: number) => {
             const slot = pageRenderState.getSlot(pageNumber);

@@ -26,6 +26,7 @@ import { BrowserLogger } from '@app/utils/browserLogger';
 import { logPdfRenderTrace } from '@app/utils/pdfRenderTrace';
 import type { IPdfDocumentPageLease } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfDocument';
 import type {
+    IPdfCommittedRasterQuality,
     IPdfPageNumberStateMap,
     TPdfPageRenderState,
 } from '@app/modules/pdf-viewer/runtime/rendering/pdfPageRenderState';
@@ -46,7 +47,20 @@ interface IRenderPageContext<TRenderResult> {
     annotationLayerInstance: unknown;
 }
 
-interface IPdfSinglePageRenderResult {canvas: HTMLCanvasElement;}
+interface IPdfSinglePageRenderResult {
+    canvas: HTMLCanvasElement;
+    grantedPixels?: number;
+    pixelScaleFactor?: number;
+    requestedPixels?: number;
+    wasClamped?: boolean;
+}
+
+interface IPdfRasterQualityRenderResult extends IPdfSinglePageRenderResult {
+    grantedPixels: number;
+    pixelScaleFactor: number;
+    requestedPixels: number;
+    wasClamped: boolean;
+}
 
 type IPdfPageRenderLease = IPdfDocumentPageLease;
 
@@ -233,13 +247,46 @@ export const usePdfRendererSinglePageController = <TRenderResult extends IPdfSin
     } = options;
     const pageRenderState = options.pageRenderState ?? createPdfPageRenderState();
 
+    function hasPdfRasterQuality(
+        renderResult: IPdfSinglePageRenderResult,
+    ): renderResult is IPdfRasterQualityRenderResult {
+        return typeof renderResult.requestedPixels === 'number'
+            && Number.isFinite(renderResult.requestedPixels)
+            && typeof renderResult.grantedPixels === 'number'
+            && Number.isFinite(renderResult.grantedPixels)
+            && typeof renderResult.pixelScaleFactor === 'number'
+            && Number.isFinite(renderResult.pixelScaleFactor)
+            && typeof renderResult.wasClamped === 'boolean';
+    }
+
+    function resolveCommittedRasterQuality(
+        renderResult: TRenderResult,
+        renderOptions?: IRenderVisiblePagesOptions,
+    ): IPdfCommittedRasterQuality {
+        const fallbackPixels = Math.max(0, renderResult.canvas.width * renderResult.canvas.height);
+        return {
+            requestedPixels: hasPdfRasterQuality(renderResult) ? renderResult.requestedPixels : fallbackPixels,
+            grantedPixels: hasPdfRasterQuality(renderResult) ? renderResult.grantedPixels : fallbackPixels,
+            pixelScaleFactor: hasPdfRasterQuality(renderResult) ? renderResult.pixelScaleFactor : 1,
+            wasClamped: hasPdfRasterQuality(renderResult) ? renderResult.wasClamped : false,
+            intent: renderOptions?.coordinatorDemand?.kind === 'buffer'
+                ? 'buffer-preview'
+                : 'settled',
+        };
+    }
+
     function cleanupStaleMountedPageRender(
         pageNumber: number,
         version: number,
         requestId: number,
         pageLease: IPdfPageRenderLease,
+        preserveCommittedVisual = false,
     ) {
-        cleanupPageIfCurrentRender(pageNumber, version, requestId);
+        if (preserveCommittedVisual) {
+            pageRenderState.completeRender(pageNumber, version, requestId);
+        } else {
+            cleanupPageIfCurrentRender(pageNumber, version, requestId);
+        }
         pageLease.release();
     }
 
@@ -284,8 +331,15 @@ export const usePdfRendererSinglePageController = <TRenderResult extends IPdfSin
         pageNumber: number,
         version: number,
         requestId: number,
+        renderResult: TRenderResult,
+        renderOptions?: IRenderVisiblePagesOptions,
     ) {
-        if (!pageRenderState.commitVisual(pageNumber, version, requestId)) {
+        if (!pageRenderState.commitVisual(
+            pageNumber,
+            version,
+            requestId,
+            resolveCommittedRasterQuality(renderResult, renderOptions),
+        )) {
             return false;
         }
         onRenderedPageStateChanged?.();
@@ -352,6 +406,14 @@ export const usePdfRendererSinglePageController = <TRenderResult extends IPdfSin
         renderOptions?: IRenderVisiblePagesOptions,
     ) {
         const pdfPage = pageLease.page;
+        const preserveCommittedVisual = renderOptions?.preserveCommittedVisual === true;
+        const cleanupStaleRender = () => cleanupStaleMountedPageRender(
+            pageNumber,
+            version,
+            requestId,
+            pageLease,
+            preserveCommittedVisual,
+        );
         if (!renderResult) {
             return;
         }
@@ -369,8 +431,8 @@ export const usePdfRendererSinglePageController = <TRenderResult extends IPdfSin
         }
 
         mountRenderedCanvas(pageNumber, target.container, target.canvasHost, renderResult, scale);
-        if (!commitMountedCanvasVisual(pageNumber, version, requestId)) {
-            cleanupStaleMountedPageRender(pageNumber, version, requestId, pageLease);
+        if (!commitMountedCanvasVisual(pageNumber, version, requestId, renderResult, renderOptions)) {
+            cleanupStaleRender();
             return;
         }
         logPdfRenderTrace('renderer-canvas-mounted', {
@@ -424,11 +486,11 @@ export const usePdfRendererSinglePageController = <TRenderResult extends IPdfSin
             shouldContinueMountedLayers,
         );
         if (!annotationRenderResult.shouldContinue) {
-            cleanupStaleMountedPageRender(pageNumber, version, requestId, pageLease);
+            cleanupStaleRender();
             return;
         }
         if (!shouldContinueMountedLayers()) {
-            cleanupStaleMountedPageRender(pageNumber, version, requestId, pageLease);
+            cleanupStaleRender();
             return;
         }
 
@@ -445,7 +507,7 @@ export const usePdfRendererSinglePageController = <TRenderResult extends IPdfSin
             false,
         );
         if (!canonicalRenderCompleted) {
-            cleanupStaleMountedPageRender(pageNumber, version, requestId, pageLease);
+            cleanupStaleRender();
             return;
         }
         const shouldRenderOptionalTextLayer = renderOptions?.continuationPriority !== 'nearby'
@@ -507,6 +569,14 @@ export const usePdfRendererSinglePageController = <TRenderResult extends IPdfSin
         renderOptions?: IRenderVisiblePagesOptions,
     ) {
         const pdfPage = pageLease.page;
+        const preserveCommittedVisual = renderOptions?.preserveCommittedVisual === true;
+        const cleanupStaleRender = () => cleanupStaleMountedPageRender(
+            pageNumber,
+            version,
+            requestId,
+            pageLease,
+            preserveCommittedVisual,
+        );
         if (getRenderVersion() !== version || !shouldContinue()) {
             cleanupCanvasRenderResult(preparedCanvasRender);
             pageLease.release();
@@ -567,7 +637,7 @@ export const usePdfRendererSinglePageController = <TRenderResult extends IPdfSin
         await yieldForSearchNavigation(pageNumber, version, requestId, documentToken);
         if (getRenderVersion() !== version || getRenderDocumentToken() !== documentToken || !shouldContinue()) {
             await cancelPreparedCanvasRender();
-            cleanupStaleMountedPageRender(pageNumber, version, requestId, pageLease);
+            cleanupStaleRender();
             return;
         }
 
@@ -578,13 +648,13 @@ export const usePdfRendererSinglePageController = <TRenderResult extends IPdfSin
         }
         if (getRenderVersion() !== version || getRenderDocumentToken() !== documentToken || !shouldContinue()) {
             cleanupCanvasRenderResult(renderResult);
-            cleanupStaleMountedPageRender(pageNumber, version, requestId, pageLease);
+            cleanupStaleRender();
             return;
         }
 
         mountRenderedCanvas(pageNumber, target.container, target.canvasHost, renderResult, scale);
-        if (!commitMountedCanvasVisual(pageNumber, version, requestId)) {
-            cleanupStaleMountedPageRender(pageNumber, version, requestId, pageLease);
+        if (!commitMountedCanvasVisual(pageNumber, version, requestId, renderResult, renderOptions)) {
+            cleanupStaleRender();
             return;
         }
         logPdfRenderTrace('renderer-canvas-mounted', {
@@ -611,11 +681,11 @@ export const usePdfRendererSinglePageController = <TRenderResult extends IPdfSin
             shouldContinue,
         );
         if (!annotationRenderResult.shouldContinue) {
-            cleanupStaleMountedPageRender(pageNumber, version, requestId, pageLease);
+            cleanupStaleRender();
             return;
         }
         if (!shouldContinue()) {
-            cleanupStaleMountedPageRender(pageNumber, version, requestId, pageLease);
+            cleanupStaleRender();
             return;
         }
 
@@ -720,7 +790,9 @@ export const usePdfRendererSinglePageController = <TRenderResult extends IPdfSin
         if (isPageRenderTimeoutError(error)) {
             logPageRenderTimeout(error, version);
             if (pageRenderState.markRenderFailed(pageNumber, version, requestId)) {
-                cleanupPageIfCurrentRender(pageNumber, version, requestId, {terminalFailure: true});
+                if (renderOptions?.preserveCommittedVisual !== true) {
+                    cleanupPageIfCurrentRender(pageNumber, version, requestId, {terminalFailure: true});
+                }
                 onRenderedPageStateChanged?.();
             }
             return;
@@ -731,7 +803,9 @@ export const usePdfRendererSinglePageController = <TRenderResult extends IPdfSin
             formatRenderError(error, pageNumber),
         );
         if (pageRenderState.markRenderFailed(pageNumber, version, requestId)) {
-            cleanupPageIfCurrentRender(pageNumber, version, requestId, {terminalFailure: true});
+            if (renderOptions?.preserveCommittedVisual !== true) {
+                cleanupPageIfCurrentRender(pageNumber, version, requestId, {terminalFailure: true});
+            }
             onRenderedPageStateChanged?.();
         }
     }
@@ -852,16 +926,28 @@ export const usePdfRendererSinglePageController = <TRenderResult extends IPdfSin
             scale,
             page: summarizePageDom(pageNumber),
         });
-        clearSelectionBeforePageLayerTeardown(pageNumber);
-        clearPageVisual(pageNumber);
-        pageRenderState.beginRender(
-            pageNumber,
-            version,
-            requestId,
-            documentToken,
-            scale,
-            toValue(outputScale),
-        );
+        const preserveCommittedVisual = renderOptions?.preserveCommittedVisual === true;
+        if (preserveCommittedVisual) {
+            pageRenderState.beginQualityRefine(
+                pageNumber,
+                version,
+                requestId,
+                documentToken,
+                scale,
+                toValue(outputScale),
+            );
+        } else {
+            clearSelectionBeforePageLayerTeardown(pageNumber);
+            clearPageVisual(pageNumber);
+            pageRenderState.beginRender(
+                pageNumber,
+                version,
+                requestId,
+                documentToken,
+                scale,
+                toValue(outputScale),
+            );
+        }
         let pageLease: IPdfPageRenderLease | null = null;
         try {
             logPdfRenderTrace('renderer-page-load-begin', {

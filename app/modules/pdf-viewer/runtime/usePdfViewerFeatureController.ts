@@ -58,7 +58,6 @@ import {createEmptyPdfjsAnnotationEditorState} from '@app/modules/pdf-viewer/run
 import type { IPdfjsAnnotationEditorState } from '@app/modules/pdf-viewer/runtime/annotations/pdfjsAnnotationState';
 import {renderPdfDocumentPageSource} from '@app/modules/pdf-viewer/runtime/renderPdfDocumentPageSource';
 let nextPdfPageSlotOwnerId = 0;
-
 export const usePdfViewerFeatureController = (props: IPdfViewerProps, emit: IPdfViewerEmit) => {
     const chassisAuthority = injectDocumentViewerChassisAuthority();
     const openSurfaceRenderOwner = chassisAuthority?.openSurface.claimRenderOwner();
@@ -303,9 +302,7 @@ export const usePdfViewerFeatureController = (props: IPdfViewerProps, emit: IPdf
     const userViewportInteractionEpoch = ref(0);
     const documentLoadToken = ref(0);
     let transactionController: ReturnType<typeof usePdfViewerTransactionController> | null = null;
-    const renderSession = chassisAuthority?.renderCoordinator.createSession(
-        `pdf-feature:${String(++nextPdfPageSlotOwnerId)}`,
-    ) ?? null;
+    const renderSession = chassisAuthority?.renderCoordinator.createSession(`pdf-feature:${String(++nextPdfPageSlotOwnerId)}`) ?? null;
     const pageSlots = renderSession?.pageSlots ?? createPdfPageSlotRegistry();
     let renderDemandCoordinator: ReturnType<typeof usePdfRenderDemandCoordinator> | null = null;
     onScopeDispose(() => {
@@ -334,6 +331,8 @@ export const usePdfViewerFeatureController = (props: IPdfViewerProps, emit: IPdf
         isPageFreshlyRenderedForNavigation,
         isPageRenderedForClass,
         isPageCanvasCommitted,
+        isPageQualityRefineEligible,
+        clampedVisibleRefineMode,
         getRenderAuthorityCursor,
         reconcilePageCanvasResidency,
     } = usePdfViewerRenderingRuntime({
@@ -925,8 +924,7 @@ export const usePdfViewerFeatureController = (props: IPdfViewerProps, emit: IPdf
             const height = metric?.height ?? basePageHeight.value ?? 1;
             const scale = effectiveScale.value;
             const pixelRatio = outputScale.value;
-            const requestedPixels = Math.max(1, Math.round(width * scale * pixelRatio))
-                * Math.max(1, Math.round(height * scale * pixelRatio));
+            const requestedPixels = Math.max(1, Math.round(width * scale * pixelRatio)) * Math.max(1, Math.round(height * scale * pixelRatio));
             return Math.min(requestedPixels, performanceProfile.settledMaxCanvasPixels);
         },
         reconcilePageCanvasResidency,
@@ -938,8 +936,12 @@ export const usePdfViewerFeatureController = (props: IPdfViewerProps, emit: IPdf
         renderStateVersion: renderedPageStateVersion,
         getRenderGeneration: () => getRenderAuthorityCursor().renderVersion,
         isPageReady: isPageCanvasCommitted,
+        isPageQualityRefineEligible,
         isPageRendering,
         getPageFailureToken: getPageRenderFailureToken,
+        clampedVisibleRefineMode,
+        getViewportInteractionEpoch: () => userViewportInteractionEpoch.value,
+        hasActiveVisualTransaction: () => transactionController?.activeTransaction.value !== null,
         renderVisiblePages: (range, renderOptions) => renderVisiblePages(range, {
             ...renderOptions,
             openSurfaceGeneration: chassisAuthority?.openSurface.snapshot.value.generation ?? 0,
@@ -952,7 +954,6 @@ export const usePdfViewerFeatureController = (props: IPdfViewerProps, emit: IPdf
     function redoAnnotation() {
         return appAnnotationHistory.redo();
     }
-
     const {
         shouldShowSkeleton,
         handleDragStart,
@@ -960,9 +961,7 @@ export const usePdfViewerFeatureController = (props: IPdfViewerProps, emit: IPdf
         invalidatePages,
         preserveNextSourceReloadVisibleContent,
     } = runtimeLifecycle;
-    const navigationSkeletonAnchorPage = computed(() =>
-        navigationAnchorPage.value ?? viewerCurrentPage.value,
-    );
+    const navigationSkeletonAnchorPage = computed(() => navigationAnchorPage.value ?? viewerCurrentPage.value);
     function isPageVisualReadyForShapeOverlay(pageNumber: number) {
         return (
             isPageCanvasCommitted(pageNumber)

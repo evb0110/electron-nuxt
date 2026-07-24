@@ -5,6 +5,7 @@ const RESIZE_SNAPSHOT_PAGE_CLASS = 'page_container--resize-visual-snapshot';
 
 export interface IPdfResizeCanvasVisualSnapshot {
     hasReplacementCanvas: () => boolean;
+    isValid: () => boolean;
     release: TPdfLayerVisualSnapshotRelease;
 }
 
@@ -14,6 +15,19 @@ export function preservePdfResizeCanvasVisualSnapshot(
     const pageCanvas = pageContainer?.querySelector<HTMLElement>('.page_canvas');
     const canvasHost = pageCanvas?.querySelector<HTMLElement>('.page_canvas__render-layer');
     const sourceCanvas = canvasHost?.querySelector<HTMLCanvasElement>('canvas');
+    const existingSnapshots = pageCanvas?.querySelectorAll<HTMLCanvasElement>(
+        `.${RESIZE_SNAPSHOT_CLASS}`,
+    ) ?? [];
+    for (const existingSnapshot of existingSnapshots) {
+        const isValid = existingSnapshot.isConnected
+            && existingSnapshot.parentElement === pageCanvas
+            && existingSnapshot.width > 0
+            && existingSnapshot.height > 0;
+        if (isValid) {
+            return null;
+        }
+        existingSnapshot.remove();
+    }
     if (
         !pageContainer
         || !pageCanvas
@@ -47,6 +61,14 @@ export function preservePdfResizeCanvasVisualSnapshot(
             const replacement = canvasHost.querySelector<HTMLCanvasElement>('canvas');
             return replacement !== null && replacement !== sourceCanvas;
         },
+        isValid: () => (
+            !released
+            && snapshot.isConnected
+            && snapshot.parentElement === pageCanvas
+            && pageContainer.contains(pageCanvas)
+            && snapshot.width > 0
+            && snapshot.height > 0
+        ),
         release: () => {
             if (released) {
                 return;

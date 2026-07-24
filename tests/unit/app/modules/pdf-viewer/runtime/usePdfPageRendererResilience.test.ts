@@ -390,6 +390,89 @@ describe('usePdfPageRenderer resilience', () => {
         expect(canvasRendererMock.renderCanvas).toHaveBeenCalledTimes(1);
     });
 
+    it('keeps clamped buffer quality committed while its settled replacement renders', async () => {
+        const firstPage = createPageContainer({pageNumber: 1});
+        const secondPage = createPageContainer({pageNumber: 2});
+        const renderer = usePdfPageRenderer({
+            container: ref(createContainerRoot([
+                firstPage.pageContainer,
+                secondPage.pageContainer,
+            ])),
+            document: createDocumentState({
+                numPages: ref(2),
+                leasePage: vi.fn(async () => createPageLease({render: vi.fn(() => ({promise: Promise.resolve()}))})),
+            }) as never,
+        });
+
+        await renderer.renderVisiblePages({
+            start: 1,
+            end: 1,
+        });
+        canvasRendererMock.renderCanvas.mockResolvedValueOnce({
+            ...createRenderResult(),
+            requestedPixels: 8_000_000,
+            grantedPixels: 2_000_000,
+            pixelScaleFactor: 0.5,
+            wasClamped: true,
+        });
+        await renderer.renderVisiblePages({
+            start: 1,
+            end: 1,
+        }, {
+            coordinatorDemand: {
+                kind: 'buffer',
+                renderGeneration: 0,
+            },
+            preserveRenderedPages: true,
+            renderWindowOverride: {
+                start: 2,
+                end: 2,
+            },
+        });
+
+        expect(renderer.getCommittedRasterQuality(2)).toEqual({
+            requestedPixels: 8_000_000,
+            grantedPixels: 2_000_000,
+            pixelScaleFactor: 0.5,
+            wasClamped: true,
+            intent: 'buffer-preview',
+        });
+        expect(renderer.isPageQualityRefineEligible(2)).toBe(true);
+
+        const settledRender = Promise.withResolvers<ReturnType<typeof createRenderResult> & {
+            requestedPixels: number;
+            grantedPixels: number;
+            pixelScaleFactor: number;
+            wasClamped: boolean;
+        }>();
+        canvasRendererMock.renderCanvas.mockReturnValueOnce(settledRender.promise);
+        const refine = renderer.renderVisiblePages({
+            start: 2,
+            end: 2,
+        }, {
+            bufferOverride: 0,
+            forceRerender: true,
+            preserveCommittedVisual: true,
+        });
+        await vi.waitFor(() => expect(canvasRendererMock.renderCanvas).toHaveBeenCalledTimes(3));
+
+        expect(renderer.isPageCanvasCommitted(2)).toBe(true);
+        expect(renderer.getCommittedRasterQuality(2)?.intent).toBe('buffer-preview');
+
+        settledRender.resolve({
+            ...createRenderResult(),
+            requestedPixels: 8_000_000,
+            grantedPixels: 6_000_000,
+            pixelScaleFactor: Math.sqrt(0.75),
+            wasClamped: true,
+        });
+        await refine;
+
+        expect(renderer.isPageCanvasCommitted(2)).toBe(true);
+        expect(renderer.getCommittedRasterQuality(2)?.intent).toBe('settled');
+        expect(renderer.isPageQualityRefineEligible(2)).toBe(false);
+    });
+
     it('applies search highlights before finalizing a text-layer-first search render', async () => {
         vi.useFakeTimers();
         const { pageContainer } = createPageContainer({

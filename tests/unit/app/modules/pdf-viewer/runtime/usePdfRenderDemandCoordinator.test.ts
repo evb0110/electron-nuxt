@@ -14,8 +14,11 @@ import { usePdfRenderDemandCoordinator } from '@app/modules/pdf-viewer/runtime/r
 import { createPdfPageSlotRegistry } from '@app/modules/pdf-viewer/runtime/page-slots/pdfPageSlotRegistry';
 import type { PDFDocumentProxy } from '@app/types/pdfContracts';
 import { cast } from '@tests/helpers/cast';
+import type { TPdfClampedVisibleRefineMode } from '@app/modules/pdf-viewer/engine/pdf-render-performance/resolvePdfRenderPerformancePolicy';
 
-function createHarness() {
+interface ICreateHarnessOptions {clampedVisibleRefineMode?: TPdfClampedVisibleRefineMode;}
+
+function createHarness(options: ICreateHarnessOptions = {}) {
     const scope = effectScope();
     const visibleRange = ref({
         start: 43,
@@ -33,12 +36,21 @@ function createHarness() {
     const ready = new Set<number>();
     const rendering = new Set<number>();
     const failureTokens = new Map<number, string>();
+    const qualityRefineEligible = new Set<number>();
+    const viewportInteractionEpoch = ref(0);
+    const activeVisualTransaction = ref(false);
+    const inputPending = ref(false);
     const renderStateVersion = ref(0);
     const renderGeneration = ref(1);
     const frameCallbacks = new Map<number, FrameRequestCallback>();
     const watchdogCallbacks = new Map<number, () => void>();
+    const qualityRefineIdleCallbacks = new Map<number, {
+        callback: () => void;
+        delayMs: number;
+    }>();
     let nextFrameId = 0;
     let nextWatchdogId = 0;
+    let nextQualityRefineIdleId = 0;
     const renderVisiblePages = vi.fn(async () => undefined);
     const reconcilePageCanvasResidency = vi.fn();
     const coordinator = scope.run(() => usePdfRenderDemandCoordinator({
@@ -57,8 +69,13 @@ function createHarness() {
         renderStateVersion,
         getRenderGeneration: () => renderGeneration.value,
         isPageReady: pageNumber => ready.has(pageNumber),
+        isPageQualityRefineEligible: pageNumber => qualityRefineEligible.has(pageNumber),
         isPageRendering: pageNumber => rendering.has(pageNumber),
         getPageFailureToken: pageNumber => failureTokens.get(pageNumber) ?? null,
+        clampedVisibleRefineMode: options.clampedVisibleRefineMode,
+        getViewportInteractionEpoch: () => viewportInteractionEpoch.value,
+        hasActiveVisualTransaction: () => activeVisualTransaction.value,
+        isInputPending: () => inputPending.value,
         renderVisiblePages,
         requestFrame: callback => {
             nextFrameId += 1;
@@ -75,6 +92,17 @@ function createHarness() {
         },
         cancelWatchdog: watchdogId => {
             watchdogCallbacks.delete(watchdogId as number);
+        },
+        scheduleQualityRefineIdle: (callback, delayMs) => {
+            nextQualityRefineIdleId += 1;
+            qualityRefineIdleCallbacks.set(nextQualityRefineIdleId, {
+                callback,
+                delayMs,
+            });
+            return nextQualityRefineIdleId;
+        },
+        cancelQualityRefineIdle: timerId => {
+            qualityRefineIdleCallbacks.delete(timerId as number);
         },
     }));
 
@@ -104,15 +132,38 @@ function createHarness() {
         callback();
     }
 
+    function flushQualityRefineIdle() {
+        const entry = qualityRefineIdleCallbacks.entries().next().value as [
+            number,
+            {
+                callback: () => void;
+                delayMs: number
+            },
+        ] | undefined;
+        if (!entry) {
+            throw new Error('No quality-refine idle timer is queued');
+        }
+        const [
+            timerId,
+            timer,
+        ] = entry;
+        qualityRefineIdleCallbacks.delete(timerId);
+        timer.callback();
+    }
+
     return {
+        activeVisualTransaction,
         coordinator,
         failureTokens,
         flushFrame,
         flushWatchdog,
         frameCallbacks,
+        flushQualityRefineIdle,
         ready,
         mountedPages,
         pageSlots,
+        qualityRefineEligible,
+        qualityRefineIdleCallbacks,
         renderStateVersion,
         renderGeneration,
         renderVisiblePages,
@@ -120,6 +171,8 @@ function createHarness() {
         rendering,
         scope,
         visibleRange,
+        viewportInteractionEpoch,
+        inputPending,
         protectedVisibleRange,
         watchdogCallbacks,
     };
@@ -600,5 +653,77 @@ describe('usePdfRenderDemandCoordinator', () => {
         await Promise.resolve();
         expect(harness.frameCallbacks.size).toBe(1);
         harness.scope.stop();
+    });
+
+    it('immediately refines one clamped visible buffer while preserving its committed canvas', () => {
+        const harness = createHarness({clampedVisibleRefineMode: 'immediate'});
+        harness.pageSlots.markMounted(43);
+        harness.ready.add(43);
+        harness.qualityRefineEligible.add(43);
+        harness.coordinator?.notifyPageMounted();
+
+        harness.flushFrame();
+
+        expect(harness.renderVisiblePages).toHaveBeenCalledWith(
+            {
+                start: 43,
+                end: 43,
+            },
+            expect.objectContaining({
+                bufferOverride: 0,
+                forceRerender: true,
+                preserveCommittedVisual: true,
+            }),
+        );
+        expect(harness.coordinator?.getPageVisualReadiness(43)).toBe('ready');
+        harness.scope.stop();
+    });
+
+    it('does not schedule quality work for an unclamped committed buffer', () => {
+        const harness = createHarness({clampedVisibleRefineMode: 'immediate'});
+        harness.mountedPages.value = [43];
+        harness.pageSlots.markMounted(43);
+        harness.ready.add(43);
+        harness.coordinator?.notifyPageMounted();
+
+        harness.flushFrame();
+
+        expect(harness.renderVisiblePages).not.toHaveBeenCalled();
+        harness.scope.stop();
+    });
+
+    it('resets constrained refinement idle when viewport input advances', () => {
+        vi.useFakeTimers();
+        vi.setSystemTime(1_000);
+        const harness = createHarness({clampedVisibleRefineMode: 'input-idle'});
+        harness.mountedPages.value = [43];
+        harness.pageSlots.markMounted(43);
+        harness.ready.add(43);
+        harness.qualityRefineEligible.add(43);
+        harness.coordinator?.notifyPageMounted();
+
+        harness.flushFrame();
+        expect(harness.renderVisiblePages).not.toHaveBeenCalled();
+        expect([...harness.qualityRefineIdleCallbacks.values()][0]?.delayMs).toBe(160);
+
+        vi.setSystemTime(1_159);
+        harness.viewportInteractionEpoch.value += 1;
+        harness.flushFrame();
+        expect([...harness.qualityRefineIdleCallbacks.values()][0]?.delayMs).toBe(160);
+
+        vi.setSystemTime(1_319);
+        harness.flushQualityRefineIdle();
+        harness.flushFrame();
+
+        expect(harness.renderVisiblePages).toHaveBeenCalledOnce();
+        expect(harness.renderVisiblePages).toHaveBeenCalledWith(
+            {
+                start: 43,
+                end: 43,
+            },
+            expect.objectContaining({preserveCommittedVisual: true}),
+        );
+        harness.scope.stop();
+        vi.useRealTimers();
     });
 });

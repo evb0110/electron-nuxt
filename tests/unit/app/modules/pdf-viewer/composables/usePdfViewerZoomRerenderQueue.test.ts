@@ -21,6 +21,10 @@ const performancePolicy = resolvePdfRenderPerformancePolicy({
     lowCpu: false,
     lowMemory: false,
 });
+const constrainedPerformancePolicy = resolvePdfRenderPerformancePolicy({
+    lowCpu: true,
+    lowMemory: false,
+});
 
 function createViewerMetrics() {
     return {
@@ -361,5 +365,64 @@ describe('usePdfViewerZoomRerenderQueue', () => {
         } finally {
             queue.cleanupZoomRerenderQueue();
         }
+    });
+
+    it('waits for 160 ms of accepted-input idle and retains the first gesture anchor', async () => {
+        vi.useFakeTimers();
+        vi.setSystemTime(1_000);
+        const {
+            queue,
+            reRenderVisiblePagesAndSyncCurrentPage,
+        } = createQueueHarness({
+            performancePolicy: constrainedPerformancePolicy,
+            isZoomInteractionLocked: () => true,
+        });
+
+        queue.enqueueZoomSync({
+            source: 'zoom-gesture-change',
+            resizeAnchor: createResizeAnchor(2),
+            zoomGestureSessionId: 7,
+        });
+        await vi.advanceTimersByTimeAsync(159);
+        expect(reRenderVisiblePagesAndSyncCurrentPage).not.toHaveBeenCalled();
+
+        queue.enqueueZoomSync({
+            source: 'zoom-gesture-change',
+            resizeAnchor: createResizeAnchor(9),
+            zoomGestureSessionId: 7,
+        });
+        await vi.advanceTimersByTimeAsync(159);
+        expect(reRenderVisiblePagesAndSyncCurrentPage).not.toHaveBeenCalled();
+
+        await vi.advanceTimersByTimeAsync(1);
+        await Promise.resolve();
+
+        expect(reRenderVisiblePagesAndSyncCurrentPage).toHaveBeenCalledOnce();
+        expect(reRenderVisiblePagesAndSyncCurrentPage).toHaveBeenCalledWith(
+            expect.objectContaining({
+                source: 'zoom-gesture-change',
+                resizeAnchor: expect.objectContaining({page: 2}),
+            }),
+        );
+        queue.cleanupZoomRerenderQueue();
+    });
+
+    it('cancels an idle-once gesture settle when the queue is reset', async () => {
+        vi.useFakeTimers();
+        const {
+            queue,
+            reRenderVisiblePagesAndSyncCurrentPage,
+        } = createQueueHarness({performancePolicy: constrainedPerformancePolicy});
+
+        queue.enqueueZoomSync({
+            source: 'zoom-gesture-change',
+            resizeAnchor: createResizeAnchor(2),
+            zoomGestureSessionId: 7,
+        });
+        queue.resetZoomRerenderQueueState('source-change');
+        await vi.advanceTimersByTimeAsync(500);
+
+        expect(reRenderVisiblePagesAndSyncCurrentPage).not.toHaveBeenCalled();
+        queue.cleanupZoomRerenderQueue();
     });
 });

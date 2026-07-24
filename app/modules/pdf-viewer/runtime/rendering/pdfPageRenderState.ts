@@ -1,6 +1,14 @@
 type TPdfPageRenderVisualState = 'none' | 'ready';
 type TPdfPageRenderJobState = 'idle' | 'rendering' | 'failed';
 
+export interface IPdfCommittedRasterQuality {
+    readonly requestedPixels: number;
+    readonly grantedPixels: number;
+    readonly pixelScaleFactor: number;
+    readonly wasClamped: boolean;
+    readonly intent: 'buffer-preview' | 'settled';
+}
+
 interface IPdfPageRenderSlot {
     readonly visual: TPdfPageRenderVisualState;
     readonly job: TPdfPageRenderJobState;
@@ -9,6 +17,10 @@ interface IPdfPageRenderSlot {
     readonly documentToken: string | null;
     readonly targetScale: number | null;
     readonly targetOutputScale: number | null;
+    readonly committedRasterQuality: IPdfCommittedRasterQuality | null;
+    readonly pendingDocumentToken: string | null;
+    readonly pendingTargetScale: number | null;
+    readonly pendingTargetOutputScale: number | null;
 }
 
 export interface IPdfPageNumberStateSet extends Iterable<number> {
@@ -44,6 +56,10 @@ const EMPTY_RENDER_SLOT: IPdfPageRenderSlot = {
     documentToken: null,
     targetScale: null,
     targetOutputScale: null,
+    committedRasterQuality: null,
+    pendingDocumentToken: null,
+    pendingTargetScale: null,
+    pendingTargetOutputScale: null,
 };
 
 export function createPdfPageRenderState() {
@@ -193,6 +209,9 @@ export function createPdfPageRenderState() {
             job: 'idle',
             version: null,
             requestId: null,
+            pendingDocumentToken: null,
+            pendingTargetScale: null,
+            pendingTargetOutputScale: null,
         }),
     });
     const renderingPageRequestIds = createMapView({
@@ -205,6 +224,9 @@ export function createPdfPageRenderState() {
             job: 'idle',
             version: null,
             requestId: null,
+            pendingDocumentToken: null,
+            pendingTargetScale: null,
+            pendingTargetOutputScale: null,
         }),
     });
 
@@ -237,23 +259,70 @@ export function createPdfPageRenderState() {
             documentToken: string,
             targetScale: number,
             targetOutputScale = 1,
+            beginOptions: {preserveCommittedVisual?: boolean} = {},
         ) {
+            const current = getSlot(pageNumber);
+            const preserveCommittedVisual = beginOptions.preserveCommittedVisual === true
+                && current.visual === 'ready';
             updateSlot(pageNumber, {
-                visual: 'none',
+                visual: preserveCommittedVisual ? 'ready' : 'none',
                 job: 'rendering',
+                version,
+                requestId,
+                documentToken: preserveCommittedVisual ? current.documentToken : documentToken,
+                targetScale: preserveCommittedVisual ? current.targetScale : targetScale,
+                targetOutputScale: preserveCommittedVisual
+                    ? current.targetOutputScale
+                    : targetOutputScale,
+                committedRasterQuality: preserveCommittedVisual
+                    ? current.committedRasterQuality
+                    : null,
+                pendingDocumentToken: documentToken,
+                pendingTargetScale: targetScale,
+                pendingTargetOutputScale: targetOutputScale,
+            });
+        },
+        beginQualityRefine(
+            pageNumber: number,
+            version: number,
+            requestId: number,
+            documentToken: string,
+            targetScale: number,
+            targetOutputScale = 1,
+        ) {
+            this.beginRender(
+                pageNumber,
                 version,
                 requestId,
                 documentToken,
                 targetScale,
                 targetOutputScale,
-            });
+                {preserveCommittedVisual: true},
+            );
         },
-        commitVisual(pageNumber: number, version: number, requestId: number) {
+        commitVisual(
+            pageNumber: number,
+            version: number,
+            requestId: number,
+            committedRasterQuality: IPdfCommittedRasterQuality = {
+                requestedPixels: 0,
+                grantedPixels: 0,
+                pixelScaleFactor: 1,
+                wasClamped: false,
+                intent: 'settled',
+            },
+        ) {
             const current = getSlot(pageNumber);
             if (current.job !== 'rendering' || current.version !== version || current.requestId !== requestId) {
                 return false;
             }
-            updateSlot(pageNumber, {visual: 'ready'});
+            updateSlot(pageNumber, {
+                visual: 'ready',
+                documentToken: current.pendingDocumentToken,
+                targetScale: current.pendingTargetScale,
+                targetOutputScale: current.pendingTargetOutputScale,
+                committedRasterQuality,
+            });
             return true;
         },
         completeRender(pageNumber: number, version: number, requestId: number) {
@@ -265,11 +334,19 @@ export function createPdfPageRenderState() {
                 job: 'idle',
                 version: null,
                 requestId: null,
+                pendingDocumentToken: null,
+                pendingTargetScale: null,
+                pendingTargetOutputScale: null,
             });
             return true;
         },
-        commitCanvas(pageNumber: number, version: number, requestId: number) {
-            if (!this.commitVisual(pageNumber, version, requestId)) {
+        commitCanvas(
+            pageNumber: number,
+            version: number,
+            requestId: number,
+            committedRasterQuality?: IPdfCommittedRasterQuality,
+        ) {
+            if (!this.commitVisual(pageNumber, version, requestId, committedRasterQuality)) {
                 return false;
             }
             return this.completeRender(pageNumber, version, requestId);

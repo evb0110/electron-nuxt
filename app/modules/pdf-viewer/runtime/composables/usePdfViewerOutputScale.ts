@@ -1,19 +1,17 @@
 import type { IPdfRenderPerformancePolicy } from '@app/modules/pdf-viewer/engine/pdf-render-performance/resolvePdfRenderPerformancePolicy';
 
-const PDF_CANONICAL_OUTPUT_SCALE = 2;
-
-function readWindowOutputScale() {
+function readWindowOutputScale(outputScaleFloor: number) {
     return typeof window !== 'undefined'
-        ? Math.max(PDF_CANONICAL_OUTPUT_SCALE, window.devicePixelRatio || 1)
-        : PDF_CANONICAL_OUTPUT_SCALE;
+        ? Math.max(outputScaleFloor, window.devicePixelRatio || 1)
+        : outputScaleFloor;
 }
 
 export function shouldDeferPdfDprRerenderForResize(isResizing: boolean) {
     return isResizing;
 }
 
-export const usePdfViewerOutputScale = (_performancePolicy: IPdfRenderPerformancePolicy) => {
-    const outputScale = ref(readWindowOutputScale());
+export const usePdfViewerOutputScale = (performancePolicy: IPdfRenderPerformancePolicy) => {
+    const outputScale = ref(readWindowOutputScale(performancePolicy.outputScaleFloor));
     let mediaQuery: MediaQueryList | null = null;
 
     function removeMediaListener() {
@@ -36,7 +34,7 @@ export const usePdfViewerOutputScale = (_performancePolicy: IPdfRenderPerformanc
     }
 
     function updateOutputScale() {
-        const nextScale = readWindowOutputScale();
+        const nextScale = readWindowOutputScale(performancePolicy.outputScaleFloor);
         if (outputScale.value === nextScale) {
             return;
         }
