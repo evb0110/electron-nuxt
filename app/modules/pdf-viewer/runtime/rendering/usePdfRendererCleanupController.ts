@@ -33,8 +33,6 @@ interface IUsePdfRendererCleanupControllerOptions {
     getTrackedPageNumbersForCleanup: () => Set<number>;
     evictPage: (pageNumber: number) => void;
     cleanupPageCache: () => void;
-    releasePageCanvasSurface: (pageNumber: number) => void;
-    releaseAllSurfaceResources: () => void;
     onRenderedPageStateChanged?: (() => void) | undefined;
     invalidatePendingSearchRequests: () => void;
 }
@@ -62,8 +60,6 @@ export const usePdfRendererCleanupController = (options: IUsePdfRendererCleanupC
         getTrackedPageNumbersForCleanup,
         evictPage,
         cleanupPageCache,
-        releasePageCanvasSurface,
-        releaseAllSurfaceResources,
         onRenderedPageStateChanged,
         invalidatePendingSearchRequests,
     } = options;
@@ -94,7 +90,6 @@ export const usePdfRendererCleanupController = (options: IUsePdfRendererCleanupC
             pageCanvases.delete(pageNumber);
             didChangeRenderedState = true;
         }
-        releasePageCanvasSurface(pageNumber);
         didChangeRenderedState = renderedPages.delete(pageNumber) || didChangeRenderedState;
 
         annotationLayerRenderer.cleanupEditorLayer(pageNumber);
@@ -206,7 +201,6 @@ export const usePdfRendererCleanupController = (options: IUsePdfRendererCleanupC
         }
 
         pageCanvases.clear();
-        releaseAllSurfaceResources();
         pageRenderState.clearAll();
         missingRenderTargetRetries.clear();
         textLayerCleanupFns.clear();

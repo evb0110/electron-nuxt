@@ -7,11 +7,9 @@ import type { PDFDocumentProxy } from '@app/types/pdfContracts';
 import type { IPageRange } from '@app/types/pdfUi';
 import type { IPdfPageSlotRegistry } from '@app/modules/pdf-viewer/runtime/page-slots/pdfPageSlotRegistry';
 import type { IRenderVisiblePagesOptions } from '@app/modules/pdf-viewer/runtime/rendering/pdfRendererTypes';
-import { logPdfRenderTrace } from '@app/utils/pdfRenderTrace';
 import { resolvePdfRasterResidencyPlan } from '@app/modules/pdf-viewer/runtime/rendering/resolvePdfRasterResidencyPlan';
 import type { TPdfClampedVisibleRefineMode } from '@app/modules/pdf-viewer/engine/pdf-render-performance/resolvePdfRenderPerformancePolicy';
 import type { TPdfViewMode } from '@contracts/shared';
-import { getPageRowBoundsForViewMode } from '@app/modules/pdf-viewer/engine/pdf-page-layout/getPageRowBoundsForViewMode';
 
 type TPdfPageVisualReadiness = 'unmounted' | 'queued' | 'rendering' | 'ready' | 'error';
 
@@ -38,10 +36,6 @@ interface IUsePdfRenderDemandCoordinatorOptions {
     viewMode?: ComputedRef<TPdfViewMode> | undefined;
     maxBufferCanvasPixels: number;
     estimatePageRasterPixels: (pageNumber: number) => number;
-    reconcilePageCanvasResidency: (
-        residentPages: readonly number[],
-        visibleRange: IPageRange,
-    ) => void;
     pageSlots: IPdfPageSlotRegistry;
     isActive: ComputedRef<boolean>;
     isLoading: Ref<boolean>;
@@ -63,90 +57,75 @@ interface IUsePdfRenderDemandCoordinatorOptions {
         range: IPageRange,
         options?: IRenderVisiblePagesOptions,
     ) => Promise<void>;
+    cancelRasterDemand?: (() => void | Promise<void>) | undefined;
     requestFrame?: ((callback: FrameRequestCallback) => number) | undefined;
     cancelFrame?: ((frameId: number) => void) | undefined;
-    scheduleWatchdog?: ((callback: () => void) => unknown) | undefined;
-    cancelWatchdog?: ((watchdogId: unknown) => void) | undefined;
     scheduleQualityRefineIdle?: ((callback: () => void, delayMs: number) => unknown) | undefined;
     cancelQualityRefineIdle?: ((timerId: unknown) => void) | undefined;
+    scheduleWatchdog?: ((callback: () => void) => unknown) | undefined;
+    cancelWatchdog?: ((watchdogId: unknown) => void) | undefined;
 }
 
-export const usePdfRenderDemandCoordinator = (options: IUsePdfRenderDemandCoordinatorOptions) => {
-    const MAX_FAILURE_RETRIES = 2;
-    const MAX_WATCHDOG_RECOVERIES = 2;
+interface IPdfViewportRasterPolicyOutput {
+    bufferPages: readonly number[];
+    requiredPages: readonly number[];
+    residentPages: readonly number[];
+    visibleRange: IPageRange;
+}
+
+export function resolvePdfViewportRasterPolicy(input: {
+    bufferRadius: number;
+    estimatePagePixels: (pageNumber: number) => number;
+    maxBufferPixels: number;
+    mountedPages: readonly number[];
+    visibleRange: IPageRange;
+}): IPdfViewportRasterPolicyOutput {
+    const plan = resolvePdfRasterResidencyPlan({
+        mountedPages: input.mountedPages,
+        visibleRange: input.visibleRange,
+        bufferRadius: input.bufferRadius,
+        maxBufferPixels: input.maxBufferPixels,
+        estimatePagePixels: input.estimatePagePixels,
+    });
+    const mountedPages = new Set(input.mountedPages);
+    const requiredPages = plan.visiblePages.filter(pageNumber =>
+        mountedPages.has(pageNumber));
+    const bufferPages = plan.bufferPages.filter(pageNumber =>
+        mountedPages.has(pageNumber));
+    return {
+        bufferPages,
+        requiredPages,
+        residentPages: [
+            ...requiredPages,
+            ...bufferPages,
+        ],
+        visibleRange: input.visibleRange,
+    };
+}
+
+export const usePdfRenderDemandCoordinator = (
+    options: IUsePdfRenderDemandCoordinatorOptions,
+) => {
     const QUALITY_REFINE_INPUT_IDLE_MS = 160;
     const queuedPages = shallowRef(new Set<number>());
     const requestFrame = options.requestFrame
         ?? ((callback: FrameRequestCallback) => window.requestAnimationFrame(callback));
     const cancelFrame = options.cancelFrame
         ?? ((frameId: number) => window.cancelAnimationFrame(frameId));
-    const scheduleWatchdog = options.scheduleWatchdog
-        ?? ((callback: () => void) => window.setTimeout(callback, 160));
-    const cancelWatchdog = options.cancelWatchdog
-        ?? ((watchdogId: unknown) => window.clearTimeout(watchdogId as number));
     const scheduleQualityRefineIdle = options.scheduleQualityRefineIdle
         ?? ((callback: () => void, delayMs: number) => window.setTimeout(callback, delayMs));
     const cancelQualityRefineIdle = options.cancelQualityRefineIdle
         ?? ((timerId: unknown) => window.clearTimeout(timerId as number));
     let frameId: number | null = null;
-    let watchdogId: unknown = null;
-    let nextDemandId = 0;
-    let activeDemand: {
-        id: number;
-        kind: 'automatic' | 'authoritative';
-        signature: string;
-        bufferRange?: IPageRange | undefined;
-        resolve?: (() => void) | undefined;
-    } | null = null;
-    let nextAuthoritativeDemandId = 0;
-    let pendingAuthoritativeDemand: {
-        id: number;
-        range: IPageRange;
-        options: IRenderVisiblePagesOptions;
-        resolve: () => void;
-    } | null = null;
-    let bufferDemandPending = true;
-    let layerPrewarmPending = true;
-    let pendingBufferRanges: IPageRange[] = [];
-    let pendingBufferMaxCanvasPixels = 0;
-    let automaticDemandPending = true;
-    const watchdogRecoveries = new Map<string, number>();
-    const observedFailureTokens = new Map<number, string>();
-    const failureAttempts = new Map<number, number>();
-    let observedRenderGeneration = options.getRenderGeneration();
+    let qualityRefineIdleTimer: unknown = null;
     let observedViewportInteractionEpoch = options.getViewportInteractionEpoch?.() ?? 0;
     let lastViewportInteractionAtMs = Date.now();
-    let qualityRefineIdleTimer: unknown = null;
-    let lastVisibleStart = options.visibleRange.value.start;
-    let navigationDirection: -1 | 1 = 1;
+    let pendingMandatoryDemand: {
+        options: IRenderVisiblePagesOptions;
+        range: IPageRange;
+        resolve: () => void;
+    } | null = null;
     let disposed = false;
-
-    function resolveRasterResidencyPlan() {
-        const visibleRange = getClampedProtectedVisibleRange();
-        if (!options.isActive.value || options.pdfDocument.value === null || options.numPages.value <= 0) {
-            return {
-                visiblePages: [],
-                bufferPages: [],
-                residentPages: [],
-                maxPixelsPerBufferCanvas: 0,
-                estimatedBufferPixels: 0,
-            };
-        }
-        return resolvePdfRasterResidencyPlan({
-            mountedPages: options.pagesToRender.value.filter(pageNumber => options.pageSlots.isMounted(pageNumber)),
-            visibleRange,
-            bufferRadius: options.bufferPages.value,
-            maxBufferPixels: options.maxBufferCanvasPixels,
-            estimatePagePixels: options.estimatePageRasterPixels,
-        });
-    }
-
-    function reconcileRasterResidency() {
-        const visibleRange = getClampedProtectedVisibleRange();
-        const plan = resolveRasterResidencyPlan();
-        options.reconcilePageCanvasResidency(plan.residentPages, visibleRange);
-        return plan;
-    }
 
     function isOperational() {
         return !disposed
@@ -157,71 +136,43 @@ export const usePdfRenderDemandCoordinator = (options: IUsePdfRenderDemandCoordi
             && options.suppressDemand?.value !== true;
     }
 
-    function getClampedVisibleRange() {
-        const pageCount = options.numPages.value;
-        const start = Math.max(1, Math.min(pageCount, Math.trunc(options.visibleRange.value.start)));
-        const end = Math.max(start, Math.min(pageCount, Math.trunc(options.visibleRange.value.end)));
-        return {
-            start,
-            end,
-        };
-    }
-
     function getClampedProtectedVisibleRange() {
-        const requestedRange = options.getProtectedVisibleRange?.() ?? options.visibleRange.value;
-        const pageCount = options.numPages.value;
-        const start = Math.max(1, Math.min(pageCount, Math.trunc(requestedRange.start)));
-        const end = Math.max(start, Math.min(pageCount, Math.trunc(requestedRange.end)));
+        const requested = options.getProtectedVisibleRange?.() ?? options.visibleRange.value;
+        const pageCount = Math.max(1, options.numPages.value);
+        const start = Math.max(1, Math.min(pageCount, Math.trunc(requested.start)));
         return {
             start,
-            end,
+            end: Math.max(start, Math.min(pageCount, Math.trunc(requested.end))),
         };
     }
 
-    function getRequiredMountedPages() {
+    function resolvePolicyOutput() {
+        const visibleRange = getClampedProtectedVisibleRange();
         if (!isOperational()) {
-            return [];
+            return {
+                bufferPages: [],
+                requiredPages: [],
+                residentPages: [],
+                visibleRange,
+            } satisfies IPdfViewportRasterPolicyOutput;
         }
-        const range = getClampedProtectedVisibleRange();
-        const pages: number[] = [];
-        for (let pageNumber = range.start; pageNumber <= range.end; pageNumber += 1) {
-            if (options.pageSlots.isMounted(pageNumber)) {
-                pages.push(pageNumber);
-            }
-        }
-        return pages;
+        return resolvePdfViewportRasterPolicy({
+            mountedPages: options.pagesToRender.value.filter(
+                pageNumber => options.pageSlots.isMounted(pageNumber),
+            ),
+            visibleRange,
+            bufferRadius: options.bufferPages.value,
+            maxBufferPixels: options.maxBufferCanvasPixels,
+            estimatePagePixels: options.estimatePageRasterPixels,
+        });
     }
 
-    function getFailureAttempt(pageNumber: number) {
-        if (options.isPageReady(pageNumber)) {
-            observedFailureTokens.delete(pageNumber);
-            failureAttempts.delete(pageNumber);
-            return 0;
-        }
-        const token = options.getPageFailureToken(pageNumber);
-        if (token === null) {
-            return 0;
-        }
-        if (observedFailureTokens.get(pageNumber) !== token) {
-            observedFailureTokens.set(pageNumber, token);
-            failureAttempts.set(pageNumber, (failureAttempts.get(pageNumber) ?? 0) + 1);
-        }
-        return failureAttempts.get(pageNumber) ?? 0;
-    }
-
-    function isPageTerminalError(pageNumber: number) {
-        return options.getPageFailureToken(pageNumber) !== null
-            && getFailureAttempt(pageNumber) > MAX_FAILURE_RETRIES;
-    }
-
-    function needsRender(pageNumber: number) {
-        return (
+    function publishQueuedPages(output = resolvePolicyOutput()) {
+        queuedPages.value = new Set(output.requiredPages.filter(pageNumber => (
             !options.isPageReady(pageNumber)
-            || options.isPageLayerReady?.(pageNumber) === false
-            || options.isPageQualityRefineEligible?.(pageNumber) === true
-        )
             && !options.isPageRendering(pageNumber)
-            && !isPageTerminalError(pageNumber);
+            && options.getPageFailureToken(pageNumber) === null
+        )));
     }
 
     function clearQualityRefineIdleTimer() {
@@ -233,16 +184,16 @@ export const usePdfRenderDemandCoordinator = (options: IUsePdfRenderDemandCoordi
     }
 
     function synchronizeViewportInteractionEpoch() {
-        const nextEpoch = options.getViewportInteractionEpoch?.() ?? 0;
-        if (nextEpoch === observedViewportInteractionEpoch) {
+        const epoch = options.getViewportInteractionEpoch?.() ?? 0;
+        if (epoch === observedViewportInteractionEpoch) {
             return;
         }
-        observedViewportInteractionEpoch = nextEpoch;
+        observedViewportInteractionEpoch = epoch;
         lastViewportInteractionAtMs = Date.now();
         clearQualityRefineIdleTimer();
     }
 
-    function hasPendingNavigatorInput() {
+    function hasPendingInput() {
         if (options.isInputPending) {
             return options.isInputPending();
         }
@@ -251,66 +202,27 @@ export const usePdfRenderDemandCoordinator = (options: IUsePdfRenderDemandCoordi
             && navigator.scheduling.isInputPending();
     }
 
-    function scheduleQualityRefineReconcile(delayMs: number) {
-        if (qualityRefineIdleTimer !== null) {
-            return;
-        }
-        qualityRefineIdleTimer = scheduleQualityRefineIdle(() => {
-            qualityRefineIdleTimer = null;
-            automaticDemandPending = true;
-            queueFrame();
-        }, delayMs);
-    }
-
-    function canStartQualityRefine() {
+    function canRefineVisibleRaster() {
         if ((options.clampedVisibleRefineMode ?? 'immediate') === 'immediate') {
             return true;
         }
         synchronizeViewportInteractionEpoch();
         const remainingIdleMs = QUALITY_REFINE_INPUT_IDLE_MS
             - (Date.now() - lastViewportInteractionAtMs);
-        if (remainingIdleMs > 0) {
-            scheduleQualityRefineReconcile(remainingIdleMs);
-            return false;
+        if (
+            remainingIdleMs <= 0
+            && options.hasActiveVisualTransaction?.() !== true
+            && !hasPendingInput()
+        ) {
+            return true;
         }
-        if (options.hasActiveVisualTransaction?.() === true || hasPendingNavigatorInput()) {
-            scheduleQualityRefineReconcile(QUALITY_REFINE_INPUT_IDLE_MS);
-            return false;
-        }
-        return true;
-    }
-
-    function hasQualityRefineInRange(range: IPageRange) {
-        for (let pageNumber = range.start; pageNumber <= range.end; pageNumber += 1) {
-            if (options.isPageQualityRefineEligible?.(pageNumber) === true) {
-                return true;
-            }
+        if (qualityRefineIdleTimer === null) {
+            qualityRefineIdleTimer = scheduleQualityRefineIdle(() => {
+                qualityRefineIdleTimer = null;
+                queueFrame();
+            }, Math.max(remainingIdleMs, QUALITY_REFINE_INPUT_IDLE_MS));
         }
         return false;
-    }
-
-    function publishQueuedRequiredPages() {
-        const renderGeneration = options.getRenderGeneration();
-        if (renderGeneration !== observedRenderGeneration) {
-            observedRenderGeneration = renderGeneration;
-            observedFailureTokens.clear();
-            failureAttempts.clear();
-            watchdogRecoveries.clear();
-        }
-        const nextQueued = new Set(
-            getRequiredMountedPages().filter(pageNumber => needsRender(pageNumber)),
-        );
-        queuedPages.value = nextQueued;
-    }
-
-    function clearWatchdog(resetRecoveries: boolean) {
-        if (watchdogId !== null) {
-            cancelWatchdog(watchdogId);
-            watchdogId = null;
-        }
-        if (resetRecoveries) {
-            watchdogRecoveries.clear();
-        }
     }
 
     function queueFrame() {
@@ -323,453 +235,90 @@ export const usePdfRenderDemandCoordinator = (options: IUsePdfRenderDemandCoordi
         });
     }
 
-    function scheduleReconcile(optionsOverride: {
-        buffer?: boolean;
-        resetWatchdog?: boolean;
-    } = {}) {
-        synchronizeViewportInteractionEpoch();
-        if (optionsOverride.buffer === true) {
-            bufferDemandPending = true;
-            layerPrewarmPending = true;
-            pendingBufferRanges = [];
-        }
-        automaticDemandPending = true;
-        clearWatchdog(optionsOverride.resetWatchdog === true);
-        reconcileRasterResidency();
-        publishQueuedRequiredPages();
-        queueFrame();
-    }
-
-    function partitionContiguousPages(pageNumbers: number[]) {
-        const sortedPages = [...new Set(pageNumbers)].sort((left, right) => left - right);
-        const ranges: IPageRange[] = [];
-        for (const pageNumber of sortedPages) {
-            const previous = ranges.at(-1);
-            if (previous && pageNumber === previous.end + 1) {
-                previous.end = pageNumber;
-                continue;
-            }
-            ranges.push({
-                start: pageNumber,
-                end: pageNumber,
-            });
-        }
-        return ranges;
-    }
-
-    function runNextBufferDemand() {
-        const renderWindowOverride = pendingBufferRanges.shift();
-        if (!renderWindowOverride) {
-            return false;
-        }
-        automaticDemandPending = false;
-        const visibleRange = getClampedVisibleRange();
-        const bufferSignature = `buffer:${String(options.getRenderGeneration())}:${visibleRange.start}:${visibleRange.end}:${renderWindowOverride.start}:${renderWindowOverride.end}`;
-        runDemand(
-            bufferSignature,
-            'automatic',
-            visibleRange,
-            {
-                contentIntent: 'canvas-only-buffer',
-                maxCanvasPixels: pendingBufferMaxCanvasPixels,
-                preserveRenderedPages: true,
-                preserveInFlightRequiredPages: true,
-                renderWindowOverride,
-            },
-            undefined,
-            renderWindowOverride,
-        );
-        return true;
-    }
-
-    function runNextLayerPrewarm() {
-        if (!layerPrewarmPending || !options.isPageLayerReady || !options.viewMode) {
-            layerPrewarmPending = false;
-            return false;
-        }
-        layerPrewarmPending = false;
-        const visibleRange = getClampedVisibleRange();
-        const nextPage = navigationDirection > 0
-            ? visibleRange.end + 1
-            : visibleRange.start - 1;
-        if (nextPage < 1 || nextPage > options.numPages.value) {
-            return false;
-        }
-        const row = getPageRowBoundsForViewMode({
-            pageNumber: nextPage,
-            viewMode: options.viewMode.value,
-            totalPages: options.numPages.value,
-        });
-        const residentBufferPages = new Set(resolveRasterResidencyPlan().bufferPages);
-        const prewarmPages: number[] = [];
-        for (let pageNumber = row.start; pageNumber <= row.end; pageNumber += 1) {
-            if (
-                residentBufferPages.has(pageNumber)
-                && options.pageSlots.isMounted(pageNumber)
-                && options.isPageReady(pageNumber)
-                && !options.isPageLayerReady(pageNumber)
-            ) {
-                prewarmPages.push(pageNumber);
-            }
-        }
-        if (prewarmPages.length === 0) {
-            return false;
-        }
-        const range = {
-            start: Math.min(...prewarmPages),
-            end: Math.max(...prewarmPages),
-        };
-        automaticDemandPending = false;
-        runDemand(
-            `prewarm:${String(options.getRenderGeneration())}:${range.start}:${range.end}`,
-            'automatic',
-            range,
-            {
-                contentIntent: 'layers-only-promotion',
-                preserveRenderedPages: true,
-                preserveInFlightRequiredPages: true,
-                bufferOverride: 0,
-                renderWindowOverride: range,
-            },
-            undefined,
-            undefined,
-            'prewarm',
-        );
-        return true;
-    }
-
-    function runDemand(
-        signature: string,
-        kind: 'automatic' | 'authoritative',
-        range: IPageRange,
-        renderOptions: IRenderVisiblePagesOptions,
-        resolve?: (() => void) | undefined,
-        bufferRange?: IPageRange | undefined,
-        automaticDemandKind: 'required' | 'buffer' | 'prewarm' = bufferRange ? 'buffer' : 'required',
-    ) {
-        if (activeDemand?.kind === 'authoritative') {
-            if (kind === 'automatic') {
-                return;
-            }
-            activeDemand.resolve?.();
-        }
-        if (kind === 'authoritative' && activeDemand?.kind === 'automatic' && activeDemand.bufferRange) {
-            pendingBufferRanges.unshift(activeDemand.bufferRange);
-        }
-        if (
-            kind === 'automatic'
-            && bufferRange === undefined
-            && activeDemand?.kind === 'automatic'
-            && activeDemand.bufferRange
-        ) {
-            // Required visible demand may preempt a buffer render, but the
-            // interrupted buffer range must remain pending. Buffer-to-buffer
-            // demand is serialized below so a render-state notification from
-            // page N cannot invalidate page N while starting page N + 1.
-            pendingBufferRanges.unshift(activeDemand.bufferRange);
-        }
-        const demandId = ++nextDemandId;
-        const activeRenderOptions: IRenderVisiblePagesOptions = kind === 'automatic'
-            ? {
-                ...renderOptions,
-                coordinatorDemand: {
-                    kind: automaticDemandKind,
-                    renderGeneration: options.getRenderGeneration(),
-                },
-            }
-            : renderOptions;
-        activeDemand = {
-            id: demandId,
-            kind,
-            signature,
-            ...(bufferRange ? {bufferRange} : {}),
-            ...(resolve ? {resolve} : {}),
-        };
-        logPdfRenderTrace('render-demand-run-start', () => ({
-            demandId,
-            kind,
-            signature,
-            range,
-            renderGeneration: options.getRenderGeneration(),
-            queuedPages: [...queuedPages.value],
-            pendingBufferRanges: [...pendingBufferRanges],
-            hasPendingAuthoritativeDemand: pendingAuthoritativeDemand !== null,
-            renderOptions: activeRenderOptions,
-        }));
-        const settleDemand = () => {
-            if (activeDemand?.id !== demandId) {
-                logPdfRenderTrace('render-demand-run-settle', {
-                    demandId,
-                    kind,
-                    signature,
-                    outcome: 'superseded',
-                });
-                return;
-            }
-            activeDemand.resolve?.();
-            activeDemand = null;
-            logPdfRenderTrace('render-demand-run-settle', () => ({
-                demandId,
-                kind,
-                signature,
-                outcome: 'settled',
-                queuedPages: [...queuedPages.value],
-                pendingBufferRanges: [...pendingBufferRanges],
-                automaticDemandPending,
-            }));
-            if (kind === 'authoritative') {
-                if (pendingBufferRanges.length > 0) {
-                    automaticDemandPending = true;
-                }
-                if (automaticDemandPending) {
-                    queueFrame();
-                }
-                return;
-            }
-            publishQueuedRequiredPages();
-            if (
-                [...queuedPages.value].some(
-                    pageNumber => options.isPageQualityRefineEligible?.(pageNumber) === true,
-                )
-            ) {
-                automaticDemandPending = true;
-                queueFrame();
-                return;
-            }
-            if (pendingBufferRanges.length > 0) {
-                automaticDemandPending = true;
-                queueFrame();
-                return;
-            }
-            if (layerPrewarmPending && options.isPageLayerReady && options.viewMode) {
-                automaticDemandPending = true;
-                queueFrame();
-                return;
-            }
-            if (automaticDemandPending) {
-                queueFrame();
-                return;
-            }
-            if (queuedPages.value.size === 0) {
-                return;
-            }
-            const recoveryCount = watchdogRecoveries.get(signature) ?? 0;
-            if (recoveryCount >= MAX_WATCHDOG_RECOVERIES || watchdogId !== null) {
-                return;
-            }
-            watchdogRecoveries.set(signature, recoveryCount + 1);
-            watchdogId = scheduleWatchdog(() => {
-                watchdogId = null;
-                automaticDemandPending = true;
-                queueFrame();
-            });
-        };
-        logPdfRenderTrace('render-demand-renderer-invoke', {
-            demandId,
-            kind,
-            signature,
-            range,
-            renderOptions: activeRenderOptions,
-        });
-        void options.renderVisiblePages(range, activeRenderOptions).then(settleDemand, settleDemand);
-    }
-
     function reconcile() {
         synchronizeViewportInteractionEpoch();
-        publishQueuedRequiredPages();
-        const operational = isOperational();
-        logPdfRenderTrace('render-demand-reconcile', () => ({
-            operational,
-            disposed,
-            isActive: options.isActive.value,
-            isLoading: options.isLoading.value,
-            hasPdfDocument: options.pdfDocument.value !== null,
-            numPages: options.numPages.value,
-            suppressDemand: options.suppressDemand?.value ?? false,
-            renderGeneration: options.getRenderGeneration(),
-            visibleRange: options.visibleRange.value,
-            queuedPages: [...queuedPages.value],
-            activeDemand: activeDemand
-                ? {
-                    id: activeDemand.id,
-                    kind: activeDemand.kind,
-                    signature: activeDemand.signature,
-                }
-                : null,
-            pendingAuthoritativeDemand: pendingAuthoritativeDemand
-                ? {
-                    id: pendingAuthoritativeDemand.id,
-                    range: pendingAuthoritativeDemand.range,
-                }
-                : null,
-            automaticDemandPending,
-            bufferDemandPending,
-            pendingBufferRanges: [...pendingBufferRanges],
-        }));
-        if (!operational) {
-            pendingAuthoritativeDemand?.resolve();
-            pendingAuthoritativeDemand = null;
+        if (!isOperational()) {
+            queuedPages.value = new Set();
+            pendingMandatoryDemand?.resolve();
+            pendingMandatoryDemand = null;
+            void options.cancelRasterDemand?.();
             return;
         }
-
-        if (pendingAuthoritativeDemand) {
-            const demand = pendingAuthoritativeDemand;
-            pendingAuthoritativeDemand = null;
-            runDemand(
-                `authoritative:${String(options.getRenderGeneration())}:${String(demand.id)}`,
-                'authoritative',
-                demand.range,
-                demand.options,
+        if (pendingMandatoryDemand) {
+            const demand = pendingMandatoryDemand;
+            pendingMandatoryDemand = null;
+            void options.renderVisiblePages(demand.range, demand.options).then(
+                demand.resolve,
                 demand.resolve,
             );
             return;
         }
-
-        if (activeDemand?.kind === 'authoritative' || !automaticDemandPending) {
-            return;
-        }
-
-        const requiredPages = [...queuedPages.value];
-        const ordinaryRequiredPages = requiredPages.filter(
+        const output = resolvePolicyOutput();
+        publishQueuedPages(output);
+        const missingRequiredPages = output.requiredPages.filter(
             pageNumber => !options.isPageReady(pageNumber),
         );
-        if (ordinaryRequiredPages.length > 0) {
-            const requiredSignature = `required:${String(options.getRenderGeneration())}:${ordinaryRequiredPages.join(',')}`;
-            if (activeDemand?.signature === requiredSignature) {
-                automaticDemandPending = false;
-                return;
-            }
-            automaticDemandPending = false;
-            const forceRerender = ordinaryRequiredPages.some(pageNumber => (
-                options.getPageFailureToken(pageNumber) !== null
-            ));
-            runDemand(
-                requiredSignature,
-                'automatic',
-                {
-                    start: Math.min(...ordinaryRequiredPages),
-                    end: Math.max(...ordinaryRequiredPages),
-                },
-                {
-                    preserveRenderedPages: true,
-                    bufferOverride: 0,
-                    ...(forceRerender ? {forceRerender: true} : {}),
-                    preserveInFlightRequiredPages: true,
-                },
+        if (missingRequiredPages.length > 0) {
+            const forceRerender = missingRequiredPages.some(
+                pageNumber => options.getPageFailureToken(pageNumber) !== null,
             );
+            void options.renderVisiblePages(output.visibleRange, {
+                bufferMaxCanvasPixels: options.maxBufferCanvasPixels,
+                preserveInFlightRequiredPages: true,
+                preserveRenderedPages: true,
+                rasterDemandPages: output.residentPages,
+                ...(forceRerender ? {forceRerender: true} : {}),
+            });
             return;
         }
-        const layerPromotionPages = requiredPages.filter(
+        const layerPromotionPages = output.requiredPages.filter(
             pageNumber => options.isPageLayerReady?.(pageNumber) === false,
         );
         if (layerPromotionPages.length > 0) {
-            const qualityPromotionPage = layerPromotionPages.find(
-                pageNumber => options.isPageQualityRefineEligible?.(pageNumber) === true,
-            );
-            const canCoalesceQualityRefine = qualityPromotionPage !== undefined
-                && canStartQualityRefine();
-            automaticDemandPending = false;
-            if (canCoalesceQualityRefine && qualityPromotionPage !== undefined) {
-                clearQualityRefineIdleTimer();
-                runDemand(
-                    `quality-layer-refine:${String(options.getRenderGeneration())}:${String(qualityPromotionPage)}`,
-                    'automatic',
-                    {
-                        start: qualityPromotionPage,
-                        end: qualityPromotionPage,
-                    },
-                    {
-                        bufferOverride: 0,
-                        contentIntent: 'full-visible',
-                        forceRerender: true,
-                        preserveCommittedVisual: true,
-                        preserveInFlightRequiredPages: true,
-                        preserveRenderedPages: true,
-                    },
-                );
-                return;
-            }
             const promotionRange = {
                 start: Math.min(...layerPromotionPages),
                 end: Math.max(...layerPromotionPages),
             };
-            runDemand(
-                `layer-promotion:${String(options.getRenderGeneration())}:${layerPromotionPages.join(',')}`,
-                'automatic',
-                promotionRange,
-                {
-                    bufferOverride: 0,
-                    contentIntent: 'layers-only-promotion',
-                    preserveInFlightRequiredPages: true,
-                    preserveRenderedPages: true,
-                    renderWindowOverride: promotionRange,
-                },
-            );
+            void options.renderVisiblePages(promotionRange, {
+                bufferOverride: 0,
+                contentIntent: 'layers-only-promotion',
+                preserveInFlightRequiredPages: true,
+                preserveRenderedPages: true,
+                rasterDemandPages: layerPromotionPages,
+                renderWindowOverride: promotionRange,
+            });
             return;
         }
-        const qualityRefinePage = requiredPages.find(
+        const refinePage = output.requiredPages.find(
             pageNumber => options.isPageQualityRefineEligible?.(pageNumber) === true,
         );
-        if (qualityRefinePage !== undefined) {
-            automaticDemandPending = false;
-            if (!canStartQualityRefine()) {
-                return;
-            }
+        if (refinePage !== undefined && canRefineVisibleRaster()) {
             clearQualityRefineIdleTimer();
-            runDemand(
-                `quality-refine:${String(options.getRenderGeneration())}:${String(qualityRefinePage)}`,
-                'automatic',
-                {
-                    start: qualityRefinePage,
-                    end: qualityRefinePage,
-                },
-                {
-                    bufferOverride: 0,
-                    contentIntent: 'canvas-only-refine',
-                    forceRerender: true,
-                    preserveCommittedVisual: true,
-                    preserveInFlightRequiredPages: true,
-                    preserveRenderedPages: true,
-                },
-            );
+            void options.renderVisiblePages({
+                start: refinePage,
+                end: refinePage,
+            }, {
+                bufferOverride: 0,
+                contentIntent: 'canvas-only-refine',
+                forceRerender: true,
+                preserveCommittedVisual: true,
+                preserveInFlightRequiredPages: true,
+                preserveRenderedPages: true,
+                rasterDemandPages: [refinePage],
+            });
             return;
         }
+        void options.renderVisiblePages(output.visibleRange, {
+            bufferMaxCanvasPixels: options.maxBufferCanvasPixels,
+            preserveInFlightRequiredPages: true,
+            preserveRenderedPages: true,
+            rasterDemandPages: output.residentPages,
+        });
+    }
 
-        // An automatic buffer render owns the renderer request id until it
-        // settles. Render-state notifications raised by that render schedule
-        // reconciliation, but must not let the next buffer range supersede the
-        // active one. A required visible range above can still preempt it.
-        if (activeDemand !== null) {
-            return;
-        }
-
-        if (pendingBufferRanges.length > 0) {
-            runNextBufferDemand();
-            return;
-        }
-
-        if (!bufferDemandPending) {
-            if (runNextLayerPrewarm()) {
-                return;
-            }
-            automaticDemandPending = false;
-            return;
-        }
-        if (getRequiredMountedPages().some(pageNumber => isPageTerminalError(pageNumber))) {
-            bufferDemandPending = false;
-            automaticDemandPending = false;
-            return;
-        }
-        bufferDemandPending = false;
-        automaticDemandPending = false;
-        const residencyPlan = reconcileRasterResidency();
-        const mountedBufferPages = residencyPlan.bufferPages;
-        if (mountedBufferPages.length === 0) {
-            return;
-        }
-        pendingBufferRanges = partitionContiguousPages(mountedBufferPages);
-        pendingBufferMaxCanvasPixels = residencyPlan.maxPixelsPerBufferCanvas;
-        runNextBufferDemand();
+    function scheduleReconcile() {
+        publishQueuedPages();
+        queueFrame();
     }
 
     function getPageVisualReadiness(pageNumber: number): TPdfPageVisualReadiness {
@@ -779,7 +328,7 @@ export const usePdfRenderDemandCoordinator = (options: IUsePdfRenderDemandCoordi
         if (options.isPageReady(pageNumber)) {
             return 'ready';
         }
-        if (isPageTerminalError(pageNumber)) {
+        if (options.getPageFailureToken(pageNumber) !== null) {
             return 'error';
         }
         if (options.isPageRendering(pageNumber)) {
@@ -792,49 +341,19 @@ export const usePdfRenderDemandCoordinator = (options: IUsePdfRenderDemandCoordi
         range: IPageRange,
         renderOptions: IRenderVisiblePagesOptions = {},
     ) {
-        pendingAuthoritativeDemand?.resolve();
-        const hasImmediateQualityRefine = (options.clampedVisibleRefineMode ?? 'immediate') === 'immediate'
-            && hasQualityRefineInRange(range);
-        const needsLayerHydration = options.isPageLayerReady
-            ? Array.from(
-                {length: Math.max(0, range.end - range.start + 1)},
-                (_, index) => range.start + index,
-            ).some(pageNumber => options.isPageLayerReady?.(pageNumber) === false)
-            : false;
+        pendingMandatoryDemand?.resolve();
         return new Promise<void>((resolve) => {
-            const id = ++nextAuthoritativeDemandId;
-            pendingAuthoritativeDemand = {
-                id,
-                range,
+            pendingMandatoryDemand = {
                 options: {
                     ...renderOptions,
-                    preserveRenderedPages: renderOptions.preserveRenderedPages ?? true,
                     bufferOverride: renderOptions.bufferOverride ?? 0,
-                    preserveInFlightRequiredPages: renderOptions.preserveInFlightRequiredPages ?? true,
-                    ...(hasImmediateQualityRefine
-                        ? {
-                            contentIntent: renderOptions.contentIntent
-                                ?? (needsLayerHydration ? 'full-visible' : 'canvas-only-refine'),
-                            forceRerender: true,
-                            preserveCommittedVisual: true,
-                        }
-                        : {}),
+                    preserveInFlightRequiredPages:
+                        renderOptions.preserveInFlightRequiredPages ?? true,
+                    preserveRenderedPages: renderOptions.preserveRenderedPages ?? true,
                 },
+                range,
                 resolve,
             };
-            logPdfRenderTrace('render-demand-authoritative-queued', () => ({
-                id,
-                range,
-                renderGeneration: options.getRenderGeneration(),
-                activeDemand: activeDemand
-                    ? {
-                        id: activeDemand.id,
-                        kind: activeDemand.kind,
-                        signature: activeDemand.signature,
-                    }
-                    : null,
-                renderOptions: pendingAuthoritativeDemand?.options ?? renderOptions,
-            }));
             queueFrame();
         });
     }
@@ -853,23 +372,13 @@ export const usePdfRenderDemandCoordinator = (options: IUsePdfRenderDemandCoordi
             options.getViewportInteractionEpoch?.() ?? 0,
             options.hasActiveVisualTransaction?.() ?? false,
         ] as const,
-        () => {
-            const visibleStart = options.visibleRange.value.start;
-            if (visibleStart !== lastVisibleStart) {
-                navigationDirection = visibleStart > lastVisibleStart ? 1 : -1;
-                lastVisibleStart = visibleStart;
-            }
-            scheduleReconcile({
-                buffer: true,
-                resetWatchdog: true,
-            });
-        },
+        scheduleReconcile,
         {
             flush: 'sync',
             immediate: true,
         },
     );
-    watch(options.renderStateVersion, () => scheduleReconcile(), {flush: 'sync'});
+    watch(options.renderStateVersion, scheduleReconcile, {flush: 'sync'});
 
     onScopeDispose(() => {
         disposed = true;
@@ -877,27 +386,18 @@ export const usePdfRenderDemandCoordinator = (options: IUsePdfRenderDemandCoordi
             cancelFrame(frameId);
             frameId = null;
         }
-        clearWatchdog(true);
         clearQualityRefineIdleTimer();
         queuedPages.value = new Set();
-        pendingBufferRanges = [];
-        pendingAuthoritativeDemand?.resolve();
-        pendingAuthoritativeDemand = null;
-        activeDemand?.resolve?.();
-        activeDemand = null;
+        pendingMandatoryDemand?.resolve();
+        pendingMandatoryDemand = null;
+        void options.cancelRasterDemand?.();
     });
 
     return {
         getPageVisualReadiness,
-        notifyPageMounted: () => scheduleReconcile({
-            buffer: true,
-            resetWatchdog: true,
-        }),
-        notifyPageUnmounted: () => scheduleReconcile({
-            buffer: true,
-            resetWatchdog: true,
-        }),
-        notifyCanvasCommitted: () => scheduleReconcile(),
+        notifyPageMounted: scheduleReconcile,
+        notifyPageUnmounted: scheduleReconcile,
+        notifyCanvasCommitted: scheduleReconcile,
         requestMandatoryRender,
         scheduleReconcile,
     };

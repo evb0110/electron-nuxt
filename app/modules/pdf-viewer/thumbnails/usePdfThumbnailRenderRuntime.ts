@@ -6,22 +6,23 @@ import type {
 } from 'pdfjs-dist';
 import { THUMBNAIL_WIDTH } from '@app/constants/pdfLayout';
 import { createRenderTaskHiddenAnnotationOperationsFilter } from '@app/modules/pdf-viewer/engine/pdf-hidden-annotation-operations/createRenderTaskHiddenAnnotationOperationsFilter';
-import { runCoordinatedPdfPageRender } from '@app/modules/pdf-viewer/engine/pdf-page-render-coordinator/coordinatedPdfPageRender';
 import { AnnotationMode } from '@app/services/pdfjs/runtimeLib';
-import {
-    leasePdfDocumentPage,
-    type IPdfDocumentPageLease,
-} from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfDocument';
+import { getPdfPageRasterScheduler } from '@app/modules/pdf-viewer/engine/pdf-page-raster-scheduler/pdfPageRasterScheduler';
+import { leasePdfDocumentPage } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfDocument';
+import type {
+    IPdfRasterDemand,
+    IPdfRasterDemandPolicy,
+    IPdfRasterRenderTarget,
+    IPdfPageRasterScheduler,
+    TPdfRasterLane,
+} from '@app/modules/pdf-viewer/engine/pdf-page-raster-scheduler/pdfPageRasterScheduler';
 import { BrowserLogger } from '@app/utils/browserLogger';
-import { runGuardedTask } from '@app/utils/asyncGuard';
 import { isPdfDocumentUsable } from '@app/utils/isPdfDocumentUsable';
-import { getPerformanceProfile } from '@app/utils/performanceProfile';
 import { logPdfRenderTrace } from '@app/utils/pdfRenderTrace';
-import { buildThumbnailRenderQueue } from '@app/modules/pdf-viewer/thumbnails/buildThumbnailRenderQueue';
-import { createThumbnailRenderState } from '@app/modules/pdf-viewer/thumbnails/createThumbnailRenderState';
-import { isThumbnailRenderGenerationCurrent as isThumbnailRenderGenerationSnapshotCurrent } from '@app/modules/pdf-viewer/thumbnails/isThumbnailRenderGenerationCurrent';
 import {
     buildThumbnailRenderTransform,
+    isThumbnailRasterWidthReady,
+    resolveThumbnailRasterWidth,
     roundMetric,
 } from '@app/modules/pdf-viewer/thumbnails/pdfThumbnailRenderMetrics';
 import {
@@ -30,299 +31,313 @@ import {
 } from '@app/modules/pdf-viewer/thumbnails/pdfThumbnailDomMetrics';
 import { drawEditedTextMarkupThumbnailVisuals } from '@app/modules/pdf-viewer/thumbnails/pdfThumbnailTextMarkupVisuals';
 import { resolveThumbnailItemHeightFromAspect } from '@app/modules/pdf-viewer/thumbnails/pdfThumbnailLayout';
-import { resolveThumbnailRenderConcurrency } from '@app/modules/pdf-viewer/thumbnails/resolveThumbnailRenderConcurrency';
-import { resolveThumbnailRenderCoordination } from '@app/modules/pdf-viewer/thumbnails/resolveThumbnailRenderCoordination';
-import {
-    createThumbnailSurfaceResidency,
-    type TThumbnailSurfaceDemand,
-} from '@app/modules/pdf-viewer/thumbnails/createThumbnailSurfaceResidency';
 import type { IUsePdfThumbnailRenderRuntimeOptions } from '@app/modules/pdf-viewer/thumbnails/usePdfThumbnailRenderRuntimeOptions';
-import {
-    estimateCanvasSurfaceBytes,
-    workspaceSurfaceBudgetController,
-} from '@app/utils/document-viewer/workspaceSurfaceBudget';
 import { createThumbnailRenderFrameScheduler } from '@app/modules/pdf-viewer/thumbnails/createThumbnailRenderFrameScheduler';
 import { shouldPreserveThumbnailBitmap } from '@app/modules/pdf-viewer/thumbnails/shouldPreserveThumbnailBitmap';
-import { usePdfThumbnailRasterReadiness } from '@app/modules/pdf-viewer/thumbnails/usePdfThumbnailRasterReadiness';
 import { resolveBoundedRasterDimensions } from '@app/utils/document-viewer/resolveBoundedRasterDimensions';
 
 export const PDF_THUMBNAIL_LOG_SECTION = 'pdf-thumbnails';
-const THUMBNAIL_RENDER_CONCURRENCY = getPerformanceProfile().thumbnailBaseConcurrency;
-const THUMBNAIL_NAVIGATION_CONCURRENCY_COOLDOWN_MS = 250;
 const IMMEDIATE_RENDER_RADIUS = 2;
 const PREFETCH_RENDER_RADIUS = 4;
-const MAX_DEMAND_RENDER_RETRIES = 3;
 const MAX_THUMBNAIL_OUTPUT_SCALE = 2;
-let nextThumbnailSurfaceScopeId = 0;
-export const usePdfThumbnailRenderRuntime = (options: IUsePdfThumbnailRenderRuntimeOptions) => {
+const THUMBNAIL_RASTER_SOURCE_ID = 'pdf-thumbnails';
+
+interface IPdfThumbnailDemandInput {
+    active: boolean;
+    currentPage: number;
+    documentFence: IPdfPageRasterScheduler['documentFence'];
+    estimatedPixels: (pageNumber: number) => number;
+    generation: number;
+    mountedPages: readonly number[];
+    totalPages: number;
+    visiblePages: readonly number[];
+}
+
+interface IPreparedThumbnailRaster {
+    canvas: HTMLCanvasElement;
+    context: CanvasRenderingContext2D;
+    hiddenAnnotationFilter: ReturnType<typeof createRenderTaskHiddenAnnotationOperationsFilter> | null;
+    metrics: {
+        pixelHeight: number;
+        pixelWidth: number;
+        scaleX: number;
+        scaleY: number;
+        scaledViewport: ReturnType<PDFPageProxy['getViewport']>;
+    };
+    page: PDFPageProxy;
+    pageNumber: number;
+    renderCanvas: HTMLCanvasElement;
+    renderKey: string;
+}
+
+function normalizeThumbnailPage(page: number, totalPages: number) {
+    return totalPages <= 0 ? 0 : clamp(Math.trunc(page), 1, totalPages);
+}
+
+function resolveThumbnailDemandLane(
+    pageNumber: number,
+    currentPage: number,
+    visiblePages: ReadonlySet<number>,
+) {
+    if (pageNumber === currentPage) {
+        return 'thumbnail-current' satisfies TPdfRasterLane;
+    }
+    if (
+        visiblePages.has(pageNumber)
+        || Math.abs(pageNumber - currentPage) <= IMMEDIATE_RENDER_RADIUS
+    ) {
+        return 'thumbnail-visible' satisfies TPdfRasterLane;
+    }
+    return 'prefetch' satisfies TPdfRasterLane;
+}
+
+export function expandPdfThumbnailRasterDemand(
+    input: IPdfThumbnailDemandInput,
+): readonly IPdfRasterDemand[] {
+    if (!input.active || input.totalPages <= 0) {
+        return [];
+    }
+    const currentPage = normalizeThumbnailPage(input.currentPage, input.totalPages);
+    const visiblePages = new Set(
+        input.visiblePages.map(page => normalizeThumbnailPage(page, input.totalPages)),
+    );
+    const mountedPages = new Set(
+        input.mountedPages.map(page => normalizeThumbnailPage(page, input.totalPages)),
+    );
+    const candidates = new Set<number>([currentPage]);
+    for (const page of visiblePages) {
+        candidates.add(page);
+    }
+    for (let distance = 1; distance <= PREFETCH_RENDER_RADIUS; distance += 1) {
+        candidates.add(normalizeThumbnailPage(currentPage - distance, input.totalPages));
+        candidates.add(normalizeThumbnailPage(currentPage + distance, input.totalPages));
+    }
+    for (const page of mountedPages) {
+        candidates.add(page);
+    }
+    return [...candidates]
+        .filter(pageNumber => pageNumber > 0 && mountedPages.has(pageNumber))
+        .map((pageNumber) => ({
+            consumerGeneration: input.generation,
+            documentFence: input.documentFence,
+            estimatedPixels: input.estimatedPixels(pageNumber),
+            lane: resolveThumbnailDemandLane(pageNumber, currentPage, visiblePages),
+            ordinal: Math.abs(pageNumber - currentPage) * 2 + (pageNumber < currentPage ? 0 : 1),
+            pageNumber,
+            renderKey: `${String(input.generation)}:${String(pageNumber)}`,
+            retention: 'render-cache',
+        }));
+}
+
+const thumbnailDemandPolicy: IPdfRasterDemandPolicy<IPdfThumbnailDemandInput> = {
+    expand: expandPdfThumbnailRasterDemand,
+    compareWithinLane: (left, right) => left.ordinal - right.ordinal,
+};
+
+function createCompositeThumbnailRenderTask(
+    prepared: IPreparedThumbnailRaster,
+    annotationMode: number,
+) {
+    let activeTask: RenderTask | null = null;
+    let continuation: RenderTask['onContinue'];
+    const start = (disableAnnotations: boolean) => {
+        const renderOptions = {
+            annotationMode: disableAnnotations
+                ? AnnotationMode?.DISABLE ?? 0
+                : annotationMode,
+            canvas: prepared.renderCanvas,
+            canvasContext: prepared.context,
+            transform: buildThumbnailRenderTransform(
+                prepared.metrics.scaleX,
+                prepared.metrics.scaleY,
+            ),
+            viewport: prepared.metrics.scaledViewport,
+        };
+        if (disableAnnotations || !prepared.hiddenAnnotationFilter) {
+            return prepared.page.render(renderOptions);
+        }
+        const guardedTask = prepared.page.render({
+            ...renderOptions,
+            operationsFilter: prepared.hiddenAnnotationFilter.filter,
+        });
+        if (prepared.hiddenAnnotationFilter.bindTask(guardedTask)) {
+            return guardedTask;
+        }
+        guardedTask.cancel();
+        return prepared.page.render({
+            ...renderOptions,
+            annotationMode: AnnotationMode?.DISABLE ?? 0,
+        });
+    };
+    const run = async () => {
+        activeTask = start(false);
+        activeTask.onContinue = continuation;
+        await activeTask.promise;
+        const diagnostics = prepared.hiddenAnnotationFilter?.getDiagnostics();
+        if (
+            !diagnostics
+            || diagnostics.callCount === 0
+            || diagnostics.hiddenMatchCount > 0
+        ) {
+            return;
+        }
+        prepared.context.clearRect(
+            0,
+            0,
+            prepared.renderCanvas.width,
+            prepared.renderCanvas.height,
+        );
+        activeTask = start(true);
+        activeTask.onContinue = continuation;
+        await activeTask.promise;
+    };
+    const task = {
+        cancel: () => activeTask?.cancel(),
+        promise: run(),
+        get onContinue() {
+            return continuation;
+        },
+        set onContinue(next: RenderTask['onContinue']) {
+            continuation = next;
+            if (activeTask) {
+                activeTask.onContinue = next;
+            }
+        },
+    };
+    return task as RenderTask;
+}
+
+export const usePdfThumbnailRenderRuntime = (
+    options: IUsePdfThumbnailRenderRuntimeOptions,
+) => {
     const {
         dom,
         effects,
         layout,
         source,
-        surfaceBudget = workspaceSurfaceBudgetController,
         visuals,
     } = options;
-    const thumbnailRenderState = createThumbnailRenderState();
-    const surfaceScopeId = `pdf-thumbnails:${++nextThumbnailSurfaceScopeId}`;
-    let renderRunId = 0;
-    let renderQueueRunId = 0;
-    let pendingInvalidation: number[] | null = null;
-    let reloadTransition = false;
-    let lastNavigationAtMs = Number.NEGATIVE_INFINITY;
-    const demandRetryAttempts = new Map<number, {
-        attempts: number;
-        renderKey: string;
-    }>();
-
     const documentRenderEpoch = ref(0);
     const thumbnailKeySignal = ref(0);
+    const pageRenderEpochs = new Map<number, number>();
+    const renderedCanvases = new Map<number, HTMLCanvasElement>();
+    let activeScheduler: IPdfPageRasterScheduler | null = null;
+    let activeDocument: PDFDocumentProxy | null = null;
+    let reloadTransition = false;
+    let pendingInvalidation: number[] | null = null;
 
-    function resolveThumbnailDemand(page: number): TThumbnailSurfaceDemand {
-        if (!isThumbnailPaneActive()) {
-            return 'inactive';
-        }
-        if (page === source.currentPage.value) {
-            return 'current';
-        }
-        if (layout.viewportPages.value.includes(page)) {
-            return 'viewport';
-        }
-        return Math.abs(page - source.currentPage.value) <= IMMEDIATE_RENDER_RADIUS
-            ? 'nearby'
-            : 'cold';
-    }
-
-    function resetThumbnailCanvasBitmap(canvas: HTMLCanvasElement, renderKey: string | null = null) {
-        canvas.width = 0;
-        canvas.height = 0;
-        delete canvas.dataset.thumbnailRendered;
-        delete canvas.dataset.thumbnailPreservedBitmap;
-        if (renderKey) {
-            canvas.dataset.thumbnailRenderKey = renderKey;
-            return;
-        }
-        delete canvas.dataset.thumbnailRenderKey;
-    }
-
-    const surfaceResidency = createThumbnailSurfaceResidency<HTMLCanvasElement>({
-        budget: surfaceBudget,
-        scopeId: surfaceScopeId,
-        resolveDemand: ({page}) => resolveThumbnailDemand(page),
-        onEvict: ({
-            page,
-            canvas,
-        }) => {
-            thumbnailRenderState.deleteRenderedPage(page);
-            resetThumbnailCanvasBitmap(canvas);
-            logPdfRenderTrace('thumbnail-surface-evicted', {
-                pageNumber: page,
-                currentPage: source.currentPage.value,
-                demand: resolveThumbnailDemand(page),
-            });
-        },
-    });
-
-    function getThumbnailRenderKey(page: number) {
-        void thumbnailKeySignal.value;
-        const pageEpoch = thumbnailRenderState.getPageRenderEpoch(page);
-        const outputScale = resolveThumbnailOutputScale().toFixed(3);
-        return [
-            documentRenderEpoch.value,
-            page,
-            Math.round(layout.thumbnailRenderWidth.value),
-            outputScale,
-            pageEpoch,
-            visuals.hiddenAnnotationIdsSignature.value,
-            visuals.editedTextMarkupVisualSignature.value,
-        ].join(':');
-    }
-
-    function isCanvasRendered(canvas: HTMLCanvasElement | null) {
-        return canvas?.dataset.thumbnailRendered === 'true';
-    }
-
-    function isCanvasForRenderKey(canvas: HTMLCanvasElement | null, renderKey: string) {
-        return canvas?.dataset.thumbnailRenderKey === renderKey;
-    }
-
-    function isCurrentThumbnailCanvasRendered(pageNum: number) {
-        const canvas = dom.getCanvas(pageNum);
-        if (!canvas) {
-            return false;
-        }
-        const renderKey = getThumbnailRenderKey(pageNum);
-        return thumbnailRenderState.isRenderedCanvas(pageNum, canvas)
-            && isCanvasRendered(canvas)
-            && isCanvasForRenderKey(canvas, renderKey);
-    }
-
-    function isCurrentThumbnailCanvasRendering(pageNum: number) {
-        const canvas = dom.getCanvas(pageNum);
-        if (!canvas) {
-            return false;
-        }
-        const renderKey = getThumbnailRenderKey(pageNum);
-        return thumbnailRenderState.isRenderingCanvasKey({
-            page: pageNum,
-            canvas,
-            renderKey,
-        });
+    function isThumbnailPaneActive() {
+        return source.isActive.value !== false;
     }
 
     function resolveThumbnailOutputScale() {
         if (typeof window === 'undefined' || window.devicePixelRatio <= 0) {
             return 1;
         }
-
         return Math.min(MAX_THUMBNAIL_OUTPUT_SCALE, window.devicePixelRatio);
     }
 
-    function clearThumbnailCanvas(
-        page: number,
+    function getThumbnailRenderKey(pageNumber: number) {
+        void thumbnailKeySignal.value;
+        return [
+            documentRenderEpoch.value,
+            pageNumber,
+            Math.round(layout.thumbnailRenderWidth.value),
+            resolveThumbnailOutputScale().toFixed(3),
+            pageRenderEpochs.get(pageNumber) ?? 0,
+            visuals.hiddenAnnotationIdsSignature.value,
+            visuals.editedTextMarkupVisualSignature.value,
+        ].join(':');
+    }
+
+    function resetThumbnailCanvasBitmap(
         canvas: HTMLCanvasElement,
         renderKey: string | null = null,
     ) {
-        surfaceResidency.releasePage(page, canvas);
-        thumbnailRenderState.deleteRenderedPage(page);
+        canvas.width = 0;
+        canvas.height = 0;
+        delete canvas.dataset.thumbnailRendered;
+        delete canvas.dataset.thumbnailPreservedBitmap;
+        if (renderKey) {
+            canvas.dataset.thumbnailRenderKey = renderKey;
+        } else {
+            delete canvas.dataset.thumbnailRenderKey;
+        }
+    }
+
+    function clearThumbnailCanvas(
+        pageNumber: number,
+        canvas: HTMLCanvasElement,
+        renderKey: string | null = null,
+    ) {
+        renderedCanvases.delete(pageNumber);
         resetThumbnailCanvasBitmap(canvas, renderKey);
     }
 
+    function isCurrentThumbnailCanvasRendered(pageNumber: number) {
+        const canvas = dom.getCanvas(pageNumber);
+        return Boolean(
+            canvas
+            && renderedCanvases.get(pageNumber) === canvas
+            && canvas.dataset.thumbnailRendered === 'true'
+            && canvas.dataset.thumbnailRenderKey === getThumbnailRenderKey(pageNumber),
+        );
+    }
+
     function updateThumbnailAspectRatioForPage(
-        page: number,
+        pageNumber: number,
         viewportWidth: number,
         viewportHeightValue: number,
         reason: string,
-        data: Record<string, unknown> = {},
     ) {
         if (
-            page < 1
-            || page > source.totalPages.value
+            pageNumber < 1
+            || pageNumber > source.totalPages.value
             || viewportWidth <= 0
             || viewportHeightValue <= 0
         ) {
             return false;
         }
-
         const nextAspectRatio = viewportHeightValue / viewportWidth;
-        if (!Number.isFinite(nextAspectRatio) || nextAspectRatio <= 0) {
+        const previousAspectRatio = layout.thumbnailAspectRatios.value[pageNumber - 1] ?? null;
+        if (
+            !Number.isFinite(nextAspectRatio)
+            || nextAspectRatio <= 0
+            || (
+                previousAspectRatio !== null
+                && Math.abs(previousAspectRatio - nextAspectRatio) < 0.001
+            )
+        ) {
             return false;
         }
-
-        const previousAspectRatio = layout.thumbnailAspectRatios.value[page - 1] ?? null;
-        if (previousAspectRatio !== null && Math.abs(previousAspectRatio - nextAspectRatio) < 0.001) {
-            return false;
-        }
-
-        layout.updateThumbnailAspectRatio(page, nextAspectRatio);
+        layout.updateThumbnailAspectRatio(pageNumber, nextAspectRatio);
         BrowserLogger.diagnostic(PDF_THUMBNAIL_LOG_SECTION, 'Thumbnail aspect ratio changed', {
-            reason,
-            page,
-            previousAspectRatio: previousAspectRatio === null ? null : roundMetric(previousAspectRatio),
-            nextAspectRatio: roundMetric(nextAspectRatio),
+            currentPage: source.currentPage.value,
             itemHeight: roundMetric(resolveThumbnailItemHeightFromAspect(
                 nextAspectRatio,
                 layout.thumbnailRenderWidth.value,
             )),
-            currentPage: source.currentPage.value,
+            nextAspectRatio: roundMetric(nextAspectRatio),
+            page: pageNumber,
+            previousAspectRatio: previousAspectRatio === null
+                ? null
+                : roundMetric(previousAspectRatio),
+            reason,
             totalPages: source.totalPages.value,
-            ...data,
         });
-
         return true;
     }
 
-    function isThumbnailPaneActive() {
-        return source.isActive.value !== false;
-    }
-
-    function isThumbnailRenderGenerationCurrent(pdfDocument: PDFDocumentProxy, runId: number) {
-        return isThumbnailRenderGenerationSnapshotCurrent({
-            runId,
-            renderRunId,
-            isDocumentUsable: isPdfDocumentUsable(pdfDocument),
-            isPaneActive: isThumbnailPaneActive(),
-        });
-    }
-
-    function isThumbnailDocumentGenerationCurrent(pdfDocument: PDFDocumentProxy, runId: number) {
-        return runId === renderRunId && isPdfDocumentUsable(pdfDocument);
-    }
-
-    function cancelAllRenders() {
-        thumbnailRenderState.cancelAll();
-    }
-
-    function cancelRenderForPage(page: number) {
-        thumbnailRenderState.cancelPage(page);
-    }
-
-    function incrementRenderGeneration() {
-        renderRunId += 1;
-        renderQueueRunId += 1;
-    }
-
-    function pruneDetachedThumbnailState() {
-        const mountedPages = new Set(layout.virtualPages.value);
-        surfaceResidency.prune(mountedPages, dom.getCanvas);
-        thumbnailRenderState.pruneDetached({
-            mountedPages,
-            resolveCanvas: dom.getCanvas,
-        });
-        for (const page of demandRetryAttempts.keys()) {
-            if (!mountedPages.has(page)) {
-                demandRetryAttempts.delete(page);
-            }
-        }
-    }
-
-    function prepareThumbnailCanvas(pageNum: number) {
-        const canvas = dom.getCanvas(pageNum);
-        if (!canvas || isCurrentThumbnailCanvasRendered(pageNum)) {
-            return null;
-        }
-
-        const renderKey = getThumbnailRenderKey(pageNum);
-        if (thumbnailRenderState.hasRenderingPage(pageNum)) {
-            if (thumbnailRenderState.isRenderingCanvasKey({
-                page: pageNum,
-                canvas,
-                renderKey,
-            })) {
-                return null;
-            }
-            cancelRenderForPage(pageNum);
-        }
-
-        const minimumPixelWidth = thumbnailRasterReadiness.resolveMinimumRenderPixelWidth();
-        if (shouldPreserveThumbnailBitmap(canvas, minimumPixelWidth)) {
-            canvas.dataset.thumbnailRenderKey = renderKey;
-            canvas.dataset.thumbnailPreservedBitmap = 'true';
-            delete canvas.dataset.thumbnailRendered;
-        } else {
-            clearThumbnailCanvas(pageNum, canvas, renderKey);
-        }
-        thumbnailRenderState.beginRender({
-            page: pageNum,
-            canvas,
-            renderKey,
-        });
-        return {
-            canvas,
-            renderKey,
-        };
-    }
-
-    function resolveThumbnailRenderMetrics(page: PDFPageProxy, pageNum: number) {
-        const viewport = page.getViewport({ scale: 1 });
+    function resolveThumbnailRenderMetrics(page: PDFPageProxy, pageNumber: number) {
+        const viewport = page.getViewport({scale: 1});
         updateThumbnailAspectRatioForPage(
-            pageNum,
+            pageNumber,
             viewport.width,
             viewport.height,
             'render-viewport',
         );
         const scale = layout.thumbnailRenderWidth.value / viewport.width;
-        const scaledViewport = page.getViewport({ scale });
+        const scaledViewport = page.getViewport({scale});
         const outputScale = resolveThumbnailOutputScale();
         const dimensions = resolveBoundedRasterDimensions({
             width: scaledViewport.width * outputScale,
@@ -330,7 +345,6 @@ export const usePdfThumbnailRenderRuntime = (options: IUsePdfThumbnailRenderRunt
             maxPixels: 4 * 1024 * 1024,
             maxDimension: 16_384,
         });
-
         return {
             scaledViewport,
             pixelWidth: dimensions.width,
@@ -342,7 +356,7 @@ export const usePdfThumbnailRenderRuntime = (options: IUsePdfThumbnailRenderRunt
 
     function applyThumbnailCanvasSize(
         canvas: HTMLCanvasElement,
-        metrics: ReturnType<typeof resolveThumbnailRenderMetrics>,
+        metrics: IPreparedThumbnailRaster['metrics'],
     ) {
         canvas.width = metrics.pixelWidth;
         canvas.height = metrics.pixelHeight;
@@ -350,149 +364,33 @@ export const usePdfThumbnailRenderRuntime = (options: IUsePdfThumbnailRenderRunt
         canvas.style.removeProperty('height');
     }
 
-    function releaseThumbnailPage(
-        pageLease: IPdfDocumentPageLease,
-        pageNumber: number,
-        reason: string,
-    ) {
-        try {
-            logPdfRenderTrace('thumbnail-page-release-begin', {
-                pageNumber,
-                reason,
-            });
-            pageLease.release();
-            logPdfRenderTrace('thumbnail-page-release-end', {
-                pageNumber,
-                reason,
-            });
-        } catch (error) {
-            logPdfRenderTrace('thumbnail-page-release-error', {
-                pageNumber,
-                reason,
-                errorName: error instanceof Error ? error.name : null,
-                errorMessage: error instanceof Error ? error.message : String(error),
-            });
-            BrowserLogger.diagnostic(PDF_THUMBNAIL_LOG_SECTION, 'Failed to release thumbnail PDF page', {error});
-        }
-    }
-
-    function finalizeRenderedThumbnail(pageNum: number, canvas: HTMLCanvasElement, renderKey: string) {
-        if (
-            dom.getCanvas(pageNum) !== canvas
-            || getThumbnailRenderKey(pageNum) !== renderKey
-            || !isCanvasForRenderKey(canvas, renderKey)
-        ) {
-            logPdfRenderTrace('thumbnail-finalize-skip-stale', {
-                pageNumber: pageNum,
-                renderKey,
-                currentRenderKey: getThumbnailRenderKey(pageNum),
-                hasCanvas: Boolean(dom.getCanvas(pageNum)),
-            });
-            void scheduleVisibleThumbnailRender();
-            return;
-        }
-
-        canvas.dataset.thumbnailRendered = 'true';
-        demandRetryAttempts.delete(pageNum);
-        const renderedCount = thumbnailRenderState.markRendered({
-            page: pageNum,
-            canvas,
-        });
-        const admitted = surfaceResidency.register({
-            page: pageNum,
-            canvas,
-        }, estimateCanvasSurfaceBytes(canvas));
-        logPdfRenderTrace('thumbnail-finalize-rendered', {
-            pageNumber: pageNum,
-            renderKey,
-            renderedCount,
-            admitted,
-            demand: resolveThumbnailDemand(pageNum),
-        });
-        if (!admitted) {
-            return;
-        }
-        void effects.measureThumbnailHeight();
-        if (renderedCount === 1) {
-            void scheduleVisibleThumbnailRender();
-        }
-    }
-
-    function shouldIgnoreThumbnailRenderError(
-        error: unknown,
-        pdfDocument: PDFDocumentProxy,
-        runId: number,
-    ) {
-        return (
-            (error instanceof Error && error.name === 'RenderingCancelledException') ||
-            !isThumbnailRenderGenerationCurrent(pdfDocument, runId)
-        );
-    }
-
-    async function renderPreparedThumbnail(
-        pdfDocument: PDFDocumentProxy,
-        pageNum: number,
-        runId: number,
-        canvas: HTMLCanvasElement,
-        renderKey: string,
-    ) {
-        logPdfRenderTrace('thumbnail-page-load-begin', {
-            pageNumber: pageNum,
-            runId,
-            renderKey,
-            renderRunId,
-        });
-        const pageLease = await leasePdfDocumentPage(pdfDocument, pageNum);
-        const page = pageLease.page;
-        const renderAbortController = new AbortController();
-        logPdfRenderTrace('thumbnail-page-load-end', {
-            pageNumber: pageNum,
-            runId,
-            renderKey,
-            renderRunId,
-        });
-        try {
-            const isCurrentThumbnailRender = () => (
-                isThumbnailRenderGenerationCurrent(pdfDocument, runId)
-                && dom.getCanvas(pageNum) === canvas
-                && getThumbnailRenderKey(pageNum) === renderKey
-                && isCanvasForRenderKey(canvas, renderKey)
-                && thumbnailRenderState.isRenderingCanvasKey({
-                    page: pageNum,
-                    canvas,
-                    renderKey,
-                })
-            );
+    const thumbnailRenderTarget: IPdfRasterRenderTarget<IPreparedThumbnailRaster> = {
+        id: 'pdf-thumbnail',
+        prepare(demand, page) {
+            const canvas = dom.getCanvas(demand.pageNumber);
+            const renderKey = getThumbnailRenderKey(demand.pageNumber);
             if (
-                !isCurrentThumbnailRender()
+                !canvas
+                || isCurrentThumbnailCanvasRendered(demand.pageNumber)
             ) {
-                logPdfRenderTrace('thumbnail-render-skip-stale', {
-                    pageNumber: pageNum,
-                    runId,
-                    renderRunId,
-                    renderKey,
-                    currentRenderKey: getThumbnailRenderKey(pageNum),
-                    usableDocument: isPdfDocumentUsable(pdfDocument),
-                    thumbnailPaneActive: isThumbnailPaneActive(),
-                });
-                return;
+                return Promise.resolve(null);
             }
-
-            const hasHiddenAnnotations = visuals.hiddenAnnotationIdSet.value.size > 0;
-            const annotationMode = AnnotationMode?.ENABLE_STORAGE
-                ?? AnnotationMode?.ENABLE_FORMS
-                ?? AnnotationMode?.ENABLE
-                ?? 1;
-            const metrics = resolveThumbnailRenderMetrics(page, pageNum);
-            const renderCoordination = resolveThumbnailRenderCoordination(pageNum, source.currentPage.value);
-            thumbnailRenderState.trackAbortController(pageNum, renderAbortController);
-            const hiddenAnnotationFilter = hasHiddenAnnotations
-                ? createRenderTaskHiddenAnnotationOperationsFilter(visuals.hiddenAnnotationIdSet.value)
-                : null;
-            if (!isCurrentThumbnailRender()) {
-                return;
+            const minimumPixelWidth = Math.ceil(
+                layout.thumbnailRenderWidth.value * resolveThumbnailOutputScale(),
+            );
+            const preserveBitmap = shouldPreserveThumbnailBitmap(
+                canvas,
+                minimumPixelWidth,
+            );
+            if (preserveBitmap) {
+                canvas.dataset.thumbnailRenderKey = renderKey;
+                canvas.dataset.thumbnailPreservedBitmap = 'true';
+                delete canvas.dataset.thumbnailRendered;
+            } else {
+                clearThumbnailCanvas(demand.pageNumber, canvas, renderKey);
             }
-            const renderCanvas = canvas.dataset.thumbnailPreservedBitmap === 'true'
+            const metrics = resolveThumbnailRenderMetrics(page, demand.pageNumber);
+            const renderCanvas = preserveBitmap
                 ? document.createElement('canvas')
                 : canvas;
             applyThumbnailCanvasSize(renderCanvas, metrics);
@@ -501,518 +399,285 @@ export const usePdfThumbnailRenderRuntime = (options: IUsePdfThumbnailRenderRunt
                 if (renderCanvas !== canvas) {
                     renderCanvas.remove();
                 }
-                return;
+                return Promise.resolve(null);
             }
-
-            const hiddenIds = Array.from(visuals.hiddenAnnotationIdSet.value);
-            logPdfRenderTrace('thumbnail-render-start', {
-                pageNumber: pageNum,
-                runId,
+            return Promise.resolve({
+                canvas,
+                context,
+                hiddenAnnotationFilter: visuals.hiddenAnnotationIdSet.value.size > 0
+                    ? createRenderTaskHiddenAnnotationOperationsFilter(
+                        visuals.hiddenAnnotationIdSet.value,
+                    )
+                    : null,
+                metrics,
+                page,
+                pageNumber: demand.pageNumber,
+                renderCanvas,
                 renderKey,
-                hiddenAnnotationCount: hiddenIds.length,
-                hiddenAnnotationIds: hiddenIds.slice(0, 30),
-                hiddenAnnotationIdsSignature: visuals.hiddenAnnotationIdsSignature.value,
-                pixelWidth: metrics.pixelWidth,
-                pixelHeight: metrics.pixelHeight,
-                scaleX: metrics.scaleX,
-                scaleY: metrics.scaleY,
-                target: renderCanvas === canvas ? 'visible' : 'buffered',
-                renderOwner: renderCoordination.owner,
-                renderPriority: renderCoordination.priority,
             });
-
-            let task: RenderTask | null = null;
-            try {
-                await runCoordinatedPdfPageRender({
-                    owner: renderCoordination.owner,
-                    pageNumber: pageNum,
-                    pdfPage: page,
-                    priority: renderCoordination.priority,
-                    continuation: {
-                        key: `thumbnail:${documentRenderEpoch.value}:${pageNum}:${renderKey}`,
-                        priority: renderCoordination.owner === 'thumbnail-current'
-                            ? 'thumbnail'
-                            : 'prefetch',
-                    },
-                    signal: renderAbortController.signal,
-                    shouldStart: isCurrentThumbnailRender,
-                    startRender: () => {
-                        const renderOptions = {
-                            canvasContext: context,
-                            viewport: metrics.scaledViewport,
-                            canvas: renderCanvas,
-                            transform: buildThumbnailRenderTransform(metrics.scaleX, metrics.scaleY),
-                            annotationMode,
-                        };
-                        if (!hiddenAnnotationFilter) {
-                            return page.render(renderOptions);
-                        }
-                        const guardedTask = page.render({
-                            ...renderOptions,
-                            operationsFilter: hiddenAnnotationFilter.filter,
-                        });
-                        if (hiddenAnnotationFilter.bindTask(guardedTask)) {
-                            return guardedTask;
-                        }
-                        guardedTask.cancel();
-                        return page.render({
-                            ...renderOptions,
-                            annotationMode: AnnotationMode?.DISABLE ?? 0,
-                        });
-                    },
-                    onTask: (nextTask) => {
-                        task = nextTask;
-                        thumbnailRenderState.trackRenderTask(pageNum, nextTask);
-                    },
-                });
-                logPdfRenderTrace('thumbnail-render-resolve', {
-                    pageNumber: pageNum,
-                    runId,
-                    renderKey,
-                });
-                const hiddenFilterDiagnostics = hiddenAnnotationFilter?.getDiagnostics();
-                if (
-                    hiddenFilterDiagnostics
-                    && hiddenFilterDiagnostics.callCount > 0
-                    && hiddenFilterDiagnostics.hiddenMatchCount === 0
-                    && isCurrentThumbnailRender()
-                ) {
-                    // Some PDF.js render intents flatten annotation boundaries out of
-                    // the QueueOptimizer operator list. In that unsupported private
-                    // runtime shape, fail closed rather than showing a deleted source
-                    // annotation until the persisted bytes replace the live source.
-                    context.clearRect(0, 0, renderCanvas.width, renderCanvas.height);
-                    await runCoordinatedPdfPageRender({
-                        owner: renderCoordination.owner,
-                        pageNumber: pageNum,
-                        pdfPage: page,
-                        priority: renderCoordination.priority,
-                        continuation: {
-                            key: `thumbnail-hidden-fallback:${documentRenderEpoch.value}:${pageNum}:${renderKey}`,
-                            priority: renderCoordination.owner === 'thumbnail-current'
-                                ? 'thumbnail'
-                                : 'prefetch',
-                        },
-                        signal: renderAbortController.signal,
-                        shouldStart: isCurrentThumbnailRender,
-                        startRender: () => page.render({
-                            canvasContext: context,
-                            viewport: metrics.scaledViewport,
-                            canvas: renderCanvas,
-                            transform: buildThumbnailRenderTransform(metrics.scaleX, metrics.scaleY),
-                            annotationMode: AnnotationMode?.DISABLE ?? 0,
-                        }),
-                        onTask: (nextTask) => {
-                            task = nextTask;
-                            thumbnailRenderState.trackRenderTask(pageNum, nextTask);
-                        },
-                    });
-                }
-            } catch (error) {
-                logPdfRenderTrace('thumbnail-render-reject', {
-                    pageNumber: pageNum,
-                    runId,
-                    renderKey,
-                    errorName: error instanceof Error ? error.name : null,
-                    errorMessage: error instanceof Error ? error.message : String(error),
-                });
-                if (renderCanvas !== canvas) {
-                    renderCanvas.width = 0;
-                    renderCanvas.height = 0;
-                    renderCanvas.remove();
-                }
-                throw error;
-            } finally {
-                if (task) {
-                    thumbnailRenderState.clearRenderTask(pageNum, task);
-                }
-            }
-            const isStillCurrentCanvas = (
-                isThumbnailRenderGenerationCurrent(pdfDocument, runId)
-                &&
-                dom.getCanvas(pageNum) === canvas
-                && getThumbnailRenderKey(pageNum) === renderKey
-                && isCanvasForRenderKey(canvas, renderKey)
-            );
-            if (!isStillCurrentCanvas) {
-                if (renderCanvas !== canvas) {
-                    renderCanvas.width = 0;
-                    renderCanvas.height = 0;
-                    renderCanvas.remove();
-                }
-                void scheduleVisibleThumbnailRender();
-                return;
+        },
+        start(prepared) {
+            const annotationMode = AnnotationMode?.ENABLE_STORAGE
+                ?? AnnotationMode?.ENABLE_FORMS
+                ?? AnnotationMode?.ENABLE
+                ?? 1;
+            return createCompositeThumbnailRenderTask(prepared, annotationMode);
+        },
+        commit(prepared) {
+            if (
+                !isThumbnailPaneActive()
+                || activeDocument !== source.pdfDocument.value
+                || activeDocument === null
+                || !isPdfDocumentUsable(activeDocument)
+                || dom.getCanvas(prepared.pageNumber) !== prepared.canvas
+                || getThumbnailRenderKey(prepared.pageNumber) !== prepared.renderKey
+                || prepared.canvas.dataset.thumbnailRenderKey !== prepared.renderKey
+            ) {
+                return false;
             }
             drawEditedTextMarkupThumbnailVisuals({
                 annotationSettings: visuals.annotationSettings.value,
-                canvas: renderCanvas,
+                canvas: prepared.renderCanvas,
                 comments: visuals.editedTextMarkupComments.value,
-                context,
-                pageNum,
+                context: prepared.context,
+                pageNum: prepared.pageNumber,
             });
-            if (renderCanvas !== canvas) {
-                const visibleContext = canvas.getContext('2d');
+            if (prepared.renderCanvas !== prepared.canvas) {
+                const visibleContext = prepared.canvas.getContext('2d');
                 if (!visibleContext) {
-                    renderCanvas.remove();
-                    return;
+                    return false;
                 }
-
-                applyThumbnailCanvasSize(canvas, metrics);
-                visibleContext.drawImage(renderCanvas, 0, 0);
-                renderCanvas.width = 0;
-                renderCanvas.height = 0;
-                renderCanvas.remove();
-                delete canvas.dataset.thumbnailPreservedBitmap;
+                applyThumbnailCanvasSize(prepared.canvas, prepared.metrics);
+                visibleContext.drawImage(prepared.renderCanvas, 0, 0);
+                prepared.renderCanvas.width = 0;
+                prepared.renderCanvas.height = 0;
+                prepared.renderCanvas.remove();
+                delete prepared.canvas.dataset.thumbnailPreservedBitmap;
             }
-            finalizeRenderedThumbnail(pageNum, canvas, renderKey);
-        } finally {
-            thumbnailRenderState.clearAbortController(pageNum, renderAbortController);
-            releaseThumbnailPage(pageLease, pageNum, 'render-thumbnail');
-        }
-    }
-
-    function cleanupThumbnailRenderState(pageNum: number, canvas: HTMLCanvasElement, renderKey: string) {
-        thumbnailRenderState.clearFinishedRender({
-            page: pageNum,
-            canvas,
-            renderKey,
-        });
-    }
-
-    function handleThumbnailRenderError(
-        error: unknown,
-        pdfDocument: PDFDocumentProxy,
-        pageNum: number,
-        runId: number,
-    ) {
-        if (shouldIgnoreThumbnailRenderError(error, pdfDocument, runId)) {
-            return;
-        }
-
-        BrowserLogger.error(
-            PDF_THUMBNAIL_LOG_SECTION,
-            `Failed to render thumbnail for page ${pageNum}`,
-            error,
-        );
-    }
-
-    async function renderThumbnail(
-        pdfDocument: PDFDocumentProxy,
-        pageNum: number,
-        runId: number,
-    ) {
-        const canvas = isThumbnailRenderGenerationCurrent(pdfDocument, runId)
-            ? prepareThumbnailCanvas(pageNum)
-            : null;
-        if (!canvas) {
-            return;
-        }
-
-        try {
-            await renderPreparedThumbnail(
-                pdfDocument,
-                pageNum,
-                runId,
-                canvas.canvas,
-                canvas.renderKey,
-            );
-        } catch (error) {
-            handleThumbnailRenderError(error, pdfDocument, pageNum, runId);
-        } finally {
-            cleanupThumbnailRenderState(pageNum, canvas.canvas, canvas.renderKey);
-        }
-    }
-
-    function buildRenderQueue(totalPages: number) {
-        pruneDetachedThumbnailState();
-
-        const currentRenderedPages = new Set(
-            layout.virtualPages.value.filter(page => isCurrentThumbnailCanvasRendered(page)),
-        );
-        const currentRenderingPages = new Set(
-            layout.virtualPages.value.filter(page => isCurrentThumbnailCanvasRendering(page)),
-        );
-        const queueCurrentPage = layout.shouldPreferVisibleAnchorOverCurrentPage()
-            ? layout.resolveViewportAnchorPage() ?? source.currentPage.value
-            : source.currentPage.value;
-
-        return buildThumbnailRenderQueue({
-            totalPages,
-            currentPage: queueCurrentPage,
-            visiblePages: layout.viewportPages.value,
-            mountedPages: layout.virtualPages.value,
-            renderedPages: currentRenderedPages,
-            renderingPages: currentRenderingPages,
-            immediateRenderRadius: IMMEDIATE_RENDER_RADIUS,
-            prefetchRenderRadius: PREFETCH_RENDER_RADIUS,
-        }).filter((page) => (
-            !isCurrentThumbnailCanvasRendered(page)
-            && !isCurrentThumbnailCanvasRendering(page)
-        ));
-    }
-
-    async function renderThumbnailQueue(
-        pdfDocument: PDFDocumentProxy,
-        pages: number[],
-        runId: number,
-        queueRunId: number,
-    ) {
-        if (pages.length === 0) {
-            return;
-        }
-        const queue = [...pages];
-        const concurrency = resolveThumbnailRenderConcurrency({
-            baseConcurrency: THUMBNAIL_RENDER_CONCURRENCY,
-            lastNavigationAtMs,
-            navigationCooldownMs: THUMBNAIL_NAVIGATION_CONCURRENCY_COOLDOWN_MS,
-            nowMs: Date.now(),
-        });
-        logPdfRenderTrace('thumbnail-queue-start', {
-            pages: pages.slice(0, 40),
-            totalPages: pages.length,
-            runId,
-            renderRunId,
-            concurrency,
-            currentPage: source.currentPage.value,
-            virtualPages: layout.virtualPages.value.slice(0, 40),
-            hiddenAnnotationIdsSignature: visuals.hiddenAnnotationIdsSignature.value,
-        });
-        const workers = Array.from({length: Math.min(concurrency, queue.length)}, async () => {
-            while (queue.length > 0) {
-                if (
-                    runId !== renderRunId
-                    || queueRunId !== renderQueueRunId
-                    || !isPdfDocumentUsable(pdfDocument)
-                ) {
-                    logPdfRenderTrace('thumbnail-queue-stop-stale', {
-                        runId,
-                        renderRunId,
-                        queueRunId,
-                        renderQueueRunId,
-                        usableDocument: isPdfDocumentUsable(pdfDocument),
-                        remaining: queue.length,
-                    });
-                    return;
-                }
-                const pageNum = queue.shift();
-                if (pageNum === undefined) {
-                    return;
-                }
-                await renderThumbnail(pdfDocument, pageNum, runId);
-            }
-        });
-        await Promise.all(workers);
-        const renderStateSnapshot = thumbnailRenderState.createSnapshot();
-        logPdfRenderTrace('thumbnail-queue-end', {
-            runId,
-            renderRunId,
-            renderedCount: renderStateSnapshot.renderedCount,
-            activeTasks: renderStateSnapshot.activeTasks,
-        });
-        if (queueRunId === renderQueueRunId) {
-            scheduleDemandedThumbnailRetry(runId);
-        }
-    }
-
-    function scheduleDemandedThumbnailRetry(runId: number) {
-        if (runId !== renderRunId || !isThumbnailPaneActive()) {
-            return;
-        }
-        const mountedPages = new Set(layout.virtualPages.value);
-        const demandedPages = new Set(layout.viewportPages.value);
-        for (let distance = -IMMEDIATE_RENDER_RADIUS; distance <= IMMEDIATE_RENDER_RADIUS; distance += 1) {
-            demandedPages.add(source.currentPage.value + distance);
-        }
-        const retryPages: number[] = [];
-        const exhaustedPages: number[] = [];
-        for (const page of demandedPages) {
-            if (
-                page < 1
-                || page > source.totalPages.value
-                || !mountedPages.has(page)
-                || isCurrentThumbnailCanvasRendered(page)
-                || isCurrentThumbnailCanvasRendering(page)
-                || !dom.getCanvas(page)
-            ) {
-                continue;
-            }
-
-            const renderKey = getThumbnailRenderKey(page);
-            const previous = demandRetryAttempts.get(page);
-            const attempts = previous?.renderKey === renderKey ? previous.attempts : 0;
-            if (attempts >= MAX_DEMAND_RENDER_RETRIES) {
-                exhaustedPages.push(page);
-                continue;
-            }
-            demandRetryAttempts.set(page, {
-                attempts: attempts + 1,
-                renderKey,
+            prepared.canvas.dataset.thumbnailRendered = 'true';
+            renderedCanvases.set(prepared.pageNumber, prepared.canvas);
+            logPdfRenderTrace('thumbnail-finalize-rendered', {
+                demand: prepared.pageNumber === source.currentPage.value
+                    ? 'current'
+                    : layout.viewportPages.value.includes(prepared.pageNumber)
+                        ? 'viewport'
+                        : 'nearby',
+                pageNumber: prepared.pageNumber,
+                renderKey: prepared.renderKey,
+                renderedCount: renderedCanvases.size,
             });
-            retryPages.push(page);
-        }
-
-        if (retryPages.length === 0) {
-            if (exhaustedPages.length > 0) {
-                logPdfRenderTrace('thumbnail-demand-retry-exhausted', {
-                    pages: exhaustedPages,
-                    runId,
-                    renderRunId,
-                });
+            void effects.measureThumbnailHeight();
+            return true;
+        },
+        discard(prepared) {
+            if (prepared.renderCanvas !== prepared.canvas) {
+                prepared.renderCanvas.width = 0;
+                prepared.renderCanvas.height = 0;
+                prepared.renderCanvas.remove();
+            } else if (prepared.canvas.dataset.thumbnailPreservedBitmap !== 'true') {
+                clearThumbnailCanvas(
+                    prepared.pageNumber,
+                    prepared.canvas,
+                    prepared.renderKey,
+                );
             }
+        },
+        release(pageNumber, reason) {
+            const canvas = dom.getCanvas(pageNumber);
+            renderedCanvases.delete(pageNumber);
+            if (
+                canvas
+                && reason !== 'demand-replaced'
+                && reason !== 'raster-replaced'
+            ) {
+                resetThumbnailCanvasBitmap(canvas);
+            }
+        },
+    };
+
+    function estimateThumbnailPixels(pageNumber: number) {
+        const width = Math.max(1, layout.thumbnailRenderWidth.value);
+        const aspectRatio = layout.thumbnailAspectRatios.value[pageNumber - 1] ?? 1.3;
+        const outputScale = resolveThumbnailOutputScale();
+        return Math.max(1, Math.ceil(width * outputScale))
+            * Math.max(1, Math.ceil(width * aspectRatio * outputScale));
+    }
+
+    function pruneDetachedThumbnailState() {
+        const mountedPages = new Set(layout.virtualPages.value);
+        for (const [
+            pageNumber,
+            canvas,
+        ] of renderedCanvases) {
+            if (!mountedPages.has(pageNumber) || dom.getCanvas(pageNumber) !== canvas) {
+                renderedCanvases.delete(pageNumber);
+            }
+        }
+    }
+
+    function clearUnderResolutionCanvases() {
+        const container = dom.resolveVisibleContainer('clear-under-resolution-thumbnails');
+        if (!container) {
             return;
         }
-
-        logPdfRenderTrace('thumbnail-demand-retry-scheduled', {
-            pages: retryPages,
-            runId,
-            renderRunId,
-        });
-        void scheduleVisibleThumbnailRender();
+        const minimumPixelWidth = Math.ceil(
+            resolveThumbnailRasterWidth(layout.thumbnailLayoutWidth.value)
+            * resolveThumbnailOutputScale(),
+        );
+        for (const thumbnail of container.querySelectorAll<HTMLElement>('.pdf-thumbnail')) {
+            const pageNumber = Number(thumbnail.dataset.page);
+            const canvas = thumbnail.querySelector<HTMLCanvasElement>('canvas');
+            const presented = canvas?.dataset.thumbnailRendered === 'true'
+                || canvas?.dataset.thumbnailPreservedBitmap === 'true';
+            if (canvas && presented && canvas.width < minimumPixelWidth) {
+                clearThumbnailCanvas(pageNumber, canvas);
+            }
+        }
     }
 
     function runVisibleThumbnailRender() {
-        const doc = source.pdfDocument.value;
-        if (!doc || source.totalPages.value <= 0) {
+        const document = source.pdfDocument.value;
+        if (
+            !document
+            || document !== activeDocument
+            || !activeScheduler
+            || source.totalPages.value <= 0
+            || !isThumbnailPaneActive()
+            || !dom.resolveVisibleContainer('schedule-visible-render')
+        ) {
             return;
         }
-        if (!isThumbnailPaneActive()) {
+        if (!isThumbnailRasterWidthReady(
+            layout.thumbnailLayoutWidth.value,
+            layout.thumbnailRenderWidth.value,
+        )) {
+            clearUnderResolutionCanvases();
+            void activeScheduler.cancelSource(THUMBNAIL_RASTER_SOURCE_ID);
             return;
         }
-        if (!dom.resolveVisibleContainer('schedule-visible-render')) {
-            return;
-        }
-        if (!thumbnailRasterReadiness.isReady()) {
-            thumbnailRasterReadiness.clearUnderResolutionCanvases();
-            return;
-        }
-        const runId = renderRunId;
-        const queueRunId = ++renderQueueRunId;
-        const pages = buildRenderQueue(source.totalPages.value);
-        logPdfRenderTrace('thumbnail-schedule-visible-render-run', {
-            runId,
-            currentPage: source.currentPage.value,
-            totalPages: source.totalPages.value,
-            pages: pages.slice(0, 40),
-            pageCount: pages.length,
-            isActive: source.isActive.value,
-            hiddenAnnotationIdsSignature: visuals.hiddenAnnotationIdsSignature.value,
-        });
-
-        runGuardedTask(() => renderThumbnailQueue(doc, pages, runId, queueRunId), {
-            category: 'user-visible-operation',
-            scope: PDF_THUMBNAIL_LOG_SECTION,
-            message: 'Failed to render virtual thumbnail list',
+        pruneDetachedThumbnailState();
+        const queueCurrentPage = layout.shouldPreferVisibleAnchorOverCurrentPage()
+            ? layout.resolveViewportAnchorPage() ?? source.currentPage.value
+            : source.currentPage.value;
+        const generation = documentRenderEpoch.value;
+        activeScheduler.setDemand({
+            sourceId: THUMBNAIL_RASTER_SOURCE_ID,
+            input: {
+                active: true,
+                currentPage: queueCurrentPage,
+                documentFence: activeScheduler.documentFence,
+                estimatedPixels: estimateThumbnailPixels,
+                generation,
+                mountedPages: layout.virtualPages.value,
+                totalPages: source.totalPages.value,
+                visiblePages: layout.viewportPages.value,
+            },
+            policy: {
+                ...thumbnailDemandPolicy,
+                expand: input => thumbnailDemandPolicy.expand(input).map(demand => ({
+                    ...demand,
+                    renderKey: getThumbnailRenderKey(demand.pageNumber),
+                })),
+            },
+            target: thumbnailRenderTarget,
         });
     }
 
-    const visibleThumbnailRenderScheduler = createThumbnailRenderFrameScheduler(runVisibleThumbnailRender);
+    const visibleThumbnailRenderScheduler = createThumbnailRenderFrameScheduler(
+        runVisibleThumbnailRender,
+    );
     const scheduleVisibleThumbnailRender = visibleThumbnailRenderScheduler.schedule;
 
-    const thumbnailRasterReadiness = usePdfThumbnailRasterReadiness({
-        cancelActiveRenders: cancelAllRenders,
-        cancelPendingRender: visibleThumbnailRenderScheduler.cancel,
-        clearThumbnailCanvas,
-        incrementRenderGeneration,
-        layoutWidth: layout.thumbnailLayoutWidth,
-        renderWidth: layout.thumbnailRenderWidth,
-        resolveOutputScale: resolveThumbnailOutputScale,
-        resolveVisibleContainer: dom.resolveVisibleContainer,
-        scheduleRender: scheduleVisibleThumbnailRender,
-    });
-
-    async function preloadThumbnailAspectRatio(pdfDocument: PDFDocumentProxy, runId: number) {
-        const pageNum = clamp(source.currentPage.value || 1, 1, Math.max(1, source.totalPages.value));
+    async function preloadThumbnailAspectRatio(
+        pdfDocument: PDFDocumentProxy,
+        generation: number,
+    ) {
+        const pageNumber = clamp(
+            source.currentPage.value || 1,
+            1,
+            Math.max(1, source.totalPages.value),
+        );
         try {
-            const pageLease = await leasePdfDocumentPage(pdfDocument, pageNum);
-            const page = pageLease.page;
+            const pageLease = await leasePdfDocumentPage(
+                pdfDocument,
+                pageNumber,
+                'transient-background',
+            );
             try {
-                if (!isThumbnailDocumentGenerationCurrent(pdfDocument, runId)) {
+                if (
+                    generation !== documentRenderEpoch.value
+                    || pdfDocument !== activeDocument
+                ) {
                     return;
                 }
-
-                const viewport = page.getViewport({scale: 1});
+                const viewport = pageLease.page.getViewport({scale: 1});
                 updateThumbnailAspectRatioForPage(
-                    pageNum,
+                    pageNumber,
                     viewport.width,
                     viewport.height,
                     'preload-viewport',
                 );
                 void effects.refreshVisibleThumbnailPane('preload-viewport');
             } finally {
-                releaseThumbnailPage(pageLease, pageNum, 'preload-aspect-ratio');
+                pageLease.release();
             }
         } catch (error) {
-            if (shouldIgnoreThumbnailRenderError(error, pdfDocument, runId)) {
+            if (pdfDocument !== activeDocument) {
                 return;
             }
-            BrowserLogger.diagnostic(PDF_THUMBNAIL_LOG_SECTION, 'Failed to preload thumbnail aspect ratio', {
-                page: pageNum,
-                currentPage: source.currentPage.value,
-                totalPages: source.totalPages.value,
-                error,
-            });
+            BrowserLogger.diagnostic(
+                PDF_THUMBNAIL_LOG_SECTION,
+                'Failed to preload thumbnail aspect ratio',
+                {
+                    error,
+                    page: pageNumber,
+                },
+            );
         }
     }
 
-    function clearRenderedState(options: {
-        preserveRenderWidth?: boolean;
-        preserveAspectRatio?: boolean;
-    } = {}) {
-        surfaceResidency.releaseAll();
-        demandRetryAttempts.clear();
-        thumbnailRenderState.clearAllState();
-        thumbnailRasterReadiness.clearVisibleCanvases();
-        if (!options.preserveRenderWidth) {
-            layout.thumbnailRenderWidth.value = THUMBNAIL_WIDTH;
+    function clearRenderedState(clearLayout = true) {
+        renderedCanvases.clear();
+        pageRenderEpochs.clear();
+        const container = dom.resolveVisibleContainer('clear-visible-thumbnails');
+        if (container) {
+            for (const thumbnail of container.querySelectorAll<HTMLElement>('.pdf-thumbnail')) {
+                const canvas = thumbnail.querySelector<HTMLCanvasElement>('canvas');
+                if (canvas) {
+                    resetThumbnailCanvasBitmap(canvas);
+                }
+            }
         }
-        if (!options.preserveAspectRatio) {
+        if (clearLayout) {
+            layout.thumbnailRenderWidth.value = THUMBNAIL_WIDTH;
             layout.clearThumbnailAspectRatios();
         }
         effects.resetMeasurementState();
     }
 
-    function hasValidThumbnailAspectRatio(page: number) {
-        const aspectRatio = layout.thumbnailAspectRatios.value[page - 1] ?? null;
-        return aspectRatio !== null
-            && Number.isFinite(aspectRatio)
-            && aspectRatio > 0;
-    }
-
-    function invalidatePages(pages: number[]) {
-        pendingInvalidation = pages;
-        for (const page of pages) {
-            thumbnailRenderState.bumpPageRenderEpoch(page);
-        }
-        for (const page of pages) {
-            if (layout.thumbnailAspectRatios.value[page - 1] !== undefined) {
-                layout.updateThumbnailAspectRatio(page, null);
+    function invalidatePages(pages: readonly number[]) {
+        pendingInvalidation = [...pages];
+        for (const pageNumber of pages) {
+            pageRenderEpochs.set(
+                pageNumber,
+                (pageRenderEpochs.get(pageNumber) ?? 0) + 1,
+            );
+            if (layout.thumbnailAspectRatios.value[pageNumber - 1] !== undefined) {
+                layout.updateThumbnailAspectRatio(pageNumber, null);
             }
+            const canvas = dom.getCanvas(pageNumber);
+            if (canvas) {
+                canvas.dataset.thumbnailPreservedBitmap = 'true';
+                delete canvas.dataset.thumbnailRendered;
+            }
+            renderedCanvases.delete(pageNumber);
         }
         thumbnailKeySignal.value += 1;
-        logPdfRenderTrace('thumbnail-invalidate-pages', {
-            pages: pages.slice(0, 40),
-            totalPages: pages.length,
-            renderRunId,
-            currentPage: source.currentPage.value,
-            hiddenAnnotationIdsSignature: visuals.hiddenAnnotationIdsSignature.value,
-            editedTextMarkupVisualSignature: visuals.editedTextMarkupVisualSignature.value,
+        activeScheduler?.invalidate({
+            pages,
+            reason: 'thumbnail-pages-invalidated',
+            sourceId: THUMBNAIL_RASTER_SOURCE_ID,
         });
-        BrowserLogger.diagnostic(PDF_THUMBNAIL_LOG_SECTION, 'Invalidating thumbnail pages', {
-            pages: pages.slice(0, 40),
-            totalPages: pages.length,
-            renderRunId,
-            currentPage: source.currentPage.value,
-        });
-        for (const page of pages) {
-            thumbnailRenderState.deleteRenderedPage(page);
-            cancelRenderForPage(page);
-
-            const canvas = dom.getCanvas(page);
-            if (canvas) {
-                clearThumbnailCanvas(page, canvas, getThumbnailRenderKey(page));
-            }
-        }
-
         void scheduleVisibleThumbnailRender();
     }
 
@@ -1022,28 +687,23 @@ export const usePdfThumbnailRenderRuntime = (options: IUsePdfThumbnailRenderRunt
             () => source.totalPages.value,
         ],
         ([
-            doc,
-            total,
-        ], [oldDoc]) => {
-            cancelAllRenders();
-            incrementRenderGeneration();
-            effects.onSourceCycleStarted();
+            document,
+            totalPages,
+        ], [previousDocument]) => {
+            visibleThumbnailRenderScheduler.cancel();
+            if (activeScheduler) {
+                void activeScheduler.cancelSource(THUMBNAIL_RASTER_SOURCE_ID);
+            }
             documentRenderEpoch.value += 1;
             thumbnailKeySignal.value += 1;
-            thumbnailRenderState.clearPageRenderEpochs();
-            thumbnailRasterReadiness.clearVisibleCanvases();
-            BrowserLogger.diagnostic(PDF_THUMBNAIL_LOG_SECTION, 'Thumbnail source/watch cycle started', {
-                hasDocument: Boolean(doc),
-                hadDocument: Boolean(oldDoc),
-                totalPages: total,
-                renderRunId,
-                reloadTransition,
-                pendingInvalidation: pendingInvalidation?.slice(0, 24) ?? null,
-                currentPage: source.currentPage.value,
-            });
+            effects.onSourceCycleStarted();
+            activeDocument = document;
+            activeScheduler = document
+                ? getPdfPageRasterScheduler(document)
+                : null;
 
-            if (!doc || total <= 0) {
-                if (total <= 0) {
+            if (!document || totalPages <= 0) {
+                if (totalPages <= 0) {
                     clearRenderedState();
                     reloadTransition = false;
                 } else {
@@ -1051,14 +711,9 @@ export const usePdfThumbnailRenderRuntime = (options: IUsePdfThumbnailRenderRunt
                 }
                 return;
             }
-
-            if (doc !== oldDoc) {
+            if (document !== previousDocument) {
                 if (reloadTransition && pendingInvalidation) {
                     reloadTransition = false;
-                    for (const page of pendingInvalidation) {
-                        thumbnailRenderState.deleteRenderedPage(page);
-                        thumbnailRenderState.clearRenderingPage(page);
-                    }
                     pendingInvalidation = null;
                 } else {
                     reloadTransition = false;
@@ -1066,17 +721,24 @@ export const usePdfThumbnailRenderRuntime = (options: IUsePdfThumbnailRenderRunt
                     clearRenderedState();
                 }
             }
-
             void nextTick(() => {
-                if (!hasValidThumbnailAspectRatio(clamp(source.currentPage.value || 1, 1, Math.max(1, source.totalPages.value)))) {
-                    void preloadThumbnailAspectRatio(doc, renderRunId);
+                const pageNumber = clamp(
+                    source.currentPage.value || 1,
+                    1,
+                    Math.max(1, source.totalPages.value),
+                );
+                const aspectRatio = layout.thumbnailAspectRatios.value[pageNumber - 1] ?? null;
+                if (!aspectRatio || aspectRatio <= 0) {
+                    void preloadThumbnailAspectRatio(
+                        document,
+                        documentRenderEpoch.value,
+                    );
                     return;
                 }
-
                 void effects.refreshVisibleThumbnailPane('document-ready');
             });
         },
-        { immediate: true },
+        {immediate: true},
     );
 
     watch(
@@ -1085,22 +747,14 @@ export const usePdfThumbnailRenderRuntime = (options: IUsePdfThumbnailRenderRunt
             layout.virtualPages.value[0] ?? 0,
             layout.virtualPages.value.at(-1) ?? 0,
             layout.virtualPages.value.length,
+            layout.viewportPages.value.join(','),
         ] as const,
-        () => {
-            surfaceResidency.reconcile();
-            void scheduleVisibleThumbnailRender();
-        },
+        () => void scheduleVisibleThumbnailRender(),
     );
 
     watch(
         () => source.currentPage.value,
-        (nextPage, previousPage) => {
-            if (previousPage !== undefined && nextPage !== previousPage) {
-                lastNavigationAtMs = Date.now();
-            }
-            surfaceResidency.reconcile();
-            effects.scheduleActivePaneRefresh('current-page');
-        },
+        () => effects.scheduleActivePaneRefresh('current-page'),
         {
             flush: 'post',
             immediate: true,
@@ -1110,15 +764,12 @@ export const usePdfThumbnailRenderRuntime = (options: IUsePdfThumbnailRenderRunt
     watch(
         () => source.isActive.value,
         (isActive) => {
-            surfaceResidency.reconcile();
             if (!isActive) {
                 effects.cancelActivePaneRefresh();
                 visibleThumbnailRenderScheduler.cancel();
-                cancelAllRenders();
-                incrementRenderGeneration();
+                void activeScheduler?.cancelSource(THUMBNAIL_RASTER_SOURCE_ID);
                 return;
             }
-
             effects.scheduleActivePaneRefresh('pane-active');
         },
         {
@@ -1139,10 +790,11 @@ export const usePdfThumbnailRenderRuntime = (options: IUsePdfThumbnailRenderRunt
             ) {
                 return;
             }
-            const pages = layout.virtualPages.value.length > 0
-                ? layout.virtualPages.value
-                : [source.currentPage.value];
-            invalidatePages([...new Set(pages)]);
+            invalidatePages(
+                layout.virtualPages.value.length > 0
+                    ? layout.virtualPages.value
+                    : [source.currentPage.value],
+            );
         },
     );
 
@@ -1150,39 +802,69 @@ export const usePdfThumbnailRenderRuntime = (options: IUsePdfThumbnailRenderRunt
         () => source.invalidationRequest.value?.id,
         () => {
             const pages = source.invalidationRequest.value?.pages;
-            if (!pages || pages.length === 0) {
+            if (pages?.length) {
+                invalidatePages(pages);
+            }
+        },
+    );
+
+    watch(
+        () => [
+            layout.thumbnailLayoutWidth.value,
+            layout.thumbnailRenderWidth.value,
+        ] as const,
+        () => {
+            if (isThumbnailRasterWidthReady(
+                layout.thumbnailLayoutWidth.value,
+                layout.thumbnailRenderWidth.value,
+            )) {
+                void scheduleVisibleThumbnailRender();
                 return;
             }
-            invalidatePages([...pages]);
+            visibleThumbnailRenderScheduler.cancel();
+            void activeScheduler?.cancelSource(THUMBNAIL_RASTER_SOURCE_ID);
+            documentRenderEpoch.value += 1;
+            clearUnderResolutionCanvases();
+        },
+        {
+            flush: 'sync',
+            immediate: true,
         },
     );
 
     watch(layout.virtualPages, async () => {
         pruneDetachedThumbnailState();
-        surfaceResidency.reconcile();
         await nextTick();
         void effects.measureThumbnailHeight();
         void scheduleVisibleThumbnailRender();
     });
 
-    onMounted(() => {
-        effects.scheduleActivePaneRefresh('mounted');
-    });
-
+    onMounted(() => effects.scheduleActivePaneRefresh('mounted'));
     onBeforeUnmount(() => {
         effects.cancelActivePaneRefresh();
         visibleThumbnailRenderScheduler.cancel();
-        cancelAllRenders();
-        incrementRenderGeneration();
+        void activeScheduler?.cancelSource(THUMBNAIL_RASTER_SOURCE_ID);
         clearRenderedState();
     });
 
     return {
-        cancelAllRenders,
-        getRenderSummary: () => thumbnailRenderState.createSnapshot(),
+        cancelAllRenders: () => activeScheduler?.cancelSource(THUMBNAIL_RASTER_SOURCE_ID),
+        getRenderSummary: () => {
+            const snapshot = activeScheduler?.snapshot();
+            const renderingPages = snapshot?.inFlightPages
+                .filter(item => item.sourceId === THUMBNAIL_RASTER_SOURCE_ID)
+                .map(item => item.pageNumber) ?? [];
+            return {
+                activeTasks: renderingPages,
+                renderedCount: renderedCanvases.size,
+                renderedPages: [...renderedCanvases.keys()],
+                renderingCount: renderingPages.length,
+                renderingPages,
+            };
+        },
         getThumbnailRenderKey,
-        hasRenderedThumbnails: () => thumbnailRenderState.renderedCount > 0,
-        reconcileSurfaceResidency: surfaceResidency.reconcile,
+        hasRenderedThumbnails: () => renderedCanvases.size > 0,
+        reconcileSurfaceResidency: () => void scheduleVisibleThumbnailRender(),
         resolveThumbnailItemChromeHeight: resolvePdfThumbnailItemChromeHeight,
         resolveThumbnailRenderWidth: resolvePdfThumbnailRenderWidth,
         scheduleVisibleThumbnailRender,

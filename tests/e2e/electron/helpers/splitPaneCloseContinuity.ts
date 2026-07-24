@@ -208,6 +208,7 @@ async function installContinuityProbe(
         interface IContinuityProbe extends ISplitPaneCloseContinuityResult {
             expectedAnchorRatio: number;
             frameId: number;
+            previousCanvasByPage: Map<string, HTMLCanvasElement | null>;
             sample: (scheduleNextFrame: boolean) => void;
             sourceDocumentSurface: HTMLElement;
             sourceHost: HTMLElement;
@@ -364,6 +365,7 @@ async function installContinuityProbe(
             frameId: 0,
             loadingFrames: 0,
             maxAnchorDrift: 0,
+            previousCanvasByPage: new Map<string, HTMLCanvasElement | null>(),
             newTabFrames: 0,
             pageChangedFrames: 0,
             pageChangedFramesByPhase: {},
@@ -463,14 +465,31 @@ async function installContinuityProbe(
                             payload.documentKind === 'pdf'
                                 ? '.page_container[data-page]'
                                 : '[data-testid="document-page-source-page"][data-page-number]',
-                        )).slice(0, 20).map(element => ({
-                            page: element.dataset.page ?? element.dataset.pageNumber ?? '',
-                            display: getComputedStyle(element).display,
-                            rect: {
-                                height: element.getBoundingClientRect().height,
-                                top: element.getBoundingClientRect().top,
-                            },
-                        })),
+                        )).slice(0, 20).map((element) => {
+                            const pageKey = element.dataset.page ?? element.dataset.pageNumber ?? '';
+                            const canvas = element.querySelector<HTMLCanvasElement>(
+                                '.page_canvas canvas, canvas',
+                            );
+                            const canvasStyle = canvas ? getComputedStyle(canvas) : null;
+                            const previousCanvas = probe.previousCanvasByPage.get(pageKey) ?? null;
+                            return {
+                                page: pageKey,
+                                display: getComputedStyle(element).display,
+                                renderStateClass: element.className,
+                                canvasExists: Boolean(canvas),
+                                canvasWidth: canvas?.width ?? 0,
+                                canvasHeight: canvas?.height ?? 0,
+                                canvasVisibility: canvasStyle?.visibility ?? '',
+                                canvasDisplay: canvasStyle?.display ?? '',
+                                canvasOpacity: canvasStyle?.opacity ?? '',
+                                sameCanvasAsPrevious: canvas !== null && canvas === previousCanvas,
+                                canvasWasPresentPreviousFrame: previousCanvas !== null,
+                                rect: {
+                                    height: element.getBoundingClientRect().height,
+                                    top: element.getBoundingClientRect().top,
+                                },
+                            };
+                        }),
                     });
                 }
             }
@@ -482,6 +501,19 @@ async function installContinuityProbe(
             probe.finalAnchorRatio = anchor.pageRatio;
             probe.finalPageNumber = anchor.pageNumber;
             probe.finalReadyVisiblePageCount = anchor.readyVisiblePageCount;
+
+            probe.previousCanvasByPage.clear();
+            for (const element of Array.from(sourceDocumentSurface.querySelectorAll<HTMLElement>(
+                payload.documentKind === 'pdf'
+                    ? '.page_container[data-page]'
+                    : '[data-testid="document-page-source-page"][data-page-number]',
+            ))) {
+                const pageKey = element.dataset.page ?? element.dataset.pageNumber ?? '';
+                probe.previousCanvasByPage.set(
+                    pageKey,
+                    element.querySelector<HTMLCanvasElement>('.page_canvas canvas, canvas'),
+                );
+            }
 
             if (scheduleNextFrame) {
                 // rAF callbacks run before paint and may observe the transient

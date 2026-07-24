@@ -3,94 +3,112 @@ import {
     expect,
     it,
 } from 'vitest';
-import { buildThumbnailRenderQueue } from '@app/modules/pdf-viewer/thumbnails/buildThumbnailRenderQueue';
+import { expandPdfThumbnailRasterDemand } from '@app/modules/pdf-viewer/thumbnails/usePdfThumbnailRenderRuntime';
 
-describe('buildThumbnailRenderQueue', () => {
-    it('renders symmetrically around current before viewport and mounted overscan', () => {
-        expect(buildThumbnailRenderQueue({
-            totalPages: 158,
+const fence = {
+    documentRevision: null,
+    documentVersion: 1,
+    loadToken: 1,
+};
+
+describe('PDF thumbnail raster demand policy', () => {
+    it('classifies current, visible, immediate-neighbor, and mounted prefetch demand', () => {
+        const demands = expandPdfThumbnailRasterDemand({
+            active: true,
             currentPage: 9,
-            visiblePages: [
-                1,
-                2,
-                3,
-                4,
-            ],
+            documentFence: fence,
+            estimatedPixels: () => 100,
+            generation: 3,
             mountedPages: [
                 1,
                 2,
                 3,
                 4,
+                7,
+                8,
+                9,
+                10,
+                11,
+                12,
+                13,
                 14,
             ],
-            renderedPages: new Set<number>(),
-            renderingPages: new Set<number>(),
-            immediateRenderRadius: 2,
-            prefetchRenderRadius: 4,
-        })).toEqual([
-            9,
-            8,
-            10,
-            7,
-            11,
-            4,
-            3,
-            2,
-            1,
-            6,
-            5,
-            12,
-            13,
-            14,
-        ]);
-    });
-
-    it('stages visible pages before nearby prefetches once warm-up has started', () => {
-        expect(buildThumbnailRenderQueue({
-            totalPages: 20,
-            currentPage: 5,
+            totalPages: 158,
             visiblePages: [
                 1,
                 2,
                 3,
+                4,
             ],
-            renderedPages: new Set<number>([5]),
-            renderingPages: new Set<number>(),
-            immediateRenderRadius: 2,
-            prefetchRenderRadius: 4,
-        })).toEqual([
-            4,
-            6,
-            3,
+        });
+
+        expect(demands.find(demand => demand.pageNumber === 9)?.lane)
+            .toBe('thumbnail-current');
+        expect(demands.filter(demand => [
             7,
-            2,
-            1,
             8,
-            9,
-        ]);
+            10,
+            11,
+        ].includes(demand.pageNumber)).every(
+            demand => demand.lane === 'thumbnail-visible',
+        )).toBe(true);
+        expect(demands.filter(demand => [
+            1,
+            2,
+            3,
+            4,
+        ].includes(demand.pageNumber)).every(
+            demand => demand.lane === 'thumbnail-visible',
+        )).toBe(true);
+        expect(demands.filter(demand => [
+            12,
+            13,
+            14,
+        ].includes(demand.pageNumber)).every(
+            demand => demand.lane === 'prefetch',
+        )).toBe(true);
     });
 
-    it('skips pages that are already rendered or in flight', () => {
-        expect(buildThumbnailRenderQueue({
-            totalPages: 12,
-            currentPage: 6,
-            visiblePages: [
+    it('deduplicates pages and excludes unmounted candidates', () => {
+        const demands = expandPdfThumbnailRasterDemand({
+            active: true,
+            currentPage: 5,
+            documentFence: fence,
+            estimatedPixels: () => 100,
+            generation: 1,
+            mountedPages: [
                 4,
                 5,
                 6,
-                7,
             ],
-            renderedPages: new Set<number>([
+            totalPages: 20,
+            visiblePages: [
+                1,
                 4,
+                5,
                 6,
-                7,
-            ]),
-            renderingPages: new Set<number>([5]),
-            immediateRenderRadius: 1,
-            prefetchRenderRadius: 2,
-        })).toEqual([
-            8,
-            3,
+            ],
+        });
+
+        expect(demands.map(demand => demand.pageNumber)).toEqual([
+            5,
+            4,
+            6,
         ]);
+        expect(new Set(demands.map(demand => demand.pageNumber)).size)
+            .toBe(demands.length);
+    });
+
+    it('publishes no demand while inactive', () => {
+        expect(expandPdfThumbnailRasterDemand({
+            active: false,
+            currentPage: 1,
+            documentFence: fence,
+            estimatedPixels: () => 100,
+            generation: 1,
+            mountedPages: [1],
+            totalPages: 1,
+            visiblePages: [1],
+        })).toEqual([]);
     });
 });

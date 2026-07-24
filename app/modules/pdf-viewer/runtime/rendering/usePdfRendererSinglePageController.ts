@@ -26,7 +26,7 @@ import { withPageStageTimeout } from '@app/modules/pdf-viewer/engine/pdf-page-re
 import { PDF_PAGE_RENDER_TIMEOUT_MS } from '@app/constants/timeouts';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { logPdfRenderTrace } from '@app/utils/pdfRenderTrace';
-import type { IPdfDocumentPageLease } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfDocument';
+import type { IPdfDocumentPageLease } from '@app/modules/pdf-viewer/engine/pdf-page-raster-scheduler/pdfPageRasterScheduler';
 import {
     resolvePdfCommittedRasterQuality,
     type IPdfPageNumberStateMap,
@@ -116,7 +116,6 @@ interface IUsePdfRendererSinglePageControllerOptions<TRenderResult extends IPdfL
         renderResult: TRenderResult,
         scale: number,
     ) => void;
-    markPageCanvasSurfaceEvictable: (pageNumber: number) => void;
     scheduleRenderForSinglePage: (
         pageNumber: number,
         optionsOverride: IRenderVisiblePagesOptions,
@@ -259,7 +258,6 @@ export const usePdfRendererSinglePageController = <TRenderResult extends IPdfLay
         if (!pageRenderState.completeRender(pageNumber, version, requestId)) {
             return false;
         }
-        options.markPageCanvasSurfaceEvictable(pageNumber);
         logPdfRenderTrace('renderer-finalize-page', {
             pageNumber,
             version,
@@ -925,14 +923,6 @@ export const usePdfRendererSinglePageController = <TRenderResult extends IPdfLay
             });
             return;
         }
-        logPdfRenderTrace('renderer-single-page-begin', {
-            pageNumber,
-            version,
-            requestId,
-            forceRerender,
-            scale,
-            page: summarizePageDom(pageNumber),
-        });
         const committedSlot = pageRenderState.getSlot(pageNumber);
         const preserveCommittedVisual = renderOptions?.preserveCommittedVisual === true
             && committedSlot.canvasReadiness === 'ready'
@@ -956,7 +946,12 @@ export const usePdfRendererSinglePageController = <TRenderResult extends IPdfLay
                 version,
                 requestId,
             });
-            pageLease = await loadPageForRender(pageNumber, version, shouldContinuePage);
+            pageLease = renderOptions?.rasterSchedulerPage
+                ? {
+                    page: renderOptions.rasterSchedulerPage,
+                    release() {},
+                }
+                : await loadPageForRender(pageNumber, version, shouldContinuePage);
             if (!pageLease) {
                 logPdfRenderTrace('renderer-page-load-stale', {
                     pageNumber,

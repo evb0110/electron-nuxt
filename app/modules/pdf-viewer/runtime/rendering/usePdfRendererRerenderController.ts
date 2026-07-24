@@ -91,6 +91,7 @@ export const usePdfRendererRerenderController = (options: IUsePdfRendererRerende
         optionsOverride?: {
             preserveRenderedPages?: boolean;
             forceRerender?: boolean;
+            preserveCommittedVisual?: boolean;
         },
     ) {
         if (getRenderVersion() !== version) {
@@ -133,13 +134,26 @@ export const usePdfRendererRerenderController = (options: IUsePdfRendererRerende
                 return;
             }
 
+            // A committed page must never blank while its replacement raster is
+            // still in flight (design §1.6 continuity invariant). Skip clearing
+            // the currently visible pages: the forced re-render below carries
+            // preserveCommittedVisual, so the single-page controller keeps each
+            // mounted canvas on screen until its replacement commits, then swaps.
+            // Off-screen tracked pages are still cleared to release residency.
+            const clearVisibleRange = getVisibleRange();
             const pagesToCleanup = Array.from(getTrackedPageNumbersForCleanup());
+            const preservedPages = pagesToCleanup.filter(
+                page => page >= clearVisibleRange.start && page <= clearVisibleRange.end,
+            );
             logPdfRenderTrace('renderer-rerender-full-cleanup', {
                 version,
                 rerenderSource: normalizedOptions.rerenderSource ?? null,
                 pagesToCleanup,
+                preservedPages,
             });
-            pagesToCleanup.forEach(page => clearPageVisual(page));
+            pagesToCleanup
+                .filter(page => page < clearVisibleRange.start || page > clearVisibleRange.end)
+                .forEach(page => clearPageVisual(page));
 
             setupPagePlaceholders();
 
@@ -147,7 +161,10 @@ export const usePdfRendererRerenderController = (options: IUsePdfRendererRerende
                 version,
                 getVisibleRange,
                 normalizedOptions.renderBufferOverride,
-                {forceRerender: true},
+                {
+                    forceRerender: true,
+                    preserveCommittedVisual: true,
+                },
             );
         } finally {
             renderMutex.release();

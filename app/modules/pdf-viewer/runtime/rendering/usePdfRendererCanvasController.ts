@@ -2,7 +2,10 @@ import type {
     IActivePdfRenderTask,
     IRenderVisiblePagesOptions,
 } from '@app/modules/pdf-viewer/runtime/rendering/pdfRendererTypes';
-import type { PDFPageProxy } from 'pdfjs-dist';
+import type {
+    PDFPageProxy,
+    RenderTask,
+} from 'pdfjs-dist';
 import type { usePdfCanvasRenderer } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfCanvasRenderer';
 import {
     PDF_PAGE_LOAD_TIMEOUT_MS,
@@ -12,10 +15,8 @@ import type { IPageRenderStallPayload } from '@app/modules/pdf-viewer/engine/pdf
 import { withPageStageTimeout } from '@app/modules/pdf-viewer/engine/pdf-page-render-timeout/withPageStageTimeout';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { logPdfRenderTrace } from '@app/utils/pdfRenderTrace';
-import { runCoordinatedPdfPageRender } from '@app/modules/pdf-viewer/engine/pdf-page-render-coordinator/coordinatedPdfPageRender';
 import type { IPdfRenderSupervisor } from '@app/modules/pdf-viewer/engine/pdf-render-supervisor/pdfRenderSupervisor';
-import type { IPdfDocumentPageLease } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfDocument';
-import type { IWorkspaceSurfaceLease } from '@app/utils/document-viewer/workspaceSurfaceBudget';
+import type { IPdfDocumentPageLease } from '@app/modules/pdf-viewer/engine/pdf-page-raster-scheduler/pdfPageRasterScheduler';
 
 interface IUsePdfRendererCanvasControllerOptions {
     canvasRenderer: ReturnType<typeof usePdfCanvasRenderer>;
@@ -27,13 +28,6 @@ interface IUsePdfRendererCanvasControllerOptions {
     getPage: (pageNumber: number) => Promise<IPdfDocumentPageLease>;
     cancelActiveRenderTask: (pageNumber: number) => void;
     cancelActiveRenderTaskIfCurrent: (pageNumber: number, version: number, requestId: number) => void;
-    reservePendingPageCanvasSurface?: ((bytes: number) => IWorkspaceSurfaceLease | null) | undefined;
-    reservePageCanvasSurface?: ((
-        pageNumber: number,
-        canvas: HTMLCanvasElement,
-        annotationCanvases?: Iterable<HTMLCanvasElement>,
-    ) => IWorkspaceSurfaceLease) | undefined;
-    replacePageCanvasSurfaceLease?: ((pageNumber: number, lease: IWorkspaceSurfaceLease) => void) | undefined;
     onRenderStall?: ((payload: IPageRenderStallPayload) => void) | undefined;
     renderSupervisor?: IPdfRenderSupervisor | undefined;
 }
@@ -49,19 +43,14 @@ export const usePdfRendererCanvasController = (options: IUsePdfRendererCanvasCon
         getPage,
         cancelActiveRenderTask,
         cancelActiveRenderTaskIfCurrent,
-        reservePendingPageCanvasSurface,
-        reservePageCanvasSurface = () => ({
-            bytes: 0,
-            category: 'pdf-page-canvas',
-            scopeId: 'untracked',
-            release() {},
-        }),
-        replacePageCanvasSurfaceLease = (_pageNumber, lease) => lease.release(),
         onRenderStall,
         renderSupervisor,
     } = options;
     const queuedCanvasRenderAbortControllers = new Set<AbortController>();
-    type TPreparedCanvasRender = NonNullable<Awaited<ReturnType<typeof canvasRenderer.prepareCanvasRender>>> & {continuationPriority?: NonNullable<IRenderVisiblePagesOptions['continuationPriority']>;};
+    type TPreparedCanvasRender = NonNullable<Awaited<ReturnType<typeof canvasRenderer.prepareCanvasRender>>> & {
+        continuationPriority?: NonNullable<IRenderVisiblePagesOptions['continuationPriority']>;
+        rasterSchedulerTaskBridge?: NonNullable<IRenderVisiblePagesOptions['rasterSchedulerTaskBridge']>;
+    };
 
     function abortQueuedCanvasRenders() {
         for (const controller of queuedCanvasRenderAbortControllers) {
@@ -109,10 +98,8 @@ export const usePdfRendererCanvasController = (options: IUsePdfRendererCanvasCon
     ) {
         const {
             startRender,
-            continuationPriority = 'visible',
             ...preparedRenderResult
         } = preparedCanvasRender;
-        let renderStageTimedOut = false;
         const renderAbortController = new AbortController();
         queuedCanvasRenderAbortControllers.add(renderAbortController);
 
@@ -142,42 +129,34 @@ export const usePdfRendererCanvasController = (options: IUsePdfRendererCanvasCon
                     });
                     cancelActiveRenderTask(pageNumber);
                 }
-                runCoordinatedPdfPageRender({
-                    owner: 'viewer',
-                    pageNumber,
-                    pdfPage,
-                    priority: 100,
-                    continuation: {
-                        key: `viewer:${pageNumber}:${version}:${requestId}`,
-                        priority: continuationPriority,
-                    },
-                    signal: renderAbortController.signal,
-                    shouldStart: () => !renderStageTimedOut && getRenderVersion() === version && shouldContinue(),
-                    startRender: () => {
-                        logPdfRenderTrace('renderer-canvas-render-start', {
-                            pageNumber,
-                            version,
-                            requestId,
-                            activeTasks: Array.from(activeRenderTasks.keys()),
-                        });
-                        return startRender();
-                    },
-                    onTask: (renderTask) => {
-                        if (getRenderVersion() !== version || !shouldContinue()) {
-                            try {
-                                renderTask.cancel();
-                            } catch {
-                                // Ignore cancellation failures.
-                            }
-                            return;
+                const startTrackedRender = () => {
+                    logPdfRenderTrace('renderer-canvas-render-start', {
+                        pageNumber,
+                        version,
+                        requestId,
+                        activeTasks: Array.from(activeRenderTasks.keys()),
+                    });
+                    const renderTask = startRender();
+                    if (getRenderVersion() !== version || !shouldContinue()) {
+                        try {
+                            renderTask.cancel();
+                        } catch {
+                            return renderTask;
                         }
+                    } else {
                         activeRenderTasks.set(pageNumber, {
                             version,
                             requestId,
                             task: renderTask,
                         });
-                    },
-                }).then(
+                    }
+                    preparedCanvasRender.rasterSchedulerTaskBridge?.bind(
+                        renderTask as RenderTask,
+                    );
+                    return renderTask;
+                };
+                const renderPromise = startTrackedRender().promise.then(() => undefined);
+                renderPromise.then(
                     () => {
                         logPdfRenderTrace('renderer-canvas-render-resolve', {
                             pageNumber,
@@ -205,7 +184,6 @@ export const usePdfRendererCanvasController = (options: IUsePdfRendererCanvasCon
             },
             () => getRenderVersion() === version && shouldContinue(),
             () => {
-                renderStageTimedOut = true;
                 renderAbortController.abort();
                 cancelActiveRenderTaskIfCurrent(pageNumber, version, requestId);
             },
@@ -302,9 +280,6 @@ export const usePdfRendererCanvasController = (options: IUsePdfRendererCanvasCon
         ) {
             canvasRenderOptions.maxCanvasPixels = renderOptions.maxCanvasPixels;
         }
-        if (reservePendingPageCanvasSurface) {
-            canvasRenderOptions.reserveSurface = reservePendingPageCanvasSurface;
-        }
         let prepareStageTimedOut = false;
         const prepareCanvasRenderPromise = canvasRenderer.prepareCanvasRender(
             pdfPage,
@@ -344,6 +319,9 @@ export const usePdfRendererCanvasController = (options: IUsePdfRendererCanvasCon
         return {
             ...preparedCanvasRender,
             continuationPriority: renderOptions?.continuationPriority ?? 'visible',
+            ...(renderOptions?.rasterSchedulerTaskBridge
+                ? {rasterSchedulerTaskBridge: renderOptions.rasterSchedulerTaskBridge}
+                : {}),
         } satisfies TPreparedCanvasRender;
     }
 
@@ -424,28 +402,15 @@ export const usePdfRendererCanvasController = (options: IUsePdfRendererCanvasCon
             userUnit,
         );
         const previousCanvas = pageCanvases.get(pageNumber);
-        renderResult.surfaceReservation?.release();
-        renderResult.surfaceReservation = undefined;
-        const surfaceLease = reservePageCanvasSurface(
-            pageNumber,
+        canvasRenderer.mountCanvas(
+            canvasHost,
             canvas,
-            renderResult.annotationCanvasMap?.values() ?? [],
+            previousCanvas,
         );
-        try {
-            canvasRenderer.mountCanvas(
-                canvasHost,
-                canvas,
-                previousCanvas,
-            );
-            if (previousCanvas && previousCanvas !== canvas) {
-                canvasRenderer.cleanupCanvas(previousCanvas);
-            }
-            pageCanvases.set(pageNumber, canvas);
-            replacePageCanvasSurfaceLease(pageNumber, surfaceLease);
-        } catch (error) {
-            surfaceLease.release();
-            throw error;
+        if (previousCanvas && previousCanvas !== canvas) {
+            canvasRenderer.cleanupCanvas(previousCanvas);
         }
+        pageCanvases.set(pageNumber, canvas);
     }
 
     return {
