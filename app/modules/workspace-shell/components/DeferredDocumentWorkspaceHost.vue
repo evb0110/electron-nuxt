@@ -71,11 +71,9 @@
 </template>
 
 <script setup lang="ts">
-import { delay } from 'es-toolkit/promise';
 import type { TDocumentRef } from '@contracts/documentRef';
 import type { TOpenFileResult } from '@contracts/electronApiDocuments';
 import type { IRecentFile } from '@contracts/shared';
-import type { TTabUpdate } from '@app/types/tabs';
 import {
     createDefaultWorkspaceToolbarSnapshot,
     type IWorkspaceExpose,
@@ -111,16 +109,11 @@ import { createDeferredWorkspaceExposeProxy } from '@app/modules/workspace-shell
 import type { TStartSection } from '@app/types/startSection';
 import { createTabViewSessionState } from '@app/modules/workspace-shell/tabs/createTabViewSessionState';
 import type { ITabViewSessionState } from '@app/modules/workspace-shell/tabs/tabSessionStoreTypes';
-import {
-    createPendingWorkspaceDocumentRecord,
-    createWorkspaceDocumentRecord,
-    type IWorkspaceDocumentRecord,
-} from '@app/modules/workspace-shell/state/workspaceDocumentRecord';
+import type { IWorkspaceDocumentRecord } from '@app/modules/workspace-shell/state/workspaceDocumentRecord';
 import { createWorkspaceSplitCacheSessionState } from '@app/modules/workspace-shell/document-sessions/createWorkspaceSplitCacheSessionState';
 import type {
     IWorkspaceDocumentController,
     IWorkspaceDocumentSnapshot,
-    IWorkspaceDocumentTransaction,
 } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
 import { useDeferredWorkspaceChunkLoader } from '@app/modules/workspace-shell/composables/useDeferredWorkspaceChunkLoader';
 import {
@@ -128,16 +121,6 @@ import {
     type IDeferredWorkspaceHostEmits,
 } from '@app/modules/workspace-shell/composables/createDeferredWorkspaceHostBindings';
 import { DEFERRED_WORKSPACE_HOST_POLICY } from '@app/modules/workspace-shell/host/deferredWorkspaceHostPolicy';
-import {
-    type IDocumentOpenIntent,
-    type IDocumentOpenTransactionRun,
-    canBeginDocumentOpenSynchronously,
-    resolveDocumentOpenRunResult,
-    resolveOpenSurfaceDocumentId,
-    resolvePreparedPdfOpeningGeometry,
-    shouldWaitForPreparedOpeningOwner,
-    shouldSeedPendingTabHint as shouldSeedPendingTabHintForDocumentOpen,
-} from '@app/modules/workspace-shell/host/deferredWorkspaceHostDocumentOpen';
 import {
     createDocumentOpenSurfaceSession,
     documentOpenSurfaceSessionKey,
@@ -396,25 +379,14 @@ const {
     withWorkspace,
 } = workspaceLoadGateway;
 
-const workspaceHasDocumentOrOpenError = () => getWorkspaceHasDocumentOrOpenError(
-    mountedWorkspace.value,
-    activeDocumentSession.value.snapshot.value,
-);
 const workspaceHasOpenedDocument = () => getWorkspaceHasOpenedDocument(
     mountedWorkspace.value,
     activeDocumentSession.value.snapshot.value,
 );
-const workspaceHasSuccessfulInitialVisual = () => {
-    const workspace = mountedWorkspace.value;
-    if (!workspace) {
-        return false;
-    }
-    const snapshot = workspace.getToolbarSnapshot();
-    return snapshot.initialVisualReady
-        && !snapshot.hasOpenError
-        && hasWorkspaceViewerDocumentCapabilities(snapshot.viewerCapabilities);
-};
-const workspaceSessionHasOpenedDocument = () => getWorkspaceSessionHasOpenedDocument(activeDocumentSession.value.snapshot.value);
+const workspaceHasDocumentOrOpenError = () => getWorkspaceHasDocumentOrOpenError(
+    mountedWorkspace.value,
+    activeDocumentSession.value.snapshot.value,
+);
 function markWorkspaceRestoreAttemptFinished(
     snapshot: IWorkspaceDocumentSnapshot,
     path: TDocumentRef,
@@ -506,11 +478,14 @@ watch(
             return;
         }
 
-        void enqueueDocumentOpen({
+        void activeDocumentSession.value.open({
             action: 'restoreTabDocument',
             target: null,
         }, async () => {
-            return openPath(path, 'restoreTabDocument');
+            return withWorkspace(
+                'restoreTabDocument',
+                workspace => workspace.handleOpenFileDirectWithPersist(path),
+            );
         })
             .then(result => markWorkspaceRestoreAttemptFinished(snapshot, path, result))
             .catch(() => markWorkspaceRestoreAttemptFinished(snapshot, path, false));
@@ -539,7 +514,7 @@ watch([
         return;
     }
 
-    void enqueueDocumentOpen({
+    void activeDocumentSession.value.open({
         action: 'restoreColdDocument',
         target: buildPendingTabDocumentHint(restorePath),
     }, async () => withWorkspace(
@@ -573,323 +548,21 @@ onErrorCaptured((error, instance, info) => {
     return false;
 });
 
-function shouldSeedPendingTabHint(target: TTabUpdate | null | undefined) {
-    return shouldSeedPendingTabHintForDocumentOpen({
-        target,
-        hasWorkspaceOpenedDocument: workspaceHasOpenedDocument(),
-        hasWorkspaceSessionOpenedDocument: workspaceSessionHasOpenedDocument(),
-    });
-}
-
-let pendingPreOwnerGoToPage: {
-    page: number;
-    attempt: number;
-} | null = null;
-let documentOpenAttemptCounter = 0;
-
-function beginDocumentOpenTransaction(
-    intent: IDocumentOpenIntent,
-    sessionTransaction: IWorkspaceDocumentTransaction,
-) {
-    const target = intent.target ?? null;
-    const currentSurface = documentOpenSurface.snapshot.value;
-    const canUsePreparedRecentFrame = intent.action === 'openRecentFromPlaceholder'
-        && (
-            currentSurface.phase === 'idle'
-            || currentSurface.phase === 'ready'
-            || currentSurface.phase === 'failed'
-        );
-    const cachedRecentGeometry = canUsePreparedRecentFrame && target?.originalPath
-        ? readRecentOpenExactGeometry(target.originalPath, {
-            modifiedAt: intent.preparedSourceModifiedAt,
-            size: intent.preparedSourceSize,
-        })
-        : null;
-    const transaction: IDocumentOpenTransactionRun = {
-        sessionTransaction,
-        action: intent.action,
-        target,
-        seededTabHint: shouldSeedPendingTabHint(target),
-    };
-
-    if (
-        currentSurface.phase === 'idle'
-        || currentSurface.phase === 'ready'
-        || currentSurface.phase === 'failed'
-    ) {
-        const documentId = resolveOpenSurfaceDocumentId(
-            target,
-            sessionTransaction.documentRef,
-            tabId,
-        );
-        const identity = {
-            documentId,
-            documentRevision: `open-intent:${sessionTransaction.id}`,
-        };
-        const preparedOpeningGeometry = resolvePreparedPdfOpeningGeometry(
-            documentId,
-            intent.preparedOpeningGeometry,
-        ) ?? cachedRecentGeometry;
-        const restoredInitialPage = intent.action.toLowerCase().includes('restore')
-            ? Math.max(1, Math.trunc(initialViewState?.currentPage ?? 1))
-            : null;
-        const exactOpeningGeometry = preparedOpeningGeometry ?? readRecentOpenExactGeometry(documentId);
-        const ownedOpeningGeometry = restoredInitialPage === null
-            || exactOpeningGeometry?.pageNumber === restoredInitialPage
-            ? exactOpeningGeometry
-            : null;
-        const preparedOpeningFrame = ownedOpeningGeometry
-            ? openingPageFrameAuthority.value?.draftOpeningPageFrame(ownedOpeningGeometry) ?? null
-            : null;
-        const generation = preparedOpeningFrame
-            ? documentOpenSurface.beginPrepared(identity, preparedOpeningFrame)
-            : documentOpenSurface.begin(
-                identity,
-                ownedOpeningGeometry,
-                restoredInitialPage ?? ownedOpeningGeometry?.pageNumber ?? 1,
-            );
-        if (generation === null) {
-            BrowserLogger.warn(DEFERRED_WORKSPACE_HOST_POLICY.RECENT_OPEN_LOG_SECTION, 'Document open transaction rejected because the prepared page frame could not be committed atomically', {
-                tabId,
-                action: intent.action,
-                target,
-            });
-            return null;
-        }
-        if (!preparedOpeningFrame) {
-            openingPageFrameAuthority.value?.prepareOpeningPageFrame(generation);
-        }
-        if (pendingPreOwnerGoToPage !== null) {
-            if (pendingPreOwnerGoToPage.attempt === documentOpenAttemptCounter) {
-                documentOpenSurface.requestNavigation(pendingPreOwnerGoToPage.page);
-            }
-            pendingPreOwnerGoToPage = null;
-        }
-    }
-
-    if (transaction.seededTabHint && target) {
-        handleDocumentRecordUpdate(createPendingWorkspaceDocumentRecord(
-            target,
-            currentToolbarSnapshot.value,
-        ));
-    }
-
-    requestWorkspaceMount(`document-open:${intent.action}`);
-
-    BrowserLogger.debug(DEFERRED_WORKSPACE_HOST_POLICY.RECENT_OPEN_LOG_SECTION, 'Document open transaction started', {
-        tabId: tabId,
-        transactionId: sessionTransaction.id,
-        action: transaction.action,
-        seededTabHint: transaction.seededTabHint,
-        target: transaction.target,
-    });
-
-    return transaction;
-}
-
-async function waitForDocumentOpenTerminalState(transaction: IDocumentOpenTransactionRun, opened: boolean) {
-    await nextTick();
-
-    if (!opened) {
-        return false;
-    }
-
-    const deadline = Date.now() + DEFERRED_WORKSPACE_HOST_POLICY.DOCUMENT_OPEN_SETTLE_TIMEOUT_MS;
-    while (
-        !isHostUnmounted
-        && activeDocumentOpenTransaction.value?.id === transaction.sessionTransaction.id
-        && Date.now() < deadline
-    ) {
-        const workspace = mountedWorkspace.value;
-        if (workspace) {
-            const remainingMs = Math.max(0, deadline - Date.now());
-            if (remainingMs > 0) {
-                try {
-                    await Promise.race([
-                        workspace.waitForDocumentOpenSettled(),
-                        delay(remainingMs).then(() => {
-                            throw new Error('Document open settle timed out');
-                        }),
-                    ]);
-                } catch (error) {
-                    BrowserLogger.warn(DEFERRED_WORKSPACE_HOST_POLICY.RECENT_OPEN_LOG_SECTION, 'Document open settle wait failed', {
-                        tabId: tabId,
-                        transactionId: transaction.sessionTransaction.id,
-                        action: transaction.action,
-                        target: transaction.target,
-                        error,
-                    });
-                    return false;
-                }
-            }
-
-            if (workspace.getToolbarSnapshot().hasOpenError) {
-                return false;
-            }
-            if (workspaceHasSuccessfulInitialVisual()) {
-                return true;
-            }
-        } else {
-            await delay(DEFERRED_WORKSPACE_HOST_POLICY.WORKSPACE_MOUNT_POLL_INTERVAL_MS);
-        }
-    }
-
-    if (!workspaceHasSuccessfulInitialVisual()) {
-        BrowserLogger.warn(DEFERRED_WORKSPACE_HOST_POLICY.RECENT_OPEN_LOG_SECTION, 'Document open did not reach a terminal visible state before settle timeout', {
-            tabId: tabId,
-            transactionId: transaction.sessionTransaction.id,
-            action: transaction.action,
-            target: transaction.target,
-            timeoutMs: DEFERRED_WORKSPACE_HOST_POLICY.DOCUMENT_OPEN_SETTLE_TIMEOUT_MS,
-            hasMountedWorkspace: hasMountedWorkspace.value,
-        });
-    }
-
-    return workspaceHasSuccessfulInitialVisual();
-}
-
-function finishDocumentOpenPresentation(transaction: IDocumentOpenTransactionRun, opened: boolean) {
-    pendingPreOwnerGoToPage = null;
-
-    if (!opened && transaction.seededTabHint && !workspaceHasDocumentOrOpenError()) {
-        handleDocumentRecordUpdate(createWorkspaceDocumentRecord());
-    }
-    if (
-        !opened
-        && documentOpenSurface.snapshot.value.identity?.documentRevision.startsWith('open-intent:')
-    ) {
-        documentOpenSurface.reset();
-    }
-
-    BrowserLogger.debug(DEFERRED_WORKSPACE_HOST_POLICY.RECENT_OPEN_LOG_SECTION, 'Document open transaction finished', {
-        tabId: tabId,
-        transactionId: transaction.sessionTransaction.id,
-        action: transaction.action,
-        opened,
-        hasTerminalDocumentState: workspaceHasDocumentOrOpenError(),
-    });
-}
-
-function hasPreparedOpeningGeometry(intent: IDocumentOpenIntent) {
-    return intent.preparedOpeningGeometry !== undefined
-        || Boolean(intent.target?.originalPath && readRecentOpenExactGeometry(intent.target.originalPath));
-}
-
-async function ensurePreparedOpeningOwnerReady(
-    intent: IDocumentOpenIntent,
-    preparedOpeningGeometryAvailable: boolean,
-) {
-    if (!shouldWaitForPreparedOpeningOwner(
-        preparedOpeningGeometryAvailable,
-        isViewerOwnerMounted.value,
-    )) {
-        return true;
-    }
-
-    requestWorkspaceMount(`prepared-opening-owner:${intent.action}`);
-    const workspace = await ensureWorkspaceLoaded(`prepared-opening-owner:${intent.action}`);
-    if (!workspace) {
-        return false;
-    }
-
-    const deadline = Date.now() + DEFERRED_WORKSPACE_HOST_POLICY.WORKSPACE_MOUNT_TIMEOUT_MS;
-    while (!isHostUnmounted && Date.now() < deadline) {
-        if (isViewerOwnerMounted.value) {
-            return true;
-        }
-        await delay(DEFERRED_WORKSPACE_HOST_POLICY.WORKSPACE_MOUNT_POLL_INTERVAL_MS);
-    }
-
-    BrowserLogger.error(DEFERRED_WORKSPACE_HOST_POLICY.RECENT_OPEN_LOG_SECTION, 'Prepared document open timed out before the canonical viewer owner mounted', {
-        tabId,
-        action: intent.action,
-    });
-    return false;
-}
-
-async function runWithDocumentOpenInFlight<T>(
-    intent: IDocumentOpenIntent,
-    sessionTransaction: IWorkspaceDocumentTransaction,
-    run: () => Promise<T>,
-): Promise<T | false> {
-    if (isHostUnmounted) {
-        return false;
-    }
-    // Keep the already-mounted path in the click call stack. Awaiting an async
-    // function which immediately returns still yields one microtask; during
-    // that gap the Recent empty state remains the visual owner and rapid page
-    // commands can overtake the open transaction.
-    const preparedOpeningGeometryAvailable = hasPreparedOpeningGeometry(intent);
-    documentOpenAttemptCounter += 1;
-    const transaction = beginDocumentOpenTransaction(intent, sessionTransaction);
-    if (!transaction) {
-        pendingPreOwnerGoToPage = null;
-        return false;
-    }
-    let opened = false;
-    try {
-        // Claim the session transaction and opening surface before waiting for
-        // an async workspace owner. Startup deliberately exposes Recent before
-        // DocumentWorkspace finishes mounting; keeping this wait ahead of the
-        // claim made an accepted click indistinguishable from a dropped one
-        // and left the new tab eligible to consume overlapping commands.
-        if (
-            !canBeginDocumentOpenSynchronously(
-                intent.action,
-                preparedOpeningGeometryAvailable,
-                isViewerOwnerMounted.value,
-            )
-            && !await ensurePreparedOpeningOwnerReady(
-                intent,
-                preparedOpeningGeometryAvailable,
-            )
-        ) {
-            pendingPreOwnerGoToPage = null;
-            return false;
-        }
-        // `beginPrepared()` transfers ownership synchronously. Flush that
-        // state into the already-mounted chassis before source loading starts;
-        // readiness itself remains driven exclusively by joined render and
-        // viewport commits.
-        if (
-            documentOpenSurface.snapshot.value.presentation === 'page-shell'
-        ) {
-            await nextTick();
-            if (activeDocumentOpenTransaction.value?.id !== transaction.sessionTransaction.id) {
-                return false;
-            }
-        }
-        const result = await run();
-        const settledResult = resolveDocumentOpenRunResult(
-            result,
-            await waitForDocumentOpenTerminalState(transaction, result !== false),
-        );
-        if (settledResult === false) {
-            return false;
-        }
-        opened = true;
-        return settledResult;
-    } finally {
-        finishDocumentOpenPresentation(transaction, opened);
-    }
-}
-
-async function enqueueDocumentOpen<T>(
-    intent: IDocumentOpenIntent,
-    run: () => Promise<T>,
-): Promise<T | false> {
-    if (isHostUnmounted) {
-        return false;
-    }
-    // An idle queue must publish the opening surface in the click call stack.
-    // Routing even the first command through Promise.then leaves Recent visible
-    // for a full async preparation interval before the canonical page owner can
-    // claim its already-prepared frame.
-    return activeDocumentSession.value.open(
-        intent,
-        transaction => runWithDocumentOpenInFlight(intent, transaction, run),
-    );
-}
+const detachOpenTransactionHost = activeDocumentSession.value.attachOpenTransactionHost({
+    documentOpenSurface,
+    openingPageFrameAuthority,
+    ensureWorkspaceLoaded,
+    getActiveTransactionId: () => activeDocumentSession.value.snapshot.value.activeTransaction?.id ?? null,
+    getInitialViewState: () => initialViewState,
+    getSeedToolbarSnapshot: () => currentToolbarSnapshot.value,
+    hasDocumentOrOpenError: workspaceHasDocumentOrOpenError,
+    hasOpenedDocument: workspaceHasOpenedDocument,
+    hasSessionOpenedDocument: () => getWorkspaceSessionHasOpenedDocument(activeDocumentSession.value.snapshot.value),
+    isHostUnmounted: () => isHostUnmounted,
+    isViewerOwnerMounted: () => isViewerOwnerMounted.value,
+    publishDocumentRecord: handleDocumentRecordUpdate,
+    requestWorkspaceMount,
+});
 
 async function pickFileFromUi() {
     filePickerInFlightCount.value += 1;
@@ -906,15 +579,6 @@ async function pickFileFromUi() {
     }
 }
 
-async function openPath(path: TDocumentRef, action: string) {
-    BrowserLogger.debug(DEFERRED_WORKSPACE_HOST_POLICY.RECENT_OPEN_LOG_SECTION, 'Attempting open path', {
-        tabId: tabId,
-        action,
-        path,
-    });
-    return withWorkspace(action, workspace => workspace.handleOpenFileDirectWithPersist(path));
-}
-
 async function handleOpenRecentFromPlaceholder(file: IRecentFile) {
     BrowserLogger.debug(DEFERRED_WORKSPACE_HOST_POLICY.RECENT_OPEN_LOG_SECTION, 'Recent item clicked from placeholder', {
         tabId: tabId,
@@ -923,7 +587,7 @@ async function handleOpenRecentFromPlaceholder(file: IRecentFile) {
         hasMountedWorkspace: hasMountedWorkspace.value,
     });
 
-    return enqueueDocumentOpen({
+    return activeDocumentSession.value.open({
         action: 'openRecentFromPlaceholder',
         preparedSourceModifiedAt: file.modifiedAt,
         preparedSourceSize: file.fileSize,
@@ -959,7 +623,7 @@ async function handleClearRecentFromPlaceholder() {
 }
 
 async function handleOpenCombineResultFromPlaceholder(result: TOpenFileResult) {
-    return enqueueDocumentOpen({
+    return activeDocumentSession.value.open({
         action: 'openCombineResultFromPlaceholder',
         target: buildPendingTabDocumentHint(result),
     }, async () => withWorkspace(
@@ -974,7 +638,7 @@ async function handleOpenFileFromUi() {
         return false;
     }
 
-    return enqueueDocumentOpen({
+    return activeDocumentSession.value.open({
         action: 'handleOpenFileWithResultFromUi',
         preparedOpeningGeometry: result.kind === 'pdf' ? result.openingGeometry : undefined,
         target: buildPendingTabDocumentHint(result),
@@ -1015,6 +679,7 @@ onBeforeUnmount(() => {
 
 onUnmounted(() => {
     isHostUnmounted = true;
+    detachOpenTransactionHost();
     openingPageFrameAuthority.value = null;
     isRecentOpenOwnerReady.value = false;
     documentOpenSurface.reset();
@@ -1025,7 +690,7 @@ onUnmounted(() => {
 
 const workspaceExpose: IWorkspaceExpose = createDeferredWorkspaceExposeProxy({
     documentSession: activeDocumentSession.value,
-    enqueueDocumentOpen,
+    enqueueDocumentOpen: (intent, run) => activeDocumentSession.value.open(intent, run),
     getMounted: () => mountedWorkspace.value,
     log: (action, error) => {
         BrowserLogger.error('workspace-host', `Action failed (${action})`, {
@@ -1033,7 +698,6 @@ const workspaceExpose: IWorkspaceExpose = createDeferredWorkspaceExposeProxy({
             error,
         });
     },
-    openPath,
     overrides: {
         getToolbarSnapshot: () => readWorkspaceToolbarSnapshot(),
         // The shell toolbar is visible before the deferred workspace mounts.
@@ -1045,14 +709,7 @@ const workspaceExpose: IWorkspaceExpose = createDeferredWorkspaceExposeProxy({
         // as potential stale projections, so the host retains the genuine
         // user command and replays it when the generation begins.
         handleGoToPage: page => {
-            if (documentOpenSurface.viewportSession.value.identity === null) {
-                pendingPreOwnerGoToPage = {
-                    page,
-                    attempt: documentOpenAttemptCounter,
-                };
-                return;
-            }
-            documentOpenSurface.requestNavigation(page);
+            activeDocumentSession.value.requestDocumentPage(page);
         },
         handleOpenFileFromUi,
         hasPdf,

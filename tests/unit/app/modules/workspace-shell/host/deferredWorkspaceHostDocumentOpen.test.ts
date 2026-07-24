@@ -2,9 +2,9 @@ import {
     describe,
     expect,
     it,
+    vi,
 } from 'vitest';
-import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { shallowRef } from 'vue';
 import {
     canBeginDocumentOpenSynchronously,
     resolveDocumentOpenRunResult,
@@ -12,6 +12,19 @@ import {
     resolvePreparedPdfOpeningGeometry,
     shouldWaitForPreparedOpeningOwner,
 } from '@app/modules/workspace-shell/host/deferredWorkspaceHostDocumentOpen';
+import { createWorkspaceDocumentController } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
+import { createDocumentOpenSurfaceSession } from '@app/utils/document-viewer/chassis/documentOpenSurfaceSession';
+import { createDefaultWorkspaceToolbarSnapshot } from '@app/types/workspaceExpose';
+
+const PDF_GEOMETRY = {
+    pageNumber: 1 as const,
+    pageCount: 431,
+    width: 612,
+    height: 792,
+    rotation: 0 as const,
+    size: 538_000_000,
+    modifiedAt: 1_720_000_000_000,
+};
 
 describe('deferredWorkspaceHostDocumentOpen', () => {
     it('commits document opens only after a terminal state is reached', () => {
@@ -32,15 +45,7 @@ describe('deferredWorkspaceHostDocumentOpen', () => {
     });
 
     it('binds authoritative main-process PDF geometry to the host document identity', () => {
-        const geometry = resolvePreparedPdfOpeningGeometry('/documents/scan.pdf', {
-            pageNumber: 1,
-            pageCount: 431,
-            width: 612,
-            height: 792,
-            rotation: 0,
-            size: 538_000_000,
-            modifiedAt: 1_720_000_000_000,
-        });
+        const geometry = resolvePreparedPdfOpeningGeometry('/documents/scan.pdf', PDF_GEOMETRY);
 
         expect(geometry).toEqual({
             documentId: '/documents/scan.pdf',
@@ -72,24 +77,68 @@ describe('deferredWorkspaceHostDocumentOpen', () => {
         expect(canBeginDocumentOpenSynchronously('restoreColdDocument', true, true)).toBe(false);
     });
 
-    it('claims an early startup Recent command before queueing for its viewer owner', () => {
-        const hostSource = readFileSync(join(
-            process.cwd(),
-            'app/modules/workspace-shell/components/DeferredDocumentWorkspaceHost.vue',
-        ), 'utf8');
-        const runStart = hostSource.indexOf('async function runWithDocumentOpenInFlight');
-        const runEnd = hostSource.indexOf('\nasync function enqueueDocumentOpen', runStart);
-        const runSource = hostSource.slice(runStart, runEnd);
-        const transactionAt = runSource.indexOf('const transaction = beginDocumentOpenTransaction(intent, sessionTransaction);');
-        const ownerWaitAt = runSource.indexOf('&& !await ensurePreparedOpeningOwnerReady(');
-        const sourceOpenAt = runSource.indexOf('const result = await run();');
-        const finallyAt = runSource.indexOf('finally {');
-        const finishAt = runSource.indexOf('finishDocumentOpenPresentation(transaction, opened);');
+    it('claims an early startup Recent command before queueing for its viewer owner', async () => {
+        const controller = createWorkspaceDocumentController({tabId: 'tab-1'});
+        const documentOpenSurface = createDocumentOpenSurfaceSession();
+        const ownerGate = Promise.withResolvers<undefined>();
+        controller.attachOpenTransactionHost({
+            documentOpenSurface,
+            openingPageFrameAuthority: shallowRef(null),
+            ensureWorkspaceLoaded: async () => {
+                await ownerGate.promise;
+                return null;
+            },
+            getActiveTransactionId: () => controller.snapshot.value.activeTransaction?.id ?? null,
+            getInitialViewState: () => null,
+            getSeedToolbarSnapshot: createDefaultWorkspaceToolbarSnapshot,
+            hasDocumentOrOpenError: () => false,
+            hasOpenedDocument: () => false,
+            hasSessionOpenedDocument: () => false,
+            isHostUnmounted: () => false,
+            isViewerOwnerMounted: () => false,
+            publishDocumentRecord: vi.fn(),
+            requestWorkspaceMount: vi.fn(),
+        });
+        const run = vi.fn(async () => true);
+        const opening = controller.open({
+            action: 'openRecentFromPlaceholder',
+            preparedOpeningGeometry: PDF_GEOMETRY,
+            target: {originalPath: '/documents/scan.pdf'},
+        }, run);
+        controller.requestDocumentPage(2);
 
-        expect(transactionAt).toBeGreaterThanOrEqual(0);
-        expect(ownerWaitAt).toBeGreaterThan(transactionAt);
-        expect(sourceOpenAt).toBeGreaterThan(ownerWaitAt);
-        expect(finallyAt).toBeGreaterThan(sourceOpenAt);
-        expect(finishAt).toBeGreaterThan(finallyAt);
+        expect(documentOpenSurface.snapshot.value.identity?.documentId).toBe('/documents/scan.pdf');
+        expect(documentOpenSurface.viewportSession.value.requestedPage).toBe(2);
+        expect(run).not.toHaveBeenCalled();
+        ownerGate.resolve(undefined);
+        await expect(opening).resolves.toBe(false);
+        expect(run).not.toHaveBeenCalled();
+    });
+
+    it('refuses opens after the presentation host detaches instead of running them bare', async () => {
+        const controller = createWorkspaceDocumentController({tabId: 'tab-1'});
+        const detach = controller.attachOpenTransactionHost({
+            documentOpenSurface: createDocumentOpenSurfaceSession(),
+            openingPageFrameAuthority: shallowRef(null),
+            ensureWorkspaceLoaded: async () => null,
+            getActiveTransactionId: () => controller.snapshot.value.activeTransaction?.id ?? null,
+            getInitialViewState: () => null,
+            getSeedToolbarSnapshot: createDefaultWorkspaceToolbarSnapshot,
+            hasDocumentOrOpenError: () => false,
+            hasOpenedDocument: () => false,
+            hasSessionOpenedDocument: () => false,
+            isHostUnmounted: () => true,
+            isViewerOwnerMounted: () => false,
+            publishDocumentRecord: vi.fn(),
+            requestWorkspaceMount: vi.fn(),
+        });
+        detach();
+
+        const run = vi.fn(async () => true);
+        await expect(controller.open({
+            action: 'openRecentFromPlaceholder',
+            target: {originalPath: '/documents/scan.pdf'},
+        }, run)).resolves.toBe(false);
+        expect(run).not.toHaveBeenCalled();
     });
 });

@@ -28,6 +28,10 @@ import { tabHasDocumentHint } from '@app/modules/workspace-shell/tabs/tabHasDocu
 import type { TWorkspaceCommandTarget } from '@app/modules/workspace-shell/document-sessions/workspaceCommandTarget';
 import type { IDocumentOpenIntent } from '@app/modules/workspace-shell/document-sessions/documentOpenIntent';
 import { resolveDocumentRefBackend } from '@app/utils/documentRef';
+import {
+    createWorkspaceDocumentOpenTransactions,
+    type IWorkspaceDocumentOpenHost,
+} from '@app/modules/workspace-shell/host/deferredWorkspaceHostDocumentOpen';
 
 export type TWorkspaceDocumentPhase =
     | 'empty'
@@ -88,18 +92,11 @@ export interface IWorkspaceDocumentController {
     readonly operationLease: IDocumentOperationLease;
     beginTransaction(input: Omit<IWorkspaceDocumentTransaction, 'id' | 'tabId' | 'startedAt'>): IWorkspaceDocumentTransaction;
     finishTransaction(id: string, result: 'committed' | 'cancelled' | 'failed'): void;
-    open<T>(
-        intent: IDocumentOpenIntent,
-        run: (transaction: IWorkspaceDocumentTransaction) => Promise<T | false>,
-    ): Promise<T | false>;
-    restore<T>(
-        intent: IDocumentOpenIntent,
-        run: (transaction: IWorkspaceDocumentTransaction) => Promise<T | false>,
-    ): Promise<T | false>;
-    reload<T>(
-        intent: IDocumentOpenIntent,
-        run: (transaction: IWorkspaceDocumentTransaction) => Promise<T | false>,
-    ): Promise<T | false>;
+    open<T>(intent: IDocumentOpenIntent, run: () => Promise<T>): Promise<T | false>;
+    restore<T>(intent: IDocumentOpenIntent, run: () => Promise<T>): Promise<T | false>;
+    reload<T>(intent: IDocumentOpenIntent, run: () => Promise<T>): Promise<T | false>;
+    attachOpenTransactionHost(host: IWorkspaceDocumentOpenHost): () => void;
+    requestDocumentPage(page: number): void;
     close(request: {persist: boolean}): Promise<boolean>;
     applyTabUpdate(updates: TTabUpdate): void;
     applyWorkspaceRecord(record: IWorkspaceDocumentRecord, source: 'host' | 'workspace'): void;
@@ -141,7 +138,6 @@ interface IWorkspaceWaiter {
     resolve: (workspace: IWorkspaceExpose | null) => void;
     timer: ReturnType<typeof setTimeout>;
 }
-
 // Large documents can legitimately take well over four seconds to mount their
 // workspace host on production hardware. Keep this aligned with the document
 // visual-settle policies so routing does not manufacture a false open failure.
@@ -484,6 +480,10 @@ export function createWorkspaceDocumentController(
         createDocumentSessionKey,
         createDocumentInstanceId,
     }));
+    const openTransactions = createWorkspaceDocumentOpenTransactions({
+        tabId: options.tabId,
+        mountedWorkspace,
+    });
     const waiters = new Set<IWorkspaceWaiter>();
     let nextTransactionIndex = 0;
     let closeRecordFenceActive = false;
@@ -907,7 +907,7 @@ export function createWorkspaceDocumentController(
     async function runOpenTransaction<T>(
         kind: Extract<TWorkspaceDocumentTransactionKind, 'open' | 'restore' | 'reload'>,
         intent: IDocumentOpenIntent,
-        run: (transaction: IWorkspaceDocumentTransaction) => Promise<T | false>,
+        run: () => Promise<T>,
     ) {
         return enqueueTransaction(async () => {
             if (intent.commandTarget && !validateCommandTarget(intent.commandTarget).ok) {
@@ -920,7 +920,12 @@ export function createWorkspaceDocumentController(
             });
             let committed = false;
             try {
-                const result = await run(transaction);
+                const result = await openTransactions.run(
+                    intent,
+                    transaction.id,
+                    transaction.documentRef,
+                    run,
+                );
                 committed = result !== false;
                 return result;
             } finally {
@@ -931,7 +936,7 @@ export function createWorkspaceDocumentController(
 
     function open<T>(
         intent: IDocumentOpenIntent,
-        run: (transaction: IWorkspaceDocumentTransaction) => Promise<T | false>,
+        run: () => Promise<T>,
     ) {
         return runOpenTransaction(
             intent.action.toLowerCase().includes('restore') ? 'restore' : 'open',
@@ -942,14 +947,14 @@ export function createWorkspaceDocumentController(
 
     function restore<T>(
         intent: IDocumentOpenIntent,
-        run: (transaction: IWorkspaceDocumentTransaction) => Promise<T | false>,
+        run: () => Promise<T>,
     ) {
         return runOpenTransaction('restore', intent, run);
     }
 
     function reload<T>(
         intent: IDocumentOpenIntent,
-        run: (transaction: IWorkspaceDocumentTransaction) => Promise<T | false>,
+        run: () => Promise<T>,
     ) {
         return runOpenTransaction('reload', intent, run);
     }
@@ -985,6 +990,8 @@ export function createWorkspaceDocumentController(
         open,
         restore,
         reload,
+        attachOpenTransactionHost: openTransactions.attachHost,
+        requestDocumentPage: openTransactions.requestPage,
         close,
         applyTabUpdate,
         applyWorkspaceRecord,
