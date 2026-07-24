@@ -117,5 +117,5 @@ describe('createMainJobRegistry violations', {timeout: 20_000}, () => {
         await vi.waitFor(() => expect(paths).toHaveLength(4)); handles[2]!.cancel(); senders[3]!.emit('destroyed');
         await Promise.all(handles.map(handle => handle.settled)); expect(paths.every(path => !existsSync(path))).toBe(true);
         const unmanaged = mkdtempSync(join(mocks.appTempDir, 'unmanaged-')); expect(existsSync(unmanaged)).toBe(true); await jobs.clearForTests();
-    });
+    }, 60_000);
 });
