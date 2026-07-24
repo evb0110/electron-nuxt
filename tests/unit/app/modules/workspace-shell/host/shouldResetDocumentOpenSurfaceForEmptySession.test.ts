@@ -4,12 +4,12 @@ import {
     it,
 } from 'vitest';
 import { shouldResetDocumentOpenSurfaceForEmptySession } from '@app/modules/workspace-shell/host/shouldResetDocumentOpenSurfaceForEmptySession';
-import type { IWorkspaceDocumentSessionSnapshot } from '@app/modules/workspace-shell/document-sessions/documentSessionTypes';
+import type { IWorkspaceDocumentSnapshot } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
 import type { IDocumentOpenSurfaceSnapshot } from '@app/utils/document-viewer/chassis/documentOpenSurfaceSession';
 
 function createSession(
-    overrides: Partial<IWorkspaceDocumentSessionSnapshot> = {},
-): IWorkspaceDocumentSessionSnapshot {
+    overrides: Partial<IWorkspaceDocumentSnapshot> = {},
+): IWorkspaceDocumentSnapshot {
     return {
         tabId: 'tab-1',
         sessionId: 'session-1',
@@ -27,8 +27,8 @@ function createSession(
         },
         activeTransaction: null,
         mounted: true,
-        toolbarSnapshot: {} as IWorkspaceDocumentSessionSnapshot['toolbarSnapshot'],
-        viewState: {} as IWorkspaceDocumentSessionSnapshot['viewState'],
+        toolbarSnapshot: {} as IWorkspaceDocumentSnapshot['toolbarSnapshot'],
+        viewState: {} as IWorkspaceDocumentSnapshot['viewState'],
         dirty: false,
         closeable: false,
         pendingDocumentPath: null,
@@ -50,7 +50,7 @@ describe('shouldResetDocumentOpenSurfaceForEmptySession', () => {
     });
 
     it('does not reset an active close/open transaction or a non-empty identity', () => {
-        const activeTransaction: NonNullable<IWorkspaceDocumentSessionSnapshot['activeTransaction']> = {
+        const activeTransaction: NonNullable<IWorkspaceDocumentSnapshot['activeTransaction']> = {
             id: 'close-1',
             tabId: 'tab-1',
             kind: 'close',

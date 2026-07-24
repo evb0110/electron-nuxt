@@ -27,6 +27,7 @@ export const WEB_DEPLOY_SOURCE_EXCLUDED_DIRECTORY_NAMES = [
     '.output',
     '.parcel-cache',
     '.playwright-cli',
+    '.pnpm-store',
     '.playwright-mcp',
     '.svelte-kit',
     '.tmp',

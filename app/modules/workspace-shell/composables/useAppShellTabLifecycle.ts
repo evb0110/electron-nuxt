@@ -15,7 +15,7 @@ import type {
     IWorkspaceSplitCacheLike,
 } from '@app/modules/workspace-shell/composables/workspaceSplitTypes';
 import type { IWorkspaceDocumentRecord } from '@app/modules/workspace-shell/state/workspaceDocumentRecord';
-import type { IWorkspaceDocumentSessionController } from '@app/modules/workspace-shell/document-sessions/documentSessionTypes';
+import type { IWorkspaceDocumentController } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
 
 interface IUseAppShellTabLifecycleOptions {
     panes: Ref<IEditorPaneState[]>;
@@ -23,7 +23,7 @@ interface IUseAppShellTabLifecycleOptions {
     activePaneId: Ref<string | null>;
     activeTabId: Ref<string | null>;
     workspaceRefs: Ref<Map<string, IWorkspaceExpose>>;
-    documentSessionsByTabId?: Ref<Record<string, IWorkspaceDocumentSessionController>>;
+    documentSessionsByTabId: Ref<Record<string, IWorkspaceDocumentController>>;
     getDocumentRecord: (tabId: string | null | undefined) => IWorkspaceDocumentRecord | null;
     workspaceSplitCache: IWorkspaceSplitCacheLike;
     workspaceRestoreTracker: IWorkspaceRestoreTrackerLike;
@@ -433,21 +433,15 @@ export const useAppShellTabLifecycle = (
         workspace: IWorkspaceExpose,
         shouldPersistBeforeClose: boolean,
     ) {
-        const session = getDocumentSession(tabId);
-        const transaction = session?.beginTransaction({
-            kind: 'close',
-            documentRef: session.snapshot.value.identity.documentRef,
-            persist: shouldPersistBeforeClose,
-        }) ?? null;
+        const controller = getDocumentSession(tabId);
         workspaceRestoreTracker.start(tabId);
         let closed = false;
         try {
-            closed = await workspace.handleCloseFileFromUi({ persist: shouldPersistBeforeClose });
+            closed = controller
+                ? await controller.close({persist: shouldPersistBeforeClose})
+                : await workspace.handleCloseFileFromUi({persist: shouldPersistBeforeClose});
         } finally {
             workspaceRestoreTracker.finish(tabId);
-            if (transaction) {
-                session?.finishTransaction(transaction.id, closed ? 'committed' : 'cancelled');
-            }
         }
 
         if (

@@ -1,30 +1,121 @@
 import type { IDocumentRevisionInfo } from '@contracts/documentRevision';
+import type { TDocumentRef } from '@contracts/documentRef';
 import {
     requireDocumentInstanceId,
     type TDocumentInstanceId,
 } from '@contracts/documentInstanceId';
+import type {
+    ComputedRef,
+    Ref,
+    ShallowRef,
+} from 'vue';
 import type { TTabUpdate } from '@app/types/tabs';
-import type { IWorkspaceExpose } from '@app/types/workspaceExpose';
+import type {
+    IWorkspaceExpose,
+    IWorkspaceToolbarSnapshot,
+} from '@app/types/workspaceExpose';
+import type { TDocumentOperationKind } from '@app/types/documentOperationKind';
 import type { ITabViewSessionState } from '@app/modules/workspace-shell/tabs/tabSessionStoreTypes';
 import {
     areWorkspaceDocumentRecordsEqual,
+    createPendingWorkspaceDocumentRecord,
     createWorkspaceDocumentRecord,
     type IWorkspaceDocumentRecord,
     type TWorkspaceDocumentTabState,
 } from '@app/modules/workspace-shell/state/workspaceDocumentRecord';
 import { hasWorkspaceViewerDocumentCapabilities } from '@app/modules/workspace-shell/viewers/workspaceViewerAdapters';
-import type {
-    IWorkspaceDocumentIdentity,
-    IWorkspaceDocumentSessionController,
-    IWorkspaceDocumentSessionSnapshot,
-    IWorkspaceDocumentTransaction,
-    TWorkspaceDocumentSessionPhase,
-    TWorkspaceDocumentTransactionKind,
-} from '@app/modules/workspace-shell/document-sessions/documentSessionTypes';
+import { tabHasDocumentHint } from '@app/modules/workspace-shell/tabs/tabHasDocumentHint';
 import type { TWorkspaceCommandTarget } from '@app/modules/workspace-shell/document-sessions/workspaceCommandTarget';
+import type { IDocumentOpenIntent } from '@app/modules/workspace-shell/document-sessions/documentOpenIntent';
 import { resolveDocumentRefBackend } from '@app/utils/documentRef';
 
-interface ICreateWorkspaceDocumentSessionCoreOptions {
+export type TWorkspaceDocumentPhase =
+    | 'empty'
+    | 'opening'
+    | 'restoring'
+    | 'ready'
+    | 'reloading'
+    | 'closing'
+    | 'error';
+
+export type TWorkspaceDocumentTransactionKind = 'open' | 'restore' | 'reload' | 'close';
+export interface IWorkspaceDocumentIdentity {
+    documentSessionKey: string | null;
+    documentInstanceId: TDocumentInstanceId | null;
+    documentRef: TDocumentRef | null;
+    originalPath: TDocumentRef | null;
+    workingCopyPath: TDocumentRef | null;
+    fileName: string | null;
+    isDjvu: boolean;
+    revisionInfo: IDocumentRevisionInfo | null;
+}
+export interface IWorkspaceDocumentTransaction {
+    id: string;
+    tabId: string;
+    kind: TWorkspaceDocumentTransactionKind;
+    documentRef: TDocumentRef | null;
+    startedAt: number;
+    persist?: boolean | undefined;
+}
+export interface IWorkspacePendingCloseDecision {
+    persist: boolean;
+    target: TWorkspaceCommandTarget;
+}
+export interface IWorkspaceDocumentSnapshot {
+    tabId: string;
+    sessionId: string;
+    sessionRevision: number;
+    phase: TWorkspaceDocumentPhase;
+    identity: IWorkspaceDocumentIdentity;
+    activeTransaction: IWorkspaceDocumentTransaction | null;
+    mounted: boolean;
+    toolbarSnapshot: IWorkspaceToolbarSnapshot;
+    viewState: ITabViewSessionState;
+    dirty: boolean;
+    closeable: boolean;
+    pendingDocumentPath: TDocumentRef | null;
+    pendingClose: IWorkspacePendingCloseDecision | null;
+}
+export interface IDocumentOperationLease {
+    activeKind: Ref<TDocumentOperationKind | null>;
+    isBusy: ComputedRef<boolean>;
+    runExclusive: <T>(kind: TDocumentOperationKind, operation: () => Promise<T>) => Promise<T>;
+}
+export interface IWorkspaceDocumentController {
+    readonly tabId: string;
+    readonly snapshot: Readonly<Ref<IWorkspaceDocumentSnapshot>>;
+    readonly mountedWorkspace: ShallowRef<IWorkspaceExpose | null>;
+    readonly operationLease: IDocumentOperationLease;
+    beginTransaction(input: Omit<IWorkspaceDocumentTransaction, 'id' | 'tabId' | 'startedAt'>): IWorkspaceDocumentTransaction;
+    finishTransaction(id: string, result: 'committed' | 'cancelled' | 'failed'): void;
+    open<T>(
+        intent: IDocumentOpenIntent,
+        run: (transaction: IWorkspaceDocumentTransaction) => Promise<T | false>,
+    ): Promise<T | false>;
+    restore<T>(
+        intent: IDocumentOpenIntent,
+        run: (transaction: IWorkspaceDocumentTransaction) => Promise<T | false>,
+    ): Promise<T | false>;
+    reload<T>(
+        intent: IDocumentOpenIntent,
+        run: (transaction: IWorkspaceDocumentTransaction) => Promise<T | false>,
+    ): Promise<T | false>;
+    close(request: {persist: boolean}): Promise<boolean>;
+    applyTabUpdate(updates: TTabUpdate): void;
+    applyWorkspaceRecord(record: IWorkspaceDocumentRecord, source: 'host' | 'workspace'): void;
+    applyRevisionInfo(info: IDocumentRevisionInfo | null): void;
+    applyViewState(state: ITabViewSessionState): void;
+    attachWorkspace(workspace: IWorkspaceExpose): void;
+    detachWorkspace(workspace?: IWorkspaceExpose): void;
+    waitForWorkspace(target: TWorkspaceCommandTarget, timeoutMs?: number): Promise<IWorkspaceExpose | null>;
+    createCommandTarget(mode?: 'current' | 'active-transaction'): TWorkspaceCommandTarget;
+    validateCommandTarget(target: TWorkspaceCommandTarget): {ok: true} | {
+        ok: false;
+        reason: string
+    };
+    toWorkspaceRecord(): IWorkspaceDocumentRecord;
+}
+interface ICreateWorkspaceDocumentControllerOptions {
     tabId: string;
     sessionId?: string;
     initialRecord?: IWorkspaceDocumentRecord | null;
@@ -45,7 +136,6 @@ interface ICreateWorkspaceDocumentSessionCoreOptions {
     createDocumentInstanceId?: () => TDocumentInstanceId;
     workspaceWaitTimeoutMs?: number;
 }
-
 interface IWorkspaceWaiter {
     target: TWorkspaceCommandTarget;
     resolve: (workspace: IWorkspaceExpose | null) => void;
@@ -58,12 +148,10 @@ interface IWorkspaceWaiter {
 const DEFAULT_WORKSPACE_WAIT_TIMEOUT_MS = 30_000;
 let nextSessionIndex = 0;
 let nextGlobalDocumentSessionKeyIndex = 0;
-
 function createDefaultSessionId(tabId: string) {
     nextSessionIndex += 1;
     return `workspace-document-session:${tabId}:${Date.now()}:${nextSessionIndex}`;
 }
-
 function createDefaultTransactionId(input: {
     tabId: string;
     kind: TWorkspaceDocumentTransactionKind;
@@ -189,7 +277,7 @@ function areIdentitiesEqual(
         && first.revisionInfo?.authority === second.revisionInfo?.authority;
 }
 
-function createInitialRecord(options: ICreateWorkspaceDocumentSessionCoreOptions) {
+function createInitialRecord(options: ICreateWorkspaceDocumentControllerOptions) {
     return options.initialRecord
         ? createWorkspaceDocumentRecord(options.initialRecord)
         : createWorkspaceDocumentRecord({
@@ -201,8 +289,8 @@ function createInitialRecord(options: ICreateWorkspaceDocumentSessionCoreOptions
 function resolvePhaseFromRecord(
     record: IWorkspaceDocumentRecord,
     activeTransaction: IWorkspaceDocumentTransaction | null,
-    previousPhase?: TWorkspaceDocumentSessionPhase,
-): TWorkspaceDocumentSessionPhase {
+    previousPhase?: TWorkspaceDocumentPhase,
+): TWorkspaceDocumentPhase {
     if (activeTransaction?.kind === 'close') {
         return 'closing';
     }
@@ -233,7 +321,7 @@ function resolvePhaseFromRecord(
     return 'empty';
 }
 
-function resolvePhaseForTransaction(kind: TWorkspaceDocumentTransactionKind): TWorkspaceDocumentSessionPhase {
+function resolvePhaseForTransaction(kind: TWorkspaceDocumentTransactionKind): TWorkspaceDocumentPhase {
     if (kind === 'restore') {
         return 'restoring';
     }
@@ -278,12 +366,12 @@ function createSnapshotFromRecord(options: {
         closeable: hasWorkspaceViewerDocumentCapabilities(options.record.toolbarSnapshot.viewerCapabilities),
         pendingDocumentPath: null,
         pendingClose: null,
-    } satisfies IWorkspaceDocumentSessionSnapshot;
+    } satisfies IWorkspaceDocumentSnapshot;
 }
 
 function areSessionSnapshotsEqual(
-    first: IWorkspaceDocumentSessionSnapshot,
-    second: IWorkspaceDocumentSessionSnapshot,
+    first: IWorkspaceDocumentSnapshot,
+    second: IWorkspaceDocumentSnapshot,
 ) {
     return JSON.stringify(first) === JSON.stringify(second);
 }
@@ -312,14 +400,65 @@ function getTargetDocumentBackend(documentRef: string | null) {
     return documentBackend === undefined ? {} : {documentBackend};
 }
 
-export function createWorkspaceDocumentSessionCore(
-    options: ICreateWorkspaceDocumentSessionCoreOptions,
-): IWorkspaceDocumentSessionController {
+function createImmediateSerializedTransactionQueue() {
+    let tail: Promise<unknown> = Promise.resolve();
+    let depth = 0;
+
+    return async function enqueue<T>(run: () => Promise<T>): Promise<T> {
+        const queuedRun = depth === 0
+            ? run()
+            : tail.catch(() => undefined).then(run);
+        depth += 1;
+        tail = queuedRun.catch(() => undefined);
+        try {
+            return await queuedRun;
+        } finally {
+            depth = Math.max(0, depth - 1);
+        }
+    };
+}
+
+function createDocumentOperationLease(): IDocumentOperationLease {
+    const activeKind = ref<TDocumentOperationKind | null>(null);
+    const pendingCount = ref(0);
+    let queueTail: Promise<void> = Promise.resolve();
+
+    async function runExclusive<T>(kind: TDocumentOperationKind, operation: () => Promise<T>) {
+        pendingCount.value += 1;
+        const previousTail = queueTail;
+        const operationPromise = previousTail
+            .catch(() => undefined)
+            .then(async () => {
+                activeKind.value = kind;
+                try {
+                    return await operation();
+                } finally {
+                    activeKind.value = null;
+                    pendingCount.value = Math.max(0, pendingCount.value - 1);
+                }
+            });
+
+        queueTail = operationPromise.then(() => undefined, () => undefined);
+        return operationPromise;
+    }
+
+    return {
+        activeKind,
+        isBusy: computed(() => pendingCount.value > 0),
+        runExclusive,
+    };
+}
+
+export function createWorkspaceDocumentController(
+    options: ICreateWorkspaceDocumentControllerOptions,
+): IWorkspaceDocumentController {
     const now = options.now ?? Date.now;
     const sessionId = options.sessionId ?? options.createSessionId?.(options.tabId) ?? createDefaultSessionId(options.tabId);
     const workspaceWaitTimeoutMs = options.workspaceWaitTimeoutMs ?? DEFAULT_WORKSPACE_WAIT_TIMEOUT_MS;
     const createDocumentInstanceId = options.createDocumentInstanceId ?? createDefaultDocumentInstanceId;
     const mountedWorkspace = shallowRef<IWorkspaceExpose | null>(null);
+    const operationLease = createDocumentOperationLease();
+    const enqueueTransaction = createImmediateSerializedTransactionQueue();
     let nextDocumentSessionIndex = 0;
 
     function createDocumentSessionKey(documentRef: string | null) {
@@ -336,7 +475,7 @@ export function createWorkspaceDocumentSessionCore(
     }
 
     const initialRecord = createInitialRecord(options);
-    const snapshot = ref<IWorkspaceDocumentSessionSnapshot>(createSnapshotFromRecord({
+    const snapshot = ref<IWorkspaceDocumentSnapshot>(createSnapshotFromRecord({
         tabId: options.tabId,
         sessionId,
         sessionRevision: 0,
@@ -350,7 +489,7 @@ export function createWorkspaceDocumentSessionCore(
     let closeRecordFenceActive = false;
 
     function updateSnapshot(
-        updater: (current: IWorkspaceDocumentSessionSnapshot) => IWorkspaceDocumentSessionSnapshot,
+        updater: (current: IWorkspaceDocumentSnapshot) => IWorkspaceDocumentSnapshot,
         options: {incrementSessionRevision?: boolean} = {},
     ) {
         const current = snapshot.value;
@@ -510,7 +649,7 @@ export function createWorkspaceDocumentSessionCore(
         }
         if (
             !snapshot.value.activeTransaction
-            && areWorkspaceDocumentRecordsEqual(toDocumentRecord(), normalizedRecord)
+            && areWorkspaceDocumentRecordsEqual(toWorkspaceRecord(), normalizedRecord)
         ) {
             return;
         }
@@ -537,6 +676,34 @@ export function createWorkspaceDocumentSessionCore(
             snapshot.value.identity,
             nextIdentity,
         )});
+    }
+
+    function applyTabUpdate(updates: TTabUpdate) {
+        const current = toWorkspaceRecord();
+        const tab = {
+            fileName: updates.fileName ?? current.tab.fileName,
+            originalPath: updates.originalPath ?? current.tab.originalPath,
+            documentInstanceId: updates.documentInstanceId
+                ?? current.tab.documentInstanceId
+                ?? null,
+            isDirty: updates.isDirty ?? current.tab.isDirty,
+            isDjvu: updates.isDjvu ?? current.tab.isDjvu,
+        };
+        const pending = tabHasDocumentHint(tab)
+            && current.toolbarSnapshot.hasPdf !== true
+            && !hasWorkspaceViewerDocumentCapabilities(current.toolbarSnapshot.viewerCapabilities);
+        applyWorkspaceRecord(pending
+            ? createPendingWorkspaceDocumentRecord(
+                tab,
+                current.toolbarSnapshot,
+                current.viewState,
+            )
+            : createWorkspaceDocumentRecord({
+                tab,
+                documentIdentity: current.documentIdentity,
+                toolbarSnapshot: current.toolbarSnapshot,
+                viewState: current.viewState,
+            }));
     }
 
     function applyRevisionInfo(info: IDocumentRevisionInfo | null) {
@@ -721,7 +888,7 @@ export function createWorkspaceDocumentSessionCore(
         return {ok: true};
     }
 
-    function toDocumentRecord() {
+    function toWorkspaceRecord() {
         const current = snapshot.value;
         return createWorkspaceDocumentRecord({
             tab: {
@@ -737,12 +904,89 @@ export function createWorkspaceDocumentSessionCore(
         });
     }
 
+    async function runOpenTransaction<T>(
+        kind: Extract<TWorkspaceDocumentTransactionKind, 'open' | 'restore' | 'reload'>,
+        intent: IDocumentOpenIntent,
+        run: (transaction: IWorkspaceDocumentTransaction) => Promise<T | false>,
+    ) {
+        return enqueueTransaction(async () => {
+            if (intent.commandTarget && !validateCommandTarget(intent.commandTarget).ok) {
+                return false;
+            }
+
+            const transaction = beginTransaction({
+                kind,
+                documentRef: intent.target?.originalPath ?? snapshot.value.identity.originalPath,
+            });
+            let committed = false;
+            try {
+                const result = await run(transaction);
+                committed = result !== false;
+                return result;
+            } finally {
+                finishTransaction(transaction.id, committed ? 'committed' : 'failed');
+            }
+        });
+    }
+
+    function open<T>(
+        intent: IDocumentOpenIntent,
+        run: (transaction: IWorkspaceDocumentTransaction) => Promise<T | false>,
+    ) {
+        return runOpenTransaction(
+            intent.action.toLowerCase().includes('restore') ? 'restore' : 'open',
+            intent,
+            run,
+        );
+    }
+
+    function restore<T>(
+        intent: IDocumentOpenIntent,
+        run: (transaction: IWorkspaceDocumentTransaction) => Promise<T | false>,
+    ) {
+        return runOpenTransaction('restore', intent, run);
+    }
+
+    function reload<T>(
+        intent: IDocumentOpenIntent,
+        run: (transaction: IWorkspaceDocumentTransaction) => Promise<T | false>,
+    ) {
+        return runOpenTransaction('reload', intent, run);
+    }
+
+    async function close(request: {persist: boolean}) {
+        return enqueueTransaction(async () => {
+            const transaction = beginTransaction({
+                kind: 'close',
+                documentRef: snapshot.value.identity.documentRef,
+                persist: request.persist,
+            });
+            let closed = false;
+            try {
+                const workspace = mountedWorkspace.value;
+                if (!workspace) {
+                    return false;
+                }
+                closed = await workspace.handleCloseFileFromUi(request);
+                return closed;
+            } finally {
+                finishTransaction(transaction.id, closed ? 'committed' : 'cancelled');
+            }
+        });
+    }
+
     return {
         tabId: options.tabId,
         snapshot,
         mountedWorkspace,
+        operationLease,
         beginTransaction,
         finishTransaction,
+        open,
+        restore,
+        reload,
+        close,
+        applyTabUpdate,
         applyWorkspaceRecord,
         applyRevisionInfo,
         applyViewState,
@@ -751,6 +995,6 @@ export function createWorkspaceDocumentSessionCore(
         waitForWorkspace,
         createCommandTarget,
         validateCommandTarget,
-        toDocumentRecord,
+        toWorkspaceRecord,
     };
 }

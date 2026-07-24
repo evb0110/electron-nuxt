@@ -5,7 +5,7 @@ import {
     vi,
 } from 'vitest';
 import { createDeferredWorkspaceExposeProxy } from '@app/modules/workspace-shell/expose/createDeferredWorkspaceExposeProxy';
-import { createWorkspaceDocumentSessionCore } from '@app/modules/workspace-shell/document-sessions/createWorkspaceDocumentSessionCore';
+import { createWorkspaceDocumentController } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
 import {
     workspaceExposeRequiredMethodNames,
     WorkspaceExposeCommandUnavailableError,
@@ -52,7 +52,7 @@ function createDeps(workspace: IWorkspaceExpose | null) {
 }
 
 function createSession(path = '/tmp/a.pdf') {
-    return createWorkspaceDocumentSessionCore({
+    return createWorkspaceDocumentController({
         tabId: 'tab-1',
         sessionId: 'session-1',
         initialRecord: createWorkspaceDocumentRecord({tab: {
@@ -66,7 +66,7 @@ function createSession(path = '/tmp/a.pdf') {
 }
 
 function replaceSessionDocument(
-    session: ReturnType<typeof createWorkspaceDocumentSessionCore>,
+    session: ReturnType<typeof createWorkspaceDocumentController>,
     path: string,
 ) {
     session.applyWorkspaceRecord(createWorkspaceDocumentRecord({tab: {

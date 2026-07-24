@@ -1,6 +1,6 @@
 import type { IWorkspaceExpose } from '@app/types/workspaceExpose';
 import type { TDocumentRef } from '@contracts/documentRef';
-import type { IWorkspaceDocumentSessionSnapshot } from '@app/modules/workspace-shell/document-sessions/documentSessionTypes';
+import type { IWorkspaceDocumentSnapshot } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
 import { hasWorkspaceViewerDocumentCapabilities } from '@app/modules/workspace-shell/viewers/workspaceViewerAdapters';
 
 export interface IWorkspaceRestoreAttemptState {
@@ -15,7 +15,7 @@ export function createWorkspaceRestoreAttemptState(): IWorkspaceRestoreAttemptSt
     };
 }
 
-export function workspaceSessionHasOpenedDocument(snapshot: IWorkspaceDocumentSessionSnapshot | null | undefined) {
+export function workspaceSessionHasOpenedDocument(snapshot: IWorkspaceDocumentSnapshot | null | undefined) {
     if (
         !snapshot
         || snapshot.phase === 'closing'
@@ -32,7 +32,7 @@ export function workspaceSessionHasOpenedDocument(snapshot: IWorkspaceDocumentSe
 }
 
 function createWorkspaceRestoreAttemptKey(
-    snapshot: IWorkspaceDocumentSessionSnapshot,
+    snapshot: IWorkspaceDocumentSnapshot,
     path: TDocumentRef,
 ) {
     return `${snapshot.sessionId}\u0000${path}`;
@@ -40,7 +40,7 @@ function createWorkspaceRestoreAttemptKey(
 
 export function tryClaimWorkspaceRestoreAttempt(
     state: IWorkspaceRestoreAttemptState,
-    snapshot: IWorkspaceDocumentSessionSnapshot,
+    snapshot: IWorkspaceDocumentSnapshot,
     path: TDocumentRef,
 ) {
     const key = createWorkspaceRestoreAttemptKey(snapshot, path);
@@ -54,7 +54,7 @@ export function tryClaimWorkspaceRestoreAttempt(
 
 export function finishWorkspaceRestoreAttempt(
     state: IWorkspaceRestoreAttemptState,
-    snapshot: IWorkspaceDocumentSessionSnapshot,
+    snapshot: IWorkspaceDocumentSnapshot,
     path: TDocumentRef,
     completed: boolean,
 ) {
@@ -67,7 +67,7 @@ export function finishWorkspaceRestoreAttempt(
 
 export function workspaceHasDocumentOrOpenError(
     workspace: IWorkspaceExpose | null,
-    snapshot?: IWorkspaceDocumentSessionSnapshot | null,
+    snapshot?: IWorkspaceDocumentSnapshot | null,
 ) {
     if (!workspace) {
         return snapshot?.toolbarSnapshot.hasOpenError === true;
@@ -79,7 +79,7 @@ export function workspaceHasDocumentOrOpenError(
 
 export function workspaceHasOpenedDocument(
     workspace: IWorkspaceExpose | null,
-    snapshot?: IWorkspaceDocumentSessionSnapshot | null,
+    snapshot?: IWorkspaceDocumentSnapshot | null,
 ) {
     if (!workspace) {
         return workspaceSessionHasOpenedDocument(snapshot);

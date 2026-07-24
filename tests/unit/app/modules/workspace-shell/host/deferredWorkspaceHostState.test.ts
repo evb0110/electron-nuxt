@@ -8,7 +8,7 @@ import {
     createDefaultWorkspaceToolbarSnapshot,
     type IWorkspaceExpose,
 } from '@app/types/workspaceExpose';
-import { createWorkspaceDocumentSessionCore } from '@app/modules/workspace-shell/document-sessions/createWorkspaceDocumentSessionCore';
+import { createWorkspaceDocumentController } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
 import { createWorkspaceDocumentRecord } from '@app/modules/workspace-shell/state/workspaceDocumentRecord';
 import {
     createWorkspaceRestoreAttemptState,
@@ -19,7 +19,7 @@ import {
 import { cast } from '@tests/helpers/cast';
 
 function createColdDocumentSession(tabId: string, path: string) {
-    return createWorkspaceDocumentSessionCore({
+    return createWorkspaceDocumentController({
         tabId,
         sessionId: `session-${tabId}`,
         initialRecord: createWorkspaceDocumentRecord({

@@ -23,14 +23,14 @@ import type { IAgentCapability } from '@contracts/agentPlatformFeature';
 import type { IElectronAPI } from '@contracts/electronApi';
 import { buildAgentWorkspaceSnapshot } from '@app/modules/workspace-shell/agent/buildAgentWorkspaceSnapshot';
 import { useAgentWorkspaceSnapshot } from '@app/modules/workspace-shell/composables/useAgentWorkspaceSnapshot';
-import { createWorkspaceDocumentSessionCore } from '@app/modules/workspace-shell/document-sessions/createWorkspaceDocumentSessionCore';
+import { createWorkspaceDocumentController } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
 import { createDefaultWorkspaceToolbarSnapshot } from '@app/types/workspaceExpose';
 import type { IWorkspaceExpose } from '@app/types/workspaceExpose';
 import type { IEditorPaneState } from '@contracts/editorPanes';
 import type { ITab } from '@app/types/tabs';
 import type { IRecentFile } from '@contracts/shared';
 import { createWorkspaceDocumentRecord } from '@app/modules/workspace-shell/state/workspaceDocumentRecord';
-import type { IWorkspaceDocumentSessionController } from '@app/modules/workspace-shell/document-sessions/documentSessionTypes';
+import type { IWorkspaceDocumentController } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
 import { cast } from '@tests/helpers/cast';
 import { createElectronPlatformApiFixture } from '@tests/helpers/createElectronPlatformApiFixture';
 import {requireDocumentRevisionToken} from '@contracts';
@@ -89,7 +89,7 @@ function createSessionRecord(path = '/tmp/document.pdf') {
 }
 
 function createTestSession(path = '/tmp/document.pdf') {
-    return createWorkspaceDocumentSessionCore({
+    return createWorkspaceDocumentController({
         tabId: 'tab-1',
         sessionId: 'session-1',
         initialRecord: createSessionRecord(path),
@@ -133,7 +133,7 @@ async function mountAgentWorkspaceSnapshotHarness(options: {
     agent?: IAgentCapability;
     getPaneByTabId?: (tabId: string) => IEditorPaneState | null;
     installElectronApi?: boolean;
-    session?: IWorkspaceDocumentSessionController;
+    session?: IWorkspaceDocumentController;
     shouldWaitForDesktopBridge?: () => boolean;
     waitForWorkspace?: () => Promise<IWorkspaceExpose | null>;
     workspace?: IWorkspaceExpose;
@@ -209,7 +209,7 @@ async function mountAgentWorkspaceSnapshotHarness(options: {
             documentRecordsByTabId,
             ...(options.session === undefined
                 ? {}
-                : {documentSessionsByTabId: shallowRef({'tab-1': options.session} satisfies Record<string, IWorkspaceDocumentSessionController>)}),
+                : {documentSessionsByTabId: shallowRef({'tab-1': options.session} satisfies Record<string, IWorkspaceDocumentController>)}),
             shouldWaitForDesktopBridge: options.shouldWaitForDesktopBridge ?? (() => false),
             getPaneByTabId: options.getPaneByTabId
                 ?? (tabId => panes.value.find(pane => pane.tabIds.includes(tabId)) ?? null),
@@ -356,7 +356,7 @@ describe('buildAgentWorkspaceSnapshot', () => {
                 },
             }),
         });
-        const pdfSession = createWorkspaceDocumentSessionCore({
+        const pdfSession = createWorkspaceDocumentController({
             tabId: 'tab-pdf',
             sessionId: 'session-pdf',
             initialRecord: createWorkspaceDocumentRecord({
@@ -375,7 +375,7 @@ describe('buildAgentWorkspaceSnapshot', () => {
             }),
             createDocumentSessionKey: () => 'document-session-key-pdf',
         });
-        const documentSessionsByTabId = ref<Record<string, IWorkspaceDocumentSessionController>>({'tab-pdf': pdfSession});
+        const documentSessionsByTabId = ref<Record<string, IWorkspaceDocumentController>>({'tab-pdf': pdfSession});
 
         const snapshot = buildAgentWorkspaceSnapshot({
             panes,
@@ -728,7 +728,7 @@ describe('useAgentWorkspaceSnapshot command guards', () => {
 
     it('rejects a command when a same-revision reopen changes only the document instance', async () => {
         let nextInstanceId = 0;
-        const session = createWorkspaceDocumentSessionCore({
+        const session = createWorkspaceDocumentController({
             tabId: 'tab-1',
             sessionId: 'session-1',
             createDocumentInstanceId: () => {

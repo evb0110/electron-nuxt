@@ -6,12 +6,14 @@ import {
     getDocumentFilesCapability,
     getDocumentWorkingCopyCapability,
 } from '@app/utils/platformDocuments';
-import { createEpochGuard } from '@app/modules/workspace-shell/composables/document-session/createEpochGuard';
-import { createDocumentSessionState } from '@app/modules/workspace-shell/composables/document-session/createDocumentSessionState';
 import { createDocumentConformance } from '@app/modules/workspace-shell/composables/document-session/createDocumentConformance';
 import { createDocumentHistory } from '@app/modules/workspace-shell/composables/document-session/createDocumentHistory';
 import { createDocumentOpenFlow } from '@app/modules/workspace-shell/composables/document-session/createDocumentOpenFlow';
 import { createDocumentPersistence } from '@app/modules/workspace-shell/composables/document-session/createDocumentPersistence';
+import {
+    createDocumentSessionState,
+    createEpochGuard,
+} from '@app/modules/workspace-shell/viewers/workspaceDocumentDriver';
 
 let nextPdfFileAnalyticsScopeIndex = 0;
 

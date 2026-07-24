@@ -12,7 +12,7 @@ import {
 import type { TSplitPayload } from '@contracts/windowTabs';
 import type { IWorkspaceExpose } from '@app/types/workspaceExpose';
 import { useWindowTabTransfers } from '@app/modules/workspace-shell/composables/useWindowTabTransfers';
-import { createWorkspaceDocumentSessionCore } from '@app/modules/workspace-shell/document-sessions/createWorkspaceDocumentSessionCore';
+import { createWorkspaceDocumentController } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
 import { createWorkspaceDocumentRecord } from '@app/modules/workspace-shell/state/workspaceDocumentRecord';
 import { cast } from '@tests/helpers/cast';
 import type { ITab } from '@app/types/tabs';
@@ -203,7 +203,7 @@ describe('useWindowTabTransfers', () => {
             captureSplitPayload: vi.fn(async () => payload),
             handleCloseFileFromUi: vi.fn(async () => true),
         });
-        const session = createWorkspaceDocumentSessionCore({
+        const session = createWorkspaceDocumentController({
             tabId: 'tab-1',
             sessionId: 'session-1',
             createDocumentInstanceId: () => requireDocumentInstanceId('instance-1'),
@@ -299,7 +299,7 @@ describe('useWindowTabTransfers', () => {
             mintedAt: 123,
             token: requireDocumentRevisionToken('revision-token-1'),
         } as const;
-        const session = createWorkspaceDocumentSessionCore({
+        const session = createWorkspaceDocumentController({
             tabId: 'tab-1',
             sessionId: 'session-1',
             createDocumentInstanceId: () => {
@@ -492,7 +492,7 @@ describe('useWindowTabTransfers', () => {
         };
         const tabsState = ref<ITab[]>([existingTab]);
         const workspaceRefs = ref(new Map<string, IWorkspaceExpose>());
-        const documentSessionsByTabId = shallowRef<Record<string, ReturnType<typeof createWorkspaceDocumentSessionCore>>>({});
+        const documentSessionsByTabId = shallowRef<Record<string, ReturnType<typeof createWorkspaceDocumentController>>>({});
         const restoredWorkspace = cast<IWorkspaceExpose>({
             hasPdf: true,
             restoreSplitPayload: vi.fn(async () => undefined),
@@ -516,7 +516,7 @@ describe('useWindowTabTransfers', () => {
             pane.activeTabId = tab.id;
             destinationMounted = true;
             workspaceRefs.value.set(tab.id, restoredWorkspace);
-            const targetSession = createWorkspaceDocumentSessionCore({
+            const targetSession = createWorkspaceDocumentController({
                 tabId: tab.id,
                 sessionId: 'session-target',
                 createDocumentInstanceId: () => requireDocumentInstanceId('instance-b'),

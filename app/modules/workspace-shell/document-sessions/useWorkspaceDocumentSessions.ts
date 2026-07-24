@@ -13,14 +13,12 @@ import { isWorkspaceExpose } from '@app/modules/workspace-shell/expose/isWorkspa
 import { tabHasDocumentHint } from '@app/modules/workspace-shell/tabs/tabHasDocumentHint';
 import {
     createPendingWorkspaceDocumentRecord,
-    createWorkspaceDocumentRecord,
     createWorkspaceDocumentRecordFromTab,
     type IWorkspaceDocumentRecord,
 } from '@app/modules/workspace-shell/state/workspaceDocumentRecord';
-import { hasWorkspaceViewerDocumentCapabilities } from '@app/modules/workspace-shell/viewers/workspaceViewerAdapters';
 import type { ITabViewSessionState } from '@app/modules/workspace-shell/tabs/tabSessionStoreTypes';
-import { createWorkspaceDocumentSessionCore } from '@app/modules/workspace-shell/document-sessions/createWorkspaceDocumentSessionCore';
-import type { IWorkspaceDocumentSessionController } from '@app/modules/workspace-shell/document-sessions/documentSessionTypes';
+import { createWorkspaceDocumentController } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
+import type { IWorkspaceDocumentController } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
 import type { TWorkspaceCommandTarget } from '@app/modules/workspace-shell/document-sessions/workspaceCommandTarget';
 
 interface IUseWorkspaceDocumentSessionsOptions {
@@ -30,16 +28,16 @@ interface IUseWorkspaceDocumentSessionsOptions {
 
 interface IUseWorkspaceDocumentSessionsResult {
     activeDocumentRecord: ComputedRef<IWorkspaceDocumentRecord | null>;
-    activeDocumentSession: ComputedRef<IWorkspaceDocumentSessionController | null>;
+    activeDocumentSession: ComputedRef<IWorkspaceDocumentController | null>;
     activeWorkspace: ComputedRef<IWorkspaceExpose | null>;
     documentRecordsByTabId: ComputedRef<Record<string, IWorkspaceDocumentRecord>>;
-    documentSessionsByTabId: ComputedRef<Record<string, IWorkspaceDocumentSessionController>>;
+    documentSessionsByTabId: ComputedRef<Record<string, IWorkspaceDocumentController>>;
     viewStateByTabId: ComputedRef<Record<string, ITabViewSessionState>>;
     workspaceRefs: ComputedRef<Map<string, IWorkspaceExpose>>;
     applyRevisionInfo: (tabId: string, info: IDocumentRevisionInfo | null) => void;
     applyViewState: (tabId: string, state: ITabViewSessionState) => void;
     getDocumentRecord: (tabId: string | null | undefined) => IWorkspaceDocumentRecord | null;
-    getSession: (tabId: string | null | undefined) => IWorkspaceDocumentSessionController | null;
+    getSession: (tabId: string | null | undefined) => IWorkspaceDocumentController | null;
     removeDocumentRecord: (tabId: string) => void;
     seedTabDocumentRecord: (tabId: string, updates: TTabUpdate) => void;
     setWorkspaceDocumentRecord: (tabId: string, record: IWorkspaceDocumentRecord, source?: 'host' | 'workspace') => void;
@@ -60,7 +58,7 @@ function createSeedRecordForTab(tab: ITab): IWorkspaceDocumentRecord {
 export const useWorkspaceDocumentSessions = (
     options: IUseWorkspaceDocumentSessionsOptions,
 ): IUseWorkspaceDocumentSessionsResult => {
-    const sessionsByTabId = shallowRef(new Map<string, IWorkspaceDocumentSessionController>());
+    const sessionsByTabId = shallowRef(new Map<string, IWorkspaceDocumentController>());
 
     function getTabById(tabId: string | null | undefined) {
         return tabId ? options.tabs.value.find(tab => tab.id === tabId) ?? null : null;
@@ -72,7 +70,7 @@ export const useWorkspaceDocumentSessions = (
             return existing;
         }
 
-        const session = createWorkspaceDocumentSessionCore({
+        const session = createWorkspaceDocumentController({
             tabId: tab.id,
             initialRecord: createSeedRecordForTab(tab),
         });
@@ -100,7 +98,7 @@ export const useWorkspaceDocumentSessions = (
     }
 
     function getDocumentRecord(tabId: string | null | undefined) {
-        return getSession(tabId)?.toDocumentRecord() ?? null;
+        return getSession(tabId)?.toWorkspaceRecord() ?? null;
     }
 
     function setWorkspaceDocumentRecord(
@@ -113,32 +111,7 @@ export const useWorkspaceDocumentSessions = (
     }
 
     function seedTabDocumentRecord(tabId: string, updates: TTabUpdate) {
-        const tab = getTabById(tabId);
-        const current = getDocumentRecord(tabId);
-        const nextTab = {
-            fileName: updates.fileName ?? current?.tab.fileName ?? tab?.fileName ?? null,
-            originalPath: updates.originalPath ?? current?.tab.originalPath ?? tab?.originalPath ?? null,
-            documentInstanceId: updates.documentInstanceId ?? current?.tab.documentInstanceId ?? tab?.documentInstanceId ?? null,
-            isDirty: updates.isDirty ?? current?.tab.isDirty ?? tab?.isDirty ?? false,
-            isDjvu: updates.isDjvu ?? current?.tab.isDjvu ?? tab?.isDjvu ?? false,
-        };
-        const isPendingDocumentHint = tabHasDocumentHint(nextTab)
-            && current?.toolbarSnapshot.hasPdf !== true
-            && !hasWorkspaceViewerDocumentCapabilities(current?.toolbarSnapshot.viewerCapabilities);
-        const record = isPendingDocumentHint
-            ? createPendingWorkspaceDocumentRecord(
-                nextTab,
-                current?.toolbarSnapshot,
-                current?.viewState,
-            )
-            : createWorkspaceDocumentRecord({
-                tab: nextTab,
-                documentIdentity: current?.documentIdentity,
-                toolbarSnapshot: current?.toolbarSnapshot,
-                viewState: current?.viewState,
-            });
-
-        setWorkspaceDocumentRecord(tabId, record, 'host');
+        getSession(tabId)?.applyTabUpdate(updates);
     }
 
     function applyViewState(tabId: string, state: ITabViewSessionState) {
@@ -210,7 +183,7 @@ export const useWorkspaceDocumentSessions = (
             session,
         ]) => [
             tabId,
-            session.toDocumentRecord(),
+            session.toWorkspaceRecord(),
         ]),
     ));
     const viewStateByTabId = computed(() => Object.fromEntries(
@@ -238,7 +211,7 @@ export const useWorkspaceDocumentSessions = (
             }),
     ));
     const activeDocumentSession = computed(() => getSession(options.activeTabId.value));
-    const activeDocumentRecord = computed(() => activeDocumentSession.value?.toDocumentRecord() ?? null);
+    const activeDocumentRecord = computed(() => activeDocumentSession.value?.toWorkspaceRecord() ?? null);
     const activeWorkspace = computed(() => activeDocumentSession.value?.mountedWorkspace.value ?? null);
 
     return {

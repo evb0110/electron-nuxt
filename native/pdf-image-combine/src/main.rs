@@ -336,7 +336,7 @@ fn parse_compact_manifest_line(
             page_size,
             background: image_spec(
                 source(4)?,
-                ImageCompression::Jpeg {
+                ImageCompression::JpegWithFlateFallback {
                     quality: parse_jpeg_quality(parts.get(3).copied(), line_number)?,
                 },
             ),
@@ -347,7 +347,7 @@ fn parse_compact_manifest_line(
             page_size,
             background: image_spec(
                 source(4)?,
-                ImageCompression::Jpeg {
+                ImageCompression::JpegWithFlateFallback {
                     quality: parse_jpeg_quality(parts.get(3).copied(), line_number)?,
                 },
             ),

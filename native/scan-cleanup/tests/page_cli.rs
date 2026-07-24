@@ -1,6 +1,8 @@
 use evb_scan_cleanup::{
-    png::{decode_gray, encode_gray},
-    CleanupOptions, LayoutMode, OutputMode,
+    io::pbm::decode_p4,
+    png::{decode_gray, decode_image, encode_gray, encode_rgb, RgbImage},
+    CleanupOptions, LayoutMode, ManualZones, NormalizedZonePoint, NormalizedZonePolygon,
+    OrthogonalRotation, OutputMode, PictureZone, PictureZoneLayer,
 };
 use scan_primitives::GrayImage;
 use serde_json::Value;
@@ -276,6 +278,119 @@ fn final_manifest_writes_pbm_only_for_binary_outputs_and_marks_metadata() {
             .unwrap()
             .get("bilevelWritten")
             .is_none()
+    );
+}
+
+#[test]
+fn final_mixed_manifest_writes_inpainted_background_and_full_resolution_mask() {
+    let scratch = Scratch::new("mixed-layers");
+    let input = scratch.path("mixed-input.png");
+    let output = scratch.path("mixed-output.png");
+    let output_metadata = scratch.path("mixed-output.json");
+    let page_metadata = scratch.path("mixed-page.json");
+    let bilevel_output = scratch.path("mixed-bilevel.pbm");
+    let background_output = scratch.path("mixed-background.png");
+    let foreground_mask_output = scratch.path("mixed-mask.pbm");
+    let manifest = scratch.path("mixed-manifest.json");
+    let mut image = RgbImage::new(180, 120, [248; 3]);
+    for y in 24..94 {
+        for x in 96..168 {
+            image.set(
+                x,
+                y,
+                [
+                    30 + ((x * 7 + y * 11) % 180) as u8,
+                    45 + ((x * 13 + y * 3) % 150) as u8,
+                    70 + ((x * 5 + y * 17) % 150) as u8,
+                ],
+            );
+        }
+    }
+    for y in [22, 42, 62, 82] {
+        for x in 16..78 {
+            image.set(x, y, [18; 3]);
+            image.set(x, y + 1, [18; 3]);
+        }
+    }
+    fs::write(&input, encode_rgb(&image).unwrap()).unwrap();
+    let options = CleanupOptions {
+        output_mode: OutputMode::Mixed,
+        layout: LayoutMode::Single,
+        normalize_illumination: false,
+        crop_content: false,
+        match_page_size: false,
+        dpi: 600.0,
+        source_dpi: Some(300.0),
+        manual_zones: ManualZones {
+            picture: vec![PictureZone {
+                polygon: NormalizedZonePolygon {
+                    points: vec![
+                        NormalizedZonePoint { x: 0.5, y: 0.15 },
+                        NormalizedZonePoint { x: 0.96, y: 0.15 },
+                        NormalizedZonePoint { x: 0.96, y: 0.85 },
+                        NormalizedZonePoint { x: 0.5, y: 0.85 },
+                    ],
+                    rotation: OrthogonalRotation::None,
+                },
+                layer: PictureZoneLayer::Painter2,
+            }],
+            fill: vec![],
+        },
+        ..CleanupOptions::default()
+    };
+    let payload = serde_json::json!({
+        "version": 3,
+        "operation": "render",
+        "renderMode": "final",
+        "canvasScope": "document",
+        "pages": [{
+            "inputPath": input,
+            "sourcePageIndex": 0,
+            "pageMetadataPath": page_metadata,
+            "options": options,
+            "outputs": [{
+                "outputPath": output,
+                "metadataPath": output_metadata,
+                "bilevelOutputPath": bilevel_output,
+                "backgroundOutputPath": background_output,
+                "foregroundMaskOutputPath": foreground_mask_output,
+            }],
+        }],
+    });
+    fs::write(&manifest, serde_json::to_vec_pretty(&payload).unwrap()).unwrap();
+
+    let result = Command::new(env!("CARGO_BIN_EXE_evb-scan-cleanup"))
+        .args(["--manifest", manifest.to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(
+        result.status.success(),
+        "stdout={}\nstderr={}",
+        String::from_utf8_lossy(&result.stdout),
+        String::from_utf8_lossy(&result.stderr)
+    );
+
+    let metadata: Value = serde_json::from_slice(&fs::read(&output_metadata).unwrap()).unwrap();
+    assert_eq!(metadata["layeredWritten"], true);
+    assert_eq!(metadata["layeredBackgroundDpi"], 300.0);
+    assert!(output.exists());
+    assert!(!bilevel_output.exists());
+    let mask = decode_p4(&fs::read(&foreground_mask_output).unwrap(), 180 * 120, 200).unwrap();
+    assert_eq!((mask.width(), mask.height()), (180, 120));
+    assert_eq!(mask.get(30, 22), 0);
+    let background = decode_image(&fs::read(&background_output).unwrap(), 180 * 120, 200).unwrap();
+    assert_eq!(
+        (background.gray.width(), background.gray.height()),
+        (90, 60)
+    );
+    assert!(
+        background.gray.get(15, 11) >= 240,
+        "foreground ink leaked into the downsampled JPEG background source"
+    );
+    let picture = background.rgb.get(65, 30);
+    assert!(
+        picture[0] != picture[1] || picture[1] != picture[2],
+        "color plate chroma was lost from the mixed background"
     );
 }
 

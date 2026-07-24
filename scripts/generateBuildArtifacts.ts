@@ -4,11 +4,24 @@ import { generateElectronBuilderResources } from '@scripts/generateElectronBuild
 import { generateNativeToolProtocols } from '@scripts/generateNativeToolProtocols';
 import { generatePlatformApiArtifacts } from '@scripts/platform-api/generatePlatformApiArtifacts';
 
-export async function generateBuildArtifacts() {
+const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+
+export async function generateBuildArtifacts({
+    env = process.env,
+    projectRoot: targetRoot = projectRoot,
+}: {
+    env?: NodeJS.ProcessEnv;
+    projectRoot?: string;
+} = {}) {
+    const isVercelBuild = env.VERCEL === '1' || env.NOW_BUILDER === '1';
     const changed = await Promise.all([
-        generateElectronBuilderResources(),
-        generateNativeToolProtocols(),
-        generatePlatformApiArtifacts(),
+        ...isVercelBuild
+            ? []
+            : [
+                generateElectronBuilderResources({projectRoot: targetRoot}),
+                generateNativeToolProtocols({projectRoot: targetRoot}),
+            ],
+        generatePlatformApiArtifacts({projectRoot: targetRoot}),
     ]);
     return changed.some(Boolean);
 }

@@ -1,17 +1,17 @@
-import type {IDocumentWorkspaceProps} from '@app/modules/workspace-shell/composables/createDocumentWorkspaceCommandBindings';
 import {useDocumentWorkspaceSurfaceMode} from '@app/modules/workspace-shell/composables/useDocumentWorkspaceSurfaceMode';
 import {discardScanCleanupDocumentState} from '@app/modules/scan-cleanup/public/runtime';
+import type {IWorkspaceDocumentController} from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
+import type {ITabViewSessionState} from '@app/modules/workspace-shell/tabs/tabSessionStoreTypes';
 
-type TDocumentWorkspaceScanCleanupSurfaceOptions = Pick<
-    IDocumentWorkspaceProps,
-    'documentSession' | 'initialViewState'
-> & {
+interface IDocumentWorkspaceScanCleanupSurfaceOptions {
+    documentSession: IWorkspaceDocumentController | null;
+    initialViewState: ITabViewSessionState | null;
     closeAllDropdowns: () => void;
     readDocumentKey: () => string | null | undefined;
-};
+}
 
 export const useDocumentWorkspaceScanCleanupSurface = (
-    options: TDocumentWorkspaceScanCleanupSurfaceOptions,
+    options: IDocumentWorkspaceScanCleanupSurfaceOptions,
 ) => {
     const {
         documentSession,

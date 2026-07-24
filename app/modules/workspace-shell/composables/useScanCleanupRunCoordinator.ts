@@ -8,7 +8,7 @@ import {
 } from '@app/modules/scan-cleanup/public/runtime';
 import type { ITab } from '@app/types/tabs';
 import type { IWorkspaceExpose } from '@app/types/workspaceExpose';
-import type { IWorkspaceDocumentSessionController } from '@app/modules/workspace-shell/document-sessions/documentSessionTypes';
+import type { IWorkspaceDocumentController } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
 import { getDocumentOpenCapability } from '@app/utils/platformDocuments';
 import type { TOpenFileResult } from '@contracts/electronApiDocuments';
 import type { TTranslateFn } from '@i18n-app';
@@ -19,7 +19,7 @@ export const useScanCleanupRunCoordinator = (
     isStartupOpenClaimPending: Ref<boolean>,
     t: TTranslateFn,
     tabs: Ref<ITab[]>,
-    documentSessionsByTabId: ComputedRef<Record<string, IWorkspaceDocumentSessionController>>,
+    documentSessionsByTabId: ComputedRef<Record<string, IWorkspaceDocumentController>>,
     activateTab: (tabId: string) => void,
 ) => {
     const toast = useToast();

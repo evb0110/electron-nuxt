@@ -2,7 +2,6 @@ import {
     access,
     copyFile,
     mkdtemp,
-    open,
     readFile,
     rename,
     rm,
@@ -36,6 +35,10 @@ import type { TWorkerLog } from '@electron/ocr/worker/types';
 import { runScanCleanupSidecar } from '@electron/features/scan-cleanup/worker/runScanCleanupSidecar';
 import {buildNativeScanCleanupManifest} from '@electron/features/scan-cleanup/policy/buildNativeScanCleanupManifest';
 import {resolveScanCleanupPipelineMaxPixels} from '@electron/features/scan-cleanup/policy/effectiveOptions';
+import {
+    readPbmDimensions,
+    readPngDimensions,
+} from '@electron/features/scan-cleanup/worker/rasterLayerDimensions';
 
 export interface IScanCleanupWorkerPaths {
     qpdfBinary: string;
@@ -68,6 +71,8 @@ interface ICleanupMetadata {
     skewApplied: boolean;
     manualSkew?: boolean;
     bilevelWritten?: boolean;
+    layeredWritten?: boolean;
+    layeredBackgroundDpi?: number;
     illuminationNormalized?: boolean;
     binarizationMode?: IScanCleanupOptions['binarization'] | null;
     binarizationDiagnostics?: INativeScanCleanupBinarizationDiagnosticsV3 | null;
@@ -160,35 +165,6 @@ function resolveSourceDpi(value: number | null | undefined, fallback = 300) {
     return Number.isFinite(candidate) && candidate > 0
         ? Math.max(1, Math.round(candidate))
         : fallback;
-}
-
-async function readPngDimensions(path: string) {
-    const handle = await open(path, 'r');
-    try {
-        const header = Buffer.alloc(24);
-        const {bytesRead} = await handle.read(header, 0, header.byteLength, 0);
-        if (
-            bytesRead !== header.byteLength
-            || header.subarray(0, 8).compare(Buffer.from([
-                0x89,
-                0x50,
-                0x4e,
-                0x47,
-                0x0d,
-                0x0a,
-                0x1a,
-                0x0a,
-            ])) !== 0
-        ) {
-            throw new Error(`Unable to inspect raster dimensions for ${path}`);
-        }
-        return {
-            width: header.readUInt32BE(16),
-            height: header.readUInt32BE(20),
-        };
-    } finally {
-        await handle.close();
-    }
 }
 
 function resolveSafeRenderDpi(
@@ -752,21 +728,24 @@ export async function runScanCleanupPipeline(
                 );
             }
         }
-        const bwPages = pageNumbers.filter(
-            pageNumber => resolvedOutputModeByPage.get(pageNumber) === 'bw',
+        const supersampledPages = pageNumbers.filter(
+            pageNumber => {
+                const mode = resolvedOutputModeByPage.get(pageNumber);
+                return mode === 'bw' || mode === 'mixed';
+            },
         );
         const finalRasterStartPercent = unresolvedAutoPages.length > 0 ? 25 : 15;
-        const probedBwPageNumbers = new Set(bwPages.filter(pageNumber => probeDimensionsByPage.has(pageNumber)));
+        const probedBwPageNumbers = new Set(supersampledPages.filter(pageNumber => probeDimensionsByPage.has(pageNumber)));
         emitProgress(
             onProgress,
             'probing',
             probedBwPageNumbers.size,
-            bwPages.length,
+            supersampledPages.length,
             finalRasterStartPercent,
             probedBwPageNumbers,
         );
         await mapScanCleanupRasterPages(
-            bwPages.filter(pageNumber => !probeDimensionsByPage.has(pageNumber)),
+            supersampledPages.filter(pageNumber => !probeDimensionsByPage.has(pageNumber)),
             3,
             async pageNumber => {
                 signal.throwIfAborted();
@@ -790,7 +769,7 @@ export async function runScanCleanupPipeline(
                     onProgress,
                     'probing',
                     probedBwPageNumbers.size,
-                    bwPages.length,
+                    supersampledPages.length,
                     finalRasterStartPercent,
                     probedBwPageNumbers,
                 );
@@ -803,10 +782,14 @@ export async function runScanCleanupPipeline(
             signal.throwIfAborted();
             const sourceDpi = sourceDpiByPage.get(pageNumber)!;
             const resolvedOutputMode = resolvedOutputModeByPage.get(pageNumber) ?? 'color';
-            // Bilevel output floors at 600 DPI: below that, thin strokes fragment
-            // during binarization while 1-bit encoding keeps the byte cost small.
-            const requestedRenderDpi = resolvedOutputMode === 'bw' ? Math.max(sourceDpi * 2, 600) : sourceDpi;
-            const dpi = resolvedOutputMode === 'bw'
+            // Bilevel and mixed text layers floor at 600 DPI: below that, thin
+            // strokes fragment during binarization while 1-bit encoding keeps
+            // the byte cost small.
+            const supersampled = resolvedOutputMode === 'bw' || resolvedOutputMode === 'mixed';
+            const requestedRenderDpi = supersampled
+                ? Math.max(sourceDpi * 2, 600)
+                : sourceDpi;
+            const dpi = supersampled
                 ? resolveSafeRenderDpi(
                     requestedRenderDpi,
                     resolveScanCleanupPipelineMaxPixels(resolvedOutputMode),
@@ -831,6 +814,8 @@ export async function runScanCleanupPipeline(
                     outputPath: join(scratch, `clean-${pageNumber}-${outputIndex}.png`),
                     metadataPath: join(scratch, `clean-${pageNumber}-${outputIndex}.json`),
                     bilevelOutputPath: join(scratch, `clean-${pageNumber}-${outputIndex}.pbm`),
+                    backgroundOutputPath: join(scratch, `clean-${pageNumber}-${outputIndex}-background.png`),
+                    foregroundMaskOutputPath: join(scratch, `clean-${pageNumber}-${outputIndex}-mask.pbm`),
                 })),
             };
             rasterizedCount += 1;
@@ -905,6 +890,9 @@ export async function runScanCleanupPipeline(
         const outputPages: Array<{
             path: string;
             bilevelPath?: string;
+            backgroundPath?: string;
+            foregroundMaskPath?: string;
+            backgroundIsColor?: boolean;
             dpi: number;
             resolvedOutputMode: TScanCleanupOutputMode;
             metadata: ICleanupMetadata
@@ -959,9 +947,89 @@ export async function runScanCleanupPipeline(
                         );
                     }
                 }
+                let backgroundPath: string | undefined;
+                let foregroundMaskPath: string | undefined;
+                let backgroundIsColor: boolean | undefined;
+                if (metadata.layeredWritten) {
+                    try {
+                        if (
+                            output.backgroundOutputPath === undefined
+                            || output.foregroundMaskOutputPath === undefined
+                        ) {
+                            throw new Error('no mixed layer output paths were declared');
+                        }
+                        const [
+                            backgroundStats,
+                            maskStats,
+                        ] = await Promise.all([
+                            stat(output.backgroundOutputPath),
+                            stat(output.foregroundMaskOutputPath),
+                        ]);
+                        if (!backgroundStats.isFile() || !maskStats.isFile()) {
+                            throw new Error('a mixed layer output path is not a file');
+                        }
+                        await Promise.all([
+                            access(output.backgroundOutputPath, fsConstants.R_OK),
+                            access(output.foregroundMaskOutputPath, fsConstants.R_OK),
+                        ]);
+                        const [
+                            backgroundHeader,
+                            maskHeader,
+                        ] = await Promise.all([
+                            readPngDimensions(output.backgroundOutputPath),
+                            readPbmDimensions(output.foregroundMaskOutputPath),
+                        ]);
+                        const renderDpi = metadata.renderDpi
+                            ?? pageDpi.get(pageIndex + 1)
+                            ?? documentDpi;
+                        const backgroundDpi = metadata.layeredBackgroundDpi;
+                        if (
+                            !Number.isFinite(renderDpi)
+                            || renderDpi <= 0
+                            || backgroundDpi === undefined
+                            || !Number.isFinite(backgroundDpi)
+                            || backgroundDpi <= 0
+                        ) {
+                            throw new Error('mixed layer DPI metadata is invalid');
+                        }
+                        const expectedBackgroundWidth = Math.max(
+                            1,
+                            Math.round(metadata.canvasWidthPx * backgroundDpi / renderDpi),
+                        );
+                        const expectedBackgroundHeight = Math.max(
+                            1,
+                            Math.round(metadata.canvasHeightPx * backgroundDpi / renderDpi),
+                        );
+                        if (
+                            maskHeader.width !== metadata.canvasWidthPx
+                            || maskHeader.height !== metadata.canvasHeightPx
+                            || backgroundHeader.width !== expectedBackgroundWidth
+                            || backgroundHeader.height !== expectedBackgroundHeight
+                        ) {
+                            throw new Error(
+                                'mixed layer dimensions do not match metadata '
+                                + `(background ${backgroundHeader.width}x${backgroundHeader.height}, `
+                                + `expected ${expectedBackgroundWidth}x${expectedBackgroundHeight}; `
+                                + `mask ${maskHeader.width}x${maskHeader.height}, `
+                                + `expected ${metadata.canvasWidthPx}x${metadata.canvasHeightPx})`,
+                            );
+                        }
+                        backgroundPath = output.backgroundOutputPath;
+                        foregroundMaskPath = output.foregroundMaskOutputPath;
+                        backgroundIsColor = backgroundHeader.isColor;
+                    } catch (error) {
+                        log(
+                            'warn',
+                            `Page ${pageIndex + 1} mixed layers are missing, malformed, or mismatched; using composite JPEG fallback: ${(error as Error).message}`,
+                        );
+                    }
+                }
                 pageOutputPages.push({
                     path: output.outputPath,
                     ...(bilevelPath === undefined ? {} : {bilevelPath}),
+                    ...(backgroundPath === undefined ? {} : {backgroundPath}),
+                    ...(foregroundMaskPath === undefined ? {} : {foregroundMaskPath}),
+                    ...(backgroundIsColor === undefined ? {} : {backgroundIsColor}),
                     dpi: metadata.renderDpi
                         ?? pageDpi.get(pageNumbers[pageIndex]!)
                         ?? documentDpi,
@@ -994,6 +1062,20 @@ export async function runScanCleanupPipeline(
                     'image-bilevel',
                     ...pageSize,
                     output.bilevelPath,
+                ].join('\t');
+            }
+            if (
+                output.backgroundPath !== undefined
+                && output.foregroundMaskPath !== undefined
+            ) {
+                return [
+                    'layered-jpeg',
+                    ...pageSize,
+                    output.backgroundIsColor
+                        ? SCAN_CLEANUP_COLOR_JPEG_QUALITY
+                        : SCAN_CLEANUP_GRAYSCALE_JPEG_QUALITY,
+                    output.backgroundPath,
+                    output.foregroundMaskPath,
                 ].join('\t');
             }
             const jpegQuality = output.metadata.bilevelWritten

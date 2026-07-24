@@ -1,13 +1,6 @@
 {
   "clone_groups": [
     "app/assets/css/main.css:455-464|app/assets/css/main.css:929-938",
-    "app/assets/css/vendor/pdfjs-viewer-sanitized.css:178-192|app/assets/css/vendor/pdfjs-viewer-sanitized.css:244-258",
-    "app/assets/css/vendor/pdfjs-viewer-sanitized.css:331-341|app/assets/css/vendor/pdfjs-viewer-sanitized.css:468-478",
-    "app/assets/css/vendor/pdfjs-viewer-sanitized.css:3007-3022|app/assets/css/vendor/pdfjs-viewer-sanitized.css:3068-3083",
-    "app/assets/css/vendor/pdfjs-viewer-sanitized.css:3199-3207|app/assets/css/vendor/pdfjs-viewer-sanitized.css:3290-3298",
-    "app/assets/css/vendor/pdfjs-viewer-sanitized.css:3211-3221|app/assets/css/vendor/pdfjs-viewer-sanitized.css:3298-3308",
-    "app/assets/css/vendor/pdfjs-viewer-sanitized.css:5385-5395|app/assets/css/vendor/pdfjs-viewer-sanitized.css:5418-5428",
-    "app/assets/css/vendor/pdfjs-viewer-sanitized.css:5522-5529|app/assets/css/vendor/pdfjs-viewer-sanitized.css:5566-5573",
     "app/modules/agent-panel/components/AssistantEffortSwitcher.vue:127-149|app/modules/agent-panel/components/AssistantSpeedSwitcher.vue:113-135",
     "app/modules/agent-panel/components/AssistantEffortSwitcher.vue:215-232|app/modules/agent-panel/components/AssistantSpeedSwitcher.vue:195-212",
     "app/modules/agent-panel/utils/assistantSelectionState.ts:18-41|electron/features/agent/assistantChatSessionStore.ts:92-134",
@@ -62,6 +55,7 @@
     "electron/features/documents/main/workingCopySave.ts:397-411|electron/features/documents/main/workingCopySave.ts:444-458",
     "electron/features/page-ops/main/pageOpsMainBindings.ts:404-417|electron/features/page-ops/main/pageOpsMainBindings.ts:505-518",
     "electron/features/page-ops/main/pageOpsMainBindings.ts:548-558|electron/features/page-ops/main/pageOpsMainBindings.ts:593-603",
+    "electron/features/scan-cleanup/worker/rasterLayerDimensions.ts:7-26|scripts/diagnostics/scan-cleanup-corpus-verify.mjs:220-239",
     "electron/file-access/workingCopyStore.ts:54-74|electron/utils/pathValidator.ts:32-52",
     "electron/image/tryCreatePdfWithNativeImageCombiner.ts:159-174|electron/utils/printHandoff.ts:86-101",
     "electron/image/tryCreatePdfWithNativeImageCombiner.ts:215-238|electron/image/tryCreatePdfWithNativeImageCombiner.ts:246-269",

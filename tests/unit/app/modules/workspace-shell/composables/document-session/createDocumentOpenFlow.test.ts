@@ -14,9 +14,11 @@ import {
     getRegisteredPdfRasterDisplayProfileCountForTests,
     registerPdfRasterDisplayProfile,
 } from '@app/types/pdfRasterDisplayProfile';
-import { createEpochGuard } from '@app/modules/workspace-shell/composables/document-session/createEpochGuard';
+import {
+    createDocumentSessionState,
+    createEpochGuard,
+} from '@app/modules/workspace-shell/viewers/workspaceDocumentDriver';
 import { createDocumentOpenFlow } from '@app/modules/workspace-shell/composables/document-session/createDocumentOpenFlow';
-import { createDocumentSessionState } from '@app/modules/workspace-shell/composables/document-session/createDocumentSessionState';
 
 const mocks = vi.hoisted(() => ({
     documentFiles: {

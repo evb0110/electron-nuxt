@@ -20,7 +20,7 @@ import { isBrowserDocumentRef } from '@app/utils/documentRef';
 import { getDocumentWindowCapability } from '@app/utils/platformDocuments';
 import type { IWorkspaceSplitCacheLike } from '@app/modules/workspace-shell/composables/workspaceSplitTypes';
 import type { IWorkspaceDocumentRecord } from '@app/modules/workspace-shell/state/workspaceDocumentRecord';
-import type { IWorkspaceDocumentSessionController } from '@app/modules/workspace-shell/document-sessions/documentSessionTypes';
+import type { IWorkspaceDocumentController } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
 
 const DIRECTION_ORDER = [
     'left',
@@ -34,7 +34,7 @@ interface IUseAppShellDirectionalTabsOptions {
     panes: Ref<IEditorPaneState[]>;
     tabs: Ref<ITab[]>;
     workspaceRefs: Ref<Map<string, IWorkspaceExpose>>;
-    documentSessionsByTabId?: Ref<Record<string, IWorkspaceDocumentSessionController>>;
+    documentSessionsByTabId?: Ref<Record<string, IWorkspaceDocumentController>>;
     getDocumentRecord: (tabId: string | null | undefined) => IWorkspaceDocumentRecord | null;
     isTabTransitionBusy: ComputedRef<boolean>;
     getPaneById: (paneId: string | null | undefined) => IEditorPaneState | null;

@@ -31,7 +31,7 @@ import { useWorkspaceViewState } from '@app/modules/workspace-shell/composables/
 import { useDocxExport } from '@app/composables/useDocxExport';
 import { useWorkspacePrint } from '@app/modules/workspace-shell/composables/useWorkspacePrint';
 import { useMetadataSession } from '@app/modules/workspace-shell/composables/useMetadataSession';
-import { useDocumentOperationLease } from '@app/modules/workspace-shell/composables/useDocumentOperationLease';
+import type { IDocumentOperationLease } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
 import { createPageMutationAnnotationMaterializer } from '@app/modules/workspace-shell/composables/createPageMutationAnnotationMaterializer';
 import type { ITabViewSessionState } from '@app/modules/workspace-shell/tabs/tabSessionStoreTypes';
 import type { IBrowserPrintDocument } from '@app/utils/pdfPrintShared';
@@ -47,6 +47,7 @@ import type { IDocumentSourceCapabilities } from '@app/utils/document-viewer/sou
 interface IWorkspaceOrchestrationDeps {
     analyticsDocumentScope?: IAnalyticsDocumentScope | undefined;
     isActive: Ref<boolean>;
+    operationLease: IDocumentOperationLease;
     initialViewState?: ITabViewSessionState | null;
     pendingDocumentPath?: TReadableRef<TDocumentRef | null> | undefined;
     pendingDocumentSize?: TReadableRef<number | null> | undefined;
@@ -168,7 +169,7 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
     const isSaving = ref(false);
     const isSavingAs = ref(false);
     const isHistoryBusy = ref(false);
-    const documentOperationLease = useDocumentOperationLease();
+    const documentOperationLease = deps.operationLease;
     const metadataSession = useMetadataSession({
         pdfDocument,
         totalPages,
