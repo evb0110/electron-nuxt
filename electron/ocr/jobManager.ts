@@ -289,6 +289,21 @@ function handleWorkerMessage(
     worker: Worker,
     message: TOcrWorkerManagerMessage,
 ) {
+    const acceptWorkerMessage = (incomingJobId: string, label: string) => {
+        const disposition = getOcrWorkerMessageDisposition({
+            incomingJobId,
+            expectedRequestId: requestId,
+            isCurrentWorker: isCurrentActiveWorker(scopedJobId, worker),
+        });
+        if (!disposition.accepted) {
+            if (disposition.reason === 'mismatched-job-id') {
+                log.warn(`Ignoring OCR ${label} for mismatched job id "${incomingJobId}" (expected "${requestId}")`);
+            } else {
+                log.debug(`Ignoring late OCR ${label} for inactive job "${requestId}"`);
+            }
+        }
+        return disposition.accepted;
+    };
     switch (message.type) {
         case 'log':
             if (message.level === 'warn') {
@@ -300,17 +315,7 @@ function handleWorkerMessage(
             }
             return;
         case 'progress': {
-            const disposition = getOcrWorkerMessageDisposition({
-                incomingJobId: message.jobId,
-                expectedRequestId: requestId,
-                isCurrentWorker: isCurrentActiveWorker(scopedJobId, worker),
-            });
-            if (!disposition.accepted) {
-                if (disposition.reason === 'mismatched-job-id') {
-                    log.warn(`Ignoring OCR progress for mismatched job id "${message.jobId}" (expected "${requestId}")`);
-                } else {
-                    log.debug(`Ignoring late OCR progress for inactive job "${requestId}"`);
-                }
+            if (!acceptWorkerMessage(message.jobId, 'progress')) {
                 return;
             }
             const activeJob = activeJobs.get(scopedJobId);
@@ -345,17 +350,7 @@ function handleWorkerMessage(
             return;
         }
         case 'cleanup-complete': {
-            const disposition = getOcrWorkerMessageDisposition({
-                incomingJobId: message.jobId,
-                expectedRequestId: requestId,
-                isCurrentWorker: isCurrentActiveWorker(scopedJobId, worker),
-            });
-            if (!disposition.accepted) {
-                if (disposition.reason === 'mismatched-job-id') {
-                    log.warn(`Ignoring OCR cleanup completion for mismatched job id "${message.jobId}" (expected "${requestId}")`);
-                } else {
-                    log.debug(`Ignoring late OCR cleanup completion for inactive job "${requestId}"`);
-                }
+            if (!acceptWorkerMessage(message.jobId, 'cleanup completion')) {
                 return;
             }
 
