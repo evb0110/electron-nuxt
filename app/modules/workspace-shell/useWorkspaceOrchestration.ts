@@ -31,23 +31,34 @@ import { useWorkspaceViewState } from '@app/modules/workspace-shell/composables/
 import { useDocxExport } from '@app/composables/useDocxExport';
 import { useWorkspacePrint } from '@app/modules/workspace-shell/composables/useWorkspacePrint';
 import { useMetadataSession } from '@app/modules/workspace-shell/composables/useMetadataSession';
-import type { IDocumentOperationLease } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
+import type { IWorkspaceDocumentController } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
 import { createPageMutationAnnotationMaterializer } from '@app/modules/workspace-shell/composables/createPageMutationAnnotationMaterializer';
 import type { ITabViewSessionState } from '@app/modules/workspace-shell/tabs/tabSessionStoreTypes';
 import type { IBrowserPrintDocument } from '@app/utils/pdfPrintShared';
 import { logPdfRenderTrace } from '@app/utils/pdfRenderTrace';
 import {
     useWorkspaceDocumentDriver,
+    useWorkspaceDocumentDriverBinding,
     type IWorkspaceDriverPrintRequest,
 } from '@app/modules/workspace-shell/viewers/workspaceDocumentDriver';
 import type { IAnalyticsDocumentScope } from '@app/composables/useAnalytics';
 import type { IDocumentOpenSurfaceSession } from '@app/utils/document-viewer/chassis/documentOpenSurfaceSession';
-import type { IDocumentSourceCapabilities } from '@app/utils/document-viewer/source/documentPageSource';
+import type {
+    IDocumentPageSource,
+    IDocumentSourceCapabilities,
+} from '@app/utils/document-viewer/source/documentPageSource';
+import type { IDocumentSearchMatch } from '@app/utils/document-viewer/search/documentSearch';
+import type { IPdfPageMatches } from '@app/types/pdfUi';
+import { getErrorMessage } from '@app/utils/error';
+import { createWorkspaceViewerUpdateHandlers } from '@app/modules/workspace-shell/viewers/createWorkspaceViewerUpdateHandlers';
+import type { IWorkspaceToolbarSnapshot } from '@app/types/workspaceExpose';
+import type { IWorkspaceDocumentRecord } from '@app/modules/workspace-shell/state/workspaceDocumentRecord';
 
 interface IWorkspaceOrchestrationDeps {
-    analyticsDocumentScope?: IAnalyticsDocumentScope | undefined;
+    analyticsDocumentScope: IAnalyticsDocumentScope;
+    tabId: string;
     isActive: Ref<boolean>;
-    operationLease: IDocumentOperationLease;
+    documentSession: IWorkspaceDocumentController;
     initialViewState?: ITabViewSessionState | null;
     pendingDocumentPath?: TReadableRef<TDocumentRef | null> | undefined;
     pendingDocumentSize?: TReadableRef<number | null> | undefined;
@@ -62,6 +73,26 @@ interface IWorkspaceOrchestrationDeps {
 }
 
 type TReadableRef<T> = ComputedRef<T> | Ref<T>;
+interface IWorkspaceDocumentViewBindingOptions {
+    documentSourceCurrentResultIndex: TReadableRef<number>;
+    documentSourceSearchResults: TReadableRef<readonly IDocumentSearchMatch[]>;
+    isRenderActive: TReadableRef<boolean>;
+    isWorkspaceLayoutResizing: TReadableRef<boolean>;
+    navigationFeedbackPage: Ref<number | null>;
+    onInitialVisualPending: () => void;
+    onInitialVisualReady: () => void;
+    onPageSourceUpdate: (source: IDocumentPageSource | null) => void;
+}
+interface IWorkspaceProjectionBindingOptions {
+    pendingDocumentPath: Ref<TDocumentRef | null | undefined>;
+    toolbarSnapshot: Ref<IWorkspaceToolbarSnapshot>;
+    currentViewState: Ref<ITabViewSessionState | null | undefined>;
+    formatPendingBatchLabel: (values: {
+        processed: number;
+        total: number;
+    }) => string;
+    publishRecord: (record: IWorkspaceDocumentRecord) => void;
+}
 const INVISIBLE_NOTE_PLACEHOLDER_RE = /[\u200B\uFEFF]/gu;
 
 export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => {
@@ -124,6 +155,20 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
             ? {}
             : {pendingDocumentSize: deps.pendingDocumentSize}),
     });
+    watch(documentDriver.activeDocumentDriver, (driver) => {
+        if (driver?.view.defaultSourceCapabilities) {
+            deps.sourceCapabilities.value = driver.view.defaultSourceCapabilities;
+        } else if (!driver) {
+            deps.sourceCapabilities.value = {
+                annotations: false,
+                directImageExport: false,
+                outline: false,
+                pageEdits: false,
+                search: false,
+                text: false,
+            };
+        }
+    }, {immediate: true});
     const toast = useToast();
     function notifyMissingRecentFile(file: IRecentFile) {
         toast.add({
@@ -169,7 +214,7 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
     const isSaving = ref(false);
     const isSavingAs = ref(false);
     const isHistoryBusy = ref(false);
-    const documentOperationLease = deps.operationLease;
+    const documentOperationLease = deps.documentSession.operationLease;
     const metadataSession = useMetadataSession({
         pdfDocument,
         totalPages,
@@ -372,6 +417,11 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
     ));
     const hasPendingTabChanges = hasPendingUnsavedChanges;
     const statusOriginalPath = computed(() => deps.pendingDocumentPath?.value ?? originalPath.value);
+    const documentKey = computed(() => (
+        documentRevisionInfo.value?.documentRef
+        ?? originalPath.value
+        ?? workingCopyPath.value
+    ));
 
     const pageSaveOrchestration = usePageSaveOrchestration({
         pdfData,
@@ -949,9 +999,157 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         waitForPdfReload,
         runWithDocumentOperationLease: documentOperationLease.runExclusive,
     });
+    function bindDocumentView(options: IWorkspaceDocumentViewBindingOptions) {
+        const hiddenSearchPageMatches = new Map<number, IPdfPageMatches>();
+        const viewerSearchPageMatches = computed(() => (
+            isActive.value && showSidebar.value
+                ? sidebarSearch.pageMatches.value
+                : hiddenSearchPageMatches
+        ));
+        const viewerCurrentSearchMatch = computed(() => (
+            isActive.value && showSidebar.value
+                ? sidebarSearch.currentResult.value
+                : null
+        ));
+        const {
+            handleCurrentPage,
+            handleTotalPages,
+        } = createWorkspaceViewerUpdateHandlers({
+            analytics: deps.analyticsDocumentScope,
+            tabId: deps.tabId,
+            pdfSrc,
+            currentPage,
+            totalPages,
+            showSidebar,
+            sidebarTab,
+            isLoading: sidebarSearch.isLoading,
+            continuousScroll,
+            fitMode,
+            viewMode,
+            zoom,
+            viewerRef: documentViewerRef,
+            shouldAcceptPage: shouldAcceptViewerCurrentPageUpdate,
+        });
+        function handleLoadError(error: unknown) {
+            if (error === null || error === undefined) {
+                pdfError.value = null;
+                return;
+            }
+            const message = getErrorMessage(error).trim();
+            pdfError.value = message || t('errors.file.open');
+        }
+        function handleAnnotationComments(comments: IAnnotationCommentSummary[]) {
+            if (
+                annotationCommentsStatus.value === 'loading'
+                && annotationComments.value.length > 0
+                && comments.length === 0
+                && sidebarSearch.isLoading.value
+            ) {
+                return;
+            }
+            applyAnnotationComments(comments);
+        }
+        return useWorkspaceDocumentDriverBinding({
+            activeDocumentDriver: documentDriver.mountedDocumentDriver,
+            annotationCursorMode: viewState.annotationCursorMode,
+            annotationKeepActive,
+            annotationSettings,
+            annotationTool,
+            authorName: computed(() => appSettings.value.authorName),
+            continuousScroll,
+            currentResultNavigationId: sidebarSearch.currentResultNavigationId,
+            currentSearchMatch: viewerCurrentSearchMatch,
+            documentSourceCurrentResultIndex: options.documentSourceCurrentResultIndex,
+            documentSourceSearchResults: options.documentSourceSearchResults,
+            currentPage,
+            dragMode,
+            fitMode,
+            isAnySaving,
+            isRenderActive: options.isRenderActive,
+            isWorkspaceLayoutResizing: options.isWorkspaceLayoutResizing,
+            pageMatches: viewerSearchPageMatches,
+            pdfReloadSrc: fileLifecycle.pdfReloadSrc,
+            pdfRasterDisplayProfile: fileLifecycle.pdfRasterDisplayProfile,
+            pdfSrc,
+            ...(deps.pendingDocumentPath === undefined
+                ? {}
+                : {pendingDocumentPath: deps.pendingDocumentPath}),
+            pdfViewerRef,
+            nativePdfViewerRef: sidebarSearch.nativePdfViewerRef,
+            djvuViewerRef: sidebarSearch.djvuViewerRef,
+            sourcePdfData: pdfData,
+            viewMode,
+            workingCopyPath,
+            originalPath,
+            documentRevisionToken,
+            zoom,
+            zoomMode,
+            onAnnotationCommentClick: annotationActions.handleAnnotationCommentClick,
+            onAnnotationComments: handleAnnotationComments,
+            onAnnotationContextMenu: annotationActions.handleViewerAnnotationContextMenu,
+            onAnnotationModified: handleAnnotationModifiedWithThumbnailInvalidation,
+            onAnnotationNotePlacementChange: value => { annotationPlacingPageNote.value = value; },
+            onAnnotationOpenNote: annotationActions.handleOpenAnnotationNote,
+            onAnnotationSetting: annotationSession.handleAnnotationSettingChange,
+            onAnnotationState: annotationSession.handleAnnotationState,
+            onAnnotationToolAutoReset: annotationSession.handleAnnotationToolAutoReset,
+            onAnnotationToolCancel: annotationSession.handleAnnotationToolCancel,
+            onCurrentPageUpdate: handleCurrentPage,
+            onDocumentUpdate: value => { pdfDocument.value = value as typeof pdfDocument.value; },
+            onEffectiveZoomUpdate: value => { effectiveZoom.value = value; },
+            onFitModeUpdate: value => { fitMode.value = value; },
+            onImagePlacementFinalize: annotationActions.handleFinalizePlacedImage,
+            onInitialVisualPending: options.onInitialVisualPending,
+            onInitialVisualReady: options.onInitialVisualReady,
+            onLoadError: handleLoadError,
+            onLoading: value => { sidebarSearch.isLoading.value = value; },
+            onNavigationFeedbackPageUpdate: (value) => {
+                options.navigationFeedbackPage.value = value;
+                if (value !== null) beginProgrammaticPageNavigation(value);
+            },
+            onShapeContextMenu: annotationActions.handleShapeContextMenu,
+            onSourceCapabilitiesUpdate: (capabilities) => {
+                if (documentDriver.activeDocumentDriver.value) {
+                    deps.sourceCapabilities.value = capabilities;
+                }
+            },
+            onPageSourceUpdate: options.onPageSourceUpdate,
+            onTotalPagesUpdate: (value) => {
+                if (documentDriver.activeDocumentDriver.value || value === 0) {
+                    handleTotalPages(value);
+                }
+            },
+            onZoomModeUpdate: value => { zoomMode.value = value; },
+            onZoomUpdate: value => { zoom.value = value; },
+        });
+    }
+    function bindWorkspaceProjection(options: IWorkspaceProjectionBindingOptions) {
+        deps.documentSession.bindWorkspaceProjection({
+            pendingDocumentPath: options.pendingDocumentPath,
+            openBatchProgress: fileLifecycle.openBatchProgress,
+            hasPdf,
+            isDjvuMode,
+            fileName,
+            originalPath,
+            documentIdentity: documentRevisionInfo,
+            isDirty: hasPendingUnsavedChanges,
+            djvuSourcePath,
+            toolbarSnapshot: options.toolbarSnapshot,
+            currentViewState: options.currentViewState,
+            formatPendingBatchLabel: options.formatPendingBatchLabel,
+            publishRecord: options.publishRecord,
+        });
+    }
     return {
-        documentDriver,
-        fileLifecycle,
+        documentDriver: {
+            ...documentDriver,
+            bindView: bindDocumentView,
+        },
+        fileLifecycle: {
+            ...fileLifecycle,
+            bindWorkspaceProjection,
+            documentKey,
+        },
         viewerShell: sidebarSearch,
         annotationSession: {
             ...annotationSession,
@@ -997,6 +1195,6 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
             isExportingDocx,
         },
         printWorkflow: workspacePrint,
-        workspaceSettings: { appSettings },
     };
 };
+export type TWorkspaceOrchestration = ReturnType<typeof useWorkspaceOrchestration>;

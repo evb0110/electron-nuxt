@@ -9,6 +9,7 @@ import type {
     Ref,
     ShallowRef,
 } from 'vue';
+import { clamp } from 'es-toolkit/math';
 import type { TTabUpdate } from '@app/types/tabs';
 import type {
     IWorkspaceExpose,
@@ -18,13 +19,20 @@ import type { TDocumentOperationKind } from '@app/types/documentOperationKind';
 import type { ITabViewSessionState } from '@app/modules/workspace-shell/tabs/tabSessionStoreTypes';
 import {
     areWorkspaceDocumentRecordsEqual,
+    createPendingWorkspaceViewState,
     createPendingWorkspaceDocumentRecord,
     createWorkspaceDocumentRecord,
     type IWorkspaceDocumentRecord,
     type TWorkspaceDocumentTabState,
 } from '@app/modules/workspace-shell/state/workspaceDocumentRecord';
-import { hasWorkspaceViewerDocumentCapabilities } from '@app/modules/workspace-shell/viewers/workspaceViewerAdapters';
+import {
+    getWorkspaceViewerCapabilitiesForDocumentType,
+    hasWorkspaceViewerDocumentCapabilities,
+} from '@app/modules/workspace-shell/viewers/workspaceViewerAdapters';
 import { tabHasDocumentHint } from '@app/modules/workspace-shell/tabs/tabHasDocumentHint';
+import { buildPendingTabDocumentHint } from '@app/modules/workspace-shell/tabs/buildPendingTabDocumentHint';
+import { resolveWorkspaceTabUpdate } from '@app/modules/workspace-shell/state/resolveWorkspaceTabUpdate';
+import { createTabViewSessionState } from '@app/modules/workspace-shell/tabs/createTabViewSessionState';
 import type { TWorkspaceCommandTarget } from '@app/modules/workspace-shell/document-sessions/workspaceCommandTarget';
 import type { IDocumentOpenIntent } from '@app/modules/workspace-shell/document-sessions/documentOpenIntent';
 import { resolveDocumentRefBackend } from '@app/utils/documentRef';
@@ -85,6 +93,25 @@ export interface IDocumentOperationLease {
     isBusy: ComputedRef<boolean>;
     runExclusive: <T>(kind: TDocumentOperationKind, operation: () => Promise<T>) => Promise<T>;
 }
+interface IOpenBatchProgress {
+    processed: number;
+    total: number;
+}
+interface IWorkspaceProjectionBinding {
+    pendingDocumentPath: Ref<TDocumentRef | null | undefined>;
+    openBatchProgress: Ref<IOpenBatchProgress | null | undefined>;
+    hasPdf: Ref<boolean>;
+    isDjvuMode: Ref<boolean>;
+    fileName: Ref<string | null>;
+    originalPath: Ref<TDocumentRef | null>;
+    documentIdentity: Ref<IDocumentRevisionInfo | null>;
+    isDirty: Ref<boolean>;
+    djvuSourcePath: Ref<TDocumentRef | null>;
+    toolbarSnapshot: Ref<IWorkspaceToolbarSnapshot>;
+    currentViewState?: Ref<ITabViewSessionState | null | undefined> | undefined;
+    formatPendingBatchLabel: (values: IOpenBatchProgress) => string;
+    publishRecord: (record: IWorkspaceDocumentRecord) => void;
+}
 export interface IWorkspaceDocumentController {
     readonly tabId: string;
     readonly snapshot: Readonly<Ref<IWorkspaceDocumentSnapshot>>;
@@ -102,6 +129,7 @@ export interface IWorkspaceDocumentController {
     applyWorkspaceRecord(record: IWorkspaceDocumentRecord, source: 'host' | 'workspace'): void;
     applyRevisionInfo(info: IDocumentRevisionInfo | null): void;
     applyViewState(state: ITabViewSessionState): void;
+    bindWorkspaceProjection(options: IWorkspaceProjectionBinding): void;
     attachWorkspace(workspace: IWorkspaceExpose): void;
     detachWorkspace(workspace?: IWorkspaceExpose): void;
     waitForWorkspace(target: TWorkspaceCommandTarget, timeoutMs?: number): Promise<IWorkspaceExpose | null>;
@@ -733,6 +761,69 @@ export function createWorkspaceDocumentController(
         }));
     }
 
+    function bindWorkspaceProjection(binding: IWorkspaceProjectionBinding) {
+        function resolvePendingOpenDisplayName(): string | null {
+            const progress = binding.openBatchProgress.value;
+            if (!progress || progress.total <= 0) {
+                return null;
+            }
+            return binding.formatPendingBatchLabel({
+                processed: clamp(progress.processed, 0, progress.total),
+                total: progress.total,
+            });
+        }
+
+        const record = computed(() => {
+            const pendingHint = binding.pendingDocumentPath.value
+                ? buildPendingTabDocumentHint(binding.pendingDocumentPath.value)
+                : null;
+            const pending = Boolean(
+                pendingHint
+                && !binding.hasPdf.value
+                && !binding.isDjvuMode.value,
+            );
+            const tab = pending && pendingHint
+                ? {
+                    fileName: resolvePendingOpenDisplayName() ?? pendingHint.fileName ?? null,
+                    originalPath: pendingHint.originalPath ?? null,
+                    isDirty: binding.isDirty.value,
+                    isDjvu: pendingHint.isDjvu ?? false,
+                }
+                : resolveWorkspaceTabUpdate({
+                    fileName: binding.fileName.value,
+                    pendingOpenDisplayName: resolvePendingOpenDisplayName(),
+                    originalPath: binding.originalPath.value,
+                    isDirty: binding.isDirty.value,
+                    isDjvuMode: binding.isDjvuMode.value,
+                    djvuSourcePath: binding.djvuSourcePath.value,
+                });
+            const toolbarSnapshot = pending && pendingHint
+                ? {
+                    ...binding.toolbarSnapshot.value,
+                    hasPdf: true,
+                    isDjvuMode: pendingHint.isDjvu ?? false,
+                    isOpeningDocument: true,
+                    viewerCapabilities: getWorkspaceViewerCapabilitiesForDocumentType(
+                        pendingHint.isDjvu ? 'djvu' : 'pdf',
+                    ),
+                }
+                : binding.toolbarSnapshot.value;
+            const viewState = pending
+                ? createPendingWorkspaceViewState(toolbarSnapshot)
+                : createTabViewSessionState(
+                    toolbarSnapshot,
+                    binding.currentViewState?.value,
+                );
+            return createWorkspaceDocumentRecord({
+                tab,
+                documentIdentity: pending ? null : binding.documentIdentity.value,
+                toolbarSnapshot,
+                viewState,
+            });
+        });
+        watch(record, nextRecord => binding.publishRecord(nextRecord), {immediate: true});
+    }
+
     function attachWorkspace(workspace: IWorkspaceExpose) {
         if (mountedWorkspace.value === workspace) {
             return;
@@ -997,6 +1088,7 @@ export function createWorkspaceDocumentController(
         applyWorkspaceRecord,
         applyRevisionInfo,
         applyViewState,
+        bindWorkspaceProjection,
         attachWorkspace,
         detachWorkspace,
         waitForWorkspace,

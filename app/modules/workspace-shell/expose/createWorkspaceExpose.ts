@@ -37,8 +37,9 @@ import type {
 } from '@app/modules/workspace-shell/types/workspaceOrchestration.types';
 import type { TDocumentSidebarTab } from '@app/utils/document-viewer/sidebar/documentSidebarTabs';
 import type { TPdfSource } from '@app/types/pdfUi';
+import type { TWorkspaceOrchestration } from '@app/modules/workspace-shell/useWorkspaceOrchestration';
 
-interface ICreateWorkspaceExposeDeps extends
+export interface ICreateWorkspaceExposeDeps extends
     IWorkspaceFilePort,
     IWorkspaceExportPort,
     IWorkspaceAgentPort {
@@ -122,6 +123,29 @@ interface ICreateWorkspaceExposeDeps extends
     bookmarksDirty?: Ref<boolean>;
     sortedAnnotationNoteWindows: Ref<IAnnotationNoteWindowViewModel[]>;
     handleOcrComplete: (payload: unknown) => Promise<void>;
+}
+
+export interface ICreateWorkspaceExposeFromOwnersOptions {
+    orchestration: TWorkspaceOrchestration;
+    handleSave: ICreateWorkspaceExposeDeps['handleSave'];
+    handleOptimizePdfForInteraction: ICreateWorkspaceExposeDeps['handleOptimizePdfForInteraction'];
+    handleSaveAs: ICreateWorkspaceExposeDeps['handleSaveAs'];
+    handleExportDocx: ICreateWorkspaceExposeDeps['handleExportDocx'];
+    handleGoToPage: ICreateWorkspaceExposeDeps['handleGoToPage'];
+    handleCrop: ICreateWorkspaceExposeDeps['handleCrop'];
+    handleInsertImageFromFile: ICreateWorkspaceExposeDeps['handleInsertImageFromFile'];
+    handlePasteImageFromClipboard: ICreateWorkspaceExposeDeps['handlePasteImageFromClipboard'];
+    initialVisualReady: ICreateWorkspaceExposeDeps['initialVisualReady'];
+    isOpeningDocument: ICreateWorkspaceExposeDeps['isOpeningDocument'];
+    canRepairSave: NonNullable<ICreateWorkspaceExposeDeps['canRepairSave']>;
+    canOptimizePdf: NonNullable<ICreateWorkspaceExposeDeps['canOptimizePdf']>;
+    canExportDocx: ICreateWorkspaceExposeDeps['canExportDocx'];
+    viewerCapabilities: NonNullable<ICreateWorkspaceExposeDeps['viewerCapabilities']>;
+    captureSplitPayload: ICreateWorkspaceExposeDeps['captureSplitPayload'];
+    restoreSplitPayload: ICreateWorkspaceExposeDeps['restoreSplitPayload'];
+    waitForDocumentOpenSettled: ICreateWorkspaceExposeDeps['waitForDocumentOpenSettled'];
+    runAgentAction: ICreateWorkspaceExposeDeps['runAgentAction'];
+    readAgentResource: ICreateWorkspaceExposeDeps['readAgentResource'];
 }
 
 function getSelectedPages(selectedThumbnailPages: Ref<number[]>) {
@@ -452,4 +476,74 @@ export function createWorkspaceExpose(deps: ICreateWorkspaceExposeDeps): IWorksp
     });
 
     return createWorkspaceExposeFromCommandHandlers(deps.hasPdf, commandHandlers);
+}
+
+export function createWorkspaceExposeFromOwners(
+    options: ICreateWorkspaceExposeFromOwnersOptions,
+) {
+    const {
+        annotationSession,
+        documentControls,
+        exportWorkflow,
+        fileLifecycle,
+        interactionControls,
+        metadata,
+        printWorkflow,
+        saveWorkflow,
+        viewNavigation,
+        viewerShell,
+    } = options.orchestration;
+    return createWorkspaceExpose({
+        ...annotationSession,
+        ...documentControls,
+        ...exportWorkflow,
+        ...fileLifecycle,
+        ...interactionControls,
+        ...metadata,
+        ...printWorkflow,
+        ...saveWorkflow,
+        ...viewNavigation,
+        ...viewerShell,
+        handleSave: options.handleSave,
+        handleOptimizePdfForInteraction: options.handleOptimizePdfForInteraction,
+        handleSaveAs: options.handleSaveAs,
+        handlePrintCurrentPage: () => { void printWorkflow.handlePrintCurrentPage(); },
+        handleUndo: () => { void viewNavigation.handleUndo(); },
+        handleRedo: () => { void viewNavigation.handleRedo(); },
+        handleExportDocx: options.handleExportDocx,
+        initialVisualReady: options.initialVisualReady,
+        isOpeningDocument: options.isOpeningDocument,
+        hasOpenError: computed(() => Boolean(fileLifecycle.pdfError.value) || Boolean(fileLifecycle.djvuError.value)),
+        canRepairSave: options.canRepairSave,
+        canOptimizePdf: options.canOptimizePdf,
+        canExportDocx: options.canExportDocx,
+        isPlacingPageNote: annotationSession.annotationPlacingPageNote,
+        handleGoToPage: options.handleGoToPage,
+        handleToggleSidebar: () => { viewerShell.showSidebar.value = !viewerShell.showSidebar.value; },
+        handleToggleContinuousScroll: () => {
+            viewerShell.continuousScroll.value = !viewerShell.continuousScroll.value;
+        },
+        handleEnableDragMode: () => { viewNavigation.enableDragMode(); },
+        handleDisableDragMode: () => { annotationSession.handleAnnotationToolChange('none'); },
+        handleCaptureRegion: () => { void interactionControls.handleCaptureRegion(); },
+        handleCrop: options.handleCrop,
+        handleQuickNote: () => { void annotationSession.handleQuickNoteAction(); },
+        handleInsertImageFromFile: options.handleInsertImageFromFile,
+        handlePasteImageFromClipboard: options.handlePasteImageFromClipboard,
+        pageOpsDelete: documentControls.pageOpsDelete,
+        pageOpsExtract: documentControls.pageOpsExtract,
+        handlePageRotate: documentControls.handlePageRotate,
+        pageOpsInsert: documentControls.pageOpsInsert,
+        viewerCapabilities: options.viewerCapabilities,
+        captureSplitPayload: options.captureSplitPayload,
+        restoreSplitPayload: options.restoreSplitPayload,
+        waitForDocumentOpenSettled: options.waitForDocumentOpenSettled,
+        runAgentAction: options.runAgentAction,
+        readAgentResource: options.readAgentResource,
+        pdfAutomationViewerRef: viewerShell.pdfViewerRef,
+        hasPreservedAnnotationSourceChanges: annotationSession.hasPreservedAnnotationSourceChanges,
+        handleOcrComplete: payload => saveWorkflow.handleOcrComplete(
+            payload as Parameters<typeof saveWorkflow.handleOcrComplete>[0],
+        ),
+    });
 }

@@ -1,29 +1,5 @@
 import type { Ref } from 'vue';
 import type { IDocumentViewerExpose } from '@app/modules/pdf-viewer/public';
-import type { IWorkspaceDocumentDriver } from '@app/modules/workspace-shell/viewers/workspaceDocumentDriver';
-import type { IDocumentSourceCapabilities } from '@app/utils/document-viewer/source/documentPageSource';
-
-const EMPTY_SOURCE_CAPABILITIES: IDocumentSourceCapabilities = {
-    annotations: false,
-    directImageExport: false,
-    outline: false,
-    pageEdits: false,
-    search: false,
-    text: false,
-};
-
-export const useWorkspaceSourceCapabilityProjection = (
-    activeDocumentDriver: Ref<IWorkspaceDocumentDriver | null>,
-    capabilities: Ref<IDocumentSourceCapabilities>,
-) => {
-    watch(activeDocumentDriver, (driver) => {
-        if (!driver) {
-            capabilities.value = EMPTY_SOURCE_CAPABILITIES;
-        } else if (driver.view.defaultSourceCapabilities) {
-            capabilities.value = driver.view.defaultSourceCapabilities;
-        }
-    }, {immediate: true});
-};
 
 interface IDjvuProjectionActionOptions {
     isDjvuMode: Ref<boolean>;

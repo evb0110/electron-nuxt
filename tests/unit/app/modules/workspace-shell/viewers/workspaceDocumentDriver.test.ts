@@ -4,6 +4,7 @@ import {
     ref,
 } from 'vue';
 import {
+    beforeEach,
     describe,
     expect,
     it,
@@ -20,6 +21,38 @@ import {
     WORKSPACE_VIEWER_ADAPTERS,
     getWorkspaceViewerAdapter,
 } from '@app/modules/workspace-shell/viewers/workspaceViewerAdapters';
+
+const driverMocks = vi.hoisted(() => ({
+    cancel: vi.fn(async () => true),
+    createDocumentSession: vi.fn((options: unknown) => options),
+    ensurePdfProjection: vi.fn(async (
+        _session: unknown,
+        projection: {build: () => Promise<unknown>},
+    ) => projection.build()),
+    getJobState: vi.fn(async () => ({
+        operation: 'djvu-print',
+        status: 'handoff',
+        artifactPath: '/managed/print.pdf',
+    })),
+    printDjvuPath: vi.fn(async () => ({
+        success: true,
+        canceled: false,
+        jobId: 'djvu-print-job',
+    })),
+}));
+
+vi.mock('@app/utils/getDjvuCapability', () => {
+    const getDjvuCapability = () => ({
+        cancel: driverMocks.cancel,
+        getJobState: driverMocks.getJobState,
+        printDjvuPath: driverMocks.printDjvuPath,
+    });
+    return {getDjvuCapability};
+});
+vi.mock('@app/utils/document-viewer/session/documentSession', () => ({
+    createDocumentSession: driverMocks.createDocumentSession,
+    ensurePdfProjection: driverMocks.ensurePdfProjection,
+}));
 
 function selectPendingDocument(path: string, size: number | null) {
     return useWorkspaceDocumentDriver({
@@ -89,6 +122,10 @@ function createBindingHarness() {
 }
 
 describe('WorkspaceDocumentDriver', () => {
+    beforeEach(() => {
+        vi.clearAllMocks();
+    });
+
     it('preserves pending native-PDF threshold routing', () => {
         const native = selectPendingDocument(
             '/managed/document.pdf',
@@ -143,6 +180,55 @@ describe('WorkspaceDocumentDriver', () => {
             status: 'unavailable',
             capability: 'print',
         });
+    });
+
+    it('routes DjVu print through its projection and waits for output handoff', async () => {
+        const driver = useWorkspaceDocumentDriver({
+            djvuSourcePath: ref('/managed/source.djvu'),
+            isDjvuMode: ref(true),
+            pdfSrc: ref(null),
+            workingCopyPath: ref(null),
+        }).activeDocumentDriver.value!;
+        const onNativePrintHandoffStart = vi.fn();
+        const signal = new AbortController().signal;
+
+        await expect(driver.run({
+            kind: 'prepare-print',
+            request: {
+                orientation: 'portrait',
+                viewMode: 'single',
+            },
+            fileName: 'source.djvu',
+            sourceCapabilities: {
+                annotations: false,
+                directImageExport: true,
+                outline: false,
+                pageEdits: false,
+                search: false,
+                text: false,
+            },
+            onNativePrintHandoffStart,
+            signal,
+        })).resolves.toEqual({status: 'completed'});
+
+        expect(driverMocks.ensurePdfProjection).toHaveBeenCalledWith(
+            expect.anything(),
+            expect.objectContaining({build: expect.any(Function)}),
+            'print',
+            signal,
+        );
+        expect(driverMocks.printDjvuPath).toHaveBeenCalledWith(
+            '/managed/source.djvu',
+            expect.objectContaining({
+                fileName: 'source.djvu',
+                orientation: 'portrait',
+                pdfStrategy: 'compact-djvu-aware',
+                viewMode: 'single',
+            }),
+        );
+        expect(driverMocks.getJobState).toHaveBeenCalledWith('djvu-print-job');
+        expect(driverMocks.getJobState.mock.invocationCallOrder[0])
+            .toBeLessThan(onNativePrintHandoffStart.mock.invocationCallOrder[0]!);
     });
 
     it('keeps the compatibility registry complete with capability and lifecycle parity', () => {

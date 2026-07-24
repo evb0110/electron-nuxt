@@ -120,6 +120,9 @@ describe('workspace PDF toolbar wiring', () => {
         const annotationOverlays = readWorkspaceFile(
             'app/modules/workspace-shell/components/WorkspaceAnnotationOverlays.vue',
         );
+        const workspaceBindings = readWorkspaceFile(
+            'app/modules/workspace-shell/composables/createDocumentWorkspaceCommandBindings.ts',
+        );
         const presenter = readWorkspaceFile('app/modules/workspace-shell/components/WorkspacePdfToolbarView.vue');
 
         expect(presenter).toContain('\'open-scan-cleanup\': []');
@@ -137,7 +140,10 @@ describe('workspace PDF toolbar wiring', () => {
         expect(documentWorkspace).toContain(':can-teleport-toolbar="canTeleportToolbar"');
         expect(documentWorkspace).toContain('@done="closeScanCleanup"');
         expect(documentWorkspace).toContain('function discardScanCleanupState()');
-        expect(documentWorkspace).toContain('if (surfaceMode.value === \'scan-cleanup\') {\n        discardScanCleanupState();');
+        expect(documentWorkspace).toContain('useDocumentWorkspaceLifecycle({');
+        expect(documentWorkspace).toContain('discardScanCleanupState,');
+        expect(workspaceBindings).toContain('if (options.surfaceMode.value === \'scan-cleanup\') {');
+        expect(workspaceBindings).toContain('options.discardScanCleanupState();');
     });
 
     it('keeps one document status teleport present in reader and scan-cleanup modes', () => {
