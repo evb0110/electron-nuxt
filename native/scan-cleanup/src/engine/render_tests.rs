@@ -1,6 +1,28 @@
 mod tests {
     use super::*;
     use crate::bw::binarize_normalized;
+    use jpeg_encoder::{ColorType, Encoder as JpegEncoder, SamplingFactor};
+    use std::io::Cursor;
+    use zune_jpeg::{
+        zune_core::{colorspace::ColorSpace, options::DecoderOptions},
+        JpegDecoder,
+    };
+
+    fn jpeg_luma_roundtrip(source: &GrayImage, quality: u8) -> GrayImage {
+        let width = u16::try_from(source.width()).unwrap();
+        let height = u16::try_from(source.height()).unwrap();
+        let mut encoded = Vec::new();
+        let mut encoder = JpegEncoder::new(&mut encoded, quality);
+        encoder.set_sampling_factor(SamplingFactor::F_1_1);
+        encoder
+            .encode(source.data(), width, height, ColorType::Luma)
+            .unwrap();
+        let options = DecoderOptions::default().jpeg_set_out_colorspace(ColorSpace::Luma);
+        let mut decoder = JpegDecoder::new_with_options(Cursor::new(encoded), options);
+        let decoded = decoder.decode().unwrap();
+        assert_eq!(decoded.len(), source.width() * source.height());
+        GrayImage::from_vec(source.width(), source.height(), source.width(), decoded).unwrap()
+    }
 
     fn thin_stroke_fixture() -> (GrayImage, Vec<(usize, usize)>) {
         let mut source = GrayImage::new(420, 300, 240);
@@ -1643,8 +1665,8 @@ mod tests {
         let layers = layers.expect("final mixed render retains separable layers");
 
         assert!(
-            (30..90).all(|x| mixed.get(x, 15) >= 248),
-            "light block boundary was not feathered"
+            (30..45).all(|x| mixed.get(x, 15) >= 248),
+            "light block boundary next to the stencil was not feathered"
         );
         assert!(
             (30..90).all(|x| mixed.get(x, 24) <= 60),
@@ -1658,6 +1680,102 @@ mod tests {
             layers.background.get(12, 36),
             255,
             "text pixels are filled from the normalized background instead of leaking into JPEG"
+        );
+    }
+
+    #[test]
+    fn mixed_composite_preserves_a_pale_vignette_away_from_the_stencil() {
+        let mut gray = GrayImage::new(128, 96, 248);
+        let mut picture_mask = BinaryImage::new(128, 96);
+        let mut stencil = BinaryImage::new(128, 96);
+        for y in 12..84 {
+            for x in 24..112 {
+                picture_mask.set(x, y, true);
+                let edge_distance = (x - 24).min(111 - x).min((y - 12).min(83 - y));
+                gray.set(x, y, 232 + edge_distance.min(14) as u8);
+            }
+        }
+        for y in 40..56 {
+            for x in 16..21 {
+                gray.set(x, y, 20);
+                stencil.set(x, y, true);
+            }
+        }
+        let source_vignette = (12..27).map(|y| gray.get(80, y)).collect::<Vec<_>>();
+
+        let (mixed, _, layers) =
+            compose_mixed(&gray, None, &stencil, &picture_mask, 300.0, true);
+        let rendered_vignette = (12..27).map(|y| mixed.get(80, y)).collect::<Vec<_>>();
+
+        assert_eq!(
+            rendered_vignette, source_vignette,
+            "a pale border gradient far from stencil ink must retain its source tones"
+        );
+        assert!(
+            mixed.get(24, 48) > gray.get(24, 48),
+            "the light picture boundary next to stencil ink still needs separation"
+        );
+        assert_eq!(
+            layers.unwrap().background.get(18, 48),
+            255,
+            "stencil ink must remain reclaimed from the JPEG background"
+        );
+    }
+
+    #[test]
+    fn mixed_jpeg_ringing_is_bounded_for_every_picture_edge_block_phase() {
+        const DPI: f64 = 300.0;
+        let text_gap = (DPI * 0.5 / 25.4).round() as usize;
+        let phase_amplitudes = (25..=32)
+            .map(|picture_right| {
+                let text_left = picture_right + text_gap;
+                let mut gray = GrayImage::new(96, 64, 246);
+                let mut picture_mask = BinaryImage::new(96, 64);
+                let mut stencil = BinaryImage::new(96, 64);
+                for y in 8..56 {
+                    for x in 8..picture_right {
+                        picture_mask.set(x, y, true);
+                        gray.set(x, y, if x + 8 >= picture_right { 12 } else { 156 });
+                    }
+                }
+                for y in 20..44 {
+                    for x in text_left..text_left + 3 {
+                        gray.set(x, y, 18);
+                        stencil.set(x, y, true);
+                    }
+                }
+
+                let (_, _, layers) =
+                    compose_mixed(&gray, None, &stencil, &picture_mask, DPI, true);
+                let background = &layers.unwrap().background;
+                assert!(
+                    (20..44).all(|y| background.get(text_left, y) == 255),
+                    "the layered background must reclaim the nearby stencil"
+                );
+
+                let decoded = jpeg_luma_roundtrip(background, 85);
+                let decoded = &decoded;
+                (20..44)
+                    .flat_map(|y| {
+                        (picture_right..text_left)
+                            .map(move |x| background.get(x, y).abs_diff(decoded.get(x, y)))
+                    })
+                    .max()
+                    .unwrap()
+            })
+            .collect::<Vec<_>>();
+
+        assert!(
+            phase_amplitudes.iter().all(|&amplitude| amplitude <= 3),
+            "JPEG ringing by picture-edge block phase: {phase_amplitudes:?}"
+        );
+        assert!(
+            phase_amplitudes.iter().any(|&amplitude| amplitude != 0),
+            "fixture must exercise a lossy decoded reclaimed strip"
+        );
+        assert!(
+            phase_amplitudes[7] <= 3,
+            "the block-aligned edge exceeded the reclaimed-strip bound"
         );
     }
 

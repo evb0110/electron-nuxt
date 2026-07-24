@@ -1809,16 +1809,24 @@ fn compose_mixed(
     let mut mixed_gray = gray.clone();
     let mut mixed_color = color.cloned();
     let feather_radius = (dpi * 3.0 / 25.4).round().clamp(4.0, 48.0) as usize;
-    let distance_to_binary = squared_euclidean_distance(&picture_mask.invert());
+    let distance_to_picture_exterior = squared_euclidean_distance(&picture_mask.invert());
+    let distance_to_stencil = squared_euclidean_distance(binary);
+    let stencil_adjacency_squared = (feather_radius * feather_radius) as u32;
     for y in 0..gray.height() {
         for x in 0..gray.width() {
+            let index = y * gray.width() + x;
             if picture_mask.get(x, y) {
                 let source_gray = gray.get(x, y);
-                let spatial_alpha = (f64::from(distance_to_binary[y * gray.width() + x]).sqrt()
-                    / feather_radius as f64)
-                    .clamp(0.0, 1.0);
-                let dark_detail_alpha = ((245.0 - f64::from(source_gray)) / 96.0).clamp(0.0, 1.0);
-                let alpha = spatial_alpha.max(dark_detail_alpha);
+                let alpha = if distance_to_stencil[index] <= stencil_adjacency_squared {
+                    let spatial_alpha = (f64::from(distance_to_picture_exterior[index]).sqrt()
+                        / feather_radius as f64)
+                        .clamp(0.0, 1.0);
+                    let dark_detail_alpha =
+                        ((245.0 - f64::from(source_gray)) / 96.0).clamp(0.0, 1.0);
+                    spatial_alpha.max(dark_detail_alpha)
+                } else {
+                    1.0
+                };
                 let value = reserve_gray_endpoint(
                     (255.0 * (1.0 - alpha) + f64::from(source_gray) * alpha)
                         .round()

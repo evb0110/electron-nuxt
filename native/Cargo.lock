@@ -293,11 +293,13 @@ dependencies = [
  "crc32fast",
  "evb-native-support",
  "flate2",
+ "jpeg-encoder",
  "rayon",
  "scan-primitives",
  "serde",
  "serde_json",
  "thiserror",
+ "zune-jpeg",
 ]
 
 [[package]]
