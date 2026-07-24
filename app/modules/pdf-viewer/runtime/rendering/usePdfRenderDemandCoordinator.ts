@@ -10,6 +10,8 @@ import type { IRenderVisiblePagesOptions } from '@app/modules/pdf-viewer/runtime
 import { logPdfRenderTrace } from '@app/utils/pdfRenderTrace';
 import { resolvePdfRasterResidencyPlan } from '@app/modules/pdf-viewer/runtime/rendering/resolvePdfRasterResidencyPlan';
 import type { TPdfClampedVisibleRefineMode } from '@app/modules/pdf-viewer/engine/pdf-render-performance/resolvePdfRenderPerformancePolicy';
+import type { TPdfViewMode } from '@contracts/shared';
+import { getPageRowBoundsForViewMode } from '@app/modules/pdf-viewer/engine/pdf-page-layout/getPageRowBoundsForViewMode';
 
 type TPdfPageVisualReadiness = 'unmounted' | 'queued' | 'rendering' | 'ready' | 'error';
 
@@ -33,6 +35,7 @@ interface IUsePdfRenderDemandCoordinatorOptions {
     getProtectedVisibleRange?: (() => IPageRange) | undefined;
     pagesToRender: ComputedRef<number[]>;
     bufferPages: ComputedRef<number>;
+    viewMode?: ComputedRef<TPdfViewMode> | undefined;
     maxBufferCanvasPixels: number;
     estimatePageRasterPixels: (pageNumber: number) => number;
     reconcilePageCanvasResidency: (
@@ -49,6 +52,7 @@ interface IUsePdfRenderDemandCoordinatorOptions {
     suppressDemand?: Ref<boolean> | undefined;
     isPageReady: (pageNumber: number) => boolean;
     isPageQualityRefineEligible?: ((pageNumber: number) => boolean) | undefined;
+    isPageLayerReady?: ((pageNumber: number) => boolean) | undefined;
     isPageRendering: (pageNumber: number) => boolean;
     getPageFailureToken: (pageNumber: number) => string | null;
     clampedVisibleRefineMode?: TPdfClampedVisibleRefineMode | undefined;
@@ -102,6 +106,7 @@ export const usePdfRenderDemandCoordinator = (options: IUsePdfRenderDemandCoordi
         resolve: () => void;
     } | null = null;
     let bufferDemandPending = true;
+    let layerPrewarmPending = true;
     let pendingBufferRanges: IPageRange[] = [];
     let pendingBufferMaxCanvasPixels = 0;
     let automaticDemandPending = true;
@@ -112,6 +117,8 @@ export const usePdfRenderDemandCoordinator = (options: IUsePdfRenderDemandCoordi
     let observedViewportInteractionEpoch = options.getViewportInteractionEpoch?.() ?? 0;
     let lastViewportInteractionAtMs = Date.now();
     let qualityRefineIdleTimer: unknown = null;
+    let lastVisibleStart = options.visibleRange.value.start;
+    let navigationDirection: -1 | 1 = 1;
     let disposed = false;
 
     function resolveRasterResidencyPlan() {
@@ -210,6 +217,7 @@ export const usePdfRenderDemandCoordinator = (options: IUsePdfRenderDemandCoordi
     function needsRender(pageNumber: number) {
         return (
             !options.isPageReady(pageNumber)
+            || options.isPageLayerReady?.(pageNumber) === false
             || options.isPageQualityRefineEligible?.(pageNumber) === true
         )
             && !options.isPageRendering(pageNumber)
@@ -322,6 +330,7 @@ export const usePdfRenderDemandCoordinator = (options: IUsePdfRenderDemandCoordi
         synchronizeViewportInteractionEpoch();
         if (optionsOverride.buffer === true) {
             bufferDemandPending = true;
+            layerPrewarmPending = true;
             pendingBufferRanges = [];
         }
         automaticDemandPending = true;
@@ -361,6 +370,7 @@ export const usePdfRenderDemandCoordinator = (options: IUsePdfRenderDemandCoordi
             'automatic',
             visibleRange,
             {
+                contentIntent: 'canvas-only-buffer',
                 maxCanvasPixels: pendingBufferMaxCanvasPixels,
                 preserveRenderedPages: true,
                 preserveInFlightRequiredPages: true,
@@ -372,6 +382,62 @@ export const usePdfRenderDemandCoordinator = (options: IUsePdfRenderDemandCoordi
         return true;
     }
 
+    function runNextLayerPrewarm() {
+        if (!layerPrewarmPending || !options.isPageLayerReady || !options.viewMode) {
+            layerPrewarmPending = false;
+            return false;
+        }
+        layerPrewarmPending = false;
+        const visibleRange = getClampedVisibleRange();
+        const nextPage = navigationDirection > 0
+            ? visibleRange.end + 1
+            : visibleRange.start - 1;
+        if (nextPage < 1 || nextPage > options.numPages.value) {
+            return false;
+        }
+        const row = getPageRowBoundsForViewMode({
+            pageNumber: nextPage,
+            viewMode: options.viewMode.value,
+            totalPages: options.numPages.value,
+        });
+        const residentBufferPages = new Set(resolveRasterResidencyPlan().bufferPages);
+        const prewarmPages: number[] = [];
+        for (let pageNumber = row.start; pageNumber <= row.end; pageNumber += 1) {
+            if (
+                residentBufferPages.has(pageNumber)
+                && options.pageSlots.isMounted(pageNumber)
+                && options.isPageReady(pageNumber)
+                && !options.isPageLayerReady(pageNumber)
+            ) {
+                prewarmPages.push(pageNumber);
+            }
+        }
+        if (prewarmPages.length === 0) {
+            return false;
+        }
+        const range = {
+            start: Math.min(...prewarmPages),
+            end: Math.max(...prewarmPages),
+        };
+        automaticDemandPending = false;
+        runDemand(
+            `prewarm:${String(options.getRenderGeneration())}:${range.start}:${range.end}`,
+            'automatic',
+            range,
+            {
+                contentIntent: 'layers-only-promotion',
+                preserveRenderedPages: true,
+                preserveInFlightRequiredPages: true,
+                bufferOverride: 0,
+                renderWindowOverride: range,
+            },
+            undefined,
+            undefined,
+            'prewarm',
+        );
+        return true;
+    }
+
     function runDemand(
         signature: string,
         kind: 'automatic' | 'authoritative',
@@ -379,6 +445,7 @@ export const usePdfRenderDemandCoordinator = (options: IUsePdfRenderDemandCoordi
         renderOptions: IRenderVisiblePagesOptions,
         resolve?: (() => void) | undefined,
         bufferRange?: IPageRange | undefined,
+        automaticDemandKind: 'required' | 'buffer' | 'prewarm' = bufferRange ? 'buffer' : 'required',
     ) {
         if (activeDemand?.kind === 'authoritative') {
             if (kind === 'automatic') {
@@ -406,7 +473,7 @@ export const usePdfRenderDemandCoordinator = (options: IUsePdfRenderDemandCoordi
             ? {
                 ...renderOptions,
                 coordinatorDemand: {
-                    kind: bufferRange ? 'buffer' : 'required',
+                    kind: automaticDemandKind,
                     renderGeneration: options.getRenderGeneration(),
                 },
             }
@@ -470,6 +537,11 @@ export const usePdfRenderDemandCoordinator = (options: IUsePdfRenderDemandCoordi
                 return;
             }
             if (pendingBufferRanges.length > 0) {
+                automaticDemandPending = true;
+                queueFrame();
+                return;
+            }
+            if (layerPrewarmPending && options.isPageLayerReady && options.viewMode) {
                 automaticDemandPending = true;
                 queueFrame();
                 return;
@@ -587,6 +659,54 @@ export const usePdfRenderDemandCoordinator = (options: IUsePdfRenderDemandCoordi
             );
             return;
         }
+        const layerPromotionPages = requiredPages.filter(
+            pageNumber => options.isPageLayerReady?.(pageNumber) === false,
+        );
+        if (layerPromotionPages.length > 0) {
+            const qualityPromotionPage = layerPromotionPages.find(
+                pageNumber => options.isPageQualityRefineEligible?.(pageNumber) === true,
+            );
+            const canCoalesceQualityRefine = qualityPromotionPage !== undefined
+                && canStartQualityRefine();
+            automaticDemandPending = false;
+            if (canCoalesceQualityRefine && qualityPromotionPage !== undefined) {
+                clearQualityRefineIdleTimer();
+                runDemand(
+                    `quality-layer-refine:${String(options.getRenderGeneration())}:${String(qualityPromotionPage)}`,
+                    'automatic',
+                    {
+                        start: qualityPromotionPage,
+                        end: qualityPromotionPage,
+                    },
+                    {
+                        bufferOverride: 0,
+                        contentIntent: 'full-visible',
+                        forceRerender: true,
+                        preserveCommittedVisual: true,
+                        preserveInFlightRequiredPages: true,
+                        preserveRenderedPages: true,
+                    },
+                );
+                return;
+            }
+            const promotionRange = {
+                start: Math.min(...layerPromotionPages),
+                end: Math.max(...layerPromotionPages),
+            };
+            runDemand(
+                `layer-promotion:${String(options.getRenderGeneration())}:${layerPromotionPages.join(',')}`,
+                'automatic',
+                promotionRange,
+                {
+                    bufferOverride: 0,
+                    contentIntent: 'layers-only-promotion',
+                    preserveInFlightRequiredPages: true,
+                    preserveRenderedPages: true,
+                    renderWindowOverride: promotionRange,
+                },
+            );
+            return;
+        }
         const qualityRefinePage = requiredPages.find(
             pageNumber => options.isPageQualityRefineEligible?.(pageNumber) === true,
         );
@@ -605,6 +725,7 @@ export const usePdfRenderDemandCoordinator = (options: IUsePdfRenderDemandCoordi
                 },
                 {
                     bufferOverride: 0,
+                    contentIntent: 'canvas-only-refine',
                     forceRerender: true,
                     preserveCommittedVisual: true,
                     preserveInFlightRequiredPages: true,
@@ -628,6 +749,9 @@ export const usePdfRenderDemandCoordinator = (options: IUsePdfRenderDemandCoordi
         }
 
         if (!bufferDemandPending) {
+            if (runNextLayerPrewarm()) {
+                return;
+            }
             automaticDemandPending = false;
             return;
         }
@@ -671,6 +795,12 @@ export const usePdfRenderDemandCoordinator = (options: IUsePdfRenderDemandCoordi
         pendingAuthoritativeDemand?.resolve();
         const hasImmediateQualityRefine = (options.clampedVisibleRefineMode ?? 'immediate') === 'immediate'
             && hasQualityRefineInRange(range);
+        const needsLayerHydration = options.isPageLayerReady
+            ? Array.from(
+                {length: Math.max(0, range.end - range.start + 1)},
+                (_, index) => range.start + index,
+            ).some(pageNumber => options.isPageLayerReady?.(pageNumber) === false)
+            : false;
         return new Promise<void>((resolve) => {
             const id = ++nextAuthoritativeDemandId;
             pendingAuthoritativeDemand = {
@@ -683,6 +813,8 @@ export const usePdfRenderDemandCoordinator = (options: IUsePdfRenderDemandCoordi
                     preserveInFlightRequiredPages: renderOptions.preserveInFlightRequiredPages ?? true,
                     ...(hasImmediateQualityRefine
                         ? {
+                            contentIntent: renderOptions.contentIntent
+                                ?? (needsLayerHydration ? 'full-visible' : 'canvas-only-refine'),
                             forceRerender: true,
                             preserveCommittedVisual: true,
                         }
@@ -721,10 +853,17 @@ export const usePdfRenderDemandCoordinator = (options: IUsePdfRenderDemandCoordi
             options.getViewportInteractionEpoch?.() ?? 0,
             options.hasActiveVisualTransaction?.() ?? false,
         ] as const,
-        () => scheduleReconcile({
-            buffer: true,
-            resetWatchdog: true,
-        }),
+        () => {
+            const visibleStart = options.visibleRange.value.start;
+            if (visibleStart !== lastVisibleStart) {
+                navigationDirection = visibleStart > lastVisibleStart ? 1 : -1;
+                lastVisibleStart = visibleStart;
+            }
+            scheduleReconcile({
+                buffer: true,
+                resetWatchdog: true,
+            });
+        },
         {
             flush: 'sync',
             immediate: true,

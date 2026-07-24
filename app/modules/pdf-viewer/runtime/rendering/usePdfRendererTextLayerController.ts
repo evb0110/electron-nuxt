@@ -27,6 +27,7 @@ interface ITextLayerRenderContext {
         totalScaleFactor: number;
     };
     textLayerDiv: HTMLDivElement | null;
+    preserveCanvasOnStale?: boolean;
 }
 
 interface IUsePdfRendererTextLayerControllerOptions {
@@ -69,12 +70,15 @@ export const usePdfRendererTextLayerController = (options: IUsePdfRendererTextLa
             pdfPage,
             renderResult,
             textLayerDiv,
+            preserveCanvasOnStale = false,
         } = context;
         if (!textLayerDiv) {
             return true;
         }
         if (getRenderVersion() !== version || !shouldContinue()) {
-            cleanupPageIfCurrentRender(pageNumber, version, requestId);
+            if (!preserveCanvasOnStale) {
+                cleanupPageIfCurrentRender(pageNumber, version, requestId);
+            }
             return false;
         }
 
@@ -162,7 +166,9 @@ export const usePdfRendererTextLayerController = (options: IUsePdfRendererTextLa
                     root: container,
                 });
                 textLayerRenderer.cleanupTextLayerDom(textLayerDiv);
-                cleanupPageIfCurrentRender(pageNumber, version, requestId);
+                if (!preserveCanvasOnStale) {
+                    cleanupPageIfCurrentRender(pageNumber, version, requestId);
+                }
                 return false;
             } else {
                 logNonCriticalStageError(
@@ -187,7 +193,9 @@ export const usePdfRendererTextLayerController = (options: IUsePdfRendererTextLa
         }
 
         if (getRenderVersion() !== version || !shouldContinue()) {
-            cleanupPageIfCurrentRender(pageNumber, version, requestId);
+            if (!preserveCanvasOnStale) {
+                cleanupPageIfCurrentRender(pageNumber, version, requestId);
+            }
             return false;
         }
 

@@ -11,6 +11,7 @@ import { usePdfCanvasRenderer } from '@app/modules/pdf-viewer/runtime/composable
 import { cast } from '@tests/helpers/cast';
 
 vi.mock('@app/services/pdfjs/runtimeLib', () => ({ AnnotationMode: {
+    DISABLE: 0,
     ENABLE: 1,
     ENABLE_FORMS: 2,
 } }));
@@ -58,6 +59,50 @@ describe('usePdfCanvasRenderer', () => {
             canvas,
         }));
         expect(result?.annotationCanvasMap).toBeInstanceOf(Map);
+    });
+
+    it('renders canvas-only buffers without annotation preparation', async () => {
+        const canvas = {
+            width: 0,
+            height: 0,
+            style: {} as CSSStyleDeclaration,
+            getContext: vi.fn(() => ({})),
+            remove: vi.fn(),
+        };
+        (globalThis as Record<string, unknown>).document = { createElement: vi.fn(() => canvas) };
+        const renderTask = {
+            cancel: vi.fn(),
+            promise: Promise.resolve(),
+        };
+        const pdfPage = {
+            pageNumber: 1,
+            getViewport: vi.fn(() => ({
+                width: 200,
+                height: 100,
+                userUnit: 1,
+                rawDims: {
+                    pageWidth: 200,
+                    pageHeight: 100,
+                },
+            })),
+            getOperatorList: vi.fn(),
+            render: vi.fn(() => renderTask),
+        } as const;
+
+        const renderer = usePdfCanvasRenderer({ outputScale: 1 });
+        const result = await renderer.renderCanvas(pdfPage as never, 1, {
+            contentIntent: 'canvas-only-buffer',
+            hiddenAnnotationIds: new Set(['hidden']),
+        });
+
+        expect(pdfPage.getOperatorList).not.toHaveBeenCalled();
+        expect(pdfPage.render).toHaveBeenCalledWith(expect.objectContaining({
+            annotationMode: AnnotationMode.DISABLE,
+            canvas,
+        }));
+        const renderContext = cast<Array<[Record<string, unknown>]>>(pdfPage.render.mock.calls)[0]?.[0];
+        expect(renderContext).not.toHaveProperty('annotationCanvasMap');
+        expect(result?.annotationCanvasMap).toBeNull();
     });
 
     it('applies the settled-render default canvas pixel budget', async () => {

@@ -124,6 +124,7 @@ export const usePdfRendererCleanupController = (options: IUsePdfRendererCleanupC
                 annotationEditorLayerDiv.replaceChildren();
             }
             if (container) {
+                delete container.dataset.pageLayerReadiness;
                 textLayerRenderer.clearOcrDebug(container);
             }
         }

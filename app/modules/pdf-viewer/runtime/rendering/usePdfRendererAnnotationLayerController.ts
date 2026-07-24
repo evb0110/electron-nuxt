@@ -17,6 +17,7 @@ interface IAnnotationRenderContext {
         annotationCanvasMap: Parameters<ReturnType<typeof usePdfAnnotationLayerRenderer>['renderAnnotationLayer']>[4];
     };
     textLayerDiv: HTMLDivElement | null;
+    preserveCanvasOnStale?: boolean;
 }
 
 interface IUsePdfRendererAnnotationLayerControllerOptions {
@@ -67,6 +68,7 @@ export const usePdfRendererAnnotationLayerController = (options: IUsePdfRenderer
             pdfPage,
             renderResult,
             textLayerDiv,
+            preserveCanvasOnStale = false,
         } = context;
         const {
             viewport,
@@ -77,7 +79,9 @@ export const usePdfRendererAnnotationLayerController = (options: IUsePdfRenderer
         let annotationLayerInstance: TAnnotationLayerInstance = null;
         if (annotationLayerDiv && toValue(showAnnotations)) {
             if (getRenderVersion() !== version || !shouldContinue()) {
-                cleanupPageIfCurrentRender(pageNumber, version, requestId);
+                if (!preserveCanvasOnStale) {
+                    cleanupPageIfCurrentRender(pageNumber, version, requestId);
+                }
                 return {
                     shouldContinue: false,
                     annotationLayerInstance: null,
@@ -122,7 +126,9 @@ export const usePdfRendererAnnotationLayerController = (options: IUsePdfRenderer
             }
 
             if (getRenderVersion() !== version || !shouldContinue()) {
-                cleanupPageIfCurrentRender(pageNumber, version, requestId);
+                if (!preserveCanvasOnStale) {
+                    cleanupPageIfCurrentRender(pageNumber, version, requestId);
+                }
                 return {
                     shouldContinue: false,
                     annotationLayerInstance: null,
@@ -137,7 +143,9 @@ export const usePdfRendererAnnotationLayerController = (options: IUsePdfRenderer
             toValue(annotationUiManager)
         ) {
             if (getRenderVersion() !== version || !shouldContinue()) {
-                cleanupPageIfCurrentRender(pageNumber, version, requestId);
+                if (!preserveCanvasOnStale) {
+                    cleanupPageIfCurrentRender(pageNumber, version, requestId);
+                }
                 return {
                     shouldContinue: false,
                     annotationLayerInstance: null,
@@ -180,7 +188,9 @@ export const usePdfRendererAnnotationLayerController = (options: IUsePdfRenderer
             }
 
             if (getRenderVersion() !== version || !shouldContinue()) {
-                cleanupPageIfCurrentRender(pageNumber, version, requestId);
+                if (!preserveCanvasOnStale) {
+                    cleanupPageIfCurrentRender(pageNumber, version, requestId);
+                }
                 return {
                     shouldContinue: false,
                     annotationLayerInstance: null,
@@ -199,7 +209,9 @@ export const usePdfRendererAnnotationLayerController = (options: IUsePdfRenderer
             );
         }
         if (getRenderVersion() !== version || !shouldContinue()) {
-            cleanupPageIfCurrentRender(pageNumber, version, requestId);
+            if (!preserveCanvasOnStale) {
+                cleanupPageIfCurrentRender(pageNumber, version, requestId);
+            }
             return {
                 shouldContinue: false,
                 annotationLayerInstance: null,

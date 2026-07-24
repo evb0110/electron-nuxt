@@ -333,6 +333,7 @@ export const usePdfViewerFeatureController = (props: IPdfViewerProps, emit: IPdf
         isPageCanvasCommitted,
         isPageQualityRefineEligible,
         clampedVisibleRefineMode,
+        isPageLayerReady,
         getRenderAuthorityCursor,
         reconcilePageCanvasResidency,
     } = usePdfViewerRenderingRuntime({
@@ -917,6 +918,7 @@ export const usePdfViewerFeatureController = (props: IPdfViewerProps, emit: IPdf
         getProtectedVisibleRange,
         pagesToRender,
         bufferPages,
+        viewMode,
         maxBufferCanvasPixels: performanceProfile.maxBufferCanvasPixels,
         estimatePageRasterPixels: (pageNumber) => {
             const metric = pageMetrics.value[pageNumber - 1];
@@ -937,6 +939,7 @@ export const usePdfViewerFeatureController = (props: IPdfViewerProps, emit: IPdf
         getRenderGeneration: () => getRenderAuthorityCursor().renderVersion,
         isPageReady: isPageCanvasCommitted,
         isPageQualityRefineEligible,
+        isPageLayerReady,
         isPageRendering,
         getPageFailureToken: getPageRenderFailureToken,
         clampedVisibleRefineMode,
@@ -963,9 +966,7 @@ export const usePdfViewerFeatureController = (props: IPdfViewerProps, emit: IPdf
     } = runtimeLifecycle;
     const navigationSkeletonAnchorPage = computed(() => navigationAnchorPage.value ?? viewerCurrentPage.value);
     function isPageVisualReadyForShapeOverlay(pageNumber: number) {
-        return (
-            isPageCanvasCommitted(pageNumber)
-        );
+        return isPageCanvasCommitted(pageNumber);
     }
     function isPageVisuallyReady(pageNumber: number) {
         return isPageCanvasCommitted(pageNumber);

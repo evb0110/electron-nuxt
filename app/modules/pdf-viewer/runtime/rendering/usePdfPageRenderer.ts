@@ -54,8 +54,18 @@ import {
 import type {IPdfPageSlotRegistry} from '@app/modules/pdf-viewer/runtime/page-slots/pdfPageSlotRegistry';
 import { createPdfPageLayerRevisionGraph } from '@app/modules/pdf-viewer/runtime/rendering/createPdfPageLayerRevisionGraph';
 import type { IPdfViewportWritePort } from '@app/modules/pdf-viewer/runtime/viewport/pdfViewportWritePort';
+import { getOptionalFunction } from '@app/services/pdfjs/runtime';
 
 export type { IPageRenderStallPayload } from '@app/modules/pdf-viewer/engine/pdf-page-render-timeout/pdfPageRenderTimeoutTypes';
+
+interface IAnnotationEditorPage {
+    pageIndex?: unknown;
+    parentPageIndex?: unknown;
+}
+
+function isAnnotationEditorPage(value: unknown): value is IAnnotationEditorPage {
+    return value !== null && typeof value === 'object';
+}
 
 export interface IUsePdfPageRendererOptions {
     container: Ref<HTMLElement | null>;
@@ -213,6 +223,29 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
     function isPageInProtectedVisibleRange(pageNumber: number) {
         const range = getProtectedVisibleRange();
         return pageNumber >= range.start && pageNumber <= range.end;
+    }
+
+    function getActiveAnnotationEditorPageNumber() {
+        const annotationUiManager = toValue(options.annotationUiManager) ?? null;
+        if (!annotationUiManager) {
+            return null;
+        }
+        const activeEditor = getOptionalFunction(annotationUiManager, 'getActive')
+            ?.call(annotationUiManager);
+        if (!isAnnotationEditorPage(activeEditor)) {
+            return null;
+        }
+        const pageIndex = typeof activeEditor.pageIndex === 'number'
+            ? activeEditor.pageIndex
+            : activeEditor.parentPageIndex;
+        return typeof pageIndex === 'number' && Number.isInteger(pageIndex) && pageIndex >= 0
+            ? pageIndex + 1
+            : null;
+    }
+
+    function isPageOverlayProtected(pageNumber: number) {
+        return getActiveAnnotationEditorPageNumber() === pageNumber
+            && getMountedPageContainer(pageNumber, options.container.value) !== null;
     }
 
     function getRenderDocumentToken() {
@@ -639,6 +672,10 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
         const residentPages = new Set(residentPageNumbers);
         let didChangeRenderedState = false;
         for (const pageNumber of getTrackedPageNumbersForCleanup()) {
+            if (isPageOverlayProtected(pageNumber)) {
+                setPageCanvasSurfacePriority(pageNumber, 100);
+                continue;
+            }
             if (residentPages.has(pageNumber)) {
                 const distance = pageNumber < visibleRange.start
                     ? visibleRange.start - pageNumber
@@ -799,6 +836,7 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
         renderedPages,
         renderingPages,
         renderingPageRequestIds,
+        getPageContentReadiness,
         getRenderVersion: () => renderVersion,
         getRenderDocumentToken,
         getVisibleRenderRequestId: () => visibleRenderRequestId,
@@ -814,6 +852,7 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
         ensurePageMetricsInRange,
         setupPagePlaceholders,
         cleanupPage,
+        isPageOverlayProtected,
         cancelObsoleteInFlightRenders: (pagesToKeepRendering, requestId) => {
             cancelObsoleteInFlightRenders(
                 pagesToKeepRendering,
@@ -844,21 +883,32 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
         return Boolean(canvas && canvas.isConnected && canvas.width > 0 && canvas.height > 0);
     }
 
-    function isCommittedVisualCurrent(pageNumber: number) {
+    function getPageContentReadiness(pageNumber: number, container: HTMLElement) {
         const slot = pageRenderState.getSlot(pageNumber);
         const currentScale = toValue(options.effectiveScale);
         const currentOutputScale = toValue(outputScale);
         const scaleTolerance = Math.max(1, Math.abs(currentScale)) * Number.EPSILON * 8;
         const outputScaleTolerance = Math.max(1, Math.abs(currentOutputScale)) * Number.EPSILON * 8;
-        return (
-            slot.visual === 'ready'
+        const canvasReady = slot.canvasReadiness === 'ready'
             && slot.documentToken === getRenderDocumentToken()
+            && slot.contentVersion === renderVersion
+            && slot.container === container
             && slot.targetScale !== null
             && Math.abs(slot.targetScale - currentScale) <= scaleTolerance
             && slot.targetOutputScale !== null
             && Math.abs(slot.targetOutputScale - currentOutputScale) <= outputScaleTolerance
-            && hasNonzeroMountedPageCanvas(pageNumber)
-        );
+            && hasNonzeroMountedPageCanvas(pageNumber);
+        return {
+            canvasReady,
+            layerReadiness: canvasReady ? slot.layerReadiness : 'none',
+        } as const;
+    }
+
+    function isCommittedVisualCurrent(pageNumber: number) {
+        const container = getMountedPageContainer(pageNumber, options.container.value);
+        return container
+            ? getPageContentReadiness(pageNumber, container).canvasReady
+            : false;
     }
 
     function renderTransactionPages(request: IPdfViewerTransactionRenderRequest) {
@@ -899,7 +949,19 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
     function cancelInFlightRenders() {
         const activeRenderTasksSettled = waitForActiveRenderTasksToSettle();
         const optionalTextLayerTasksSettled = waitForOptionalTextLayerTasksToSettle();
-        bumpRenderVersion('cancel-in-flight-renders');
+        const nextRenderVersion = bumpRenderVersion('cancel-in-flight-renders');
+        for (const pageNumber of renderedPages) {
+            const slot = pageRenderState.getSlot(pageNumber);
+            if (
+                pageRenderState.adoptCommittedCanvasVersion(pageNumber, nextRenderVersion)
+                && slot.layerReadiness === 'hydrating'
+            ) {
+                const container = getMountedPageContainer(pageNumber, options.container.value);
+                if (container) {
+                    container.dataset.pageLayerReadiness = 'canvas-only';
+                }
+            }
+        }
         missingRenderTargetRetries.clear();
         return Promise.all([
             activeRenderTasksSettled,
@@ -928,8 +990,8 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
         hideManagedAnnotationEditors: (pageNumber?: number) => {
             annotationLayerRenderer.hideHiddenManagedEditors(pageNumber);
         },
-        isPageRendered: (pageNumber: number) => pageRenderState.getSlot(pageNumber).visual === 'ready',
-        isPageFreshlyRendered: (pageNumber: number) => pageRenderState.getSlot(pageNumber).visual === 'ready',
+        isPageRendered: (pageNumber: number) => pageRenderState.getSlot(pageNumber).canvasReadiness === 'ready',
+        isPageFreshlyRendered: (pageNumber: number) => pageRenderState.getSlot(pageNumber).canvasReadiness === 'ready',
         isPageCanvasCommitted: isCommittedVisualCurrent,
         isPageQualityRefineEligible: (pageNumber: number) => {
             const slot = pageRenderState.getSlot(pageNumber);
@@ -937,6 +999,12 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
                 && slot.job === 'idle'
                 && slot.committedRasterQuality?.wasClamped === true
                 && slot.committedRasterQuality.intent === 'buffer-preview';
+        },
+        isPageLayerReady: (pageNumber: number) => {
+            const container = getMountedPageContainer(pageNumber, options.container.value);
+            return container
+                ? getPageContentReadiness(pageNumber, container).layerReadiness === 'ready'
+                : false;
         },
         getCommittedRasterQuality: (pageNumber: number) => (
             pageRenderState.getSlot(pageNumber).committedRasterQuality

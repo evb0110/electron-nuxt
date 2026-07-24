@@ -274,8 +274,15 @@ export const usePdfRendererCanvasController = (options: IUsePdfRendererCanvasCon
             shouldContinue: shouldContinuePrepare,
         };
         const ids = hiddenAnnotationIds(pageNumber);
-        if (ids !== undefined) {
+        if (
+            ids !== undefined
+            && renderOptions?.contentIntent !== 'canvas-only-buffer'
+            && renderOptions?.contentIntent !== 'canvas-only-refine'
+        ) {
             canvasRenderOptions.hiddenAnnotationIds = ids;
+        }
+        if (renderOptions?.contentIntent !== undefined) {
+            canvasRenderOptions.contentIntent = renderOptions.contentIntent;
         }
         logPdfRenderTrace('renderer-canvas-hidden-annotations', {
             pageNumber,

@@ -258,16 +258,114 @@ describe('usePdfRendererVisibleRenderController', () => {
             9,
         ]);
         expect(harness.renderSingleVisiblePage.mock.calls[0]?.[9])
-            .toEqual({ continuationPriority: 'visible' });
+            .toEqual({
+                continuationPriority: 'visible',
+                contentIntent: 'full-visible',
+            });
         expect(harness.renderSingleVisiblePage.mock.calls[1]?.[9])
-            .toEqual({ continuationPriority: 'nearby' });
+            .toEqual({
+                continuationPriority: 'nearby',
+                contentIntent: 'canvas-only-buffer',
+            });
         expect(harness.renderSingleVisiblePage.mock.calls[2]?.[9])
-            .toEqual({ continuationPriority: 'nearby' });
+            .toEqual({
+                continuationPriority: 'nearby',
+                contentIntent: 'canvas-only-buffer',
+            });
         expect(harness.renderedPages).toEqual(new Set([
             9,
             10,
             11,
         ]));
+    });
+
+    it('promotes a current canvas-only page without requesting another canvas intent', async () => {
+        const page = document.createElement('div');
+        page.className = 'page_container';
+        page.dataset.page = '10';
+        const canvasHost = document.createElement('div');
+        canvasHost.className = 'page_canvas';
+        const canvas = document.createElement('canvas');
+        canvasHost.append(canvas);
+        page.append(canvasHost);
+        const containerRoot = document.createElement('div');
+        containerRoot.append(page);
+        const renderSingleVisiblePage = vi.fn(async () => undefined);
+        let visibleRenderRequestId = 1;
+        const renderVisiblePages = usePdfRendererVisibleRenderController({
+            container: ref(containerRoot),
+            currentPage: ref(10),
+            numPages: ref(10),
+            isActive: true,
+            bufferPages: 0,
+            renderConcurrency: 1,
+            effectiveScale: 1,
+            renderedPages: new Set([10]),
+            renderingPages: new Map<number, number>(),
+            renderingPageRequestIds: new Map<number, number>(),
+            getPageContentReadiness: () => ({
+                canvasReady: true,
+                layerReadiness: 'canvas-only',
+            }),
+            getRenderVersion: () => 3,
+            getRenderDocumentToken: () => 'doc-1',
+            getVisibleRenderRequestId: () => visibleRenderRequestId,
+            nextVisibleRenderRequestId: () => {
+                visibleRenderRequestId += 1;
+                return visibleRenderRequestId;
+            },
+            ensurePageMetricsInRange: vi.fn(async () => true),
+            setupPagePlaceholders: vi.fn(),
+            cleanupPage: vi.fn(),
+            cancelObsoleteInFlightRenders: vi.fn(),
+            renderSingleVisiblePage,
+            scheduleMissingRenderTargetRetry: vi.fn(),
+            throttleMs: 0,
+        });
+
+        await renderVisiblePages({
+            start: 10,
+            end: 10,
+        });
+
+        expect(renderSingleVisiblePage).toHaveBeenCalledOnce();
+        const renderCall = cast<Parameters<TVisibleRenderControllerOptions['renderSingleVisiblePage']>>(
+            renderSingleVisiblePage.mock.calls[0],
+        );
+        expect(renderCall[9]).toEqual({
+            continuationPriority: 'visible',
+            contentIntent: 'layers-only-promotion',
+        });
+    });
+
+    it('does not start buffer work until required visible work drains', async () => {
+        let releaseVisibleRender = () => {};
+        const visibleRenderGate = new Promise<void>((resolve) => {
+            releaseVisibleRender = resolve;
+        });
+        const harness = createRenderPriorityHarness();
+        harness.renderSingleVisiblePage.mockImplementation(async (_root, pageNumber) => {
+            if (pageNumber === 10) {
+                await visibleRenderGate;
+            }
+            harness.renderedPages.add(pageNumber);
+        });
+
+        const renderPromise = harness.renderVisiblePages({
+            start: 10,
+            end: 10,
+        });
+
+        await vi.waitFor(() => {
+            expect(harness.renderSingleVisiblePage.mock.calls.map(call => call[1])).toEqual([10]);
+        });
+        releaseVisibleRender();
+        await renderPromise;
+        expect(harness.renderSingleVisiblePage.mock.calls.map(call => call[1])).toEqual([
+            10,
+            11,
+            9,
+        ]);
     });
 
     it('uses a render-window override as buffer horizon while preserving the actual visible range', async () => {

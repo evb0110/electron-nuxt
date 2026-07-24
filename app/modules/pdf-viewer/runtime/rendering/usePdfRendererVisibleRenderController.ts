@@ -13,6 +13,7 @@ import { logPdfRenderTrace } from '@app/utils/pdfRenderTrace';
 import type {
     IPdfPageNumberStateMap,
     IPdfPageNumberStateSet,
+    TPdfPageLayerReadiness,
 } from '@app/modules/pdf-viewer/runtime/rendering/pdfPageRenderState';
 
 
@@ -39,6 +40,10 @@ interface IUsePdfRendererVisibleRenderControllerOptions {
     renderedPages: IPdfPageNumberStateSet;
     renderingPages: IPdfPageNumberStateMap;
     renderingPageRequestIds: IPdfPageNumberStateMap;
+    getPageContentReadiness?: ((pageNumber: number, container: HTMLElement) => {
+        canvasReady: boolean;
+        layerReadiness: TPdfPageLayerReadiness;
+    }) | undefined;
     getRenderVersion: () => number;
     getRenderDocumentToken: () => string;
     getVisibleRenderRequestId: () => number;
@@ -48,6 +53,7 @@ interface IUsePdfRendererVisibleRenderControllerOptions {
     ensurePageMetricsInRange: (startPage: number, endPage: number) => Promise<boolean>;
     setupPagePlaceholders: () => void;
     cleanupPage: (pageNumber: number) => void;
+    isPageOverlayProtected?: ((pageNumber: number) => boolean) | undefined;
     cancelObsoleteInFlightRenders: (pagesToKeepRendering: Set<number>, requestId: number) => void;
     renderSingleVisiblePage: (
         containerRoot: HTMLElement,
@@ -86,6 +92,7 @@ export const usePdfRendererVisibleRenderController = (options: IUsePdfRendererVi
         renderedPages,
         renderingPages,
         renderingPageRequestIds,
+        getPageContentReadiness,
         getRenderVersion,
         getRenderDocumentToken,
         getVisibleRenderRequestId,
@@ -95,6 +102,7 @@ export const usePdfRendererVisibleRenderController = (options: IUsePdfRendererVi
         ensurePageMetricsInRange,
         setupPagePlaceholders,
         cleanupPage,
+        isPageOverlayProtected,
         cancelObsoleteInFlightRenders,
         renderSingleVisiblePage,
         isVisibleRenderRangeCurrent,
@@ -161,12 +169,12 @@ export const usePdfRendererVisibleRenderController = (options: IUsePdfRendererVi
 
     function cleanupRenderedPagesOutside(pagesToKeep: Set<number>) {
         for (const pageNum of renderedPages) {
-            if (!pagesToKeep.has(pageNum)) {
+            if (!pagesToKeep.has(pageNum) && isPageOverlayProtected?.(pageNum) !== true) {
                 cleanupPage(pageNum);
             }
         }
         for (const pageNum of Array.from(renderingPages.keys())) {
-            if (!pagesToKeep.has(pageNum)) {
+            if (!pagesToKeep.has(pageNum) && isPageOverlayProtected?.(pageNum) !== true) {
                 cleanupPage(pageNum);
             }
         }
@@ -238,6 +246,7 @@ export const usePdfRendererVisibleRenderController = (options: IUsePdfRendererVi
         version: number,
         requestId: number,
         visibleRange: IPageRange,
+        renderOptions?: IRenderVisiblePagesOptions,
     ) {
         const pagesToRender = range(renderStart, renderEnd + 1).filter((pageNumber) => {
             const renderingVersion = renderingPages.get(pageNumber);
@@ -250,9 +259,32 @@ export const usePdfRendererVisibleRenderController = (options: IUsePdfRendererVi
                 return true;
             }
 
-            return forceRerender
-                || !renderedPages.has(pageNumber)
-                || !hasMountedPageCanvas(containerRoot, pageNumber);
+            if (forceRerender) {
+                return true;
+            }
+            const pageContainer = getPageContainer(containerRoot, pageNumber - 1);
+            const contentReadiness = pageContainer
+                ? getPageContentReadiness?.(pageNumber, pageContainer)
+                : undefined;
+            const canvasReady = contentReadiness?.canvasReady
+                ?? (
+                    renderedPages.has(pageNumber)
+                    && hasMountedPageCanvas(containerRoot, pageNumber)
+                );
+            if (!canvasReady) {
+                return true;
+            }
+            if (!contentReadiness) {
+                return false;
+            }
+            const contentIntent = renderOptions?.contentIntent;
+            const requiresLayers = contentIntent === 'layers-only-promotion'
+                || (
+                    contentIntent !== 'canvas-only-buffer'
+                    && contentIntent !== 'canvas-only-refine'
+                    && !isBufferPageForRange(pageNumber, visibleRange)
+                );
+            return requiresLayers && contentReadiness?.layerReadiness !== 'ready';
         });
         return orderPagesForRender(pagesToRender, visibleRange);
     }
@@ -382,9 +414,31 @@ export const usePdfRendererVisibleRenderController = (options: IUsePdfRendererVi
             : isBufferPage
                 ? bufferDistance <= 1 ? 'nearby' : 'prefetch'
                 : renderOptions?.prioritizeTextLayer === true ? 'visible-text' : 'visible';
+        const pageContainer = getPageContainer(containerRoot, pageNumber - 1);
+        const contentReadiness = pageContainer
+            ? getPageContentReadiness?.(pageNumber, pageContainer)
+            : undefined;
+        const canvasReady = contentReadiness?.canvasReady
+            ?? (
+                pageContainer
+                && renderedPages.has(pageNumber)
+                && hasMountedPageCanvas(containerRoot, pageNumber)
+            );
         const pageRenderOptions = {
             ...renderOptions,
             continuationPriority,
+            contentIntent: renderOptions?.contentIntent
+                ?? (
+                    isBufferPage
+                        ? 'canvas-only-buffer'
+                        : forceRerender && renderOptions?.preserveCommittedVisual === true
+                            ? contentReadiness?.layerReadiness === 'ready'
+                                ? 'canvas-only-refine'
+                                : 'full-visible'
+                            : canvasReady
+                                ? 'layers-only-promotion'
+                                : 'full-visible'
+                ),
         } satisfies IRenderVisiblePagesOptions;
         await renderSingleVisiblePage(
             containerRoot,
@@ -414,41 +468,47 @@ export const usePdfRendererVisibleRenderController = (options: IUsePdfRendererVi
     ) {
         const transactionRequest = renderOptions?.transactionRequest;
         const concurrentRenders = Math.max(1, Math.trunc(toValue(renderConcurrency)));
-        for (const batch of chunk(pagesToRenderNow, concurrentRenders)) {
-            if (!shouldContinue()) {
-                logPdfRenderTrace('renderer-visible-render-abort-stale-batch', {
-                    version,
-                    currentRenderVersion: getRenderVersion(),
-                    pagesToRenderNow,
-                });
-                return;
-            }
-            await Promise.all(
-                batch.map((pageNumber) => renderSinglePageWithPriority(
-                    containerRoot,
-                    pageNumber,
-                    version,
-                    scale,
-                    forceRerender,
-                    requestId,
-                    shouldContinue,
-                    requiredPages,
-                    visibleRange,
-                    transactionRequest
-                        ? {
-                            ...renderOptions,
-                            transactionRequest,
-                        }
-                        : renderOptions,
-                )),
-            );
-            if (!shouldContinue()) {
-                logPdfRenderTrace('renderer-visible-render-abort-after-batch', {
-                    version,
-                    currentRenderVersion: getRenderVersion(),
-                    pagesToRenderNow,
-                });
-                return;
+        const pageGroups = [
+            pagesToRenderNow.filter(pageNumber => requiredPages.has(pageNumber)),
+            pagesToRenderNow.filter(pageNumber => !requiredPages.has(pageNumber)),
+        ];
+        for (const pageGroup of pageGroups) {
+            for (const batch of chunk(pageGroup, concurrentRenders)) {
+                if (!shouldContinue()) {
+                    logPdfRenderTrace('renderer-visible-render-abort-stale-batch', {
+                        version,
+                        currentRenderVersion: getRenderVersion(),
+                        pagesToRenderNow,
+                    });
+                    return;
+                }
+                await Promise.all(
+                    batch.map((pageNumber) => renderSinglePageWithPriority(
+                        containerRoot,
+                        pageNumber,
+                        version,
+                        scale,
+                        forceRerender,
+                        requestId,
+                        shouldContinue,
+                        requiredPages,
+                        visibleRange,
+                        transactionRequest
+                            ? {
+                                ...renderOptions,
+                                transactionRequest,
+                            }
+                            : renderOptions,
+                    )),
+                );
+                if (!shouldContinue()) {
+                    logPdfRenderTrace('renderer-visible-render-abort-after-batch', {
+                        version,
+                        currentRenderVersion: getRenderVersion(),
+                        pagesToRenderNow,
+                    });
+                    return;
+                }
             }
         }
     }
@@ -609,6 +669,7 @@ export const usePdfRendererVisibleRenderController = (options: IUsePdfRendererVi
             version,
             requestId,
             visibleRange,
+            activeRenderOptions,
         );
 
         if (pagesToRenderNow.length === 0) {

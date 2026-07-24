@@ -1,6 +1,12 @@
 import type { IPdfViewerTransactionRenderRequest } from '@app/modules/pdf-viewer/engine/pdf-viewer-transaction/pdfViewerTransactionTypes';
 import type { TPdfRenderContinuationPriority } from '@app/modules/pdf-viewer/engine/pdf-render-continuation-scheduler/pdfRenderContinuationScheduler';
 
+export type TPdfPageRenderContentIntent =
+    | 'full-visible'
+    | 'canvas-only-buffer'
+    | 'canvas-only-refine'
+    | 'layers-only-promotion';
+
 export interface IRenderVisiblePagesOptions {
     openSurfaceGeneration?: number;
     openSurfaceRevision?: string;
@@ -15,10 +21,11 @@ export interface IRenderVisiblePagesOptions {
     prioritizeTextLayer?: boolean;
     transactionRequest?: IPdfViewerTransactionRenderRequest;
     continuationPriority?: TPdfRenderContinuationPriority;
+    contentIntent?: TPdfPageRenderContentIntent;
     maxCanvasPixels?: number;
     preserveCommittedVisual?: boolean;
     coordinatorDemand?: {
-        kind: 'required' | 'buffer';
+        kind: 'required' | 'buffer' | 'prewarm';
         renderGeneration: number;
     };
 }

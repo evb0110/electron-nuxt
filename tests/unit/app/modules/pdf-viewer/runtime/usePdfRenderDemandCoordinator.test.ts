@@ -16,7 +16,10 @@ import type { PDFDocumentProxy } from '@app/types/pdfContracts';
 import { cast } from '@tests/helpers/cast';
 import type { TPdfClampedVisibleRefineMode } from '@app/modules/pdf-viewer/engine/pdf-render-performance/resolvePdfRenderPerformancePolicy';
 
-interface ICreateHarnessOptions {clampedVisibleRefineMode?: TPdfClampedVisibleRefineMode;}
+interface ICreateHarnessOptions {
+    clampedVisibleRefineMode?: TPdfClampedVisibleRefineMode;
+    enableLayerPrewarm?: boolean;
+}
 
 function createHarness(options: ICreateHarnessOptions = {}) {
     const scope = effectScope();
@@ -34,6 +37,7 @@ function createHarness(options: ICreateHarnessOptions = {}) {
     ]);
     const pageSlots = createPdfPageSlotRegistry();
     const ready = new Set<number>();
+    const layerReady = new Set<number>();
     const rendering = new Set<number>();
     const failureTokens = new Map<number, string>();
     const qualityRefineEligible = new Set<number>();
@@ -58,6 +62,12 @@ function createHarness(options: ICreateHarnessOptions = {}) {
         getProtectedVisibleRange: () => protectedVisibleRange.value ?? visibleRange.value,
         pagesToRender: computed(() => mountedPages.value),
         bufferPages: computed(() => 4),
+        ...(options.enableLayerPrewarm
+            ? {
+                viewMode: computed(() => 'single' as const),
+                isPageLayerReady: (pageNumber: number) => layerReady.has(pageNumber),
+            }
+            : {}),
         maxBufferCanvasPixels: 100,
         estimatePageRasterPixels: () => 10,
         reconcilePageCanvasResidency,
@@ -160,6 +170,7 @@ function createHarness(options: ICreateHarnessOptions = {}) {
         frameCallbacks,
         flushQualityRefineIdle,
         ready,
+        layerReady,
         mountedPages,
         pageSlots,
         qualityRefineEligible,
@@ -449,6 +460,7 @@ describe('usePdfRenderDemandCoordinator', () => {
                 end: 43,
             },
             {
+                contentIntent: 'canvas-only-buffer',
                 coordinatorDemand: {
                     kind: 'buffer',
                     renderGeneration: 1,
@@ -476,6 +488,82 @@ describe('usePdfRenderDemandCoordinator', () => {
                 start: 43,
                 end: 43,
             },
+        );
+        harness.scope.stop();
+    });
+
+    it('prewarms the immediate canvas-resident neighbor only after buffer demand drains', async () => {
+        const harness = createHarness({enableLayerPrewarm: true});
+        harness.pageSlots.markMounted(43);
+        harness.pageSlots.markMounted(44);
+        harness.ready.add(43);
+        harness.ready.add(44);
+        harness.layerReady.add(43);
+        harness.coordinator?.notifyPageMounted();
+
+        harness.flushFrame();
+        await Promise.resolve();
+        expect(harness.renderVisiblePages).toHaveBeenCalledTimes(1);
+        expect(harness.renderVisiblePages).toHaveBeenNthCalledWith(
+            1,
+            expect.anything(),
+            expect.objectContaining({contentIntent: 'canvas-only-buffer'}),
+        );
+
+        harness.flushFrame();
+        await Promise.resolve();
+        expect(harness.renderVisiblePages).toHaveBeenCalledTimes(2);
+        expect(harness.renderVisiblePages).toHaveBeenLastCalledWith(
+            {
+                start: 44,
+                end: 44,
+            },
+            {
+                bufferOverride: 0,
+                contentIntent: 'layers-only-promotion',
+                coordinatorDemand: {
+                    kind: 'prewarm',
+                    renderGeneration: 1,
+                },
+                preserveInFlightRequiredPages: true,
+                preserveRenderedPages: true,
+                renderWindowOverride: {
+                    start: 44,
+                    end: 44,
+                },
+            },
+        );
+        harness.scope.stop();
+    });
+
+    it('promotes a visible canvas-only page before starting buffer work', () => {
+        const harness = createHarness({enableLayerPrewarm: true});
+        harness.pageSlots.markMounted(43);
+        harness.pageSlots.markMounted(44);
+        harness.ready.add(43);
+        harness.ready.add(44);
+        harness.layerReady.add(44);
+        harness.coordinator?.notifyPageMounted();
+
+        harness.flushFrame();
+
+        expect(harness.renderVisiblePages).toHaveBeenCalledOnce();
+        expect(harness.renderVisiblePages).toHaveBeenCalledWith(
+            {
+                start: 43,
+                end: 43,
+            },
+            expect.objectContaining({
+                contentIntent: 'layers-only-promotion',
+                coordinatorDemand: {
+                    kind: 'required',
+                    renderGeneration: 1,
+                },
+            }),
+        );
+        expect(harness.renderVisiblePages).not.toHaveBeenCalledWith(
+            expect.anything(),
+            expect.objectContaining({contentIntent: 'canvas-only-buffer'}),
         );
         harness.scope.stop();
     });
@@ -671,11 +759,39 @@ describe('usePdfRenderDemandCoordinator', () => {
             },
             expect.objectContaining({
                 bufferOverride: 0,
+                contentIntent: 'canvas-only-refine',
                 forceRerender: true,
                 preserveCommittedVisual: true,
             }),
         );
         expect(harness.coordinator?.getPageVisualReadiness(43)).toBe('ready');
+        harness.scope.stop();
+    });
+
+    it('coalesces visible layer promotion with immediate quality refinement', () => {
+        const harness = createHarness({
+            clampedVisibleRefineMode: 'immediate',
+            enableLayerPrewarm: true,
+        });
+        harness.mountedPages.value = [43];
+        harness.pageSlots.markMounted(43);
+        harness.ready.add(43);
+        harness.qualityRefineEligible.add(43);
+        harness.coordinator?.notifyPageMounted();
+
+        harness.flushFrame();
+
+        expect(harness.renderVisiblePages).toHaveBeenCalledWith(
+            {
+                start: 43,
+                end: 43,
+            },
+            expect.objectContaining({
+                contentIntent: 'full-visible',
+                forceRerender: true,
+                preserveCommittedVisual: true,
+            }),
+        );
         harness.scope.stop();
     });
 

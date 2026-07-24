@@ -61,6 +61,15 @@
     pointer-events: none;
 }
 
+.pdfViewer .page_container[data-page-layer-readiness="canvas-only"] .text-layer,
+.pdfViewer .page_container[data-page-layer-readiness="canvas-only"] .annotation-layer,
+.pdfViewer .page_container[data-page-layer-readiness="canvas-only"] .annotation-editor-layer,
+.pdfViewer .page_container[data-page-layer-readiness="hydrating"] .text-layer,
+.pdfViewer .page_container[data-page-layer-readiness="hydrating"] .annotation-layer,
+.pdfViewer .page_container[data-page-layer-readiness="hydrating"] .annotation-editor-layer {
+    pointer-events: none;
+}
+
 .page_canvas {
     position: relative;
     width: 100%;

@@ -1,5 +1,7 @@
 type TPdfPageRenderVisualState = 'none' | 'ready';
 type TPdfPageRenderJobState = 'idle' | 'rendering' | 'failed';
+export type TPdfPageCanvasReadiness = 'none' | 'ready';
+export type TPdfPageLayerReadiness = 'none' | 'canvas-only' | 'hydrating' | 'ready';
 
 export interface IPdfCommittedRasterQuality {
     readonly requestedPixels: number;
@@ -9,18 +11,47 @@ export interface IPdfCommittedRasterQuality {
     readonly intent: 'buffer-preview' | 'settled';
 }
 
+export function resolvePdfCommittedRasterQuality(
+    renderResult: {
+        canvas: Pick<HTMLCanvasElement, 'height' | 'width'>;
+        grantedPixels?: number;
+        pixelScaleFactor?: number;
+        requestedPixels?: number;
+        wasClamped?: boolean;
+    },
+    intent: IPdfCommittedRasterQuality['intent'],
+): IPdfCommittedRasterQuality {
+    const fallbackPixels = Math.max(0, renderResult.canvas.width * renderResult.canvas.height);
+    const hasQuality = Number.isFinite(renderResult.requestedPixels)
+        && Number.isFinite(renderResult.grantedPixels)
+        && Number.isFinite(renderResult.pixelScaleFactor)
+        && typeof renderResult.wasClamped === 'boolean';
+    return {
+        requestedPixels: hasQuality ? renderResult.requestedPixels! : fallbackPixels,
+        grantedPixels: hasQuality ? renderResult.grantedPixels! : fallbackPixels,
+        pixelScaleFactor: hasQuality ? renderResult.pixelScaleFactor! : 1,
+        wasClamped: hasQuality ? renderResult.wasClamped! : false,
+        intent,
+    };
+}
+
 interface IPdfPageRenderSlot {
     readonly visual: TPdfPageRenderVisualState;
+    readonly canvasReadiness: TPdfPageCanvasReadiness;
+    readonly layerReadiness: TPdfPageLayerReadiness;
     readonly job: TPdfPageRenderJobState;
     readonly version: number | null;
+    readonly contentVersion: number | null;
     readonly requestId: number | null;
     readonly documentToken: string | null;
     readonly targetScale: number | null;
     readonly targetOutputScale: number | null;
+    readonly container: HTMLElement | null;
     readonly committedRasterQuality: IPdfCommittedRasterQuality | null;
     readonly pendingDocumentToken: string | null;
     readonly pendingTargetScale: number | null;
     readonly pendingTargetOutputScale: number | null;
+    readonly pendingContainer: HTMLElement | null;
 }
 
 export interface IPdfPageNumberStateSet extends Iterable<number> {
@@ -50,16 +81,21 @@ export interface IPdfPageNumberStateMap extends Iterable<[number, number]> {
 
 const EMPTY_RENDER_SLOT: IPdfPageRenderSlot = {
     visual: 'none',
+    canvasReadiness: 'none',
+    layerReadiness: 'none',
     job: 'idle',
     version: null,
+    contentVersion: null,
     requestId: null,
     documentToken: null,
     targetScale: null,
     targetOutputScale: null,
+    container: null,
     committedRasterQuality: null,
     pendingDocumentToken: null,
     pendingTargetScale: null,
     pendingTargetOutputScale: null,
+    pendingContainer: null,
 };
 
 export function createPdfPageRenderState() {
@@ -70,7 +106,11 @@ export function createPdfPageRenderState() {
     }
 
     function setSlot(pageNumber: number, slot: IPdfPageRenderSlot) {
-        if (slot.visual === 'none' && slot.job === 'idle') {
+        if (
+            slot.canvasReadiness === 'none'
+            && slot.layerReadiness === 'none'
+            && slot.job === 'idle'
+        ) {
             slots.delete(pageNumber);
             return;
         }
@@ -195,9 +235,16 @@ export function createPdfPageRenderState() {
     }
 
     const renderedPages = createSetView({
-        includes: slot => slot.visual === 'ready',
-        add: pageNumber => updateSlot(pageNumber, { visual: 'ready' }),
-        remove: pageNumber => updateSlot(pageNumber, { visual: 'none' }),
+        includes: slot => slot.canvasReadiness === 'ready',
+        add: pageNumber => updateSlot(pageNumber, {
+            visual: 'ready',
+            canvasReadiness: 'ready',
+        }),
+        remove: pageNumber => updateSlot(pageNumber, {
+            visual: 'none',
+            canvasReadiness: 'none',
+            layerReadiness: 'none',
+        }),
     });
     const renderingPages = createMapView({
         getValue: slot => slot.job === 'rendering' ? slot.version : null,
@@ -212,6 +259,7 @@ export function createPdfPageRenderState() {
             pendingDocumentToken: null,
             pendingTargetScale: null,
             pendingTargetOutputScale: null,
+            pendingContainer: null,
         }),
     });
     const renderingPageRequestIds = createMapView({
@@ -227,6 +275,7 @@ export function createPdfPageRenderState() {
             pendingDocumentToken: null,
             pendingTargetScale: null,
             pendingTargetOutputScale: null,
+            pendingContainer: null,
         }),
     });
 
@@ -259,15 +308,20 @@ export function createPdfPageRenderState() {
             documentToken: string,
             targetScale: number,
             targetOutputScale = 1,
+            container: HTMLElement | null = null,
             beginOptions: {preserveCommittedVisual?: boolean} = {},
         ) {
             const current = getSlot(pageNumber);
             const preserveCommittedVisual = beginOptions.preserveCommittedVisual === true
-                && current.visual === 'ready';
+                && current.canvasReadiness === 'ready'
+                && current.container === container;
             updateSlot(pageNumber, {
                 visual: preserveCommittedVisual ? 'ready' : 'none',
+                canvasReadiness: preserveCommittedVisual ? 'ready' : 'none',
+                layerReadiness: preserveCommittedVisual ? current.layerReadiness : 'none',
                 job: 'rendering',
                 version,
+                contentVersion: preserveCommittedVisual ? current.contentVersion : version,
                 requestId,
                 documentToken: preserveCommittedVisual ? current.documentToken : documentToken,
                 targetScale: preserveCommittedVisual ? current.targetScale : targetScale,
@@ -277,9 +331,11 @@ export function createPdfPageRenderState() {
                 committedRasterQuality: preserveCommittedVisual
                     ? current.committedRasterQuality
                     : null,
+                container: preserveCommittedVisual ? current.container : container,
                 pendingDocumentToken: documentToken,
                 pendingTargetScale: targetScale,
                 pendingTargetOutputScale: targetOutputScale,
+                pendingContainer: container,
             });
         },
         beginQualityRefine(
@@ -289,6 +345,7 @@ export function createPdfPageRenderState() {
             documentToken: string,
             targetScale: number,
             targetOutputScale = 1,
+            container: HTMLElement | null = getSlot(pageNumber).container,
         ) {
             this.beginRender(
                 pageNumber,
@@ -297,6 +354,7 @@ export function createPdfPageRenderState() {
                 documentToken,
                 targetScale,
                 targetOutputScale,
+                container,
                 {preserveCommittedVisual: true},
             );
         },
@@ -318,10 +376,101 @@ export function createPdfPageRenderState() {
             }
             updateSlot(pageNumber, {
                 visual: 'ready',
+                canvasReadiness: 'ready',
+                contentVersion: version,
                 documentToken: current.pendingDocumentToken,
                 targetScale: current.pendingTargetScale,
                 targetOutputScale: current.pendingTargetOutputScale,
+                container: current.pendingContainer,
                 committedRasterQuality,
+            });
+            return true;
+        },
+        markCanvasOnly(pageNumber: number, version: number, requestId: number) {
+            const current = getSlot(pageNumber);
+            if (
+                current.job !== 'rendering'
+                || current.version !== version
+                || current.requestId !== requestId
+                || current.canvasReadiness !== 'ready'
+            ) {
+                return false;
+            }
+            updateSlot(pageNumber, {layerReadiness: 'canvas-only'});
+            return true;
+        },
+        beginLayerHydration(
+            pageNumber: number,
+            version: number,
+            requestId: number,
+            documentToken: string,
+            targetScale: number,
+            targetOutputScale: number,
+            container: HTMLElement,
+        ) {
+            const current = getSlot(pageNumber);
+            if (
+                current.canvasReadiness !== 'ready'
+                || current.documentToken !== documentToken
+                || current.contentVersion !== version
+                || current.targetScale !== targetScale
+                || current.targetOutputScale !== targetOutputScale
+                || current.container !== container
+            ) {
+                return false;
+            }
+            updateSlot(pageNumber, {
+                layerReadiness: 'hydrating',
+                job: 'rendering',
+                version,
+                requestId,
+            });
+            return true;
+        },
+        markLayersHydrating(pageNumber: number, version: number, requestId: number) {
+            const current = getSlot(pageNumber);
+            if (
+                current.job !== 'rendering'
+                || current.version !== version
+                || current.requestId !== requestId
+                || current.canvasReadiness !== 'ready'
+            ) {
+                return false;
+            }
+            updateSlot(pageNumber, {layerReadiness: 'hydrating'});
+            return true;
+        },
+        markLayersReady(pageNumber: number, contentVersion: number, container: HTMLElement) {
+            const current = getSlot(pageNumber);
+            if (
+                current.canvasReadiness !== 'ready'
+                || current.contentVersion !== contentVersion
+                || current.container !== container
+            ) {
+                return false;
+            }
+            updateSlot(pageNumber, {layerReadiness: 'ready'});
+            return true;
+        },
+        failLayerHydration(pageNumber: number, version: number, requestId: number) {
+            const current = getSlot(pageNumber);
+            if (
+                current.job !== 'rendering'
+                || current.version !== version
+                || current.requestId !== requestId
+                || current.canvasReadiness !== 'ready'
+            ) {
+                return false;
+            }
+            updateSlot(pageNumber, {
+                layerReadiness: 'canvas-only',
+                job: 'idle',
+                version: null,
+                requestId: null,
+                pendingDocumentToken: null,
+                pendingTargetScale: null,
+                pendingTargetOutputScale: null,
+                pendingContainer: null,
             });
             return true;
         },
@@ -337,6 +486,27 @@ export function createPdfPageRenderState() {
                 pendingDocumentToken: null,
                 pendingTargetScale: null,
                 pendingTargetOutputScale: null,
+                pendingContainer: null,
+            });
+            return true;
+        },
+        adoptCommittedCanvasVersion(pageNumber: number, contentVersion: number) {
+            const current = getSlot(pageNumber);
+            if (current.canvasReadiness !== 'ready') {
+                return false;
+            }
+            updateSlot(pageNumber, {
+                contentVersion,
+                layerReadiness: current.layerReadiness === 'hydrating'
+                    ? 'canvas-only'
+                    : current.layerReadiness,
+                job: 'idle',
+                version: null,
+                requestId: null,
+                pendingDocumentToken: null,
+                pendingTargetScale: null,
+                pendingTargetOutputScale: null,
+                pendingContainer: null,
             });
             return true;
         },

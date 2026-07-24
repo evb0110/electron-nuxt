@@ -1,4 +1,5 @@
 import type { ICancelableRenderTask } from '@app/modules/pdf-viewer/runtime/rendering/pdfRendererTypes';
+import type { TPdfPageRenderContentIntent } from '@app/modules/pdf-viewer/engine/pdf-page-render-pipeline/bindPdfOpenSurfaceRenderContext';
 import type { MaybeRefOrGetter } from 'vue';
 import type { PDFPageProxy } from 'pdfjs-dist';
 import { AnnotationMode } from '@app/services/pdfjs/runtimeLib';
@@ -8,7 +9,7 @@ import { createHiddenAnnotationOperationsFilter } from '@app/modules/pdf-viewer/
 interface ICanvasRenderResult {
     canvas: HTMLCanvasElement;
     viewport: ReturnType<PDFPageProxy['getViewport']>;
-    annotationCanvasMap: Map<string, HTMLCanvasElement>;
+    annotationCanvasMap: Map<string, HTMLCanvasElement> | null;
     scaleX: number;
     scaleY: number;
     rawDims: {
@@ -32,6 +33,7 @@ interface IRenderCanvasOptions {
     sourceMaxPixels?: number;
     onRenderTask?: (task: ICancelableRenderTask) => void;
     hiddenAnnotationIds?: Set<string>;
+    contentIntent?: TPdfPageRenderContentIntent;
     reserveSurface?: ((bytes: number) => {release: () => void;} | null) | undefined;
     pageRenderCoordination?: {
         owner: string;
@@ -83,12 +85,12 @@ export const usePdfCanvasRenderer = (deps: {
         resultWithReservation.surfaceReservation?.release();
         resultWithReservation.surfaceReservation = undefined;
         cleanupCanvas(renderResult.canvas);
-        renderResult.annotationCanvasMap.forEach((annotationCanvas) => {
+        renderResult.annotationCanvasMap?.forEach((annotationCanvas) => {
             if (annotationCanvas !== renderResult.canvas) {
                 cleanupCanvas(annotationCanvas);
             }
         });
-        renderResult.annotationCanvasMap.clear();
+        renderResult.annotationCanvasMap?.clear();
     }
 
     function isValidViewportSize(width: number, height: number) {
@@ -200,6 +202,16 @@ export const usePdfCanvasRenderer = (deps: {
         pdfPage: PDFPageProxy,
         options?: IRenderCanvasOptions,
     ) {
+        if (
+            options?.contentIntent === 'canvas-only-buffer'
+            || options?.contentIntent === 'canvas-only-refine'
+        ) {
+            return {
+                annotationCanvasMap: null,
+                annotationMode: AnnotationMode?.DISABLE ?? 0,
+                operationsFilter: undefined,
+            };
+        }
         const annotationCanvasMap = new Map<string, HTMLCanvasElement>();
         const annotationMode = AnnotationMode?.ENABLE_FORMS ?? AnnotationMode?.ENABLE ?? 1;
         const operationsFilter = await createHiddenAnnotationOperationsFilter(
@@ -284,10 +296,13 @@ export const usePdfCanvasRenderer = (deps: {
             canvas,
             transform: createOutputTransform(canvasScale),
             viewport,
-            // Let PDF.js prepare separate annotation canvases for appearance-backed
-            // annotations (for example placed image stamps) while keeping the
-            // annotation layer responsible for attaching them into the DOM.
-            ...annotationOptions,
+            annotationMode: annotationOptions.annotationMode,
+            ...(annotationOptions.annotationCanvasMap
+                ? {annotationCanvasMap: annotationOptions.annotationCanvasMap}
+                : {}),
+            ...(annotationOptions.operationsFilter
+                ? {operationsFilter: annotationOptions.operationsFilter}
+                : {}),
         };
 
         return {

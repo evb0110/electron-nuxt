@@ -16,16 +16,21 @@ describe('pdfPageRenderState', () => {
 
         expect(state.getSlot(4)).toEqual({
             visual: 'none',
+            canvasReadiness: 'none',
+            layerReadiness: 'none',
             job: 'rendering',
             version: 2,
+            contentVersion: 2,
             requestId: 11,
             documentToken: 'document-a',
             targetScale: 2,
             targetOutputScale: 1,
+            container: null,
             committedRasterQuality: null,
             pendingDocumentToken: 'document-a',
             pendingTargetScale: 2,
             pendingTargetOutputScale: 1,
+            pendingContainer: null,
         });
         expect(state.renderedPages.has(4)).toBe(false);
     });
@@ -51,16 +56,21 @@ describe('pdfPageRenderState', () => {
 
         expect(state.getSlot(6)).toEqual({
             visual: 'none',
+            canvasReadiness: 'none',
+            layerReadiness: 'none',
             job: 'failed',
             version: 11,
+            contentVersion: 11,
             requestId: 15,
             documentToken: 'document-a',
             targetScale: 2,
             targetOutputScale: 1,
+            container: null,
             committedRasterQuality: null,
             pendingDocumentToken: 'document-a',
             pendingTargetScale: 2,
             pendingTargetOutputScale: 1,
+            pendingContainer: null,
         });
     });
 
@@ -113,6 +123,53 @@ describe('pdfPageRenderState', () => {
         })).toBe(false);
         expect(state.getSlot(3).requestId).toBe(12);
         expect(state.getSlot(3).visual).toBe('ready');
+    });
+
+    it('tracks canvas and layer readiness independently for the current mounted slot', () => {
+        const state = createPdfPageRenderState();
+        const container = {} as HTMLElement;
+        state.beginRender(3, 8, 21, 'document-a', 1.25, 2, container);
+        const bufferQuality = {
+            requestedPixels: 8_000_000,
+            grantedPixels: 2_000_000,
+            pixelScaleFactor: 0.5,
+            wasClamped: true,
+            intent: 'buffer-preview' as const,
+        };
+        expect(state.commitVisual(3, 8, 21, bufferQuality)).toBe(true);
+        expect(state.markCanvasOnly(3, 8, 21)).toBe(true);
+        expect(state.completeRender(3, 8, 21)).toBe(true);
+
+        expect(state.getSlot(3)).toEqual(expect.objectContaining({
+            canvasReadiness: 'ready',
+            layerReadiness: 'canvas-only',
+            contentVersion: 8,
+            container,
+        }));
+        expect(state.beginLayerHydration(3, 8, 22, 'document-a', 1.25, 2, container)).toBe(true);
+        expect(state.getSlot(3).layerReadiness).toBe('hydrating');
+        expect(state.markLayersReady(3, 8, container)).toBe(true);
+        expect(state.completeRender(3, 8, 22)).toBe(true);
+        expect(state.getSlot(3).layerReadiness).toBe('ready');
+        expect(state.getSlot(3).committedRasterQuality).toEqual(bufferQuality);
+        expect(state.adoptCommittedCanvasVersion(3, 9)).toBe(true);
+        expect(state.getSlot(3)).toEqual(expect.objectContaining({
+            canvasReadiness: 'ready',
+            committedRasterQuality: bufferQuality,
+            contentVersion: 9,
+            job: 'idle',
+            layerReadiness: 'ready',
+        }));
+
+        expect(state.beginLayerHydration(
+            3,
+            8,
+            23,
+            'document-a',
+            1.25,
+            2,
+            {} as HTMLElement,
+        )).toBe(false);
     });
 
     it('removes empty idle slots', () => {
