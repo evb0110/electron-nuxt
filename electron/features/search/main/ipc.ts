@@ -14,7 +14,6 @@ import { findWorkingCopyPathByOriginalPath } from '@electron/file-access/working
 import { getWorkingCopyRevision } from '@electron/file-access/documentRevisionStore';
 import { resolveAllowedReadPath } from '@electron/utils/pathValidator';
 import {
-    getSearchWorkerServiceConfig,
     SearchWorkerService,
     type ISearchOperationContext,
     type ISearchSenderContext,
@@ -79,9 +78,29 @@ export async function resolveSearchablePdfPath(pdfPath: string, senderWebContent
     return null;
 }
 
-export const searchWorkerService = new SearchWorkerService(resolveSearchWorkerPath);
 const log = createLogger('search-ipc');
 let appCleanupRegistered = false;
+let activeSearchWorkerService: SearchWorkerService | null = null;
+
+function getSearchWorkerService() {
+    activeSearchWorkerService ??= new SearchWorkerService(
+        resolveSearchWorkerPath,
+        SearchWorkerService.resolveCurrentHostResourcePolicy(),
+    );
+    return activeSearchWorkerService;
+}
+
+export const searchWorkerService = {
+    cancelRequestsForPdfPath(pdfPath: string, reason: string) {
+        return activeSearchWorkerService?.cancelRequestsForPdfPath(pdfPath, reason) ?? 0;
+    },
+    cleanupAll(reason: string) {
+        activeSearchWorkerService?.cleanupAll(reason);
+    },
+    async shutdown(reason: string) {
+        await activeSearchWorkerService?.shutdown(reason);
+    },
+};
 
 function normalizeSearchOperationContext(context: ISearchSenderContext): ISearchOperationContext {
     return {
@@ -128,7 +147,8 @@ async function handlePdfSearch(
         ));
     }
 
-    const dispatchPayload: Parameters<typeof searchWorkerService.dispatchSearchRequest>[1] = {
+    const service = getSearchWorkerService();
+    const dispatchPayload: Parameters<SearchWorkerService['dispatchSearchRequest']>[1] = {
         resolvedPdfPath,
         documentRevision: await resolveSearchDocumentRevision(resolvedPdfPath, request.documentRevision, operationContext.senderId),
         query,
@@ -150,7 +170,7 @@ async function handlePdfSearch(
         dispatchPayload.useRegex = useRegex;
     }
 
-    return searchWorkerService.dispatchSearchRequest(operationContext, dispatchPayload);
+    return service.dispatchSearchRequest(operationContext, dispatchPayload);
 }
 
 async function handlePdfSearchWarmIndex(
@@ -168,7 +188,8 @@ async function handlePdfSearchWarmIndex(
         ));
     }
 
-    const dispatchPayload: Parameters<typeof searchWorkerService.dispatchSearchRequest>[1] = {
+    const service = getSearchWorkerService();
+    const dispatchPayload: Parameters<SearchWorkerService['dispatchSearchRequest']>[1] = {
         resolvedPdfPath,
         documentRevision: await resolveSearchDocumentRevision(resolvedPdfPath, request.documentRevision, operationContext.senderId),
         query: '',
@@ -182,7 +203,7 @@ async function handlePdfSearchWarmIndex(
         dispatchPayload.requestId = request.requestId;
     }
 
-    await searchWorkerService.dispatchSearchRequest(operationContext, dispatchPayload);
+    await service.dispatchSearchRequest(operationContext, dispatchPayload);
 
     return true;
 }
@@ -190,13 +211,13 @@ async function handlePdfSearchWarmIndex(
 const searchMainBindings = {
     run: handlePdfSearch,
     warmIndex: handlePdfSearchWarmIndex,
-    cancel: (context, requestId) => searchWorkerService.cancel(context, requestId),
-    resetCache: () => searchWorkerService.resetCache(),
-    subscribeProgress: context => searchWorkerService.subscribeProgress(context),
+    cancel: (context, requestId) => getSearchWorkerService().cancel(context, requestId),
+    resetCache: () => getSearchWorkerService().resetCache(),
+    subscribeProgress: context => getSearchWorkerService().subscribeProgress(context),
 } satisfies TFeatureMainBindings<typeof SEARCH_PLATFORM_FEATURE, IpcMainInvokeEvent>;
 
 export function prepareSearchMainBindings() {
-    const serviceConfig = getSearchWorkerServiceConfig();
+    const serviceConfig = getSearchWorkerService().getConfig();
     log.info(
         'Registering search IPC handlers '
         + `(requestTimeoutMs=${serviceConfig.requestTimeoutMs}, idleTtlMs=${serviceConfig.idleTtlMs}, maxActive=${serviceConfig.maxActive})`,
@@ -204,7 +225,7 @@ export function prepareSearchMainBindings() {
     if (!appCleanupRegistered) {
         appCleanupRegistered = true;
         app.on('before-quit', () => {
-            searchWorkerService.cleanupAll('App shutting down');
+            activeSearchWorkerService?.cleanupAll('App shutting down');
         });
     }
     return searchMainBindings;
