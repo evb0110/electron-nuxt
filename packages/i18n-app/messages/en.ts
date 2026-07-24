@@ -1442,7 +1442,7 @@ export default {
         'performanceModeAuto': 'Auto (recommended)',
         'performanceModeLow': 'Low — minimize background work',
         'performanceModeMedium': 'Medium — balanced',
-        'performanceModeHigh': 'High — maximize throughput',
+        'performanceModeHigh': 'High — maximum speed',
     },
     'updates': {
         'checkingTitle': 'Checking for updates',

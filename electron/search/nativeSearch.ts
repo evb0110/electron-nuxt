@@ -41,6 +41,7 @@ const isPackaged = __dirname.includes('app.asar');
 const log = createLogger('native-search');
 const HEADER_SIZE = 64;
 const PAGE_RECORD_SIZE = 24;
+const DEFAULT_NATIVE_SEARCH_SERVICE_IDLE_TIMEOUT_MS = 5 * 60_000;
 const NATIVE_SEARCH_TIMEOUT_MS = (() => {
     const parsed = Number.parseInt(process.env.EVB_PDF_SEARCH_TIMEOUT_MS ?? '30000', 10);
     if (!Number.isFinite(parsed) || parsed < 5_000) {
@@ -64,6 +65,7 @@ interface INativeSearchOptions extends IResolvedSearchMatchOptions {
     pdfPath: string;
     documentRevision: TDocumentRevisionToken;
     query: string;
+    nativeServiceIdleTimeoutMs?: number;
     pageCount?: number;
     signal?: AbortSignal;
 }
@@ -400,6 +402,8 @@ export async function tryRunNativeSearch(options: INativeSearchOptions): Promise
             query: options.query,
         }, {
             ...(options.signal === undefined ? {} : {signal: options.signal}),
+            idleTimeoutMs: options.nativeServiceIdleTimeoutMs
+                ?? DEFAULT_NATIVE_SEARCH_SERVICE_IDLE_TIMEOUT_MS,
             timeoutMs: NATIVE_SEARCH_TIMEOUT_MS,
         });
     } catch (error) {

@@ -8,12 +8,12 @@ import {
     uniq,
 } from 'es-toolkit/array';
 import {
+    createReadStream,
     createWriteStream,
     existsSync,
     openSync,
     readSync,
     closeSync,
-    readFileSync,
     statSync,
 } from 'fs';
 import {
@@ -45,6 +45,7 @@ import { measureElectronPerfAsync } from '@electron/utils/measureElectronPerfAsy
 import { AVAILABLE_OCR_LANGUAGE_CODES } from '@electron/ocr/availableLanguages';
 import { getErrorMessage } from '@electron/utils/error';
 import { parseIntegerEnv } from '@electron/utils/parseIntegerEnv';
+import { getOcrRuntimePolicy } from '@electron/ocr/ocrRuntimePolicy';
 import { resolveOcrResourcesBase } from '@electron/ocr/resolveOcrResourcesBase';
 import { OCR_LANGUAGE_MODEL_SHA256 } from '@contracts/ocrLanguages';
 
@@ -93,7 +94,6 @@ const globalDownloadWaiters: Array<{
     abortHandler?: () => void;
 }> = [];
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const OCR_MODEL_DOWNLOAD_CONCURRENCY = parseIntegerEnv('EVB_OCR_MODEL_DOWNLOAD_CONCURRENCY', 3, 1, 8);
 const OCR_MAX_UNIQUE_MODEL_CODES = parseIntegerEnv(
     'EVB_OCR_MAX_UNIQUE_LANGUAGES_PER_JOB',
     AVAILABLE_OCR_LANGUAGE_CODES.size,
@@ -643,6 +643,35 @@ async function writeDownloadResponseBody(
     await writeFile(tempPath, Buffer.from(arrayBuffer), { signal });
 }
 
+export async function hashFileSha256(
+    path: string,
+    signal?: AbortSignal,
+) {
+    throwIfAborted(signal);
+    const hash = createHash('sha256');
+    const stream = createReadStream(path);
+    const onAbort = () => {
+        if (signal) {
+            stream.destroy(abortErrorFromSignal(signal));
+        }
+    };
+
+    signal?.addEventListener('abort', onAbort, { once: true });
+    try {
+        for await (const rawChunk of stream) {
+            const chunk: unknown = rawChunk;
+            if (!(chunk instanceof Uint8Array)) {
+                throw new Error(`OCR model stream returned a non-binary chunk: ${path}`);
+            }
+            hash.update(chunk);
+        }
+        throwIfAborted(signal);
+        return hash.digest('hex');
+    } finally {
+        signal?.removeEventListener('abort', onAbort);
+    }
+}
+
 async function downloadLanguageModelAttempt(
     languageCode: string,
     languageUrl: string,
@@ -675,7 +704,7 @@ async function downloadLanguageModelAttempt(
             throw new Error(validation.error ?? 'Downloaded model is not a readable traineddata file');
         }
         const expectedSha256 = OCR_LANGUAGE_MODEL_SHA256[languageCode as keyof typeof OCR_LANGUAGE_MODEL_SHA256];
-        const actualSha256 = createHash('sha256').update(readFileSync(tempPath)).digest('hex');
+        const actualSha256 = await hashFileSha256(tempPath, timedSignal.signal);
         if (!expectedSha256 || actualSha256 !== expectedSha256) {
             throw new LanguageModelDownloadError(
                 `OCR language model "${languageCode}" failed SHA-256 verification.`,
@@ -830,8 +859,15 @@ async function ensureLanguageModel(
     }
 }
 
+function getModelDownloadConcurrency() {
+    return getOcrRuntimePolicy().modelDownloadConcurrency;
+}
+
 function activateNextGlobalDownloadWaiter() {
-    while (globalDownloadWaiters.length > 0 && activeModelDownloads < OCR_MODEL_DOWNLOAD_CONCURRENCY) {
+    while (
+        globalDownloadWaiters.length > 0
+        && activeModelDownloads < getModelDownloadConcurrency()
+    ) {
         const next = globalDownloadWaiters.shift();
         if (!next) {
             continue;
@@ -856,7 +892,7 @@ function releaseGlobalModelDownloadSlot() {
 
 function acquireGlobalModelDownloadSlot(signal?: AbortSignal): Promise<() => void> {
     throwIfAborted(signal);
-    if (activeModelDownloads < OCR_MODEL_DOWNLOAD_CONCURRENCY) {
+    if (activeModelDownloads < getModelDownloadConcurrency()) {
         activeModelDownloads++;
         return Promise.resolve(releaseGlobalModelDownloadSlot);
     }
@@ -909,7 +945,7 @@ export async function ensureTessdataLanguages(
     const runtimeDir = getRuntimeTessdataDir();
     await ensureRuntimeTessdataSeeded(options);
     // Bound parallel model downloads so OCR requests cannot flood network/disk resources.
-    await forEachConcurrent(requiredCodes, OCR_MODEL_DOWNLOAD_CONCURRENCY, async (languageCode) => {
+    await forEachConcurrent(requiredCodes, getModelDownloadConcurrency(), async (languageCode) => {
         await ensureLanguageModel(languageCode, runtimeDir, options);
     });
 }

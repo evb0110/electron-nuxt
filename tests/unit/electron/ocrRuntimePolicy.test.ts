@@ -7,7 +7,7 @@ import type {
     IHostResourceProfileSnapshot,
     THostResourceTier,
 } from '@contracts/hostResourceProfile';
-import { resolveOcrResourcePolicy } from '@electron/ocr/ocrRuntimePolicy';
+import { resolveOcrRuntimePolicy } from '@electron/ocr/ocrRuntimePolicy';
 
 const GIB = 1024 ** 3;
 
@@ -26,29 +26,64 @@ function createResourceProfile(
     };
 }
 
-describe('resolveOcrResourcePolicy', () => {
-    it('uses one page and worker slot on low-tier hosts', () => {
-        expect(resolveOcrResourcePolicy(
-            createResourceProfile(4, 8 * GIB, 'low'),
+describe('resolveOcrRuntimePolicy', () => {
+    it.each([
+        {
+            tier: 'low',
+            workerPoolSize: 1,
+            modelDownloadConcurrency: 1,
+        },
+        {
+            tier: 'medium',
+            workerPoolSize: 2,
+            modelDownloadConcurrency: 3,
+        },
+        {
+            tier: 'high',
+            workerPoolSize: 2,
+            modelDownloadConcurrency: 3,
+        },
+    ] satisfies Array<{
+        tier: THostResourceTier;
+        workerPoolSize: number;
+        modelDownloadConcurrency: number;
+    }>)('resolves the $tier tier worker pool and model download limits', ({
+        tier,
+        workerPoolSize,
+        modelDownloadConcurrency,
+    }) => {
+        expect(resolveOcrRuntimePolicy(
+            createResourceProfile(4, 8 * GIB, tier),
             {},
-        )).toEqual({globalPageSlots: 1});
+        )).toMatchObject({
+            workerPoolSize,
+            modelDownloadConcurrency,
+        });
     });
 
     it('preserves the existing medium and high formulas', () => {
-        expect(resolveOcrResourcePolicy(
+        expect(resolveOcrRuntimePolicy(
             createResourceProfile(8, 16 * GIB, 'medium'),
             {},
-        )).toEqual({globalPageSlots: 4});
-        expect(resolveOcrResourcePolicy(
+        ).globalPageSlots).toBe(4);
+        expect(resolveOcrRuntimePolicy(
             createResourceProfile(16, 32 * GIB, 'high'),
             {},
-        )).toEqual({globalPageSlots: 8});
+        ).globalPageSlots).toBe(8);
     });
 
     it('gives environment overrides highest precedence', () => {
-        expect(resolveOcrResourcePolicy(
+        expect(resolveOcrRuntimePolicy(
             createResourceProfile(2, 4 * GIB, 'low'),
-            {OCR_GLOBAL_PAGE_SLOTS: '12'},
-        )).toEqual({globalPageSlots: 8});
+            {
+                OCR_GLOBAL_PAGE_SLOTS: '12',
+                EVB_OCR_WORKER_POOL_SIZE: '5',
+                EVB_OCR_MODEL_DOWNLOAD_CONCURRENCY: '12',
+            },
+        )).toEqual({
+            globalPageSlots: 8,
+            workerPoolSize: 5,
+            modelDownloadConcurrency: 8,
+        });
     });
 });

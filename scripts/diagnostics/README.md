@@ -5,6 +5,30 @@ isolated Electron sessions, diagnostic trace buffers, timed sampling, optional f
 capture, artifact writes, and cleanup. Their package commands, acceptance thresholds,
 and JSON schemas remain scenario-specific.
 
+## Save-pipeline timing
+
+The save timing diagnostic extends the existing hidden-session save-pipeline benchmark;
+it does not maintain a separate harness. Run either entry point:
+
+```bash
+pnpm run benchmark:save-pipeline -- --fixture /absolute/path/to/source.pdf --iterations 10 --output .devkit/analysis/save-pipeline.json
+pnpm run diag:pdf-save-timing -- --pdf /absolute/path/to/source.pdf --iterations 10 --out .devkit/analysis/save-pipeline.json
+```
+
+`--pdf` aliases `--fixture`, and `--out` aliases `--output`. The source must be an
+absolute, non-empty PDF path. The benchmark builds the native page-operations tool and
+Electron, then runs native FreeText and serialized-fallback saves at the configured low
+and high tiers in isolated hidden sessions.
+
+The top-level JSON retains the existing schema-version, generation time, fixture size,
+warmup/iteration counts, clone mode, and scenario fields. It additionally records the
+normalized `inputPath` and `outputPath`, plus the synchronous `hostProfile` snapshot and
+its effective `hostTier`. Each scenario retains its numeric `totalMs.samples`, p50/p95,
+peak RSS, I/O and phase placeholders, byte counts, output SHA-256, and semantic-reopen
+summary. Its additive `iterationMeasurements` entries contain `iteration`, `timestamp`,
+`beforeBytes`, `afterBytes`, and `durationMs`; the scenario also records the synchronous
+profile effective for that hidden session and the source/working-output paths.
+
 ## Scan-cleanup release corpus
 
 Copy `scan-cleanup-corpus-config.example.json` to the ignored

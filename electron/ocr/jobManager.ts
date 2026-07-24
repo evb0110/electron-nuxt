@@ -5,7 +5,7 @@ import {
     OCR_QUEUE_MAX_AGE_MS,
     OCR_QUEUE_MAX_SIZE,
     OCR_RESULT_FILE_ACK_TTL_MS,
-    OCR_WORKER_POOL_SIZE,
+    getOcrWorkerPoolSize,
 } from '@electron/ocr/jobManager.config';
 import { prepareLanguageModelsForJob } from '@electron/ocr/prepareLanguageModelsForJob.modelPrep';
 import {
@@ -263,8 +263,9 @@ function ensureQueueCapacity(
 }
 
 function logQueueDepth(context: string) {
+    const workerPoolSize = getOcrWorkerPoolSize();
     log.debug(
-        `${context}: active=${activeJobs.size}/${OCR_WORKER_POOL_SIZE}, broker-pending=${preparingJobs.size}/${OCR_QUEUE_MAX_SIZE}, bufferedMB=${(getBufferedOcrBytes({
+        `${context}: active=${activeJobs.size}/${workerPoolSize}, broker-pending=${preparingJobs.size}/${OCR_QUEUE_MAX_SIZE}, bufferedMB=${(getBufferedOcrBytes({
             activeJobs: activeJobs.values(),
             preparingJobs,
         }) / (1024 * 1024)).toFixed(1)}`,
@@ -288,6 +289,21 @@ function handleWorkerMessage(
     worker: Worker,
     message: TOcrWorkerManagerMessage,
 ) {
+    const acceptWorkerMessage = (incomingJobId: string, label: string) => {
+        const disposition = getOcrWorkerMessageDisposition({
+            incomingJobId,
+            expectedRequestId: requestId,
+            isCurrentWorker: isCurrentActiveWorker(scopedJobId, worker),
+        });
+        if (!disposition.accepted) {
+            if (disposition.reason === 'mismatched-job-id') {
+                log.warn(`Ignoring OCR ${label} for mismatched job id "${incomingJobId}" (expected "${requestId}")`);
+            } else {
+                log.debug(`Ignoring late OCR ${label} for inactive job "${requestId}"`);
+            }
+        }
+        return disposition.accepted;
+    };
     switch (message.type) {
         case 'log':
             if (message.level === 'warn') {
@@ -299,17 +315,7 @@ function handleWorkerMessage(
             }
             return;
         case 'progress': {
-            const disposition = getOcrWorkerMessageDisposition({
-                incomingJobId: message.jobId,
-                expectedRequestId: requestId,
-                isCurrentWorker: isCurrentActiveWorker(scopedJobId, worker),
-            });
-            if (!disposition.accepted) {
-                if (disposition.reason === 'mismatched-job-id') {
-                    log.warn(`Ignoring OCR progress for mismatched job id "${message.jobId}" (expected "${requestId}")`);
-                } else {
-                    log.debug(`Ignoring late OCR progress for inactive job "${requestId}"`);
-                }
+            if (!acceptWorkerMessage(message.jobId, 'progress')) {
                 return;
             }
             const activeJob = activeJobs.get(scopedJobId);
@@ -344,17 +350,7 @@ function handleWorkerMessage(
             return;
         }
         case 'cleanup-complete': {
-            const disposition = getOcrWorkerMessageDisposition({
-                incomingJobId: message.jobId,
-                expectedRequestId: requestId,
-                isCurrentWorker: isCurrentActiveWorker(scopedJobId, worker),
-            });
-            if (!disposition.accepted) {
-                if (disposition.reason === 'mismatched-job-id') {
-                    log.warn(`Ignoring OCR cleanup completion for mismatched job id "${message.jobId}" (expected "${requestId}")`);
-                } else {
-                    log.debug(`Ignoring late OCR cleanup completion for inactive job "${requestId}"`);
-                }
+            if (!acceptWorkerMessage(message.jobId, 'cleanup completion')) {
                 return;
             }
 
@@ -615,6 +611,7 @@ async function admitPreparedOcrJob(
     preparingJob: IOcrPreparingJob,
     queuedJob: IOcrQueuedJob,
 ) {
+    const workerPoolSize = getOcrWorkerPoolSize();
     const timeoutController = new AbortController();
     const queueTimeout = setTimeout(() => {
         timeoutController.abort(new DOMException(
@@ -635,7 +632,7 @@ async function admitPreparedOcrJob(
             kind: 'ocr-worker',
             priority: 'user',
             resources: OCR_WORKER_ADMISSION_RESOURCES,
-            perOwnerLimit: OCR_WORKER_POOL_SIZE,
+            perOwnerLimit: workerPoolSize,
             signal: admissionSignal,
         });
         if (

@@ -195,6 +195,39 @@ describe('workingCopyMaterialization', () => {
         expect(readFileSync(fixture.workingPath)).toEqual(fixture.bytes);
     }, 15_000);
 
+    it('keeps a flight background-leased when the lease attaches after a demand waiter', async () => {
+        const fixture = await registerLazyWorkingCopy(Buffer.alloc(2 * 1024 * 1024, 27));
+        const {
+            ensureWorkingCopyMaterialized,
+            startBackgroundWorkingCopyMaterialization,
+        } = await import('@electron/file-access/workingCopyMaterialization');
+        const demandController = new AbortController();
+
+        const demandWaiter = ensureWorkingCopyMaterialized(fixture.workingPath, {
+            ownerWebContentsId: 7,
+            reason: 'save',
+            signal: demandController.signal,
+        });
+        const backgroundHolder = startBackgroundWorkingCopyMaterialization(fixture.workingPath, 7);
+        expect(backgroundHolder).not.toBeNull();
+        demandController.abort();
+
+        const [
+            demandResult,
+            backgroundResult,
+        ] = await Promise.allSettled([
+            demandWaiter,
+            backgroundHolder!.promise,
+        ]);
+
+        expect(demandResult).toMatchObject({
+            status: 'rejected',
+            reason: {code: 'WORKING_COPY_MATERIALIZATION_CANCELLED'},
+        });
+        expect(backgroundResult.status).toBe('fulfilled');
+        expect(readFileSync(fixture.workingPath)).toEqual(fixture.bytes);
+    }, 15_000);
+
     it('explicitly cancels shared work, removes its partial, and permits retry', async () => {
         const fixture = await registerLazyWorkingCopy(Buffer.alloc(2 * 1024 * 1024, 29));
         const {

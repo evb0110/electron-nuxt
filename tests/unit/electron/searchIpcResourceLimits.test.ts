@@ -13,6 +13,7 @@ interface ISearchResourceLimitMockWorkerRecord {
     onceHandlers: Map<string, Array<(arg: unknown) => void>>;
     postMessageCalls: Array<Record<string, unknown>>;
     terminate: ReturnType<typeof vi.fn<() => Promise<number>>>;
+    workerData: unknown;
 }
 
 const mocks = vi.hoisted(() => ({
@@ -35,6 +36,7 @@ const mocks = vi.hoisted(() => ({
     },
     autoCompleteSearch: true,
     existsSync: vi.fn(),
+    resourceTier: 'medium' as 'low' | 'medium' | 'high',
 }));
 
 function emitWorkerEvent(
@@ -122,14 +124,15 @@ function emitWorkerProgressWithResults(
 vi.mock('worker_threads', () => ({Worker: class {
     private record: ISearchResourceLimitMockWorkerRecord;
 
-    constructor(workerPath: string) {
+    constructor(workerPath: string, options: {workerData?: unknown} = {}) {
         this.record = {
             onHandlers: new Map(),
             onceHandlers: new Map(),
             postMessageCalls: [],
             terminate: vi.fn(async () => 0),
+            workerData: options.workerData,
         };
-        mocks.workerCtor(workerPath);
+        mocks.workerCtor(workerPath, options);
         mocks.workerRecords.push(this.record);
     }
 
@@ -192,6 +195,14 @@ vi.mock('@electron/file-access/workingCopyStore', () => ({
 vi.mock('@electron/file-access/documentRevisionStore', () => ({getWorkingCopyRevision: (...args: unknown[]) => mocks.getWorkingCopyRevision(...args)}));
 vi.mock('@electron/utils/createLogger', () => ({createLogger: () => mocks.logger}));
 vi.mock('fs', () => ({existsSync: (...args: unknown[]) => mocks.existsSync(...args)}));
+vi.mock('@electron/resources/hostResourceProfile', () => ({getHostResourceProfileSnapshot: () => ({
+    logicalCpus: 4,
+    totalRamBytes: 16 * 1024 ** 3,
+    safeMode: false,
+    detectedTier: mocks.resourceTier,
+    performanceMode: 'auto',
+    tier: mocks.resourceTier,
+})}));
 
 function createInvokeEvent(senderId: number) {
     const send = vi.fn();
@@ -272,12 +283,18 @@ describe('search IPC worker resource limits', () => {
         mocks.workerRecords.length = 0;
         mocks.webContentsById.clear();
         mocks.autoCompleteSearch = true;
+        mocks.resourceTier = 'medium';
 
         delete process.env.EVB_SEARCH_WORKER_MAX_ACTIVE;
         delete process.env.EVB_SEARCH_WORKER_IDLE_TTL_MS;
         delete process.env.EVB_SEARCH_WORKER_TERMINATE_TIMEOUT_MS;
         delete process.env.EVB_SEARCH_REQUEST_TIMEOUT_MS;
         delete process.env.EVB_SEARCH_CANCEL_ACK_TIMEOUT_MS;
+        delete process.env.EVB_PDF_SEARCH_SERVICE_IDLE_TIMEOUT_MS;
+        delete process.env.EVB_SEARCH_INDEX_CACHE_MAX_ENTRIES;
+        delete process.env.EVB_SEARCH_INDEX_CACHE_TTL_MS;
+        delete process.env.EVB_SEARCH_MAX_PAGE_TEXT_BYTES;
+        delete process.env.EVB_SEARCH_MAX_TOTAL_TEXT_BYTES;
 
         mocks.resolveAllowedReadPath.mockResolvedValue('/tmp/allowed.pdf');
         mocks.findWorkingCopyPathByOriginalPath.mockReturnValue(null);
@@ -377,6 +394,53 @@ describe('search IPC worker resource limits', () => {
         expect(mocks.workerRecords).toHaveLength(1);
 
         emitWorkerComplete(0, 'req-1');
+        await expect(firstRequest).resolves.toEqual({
+            results: [],
+            truncated: false,
+        });
+    });
+
+    it('uses low-tier one-worker admission and passes the low residency policy', async () => {
+        mocks.resourceTier = 'low';
+        mocks.autoCompleteSearch = false;
+
+        await registerSearchHandlers();
+        const searchHandler = getSearchHandler();
+        const firstRequest = searchHandler(
+            createInvokeEvent(10),
+            {
+                pdfPath: '/tmp/one.pdf',
+                query: 'first',
+                requestId: 'req-low-1',
+            },
+        ) as Promise<{
+            results: unknown[];
+            truncated: boolean;
+        }>;
+
+        await vi.waitFor(() => {
+            expect(mocks.workerRecords).toHaveLength(1);
+        });
+        expect(mocks.workerRecords[0]?.workerData).toEqual({
+            nativeServiceIdleTimeoutMs: 60_000,
+            resourcePolicy: {
+                indexCacheMaxEntries: 1,
+                indexCacheTtlMs: 120_000,
+                maxPageTextBytes: 2 * 1024 * 1024,
+                maxTotalTextBytes: 48 * 1024 * 1024,
+            },
+        });
+
+        await expect(searchHandler(
+            createInvokeEvent(20),
+            {
+                pdfPath: '/tmp/two.pdf',
+                query: 'second',
+                requestId: 'req-low-2',
+            },
+        )).rejects.toThrow('Search worker limit reached (1 active senders)');
+
+        emitWorkerComplete(0, 'req-low-1');
         await expect(firstRequest).resolves.toEqual({
             results: [],
             truncated: false,

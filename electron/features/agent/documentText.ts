@@ -41,7 +41,10 @@ export interface IAgentDocumentTextOperationInput<TOptions> {
 }
 
 const logger = createLogger('agent-document-text');
-const agentSearchWorkerService = new SearchWorkerService(resolveSearchWorkerPath);
+const agentSearchWorkerService = new SearchWorkerService(
+    resolveSearchWorkerPath,
+    SearchWorkerService.resolveCurrentHostResourcePolicy,
+);
 const DEFAULT_SEARCH_RESULT_LIMIT = 25;
 const MAX_SEARCH_RESULT_LIMIT = 100;
 const DEFAULT_PAGE_TEXT_CHARS = 6000;

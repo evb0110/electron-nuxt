@@ -82,6 +82,33 @@ describe('browserDjvuCapability', () => {
         ], 8)).toBe(1);
     });
 
+    it.each([
+        [
+            'low',
+            1,
+        ],
+        [
+            'medium',
+            3,
+        ],
+        [
+            'high',
+            3,
+        ],
+    ] as const)('clamps %s-tier browser DjVu conversion concurrency to %i', (tier, expectedConcurrency) => {
+        const ordinaryPages = Array.from({length: 10}, () => ({
+            width: 2_400,
+            height: 3_200,
+        }));
+
+        expect(resolveBrowserDjvuPdfRenderConcurrency(
+            ordinaryPages,
+            8,
+            0,
+            tier,
+        )).toBe(expectedConcurrency);
+    });
+
     it('falls compact web export back to streaming direct export when page specs exceed the memory budget', () => {
         expect(resolveBrowserDjvuCompactExportPlan([{
             width: 100,

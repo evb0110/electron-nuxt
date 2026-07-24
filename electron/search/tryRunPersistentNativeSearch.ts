@@ -17,12 +17,6 @@ const SEARCH_SERVICE_IDLE_TIMEOUT_MS = 5 * 60_000;
 const SEARCH_SERVICE_MAX_FRAME_BYTES = 4 * 1024 * 1024;
 const SEARCH_SERVICE_MAX_STDERR_BYTES = 64 * 1024;
 
-function resolveSearchServiceIdleTimeoutMs() {
-    const configured = Number.parseInt(process.env.EVB_PDF_SEARCH_SERVICE_IDLE_TIMEOUT_MS ?? '', 10);
-    return Number.isSafeInteger(configured) && configured > 0
-        ? configured
-        : SEARCH_SERVICE_IDLE_TIMEOUT_MS;
-}
 class NativeSearchServiceError extends Error {
     constructor(readonly code: TNativeErrorCode, message: string) {
         super(message);
@@ -58,7 +52,11 @@ class PersistentNativeSearchService {
     private stderr = '';
     private stderrTruncated = false;
 
-    constructor(binaryPath: string, private readonly onStopped: () => void) {
+    constructor(
+        binaryPath: string,
+        private readonly idleTimeoutMs: number,
+        private readonly onStopped: () => void,
+    ) {
         this.child = spawn(binaryPath, ['serve'], {
             stdio: [
                 'pipe',
@@ -101,7 +99,7 @@ class PersistentNativeSearchService {
             if (this.pending.size === 0) {
                 this.stop(new Error('Persistent native search service idle timeout'));
             }
-        }, resolveSearchServiceIdleTimeoutMs());
+        }, this.idleTimeoutMs);
         this.idleTimer.unref();
     }
 
@@ -340,6 +338,7 @@ export async function tryRunPersistentNativeSearch(
     binaryPath: string,
     request: IPersistentNativeSearchRequest,
     options: {
+        idleTimeoutMs?: number;
         signal?: AbortSignal;
         timeoutMs: number
     },
@@ -352,7 +351,11 @@ export async function tryRunPersistentNativeSearch(
     }
     let service = services.get(binaryPath);
     if (!service) {
-        service = new PersistentNativeSearchService(binaryPath, () => services.delete(binaryPath));
+        service = new PersistentNativeSearchService(
+            binaryPath,
+            options.idleTimeoutMs ?? SEARCH_SERVICE_IDLE_TIMEOUT_MS,
+            () => services.delete(binaryPath),
+        );
         services.set(binaryPath, service);
     }
     return service.search(request, options);

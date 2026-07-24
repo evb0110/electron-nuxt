@@ -273,7 +273,6 @@ watch(activeTabId, (tabId) => {
     if (!tabId) {
         return;
     }
-
     tabActivationOrder.value = [
         tabId,
         ...tabActivationOrder.value.filter(candidate => candidate !== tabId),
@@ -293,6 +292,7 @@ const tabLifecycleById = computed(() => Object.fromEntries(
         panes: panes.value,
         policy: appSettings.value.tabMemoryPolicy,
         tabs: tabs.value,
+        tier: workspaceMemoryBudget.value.deviceTier,
         targetWarmViewers: workspaceMemoryBudget.value.targetWarmViewers,
     }).map(state => [
         state.tabId,

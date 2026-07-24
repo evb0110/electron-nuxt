@@ -64,6 +64,7 @@ const expectedScriptNames = [
     'electron:run',
     'electron:run:headless',
     'diag:pdf-navigation-blink-trace',
+    'diag:pdf-save-timing',
     'diag:ocr-profile-benchmark',
     'test:ocr:native-smoke:required',
     'diag:pdf-skeleton-navigation',
@@ -71,6 +72,7 @@ const expectedScriptNames = [
     'diag:arnold-pdf-open',
     'diag:scan-cleanup-corpus-verify',
     'diag:pdf-tabs:ci',
+    'benchmark:save-pipeline',
     'dist',
     'release:verify:checks',
     'release:verify:package:local',
@@ -138,7 +140,7 @@ describe('package scripts', () => {
         const scripts = await readPackageScripts();
 
         expect(Object.keys(scripts)).toEqual(expectedScriptNames);
-        expect(Object.keys(scripts)).toHaveLength(88);
+        expect(Object.keys(scripts)).toHaveLength(90);
         expect(Object.keys(scripts).filter(name => name.startsWith('check:'))).toHaveLength(12);
         expect(Object.keys(scripts).filter(name => name.startsWith('test:'))).toHaveLength(20);
         expect(Object.keys(scripts).filter(name => name.startsWith('typecheck:')))
@@ -369,6 +371,12 @@ describe('package scripts', () => {
             'pnpm run build:electron',
             'pnpm exec tsx scripts/diagnostics/pdfNavigationBlinkTrace.ts',
         ]);
+        expect(scripts['diag:pdf-save-timing']).toBe(
+            'node scripts/benchmark-save-pipeline.mjs',
+        );
+        expect(scripts['benchmark:save-pipeline']).toBe(
+            'node scripts/benchmark-save-pipeline.mjs',
+        );
         expect(scriptCommands(scripts, 'diag:pdf-skeleton-navigation')).toEqual([
             'pnpm run build:electron',
             'pnpm exec tsx scripts/diagnostics/runPdfSkeletonNavigationDiagnostics.ts',

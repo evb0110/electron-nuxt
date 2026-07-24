@@ -507,6 +507,9 @@ function createFlight(
     const key = createFlightKey(logicalRef, entry.registrationId);
     const existingFlight = flights.get(key);
     if (existingFlight) {
+        if (backgroundLease) {
+            existingFlight.backgroundLease = true;
+        }
         return existingFlight;
     }
 
@@ -588,6 +591,9 @@ function getOrCreateFlight(
     const key = createFlightKey(logicalRef, entry.registrationId);
     const existingFlight = flights.get(key);
     if (existingFlight) {
+        if (backgroundLease) {
+            existingFlight.backgroundLease = true;
+        }
         return existingFlight;
     }
     if (entry.backingState === 'materializing') {

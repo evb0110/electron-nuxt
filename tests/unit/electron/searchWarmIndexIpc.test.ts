@@ -110,6 +110,14 @@ vi.mock('@electron/file-access/workingCopyStore', () => ({
     normalizePathForLookup: (path: string) => path.trim(),
 }));
 vi.mock('@electron/file-access/documentRevisionStore', () => ({getWorkingCopyRevision: mocks.getWorkingCopyRevision}));
+vi.mock('@electron/resources/hostResourceProfile', () => ({getHostResourceProfileSnapshot: () => ({
+    logicalCpus: 4,
+    totalRamBytes: 16 * 1024 ** 3,
+    safeMode: false,
+    detectedTier: 'high',
+    performanceMode: 'auto',
+    tier: 'high',
+})}));
 vi.mock('@electron/utils/createLogger', () => ({createLogger: () => mocks.logger}));
 
 const DOCUMENT_REVISION = 'revision-token';

@@ -140,6 +140,7 @@ describe('workspace memory pressure monitor', () => {
             panes,
             policy: 'conservative',
             tabs,
+            tier: budget.value.deviceTier,
             targetWarmViewers: budget.value.targetWarmViewers,
         }).map(state => [
             state.tabId,
