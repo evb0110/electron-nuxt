@@ -244,6 +244,7 @@
                                 <span
                                     v-if="item.startsGroup"
                                     class="chip-group"
+                                    aria-hidden="true"
                                 >
                                     {{ t(getLanguagePickerGroupKey(item.group), undefined) }}
                                 </span>

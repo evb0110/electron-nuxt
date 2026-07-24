@@ -141,6 +141,26 @@ describe('OCR language picker ordering and filtering', () => {
         expect(items.find(item => item.value === 'spa')?.modelState).toBe('error');
     });
 
+    it('only treats quoted codes as failures, not prose words', () => {
+        const withNorwegian = [
+            ...languages,
+            {
+                code: 'nor',
+                script: 'latin',
+                modelState: 'missing',
+            },
+        ] satisfies IOcrLanguage[];
+
+        expect(findFailedOcrLanguageCodes(
+            withNorwegian,
+            'Neither the proxy nor the network allowed the download',
+        )).toEqual(new Set());
+        expect(findFailedOcrLanguageCodes(
+            withNorwegian,
+            'OCR language model "nor" is unavailable (HTTP 404). Verify language configuration and try again.',
+        )).toEqual(new Set(['nor']));
+    });
+
     it('shows scaling hints only beyond their thresholds', () => {
         expect(shouldShowOcrLanguageSearch(12)).toBe(false);
         expect(shouldShowOcrLanguageSearch(13)).toBe(true);

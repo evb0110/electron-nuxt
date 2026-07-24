@@ -102,9 +102,7 @@ export function resolveOcrLanguageDisplayName(
             && localizedName.toLocaleLowerCase(locale) !== languageTag.toLocaleLowerCase(locale)
             && localizedName.toLocaleLowerCase(locale) !== code.toLocaleLowerCase(locale)
         ) {
-            return code === 'kmr'
-                ? `${localizedName} (Kurmanji)`
-                : localizedName;
+            return localizedName;
         }
     } catch {
         // Fall through to the canonical English name when ICU rejects a tag.
@@ -122,18 +120,17 @@ export function findFailedOcrLanguageCodes(
     const normalizedError = error.toLocaleLowerCase();
     return new Set(languages
         .map(language => language.code)
-        .filter(code => new RegExp(`(?:^|[^a-z0-9_])${code}(?:$|[^a-z0-9_])`, 'u')
-            .test(normalizedError)));
+        .filter(code => normalizedError.includes(`"${code}"`)));
 }
 
 export function buildOcrLanguagePickerItems(
     languages: readonly IOcrLanguage[],
-    selectedLanguages: readonly string[],
+    groupingSelection: readonly string[],
     locale: TLocale,
     searchQuery: string,
     failedLanguageCodes: ReadonlySet<string>,
 ) {
-    const selectedCodes = new Set(selectedLanguages);
+    const selectedCodes = new Set(groupingSelection);
     const displayNames = createLanguageDisplayNames(locale);
     const normalizedQuery = searchQuery.trim().toLocaleLowerCase(locale);
     const groupOrder: Record<TOcrLanguagePickerGroup, number> = {
@@ -261,6 +258,8 @@ export const useOcrPopupPresenter = ({
     const activeOcrSourcePage = ref<number | null>(null);
     const pendingAppliedOcrRequestId = ref<string | null>(null);
     const languageSearchQuery = ref('');
+    const pickerGroupingSelection = ref<string[]>([...settings.value.selectedLanguages]);
+    const activeRunNeedsModelDownload = ref(false);
 
     const {
         start: startCopyLogsStateReset,
@@ -307,7 +306,7 @@ export const useOcrPopupPresenter = ({
     ));
     const languagePickerItems = computed(() => buildOcrLanguagePickerItems(
         availableLanguages.value,
-        settings.value.selectedLanguages,
+        pickerGroupingSelection.value,
         locale.value,
         languageSearchQuery.value,
         failedLanguageCodes.value,
@@ -341,6 +340,10 @@ export const useOcrPopupPresenter = ({
                 processed: progress.value.processedCount,
                 total: progress.value.totalPages,
             });
+        }
+
+        if (progress.value.phase === 'model-prep' && !activeRunNeedsModelDownload.value) {
+            return t('ocr.preparing');
         }
 
         return t(ocrProgressStageKeys[progress.value.phase], undefined);
@@ -504,12 +507,24 @@ export const useOcrPopupPresenter = ({
         }
     }
 
+    function computeActiveRunNeedsModelDownload() {
+        const stateByCode = new Map(availableLanguages.value.map(language => [
+            language.code,
+            language.modelState,
+        ]));
+        return settings.value.selectedLanguages.some((code) => {
+            const state = stateByCode.get(code);
+            return state === 'missing' || state === 'downloading';
+        });
+    }
+
     function handleRunOcr() {
         if (!canRunOcr.value || !workingCopyPath.value) {
             return;
         }
         activeOcrSourcePath.value = workingCopyPath.value;
         activeOcrSourcePage.value = currentPage.value;
+        activeRunNeedsModelDownload.value = computeActiveRunNeedsModelDownload();
         void runOcr(currentPage.value, totalPages.value, workingCopyPath.value);
     }
 
@@ -562,6 +577,7 @@ export const useOcrPopupPresenter = ({
 
         activeOcrSourcePath.value = workingCopyPath.value;
         activeOcrSourcePage.value = currentPage.value;
+        activeRunNeedsModelDownload.value = computeActiveRunNeedsModelDownload();
         await runOcr(currentPage.value, totalPages.value, workingCopyPath.value);
         await nextTick();
 
@@ -618,6 +634,7 @@ export const useOcrPopupPresenter = ({
 
     watch(isOpen, (value) => {
         if (value) {
+            pickerGroupingSelection.value = [...settings.value.selectedLanguages];
             void loadLanguages();
             return;
         }
