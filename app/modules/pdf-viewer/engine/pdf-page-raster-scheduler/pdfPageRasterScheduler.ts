@@ -231,6 +231,7 @@ export function createPdfPageRasterScheduler(
     const demandKeysBySource = new Map<string, Set<string>>();
     const currentDemandByIdentity = new Map<string, IPdfRasterDemand>();
     let accepting = true;
+    let disposal: Promise<void> | null = null;
     let nextSequence = 0;
     let pumpScheduled = false;
 
@@ -827,10 +828,7 @@ export function createPdfPageRasterScheduler(
         };
     }
 
-    async function dispose() {
-        if (!accepting) {
-            return;
-        }
+    async function runDisposal() {
         const renderingSettlements = [...inFlight.values()]
             .filter(work => work.stage === 'rendering' || work.stage === 'committing')
             .map(work => work.execution)
@@ -841,6 +839,14 @@ export function createPdfPageRasterScheduler(
         });
         await Promise.allSettled(renderingSettlements);
         surfaceBudget.releaseScope(surfaceScopeId);
+    }
+
+    function dispose() {
+        // `accepting` already flips on whole-document invalidation, so it cannot
+        // gate disposal: the scope must be released exactly once, and every
+        // caller must await the same in-flight settlement.
+        disposal ??= runDisposal();
+        return disposal;
     }
 
     return {

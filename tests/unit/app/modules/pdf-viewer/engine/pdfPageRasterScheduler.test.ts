@@ -535,6 +535,74 @@ describe('PdfPageRasterScheduler', () => {
         ]);
     });
 
+    it('releases its surface scope once across concurrent disposal after a whole-document invalidation', async () => {
+        const budget = createWorkspaceSurfaceBudgetController(1_000);
+        const releaseScope = vi.spyOn(budget, 'releaseScope');
+        const render = Promise.withResolvers<undefined>();
+        const started: number[] = [];
+        const scheduler = createPdfPageRasterScheduler({
+            documentFence,
+            leasePage: async pageNumber => ({
+                page: {pageNumber} as PDFPageProxy,
+                release: vi.fn(),
+            }),
+            maxConcurrency: 1,
+            surfaceBudget: budget,
+        });
+        scheduler.setDemand({
+            sourceId: 'viewport',
+            input: [createDemand(1, 'viewport-visible')],
+            policy: {
+                expand: input => input,
+                compareWithinLane: () => 0,
+            },
+            target: {
+                id: 'wedged-render',
+                prepare: async demand => ({pageNumber: demand.pageNumber}),
+                start: ({pageNumber}) => {
+                    started.push(pageNumber);
+                    return cast<RenderTask>({
+                        cancel: vi.fn(),
+                        promise: render.promise,
+                    });
+                },
+                commit: () => true,
+                discard: vi.fn(),
+                release: vi.fn(),
+            },
+        });
+        await vi.waitFor(() => expect(started).toEqual([1]));
+        expect(budget.getSnapshot().reservedBytes).toBe(400);
+
+        scheduler.invalidate({
+            documentFence,
+            reason: 'document-reloaded',
+        });
+        expect(scheduler.snapshot().accepting).toBe(false);
+
+        let disposed = false;
+        const disposals = Promise.all([
+            scheduler.dispose(),
+            scheduler.dispose(),
+        ]).then(() => {
+            disposed = true;
+        });
+        await flush();
+
+        expect(disposed).toBe(false);
+        expect(releaseScope).not.toHaveBeenCalled();
+
+        render.resolve(undefined);
+        await disposals;
+        await scheduler.dispose();
+
+        expect(releaseScope).toHaveBeenCalledOnce();
+        expect(budget.getSnapshot()).toMatchObject({
+            leaseCount: 0,
+            reservedBytes: 0,
+        });
+    });
+
     it('isolates a new document from a predecessor wedged in prepare and reclaims its budget', async () => {
         const budget = createWorkspaceSurfaceBudgetController(800);
         const wedgedPrepare = new Promise<never>(() => {});
