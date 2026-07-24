@@ -56,7 +56,6 @@ describe('usePdfRendererCleanupController', () => {
             target.height = 0;
         });
         const cleanupTextLayerDom = vi.fn((target: HTMLElement) => target.replaceChildren());
-        const releasePageCanvasSurface = vi.fn();
         const evictPage = vi.fn();
         const controller = usePdfRendererCleanupController({
             container: ref(options.root),
@@ -86,8 +85,6 @@ describe('usePdfRendererCleanupController', () => {
             getTrackedPageNumbersForCleanup: () => new Set([1]),
             evictPage,
             cleanupPageCache: vi.fn(),
-            releasePageCanvasSurface,
-            releaseAllSurfaceResources: vi.fn(),
             onRenderedPageStateChanged: vi.fn(),
             invalidatePendingSearchRequests: vi.fn(),
         });
@@ -95,7 +92,6 @@ describe('usePdfRendererCleanupController', () => {
             controller,
             cleanupCanvas,
             cleanupTextLayerDom,
-            releasePageCanvasSurface,
             evictPage,
         };
     }
@@ -126,7 +122,6 @@ describe('usePdfRendererCleanupController', () => {
         expect(dom.textLayer.children).toHaveLength(0);
         expect(dom.annotationLayer.children).toHaveLength(0);
         expect(dom.annotationEditorLayer.children).toHaveLength(0);
-        expect(harness.releasePageCanvasSurface).toHaveBeenCalledWith(1);
         expect(harness.evictPage).toHaveBeenCalledWith(1);
         expect(pageRenderState.getSlot(1)).toEqual(expect.objectContaining({
             visual: 'none',
@@ -164,7 +159,6 @@ describe('usePdfRendererCleanupController', () => {
         expect(dom.textLayer.children).toHaveLength(0);
         expect(dom.annotationLayer.children).toHaveLength(0);
         expect(dom.annotationEditorLayer.children).toHaveLength(0);
-        expect(harness.releasePageCanvasSurface).toHaveBeenCalledWith(1);
         expect(harness.evictPage).toHaveBeenCalledWith(1);
         expect(pageRenderState.getSlot(1)).toEqual(expect.objectContaining({
             visual: 'none',

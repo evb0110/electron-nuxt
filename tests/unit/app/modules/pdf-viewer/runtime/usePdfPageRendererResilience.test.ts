@@ -98,6 +98,7 @@ vi.mock('@app/modules/pdf-viewer/runtime/composables/pdf/usePdfTextLayerRenderer
 vi.mock('@app/modules/pdf-viewer/runtime/rendering/usePdfAnnotationLayerRenderer', () => ({usePdfAnnotationLayerRenderer: () => annotationLayerRendererMock}));
 
 const { usePdfPageRenderer: usePdfPageRendererProduction } = await import('@app/modules/pdf-viewer/runtime/rendering/usePdfPageRenderer');
+const { ensurePdfPageRasterScheduler } = await import('@app/modules/pdf-viewer/engine/pdf-page-raster-scheduler/pdfPageRasterScheduler');
 type TPdfPageRendererOptions = Omit<
     Parameters<typeof usePdfPageRendererProduction>[0],
     'viewportWritePort'
@@ -105,19 +106,30 @@ type TPdfPageRendererOptions = Omit<
 const usePdfPageRenderer = (
     options: Pick<TPdfPageRendererOptions, 'container' | 'document'>
         & Partial<TPdfPageRendererOptions>,
-) => usePdfPageRendererProduction({
-    currentPage: ref(1),
-    effectiveScale: ref(1),
-    bufferPages: ref(0),
-    showAnnotations: ref(true),
-    annotationUiManager: ref(null),
-    annotationL10n: ref(null),
-    searchPageMatches: ref(new Map()),
-    currentSearchMatch: ref(null),
-    workingCopyPath: ref(null),
-    viewportWritePort: createTestPdfViewportWritePort().port,
-    ...options,
-});
+) => {
+    // The document owner registers the raster scheduler for its document with
+    // the retention-aware lease; the renderer only retrieves it.
+    const document = options.document.pdfDocument.value;
+    if (document) {
+        ensurePdfPageRasterScheduler(document, {
+            documentVersion: 1,
+            leasePage: options.document.leasePage,
+        });
+    }
+    return usePdfPageRendererProduction({
+        currentPage: ref(1),
+        effectiveScale: ref(1),
+        bufferPages: ref(0),
+        showAnnotations: ref(true),
+        annotationUiManager: ref(null),
+        annotationL10n: ref(null),
+        searchPageMatches: ref(new Map()),
+        currentSearchMatch: ref(null),
+        workingCopyPath: ref(null),
+        viewportWritePort: createTestPdfViewportWritePort().port,
+        ...options,
+    });
+};
 const {
     PDF_PAGE_RENDER_TIMEOUT_MS,
     PDF_PAGE_TEXT_LAYER_TIMEOUT_MS,

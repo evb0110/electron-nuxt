@@ -150,7 +150,6 @@ describe('usePdfRendererSinglePageController', () => {
             } as const)),
             getViewportForAnnotationEditorLayer: vi.fn(() => viewport as never),
             scheduleOcrDebugForPage: vi.fn(),
-            markPageCanvasSurfaceEvictable: vi.fn(),
             logNonCriticalStageError: vi.fn(),
         });
 
@@ -270,7 +269,6 @@ describe('usePdfRendererSinglePageController', () => {
             } as const)),
             getViewportForAnnotationEditorLayer: vi.fn(() => ({}) as never),
             scheduleOcrDebugForPage: vi.fn(),
-            markPageCanvasSurfaceEvictable: vi.fn(),
             logNonCriticalStageError: vi.fn(),
         });
 
@@ -350,7 +348,6 @@ describe('usePdfRendererSinglePageController', () => {
             } as const)),
             getViewportForAnnotationEditorLayer: vi.fn(() => ({}) as never),
             scheduleOcrDebugForPage: vi.fn(),
-            markPageCanvasSurfaceEvictable: vi.fn(),
             logNonCriticalStageError: vi.fn(),
         });
 
@@ -431,7 +428,6 @@ describe('usePdfRendererSinglePageController', () => {
             } as const)),
             getViewportForAnnotationEditorLayer: vi.fn(() => ({}) as never),
             scheduleOcrDebugForPage: vi.fn(),
-            markPageCanvasSurfaceEvictable: vi.fn(),
             logNonCriticalStageError: vi.fn(),
         });
         const visibleRange = {
@@ -518,7 +514,6 @@ describe('usePdfRendererSinglePageController', () => {
             } as const)),
             getViewportForAnnotationEditorLayer: vi.fn(() => ({}) as never),
             scheduleOcrDebugForPage: vi.fn(),
-            markPageCanvasSurfaceEvictable: vi.fn(),
             logNonCriticalStageError: vi.fn(),
         });
 
@@ -602,7 +597,6 @@ describe('usePdfRendererSinglePageController', () => {
             renderAnnotationEditorLayer,
             getViewportForAnnotationEditorLayer,
             scheduleOcrDebugForPage: vi.fn(),
-            markPageCanvasSurfaceEvictable: vi.fn(),
             logNonCriticalStageError: vi.fn(),
         });
 
@@ -667,7 +661,6 @@ describe('usePdfRendererSinglePageController', () => {
             renderAnnotationEditorLayer,
             getViewportForAnnotationEditorLayer: vi.fn(() => ({}) as never),
             scheduleOcrDebugForPage: vi.fn(),
-            markPageCanvasSurfaceEvictable: vi.fn(),
             logNonCriticalStageError: vi.fn(),
         });
 
@@ -733,7 +726,6 @@ describe('usePdfRendererSinglePageController', () => {
                 renderAnnotationEditorLayer,
                 getViewportForAnnotationEditorLayer: vi.fn(() => ({}) as never),
                 scheduleOcrDebugForPage: vi.fn(),
-                markPageCanvasSurfaceEvictable: vi.fn(),
                 logNonCriticalStageError,
             });
 

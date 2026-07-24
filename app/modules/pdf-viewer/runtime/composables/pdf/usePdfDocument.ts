@@ -28,6 +28,12 @@ import {
     createPdfRangeRequestBridge,
     type IPdfPreloadedRange,
 } from '@app/modules/pdf-viewer/runtime/composables/pdf/createPdfRangeRequestBridge';
+import {
+    disposePdfPageRasterScheduler,
+    ensurePdfPageRasterScheduler,
+    type IPdfDocumentPageLease,
+    type TPdfDocumentPageLeaseRetention,
+} from '@app/modules/pdf-viewer/engine/pdf-page-raster-scheduler/pdfPageRasterScheduler';
 
 configurePdfjsWorkerSrc(pdfjsLib);
 
@@ -62,13 +68,6 @@ type TPdfDocumentLoadState = TaggedUnion<'status', {
         error: unknown;
     };
 }>;
-
-export interface IPdfDocumentPageLease {
-    readonly page: PDFPageProxy;
-    release: () => void;
-}
-
-export type TPdfDocumentPageLeaseRetention = 'render-cache' | 'transient-background';
 
 interface IPdfDocumentPageLeaseOwner {leasePage: (
     pageNumber: number,
@@ -150,6 +149,7 @@ export const usePdfDocument = () => {
         message: string,
         lifecycleKey = activeLifecycleKey,
     ) {
+        disposePdfPageRasterScheduler(document);
         pdfjsDocumentTeardownCoordinator.track(lifecycleKey, {
             message,
             run: () => document.destroy(),
@@ -445,6 +445,10 @@ export const usePdfDocument = () => {
                 : leasePage(pageNumber);
         };
         pdfDocumentPageLeaseOwners.set(document, {leasePage: leaseOwnedPage});
+        ensurePdfPageRasterScheduler(document, {
+            documentVersion: version,
+            leasePage: leaseOwnedPage,
+        });
         numPages.value = document.numPages;
         await primeInitialPageMetrics(document, version);
         if (version !== getRenderVersion() || document !== pdfDocument.value) {

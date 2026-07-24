@@ -335,7 +335,7 @@ export const usePdfViewerFeatureController = (props: IPdfViewerProps, emit: IPdf
         clampedVisibleRefineMode,
         isPageLayerReady,
         getRenderAuthorityCursor,
-        reconcilePageCanvasResidency,
+        cancelRasterDemand,
     } = usePdfViewerRenderingRuntime({
         performancePolicy,
         viewerContainer,
@@ -929,7 +929,6 @@ export const usePdfViewerFeatureController = (props: IPdfViewerProps, emit: IPdf
             const requestedPixels = Math.max(1, Math.round(width * scale * pixelRatio)) * Math.max(1, Math.round(height * scale * pixelRatio));
             return Math.min(requestedPixels, performanceProfile.settledMaxCanvasPixels);
         },
-        reconcilePageCanvasResidency,
         pageSlots,
         isActive,
         isLoading,
@@ -950,6 +949,7 @@ export const usePdfViewerFeatureController = (props: IPdfViewerProps, emit: IPdf
             openSurfaceGeneration: chassisAuthority?.openSurface.snapshot.value.generation ?? 0,
             openSurfaceRevision: chassisAuthority?.openSurface.snapshot.value.identity?.documentRevision ?? '',
         }),
+        cancelRasterDemand,
     });
     function undoAnnotation() {
         return appAnnotationHistory.undo();

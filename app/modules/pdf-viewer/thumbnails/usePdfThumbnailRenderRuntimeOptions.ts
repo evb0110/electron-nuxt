@@ -7,7 +7,6 @@ import type {
     IAnnotationCommentSummary,
     IAnnotationSettings,
 } from '@app/types/annotations';
-import type { IWorkspaceSurfaceBudgetController } from '@app/utils/document-viewer/workspaceSurfaceBudget';
 
 interface IPdfThumbnailRenderRuntimeSource {
     currentPage: ComputedRef<number>;
@@ -59,6 +58,5 @@ export interface IUsePdfThumbnailRenderRuntimeOptions {
     effects: IPdfThumbnailRenderRuntimeEffects;
     layout: IPdfThumbnailRenderRuntimeLayout;
     source: IPdfThumbnailRenderRuntimeSource;
-    surfaceBudget?: IWorkspaceSurfaceBudgetController;
     visuals: IPdfThumbnailRenderRuntimeVisuals;
 }

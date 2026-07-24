@@ -7,10 +7,7 @@ import type { AnnotationEditorUIManager } from 'pdfjs-dist';
 import type { IPdfjsL10n } from '@app/types/pdfjs';
 import type { IScrollToPageOptions } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfScroll';
 import { usePdfPageRenderer } from '@app/modules/pdf-viewer/runtime/rendering/usePdfPageRenderer';
-import type {
-    IPageRenderStallPayload,
-    IUsePdfPageRendererOptions,
-} from '@app/modules/pdf-viewer/runtime/rendering/usePdfPageRenderer';
+import type { IPageRenderStallPayload } from '@app/modules/pdf-viewer/runtime/rendering/usePdfPageRenderer';
 import type {
     IPageRange,
     IPdfPageMatches,
@@ -20,7 +17,10 @@ import type { TDocumentRevisionToken } from '@contracts/documentRevision';
 import type { TPdfRasterDisplayProfile } from '@app/types/pdfRasterDisplayProfile';
 import type { IPdfPageSlotRegistry } from '@app/modules/pdf-viewer/runtime/page-slots/pdfPageSlotRegistry';
 import type { IPdfViewportWritePort } from '@app/modules/pdf-viewer/runtime/viewport/pdfViewportWritePort';
-import type { IPdfCanvasDomCommit } from '@app/modules/pdf-viewer/runtime/rendering/pdfRendererTypes';
+import type {
+    IPdfCanvasDomCommit,
+    IUsePdfPageRendererOptions,
+} from '@app/modules/pdf-viewer/runtime/rendering/pdfRendererTypes';
 import type { IPdfRenderPerformancePolicy } from '@app/modules/pdf-viewer/engine/pdf-render-performance/resolvePdfRenderPerformancePolicy';
 
 interface IUsePdfViewerRenderingRuntimeOptions {
