@@ -181,6 +181,7 @@ import { useWorkspaceRestoreTracker } from '@app/modules/workspace-shell/composa
 import { installAppShellE2EHooks } from '@app/modules/workspace-shell/automation/installAppShellE2EHooks';
 import { useWorkspaceSplitCache } from '@app/modules/workspace-shell/composables/useWorkspaceSplitCache';
 import { useAppShellResilience } from '@app/modules/workspace-shell/composables/useAppShellResilience';
+import { useWorkspaceMemoryPressureMonitor } from '@app/modules/workspace-shell/composables/useWorkspaceMemoryPressureMonitor';
 import { useAppShellToolPages } from '@app/modules/workspace-shell/composables/useAppShellToolPages';
 import { useWindowTabTransfers } from '@app/modules/workspace-shell/composables/useWindowTabTransfers';
 import { useBrowserInstallHint } from '@app/modules/workspace-shell/composables/useBrowserInstallHint';
@@ -196,7 +197,6 @@ import type { IHostZenModeState } from '@contracts/hostPlatformFeature';
 import type { ITab } from '@app/types/tabs';
 import type { IWorkspaceDocumentRecord } from '@app/modules/workspace-shell/state/workspaceDocumentRecord';
 import { getHostCapability } from '@app/utils/getHostCapability';
-import { getPerformanceProfile } from '@app/utils/performanceProfile';
 import { waitForDesktopPlatformBridge } from '@app/utils/platform';
 import { getDocumentWindowCapability } from '@app/utils/platformDocuments';
 import { resolveDocumentRefBackend } from '@app/utils/documentRef';
@@ -267,6 +267,7 @@ const isWorkspaceLayoutResizing = computed(() => isAssistantPanelResizing.value 
 const fullscreenSupported = ref(true);
 let zenModeRequestInFlight = false;
 const workspaceSplitCache = useWorkspaceSplitCache();
+const workspaceMemoryBudget = useWorkspaceMemoryPressureMonitor();
 const tabActivationOrder = ref<string[]>([]);
 watch(activeTabId, (tabId) => {
     if (!tabId) {
@@ -288,12 +289,11 @@ watch(tabs, (nextTabs) => {
 });
 const tabLifecycleById = computed(() => Object.fromEntries(
     resolveTabLifecycleStates({
-        activeTabId: activeTabId.value,
         activationOrder: tabActivationOrder.value,
         panes: panes.value,
         policy: appSettings.value.tabMemoryPolicy,
         tabs: tabs.value,
-        tier: getPerformanceProfile().tier,
+        targetWarmViewers: workspaceMemoryBudget.value.targetWarmViewers,
     }).map(state => [
         state.tabId,
         state,

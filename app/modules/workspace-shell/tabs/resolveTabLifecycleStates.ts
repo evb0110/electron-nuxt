@@ -1,6 +1,5 @@
 import type { TTabMemoryPolicy } from '@contracts/shared';
 import type { IEditorPaneState } from '@contracts/editorPanes';
-import type { THostResourceTier } from '@contracts/hostResourceProfile';
 import type { ITab } from '@app/types/tabs';
 import type {
     ITabLifecycleState,
@@ -11,21 +10,14 @@ import {
     resolveTabTemperatureResidency,
 } from '@app/modules/workspace-shell/memory/viewerResidencyPolicy';
 
-const TAB_POLICY_WARM_COUNTS: Record<TTabMemoryPolicy, number> = {
-    conservative: 2,
-    aggressive: 0,
-};
-
 export function resolveTabLifecycleStates(options: {
     tabs: ITab[];
     panes: IEditorPaneState[];
-    activeTabId: string | null;
     activationOrder: string[];
     policy: TTabMemoryPolicy;
-    tier: THostResourceTier;
+    targetWarmViewers: number;
 }): ITabLifecycleState[] {
-    const tierWarmCap = options.tier === 'low' ? 1 : Number.POSITIVE_INFINITY;
-    const warmCount = Math.min(TAB_POLICY_WARM_COUNTS[options.policy], tierWarmCap);
+    const warmCount = options.policy === 'conservative' ? options.targetWarmViewers : 0;
     const tabIds = new Set(options.tabs.map(tab => tab.id));
     const visibleTabIds = new Set(
         options.panes.flatMap(pane => pane.activeTabId ? [pane.activeTabId] : []),

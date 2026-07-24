@@ -10,7 +10,6 @@ import {
 } from '@app/types/workspaceExpose';
 import { resolveTabLifecycleStates } from '@app/modules/workspace-shell/tabs/resolveTabLifecycleStates';
 import type { IEditorPaneState } from '@contracts/editorPanes';
-import type { THostResourceTier } from '@contracts/hostResourceProfile';
 import type { ITab } from '@app/types/tabs';
 
 function tab(id: string): ITab {
@@ -119,10 +118,34 @@ describe('tab session memory policy', () => {
         expect(readerState.surfaceMode).toBe('reader');
     });
 
-    it.each<THostResourceTier>([
-        'medium',
-        'high',
-    ])('keeps the active tab hot and two recent tabs warm on the %s tier', (tier) => {
+    it.each([
+        {
+            targetWarmViewers: 0,
+            expectedWarmTabIds: [],
+        },
+        {
+            targetWarmViewers: 1,
+            expectedWarmTabIds: ['d'],
+        },
+        {
+            targetWarmViewers: 2,
+            expectedWarmTabIds: [
+                'b',
+                'd',
+            ],
+        },
+        {
+            targetWarmViewers: 5,
+            expectedWarmTabIds: [
+                'b',
+                'c',
+                'd',
+            ],
+        },
+    ])('keeps $targetWarmViewers recent inactive tabs warm in conservative mode', ({
+        targetWarmViewers,
+        expectedWarmTabIds,
+    }) => {
         const states = resolveTabLifecycleStates({
             tabs: [
                 tab('a'),
@@ -136,83 +159,26 @@ describe('tab session memory policy', () => {
                 'c',
                 'd',
             ])],
-            activeTabId: 'a',
             activationOrder: [
                 'a',
-                'c',
-                'b',
                 'd',
+                'b',
+                'c',
             ],
             policy: 'conservative',
-            tier,
+            targetWarmViewers,
         });
 
-        expect(Object.fromEntries(states.map(state => [
-            state.tabId,
-            state.temperature,
-        ]))).toEqual({
-            a: 'hot',
-            b: 'warm',
-            c: 'warm',
-            d: 'cold',
-        });
-        expect(Object.fromEntries(states.map(state => [
-            state.tabId,
-            state.viewerResidency,
-        ]))).toEqual({
-            a: 'active',
-            b: 'warm',
-            c: 'warm',
-            d: 'hibernated',
-        });
-        expect(Object.fromEntries(states.map(state => [
-            state.tabId,
-            state.isReclaimCandidate,
-        ]))).toEqual({
-            a: false,
-            b: true,
-            c: true,
-            d: false,
-        });
+        expect(states.filter(state => state.temperature === 'hot').map(state => state.tabId)).toEqual(['a']);
+        expect(states.filter(state => state.temperature === 'warm').map(state => state.tabId)).toEqual(expectedWarmTabIds);
     });
 
-    it('caps low-tier conservative mode at one inactive warm tab', () => {
-        const states = resolveTabLifecycleStates({
-            tabs: [
-                tab('a'),
-                tab('b'),
-                tab('c'),
-                tab('d'),
-            ],
-            panes: [pane('pane-1', 'a', [
-                'a',
-                'b',
-                'c',
-                'd',
-            ])],
-            activeTabId: 'a',
-            activationOrder: [
-                'a',
-                'c',
-                'b',
-                'd',
-            ],
-            policy: 'conservative',
-            tier: 'low',
-        });
-
-        expect(Object.fromEntries(states.map(state => [
-            state.tabId,
-            state.temperature,
-        ]))).toEqual({
-            a: 'hot',
-            b: 'cold',
-            c: 'warm',
-            d: 'cold',
-        });
-    });
-
-    it('cools non-active tabs aggressively except visible split panes', () => {
+    it.each([
+        0,
+        1,
+        2,
+        5,
+    ])('cools non-active tabs aggressively at a target of %i except visible split panes', (targetWarmViewers) => {
         const states = resolveTabLifecycleStates({
             tabs: [
                 tab('a'),
@@ -226,14 +192,13 @@ describe('tab session memory policy', () => {
                 ]),
                 pane('pane-2', 'c', ['c']),
             ],
-            activeTabId: 'a',
             activationOrder: [
                 'a',
                 'b',
                 'c',
             ],
             policy: 'aggressive',
-            tier: 'low',
+            targetWarmViewers,
         });
 
         expect(Object.fromEntries(states.map(state => [
@@ -262,14 +227,13 @@ describe('tab session memory policy', () => {
                 'b',
                 'c',
             ])],
-            activeTabId: 'a',
             activationOrder: [
                 'a',
                 'c',
                 'b',
             ],
             policy: 'aggressive',
-            tier: 'low',
+            targetWarmViewers: 0,
         });
 
         expect(Object.fromEntries(states.map(state => [

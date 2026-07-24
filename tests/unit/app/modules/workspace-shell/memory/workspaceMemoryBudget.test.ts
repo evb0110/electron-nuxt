@@ -187,4 +187,30 @@ describe('workspace memory budget', () => {
         expect(plan.overBudgetBytes).toBe(0);
         expect(plan.candidates.map(candidate => candidate.viewerId)).toEqual(['warm']);
     });
+
+    it.each([
+        {
+            level: undefined,
+            targetWarmViewers: 5,
+        },
+        {
+            level: 'moderate' as const,
+            targetWarmViewers: 4,
+        },
+        {
+            level: 'critical' as const,
+            targetWarmViewers: 0,
+        },
+    ])('adapts the warm-viewer target to $level pressure', ({
+        level,
+        targetWarmViewers,
+    }) => {
+        expect(resolveWorkspaceMemoryBudget({
+            environment: {
+                totalMemoryBytes: 32 * GIB,
+                hardwareConcurrency: 8,
+            },
+            pressure: level ? {level} : undefined,
+        }).targetWarmViewers).toBe(targetWarmViewers);
+    });
 });
