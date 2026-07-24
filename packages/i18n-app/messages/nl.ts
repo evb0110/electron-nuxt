@@ -1443,6 +1443,7 @@ export default {
         'performanceModeLow': 'Laag — zo min mogelijk achtergrondwerk',
         'performanceModeMedium': 'Gemiddeld — gebalanceerd',
         'performanceModeHigh': 'Hoog — maximale verwerkingssnelheid',
+        'performanceRestartNotice': 'Start de app opnieuw om deze wijziging toe te passen.',
     },
     'updates': {
         'checkingTitle': 'Zoeken naar updates',

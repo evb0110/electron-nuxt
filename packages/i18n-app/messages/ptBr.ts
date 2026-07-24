@@ -1456,6 +1456,7 @@ export default {
         'performanceModeLow': 'Baixo — minimizar o trabalho em segundo plano',
         'performanceModeMedium': 'Médio — equilibrado',
         'performanceModeHigh': 'Alto — maximizar o processamento',
+        'performanceRestartNotice': 'Reinicie o aplicativo para aplicar esta alteração.',
     },
     'updates': {
         'checkingTitle': 'Verificando atualizações',

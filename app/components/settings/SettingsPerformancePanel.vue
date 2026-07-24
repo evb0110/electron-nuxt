@@ -17,6 +17,16 @@
                 @update:model-value="emit('update:performance-mode', $event)"
             />
         </UFormField>
+
+        <p
+            v-if="showRestartNotice"
+            class="settings-performance-restart-notice"
+            role="status"
+            aria-live="polite"
+        >
+            <UIcon name="i-ph-arrows-clockwise" class="settings-performance-restart-icon" />
+            <span>{{ t('settings.performanceRestartNotice') }}</span>
+        </p>
     </fieldset>
 </template>
 
@@ -46,11 +56,15 @@ const PERFORMANCE_MODE_OPTION_DEFINITIONS = [
     labelKey: string;
 }>;
 
-defineProps<{settings: ISettingsData;}>();
+const props = defineProps<{settings: ISettingsData;}>();
 
 const emit = defineEmits<{'update:performance-mode': [value: string | { value: string }];}>();
 
 const { t } = useTypedI18n();
+
+const appliedPerformanceMode = props.settings.performanceMode;
+
+const showRestartNotice = computed(() => props.settings.performanceMode !== appliedPerformanceMode);
 
 const settingsFormFieldUi = {
     label: 'settings-field-label',
@@ -65,4 +79,18 @@ const performanceModeItems = computed(() => PERFORMANCE_MODE_OPTION_DEFINITIONS.
 
 <style lang="scss" scoped>
 @use '@app/assets/css/settings-panel-shared';
+
+.settings-performance-restart-notice {
+    display: flex;
+    align-items: center;
+    gap: var(--app-space-sm);
+    margin: 0;
+    font-size: var(--app-text-size-kicker);
+    line-height: var(--app-line-height-text);
+    color: var(--ui-warning);
+}
+
+.settings-performance-restart-icon {
+    flex-shrink: 0;
+}
 </style>
