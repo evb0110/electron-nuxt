@@ -21,11 +21,9 @@ import { createDocumentViewerRenderCoordinator } from '@app/utils/document-viewe
 import {
     createDocumentOpenSurfaceSession,
     type IDocumentOpenSurfaceSession,
-} from '@app/utils/document-viewer/chassis/documentOpenSurfaceSession';
-import {
     type IDocumentViewportSessionState,
     resolveDocumentViewportCurrentPage,
-} from '@app/utils/document-viewer/session/documentViewportSession';
+} from '@app/utils/document-viewer/chassis/documentOpenSurfaceSession';
 import type { IDocumentWheelInteraction } from '@app/utils/document-viewer/input/documentWheelInteraction';
 
 export interface IDocumentViewerChassisAuthority {

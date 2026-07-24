@@ -7,7 +7,30 @@ import {
     type IDocumentViewportSessionState,
     type TDocumentViewportSessionEffect,
     type TDocumentViewportSessionEvent,
-} from '@app/utils/document-viewer/session/documentViewportSession';
+} from '@app/utils/document-viewer/chassis/documentOpenSurfaceReducer';
+
+export type {
+    IDocumentViewportCommitFence,
+    IDocumentViewportIdentity,
+    IDocumentViewportIntent,
+    IDocumentViewportPreparedPage,
+    IDocumentViewportRenderFence,
+    IDocumentViewportSessionState,
+    IDocumentViewportSessionTransition,
+    IDocumentViewportSkeletonDelay,
+    TDocumentViewportLifecycle,
+    TDocumentViewportSessionEffect,
+    TDocumentViewportSessionEvent,
+    TDocumentViewportVisualOwner,
+} from '@app/utils/document-viewer/chassis/documentOpenSurfaceReducer';
+export {
+    assertDocumentViewportSessionInvariants,
+    canOpenRecentDocument,
+    collectDocumentViewportSessionInvariantViolations,
+    createEmptyDocumentViewportSession,
+    reduceDocumentViewportSession,
+    resolveDocumentViewportCurrentPage,
+} from '@app/utils/document-viewer/chassis/documentOpenSurfaceReducer';
 
 export type TDocumentOpenSurfacePhase = 'idle' | 'pending' | 'geometry-committed'
     | 'canvas-committed' | 'viewport-committed' | 'ready' | 'failed';

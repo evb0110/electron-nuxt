@@ -1,15 +1,15 @@
-export type TDocumentViewportNavigationSource =
+type TDocumentViewportNavigationSource =
     | 'paged'
     | 'continuous'
     | 'search'
     | 'wheel';
 
-export type TDocumentViewportNavigationStatus =
+type TDocumentViewportNavigationStatus =
     | 'idle'
     | 'navigating'
     | 'settling';
 
-export type TDocumentViewportNavigationAnchor =
+type TDocumentViewportNavigationAnchor =
     | 'center'
     | 'top'
     | 'bottom'
@@ -65,27 +65,6 @@ export type TDocumentViewportNavigationEvent<
     | IDocumentViewportNavigationCurrentPageCommittedEvent
     | IDocumentViewportNavigationViewportCurrentPageEvent
     | IDocumentViewportNavigationCancelEvent;
-
-export function createDocumentViewportNavigationRenderSettledEvent<
-    TSource extends string = TDocumentViewportNavigationSource,
-    TAnchor extends string = TDocumentViewportNavigationAnchor,
->(
-    txn: number,
-    page: number,
-): TDocumentViewportNavigationEvent<TSource, TAnchor>;
-export function createDocumentViewportNavigationRenderSettledEvent<
-    TSource extends string = TDocumentViewportNavigationSource,
-    TAnchor extends string = TDocumentViewportNavigationAnchor,
->(
-    txn: number,
-    page: number,
-): TDocumentViewportNavigationEvent<TSource, TAnchor> {
-    return {
-        page,
-        txn,
-        type: 'RENDER_SETTLED',
-    };
-}
 
 export function createDocumentViewportNavigationMachineState<
     TSource extends string = TDocumentViewportNavigationSource,

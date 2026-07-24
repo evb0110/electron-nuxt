@@ -1,6 +1,6 @@
 import type { IDocumentPageRange } from '@app/utils/document-viewer/documentPageRange';
 
-export type TDocumentViewportTransactionKind =
+type TDocumentViewportTransactionKind =
     | 'navigation'
     | 'render'
     | 'rerender'
@@ -27,19 +27,13 @@ export type TDocumentViewportRenderPriority =
     | 'normal'
     | 'background';
 
-export type TDocumentViewportTransactionPriority =
-    | 'authoritative'
-    | 'interactive'
-    | 'warm'
-    | 'recovery';
-
 export interface IDocumentViewportDocumentRef<TDocument = unknown> {
     document: TDocument | null;
     documentLoadToken: number;
     documentVersion: number;
 }
 
-export interface IDocumentViewportMarkerRect {
+interface IDocumentViewportMarkerRect {
     left: number;
     top: number;
     width: number;
@@ -76,7 +70,7 @@ export interface IDocumentViewportRenderRequest<
     metadata?: TMetadata | undefined;
 }
 
-export type TDocumentViewportCancellationReason =
+type TDocumentViewportCancellationReason =
     | 'superseded'
     | 'document-changed'
     | 'reload'
@@ -141,7 +135,7 @@ export interface IDocumentViewportTransactionMachineState<
     renderVersion: number;
 }
 
-export type TDocumentViewportTransactionAdvanceState = Exclude<
+type TDocumentViewportTransactionAdvanceState = Exclude<
     TDocumentViewportTransactionState,
     'preparing' | 'cancelled'
 >;

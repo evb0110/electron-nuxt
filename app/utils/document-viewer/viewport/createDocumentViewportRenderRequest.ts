@@ -18,7 +18,7 @@ interface IDocumentViewportRenderTransactionLike<
     target: IDocumentViewportTarget<TRange> | null;
 }
 
-export interface ICreateDocumentViewportRenderRequestOptions<
+interface ICreateDocumentViewportRenderRequestOptions<
     TMetadata = unknown,
     TTransactionId extends number | string = string,
     TRenderRequestId extends number | string = string,

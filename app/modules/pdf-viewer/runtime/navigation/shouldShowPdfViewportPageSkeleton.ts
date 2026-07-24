@@ -1,6 +1,6 @@
 import type { TPdfViewMode } from '@contracts/shared';
 import { getPageRowBoundsForViewMode } from '@app/modules/pdf-viewer/engine/pdf-page-layout/getPageRowBoundsForViewMode';
-import type { TDocumentViewportVisualOwner } from '@app/utils/document-viewer/session/documentViewportSession';
+import type { TDocumentViewportVisualOwner } from '@app/utils/document-viewer/chassis/documentOpenSurfaceSession';
 
 export function shouldShowPdfViewportPageSkeleton(options: {
     fallbackVisible: boolean;

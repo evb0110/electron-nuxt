@@ -1,4 +1,4 @@
-import type { TDocumentViewportVisualOwner } from '@app/utils/document-viewer/session/documentViewportSession';
+import type { TDocumentViewportVisualOwner } from '@app/utils/document-viewer/chassis/documentOpenSurfaceSession';
 
 export interface INativePdfRasterIdentity {
     generation: number;

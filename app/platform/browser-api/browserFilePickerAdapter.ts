@@ -5,7 +5,6 @@ import {
     browserDocumentStore,
 } from '@app/platform/browserDocumentStore';
 import type { IFilePickerAcceptType } from '@app/platform/browser-api/browserFileAccepts';
-import { getWindowWithPickers } from '@app/platform/browser-api/browserWindowFilePickers';
 import {
     buildBrowserByteLimitError,
     toBrowserOwnedArrayBuffer,
@@ -36,10 +35,34 @@ type TPermissionCapableFileHandle = FileSystemFileHandle & {
     queryPermission?: (descriptor?: { mode?: TFileSystemPermissionMode }) => Promise<TFileSystemPermissionState>;
     requestPermission?: (descriptor?: { mode?: TFileSystemPermissionMode }) => Promise<TFileSystemPermissionState>;
 };
+interface IWindowWithBrowserFilePickers extends Window {
+    showOpenFilePicker?: (
+        options?: {
+            multiple?: boolean;
+            excludeAcceptAllOption?: boolean;
+            types?: IFilePickerAcceptType[];
+        },
+    ) => Promise<FileSystemFileHandle[]>;
+    showSaveFilePicker?: (
+        options?: {
+            suggestedName?: string;
+            excludeAcceptAllOption?: boolean;
+            types?: IFilePickerAcceptType[];
+        },
+    ) => Promise<FileSystemFileHandle>;
+}
 
 let browserLargeSaveHandleHintProvider = () => (
     'Use a browser with local file system access enabled to save large documents.'
 );
+
+function getWindowWithPickers() {
+    if (typeof window === 'undefined') {
+        return null;
+    }
+
+    return window as IWindowWithBrowserFilePickers;
+}
 
 export function configureBrowserFilePickerMessages(options: { largeSaveHandleHint?: () => string; }) {
     browserLargeSaveHandleHintProvider = options.largeSaveHandleHint ?? browserLargeSaveHandleHintProvider;

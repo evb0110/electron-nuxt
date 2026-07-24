@@ -1,7 +1,7 @@
 import type { IPdfViewportPositionCommit } from '@app/modules/pdf-viewer/runtime/viewport/createViewportAuthority';
 import type { IDocumentOpenSurfaceSession } from '@app/utils/document-viewer/chassis/documentOpenSurfaceSession';
 import type { IDocumentViewerChassisAuthority } from '@app/utils/document-viewer/chassis/documentViewerChassisAuthority';
-import { resolveDocumentViewportCurrentPage } from '@app/utils/document-viewer/session/documentViewportSession';
+import { resolveDocumentViewportCurrentPage } from '@app/utils/document-viewer/chassis/documentOpenSurfaceSession';
 
 function projectPdfUserViewportPage(
     authority: IDocumentViewerChassisAuthority | null | undefined,

@@ -5,11 +5,13 @@ import {
 } from 'vitest';
 import type { IPdfBookmarkEntry } from '@contracts/pdfBookmarkEntry';
 import {
-    createAgentBookmarkPlan,
-    createAgentBookmarkSnapshot,
     createAgentPageLabelPlan,
     createAgentPageLabelSnapshot,
-} from '@app/utils/agentMetadataPlans';
+} from '@app/modules/workspace-shell/agent/createDocumentAgentPageLabels';
+import {
+    createAgentBookmarkPlan,
+    createAgentBookmarkSnapshot,
+} from '@app/modules/workspace-shell/agent/createDocumentAgentBookmarks';
 
 const DEFAULT_RANGES = [{
     startPage: 1,
