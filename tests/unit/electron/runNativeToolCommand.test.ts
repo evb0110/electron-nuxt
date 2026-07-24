@@ -198,16 +198,13 @@ describe('runNativeToolCommand', () => {
             stderr: '',
             stdout: '2\n',
         });
-        const {
-            NativeToolProtocolVersionError,
-            verifyNativeToolProtocol,
-        } = await loadModule();
+        const {verifyNativeToolProtocol} = await loadModule();
 
         const mismatch = await verifyNativeToolProtocol('/tools/evb-scan-cleanup')
             .catch((error: unknown) => error);
 
-        expect(mismatch).toBeInstanceOf(NativeToolProtocolVersionError);
         expect(mismatch).toMatchObject({
+            name: 'NativeToolProtocolVersionError',
             toolName: 'evb-scan-cleanup',
             expectedVersion: 3,
             actualVersion: '2',

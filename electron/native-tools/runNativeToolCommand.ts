@@ -21,7 +21,7 @@ export interface IRunNativeToolCommandOptions {
     log?: (level: 'debug' | 'warn' | 'error', message: string) => void;
 }
 
-export class NativeToolProtocolVersionError extends Error {
+class NativeToolProtocolVersionError extends Error {
     readonly toolName: string;
     readonly expectedVersion: number;
     readonly actualVersion: string;

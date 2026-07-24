@@ -56,7 +56,7 @@
     "electron/features/documents/main/workingCopySave.ts:397-411|electron/features/documents/main/workingCopySave.ts:444-458",
     "electron/features/page-ops/main/pageOpsMainBindings.ts:404-417|electron/features/page-ops/main/pageOpsMainBindings.ts:505-518",
     "electron/features/page-ops/main/pageOpsMainBindings.ts:548-558|electron/features/page-ops/main/pageOpsMainBindings.ts:593-603",
-    "electron/features/scan-cleanup/worker/rasterLayerDimensions.ts:7-26|scripts/diagnostics/scan-cleanup-corpus-verify.mjs:263-282",
+    "electron/features/scan-cleanup/worker/rasterLayerDimensions.ts:7-26|scripts/diagnostics/scan-cleanup-corpus-verify.mjs:312-331",
     "electron/file-access/workingCopyStore.ts:54-74|electron/utils/pathValidator.ts:32-52",
     "electron/image/tryCreatePdfWithNativeImageCombiner.ts:159-174|electron/utils/printHandoff.ts:86-101",
     "electron/image/tryCreatePdfWithNativeImageCombiner.ts:215-238|electron/image/tryCreatePdfWithNativeImageCombiner.ts:246-269",
