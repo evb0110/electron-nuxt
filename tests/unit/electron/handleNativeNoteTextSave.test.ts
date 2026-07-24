@@ -196,6 +196,24 @@ describe('handleNativeNoteTextSave', () => {
     const context = {senderId: 42};
     const revisionOptions = {expectedDocumentRevisionToken: requireDocumentRevisionToken('revision-before-native-mutation')};
 
+    function createOriginalMutationFixture(originalContents = 'original-before') {
+        const requestedWorkingPath = join(tempRoot, 'requested-working.pdf');
+        const latestWorkingPath = join(tempRoot, 'latest-working.pdf');
+        const originalPath = join(tempRoot, 'original.pdf');
+        const tempPath = `${originalPath}.tmp`;
+        writeFileSync(requestedWorkingPath, 'working-before');
+        writeFileSync(latestWorkingPath, 'latest-before');
+        writeFileSync(originalPath, originalContents);
+        mocks.getWorkingCopyOriginalPath.mockReturnValue({originalPath});
+        mocks.findWorkingCopyPathByOriginalPath.mockReturnValue(latestWorkingPath);
+        return {
+            requestedWorkingPath,
+            latestWorkingPath,
+            originalPath,
+            tempPath,
+        };
+    }
+
     beforeEach(() => {
         vi.clearAllMocks();
         tempRoot = mkdtempSync(join(tmpdir(), 'evb-native-note-save-test-'));
@@ -313,15 +331,12 @@ describe('handleNativeNoteTextSave', () => {
     });
 
     it('runs the native append command against a temp snapshot and syncs the refreshed working copy', async () => {
-        const requestedWorkingPath = join(tempRoot, 'requested-working.pdf');
-        const latestWorkingPath = join(tempRoot, 'latest-working.pdf');
-        const originalPath = join(tempRoot, 'original.pdf');
-        const tempPath = `${originalPath}.tmp`;
-        writeFileSync(requestedWorkingPath, 'working-before');
-        writeFileSync(latestWorkingPath, 'latest-before');
-        writeFileSync(originalPath, 'original-before');
-        mocks.getWorkingCopyOriginalPath.mockReturnValue({originalPath});
-        mocks.findWorkingCopyPathByOriginalPath.mockReturnValue(latestWorkingPath);
+        const {
+            requestedWorkingPath,
+            latestWorkingPath,
+            originalPath,
+            tempPath,
+        } = createOriginalMutationFixture();
         mocks.runNativeToolCommand.mockImplementation(async (_binaryPath: string, args: string[]) => {
             expect(args).toEqual(expect.arrayContaining([
                 '--input',
@@ -370,12 +385,11 @@ describe('handleNativeNoteTextSave', () => {
     });
 
     it('rolls back both targets when post-commit working-copy sync fails', async () => {
-        const requestedWorkingPath = join(tempRoot, 'requested-working.pdf');
-        const originalPath = join(tempRoot, 'original.pdf');
-        const tempPath = `${originalPath}.tmp`;
-        writeFileSync(requestedWorkingPath, 'working-before');
-        writeFileSync(originalPath, 'original-before');
-        mocks.getWorkingCopyOriginalPath.mockReturnValue({originalPath});
+        const {
+            requestedWorkingPath,
+            originalPath,
+            tempPath,
+        } = createOriginalMutationFixture();
         mocks.findWorkingCopyPathByOriginalPath.mockReturnValue(requestedWorkingPath);
         mocks.runNativeToolCommand.mockImplementation(async () => {
             await appendFile(tempPath, '\n% native incremental update');
@@ -404,15 +418,12 @@ describe('handleNativeNoteTextSave', () => {
     });
 
     it('runs the native note changes append command for FreeText note upserts', async () => {
-        const requestedWorkingPath = join(tempRoot, 'requested-working.pdf');
-        const latestWorkingPath = join(tempRoot, 'latest-working.pdf');
-        const originalPath = join(tempRoot, 'original.pdf');
-        const tempPath = `${originalPath}.tmp`;
-        writeFileSync(requestedWorkingPath, 'working-before');
-        writeFileSync(latestWorkingPath, 'latest-before');
-        writeFileSync(originalPath, 'original-before');
-        mocks.getWorkingCopyOriginalPath.mockReturnValue({originalPath});
-        mocks.findWorkingCopyPathByOriginalPath.mockReturnValue(latestWorkingPath);
+        const {
+            requestedWorkingPath,
+            latestWorkingPath,
+            originalPath,
+            tempPath,
+        } = createOriginalMutationFixture();
         mocks.runNativeToolCommand.mockImplementation(async (_binaryPath: string, args: string[]) => {
             expect(args[0]).toBe('save-note-changes');
             const changesFilePath = args[args.indexOf('--changes-file') + 1];
@@ -500,15 +511,11 @@ describe('handleNativeNoteTextSave', () => {
     });
 
     it('uses tail-only native validation for metadata-only mutation saves', async () => {
-        const requestedWorkingPath = join(tempRoot, 'requested-working.pdf');
-        const latestWorkingPath = join(tempRoot, 'latest-working.pdf');
-        const originalPath = join(tempRoot, 'original.pdf');
-        const tempPath = `${originalPath}.tmp`;
-        writeFileSync(requestedWorkingPath, 'working-before');
-        writeFileSync(latestWorkingPath, 'latest-before');
-        writeFileSync(originalPath, 'original-before');
-        mocks.getWorkingCopyOriginalPath.mockReturnValue({originalPath});
-        mocks.findWorkingCopyPathByOriginalPath.mockReturnValue(latestWorkingPath);
+        const {
+            requestedWorkingPath,
+            latestWorkingPath,
+            tempPath,
+        } = createOriginalMutationFixture();
         mocks.runNativeToolCommand.mockImplementation(async (_binaryPath: string, args: string[]) => {
             expect(args[0]).toBe('save-mutations');
             await appendFile(tempPath, '\n% native metadata-only changes');
@@ -560,15 +567,12 @@ describe('handleNativeNoteTextSave', () => {
     });
 
     it('runs the generic native mutation append command for mixed native changes', async () => {
-        const requestedWorkingPath = join(tempRoot, 'requested-working.pdf');
-        const latestWorkingPath = join(tempRoot, 'latest-working.pdf');
-        const originalPath = join(tempRoot, 'original.pdf');
-        const tempPath = `${originalPath}.tmp`;
-        writeFileSync(requestedWorkingPath, 'working-before');
-        writeFileSync(latestWorkingPath, 'latest-before');
-        writeFileSync(originalPath, 'original-before');
-        mocks.getWorkingCopyOriginalPath.mockReturnValue({originalPath});
-        mocks.findWorkingCopyPathByOriginalPath.mockReturnValue(latestWorkingPath);
+        const {
+            requestedWorkingPath,
+            latestWorkingPath,
+            originalPath,
+            tempPath,
+        } = createOriginalMutationFixture();
         mocks.runNativeToolCommand.mockImplementation(async (_binaryPath: string, args: string[]) => {
             expect(args[0]).toBe('save-mutations');
             const mutationsFilePath = args[args.indexOf('--mutations-file') + 1];
@@ -735,15 +739,12 @@ describe('handleNativeNoteTextSave', () => {
     });
 
     it('refreshes only the requesting working copy when another current copy is queued', async () => {
-        const requestedWorkingPath = join(tempRoot, 'requested-working.pdf');
-        const latestWorkingPath = join(tempRoot, 'latest-working.pdf');
-        const originalPath = join(tempRoot, 'original.pdf');
-        const tempPath = `${originalPath}.tmp`;
-        writeFileSync(requestedWorkingPath, 'working-before');
-        writeFileSync(latestWorkingPath, 'latest-before');
-        writeFileSync(originalPath, 'original-before');
-        mocks.getWorkingCopyOriginalPath.mockReturnValue({originalPath});
-        mocks.findWorkingCopyPathByOriginalPath.mockReturnValue(latestWorkingPath);
+        const {
+            requestedWorkingPath,
+            latestWorkingPath,
+            originalPath,
+            tempPath,
+        } = createOriginalMutationFixture();
         mocks.runNativeToolCommand.mockImplementation(async () => {
             await appendFile(tempPath, '\n% native incremental update');
         });
@@ -769,19 +770,16 @@ describe('handleNativeNoteTextSave', () => {
     });
 
     it('skips original-path native saves when the original no longer matches the working-copy base', async () => {
-        const requestedWorkingPath = join(tempRoot, 'requested-working.pdf');
-        const latestWorkingPath = join(tempRoot, 'latest-working.pdf');
-        const originalPath = join(tempRoot, 'original.pdf');
-        const tempPath = `${originalPath}.tmp`;
-        writeFileSync(requestedWorkingPath, 'working-before');
-        writeFileSync(latestWorkingPath, 'latest-before');
-        writeFileSync(originalPath, 'external-change');
-        mocks.getWorkingCopyOriginalPath.mockReturnValue({originalPath});
+        const {
+            requestedWorkingPath,
+            latestWorkingPath,
+            originalPath,
+            tempPath,
+        } = createOriginalMutationFixture('external-change');
         mocks.getWorkingCopyOriginalFileExpectation.mockReturnValue({
             mtimeMs: 1,
             size: 1,
         });
-        mocks.findWorkingCopyPathByOriginalPath.mockReturnValue(latestWorkingPath);
         mocks.runNativeToolCommand.mockImplementation(async () => {
             await appendFile(tempPath, '\n% native incremental update');
         });

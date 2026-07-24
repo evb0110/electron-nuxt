@@ -807,6 +807,28 @@ async function createPdfWithHighlightAnnotations(
     };
 }
 
+async function createSingleHighlight(
+    options: Parameters<typeof createPdfWithHighlightAnnotations>[1] = {},
+) {
+    const {
+        bytes,
+        refs,
+    } = await createPdfWithHighlightAnnotations([[[
+        60,
+        480,
+        180,
+        680,
+    ]]], options);
+    const targetRef = refs[0]![0]!;
+    return {
+        bytes,
+        targetRef,
+        refTag: targetRef.generationNumber === 0
+            ? `${targetRef.objectNumber}R`
+            : `${targetRef.objectNumber}R${targetRef.generationNumber}`,
+    };
+}
+
 async function createPdfWithNativeTextMarkupAnnotation(subtype: TMarkupSubtype = 'Underline') {
     const doc = await PDFDocument.create();
     const page = doc.addPage([
@@ -940,19 +962,11 @@ describe('serializePdfEdits markup subtype rewrites', () => {
     it('rewrites Highlight to Underline using a ref override', async () => {
         const {
             bytes,
-            refs,
-        } = await createPdfWithHighlightAnnotations([[[
-            60,
-            480,
-            180,
-            680,
-        ]]]);
-        const targetRef = refs[0]![0]!;
+            targetRef,
+            refTag: overrideTag,
+        } = await createSingleHighlight();
 
         const payload = createEmptyPayload();
-        const overrideTag = targetRef.generationNumber === 0
-            ? `${targetRef.objectNumber}R`
-            : `${targetRef.objectNumber}R${targetRef.generationNumber}`;
         payload.markupSubtypeOverrides = [[
             overrideTag,
                 'Underline' satisfies TMarkupSubtype,
@@ -968,20 +982,12 @@ describe('serializePdfEdits markup subtype rewrites', () => {
     it('persists exact text markup hint colors to the annotation color', async () => {
         const {
             bytes,
-            refs,
-        } = await createPdfWithHighlightAnnotations([[[
-            60,
-            480,
-            180,
-            680,
-        ]]], {
+            targetRef,
+            refTag: overrideTag,
+        } = await createSingleHighlight({
             opacitiesByPage: [[0.35]],
             withAppearance: true,
         });
-        const targetRef = refs[0]![0]!;
-        const overrideTag = targetRef.generationNumber === 0
-            ? `${targetRef.objectNumber}R`
-            : `${targetRef.objectNumber}R${targetRef.generationNumber}`;
 
         const payload = createEmptyPayload();
         payload.markupSubtypeHints = [{
@@ -1018,20 +1024,12 @@ describe('serializePdfEdits markup subtype rewrites', () => {
     it('preserves unchanged exact highlight opacity and appearance streams', async () => {
         const {
             bytes,
-            refs,
-        } = await createPdfWithHighlightAnnotations([[[
-            60,
-            480,
-            180,
-            680,
-        ]]], {
+            targetRef,
+            refTag,
+        } = await createSingleHighlight({
             opacitiesByPage: [[0.35]],
             withAppearance: true,
         });
-        const targetRef = refs[0]![0]!;
-        const refTag = targetRef.generationNumber === 0
-            ? `${targetRef.objectNumber}R`
-            : `${targetRef.objectNumber}R${targetRef.generationNumber}`;
 
         const payload = createEmptyPayload();
         payload.markupSubtypeHints = [{
@@ -1061,13 +1059,9 @@ describe('serializePdfEdits markup subtype rewrites', () => {
     it('preserves highlight opacity and appearance when the hinted color already matches', async () => {
         const {
             bytes,
-            refs,
-        } = await createPdfWithHighlightAnnotations([[[
-            60,
-            480,
-            180,
-            680,
-        ]]], {
+            targetRef,
+            refTag,
+        } = await createSingleHighlight({
             colorsByPage: [[[
                 184 / 255,
                 201 / 255,
@@ -1076,10 +1070,6 @@ describe('serializePdfEdits markup subtype rewrites', () => {
             opacitiesByPage: [[0.35]],
             withAppearance: true,
         });
-        const targetRef = refs[0]![0]!;
-        const refTag = targetRef.generationNumber === 0
-            ? `${targetRef.objectNumber}R`
-            : `${targetRef.objectNumber}R${targetRef.generationNumber}`;
 
         const payload = createEmptyPayload();
         payload.markupSubtypeHints = [{
@@ -1115,14 +1105,8 @@ describe('serializePdfEdits markup subtype rewrites', () => {
     it('persists geometry-matched text markup hint colors to the annotation color', async () => {
         const {
             bytes,
-            refs,
-        } = await createPdfWithHighlightAnnotations([[[
-            60,
-            480,
-            180,
-            680,
-        ]]]);
-        const targetRef = refs[0]![0]!;
+            targetRef,
+        } = await createSingleHighlight();
 
         const payload = createEmptyPayload();
         payload.markupSubtypeHints = [{
@@ -1154,17 +1138,9 @@ describe('serializePdfEdits markup subtype rewrites', () => {
     it('lets a current exact Highlight hint neutralize a stale ref override', async () => {
         const {
             bytes,
-            refs,
-        } = await createPdfWithHighlightAnnotations([[[
-            60,
-            480,
-            180,
-            680,
-        ]]]);
-        const targetRef = refs[0]![0]!;
-        const overrideTag = targetRef.generationNumber === 0
-            ? `${targetRef.objectNumber}R`
-            : `${targetRef.objectNumber}R${targetRef.generationNumber}`;
+            targetRef,
+            refTag: overrideTag,
+        } = await createSingleHighlight();
 
         const payload = createEmptyPayload();
         payload.markupSubtypeOverrides = [[
@@ -1195,17 +1171,9 @@ describe('serializePdfEdits markup subtype rewrites', () => {
     it('lets a current exact Highlight hint neutralize a stale exact live subtype hint', async () => {
         const {
             bytes,
-            refs,
-        } = await createPdfWithHighlightAnnotations([[[
-            60,
-            480,
-            180,
-            680,
-        ]]]);
-        const targetRef = refs[0]![0]!;
-        const refTag = targetRef.generationNumber === 0
-            ? `${targetRef.objectNumber}R`
-            : `${targetRef.objectNumber}R${targetRef.generationNumber}`;
+            targetRef,
+            refTag,
+        } = await createSingleHighlight();
         const markerRect = {
             left: 0.1,
             top: 0.15,
@@ -1243,17 +1211,9 @@ describe('serializePdfEdits markup subtype rewrites', () => {
     it('uses an exact PDF-sourced subtype hint to preserve a materialized Underline', async () => {
         const {
             bytes,
-            refs,
-        } = await createPdfWithHighlightAnnotations([[[
-            60,
-            480,
-            180,
-            680,
-        ]]]);
-        const targetRef = refs[0]![0]!;
-        const refTag = targetRef.generationNumber === 0
-            ? `${targetRef.objectNumber}R`
-            : `${targetRef.objectNumber}R${targetRef.generationNumber}`;
+            targetRef,
+            refTag,
+        } = await createSingleHighlight();
 
         const payload = createEmptyPayload();
         payload.markupSubtypeHints = [{
@@ -1280,14 +1240,8 @@ describe('serializePdfEdits markup subtype rewrites', () => {
     it('removes a stale Highlight appearance stream when rewriting subtype', async () => {
         const {
             bytes,
-            refs,
-        } = await createPdfWithHighlightAnnotations([[[
-            60,
-            480,
-            180,
-            680,
-        ]]], { withAppearance: true });
-        const targetRef = refs[0]![0]!;
+            targetRef,
+        } = await createSingleHighlight({ withAppearance: true });
 
         const payload = createEmptyPayload();
         payload.markupSubtypeOverrides = [[
@@ -1306,18 +1260,12 @@ describe('serializePdfEdits markup subtype rewrites', () => {
     it('rewrites markup subtype when optional color and QuadPoints fields are malformed', async () => {
         const {
             bytes,
-            refs,
-        } = await createPdfWithHighlightAnnotations([[[
-            60,
-            480,
-            180,
-            680,
-        ]]], {
+            targetRef,
+        } = await createSingleHighlight({
             malformedColorsByPage: [[true]],
             malformedQuadPointsByPage: [[true]],
             withAppearance: true,
         });
-        const targetRef = refs[0]![0]!;
 
         const payload = createEmptyPayload();
         payload.markupSubtypeOverrides = [[
@@ -1345,13 +1293,8 @@ describe('serializePdfEdits markup subtype rewrites', () => {
     it('preserves StrikeOut color, opacity, and QuadPoints while handing reload appearance to PDF.js', async () => {
         const {
             bytes,
-            refs,
-        } = await createPdfWithHighlightAnnotations([[[
-            60,
-            480,
-            180,
-            680,
-        ]]], {
+            targetRef,
+        } = await createSingleHighlight({
             colorsByPage: [[[
                 0,
                 188,
@@ -1370,7 +1313,6 @@ describe('serializePdfEdits markup subtype rewrites', () => {
             ]]],
             withAppearance: true,
         });
-        const targetRef = refs[0]![0]!;
 
         const payload = createEmptyPayload();
         payload.markupSubtypeOverrides = [[
@@ -1594,14 +1536,8 @@ describe('serializePdfEdits markup subtype rewrites', () => {
     it('does not throw or mutate when override targets a missing ref', async () => {
         const {
             bytes,
-            refs,
-        } = await createPdfWithHighlightAnnotations([[[
-            60,
-            480,
-            180,
-            680,
-        ]]]);
-        const targetRef = refs[0]![0]!;
+            targetRef,
+        } = await createSingleHighlight();
 
         const payload = createEmptyPayload();
         payload.markupSubtypeOverrides = [[
@@ -1619,14 +1555,8 @@ describe('serializePdfEdits markup subtype rewrites', () => {
     it('uses subtype hints to rewrite when overrides do not match', async () => {
         const {
             bytes,
-            refs,
-        } = await createPdfWithHighlightAnnotations([[[
-            60,
-            480,
-            180,
-            680,
-        ]]]);
-        const targetRef = refs[0]![0]!;
+            targetRef,
+        } = await createSingleHighlight();
 
         const payload = createEmptyPayload();
         const hint: IMarkupSubtypeHint = {

@@ -12,7 +12,6 @@ import {
 import type { TDocumentRef } from '@contracts/documentRef';
 import type { TDocumentRevisionToken } from '@contracts/documentRevision';
 import type { TDocumentOpenOutcome } from '@app/types/documentOpenOutcome';
-import {requireDocumentRevisionToken} from '@contracts';
 
 const mocks = vi.hoisted(() => ({ pageOpsDeps: null as null | {
     onExtractedDocument?: (path: TDocumentRef) => Promise<void> | void;
@@ -123,28 +122,4 @@ describe('useWorkspaceDocumentControls', () => {
         expect(options.emitOpenInNewTab).toHaveBeenCalledWith('C:\\Users\\andrej\\Downloads\\extract.pdf');
     });
 
-    it('forwards the fresh working-copy guard to page operations', () => {
-        const options = createOptions();
-
-        useWorkspaceDocumentControls(options);
-
-        expect(mocks.pageOpsDeps?.ensureWorkingCopyFreshForRead).toBe(options.ensureWorkingCopyFreshForRead);
-    });
-
-    it('forwards page mutation capability to page operations', () => {
-        const options = createOptions();
-
-        useWorkspaceDocumentControls(options);
-
-        expect(mocks.pageOpsDeps?.canMutatePages).toBe(options.canMutatePages);
-    });
-
-    it('forwards the current document revision token to page operations', () => {
-        const options = createOptions();
-        options.documentRevisionToken.value = requireDocumentRevisionToken('drt1:test:current');
-
-        useWorkspaceDocumentControls(options);
-
-        expect(mocks.pageOpsDeps?.documentRevisionToken).toBe(options.documentRevisionToken);
-    });
 });

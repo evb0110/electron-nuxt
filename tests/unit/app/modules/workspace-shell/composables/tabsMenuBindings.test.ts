@@ -168,68 +168,6 @@ function createRegistryMenuApi() {
 }
 
 describe('registerTabsMenuBindings', () => {
-    it('routes menu open-file through the placeholder-aware fallback handler', async () => {
-        const handleFallbackToolbarOpenFile = vi.fn(async () => {});
-        const deps = createDeps({ handleFallbackToolbarOpenFile });
-        const menuApi = createMenuApi();
-
-        registerTabsMenuBindings(menuApi.api, deps);
-        menuApi.emitOpenPdf();
-        await flushMicrotasks();
-
-        expect(handleFallbackToolbarOpenFile).toHaveBeenCalledTimes(1);
-    });
-
-    it('routes the repair-save menu command to the active workspace', async () => {
-        const handleRepairSave = vi.fn(async () => {});
-        const deps = createDeps({activeWorkspace: ref<IWorkspaceExpose | null>(cast<IWorkspaceExpose>({handleRepairSave}))});
-        const menuApi = createMenuApi();
-
-        registerTabsMenuBindings(menuApi.api, deps);
-        menuApi.emitRepairSave();
-        await flushMicrotasks();
-
-        expect(handleRepairSave).toHaveBeenCalledTimes(1);
-    });
-
-    it('routes the optimize PDF menu command to the active workspace', async () => {
-        const handleOptimizePdfForInteraction = vi.fn(async () => {});
-        const deps = createDeps({activeWorkspace: ref<IWorkspaceExpose | null>(
-            cast<IWorkspaceExpose>({handleOptimizePdfForInteraction}),
-        )});
-        const menuApi = createMenuApi();
-
-        registerTabsMenuBindings(menuApi.api, deps);
-        menuApi.emitOptimizePdfForInteraction();
-        await flushMicrotasks();
-
-        expect(handleOptimizePdfForInteraction).toHaveBeenCalledTimes(1);
-    });
-
-    it('routes the menu print command to the active workspace', async () => {
-        const handlePrint = vi.fn(async () => {});
-        const deps = createDeps({activeWorkspace: ref<IWorkspaceExpose | null>(cast<IWorkspaceExpose>({handlePrint}))});
-        const menuApi = createMenuApi();
-
-        registerTabsMenuBindings(menuApi.api, deps);
-        menuApi.emitPrint();
-        await flushMicrotasks();
-
-        expect(handlePrint).toHaveBeenCalledTimes(1);
-    });
-
-    it('routes the menu print current page command to the active workspace', async () => {
-        const handlePrintCurrentPage = vi.fn(async () => {});
-        const deps = createDeps({activeWorkspace: ref<IWorkspaceExpose | null>(cast<IWorkspaceExpose>({handlePrintCurrentPage}))});
-        const menuApi = createMenuApi();
-
-        registerTabsMenuBindings(menuApi.api, deps);
-        menuApi.emitPrintCurrentPage();
-        await flushMicrotasks();
-
-        expect(handlePrintCurrentPage).toHaveBeenCalledTimes(1);
-    });
-
     it('routes every registry-backed menu command to the active workspace command surface', async () => {
         const workspaceCommands: Record<string, unknown> = {hasPdf: true};
         for (const descriptor of workspaceExposeMenuCommandDescriptors) {

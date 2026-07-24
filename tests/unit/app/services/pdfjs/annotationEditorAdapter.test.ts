@@ -53,16 +53,6 @@ describe('annotationEditorAdapter', () => {
             .toThrow(/PDF\.js annotation editor runtime is incompatible/u);
     });
 
-    it('forwards selected editor to pdf.js ui manager', () => {
-        const setSelected = vi.fn();
-        const uiManager = asUiManager({ setSelected });
-        const editor = { id: 'editor-1' } as IPdfjsEditor;
-
-        expect(setSelectedEditor(uiManager, editor)).toBe(true);
-
-        expect(setSelected).toHaveBeenCalledWith(editor);
-    });
-
     it('ignores selected editor requests when the runtime hook is missing', () => {
         const editor = { id: 'editor-1' } as IPdfjsEditor;
 

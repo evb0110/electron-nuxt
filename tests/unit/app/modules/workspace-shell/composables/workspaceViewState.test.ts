@@ -13,6 +13,7 @@ import { useWorkspaceViewState } from '@app/modules/workspace-shell/composables/
 function createState(options?: {
     dragMode?: boolean;
     hasOpenAnnotationNotes?: boolean;
+    overrides?: Partial<Parameters<typeof useWorkspaceViewState>[0]>;
 }) {
     return useWorkspaceViewState({
         fitMode: ref('width'),
@@ -44,6 +45,7 @@ function createState(options?: {
             scrollToPage: () => {},
             cancelCommentPlacement: () => {},
         }),
+        ...options?.overrides,
     });
 }
 
@@ -53,33 +55,12 @@ describe('useWorkspaceViewState', () => {
         const beginProgrammaticPageNavigation = vi.fn();
         const requestPageNavigation = vi.fn((page: number) => page);
         const documentViewerRef = ref<Parameters<typeof useWorkspaceViewState>[0]['documentViewerRef']['value']>(null);
-        const state = useWorkspaceViewState({
-            fitMode: ref('width'),
-            zoomMode: ref('fit-width'),
-            zoom: ref(1),
-            dragMode: ref(false),
-            showSidebar: ref(false),
-            sidebarTab: ref('thumbnails'),
-            annotationTool: ref('none'),
-            annotationPlacingPageNote: ref(false),
-            annotationEditorState: ref({
-                isEditing: false,
-                isEmpty: true,
-                hasSomethingToUndo: false,
-                hasSomethingToRedo: false,
-                hasSelectedEditor: false,
-            }),
-            hasLivePdfJsAnnotationChanges: ref(false),
-            appAnnotationUndoDepth: ref(0),
-            hasOpenAnnotationNotes: ref(false),
-            canUndoHistory: ref(false),
-            canRedoHistory: ref(false),
-            currentPage: ref(1),
+        const state = createState({overrides: {
             totalPages: ref(0),
             beginProgrammaticPageNavigation,
             requestPageNavigation,
             documentViewerRef,
-        });
+        }});
 
         for (let page = 2; page <= 6; page += 1) {
             state.handleGoToPage(page);
@@ -116,36 +97,12 @@ describe('useWorkspaceViewState', () => {
 
     it('preserves viewport navigation authority while changing fit mode', () => {
         const cancelProgrammaticNavigation = vi.fn();
-        const state = useWorkspaceViewState({
-            fitMode: ref('width'),
-            zoomMode: ref('fit-width'),
-            zoom: ref(1),
-            dragMode: ref(false),
-            showSidebar: ref(false),
-            sidebarTab: ref('thumbnails'),
-            annotationTool: ref('none'),
-            annotationPlacingPageNote: ref(false),
-            annotationEditorState: ref({
-                isEditing: false,
-                isEmpty: true,
-                hasSomethingToUndo: false,
-                hasSomethingToRedo: false,
-                hasSelectedEditor: false,
-            }),
-            hasLivePdfJsAnnotationChanges: ref(false),
-            appAnnotationUndoDepth: ref(0),
-            hasOpenAnnotationNotes: ref(false),
-            canUndoHistory: ref(false),
-            canRedoHistory: ref(false),
-            currentPage: ref(1),
-            totalPages: ref(1),
-            documentViewerRef: ref({
-                getViewerContainer: () => null,
-                scrollToPage: () => {},
-                cancelProgrammaticNavigation,
-                cancelCommentPlacement: () => {},
-            }),
-        });
+        const state = createState({overrides: {documentViewerRef: ref({
+            getViewerContainer: () => null,
+            scrollToPage: () => {},
+            cancelProgrammaticNavigation,
+            cancelCommentPlacement: () => {},
+        })}});
 
         state.handleFitMode('height');
 
@@ -156,36 +113,17 @@ describe('useWorkspaceViewState', () => {
         const applyFitWidthToCurrentPage = vi.fn(async () => {
             throw new Error('fit failed');
         });
-        const state = useWorkspaceViewState({
+        const state = createState({overrides: {
             fitMode: ref('height'),
             zoomMode: ref('fit-height'),
             zoom: ref(2),
-            dragMode: ref(false),
-            showSidebar: ref(false),
-            sidebarTab: ref('thumbnails'),
-            annotationTool: ref('none'),
-            annotationPlacingPageNote: ref(false),
-            annotationEditorState: ref({
-                isEditing: false,
-                isEmpty: true,
-                hasSomethingToUndo: false,
-                hasSomethingToRedo: false,
-                hasSelectedEditor: false,
-            }),
-            hasLivePdfJsAnnotationChanges: ref(false),
-            appAnnotationUndoDepth: ref(0),
-            hasOpenAnnotationNotes: ref(false),
-            canUndoHistory: ref(false),
-            canRedoHistory: ref(false),
-            currentPage: ref(1),
-            totalPages: ref(1),
             documentViewerRef: ref({
                 getViewerContainer: () => null,
                 scrollToPage: () => {},
                 cancelCommentPlacement: () => {},
                 applyFitWidthToCurrentPage,
             }),
-        });
+        }});
 
         state.handleFitMode('width');
         await nextTick();
@@ -215,35 +153,7 @@ describe('useWorkspaceViewState', () => {
 
     it('enables annotation undo for app-managed annotation commands', () => {
         const appAnnotationUndoDepth = ref(1);
-        const state = useWorkspaceViewState({
-            fitMode: ref('width'),
-            zoomMode: ref('fit-width'),
-            zoom: ref(1),
-            dragMode: ref(false),
-            showSidebar: ref(false),
-            sidebarTab: ref('thumbnails'),
-            annotationTool: ref('none'),
-            annotationPlacingPageNote: ref(false),
-            annotationEditorState: ref({
-                isEditing: false,
-                isEmpty: true,
-                hasSomethingToUndo: false,
-                hasSomethingToRedo: false,
-                hasSelectedEditor: false,
-            }),
-            hasLivePdfJsAnnotationChanges: ref(false),
-            appAnnotationUndoDepth,
-            hasOpenAnnotationNotes: ref(false),
-            canUndoHistory: ref(false),
-            canRedoHistory: ref(false),
-            currentPage: ref(1),
-            totalPages: ref(1),
-            documentViewerRef: ref({
-                getViewerContainer: () => null,
-                scrollToPage: () => {},
-                cancelCommentPlacement: () => {},
-            }),
-        });
+        const state = createState({overrides: {appAnnotationUndoDepth}});
 
         expect(state.isAnnotationUndoContext.value).toBe(true);
         expect(state.canUndoAnnotation.value).toBe(true);
@@ -254,15 +164,8 @@ describe('useWorkspaceViewState', () => {
     });
 
     it('ignores stale PDF.js annotation undo state when file history can undo', () => {
-        const state = useWorkspaceViewState({
-            fitMode: ref('width'),
-            zoomMode: ref('fit-width'),
-            zoom: ref(1),
-            dragMode: ref(false),
-            showSidebar: ref(false),
+        const state = createState({overrides: {
             sidebarTab: ref('annotations'),
-            annotationTool: ref('none'),
-            annotationPlacingPageNote: ref(false),
             annotationEditorState: ref({
                 isEditing: false,
                 isEmpty: false,
@@ -270,19 +173,8 @@ describe('useWorkspaceViewState', () => {
                 hasSomethingToRedo: false,
                 hasSelectedEditor: false,
             }),
-            hasLivePdfJsAnnotationChanges: ref(false),
-            appAnnotationUndoDepth: ref(0),
-            hasOpenAnnotationNotes: ref(false),
             canUndoHistory: ref(true),
-            canRedoHistory: ref(false),
-            currentPage: ref(1),
-            totalPages: ref(1),
-            documentViewerRef: ref({
-                getViewerContainer: () => null,
-                scrollToPage: () => {},
-                cancelCommentPlacement: () => {},
-            }),
-        });
+        }});
 
         expect(state.isAnnotationUndoContext.value).toBe(false);
         expect(state.canUndoAnnotation.value).toBe(false);
@@ -290,35 +182,12 @@ describe('useWorkspaceViewState', () => {
     });
 
     it('keeps document undo available while an annotation tool is active', () => {
-        const state = useWorkspaceViewState({
-            fitMode: ref('width'),
-            zoomMode: ref('fit-width'),
-            zoom: ref(1),
-            dragMode: ref(false),
-            showSidebar: ref(false),
+        const state = createState({overrides: {
             sidebarTab: ref('annotations'),
             annotationTool: ref('highlight'),
-            annotationPlacingPageNote: ref(false),
-            annotationEditorState: ref({
-                isEditing: false,
-                isEmpty: true,
-                hasSomethingToUndo: false,
-                hasSomethingToRedo: false,
-                hasSelectedEditor: false,
-            }),
-            hasLivePdfJsAnnotationChanges: ref(false),
-            appAnnotationUndoDepth: ref(0),
-            hasOpenAnnotationNotes: ref(false),
             canUndoHistory: ref(true),
             canRedoHistory: ref(true),
-            currentPage: ref(1),
-            totalPages: ref(1),
-            documentViewerRef: ref({
-                getViewerContainer: () => null,
-                scrollToPage: () => {},
-                cancelCommentPlacement: () => {},
-            }),
-        });
+        }});
 
         expect(state.isAnnotationUndoContext.value).toBe(true);
         expect(state.canUndoAnnotation.value).toBe(false);
@@ -328,15 +197,8 @@ describe('useWorkspaceViewState', () => {
     });
 
     it('enables app-routed PDF.js annotation undo before live dirty detection catches up', () => {
-        const state = useWorkspaceViewState({
-            fitMode: ref('width'),
-            zoomMode: ref('fit-width'),
-            zoom: ref(1),
-            dragMode: ref(false),
-            showSidebar: ref(false),
+        const state = createState({overrides: {
             sidebarTab: ref('annotations'),
-            annotationTool: ref('none'),
-            annotationPlacingPageNote: ref(false),
             annotationEditorState: ref({
                 isEditing: false,
                 isEmpty: false,
@@ -345,19 +207,7 @@ describe('useWorkspaceViewState', () => {
                 hasSelectedEditor: false,
                 hasAppAnnotationUndoHistory: true,
             }),
-            hasLivePdfJsAnnotationChanges: ref(false),
-            appAnnotationUndoDepth: ref(0),
-            hasOpenAnnotationNotes: ref(false),
-            canUndoHistory: ref(false),
-            canRedoHistory: ref(false),
-            currentPage: ref(1),
-            totalPages: ref(1),
-            documentViewerRef: ref({
-                getViewerContainer: () => null,
-                scrollToPage: () => {},
-                cancelCommentPlacement: () => {},
-            }),
-        });
+        }});
 
         expect(state.isAnnotationUndoContext.value).toBe(true);
         expect(state.canUndoAnnotation.value).toBe(true);
@@ -366,27 +216,9 @@ describe('useWorkspaceViewState', () => {
 
     it('scrolls to an explicit bookmark target even when the page is already current', () => {
         const scrollToPage = vi.fn();
-        const state = useWorkspaceViewState({
-            fitMode: ref('width'),
-            zoomMode: ref('fit-width'),
-            zoom: ref(1),
-            dragMode: ref(false),
+        const state = createState({overrides: {
             showSidebar: ref(true),
             sidebarTab: ref('bookmarks'),
-            annotationTool: ref('none'),
-            annotationPlacingPageNote: ref(false),
-            annotationEditorState: ref({
-                isEditing: false,
-                isEmpty: true,
-                hasSomethingToUndo: false,
-                hasSomethingToRedo: false,
-                hasSelectedEditor: false,
-            }),
-            hasLivePdfJsAnnotationChanges: ref(false),
-            appAnnotationUndoDepth: ref(0),
-            hasOpenAnnotationNotes: ref(false),
-            canUndoHistory: ref(false),
-            canRedoHistory: ref(false),
             currentPage: ref(3),
             totalPages: ref(10),
             documentViewerRef: ref({
@@ -394,7 +226,7 @@ describe('useWorkspaceViewState', () => {
                 scrollToPage,
                 cancelCommentPlacement: () => {},
             }),
-        });
+        }});
         const scrollOptions = {pageYRatio: 0};
 
         state.handleGoToPage(3, scrollOptions);
@@ -405,27 +237,7 @@ describe('useWorkspaceViewState', () => {
     it('forwards a same-page command so an evicted current canvas can recover', () => {
         const beginProgrammaticPageNavigation = vi.fn();
         const scrollToPage = vi.fn();
-        const state = useWorkspaceViewState({
-            fitMode: ref('width'),
-            zoomMode: ref('fit-width'),
-            zoom: ref(1),
-            dragMode: ref(false),
-            showSidebar: ref(false),
-            sidebarTab: ref('thumbnails'),
-            annotationTool: ref('none'),
-            annotationPlacingPageNote: ref(false),
-            annotationEditorState: ref({
-                isEditing: false,
-                isEmpty: true,
-                hasSomethingToUndo: false,
-                hasSomethingToRedo: false,
-                hasSelectedEditor: false,
-            }),
-            hasLivePdfJsAnnotationChanges: ref(false),
-            appAnnotationUndoDepth: ref(0),
-            hasOpenAnnotationNotes: ref(false),
-            canUndoHistory: ref(false),
-            canRedoHistory: ref(false),
+        const state = createState({overrides: {
             currentPage: ref(3),
             totalPages: ref(10),
             beginProgrammaticPageNavigation,
@@ -434,7 +246,7 @@ describe('useWorkspaceViewState', () => {
                 scrollToPage,
                 cancelCommentPlacement: () => {},
             }),
-        });
+        }});
 
         state.handleGoToPage(3);
 
@@ -446,28 +258,9 @@ describe('useWorkspaceViewState', () => {
         const beginProgrammaticPageNavigation = vi.fn();
         const invalidateBookmarkNavigationRequests = vi.fn();
         const scrollToPage = vi.fn();
-        const state = useWorkspaceViewState({
+        const state = createState({overrides: {
             fitMode: ref('height'),
             zoomMode: ref('fit-height'),
-            zoom: ref(1),
-            dragMode: ref(false),
-            showSidebar: ref(false),
-            sidebarTab: ref('thumbnails'),
-            annotationTool: ref('none'),
-            annotationPlacingPageNote: ref(false),
-            annotationEditorState: ref({
-                isEditing: false,
-                isEmpty: true,
-                hasSomethingToUndo: false,
-                hasSomethingToRedo: false,
-                hasSelectedEditor: false,
-            }),
-            hasLivePdfJsAnnotationChanges: ref(false),
-            appAnnotationUndoDepth: ref(0),
-            hasOpenAnnotationNotes: ref(false),
-            canUndoHistory: ref(false),
-            canRedoHistory: ref(false),
-            currentPage: ref(1),
             totalPages: ref(10),
             beginProgrammaticPageNavigation,
             invalidateBookmarkNavigationRequests,
@@ -477,7 +270,7 @@ describe('useWorkspaceViewState', () => {
                 getPendingNavigationTargetPage: () => 6,
                 cancelCommentPlacement: () => {},
             }),
-        });
+        }});
 
         state.handleGoToPage(1);
 
@@ -490,28 +283,10 @@ describe('useWorkspaceViewState', () => {
         const beginProgrammaticPageNavigation = vi.fn();
         const invalidateBookmarkNavigationRequests = vi.fn();
         const scrollToPage = vi.fn();
-        const state = useWorkspaceViewState({
+        const state = createState({overrides: {
             fitMode: ref('height'),
             zoomMode: ref('fit-height'),
-            zoom: ref(1),
-            dragMode: ref(false),
-            showSidebar: ref(false),
             sidebarTab: ref('bookmarks'),
-            annotationTool: ref('none'),
-            annotationPlacingPageNote: ref(false),
-            annotationEditorState: ref({
-                isEditing: false,
-                isEmpty: true,
-                hasSomethingToUndo: false,
-                hasSomethingToRedo: false,
-                hasSelectedEditor: false,
-            }),
-            hasLivePdfJsAnnotationChanges: ref(false),
-            appAnnotationUndoDepth: ref(0),
-            hasOpenAnnotationNotes: ref(false),
-            canUndoHistory: ref(false),
-            canRedoHistory: ref(false),
-            currentPage: ref(1),
             totalPages: ref(10),
             beginProgrammaticPageNavigation,
             invalidateBookmarkNavigationRequests,
@@ -520,7 +295,7 @@ describe('useWorkspaceViewState', () => {
                 scrollToPage,
                 cancelCommentPlacement: () => {},
             }),
-        });
+        }});
         const options = {
             navigationSource: 'bookmark' as const,
             pageYRatio: 0.25,

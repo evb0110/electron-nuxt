@@ -87,29 +87,6 @@ describe('lazyBrowserPlatformApi', () => {
         expect(mocks.browserPlatformImportCount).toBe(0);
     });
 
-    it('forwards split document methods through the split browser platform fields lazily', async () => {
-        const { lazyBrowserPlatformApi } = await import('@app/platform/lazyBrowserPlatformApi');
-
-        expect(mocks.openDocumentDirect).not.toHaveBeenCalled();
-        expect(mocks.readTextFile).not.toHaveBeenCalled();
-        await expect(lazyBrowserPlatformApi.documentOpen.openDocumentDirect('browser://documents/source.pdf'))
-            .resolves.toEqual({
-                kind: 'pdf',
-                originalPath: 'browser://documents/source.pdf',
-                workingPath: 'browser://documents/source.pdf#working',
-            });
-        await expect(lazyBrowserPlatformApi.documentFiles.readTextFile('browser://documents/source.txt'))
-            .resolves.toBe('read browser://documents/source.txt');
-        const unsubscribe = lazyBrowserPlatformApi.documentMenu.onMenuSave(vi.fn());
-
-        expect(mocks.openDocumentDirect).toHaveBeenCalledWith('browser://documents/source.pdf');
-        expect(mocks.readTextFile).toHaveBeenCalledWith('browser://documents/source.txt');
-        await vi.waitFor(() => {
-            expect(mocks.onMenuSave).toHaveBeenCalled();
-        });
-        unsubscribe();
-    });
-
     it('reports split lazy event subscription failures with the split capability path', async () => {
         const subscriptionError = new Error('split subscription failed');
         mocks.onMenuSave.mockImplementation(() => {

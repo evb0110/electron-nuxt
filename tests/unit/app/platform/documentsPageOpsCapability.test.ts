@@ -9,6 +9,7 @@ import {
     PDFDocument,
     degrees,
 } from 'pdf-lib';
+import { createBrowserPageOpsCapability } from '@app/platform/browser-api/createBrowserPageOpsCapability';
 
 const yieldToBrowserMock = vi.hoisted(() => vi.fn(async () => {}));
 const browserDocumentStoreMock = vi.hoisted(() => ({
@@ -37,6 +38,22 @@ vi.mock('@app/platform/browserDocumentStore', () => ({
     getBrowserDocumentFileName: (ref: string) => ref.split('/').at(-1) ?? 'document.pdf',
     browserDocumentStore: browserDocumentStoreMock,
 }));
+
+type TPageOpsOptions = Parameters<typeof createBrowserPageOpsCapability>[0];
+
+function createPageOps(overrides: Partial<TPageOpsOptions> = {}) {
+    return createBrowserPageOpsCapability({
+        clearSearchCaches: vi.fn(),
+        openInputAccept: 'application/pdf',
+        pickFiles: vi.fn(),
+        buildOpenPdfPickerTypes: vi.fn(),
+        createCombinedPdfFromPaths: vi.fn(),
+        pickSaveTarget: vi.fn(),
+        saveBytesToPickerOrDownload: vi.fn(),
+        writeBytesToHandle: vi.fn(),
+        ...overrides,
+    });
+}
 
 describe('createBrowserPageOpsCapability', () => {
     beforeEach(() => {
@@ -67,17 +84,7 @@ describe('createBrowserPageOpsCapability', () => {
         browserDocumentStoreMock.read.mockResolvedValue(pdfBytes);
 
         const clearSearchCaches = vi.fn();
-        const { createBrowserPageOpsCapability } = await import('@app/platform/browser-api/createBrowserPageOpsCapability');
-        const pageOps = createBrowserPageOpsCapability({
-            clearSearchCaches,
-            openInputAccept: 'application/pdf',
-            pickFiles: vi.fn(),
-            buildOpenPdfPickerTypes: vi.fn(),
-            createCombinedPdfFromPaths: vi.fn(),
-            pickSaveTarget: vi.fn(),
-            saveBytesToPickerOrDownload: vi.fn(),
-            writeBytesToHandle: vi.fn(),
-        });
+        const pageOps = createPageOps({clearSearchCaches});
 
         const result = await pageOps.rotate('/tmp/work.pdf', [
             1,
@@ -94,17 +101,7 @@ describe('createBrowserPageOpsCapability', () => {
     it('rejects large browser page-ops jobs before reading the full PDF', async () => {
         browserDocumentStoreMock.stat.mockResolvedValue({ size: (64 * 1024 * 1024) + 1 });
 
-        const { createBrowserPageOpsCapability } = await import('@app/platform/browser-api/createBrowserPageOpsCapability');
-        const pageOps = createBrowserPageOpsCapability({
-            clearSearchCaches: vi.fn(),
-            openInputAccept: 'application/pdf',
-            pickFiles: vi.fn(),
-            buildOpenPdfPickerTypes: vi.fn(),
-            createCombinedPdfFromPaths: vi.fn(),
-            pickSaveTarget: vi.fn(),
-            saveBytesToPickerOrDownload: vi.fn(),
-            writeBytesToHandle: vi.fn(),
-        });
+        const pageOps = createPageOps({});
 
         await expect(pageOps.delete('/tmp/work.pdf', [1], 1)).rejects.toThrow(
             'Deleting pages is unavailable in the browser for PDFs larger than 64MB',
@@ -122,17 +119,7 @@ describe('createBrowserPageOpsCapability', () => {
         browserDocumentStoreMock.stat.mockResolvedValue({ size: pdfBytes.byteLength });
         browserDocumentStoreMock.read.mockResolvedValue(pdfBytes);
 
-        const { createBrowserPageOpsCapability } = await import('@app/platform/browser-api/createBrowserPageOpsCapability');
-        const pageOps = createBrowserPageOpsCapability({
-            clearSearchCaches: vi.fn(),
-            openInputAccept: 'application/pdf',
-            pickFiles: vi.fn(),
-            buildOpenPdfPickerTypes: vi.fn(),
-            createCombinedPdfFromPaths: vi.fn(),
-            pickSaveTarget: vi.fn(),
-            saveBytesToPickerOrDownload: vi.fn(),
-            writeBytesToHandle: vi.fn(),
-        });
+        const pageOps = createPageOps({});
 
         await expect(pageOps.delete('/tmp/work.pdf', [
             2,
@@ -150,17 +137,7 @@ describe('createBrowserPageOpsCapability', () => {
         browserDocumentStoreMock.stat.mockResolvedValue({ size: pdfBytes.byteLength });
         browserDocumentStoreMock.read.mockResolvedValue(pdfBytes);
 
-        const { createBrowserPageOpsCapability } = await import('@app/platform/browser-api/createBrowserPageOpsCapability');
-        const pageOps = createBrowserPageOpsCapability({
-            clearSearchCaches: vi.fn(),
-            openInputAccept: 'application/pdf',
-            pickFiles: vi.fn(),
-            buildOpenPdfPickerTypes: vi.fn(),
-            createCombinedPdfFromPaths: vi.fn(),
-            pickSaveTarget: vi.fn(),
-            saveBytesToPickerOrDownload: vi.fn(),
-            writeBytesToHandle: vi.fn(),
-        });
+        const pageOps = createPageOps({});
 
         await expect(pageOps.rotate('/tmp/work.pdf', [4], 3, 90)).rejects.toThrow(
             'rotatePages: page number 4 is out of range 1-3',
@@ -177,17 +154,7 @@ describe('createBrowserPageOpsCapability', () => {
         browserDocumentStoreMock.stat.mockResolvedValue({ size: pdfBytes.byteLength });
         browserDocumentStoreMock.read.mockResolvedValue(pdfBytes);
 
-        const { createBrowserPageOpsCapability } = await import('@app/platform/browser-api/createBrowserPageOpsCapability');
-        const pageOps = createBrowserPageOpsCapability({
-            clearSearchCaches: vi.fn(),
-            openInputAccept: 'application/pdf',
-            pickFiles: vi.fn(),
-            buildOpenPdfPickerTypes: vi.fn(),
-            createCombinedPdfFromPaths: vi.fn(),
-            pickSaveTarget: vi.fn(),
-            saveBytesToPickerOrDownload: vi.fn(),
-            writeBytesToHandle: vi.fn(),
-        });
+        const pageOps = createPageOps({});
 
         await expect(pageOps.reorder('/tmp/work.pdf', [
             3,
@@ -216,17 +183,7 @@ describe('createBrowserPageOpsCapability', () => {
         browserPageOpsWorkerMock.run.mockResolvedValue(workerResult);
 
         const clearSearchCaches = vi.fn();
-        const { createBrowserPageOpsCapability } = await import('@app/platform/browser-api/createBrowserPageOpsCapability');
-        const pageOps = createBrowserPageOpsCapability({
-            clearSearchCaches,
-            openInputAccept: 'application/pdf',
-            pickFiles: vi.fn(),
-            buildOpenPdfPickerTypes: vi.fn(),
-            createCombinedPdfFromPaths: vi.fn(),
-            pickSaveTarget: vi.fn(),
-            saveBytesToPickerOrDownload: vi.fn(),
-            writeBytesToHandle: vi.fn(),
-        });
+        const pageOps = createPageOps({clearSearchCaches});
 
         const result = await pageOps.crop('/tmp/work.pdf', [1], 1, {
             top: 12,
@@ -266,17 +223,7 @@ describe('createBrowserPageOpsCapability', () => {
             pageCount: 1,
         });
         const clearGate = Promise.withResolvers<undefined>();
-        const { createBrowserPageOpsCapability } = await import('@app/platform/browser-api/createBrowserPageOpsCapability');
-        const pageOps = createBrowserPageOpsCapability({
-            clearSearchCaches: vi.fn(() => clearGate.promise),
-            openInputAccept: 'application/pdf',
-            pickFiles: vi.fn(),
-            buildOpenPdfPickerTypes: vi.fn(),
-            createCombinedPdfFromPaths: vi.fn(),
-            pickSaveTarget: vi.fn(),
-            saveBytesToPickerOrDownload: vi.fn(),
-            writeBytesToHandle: vi.fn(),
-        });
+        const pageOps = createPageOps({clearSearchCaches: vi.fn(() => clearGate.promise)});
         let settled = false;
         const operation = pageOps.rotate('/tmp/work.pdf', [1], 1, 90)
             .finally(() => {
@@ -319,17 +266,7 @@ describe('createBrowserPageOpsCapability', () => {
             },
         ],
     ])('rejects %s crop margins before browser mutation', async (_label, margins) => {
-        const { createBrowserPageOpsCapability } = await import('@app/platform/browser-api/createBrowserPageOpsCapability');
-        const pageOps = createBrowserPageOpsCapability({
-            clearSearchCaches: vi.fn(),
-            openInputAccept: 'application/pdf',
-            pickFiles: vi.fn(),
-            buildOpenPdfPickerTypes: vi.fn(),
-            createCombinedPdfFromPaths: vi.fn(),
-            pickSaveTarget: vi.fn(),
-            saveBytesToPickerOrDownload: vi.fn(),
-            writeBytesToHandle: vi.fn(),
-        });
+        const pageOps = createPageOps({});
 
         await expect(pageOps.crop('/tmp/work.pdf', [1], 1, margins as never))
             .rejects.toThrow('Invalid crop margins');
@@ -346,17 +283,7 @@ describe('createBrowserPageOpsCapability', () => {
         const pdfBytes = new Uint8Array(await pdfDocument.save());
         browserDocumentStoreMock.stat.mockResolvedValue({size: pdfBytes.byteLength});
         browserDocumentStoreMock.read.mockResolvedValue(pdfBytes);
-        const { createBrowserPageOpsCapability } = await import('@app/platform/browser-api/createBrowserPageOpsCapability');
-        const pageOps = createBrowserPageOpsCapability({
-            clearSearchCaches: vi.fn(),
-            openInputAccept: 'application/pdf',
-            pickFiles: vi.fn(),
-            buildOpenPdfPickerTypes: vi.fn(),
-            createCombinedPdfFromPaths: vi.fn(),
-            pickSaveTarget: vi.fn(),
-            saveBytesToPickerOrDownload: vi.fn(),
-            writeBytesToHandle: vi.fn(),
-        });
+        const pageOps = createPageOps({});
 
         await expect(pageOps.crop('/tmp/work.pdf', [1], 1, {
             top: 0,
@@ -387,17 +314,7 @@ describe('createBrowserPageOpsCapability', () => {
             });
 
         const clearSearchCaches = vi.fn();
-        const { createBrowserPageOpsCapability } = await import('@app/platform/browser-api/createBrowserPageOpsCapability');
-        const pageOps = createBrowserPageOpsCapability({
-            clearSearchCaches,
-            openInputAccept: 'application/pdf',
-            pickFiles: vi.fn(),
-            buildOpenPdfPickerTypes: vi.fn(),
-            createCombinedPdfFromPaths: vi.fn(),
-            pickSaveTarget: vi.fn(),
-            saveBytesToPickerOrDownload: vi.fn(),
-            writeBytesToHandle: vi.fn(),
-        });
+        const pageOps = createPageOps({clearSearchCaches});
 
         await expect(pageOps.delete('/tmp/work.pdf', [2], 3)).resolves.toEqual({
             success: true,
@@ -452,17 +369,7 @@ describe('createBrowserPageOpsCapability', () => {
                 pageCount: 1,
             });
 
-        const { createBrowserPageOpsCapability } = await import('@app/platform/browser-api/createBrowserPageOpsCapability');
-        const pageOps = createBrowserPageOpsCapability({
-            clearSearchCaches: vi.fn(),
-            openInputAccept: 'application/pdf',
-            pickFiles: vi.fn(),
-            buildOpenPdfPickerTypes: vi.fn(),
-            createCombinedPdfFromPaths: vi.fn(),
-            pickSaveTarget: vi.fn(),
-            saveBytesToPickerOrDownload: vi.fn(),
-            writeBytesToHandle: vi.fn(),
-        });
+        const pageOps = createPageOps({});
 
         const rotatePromise = pageOps.rotate('/tmp/work.pdf', [1], 1, 90);
         const deletePromise = pageOps.delete('/tmp/work.pdf', [1], 1);
@@ -501,17 +408,7 @@ describe('createBrowserPageOpsCapability', () => {
         browserPageOpsWorkerMock.canUse.mockReturnValue(true);
         browserPageOpsWorkerMock.run.mockResolvedValue(geometry);
 
-        const { createBrowserPageOpsCapability } = await import('@app/platform/browser-api/createBrowserPageOpsCapability');
-        const pageOps = createBrowserPageOpsCapability({
-            clearSearchCaches: vi.fn(),
-            openInputAccept: 'application/pdf',
-            pickFiles: vi.fn(),
-            buildOpenPdfPickerTypes: vi.fn(),
-            createCombinedPdfFromPaths: vi.fn(),
-            pickSaveTarget: vi.fn(),
-            saveBytesToPickerOrDownload: vi.fn(),
-            writeBytesToHandle: vi.fn(),
-        });
+        const pageOps = createPageOps({});
 
         await expect(pageOps.getPageGeometry('/tmp/work.pdf', 1)).rejects.toThrow(
             'Inspecting page geometry is unavailable in the browser for PDFs larger than 64MB',
@@ -532,17 +429,7 @@ describe('createBrowserPageOpsCapability', () => {
         browserDocumentStoreMock.stat.mockResolvedValue({ size: pdfBytes.byteLength });
         browserDocumentStoreMock.read.mockResolvedValue(pdfBytes);
 
-        const { createBrowserPageOpsCapability } = await import('@app/platform/browser-api/createBrowserPageOpsCapability');
-        const pageOps = createBrowserPageOpsCapability({
-            clearSearchCaches: vi.fn(),
-            openInputAccept: 'application/pdf',
-            pickFiles: vi.fn(),
-            buildOpenPdfPickerTypes: vi.fn(),
-            createCombinedPdfFromPaths: vi.fn(),
-            pickSaveTarget: vi.fn(),
-            saveBytesToPickerOrDownload: vi.fn(),
-            writeBytesToHandle: vi.fn(),
-        });
+        const pageOps = createPageOps({});
 
         await expect(pageOps.getPageGeometry('/tmp/work.pdf', 1)).resolves.toEqual({
             mediaBox: {
@@ -573,17 +460,7 @@ describe('createBrowserPageOpsCapability', () => {
         browserDocumentStoreMock.stat.mockResolvedValue({ size: pdfBytes.byteLength });
         browserDocumentStoreMock.read.mockResolvedValue(pdfBytes);
 
-        const { createBrowserPageOpsCapability } = await import('@app/platform/browser-api/createBrowserPageOpsCapability');
-        const pageOps = createBrowserPageOpsCapability({
-            clearSearchCaches: vi.fn(),
-            openInputAccept: 'application/pdf',
-            pickFiles: vi.fn(),
-            buildOpenPdfPickerTypes: vi.fn(),
-            createCombinedPdfFromPaths: vi.fn(),
-            pickSaveTarget: vi.fn(),
-            saveBytesToPickerOrDownload: vi.fn(),
-            writeBytesToHandle: vi.fn(),
-        });
+        const pageOps = createPageOps({});
 
         await expect(pageOps.getPageGeometry('/tmp/work.pdf', 1)).resolves.toEqual({
             mediaBox: {
@@ -625,13 +502,7 @@ describe('createBrowserPageOpsCapability', () => {
             async (_handle: FileSystemFileHandle, _data: Uint8Array) => {},
         );
 
-        const { createBrowserPageOpsCapability } = await import('@app/platform/browser-api/createBrowserPageOpsCapability');
-        const pageOps = createBrowserPageOpsCapability({
-            clearSearchCaches: vi.fn(),
-            openInputAccept: 'application/pdf',
-            pickFiles: vi.fn(),
-            buildOpenPdfPickerTypes: vi.fn(),
-            createCombinedPdfFromPaths: vi.fn(),
+        const pageOps = createPageOps({
             pickSaveTarget,
             saveBytesToPickerOrDownload,
             writeBytesToHandle,
@@ -738,16 +609,10 @@ describe('createBrowserPageOpsCapability', () => {
         }));
         const createCombinedPdfFromPaths = vi.fn(async () => insertionBytes);
 
-        const { createBrowserPageOpsCapability } = await import('@app/platform/browser-api/createBrowserPageOpsCapability');
-        const pageOps = createBrowserPageOpsCapability({
-            clearSearchCaches: vi.fn(),
-            openInputAccept: 'application/pdf',
-            pickFiles: vi.fn(),
-            buildOpenPdfPickerTypes: vi.fn(),
+        const pageOps = createPageOps({
             createCombinedPdfFromPaths,
             pickSaveTarget,
             saveBytesToPickerOrDownload,
-            writeBytesToHandle: vi.fn(),
         });
 
         await pageOps.extract('/tmp/work.pdf', [1]);
@@ -797,17 +662,7 @@ describe('createBrowserPageOpsCapability', () => {
         browserDocumentStoreMock.read.mockResolvedValue(destinationBytes);
 
         const createCombinedPdfFromPaths = vi.fn(async () => insertionBytes);
-        const { createBrowserPageOpsCapability } = await import('@app/platform/browser-api/createBrowserPageOpsCapability');
-        const pageOps = createBrowserPageOpsCapability({
-            clearSearchCaches: vi.fn(),
-            openInputAccept: 'application/pdf',
-            pickFiles: vi.fn(),
-            buildOpenPdfPickerTypes: vi.fn(),
-            createCombinedPdfFromPaths,
-            pickSaveTarget: vi.fn(),
-            saveBytesToPickerOrDownload: vi.fn(),
-            writeBytesToHandle: vi.fn(),
-        });
+        const pageOps = createPageOps({createCombinedPdfFromPaths});
 
         await expect(pageOps.insertFile(
             '/tmp/work.pdf',
@@ -832,17 +687,7 @@ describe('createBrowserPageOpsCapability', () => {
         });
 
         const createCombinedPdfFromPaths = vi.fn(async () => new Uint8Array([1]));
-        const { createBrowserPageOpsCapability } = await import('@app/platform/browser-api/createBrowserPageOpsCapability');
-        const pageOps = createBrowserPageOpsCapability({
-            clearSearchCaches: vi.fn(),
-            openInputAccept: 'application/pdf',
-            pickFiles: vi.fn(),
-            buildOpenPdfPickerTypes: vi.fn(),
-            createCombinedPdfFromPaths,
-            pickSaveTarget: vi.fn(),
-            saveBytesToPickerOrDownload: vi.fn(),
-            writeBytesToHandle: vi.fn(),
-        });
+        const pageOps = createPageOps({createCombinedPdfFromPaths});
 
         await expect(pageOps.insertFile(
             '/tmp/work.pdf',
@@ -885,17 +730,7 @@ describe('createBrowserPageOpsCapability', () => {
         ));
 
         const createCombinedPdfFromPaths = vi.fn(async () => new Uint8Array([9]));
-        const { createBrowserPageOpsCapability } = await import('@app/platform/browser-api/createBrowserPageOpsCapability');
-        const pageOps = createBrowserPageOpsCapability({
-            clearSearchCaches: vi.fn(),
-            openInputAccept: 'application/pdf',
-            pickFiles: vi.fn(),
-            buildOpenPdfPickerTypes: vi.fn(),
-            createCombinedPdfFromPaths,
-            pickSaveTarget: vi.fn(),
-            saveBytesToPickerOrDownload: vi.fn(),
-            writeBytesToHandle: vi.fn(),
-        });
+        const pageOps = createPageOps({createCombinedPdfFromPaths});
 
         const result = await pageOps.insertFile(
             '/tmp/work.pdf',

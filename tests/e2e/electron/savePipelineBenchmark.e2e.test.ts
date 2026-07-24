@@ -15,11 +15,9 @@ import {
     it,
 } from 'vitest';
 import type {Page} from 'puppeteer-core';
-import {DEFAULT_SETTINGS} from '@contracts/settings';
 import type {TPerformanceMode} from '@contracts/hostResourceProfile';
-import {stopSingleSession} from '@scripts/electron-run/sessionManager';
 import {getSessionInfo} from '@scripts/electron-run/electronRunSessionArtifacts';
-import {startElectronE2ESession} from '@tests/e2e/electron/helpers/startElectronE2ESession';
+import {startConfiguredElectronE2ESession as startConfiguredSession} from '@tests/e2e/electron/helpers/startConfiguredElectronE2ESession';
 import {
     openAnnotationsTab,
     waitForPdfLoaded,
@@ -49,26 +47,6 @@ function parsePositiveInteger(value: string | undefined, fallback: number) {
 function percentile(values: number[], fraction: number) {
     const sorted = [...values].sort((left, right) => left - right);
     return sorted[Math.min(sorted.length - 1, Math.ceil(sorted.length * fraction) - 1)] ?? 0;
-}
-
-async function startConfiguredSession(
-    baseName: string,
-    performanceMode: TPerformanceMode,
-    initialOpenPaths: string[],
-) {
-    const bootstrap = await startElectronE2ESession(baseName, {clean: true});
-    await bootstrap.page.evaluate(async (settings) => {
-        await window.electronAPI?.settings.save(settings);
-    }, {
-        ...DEFAULT_SETTINGS,
-        performanceMode,
-    });
-    await bootstrap.browser.disconnect();
-    await stopSingleSession(bootstrap.name, {keepNuxt: true});
-    return startElectronE2ESession(baseName, {
-        clean: false,
-        initialOpenPaths,
-    });
 }
 
 async function waitForOpenedPdf(page: Page, path: string) {

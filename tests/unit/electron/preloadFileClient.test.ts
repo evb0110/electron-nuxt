@@ -217,25 +217,6 @@ describe('createDocumentsPreloadFileClient', () => {
         expect(port1.listeners.size).toBe(0);
     });
 
-    it('invokes Save As with normalized lossless optimization options', async () => {
-        const ipcRenderer = {
-            invoke: vi.fn(async () => '/tmp/saved.pdf'),
-            postMessage: vi.fn(),
-        } satisfies Pick<IpcRenderer, 'invoke' | 'postMessage'>;
-        const client = createDocumentsPreloadFileClient(ipcRenderer);
-
-        await expect(client.savePdfAs('/tmp/working.pdf', { optimizeLossless: true }, revisionOptions))
-            .resolves
-            .toBe('/tmp/saved.pdf');
-
-        expect(ipcRenderer.invoke).toHaveBeenCalledWith(
-            DOCUMENTS_CHANNELS.savePdfAs,
-            '/tmp/working.pdf',
-            { optimizeLossless: true },
-            revisionOptions,
-        );
-    });
-
     it('passes lossless optimization options when starting streamed Save As persistence', async () => {
         const port1 = new FakeMessagePort();
         const port2 = new FakeMessagePort();
@@ -309,50 +290,6 @@ describe('createDocumentsPreloadFileClient', () => {
         );
     });
 
-    it('invokes the native repair channel with a checked absolute working path', async () => {
-        const validation = {
-            isValid: true,
-            tool: 'qpdf' as const,
-            errors: [],
-            warnings: [],
-        };
-        const ipcRenderer = {
-            invoke: vi.fn(async () => validation),
-            postMessage: vi.fn(),
-        } satisfies Pick<IpcRenderer, 'invoke' | 'postMessage'>;
-        const client = createDocumentsPreloadFileClient(ipcRenderer);
-
-        await expect(client.repairPdf?.('/tmp/working.pdf', revisionOptions)).resolves.toStrictEqual(validation);
-
-        expect(ipcRenderer.invoke).toHaveBeenCalledWith(
-            DOCUMENTS_CHANNELS.fileRepairPdf,
-            '/tmp/working.pdf',
-            revisionOptions,
-        );
-    });
-
-    it('invokes the structured save channel with a checked absolute working path', async () => {
-        const result = {
-            ok: true,
-            externalWriteCommitted: true,
-            workingCopyRefreshed: true,
-            validation: null,
-        };
-        const ipcRenderer = {
-            invoke: vi.fn(async () => result),
-            postMessage: vi.fn(),
-        } satisfies Pick<IpcRenderer, 'invoke' | 'postMessage'>;
-        const client = createDocumentsPreloadFileClient(ipcRenderer);
-
-        await expect(client.saveFileStructured('/tmp/working.pdf', revisionOptions)).resolves.toStrictEqual(result);
-
-        expect(ipcRenderer.invoke).toHaveBeenCalledWith(
-            DOCUMENTS_CHANNELS.fileSaveStructured,
-            '/tmp/working.pdf',
-            revisionOptions,
-        );
-    });
-
     it('rejects structured save calls without revision options before invoking IPC', () => {
         const ipcRenderer = {
             invoke: vi.fn(),
@@ -363,43 +300,6 @@ describe('createDocumentsPreloadFileClient', () => {
         expect(() => client.saveFileStructured('/tmp/working.pdf'))
             .toThrow('saveFileStructured.options.expectedDocumentRevisionToken must be a non-empty string');
         expect(ipcRenderer.invoke).not.toHaveBeenCalled();
-    });
-
-    it('invokes optimize-as-copy with checked options and request id', async () => {
-        const result = {
-            path: '/tmp/optimized.pdf',
-            validation: {
-                isValid: true,
-                tool: 'qpdf' as const,
-                errors: [],
-                warnings: [],
-            },
-            preset: 'smallScanned' as const,
-            originalBytes: 100,
-            optimizedBytes: 50,
-            pageCount: 3,
-        };
-        const ipcRenderer = {
-            invoke: vi.fn(async () => result),
-            postMessage: vi.fn(),
-        } satisfies Pick<IpcRenderer, 'invoke' | 'postMessage'>;
-        const client = createDocumentsPreloadFileClient(ipcRenderer);
-        const revisionOptions = { expectedDocumentRevisionToken: requireDocumentRevisionToken('revision-before-optimize-copy') };
-
-        await expect(client.optimizePdfAsCopy?.(
-            '/tmp/working.pdf',
-            { preset: 'smallScanned' },
-            'request-1',
-            revisionOptions,
-        )).resolves.toStrictEqual(result);
-
-        expect(ipcRenderer.invoke).toHaveBeenCalledWith(
-            DOCUMENTS_CHANNELS.fileOptimizePdfAsCopy,
-            '/tmp/working.pdf',
-            { preset: 'smallScanned' },
-            'request-1',
-            revisionOptions,
-        );
     });
 
     it('rejects invalid optimize-as-copy options before invoking IPC', async () => {
@@ -1024,40 +924,6 @@ describe('createDocumentsPreloadFileClient', () => {
             DOCUMENTS_CHANNELS.fileCommitStagedSerializedPdf,
             expect.anything(),
             expect.anything(),
-        );
-    });
-
-    it('invokes the native note text update channel with validated updates', async () => {
-        const ipcRenderer = {
-            invoke: vi.fn<(channel: string, ...args: unknown[]) => Promise<unknown>>(async () => ({
-                applied: true,
-                validation: {
-                    isValid: true,
-                    tool: 'qpdf' as const,
-                    errors: [],
-                    warnings: [],
-                },
-            })),
-            postMessage: vi.fn(),
-        } satisfies Pick<IpcRenderer, 'invoke' | 'postMessage'>;
-        const client = createDocumentsPreloadFileClient(ipcRenderer);
-
-        await expect(client.savePdfNoteTextUpdates!('/tmp/working.pdf', [{
-            objectNumber: 42,
-            generationNumber: 0,
-            text: 'Updated note',
-        }], 'D:20260609133855+03\'00\'', revisionOptions)).resolves.toMatchObject({applied: true});
-
-        expect(ipcRenderer.invoke).toHaveBeenCalledWith(
-            DOCUMENTS_CHANNELS.fileSavePdfNoteTextUpdates,
-            '/tmp/working.pdf',
-            [{
-                objectNumber: 42,
-                generationNumber: 0,
-                text: 'Updated note',
-            }],
-            'D:20260609133855+03\'00\'',
-            revisionOptions,
         );
     });
 

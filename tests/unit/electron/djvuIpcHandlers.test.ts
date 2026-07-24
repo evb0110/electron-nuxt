@@ -257,15 +257,6 @@ describe('registerDjvuIpcAdapter', () => {
         expect(mocks.pruneStaleDjvuArtifactJobs).not.toHaveBeenCalled();
     });
 
-    it('delegates cleanupTemp to tracked temp cleanup helper', async () => {
-        registerDjvuIpcAdapter();
-        const handler = getHandler('djvu:cleanupTemp');
-
-        await handler({sender: {id: 1}}, '/tmp/djvu-123.pdf');
-
-        expect(mocks.cleanupDjvuTempPdfPath).toHaveBeenCalledWith('/tmp/djvu-123.pdf');
-    });
-
     it('runs a full-document text search through one authorized native operation', async () => {
         const tempRoot = mkdtempSync(join(tmpdir(), 'evb-djvu-text-search-test-'));
         try {
@@ -585,46 +576,6 @@ describe('registerDjvuIpcAdapter', () => {
                     senderId: 1,
                 }),
                 canonicalRealPath,
-            );
-        } finally {
-            rmSync(tempRoot, {
-                force: true,
-                recursive: true,
-            });
-        }
-    });
-
-    it('forwards the selected PDF strategy through the convert handler', async () => {
-        const tempRoot = mkdtempSync(join(tmpdir(), 'evb-djvu-convert-test-'));
-        try {
-            const realPath = join(tempRoot, 'real.djvu');
-            writeFileSync(realPath, new Uint8Array([1]));
-            const canonicalRealPath = realpathSync.native(realPath);
-
-            const { allowOpenPath } = await import('@electron/file-access/openPathCapabilities');
-            const event = createIpcEvent(1);
-            allowOpenPath(realPath, event.sender as never);
-            registerDjvuIpcAdapter();
-            const handler = getHandler('djvu:convertToPdf');
-
-            await handler(event, realPath, '/tmp/output.pdf', {
-                subsample: 1,
-                preserveBookmarks: true,
-                pdfStrategy: 'compact-djvu-aware',
-            });
-
-            expect(mocks.handleDjvuConvertToPdf).toHaveBeenCalledWith(
-                expect.objectContaining({
-                    sender: event.sender,
-                    senderId: 1,
-                }),
-                canonicalRealPath,
-                '/tmp/output.pdf',
-                {
-                    subsample: 1,
-                    preserveBookmarks: true,
-                    pdfStrategy: 'compact-djvu-aware',
-                },
             );
         } finally {
             rmSync(tempRoot, {

@@ -105,6 +105,17 @@ async function setup() {
     };
 }
 
+function pipelinePaths(dir: string, includePageOps = false) {
+    return {
+        qpdfBinary: '/qpdf',
+        pdftoppmBinary: '/pdftoppm',
+        scanCleanupBinary: '/cleanup',
+        pdfImageCombineBinary: '/combine',
+        ...(includePageOps ? {pdfPageOpsBinary: '/page-ops'} : {}),
+        tempDir: dir,
+    };
+}
+
 function dependencies(
     runSidecar: IRunScanCleanupPipelineDependencies['runSidecar'],
 ): IRunScanCleanupPipelineDependencies {
@@ -338,14 +349,7 @@ describe('scan cleanup pipeline', () => {
             sourcePdfPath: fixture.sourcePdfPath,
             outputPdfPath: fixture.outputPdfPath,
             options: losslessOptions,
-        }, {
-            qpdfBinary: '/qpdf',
-            pdftoppmBinary: '/pdftoppm',
-            scanCleanupBinary: '/cleanup',
-            pdfImageCombineBinary: '/combine',
-            pdfPageOpsBinary: '/page-ops',
-            tempDir: fixture.dir,
-        }, new AbortController().signal, vi.fn(), undefined, pipelineDependencies);
+        }, pipelinePaths(fixture.dir, true), new AbortController().signal, vi.fn(), undefined, pipelineDependencies);
 
         expect(analyzedOptions).toMatchObject({
             outputMode: 'color',
@@ -509,13 +513,7 @@ describe('scan cleanup pipeline', () => {
                     outputMode: 'auto',
                 },
             },
-            {
-                qpdfBinary: '/qpdf',
-                pdftoppmBinary: '/pdftoppm',
-                scanCleanupBinary: '/cleanup',
-                pdfImageCombineBinary: '/combine',
-                tempDir: fixture.dir,
-            },
+            pipelinePaths(fixture.dir),
             new AbortController().signal,
             progress,
             undefined,
@@ -676,13 +674,7 @@ describe('scan cleanup pipeline', () => {
                 ...options,
                 outputMode: 'color',
             },
-        }, {
-            qpdfBinary: '/qpdf',
-            pdftoppmBinary: '/pdftoppm',
-            scanCleanupBinary: '/cleanup',
-            pdfImageCombineBinary: '/combine',
-            tempDir: fixture.dir,
-        }, new AbortController().signal, value => progress.push(value), undefined, pipelineDependencies);
+        }, pipelinePaths(fixture.dir), new AbortController().signal, value => progress.push(value), undefined, pipelineDependencies);
 
         expect(summary).toMatchObject({
             inputPages: 2,
@@ -767,13 +759,7 @@ describe('scan cleanup pipeline', () => {
                 outputPdfPath: fixture.outputPdfPath,
                 options,
             },
-            {
-                qpdfBinary: '/qpdf',
-                pdftoppmBinary: '/pdftoppm',
-                scanCleanupBinary: '/cleanup',
-                pdfImageCombineBinary: '/combine',
-                tempDir: fixture.dir,
-            },
+            pipelinePaths(fixture.dir),
             new AbortController().signal,
             vi.fn(),
             log,
@@ -845,13 +831,7 @@ describe('scan cleanup pipeline', () => {
                     outputMode: 'mixed',
                 },
             },
-            {
-                qpdfBinary: '/qpdf',
-                pdftoppmBinary: '/pdftoppm',
-                scanCleanupBinary: '/cleanup',
-                pdfImageCombineBinary: '/combine',
-                tempDir: fixture.dir,
-            },
+            pipelinePaths(fixture.dir),
             new AbortController().signal,
             vi.fn(),
             undefined,
@@ -920,13 +900,7 @@ describe('scan cleanup pipeline', () => {
                     outputMode: 'mixed',
                 },
             },
-            {
-                qpdfBinary: '/qpdf',
-                pdftoppmBinary: '/pdftoppm',
-                scanCleanupBinary: '/cleanup',
-                pdfImageCombineBinary: '/combine',
-                tempDir: fixture.dir,
-            },
+            pipelinePaths(fixture.dir),
             new AbortController().signal,
             vi.fn(),
             log,
@@ -998,13 +972,7 @@ describe('scan cleanup pipeline', () => {
                     outputMode: 'mixed',
                 },
             },
-            {
-                qpdfBinary: '/qpdf',
-                pdftoppmBinary: '/pdftoppm',
-                scanCleanupBinary: '/cleanup',
-                pdfImageCombineBinary: '/combine',
-                tempDir: fixture.dir,
-            },
+            pipelinePaths(fixture.dir),
             new AbortController().signal,
             vi.fn(),
             log,
@@ -1086,13 +1054,7 @@ describe('scan cleanup pipeline', () => {
             sourcePdfPath: fixture.sourcePdfPath,
             outputPdfPath: fixture.outputPdfPath,
             options,
-        }, {
-            qpdfBinary: '/qpdf',
-            pdftoppmBinary: '/pdftoppm',
-            scanCleanupBinary: '/cleanup',
-            pdfImageCombineBinary: '/combine',
-            tempDir: fixture.dir,
-        }, new AbortController().signal, vi.fn(), undefined, pipelineDependencies);
+        }, pipelinePaths(fixture.dir), new AbortController().signal, vi.fn(), undefined, pipelineDependencies);
 
         expect(finalOptions).toEqual([
             expect.objectContaining({
@@ -1176,13 +1138,7 @@ describe('scan cleanup pipeline', () => {
             sourcePdfPath: fixture.sourcePdfPath,
             outputPdfPath: fixture.outputPdfPath,
             options,
-        }, {
-            qpdfBinary: '/qpdf',
-            pdftoppmBinary: '/pdftoppm',
-            scanCleanupBinary: '/cleanup',
-            pdfImageCombineBinary: '/combine',
-            tempDir: fixture.dir,
-        }, new AbortController().signal, vi.fn(), undefined, pipelineDependencies);
+        }, pipelinePaths(fixture.dir), new AbortController().signal, vi.fn(), undefined, pipelineDependencies);
 
         expect(requestedRenderDpi).toBe(1_200);
         expect(finalDpi).toBe(970);
@@ -1235,13 +1191,7 @@ describe('scan cleanup pipeline', () => {
             sourcePdfPath: fixture.sourcePdfPath,
             outputPdfPath: fixture.outputPdfPath,
             options,
-        }, {
-            qpdfBinary: '/qpdf',
-            pdftoppmBinary: '/pdftoppm',
-            scanCleanupBinary: '/cleanup',
-            pdfImageCombineBinary: '/combine',
-            tempDir: fixture.dir,
-        }, new AbortController().signal, vi.fn(), undefined, pipelineDependencies);
+        }, pipelinePaths(fixture.dir), new AbortController().signal, vi.fn(), undefined, pipelineDependencies);
 
         expect(requestedRenderDpi).toBe(600);
         expect(finalDpi).toBe(600);
@@ -1337,13 +1287,7 @@ describe('scan cleanup pipeline', () => {
                 '3': 'bw',
                 '4': 'mixed',
             },
-        }, {
-            qpdfBinary: '/qpdf',
-            pdftoppmBinary: '/pdftoppm',
-            scanCleanupBinary: '/cleanup',
-            pdfImageCombineBinary: '/combine',
-            tempDir: fixture.dir,
-        }, new AbortController().signal, vi.fn(), undefined, pipelineDependencies);
+        }, pipelinePaths(fixture.dir), new AbortController().signal, vi.fn(), undefined, pipelineDependencies);
 
         expect(renderedDpis).toEqual([
             72,
@@ -1416,13 +1360,7 @@ describe('scan cleanup pipeline', () => {
                 outputPdfPath: fixture.outputPdfPath,
                 options,
             },
-            {
-                qpdfBinary: '/qpdf',
-                pdftoppmBinary: '/pdftoppm',
-                scanCleanupBinary: '/cleanup',
-                pdfImageCombineBinary: '/combine',
-                tempDir: fixture.dir,
-            },
+            pipelinePaths(fixture.dir),
             controller.signal,
             vi.fn(),
             undefined,
@@ -1479,14 +1417,7 @@ describe('scan cleanup pipeline', () => {
                     preserveOriginalQuality: true,
                 },
             },
-            {
-                qpdfBinary: '/qpdf',
-                pdftoppmBinary: '/pdftoppm',
-                scanCleanupBinary: '/cleanup',
-                pdfImageCombineBinary: '/combine',
-                pdfPageOpsBinary: '/page-ops',
-                tempDir: fixture.dir,
-            },
+            pipelinePaths(fixture.dir, true),
             controller.signal,
             vi.fn(),
             undefined,
@@ -1508,13 +1439,7 @@ describe('scan cleanup pipeline', () => {
                 outputPdfPath: fixture.outputPdfPath,
                 options,
             },
-            {
-                qpdfBinary: '/qpdf',
-                pdftoppmBinary: '/pdftoppm',
-                scanCleanupBinary: '/cleanup',
-                pdfImageCombineBinary: '/combine',
-                tempDir: fixture.dir,
-            },
+            pipelinePaths(fixture.dir),
             new AbortController().signal,
             vi.fn(),
             undefined,

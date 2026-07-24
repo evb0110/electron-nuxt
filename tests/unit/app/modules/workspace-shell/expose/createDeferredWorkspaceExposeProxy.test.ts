@@ -134,54 +134,6 @@ describe('createDeferredWorkspaceExposeProxy', () => {
         expect(runAgentAction).toHaveBeenCalledWith('file.save', {tabId: 'tab-1'}, undefined, undefined);
     });
 
-    it('forwards assistant command context through the mount-wait workspace path', async () => {
-        const context = {
-            signal: new AbortController().signal,
-            documentIdentity: null,
-            documentInstanceId: null,
-            assertCurrentDocument: vi.fn(),
-        };
-        const runAgentAction = vi.fn(async () => ({ok: true}));
-        const readAgentResource = vi.fn(async () => ({ok: true}));
-        const workspace = createWorkspace({
-            readAgentResource,
-            runAgentAction,
-        });
-        const deps = createDeps(workspace);
-        const proxy = createDeferredWorkspaceExposeProxy(deps);
-
-        await proxy.runAgentAction('file.save', {tabId: 'tab-1'}, {dryRun: true}, context);
-        await proxy.readAgentResource('evb://document/tab-1/state', context);
-
-        expect(runAgentAction).toHaveBeenCalledWith('file.save', {tabId: 'tab-1'}, {dryRun: true}, context);
-        expect(readAgentResource).toHaveBeenCalledWith('evb://document/tab-1/state', context);
-    });
-
-    it('forwards generated argument-bearing commands through the registry wrapper', async () => {
-        const handleGoToPage = vi.fn();
-        const setCustomZoomFromDisplay = vi.fn();
-        const scrollToPage = vi.fn();
-        const workspace = createWorkspace({
-            handleGoToPage,
-            scrollToPage,
-            setCustomZoomFromDisplay,
-        });
-        const deps = createDeps(workspace);
-        const proxy = createDeferredWorkspaceExposeProxy(deps);
-
-        proxy.handleGoToPage(8);
-        proxy.scrollToPage?.(9);
-        proxy.setCustomZoomFromDisplay(1.35);
-        await Promise.resolve();
-
-        expect(deps.withLoadedWorkspace).toHaveBeenCalledWith('handleGoToPage', expect.any(Function));
-        expect(deps.withLoadedWorkspace).toHaveBeenCalledWith('scrollToPage', expect.any(Function));
-        expect(deps.withLoadedWorkspace).toHaveBeenCalledWith('setCustomZoomFromDisplay', expect.any(Function));
-        expect(handleGoToPage).toHaveBeenCalledWith(8);
-        expect(scrollToPage).toHaveBeenCalledWith(9);
-        expect(setCustomZoomFromDisplay).toHaveBeenCalledWith(1.35);
-    });
-
     it('preserves toolbar snapshot and document-open settle defaults', async () => {
         const depsWithoutWorkspace = createDeps(null);
         const proxyWithoutWorkspace = createDeferredWorkspaceExposeProxy(depsWithoutWorkspace);

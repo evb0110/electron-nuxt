@@ -382,6 +382,43 @@ async function settleAsyncTicks(count = 3) {
     }
 }
 
+function configureEnabledAssistantRuntime() {
+    mocks.loadSettings.mockResolvedValue({assistantPanelEnabled: true});
+    mocks.getCodexCliInfo.mockResolvedValue({
+        installed: true,
+        path: '/Applications/Codex.app/Contents/Resources/codex',
+        version: '0.133.0',
+        minimumVersion: '0.133.0',
+        isVersionSupported: true,
+        managedInstallDir: '/tmp/codex',
+    });
+    mocks.startEmbeddedMcpServer.mockResolvedValue({
+        descriptor: {
+            name: 'evb_viewer_embedded',
+            url: 'http://127.0.0.1:9876',
+        },
+        token: requireDocumentRevisionToken('test-mcp-token'),
+    });
+}
+
+function enableAssistantRuntime(process = new FakeCodexAppServerProcess()) {
+    configureEnabledAssistantRuntime();
+    mocks.spawn.mockImplementation(() => process);
+    return process;
+}
+
+function createDocumentScope(
+    fileName: string,
+    key = `document:/tmp/${fileName}`,
+): IAgentAssistantChatScope {
+    return {
+        kind: 'document',
+        key,
+        title: fileName,
+        documentRef: `/tmp/${fileName}`,
+    };
+}
+
 describe('agent assistant opt-in gating', () => {
     beforeEach(async () => {
         vi.resetModules();
@@ -437,22 +474,7 @@ describe('agent assistant opt-in gating', () => {
     });
 
     it('falls back to Codex auth status when account profile read fails', async () => {
-        mocks.loadSettings.mockResolvedValue({assistantPanelEnabled: true});
-        mocks.getCodexCliInfo.mockResolvedValue({
-            installed: true,
-            path: '/Applications/Codex.app/Contents/Resources/codex',
-            version: '0.133.0',
-            minimumVersion: '0.133.0',
-            isVersionSupported: true,
-            managedInstallDir: '/tmp/codex',
-        });
-        mocks.startEmbeddedMcpServer.mockResolvedValue({
-            descriptor: {
-                name: 'evb_viewer_embedded',
-                url: 'http://127.0.0.1:9876',
-            },
-            token: requireDocumentRevisionToken('test-mcp-token'),
-        });
+        configureEnabledAssistantRuntime();
         mocks.codexAccountReadMode = 'error';
         mocks.codexAuthStatusMode = 'signed-in';
         mocks.spawn.mockImplementation(() => new FakeCodexAppServerProcess());
@@ -470,22 +492,7 @@ describe('agent assistant opt-in gating', () => {
     });
 
     it('publishes an actionable auth error when Codex auth probes fail', async () => {
-        mocks.loadSettings.mockResolvedValue({assistantPanelEnabled: true});
-        mocks.getCodexCliInfo.mockResolvedValue({
-            installed: true,
-            path: '/Applications/Codex.app/Contents/Resources/codex',
-            version: '0.133.0',
-            minimumVersion: '0.133.0',
-            isVersionSupported: true,
-            managedInstallDir: '/tmp/codex',
-        });
-        mocks.startEmbeddedMcpServer.mockResolvedValue({
-            descriptor: {
-                name: 'evb_viewer_embedded',
-                url: 'http://127.0.0.1:9876',
-            },
-            token: requireDocumentRevisionToken('test-mcp-token'),
-        });
+        configureEnabledAssistantRuntime();
         mocks.codexAccountReadMode = 'error';
         mocks.codexAuthStatusMode = 'error';
         mocks.spawn.mockImplementation(() => new FakeCodexAppServerProcess());
@@ -502,22 +509,7 @@ describe('agent assistant opt-in gating', () => {
     });
 
     it('waits for in-flight Codex runtime startup before reusing the app-server client', async () => {
-        mocks.loadSettings.mockResolvedValue({assistantPanelEnabled: true});
-        mocks.getCodexCliInfo.mockResolvedValue({
-            installed: true,
-            path: '/Applications/Codex.app/Contents/Resources/codex',
-            version: '0.133.0',
-            minimumVersion: '0.133.0',
-            isVersionSupported: true,
-            managedInstallDir: '/tmp/codex',
-        });
-        mocks.startEmbeddedMcpServer.mockResolvedValue({
-            descriptor: {
-                name: 'evb_viewer_embedded',
-                url: 'http://127.0.0.1:9876',
-            },
-            token: requireDocumentRevisionToken('test-mcp-token'),
-        });
+        configureEnabledAssistantRuntime();
         mocks.initializeGate = createInitializeGate();
         const process = new FakeCodexAppServerProcess();
         mocks.spawn.mockImplementation(() => process);
@@ -552,23 +544,7 @@ describe('agent assistant opt-in gating', () => {
             title: 'a.pdf',
             documentRef: '/tmp/shared.pdf',
         } as const satisfies IAgentAssistantChatScope;
-        mocks.loadSettings.mockResolvedValue({assistantPanelEnabled: true});
-        mocks.getCodexCliInfo.mockResolvedValue({
-            installed: true,
-            path: '/Applications/Codex.app/Contents/Resources/codex',
-            version: '0.133.0',
-            minimumVersion: '0.133.0',
-            isVersionSupported: true,
-            managedInstallDir: '/tmp/codex',
-        });
-        mocks.startEmbeddedMcpServer.mockResolvedValue({
-            descriptor: {
-                name: 'evb_viewer_embedded',
-                url: 'http://127.0.0.1:9876',
-            },
-            token: requireDocumentRevisionToken('test-mcp-token'),
-        });
-        mocks.spawn.mockImplementation(() => new FakeCodexAppServerProcess());
+        enableAssistantRuntime();
 
         const codexAssistantModule: typeof CodexAssistantModule = await import('@electron/features/agent/codexAssistant');
         const {
@@ -602,30 +578,8 @@ describe('agent assistant opt-in gating', () => {
     });
 
     it('rejects concurrent sends for the same document session', async () => {
-        const documentScope = {
-            kind: 'document',
-            key: 'document:/tmp/busy.pdf',
-            title: 'busy.pdf',
-            documentRef: '/tmp/busy.pdf',
-        } as const satisfies IAgentAssistantChatScope;
-        mocks.loadSettings.mockResolvedValue({assistantPanelEnabled: true});
-        mocks.getCodexCliInfo.mockResolvedValue({
-            installed: true,
-            path: '/Applications/Codex.app/Contents/Resources/codex',
-            version: '0.133.0',
-            minimumVersion: '0.133.0',
-            isVersionSupported: true,
-            managedInstallDir: '/tmp/codex',
-        });
-        mocks.startEmbeddedMcpServer.mockResolvedValue({
-            descriptor: {
-                name: 'evb_viewer_embedded',
-                url: 'http://127.0.0.1:9876',
-            },
-            token: requireDocumentRevisionToken('test-mcp-token'),
-        });
-        const process = new FakeCodexAppServerProcess();
-        mocks.spawn.mockImplementation(() => process);
+        const documentScope = createDocumentScope('busy.pdf');
+        const process = enableAssistantRuntime();
         mocks.turnStartGate = createInitializeGate();
 
         const { sendAgentAssistantMessage }: typeof CodexAssistantModule = await import('@electron/features/agent/codexAssistant');
@@ -651,30 +605,8 @@ describe('agent assistant opt-in gating', () => {
     });
 
     it('rejects sends while the previous Codex turn is still active after setup', async () => {
-        const documentScope = {
-            kind: 'document',
-            key: 'document:/tmp/active-turn.pdf',
-            title: 'active-turn.pdf',
-            documentRef: '/tmp/active-turn.pdf',
-        } as const satisfies IAgentAssistantChatScope;
-        mocks.loadSettings.mockResolvedValue({assistantPanelEnabled: true});
-        mocks.getCodexCliInfo.mockResolvedValue({
-            installed: true,
-            path: '/Applications/Codex.app/Contents/Resources/codex',
-            version: '0.133.0',
-            minimumVersion: '0.133.0',
-            isVersionSupported: true,
-            managedInstallDir: '/tmp/codex',
-        });
-        mocks.startEmbeddedMcpServer.mockResolvedValue({
-            descriptor: {
-                name: 'evb_viewer_embedded',
-                url: 'http://127.0.0.1:9876',
-            },
-            token: requireDocumentRevisionToken('test-mcp-token'),
-        });
-        const process = new FakeCodexAppServerProcess();
-        mocks.spawn.mockImplementation(() => process);
+        const documentScope = createDocumentScope('active-turn.pdf');
+        const process = enableAssistantRuntime();
 
         const {
             getAgentAssistantState,
@@ -723,24 +655,7 @@ describe('agent assistant opt-in gating', () => {
                 mintedAt: 2,
             },
         } as const satisfies IAgentAssistantChatScope;
-        mocks.loadSettings.mockResolvedValue({assistantPanelEnabled: true});
-        mocks.getCodexCliInfo.mockResolvedValue({
-            installed: true,
-            path: '/Applications/Codex.app/Contents/Resources/codex',
-            version: '0.133.0',
-            minimumVersion: '0.133.0',
-            isVersionSupported: true,
-            managedInstallDir: '/tmp/codex',
-        });
-        mocks.startEmbeddedMcpServer.mockResolvedValue({
-            descriptor: {
-                name: 'evb_viewer_embedded',
-                url: 'http://127.0.0.1:9876',
-            },
-            token: requireDocumentRevisionToken('test-mcp-token'),
-        });
-        const process = new FakeCodexAppServerProcess();
-        mocks.spawn.mockImplementation(() => process);
+        const process = enableAssistantRuntime();
 
         const {
             getAgentAssistantState,
@@ -785,30 +700,8 @@ describe('agent assistant opt-in gating', () => {
     });
 
     it('binds early Codex deltas before turn-started arrives', async () => {
-        const documentScope = {
-            kind: 'document',
-            key: 'document:/tmp/early-delta.pdf',
-            title: 'early-delta.pdf',
-            documentRef: '/tmp/early-delta.pdf',
-        } as const satisfies IAgentAssistantChatScope;
-        mocks.loadSettings.mockResolvedValue({assistantPanelEnabled: true});
-        mocks.getCodexCliInfo.mockResolvedValue({
-            installed: true,
-            path: '/Applications/Codex.app/Contents/Resources/codex',
-            version: '0.133.0',
-            minimumVersion: '0.133.0',
-            isVersionSupported: true,
-            managedInstallDir: '/tmp/codex',
-        });
-        mocks.startEmbeddedMcpServer.mockResolvedValue({
-            descriptor: {
-                name: 'evb_viewer_embedded',
-                url: 'http://127.0.0.1:9876',
-            },
-            token: requireDocumentRevisionToken('test-mcp-token'),
-        });
-        const process = new FakeCodexAppServerProcess();
-        mocks.spawn.mockImplementation(() => process);
+        const documentScope = createDocumentScope('early-delta.pdf');
+        enableAssistantRuntime();
 
         const { sendAgentAssistantMessage }: typeof CodexAssistantModule = await import('@electron/features/agent/codexAssistant');
 
@@ -823,30 +716,8 @@ describe('agent assistant opt-in gating', () => {
     });
 
     it('settles thread-scoped providerless completion before turn-start responds', async () => {
-        const documentScope = {
-            kind: 'document',
-            key: 'document:/tmp/providerless-completion.pdf',
-            title: 'providerless-completion.pdf',
-            documentRef: '/tmp/providerless-completion.pdf',
-        } as const satisfies IAgentAssistantChatScope;
-        mocks.loadSettings.mockResolvedValue({assistantPanelEnabled: true});
-        mocks.getCodexCliInfo.mockResolvedValue({
-            installed: true,
-            path: '/Applications/Codex.app/Contents/Resources/codex',
-            version: '0.133.0',
-            minimumVersion: '0.133.0',
-            isVersionSupported: true,
-            managedInstallDir: '/tmp/codex',
-        });
-        mocks.startEmbeddedMcpServer.mockResolvedValue({
-            descriptor: {
-                name: 'evb_viewer_embedded',
-                url: 'http://127.0.0.1:9876',
-            },
-            token: requireDocumentRevisionToken('test-mcp-token'),
-        });
-        const process = new FakeCodexAppServerProcess();
-        mocks.spawn.mockImplementation(() => process);
+        const documentScope = createDocumentScope('providerless-completion.pdf');
+        enableAssistantRuntime();
 
         const { sendAgentAssistantMessage }: typeof CodexAssistantModule = await import('@electron/features/agent/codexAssistant');
 
@@ -866,30 +737,8 @@ describe('agent assistant opt-in gating', () => {
     });
 
     it('keeps interrupted Codex turns busy until a terminal provider event arrives', async () => {
-        const documentScope = {
-            kind: 'document',
-            key: 'document:/tmp/interrupt.pdf',
-            title: 'interrupt.pdf',
-            documentRef: '/tmp/interrupt.pdf',
-        } as const satisfies IAgentAssistantChatScope;
-        mocks.loadSettings.mockResolvedValue({assistantPanelEnabled: true});
-        mocks.getCodexCliInfo.mockResolvedValue({
-            installed: true,
-            path: '/Applications/Codex.app/Contents/Resources/codex',
-            version: '0.133.0',
-            minimumVersion: '0.133.0',
-            isVersionSupported: true,
-            managedInstallDir: '/tmp/codex',
-        });
-        mocks.startEmbeddedMcpServer.mockResolvedValue({
-            descriptor: {
-                name: 'evb_viewer_embedded',
-                url: 'http://127.0.0.1:9876',
-            },
-            token: requireDocumentRevisionToken('test-mcp-token'),
-        });
-        const process = new FakeCodexAppServerProcess();
-        mocks.spawn.mockImplementation(() => process);
+        const documentScope = createDocumentScope('interrupt.pdf');
+        const process = enableAssistantRuntime();
 
         const {
             getAgentAssistantState,
@@ -924,30 +773,8 @@ describe('agent assistant opt-in gating', () => {
     });
 
     it('ignores no-thread Codex completion while a new turn is starting', async () => {
-        const documentScope = {
-            kind: 'document',
-            key: 'document:/tmp/no-thread-completion.pdf',
-            title: 'no-thread-completion.pdf',
-            documentRef: '/tmp/no-thread-completion.pdf',
-        } as const satisfies IAgentAssistantChatScope;
-        mocks.loadSettings.mockResolvedValue({assistantPanelEnabled: true});
-        mocks.getCodexCliInfo.mockResolvedValue({
-            installed: true,
-            path: '/Applications/Codex.app/Contents/Resources/codex',
-            version: '0.133.0',
-            minimumVersion: '0.133.0',
-            isVersionSupported: true,
-            managedInstallDir: '/tmp/codex',
-        });
-        mocks.startEmbeddedMcpServer.mockResolvedValue({
-            descriptor: {
-                name: 'evb_viewer_embedded',
-                url: 'http://127.0.0.1:9876',
-            },
-            token: requireDocumentRevisionToken('test-mcp-token'),
-        });
-        const process = new FakeCodexAppServerProcess();
-        mocks.spawn.mockImplementation(() => process);
+        const documentScope = createDocumentScope('no-thread-completion.pdf');
+        const process = enableAssistantRuntime();
 
         const {
             getAgentAssistantState,
@@ -981,30 +808,8 @@ describe('agent assistant opt-in gating', () => {
 
     it('archives timed-out Codex turns and ignores late notifications for the old thread', async () => {
         vi.useFakeTimers();
-        const documentScope = {
-            kind: 'document',
-            key: 'document:/tmp/timeout.pdf',
-            title: 'timeout.pdf',
-            documentRef: '/tmp/timeout.pdf',
-        } as const satisfies IAgentAssistantChatScope;
-        mocks.loadSettings.mockResolvedValue({assistantPanelEnabled: true});
-        mocks.getCodexCliInfo.mockResolvedValue({
-            installed: true,
-            path: '/Applications/Codex.app/Contents/Resources/codex',
-            version: '0.133.0',
-            minimumVersion: '0.133.0',
-            isVersionSupported: true,
-            managedInstallDir: '/tmp/codex',
-        });
-        mocks.startEmbeddedMcpServer.mockResolvedValue({
-            descriptor: {
-                name: 'evb_viewer_embedded',
-                url: 'http://127.0.0.1:9876',
-            },
-            token: requireDocumentRevisionToken('test-mcp-token'),
-        });
-        const process = new FakeCodexAppServerProcess();
-        mocks.spawn.mockImplementation(() => process);
+        const documentScope = createDocumentScope('timeout.pdf');
+        const process = enableAssistantRuntime();
 
         const {
             getAgentAssistantState,
@@ -1052,22 +857,7 @@ describe('agent assistant opt-in gating', () => {
             title: 'b.pdf',
             documentRef: '/tmp/b.pdf',
         } as const satisfies IAgentAssistantChatScope;
-        mocks.loadSettings.mockResolvedValue({assistantPanelEnabled: true});
-        mocks.getCodexCliInfo.mockResolvedValue({
-            installed: true,
-            path: '/Applications/Codex.app/Contents/Resources/codex',
-            version: '0.133.0',
-            minimumVersion: '0.133.0',
-            isVersionSupported: true,
-            managedInstallDir: '/tmp/codex',
-        });
-        mocks.startEmbeddedMcpServer.mockResolvedValue({
-            descriptor: {
-                name: 'evb_viewer_embedded',
-                url: 'http://127.0.0.1:9876',
-            },
-            token: requireDocumentRevisionToken('test-mcp-token'),
-        });
+        configureEnabledAssistantRuntime();
         const processes: FakeCodexAppServerProcess[] = [];
         mocks.spawn.mockImplementation(() => {
             const process = new FakeCodexAppServerProcess();
@@ -1122,23 +912,7 @@ describe('agent assistant opt-in gating', () => {
             title: 'c.pdf',
             documentRef: '/tmp/c.pdf',
         } as const satisfies IAgentAssistantChatScope;
-        mocks.loadSettings.mockResolvedValue({assistantPanelEnabled: true});
-        mocks.getCodexCliInfo.mockResolvedValue({
-            installed: true,
-            path: '/Applications/Codex.app/Contents/Resources/codex',
-            version: '0.133.0',
-            minimumVersion: '0.133.0',
-            isVersionSupported: true,
-            managedInstallDir: '/tmp/codex',
-        });
-        mocks.startEmbeddedMcpServer.mockResolvedValue({
-            descriptor: {
-                name: 'evb_viewer_embedded',
-                url: 'http://127.0.0.1:9876',
-            },
-            token: requireDocumentRevisionToken('test-mcp-token'),
-        });
-        mocks.spawn.mockImplementation(() => new FakeCodexAppServerProcess());
+        enableAssistantRuntime();
 
         try {
             const codexAssistantModule: typeof CodexAssistantModule = await import('@electron/features/agent/codexAssistant');
@@ -1180,23 +954,7 @@ describe('agent assistant opt-in gating', () => {
     });
 
     it('sanitizes assistant login URLs before opening them externally', async () => {
-        mocks.loadSettings.mockResolvedValue({assistantPanelEnabled: true});
-        mocks.getCodexCliInfo.mockResolvedValue({
-            installed: true,
-            path: '/Applications/Codex.app/Contents/Resources/codex',
-            version: '0.133.0',
-            minimumVersion: '0.133.0',
-            isVersionSupported: true,
-            managedInstallDir: '/tmp/codex',
-        });
-        mocks.startEmbeddedMcpServer.mockResolvedValue({
-            descriptor: {
-                name: 'evb_viewer_embedded',
-                url: 'http://127.0.0.1:9876',
-            },
-            token: requireDocumentRevisionToken('test-mcp-token'),
-        });
-        mocks.spawn.mockImplementation(() => new FakeCodexAppServerProcess());
+        enableAssistantRuntime();
 
         const { startAgentAssistantLogin }: typeof CodexAssistantModule = await import('@electron/features/agent/codexAssistant');
 
@@ -1207,23 +965,7 @@ describe('agent assistant opt-in gating', () => {
     });
 
     it('keeps streaming assistant deltas lean while boundary events carry state', async () => {
-        mocks.loadSettings.mockResolvedValue({assistantPanelEnabled: true});
-        mocks.getCodexCliInfo.mockResolvedValue({
-            installed: true,
-            path: '/Applications/Codex.app/Contents/Resources/codex',
-            version: '0.133.0',
-            minimumVersion: '0.133.0',
-            isVersionSupported: true,
-            managedInstallDir: '/tmp/codex',
-        });
-        mocks.startEmbeddedMcpServer.mockResolvedValue({
-            descriptor: {
-                name: 'evb_viewer_embedded',
-                url: 'http://127.0.0.1:9876',
-            },
-            token: requireDocumentRevisionToken('test-mcp-token'),
-        });
-        mocks.spawn.mockImplementation(() => new FakeCodexAppServerProcess());
+        enableAssistantRuntime();
         const send = vi.fn<(channel: string, event: IAgentAssistantEvent) => void>();
         vi.mocked(BrowserWindow.getAllWindows).mockReturnValue([cast<BrowserWindow>({
             isDestroyed: () => false,
@@ -1232,12 +974,7 @@ describe('agent assistant opt-in gating', () => {
                 send,
             },
         })]);
-        const documentScope = {
-            kind: 'document',
-            key: 'document:/tmp/stream.pdf',
-            title: 'stream.pdf',
-            documentRef: '/tmp/stream.pdf',
-        } as const satisfies IAgentAssistantChatScope;
+        const documentScope = createDocumentScope('stream.pdf');
 
         const { sendAgentAssistantMessage }: typeof CodexAssistantModule = await import('@electron/features/agent/codexAssistant');
         const result = await sendAgentAssistantMessage({
@@ -1258,24 +995,7 @@ describe('agent assistant opt-in gating', () => {
     });
 
     it('publishes safe assistant turn progress for non-message item notifications', async () => {
-        mocks.loadSettings.mockResolvedValue({assistantPanelEnabled: true});
-        mocks.getCodexCliInfo.mockResolvedValue({
-            installed: true,
-            path: '/Applications/Codex.app/Contents/Resources/codex',
-            version: '0.133.0',
-            minimumVersion: '0.133.0',
-            isVersionSupported: true,
-            managedInstallDir: '/tmp/codex',
-        });
-        mocks.startEmbeddedMcpServer.mockResolvedValue({
-            descriptor: {
-                name: 'evb_viewer_embedded',
-                url: 'http://127.0.0.1:9876',
-            },
-            token: requireDocumentRevisionToken('test-mcp-token'),
-        });
-        const process = new FakeCodexAppServerProcess();
-        mocks.spawn.mockImplementation(() => process);
+        const process = enableAssistantRuntime();
         const send = vi.fn<(channel: string, event: IAgentAssistantEvent) => void>();
         vi.mocked(BrowserWindow.getAllWindows).mockReturnValue([cast<BrowserWindow>({
             isDestroyed: () => false,
@@ -1284,12 +1004,7 @@ describe('agent assistant opt-in gating', () => {
                 send,
             },
         })]);
-        const documentScope = {
-            kind: 'document',
-            key: 'document:/tmp/progress.pdf',
-            title: 'progress.pdf',
-            documentRef: '/tmp/progress.pdf',
-        } as const satisfies IAgentAssistantChatScope;
+        const documentScope = createDocumentScope('progress.pdf');
 
         const { sendAgentAssistantMessage }: typeof CodexAssistantModule = await import('@electron/features/agent/codexAssistant');
         await expect(sendAgentAssistantMessage({

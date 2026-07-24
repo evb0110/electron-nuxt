@@ -11,16 +11,16 @@ import {
 } from 'vitest';
 import {delay} from 'es-toolkit/promise';
 import type {Page} from 'puppeteer-core';
-import {DEFAULT_SETTINGS} from '@contracts/settings';
-import type {TPerformanceMode} from '@contracts/hostResourceProfile';
 import type {ITypedStagedArtifact} from '@contracts/stagedArtifacts';
-import {stopSingleSession} from '@scripts/electron-run/sessionManager';
 import {
     createMultiPageTextFixturePdf,
     readPdfAnnotationSummary,
 } from '@tests/e2e/electron/helpers/fixtures';
-import {startElectronE2ESession} from '@tests/e2e/electron/helpers/startElectronE2ESession';
-import type {IElectronE2ESession} from '@tests/e2e/electron/helpers/startElectronE2ESession';
+import {
+    startElectronE2ESession,
+    type IElectronE2ESession,
+} from '@tests/e2e/electron/helpers/startElectronE2ESession';
+import {startConfiguredElectronE2ESession as startConfiguredSession} from '@tests/e2e/electron/helpers/startConfiguredElectronE2ESession';
 import {
     openAnnotationsTab,
     waitForPdfLoaded,
@@ -64,26 +64,6 @@ function hashBytes(bytes: Uint8Array) {
 
 async function hashFile(path: string) {
     return hashBytes(await readFile(path));
-}
-
-async function startConfiguredSession(
-    baseName: string,
-    performanceMode: TPerformanceMode,
-    initialOpenPaths: string[],
-) {
-    const bootstrap = await startElectronE2ESession(baseName, {clean: true});
-    await bootstrap.page.evaluate(async (settings) => {
-        await window.electronAPI?.settings.save(settings);
-    }, {
-        ...DEFAULT_SETTINGS,
-        performanceMode,
-    });
-    await bootstrap.browser.disconnect();
-    await stopSingleSession(bootstrap.name, {keepNuxt: true});
-    return startElectronE2ESession(baseName, {
-        clean: false,
-        initialOpenPaths,
-    });
 }
 
 async function waitForOpenedPdf(page: Page, path: string) {

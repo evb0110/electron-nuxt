@@ -22,7 +22,11 @@ import {
     waitForDjvuLoaded,
     waitForPdfLoaded,
 } from '@tests/e2e/electron/helpers/viewerCore';
-import {waitForTabCount} from '@tests/e2e/electron/helpers/waitForTabCount';
+import {
+    activateWorkspaceTab as activateTab,
+    createNewWorkspaceTab as createNewTab,
+    splitActiveWorkspaceDocument as splitActiveDocument,
+} from '@tests/e2e/electron/helpers/workspaceTabs';
 import {
     callWorkspaceCommand,
     waitForWorkspaceToolbarSnapshot,
@@ -106,24 +110,6 @@ function readDjvuPressureFromPage(): IWorkspaceDjvuPressure[] {
                 images: host.querySelectorAll('[data-testid="document-page-source-image"]').length,
             };
         });
-}
-
-async function createNewTab(session: IElectronE2ESession) {
-    const nextCount = await session.page.$$eval('.tab-list .tab[data-tab-id]', tabs => tabs.length + 1);
-    const clicked = await session.page.evaluate(() => {
-        const button = document.querySelector<HTMLButtonElement>('.tab-list .tab-new');
-        button?.click();
-        return Boolean(button);
-    });
-    expect(clicked).toBe(true);
-    await waitForTabCount(session.page, nextCount);
-}
-
-async function activateTab(session: IElectronE2ESession, tabIndex: number) {
-    await session.page.evaluate((index: number) => {
-        const tabs = Array.from(document.querySelectorAll<HTMLElement>('.tab-list .tab[data-tab-id]'));
-        tabs[index]?.click();
-    }, tabIndex);
 }
 
 async function installDjvuActivationOccupancyProbe(
@@ -265,20 +251,6 @@ async function stopDjvuActivationOccupancyProbe(session: IElectronE2ESession) {
             trustedDjvuScrollEvents: probe.trustedDjvuScrollEvents,
         };
     });
-}
-
-async function splitActiveDocument(session: IElectronE2ESession, direction: 'right' | 'down' = 'right') {
-    const split = await session.page.evaluate(async (targetDirection: 'right' | 'down') => {
-        const splitEditor = (window as IE2EWindow & {__splitEditorForE2E?: (direction: 'right' | 'down') => Promise<void> | void;}).__splitEditorForE2E;
-        if (typeof splitEditor === 'function') {
-            await splitEditor(targetDirection);
-            return true;
-        }
-        return false;
-    }, direction);
-
-    expect(split).toBe(true);
-    await session.page.waitForFunction(() => document.querySelectorAll('.editor-pane').length >= 2);
 }
 
 async function waitForActiveDjvuImages(session: IElectronE2ESession) {

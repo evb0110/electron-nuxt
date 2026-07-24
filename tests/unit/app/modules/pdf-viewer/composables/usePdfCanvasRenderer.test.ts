@@ -5,7 +5,10 @@ import {
     it,
     vi,
 } from 'vitest';
-import { ref } from 'vue';
+import {
+    ref,
+    type Ref,
+} from 'vue';
 import { AnnotationMode } from '@app/services/pdfjs/runtimeLib';
 import { usePdfCanvasRenderer } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfCanvasRenderer';
 import { cast } from '@tests/helpers/cast';
@@ -16,6 +19,76 @@ vi.mock('@app/services/pdfjs/runtimeLib', () => ({ AnnotationMode: {
     ENABLE_FORMS: 2,
 } }));
 
+const DEFAULT_VIEWPORT = {
+    width: 200,
+    height: 100,
+    userUnit: 1,
+    rawDims: {
+        pageWidth: 200,
+        pageHeight: 100,
+    },
+};
+
+function createCanvas() {
+    return {
+        width: 0,
+        height: 0,
+        style: {} as CSSStyleDeclaration,
+        getContext: vi.fn(() => ({})),
+        remove: vi.fn(),
+    };
+}
+
+function installCanvasDocument(canvas = createCanvas()) {
+    const createElement = vi.fn(() => canvas);
+    (globalThis as Record<string, unknown>).document = { createElement };
+    return {
+        canvas,
+        createElement,
+    };
+}
+
+function createPdfPage<T extends Record<string, unknown>>(overrides: T = {} as T) {
+    const renderTask = {
+        cancel: vi.fn(),
+        promise: Promise.resolve(),
+    };
+    return {
+        pageNumber: 1,
+        getViewport: vi.fn(() => DEFAULT_VIEWPORT),
+        render: vi.fn(() => renderTask),
+        ...overrides,
+    };
+}
+
+async function renderScenario({
+    outputScale = 1,
+    rendererOptions = {},
+    renderOptions,
+    viewport = DEFAULT_VIEWPORT,
+    zoom = 1,
+}: {
+    outputScale?: number | Ref<number>;
+    rendererOptions?: Omit<Parameters<typeof usePdfCanvasRenderer>[0], 'outputScale'>;
+    renderOptions?: Parameters<ReturnType<typeof usePdfCanvasRenderer>['renderCanvas']>[2];
+    viewport?: typeof DEFAULT_VIEWPORT;
+    zoom?: number;
+} = {}) {
+    const { canvas } = installCanvasDocument();
+    const pdfPage = createPdfPage({ getViewport: vi.fn(() => viewport) });
+    const renderer = usePdfCanvasRenderer({
+        outputScale,
+        ...rendererOptions,
+    });
+    const result = await renderer.renderCanvas(pdfPage as never, zoom, renderOptions);
+    return {
+        canvas,
+        pdfPage,
+        renderer,
+        result,
+    };
+}
+
 describe('usePdfCanvasRenderer', () => {
     afterEach(() => {
         vi.restoreAllMocks();
@@ -23,35 +96,11 @@ describe('usePdfCanvasRenderer', () => {
     });
 
     it('requests separate annotation canvases for appearance-backed annotations', async () => {
-        const canvas = {
-            width: 0,
-            height: 0,
-            style: {} as CSSStyleDeclaration,
-            getContext: vi.fn(() => ({})),
-            remove: vi.fn(),
-        };
-        (globalThis as Record<string, unknown>).document = { createElement: vi.fn(() => canvas) };
-
-        const renderTask = {
-            cancel: vi.fn(),
-            promise: Promise.resolve(),
-        };
-        const pdfPage = {
-            pageNumber: 1,
-            getViewport: vi.fn(() => ({
-                width: 200,
-                height: 100,
-                userUnit: 1,
-                rawDims: {
-                    pageWidth: 200,
-                    pageHeight: 100,
-                },
-            })),
-            render: vi.fn(() => renderTask),
-        } as const;
-
-        const renderer = usePdfCanvasRenderer({ outputScale: 1 });
-        const result = await renderer.renderCanvas(pdfPage as never, 1);
+        const {
+            canvas,
+            pdfPage,
+            result,
+        } = await renderScenario();
 
         expect(pdfPage.render).toHaveBeenCalledWith(expect.objectContaining({
             annotationMode: AnnotationMode?.ENABLE_FORMS ?? AnnotationMode?.ENABLE ?? 1,
@@ -62,33 +111,8 @@ describe('usePdfCanvasRenderer', () => {
     });
 
     it('renders canvas-only buffers without annotation preparation', async () => {
-        const canvas = {
-            width: 0,
-            height: 0,
-            style: {} as CSSStyleDeclaration,
-            getContext: vi.fn(() => ({})),
-            remove: vi.fn(),
-        };
-        (globalThis as Record<string, unknown>).document = { createElement: vi.fn(() => canvas) };
-        const renderTask = {
-            cancel: vi.fn(),
-            promise: Promise.resolve(),
-        };
-        const pdfPage = {
-            pageNumber: 1,
-            getViewport: vi.fn(() => ({
-                width: 200,
-                height: 100,
-                userUnit: 1,
-                rawDims: {
-                    pageWidth: 200,
-                    pageHeight: 100,
-                },
-            })),
-            getOperatorList: vi.fn(),
-            render: vi.fn(() => renderTask),
-        } as const;
-
+        const { canvas } = installCanvasDocument();
+        const pdfPage = createPdfPage({ getOperatorList: vi.fn() });
         const renderer = usePdfCanvasRenderer({ outputScale: 1 });
         const result = await renderer.renderCanvas(pdfPage as never, 1, {
             contentIntent: 'canvas-only-buffer',
@@ -106,38 +130,13 @@ describe('usePdfCanvasRenderer', () => {
     });
 
     it('applies the settled-render default canvas pixel budget', async () => {
-        const canvas = {
-            width: 0,
-            height: 0,
-            style: {} as CSSStyleDeclaration,
-            getContext: vi.fn(() => ({})),
-            remove: vi.fn(),
-        };
-        (globalThis as Record<string, unknown>).document = { createElement: vi.fn(() => canvas) };
-
-        const renderTask = {
-            cancel: vi.fn(),
-            promise: Promise.resolve(),
-        };
-        const pdfPage = {
-            pageNumber: 1,
-            getViewport: vi.fn(() => ({
-                width: 200,
-                height: 100,
-                userUnit: 1,
-                rawDims: {
-                    pageWidth: 200,
-                    pageHeight: 100,
-                },
-            })),
-            render: vi.fn(() => renderTask),
-        } as const;
-
-        const renderer = usePdfCanvasRenderer({
+        const {
+            canvas,
+            result,
+        } = await renderScenario({
             outputScale: 2,
-            defaultMaxCanvasPixels: 20_000,
+            rendererOptions: { defaultMaxCanvasPixels: 20_000 },
         });
-        const result = await renderer.renderCanvas(pdfPage as never, 1);
 
         expect(canvas.width).toBe(200);
         expect(canvas.height).toBe(100);
@@ -152,38 +151,14 @@ describe('usePdfCanvasRenderer', () => {
     });
 
     it('lets explicit render options override the settled default canvas budget', async () => {
-        const canvas = {
-            width: 0,
-            height: 0,
-            style: {} as CSSStyleDeclaration,
-            getContext: vi.fn(() => ({})),
-            remove: vi.fn(),
-        };
-        (globalThis as Record<string, unknown>).document = { createElement: vi.fn(() => canvas) };
-
-        const renderTask = {
-            cancel: vi.fn(),
-            promise: Promise.resolve(),
-        };
-        const pdfPage = {
-            pageNumber: 1,
-            getViewport: vi.fn(() => ({
-                width: 200,
-                height: 100,
-                userUnit: 1,
-                rawDims: {
-                    pageWidth: 200,
-                    pageHeight: 100,
-                },
-            })),
-            render: vi.fn(() => renderTask),
-        } as const;
-
-        const renderer = usePdfCanvasRenderer({
+        const {
+            canvas,
+            result,
+        } = await renderScenario({
             outputScale: 2,
-            defaultMaxCanvasPixels: 80_000,
+            rendererOptions: { defaultMaxCanvasPixels: 80_000 },
+            renderOptions: { maxCanvasPixels: 20_000 },
         });
-        const result = await renderer.renderCanvas(pdfPage as never, 1, { maxCanvasPixels: 20_000 });
 
         expect(canvas.width).toBe(200);
         expect(canvas.height).toBe(100);
@@ -191,20 +166,11 @@ describe('usePdfCanvasRenderer', () => {
     });
 
     it('never exceeds a strict canvas budget after axis rounding', async () => {
-        const canvas = {
-            width: 0,
-            height: 0,
-            style: {} as CSSStyleDeclaration,
-            getContext: vi.fn(() => ({})),
-        };
-        (globalThis as Record<string, unknown>).document = { createElement: vi.fn(() => canvas) };
-        const renderTask = {
-            cancel: vi.fn(),
-            promise: Promise.resolve(),
-        };
-        const pdfPage = {
-            pageNumber: 1,
-            getViewport: vi.fn(() => ({
+        const {
+            canvas,
+            result,
+        } = await renderScenario({
+            viewport: {
                 width: 1_690,
                 height: 2_187,
                 userUnit: 1,
@@ -212,80 +178,42 @@ describe('usePdfCanvasRenderer', () => {
                     pageWidth: 1_690,
                     pageHeight: 2_187,
                 },
-            })),
-            render: vi.fn(() => renderTask),
-        } as const;
-
-        const renderer = usePdfCanvasRenderer({ outputScale: 1 });
-        const result = await renderer.renderCanvas(pdfPage as never, 1, {maxCanvasPixels: 2_500_000});
+            },
+            renderOptions: { maxCanvasPixels: 2_500_000 },
+        });
 
         expect(result?.grantedPixels).toBeLessThanOrEqual(2_500_000);
         expect(canvas.width * canvas.height).toBeLessThanOrEqual(2_500_000);
     });
 
-    it('keeps trusted raster source renders at or below source pixels', async () => {
-        const canvas = {
-            width: 0,
-            height: 0,
-            style: {} as CSSStyleDeclaration,
-            getContext: vi.fn(() => ({})),
-            remove: vi.fn(),
-        };
-        (globalThis as Record<string, unknown>).document = { createElement: vi.fn(() => canvas) };
-
-        const renderTask = {
-            cancel: vi.fn(),
-            promise: Promise.resolve(),
-        };
-        const pdfPage = {
-            pageNumber: 1,
-            getViewport: vi.fn(() => ({
-                width: 200,
-                height: 100,
-                userUnit: 1,
-                rawDims: {
-                    pageWidth: 200,
-                    pageHeight: 100,
-                },
-            })),
-            render: vi.fn(() => renderTask),
-        } as const;
-
-        const renderer = usePdfCanvasRenderer({
+    it.each([
+        {
+            name: 'trusted raster source renders',
+            rendererOptions: { defaultMaxCanvasPixels: 80_000 },
+            renderOptions: {
+                maxCanvasPixels: 50_000,
+                sourceMaxPixels: 5_000,
+            },
             outputScale: 2,
-            defaultMaxCanvasPixels: 80_000,
-        });
-        const result = await renderer.renderCanvas(pdfPage as never, 1, {
-            maxCanvasPixels: 50_000,
-            sourceMaxPixels: 5_000,
-        });
-
-        expect(canvas.width).toBe(100);
-        expect(canvas.height).toBe(50);
-        expect(result).toMatchObject({
-            requestedPixels: 80_000,
-            grantedPixels: 5_000,
-            wasClamped: true,
-        });
-    });
-
-    it('caps the Georgievsky raster page at native pixels under high zoom and DPR', async () => {
-        const canvas = {
-            width: 0,
-            height: 0,
-            style: {} as CSSStyleDeclaration,
-            getContext: vi.fn(() => ({})),
-            remove: vi.fn(),
-        };
-        (globalThis as Record<string, unknown>).document = { createElement: vi.fn(() => canvas) };
-
-        const renderTask = {
-            cancel: vi.fn(),
-            promise: Promise.resolve(),
-        };
-        const pdfPage = {
-            pageNumber: 1,
-            getViewport: vi.fn(() => ({
+            zoom: 1,
+            viewport: DEFAULT_VIEWPORT,
+            expectedCanvas: [
+                100,
+                50,
+            ],
+            expectedResult: {
+                requestedPixels: 80_000,
+                grantedPixels: 5_000,
+                wasClamped: true,
+            },
+        },
+        {
+            name: 'the Georgievsky raster page under high zoom and DPR',
+            rendererOptions: { defaultMaxCanvasPixels: 64_000_000 },
+            renderOptions: { sourceMaxPixels: 1293 * 1966 },
+            outputScale: 2,
+            zoom: 6,
+            viewport: {
                 width: 1861.92,
                 height: 2831.04,
                 userUnit: 1,
@@ -293,54 +221,38 @@ describe('usePdfCanvasRenderer', () => {
                     pageWidth: 310.32,
                     pageHeight: 471.84,
                 },
-            })),
-            render: vi.fn(() => renderTask),
-        } as const;
+            },
+            expectedCanvas: [
+                1293,
+                1966,
+            ],
+            expectedResult: {
+                requestedPixels: 21_085_288,
+                grantedPixels: 2_542_038,
+                wasClamped: true,
+            },
+        },
+    ])('caps $name at source pixels', async ({
+        expectedCanvas,
+        expectedResult,
+        ...scenario
+    }) => {
+        const {
+            canvas,
+            result,
+        } = await renderScenario(scenario);
 
-        const renderer = usePdfCanvasRenderer({
-            outputScale: 2,
-            defaultMaxCanvasPixels: 64_000_000,
-        });
-        const result = await renderer.renderCanvas(pdfPage as never, 6, {sourceMaxPixels: 1293 * 1966});
-
-        expect(canvas.width).toBe(1293);
-        expect(canvas.height).toBe(1966);
-        expect(result).toMatchObject({
-            requestedPixels: 21_085_288,
-            grantedPixels: 2_542_038,
-            wasClamped: true,
-        });
+        expect([
+            canvas.width,
+            canvas.height,
+        ]).toEqual(expectedCanvas);
+        expect(result).toMatchObject(expectedResult);
     });
 
     it('uses the latest reactive output scale for future canvas sizing', async () => {
-        const canvas = {
-            width: 0,
-            height: 0,
-            style: {} as CSSStyleDeclaration,
-            getContext: vi.fn(() => ({})),
-            remove: vi.fn(),
-        };
-        (globalThis as Record<string, unknown>).document = { createElement: vi.fn(() => canvas) };
-
-        const renderTask = {
-            cancel: vi.fn(),
-            promise: Promise.resolve(),
-        };
-        const pdfPage = {
-            pageNumber: 1,
-            getViewport: vi.fn(() => ({
-                width: 200,
-                height: 100,
-                userUnit: 1,
-                rawDims: {
-                    pageWidth: 200,
-                    pageHeight: 100,
-                },
-            })),
-            render: vi.fn(() => renderTask),
-        } as const;
-
         const outputScale = ref(1);
+        const { canvas } = installCanvasDocument();
+        const pdfPage = createPdfPage();
         const renderer = usePdfCanvasRenderer({ outputScale });
         outputScale.value = 2;
         const result = await renderer.renderCanvas(pdfPage as never, 1);
@@ -361,92 +273,58 @@ describe('usePdfCanvasRenderer', () => {
             parentElement: canvasHost,
             replaceWith: vi.fn(),
         });
-        renderer.mountCanvas(
-            canvasHost,
-            nextCanvas,
-            previousCanvas,
-        );
+        renderer.mountCanvas(canvasHost, nextCanvas, previousCanvas);
 
         expect(previousCanvas.replaceWith).toHaveBeenCalledWith(nextCanvas);
         expect(canvasHost.prepend).not.toHaveBeenCalled();
     });
 
     it('cleans prepared canvases when renderCanvas fails before mounting', async () => {
-        const canvas = {
-            width: 0,
-            height: 0,
-            style: {} as CSSStyleDeclaration,
-            getContext: vi.fn(() => ({})),
-            remove: vi.fn(),
-        };
+        const { canvas } = installCanvasDocument();
         const annotationCanvas = {
             width: 32,
             height: 16,
             style: {} as CSSStyleDeclaration,
             remove: vi.fn(),
         };
-        (globalThis as Record<string, unknown>).document = { createElement: vi.fn(() => canvas) };
-
         const renderError = new Error('cancelled');
-        const pdfPage = {
-            pageNumber: 1,
-            getViewport: vi.fn(() => ({
-                width: 200,
-                height: 100,
-                userUnit: 1,
-                rawDims: {
-                    pageWidth: 200,
-                    pageHeight: 100,
-                },
-            })),
-            render: vi.fn((context: { annotationCanvasMap: Map<string, HTMLCanvasElement>; }) => {
-                context.annotationCanvasMap.set('annotation-1', annotationCanvas as never);
-                return {
-                    cancel: vi.fn(),
-                    promise: Promise.reject(renderError),
-                };
-            }),
-        } as const;
+        const pdfPage = createPdfPage({render: vi.fn((context: { annotationCanvasMap: Map<string, HTMLCanvasElement>; }) => {
+            context.annotationCanvasMap.set('annotation-1', annotationCanvas as never);
+            return {
+                cancel: vi.fn(),
+                promise: Promise.reject(renderError),
+            };
+        })});
 
         const renderer = usePdfCanvasRenderer({ outputScale: 1 });
 
         await expect(renderer.renderCanvas(pdfPage as never, 1)).rejects.toBe(renderError);
-        expect(canvas.width).toBe(0);
-        expect(canvas.height).toBe(0);
+        expect([
+            canvas.width,
+            canvas.height,
+        ]).toEqual([
+            0,
+            0,
+        ]);
         expect(canvas.remove).toHaveBeenCalled();
-        expect(annotationCanvas.width).toBe(0);
-        expect(annotationCanvas.height).toBe(0);
+        expect([
+            annotationCanvas.width,
+            annotationCanvas.height,
+        ]).toEqual([
+            0,
+            0,
+        ]);
         expect(annotationCanvas.remove).toHaveBeenCalled();
     });
 
     it('filters hidden annotation appearance ops out of the page canvas render', async () => {
-        const canvas = {
-            width: 0,
-            height: 0,
-            style: {} as CSSStyleDeclaration,
-            getContext: vi.fn(() => ({})),
-            remove: vi.fn(),
-        };
-        (globalThis as Record<string, unknown>).document = { createElement: vi.fn(() => canvas) };
-
-        const renderTask = {
+        installCanvasDocument();
+        const render = vi.fn((_context: { operationsFilter?: (index: number) => boolean; }) => ({
             cancel: vi.fn(),
             promise: Promise.resolve(),
-        };
-        const render = vi.fn((_context: { operationsFilter?: (index: number) => boolean; }) => {
-            return renderTask;
-        });
-        const pdfPage = {
+        }));
+        const pdfPage = createPdfPage({
             pageNumber: 3,
-            getViewport: vi.fn(() => ({
-                width: 200,
-                height: 100,
-                userUnit: 1,
-                rawDims: {
-                    pageWidth: 200,
-                    pageHeight: 100,
-                },
-            })),
             getOperatorList: vi.fn(async () => ({
                 fnArray: [
                     80,
@@ -466,40 +344,40 @@ describe('usePdfCanvasRenderer', () => {
                 ],
             })),
             render,
-        } as const;
+        });
 
         const renderer = usePdfCanvasRenderer({ outputScale: 1 });
         await renderer.renderCanvas(pdfPage as never, 1, { hiddenAnnotationIds: new Set(['12R0']) });
 
-        expect(pdfPage.getOperatorList).toHaveBeenCalledWith({ annotationMode: AnnotationMode?.ENABLE_FORMS ?? AnnotationMode?.ENABLE ?? 1 });
-        const renderContext = render.mock.calls[0]?.[0];
+        expect(pdfPage.getOperatorList).toHaveBeenCalledWith({annotationMode: AnnotationMode?.ENABLE_FORMS ?? AnnotationMode?.ENABLE ?? 1});
+        const renderContext = render.mock.calls[0]?.[0] as {operationsFilter?: (index: number) => boolean;} | undefined;
         expect(renderContext).toBeDefined();
         if (!renderContext?.operationsFilter) {
             throw new Error('Expected operationsFilter to be defined');
         }
-        expect(renderContext.operationsFilter(0)).toBe(false);
-        expect(renderContext.operationsFilter(1)).toBe(false);
-        expect(renderContext.operationsFilter(2)).toBe(false);
-        expect(renderContext.operationsFilter(3)).toBe(true);
-        expect(renderContext.operationsFilter(4)).toBe(true);
-        expect(renderContext.operationsFilter(5)).toBe(true);
+        expect([
+            0,
+            1,
+            2,
+            3,
+            4,
+            5,
+        ].map(renderContext.operationsFilter)).toEqual([
+            false,
+            false,
+            false,
+            true,
+            true,
+            true,
+        ]);
     });
 
     it('recomputes the hidden annotation operations filter for changed page state', async () => {
-        const canvas = {
-            width: 0,
-            height: 0,
-            style: {} as CSSStyleDeclaration,
-            getContext: vi.fn(() => ({})),
-            remove: vi.fn(),
-        };
-        (globalThis as Record<string, unknown>).document = { createElement: vi.fn(() => canvas) };
-
-        const renderTask = {
+        installCanvasDocument();
+        const render = vi.fn((_context: { operationsFilter?: (index: number) => boolean; }) => ({
             cancel: vi.fn(),
             promise: Promise.resolve(),
-        };
-        const render = vi.fn((_context: { operationsFilter?: (index: number) => boolean; }) => renderTask);
+        }));
         const operatorLists = [
             {
                 fnArray: [
@@ -532,21 +410,11 @@ describe('usePdfCanvasRenderer', () => {
                 ],
             },
         ];
-        const pdfPage = {
+        const pdfPage = createPdfPage({
             pageNumber: 2,
-            getViewport: vi.fn(() => ({
-                width: 200,
-                height: 100,
-                userUnit: 1,
-                rawDims: {
-                    pageWidth: 200,
-                    pageHeight: 100,
-                },
-            })),
             getOperatorList: vi.fn(async () => operatorLists.shift()!),
             render,
-        } as const;
-
+        });
         const renderer = usePdfCanvasRenderer({ outputScale: 1 });
 
         await renderer.renderCanvas(pdfPage as never, 1, { hiddenAnnotationIds: new Set(['12R0']) });
@@ -554,8 +422,8 @@ describe('usePdfCanvasRenderer', () => {
 
         expect(pdfPage.getOperatorList).toHaveBeenCalledTimes(2);
         expect(render).toHaveBeenCalledTimes(2);
-        const firstRenderFilter = render.mock.calls[0]?.[0].operationsFilter;
-        const secondRenderFilter = render.mock.calls[1]?.[0].operationsFilter;
+        const firstRenderFilter = render.mock.calls[0]?.[0]?.operationsFilter;
+        const secondRenderFilter = render.mock.calls[1]?.[0]?.operationsFilter;
         if (!firstRenderFilter || !secondRenderFilter) {
             throw new Error('Expected hidden annotation filters to be defined');
         }
@@ -565,31 +433,13 @@ describe('usePdfCanvasRenderer', () => {
     });
 
     it('does not allocate a canvas after hidden annotation preflight aborts', async () => {
-        const createElement = vi.fn(() => ({
-            width: 0,
-            height: 0,
-            style: {} as CSSStyleDeclaration,
-            getContext: vi.fn(() => ({})),
-            remove: vi.fn(),
-        }));
-        (globalThis as Record<string, unknown>).document = { createElement };
-
+        const { createElement } = installCanvasDocument();
         const abortController = new AbortController();
-        const pdfPage = {
+        const pdfPage = createPdfPage({
             pageNumber: 4,
-            getViewport: vi.fn(() => ({
-                width: 200,
-                height: 100,
-                userUnit: 1,
-                rawDims: {
-                    pageWidth: 200,
-                    pageHeight: 100,
-                },
-            })),
             getOperatorList: vi.fn(() => new Promise(() => undefined)),
             render: vi.fn(),
-        } as const;
-
+        });
         const renderer = usePdfCanvasRenderer({ outputScale: 1 });
         const preparePromise = renderer.prepareCanvasRender(pdfPage as never, 1, {
             hiddenAnnotationIds: new Set(['12R0']),

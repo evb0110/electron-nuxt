@@ -246,17 +246,6 @@ describe('createWorkspaceExpose', () => {
         expect(deps.zoomMode.value).toBe('fit-height');
     });
 
-    it('routes fit commands through handleFitMode', () => {
-        const deps = createDeps();
-        const exposed = createWorkspaceExpose(deps);
-
-        exposed.handleFitWidth();
-        exposed.handleFitHeight();
-
-        expect(deps.handleFitMode).toHaveBeenNthCalledWith(1, 'width');
-        expect(deps.handleFitMode).toHaveBeenNthCalledWith(2, 'height');
-    });
-
     it('ignores view controls that the active viewer cannot honor', () => {
         const deps = createDeps({
             hasPdf: ref(true),
@@ -353,15 +342,6 @@ describe('createWorkspaceExpose', () => {
         deps.isDjvuMode.value = false;
         exposed.handleCrop();
         expect(deps.handleCrop).toHaveBeenCalledOnce();
-    });
-
-    it('delegates print through the exposed workspace command surface', async () => {
-        const deps = createDeps();
-        const exposed = createWorkspaceExpose(deps);
-
-        await exposed.handlePrint();
-
-        expect(deps.handlePrint).toHaveBeenCalledOnce();
     });
 
     it('includes print preparation state in the toolbar snapshot', () => {

@@ -168,6 +168,33 @@ function silenceExpectedDecodedEventWarnings() {
     return expectedDecodedEventWarningSpy;
 }
 
+type TIpcEventListener = (_event: unknown, payload: unknown) => void;
+
+async function createApiHarness(options: {
+    getPathForFile?: () => string;
+    invoke?: (channel: string, ...args: unknown[]) => Promise<unknown>;
+} = {}) {
+    const listeners = new Map<string, TIpcEventListener>();
+    const ipcRenderer = {
+        invoke: vi.fn(options.invoke ?? (async () => undefined)),
+        on: vi.fn((channel: string, handler: TIpcEventListener) => {
+            listeners.set(channel, handler);
+        }),
+        removeListener: vi.fn(),
+        send: vi.fn(),
+    };
+    const { createElectronApi } = await import('@electron/preload/createElectronApi');
+    const api = createElectronApi(
+        ipcRenderer as never,
+        {getPathForFile: options.getPathForFile ?? (() => '')},
+    );
+    return {
+        api,
+        ipcRenderer,
+        listeners,
+    };
+}
+
 describe('createElectronApi', () => {
     beforeEach(() => {
         vi.clearAllMocks();
@@ -206,16 +233,7 @@ describe('createElectronApi', () => {
     });
 
     it('exposes page operations and image export on their own capabilities', async () => {
-        const ipcRenderer = {
-            invoke: vi.fn(async () => undefined),
-            on: vi.fn(),
-            send: vi.fn(),
-        };
-        const { createElectronApi } = await import('@electron/preload/createElectronApi');
-        const api = createElectronApi(
-            ipcRenderer as never,
-            { getPathForFile: () => '' },
-        );
+        const {api} = await createApiHarness();
         expect(typeof api.pageOps.rotate).toBe('function');
         expect(typeof api.imageExport.exportPdfToImages).toBe('function');
         expect(typeof api.system.getMemoryInfo).toBe('function');
@@ -366,65 +384,12 @@ describe('createElectronApi', () => {
         expect(ipcRenderer.invoke).not.toHaveBeenCalled();
     });
 
-    it('exposes top-level document capability slices from the preload behavior', async () => {
-        const ipcRenderer = {
-            invoke: vi.fn(async () => undefined),
-            on: vi.fn(),
-            send: vi.fn(),
-        };
-        const getPathForFile = vi.fn(() => '/tmp/split-picker.pdf');
-        const { createElectronApi } = await import('@electron/preload/createElectronApi');
-        const api = createElectronApi(
-            ipcRenderer as never,
-            { getPathForFile },
-        );
-
-        expect(api.documentPicker.getPathForFile({} as File)).toBe('/tmp/split-picker.pdf');
-        await api.documentOpen.openDocumentDirect('/tmp/direct-from-split.pdf');
-        await api.documentFiles.readTextFile('/tmp/direct-from-split.pdf');
-        await api.documentPdf.printPdfPath('/tmp/direct-from-split.pdf');
-
-        expect(documentsClientMock.openDocumentDirect).toHaveBeenCalledWith('/tmp/direct-from-split.pdf');
-        expect(documentsClientMock.readTextFile).toHaveBeenCalledWith('/tmp/direct-from-split.pdf');
-        expect(documentsClientMock.printPdfPath).toHaveBeenCalledWith('/tmp/direct-from-split.pdf');
-    });
-
-    it('routes window tab context menu through the preload IPC contract', async () => {
-        const ipcRenderer = {
-            invoke: vi.fn(async () => undefined),
-            on: vi.fn(),
-            send: vi.fn(),
-        };
-        const { createElectronApi } = await import('@electron/preload/createElectronApi');
-        const api = createElectronApi(
-            ipcRenderer as never,
-            { getPathForFile: () => '' },
-        );
-
-        await api.windowTabs.showContextMenu('tab-1');
-
-        expect(ipcRenderer.invoke).toHaveBeenCalledWith(
-            WINDOW_TABS_PLATFORM_FEATURE.invokeChannels.showContextMenu,
-            'tab-1',
-        );
-    });
-
     it('decodes settings debug-log events before invoking callbacks', async () => {
         const warningSpy = silenceExpectedDecodedEventWarnings();
-        const listeners = new Map<string, (_event: unknown, payload: unknown) => void>();
-        const ipcRenderer = {
-            invoke: vi.fn(async () => undefined),
-            on: vi.fn((channel: string, handler: (_event: unknown, payload: unknown) => void) => {
-                listeners.set(channel, handler);
-            }),
-            removeListener: vi.fn(),
-            send: vi.fn(),
-        };
-        const { createElectronApi } = await import('@electron/preload/createElectronApi');
-        const api = createElectronApi(
-            ipcRenderer as never,
-            { getPathForFile: () => '' },
-        );
+        const {
+            api,
+            listeners,
+        } = await createApiHarness();
         const callback = vi.fn();
         api.settings.onDebugLog(callback);
         const listener = listeners.get(CORE_IPC_EVENT_CHANNELS.debugLog);
@@ -460,20 +425,10 @@ describe('createElectronApi', () => {
 
     it('decodes agent renderer request events before invoking callbacks', async () => {
         const warningSpy = silenceExpectedDecodedEventWarnings();
-        const listeners = new Map<string, (_event: unknown, payload: unknown) => void>();
-        const ipcRenderer = {
-            invoke: vi.fn(async () => undefined),
-            on: vi.fn((channel: string, handler: (_event: unknown, payload: unknown) => void) => {
-                listeners.set(channel, handler);
-            }),
-            removeListener: vi.fn(),
-            send: vi.fn(),
-        };
-        const { createElectronApi } = await import('@electron/preload/createElectronApi');
-        const api = createElectronApi(
-            ipcRenderer as never,
-            { getPathForFile: () => '' },
-        );
+        const {
+            api,
+            listeners,
+        } = await createApiHarness();
         const snapshotCallback = vi.fn();
         const commandCallback = vi.fn();
 
@@ -554,20 +509,10 @@ describe('createElectronApi', () => {
             windowId: 1,
         };
         const warningSpy = silenceExpectedDecodedEventWarnings();
-        const listeners = new Map<string, (_event: unknown, payload: unknown) => void>();
-        const ipcRenderer = {
-            invoke: vi.fn(async () => undefined),
-            on: vi.fn((channel: string, handler: (_event: unknown, payload: unknown) => void) => {
-                listeners.set(channel, handler);
-            }),
-            removeListener: vi.fn(),
-            send: vi.fn(),
-        };
-        const { createElectronApi } = await import('@electron/preload/createElectronApi');
-        const api = createElectronApi(
-            ipcRenderer as never,
-            { getPathForFile: () => '' },
-        );
+        const {
+            api,
+            listeners,
+        } = await createApiHarness();
         const callback = vi.fn();
 
         api.agent.onAssistantEvent(callback);
@@ -615,20 +560,11 @@ describe('createElectronApi', () => {
 
     it('decodes incoming tab transfers before invoking callbacks', async () => {
         const warningSpy = silenceExpectedDecodedEventWarnings();
-        const listeners = new Map<string, (_event: unknown, payload: unknown) => void>();
-        const ipcRenderer = {
-            invoke: vi.fn(async () => undefined),
-            on: vi.fn((channel: string, handler: (_event: unknown, payload: unknown) => void) => {
-                listeners.set(channel, handler);
-            }),
-            removeListener: vi.fn(),
-            send: vi.fn(),
-        };
-        const { createElectronApi } = await import('@electron/preload/createElectronApi');
-        const api = createElectronApi(
-            ipcRenderer as never,
-            { getPathForFile: () => '' },
-        );
+        const {
+            api,
+            ipcRenderer,
+            listeners,
+        } = await createApiHarness();
         const callback = vi.fn();
 
         const unsubscribe = api.windowTabs.onIncomingTransfer(callback);
