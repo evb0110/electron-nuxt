@@ -28,6 +28,21 @@ describe('benchmark-save-pipeline', () => {
         });
     });
 
+    it('accepts the wp6 diagnostic input and output aliases', () => {
+        expect(parseSavePipelineBenchmarkArgs([
+            '--pdf',
+            '/tmp/input.pdf',
+            '--out',
+            '.devkit/analysis/save.json',
+        ])).toEqual({
+            fixture: '/tmp/input.pdf',
+            help: false,
+            iterations: 10,
+            output: '.devkit/analysis/save.json',
+            warmups: 5,
+        });
+    });
+
     it('requires an absolute fixture and positive run counts', () => {
         expect(() => validateSavePipelineBenchmarkOptions({
             fixture: 'relative.pdf',
