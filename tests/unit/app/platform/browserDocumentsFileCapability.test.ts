@@ -57,13 +57,11 @@ vi.mock('@app/platform/browser-api/browserPdfCombineWorkerClient', () => ({
     runBrowserPdfCombineWorkerRequest: (type: string, payload: unknown) =>
         browserPdfCombineWorkerMock.run(type, payload),
 }));
-vi.mock('@app/platform/browser-api/browserDjvuCapability', () => ({
-    browserDjvuCapability: {
-        cancel: browserDjvuCapabilityMock.cancel,
-        convertToPdf: browserDjvuCapabilityMock.convertToPdf,
-    },
-    getBrowserDjvuBookmarksForCombine: browserDjvuCapabilityMock.getBookmarks,
-}));
+vi.mock('@app/platform/browser-api/browserDjvuCapability', () => ({browserDjvuCapability: {
+    cancel: browserDjvuCapabilityMock.cancel,
+    convertToPdf: browserDjvuCapabilityMock.convertToPdf,
+}}));
+vi.mock('@app/platform/browser-api/browserDjvuConversionPipeline', () => ({getBrowserDjvuBookmarksForCombine: browserDjvuCapabilityMock.getBookmarks}));
 vi.mock('utif', () => {
     const decode = (...args: Parameters<typeof utifMock.decode>) => utifMock.decode(...args);
     const decodeImage = (...args: Parameters<typeof utifMock.decodeImage>) => utifMock.decodeImage(...args);

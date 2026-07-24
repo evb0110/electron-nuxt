@@ -8,9 +8,9 @@ import {
     resolveBrowserDjvuConversionPreflight,
     resolveBrowserDjvuPdfRenderConcurrency,
     resolveBrowserDjvuPdfRenderSettings,
-} from '@app/platform/browser-api/browserDjvuCapability';
+} from '@app/platform/browser-api/browserDjvuConversionPipeline';
 
-describe('browserDjvuCapability', () => {
+describe('browserDjvuConversionPipeline', () => {
     it('keeps direct raster exports at the requested source detail', () => {
         expect(resolveBrowserDjvuPdfRenderSettings({
             pdfStrategy: 'direct',
