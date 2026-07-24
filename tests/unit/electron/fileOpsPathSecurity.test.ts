@@ -33,7 +33,10 @@ const mocks = vi.hoisted(() => ({
     validatePdfFile: vi.fn(),
     consumeAllowedDocxWritePath: vi.fn<(path: string, senderId: number) => boolean>(),
     findWorkingCopyPathByOriginalPath: vi.fn<(path: string, senderId?: number) => string | null>(),
+    getWorkingCopyBackingEntry: vi.fn(),
     getWorkingCopyOriginalPath: vi.fn(),
+    captureWorkingCopyAdmissionSnapshot: vi.fn(),
+    transitionWorkingCopyBackingState: vi.fn(),
     refreshWorkingCopyOriginalFileExpectation: vi.fn(),
     markWorkingCopyContentChanged: vi.fn(),
     transitionWorkingCopyContentRevision: vi.fn(),
@@ -41,10 +44,15 @@ const mocks = vi.hoisted(() => ({
     originalPathSaveBaseMatches: vi.fn(),
     isAllowedDjvuViewingPath: vi.fn<(path: string) => boolean>(),
     findPendingOcrResultFileForPath: vi.fn(),
+    backingSwapCacheInvalidator: null as null | ((logicalRef: string, previousPhysicalPath: string) => Promise<void> | void),
+    ensureWorkingCopyMaterialized: vi.fn(),
 }));
 
 vi.mock('fs', () => ({
-    constants: {COPYFILE_FICLONE: 2},
+    constants: {
+        COPYFILE_FICLONE: 2,
+        COPYFILE_FICLONE_FORCE: 4,
+    },
     createReadStream: () => Readable.from(Buffer.from([
         1,
         2,
@@ -83,10 +91,43 @@ vi.mock('@electron/features/documents/main/pdfConformance', () => ({
 vi.mock('@electron/file-access/docxExportPaths', () => ({consumeAllowedDocxWritePath: mocks.consumeAllowedDocxWritePath}));
 vi.mock('@electron/file-access/workingCopyCreation', () => ({ensureWorkingCopyDirectory: mocks.ensureWorkingCopyDirectory}));
 vi.mock('@electron/file-access/workingCopyStore', () => ({
+    captureWorkingCopyAdmissionSnapshot: mocks.captureWorkingCopyAdmissionSnapshot,
     findWorkingCopyPathByOriginalPath: mocks.findWorkingCopyPathByOriginalPath,
+    getWorkingCopyBackingEntry: mocks.getWorkingCopyBackingEntry,
     getWorkingCopyOriginalPath: mocks.getWorkingCopyOriginalPath,
     normalizePathForLookup: (path: string) => path.trim(),
     refreshWorkingCopyOriginalFileExpectation: mocks.refreshWorkingCopyOriginalFileExpectation,
+    transitionWorkingCopyBackingState: mocks.transitionWorkingCopyBackingState,
+    workingCopyAdmissionSnapshotsMatch: (
+        left: {
+            size: bigint;
+            mtimeNs: bigint;
+        },
+        right: {
+            size: bigint;
+            mtimeNs: bigint;
+        },
+    ) => left.size === right.size && left.mtimeNs === right.mtimeNs,
+}));
+vi.mock('@electron/file-access/workingCopyMaterialization', () => ({
+    ensureWorkingCopyMaterialized: (...args: unknown[]) => mocks.ensureWorkingCopyMaterialized(...args),
+    onWorkingCopyBackingSwapCacheInvalidation: (
+        invalidator: (logicalRef: string, previousPhysicalPath: string) => Promise<void> | void,
+    ) => {
+        mocks.backingSwapCacheInvalidator = invalidator;
+        return () => {
+            mocks.backingSwapCacheInvalidator = null;
+        };
+    },
+    WorkingCopyMaterializationError: class WorkingCopyMaterializationError extends Error {
+        readonly code: string;
+
+        constructor(code: string, message: string, options: {cause?: unknown} = {}) {
+            super(message, options.cause === undefined ? undefined : {cause: options.cause});
+            this.name = 'WorkingCopyMaterializationError';
+            this.code = code;
+        }
+    },
 }));
 vi.mock('@electron/file-access/documentRevisionStore', () => ({
     markWorkingCopyContentChanged: mocks.markWorkingCopyContentChanged,
@@ -116,7 +157,9 @@ const {
     handleFileRead,
     handleFileReadRange,
     handleFileStat,
+    resolveOriginalBackedReadTransport,
 } = await import('@electron/features/documents/main/documentFileReadHandlers');
+const { resolveExistingReadablePdfPath } = await import('@electron/features/documents/main/documentFilePathResolution');
 const {
     handleFileWrite,
     handleFileWriteDocx,
@@ -129,6 +172,18 @@ const { enqueueWorkingCopyMutation } = await import('@electron/file-access/worki
 describe('fileOps path security', () => {
     const readContext = {senderId: 42};
     const writeContext = {senderId: 42};
+    const lazyOriginalEntry = () => ({
+        admissionSnapshot: {
+            size: 123n,
+            mtimeNs: 1_000_000n,
+        },
+        backingState: 'lazy-original',
+        originalPath: '/Users/alice/Documents/file.pdf',
+        ownerWebContentsId: 42,
+        registeredAtMs: 1,
+        registrationId: 7,
+        role: 'current',
+    });
 
     beforeEach(async () => {
         await clearCachedRangeReadHandlesForTests();
@@ -141,7 +196,12 @@ describe('fileOps path security', () => {
         mocks.resolveAllowedWritePath.mockResolvedValue('/tmp/electron-test/safe.pdf');
         mocks.consumeAllowedDocxWritePath.mockReturnValue(true);
         mocks.findWorkingCopyPathByOriginalPath.mockReturnValue(null);
+        mocks.getWorkingCopyBackingEntry.mockReturnValue(null);
         mocks.getWorkingCopyOriginalPath.mockReturnValue(null);
+        mocks.captureWorkingCopyAdmissionSnapshot.mockResolvedValue({
+            size: 123n,
+            mtimeNs: 1_000_000n,
+        });
         mocks.refreshWorkingCopyOriginalFileExpectation.mockResolvedValue(true);
         mocks.originalPathSaveBaseMatches.mockResolvedValue(true);
         mocks.markWorkingCopyContentChanged.mockResolvedValue({});
@@ -160,6 +220,11 @@ describe('fileOps path security', () => {
             warnings: [],
         });
         mocks.ensureWorkingCopyDirectory.mockResolvedValue(true);
+        mocks.ensureWorkingCopyMaterialized.mockImplementation(async (path: string) => ({
+            logicalRef: path,
+            physicalWorkingCopyPath: path,
+            sourceFingerprint: '',
+        }));
         mocks.isAllowedDjvuViewingPath.mockReturnValue(false);
         mocks.findPendingOcrResultFileForPath.mockReturnValue({
             scopedJobId: '42:ocr-1',
@@ -234,20 +299,55 @@ describe('fileOps path security', () => {
         expect(mocks.writeFile).not.toHaveBeenCalled();
     });
 
-    it('ensures mapped working copy directories before writing temp PDF bytes', async () => {
+    it('materializes managed working copies before writing temp PDF bytes', async () => {
         await handleFileWrite(
             writeContext,
             '/tmp/electron-test/safe.pdf',
             new Uint8Array([9]),
         );
 
-        expect(mocks.ensureWorkingCopyDirectory).toHaveBeenCalledWith('/tmp/electron-test/safe.pdf', 42);
+        expect(mocks.ensureWorkingCopyMaterialized).toHaveBeenCalledWith('/tmp/electron-test/safe.pdf', {
+            ownerWebContentsId: 42,
+            reason: 'first-mutation',
+        });
+        expect(mocks.ensureWorkingCopyMaterialized).toHaveBeenCalledOnce();
+        expect(mocks.ensureWorkingCopyMaterialized.mock.invocationCallOrder[0]!)
+            .toBeLessThan(mocks.writeFile.mock.invocationCallOrder[0]!);
         expect(mocks.writeFile).toHaveBeenCalledWith(new Uint8Array([9]));
         expect(mocks.rename).toHaveBeenCalledWith(
             expect.stringMatching(/[.]tmp$/u),
             '/tmp/electron-test/safe.pdf',
         );
         expect(mocks.transitionWorkingCopyContentRevision).toHaveBeenCalled();
+    });
+
+    it('joins an in-flight background materialization before staging write bytes', async () => {
+        const backgroundFlight = deferred<{
+            logicalRef: string;
+            physicalWorkingCopyPath: string;
+            sourceFingerprint: string;
+        }>();
+        mocks.ensureWorkingCopyMaterialized.mockReturnValue(backgroundFlight.promise);
+
+        const writePromise = handleFileWrite(
+            writeContext,
+            '/tmp/electron-test/safe.pdf',
+            new Uint8Array([9]),
+        );
+        await waitForSettledQueueTurn();
+
+        expect(mocks.ensureWorkingCopyMaterialized).toHaveBeenCalledOnce();
+        expect(mocks.writeFile).not.toHaveBeenCalled();
+
+        backgroundFlight.resolve({
+            logicalRef: '/tmp/electron-test/safe.pdf',
+            physicalWorkingCopyPath: '/tmp/electron-test/safe.pdf',
+            sourceFingerprint: 'sha256-full-v1:joined',
+        });
+        await writePromise;
+
+        expect(mocks.writeFile).toHaveBeenCalledWith(new Uint8Array([9]));
+        expect(mocks.transitionWorkingCopyContentRevision).toHaveBeenCalledOnce();
     });
 
     it('queues managed working copy writes behind pending mutations', async () => {
@@ -302,10 +402,12 @@ describe('fileOps path security', () => {
         expect(mocks.open).not.toHaveBeenCalled();
     });
 
-    it('does not write temp PDF bytes when managed working copy recovery fails', async () => {
-        const error = new Error('Working copy directory was removed and the original file is unavailable');
-        Object.assign(error, { code: 'WORKING_COPY_MISSING' });
-        mocks.ensureWorkingCopyDirectory.mockRejectedValue(error);
+    it('does not write temp PDF bytes when materialization fails', async () => {
+        const error = Object.assign(new Error('The original document is unavailable'), {
+            code: 'SOURCE_BACKING_UNAVAILABLE',
+            retryable: false,
+        });
+        mocks.ensureWorkingCopyMaterialized.mockRejectedValue(error);
 
         await expect(
             handleFileWrite(
@@ -313,27 +415,25 @@ describe('fileOps path security', () => {
                 '/tmp/electron-test/safe.pdf',
                 new Uint8Array([9]),
             ),
-        ).rejects.toMatchObject({ code: 'WORKING_COPY_MISSING' });
+        ).rejects.toMatchObject({ code: 'SOURCE_BACKING_UNAVAILABLE' });
 
         expect(mocks.writeFile).not.toHaveBeenCalled();
     });
 
-    it('rechecks managed working copy directories and retries when the write races cleanup', async () => {
+    it('fails closed when temp staging races working-copy cleanup', async () => {
         const enoent = new Error('missing parent');
         Object.assign(enoent, { code: 'ENOENT' });
-        mocks.writeFile
-            .mockRejectedValueOnce(enoent)
-            .mockResolvedValueOnce(undefined);
+        mocks.writeFile.mockRejectedValueOnce(enoent);
 
-        await handleFileWrite(
+        await expect(handleFileWrite(
             writeContext,
             '/tmp/electron-test/safe.pdf',
             new Uint8Array([9]),
-        );
+        )).rejects.toMatchObject({code: 'ENOENT'});
 
-        expect(mocks.ensureWorkingCopyDirectory).toHaveBeenCalledTimes(3);
-        expect(mocks.writeFile).toHaveBeenCalledTimes(2);
-        expect(mocks.transitionWorkingCopyContentRevision).toHaveBeenCalled();
+        expect(mocks.ensureWorkingCopyMaterialized).toHaveBeenCalledOnce();
+        expect(mocks.writeFile).toHaveBeenCalledOnce();
+        expect(mocks.transitionWorkingCopyContentRevision).not.toHaveBeenCalled();
     });
 
     it('atomically replaces a managed working copy from an OCR result file path', async () => {
@@ -347,12 +447,14 @@ describe('fileOps path security', () => {
             {expectedDocumentRevisionToken: requireDocumentRevisionToken('revision-before-ocr')},
         );
 
-        expect(mocks.ensureWorkingCopyDirectory).toHaveBeenCalledWith('/tmp/electron-test/work.pdf', 42);
-        expect(mocks.copyFile).toHaveBeenNthCalledWith(
-            2,
+        expect(mocks.ensureWorkingCopyMaterialized).toHaveBeenCalledWith('/tmp/electron-test/work.pdf', {
+            ownerWebContentsId: 42,
+            reason: 'ocr-persist',
+        });
+        expect(mocks.copyFile).toHaveBeenCalledWith(
             '/tmp/electron-test/ocr-1-merged.pdf',
             expect.stringMatching(/\/\.work\.pdf\.\d+\..+\.tmp$/u),
-            2,
+            4,
         );
         expect(mocks.rename).toHaveBeenCalledWith(
             expect.stringMatching(/\/\.work\.pdf\.\d+\..+\.tmp$/u),
@@ -514,6 +616,177 @@ describe('fileOps path security', () => {
         ]));
     });
 
+    it('resolves lazy-original documents to their logical managed reference', async () => {
+        const entry = lazyOriginalEntry();
+        mocks.ensureWorkingCopyDirectory.mockResolvedValue(false);
+        mocks.existsSync.mockReturnValue(false);
+        mocks.resolveAllowedReadPath.mockResolvedValue('/Users/alice/Documents/file.pdf');
+        mocks.findWorkingCopyPathByOriginalPath.mockReturnValue('/tmp/electron-test/lazy.pdf');
+        mocks.getWorkingCopyBackingEntry.mockImplementation((path: string) =>
+            path === '/tmp/electron-test/lazy.pdf' ? entry : null);
+
+        await expect(
+            resolveExistingReadablePdfPath('/Users/alice/Documents/file.pdf', 42),
+        ).resolves.toBe('/tmp/electron-test/lazy.pdf');
+    });
+
+    it('reads lazy-original documents through a checked short-lived source handle', async () => {
+        const entry = lazyOriginalEntry();
+        const close = vi.fn(async () => {});
+        const readFromHandle = vi.fn(async () => Buffer.from([
+            8,
+            9,
+        ]));
+        mocks.resolveAllowedReadPath.mockResolvedValue(null);
+        mocks.getWorkingCopyBackingEntry.mockReturnValue(entry);
+        mocks.open.mockResolvedValue({
+            close,
+            readFile: readFromHandle,
+        });
+
+        await expect(
+            handleFileRead(readContext, '/tmp/electron-test/lazy.pdf'),
+        ).resolves.toEqual(new Uint8Array([
+            8,
+            9,
+        ]));
+
+        expect(mocks.ensureWorkingCopyDirectory).not.toHaveBeenCalled();
+        expect(mocks.captureWorkingCopyAdmissionSnapshot).toHaveBeenCalledTimes(2);
+        expect(mocks.open).toHaveBeenCalledWith('/Users/alice/Documents/file.pdf', 'r');
+        expect(close).toHaveBeenCalledTimes(1);
+        expect(mocks.readFile).not.toHaveBeenCalled();
+    });
+
+    it('stats lazy-original documents against the admission witness', async () => {
+        mocks.resolveAllowedReadPath.mockResolvedValue(null);
+        mocks.getWorkingCopyBackingEntry.mockReturnValue(lazyOriginalEntry());
+
+        await expect(
+            handleFileStat(readContext, '/tmp/electron-test/lazy.pdf'),
+        ).resolves.toEqual({
+            size: 123,
+            modifiedAt: 1,
+        });
+
+        expect(mocks.captureWorkingCopyAdmissionSnapshot).toHaveBeenCalledTimes(2);
+        expect(mocks.statSync).not.toHaveBeenCalled();
+    });
+
+    it('runs lazy-original probes against the witnessed source without materializing', async () => {
+        mocks.getWorkingCopyBackingEntry.mockReturnValue(lazyOriginalEntry());
+        const transport = resolveOriginalBackedReadTransport('/tmp/electron-test/lazy.pdf', 42);
+        const probe = vi.fn(async () => 'geometry');
+
+        await expect(transport?.read(probe)).resolves.toBe('geometry');
+
+        expect(probe).toHaveBeenCalledWith('/Users/alice/Documents/file.pdf');
+        expect(mocks.captureWorkingCopyAdmissionSnapshot).toHaveBeenCalledTimes(2);
+        expect(mocks.ensureWorkingCopyMaterialized).not.toHaveBeenCalled();
+        expect(mocks.statSync).not.toHaveBeenCalled();
+    });
+
+    it('returns a typed error when the lazy-original registration swaps during a probe', async () => {
+        const originalEntry = lazyOriginalEntry();
+        mocks.getWorkingCopyBackingEntry.mockReturnValue(originalEntry);
+        const transport = resolveOriginalBackedReadTransport('/tmp/electron-test/lazy.pdf', 42);
+        mocks.getWorkingCopyBackingEntry
+            .mockReturnValueOnce(originalEntry)
+            .mockReturnValue({
+                ...originalEntry,
+                registrationId: 8,
+            });
+
+        await expect(transport?.read(async () => 'geometry'))
+            .rejects
+            .toMatchObject({code: 'WORKING_COPY_REGISTRATION_CHANGED'});
+
+        expect(mocks.ensureWorkingCopyMaterialized).not.toHaveBeenCalled();
+    });
+
+    it('normalizes a disappearing lazy source during a failed probe to a typed error', async () => {
+        const originalEntry = lazyOriginalEntry();
+        mocks.getWorkingCopyBackingEntry.mockReturnValue(originalEntry);
+        const transport = resolveOriginalBackedReadTransport('/tmp/electron-test/lazy.pdf', 42);
+        mocks.captureWorkingCopyAdmissionSnapshot
+            .mockResolvedValueOnce(originalEntry.admissionSnapshot)
+            .mockRejectedValueOnce(Object.assign(new Error('missing'), {code: 'ENOENT'}));
+
+        await expect(transport?.read(async () => {
+            throw Object.assign(new Error('spawn source missing'), {code: 'ENOENT'});
+        })).rejects.toMatchObject({code: 'SOURCE_BACKING_UNAVAILABLE'});
+
+        expect(mocks.ensureWorkingCopyMaterialized).not.toHaveBeenCalled();
+    });
+
+    it('fails a lazy-original read before admission when the source witness changed', async () => {
+        const entry = lazyOriginalEntry();
+        mocks.resolveAllowedReadPath.mockResolvedValue(null);
+        mocks.getWorkingCopyBackingEntry.mockReturnValue(entry);
+        mocks.captureWorkingCopyAdmissionSnapshot.mockResolvedValue({
+            size: 124n,
+            mtimeNs: 1_000_000n,
+        });
+
+        await expect(
+            handleFileRead(readContext, '/tmp/electron-test/lazy.pdf'),
+        ).rejects.toMatchObject({code: 'SOURCE_BACKING_CHANGED'});
+
+        expect(mocks.open).not.toHaveBeenCalled();
+        expect(mocks.transitionWorkingCopyBackingState).toHaveBeenCalledWith(
+            '/tmp/electron-test/lazy.pdf',
+            7,
+            'lazy-original',
+            expect.objectContaining({sourceBackingErrorCode: 'SOURCE_BACKING_CHANGED'}),
+        );
+    });
+
+    it('discards lazy-original bytes when the post-read witness changed', async () => {
+        const entry = lazyOriginalEntry();
+        const close = vi.fn(async () => {});
+        mocks.resolveAllowedReadPath.mockResolvedValue(null);
+        mocks.getWorkingCopyBackingEntry.mockReturnValue(entry);
+        mocks.captureWorkingCopyAdmissionSnapshot
+            .mockResolvedValueOnce(entry.admissionSnapshot)
+            .mockResolvedValueOnce({
+                size: 123n,
+                mtimeNs: 2_000_000n,
+            });
+        mocks.open.mockResolvedValue({
+            close,
+            readFile: vi.fn(async () => Buffer.from([
+                4,
+                5,
+            ])),
+        });
+
+        await expect(
+            handleFileRead(readContext, '/tmp/electron-test/lazy.pdf'),
+        ).rejects.toMatchObject({code: 'SOURCE_BACKING_CHANGED'});
+
+        expect(close).toHaveBeenCalledTimes(1);
+        expect(mocks.transitionWorkingCopyBackingState).toHaveBeenCalledWith(
+            '/tmp/electron-test/lazy.pdf',
+            7,
+            'lazy-original',
+            expect.objectContaining({sourceBackingErrorCode: 'SOURCE_BACKING_CHANGED'}),
+        );
+    });
+
+    it('fails lazy-original reads with a typed unavailable error', async () => {
+        mocks.resolveAllowedReadPath.mockResolvedValue(null);
+        mocks.getWorkingCopyBackingEntry.mockReturnValue(lazyOriginalEntry());
+        mocks.captureWorkingCopyAdmissionSnapshot.mockRejectedValue(
+            Object.assign(new Error('missing'), {code: 'ENOENT'}),
+        );
+
+        await expect(
+            handleFileRead(readContext, '/tmp/electron-test/lazy.pdf'),
+        ).rejects.toMatchObject({code: 'SOURCE_BACKING_UNAVAILABLE'});
+
+        expect(mocks.open).not.toHaveBeenCalled();
+    });
+
     it('falls back to mapped working copy for original file path stats', async () => {
         mocks.ensureWorkingCopyDirectory.mockResolvedValue(false);
         mocks.resolveAllowedReadPath
@@ -613,6 +886,35 @@ describe('fileOps path security', () => {
         expect(close).not.toHaveBeenCalled();
         await clearCachedRangeReadHandlesForTests();
         expect(close).toHaveBeenCalledTimes(1);
+    });
+
+    it('never caches original-backed range read handles', async () => {
+        const entry = {
+            ...lazyOriginalEntry(),
+            backingState: 'materializing',
+        };
+        const close = vi.fn(async () => {});
+        const read = vi.fn(async (buffer: Buffer, _offset: number, length: number) => {
+            buffer.fill(5, 0, length);
+            return {bytesRead: length};
+        });
+        mocks.resolveAllowedReadPath.mockResolvedValue(null);
+        mocks.getWorkingCopyBackingEntry.mockReturnValue(entry);
+        mocks.open.mockResolvedValue({
+            close,
+            read,
+        });
+
+        await handleFileReadRange(readContext, '/tmp/electron-test/lazy.pdf', 0, 2);
+        await handleFileReadRange(readContext, '/tmp/electron-test/lazy.pdf', 2, 2);
+
+        expect(mocks.open).toHaveBeenCalledTimes(2);
+        expect(close).toHaveBeenCalledTimes(2);
+        expect(mocks.captureWorkingCopyAdmissionSnapshot).toHaveBeenCalledTimes(4);
+        expect(getRangeReadCacheStatsForTests()).toMatchObject({
+            handles: 0,
+            pendingOpens: 0,
+        });
     });
 
     it('reopens cached range read handles when file metadata changes', async () => {
@@ -753,6 +1055,48 @@ describe('fileOps path security', () => {
             4,
             4,
         ]));
+        expect(close).toHaveBeenCalledTimes(1);
+    });
+
+    it('awaits active handle closure before completing backing-swap invalidation', async () => {
+        const readResult = deferred<{bytesRead: number}>();
+        const close = vi.fn(async () => {});
+        const read = vi.fn((buffer: Buffer) => {
+            buffer.fill(4);
+            return readResult.promise;
+        });
+        mocks.open.mockResolvedValue({
+            close,
+            read,
+        });
+
+        const rangeRead = handleFileReadRange(
+            readContext,
+            '/tmp/electron-test/safe.pdf',
+            0,
+            2,
+        );
+        await vi.waitFor(() => expect(read).toHaveBeenCalledOnce());
+        const invalidation = Promise.resolve(
+            mocks.backingSwapCacheInvalidator?.(
+                '/tmp/electron-test/safe.pdf',
+                '/Users/alice/Documents/file.pdf',
+            ),
+        );
+        let invalidationSettled = false;
+        void invalidation.then(() => {
+            invalidationSettled = true;
+        });
+        await waitForSettledQueueTurn();
+
+        expect(invalidationSettled).toBe(false);
+        expect(close).not.toHaveBeenCalled();
+        readResult.resolve({bytesRead: 2});
+        await expect(rangeRead).resolves.toEqual(new Uint8Array([
+            4,
+            4,
+        ]));
+        await invalidation;
         expect(close).toHaveBeenCalledTimes(1);
     });
 

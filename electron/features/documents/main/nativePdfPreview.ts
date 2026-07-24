@@ -4,7 +4,11 @@ import {
     rm,
     stat,
 } from 'fs/promises';
-import {join} from 'path';
+import {
+    basename,
+    dirname,
+    join,
+} from 'path';
 import { tmpdir } from 'os';
 import type {
     IPdfNativePagePreview,
@@ -13,6 +17,7 @@ import type {
     IPdfOpeningGeometry,
 } from '@contracts/electronApiDocuments';
 import type { IDocumentsSenderIdContext } from '@electron/features/documents/documentsService';
+import { resolveOriginalBackedReadTransport } from '@electron/features/documents/main/documentFileReadHandlers';
 import { resolveExistingReadablePdfPath } from '@electron/features/documents/main/documentFilePathResolution';
 import { allowOpenPath } from '@electron/file-access/openPathCapabilities';
 import { getRecentFiles } from '@electron/recentFiles';
@@ -29,6 +34,9 @@ import { mainJobBroker } from '@electron/resources/jobBroker';
 import type { IJobBrokerLease } from '@electron/resources/jobBroker';
 import { createLogger } from '@electron/utils/createLogger';
 import { acquireNativePdfPreviewAdmission } from '@electron/features/documents/main/acquireNativePdfPreviewAdmission';
+import { isErrnoException } from '@contracts/runtimeGuards';
+import { isWorkingCopyDirectoryName } from '@electron/file-access/workingCopyDirectory';
+import { getWorkingCopyBackingEntry } from '@electron/file-access/workingCopyStore';
 
 const PDFINFO_TIMEOUT_MS = 20_000;
 const PDF_RENDER_TIMEOUT_MS = 30_000;
@@ -394,19 +402,56 @@ export async function handlePdfNativePageSizes(
 }
 
 async function readPdfOpeningGeometryIdentity(resolvedPath: string) {
-    const fileStat = await stat(resolvedPath);
-    return {
-        size: fileStat.size,
-        modifiedAt: Math.trunc(fileStat.mtimeMs),
-    };
+    try {
+        const fileStat = await stat(resolvedPath);
+        return {
+            size: fileStat.size,
+            modifiedAt: Math.trunc(fileStat.mtimeMs),
+        };
+    } catch (error) {
+        if (isMissingPdfOpeningGeometrySource(error)) {
+            return null;
+        }
+        throw error;
+    }
+}
+
+function isMissingPdfOpeningGeometrySource(error: unknown) {
+    return isErrnoException(error)
+        && (error.code === 'ENOENT' || error.code === 'ENOTDIR');
+}
+
+function isUnregisteredManagedWorkingCopy(filePath: unknown, senderId?: number) {
+    if (typeof filePath !== 'string') {
+        return false;
+    }
+    const normalizedPath = filePath.trim();
+    return isWorkingCopyDirectoryName(basename(dirname(normalizedPath)))
+        && getWorkingCopyBackingEntry(normalizedPath, senderId) === null;
 }
 
 export async function handlePdfOpeningGeometry(
     context: IDocumentsSenderIdContext,
     filePath: unknown,
-): Promise<IPdfOpeningGeometry> {
-    const resolvedPath = await resolvePdfOpeningGeometryPath(context, filePath);
-    const identityBefore = await readPdfOpeningGeometryIdentity(resolvedPath);
+): Promise<IPdfOpeningGeometry | null> {
+    if (isUnregisteredManagedWorkingCopy(filePath, context.senderId)) {
+        return null;
+    }
+    let resolvedPath: string;
+    try {
+        resolvedPath = await resolvePdfOpeningGeometryPath(context, filePath);
+    } catch (error) {
+        if (isUnregisteredManagedWorkingCopy(filePath, context.senderId)) {
+            return null;
+        }
+        throw error;
+    }
+    const originalBackedRead = resolveOriginalBackedReadTransport(resolvedPath, context.senderId);
+    const identityBefore = originalBackedRead?.identity
+        ?? await readPdfOpeningGeometryIdentity(resolvedPath);
+    if (identityBefore === null) {
+        return null;
+    }
     const tools = getPdfNativeToolPaths();
     const env = buildPopplerEnv(tools);
     const abortController = new AbortController();
@@ -435,7 +480,7 @@ export async function handlePdfOpeningGeometry(
     mainOperation.signal.addEventListener('abort', handleMainAbort, {once: true});
 
     try {
-        const result = await runNativeToolCommand(
+        const readGeometry = (physicalPath: string) => runNativeToolCommand(
             tools.pdfinfo,
             [
                 '-box',
@@ -443,7 +488,7 @@ export async function handlePdfOpeningGeometry(
                 '1',
                 '-l',
                 '1',
-                resolvedPath,
+                physicalPath,
             ],
             withPopplerEnv(env, {
                 timeoutMs: PDFINFO_TIMEOUT_MS,
@@ -454,8 +499,15 @@ export async function handlePdfOpeningGeometry(
                 cancelGroup,
             }),
         );
+        const result = originalBackedRead
+            ? await originalBackedRead.read(readGeometry)
+            : await readGeometry(resolvedPath);
         throwIfAborted(abortController.signal);
-        const identityAfter = await readPdfOpeningGeometryIdentity(resolvedPath);
+        const identityAfter = originalBackedRead?.identity
+            ?? await readPdfOpeningGeometryIdentity(resolvedPath);
+        if (identityAfter === null) {
+            return null;
+        }
         if (
             identityAfter.size !== identityBefore.size
             || identityAfter.modifiedAt !== identityBefore.modifiedAt

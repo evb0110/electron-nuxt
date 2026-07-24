@@ -24,12 +24,21 @@ function normalizePageNumber(value: unknown) {
     return pageNumber;
 }
 
-function getPageNumberFromElement(element: HTMLElement) {
+export function getPageNumberFromElement(element: HTMLElement) {
     return normalizePageNumber(element.dataset.page);
 }
 
-function isBufferedPageElement(element: HTMLElement) {
+export function isBufferedPageElement(element: HTMLElement) {
     return element.classList?.contains('page_container--buffered') === true;
+}
+
+export function getViewportIntersectionLength(
+    start: number,
+    end: number,
+    viewportStart: number,
+    viewportEnd: number,
+) {
+    return Math.max(0, Math.min(end, viewportEnd) - Math.max(start, viewportStart));
 }
 
 function collectVisiblePageMetrics(container: HTMLElement): IVisiblePageMetrics {
@@ -58,12 +67,17 @@ function collectVisiblePageMetrics(container: HTMLElement): IVisiblePageMetrics 
         const pageBottom = pageTop + pageElement.offsetHeight;
         const pageLeft = pageElement.offsetLeft;
         const pageRight = pageLeft + pageElement.offsetWidth;
-        const visibleTop = Math.max(pageTop, viewportTop);
-        const visibleBottom = Math.min(pageBottom, viewportBottom);
-        const visibleLeft = Math.max(pageLeft, viewportLeft);
-        const visibleRight = Math.min(pageRight, viewportRight);
-        const visibleArea = Math.max(0, visibleBottom - visibleTop)
-            * Math.max(0, visibleRight - visibleLeft);
+        const visibleArea = getViewportIntersectionLength(
+            pageTop,
+            pageBottom,
+            viewportTop,
+            viewportBottom,
+        ) * getViewportIntersectionLength(
+            pageLeft,
+            pageRight,
+            viewportLeft,
+            viewportRight,
+        );
 
         if (visibleArea > 0) {
             firstVisiblePage ??= pageNumber;

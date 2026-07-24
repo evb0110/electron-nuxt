@@ -1,7 +1,6 @@
 import type { WebContents } from 'electron';
 import { randomUUID } from 'crypto';
 import { existsSync } from 'fs';
-import {stat} from 'fs/promises';
 import { resolve } from 'path';
 import { estimateSizes } from '@electron/djvu/estimateSizes';
 import {
@@ -30,7 +29,7 @@ import {
 } from '@electron/features/djvu/main/viewing';
 import {
     getDjvuPageSizesForViewing,
-    getDjvuPageSizeForViewing,
+    getDjvuPageSourceInfoForViewing,
     renderDjvuPagePreview,
 } from '@electron/features/djvu/main/pagePreview';
 import { isDjvuPath } from '@electron/image/pdfConversion';
@@ -42,12 +41,17 @@ import { normalizePossiblyEncodedExistingPath } from '@electron/utils/normalizeP
 import { getRecentFiles } from '@electron/recentFiles';
 import type {IPlatformMainSenderContext} from '@contracts/platformFeature';
 import { cancelConversion } from '@electron/features/djvu/main/ddjvuConversion';
-import { searchDjvuText } from '@electron/djvu/textSearch';
+import {
+    readDjvuPageText,
+    searchDjvuText,
+} from '@electron/djvu/textSearch';
 import { DJVU_PLATFORM_FEATURE } from '@contracts/djvuPlatformFeature';
 import { isAbortError } from '@electron/utils/abort';
 import { registerMainOperation } from '@electron/operation-lifecycle/mainOperationLifecycle';
+import type {IPdfBookmarkEntry} from '@contracts/pdfBookmarkEntry';
 import type {
     IDjvuConvertOptions,
+    IDjvuOutlineItem,
     IDjvuPagePreviewOptions,
     IDjvuPrintOptions,
     IDjvuTextSearchOptions,
@@ -932,6 +936,39 @@ export async function handleDjvuGetPageSizes(
     return getDjvuPageSizesForViewing(normalizedDjvuPath, pageCount);
 }
 
+export async function handleDjvuGetPageText(
+    context: IDjvuOperationContext,
+    djvuPath: string,
+    pageNumber: number,
+) {
+    const normalizedDjvuPath = requireDjvuOpenPath(djvuPath, context.sender);
+    if (!isAllowedDjvuViewingPath(normalizedDjvuPath, context.senderId)) {
+        throw new Error('DjVu viewing path is not active');
+    }
+    return readDjvuPageText(normalizedDjvuPath, pageNumber);
+}
+
+function mapDjvuOutlineItem(item: IPdfBookmarkEntry): IDjvuOutlineItem {
+    return {
+        title: item.title,
+        pageNumber: item.pageIndex === null ? null : item.pageIndex + 1,
+        children: item.items.map(mapDjvuOutlineItem),
+    };
+}
+
+export async function handleDjvuGetOutline(
+    context: IDjvuOperationContext,
+    djvuPath: string,
+) {
+    const normalizedDjvuPath = requireDjvuOpenPath(djvuPath, context.sender);
+    if (!isAllowedDjvuViewingPath(normalizedDjvuPath, context.senderId)) {
+        throw new Error('DjVu viewing path is not active');
+    }
+    return parseDjvuOutline(
+        await getDjvuOutline(normalizedDjvuPath),
+    ).map(mapDjvuOutlineItem);
+}
+
 export async function handleDjvuGetPageSourceInfo(
     context: IDjvuOperationContext,
     djvuPath: string,
@@ -941,32 +978,7 @@ export async function handleDjvuGetPageSourceInfo(
     if (!Number.isSafeInteger(pageNumber) || pageNumber < 1) {
         throw new Error(`Invalid DjVu page number: ${pageNumber}`);
     }
-    const [
-        pageCount,
-        pageSize,
-        sourceStat,
-    ] = await Promise.all([
-        getDjvuPageCount(normalizedDjvuPath),
-        getDjvuPageSizeForViewing(normalizedDjvuPath, pageNumber).catch(() => null),
-        stat(normalizedDjvuPath),
-    ]);
-    if (pageCount < 1) {
-        throw new Error('DjVu document has no pages');
-    }
-    const effectivePageNumber = Math.min(pageNumber, pageCount);
-    const effectivePageSize = effectivePageNumber === pageNumber && pageSize
-        ? pageSize
-        : await getDjvuPageSizeForViewing(normalizedDjvuPath, effectivePageNumber);
-    if (!effectivePageSize) {
-        throw new Error(`DjVu page size probe returned no size for page ${effectivePageNumber}`);
-    }
-    return {
-        pageCount,
-        pageNumber: effectivePageNumber,
-        pageSize: effectivePageSize,
-        sourceSize: sourceStat.size,
-        sourceModifiedAt: Math.trunc(sourceStat.mtimeMs),
-    };
+    return getDjvuPageSourceInfoForViewing(normalizedDjvuPath, pageNumber);
 }
 
 export async function handleDjvuRenderPagePreview(

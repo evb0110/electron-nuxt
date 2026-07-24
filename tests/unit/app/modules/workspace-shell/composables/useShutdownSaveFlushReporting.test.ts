@@ -11,7 +11,9 @@ import {
 import type { IShutdownSaveFlushResponse } from '@contracts/systemPlatformFeature';
 import { useShutdownSaveFlushReporting } from '@app/modules/workspace-shell/composables/useShutdownSaveFlushReporting';
 
-vi.mock('@app/utils/browserLogger', () => ({BrowserLogger: {warn: vi.fn()}}));
+const mocks = vi.hoisted(() => ({warn: vi.fn()}));
+
+vi.mock('@app/utils/browserLogger', () => ({BrowserLogger: {warn: mocks.warn}}));
 
 type TShutdownSaveFlushCallback = () => Promise<IShutdownSaveFlushResponse> | IShutdownSaveFlushResponse;
 
@@ -83,6 +85,29 @@ describe('useShutdownSaveFlushReporting', () => {
         harness.workingCopyPath.value = '/tmp/document-working-copy-after-registration.pdf';
         await expect(harness.invoke()).resolves.toEqual({dirtyWorkingCopyPaths: ['/tmp/document-working-copy-after-registration.pdf']});
         expect(harness.saveForExternalRead).toHaveBeenCalledTimes(1);
+
+        harness.scope.stop();
+    });
+
+    it('preserves a failed dirty materialization and reports its stable outcome code', async () => {
+        const error = Object.assign(
+            new Error('The original document is unavailable'),
+            {code: 'SOURCE_BACKING_UNAVAILABLE'},
+        );
+        const harness = createHarness({saveForExternalRead: async () => {
+            throw error;
+        }});
+
+        await expect(harness.invoke()).resolves.toEqual({dirtyWorkingCopyPaths: ['/tmp/document-working-copy.pdf']});
+        expect(mocks.warn).toHaveBeenCalledWith(
+            'workspace',
+            'Failed to flush dirty working copy during shutdown',
+            {
+                error,
+                errorCode: 'SOURCE_BACKING_UNAVAILABLE',
+                workingCopyPath: '/tmp/document-working-copy.pdf',
+            },
+        );
 
         harness.scope.stop();
     });

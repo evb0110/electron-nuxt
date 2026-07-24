@@ -1291,6 +1291,8 @@ export default {
         'fileSizeValue': 'Grootte: {size}',
         'zoomUnknown': 'Zoom: -',
         'zoomValue': 'Zoom: {zoom}%',
+        'preparingDocument': 'Document voorbereiden',
+        'preparingDocumentProgress': 'Document voorbereiden · {progress}%',
         'showInFolder': 'Weergeven in map',
         'showInFolderUnavailableWeb': 'Opgeslagen in deze browser',
     },

@@ -36,7 +36,11 @@ interface IUsePdfViewerViewportLifecycleOptions {
     pageLayout: ComputedRef<IPdfPageLayoutMetrics | null>;
     clearPinnedViewportPage: (source: string) => void;
     clearPendingImagePlacement: () => void;
-    setPageLayoutMetrics: (metrics: IPdfPageLayoutMetrics | null) => void;
+    setPageLayoutMetrics: (
+        metrics: IPdfPageLayoutMetrics | null,
+        container?: HTMLElement | null,
+        totalPages?: number,
+    ) => void;
     syncHorizontalScrollForZoomMode: () => void;
     handleViewerScroll: (event: Event) => void;
     summarizeViewerStateForLog: () => unknown;
@@ -121,12 +125,12 @@ export const usePdfViewerViewportLifecycle = (options: IUsePdfViewerViewportLife
     );
 
     watchEffect(() => {
-        if (options.pageLayout.value) {
-            options.setPageLayoutMetrics(options.pageLayout.value);
-            return;
-        }
-
-        options.setPageLayoutMetrics(null);
+        const layout = options.pageLayout.value;
+        options.setPageLayoutMetrics(
+            layout,
+            layout && options.continuousScroll.value ? options.viewerContainer.value : null,
+            options.numPages.value,
+        );
     });
 
     onBeforeUnmount(() => {

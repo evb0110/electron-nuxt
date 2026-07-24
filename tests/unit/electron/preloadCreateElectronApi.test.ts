@@ -7,6 +7,7 @@ import {
     vi,
 } from 'vitest';
 import { AGENT_PLATFORM_FEATURE } from '@contracts/agentPlatformFeature';
+import { DJVU_PLATFORM_FEATURE } from '@contracts/djvuPlatformFeature';
 import { DOCUMENTS_CHANNELS } from '@electron/features/documents/contract';
 import { CORE_IPC_EVENT_CHANNELS } from '@electron/platform-ipc/coreContract';
 import {
@@ -39,6 +40,8 @@ const documentsClientMock = vi.hoisted(() => ({
     saveDocxAs: vi.fn(async () => null),
     readFile: vi.fn(async () => new Uint8Array()),
     statFile: vi.fn(async () => ({size: 0})),
+    getWorkingCopyBackingStatus: vi.fn(async () => null),
+    onWorkingCopyBackingStatusChanged: vi.fn(() => () => {}),
     readFileRange: vi.fn(async () => new Uint8Array()),
     createManagedTempFileHandle: vi.fn(async () => ({
         path: '/tmp/managed.pdf',
@@ -237,6 +240,51 @@ describe('createElectronApi', () => {
         expect(typeof api.pageOps.rotate).toBe('function');
         expect(typeof api.imageExport.exportPdfToImages).toBe('function');
         expect(typeof api.system.getMemoryInfo).toBe('function');
+    });
+
+    it('exposes decoded native DjVu page text and nested outline methods', async () => {
+        const ipcRenderer = {
+            invoke: vi.fn(async (channel: string) => {
+                if (channel === DJVU_PLATFORM_FEATURE.invokeChannels.getPageText) {
+                    return 'Native page text';
+                }
+                if (channel === DJVU_PLATFORM_FEATURE.invokeChannels.getOutline) {
+                    return [{
+                        title: 'Chapter',
+                        pageNumber: 1,
+                        children: [{
+                            title: 'Section',
+                            pageNumber: 3,
+                            children: [],
+                        }],
+                    }];
+                }
+                return undefined;
+            }),
+            on: vi.fn(),
+            send: vi.fn(),
+        };
+        const {createElectronApi} = await import('@electron/preload/createElectronApi');
+        const api = createElectronApi(
+            ipcRenderer as never,
+            {getPathForFile: () => ''},
+        );
+        const getPageText = api.djvu.getPageText;
+        const getOutline = api.djvu.getOutline;
+        if (!getPageText || !getOutline) {
+            throw new Error('Native DjVu provider methods are missing from the preload');
+        }
+
+        await expect(getPageText('/tmp/book.djvu', 3)).resolves.toBe('Native page text');
+        await expect(getOutline('/tmp/book.djvu')).resolves.toEqual([{
+            title: 'Chapter',
+            pageNumber: 1,
+            children: [{
+                title: 'Section',
+                pageNumber: 3,
+                children: [],
+            }],
+        }]);
     });
 
     it('keeps derived OCR language installation on validateTools', async () => {

@@ -43,6 +43,17 @@ describe('preservePdfResizeCanvasVisualSnapshot', () => {
 
         const replacementCanvas = document.createElement('canvas');
         canvasHost.replaceChildren(replacementCanvas);
+        expect(snapshot?.hasReplacementCanvas()).toBe(false);
+
+        replacementCanvas.width = 800;
+        replacementCanvas.height = 1_200;
+        expect(snapshot?.hasReplacementCanvas()).toBe(false);
+
+        pageContainer.classList.add('page_container--rendered');
+        canvasHost.style.visibility = 'hidden';
+        expect(snapshot?.hasReplacementCanvas()).toBe(false);
+
+        canvasHost.style.visibility = 'visible';
         expect(snapshot?.hasReplacementCanvas()).toBe(true);
 
         snapshot?.release();

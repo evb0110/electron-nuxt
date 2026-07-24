@@ -11,6 +11,17 @@ import { extname } from 'path';
 import { MAX_CHUNK } from '@electron/config/constants';
 import { onWorkingCopyMutationSettled } from '@electron/file-access/workingCopyMutationQueue';
 import {
+    captureWorkingCopyAdmissionSnapshot,
+    getWorkingCopyBackingEntry,
+    transitionWorkingCopyBackingState,
+    workingCopyAdmissionSnapshotsMatch,
+    type IWorkingCopyAdmissionSnapshot,
+} from '@electron/file-access/workingCopyStore';
+import {
+    onWorkingCopyBackingSwapCacheInvalidation,
+    WorkingCopyMaterializationError,
+} from '@electron/file-access/workingCopyMaterialization';
+import {
     assertWithinIpcReadBudget,
     isAllowedBinaryReadExtension,
     normalizeNonEmptyPath,
@@ -47,6 +58,14 @@ interface IRangeReadHandleCacheEntry {
 interface IRangeReadHandleLease {
     handle: FileHandle;
     release(): Promise<void>;
+}
+
+interface IOriginalBackedRead {
+    admissionSnapshot: IWorkingCopyAdmissionSnapshot;
+    logicalRef: string;
+    originalPath: string;
+    registrationId: number;
+    senderId?: number;
 }
 
 const rangeReadHandles = new Map<string, IRangeReadHandleCacheEntry>();
@@ -322,10 +341,195 @@ function acquireRangeReadHandleEntry(
     };
 }
 
+function createSourceBackingError(
+    code: 'SOURCE_BACKING_CHANGED' | 'SOURCE_BACKING_UNAVAILABLE',
+    cause?: unknown,
+) {
+    return new WorkingCopyMaterializationError(
+        code,
+        code === 'SOURCE_BACKING_CHANGED'
+            ? 'The original document changed after it was opened'
+            : 'The original document is unavailable',
+        cause === undefined ? {} : {cause},
+    );
+}
+
+function failOriginalBacking(
+    backing: IOriginalBackedRead,
+    code: 'SOURCE_BACKING_CHANGED' | 'SOURCE_BACKING_UNAVAILABLE',
+    cause?: unknown,
+): never {
+    const entry = getWorkingCopyBackingEntry(backing.logicalRef, backing.senderId);
+    if (entry?.registrationId === backing.registrationId) {
+        transitionWorkingCopyBackingState(
+            backing.logicalRef,
+            backing.registrationId,
+            'lazy-original',
+            {
+                expectedBackingState: [
+                    'lazy-original',
+                    'materializing',
+                ],
+                sourceBackingErrorCode: code,
+            },
+        );
+    }
+    throw createSourceBackingError(code, cause);
+}
+
+function resolveOriginalBackedRead(
+    logicalRef: string,
+    senderId?: number,
+): IOriginalBackedRead | null {
+    const entry = getWorkingCopyBackingEntry(logicalRef, senderId);
+    if (
+        !entry
+        || (
+            entry.backingState !== 'lazy-original'
+            && entry.backingState !== 'materializing'
+        )
+    ) {
+        return null;
+    }
+    if (
+        entry.sourceBackingErrorCode === 'SOURCE_BACKING_CHANGED'
+        || entry.sourceBackingErrorCode === 'SOURCE_BACKING_UNAVAILABLE'
+    ) {
+        throw createSourceBackingError(entry.sourceBackingErrorCode);
+    }
+    if (!entry.admissionSnapshot) {
+        throw new WorkingCopyMaterializationError(
+            'WORKING_COPY_MATERIALIZATION_FAILED',
+            'Lazy working copy has no admission snapshot',
+        );
+    }
+    return {
+        admissionSnapshot: entry.admissionSnapshot,
+        logicalRef,
+        originalPath: entry.originalPath,
+        registrationId: entry.registrationId,
+        ...(senderId === undefined ? {} : {senderId}),
+    };
+}
+
+export function resolveOriginalBackedReadTransport(
+    logicalRef: string,
+    senderId?: number,
+) {
+    const backing = resolveOriginalBackedRead(logicalRef, senderId);
+    if (!backing) {
+        return null;
+    }
+    return {
+        identity: {
+            size: Number(backing.admissionSnapshot.size),
+            modifiedAt: Math.trunc(Number(backing.admissionSnapshot.mtimeNs) / 1_000_000),
+        },
+        read: async <T>(reader: (physicalPath: string) => Promise<T>) => {
+            await assertOriginalBackingSnapshot(backing);
+            try {
+                return await reader(backing.originalPath);
+            } finally {
+                await assertOriginalBackingSnapshot(backing);
+            }
+        },
+    };
+}
+
+async function assertOriginalBackingSnapshot(backing: IOriginalBackedRead) {
+    let snapshot: IWorkingCopyAdmissionSnapshot;
+    try {
+        snapshot = await captureWorkingCopyAdmissionSnapshot(backing.originalPath);
+    } catch (error) {
+        failOriginalBacking(backing, 'SOURCE_BACKING_UNAVAILABLE', error);
+    }
+    if (!workingCopyAdmissionSnapshotsMatch(snapshot, backing.admissionSnapshot)) {
+        failOriginalBacking(backing, 'SOURCE_BACKING_CHANGED');
+    }
+    const currentEntry = getWorkingCopyBackingEntry(backing.logicalRef, backing.senderId);
+    if (!currentEntry || currentEntry.registrationId !== backing.registrationId) {
+        throw new WorkingCopyMaterializationError(
+            'WORKING_COPY_REGISTRATION_CHANGED',
+            'Working-copy registration changed during the read',
+        );
+    }
+    if (
+        currentEntry.sourceBackingErrorCode === 'SOURCE_BACKING_CHANGED'
+        || currentEntry.sourceBackingErrorCode === 'SOURCE_BACKING_UNAVAILABLE'
+    ) {
+        throw createSourceBackingError(currentEntry.sourceBackingErrorCode);
+    }
+    return snapshot;
+}
+
+async function readOriginalBacking(
+    backing: IOriginalBackedRead,
+) {
+    await assertOriginalBackingSnapshot(backing);
+    assertWithinIpcReadBudget(backing.logicalRef, Number(backing.admissionSnapshot.size));
+    let handle: FileHandle | null = null;
+    let buffer: Buffer;
+    try {
+        handle = await openFileHandle(backing.originalPath, 'r');
+        buffer = await handle.readFile();
+    } catch (error) {
+        failOriginalBacking(backing, 'SOURCE_BACKING_UNAVAILABLE', error);
+    } finally {
+        await handle?.close().catch(() => undefined);
+    }
+    await assertOriginalBackingSnapshot(backing);
+    return new Uint8Array(buffer);
+}
+
+async function statOriginalBacking(backing: IOriginalBackedRead) {
+    const snapshot = await assertOriginalBackingSnapshot(backing);
+    await assertOriginalBackingSnapshot(backing);
+    return {
+        size: Number(snapshot.size),
+        modifiedAt: Math.trunc(Number(snapshot.mtimeNs) / 1_000_000),
+    };
+}
+
+async function readOriginalBackingRange(
+    backing: IOriginalBackedRead,
+    offset: number,
+    length: number,
+) {
+    await assertOriginalBackingSnapshot(backing);
+    let handle: FileHandle | null = null;
+    const buffer = Buffer.allocUnsafe(length);
+    let bytesRead: number;
+    try {
+        handle = await openFileHandle(backing.originalPath, 'r');
+        ({bytesRead} = await handle.read(buffer, 0, length, offset));
+    } catch (error) {
+        failOriginalBacking(backing, 'SOURCE_BACKING_UNAVAILABLE', error);
+    } finally {
+        await handle?.close().catch(() => undefined);
+    }
+    await assertOriginalBackingSnapshot(backing);
+    return new Uint8Array(buffer.subarray(0, bytesRead));
+}
+
+async function invalidateCachedRangeReadPath(resolvedPath: string) {
+    advanceRangeReadPathEpoch(resolvedPath);
+    await closeCachedRangeReadHandle(resolvedPath);
+    pruneRangeReadPathEpochIfUnused(resolvedPath);
+}
+
 onWorkingCopyMutationSettled((workingCopyPath) => {
     advanceRangeReadPathEpoch(workingCopyPath);
     void closeCachedRangeReadHandle(workingCopyPath)
         .finally(() => pruneRangeReadPathEpochIfUnused(workingCopyPath));
+});
+
+onWorkingCopyBackingSwapCacheInvalidation(async (logicalRef, previousPhysicalPath) => {
+    await Promise.all(
+        [...new Set([
+            logicalRef,
+            previousPhysicalPath,
+        ])].map(invalidateCachedRangeReadPath),
+    );
 });
 
 export async function closeCachedRangeReadHandles() {
@@ -383,6 +587,11 @@ export async function handleFileRead(context: IDocumentsSenderIdContext, filePat
         throw new Error('Invalid file path: reads only allowed within temp directory');
     }
 
+    const originalBacking = resolveOriginalBackedRead(resolvedPath, context.senderId);
+    if (originalBacking) {
+        return readOriginalBacking(originalBacking);
+    }
+
     if (!existsSync(resolvedPath)) {
         throw new Error(`File not found: ${normalizedPath}`);
     }
@@ -400,6 +609,10 @@ export async function handleFileStat(
     modifiedAt: number
 }> {
     const resolvedPath = await resolveExistingReadableBinaryPath(filePath, context.senderId);
+    const originalBacking = resolveOriginalBackedRead(resolvedPath, context.senderId);
+    if (originalBacking) {
+        return statOriginalBacking(originalBacking);
+    }
     const s = statSync(resolvedPath);
     return {
         size: s.size,
@@ -414,6 +627,7 @@ export async function handleFileReadRange(
     length: unknown,
 ) {
     const resolvedPath = await resolveExistingReadableBinaryPath(filePath, context.senderId);
+    const originalBacking = resolveOriginalBackedRead(resolvedPath, context.senderId);
     const off = Number(offset);
     const len = Number(length);
     if (
@@ -427,7 +641,7 @@ export async function handleFileReadRange(
 
     const want = Math.min(len, MAX_CHUNK);
 
-    const readKey = `${resolvedPath}\0${off}\0${want}\0${getRangeReadPathEpoch(resolvedPath)}`;
+    const readKey = `${resolvedPath}\0${originalBacking?.registrationId ?? 'managed'}\0${off}\0${want}\0${getRangeReadPathEpoch(resolvedPath)}`;
     const existingRead = pendingRangeReads.get(readKey);
     if (existingRead) {
         return existingRead;
@@ -437,6 +651,9 @@ export async function handleFileReadRange(
         const releaseBudget = await acquireRangeReadBudget(resolvedPath, want);
         let lease: IRangeReadHandleLease | null = null;
         try {
+            if (originalBacking) {
+                return await readOriginalBackingRange(originalBacking, off, want);
+            }
             lease = await acquireRangeReadHandle(resolvedPath);
             const buf = Buffer.allocUnsafe(want);
             const { bytesRead } = await lease.handle.read(buf, 0, want, off);

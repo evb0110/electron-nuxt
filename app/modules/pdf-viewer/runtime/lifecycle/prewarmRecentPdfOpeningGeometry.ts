@@ -5,6 +5,9 @@ import {
     readPrevalidatedTrustedPdfOpenGeometry,
     type IPdfTrustedOpenGeometry,
 } from '@app/modules/pdf-viewer/runtime/lifecycle/pdfTrustedOpenGeometryCache';
+import { getPerformanceProfile } from '@app/utils/performanceProfile';
+import { resolveOpenPathSecondaryPerformancePolicy } from '@app/utils/openPathSecondaryPerformancePolicy';
+import { settleDocumentOpeningGeometryPrewarmTask } from '@app/utils/document-viewer/lifecycle/settleDocumentOpeningGeometryPrewarmTask';
 
 const DEFAULT_RECENT_PDF_OPEN_GEOMETRY_PREWARM_LIMIT = 4;
 const DEFAULT_PREWARM_CONCURRENCY = 2;
@@ -14,7 +17,7 @@ export interface IRecentPdfOpeningGeometryPrewarmPort {
         size: number;
         modifiedAt?: number;
     }>;
-    readOpeningGeometry?: ((path: string) => Promise<IPdfOpeningGeometry>) | undefined;
+    readOpeningGeometry?: ((path: string) => Promise<IPdfOpeningGeometry | null>) | undefined;
 }
 
 function isPdfRecentFile(file: IRecentFile) {
@@ -46,6 +49,12 @@ export async function prewarmRecentPdfOpeningGeometry(
         onSettled?: (file: IRecentFile, geometry: IPdfTrustedOpenGeometry | null) => void;
     } = {},
 ) {
+    const geometryPreflightMode = resolveOpenPathSecondaryPerformancePolicy(
+        getPerformanceProfile(),
+    ).geometryPreflightMode;
+    const readOpeningGeometry = geometryPreflightMode === 'concurrent'
+        ? port.readOpeningGeometry
+        : undefined;
     const candidates = selectRecentPdfOpeningGeometryCandidates(
         files,
         options.limit,
@@ -63,7 +72,7 @@ export async function prewarmRecentPdfOpeningGeometry(
                 return;
             }
             const alreadyValidated = readPrevalidatedTrustedPdfOpenGeometry(file.originalPath, 1);
-            if (alreadyValidated && !port.readOpeningGeometry) {
+            if (alreadyValidated && !readOpeningGeometry) {
                 results.set(file.originalPath, alreadyValidated);
                 options.onSettled?.(file, alreadyValidated);
                 continue;
@@ -73,27 +82,18 @@ export async function prewarmRecentPdfOpeningGeometry(
                     file.originalPath,
                     1,
                     port.readStat ? () => port.readStat!(file.originalPath) : undefined,
-                    port.readOpeningGeometry
-                        ? () => port.readOpeningGeometry!(file.originalPath)
+                    readOpeningGeometry
+                        ? () => readOpeningGeometry(file.originalPath)
                         : undefined,
-                    {forceAuthoritativeRefresh: Boolean(port.readOpeningGeometry)},
+                    {forceAuthoritativeRefresh: Boolean(readOpeningGeometry)},
                 );
-                let timedOut = false;
-                let timeoutId: ReturnType<typeof setTimeout> | undefined;
-                const geometry = options.settleTimeoutMs && options.settleTimeoutMs > 0
-                    ? await Promise.race([
-                        geometryTask,
-                        new Promise<null>((resolve) => {
-                            timeoutId = setTimeout(() => {
-                                timedOut = true;
-                                resolve(null);
-                            }, options.settleTimeoutMs);
-                        }),
-                    ])
-                    : await geometryTask;
-                if (timeoutId !== undefined) {
-                    clearTimeout(timeoutId);
-                }
+                const {
+                    geometry,
+                    timedOut,
+                } = await settleDocumentOpeningGeometryPrewarmTask(
+                    geometryTask,
+                    options.settleTimeoutMs,
+                );
                 results.set(file.originalPath, geometry);
                 options.onSettled?.(file, geometry);
                 if (timedOut) {

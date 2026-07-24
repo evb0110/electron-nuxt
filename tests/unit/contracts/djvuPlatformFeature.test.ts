@@ -31,6 +31,8 @@ describe('DjVu platform feature', () => {
             cancelTextSearch: 'djvu:text:cancel',
             getInfo: 'djvu:getInfo',
             getPageSourceInfo: 'djvu:getPageSourceInfo',
+            getPageText: 'djvu:getPageText',
+            getOutline: 'djvu:getOutline',
             getPageSizes: 'djvu:getPageSizes',
             renderPagePreview: 'djvu:renderPagePreview',
             estimateSizes: 'djvu:estimateSizes',

@@ -201,24 +201,111 @@ describe('createExternalOpenManager', () => {
         expect(grantOpenPaths.mock.invocationCallOrder[0]).toBeLessThan(dispatchOpenPaths.mock.invocationCallOrder[0]!);
     });
 
-    it('delivers later repeated open requests after the initial dispatch', async () => {
+    it('dispatches a later singleton after 100 ms', async () => {
         vi.useFakeTimers();
         const harness = createManagerHarness();
 
         harness.manager.markBootstrapReady();
         harness.manager.queueOpenRequest(['/docs/first.pdf']);
-
-        expect(harness.dispatchOpenPaths).toHaveBeenCalledTimes(1);
-        expect(harness.dispatchOpenPaths).toHaveBeenNthCalledWith(1, ['/docs/first.pdf']);
-
         harness.manager.queueOpenRequest(['/docs/second.pdf']);
 
+        await vi.advanceTimersByTimeAsync(99);
         expect(harness.dispatchOpenPaths).toHaveBeenCalledTimes(1);
 
-        await vi.advanceTimersByTimeAsync(800);
+        await vi.advanceTimersByTimeAsync(1);
 
         expect(harness.dispatchOpenPaths).toHaveBeenCalledTimes(2);
         expect(harness.dispatchOpenPaths).toHaveBeenNthCalledWith(2, ['/docs/second.pdf']);
+    });
+
+    it('escalates a singleton when a distinct path arrives at 99 ms', async () => {
+        vi.useFakeTimers();
+        const harness = createManagerHarness();
+
+        harness.manager.markBootstrapReady();
+        harness.manager.queueOpenRequest(['/docs/initial.pdf']);
+        harness.manager.queueOpenRequest(['/docs/one.pdf']);
+
+        await vi.advanceTimersByTimeAsync(99);
+        harness.manager.queueOpenRequest(['/docs/two.pdf']);
+        await vi.advanceTimersByTimeAsync(799);
+
+        expect(harness.dispatchOpenPaths).toHaveBeenCalledTimes(1);
+
+        await vi.advanceTimersByTimeAsync(1);
+
+        expect(harness.dispatchOpenPaths).toHaveBeenCalledTimes(2);
+        expect(harness.dispatchOpenPaths).toHaveBeenNthCalledWith(2, [
+            '/docs/one.pdf',
+            '/docs/two.pdf',
+        ]);
+    });
+
+    it('does not re-arm the singleton phase for a duplicate path', async () => {
+        vi.useFakeTimers();
+        const harness = createManagerHarness();
+
+        harness.manager.markBootstrapReady();
+        harness.manager.queueOpenRequest(['/docs/initial.pdf']);
+        harness.manager.queueOpenRequest(['/docs/repeated.pdf']);
+
+        await vi.advanceTimersByTimeAsync(99);
+        harness.manager.queueOpenRequest(['/docs/repeated.pdf']);
+        await vi.advanceTimersByTimeAsync(1);
+
+        expect(harness.dispatchOpenPaths).toHaveBeenCalledTimes(2);
+        expect(harness.dispatchOpenPaths).toHaveBeenNthCalledWith(2, ['/docs/repeated.pdf']);
+    });
+
+    it('uses a trailing 800 ms phase for multi-path batches', async () => {
+        vi.useFakeTimers();
+        const harness = createManagerHarness();
+
+        harness.manager.markBootstrapReady();
+        harness.manager.queueOpenRequest(['/docs/initial.pdf']);
+        harness.manager.queueOpenRequest([
+            '/docs/one.pdf',
+            '/docs/two.pdf',
+        ]);
+
+        await vi.advanceTimersByTimeAsync(799);
+        harness.manager.queueOpenRequest(['/docs/three.pdf']);
+        await vi.advanceTimersByTimeAsync(799);
+
+        expect(harness.dispatchOpenPaths).toHaveBeenCalledTimes(1);
+
+        await vi.advanceTimersByTimeAsync(1);
+
+        expect(harness.dispatchOpenPaths).toHaveBeenCalledTimes(2);
+        expect(harness.dispatchOpenPaths).toHaveBeenNthCalledWith(2, [
+            '/docs/one.pdf',
+            '/docs/two.pdf',
+            '/docs/three.pdf',
+        ]);
+    });
+
+    it('caps a continuously extended multi-path batch at 10 seconds', async () => {
+        vi.useFakeTimers();
+        const harness = createManagerHarness();
+
+        harness.manager.markBootstrapReady();
+        harness.manager.queueOpenRequest(['/docs/initial.pdf']);
+        harness.manager.queueOpenRequest([
+            '/docs/one.pdf',
+            '/docs/two.pdf',
+        ]);
+
+        for (let index = 0; index < 12; index += 1) {
+            await vi.advanceTimersByTimeAsync(799);
+            harness.manager.queueOpenRequest([`/docs/extension-${index}.pdf`]);
+        }
+        await vi.advanceTimersByTimeAsync(411);
+
+        expect(harness.dispatchOpenPaths).toHaveBeenCalledTimes(1);
+
+        await vi.advanceTimersByTimeAsync(1);
+
+        expect(harness.dispatchOpenPaths).toHaveBeenCalledTimes(2);
     });
 
     it('keeps queued paths until renderer readiness returns', () => {
@@ -328,24 +415,31 @@ describe('createExternalOpenManager', () => {
         expect(harness.dispatchOpenPaths).not.toHaveBeenCalled();
     });
 
-    it('retries queued paths after a failed renderer dispatch instead of dropping them', async () => {
+    it('retries a failed dispatch after 1 second without another batching delay', async () => {
         vi.useFakeTimers();
         const dispatchOpenPaths = vi
             .fn(() => true)
+            .mockReturnValueOnce(true)
             .mockReturnValueOnce(false)
             .mockReturnValueOnce(true);
         const harness = createManagerHarness({ dispatchOpenPaths });
 
         harness.manager.markBootstrapReady();
+        harness.manager.queueOpenRequest(['/docs/initial.pdf']);
         harness.manager.queueOpenRequest(['/docs/failure.pdf']);
 
-        expect(dispatchOpenPaths).toHaveBeenCalledTimes(1);
-        expect(dispatchOpenPaths).toHaveBeenNthCalledWith(1, ['/docs/failure.pdf']);
-
-        await vi.advanceTimersByTimeAsync(1_000);
+        await vi.advanceTimersByTimeAsync(100);
 
         expect(dispatchOpenPaths).toHaveBeenCalledTimes(2);
         expect(dispatchOpenPaths).toHaveBeenNthCalledWith(2, ['/docs/failure.pdf']);
+
+        await vi.advanceTimersByTimeAsync(999);
+        expect(dispatchOpenPaths).toHaveBeenCalledTimes(2);
+
+        await vi.advanceTimersByTimeAsync(1);
+
+        expect(dispatchOpenPaths).toHaveBeenCalledTimes(3);
+        expect(dispatchOpenPaths).toHaveBeenNthCalledWith(3, ['/docs/failure.pdf']);
         expect(harness.logger.warn).toHaveBeenCalledWith(
             'External open dispatch could not reach the renderer; keeping paths queued for retry',
         );

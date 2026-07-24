@@ -13,7 +13,7 @@ const logger = createLogger('pdfDecrypt');
 const DECRYPT_TIMEOUT_MS = 30_000;
 const SCAN_CHUNK_SIZE = 8192;
 
-async function hasEncryptMarker(filePath: string) {
+export async function isPdfFileEncrypted(filePath: string) {
     const stats = statSync(filePath);
     const handle = await open(filePath, 'r');
     try {
@@ -42,7 +42,7 @@ async function hasEncryptMarker(filePath: string) {
 
 export async function decryptPdfFileIfNeeded(filePath: string) {
     try {
-        if (!await hasEncryptMarker(filePath)) {
+        if (!await isPdfFileEncrypted(filePath)) {
             return false;
         }
 

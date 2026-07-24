@@ -159,12 +159,12 @@ async function shouldUseNativeDesktopDjvuPreview(path: TDocumentRef) {
     }
 
     try {
-        const documentFiles = getDesktopDocumentsCapability(path);
-        if (!documentFiles) {
+        const documents = getDesktopDocumentsCapability(path);
+        if (!documents) {
             return nativeDjvu;
         }
 
-        const { size } = await documentFiles.statFile(path);
+        const { size } = await documents.statFile(path);
         return size > DJVU_DESKTOP_DJVUJS_PREVIEW_MAX_BYTES ? nativeDjvu : null;
     } catch {
         return nativeDjvu;
@@ -175,20 +175,20 @@ async function readDesktopDocumentBytes(
     path: TDocumentRef,
     options: IDjvuWorkerReadOptions = {},
 ) {
-    const documentFiles = getDesktopDocumentsCapability(path);
-    if (!documentFiles) {
+    const documents = getDesktopDocumentsCapability(path);
+    if (!documents) {
         return readBrowserDocumentBytes(path, options);
     }
 
     throwIfCanceled(options.signal);
-    const { size } = await documentFiles.statFile(path);
+    const { size } = await documents.statFile(path);
     throwIfCanceled(options.signal);
     if (size <= 0) {
         return new Uint8Array();
     }
 
     if (size <= DJVU_READ_CHUNK_BYTES) {
-        const bytes = await documentFiles.readFile(path);
+        const bytes = await documents.readFile(path);
         throwIfCanceled(options.signal);
         return bytes;
     }
@@ -198,7 +198,7 @@ async function readDesktopDocumentBytes(
     while (offset < size) {
         throwIfCanceled(options.signal);
         const chunkLength = Math.min(DJVU_READ_CHUNK_BYTES, size - offset);
-        const chunk = await documentFiles.readFileRange(path, offset, chunkLength);
+        const chunk = await documents.readFileRange(path, offset, chunkLength);
         throwIfCanceled(options.signal);
         output.set(chunk, offset);
         offset += chunk.byteLength;

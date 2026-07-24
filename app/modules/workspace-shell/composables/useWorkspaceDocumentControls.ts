@@ -72,7 +72,7 @@ export const useWorkspaceDocumentControls = (options: IWorkspaceDocumentControls
         pageContextMenu,
         closePageContextMenu,
         handleExportImages,
-        ensureHistoryBaselineForExternalMutation,
+        ensureHistoryBaselineForMutation,
         materializeAnnotationsForPageMutation,
         reloadWorkingCopyIntoHistory,
         ensureWorkingCopyFreshForRead,
@@ -134,7 +134,7 @@ export const useWorkspaceDocumentControls = (options: IWorkspaceDocumentControls
         onExtractedDocument: (path) => {
             emitOpenInNewTab(path);
         },
-        ensureHistoryBaselineForExternalMutation,
+        ensureHistoryBaselineForMutation,
         materializeAnnotationsForPageMutation,
         reloadWorkingCopyIntoHistory,
         ...(documentRevisionToken !== undefined ? { documentRevisionToken } : {}),

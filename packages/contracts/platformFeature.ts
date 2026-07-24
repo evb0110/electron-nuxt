@@ -354,6 +354,8 @@ export interface IPlatformEventSpec<TPayload extends IRuntimeSchema<TSchemaValue
         };
     };
     browser: TPlatformBrowserSpec;
+    required?: Partial<Record<TPlatformBackend, boolean>>;
+    optionalWhenImplemented?: boolean;
     lazy: 'forwarded' | 'direct';
 }
 
@@ -396,13 +398,23 @@ type TOptionalCapabilityMethods<TMethodMap extends TMethods> = {
         ? TKey
         : never]?: TPublicMethod<TMethodMap[TKey]>
 };
+type TRequiredCapabilityEvents<TEventMap extends TEvents> = {
+    [TKey in keyof TEventMap as TEventMap[TKey] extends {optionalWhenImplemented: true}
+        ? never
+        : TKey]:
+    (callback: (payload: TInferSchema<TEventMap[TKey]['payload']>) => void) => (() => void)
+};
+type TOptionalCapabilityEvents<TEventMap extends TEvents> = {
+    [TKey in keyof TEventMap as TEventMap[TKey] extends {optionalWhenImplemented: true}
+        ? TKey
+        : never]?:
+    (callback: (payload: TInferSchema<TEventMap[TKey]['payload']>) => void) => (() => void)
+};
 type TCapability<TMethodMap extends TMethods, TEventMap extends TEvents> =
     TRequiredCapabilityMethods<TMethodMap>
     & TOptionalCapabilityMethods<TMethodMap>
-    & {
-        [TKey in keyof TEventMap]:
-        (callback: (payload: TInferSchema<TEventMap[TKey]['payload']>) => void) => (() => void)
-    };
+    & TRequiredCapabilityEvents<TEventMap>
+    & TOptionalCapabilityEvents<TEventMap>;
 
 export type TFeatureCapability<T> = T extends IDefinedPlatformFeature<infer M, infer E>
     ? TCapability<M, E>
@@ -596,7 +608,10 @@ export function definePlatformFeature<const M extends TMethods, const E extends 
     ] of Object.entries(events)) {
         addChannel(spec.channel);
         eventChannels[name] = spec.channel;
-        addDescriptor(name, spec, definition.required, () => () => undefined);
+        addDescriptor(name, spec, {
+            ...definition.required,
+            ...spec.required,
+        }, () => () => undefined, spec.optionalWhenImplemented);
         if (spec.subscription) {
             addChannel(spec.subscription.channel);
             invokeChannels[spec.subscription.main.method] = spec.subscription.channel;

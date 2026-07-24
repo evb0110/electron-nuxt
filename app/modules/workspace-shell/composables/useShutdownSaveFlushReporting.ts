@@ -20,6 +20,18 @@ interface IShutdownSaveFlushReportingDeps {
     systemCapability?: Pick<ISystemCapability, 'onShutdownSaveFlushRequest'>;
 }
 
+function getShutdownSaveFlushErrorCode(error: unknown) {
+    if (
+        typeof error !== 'object'
+        || error === null
+        || !('code' in error)
+        || typeof error.code !== 'string'
+    ) {
+        return undefined;
+    }
+    return error.code;
+}
+
 export const useShutdownSaveFlushReporting = (deps: IShutdownSaveFlushReportingDeps) => {
     const systemCapability = deps.systemCapability ?? getSystemCapability();
     const unsubscribe = systemCapability.onShutdownSaveFlushRequest(async (): Promise<IShutdownSaveFlushResponse> => {
@@ -36,6 +48,7 @@ export const useShutdownSaveFlushReporting = (deps: IShutdownSaveFlushReportingD
         } catch (error) {
             BrowserLogger.warn('workspace', 'Failed to flush dirty working copy during shutdown', {
                 error,
+                errorCode: getShutdownSaveFlushErrorCode(error),
                 workingCopyPath: capturedWorkingCopyPath,
             });
         }

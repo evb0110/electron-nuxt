@@ -42,9 +42,12 @@ export function createDeferredWorkspaceHostBindings(options: {
             options.mountedWorkspace.value = expose;
             options.activeDocumentSession.value.attachWorkspace(expose);
         },
-        handleWorkspaceExposeReleased() {
+        handleWorkspaceExposeReleased(expose: IWorkspaceExpose) {
+            if (options.mountedWorkspace.value !== expose) {
+                return;
+            }
             options.mountedWorkspace.value = null;
-            options.activeDocumentSession.value.detachWorkspace();
+            options.activeDocumentSession.value.detachWorkspace(expose);
         },
     };
 }

@@ -26,6 +26,7 @@ import type {
     IPdfOptimizeResult,
     IPdfSaveAsOptions,
     IPdfSerializedSaveOptions,
+    IWorkingCopyBackingStatus,
     TDocumentSaveResult,
 } from '@contracts/electronApiDocuments';
 import type { IRecentFile } from '@contracts/shared';
@@ -55,6 +56,11 @@ export interface IDocumentsWindowContext {
 }
 
 export interface IDocumentsOpenPathContext { owner?: TOpenPathOwner; }
+
+export interface IWorkingCopyBackingStatusServiceEvent {
+    ownerWebContentsId?: number;
+    status: IWorkingCopyBackingStatus;
+}
 
 export interface IDocumentsService {
     openDocumentDialog: (context: IDocumentsDialogContext) => Promise<TOpenFileResult | null>;
@@ -116,7 +122,7 @@ export interface IDocumentsService {
     getPdfOpeningGeometry: (
         context: IDocumentsSenderIdContext,
         filePath: string,
-    ) => Promise<IPdfOpeningGeometry>;
+    ) => Promise<IPdfOpeningGeometry | null>;
     getPdfNativePageSizes: (
         context: IDocumentsSenderIdContext,
         filePath: string,
@@ -134,6 +140,13 @@ export interface IDocumentsService {
     readTextFile: (context: IDocumentsSenderIdContext, filePath: string) => Promise<string>;
     fileExists: (context: IDocumentsSenderIdContext, filePath: string) => boolean;
     getDocumentRevision: (context: IDocumentsSenderIdContext, filePath: string) => Promise<IDocumentRevisionInfo>;
+    getWorkingCopyBackingStatus: (
+        context: IDocumentsSenderIdContext,
+        filePath: string,
+    ) => IWorkingCopyBackingStatus | null;
+    onWorkingCopyBackingStatusChanged: (
+        listener: (event: IWorkingCopyBackingStatusServiceEvent) => void,
+    ) => () => void;
     analyzePdfConformance: (context: IDocumentsSenderIdContext, filePath: string) => Promise<IPdfConformanceProfile>;
     validatePdfData: (data: Uint8Array, fileName?: string) => Promise<IPdfValidationResult>;
     validatePdfPath: (context: IDocumentsSenderIdContext, filePath: string) => Promise<IPdfValidationResult>;

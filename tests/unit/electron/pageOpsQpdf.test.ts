@@ -19,6 +19,8 @@ import type * as NodeCrypto from 'node:crypto';
 const randomUuidMock = vi.hoisted(() => vi.fn(() => 'fixed-output-id'));
 const runNativeToolCommandMock = vi.hoisted(() => vi.fn());
 const ensureWorkingCopyDirectoryMock = vi.hoisted(() => vi.fn());
+const ensureWorkingCopyMaterializedMock = vi.hoisted(() => vi.fn());
+const getWorkingCopyBackingEntryMock = vi.hoisted(() => vi.fn());
 
 interface IQpdfRunCommandOptionsExpectation { allowedExitCodes?: number[] }
 
@@ -50,6 +52,8 @@ vi.mock('node:crypto', async (importOriginal) => {
 vi.mock('@electron/native-tools/runNativeToolCommand', () => ({runNativeToolCommand: (...args: unknown[]) => runNativeToolCommandMock(...args)}));
 vi.mock('@electron/pdf/nativeToolPaths', () => ({getPdfNativeToolPaths: () => ({ qpdf: '/mock/qpdf' })}));
 vi.mock('@electron/file-access/workingCopyCreation', () => ({ensureWorkingCopyDirectory: (...args: unknown[]) => ensureWorkingCopyDirectoryMock(...args)}));
+vi.mock('@electron/file-access/workingCopyMaterialization', () => ({ensureWorkingCopyMaterialized: (...args: unknown[]) => ensureWorkingCopyMaterializedMock(...args)}));
+vi.mock('@electron/file-access/workingCopyStore', () => ({getWorkingCopyBackingEntry: (...args: unknown[]) => getWorkingCopyBackingEntryMock(...args)}));
 vi.mock('@electron/utils/createLogger', () => ({createLogger: () => ({
     debug: vi.fn(),
     info: vi.fn(),
@@ -61,6 +65,12 @@ describe('page-ops qpdf extract', () => {
     beforeEach(() => {
         vi.clearAllMocks();
         ensureWorkingCopyDirectoryMock.mockResolvedValue(true);
+        ensureWorkingCopyMaterializedMock.mockImplementation(async (path: string) => ({
+            logicalRef: path,
+            physicalWorkingCopyPath: path,
+            sourceFingerprint: '',
+        }));
+        getWorkingCopyBackingEntryMock.mockReturnValue(null);
     });
 
     it('rejects empty qpdf output and removes an empty destination placeholder', async () => {
@@ -129,6 +139,49 @@ describe('page-ops qpdf extract', () => {
             await expect(readFile(destPath, 'utf8')).resolves.toBe('%PDF-1.7\nextracted');
             await expect(stat(tempOutputPath)).rejects.toMatchObject({ code: 'ENOENT' });
             await expect(stat(qpdfOutputPath)).rejects.toMatchObject({ code: 'ENOENT' });
+        } finally {
+            await rm(workDir, {
+                recursive: true,
+                force: true,
+            });
+        }
+    });
+
+    it('demand-materializes lazy-original input before page extraction', async () => {
+        const workDir = await mkdtemp(join(tmpdir(), 'page-ops-qpdf-'));
+        const srcPath = join(workDir, 'source.pdf');
+        const destPath = join(workDir, 'extract.pdf');
+        getWorkingCopyBackingEntryMock.mockReturnValue({
+            backingState: 'lazy-original',
+            registrationId: 3,
+        });
+
+        try {
+            await writeFile(srcPath, '%PDF-1.7\n');
+            runNativeToolCommandMock.mockImplementationOnce(async (_qpdf, args: string[]) => {
+                const qpdfArgs = await readQpdfArgFile(args);
+                expect(qpdfArgs.slice(0, 4)).toEqual([
+                    srcPath,
+                    '--pages',
+                    srcPath,
+                    '1',
+                ]);
+                await writeFile(qpdfArgs.at(-1)!, '%PDF-1.7\nextracted');
+                return {
+                    exitCode: 0,
+                    stdout: '',
+                    stderr: '',
+                };
+            });
+
+            const { extractPages } = await import('@electron/features/page-ops/main/qpdf');
+
+            await extractPages(srcPath, destPath, [1], {senderWebContentsId: 12});
+
+            expect(ensureWorkingCopyMaterializedMock).toHaveBeenCalledWith(srcPath, {
+                ownerWebContentsId: 12,
+                reason: 'page-operation',
+            });
         } finally {
             await rm(workDir, {
                 recursive: true,
@@ -229,6 +282,12 @@ describe('page-ops qpdf working-copy mutations', () => {
     beforeEach(() => {
         vi.clearAllMocks();
         ensureWorkingCopyDirectoryMock.mockResolvedValue(true);
+        ensureWorkingCopyMaterializedMock.mockImplementation(async (path: string) => ({
+            logicalRef: path,
+            physicalWorkingCopyPath: path,
+            sourceFingerprint: '',
+        }));
+        getWorkingCopyBackingEntryMock.mockReturnValue(null);
     });
 
     it('recovers the working-copy directory before writing mutation output beside it', async () => {
@@ -260,6 +319,85 @@ describe('page-ops qpdf working-copy mutations', () => {
             expect(ensureWorkingCopyDirectoryMock).toHaveBeenCalledWith(workingCopyPath, 12);
             await expect(readFile(workingCopyPath, 'utf8')).resolves.toBe('%PDF-1.7\nrotated');
             await expect(stat(tempOutputPath)).rejects.toMatchObject({ code: 'ENOENT' });
+        } finally {
+            await rm(workDir, {
+                recursive: true,
+                force: true,
+            });
+        }
+    });
+
+    it('demand-materializes lazy-original input before qpdf mutation', async () => {
+        const workDir = await mkdtemp(join(tmpdir(), 'page-ops-qpdf-'));
+        const workingCopyPath = join(workDir, 'work.pdf');
+        const tempOutputPath = join(workDir, 'tmp-fixed-output-id.pdf');
+        getWorkingCopyBackingEntryMock.mockReturnValue({
+            backingState: 'lazy-original',
+            registrationId: 1,
+        });
+
+        try {
+            await writeFile(workingCopyPath, '%PDF-1.7\n');
+            runNativeToolCommandMock.mockImplementationOnce(async (_qpdf, args: string[]) => {
+                const qpdfArgs = await readQpdfArgFile(args);
+                expect(qpdfArgs).toEqual([
+                    workingCopyPath,
+                    '--rotate=+90:1',
+                    tempOutputPath,
+                ]);
+                await writeFile(tempOutputPath, '%PDF-1.7\nrotated');
+                return {
+                    exitCode: 0,
+                    stdout: '',
+                    stderr: '',
+                };
+            });
+
+            const { rotatePages } = await import('@electron/features/page-ops/main/qpdf');
+
+            await rotatePages(workingCopyPath, [1], 90, 12);
+
+            expect(ensureWorkingCopyMaterializedMock).toHaveBeenCalledWith(workingCopyPath, {
+                ownerWebContentsId: 12,
+                reason: 'page-operation',
+            });
+            expect(ensureWorkingCopyDirectoryMock).not.toHaveBeenCalled();
+        } finally {
+            await rm(workDir, {
+                recursive: true,
+                force: true,
+            });
+        }
+    });
+
+    it('keeps cloned page-operation paths unchanged', async () => {
+        const workDir = await mkdtemp(join(tmpdir(), 'page-ops-qpdf-'));
+        const workingCopyPath = join(workDir, 'work.pdf');
+        const tempOutputPath = join(workDir, 'tmp-fixed-output-id.pdf');
+        getWorkingCopyBackingEntryMock.mockReturnValue({
+            backingState: 'cloned',
+            registrationId: 2,
+        });
+
+        try {
+            await writeFile(workingCopyPath, '%PDF-1.7\n');
+            runNativeToolCommandMock.mockImplementationOnce(async (_qpdf, args: string[]) => {
+                const qpdfArgs = await readQpdfArgFile(args);
+                expect(qpdfArgs[0]).toBe(workingCopyPath);
+                await writeFile(tempOutputPath, '%PDF-1.7\nrotated');
+                return {
+                    exitCode: 0,
+                    stdout: '',
+                    stderr: '',
+                };
+            });
+
+            const { rotatePages } = await import('@electron/features/page-ops/main/qpdf');
+
+            await rotatePages(workingCopyPath, [1], 90, 12);
+
+            expect(ensureWorkingCopyMaterializedMock).toHaveBeenCalledOnce();
+            await expect(readFile(workingCopyPath, 'utf8')).resolves.toBe('%PDF-1.7\nrotated');
         } finally {
             await rm(workDir, {
                 recursive: true,

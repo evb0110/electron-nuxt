@@ -4,6 +4,7 @@ import type {
     IDjvuInfo,
     IDjvuJobStartHandle,
     IDjvuOpenResult,
+    IDjvuOutlineItem,
     IDjvuPagePreview,
     IDjvuPagePreviewOptions,
     IDjvuPageSize,
@@ -16,7 +17,14 @@ import type {
     IDjvuTextSearchProgress,
     TDocumentOutputJobState,
 } from '@contracts/electronApiDjvu';
-import {isDjvuDocumentOutputOperation} from '@contracts/electronApiDjvu';
+import {
+    decodeDjvuOutline,
+    decodeDjvuPagePreview,
+    decodeDjvuPageSizes,
+    decodeDjvuPageSourceInfo,
+    decodeDjvuPageText,
+    isDjvuDocumentOutputOperation,
+} from '@contracts/electronApiDjvu';
 import type { TDocumentRef } from '@contracts/documentRef';
 import {
     SEARCH_PAGE_COUNT_DEFAULT_MAX,
@@ -70,13 +78,6 @@ function decodeSafeIntegerArg(
     const value = args[index];
     if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < min) {
         throw new Error(`${fieldName} must be a safe integer >= ${min}`);
-    }
-    return value;
-}
-
-function decodeUint8ArrayResult(value: unknown) {
-    if (!(value instanceof Uint8Array)) {
-        throw new Error('expected a Uint8Array IPC result');
     }
     return value;
 }
@@ -499,7 +500,7 @@ function decodeOpenResult(value: unknown) {
     const pageCount = decodeOptionalPositiveInteger(result.pageCount, 'pageCount');
     const pageSourceInfo = result.pageSourceInfo === undefined
         ? undefined
-        : decodePageSourceInfoResult(result.pageSourceInfo);
+        : decodeDjvuPageSourceInfo(result.pageSourceInfo);
     return {
         success: result.success,
         ...(pageCount === undefined ? {} : {pageCount}),
@@ -682,59 +683,6 @@ function decodeInfoResult(value: unknown) {
         hasBookmarks: value.hasBookmarks,
         hasText: value.hasText,
         metadata,
-    };
-}
-
-function decodePageSize(value: unknown) {
-    if (!isRecord(value) || !isFiniteNumber(value.width) || !isFiniteNumber(value.height) || !isFiniteNumber(value.dpi)) {
-        throw new Error('invalid DjVu page size');
-    }
-    return {
-        width: value.width,
-        height: value.height,
-        dpi: value.dpi,
-    };
-}
-
-function decodePageSizesResult(value: unknown) {
-    if (!Array.isArray(value)) {
-        throw new Error('page sizes must be an array');
-    }
-    return value.map(decodePageSize);
-}
-
-function decodePageSourceInfoResult(value: unknown) {
-    if (
-        !isRecord(value)
-        || !Number.isSafeInteger(value.pageCount)
-        || Number(value.pageCount) < 1
-        || !Number.isSafeInteger(value.pageNumber)
-        || Number(value.pageNumber) < 1
-        || Number(value.pageNumber) > Number(value.pageCount)
-    ) {
-        throw new Error('invalid DjVu page source info');
-    }
-    return {
-        pageCount: Number(value.pageCount),
-        pageNumber: Number(value.pageNumber),
-        pageSize: decodePageSize(value.pageSize),
-        ...(Number.isSafeInteger(value.sourceSize) && Number(value.sourceSize) >= 0
-            ? {sourceSize: Number(value.sourceSize)}
-            : {}),
-        ...(Number.isSafeInteger(value.sourceModifiedAt) && Number(value.sourceModifiedAt) >= 0
-            ? {sourceModifiedAt: Number(value.sourceModifiedAt)}
-            : {}),
-    };
-}
-
-function decodePagePreviewResult(value: unknown) {
-    if (!isRecord(value) || !isFiniteNumber(value.width) || !isFiniteNumber(value.height)) {
-        throw new Error('invalid DjVu page preview');
-    }
-    return {
-        bytes: decodeUint8ArrayResult(value.bytes),
-        width: value.width,
-        height: value.height,
     };
 }
 
@@ -1056,6 +1004,32 @@ function defineDjvuClientMethod<
     } as const;
 }
 
+function defineOptionalNativeDjvuMethod<
+    const TName extends string,
+    const TChannel extends string,
+    const TArgs extends IRuntimeSchema<unknown[]>,
+    const TResult extends IRuntimeSchema<unknown>,
+>(definition: {
+    name: TName;
+    channel: TChannel;
+    args: TArgs;
+    result: TResult;
+    timeout?: boolean;
+}) {
+    return {
+        ...defineDjvuMethod(definition),
+        browser: {
+            unsupported: 'omitted',
+            reason: 'requires-native-backend',
+        },
+        optionalWhenImplemented: true,
+        required: {
+            browser: false,
+            electron: false,
+        },
+    } as const;
+}
+
 export const DJVU_PLATFORM_FEATURE = definePlatformFeature({
     path: ['djvu'],
     required: {
@@ -1224,7 +1198,7 @@ export const DJVU_PLATFORM_FEATURE = definePlatformFeature({
             name: 'getPageSourceInfo',
             channel: 'djvu:getPageSourceInfo',
             args: pageSourceInfoArgs,
-            result: resultSchema<IDjvuPageSourceInfo>(decodePageSourceInfoResult, () => ({
+            result: resultSchema<IDjvuPageSourceInfo>(decodeDjvuPageSourceInfo, () => ({
                 pageCount: 1,
                 pageNumber: 1,
                 pageSize: {
@@ -1239,11 +1213,31 @@ export const DJVU_PLATFORM_FEATURE = definePlatformFeature({
             name: 'getPageSizes',
             channel: 'djvu:getPageSizes',
             args: documentArgs,
-            result: resultSchema<IDjvuPageSize[]>(decodePageSizesResult, () => [{
+            result: resultSchema<IDjvuPageSize[]>(decodeDjvuPageSizes, () => [{
                 width: 600,
                 height: 800,
                 dpi: 300,
             }]),
+            timeout: true,
+        }),
+        getPageText: defineOptionalNativeDjvuMethod({
+            name: 'getPageText',
+            channel: 'djvu:getPageText',
+            args: pageSourceInfoArgs,
+            result: resultSchema<string>(
+                decodeDjvuPageText,
+                () => '',
+            ),
+            timeout: true,
+        }),
+        getOutline: defineOptionalNativeDjvuMethod({
+            name: 'getOutline',
+            channel: 'djvu:getOutline',
+            args: documentArgs,
+            result: resultSchema<IDjvuOutlineItem[]>(
+                decodeDjvuOutline,
+                () => [],
+            ),
             timeout: true,
         }),
         renderPagePreview: defineDjvuClientMethod({
@@ -1251,7 +1245,7 @@ export const DJVU_PLATFORM_FEATURE = definePlatformFeature({
             channel: 'djvu:renderPagePreview',
             args: previewArgs,
             result: resultSchema<IDjvuPagePreview>(
-                decodePagePreviewResult,
+                decodeDjvuPagePreview,
                 () => ({
                     bytes: new Uint8Array([1]),
                     width: 600,

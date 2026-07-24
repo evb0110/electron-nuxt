@@ -40,7 +40,7 @@ export interface IDocumentWorkspaceEmits {
     'toggle-fullscreen': [];
     'viewer-owner-ready': [authority: IDocumentOpeningPageFrameAuthority];
     'expose-ready': [expose: IWorkspaceExpose];
-    'expose-released': [];
+    'expose-released': [expose: IWorkspaceExpose];
 }
 
 interface IDocumentWorkspaceCommandEmitter {
@@ -51,7 +51,7 @@ interface IDocumentWorkspaceCommandEmitter {
 }
 interface IDocumentWorkspaceLifecycleEmitter {
     (event: 'expose-ready', expose: IWorkspaceExpose): void;
-    (event: 'expose-released'): void;
+    (event: 'expose-released', expose: IWorkspaceExpose): void;
 }
 
 export function createDocumentWorkspaceCommandBindings(emit: IDocumentWorkspaceCommandEmitter) {
@@ -85,6 +85,6 @@ export const useDocumentWorkspaceLifecycle = (options: {
         options.disposeDeferredSearch();
         unsubscribeOptimizeProgress?.();
         unsubscribeOptimizeProgress = null;
-        options.emit('expose-released');
+        options.emit('expose-released', options.workspaceExpose);
     });
 };

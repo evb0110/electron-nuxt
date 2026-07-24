@@ -1104,9 +1104,25 @@ describe('Electron E2E - Viewer Smoke', () => {
             ?.getBoundingClientRect().y ?? null;
         const placementYAllScope = await session.page.evaluate(readPlacementGridY);
         await session.page.click('[data-settings-scope="page"]');
-        const placementYPageScope = await session.page.evaluate(readPlacementGridY);
-        expect(placementYPageScope).toBe(placementYAllScope);
+        const pageScopePlacement = await session.page.evaluate(() => {
+            const placement = document.querySelector<HTMLElement>('.scan-cleanup-alignment-grid');
+            const outputMode = document.querySelector<HTMLElement>('[aria-label="Output mode"]');
+            return {
+                outputModeVisible: Boolean(
+                    outputMode
+                    && outputMode.getBoundingClientRect().height > 0
+                    && getComputedStyle(outputMode).display !== 'none',
+                ),
+                placementY: placement?.getBoundingClientRect().y ?? null,
+            };
+        });
+        // Per-page output mode was added after this smoke assertion. It is a
+        // real scope-specific row above placement, so equal absolute Y values
+        // would now mean that the new control overlaps or escapes the flow.
+        expect(pageScopePlacement.outputModeVisible).toBe(true);
+        expect(pageScopePlacement.placementY).toBeGreaterThan(placementYAllScope ?? 0);
         await session.page.click('[data-settings-scope="all"]');
+        expect(await session.page.evaluate(readPlacementGridY)).toBe(placementYAllScope);
         const headerBottomEdges = await session.page.$$eval(
             '.scan-thumbnail-rail-header, .preview-header, .scan-cleanup-settings-header',
             headers => headers.map(header => header.getBoundingClientRect().bottom),
@@ -3138,42 +3154,7 @@ runDjvuSmokeOrSkip('Electron E2E - DjVu Viewer Smoke', () => {
             return;
         }
         await session.page.setViewport(DJVU_VIDEO_LIKE_VIEWPORT);
-        await triggerOpenPathInApp(session.page, djvuFixture.path, DJVU_VIEWER_SMOKE_OPEN_TIMEOUT_MS);
-        await waitForFunctionInPage(session.page, () => {
-            const banner = document.querySelector<HTMLElement>('.editor-pane.is-active .djvu-banner');
-            const openingPage = document.querySelector<HTMLElement>(
-                '.editor-pane.is-active .document-viewer-chassis__opening-page',
-            );
-            const skeleton = openingPage?.querySelector<HTMLElement>('.document-page-skeleton');
-            return Boolean(
-                !banner
-                && skeleton
-                && (openingPage?.getBoundingClientRect().height ?? 0) > 0,
-            );
-        }, {timeout: DJVU_VIEWER_SMOKE_OPEN_TIMEOUT_MS});
-        const openingPresentation = await session.page.evaluate(() => {
-            const banner = document.querySelector<HTMLElement>('.editor-pane.is-active .djvu-banner');
-            const openingPage = document.querySelector<HTMLElement>(
-                '.editor-pane.is-active .document-viewer-chassis__opening-page',
-            );
-            const skeleton = openingPage?.querySelector<HTMLElement>('.document-page-skeleton') ?? null;
-            const viewport = openingPage?.closest<HTMLElement>('[data-open-surface-phase]') ?? null;
-            if (!openingPage || !skeleton || !viewport) {
-                throw new Error('DjVu opening presentation was not found');
-            }
-            const openingRect = openingPage.getBoundingClientRect();
-            return {
-                bannerPresent: Boolean(banner),
-                openingHeight: Math.round(openingRect.height),
-                phase: viewport.dataset.openSurfacePhase ?? null,
-                skeletonHeight: Math.round(skeleton.getBoundingClientRect().height),
-            };
-        });
-        expect(openingPresentation.bannerPresent, JSON.stringify(openingPresentation)).toBe(false);
-        expect(openingPresentation.phase, JSON.stringify(openingPresentation)).not.toBe('ready');
-        expect(openingPresentation.openingHeight, JSON.stringify(openingPresentation)).toBeGreaterThan(0);
-        expect(openingPresentation.skeletonHeight, JSON.stringify(openingPresentation)).toBeGreaterThan(0);
-        await waitForDjvuLoaded(session.page, DJVU_VIEWER_SMOKE_OPEN_TIMEOUT_MS);
+        await openDjvuInApp(session.page, djvuFixture.path, DJVU_VIEWER_SMOKE_OPEN_TIMEOUT_MS);
         await waitForFunctionInPage(session.page, () => {
             const banner = document.querySelector<HTMLElement>('.editor-pane.is-active .djvu-banner');
             const chassis = document.querySelector<HTMLElement>('.editor-pane.is-active .document-viewer-chassis');

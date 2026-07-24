@@ -4,6 +4,7 @@ import type {
 } from 'vue';
 import type { TPdfSource } from '@app/types/pdfUi';
 import type { TDocumentRef } from '@contracts/documentRef';
+import type { IWorkingCopyBackingStatus } from '@contracts/electronApiDocuments';
 import {
     getDocumentRefBaseName,
     getDocumentRefDisplayLabel,
@@ -56,6 +57,45 @@ export const usePageStatusBar = (deps: IPageStatusBarDeps) => {
         handleSave,
     } = deps;
     const { t } = useTypedI18n();
+    const documentFiles = getDocumentFilesCapability();
+    const workingCopyBackingStatus = shallowRef<IWorkingCopyBackingStatus | null>(null);
+
+    function applyWorkingCopyBackingStatus(status: IWorkingCopyBackingStatus | null) {
+        const documentRef = workingCopyPath.value;
+        if (!status || status.documentRef !== documentRef) {
+            return;
+        }
+        const current = workingCopyBackingStatus.value;
+        workingCopyBackingStatus.value = current?.documentRef === status.documentRef
+            && current.state !== 'materialized'
+            && status.state !== 'materialized'
+            ? {
+                ...status,
+                progress: Math.max(current.progress, status.progress),
+            }
+            : status;
+    }
+
+    const unsubscribeBackingStatus = documentFiles.onWorkingCopyBackingStatusChanged?.(
+        applyWorkingCopyBackingStatus,
+    );
+    if (unsubscribeBackingStatus && getCurrentScope()) {
+        onScopeDispose(unsubscribeBackingStatus);
+    }
+    watch(workingCopyPath, async (documentRef) => {
+        workingCopyBackingStatus.value = null;
+        if (!documentRef || !documentFiles.getWorkingCopyBackingStatus) {
+            return;
+        }
+        try {
+            const status = await documentFiles.getWorkingCopyBackingStatus(documentRef);
+            if (workingCopyPath.value === documentRef) {
+                applyWorkingCopyBackingStatus(status);
+            }
+        } catch {
+            // Backing status is a quiet enhancement; persistence reports actionable failures.
+        }
+    }, {immediate: true});
 
     const statusFileName = computed(() => {
         const path = originalPath.value ?? workingCopyPath.value;
@@ -100,7 +140,7 @@ export const usePageStatusBar = (deps: IPageStatusBarDeps) => {
             return;
         }
         try {
-            const { size } = await getDocumentFilesCapability().statFile(path);
+            const { size } = await documentFiles.statFile(path);
             if (measurableFilePath.value === path) {
                 statFileSizeBytes.value = size;
             }
@@ -127,6 +167,19 @@ export const usePageStatusBar = (deps: IPageStatusBarDeps) => {
         }
         return t('status.zoomValue', { zoom: Math.round(effectiveZoom.value * 100) });
     });
+    const statusMaterializationLabel = computed(() => {
+        const status = workingCopyBackingStatus.value;
+        if (!status || status.state === 'materialized') {
+            return null;
+        }
+        const progress = Math.round(status.progress * 100);
+        return status.state === 'materializing' && progress > 0
+            ? t('status.preparingDocumentProgress', {progress})
+            : t('status.preparingDocument');
+    });
+    const statusMaterializationIsActive = computed(() => (
+        workingCopyBackingStatus.value?.state === 'materializing'
+    ));
     const statusSaveDotState = computed<TSaveDotState>(() => {
         if (!pdfSrc.value) {
             return 'idle';
@@ -212,6 +265,8 @@ export const usePageStatusBar = (deps: IPageStatusBarDeps) => {
         statusFilePath,
         statusFileSizeLabel,
         statusZoomLabel,
+        statusMaterializationLabel,
+        statusMaterializationIsActive,
         statusCanShowInFolder,
         statusShowInFolderTooltip,
         statusShowInFolderAriaLabel,

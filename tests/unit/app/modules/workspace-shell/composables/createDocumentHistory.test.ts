@@ -27,11 +27,12 @@ function createHistoryHarness(isDesktopRuntime = false) {
         getDocumentRevision: vi.fn(async () => ({
             version: 1 as const,
             documentRef: '/tmp/history.pdf',
-            token: requireDocumentRevisionToken('history-revision'),
+            token: requireDocumentRevisionToken('revision-before-restore'),
             contentRevision: 1,
             authority: 'electron-working-copy' as const,
             mintedAt: 1,
         })),
+        statFile: vi.fn(async () => ({size: 1})),
         savePdfData: vi.fn(async () => ({
             isValid: true,
             tool: 'qpdf' as const,
@@ -44,9 +45,10 @@ function createHistoryHarness(isDesktopRuntime = false) {
         createWorkingCopyFromData: vi.fn(async () => '/tmp/history.pdf'),
         createWorkingCopyFromPath: vi.fn(async () => '/tmp/history.pdf'),
     };
+    const applyLoadedPdfState = vi.fn(async () => undefined);
 
     const history = createDocumentHistory(state, {
-        applyLoadedPdfState: vi.fn(async () => undefined),
+        applyLoadedPdfState,
         clearPdfConformanceProfile: vi.fn(),
         clearOcrCache: vi.fn(),
         deferPdfConformanceProfile: vi.fn(),
@@ -66,6 +68,7 @@ function createHistoryHarness(isDesktopRuntime = false) {
     });
 
     return {
+        applyLoadedPdfState,
         documentFiles,
         documentWorkingCopy,
         history,
@@ -295,11 +298,12 @@ describe('createDocumentHistory', () => {
                 getDocumentRevision: vi.fn(async () => ({
                     version: 1 as const,
                     documentRef: '/tmp/history.pdf',
-                    token: requireDocumentRevisionToken('history-revision'),
+                    token: requireDocumentRevisionToken('revision-before-restore'),
                     contentRevision: 1,
                     authority: 'electron-working-copy' as const,
                     mintedAt: 1,
                 })),
+                statFile: vi.fn(async () => ({size: 64 * 1024 * 1024})),
                 savePdfData: vi.fn(async () => ({
                     isValid: true,
                     tool: 'qpdf' as const,
@@ -318,7 +322,7 @@ describe('createDocumentHistory', () => {
             toPdfBlob: vi.fn(() => new Blob()),
         });
 
-        await expect(history.ensureHistoryBaselineForExternalMutation()).resolves.toBe(true);
+        await expect(history.ensureHistoryBaselineForMutation()).resolves.toBe(true);
         await expect(history.reloadWorkingCopyIntoHistory({markDirty: true})).resolves.toBe(true);
 
         expect(history.canUndo.value).toBe(true);
@@ -364,6 +368,71 @@ describe('createDocumentHistory', () => {
         );
     });
 
+    it('shares first-mutation staging and records one baseline plus the result', async () => {
+        const {
+            applyLoadedPdfState,
+            documentWorkingCopy,
+            history,
+        } = createHistoryHarness(true);
+        const staging = Promise.withResolvers<string>();
+        documentWorkingCopy.createWorkingCopyFromPath.mockReturnValue(staging.promise);
+
+        const first = history.ensureHistoryBaselineForMutation();
+        const second = history.ensureHistoryBaselineForMutation();
+        await vi.waitFor(() => {
+            expect(documentWorkingCopy.createWorkingCopyFromPath).toHaveBeenCalledOnce();
+        });
+
+        staging.resolve('/tmp/first-mutation-baseline.pdf');
+        await expect(Promise.all([
+            first,
+            second,
+        ])).resolves.toEqual([
+            true,
+            true,
+        ]);
+        await history.pushHistorySnapshot(new Uint8Array([2]), {reuseSnapshot: true});
+
+        expect(history.getHistoryDebugState()).toEqual({
+            historyLength: 2,
+            historyIndex: 1,
+            historyCleanIndex: 0,
+        });
+        expect(history.canUndo.value).toBe(true);
+
+        await expect(history.undo()).resolves.toBe(true);
+        expect(applyLoadedPdfState).toHaveBeenCalledWith(
+            '/tmp/first-mutation-baseline.pdf',
+            expect.objectContaining({pdfData: new Uint8Array([3])}),
+            {
+                preserveHistory: true,
+                previousPath: '/tmp/work.pdf',
+            },
+        );
+    });
+
+    it('cleans first-mutation staging when the document switches', async () => {
+        const {
+            documentWorkingCopy,
+            history,
+            state,
+        } = createHistoryHarness(true);
+        const staging = Promise.withResolvers<string>();
+        documentWorkingCopy.createWorkingCopyFromPath.mockReturnValue(staging.promise);
+
+        const baseline = history.ensureHistoryBaselineForMutation();
+        await vi.waitFor(() => {
+            expect(documentWorkingCopy.createWorkingCopyFromPath).toHaveBeenCalledOnce();
+        });
+        state.workingCopyPath.value = '/tmp/next.pdf';
+        history.incrementSessionVersion();
+        staging.resolve('/tmp/stale-mutation-baseline.pdf');
+
+        await expect(baseline).resolves.toBe(false);
+        expect(documentWorkingCopy.cleanupFile).toHaveBeenCalledWith('/tmp/stale-mutation-baseline.pdf');
+        expect(history.getHistoryDebugState().historyLength).toBe(0);
+    });
+
     it('materializes a lazy clean baseline before the next external mutation without adding file undo', async () => {
         const {
             documentFiles,
@@ -396,7 +465,7 @@ describe('createDocumentHistory', () => {
             recordSnapshotChange: false,
         });
 
-        await expect(history.ensureHistoryBaselineForExternalMutation()).resolves.toBe(true);
+        await expect(history.ensureHistoryBaselineForMutation()).resolves.toBe(true);
 
         expect(documentFiles.getDocumentRevision).toHaveBeenCalledTimes(2);
         expect(documentWorkingCopy.createWorkingCopyFromPath).toHaveBeenCalledWith(
@@ -437,7 +506,7 @@ describe('createDocumentHistory', () => {
             mintedAt: 3,
         });
 
-        await expect(history.ensureHistoryBaselineForExternalMutation()).resolves.toBe(false);
+        await expect(history.ensureHistoryBaselineForMutation()).resolves.toBe(false);
 
         expect(documentWorkingCopy.createWorkingCopyFromPath).not.toHaveBeenCalled();
     });

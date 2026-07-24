@@ -49,7 +49,7 @@ interface IApplyLoadedPdfStateOptions {
 
 type TDocumentHistoryFileDeps = Pick<
     IDocumentsFileIoCapability,
-    'getDocumentRevision' | 'savePdfData' | 'writeFile'
+    'getDocumentRevision' | 'savePdfData' | 'statFile' | 'writeFile'
 >;
 
 type TDocumentHistoryWorkingCopyDeps = Pick<
@@ -100,6 +100,7 @@ export function createDocumentHistory(
     const fileHistorySessionVersion = ref(0);
     let workspaceCommandSink: IWorkspaceCommandSink | null = null;
     let lazyHistoryBaseline: ILazyHistoryBaseline | null = null;
+    let mutationHistoryBaselineStaging: Promise<boolean> | null = null;
 
     function setWorkspaceCommandSink(sink: IWorkspaceCommandSink | null) {
         workspaceCommandSink = sink;
@@ -412,8 +413,8 @@ export function createDocumentHistory(
             return false;
         }
         const entry = await createPathHistoryEntry(baseline.workingPath, baseline.size);
-        const after = await deps.documentFiles().getDocumentRevision(baseline.workingPath).catch((error: unknown) => {
-            void deps.documentWorkingCopy().cleanupFile(entry.path);
+        const after = await deps.documentFiles().getDocumentRevision(baseline.workingPath).catch(async (error: unknown) => {
+            await deps.documentWorkingCopy().cleanupFile(entry.path);
             throw error;
         });
         if (
@@ -422,7 +423,7 @@ export function createDocumentHistory(
             || state.documentRevisionToken.value !== baseline.revision
             || after.token !== baseline.revision
         ) {
-            void deps.documentWorkingCopy().cleanupFile(entry.path);
+            await deps.documentWorkingCopy().cleanupFile(entry.path);
             return false;
         }
         const nextHistory = history.value.slice();
@@ -437,7 +438,7 @@ export function createDocumentHistory(
         return true;
     }
 
-    async function ensureHistoryBaselineForExternalMutation() {
+    async function stageHistoryBaselineForMutation() {
         if (!await materializeLazyHistoryBaseline()) {
             return false;
         }
@@ -450,24 +451,58 @@ export function createDocumentHistory(
             return false;
         }
 
-        const nextState = await deps.readPdfStateFromPath(path);
-        if (!state.isActiveWorkingCopy(path)) {
+        const sessionVersion = fileHistorySessionVersion.value;
+        const before = await deps.documentFiles().getDocumentRevision(path);
+        if (
+            sessionVersion !== fileHistorySessionVersion.value
+            || !state.isActiveWorkingCopy(path)
+            || (
+                state.documentRevisionToken.value !== null
+                && state.documentRevisionToken.value !== before.token
+            )
+        ) {
             return false;
         }
-        if (nextState.pdfData) {
-            await resetHistory(nextState.pdfData, { reuseSnapshot: true });
-            syncDirtyFromHistory();
-            return true;
-        }
-
-        const entry = await createPathHistoryEntry(path, nextState.pdfSrc.size);
-        if (!state.isActiveWorkingCopy(path)) {
-            void deps.documentWorkingCopy().cleanupFile(entry.path);
+        const {size} = await deps.documentFiles().statFile(path);
+        const entry = await createPathHistoryEntry(path, size);
+        const after = await deps.documentFiles().getDocumentRevision(path).catch(async (error: unknown) => {
+            await deps.documentWorkingCopy().cleanupFile(entry.path);
+            throw error;
+        });
+        if (
+            sessionVersion !== fileHistorySessionVersion.value
+            || !state.isActiveWorkingCopy(path)
+            || before.token !== after.token
+            || history.value.length > 0
+        ) {
+            await deps.documentWorkingCopy().cleanupFile(entry.path);
             return false;
         }
         replaceHistory([entry], 0, 0);
         syncDirtyFromHistory();
         return true;
+    }
+
+    async function ensureHistoryBaselineForMutation() {
+        if (mutationHistoryBaselineStaging) {
+            return mutationHistoryBaselineStaging;
+        }
+
+        const staging = stageHistoryBaselineForMutation().catch((error: unknown) => {
+            BrowserLogger.warn('pdf-file', 'Failed to stage mutation history baseline', {
+                path: state.workingCopyPath.value,
+                error,
+            });
+            return false;
+        });
+        mutationHistoryBaselineStaging = staging;
+        try {
+            return await staging;
+        } finally {
+            if (mutationHistoryBaselineStaging === staging) {
+                mutationHistoryBaselineStaging = null;
+            }
+        }
     }
 
     async function reloadWorkingCopyIntoHistory(opts?: { markDirty?: boolean }) {
@@ -672,7 +707,7 @@ export function createDocumentHistory(
         canUndo,
         cleanupPreviousWorkingCopy,
         clearHistory,
-        ensureHistoryBaselineForExternalMutation,
+        ensureHistoryBaselineForMutation,
         fileHistoryMutationVersion,
         fileHistorySessionVersion,
         getHistoryDebugState,

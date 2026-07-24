@@ -8,7 +8,7 @@ import {
 } from '@app/modules/workspace-shell/host/recentOpenGeometryReadiness';
 
 export interface IPostReadyRecentGeometryPorts {
-    readPdfOpeningGeometry?: (path: string) => Promise<IPdfOpeningGeometry>;
+    readPdfOpeningGeometry?: (path: string) => Promise<IPdfOpeningGeometry | null>;
     readDjvuSourceInfo: (path: string) => Promise<IDjvuPageSourceInfo>;
 }
 

@@ -121,7 +121,7 @@ export const useWorkspaceFileLifecycleController = (
         openFileDirect,
         openFileDirectBatch,
         loadPdfFromPath,
-        ensureHistoryBaselineForExternalMutation,
+        ensureHistoryBaselineForMutation,
         reloadWorkingCopyIntoHistory,
         loadPdfFromData,
         persistPdfDataSilently,
@@ -143,7 +143,10 @@ export const useWorkspaceFileLifecycleController = (
         setWorkspaceCommandSink,
         undo,
         redo,
-    } = usePdfFile({analyticsDocumentScope: options.analyticsDocumentScope});
+    } = usePdfFile({
+        analyticsDocumentScope: options.analyticsDocumentScope,
+        openSurface: options.openSurface,
+    });
 
     const {
         isDjvuMode,
@@ -342,7 +345,7 @@ export const useWorkspaceFileLifecycleController = (
         openFileDirect,
         openFileDirectBatch,
         loadPdfFromPath,
-        ensureHistoryBaselineForExternalMutation,
+        ensureHistoryBaselineForMutation,
         reloadWorkingCopyIntoHistory,
         loadPdfFromData,
         persistPdfDataSilently,

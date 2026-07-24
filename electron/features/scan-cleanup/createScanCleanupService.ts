@@ -37,6 +37,8 @@ import {
     type IMainJobRegistry,
     type TMainJobSnapshot,
 } from '@electron/operation-lifecycle/createMainJobRegistry';
+import {getWorkingCopyBackingEntry} from '@electron/file-access/workingCopyStore';
+import {ensureWorkingCopyMaterialized} from '@electron/file-access/workingCopyMaterialization';
 
 interface IScanCleanupJobResult {
     completedPageNumbers: number[];
@@ -169,6 +171,22 @@ export function classifyScanCleanupError(error: unknown, aborted: boolean): TSca
     return 'internal';
 }
 
+export async function materializeScanCleanupSourcePath(
+    sourcePdfPath: string,
+    senderWebContentsId: number,
+    signal?: AbortSignal,
+) {
+    if (!getWorkingCopyBackingEntry(sourcePdfPath, senderWebContentsId)) {
+        throw new Error('Scan cleanup source is not a managed working copy');
+    }
+    const materialized = await ensureWorkingCopyMaterialized(sourcePdfPath, {
+        ownerWebContentsId: senderWebContentsId,
+        reason: 'scan-cleanup',
+        ...(signal ? {signal} : {}),
+    });
+    return materialized.physicalWorkingCopyPath;
+}
+
 export interface IScanCleanupService {
     start: (sender: WebContents, request: IScanCleanupStartRequest) => Promise<TScanCleanupStartResult>;
     cancel: (sender: WebContents, jobId: string, owner: IScanCleanupOwnerContext) => boolean;
@@ -253,7 +271,14 @@ export function createScanCleanupService(): IScanCleanupService {
                             throw new Error('Scan cleanup native tools are unavailable');
                         }
                         const summary = await runScanCleanupWorkerTask(
-                            workerRequest,
+                            {
+                                ...workerRequest,
+                                sourcePdfPath: await materializeScanCleanupSourcePath(
+                                    request.sourcePdfPath,
+                                    sender.id,
+                                    job.signal,
+                                ),
+                            },
                             {
                                 qpdfBinary: pdfPaths.qpdf,
                                 pdftoppmBinary: pdfPaths.pdftoppm,

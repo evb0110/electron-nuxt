@@ -20,6 +20,19 @@
             </AppTooltip>
         </div>
         <div class="status-bar-metrics">
+            <span
+                v-if="materializationLabel"
+                class="status-materialization"
+                role="status"
+            >
+                <UIcon
+                    :name="materializationActive ? 'i-ph-circle-notch' : 'i-ph-clock'"
+                    class="status-materialization-icon"
+                    :class="{ 'animate-spin motion-reduce:animate-none': materializationActive }"
+                    aria-hidden="true"
+                />
+                <span>{{ materializationLabel }}</span>
+            </span>
             <span class="status-bar-item">{{ fileSizeLabel }}</span>
             <span class="status-bar-item">{{ zoomLabel }}</span>
             <AppTooltip :text="saveDotTooltip" :delay-duration="800">
@@ -43,6 +56,8 @@ defineProps<{
     filePath: string;
     fileSizeLabel: string;
     zoomLabel: string;
+    materializationLabel: string | null;
+    materializationActive: boolean;
     canShowInFolder: boolean;
     showInFolderTooltip: string;
     showInFolderAriaLabel: string;
@@ -128,6 +143,18 @@ function onSave() {
 
 .status-bar-item {
     white-space: nowrap;
+}
+
+.status-materialization {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--app-statusbar-file-gap);
+    white-space: nowrap;
+}
+
+.status-materialization-icon {
+    width: var(--app-statusbar-folder-icon-size);
+    height: var(--app-statusbar-folder-icon-size);
 }
 
 .status-save-dot-button {

@@ -14,10 +14,16 @@ import { getAppTempDir } from '@electron/utils/appTempDir';
 
 const COPY_ON_WRITE_FALLBACK_CODES = new Set([
     'ENOTSUP',
+    'EOPNOTSUPP',
     'ENOSYS',
     'EINVAL',
     'EXDEV',
 ]);
+
+export type TWorkingCopyCloneAttemptOutcome =
+    | 'cloned'
+    | 'known-unsupported'
+    | 'unknown-error-eager-fallback';
 
 function isCopyOnWriteUnavailable(error: unknown) {
     return isErrnoException(error)
@@ -52,15 +58,46 @@ export async function safeRemoveDirectory(path: string) {
     }
 }
 
-export async function copyFileCopyOnWrite(sourcePath: string, targetPath: string) {
+function getForcedCloneOutcomeForTests() {
+    if (process.env.NODE_ENV !== 'test') {
+        return null;
+    }
+    const forcedOutcome = process.env.EVB_TEST_FORCE_WORKING_COPY_CLONE_RESULT;
+    return forcedOutcome === 'success' || forcedOutcome === 'unsupported'
+        ? forcedOutcome
+        : null;
+}
+
+export async function attemptWorkingCopyClone(
+    sourcePath: string,
+    targetPath: string,
+): Promise<TWorkingCopyCloneAttemptOutcome> {
+    const forcedOutcome = getForcedCloneOutcomeForTests();
+    if (forcedOutcome === 'unsupported') {
+        return 'known-unsupported';
+    }
+    if (forcedOutcome === 'success') {
+        await copyFile(sourcePath, targetPath);
+        return 'cloned';
+    }
+
     try {
-        await copyFile(sourcePath, targetPath, fsConstants.COPYFILE_FICLONE);
-        return;
+        await copyFile(sourcePath, targetPath, fsConstants.COPYFILE_FICLONE_FORCE);
+        return 'cloned';
     } catch (error) {
-        if (!isCopyOnWriteUnavailable(error)) {
-            throw error;
+        await rm(targetPath, {force: true}).catch(() => undefined);
+        if (isCopyOnWriteUnavailable(error)) {
+            return 'known-unsupported';
         }
     }
 
     await copyFile(sourcePath, targetPath);
+    return 'unknown-error-eager-fallback';
+}
+
+export async function copyFileCopyOnWrite(sourcePath: string, targetPath: string) {
+    const outcome = await attemptWorkingCopyClone(sourcePath, targetPath);
+    if (outcome === 'known-unsupported') {
+        await copyFile(sourcePath, targetPath);
+    }
 }

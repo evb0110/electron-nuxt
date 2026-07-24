@@ -16,15 +16,35 @@ import {
 } from '@electron/utils/atomicReplace';
 import {
     claimWorkingCopyOwnership,
+    getWorkingCopyBackingEntry,
     getWorkingCopyOriginalPath,
     getWorkingCopyOwnerWebContentsId,
     setWorkingCopyOriginalPath,
+    transitionWorkingCopyBackingState,
+    type IWorkingCopyAdmissionSnapshot,
+    type IWorkingCopyOriginalFileExpectation,
+    type TWorkingCopyBackingErrorCode,
+    type TWorkingCopyRole,
 } from '@electron/file-access/workingCopyStore';
+
+interface IStoredLazyWorkingCopy {
+    admissionSnapshot: {
+        mtimeNs: string;
+        size: string;
+    };
+    originalFileExpectation?: IWorkingCopyOriginalFileExpectation;
+    originalPath: string;
+    registrationId: number;
+    role: TWorkingCopyRole;
+    sourceBackingErrorCode?: TWorkingCopyBackingErrorCode;
+    workingCopyRef: string;
+}
 
 interface IStoredWorkspaceCheckpoint {
     version: 1;
     ownerWebContentsId: number;
     checkpoint: IWorkspaceCheckpoint;
+    lazyWorkingCopies?: IStoredLazyWorkingCopy[];
 }
 
 interface IWorkspaceCheckpointSaveWaiter {
@@ -45,18 +65,180 @@ function getStoragePath() {
     return join(app.getPath('userData'), 'workspace-checkpoint.json');
 }
 
+const BACKING_ERROR_CODES = new Set<TWorkingCopyBackingErrorCode>([
+    'SOURCE_BACKING_CHANGED',
+    'SOURCE_BACKING_UNAVAILABLE',
+    'WORKING_COPY_MATERIALIZATION_CANCELLED',
+    'WORKING_COPY_MATERIALIZATION_FAILED',
+    'WORKING_COPY_MATERIALIZATION_NO_SPACE',
+    'WORKING_COPY_MATERIALIZATION_VERIFICATION_FAILED',
+    'WORKING_COPY_REGISTRATION_CHANGED',
+]);
+
+function decodeOriginalFileExpectation(value: unknown): IWorkingCopyOriginalFileExpectation | undefined {
+    if (value === undefined) {
+        return undefined;
+    }
+    if (
+        !isRecord(value)
+        || typeof value.mtimeMs !== 'number'
+        || !Number.isFinite(value.mtimeMs)
+        || typeof value.size !== 'number'
+        || !Number.isSafeInteger(value.size)
+        || value.size < 0
+        || (
+            value.contentFingerprint !== undefined
+            && typeof value.contentFingerprint !== 'string'
+        )
+    ) {
+        return undefined;
+    }
+    return {
+        ...(value.contentFingerprint === undefined ? {} : {contentFingerprint: value.contentFingerprint}),
+        mtimeMs: value.mtimeMs,
+        size: value.size,
+    };
+}
+
+function decodeLazyWorkingCopy(value: unknown): IStoredLazyWorkingCopy | null {
+    if (
+        !isRecord(value)
+        || !isRecord(value.admissionSnapshot)
+        || typeof value.admissionSnapshot.mtimeNs !== 'string'
+        || !/^\d+$/.test(value.admissionSnapshot.mtimeNs)
+        || typeof value.admissionSnapshot.size !== 'string'
+        || !/^\d+$/.test(value.admissionSnapshot.size)
+        || typeof value.originalPath !== 'string'
+        || !value.originalPath
+        || !Number.isSafeInteger(value.registrationId)
+        || (value.role !== 'current' && value.role !== 'snapshot')
+        || typeof value.workingCopyRef !== 'string'
+        || !value.workingCopyRef
+        || (
+            value.sourceBackingErrorCode !== undefined
+            && (
+                typeof value.sourceBackingErrorCode !== 'string'
+                || !BACKING_ERROR_CODES.has(value.sourceBackingErrorCode as TWorkingCopyBackingErrorCode)
+            )
+        )
+    ) {
+        return null;
+    }
+    const originalFileExpectation = decodeOriginalFileExpectation(value.originalFileExpectation);
+    if (value.originalFileExpectation !== undefined && !originalFileExpectation) {
+        return null;
+    }
+    return {
+        admissionSnapshot: {
+            mtimeNs: value.admissionSnapshot.mtimeNs,
+            size: value.admissionSnapshot.size,
+        },
+        ...(originalFileExpectation ? {originalFileExpectation} : {}),
+        originalPath: value.originalPath,
+        registrationId: value.registrationId as number,
+        role: value.role,
+        ...(value.sourceBackingErrorCode === undefined
+            ? {}
+            : {sourceBackingErrorCode: value.sourceBackingErrorCode as TWorkingCopyBackingErrorCode}),
+        workingCopyRef: value.workingCopyRef,
+    };
+}
+
 function decodeStoredCheckpoint(value: unknown): IStoredWorkspaceCheckpoint | null {
     if (!isRecord(value) || value.version !== 1 || !Number.isSafeInteger(value.ownerWebContentsId)) {
         return null;
     }
     const checkpoint = decodeWorkspaceCheckpoint(value.checkpoint);
-    return checkpoint
-        ? {
-            version: 1,
-            ownerWebContentsId: value.ownerWebContentsId as number,
-            checkpoint,
+    if (!checkpoint) {
+        return null;
+    }
+    const lazyWorkingCopies: IStoredLazyWorkingCopy[] = [];
+    if (value.lazyWorkingCopies !== undefined) {
+        if (!Array.isArray(value.lazyWorkingCopies)) {
+            return null;
         }
-        : null;
+        for (const candidate of value.lazyWorkingCopies) {
+            const decoded = decodeLazyWorkingCopy(candidate);
+            if (!decoded) {
+                return null;
+            }
+            lazyWorkingCopies.push(decoded);
+        }
+    }
+    return {
+        version: 1,
+        ownerWebContentsId: value.ownerWebContentsId as number,
+        checkpoint,
+        ...(lazyWorkingCopies.length === 0 ? {} : {lazyWorkingCopies}),
+    };
+}
+
+function collectLazyWorkingCopies(
+    checkpoint: IWorkspaceCheckpoint,
+    ownerWebContentsId: number,
+) {
+    const lazyWorkingCopies = new Map<string, IStoredLazyWorkingCopy>();
+    for (const tab of checkpoint.tabs) {
+        if (!tab.workingCopyRef || lazyWorkingCopies.has(tab.workingCopyRef)) {
+            continue;
+        }
+        const entry = getWorkingCopyBackingEntry(tab.workingCopyRef, ownerWebContentsId);
+        if (
+            !entry
+            || (
+                entry.backingState !== 'lazy-original'
+                && entry.backingState !== 'materializing'
+            )
+        ) {
+            continue;
+        }
+        if (checkpoint.tabs.some(candidate => (
+            candidate.workingCopyRef === tab.workingCopyRef
+            && candidate.isDirty
+        ))) {
+            throw new Error('Workspace checkpoint cannot persist a dirty lazy working copy');
+        }
+        if (!entry.admissionSnapshot) {
+            throw new Error('Workspace checkpoint lazy working copy has no admission snapshot');
+        }
+        lazyWorkingCopies.set(tab.workingCopyRef, {
+            admissionSnapshot: {
+                mtimeNs: entry.admissionSnapshot.mtimeNs.toString(),
+                size: entry.admissionSnapshot.size.toString(),
+            },
+            ...(entry.originalFileExpectation
+                ? {originalFileExpectation: entry.originalFileExpectation}
+                : {}),
+            originalPath: entry.originalPath,
+            registrationId: entry.registrationId,
+            role: entry.role,
+            ...(entry.sourceBackingErrorCode
+                ? {sourceBackingErrorCode: entry.sourceBackingErrorCode}
+                : {}),
+            workingCopyRef: tab.workingCopyRef,
+        });
+    }
+    return Array.from(lazyWorkingCopies.values());
+}
+
+function assertNoDirtyLazyRecovery(stored: IStoredWorkspaceCheckpoint) {
+    const lazyWorkingCopyRefs = new Set(
+        (stored.lazyWorkingCopies ?? []).map(entry => entry.workingCopyRef),
+    );
+    if (stored.checkpoint.tabs.some(tab => (
+        tab.isDirty
+        && tab.workingCopyRef
+        && lazyWorkingCopyRefs.has(tab.workingCopyRef)
+    ))) {
+        throw new Error('Workspace checkpoint rejected dirty lazy working-copy recovery');
+    }
+}
+
+function toAdmissionSnapshot(stored: IStoredLazyWorkingCopy): IWorkingCopyAdmissionSnapshot {
+    return {
+        mtimeNs: BigInt(stored.admissionSnapshot.mtimeNs),
+        size: BigInt(stored.admissionSnapshot.size),
+    };
 }
 
 function canonicalizeCheckpointSources(
@@ -193,10 +375,12 @@ export async function saveWorkspaceCheckpoint(checkpoint: IWorkspaceCheckpoint, 
         ownerWebContentsId,
         {rejectUnmappedWorkingCopy: true},
     );
+    const lazyWorkingCopies = collectLazyWorkingCopies(checkpoint, ownerWebContentsId);
     const stored: IStoredWorkspaceCheckpoint = {
         version: 1,
         ownerWebContentsId,
         checkpoint: canonicalCheckpoint,
+        ...(lazyWorkingCopies.length === 0 ? {} : {lazyWorkingCopies}),
     };
     await checkpointBarrierQueue;
     return enqueueWorkspaceCheckpointSave(stored);
@@ -213,10 +397,17 @@ export async function claimWorkspaceCheckpoint(newOwnerWebContentsId: number) {
         if (!stored) {
             return null;
         }
+        assertNoDirtyLazyRecovery(stored);
         const canonicalCheckpoint = canonicalizeCheckpointSources(
             stored.checkpoint,
             stored.ownerWebContentsId,
             {rejectUnmappedWorkingCopy: false},
+        );
+        const lazyWorkingCopies = new Map(
+            (stored.lazyWorkingCopies ?? []).map(entry => [
+                entry.workingCopyRef,
+                entry,
+            ]),
         );
         for (const tab of canonicalCheckpoint.tabs) {
             if (tab.workingCopyRef) {
@@ -225,8 +416,42 @@ export async function claimWorkspaceCheckpoint(newOwnerWebContentsId: number) {
                     stored.ownerWebContentsId,
                     newOwnerWebContentsId,
                 );
-                if (!transferred && tab.sourceRef) {
-                    await setWorkingCopyOriginalPath(tab.workingCopyRef, tab.sourceRef, newOwnerWebContentsId);
+                const lazyWorkingCopy = lazyWorkingCopies.get(tab.workingCopyRef);
+                if (!transferred && lazyWorkingCopy) {
+                    await setWorkingCopyOriginalPath(
+                        tab.workingCopyRef,
+                        lazyWorkingCopy.originalPath,
+                        newOwnerWebContentsId,
+                        {
+                            admissionSnapshot: toAdmissionSnapshot(lazyWorkingCopy),
+                            backingState: 'lazy-original',
+                            deferOriginalFileExpectation: true,
+                            ...(lazyWorkingCopy.originalFileExpectation
+                                ? {originalFileExpectation: lazyWorkingCopy.originalFileExpectation}
+                                : {}),
+                            role: lazyWorkingCopy.role,
+                        },
+                    );
+                    if (lazyWorkingCopy.sourceBackingErrorCode) {
+                        const restoredEntry = getWorkingCopyBackingEntry(
+                            tab.workingCopyRef,
+                            newOwnerWebContentsId,
+                        );
+                        if (restoredEntry) {
+                            transitionWorkingCopyBackingState(
+                                tab.workingCopyRef,
+                                restoredEntry.registrationId,
+                                'lazy-original',
+                                {sourceBackingErrorCode: lazyWorkingCopy.sourceBackingErrorCode},
+                            );
+                        }
+                    }
+                } else if (!transferred && tab.sourceRef) {
+                    await setWorkingCopyOriginalPath(
+                        tab.workingCopyRef,
+                        tab.sourceRef,
+                        newOwnerWebContentsId,
+                    );
                 }
             }
         }

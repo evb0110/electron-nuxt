@@ -34,7 +34,7 @@ export interface IPageOpsHandlersDeps {
     onExportPages: (pages: number[]) => void;
     canMutatePages?: Ref<boolean>;
     onExtractedDocument?: (path: TDocumentRef) => Promise<void> | void;
-    ensureHistoryBaselineForExternalMutation: () => Promise<boolean>;
+    ensureHistoryBaselineForMutation: () => Promise<boolean>;
     materializeAnnotationsForPageMutation: () => Promise<boolean>;
     reloadWorkingCopyIntoHistory: (opts?: { markDirty?: boolean }) => Promise<boolean>;
     preparePdfReloadWaiter: (
@@ -68,7 +68,7 @@ export const usePageOpsHandlers = (deps: IPageOpsHandlersDeps) => {
         onExportPages,
         canMutatePages,
         onExtractedDocument,
-        ensureHistoryBaselineForExternalMutation,
+        ensureHistoryBaselineForMutation,
         materializeAnnotationsForPageMutation,
         reloadWorkingCopyIntoHistory,
         preparePdfReloadWaiter,
@@ -103,7 +103,7 @@ export const usePageOpsHandlers = (deps: IPageOpsHandlersDeps) => {
         ...(documentRevisionToken !== undefined ? { documentRevisionToken } : {}),
         pageLabels,
         bookmarkItems,
-        ensureHistoryBaselineForExternalMutation,
+        ensureHistoryBaselineForMutation,
         materializeAnnotationsForPageMutation,
         reloadWorkingCopyIntoHistory,
         clearOcrCache,

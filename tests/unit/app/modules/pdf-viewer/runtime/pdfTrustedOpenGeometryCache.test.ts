@@ -8,13 +8,13 @@ import {
     it,
 } from 'vitest';
 import {
+    cacheTrustedPdfOpenGeometry,
     isTrustedPdfOpenGeometryCurrent,
     invalidateTrustedPdfOpenGeometry,
     peekTrustedPdfOpenGeometry,
     prevalidateTrustedPdfOpenGeometry,
     readPrevalidatedTrustedPdfOpenGeometry,
     rememberValidatedTrustedPdfOpenGeometry,
-    shouldApplyTrustedPdfOpenGeometry,
     type IPdfTrustedOpenGeometry,
     writeTrustedPdfOpenGeometry,
 } from '@app/modules/pdf-viewer/runtime/lifecycle/pdfTrustedOpenGeometryCache';
@@ -79,11 +79,11 @@ describe('trusted PDF open geometry cache', () => {
 
     it('creates a validated warm entry from fenced first-page metadata on cache miss', async () => {
         const openingGeometry = {
-            pageNumber: 1,
+            pageNumber: 1 as const,
             pageCount: entry.pageCount,
             width: entry.width,
             height: entry.height,
-            rotation: entry.rotation,
+            rotation: 0 as const,
             size: entry.size,
             modifiedAt: entry.modifiedAt,
         };
@@ -102,17 +102,61 @@ describe('trusted PDF open geometry cache', () => {
         expect(readPrevalidatedTrustedPdfOpenGeometry(entry.documentId, 1)).toMatchObject(openingGeometry);
     });
 
+    it('uses admitted dimensions with the original source revision', () => {
+        const cached = cacheTrustedPdfOpenGeometry(entry.documentId, {
+            pageNumber: 1,
+            pageCount: 8,
+            width: 640,
+            height: 900,
+            rotation: 0,
+            size: 20,
+            modifiedAt: 30,
+        }, {sourceRevision: {
+            size: entry.size,
+            modifiedAt: entry.modifiedAt,
+        }});
+
+        expect(cached).toMatchObject({
+            documentId: entry.documentId,
+            pageCount: 8,
+            width: 640,
+            height: 900,
+            size: entry.size,
+            modifiedAt: entry.modifiedAt,
+        });
+        invalidateTrustedPdfOpenGeometry(entry.documentId, 1);
+    });
+
+    it('keeps geometry without an original revision out of synchronous open reuse', () => {
+        cacheTrustedPdfOpenGeometry(entry.documentId, {
+            pageNumber: 1,
+            pageCount: 8,
+            width: 640,
+            height: 900,
+            rotation: 0,
+            size: 20,
+            modifiedAt: 30,
+        }, {makeSynchronouslyAvailable: false});
+
+        expect(readPrevalidatedTrustedPdfOpenGeometry(entry.documentId, 1)).toBeNull();
+        expect(peekTrustedPdfOpenGeometry(entry.documentId, 1)).toMatchObject({
+            size: 20,
+            modifiedAt: 30,
+        });
+        invalidateTrustedPdfOpenGeometry(entry.documentId, 1);
+    });
+
     it('replaces a persistent entry through fenced geometry when direct source stat is unavailable', async () => {
         const staleEntry = {
             ...entry,
             pageNumber: 1,
         };
         const openingGeometry = {
-            pageNumber: 1,
+            pageNumber: 1 as const,
             pageCount: entry.pageCount,
             width: entry.width,
             height: entry.height,
-            rotation: entry.rotation,
+            rotation: 0 as const,
             size: entry.size + 1,
             modifiedAt: entry.modifiedAt + 1,
         };
@@ -197,45 +241,6 @@ describe('trusted PDF open geometry cache', () => {
             size: entry.size,
             modifiedAt: entry.modifiedAt,
         }, entry.pageNumber + 1)).toBe(false);
-    });
-
-    it('ignores a cache lookup that resolves after authoritative PDF.js metrics', () => {
-        expect(shouldApplyTrustedPdfOpenGeometry({
-            lookupGeneration: 3,
-            currentLookupGeneration: 3,
-            openSurfaceGeneration: 8,
-            currentOpenSurfaceGeneration: 8,
-            source: 'scan',
-            currentSource: 'scan',
-            hasPdfDocument: true,
-            authoritativeMetricCount: 431,
-        })).toBe(false);
-    });
-
-    it('allows a fingerprinted original-path result before the working-copy source commits', () => {
-        expect(shouldApplyTrustedPdfOpenGeometry({
-            lookupGeneration: 3,
-            currentLookupGeneration: 3,
-            openSurfaceGeneration: 8,
-            currentOpenSurfaceGeneration: 8,
-            source: null,
-            currentSource: null,
-            hasPdfDocument: false,
-            authoritativeMetricCount: 0,
-        })).toBe(true);
-    });
-
-    it('rejects a validated cache result after any page geometry is authoritative', () => {
-        expect(shouldApplyTrustedPdfOpenGeometry({
-            lookupGeneration: 4,
-            currentLookupGeneration: 4,
-            openSurfaceGeneration: 9,
-            currentOpenSurfaceGeneration: 9,
-            source: 'working-copy',
-            currentSource: 'working-copy',
-            hasPdfDocument: false,
-            authoritativeMetricCount: 1,
-        })).toBe(false);
     });
 
     it('keeps a mixed-page document seed provisional so every page is authoritatively replaced', () => {

@@ -22,6 +22,9 @@ import {
     PDF_THUMBNAIL_CONCURRENCY_WORKSTATION,
     resolvePerformanceProfile,
 } from '@app/utils/performanceProfile';
+import { resolveOpenPathSecondaryPerformancePolicy } from '@app/utils/openPathSecondaryPerformancePolicy';
+
+const MEBIBYTE = 1024 * 1024;
 
 describe('resolvePerformanceProfile', () => {
     it('uses the conservative low profile when memory and CPU are unknown', () => {
@@ -292,5 +295,60 @@ describe('resolvePerformanceProfile', () => {
             concurrentPdfRenders,
             settledMaxCanvasPixels,
         });
+    });
+});
+
+describe('resolveOpenPathSecondaryPerformancePolicy', () => {
+    it.each([
+        {
+            profile: resolvePerformanceProfile({
+                deviceMemory: 8,
+                hardwareConcurrency: 8,
+            }),
+            expected: {
+                eagerAnnotationNameReadMaxBytes: 16 * MEBIBYTE,
+                interactiveAnnotationNameReadMaxBytes: 64 * MEBIBYTE,
+                maxInMemoryPdfBytes: 16 * MEBIBYTE,
+                maxDjvuJsDesktopSourceBytes: 96 * MEBIBYTE,
+                geometryPreflightMode: 'concurrent',
+                deferMediumHistoryBaseline: false,
+                inactiveDjvuLeasePolicy: 'warm-grace',
+            },
+        },
+        {
+            profile: resolvePerformanceProfile({
+                deviceMemory: 4,
+                hardwareConcurrency: 8,
+            }),
+            expected: {
+                eagerAnnotationNameReadMaxBytes: 4 * MEBIBYTE,
+                interactiveAnnotationNameReadMaxBytes: 16 * MEBIBYTE,
+                maxInMemoryPdfBytes: 4 * MEBIBYTE,
+                maxDjvuJsDesktopSourceBytes: 24 * MEBIBYTE,
+                geometryPreflightMode: 'cache-only',
+                deferMediumHistoryBaseline: true,
+                inactiveDjvuLeasePolicy: 'release-immediately',
+            },
+        },
+        {
+            profile: resolvePerformanceProfile({
+                deviceMemory: 8,
+                hardwareConcurrency: 4,
+            }),
+            expected: {
+                eagerAnnotationNameReadMaxBytes: 4 * MEBIBYTE,
+                interactiveAnnotationNameReadMaxBytes: 16 * MEBIBYTE,
+                maxInMemoryPdfBytes: 16 * MEBIBYTE,
+                maxDjvuJsDesktopSourceBytes: 96 * MEBIBYTE,
+                geometryPreflightMode: 'cache-only',
+                deferMediumHistoryBaseline: false,
+                inactiveDjvuLeasePolicy: 'warm-grace',
+            },
+        },
+    ])('resolves the complete $profile.tier profile policy', ({
+        profile,
+        expected,
+    }) => {
+        expect(resolveOpenPathSecondaryPerformancePolicy(profile)).toEqual(expected);
     });
 });

@@ -21,11 +21,11 @@ import {
     resolveAllowedReadPath,
     resolveAllowedWritePath,
 } from '@electron/utils/pathValidator';
-import { ensureWorkingCopyDirectory } from '@electron/file-access/workingCopyCreation';
 import {
     clearWorkingCopySearchArtifacts,
     enqueueWorkingCopyMutation,
 } from '@electron/file-access/workingCopyMutationQueue';
+import {ensureWorkingCopyMaterialized} from '@electron/file-access/workingCopyMaterialization';
 import type { IDocumentMutationRevisionOptions } from '@contracts/electronApiDocuments';
 import {transitionWorkingCopyContentRevision} from '@electron/file-access/documentRevisionStore';
 import {
@@ -109,27 +109,16 @@ export async function handleFileWrite(
         throw new Error('Invalid file path: writes only allowed within temp directory');
     }
 
-    if (!await ensureWorkingCopyDirectory(resolvedPath, senderId)) {
-        throw new Error('Invalid file path: writes require a managed working copy');
-    }
     return enqueueWorkingCopyMutation(resolvedPath, async () => {
         await assertQueuedWorkingCopyMutationPreconditions(resolvedPath, expectedDocumentRevisionToken);
-        if (!await ensureWorkingCopyDirectory(resolvedPath, senderId)) {
-            throw new Error('Invalid file path: writes require a managed working copy');
-        }
+        await ensureWorkingCopyMaterialized(resolvedPath, {
+            ownerWebContentsId: senderId,
+            reason: 'first-mutation',
+        });
         const tempPath = makeSiblingTempPath(resolvedPath);
         let committed = false;
         try {
-            try {
-                await writeFileAtomic(tempPath, payload);
-            } catch (error) {
-                const code = isErrnoException(error) ? error.code : undefined;
-                if (code !== 'ENOENT' && code !== 'ENOTDIR') throw error;
-                if (!await ensureWorkingCopyDirectory(resolvedPath, senderId)) {
-                    throw new Error('Invalid file path: writes require a managed working copy');
-                }
-                await writeFileAtomic(tempPath, payload);
-            }
+            await writeFileAtomic(tempPath, payload);
             const validation = await validatePdfFile(tempPath);
             if (!validation.isValid) {
                 throw new Error(`PDF write verification failed: ${validation.errors.join('; ')}`);
@@ -165,10 +154,6 @@ export async function handleReplaceWorkingCopyFromPath(
     if (!resolvedWorkingCopyPath) {
         throw new Error('Invalid file path: writes only allowed within temp directory');
     }
-    if (!await ensureWorkingCopyDirectory(resolvedWorkingCopyPath, senderId)) {
-        throw new Error('Invalid file path: writes require a managed working copy');
-    }
-
     const resolvedSourcePath = await resolveAllowedReadPath(normalizedSourcePath);
     if (!resolvedSourcePath) {
         throw new Error('Invalid source path: OCR result must be within temp directory');
@@ -190,9 +175,10 @@ export async function handleReplaceWorkingCopyFromPath(
             resolvedWorkingCopyPath,
             expectedDocumentRevisionToken,
         );
-        if (!await ensureWorkingCopyDirectory(resolvedWorkingCopyPath, senderId)) {
-            throw new Error('Invalid file path: writes require a managed working copy');
-        }
+        await ensureWorkingCopyMaterialized(resolvedWorkingCopyPath, {
+            ownerWebContentsId: senderId,
+            reason: 'ocr-persist',
+        });
         if (!expectedDocumentRevisionToken) {
             throw new Error('OCR apply requires the source document revision');
         }

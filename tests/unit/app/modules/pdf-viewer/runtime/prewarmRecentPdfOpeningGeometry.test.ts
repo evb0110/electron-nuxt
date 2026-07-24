@@ -12,9 +12,16 @@ import { prewarmRecentPdfOpeningGeometry } from '@app/modules/pdf-viewer/runtime
 import {
     invalidateTrustedPdfOpenGeometry,
     readPrevalidatedTrustedPdfOpenGeometry,
+    writeTrustedPdfOpenGeometry,
 } from '@app/modules/pdf-viewer/runtime/lifecycle/pdfTrustedOpenGeometryCache';
 
 const pdfPaths = Array.from({length: 6}, (_, index) => `/documents/recent-${String(index + 1)}.pdf`);
+const mocks = vi.hoisted(() => ({performanceProfile: {
+    lowCpu: false,
+    lowMemory: false,
+}}));
+
+vi.mock('@app/utils/performanceProfile', () => ({getPerformanceProfile: () => mocks.performanceProfile}));
 
 describe('Recent PDF opening geometry application warmup', () => {
     beforeEach(() => {
@@ -22,6 +29,8 @@ describe('Recent PDF opening geometry application warmup', () => {
         for (const path of pdfPaths) {
             invalidateTrustedPdfOpenGeometry(path, 1);
         }
+        mocks.performanceProfile.lowCpu = false;
+        mocks.performanceProfile.lowMemory = false;
     });
 
     it('warms only the bounded leading PDF set before an empty tab can be clicked', async () => {
@@ -117,6 +126,30 @@ describe('Recent PDF opening geometry application warmup', () => {
         });
     });
 
+    it('silently settles a retired working-copy geometry miss', async () => {
+        const file = {
+            originalPath: '/tmp/pdf-work-retired/old.pdf',
+            fileName: 'old.pdf',
+            timestamp: 1,
+            fileSize: 1_000,
+        };
+        const onError = vi.fn();
+        const onSettled = vi.fn();
+
+        const results = await prewarmRecentPdfOpeningGeometry(
+            [file],
+            {readOpeningGeometry: vi.fn(async () => null)},
+            {
+                onError,
+                onSettled,
+            },
+        );
+
+        expect(results.get(file.originalPath)).toBeNull();
+        expect(onError).not.toHaveBeenCalled();
+        expect(onSettled).toHaveBeenCalledWith(file, null);
+    });
+
     it('settles a stalled file independently without delaying a ready sibling', async () => {
         const stalledPath = '/documents/stalled.pdf';
         const readyPath = '/documents/ready.pdf';
@@ -188,5 +221,60 @@ describe('Recent PDF opening geometry application warmup', () => {
             file.originalPath,
             null,
         ]));
+    });
+
+    it('does not launch a cold geometry probe on constrained profiles', async () => {
+        mocks.performanceProfile.lowMemory = true;
+        const file = {
+            originalPath: pdfPaths[0]!,
+            fileName: 'recent-1.pdf',
+            timestamp: 1,
+            fileSize: 1_000,
+        };
+        const readOpeningGeometry = vi.fn();
+
+        const results = await prewarmRecentPdfOpeningGeometry(
+            [file],
+            {readOpeningGeometry},
+        );
+
+        expect(readOpeningGeometry).not.toHaveBeenCalled();
+        expect(results.get(file.originalPath)).toBeNull();
+    });
+
+    it('validates an existing constrained cache entry without geometry IPC', async () => {
+        mocks.performanceProfile.lowCpu = true;
+        const file = {
+            originalPath: pdfPaths[0]!,
+            fileName: 'recent-1.pdf',
+            timestamp: 1,
+            fileSize: 1_000,
+        };
+        writeTrustedPdfOpenGeometry({
+            documentId: file.originalPath,
+            pageNumber: 1,
+            pageCount: 10,
+            width: 612,
+            height: 792,
+            rotation: 0,
+            size: 1_000,
+            modifiedAt: 2_000,
+            savedAt: 3_000,
+        });
+        const readOpeningGeometry = vi.fn();
+
+        await prewarmRecentPdfOpeningGeometry([file], {
+            readStat: vi.fn(async () => ({
+                size: 1_000,
+                modifiedAt: 2_000,
+            })),
+            readOpeningGeometry,
+        });
+
+        expect(readOpeningGeometry).not.toHaveBeenCalled();
+        expect(readPrevalidatedTrustedPdfOpenGeometry(file.originalPath, 1)).toMatchObject({
+            size: 1_000,
+            modifiedAt: 2_000,
+        });
     });
 });

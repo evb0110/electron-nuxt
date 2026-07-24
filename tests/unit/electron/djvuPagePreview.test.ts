@@ -25,6 +25,7 @@ const mocks = vi.hoisted(() => {
             channels: 3,
         })),
         runNativeToolCommand: vi.fn(async () => undefined),
+        getDjvuPageCount: vi.fn(async () => 1),
         getDjvuResolution: vi.fn(async () => 300),
         mkdtemp: vi.fn(async () => '/tmp/djvu-preview-test'),
         readFile: vi.fn(async () => tinyPpm),
@@ -48,7 +49,10 @@ vi.mock('fs/promises', () => ({
     rm: mocks.rm,
     stat: mocks.stat,
 }));
-vi.mock('@electron/djvu/metadata', () => ({getDjvuResolution: mocks.getDjvuResolution}));
+vi.mock('@electron/djvu/metadata', () => ({
+    getDjvuPageCount: mocks.getDjvuPageCount,
+    getDjvuResolution: mocks.getDjvuResolution,
+}));
 vi.mock('@electron/djvu/nativeToolPaths', () => ({getDjvuNativeToolPaths: () => ({djvused: '/tools/djvused'})}));
 vi.mock('@electron/djvu/paths', () => ({buildDjvuRuntimeEnv: () => ({DJVU: '1'})}));
 vi.mock('@electron/native-tools/runNativeCommand', () => ({runNativeCommand: mocks.runNativeCommand}));
@@ -62,6 +66,7 @@ vi.mock('@electron/features/djvu/main/ddjvuConversion', () => ({convertDjvuPageT
 
 const {
     clearDjvuPageSizeCacheForTests,
+    getDjvuPageSizeForViewing,
     getDjvuPageSizesForViewing,
     parseDjvuPageSizeOutput,
     renderDjvuPagePreview,
@@ -77,6 +82,7 @@ describe('DjVu native page preview helpers', () => {
             fileSize: 12,
         });
         mocks.getDjvuResolution.mockResolvedValue(300);
+        mocks.getDjvuPageCount.mockResolvedValue(1);
         mocks.mkdtemp.mockResolvedValue('/tmp/djvu-preview-test');
         mocks.readFile.mockResolvedValue(mocks.tinyPpm);
         mocks.probeNativeNetpbm.mockResolvedValue({
@@ -241,6 +247,167 @@ describe('DjVu native page preview helpers', () => {
             expect.any(String),
             expect.objectContaining({targetHeightPx: 200}),
         );
+    });
+
+    it('coalesces and stores one single-page metadata probe per source revision', async () => {
+        const firstRevision = {
+            isFile: () => true as const,
+            mtimeMs: 1.9,
+            size: 100,
+        };
+        mocks.stat.mockResolvedValue(firstRevision);
+        mocks.runNativeCommand.mockResolvedValue({
+            stdout: '100 200',
+            stderr: '',
+            exitCode: 0,
+        });
+
+        await expect(Promise.all([
+            getDjvuPageSizeForViewing('/tmp/coalesced.djvu', 1),
+            getDjvuPageSizeForViewing('/tmp/coalesced.djvu', 1),
+        ])).resolves.toEqual([
+            {
+                width: 100,
+                height: 200,
+                dpi: 300,
+            },
+            {
+                width: 100,
+                height: 200,
+                dpi: 300,
+            },
+        ]);
+        await getDjvuPageSizeForViewing('/tmp/coalesced.djvu', 1);
+
+        expect(mocks.getDjvuPageCount).toHaveBeenCalledOnce();
+        expect(mocks.getDjvuResolution).toHaveBeenCalledOnce();
+        expect(mocks.runNativeCommand).toHaveBeenCalledOnce();
+
+        mocks.stat.mockResolvedValue({
+            isFile: () => true,
+            mtimeMs: 2.1,
+            size: 101,
+        });
+        mocks.runNativeCommand.mockResolvedValueOnce({
+            stdout: '300 400',
+            stderr: '',
+            exitCode: 0,
+        });
+
+        await expect(getDjvuPageSizeForViewing('/tmp/coalesced.djvu', 1)).resolves.toEqual({
+            width: 300,
+            height: 400,
+            dpi: 300,
+        });
+        expect(mocks.getDjvuPageCount).toHaveBeenCalledTimes(2);
+        expect(mocks.getDjvuResolution).toHaveBeenCalledTimes(2);
+        expect(mocks.runNativeCommand).toHaveBeenCalledTimes(2);
+    });
+
+    it('does not share or block in-flight page probes across document paths', async () => {
+        const firstProbe = Promise.withResolvers<{
+            stdout: string;
+            stderr: string;
+            exitCode: number;
+        }>();
+        mocks.stat.mockResolvedValue({
+            isFile: () => true,
+            mtimeMs: 1,
+            size: 100,
+        });
+        mocks.runNativeCommand
+            .mockReturnValueOnce(firstProbe.promise)
+            .mockResolvedValueOnce({
+                stdout: '300 400',
+                stderr: '',
+                exitCode: 0,
+            });
+
+        const firstDocumentSize = getDjvuPageSizeForViewing('/tmp/first.djvu', 1);
+        await vi.waitFor(() => {
+            expect(mocks.runNativeCommand).toHaveBeenCalledOnce();
+        });
+
+        await expect(getDjvuPageSizeForViewing('/tmp/second.djvu', 1)).resolves.toEqual({
+            width: 300,
+            height: 400,
+            dpi: 300,
+        });
+        expect(mocks.runNativeCommand).toHaveBeenNthCalledWith(
+            2,
+            '/tools/djvused',
+            [
+                '/tmp/second.djvu',
+                '-e',
+                'select 1; size',
+            ],
+            expect.any(Object),
+        );
+
+        firstProbe.resolve({
+            stdout: '100 200',
+            stderr: '',
+            exitCode: 0,
+        });
+        await expect(firstDocumentSize).resolves.toEqual({
+            width: 100,
+            height: 200,
+            dpi: 300,
+        });
+    });
+
+    it('does not let an in-flight probe from an old revision block the replacement revision', async () => {
+        const oldRevisionProbe = Promise.withResolvers<{
+            stdout: string;
+            stderr: string;
+            exitCode: number;
+        }>();
+        mocks.stat
+            .mockResolvedValueOnce({
+                isFile: () => true,
+                mtimeMs: 1,
+                size: 100,
+            })
+            .mockResolvedValue({
+                isFile: () => true,
+                mtimeMs: 2,
+                size: 101,
+            });
+        mocks.runNativeCommand
+            .mockReturnValueOnce(oldRevisionProbe.promise)
+            .mockResolvedValueOnce({
+                stdout: '300 400',
+                stderr: '',
+                exitCode: 0,
+            });
+
+        const oldRevisionSize = getDjvuPageSizeForViewing('/tmp/replaced.djvu', 1);
+        await vi.waitFor(() => {
+            expect(mocks.runNativeCommand).toHaveBeenCalledOnce();
+        });
+
+        await expect(getDjvuPageSizeForViewing('/tmp/replaced.djvu', 1)).resolves.toEqual({
+            width: 300,
+            height: 400,
+            dpi: 300,
+        });
+
+        oldRevisionProbe.resolve({
+            stdout: '100 200',
+            stderr: '',
+            exitCode: 0,
+        });
+        await expect(oldRevisionSize).resolves.toEqual({
+            width: 100,
+            height: 200,
+            dpi: 300,
+        });
+        await expect(getDjvuPageSizeForViewing('/tmp/replaced.djvu', 1)).resolves.toEqual({
+            width: 300,
+            height: 400,
+            dpi: 300,
+        });
+        expect(mocks.runNativeCommand).toHaveBeenCalledTimes(2);
     });
 
     it('rejects oversized PPM output before reading it into memory', async () => {

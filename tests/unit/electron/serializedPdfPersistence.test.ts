@@ -61,6 +61,7 @@ const mocks = vi.hoisted(() => ({
     createTypedStagedArtifact: vi.fn(),
     releaseManagedTempFileHandle: vi.fn(),
     removeAllowedOpenPath: vi.fn(),
+    ensureWorkingCopyMaterialized: vi.fn(),
 }));
 
 vi.mock('@electron/utils/atomicReplace', () => ({
@@ -102,6 +103,7 @@ vi.mock('@electron/features/documents/main/managedTempFileHandles', () => ({
     createTypedStagedArtifact: (...args: unknown[]) => mocks.createTypedStagedArtifact(...args),
     releaseManagedTempFileHandle: (...args: unknown[]) => mocks.releaseManagedTempFileHandle(...args),
 }));
+vi.mock('@electron/file-access/workingCopyMaterialization', () => ({ensureWorkingCopyMaterialized: (...args: unknown[]) => mocks.ensureWorkingCopyMaterialized(...args)}));
 
 function createOriginalFileExpectationForTest(originalPath: string) {
     const originalStat = statSync(originalPath);
@@ -158,6 +160,11 @@ describe('serializedPdfPersistence', () => {
             warnings: [],
         });
         mocks.ensureWorkingCopyDirectory.mockResolvedValue(true);
+        mocks.ensureWorkingCopyMaterialized.mockImplementation(async (path: string) => ({
+            logicalRef: path,
+            physicalWorkingCopyPath: path,
+            sourceFingerprint: '',
+        }));
         mocks.getWorkingCopyOriginalFileExpectation.mockImplementation((workingPath: string, senderWebContentsId?: number) => {
             const original = mocks.getWorkingCopyOriginalPath(workingPath, senderWebContentsId);
             return original?.originalPath
@@ -279,7 +286,10 @@ describe('serializedPdfPersistence', () => {
         expect(readFileSyncUtf8(workingPath)).toBe('new-pdf');
         expect(readFileSyncUtf8(targetPath)).toBe('new-pdf');
         expect(existsSync(tempPath)).toBe(false);
-        expect(mocks.ensureWorkingCopyDirectory).toHaveBeenCalledWith(workingPath, 42);
+        expect(mocks.ensureWorkingCopyMaterialized).toHaveBeenCalledWith(workingPath, {
+            ownerWebContentsId: 42,
+            reason: 'serialized-persistence',
+        });
         expect(mocks.createTypedStagedArtifact).toHaveBeenCalledWith(
             {senderId: 42},
             tempPath,
@@ -310,10 +320,10 @@ describe('serializedPdfPersistence', () => {
             }),
         );
         expect(
-            firstInvocationOrder(mocks.ensureWorkingCopyDirectory),
+            firstInvocationOrder(mocks.ensureWorkingCopyMaterialized),
         ).toBeLessThan(firstInvocationOrder(mocks.makeSiblingTempPath));
         expect(
-            firstInvocationOrder(mocks.ensureWorkingCopyDirectory),
+            firstInvocationOrder(mocks.ensureWorkingCopyMaterialized),
         ).toBeLessThan(firstInvocationOrder(mocks.atomicReplace));
         expect(mocks.setWorkingCopyOriginalPath).toHaveBeenCalledWith(workingPath, targetPath, 42);
         expect(mocks.allowOpenPath).toHaveBeenCalledWith(targetPath, expect.objectContaining({ id: 42 }));
@@ -757,7 +767,7 @@ describe('serializedPdfPersistence', () => {
     it('rejects Save As before opening a temp stream when the sender does not own the working copy', async () => {
         const workingPath = join(tempRoot, 'foreign-working.pdf');
         const targetPath = join(tempRoot, 'saved.pdf');
-        mocks.ensureWorkingCopyDirectory.mockResolvedValue(false);
+        mocks.ensureWorkingCopyMaterialized.mockRejectedValue(new Error('Working copy path is not managed'));
 
         const sender = new FakeSender();
         const { beginSerializedPdfSaveAs } = await importSerializedPdfPersistence();
@@ -805,12 +815,18 @@ describe('serializedPdfPersistence', () => {
         expect(mocks.markWorkingCopyContentChanged).not.toHaveBeenCalled();
     });
 
-    it('preserves the Save As target when working-copy setup fails before streaming starts', async () => {
+    it('preserves the Save As target when materialization fails before streaming starts', async () => {
         const workingPath = join(tempRoot, 'working.pdf');
         const targetPath = join(tempRoot, 'saved.pdf');
         writeFileSync(workingPath, 'old-working');
         writeFileSync(targetPath, 'old-target');
-        mocks.ensureWorkingCopyDirectory.mockRejectedValue(new Error('working copy unavailable'));
+        mocks.ensureWorkingCopyMaterialized.mockRejectedValue(Object.assign(
+            new Error('The original document is unavailable'),
+            {
+                code: 'SOURCE_BACKING_UNAVAILABLE',
+                retryable: false,
+            },
+        ));
 
         const sender = new FakeSender();
         const { beginSerializedPdfSaveAs } = await importSerializedPdfPersistence();
@@ -820,7 +836,10 @@ describe('serializedPdfPersistence', () => {
             workingPath,
             128,
             targetPath,
-        )).rejects.toThrow('working copy unavailable');
+        )).rejects.toMatchObject({
+            code: 'SOURCE_BACKING_UNAVAILABLE',
+            retryable: false,
+        });
         expect(readFileSyncUtf8(workingPath)).toBe('old-working');
         expect(readFileSyncUtf8(targetPath)).toBe('old-target');
         expect(mocks.makeSiblingTempPath).not.toHaveBeenCalled();

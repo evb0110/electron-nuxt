@@ -9,6 +9,7 @@ import {transitionWorkingCopyContentRevision} from '@electron/file-access/docume
 import {withOriginalPathMutationLock} from '@electron/features/documents/main/withOriginalPathMutationLock';
 import {readWorkingCopyRevisionSidecar} from '@electron/file-access/documentRevisionSidecar';
 import {rebindDocumentTextCatalogIfPresent} from '@electron/file-access/rebindDocumentTextCatalogIfPresent';
+import {ensureWorkingCopyMaterialized} from '@electron/file-access/workingCopyMaterialization';
 
 function journalPath(workingCopyPath: string) {
     return `${workingCopyPath}.evb-two-target-transition.json`;
@@ -27,6 +28,10 @@ export async function transitionOriginalAndWorkingCopyRevision(input: {
     publishOriginal: () => Promise<void>;
     afterWorkingCopySync?: () => Promise<void>;
 }) {
+    await ensureWorkingCopyMaterialized(input.workingCopyPath, {
+        ...(input.senderId === undefined ? {} : {ownerWebContentsId: input.senderId}),
+        reason: 'first-mutation',
+    });
     return withOriginalPathMutationLock(input.originalPath, async () => {
         if (input.assertOriginalCurrent && !await input.assertOriginalCurrent()) {
             return null;

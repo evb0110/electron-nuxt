@@ -68,6 +68,7 @@ const mocks = vi.hoisted(() => {
         ownedReadablePathsBySender: new Map<number, Set<string>>(),
         findWorkingCopyPathByOriginalPath: vi.fn<(path: string, senderId?: number) => string | null>(() => null),
         ensureWorkingCopyDirectory: vi.fn<(path: string, senderId?: number) => Promise<boolean>>(),
+        ensureWorkingCopyMaterialized: vi.fn(),
         resolveAllowedReadPath: vi.fn<(path: string) => Promise<string | null>>(async (path: string) => path),
         extractPages: vi.fn(async () => {}),
         stat: vi.fn<(path: string) => Promise<{
@@ -107,7 +108,11 @@ vi.mock('pdf-lib', () => ({ PDFDocument: { load: (...args: unknown[]) => mocks.p
 
 vi.mock('@electron/utils/pathValidator', () => ({resolveAllowedReadPath: mocks.resolveAllowedReadPath}));
 vi.mock('@electron/file-access/workingCopyCreation', () => ({ensureWorkingCopyDirectory: mocks.ensureWorkingCopyDirectory}));
-vi.mock('@electron/file-access/workingCopyStore', () => ({findWorkingCopyPathByOriginalPath: mocks.findWorkingCopyPathByOriginalPath}));
+vi.mock('@electron/file-access/workingCopyStore', () => ({
+    findWorkingCopyPathByOriginalPath: mocks.findWorkingCopyPathByOriginalPath,
+    getWorkingCopyBackingEntry: () => null,
+}));
+vi.mock('@electron/file-access/workingCopyMaterialization', () => ({ensureWorkingCopyMaterialized: (...args: unknown[]) => mocks.ensureWorkingCopyMaterialized(...args)}));
 vi.mock('@electron/features/page-ops/main/qpdf', () => ({extractPages: mocks.extractPages}));
 vi.mock('@electron/features/page-ops/public', () => ({extractPages: mocks.extractPages}));
 vi.mock('@electron/pdf/nativeToolPaths', () => ({getPdfNativeToolPaths: () => ({pdftoppm: '/mock/pdftoppm'})}));
@@ -159,6 +164,11 @@ describe('documents print', () => {
         mocks.ownedReadablePathsBySender.clear();
         mocks.ownedReadablePathsBySender.set(senderId, new Set([sourcePdfPath]));
         mocks.findWorkingCopyPathByOriginalPath.mockReturnValue(null);
+        mocks.ensureWorkingCopyMaterialized.mockImplementation(async (path: string) => ({
+            logicalRef: path,
+            physicalWorkingCopyPath: path,
+            sourceFingerprint: '',
+        }));
         mocks.ensureWorkingCopyDirectory.mockImplementation(async (path: string, requestedSenderId?: number) => {
             if (typeof requestedSenderId !== 'number' || !mocks.ownedReadablePathsBySender.get(requestedSenderId)?.has(path)) {
                 return false;
@@ -221,6 +231,10 @@ describe('documents print', () => {
         const result = await settleNativePrint(resultPromise);
 
         expect(result).toEqual({ success: true });
+        expect(mocks.ensureWorkingCopyMaterialized).toHaveBeenCalledWith(sourcePdfPath, {
+            ownerWebContentsId: senderId,
+            reason: 'print-external',
+        });
         expect(mocks.browserWindowInstances).toHaveLength(1);
         expect(mocks.browserWindowInstances[0]?.options).toEqual(expect.objectContaining({
             show: false,
@@ -491,6 +505,37 @@ describe('documents print', () => {
 
         expect(result).toEqual({ success: true });
         expect(mocks.openPath).toHaveBeenCalledWith(sourcePdfPath);
+        expect(mocks.ensureWorkingCopyMaterialized).toHaveBeenCalledWith(sourcePdfPath, {
+            ownerWebContentsId: senderId,
+            reason: 'print-external',
+        });
+    });
+
+    it('materializes lazy-original paths before print and default-app handoff', async () => {
+        const materializedPath = `${sourcePdfWorkDir}/materialized.pdf`;
+        mocks.ensureWorkingCopyMaterialized.mockResolvedValue({
+            logicalRef: sourcePdfPath,
+            physicalWorkingCopyPath: materializedPath,
+            sourceFingerprint: 'source-fingerprint',
+        });
+
+        vi.useFakeTimers();
+        const printPromise = handlePrintPdfPath(
+            windowContext,
+            sourcePdfPath,
+            'source.pdf',
+        );
+        await expect(settleNativePrint(printPromise)).resolves.toEqual({success: true});
+        await expect(handleOpenPdfInDefaultAppPath(
+            {senderId},
+            sourcePdfPath,
+            'source.pdf',
+        )).resolves.toEqual({success: true});
+
+        expect(mocks.browserWindowInstances[0]?.loadURL).toHaveBeenCalledWith(
+            pathToFileURL(materializedPath).toString(),
+        );
+        expect(mocks.openPath).toHaveBeenCalledWith(materializedPath);
     });
 
     it('writes PDF bytes to a temp file before opening the default desktop app', async () => {

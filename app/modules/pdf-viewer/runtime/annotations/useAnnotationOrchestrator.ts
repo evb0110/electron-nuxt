@@ -29,18 +29,8 @@ import { useFreeTextResize } from '@app/modules/pdf-viewer/runtime/annotations/u
 import { useAnnotationMarkerViewModel } from '@app/modules/pdf-viewer/runtime/annotations/useAnnotationMarkerViewModel';
 import type { IPdfAnnotationRenderingPort } from '@app/modules/pdf-viewer/runtime/annotations/createAttachablePdfAnnotationRenderingPort';
 import type { TDocumentRevisionToken } from '@contracts/documentRevision';
-import type { THostResourceTier } from '@contracts/hostResourceProfile';
 import { getPerformanceProfile } from '@app/utils/performanceProfile';
-
-const MEBIBYTE = 1024 * 1024;
-
-export function resolvePdfAnnotationNameReadLimits(tier: THostResourceTier) {
-    const constrained = tier === 'low';
-    return {
-        eagerMaxBytes: (constrained ? 4 : 16) * MEBIBYTE,
-        interactiveMaxBytes: (constrained ? 16 : 64) * MEBIBYTE,
-    };
-}
+import { resolveOpenPathSecondaryPerformancePolicy } from '@app/utils/openPathSecondaryPerformancePolicy';
 
 interface IUseAnnotationOrchestratorOptions {
     viewerContainer: Ref<HTMLElement | null>;
@@ -228,9 +218,13 @@ export const useAnnotationOrchestrator = (
             },
         }),
         syncInlineCommentIndicators: inlineIndicators.syncInlineCommentIndicators,
-        getAnnotationNameReadLimits: () => resolvePdfAnnotationNameReadLimits(
-            getPerformanceProfile().tier,
-        ),
+        getAnnotationNameReadLimits: () => {
+            const policy = resolveOpenPathSecondaryPerformancePolicy(getPerformanceProfile());
+            return {
+                eagerMaxBytes: policy.eagerAnnotationNameReadMaxBytes,
+                interactiveMaxBytes: policy.interactiveAnnotationNameReadMaxBytes,
+            };
+        },
         getPdfSourceByteSize: () => {
             const source = sourcePdf.value;
             return typeof Blob !== 'undefined' && source instanceof Blob

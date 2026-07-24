@@ -8,13 +8,14 @@ import {
 } from 'fs/promises';
 import {resolve} from 'path';
 import { getDjvuPageCount } from '@electron/djvu/metadata';
-import { getDjvuPageSizeForViewing } from '@electron/features/djvu/main/pagePreview';
+import { getDjvuPageSourceInfoForViewing } from '@electron/features/djvu/main/pagePreview';
 import { isAllowedDjvuTempPdfPath } from '@electron/djvu/isAllowedDjvuTempPdfPath';
 import { createLogger } from '@electron/utils/createLogger';
 import { getErrorMessage } from '@electron/utils/error';
 import { isErrnoException } from '@contracts/runtimeGuards';
 import type { TOpenPath } from '@electron/file-access/openPathCapabilities';
 import type { IPlatformMainSenderContext } from '@contracts/platformFeature';
+import type { IDjvuOpenResult } from '@contracts/electronApiDjvu';
 
 const logger = createLogger('djvu-viewing');
 interface IDjvuOperationContext extends IPlatformMainSenderContext<WebContents> {}
@@ -167,25 +168,18 @@ export async function handleDjvuOpenForViewing(
     djvuPath: TOpenPath,
     signal?: AbortSignal,
     adoptViewingPath = true,
-): Promise<{
-    success: boolean;
-    pageCount?: number;
-    error?: string;
-}> {
+): Promise<IDjvuOpenResult> {
     try {
-        const [
-            pageCount,
-            firstPageSize,
-            sourceStat,
-        ] = await Promise.all([
+        const pageSourceInfo = await getDjvuPageSourceInfoForViewing(
+            djvuPath,
+            1,
+            signal ? {signal} : {},
+        ).catch(() => null);
+        const fallbackMetadata = pageSourceInfo ? null : await Promise.all([
             getDjvuPageCount(djvuPath, signal ? {signal} : {}),
-            getDjvuPageSizeForViewing(
-                djvuPath,
-                1,
-                signal ? {signal} : {},
-            ).catch(() => null),
             stat(djvuPath),
-        ]);
+        ] as const);
+        const pageCount = pageSourceInfo?.pageCount ?? fallbackMetadata![0];
         if (pageCount <= 0) {
             return {
                 success: false,
@@ -201,13 +195,7 @@ export async function handleDjvuOpenForViewing(
         return {
             success: true,
             pageCount,
-            ...(firstPageSize ? {pageSourceInfo: {
-                pageCount,
-                pageNumber: 1,
-                pageSize: firstPageSize,
-                sourceSize: sourceStat.size,
-                sourceModifiedAt: Math.trunc(sourceStat.mtimeMs),
-            }} : {}),
+            ...(pageSourceInfo ? {pageSourceInfo} : {}),
         };
     } catch (error) {
         const message = getErrorMessage(error);

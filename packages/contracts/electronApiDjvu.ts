@@ -9,6 +9,16 @@ import type {
     IPdfSearchResponse,
     ISearchMatchOptions,
 } from '@contracts/search';
+import {
+    DJVU_OUTLINE_MAX_DEPTH,
+    DJVU_OUTLINE_MAX_NODES,
+    DJVU_OUTLINE_MAX_TITLE_CHARS,
+    DJVU_SEARCH_MAX_PAGE_TEXT_CHARS,
+} from '@contracts/djvuResourceLimits';
+import {
+    isFiniteNumber,
+    isRecord,
+} from '@contracts/runtimeGuards';
 
 export type { TDjvuPdfExportStrategy } from '@contracts/djvuConversionPolicy';
 
@@ -102,10 +112,149 @@ export interface IDjvuPageSourceInfo {
     sourceModifiedAt?: number;
 }
 
+export interface IDjvuOutlineItem {
+    title: string;
+    pageNumber: number | null;
+    children: IDjvuOutlineItem[];
+}
+
+export function decodeDjvuPageText(value: unknown) {
+    if (typeof value !== 'string') {
+        throw new Error('DjVu page text must be a string');
+    }
+    if (value.length > DJVU_SEARCH_MAX_PAGE_TEXT_CHARS) {
+        throw new Error('DjVu page text exceeds the supported limit');
+    }
+    return value;
+}
+
+export function decodeDjvuOutline(value: unknown): IDjvuOutlineItem[] {
+    if (!Array.isArray(value)) {
+        throw new Error('DjVu outline must be an array');
+    }
+    const result: IDjvuOutlineItem[] = [];
+    const items = value as unknown[];
+    const stack: Array<{
+        depth: number;
+        item: unknown;
+        target: IDjvuOutlineItem[];
+    }> = items.toReversed().map(item => ({
+        depth: 1,
+        item,
+        target: result,
+    }));
+    let nodeCount = 0;
+    let titleChars = 0;
+    while (stack.length > 0) {
+        const entry = stack.pop()!;
+        if (
+            !isRecord(entry.item)
+            || typeof entry.item.title !== 'string'
+            || (
+                entry.item.pageNumber !== null
+                && (
+                    !Number.isSafeInteger(entry.item.pageNumber)
+                    || Number(entry.item.pageNumber) < 1
+                )
+            )
+            || !Array.isArray(entry.item.children)
+        ) {
+            throw new Error('invalid DjVu outline item');
+        }
+        nodeCount += 1;
+        titleChars += entry.item.title.length;
+        if (
+            entry.depth > DJVU_OUTLINE_MAX_DEPTH
+            || nodeCount > DJVU_OUTLINE_MAX_NODES
+            || titleChars > DJVU_OUTLINE_MAX_TITLE_CHARS
+        ) {
+            throw new Error('DjVu outline exceeds the supported limit');
+        }
+        const mapped: IDjvuOutlineItem = {
+            title: entry.item.title,
+            pageNumber: entry.item.pageNumber === null ? null : Number(entry.item.pageNumber),
+            children: [],
+        };
+        entry.target.push(mapped);
+        const children = entry.item.children as unknown[];
+        for (let index = children.length - 1; index >= 0; index -= 1) {
+            stack.push({
+                depth: entry.depth + 1,
+                item: children[index],
+                target: mapped.children,
+            });
+        }
+    }
+    return result;
+}
+
+export function decodeDjvuPageSize(value: unknown): IDjvuPageSize {
+    if (
+        !isRecord(value)
+        || !isFiniteNumber(value.width)
+        || !isFiniteNumber(value.height)
+        || !isFiniteNumber(value.dpi)
+    ) {
+        throw new Error('invalid DjVu page size');
+    }
+    return {
+        width: value.width,
+        height: value.height,
+        dpi: value.dpi,
+    };
+}
+
+export function decodeDjvuPageSizes(value: unknown) {
+    if (!Array.isArray(value)) {
+        throw new Error('page sizes must be an array');
+    }
+    return (value as unknown[]).map(decodeDjvuPageSize);
+}
+
+export function decodeDjvuPageSourceInfo(value: unknown): IDjvuPageSourceInfo {
+    if (
+        !isRecord(value)
+        || !Number.isSafeInteger(value.pageCount)
+        || Number(value.pageCount) < 1
+        || !Number.isSafeInteger(value.pageNumber)
+        || Number(value.pageNumber) < 1
+        || Number(value.pageNumber) > Number(value.pageCount)
+    ) {
+        throw new Error('invalid DjVu page source info');
+    }
+    return {
+        pageCount: Number(value.pageCount),
+        pageNumber: Number(value.pageNumber),
+        pageSize: decodeDjvuPageSize(value.pageSize),
+        ...(Number.isSafeInteger(value.sourceSize) && Number(value.sourceSize) >= 0
+            ? {sourceSize: Number(value.sourceSize)}
+            : {}),
+        ...(Number.isSafeInteger(value.sourceModifiedAt) && Number(value.sourceModifiedAt) >= 0
+            ? {sourceModifiedAt: Number(value.sourceModifiedAt)}
+            : {}),
+    };
+}
+
 export interface IDjvuPagePreview {
     bytes: Uint8Array;
     width: number;
     height: number;
+}
+
+export function decodeDjvuPagePreview(value: unknown): IDjvuPagePreview {
+    if (
+        !isRecord(value)
+        || !(value.bytes instanceof Uint8Array)
+        || !isFiniteNumber(value.width)
+        || !isFiniteNumber(value.height)
+    ) {
+        throw new Error('invalid DjVu page preview');
+    }
+    return {
+        bytes: value.bytes,
+        width: value.width,
+        height: value.height,
+    };
 }
 
 export interface IDjvuPagePreviewOptions {

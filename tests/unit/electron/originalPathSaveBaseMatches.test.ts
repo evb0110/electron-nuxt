@@ -85,7 +85,7 @@ describe('originalPathSaveBaseMatches', () => {
         await expect(originalPathSaveBaseMatches(workingPath, originalPath, 12)).resolves.toBe(false);
     });
 
-    it('detects same-size same-mtime original edits in the middle of large files', async () => {
+    it('uses the materialization-compatible streamed hash to detect same-size same-mtime edits', async () => {
         const originalPath = join(tempDir, 'original.pdf');
         const workingPath = join(tempDir, 'working.pdf');
         const baseBytes = Buffer.alloc(3 * 1024 * 1024, 7);
@@ -96,8 +96,10 @@ describe('originalPathSaveBaseMatches', () => {
             writeFile(workingPath, baseBytes),
         ]);
         const originalStat = await stat(originalPath);
+        const sourceFingerprint = await createOriginalFileContentFingerprint(workingPath, baseBytes.byteLength);
+        expect(sourceFingerprint).toMatch(/^sha256-full-v1:/u);
         mocks.getWorkingCopyOriginalFileExpectation.mockReturnValue({
-            contentFingerprint: await createOriginalFileContentFingerprint(workingPath, baseBytes.byteLength),
+            contentFingerprint: sourceFingerprint,
             size: originalStat.size,
             mtimeMs: originalStat.mtimeMs,
         });

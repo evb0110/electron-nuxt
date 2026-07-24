@@ -29,7 +29,6 @@ import { normalizeOptionalIpcRequestId } from '@electron/utils/ipcLimits';
 import { createIpcProgressPump } from '@electron/utils/createIpcProgressPump';
 import type { TOpenFileResult } from '@electron/features/documents/contract';
 import { openInputPaths } from '@electron/features/documents/main/openInputPaths.service';
-import { handlePdfOpeningGeometry } from '@electron/features/documents/main/nativePdfPreview';
 import {
     errorWithDetails,
     showOpenDocumentDialogForContext,
@@ -66,34 +65,6 @@ export async function collectSupportedFolderPaths(folderPath: string) {
         })),
         ['name'],
     ).map(entry => entry.path);
-}
-
-function isSinglePdfPath(paths: readonly string[]) {
-    return paths.length === 1 && /\.pdf$/iu.test(paths[0] ?? '');
-}
-
-async function openInputPathsWithGeometryPreflight(
-    context: IDocumentsWebContentsContext,
-    paths: string[],
-) {
-    const result = await openInputPaths(paths, {}, context.sender);
-    if (result?.kind !== 'pdf' || !isSinglePdfPath(paths)) {
-        return result;
-    }
-    const openingGeometry = await handlePdfOpeningGeometry(context, result.workingPath)
-        .catch((error: unknown) => {
-            // Geometry improves the opening presentation but must not turn a
-            // readable document into a failed open. The viewer can still
-            // discover metadata from its managed working copy as a fallback.
-            logger.warn(`PDF opening geometry preflight failed: ${getErrorMessage(error)}`);
-            return null;
-        });
-    return openingGeometry
-        ? {
-            ...result,
-            openingGeometry,
-        }
-        : result;
 }
 
 function getBatchCombineKey(senderId: number, requestId: string) {
@@ -149,6 +120,31 @@ async function allowRecentFileOpenPath(filePath: string, owner: Electron.WebCont
     return allowOpenPath(normalizedPath, owner);
 }
 
+async function openDocumentsFromDialog(
+    context: IDocumentsDialogContext,
+    options: {
+        title: string;
+        extensions: string[];
+        failureMessage: string;
+    },
+): Promise<TOpenFileResult | null> {
+    const {
+        failureMessage,
+        ...dialogOptions
+    } = options;
+    const result = await showOpenDocumentDialogForContext(context, dialogOptions);
+    if (result.canceled || result.filePaths.length === 0) {
+        return null;
+    }
+
+    try {
+        return await openInputPaths(result.filePaths, {}, context.sender);
+    } catch (err) {
+        logger.error(`${failureMessage}: ${getErrorMessage(err)}`);
+        throw errorWithDetails(te('errors.file.open'), err);
+    }
+}
+
 export async function handleOpenPdfDirect(
     context: IDocumentsWebContentsContext,
     filePath: unknown,
@@ -172,7 +168,7 @@ export async function handleOpenPdfDirect(
 
     logger.info(`openDocumentDirect request: ${normalizedPath}`);
     try {
-        const result = await openInputPathsWithGeometryPreflight(context, [normalizedPath]);
+        const result = await openInputPaths([normalizedPath], {}, context.sender);
         logger.info(`openDocumentDirect result for ${normalizedPath}: ${result?.kind ?? 'null'}`);
         return result;
     } catch (err) {
@@ -230,7 +226,7 @@ export async function handleOpenPdfDirectBatch(
 }
 
 export async function handleOpenPdfDialog(context: IDocumentsDialogContext): Promise<TOpenFileResult | null> {
-    const result = await showOpenDocumentDialogForContext(context, {
+    return openDocumentsFromDialog(context, {
         title: te('dialogs.openDocument'),
         extensions: [
             'pdf',
@@ -238,18 +234,8 @@ export async function handleOpenPdfDialog(context: IDocumentsDialogContext): Pro
             'djv',
             ...PDF_COMBINE_SUPPORTED_IMAGE_EXTENSIONS.map(ext => ext.slice(1)),
         ],
+        failureMessage: 'Failed to create working copy',
     });
-
-    if (result.canceled || result.filePaths.length === 0) {
-        return null;
-    }
-
-    try {
-        return await openInputPathsWithGeometryPreflight(context, result.filePaths);
-    } catch (err) {
-        logger.error(`Failed to create working copy: ${getErrorMessage(err)}`);
-        throw errorWithDetails(te('errors.file.open'), err);
-    }
 }
 
 export async function handleOpenFolderDialog(context: IDocumentsDialogContext): Promise<TOpenFileResult | null> {
@@ -289,24 +275,14 @@ export async function handleOpenFolderDialog(context: IDocumentsDialogContext): 
 }
 
 export async function handleOpenCombineDialog(context: IDocumentsDialogContext): Promise<TOpenFileResult | null> {
-    const result = await showOpenDocumentDialogForContext(context, {
+    return openDocumentsFromDialog(context, {
         title: te('dialogs.combineFiles'),
         extensions: [
             'pdf',
             ...PDF_COMBINE_SUPPORTED_IMAGE_EXTENSIONS.map(ext => ext.slice(1)),
         ],
+        failureMessage: 'Failed to combine files',
     });
-
-    if (result.canceled || result.filePaths.length === 0) {
-        return null;
-    }
-
-    try {
-        return await openInputPaths(result.filePaths, {}, context.sender);
-    } catch (err) {
-        logger.error(`Failed to combine files: ${getErrorMessage(err)}`);
-        throw errorWithDetails(te('errors.file.open'), err);
-    }
 }
 
 export async function handleOpenImageDialog(context: IDocumentsDialogContext) {

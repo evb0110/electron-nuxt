@@ -463,6 +463,75 @@ describe('createDocumentsPreloadFileClient', () => {
         );
     });
 
+    it('decodes backing status queries and drops malformed backing status events', async () => {
+        const listeners = new Map<string, (_event: unknown, payload: unknown) => void>();
+        const ipcRenderer = {
+            invoke: vi.fn(async () => ({
+                documentRef: '/tmp/working.pdf',
+                failure: null,
+                originalPath: '/private/source.pdf',
+                progress: 0.25,
+                state: 'materializing',
+            })),
+            postMessage: vi.fn(),
+            on: vi.fn((channel: string, handler: (_event: unknown, payload: unknown) => void) => {
+                listeners.set(channel, handler);
+                return undefined as never;
+            }),
+            removeListener: vi.fn(),
+        } satisfies Pick<IpcRenderer, 'invoke' | 'postMessage' | 'on' | 'removeListener'>;
+        const client = createDocumentsPreloadFileClient(ipcRenderer);
+
+        await expect(client.getWorkingCopyBackingStatus?.('/tmp/working.pdf')).resolves.toEqual({
+            documentRef: '/tmp/working.pdf',
+            failure: null,
+            progress: 0.25,
+            state: 'materializing',
+        });
+        expect(ipcRenderer.invoke).toHaveBeenCalledWith(
+            DOCUMENTS_CHANNELS.workingCopyBackingStatusGet,
+            '/tmp/working.pdf',
+        );
+
+        const callback = vi.fn();
+        const unsubscribe = client.onWorkingCopyBackingStatusChanged?.(callback);
+        const listener = listeners.get(DOCUMENTS_EVENT_CHANNELS.workingCopyBackingStatusChanged);
+        if (!listener) {
+            throw new Error('Expected working-copy backing status listener');
+        }
+        listener({}, {
+            documentRef: '/tmp/working.pdf',
+            failure: null,
+            progress: 2,
+            state: 'materializing',
+        });
+        listener({}, {
+            documentRef: '/tmp/working.pdf',
+            failure: {
+                code: 'WORKING_COPY_MATERIALIZATION_NO_SPACE',
+                retryable: true,
+            },
+            progress: 0.75,
+            state: 'lazy-original',
+        });
+        unsubscribe?.();
+
+        expect(callback).toHaveBeenCalledOnce();
+        expect(callback).toHaveBeenCalledWith({
+            documentRef: '/tmp/working.pdf',
+            failure: {
+                code: 'WORKING_COPY_MATERIALIZATION_NO_SPACE',
+                retryable: true,
+            },
+            progress: 0.75,
+            state: 'lazy-original',
+        });
+        expect(ipcRenderer.removeListener).toHaveBeenCalledWith(
+            DOCUMENTS_EVENT_CHANNELS.workingCopyBackingStatusChanged,
+            listener,
+        );
+    });
+
     it('invokes native PDF preview metadata, cancel, and render channels with validated inputs', async () => {
         const openingGeometry = {
             pageNumber: 1 as const,

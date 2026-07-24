@@ -1,6 +1,7 @@
 import type { IRecentFile } from '@contracts/shared';
 import type { IDjvuPageSourceInfo } from '@contracts/electronApiDjvu';
 import type { IDocumentOpenSurfacePageGeometrySeed } from '@app/utils/document-viewer/chassis/documentOpenSurfaceSession';
+import { settleDocumentOpeningGeometryPrewarmTask } from '@app/utils/document-viewer/lifecycle/settleDocumentOpeningGeometryPrewarmTask';
 
 interface ISourceStat {
     size: number;
@@ -112,22 +113,13 @@ export async function prewarmRecentDjvuOpeningGeometry(
                 port.readStat ? () => port.readStat!(file.originalPath) : undefined,
                 () => port.readSourceInfo(file.originalPath),
             );
-            let timedOut = false;
-            let timeoutId: ReturnType<typeof setTimeout> | undefined;
-            const geometry = options.settleTimeoutMs && options.settleTimeoutMs > 0
-                ? await Promise.race([
-                    geometryTask,
-                    new Promise<null>((resolve) => {
-                        timeoutId = setTimeout(() => {
-                            timedOut = true;
-                            resolve(null);
-                        }, options.settleTimeoutMs);
-                    }),
-                ])
-                : await geometryTask;
-            if (timeoutId !== undefined) {
-                clearTimeout(timeoutId);
-            }
+            const {
+                geometry,
+                timedOut,
+            } = await settleDocumentOpeningGeometryPrewarmTask(
+                geometryTask,
+                options.settleTimeoutMs,
+            );
             results.set(file.originalPath, geometry);
             options.onSettled?.(file, geometry);
             if (timedOut) {

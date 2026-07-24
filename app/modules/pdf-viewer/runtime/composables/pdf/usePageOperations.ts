@@ -89,7 +89,7 @@ export const usePageOperations = (deps: {
     documentRevisionToken?: Ref<TDocumentRevisionToken | null>;
     pageLabels?: Ref<string[] | null>;
     bookmarkItems?: Ref<IPdfBookmarkEntry[]>;
-    ensureHistoryBaselineForExternalMutation: () => Promise<boolean>;
+    ensureHistoryBaselineForMutation: () => Promise<boolean>;
     materializeAnnotationsForPageMutation?: () => Promise<boolean>;
     reloadWorkingCopyIntoHistory: (opts?: { markDirty?: boolean }) => Promise<boolean>;
     clearOcrCache: (path: TDocumentRef) => void;
@@ -109,7 +109,7 @@ export const usePageOperations = (deps: {
         documentRevisionToken,
         pageLabels,
         bookmarkItems,
-        ensureHistoryBaselineForExternalMutation,
+        ensureHistoryBaselineForMutation,
         materializeAnnotationsForPageMutation,
         reloadWorkingCopyIntoHistory,
         clearOcrCache,
@@ -278,6 +278,21 @@ export const usePageOperations = (deps: {
                         phase: 'before-run',
                     });
                 }
+                if (options.shouldReload) {
+                    const didPrimeHistory = await ensureHistoryBaselineForMutation();
+                    if (!didPrimeHistory) {
+                        return recordOutcome<TResult>({
+                            status: 'blocked',
+                            reason: 'history-baseline',
+                        });
+                    }
+                    if (workingCopyPath.value !== path) {
+                        return recordOutcome<TResult>({
+                            status: 'stale',
+                            phase: 'history-baseline',
+                        });
+                    }
+                }
                 if (options.shouldReload && ensureWorkingCopyFreshForRead) {
                     const isFresh = await ensureWorkingCopyFreshForRead();
                     if (!isFresh) {
@@ -323,22 +338,6 @@ export const usePageOperations = (deps: {
                         });
                     }
                 }
-                if (options.shouldReload) {
-                    const didPrimeHistory = await ensureHistoryBaselineForExternalMutation();
-                    if (!didPrimeHistory) {
-                        return recordOutcome<TResult>({
-                            status: 'blocked',
-                            reason: 'history-baseline',
-                        });
-                    }
-                    if (workingCopyPath.value !== path) {
-                        return recordOutcome<TResult>({
-                            status: 'stale',
-                            phase: 'history-baseline',
-                        });
-                    }
-                }
-
                 const result = await options.run(path);
                 const isSuccessful = options.isSuccessful ?? ((apiResult) => apiResult.success);
                 if (!isSuccessful(result)) {

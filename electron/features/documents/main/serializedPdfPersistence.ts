@@ -51,7 +51,7 @@ import {
 import { makeSiblingTempPath } from '@electron/utils/atomicReplace';
 import { getErrorMessage } from '@electron/utils/error';
 import { syncFileHandleForDurability } from '@electron/utils/syncFileHandleForDurability';
-import { ensureWorkingCopyDirectory } from '@electron/file-access/workingCopyCreation';
+import {ensureWorkingCopyMaterialized} from '@electron/file-access/workingCopyMaterialization';
 import {
     getWorkingCopyOriginalPath,
     refreshWorkingCopyOriginalFileExpectation,
@@ -479,9 +479,10 @@ export async function beginSerializedPdfSaveToOriginal(
         ? normalizedWorkingPath
         : getValidatedOriginalPath(normalizedWorkingPath, context.senderId);
 
-    if (!await ensureWorkingCopyDirectory(normalizedWorkingPath, context.senderId)) {
-        throw new Error('Working copy path is not managed');
-    }
+    await ensureWorkingCopyMaterialized(normalizedWorkingPath, {
+        ownerWebContentsId: context.senderId,
+        reason: 'serialized-persistence',
+    });
     const session = await createSession({
         mode: workingCopyOnly ? 'working_copy' : 'save',
         sender: context.sender,
@@ -514,9 +515,10 @@ export async function beginSerializedPdfSaveAs(
             ...getSerializedPdfPersistenceLimits(),
         };
     }
-    if (!await ensureWorkingCopyDirectory(normalizedWorkingPath, context.senderId)) {
-        throw new Error('Working copy path is not managed');
-    }
+    await ensureWorkingCopyMaterialized(normalizedWorkingPath, {
+        ownerWebContentsId: context.senderId,
+        reason: 'serialized-persistence',
+    });
 
     const session = await createSession({
         mode: 'save_as',
@@ -669,13 +671,14 @@ async function commitSession(
     let targetWriteCommitted = false;
     let workingCopyRefreshed = false;
     await enqueueWorkingCopyMutation(session.workingPath, async () => {
-        if (!await ensureWorkingCopyDirectory(session.workingPath, session.senderId)) {
-            throw new Error('Working copy path is not managed');
-        }
         await assertQueuedWorkingCopyMutationPreconditions(
             session.workingPath,
             session.expectedDocumentRevisionToken,
         );
+        await ensureWorkingCopyMaterialized(session.workingPath, {
+            ownerWebContentsId: session.senderId,
+            reason: 'serialized-persistence',
+        });
 
         if (session.mode === 'working_copy') {
             await commitPdfTempFile(session.tempPath, session.workingPath, {

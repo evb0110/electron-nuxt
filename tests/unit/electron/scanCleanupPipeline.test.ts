@@ -21,7 +21,13 @@ import type {
 import {
     classifyScanCleanupError,
     grantScanCleanupOutputAccess,
+    materializeScanCleanupSourcePath,
 } from '@electron/features/scan-cleanup/createScanCleanupService';
+import {
+    captureWorkingCopyAdmissionSnapshot,
+    clearWorkingCopyOriginalPaths,
+    setWorkingCopyOriginalPath,
+} from '@electron/file-access/workingCopyStore';
 import {
     removeAllowedOpenPath,
     requireOpenPath,
@@ -256,6 +262,7 @@ async function writeCleanupOutput(
 }
 
 afterEach(async () => {
+    clearWorkingCopyOriginalPaths();
     const {rm} = await import('fs/promises');
     await Promise.all(dirs.splice(0).map(dir => rm(dir, {
         recursive: true,
@@ -264,6 +271,50 @@ afterEach(async () => {
 });
 
 describe('scan cleanup pipeline', () => {
+    it('demand-materializes lazy-original input before scan-cleanup apply', async () => {
+        const fixture = await setup();
+        const workingCopyPath = join(fixture.dir, 'working.pdf');
+        await setWorkingCopyOriginalPath(
+            workingCopyPath,
+            fixture.sourcePdfPath,
+            42,
+            {
+                admissionSnapshot: await captureWorkingCopyAdmissionSnapshot(fixture.sourcePdfPath),
+                backingState: 'lazy-original',
+                deferOriginalFileExpectation: true,
+            },
+        );
+
+        await expect(materializeScanCleanupSourcePath(
+            workingCopyPath,
+            42,
+        )).resolves.toBe(workingCopyPath);
+
+        await expect(readFile(workingCopyPath, 'utf8')).resolves.toBe('ORIGINAL');
+    });
+
+    it('keeps eager scan-cleanup apply paths unchanged', async () => {
+        const fixture = await setup();
+        const workingCopyPath = join(fixture.dir, 'working.pdf');
+        await writeFile(workingCopyPath, 'EAGER');
+        await setWorkingCopyOriginalPath(
+            workingCopyPath,
+            fixture.sourcePdfPath,
+            42,
+            {
+                backingState: 'eager',
+                deferOriginalFileExpectation: true,
+            },
+        );
+
+        await expect(materializeScanCleanupSourcePath(
+            workingCopyPath,
+            42,
+        )).resolves.toBe(workingCopyPath);
+
+        await expect(readFile(workingCopyPath, 'utf8')).resolves.toBe('EAGER');
+    });
+
     it('maps rotated lossless analysis to PDF points, reverses RTL halves, and prunes raster options', async () => {
         const fixture = await setup();
         const losslessOptions: IScanCleanupOptions = {

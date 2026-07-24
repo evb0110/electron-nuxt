@@ -77,6 +77,7 @@ function createPersistenceHarness() {
 
     const deps = {
         deferPdfConformanceProfile: vi.fn(),
+        ensureHistoryBaselineForMutation: vi.fn(async () => true),
         getHistoryDebugState: vi.fn(() => ({
             historyLength: 1,
             historyIndex: 0,
@@ -250,6 +251,23 @@ describe('createDocumentPersistence', () => {
         ]));
         expectBroadFilePersistenceFacadeNotUsed();
         expectBroadWorkingCopyFacadeNotUsed();
+    });
+
+    it('does not write silent PDF data when mutation baseline staging fails', async () => {
+        const {
+            deps,
+            persistence,
+            state,
+        } = createPersistenceHarness();
+        const before = new Uint8Array([1]);
+        state.pdfData.value = before;
+        deps.ensureHistoryBaselineForMutation.mockResolvedValue(false);
+
+        await expect(persistence.persistPdfDataSilently(new Uint8Array([2]))).resolves.toBe(false);
+
+        expect(mocks.documentFilesCapability.writeFile).not.toHaveBeenCalled();
+        expect(deps.pushHistorySnapshot).not.toHaveBeenCalled();
+        expect(state.pdfData.value).toBe(before);
     });
 
     it('saves the working copy through the split file IO capability', async () => {

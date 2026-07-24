@@ -28,6 +28,7 @@ import type {
     TPdfAnnotationShapeType,
 } from '@contracts/annotations';
 import {
+    isFiniteNumber,
     isOneOf,
     isRecord,
 } from '@contracts/runtimeGuards';
@@ -66,6 +67,74 @@ export interface IManagedTempFileHandle {
     sha256: string;
     leaseId: string;
     revision: TDocumentRevisionToken | null;
+}
+
+export const WORKING_COPY_BACKING_STATUS_STATES = [
+    'lazy-original',
+    'materializing',
+    'materialized',
+] as const;
+
+export type TWorkingCopyBackingStatusState = typeof WORKING_COPY_BACKING_STATUS_STATES[number];
+
+export const WORKING_COPY_BACKING_FAILURE_CODES = [
+    'SOURCE_BACKING_CHANGED',
+    'SOURCE_BACKING_UNAVAILABLE',
+    'WORKING_COPY_MATERIALIZATION_CANCELLED',
+    'WORKING_COPY_MATERIALIZATION_FAILED',
+    'WORKING_COPY_MATERIALIZATION_NO_SPACE',
+    'WORKING_COPY_MATERIALIZATION_VERIFICATION_FAILED',
+    'WORKING_COPY_REGISTRATION_CHANGED',
+] as const;
+
+export type TWorkingCopyBackingFailureCode = typeof WORKING_COPY_BACKING_FAILURE_CODES[number];
+
+export interface IWorkingCopyBackingFailure {
+    code: TWorkingCopyBackingFailureCode;
+    retryable: boolean;
+}
+
+export interface IWorkingCopyBackingStatus {
+    documentRef: TDocumentRef;
+    failure: IWorkingCopyBackingFailure | null;
+    progress: number;
+    state: TWorkingCopyBackingStatusState;
+}
+
+export function decodeWorkingCopyBackingStatus(value: unknown): IWorkingCopyBackingStatus | null {
+    if (
+        !isRecord(value)
+        || typeof value.documentRef !== 'string'
+        || value.documentRef.trim().length === 0
+        || !isFiniteNumber(value.progress)
+        || value.progress < 0
+        || value.progress > 1
+        || !isOneOf(WORKING_COPY_BACKING_STATUS_STATES, value.state)
+    ) {
+        return null;
+    }
+    const failure = value.failure;
+    if (
+        failure !== null
+        && (
+            !isRecord(failure)
+            || !isOneOf(WORKING_COPY_BACKING_FAILURE_CODES, failure.code)
+            || typeof failure.retryable !== 'boolean'
+        )
+    ) {
+        return null;
+    }
+    return {
+        documentRef: value.documentRef,
+        failure: failure === null
+            ? null
+            : {
+                code: failure.code as TWorkingCopyBackingFailureCode,
+                retryable: failure.retryable as boolean,
+            },
+        progress: value.progress,
+        state: value.state,
+    };
 }
 
 export function decodeManagedTempFileHandle(value: unknown): IManagedTempFileHandle | null {
@@ -569,7 +638,7 @@ export interface IDocumentsFileCapability {
     readFileRange: (path: TDocumentRef, offset: number, length: number) => Promise<Uint8Array>;
     createManagedTempFileHandle?: (path: TDocumentRef) => Promise<IManagedTempFileHandle>;
     releaseManagedTempFileHandle?: (leaseId: string) => Promise<boolean>;
-    getPdfOpeningGeometry?: (path: TDocumentRef) => Promise<IPdfOpeningGeometry>;
+    getPdfOpeningGeometry?: (path: TDocumentRef) => Promise<IPdfOpeningGeometry | null>;
     getPdfNativePageSizes?: (path: TDocumentRef) => Promise<IPdfNativePageSize[]>;
     cancelPdfNativePagePreview?: (requestId: string) => Promise<{ canceled: boolean }>;
     renderPdfNativePagePreview?: (
@@ -585,6 +654,7 @@ export interface IDocumentsFileCapability {
     readTextFile: (path: TDocumentRef) => Promise<string>;
     fileExists: (path: TDocumentRef) => Promise<boolean>;
     getDocumentRevision: (path: TDocumentRef) => Promise<IDocumentRevisionInfo>;
+    getWorkingCopyBackingStatus?: (path: TDocumentRef) => Promise<IWorkingCopyBackingStatus | null>;
     analyzePdfConformance: (path: TDocumentRef) => Promise<IPdfConformanceProfile>;
     validatePdfData: (data: Uint8Array, fileName?: string) => Promise<IPdfValidationResult>;
     openPdfInDefaultAppData: (data: Uint8Array, fileName?: string) => Promise<{
@@ -690,6 +760,9 @@ export interface IDocumentsFileCapability {
     onDocumentRevisionChanged: (
         callback: (event: IDocumentRevisionChangedEvent) => void,
     ) => TMenuEventUnsubscribe;
+    onWorkingCopyBackingStatusChanged?: (
+        callback: (event: IWorkingCopyBackingStatus) => void,
+    ) => TMenuEventUnsubscribe;
 
     recentFiles: {
         get: () => Promise<IRecentFile[]>;
@@ -762,7 +835,9 @@ export interface IDocumentsReadCapability extends Pick<
     | 'readTextFile'
     | 'fileExists'
     | 'getDocumentRevision'
+    | 'getWorkingCopyBackingStatus'
     | 'onDocumentRevisionChanged'
+    | 'onWorkingCopyBackingStatusChanged'
 > {}
 
 export interface IDocumentsPdfValidationCapability extends Pick<

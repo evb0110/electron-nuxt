@@ -299,6 +299,11 @@ function dependencies(dir: string): IScanCleanupPreviewDependencies {
         resolveBinary: () => '/cleanup',
         getTempDir: () => dir,
         getPdftoppmBinary: () => '/pdftoppm',
+        materializeWorkingCopy: vi.fn(async sourcePdfPath => ({
+            logicalRef: sourcePdfPath,
+            physicalWorkingCopyPath: sourcePdfPath,
+            sourceFingerprint: '',
+        })),
     };
 }
 
@@ -583,6 +588,52 @@ describe('scan cleanup preview', () => {
             },
             updatedAtMs: Date.now(),
         })).toThrow('invalid scan-cleanup progress');
+    });
+
+    it('demand-materializes lazy-original input before scan-cleanup preview', async () => {
+        const dir = await setup();
+        const deps = dependencies(dir);
+        vi.mocked(deps.materializeWorkingCopy).mockResolvedValue({
+            logicalRef: request.sourcePdfPath,
+            physicalWorkingCopyPath: '/managed/document.pdf',
+            sourceFingerprint: 'source-fingerprint',
+        });
+
+        await createScanCleanupPreviewService(deps).preview(sender(), request);
+
+        expect(deps.materializeWorkingCopy).toHaveBeenCalledWith(request.sourcePdfPath, {
+            ownerWebContentsId: 1,
+            reason: 'scan-cleanup',
+            signal: expect.any(AbortSignal),
+        });
+        expect(deps.renderPage).toHaveBeenCalledWith(
+            expect.anything(),
+            expect.any(Function),
+            1,
+            '/managed/document.pdf',
+            expect.any(String),
+            expect.any(Number),
+            undefined,
+            expect.any(AbortSignal),
+        );
+    });
+
+    it('keeps eager scan-cleanup preview paths unchanged', async () => {
+        const dir = await setup();
+        const deps = dependencies(dir);
+
+        await createScanCleanupPreviewService(deps).preview(sender(), request);
+
+        expect(deps.renderPage).toHaveBeenCalledWith(
+            expect.anything(),
+            expect.any(Function),
+            1,
+            request.sourcePdfPath,
+            expect.any(String),
+            expect.any(Number),
+            undefined,
+            expect.any(AbortSignal),
+        );
     });
 
     it('returns real sidecar bytes and validated metadata', async () => {

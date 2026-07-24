@@ -13,14 +13,23 @@ import type { TDocumentRef } from '@contracts/documentRef';
 import type { TDocumentRevisionToken } from '@contracts/documentRevision';
 import type { TDocumentOpenOutcome } from '@app/types/documentOpenOutcome';
 
-const mocks = vi.hoisted(() => ({ pageOpsDeps: null as null | {
-    onExtractedDocument?: (path: TDocumentRef) => Promise<void> | void;
-    ensureWorkingCopyFreshForRead?: () => Promise<boolean>;
-    canMutatePages?: unknown;
-    documentRevisionToken?: unknown;
-} }));
+const mocks = vi.hoisted(() => ({
+    pageOpsDeps: null as null | {
+        onExtractedDocument?: (path: TDocumentRef) => Promise<void> | void;
+        ensureWorkingCopyFreshForRead?: () => Promise<boolean>;
+        canMutatePages?: unknown;
+        documentRevisionToken?: unknown;
+    },
+    statusBarDeps: null as null | {workingCopyPath?: unknown},
+}));
 
-vi.mock('@app/modules/workspace-shell/composables/usePageStatusBar', () => ({ usePageStatusBar: () => ({}) }));
+vi.mock('@app/modules/workspace-shell/composables/usePageStatusBar', () => ({usePageStatusBar: (deps: {workingCopyPath?: unknown}) => {
+    mocks.statusBarDeps = deps;
+    return {
+        statusMaterializationIsActive: ref(true),
+        statusMaterializationLabel: ref('Preparing document'),
+    };
+}}));
 
 vi.mock('@app/modules/workspace-shell/composables/usePageOpsHandlers', () => ({ usePageOpsHandlers: (deps: unknown) => {
     mocks.pageOpsDeps = deps as {
@@ -71,7 +80,7 @@ function createOptions() {
         }),
         closePageContextMenu: vi.fn(),
         handleExportImages: vi.fn(async () => {}),
-        ensureHistoryBaselineForExternalMutation: vi.fn(async () => true),
+        ensureHistoryBaselineForMutation: vi.fn(async () => true),
         reloadWorkingCopyIntoHistory: vi.fn(async () => true),
         preparePdfReloadWaiter: vi.fn(() => ({
             promise: Promise.resolve(),
@@ -107,6 +116,7 @@ function createOptions() {
 describe('useWorkspaceDocumentControls', () => {
     beforeEach(() => {
         mocks.pageOpsDeps = null;
+        mocks.statusBarDeps = null;
         vi.clearAllMocks();
     });
 
@@ -122,4 +132,12 @@ describe('useWorkspaceDocumentControls', () => {
         expect(options.emitOpenInNewTab).toHaveBeenCalledWith('C:\\Users\\andrej\\Downloads\\extract.pdf');
     });
 
+    it('keeps backing status derived inside the status-bar composable', () => {
+        const options = createOptions();
+        const controls = useWorkspaceDocumentControls(options);
+
+        expect(mocks.statusBarDeps?.workingCopyPath).toBe(options.workingCopyPath);
+        expect(controls.statusMaterializationLabel.value).toBe('Preparing document');
+        expect(controls.statusMaterializationIsActive.value).toBe(true);
+    });
 });

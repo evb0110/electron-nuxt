@@ -23,6 +23,7 @@ import {
     waitForPdfLoaded,
 } from '@tests/e2e/electron/helpers/viewerCore';
 import {
+    activateWorkspaceTab as activateTab,
     createNewWorkspaceTab as createNewTab,
     splitActiveWorkspaceDocument as splitActiveDocument,
 } from '@tests/e2e/electron/helpers/workspaceTabs';
@@ -42,6 +43,28 @@ interface IWorkspaceDjvuPressure {
     pageShells: number;
     images: number;
 }
+
+interface IWorkspaceSurfaceBudgetSnapshotForE2E {
+    leaseCount: number;
+    pressureLevel: string;
+    reservedBytes: number;
+    reservedBytesByCategory: Record<string, number>;
+}
+
+interface IWorkspaceSurfacePressureWindow extends Window {
+    __getWorkspaceSurfaceBudgetForE2E?: () => IWorkspaceSurfaceBudgetSnapshotForE2E;
+    __setWorkspaceSurfacePressureForE2E?: (
+        level: 'healthy' | 'moderate',
+    ) => void;
+}
+
+interface IInactiveDjvuRenderCancellationProbe {
+    committedPagesAfterDeactivation: number[];
+    deactivated: boolean;
+    observer: MutationObserver;
+}
+
+interface IInactiveDjvuRenderCancellationWindow extends Window {__inactiveDjvuRenderCancellationProbe?: IInactiveDjvuRenderCancellationProbe;}
 
 interface IDjvuActivationOccupancyFrame {
     canonicalShellCount: number;
@@ -257,6 +280,81 @@ async function waitForActiveDjvuImages(session: IElectronE2ESession) {
         const activeHost = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
         return (activeHost?.querySelectorAll('[data-testid="document-page-source-image"]').length ?? 0) > 0;
     }, { timeout: 20_000 });
+}
+
+async function waitForDjvuPreviewBytes(
+    session: IElectronE2ESession,
+    predicate: (bytes: number) => boolean,
+    timeoutMs: number,
+) {
+    const deadline = Date.now() + timeoutMs;
+    let snapshot: IWorkspaceSurfaceBudgetSnapshotForE2E | null = null;
+    while (Date.now() < deadline) {
+        snapshot = await session.page.evaluate(() => (
+            (window as IWorkspaceSurfacePressureWindow).__getWorkspaceSurfaceBudgetForE2E?.() ?? null
+        ));
+        if (snapshot && predicate(snapshot.reservedBytesByCategory['djvu-preview'] ?? 0)) {
+            return snapshot;
+        }
+        await new Promise(resolve => setTimeout(resolve, 25));
+    }
+    throw new Error(`DjVu preview residency did not reach the expected state: ${JSON.stringify(snapshot)}`);
+}
+
+async function waitForInactiveDjvuImagesToRelease(session: IElectronE2ESession, timeoutMs: number) {
+    const deadline = Date.now() + timeoutMs;
+    let snapshots: IWorkspaceDjvuPressure[] = [];
+    while (Date.now() < deadline) {
+        snapshots = await session.page.evaluate(readDjvuPressureFromPage);
+        if (snapshots.filter(host => !host.active).every(host => host.images === 0)) {
+            return snapshots;
+        }
+        await new Promise(resolve => setTimeout(resolve, 25));
+    }
+    throw new Error(`Inactive DjVu images were not released: ${JSON.stringify(snapshots)}`);
+}
+
+async function installInactiveDjvuRenderCancellationProbe(session: IElectronE2ESession) {
+    await session.page.evaluate(() => {
+        const probeWindow = window as IInactiveDjvuRenderCancellationWindow;
+        probeWindow.__inactiveDjvuRenderCancellationProbe?.observer.disconnect();
+        const activeHost = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
+        if (!activeHost?.querySelector('[data-testid="document-page-source-viewer"]')) {
+            throw new Error('Active DjVu workspace was not found');
+        }
+        const probe: IInactiveDjvuRenderCancellationProbe = {
+            committedPagesAfterDeactivation: [],
+            deactivated: false,
+            observer: new MutationObserver(() => {
+                if (!probe.deactivated) {
+                    return;
+                }
+                const committedPages = Array.from(activeHost.querySelectorAll<HTMLImageElement>(
+                    '[data-testid="document-page-source-image"].document-page-visual--committed'
+                    + '[data-document-page-visual="committed"]',
+                )).map(image => Number(
+                    image.closest<HTMLElement>('[data-page-number]')?.dataset.pageNumber,
+                )).filter(Number.isFinite);
+                probe.committedPagesAfterDeactivation.push(...committedPages);
+            }),
+        };
+        probe.observer.observe(activeHost, {
+            attributes: true,
+            childList: true,
+            subtree: true,
+        });
+        probeWindow.__inactiveDjvuRenderCancellationProbe = probe;
+    });
+}
+
+async function stopInactiveDjvuRenderCancellationProbe(session: IElectronE2ESession) {
+    return session.page.evaluate(() => {
+        const probeWindow = window as IInactiveDjvuRenderCancellationWindow;
+        const probe = probeWindow.__inactiveDjvuRenderCancellationProbe;
+        probe?.observer.disconnect();
+        delete probeWindow.__inactiveDjvuRenderCancellationProbe;
+        return probe?.committedPagesAfterDeactivation ?? [];
+    });
 }
 
 async function waitForActiveDjvuCommittedPage(session: IElectronE2ESession, pageNumber: number) {
@@ -513,6 +611,156 @@ runOrSkip('Electron E2E - Inactive DjVu Tabs', () => {
         expect(afterDjvuReactivation.filter(host => !host.active).every(host => host.images === 0)).toBe(true);
     }, 120_000);
 
+    it('cancels queued and in-flight DjVu renders when its tab deactivates', async () => {
+        let session = sessionFixture.getSession();
+        if (!session || !djvuFixture.path) {
+            return;
+        }
+
+        session = await sessionFixture.restart({
+            clean: true,
+            sessionName: () => `e2e-djvu-deactivation-cancellation-${Date.now()}`,
+        });
+        if (!session) {
+            return;
+        }
+
+        await createNewTab(session);
+        await activateTab(session, 0);
+        await openDjvuInApp(session.page, djvuFixture.path, DJVU_E2E_TIMEOUT_MS);
+        await waitForDjvuLoaded(session.page, DJVU_E2E_TIMEOUT_MS);
+        await waitForActiveDjvuImages(session);
+        expect((await callWorkspaceCommand(
+            session.page,
+            'setCustomZoomFromDisplay',
+            [6.47],
+        )).called).toBe(true);
+        const toolbar = await waitForWorkspaceToolbarSnapshot(
+            session.page,
+            {minEffectiveZoom: 6.465},
+            {timeoutMs: DJVU_E2E_TIMEOUT_MS},
+        );
+        const targetPage = Math.max(2, toolbar.totalPages - 8);
+        const queuedPages = [
+            Math.max(2, targetPage - 2),
+            targetPage,
+        ];
+        await installInactiveDjvuRenderCancellationProbe(session);
+
+        const transition = await session.page.evaluate(async (pages: number[]) => {
+            const probe = (window as IInactiveDjvuRenderCancellationWindow)
+                .__inactiveDjvuRenderCancellationProbe;
+            const api = (window as IE2EWindow).__evbTestApi;
+            if (!probe || !api) {
+                return {
+                    commandAvailable: false,
+                    pendingPages: [] as number[],
+                    switchedTabs: false,
+                };
+            }
+            for (const page of pages) {
+                void api.callActiveWorkspaceCommand('handleGoToPage', [page]);
+            }
+            await Promise.resolve();
+            await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
+            const host = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
+            const pendingPages = Array.from(host?.querySelectorAll<HTMLElement>(
+                '[data-testid="document-page-source-page"][data-page-source-visual="skeleton"]',
+            ) ?? []).map(page => Number(page.dataset.pageNumber));
+            const tabs = Array.from(document.querySelectorAll<HTMLElement>('.tab-list .tab[data-tab-id]'));
+            tabs[1]?.click();
+            probe.deactivated = true;
+            return {
+                commandAvailable: true,
+                pendingPages,
+                switchedTabs: Boolean(tabs[1]),
+            };
+        }, queuedPages);
+
+        expect(transition.commandAvailable).toBe(true);
+        expect(transition.switchedTabs).toBe(true);
+        expect(
+            transition.pendingPages.some(page => queuedPages.includes(page)),
+            JSON.stringify(transition),
+        ).toBe(true);
+
+        await waitForDjvuPreviewBytes(session, bytes => bytes === 0, 4_000);
+        await new Promise(resolve => setTimeout(resolve, 250));
+        const committedPagesAfterDeactivation = await stopInactiveDjvuRenderCancellationProbe(session);
+        expect(
+            committedPagesAfterDeactivation.filter(page => queuedPages.includes(page)),
+            JSON.stringify(committedPagesAfterDeactivation),
+        ).toEqual([]);
+        await waitForInactiveDjvuImagesToRelease(session, 4_000);
+        const pressure = await assertInactiveDocumentPressureReleased(session.page);
+        expect(pressure.filter(host => !host.active).every(host => host.djvuImages === 0)).toBe(true);
+    }, 120_000);
+
+    it('releases inactive DjVu leases immediately under moderate memory pressure', async () => {
+        let session = sessionFixture.getSession();
+        if (!session || !djvuFixture.path) {
+            return;
+        }
+
+        session = await sessionFixture.restart({
+            clean: true,
+            sessionName: () => `e2e-djvu-moderate-pressure-release-${Date.now()}`,
+        });
+        if (!session) {
+            return;
+        }
+
+        await createNewTab(session);
+        await activateTab(session, 0);
+        await openDjvuInApp(session.page, djvuFixture.path, DJVU_E2E_TIMEOUT_MS);
+        await waitForDjvuLoaded(session.page, DJVU_E2E_TIMEOUT_MS);
+        await waitForActiveDjvuImages(session);
+        const resident = await waitForDjvuPreviewBytes(session, bytes => bytes > 0, DJVU_E2E_TIMEOUT_MS);
+        expect(resident.reservedBytesByCategory['djvu-preview']).toBeGreaterThan(0);
+
+        const release = await session.page.evaluate(async () => {
+            const pressureWindow = window as IWorkspaceSurfacePressureWindow;
+            if (
+                !pressureWindow.__setWorkspaceSurfacePressureForE2E
+                || !pressureWindow.__getWorkspaceSurfaceBudgetForE2E
+            ) {
+                throw new Error('Workspace surface pressure E2E hook is unavailable');
+            }
+            pressureWindow.__setWorkspaceSurfacePressureForE2E('moderate');
+            const startedAt = performance.now();
+            try {
+                const tabs = Array.from(document.querySelectorAll<HTMLElement>(
+                    '.tab-list .tab[data-tab-id]',
+                ));
+                tabs[1]?.click();
+                const deadline = startedAt + 1_250;
+                let snapshot = pressureWindow.__getWorkspaceSurfaceBudgetForE2E();
+                while (
+                    performance.now() < deadline
+                    && (snapshot.reservedBytesByCategory['djvu-preview'] ?? 0) > 0
+                ) {
+                    await new Promise(resolve => setTimeout(resolve, 25));
+                    snapshot = pressureWindow.__getWorkspaceSurfaceBudgetForE2E();
+                }
+                return {
+                    elapsedMs: performance.now() - startedAt,
+                    snapshot,
+                    switchedTabs: Boolean(tabs[1]),
+                };
+            } finally {
+                pressureWindow.__setWorkspaceSurfacePressureForE2E('healthy');
+            }
+        });
+
+        expect(release.switchedTabs).toBe(true);
+        expect(release.snapshot.pressureLevel).toBe('moderate');
+        expect(release.snapshot.reservedBytesByCategory['djvu-preview'] ?? -1).toBe(0);
+        expect(release.elapsedMs, JSON.stringify(release)).toBeLessThan(1_250);
+        await waitForInactiveDjvuImagesToRelease(session, 4_000);
+        const pressure = await assertInactiveDocumentPressureReleased(session.page);
+        expect(pressure.filter(host => !host.active).every(host => host.djvuImages === 0)).toBe(true);
+    }, 120_000);
+
     it('keeps independently opened visible split-pane DjVu documents rendered', async () => {
         const session = sessionFixture.getSession();
         if (!session) {
@@ -560,7 +808,8 @@ runOrSkip('Electron E2E - Inactive DjVu Tabs', () => {
         await waitForActiveDjvuImages(session);
 
         await goToPageViaToolbar(session.page, 18);
-        await waitForActiveDjvuImages(session);
+        await waitForActiveDjvuCommittedPage(session, 18);
+        await waitForActiveDjvuAuthorityConvergence(session, 18);
 
         const continuity = await runSplitPaneCloseContinuity(session, {
             documentKind: 'djvu',

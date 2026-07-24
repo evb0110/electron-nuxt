@@ -17,7 +17,16 @@ import type {
 } from '@app/types/annotations';
 import { useAnnotationIdentity } from '@app/modules/pdf-viewer/runtime/annotations/useAnnotationIdentity';
 import type { IPdfPageAnnotationBundle } from '@app/modules/pdf-viewer/engine/annotations/annotation-sync-helpers/annotationSyncHelpersTypes';
-import { resolvePdfAnnotationNameReadLimits } from '@app/modules/pdf-viewer/runtime/annotations/useAnnotationOrchestrator';
+import { resolvePerformanceProfile } from '@app/utils/performanceProfile';
+import { resolveOpenPathSecondaryPerformancePolicy } from '@app/utils/openPathSecondaryPerformancePolicy';
+
+function resolvePdfAnnotationNameReadLimits(tier: 'low' | 'medium') {
+    const policy = resolveOpenPathSecondaryPerformancePolicy(resolvePerformanceProfile({ tier }));
+    return {
+        eagerMaxBytes: policy.eagerAnnotationNameReadMaxBytes,
+        interactiveMaxBytes: policy.interactiveAnnotationNameReadMaxBytes,
+    };
+}
 
 const {
     collectPdfAnnotationNamesByPage,

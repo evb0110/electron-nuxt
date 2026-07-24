@@ -46,6 +46,8 @@ export const DOCUMENTS_CHANNELS = {
     fileReadText: DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.readTextFile,
     fileExists: DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.fileExists,
     documentRevisionGet: DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.getDocumentRevision,
+    workingCopyBackingStatusGet:
+        DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.getWorkingCopyBackingStatus,
     pdfAnalyzeConformance: DOCUMENT_PDF_PLATFORM_FEATURE.invokeChannels.analyzePdfConformance,
     pdfValidateData: DOCUMENT_PDF_PLATFORM_FEATURE.invokeChannels.validatePdfData,
     pdfValidatePath: DOCUMENT_PDF_PLATFORM_FEATURE.invokeChannels.validatePdfPath,
@@ -77,7 +79,11 @@ export const DOCUMENTS_CHANNELS = {
     fileCleanupOcrTemp: DOCUMENT_WORKING_COPY_PLATFORM_FEATURE.invokeChannels.cleanupOcrTemp,
 } as const;
 
-export const DOCUMENTS_EVENT_CHANNELS = {documentRevisionChanged: DOCUMENT_FILES_PLATFORM_FEATURE.eventChannels.onDocumentRevisionChanged} as const;
+export const DOCUMENTS_EVENT_CHANNELS = {
+    documentRevisionChanged: DOCUMENT_FILES_PLATFORM_FEATURE.eventChannels.onDocumentRevisionChanged,
+    workingCopyBackingStatusChanged:
+        DOCUMENT_FILES_PLATFORM_FEATURE.eventChannels.onWorkingCopyBackingStatusChanged,
+} as const;
 
 interface IDocumentsDirectPersistenceInvokeMap {
     [DOCUMENTS_CHANNELS.registerRendererFileOpenToken]: {

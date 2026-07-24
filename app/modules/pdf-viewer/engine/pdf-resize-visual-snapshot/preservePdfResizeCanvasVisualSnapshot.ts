@@ -63,7 +63,13 @@ export function preservePdfResizeCanvasVisualSnapshot(
     return {
         hasReplacementCanvas: () => {
             const replacement = canvasHost.querySelector<HTMLCanvasElement>('canvas');
-            return replacement !== null && replacement !== sourceCanvas;
+            return replacement !== null
+                && replacement !== sourceCanvas
+                && replacement.isConnected
+                && replacement.width > 0
+                && replacement.height > 0
+                && pageContainer.classList.contains('page_container--rendered')
+                && getComputedStyle(canvasHost).visibility !== 'hidden';
         },
         isValid: () => (
             !released

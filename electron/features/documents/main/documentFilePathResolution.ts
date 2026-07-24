@@ -13,7 +13,10 @@ import {
     resolveAllowedReadPath,
 } from '@electron/utils/pathValidator';
 import { ensureWorkingCopyDirectory } from '@electron/file-access/workingCopyCreation';
-import { findWorkingCopyPathByOriginalPath } from '@electron/file-access/workingCopyStore';
+import {
+    findWorkingCopyPathByOriginalPath,
+    getWorkingCopyBackingEntry,
+} from '@electron/file-access/workingCopyStore';
 import { isAllowedDjvuViewingPath } from '@electron/djvu/viewing';
 import { requireOpenPath } from '@electron/file-access/openPathCapabilities';
 
@@ -78,11 +81,32 @@ function resolveDirectSourceReadPath(
     }
 }
 
+function isOriginalBackedManagedRef(
+    normalizedPath: string,
+    senderId?: number,
+) {
+    const entry = getWorkingCopyBackingEntry(normalizedPath, senderId);
+    return entry?.backingState === 'lazy-original'
+        || entry?.backingState === 'materializing';
+}
+
 export async function resolveReadablePath(
     normalizedPath: string,
     extension: string,
     senderId?: number,
 ) {
+    if (isOriginalBackedManagedRef(normalizedPath, senderId)) {
+        return normalizedPath;
+    }
+
+    const mappedWorkingCopyPath = findWorkingCopyPathByOriginalPath(normalizedPath, senderId);
+    if (
+        mappedWorkingCopyPath
+        && isOriginalBackedManagedRef(mappedWorkingCopyPath, senderId)
+    ) {
+        return mappedWorkingCopyPath;
+    }
+
     const directResolvedPath = await resolveAllowedReadPath(normalizedPath);
     if (directResolvedPath) {
         return directResolvedPath;
@@ -97,7 +121,6 @@ export async function resolveReadablePath(
 
     // When renderer still references the original path, remap it to the active
     // working copy path to preserve temp-sandboxed reads.
-    const mappedWorkingCopyPath = findWorkingCopyPathByOriginalPath(normalizedPath, senderId);
     if (!mappedWorkingCopyPath) {
         return resolveGrantedReadablePathSync(normalizedPath, senderId)
             ?? resolveDirectSourceReadPath(normalizedPath, extension, senderId);
@@ -139,7 +162,7 @@ export async function resolveExistingReadableBinaryPath(
         throw new Error('Invalid file path: reads only allowed within temp directory');
     }
 
-    if (!existsSync(resolvedPath)) {
+    if (!existsSync(resolvedPath) && !isOriginalBackedManagedRef(resolvedPath, senderId)) {
         throw new Error(`File not found: ${normalizedPath}`);
     }
 
@@ -158,7 +181,7 @@ export async function resolveExistingReadablePdfPath(filePath: unknown, senderId
         throw new Error('Invalid file path: reads only allowed within temp directory');
     }
 
-    if (!existsSync(resolvedPath)) {
+    if (!existsSync(resolvedPath) && !isOriginalBackedManagedRef(resolvedPath, senderId)) {
         throw new Error(`File not found: ${normalizedPath}`);
     }
 
@@ -166,11 +189,22 @@ export async function resolveExistingReadablePdfPath(filePath: unknown, senderId
 }
 
 export function resolveReadablePathSync(normalizedPath: string, senderId?: number) {
-    if (isAllowedReadPath(normalizedPath) && existsSync(normalizedPath)) {
+    if (isOriginalBackedManagedRef(normalizedPath, senderId)) {
         return normalizedPath;
     }
 
     const mappedWorkingCopyPath = findWorkingCopyPathByOriginalPath(normalizedPath, senderId);
+    if (
+        mappedWorkingCopyPath
+        && isOriginalBackedManagedRef(mappedWorkingCopyPath, senderId)
+    ) {
+        return mappedWorkingCopyPath;
+    }
+
+    if (isAllowedReadPath(normalizedPath) && existsSync(normalizedPath)) {
+        return normalizedPath;
+    }
+
     if (!mappedWorkingCopyPath) {
         return null;
     }
@@ -182,8 +216,8 @@ export function resolveReadablePathSync(normalizedPath: string, senderId?: numbe
     return mappedWorkingCopyPath;
 }
 
-export function assertWithinIpcReadBudget(resolvedPath: string) {
-    const { size } = statSync(resolvedPath);
+export function assertWithinIpcReadBudget(resolvedPath: string, knownSize?: number) {
+    const size = knownSize ?? statSync(resolvedPath).size;
     if (size > MAX_IPC_READ_BYTES) {
         throw new Error(`Invalid file: exceeds max IPC read size (${MAX_IPC_READ_BYTES} bytes); use range reads`);
     }

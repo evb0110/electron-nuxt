@@ -5,6 +5,7 @@ import {
 } from 'vitest';
 import { AGENT_PLATFORM_FEATURE } from '@contracts/agentPlatformFeature';
 import { DJVU_PLATFORM_FEATURE } from '@contracts/djvuPlatformFeature';
+import { DOCUMENT_FILES_PLATFORM_FEATURE } from '@contracts/documentsPlatformFeature';
 import { PLATFORM_FEATURE_REGISTRY } from '@contracts/platformApiDescriptor';
 import { DOCUMENTS_CHANNELS } from '@electron/features/documents/contract';
 import { DOCUMENTS_IPC_CODECS } from '@electron/features/documents/documentsIpcCodecs';
@@ -68,7 +69,42 @@ describe('feature IPC codec maps', () => {
         expectExhaustiveMap(DOCUMENTS_CHANNELS, DOCUMENTS_IPC_CODECS, [DOCUMENTS_CHANNELS.fileSavePdfDataPort]);
     });
 
+    it('validates working-copy backing status once at the generated IPC boundary', () => {
+        const channel = DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.getWorkingCopyBackingStatus;
+        const validStatus = {
+            documentRef: '/tmp/managed.pdf',
+            failure: null,
+            progress: 0.5,
+            state: 'materializing' as const,
+        };
+
+        expect(DOCUMENT_FILES_PLATFORM_FEATURE.ipcCodecs[channel]?.decodeArgs(['/tmp/managed.pdf']))
+            .toEqual(['/tmp/managed.pdf']);
+        expect(DOCUMENT_FILES_PLATFORM_FEATURE.ipcCodecs[channel]?.decodeResult(validStatus))
+            .toEqual(validStatus);
+        expect(DOCUMENT_FILES_PLATFORM_FEATURE.events.onWorkingCopyBackingStatusChanged.payload.decode(validStatus))
+            .toEqual(validStatus);
+        expect(DOCUMENT_FILES_PLATFORM_FEATURE.platformDescriptors.methods.find(
+            descriptor => descriptor.path.at(-1) === 'onWorkingCopyBackingStatusChanged',
+        )).toMatchObject({
+            optionalWhenImplemented: true,
+            required: {
+                browser: false,
+                electron: false,
+            },
+        });
+        expect(() => DOCUMENT_FILES_PLATFORM_FEATURE.events
+            .onWorkingCopyBackingStatusChanged.payload.decode({
+                ...validStatus,
+                progress: 1.1,
+            }))
+            .toThrow('invalid working-copy backing status');
+    });
+
     it('preserves the source identity needed to validate cached opening geometry', () => {
+        expect(DOCUMENT_FILES_PLATFORM_FEATURE.ipcCodecs[
+            DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.getPdfOpeningGeometry
+        ]?.decodeResult(null)).toBeNull();
         expect(DOCUMENTS_IPC_CODECS[DOCUMENTS_CHANNELS.fileStat].decodeResult({
             size: 28_000_000,
             modifiedAt: 1_720_000_000_000,
@@ -122,6 +158,44 @@ describe('feature IPC codec maps', () => {
                 sourceModifiedAt: 1_720_000_000_000,
             },
         });
+    });
+
+    it('validates native DjVu page text and nested outline provider results', () => {
+        expect(djvuCodec(DJVU_CHANNELS.getPageText).decodeArgs([
+            '/tmp/book.djvu',
+            3,
+        ])).toEqual([
+            '/tmp/book.djvu',
+            3,
+        ]);
+        expect(djvuCodec(DJVU_CHANNELS.getPageText).decodeResult('Native page text'))
+            .toBe('Native page text');
+        expect(djvuCodec(DJVU_CHANNELS.getOutline).decodeResult([{
+            title: 'Chapter',
+            pageNumber: 1,
+            children: [{
+                title: 'Section',
+                pageNumber: 3,
+                children: [],
+            }],
+        }])).toEqual([{
+            title: 'Chapter',
+            pageNumber: 1,
+            children: [{
+                title: 'Section',
+                pageNumber: 3,
+                children: [],
+            }],
+        }]);
+        expect(() => djvuCodec(DJVU_CHANNELS.getPageText).decodeArgs([
+            '/tmp/book.djvu',
+            0,
+        ])).toThrow('pageNumber');
+        expect(() => djvuCodec(DJVU_CHANNELS.getOutline).decodeResult([{
+            title: 'Broken',
+            pageNumber: 0,
+            children: [],
+        }])).toThrow('invalid DjVu outline item');
     });
 
     it('validates streamed DjVu text-search options and word geometry', () => {

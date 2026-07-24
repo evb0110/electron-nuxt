@@ -20,6 +20,7 @@ const mocks = vi.hoisted(() => ({
     cancelNativeCommandGroup: vi.fn(),
     getRecentFiles: vi.fn(),
     allowOpenPath: vi.fn(),
+    resolveOriginalBackedReadTransport: vi.fn(),
 }));
 
 vi.mock('fs/promises', () => ({
@@ -35,6 +36,8 @@ vi.mock('@electron/native-tools/runNativeToolCommand', () => ({runNativeToolComm
 vi.mock('@electron/native-tools/runNativeCommand', () => ({cancelNativeCommandGroup: (...args: unknown[]) => mocks.cancelNativeCommandGroup(...args)}));
 vi.mock('@electron/recentFiles', () => ({getRecentFiles: (...args: unknown[]) => mocks.getRecentFiles(...args)}));
 vi.mock('@electron/file-access/openPathCapabilities', () => ({allowOpenPath: (...args: unknown[]) => mocks.allowOpenPath(...args)}));
+vi.mock('@electron/features/documents/main/documentFileReadHandlers', () => ({resolveOriginalBackedReadTransport: (...args: unknown[]) =>
+    mocks.resolveOriginalBackedReadTransport(...args)}));
 
 class FakeSender extends EventEmitter {
     destroyed = false;
@@ -87,6 +90,7 @@ describe('native PDF preview lifecycle', () => {
         });
         mocks.getRecentFiles.mockResolvedValue([]);
         mocks.allowOpenPath.mockReturnValue('/tmp/input.pdf');
+        mocks.resolveOriginalBackedReadTransport.mockReturnValue(null);
     });
 
     afterEach(async () => {
@@ -269,6 +273,99 @@ describe('native PDF preview lifecycle', () => {
                 signal: expect.any(AbortSignal),
             }),
         );
+    });
+
+    it('returns a typed miss before probing a retired working-copy path', async () => {
+        const { handlePdfOpeningGeometry } = await import('@electron/features/documents/main/nativePdfPreview');
+
+        await expect(handlePdfOpeningGeometry(
+            {senderId: 42},
+            '/tmp/pdf-work-retired/old.pdf',
+        )).resolves.toBeNull();
+
+        expect(mocks.resolveExistingReadablePdfPath).not.toHaveBeenCalled();
+        expect(mocks.stat).not.toHaveBeenCalled();
+        expect(mocks.runNativeToolCommand).not.toHaveBeenCalled();
+    });
+
+    it('returns a typed miss when the admitted file disappears before identity probing', async () => {
+        mocks.stat.mockRejectedValueOnce(Object.assign(
+            new Error('missing opening geometry source'),
+            {code: 'ENOENT'},
+        ));
+        const { handlePdfOpeningGeometry } = await import('@electron/features/documents/main/nativePdfPreview');
+
+        await expect(handlePdfOpeningGeometry(
+            {senderId: 42},
+            '/tmp/input.pdf',
+        )).resolves.toBeNull();
+
+        expect(mocks.runNativeToolCommand).not.toHaveBeenCalled();
+    });
+
+    it('probes lazy-original opening geometry through its witnessed source without materializing', async () => {
+        const sender = new FakeSender();
+        const read = vi.fn(async (reader: (physicalPath: string) => Promise<unknown>) =>
+            reader('/Users/alice/Documents/input.pdf'));
+        mocks.resolveExistingReadablePdfPath.mockResolvedValueOnce('/tmp/pdf-work/input.pdf');
+        mocks.resolveOriginalBackedReadTransport.mockReturnValueOnce({
+            identity: {
+                size: 28_000_000,
+                modifiedAt: 1_720_000_000_000,
+            },
+            read,
+        });
+        mocks.runNativeToolCommand.mockResolvedValueOnce({
+            exitCode: 0,
+            stderr: '',
+            stdout: 'Pages: 1\nPage 1 size: 612 x 792 pts\nPage 1 rot: 0\n',
+        });
+        const { handlePdfOpeningGeometry } = await import('@electron/features/documents/main/nativePdfPreview');
+
+        await expect(handlePdfOpeningGeometry({
+            sender: sender as never,
+            senderId: sender.id,
+        }, '/tmp/pdf-work/input.pdf')).resolves.toMatchObject({
+            pageNumber: 1,
+            pageCount: 1,
+            size: 28_000_000,
+            modifiedAt: 1_720_000_000_000,
+        });
+
+        expect(mocks.resolveOriginalBackedReadTransport)
+            .toHaveBeenCalledWith('/tmp/pdf-work/input.pdf', sender.id);
+        expect(read).toHaveBeenCalledOnce();
+        expect(mocks.stat).not.toHaveBeenCalled();
+        expect(mocks.runNativeToolCommand).toHaveBeenCalledWith(
+            '/mock/pdfinfo',
+            expect.arrayContaining(['/Users/alice/Documents/input.pdf']),
+            expect.objectContaining({commandLabel: 'pdfinfo-opening-geometry'}),
+        );
+    });
+
+    it('preserves a typed backing error when the lazy source swaps during geometry discovery', async () => {
+        const backingError = Object.assign(
+            new Error('Working-copy registration changed during the read'),
+            {code: 'WORKING_COPY_REGISTRATION_CHANGED'},
+        );
+        mocks.resolveOriginalBackedReadTransport.mockReturnValueOnce({
+            identity: {
+                size: 28_000_000,
+                modifiedAt: 1_720_000_000_000,
+            },
+            read: vi.fn(async (reader: (physicalPath: string) => Promise<unknown>) => {
+                await reader('/Users/alice/Documents/input.pdf');
+                throw backingError;
+            }),
+        });
+        const { handlePdfOpeningGeometry } = await import('@electron/features/documents/main/nativePdfPreview');
+
+        await expect(handlePdfOpeningGeometry({senderId: 42}, '/tmp/input.pdf'))
+            .rejects
+            .toMatchObject({code: 'WORKING_COPY_REGISTRATION_CHANGED'});
+
+        expect(mocks.stat).not.toHaveBeenCalled();
+        expect(mocks.runNativeToolCommand).toHaveBeenCalledOnce();
     });
 
     it('authorizes opening-geometry preflight for a current Recent PDF before open', async () => {

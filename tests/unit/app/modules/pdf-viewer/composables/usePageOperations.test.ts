@@ -80,15 +80,15 @@ function deferred<T>() {
 
 function createHarness(path: string | null = '/tmp/work.pdf', options: {
     documentRevisionToken?: TDocumentRevisionToken | null;
-    ensureHistoryBaselineForExternalMutation?: () => Promise<boolean>;
+    ensureHistoryBaselineForMutation?: () => Promise<boolean>;
     materializeAnnotationsForPageMutation?: () => Promise<boolean>;
     ensureWorkingCopyFreshForRead?: () => Promise<boolean>;
     runWithDocumentOperationLease?: <T>(kind: TDocumentOperationKind, operation: () => Promise<T>) => Promise<T>;
 } = {}) {
     const workingCopyPath = ref<string | null>(path);
     const documentRevisionToken = ref<TDocumentRevisionToken | null>(options.documentRevisionToken ?? null);
-    const ensureHistoryBaselineForExternalMutation = options.ensureHistoryBaselineForExternalMutation
-        ? vi.fn(options.ensureHistoryBaselineForExternalMutation)
+    const ensureHistoryBaselineForMutation = options.ensureHistoryBaselineForMutation
+        ? vi.fn(options.ensureHistoryBaselineForMutation)
         : vi.fn(async () => true);
     const reloadWorkingCopyIntoHistory = vi.fn(async () => true);
     const clearOcrCache = vi.fn();
@@ -97,7 +97,7 @@ function createHarness(path: string | null = '/tmp/work.pdf', options: {
     const pageOps = usePageOperations({
         workingCopyPath,
         documentRevisionToken,
-        ensureHistoryBaselineForExternalMutation,
+        ensureHistoryBaselineForMutation,
         ...(options.materializeAnnotationsForPageMutation
             ? {materializeAnnotationsForPageMutation: options.materializeAnnotationsForPageMutation}
             : {}),
@@ -113,7 +113,7 @@ function createHarness(path: string | null = '/tmp/work.pdf', options: {
         pageOps,
         workingCopyPath,
         documentRevisionToken,
-        ensureHistoryBaselineForExternalMutation,
+        ensureHistoryBaselineForMutation,
         reloadWorkingCopyIntoHistory,
         clearOcrCache,
         resetSearchCache,
@@ -178,7 +178,7 @@ describe('usePageOperations', () => {
     it('runs mutating operations through shared progress/reload flow', async () => {
         const {
             pageOps,
-            ensureHistoryBaselineForExternalMutation,
+            ensureHistoryBaselineForMutation,
             reloadWorkingCopyIntoHistory,
             clearOcrCache,
             resetSearchCache,
@@ -199,7 +199,7 @@ describe('usePageOperations', () => {
             2,
             4,
         ], 10, 90);
-        expect(ensureHistoryBaselineForExternalMutation).toHaveBeenCalledOnce();
+        expect(ensureHistoryBaselineForMutation).toHaveBeenCalledOnce();
         expect(clearOcrCache).toHaveBeenCalledWith('/tmp/work.pdf');
         expect(resetSearchCache).toHaveBeenCalledOnce();
         expect(reloadWorkingCopyIntoHistory).toHaveBeenCalledWith({ markDirty: true });
@@ -210,7 +210,7 @@ describe('usePageOperations', () => {
     it('does not reload document when extract operation is canceled', async () => {
         const {
             pageOps,
-            ensureHistoryBaselineForExternalMutation,
+            ensureHistoryBaselineForMutation,
             reloadWorkingCopyIntoHistory,
             clearOcrCache,
             resetSearchCache,
@@ -230,7 +230,7 @@ describe('usePageOperations', () => {
                 canceled: true,
             },
         });
-        expect(ensureHistoryBaselineForExternalMutation).not.toHaveBeenCalled();
+        expect(ensureHistoryBaselineForMutation).not.toHaveBeenCalled();
         expect(reloadWorkingCopyIntoHistory).not.toHaveBeenCalled();
         expect(clearOcrCache).not.toHaveBeenCalled();
         expect(resetSearchCache).not.toHaveBeenCalled();
@@ -240,7 +240,7 @@ describe('usePageOperations', () => {
     it('opens the extracted PDF when the page-op returns a destination path', async () => {
         const {
             pageOps,
-            ensureHistoryBaselineForExternalMutation,
+            ensureHistoryBaselineForMutation,
             reloadWorkingCopyIntoHistory,
             clearOcrCache,
             resetSearchCache,
@@ -254,7 +254,7 @@ describe('usePageOperations', () => {
         await expect(pageOps.extractPages([3])).resolves.toBe(true);
 
         expect(pageOpsApi.extract).toHaveBeenCalledWith('/tmp/work.pdf', [3]);
-        expect(ensureHistoryBaselineForExternalMutation).not.toHaveBeenCalled();
+        expect(ensureHistoryBaselineForMutation).not.toHaveBeenCalled();
         expect(reloadWorkingCopyIntoHistory).not.toHaveBeenCalled();
         expect(clearOcrCache).not.toHaveBeenCalled();
         expect(resetSearchCache).not.toHaveBeenCalled();
@@ -319,30 +319,50 @@ describe('usePageOperations', () => {
         expect(onExtractedDocument).toHaveBeenCalledWith('browser://documents/extract.pdf');
     });
 
-    it('persists pending changes before structural page mutations', async () => {
+    it('stages history before persisting pending changes and running structural page mutations', async () => {
         const ensureWorkingCopyFreshForRead = vi.fn(async () => true);
         const {
             pageOps,
-            ensureHistoryBaselineForExternalMutation,
+            ensureHistoryBaselineForMutation,
         } = createHarness('/tmp/work.pdf', { ensureWorkingCopyFreshForRead });
         pageOpsApi.rotate.mockResolvedValueOnce({ success: true });
 
         await expect(pageOps.rotatePages([1], 10, 90)).resolves.toBe(true);
 
         expect(ensureWorkingCopyFreshForRead).toHaveBeenCalledOnce();
-        expect(ensureHistoryBaselineForExternalMutation).toHaveBeenCalledOnce();
+        expect(ensureHistoryBaselineForMutation).toHaveBeenCalledOnce();
         expect(pageOpsApi.rotate).toHaveBeenCalledWith('/tmp/work.pdf', [1], 10, 90);
-        expect(ensureWorkingCopyFreshForRead.mock.invocationCallOrder[0]!)
-            .toBeLessThan(ensureHistoryBaselineForExternalMutation.mock.invocationCallOrder[0]!);
+        expect(ensureHistoryBaselineForMutation.mock.invocationCallOrder[0]!)
+            .toBeLessThan(ensureWorkingCopyFreshForRead.mock.invocationCallOrder[0]!);
         expect(ensureWorkingCopyFreshForRead.mock.invocationCallOrder[0]!)
             .toBeLessThan(pageOpsApi.rotate.mock.invocationCallOrder[0]!);
+    });
+
+    it('performs no page-operation writes when history staging fails', async () => {
+        const ensureWorkingCopyFreshForRead = vi.fn(async () => true);
+        const materializeAnnotationsForPageMutation = vi.fn(async () => true);
+        const {pageOps} = createHarness('/tmp/work.pdf', {
+            ensureHistoryBaselineForMutation: async () => false,
+            ensureWorkingCopyFreshForRead,
+            materializeAnnotationsForPageMutation,
+        });
+
+        await expect(pageOps.rotatePages([1], 10, 90)).resolves.toBe(false);
+
+        expect(pageOps.lastOutcome.value).toEqual({
+            status: 'blocked',
+            reason: 'history-baseline',
+        });
+        expect(ensureWorkingCopyFreshForRead).not.toHaveBeenCalled();
+        expect(materializeAnnotationsForPageMutation).not.toHaveBeenCalled();
+        expect(pageOpsApi.rotate).not.toHaveBeenCalled();
     });
 
     it('does not run structural page mutations when pending changes cannot be persisted', async () => {
         const ensureWorkingCopyFreshForRead = vi.fn(async () => false);
         const {
             pageOps,
-            ensureHistoryBaselineForExternalMutation,
+            ensureHistoryBaselineForMutation,
         } = createHarness('/tmp/work.pdf', { ensureWorkingCopyFreshForRead });
 
         await expect(pageOps.rotatePages([1], 10, 90)).resolves.toBe(false);
@@ -352,7 +372,7 @@ describe('usePageOperations', () => {
             reason: 'preflight',
         });
         expect(ensureWorkingCopyFreshForRead).toHaveBeenCalledOnce();
-        expect(ensureHistoryBaselineForExternalMutation).not.toHaveBeenCalled();
+        expect(ensureHistoryBaselineForMutation).toHaveBeenCalledOnce();
         expect(pageOpsApi.rotate).not.toHaveBeenCalled();
     });
 
@@ -519,7 +539,7 @@ describe('usePageOperations', () => {
                     4,
                 ],
                 10,
-                { expectedDocumentRevisionToken: requireDocumentRevisionToken('rev-after-baseline') },
+                { expectedDocumentRevisionToken: requireDocumentRevisionToken('rev-after-save') },
             ],
             invoke: (pageOps: ReturnType<typeof usePageOperations>) => pageOps.deletePages([
                 2,
@@ -537,7 +557,7 @@ describe('usePageOperations', () => {
                 ],
                 10,
                 90,
-                { expectedDocumentRevisionToken: requireDocumentRevisionToken('rev-after-baseline') },
+                { expectedDocumentRevisionToken: requireDocumentRevisionToken('rev-after-save') },
             ],
             invoke: (pageOps: ReturnType<typeof usePageOperations>) => pageOps.rotatePages([
                 2,
@@ -551,7 +571,7 @@ describe('usePageOperations', () => {
                 '/tmp/work.pdf',
                 10,
                 4,
-                { expectedDocumentRevisionToken: requireDocumentRevisionToken('rev-after-baseline') },
+                { expectedDocumentRevisionToken: requireDocumentRevisionToken('rev-after-save') },
             ],
             invoke: (pageOps: ReturnType<typeof usePageOperations>) => pageOps.insertPages(10, 4),
             name: 'insert blank',
@@ -564,7 +584,7 @@ describe('usePageOperations', () => {
                 4,
                 ['browser://documents/source.pdf'],
                 undefined,
-                { expectedDocumentRevisionToken: requireDocumentRevisionToken('rev-after-baseline') },
+                { expectedDocumentRevisionToken: requireDocumentRevisionToken('rev-after-save') },
             ],
             invoke: (pageOps: ReturnType<typeof usePageOperations>) => pageOps.insertFile(10, 4, ['browser://documents/source.pdf']),
             name: 'insert file',
@@ -578,7 +598,7 @@ describe('usePageOperations', () => {
                     1,
                     2,
                 ],
-                { expectedDocumentRevisionToken: requireDocumentRevisionToken('rev-after-baseline') },
+                { expectedDocumentRevisionToken: requireDocumentRevisionToken('rev-after-save') },
             ],
             invoke: (pageOps: ReturnType<typeof usePageOperations>) => pageOps.reorderPages([
                 3,
@@ -602,7 +622,7 @@ describe('usePageOperations', () => {
                     left: 6,
                     right: 4,
                 },
-                { expectedDocumentRevisionToken: requireDocumentRevisionToken('rev-after-baseline') },
+                { expectedDocumentRevisionToken: requireDocumentRevisionToken('rev-after-save') },
             ],
             invoke: (pageOps: ReturnType<typeof usePageOperations>) => pageOps.cropPages([
                 2,
@@ -624,7 +644,7 @@ describe('usePageOperations', () => {
                     4,
                 ],
                 10,
-                { expectedDocumentRevisionToken: requireDocumentRevisionToken('rev-after-baseline') },
+                { expectedDocumentRevisionToken: requireDocumentRevisionToken('rev-after-save') },
             ],
             invoke: (pageOps: ReturnType<typeof usePageOperations>) => pageOps.removeCrop([
                 2,
@@ -649,7 +669,7 @@ describe('usePageOperations', () => {
         } = createHarness('/tmp/work.pdf', {
             documentRevisionToken: requireDocumentRevisionToken('rev-before-save'),
             ensureWorkingCopyFreshForRead,
-            ensureHistoryBaselineForExternalMutation: () => baselineGate.promise,
+            ensureHistoryBaselineForMutation: () => baselineGate.promise,
         });
         updateRevisionToken = (value) => {
             documentRevisionToken.value = value;

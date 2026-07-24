@@ -14,10 +14,14 @@ import {
     createDocumentSessionState,
     createEpochGuard,
 } from '@app/modules/workspace-shell/viewers/workspaceDocumentDriver';
+import type { IDocumentOpenSurfaceSession } from '@app/utils/document-viewer/chassis/documentOpenSurfaceSession';
 
 let nextPdfFileAnalyticsScopeIndex = 0;
 
-export interface IUsePdfFileOptions { analyticsDocumentScope?: IAnalyticsDocumentScope | undefined; }
+export interface IUsePdfFileOptions {
+    analyticsDocumentScope?: IAnalyticsDocumentScope | undefined;
+    openSurface?: IDocumentOpenSurfaceSession | undefined;
+}
 
 export const usePdfFile = (options: IUsePdfFileOptions = {}) => {
     const analytics = useAnalytics();
@@ -71,7 +75,7 @@ export const usePdfFile = (options: IUsePdfFileOptions = {}) => {
         canUndo,
         cleanupPreviousWorkingCopy,
         clearHistory,
-        ensureHistoryBaselineForExternalMutation,
+        ensureHistoryBaselineForMutation,
         fileHistoryMutationVersion,
         fileHistorySessionVersion,
         getHistoryDebugState,
@@ -103,8 +107,10 @@ export const usePdfFile = (options: IUsePdfFileOptions = {}) => {
         clearPdfConformanceProfile,
         cleanupPreviousWorkingCopy,
         deferPdfConformanceProfile,
+        ensureHistoryBaselineForMutation,
         incrementSessionVersion,
         loadEpoch,
+        openSurface: options.openSurface,
         openEpoch,
         pushHistorySnapshot,
         resetHistory,
@@ -135,6 +141,7 @@ export const usePdfFile = (options: IUsePdfFileOptions = {}) => {
         trySavePdfNativeMutations,
     } = createDocumentPersistence(sessionState, {
         deferPdfConformanceProfile,
+        ensureHistoryBaselineForMutation,
         getHistoryDebugState,
         markCurrentHistoryEntryClean,
         pushHistorySnapshot,
@@ -209,7 +216,7 @@ export const usePdfFile = (options: IUsePdfFileOptions = {}) => {
         openFileDirect,
         openFileDirectBatch,
         loadPdfFromPath,
-        ensureHistoryBaselineForExternalMutation,
+        ensureHistoryBaselineForMutation,
         reloadWorkingCopyIntoHistory,
         loadPdfFromData,
         persistPdfDataSilently,

@@ -257,6 +257,21 @@ export const usePdfDocument = () => {
         basePageHeight.value = Math.max(basePageHeight.value ?? 0, metric.height);
     }
 
+    function replaceTrustedBaseMetrics() {
+        let width = 0;
+        let height = 0;
+        for (const metric of pageMetrics.value) {
+            if (!isValidPageMetric(metric)) {
+                continue;
+            }
+            width = Math.max(width, metric.width);
+            height = Math.max(height, metric.height);
+        }
+        basePageWidth.value = width > 0 ? width : null;
+        basePageHeight.value = height > 0 ? height : null;
+        trustedGeometrySeedPageNumber = null;
+    }
+
     async function loadPageMetric(
         document: PDFDocumentProxy,
         pageNumber: number,
@@ -304,7 +319,15 @@ export const usePdfDocument = () => {
             }
 
             pageMetrics.value[pageNumber - 1] = metric;
-            updateBaseMetrics(metric);
+            if (trustedGeometrySeedPageNumber === pageNumber) {
+                // Native opening geometry is a shell seed, not a permanent
+                // document maximum. Once PDF.js measures that exact page,
+                // rebuild the fallback baseline from authoritative metrics so
+                // a larger provisional box cannot remain sticky.
+                replaceTrustedBaseMetrics();
+            } else {
+                updateBaseMetrics(metric);
+            }
             bumpPageMetricsVersion();
             return metric;
         })().finally(() => {

@@ -1,3 +1,5 @@
+import type { IPdfOpeningGeometry } from '@contracts/electronApiDocuments';
+
 const STORAGE_KEY = 'evb:pdf-trusted-open-geometry:v1';
 const MAX_ENTRIES = 24;
 const validatedEntries = new Map<string, IPdfTrustedOpenGeometry>();
@@ -83,6 +85,31 @@ export function readPrevalidatedTrustedPdfOpenGeometry(documentId: string, pageN
     return validatedEntries.get(buildEntryKey(documentId, pageNumber)) ?? null;
 }
 
+export function cacheTrustedPdfOpenGeometry(
+    documentId: string,
+    openingGeometry: IPdfOpeningGeometry,
+    options: {
+        makeSynchronouslyAvailable?: boolean;
+        sourceRevision?: Pick<IPdfTrustedOpenGeometry, 'size' | 'modifiedAt'>;
+    } = {},
+) {
+    const entry: IPdfTrustedOpenGeometry = {
+        documentId,
+        ...openingGeometry,
+        size: options.sourceRevision?.size ?? openingGeometry.size,
+        modifiedAt: options.sourceRevision?.modifiedAt ?? openingGeometry.modifiedAt,
+        savedAt: Date.now(),
+    };
+    if (decode(entry) === null) {
+        return null;
+    }
+    writeTrustedPdfOpenGeometry(entry);
+    if (options.makeSynchronouslyAvailable ?? true) {
+        rememberValidatedTrustedPdfOpenGeometry(entry);
+    }
+    return entry;
+}
+
 function forgetPrevalidatedTrustedPdfOpenGeometry(documentId: string, pageNumber: number) {
     validatedEntries.delete(buildEntryKey(documentId, pageNumber));
 }
@@ -94,15 +121,7 @@ export function prevalidateTrustedPdfOpenGeometry(
         size: number;
         modifiedAt?: number;
     }>) | undefined,
-    readOpeningGeometry?: () => Promise<{
-        pageNumber: number;
-        pageCount: number;
-        width: number;
-        height: number;
-        rotation: number;
-        size: number;
-        modifiedAt: number;
-    }>,
+    readOpeningGeometry?: () => Promise<IPdfOpeningGeometry | null>,
     options: {forceAuthoritativeRefresh?: boolean} = {},
 ) {
     const validated = readPrevalidatedTrustedPdfOpenGeometry(documentId, pageNumber);
@@ -152,19 +171,22 @@ export function prevalidateTrustedPdfOpenGeometry(
             }
             throw error;
         }
-        const freshEntry: IPdfTrustedOpenGeometry = {
-            documentId,
-            ...openingGeometry,
-            savedAt: Date.now(),
-        };
-        if (decode(freshEntry) === null || freshEntry.pageNumber !== pageNumber) {
+        if (openingGeometry === null) {
+            return null;
+        }
+        if (openingGeometry.pageNumber !== pageNumber) {
             if (options.forceAuthoritativeRefresh) {
                 invalidateTrustedPdfOpenGeometry(documentId, pageNumber);
             }
             return null;
         }
-        writeTrustedPdfOpenGeometry(freshEntry);
-        rememberValidatedTrustedPdfOpenGeometry(freshEntry);
+        const freshEntry = cacheTrustedPdfOpenGeometry(documentId, openingGeometry);
+        if (freshEntry === null) {
+            if (options.forceAuthoritativeRefresh) {
+                invalidateTrustedPdfOpenGeometry(documentId, pageNumber);
+            }
+            return null;
+        }
         return freshEntry;
     })()
         .finally(() => validationTasks.delete(key));
@@ -230,23 +252,6 @@ export function isTrustedPdfOpenGeometryCurrent(
         && entry.size === stat.size
         && entry.modifiedAt === stat.modifiedAt
     );
-}
-
-export function shouldApplyTrustedPdfOpenGeometry(input: {
-    lookupGeneration: number;
-    currentLookupGeneration: number;
-    openSurfaceGeneration: number;
-    currentOpenSurfaceGeneration: number;
-    source: unknown;
-    currentSource: unknown;
-    hasPdfDocument: boolean;
-    authoritativeMetricCount: number;
-}) {
-    return input.lookupGeneration === input.currentLookupGeneration
-        && input.openSurfaceGeneration === input.currentOpenSurfaceGeneration
-        && input.source === input.currentSource
-        && !input.hasPdfDocument
-        && input.authoritativeMetricCount === 0;
 }
 
 export function writeTrustedPdfOpenGeometry(entry: IPdfTrustedOpenGeometry) {

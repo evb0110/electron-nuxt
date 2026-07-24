@@ -37,6 +37,7 @@ import {
 } from '@electron/file-access/workingCopyStore';
 import { isAllowedOriginalSavePath } from '@electron/file-access/isAllowedOriginalSavePath';
 import { ensureWorkingCopyDirectory } from '@electron/file-access/workingCopyCreation';
+import {ensureWorkingCopyMaterialized} from '@electron/file-access/workingCopyMaterialization';
 import {
     atomicReplace,
     makeSiblingTempPath,
@@ -313,10 +314,6 @@ async function runNativeNoteCommand(
     }
 
     const originalPath = getValidatedOriginalPath(normalizedWorkingPath, senderId);
-    if (!await ensureWorkingCopyDirectory(normalizedWorkingPath, senderId)) {
-        throw new Error('Working copy path is not managed');
-    }
-
     return enqueueWorkingCopyMutation(normalizedWorkingPath, async (mutationOperation) => {
         const phaseTimings: INativeNotePhaseTiming[] = [];
         const operationStart = performance.now();
@@ -324,9 +321,10 @@ async function runNativeNoteCommand(
             normalizedWorkingPath,
             expectedDocumentRevisionToken,
         );
-        if (!await ensureWorkingCopyDirectory(normalizedWorkingPath, senderId)) {
-            throw new Error('Working copy path is not managed');
-        }
+        await ensureWorkingCopyMaterialized(normalizedWorkingPath, {
+            ownerWebContentsId: senderId,
+            reason: 'native-mutation',
+        });
 
         const tempPath = makeSiblingTempPath(originalPath);
         const tempDir = await mkdtemp(join(tmpdir(), 'pdf-note-text-'));
@@ -423,10 +421,6 @@ async function runNativeWorkingCopyCommand(
         return createNotAppliedResult();
     }
 
-    if (!await ensureWorkingCopyDirectory(normalizedWorkingPath, senderId)) {
-        throw new Error('Working copy path is not managed');
-    }
-
     return enqueueWorkingCopyMutation(normalizedWorkingPath, async (mutationOperation) => {
         const phaseTimings: INativeNotePhaseTiming[] = [];
         const operationStart = performance.now();
@@ -434,9 +428,10 @@ async function runNativeWorkingCopyCommand(
             normalizedWorkingPath,
             expectedDocumentRevisionToken,
         );
-        if (!await ensureWorkingCopyDirectory(normalizedWorkingPath, senderId)) {
-            throw new Error('Working copy path is not managed');
-        }
+        await ensureWorkingCopyMaterialized(normalizedWorkingPath, {
+            ownerWebContentsId: senderId,
+            reason: 'native-mutation',
+        });
         if (!await workingCopyMatchesExpectation(normalizedWorkingPath, expectedBase)) {
             log.warn(`Native working-copy mutation skipped because base expectation no longer matches: ${JSON.stringify({
                 command: options.command,
@@ -518,6 +513,10 @@ export async function handleCommitStagedPdfNativeMutations(
                 normalizedWorkingPath,
                 expectedDocumentRevisionToken,
             );
+            await ensureWorkingCopyMaterialized(normalizedWorkingPath, {
+                ownerWebContentsId: senderId,
+                reason: 'native-mutation',
+            });
             const originalTempPath = makeSiblingTempPath(originalPath);
             try {
                 await copyFileCopyOnWrite(stagedOutput.path, originalTempPath);

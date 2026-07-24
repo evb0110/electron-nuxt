@@ -430,7 +430,7 @@ function captureThumbnailLayoutAnchor(): IDocumentThumbnailLayoutAnchor | null {
     };
 }
 
-function preserveVisibleAnchorAfterThumbnailLayoutChange(anchor: IDocumentThumbnailLayoutAnchor | null) {
+function restoreThumbnailLayoutAnchor(anchor: IDocumentThumbnailLayoutAnchor | null) {
     if (!anchor) {
         return false;
     }
@@ -457,21 +457,21 @@ const thumbnailResizeAnchorLifecycle = createDocumentThumbnailResizeAnchorLifecy
             offset: container.scrollTop - getThumbnailTop(page),
         };
     },
-    restore: preserveVisibleAnchorAfterThumbnailLayoutChange,
+    restore: restoreThumbnailLayoutAnchor,
 });
 
 let pendingThumbnailLayoutAnchor: IDocumentThumbnailLayoutAnchor | null | undefined;
 function scheduleThumbnailLayoutReaction(
     capturedAnchor: IDocumentThumbnailLayoutAnchor | null = captureThumbnailLayoutAnchor(),
 ) {
-    if (pendingThumbnailLayoutAnchor !== undefined) {
+    if (pendingThumbnailLayoutAnchor !== undefined || capturedAnchor && restoreThumbnailLayoutAnchor(capturedAnchor)) {
         return;
     }
     pendingThumbnailLayoutAnchor = capturedAnchor;
     void nextTick(() => {
         const anchor = pendingThumbnailLayoutAnchor ?? null;
         pendingThumbnailLayoutAnchor = undefined;
-        if (preserveVisibleAnchorAfterThumbnailLayoutChange(anchor)) {
+        if (restoreThumbnailLayoutAnchor(anchor)) {
             return;
         }
         if (!isCurrentPageAutoSyncSuppressed()) {

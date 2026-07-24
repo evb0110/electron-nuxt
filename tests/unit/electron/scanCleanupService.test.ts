@@ -54,6 +54,8 @@ vi.mock('@electron/output/documentOutputService', () => ({documentOutputService:
     handoff: vi.fn(),
     finish: vi.fn(),
 }}));
+vi.mock('@electron/file-access/workingCopyStore', () => ({getWorkingCopyBackingEntry: () => ({backing: 'materialized'})}));
+vi.mock('@electron/file-access/workingCopyMaterialization', () => ({ensureWorkingCopyMaterialized: async (sourcePdfPath: string) => ({physicalWorkingCopyPath: sourcePdfPath})}));
 
 const owner = {
     ownerId: 'cleanup-owner',

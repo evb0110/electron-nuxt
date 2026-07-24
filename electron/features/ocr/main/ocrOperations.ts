@@ -51,7 +51,11 @@ import {
 } from '@electron/utils/concurrency';
 import { mainJobBroker } from '@electron/resources/jobBroker';
 import { resolveAllowedReadPath } from '@electron/utils/pathValidator';
-import { requireManagedWorkingCopyPath } from '@electron/file-access/workingCopyCreation';
+import {requireManagedWorkingCopyPath} from '@electron/file-access/workingCopyCreation';
+import {
+    ensureWorkingCopyMaterialized,
+    WorkingCopyMaterializationError,
+} from '@electron/file-access/workingCopyMaterialization';
 import { getErrorMessage } from '@electron/utils/error';
 import { createIpcProgressPump } from '@electron/utils/createIpcProgressPump';
 
@@ -470,6 +474,24 @@ async function validateOcrSourcePdfPath(sourcePdfPath: string, senderWebContents
     return resolvedPath;
 }
 
+async function validateOcrPersistenceSourcePdfPath(sourcePdfPath: string, senderWebContentsId: number) {
+    let materializedSourcePdfPath: string;
+    try {
+        materializedSourcePdfPath = (
+            await ensureWorkingCopyMaterialized(sourcePdfPath, {
+                ownerWebContentsId: senderWebContentsId,
+                reason: 'ocr-persist',
+            })
+        ).physicalWorkingCopyPath;
+    } catch (error) {
+        if (error instanceof WorkingCopyMaterializationError) {
+            throw error;
+        }
+        throw new OcrPayloadValidationError(`sourcePdfPath is not a managed working copy: ${getErrorMessage(error)}`);
+    }
+    return validateOcrSourcePdfPath(materializedSourcePdfPath, senderWebContentsId);
+}
+
 export async function handleOcrCreateSearchablePdf(
     context: TOcrOperationContext,
     sourcePdfPathPayload: unknown,
@@ -493,7 +515,10 @@ export async function handleOcrCreateSearchablePdf(
         );
 
         jobId = payload.requestId;
-        const validatedSourcePdfPath = await validateOcrSourcePdfPath(payload.sourcePdfPath, context.senderId);
+        const validatedSourcePdfPath = await validateOcrPersistenceSourcePdfPath(
+            payload.sourcePdfPath,
+            context.senderId,
+        );
         const result = await handleOcrCreateSearchablePdfAsync(
             context,
             validatedSourcePdfPath,

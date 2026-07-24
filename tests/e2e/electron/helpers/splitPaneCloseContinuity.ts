@@ -53,7 +53,7 @@ async function prepareThumbnailRail(
     targetPageNumber: number,
 ) {
     await openDocumentSidebarTab(page, 'Pages', CONTINUITY_TIMEOUT_MS);
-    const prepared = await page.evaluate((payload: {
+    await page.waitForFunction((payload: {
         documentKind: TSplitPaneCloseDocumentKind;
         targetPageNumber: number;
     }) => {
@@ -64,7 +64,16 @@ async function prepareThumbnailRail(
         const item = payload.documentKind === 'pdf'
             ? root?.querySelector<HTMLElement>(`.pdf-thumbnail[data-page="${String(payload.targetPageNumber)}"]`) ?? null
             : root?.querySelector<HTMLElement>(`[data-thumbnail-page="${String(payload.targetPageNumber)}"]`) ?? null;
-        if (!root || !item || root.clientHeight <= 0) {
+        if (!root || root.clientHeight <= 0) {
+            return false;
+        }
+        if (!item) {
+            // A virtualized rail only mounts items near the scroll position, so
+            // sweep until the target page mounts instead of waiting forever.
+            const step = Math.max(64, root.clientHeight * 0.8);
+            const atEnd = root.scrollTop + root.clientHeight >= root.scrollHeight - 1;
+            root.scrollTop = atEnd ? 0 : root.scrollTop + step;
+            root.dispatchEvent(new Event('scroll', {bubbles: true}));
             return false;
         }
         const rootRect = root.getBoundingClientRect();
@@ -72,13 +81,10 @@ async function prepareThumbnailRail(
         root.scrollTop += itemRect.top + (itemRect.height / 2) - rootRect.top - (rootRect.height / 2);
         root.dispatchEvent(new Event('scroll', {bubbles: true}));
         return true;
-    }, {
+    }, {timeout: CONTINUITY_TIMEOUT_MS}, {
         documentKind,
         targetPageNumber,
     });
-    if (!prepared) {
-        throw new Error(`Could not prepare ${documentKind} thumbnail page ${String(targetPageNumber)}`);
-    }
 
     await page.waitForFunction((payload: {
         documentKind: TSplitPaneCloseDocumentKind;

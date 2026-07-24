@@ -17,6 +17,8 @@ import {
     replaceTempOutput,
 } from '@electron/features/page-ops/main/tempOutput';
 import { ensureWorkingCopyDirectory } from '@electron/file-access/workingCopyCreation';
+import { ensureWorkingCopyMaterialized } from '@electron/file-access/workingCopyMaterialization';
+import { getWorkingCopyBackingEntry } from '@electron/file-access/workingCopyStore';
 import { createManagedScratchTempDir } from '@electron/utils/managedScratchTemp';
 import {
     getPdfPageCount,
@@ -34,6 +36,34 @@ export {
 export interface IQpdfOperationOptions {
     signal?: AbortSignal;
     cancelGroup?: string;
+    senderWebContentsId?: number;
+}
+
+interface IQpdfWorkingCopyMaterialization {
+    path: string;
+    senderWebContentsId?: number;
+    signal?: AbortSignal;
+}
+type TRunQpdfCommandOptions = Parameters<typeof runNativeToolCommand>[2]
+    & {workingCopyMaterialization?: IQpdfWorkingCopyMaterialization};
+
+export async function materializePageOperationWorkingCopy(
+    workingCopyPath: string,
+    senderWebContentsId?: number,
+    signal?: AbortSignal,
+) {
+    if (!getWorkingCopyBackingEntry(workingCopyPath, senderWebContentsId)) {
+        if (!await ensureWorkingCopyDirectory(workingCopyPath, senderWebContentsId)) {
+            throw new Error('Working copy path is not managed');
+        }
+        return workingCopyPath;
+    }
+    const result = await ensureWorkingCopyMaterialized(workingCopyPath, {
+        reason: 'page-operation',
+        ...(senderWebContentsId === undefined ? {} : {ownerWebContentsId: senderWebContentsId}),
+        ...(signal ? {signal} : {}),
+    });
+    return result.physicalWorkingCopyPath;
 }
 
 function getQpdfBinary() {
@@ -116,10 +146,24 @@ async function writeQpdfArgsFile(args: string[]) {
     };
 }
 
-export async function runQpdfCommand(args: string[], options: Parameters<typeof runNativeToolCommand>[2]) {
+export async function runQpdfCommand(
+    args: string[],
+    options: TRunQpdfCommandOptions,
+) {
+    const {
+        workingCopyMaterialization,
+        ...nativeOptions
+    } = options;
+    if (workingCopyMaterialization) {
+        await materializePageOperationWorkingCopy(
+            workingCopyMaterialization.path,
+            workingCopyMaterialization.senderWebContentsId,
+            workingCopyMaterialization.signal,
+        );
+    }
     const argsFile = await writeQpdfArgsFile(args);
     try {
-        await runNativeToolCommand(getQpdfBinary(), [`@${argsFile.argsPath}`], options);
+        await runNativeToolCommand(getQpdfBinary(), [`@${argsFile.argsPath}`], nativeOptions);
     } finally {
         await argsFile.cleanup();
     }
@@ -204,13 +248,20 @@ export async function extractPages(
     pages: number[],
     options: IQpdfOperationOptions = {},
 ) {
+    const physicalReadPath = getWorkingCopyBackingEntry(srcPath, options.senderWebContentsId)
+        ? await materializePageOperationWorkingCopy(
+            srcPath,
+            options.senderWebContentsId,
+            options.signal,
+        )
+        : srcPath;
     const qpdfOutput = await createManagedQpdfOutputPath();
     const finalTempPath = makeTempPdfOutputPath(destPath);
     try {
         await runQpdfCommand([
-            srcPath,
+            physicalReadPath,
             '--pages',
-            srcPath,
+            physicalReadPath,
             formatPageList(pages),
             '--',
             qpdfOutput.outputPath,
@@ -241,10 +292,12 @@ export async function deletePages(
     senderWebContentsId?: number,
     options: IQpdfOperationOptions = {},
 ) {
-    if (!await ensureWorkingCopyDirectory(workingCopyPath, senderWebContentsId)) {
-        throw new Error('Working copy path is not managed');
-    }
-    const totalPages = await getPdfPageCount(workingCopyPath, options);
+    const materializedPath = await materializePageOperationWorkingCopy(
+        workingCopyPath,
+        senderWebContentsId,
+        options.signal,
+    );
+    const totalPages = await getPdfPageCount(materializedPath, options);
     if (expectedTotalPages !== undefined && expectedTotalPages !== totalPages) {
         throw new Error('Renderer page count is stale');
     }
@@ -257,13 +310,13 @@ export async function deletePages(
         throw new Error('Cannot delete all pages from the document');
     }
 
-    const tempPath = makeTempPdfOutputPath(workingCopyPath);
+    const tempPath = makeTempPdfOutputPath(materializedPath);
 
     try {
         await runQpdfCommand([
-            workingCopyPath,
+            materializedPath,
             '--pages',
-            workingCopyPath,
+            materializedPath,
             pageList,
             '--',
             tempPath,
@@ -275,7 +328,7 @@ export async function deletePages(
             ...(options.cancelGroup ? { cancelGroup: options.cancelGroup } : {}),
         });
         await assertNonEmptyPdfOutput(tempPath, 'Deleting pages');
-        await replaceQpdfOutput(tempPath, workingCopyPath);
+        await replaceQpdfOutput(tempPath, materializedPath);
     } catch (err) {
         await cleanupQpdfTemp(tempPath);
         throw err;
@@ -290,16 +343,18 @@ export async function reorderPages(
     senderWebContentsId?: number,
     options: IQpdfOperationOptions = {},
 ) {
-    if (!await ensureWorkingCopyDirectory(workingCopyPath, senderWebContentsId)) {
-        throw new Error('Working copy path is not managed');
-    }
-    const tempPath = makeTempPdfOutputPath(workingCopyPath);
+    const materializedPath = await materializePageOperationWorkingCopy(
+        workingCopyPath,
+        senderWebContentsId,
+        options.signal,
+    );
+    const tempPath = makeTempPdfOutputPath(materializedPath);
 
     try {
         await runQpdfCommand([
-            workingCopyPath,
+            materializedPath,
             '--pages',
-            workingCopyPath,
+            materializedPath,
             formatPageList(newOrder),
             '--',
             tempPath,
@@ -311,7 +366,7 @@ export async function reorderPages(
             ...(options.cancelGroup ? { cancelGroup: options.cancelGroup } : {}),
         });
         await assertNonEmptyPdfOutput(tempPath, 'Reordering pages');
-        await replaceQpdfOutput(tempPath, workingCopyPath);
+        await replaceQpdfOutput(tempPath, materializedPath);
     } catch (err) {
         await cleanupQpdfTemp(tempPath);
         throw err;
@@ -329,14 +384,16 @@ export async function rotatePages(
     senderWebContentsId?: number,
     options: IQpdfOperationOptions = {},
 ) {
-    if (!await ensureWorkingCopyDirectory(workingCopyPath, senderWebContentsId)) {
-        throw new Error('Working copy path is not managed');
-    }
-    const tempPath = makeTempPdfOutputPath(workingCopyPath);
+    const materializedPath = await materializePageOperationWorkingCopy(
+        workingCopyPath,
+        senderWebContentsId,
+        options.signal,
+    );
+    const tempPath = makeTempPdfOutputPath(materializedPath);
 
     try {
         await runQpdfCommand([
-            workingCopyPath,
+            materializedPath,
             `--rotate=+${angle}:${formatPageList(pages)}`,
             tempPath,
         ], {
@@ -347,7 +404,7 @@ export async function rotatePages(
             ...(options.cancelGroup ? { cancelGroup: options.cancelGroup } : {}),
         });
         await assertNonEmptyPdfOutput(tempPath, 'Rotating pages');
-        await replaceQpdfOutput(tempPath, workingCopyPath);
+        await replaceQpdfOutput(tempPath, materializedPath);
     } catch (err) {
         await cleanupQpdfTemp(tempPath);
         throw err;

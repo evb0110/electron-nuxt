@@ -40,7 +40,6 @@ interface IInsertPagesFromSourcePathsOptions {
 async function prepareInsertionSourcePdf(
     workingCopyPath: string,
     sourcePaths: TOpenPath[],
-    senderWebContentsId?: number,
     onProgress?: (progress: ICreatePdfFromInputPathsProgress) => void,
     options: IInsertPagesFromSourcePathsOptions = {},
 ) {
@@ -64,9 +63,6 @@ async function prepareInsertionSourcePdf(
         };
     }
 
-    if (!await ensureWorkingCopyDirectory(workingCopyPath, senderWebContentsId)) {
-        throw new Error('Working copy path is not managed');
-    }
     const mergedPdf = await createPdfFromInputPaths(sourcePaths, {
         ...(onProgress ? {onProgress} : {}),
         ...(options.signal ? {signal: options.signal} : {}),
@@ -118,7 +114,7 @@ export async function insertPagesFromSourcePaths(
     const {
         sourcePdfPath,
         cleanup,
-    } = await prepareInsertionSourcePdf(workingCopyPath, sourcePaths, senderWebContentsId, onProgress, options);
+    } = await prepareInsertionSourcePdf(workingCopyPath, sourcePaths, onProgress, options);
 
     try {
         const pagesArgs: string[] = [];
@@ -146,6 +142,11 @@ export async function insertPagesFromSourcePaths(
             commandLabel: 'qpdf(insert-pages)',
             ...(options.signal ? { signal: options.signal } : {}),
             ...(options.cancelGroup ? { cancelGroup: options.cancelGroup } : {}),
+            workingCopyMaterialization: {
+                path: workingCopyPath,
+                ...(senderWebContentsId === undefined ? {} : {senderWebContentsId}),
+                ...(options.signal ? {signal: options.signal} : {}),
+            },
         });
         await assertNonEmptyPdfOutput(tempPath, 'Inserting pages');
         await replaceTempOutput(tempPath, workingCopyPath);

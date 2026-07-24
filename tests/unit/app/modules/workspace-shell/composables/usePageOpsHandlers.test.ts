@@ -72,7 +72,7 @@ function createHarness(options: {
         closePageContextMenu: vi.fn(),
         onExportPages,
         canMutatePages,
-        ensureHistoryBaselineForExternalMutation: vi.fn(async () => true),
+        ensureHistoryBaselineForMutation: vi.fn(async () => true),
         materializeAnnotationsForPageMutation: vi.fn(async () => true),
         reloadWorkingCopyIntoHistory: vi.fn(async () => true),
         preparePdfReloadWaiter,

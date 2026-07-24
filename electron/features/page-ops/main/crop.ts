@@ -24,8 +24,8 @@ import {
     runResultWorkerTask,
 } from '@electron/utils/workerTask';
 import { WORKER_BUNDLES_BY_ID } from '@electron-worker-bundles/electronWorkerBundles.js';
-import { ensureWorkingCopyDirectory } from '@electron/file-access/workingCopyCreation';
 import type { TCropWorkerInput } from '@electron/features/page-ops/main/cropWorkerProtocol';
+import { materializePageOperationWorkingCopy } from '@electron/features/page-ops/main/qpdf';
 
 const log = createLogger('page-ops-crop');
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -148,12 +148,6 @@ async function assertLocalCropFallbackAllowed(workingCopyPath: string, requested
     }
 }
 
-async function ensureManagedWorkingCopy(workingCopyPath: string, senderWebContentsId?: number) {
-    if (!await ensureWorkingCopyDirectory(workingCopyPath, senderWebContentsId)) {
-        throw new Error('Working copy path is not managed');
-    }
-}
-
 export async function cropPages(
     workingCopyPath: string,
     pages: number[],
@@ -161,11 +155,15 @@ export async function cropPages(
     senderWebContentsId?: number,
     signal?: AbortSignal,
 ) {
-    await ensureManagedWorkingCopy(workingCopyPath, senderWebContentsId);
+    const materializedPath = await materializePageOperationWorkingCopy(
+        workingCopyPath,
+        senderWebContentsId,
+        signal,
+    );
     try {
         await runCropWorkerTask<undefined>({
             type: 'crop',
-            workingCopyPath,
+            workingCopyPath: materializedPath,
             pages,
             margins,
             ...(senderWebContentsId !== undefined ? { senderWebContentsId } : {}),
@@ -174,9 +172,9 @@ export async function cropPages(
         if (!shouldFallbackToLocalCrop(error)) {
             throw error;
         }
-        await assertLocalCropFallbackAllowed(workingCopyPath, pages.length);
+        await assertLocalCropFallbackAllowed(materializedPath, pages.length);
         log.warn(`Crop worker unavailable, falling back to in-process crop: ${getErrorMessage(error)}`);
-        await cropPagesLocal(workingCopyPath, pages, margins, signal);
+        await cropPagesLocal(materializedPath, pages, margins, signal);
     }
 }
 
@@ -186,11 +184,15 @@ export async function removeCropFromPages(
     senderWebContentsId?: number,
     signal?: AbortSignal,
 ) {
-    await ensureManagedWorkingCopy(workingCopyPath, senderWebContentsId);
+    const materializedPath = await materializePageOperationWorkingCopy(
+        workingCopyPath,
+        senderWebContentsId,
+        signal,
+    );
     try {
         await runCropWorkerTask<undefined>({
             type: 'removeCrop',
-            workingCopyPath,
+            workingCopyPath: materializedPath,
             pages,
             ...(senderWebContentsId !== undefined ? { senderWebContentsId } : {}),
         }, decodeUndefinedResult, signal);
@@ -198,9 +200,9 @@ export async function removeCropFromPages(
         if (!shouldFallbackToLocalCrop(error)) {
             throw error;
         }
-        await assertLocalCropFallbackAllowed(workingCopyPath, pages.length);
+        await assertLocalCropFallbackAllowed(materializedPath, pages.length);
         log.warn(`Crop worker unavailable, falling back to in-process crop reset: ${getErrorMessage(error)}`);
-        await removeCropFromPagesLocal(workingCopyPath, pages, signal);
+        await removeCropFromPagesLocal(materializedPath, pages, signal);
     }
 }
 
@@ -209,11 +211,14 @@ export async function getPageGeometry(
     pageNumber: number,
     senderWebContentsId?: number,
 ): Promise<IPageGeometry> {
-    await ensureManagedWorkingCopy(workingCopyPath, senderWebContentsId);
+    const materializedPath = await materializePageOperationWorkingCopy(
+        workingCopyPath,
+        senderWebContentsId,
+    );
     try {
         return await runCropWorkerTask<IPageGeometry>({
             type: 'getPageGeometry',
-            workingCopyPath,
+            workingCopyPath: materializedPath,
             pageNumber,
             ...(senderWebContentsId !== undefined ? { senderWebContentsId } : {}),
         }, decodePageGeometryResult);
@@ -221,8 +226,8 @@ export async function getPageGeometry(
         if (!shouldFallbackToLocalCrop(error)) {
             throw error;
         }
-        await assertLocalCropFallbackAllowed(workingCopyPath, 1);
+        await assertLocalCropFallbackAllowed(materializedPath, 1);
         log.warn(`Crop worker unavailable, falling back to in-process page geometry: ${getErrorMessage(error)}`);
-        return getPageGeometryLocal(workingCopyPath, pageNumber);
+        return getPageGeometryLocal(materializedPath, pageNumber);
     }
 }

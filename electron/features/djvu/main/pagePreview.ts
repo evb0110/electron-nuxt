@@ -11,8 +11,12 @@ import type {
     IDjvuPagePreview,
     IDjvuPagePreviewOptions,
     IDjvuPageSize,
+    IDjvuPageSourceInfo,
 } from '@contracts/electronApiDjvu';
-import { getDjvuResolution } from '@electron/djvu/metadata';
+import {
+    getDjvuPageCount,
+    getDjvuResolution,
+} from '@electron/djvu/metadata';
 import { buildDjvuRuntimeEnv } from '@electron/djvu/paths';
 import { getDjvuNativeToolPaths } from '@electron/djvu/nativeToolPaths';
 import { runNativeCommand } from '@electron/native-tools/runNativeCommand';
@@ -24,6 +28,13 @@ import {
 import { probeNativeNetpbm } from '@electron/features/djvu/main/probeNativeNetpbm';
 import { convertDjvuPageToImage } from '@electron/features/djvu/main/ddjvuConversion';
 import { parseIntegerEnv } from '@electron/utils/parseIntegerEnv';
+import {
+    clearDjvuPageSourceInfoCacheForTests,
+    getCachedDjvuPageSizes,
+    getOrProbeDjvuPageSourceInfo,
+    readDjvuSourceRevision,
+    storeDjvuPageSourceInfos,
+} from '@electron/features/djvu/main/djvuPageSourceInfoCache';
 
 const DJVU_PAGE_SIZE_TIMEOUT_MS = (() => {
     const parsed = Number.parseInt(process.env.EVB_DJVU_PAGE_SIZE_TIMEOUT_MS ?? '30000', 10);
@@ -40,11 +51,6 @@ const DJVU_PAGE_SIZE_MAX_STDOUT_BYTES = (() => {
     return parsed;
 })();
 const DJVU_PREVIEW_SUBSAMPLE_MAX = 12;
-const DJVU_PAGE_SIZE_CACHE_MAX_DOCUMENTS = 8;
-const pageSizesByDjvuPath = new Map<string, {
-    revision: string;
-    sizes: IDjvuPageSize[];
-}>();
 const DJVU_PREVIEW_MAX_PIXELS = parseIntegerEnv(
     'EVB_DJVU_PREVIEW_MAX_PIXELS',
     45_000_000,
@@ -211,29 +217,12 @@ function throwIfAborted(signal?: AbortSignal) {
     }
 }
 
-async function readDjvuFileRevision(djvuPath: string) {
-    const fileStat = await stat(djvuPath);
-    if (!fileStat.isFile()) {
-        throw new Error(`DjVu source is not a regular file: ${djvuPath}`);
-    }
-    return `${fileStat.size}:${fileStat.mtimeMs}`;
-}
-
-export async function getDjvuPageSizeForViewing(
+async function probeDjvuPageSize(
     djvuPath: string,
     pageNumber: number,
-    options: IDjvuPagePreviewLifecycleOptions = {},
+    options: IDjvuPagePreviewLifecycleOptions,
 ) {
     throwIfAborted(options.signal);
-    const revision = await readDjvuFileRevision(djvuPath);
-    throwIfAborted(options.signal);
-    const cacheEntry = pageSizesByDjvuPath.get(djvuPath);
-    const cached = cacheEntry?.revision === revision
-        ? cacheEntry.sizes[pageNumber - 1]
-        : undefined;
-    if (cached) {
-        return cached;
-    }
     const dpi = await getDjvuResolution(djvuPath, options.signal ? { signal: options.signal } : {});
     throwIfAborted(options.signal);
     const { djvused } = getDjvuNativeToolPaths();
@@ -258,14 +247,73 @@ export async function getDjvuPageSizeForViewing(
     return parseDjvuPageSizeOutput(result.stdout, dpi)[0] ?? null;
 }
 
+export async function getDjvuPageSourceInfoForViewing(
+    djvuPath: string,
+    pageNumber: number,
+    options: IDjvuPagePreviewLifecycleOptions = {},
+): Promise<IDjvuPageSourceInfo> {
+    throwIfAborted(options.signal);
+    const sourceRevision = await readDjvuSourceRevision(djvuPath);
+    throwIfAborted(options.signal);
+    return getOrProbeDjvuPageSourceInfo(
+        djvuPath,
+        sourceRevision.revision,
+        pageNumber,
+        async () => {
+            const [
+                pageCount,
+                requestedPageSize,
+            ] = await Promise.all([
+                getDjvuPageCount(djvuPath, options.signal ? {signal: options.signal} : {}),
+                probeDjvuPageSize(djvuPath, pageNumber, options).catch(() => null),
+            ]);
+            throwIfAborted(options.signal);
+            if (pageCount < 1) {
+                throw new Error('DjVu document has no pages');
+            }
+            const effectivePageNumber = Math.min(pageNumber, pageCount);
+            const pageSize = effectivePageNumber === pageNumber && requestedPageSize
+                ? requestedPageSize
+                : await probeDjvuPageSize(djvuPath, effectivePageNumber, options);
+            throwIfAborted(options.signal);
+            if (!pageSize) {
+                throw new Error(`DjVu page size probe returned no size for page ${effectivePageNumber}`);
+            }
+            return {
+                pageCount,
+                pageNumber: effectivePageNumber,
+                pageSize,
+                sourceSize: sourceRevision.sourceSize,
+                sourceModifiedAt: sourceRevision.sourceModifiedAt,
+            };
+        },
+    );
+}
+
+export async function getDjvuPageSizeForViewing(
+    djvuPath: string,
+    pageNumber: number,
+    options: IDjvuPagePreviewLifecycleOptions = {},
+) {
+    return (await getDjvuPageSourceInfoForViewing(djvuPath, pageNumber, options)).pageSize;
+}
+
 export async function getDjvuPageSizesForViewing(
     djvuPath: string,
     expectedPageCount: number,
     options: IDjvuPagePreviewLifecycleOptions = {},
 ): Promise<IDjvuPageSize[]> {
     throwIfAborted(options.signal);
-    const revision = await readDjvuFileRevision(djvuPath);
+    const sourceRevision = await readDjvuSourceRevision(djvuPath);
     throwIfAborted(options.signal);
+    const cachedSizes = getCachedDjvuPageSizes(
+        djvuPath,
+        sourceRevision.revision,
+        expectedPageCount,
+    );
+    if (cachedSizes) {
+        return cachedSizes;
+    }
     const dpi = await getDjvuResolution(djvuPath, options.signal ? { signal: options.signal } : {});
     throwIfAborted(options.signal);
     const { djvused } = getDjvuNativeToolPaths();
@@ -291,23 +339,22 @@ export async function getDjvuPageSizesForViewing(
     if (sizes.length !== expectedPageCount) {
         throw new Error(`DjVu page size probe returned ${sizes.length} page(s), expected ${expectedPageCount}`);
     }
-    pageSizesByDjvuPath.delete(djvuPath);
-    pageSizesByDjvuPath.set(djvuPath, {
-        revision,
-        sizes,
-    });
-    while (pageSizesByDjvuPath.size > DJVU_PAGE_SIZE_CACHE_MAX_DOCUMENTS) {
-        const oldestPath = pageSizesByDjvuPath.keys().next().value;
-        if (typeof oldestPath !== 'string') {
-            break;
-        }
-        pageSizesByDjvuPath.delete(oldestPath);
-    }
+    storeDjvuPageSourceInfos(
+        djvuPath,
+        sourceRevision.revision,
+        sizes.map((pageSize, index) => ({
+            pageCount: expectedPageCount,
+            pageNumber: index + 1,
+            pageSize,
+            sourceSize: sourceRevision.sourceSize,
+            sourceModifiedAt: sourceRevision.sourceModifiedAt,
+        })),
+    );
     return sizes;
 }
 
 export function clearDjvuPageSizeCacheForTests() {
-    pageSizesByDjvuPath.clear();
+    clearDjvuPageSourceInfoCacheForTests();
 }
 
 export async function renderDjvuPagePreview(

@@ -57,6 +57,7 @@ import {
     type IMainJobSender,
     type TMainJobSnapshot,
 } from '@electron/operation-lifecycle/createMainJobRegistry';
+import { ensureWorkingCopyMaterialized } from '@electron/file-access/workingCopyMaterialization';
 
 const PREVIEW_DPI = 150;
 const DETAIL_TILE_MAX_PIXELS = 4_000_000;
@@ -133,6 +134,7 @@ export interface IScanCleanupPreviewDependencies {
     detectSourceDpi?: (sourcePdfPath: string, pageNumber: number, signal: AbortSignal) => Promise<number | null>;
     acquireDetectionLease?: (jobId: string, signal: AbortSignal) => Promise<{release: () => boolean}>;
     getSourceMtimeMs?: (sourcePdfPath: string) => Promise<number>;
+    materializeWorkingCopy: typeof ensureWorkingCopyMaterialized;
 }
 
 const defaultDependencies: IScanCleanupPreviewDependencies = {
@@ -168,7 +170,27 @@ const defaultDependencies: IScanCleanupPreviewDependencies = {
         signal,
     }),
     getSourceMtimeMs: async sourcePdfPath => (await stat(sourcePdfPath)).mtimeMs,
+    materializeWorkingCopy: ensureWorkingCopyMaterialized,
 };
+
+async function materializeScanCleanupPreviewRequest<
+    T extends IScanCleanupRawPreviewRequest | IScanCleanupPreviewRequest | IScanCleanupDetectionRequest,
+>(
+    request: T,
+    senderId: number,
+    signal: AbortSignal,
+    dependencies: IScanCleanupPreviewDependencies,
+): Promise<T> {
+    const materialized = await dependencies.materializeWorkingCopy(request.sourcePdfPath, {
+        ownerWebContentsId: senderId,
+        reason: 'scan-cleanup',
+        signal,
+    });
+    return {
+        ...request,
+        sourcePdfPath: materialized.physicalWorkingCopyPath,
+    };
+}
 
 function storeRawPreview(rawCache: Map<string, IRawPreview>, key: string, raw: IRawPreview) {
     rawCache.delete(key);
@@ -1379,7 +1401,17 @@ export function createScanCleanupPreviewService(
             const controller = new AbortController();
             const generation = (previous?.generation ?? 0) + 1;
             const priorTail = previous?.tail.catch(() => undefined) ?? Promise.resolve();
-            const tail = priorTail.then(() => runRawPreview(request, controller.signal, rawCache, dependencies));
+            const tail = priorTail.then(async () => runRawPreview(
+                await materializeScanCleanupPreviewRequest(
+                    request,
+                    sender.id,
+                    controller.signal,
+                    dependencies,
+                ),
+                controller.signal,
+                rawCache,
+                dependencies,
+            ));
             activeRaw.set(activeKey, {
                 controller,
                 generation,
@@ -1402,8 +1434,13 @@ export function createScanCleanupPreviewService(
             const controller = new AbortController();
             const generation = (previous?.generation ?? 0) + 1;
             const priorTail = previous?.tail.catch(() => undefined) ?? Promise.resolve();
-            const tail = priorTail.then(() => runPreview(
-                request,
+            const tail = priorTail.then(async () => runPreview(
+                await materializeScanCleanupPreviewRequest(
+                    request,
+                    sender.id,
+                    controller.signal,
+                    dependencies,
+                ),
                 controller.signal,
                 rawCache,
                 baseAnalysisCache,
@@ -1503,8 +1540,14 @@ export function createScanCleanupPreviewService(
                     try {
                         const acquire = dependencies.acquireDetectionLease ?? defaultDependencies.acquireDetectionLease!;
                         lease = await acquire(jobId, job.signal);
-                        const detection = await runDetection(
+                        const materializedRequest = await materializeScanCleanupPreviewRequest(
                             request,
+                            sender.id,
+                            job.signal,
+                            dependencies,
+                        );
+                        const detection = await runDetection(
+                            materializedRequest,
                             job.signal,
                             rawCache,
                             dependencies,

@@ -21,6 +21,7 @@ import type {
     IDocumentsWindowContext,
 } from '@electron/features/documents/documentsService';
 import { resolveExistingReadablePdfPath } from '@electron/features/documents/main/documentFilePathResolution';
+import { ensureWorkingCopyMaterialized } from '@electron/file-access/workingCopyMaterialization';
 import {
     assertPdfPathWithinSizeLimit,
     cleanupPrintTempPath,
@@ -151,8 +152,12 @@ async function openPdfInDefaultApp(path: string): Promise<IOpenPdfInDefaultAppRe
 
 async function resolveReadablePdfPathForSender(filePath: string, senderId?: number) {
     const resolvedPath = await resolveExistingReadablePdfPath(filePath, senderId);
-    await assertPdfPathWithinSizeLimit(resolvedPath);
-    return resolvedPath;
+    const materialized = await ensureWorkingCopyMaterialized(resolvedPath, {
+        reason: 'print-external',
+        ...(senderId === undefined ? {} : {ownerWebContentsId: senderId}),
+    });
+    await assertPdfPathWithinSizeLimit(materialized.physicalWorkingCopyPath);
+    return materialized.physicalWorkingCopyPath;
 }
 
 function normalizePrintPageNumbers(pageNumbers?: number[]) {

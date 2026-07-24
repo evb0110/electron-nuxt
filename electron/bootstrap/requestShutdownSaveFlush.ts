@@ -8,6 +8,7 @@ import {
 } from '@electron/platform-ipc/coreContract';
 import type { ILogger } from '@electron/utils/createLogger';
 import { getErrorMessage } from '@electron/utils/error';
+import { workingCopyMap } from '@electron/file-access/workingCopyStore';
 
 export interface IShutdownSaveFlushSummary {
     dirtyWorkingCopyPaths: string[];
@@ -46,8 +47,23 @@ export async function requestShutdownSaveFlush(options: {
     const flushedWorkingCopyPaths = new Set<string>();
 
     return new Promise(resolve => {
+        const preserveOwnedWorkingCopies = (senderId: number) => {
+            for (const [
+                workingCopyPath,
+                entry,
+            ] of workingCopyMap) {
+                if (entry.ownerWebContentsId === senderId) {
+                    dirtyWorkingCopyPaths.add(workingCopyPath);
+                    flushedWorkingCopyPaths.delete(workingCopyPath);
+                }
+            }
+        };
+
         const timeout = setTimeout(() => {
             cleanup();
+            for (const senderId of pendingBySenderId.keys()) {
+                preserveOwnedWorkingCopies(senderId);
+            }
             const timedOutWindowIds = Array.from(pendingBySenderId.values());
             if (timedOutWindowIds.length > 0) {
                 options.logger.error(
@@ -91,10 +107,30 @@ export async function requestShutdownSaveFlush(options: {
                 dirtyWorkingCopyPaths.add(path);
             }
             for (const path of normalizePathList(payload.flushedWorkingCopyPaths)) {
-                flushedWorkingCopyPaths.add(path);
-                dirtyWorkingCopyPaths.delete(path);
+                const entry = workingCopyMap.get(path);
+                if (
+                    entry
+                    && (
+                        entry.ownerWebContentsId === undefined
+                        || entry.ownerWebContentsId === event.sender.id
+                    )
+                    && (
+                        entry.backingState === 'lazy-original'
+                        || entry.backingState === 'materializing'
+                    )
+                ) {
+                    dirtyWorkingCopyPaths.add(path);
+                    flushedWorkingCopyPaths.delete(path);
+                    options.logger.error(
+                        `WORKING_COPY_SHUTDOWN_FLUSH_UNMATERIALIZED: renderer reported an unmaterialized working copy as flushed: ${path}`,
+                    );
+                } else {
+                    flushedWorkingCopyPaths.add(path);
+                    dirtyWorkingCopyPaths.delete(path);
+                }
             }
             if (payload.error) {
+                preserveOwnedWorkingCopies(event.sender.id);
                 options.logger.error(`Renderer shutdown save flush failed: ${payload.error}`);
             }
             finishIfDone();
@@ -106,6 +142,7 @@ export async function requestShutdownSaveFlush(options: {
                 window.webContents.send(CORE_IPC_EVENT_CHANNELS.shutdownSaveFlushRequest, {requestId});
             } catch (error) {
                 pendingBySenderId.delete(window.webContents.id);
+                preserveOwnedWorkingCopies(window.webContents.id);
                 options.logger.error(`Failed to request renderer save flush for window ${window.id}: ${getErrorMessage(error)}`);
             }
         }

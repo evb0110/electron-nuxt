@@ -7,6 +7,25 @@ import { stat } from 'fs/promises';
 import { createOriginalFileContentFingerprint } from '@electron/file-access/workingCopyOriginalFileExpectation';
 
 export type TWorkingCopyRole = 'current' | 'snapshot';
+export type TWorkingCopyBackingState =
+    | 'cloned'
+    | 'eager'
+    | 'lazy-original'
+    | 'materializing'
+    | 'materialized';
+export type TWorkingCopyBackingErrorCode =
+    | 'SOURCE_BACKING_CHANGED'
+    | 'SOURCE_BACKING_UNAVAILABLE'
+    | 'WORKING_COPY_MATERIALIZATION_CANCELLED'
+    | 'WORKING_COPY_MATERIALIZATION_FAILED'
+    | 'WORKING_COPY_MATERIALIZATION_NO_SPACE'
+    | 'WORKING_COPY_MATERIALIZATION_VERIFICATION_FAILED'
+    | 'WORKING_COPY_REGISTRATION_CHANGED';
+
+export interface IWorkingCopyAdmissionSnapshot {
+    mtimeNs: bigint;
+    size: bigint;
+}
 
 export interface IWorkingCopyOriginalFileExpectation {
     contentFingerprint?: string;
@@ -14,7 +33,9 @@ export interface IWorkingCopyOriginalFileExpectation {
     size: number;
 }
 
-interface IWorkingCopyOriginalEntry {
+export interface IWorkingCopyOriginalEntry {
+    admissionSnapshot?: IWorkingCopyAdmissionSnapshot;
+    backingState: TWorkingCopyBackingState;
     originalPath: string;
     ownerWebContentsId?: number;
     originalFileExpectationAbortController?: AbortController;
@@ -22,26 +43,37 @@ interface IWorkingCopyOriginalEntry {
     registeredAtMs: number;
     registrationId: number;
     role: TWorkingCopyRole;
+    sourceBackingErrorCode?: TWorkingCopyBackingErrorCode;
 }
 
 interface ISetWorkingCopyOriginalPathOptions {
+    admissionSnapshot?: IWorkingCopyAdmissionSnapshot;
+    backingState?: TWorkingCopyBackingState;
     deferOriginalFileExpectation?: boolean;
+    originalFileExpectation?: IWorkingCopyOriginalFileExpectation;
     role?: TWorkingCopyRole;
 }
 
 interface IRememberRetiredWorkingCopyOriginalOptions {
+    admissionSnapshot?: IWorkingCopyAdmissionSnapshot;
+    backingState?: TWorkingCopyBackingState;
     originalFileExpectation?: IWorkingCopyOriginalFileExpectation;
     role?: TWorkingCopyRole;
+    sourceBackingErrorCode?: TWorkingCopyBackingErrorCode;
 }
 
 export const workingCopyMap = new Map<string, IWorkingCopyOriginalEntry>();
 
 const retiredWorkingCopyOriginalMap = new Map<string, {
+    admissionSnapshot?: IWorkingCopyAdmissionSnapshot;
+    backingState: TWorkingCopyBackingState;
     expiresAtMs: number;
     originalPath: string;
     originalFileExpectation?: IWorkingCopyOriginalFileExpectation;
     ownerWebContentsId?: number;
+    registrationId: number;
     role: TWorkingCopyRole;
+    sourceBackingErrorCode?: TWorkingCopyBackingErrorCode;
 }>();
 let retiredWorkingCopyPruneTimer: ReturnType<typeof setTimeout> | null = null;
 const currentWorkingCopyByOriginalPath = new Map<string, {
@@ -51,6 +83,7 @@ const currentWorkingCopyByOriginalPath = new Map<string, {
     workingPath: string;
 }>();
 let nextWorkingCopyRegistrationId = 0;
+const workingCopyRegistrationTransitions = new Map<string, Promise<void>>();
 const RETIRED_WORKING_COPY_TTL_MS = (() => {
     const parsed = Number.parseInt(process.env.EVB_RETIRED_WORKING_COPY_TTL_MS ?? `${10 * 60 * 1000}`, 10);
     if (!Number.isFinite(parsed) || parsed < 1_000) {
@@ -67,6 +100,28 @@ function stripWindowsExtendedLengthPrefix(filePath: string) {
         return filePath.slice(4);
     }
     return filePath;
+}
+
+async function runWithWorkingCopyRegistrationTransition<T>(
+    workingPath: string,
+    operation: () => Promise<T> | T,
+) {
+    const previousTransition = workingCopyRegistrationTransitions.get(workingPath) ?? Promise.resolve();
+    let releaseTransition!: () => void;
+    const transitionGate = new Promise<void>((resolveTransition) => {
+        releaseTransition = resolveTransition;
+    });
+    const transitionTail = previousTransition.then(() => transitionGate);
+    workingCopyRegistrationTransitions.set(workingPath, transitionTail);
+    await previousTransition;
+    try {
+        return await operation();
+    } finally {
+        releaseTransition();
+        if (workingCopyRegistrationTransitions.get(workingPath) === transitionTail) {
+            workingCopyRegistrationTransitions.delete(workingPath);
+        }
+    }
 }
 
 function isWindowsPathLike(filePath: string) {
@@ -133,6 +188,37 @@ function copyOriginalFileExpectation(
         mtimeMs: expectation.mtimeMs,
         size: expectation.size,
     };
+}
+
+function copyAdmissionSnapshot(
+    snapshot: IWorkingCopyAdmissionSnapshot | undefined,
+): IWorkingCopyAdmissionSnapshot | undefined {
+    return snapshot
+        ? {
+            mtimeNs: snapshot.mtimeNs,
+            size: snapshot.size,
+        }
+        : undefined;
+}
+
+export async function captureWorkingCopyAdmissionSnapshot(
+    originalPath: string,
+): Promise<IWorkingCopyAdmissionSnapshot> {
+    const sourceStat = await stat(originalPath, {bigint: true});
+    if (!sourceStat.isFile()) {
+        throw new Error('Working-copy source is not a regular file');
+    }
+    return {
+        mtimeNs: sourceStat.mtimeNs,
+        size: sourceStat.size,
+    };
+}
+
+export function workingCopyAdmissionSnapshotsMatch(
+    left: IWorkingCopyAdmissionSnapshot,
+    right: IWorkingCopyAdmissionSnapshot,
+) {
+    return left.size === right.size && left.mtimeNs === right.mtimeNs;
 }
 
 function isSameOwner(left: number | undefined, right: number | undefined) {
@@ -307,30 +393,38 @@ export async function setWorkingCopyOriginalPath(
     ownerWebContentsId?: number,
     options: ISetWorkingCopyOriginalPathOptions = {},
 ) {
-    const existingEntry = workingCopyMap.get(workingPath);
-    if (existingEntry) {
-        existingEntry.originalFileExpectationAbortController?.abort();
-        workingCopyMap.delete(workingPath);
-        refreshCurrentWorkingCopyForOriginal(existingEntry.originalPath, existingEntry.ownerWebContentsId);
-    }
+    let entry!: IWorkingCopyOriginalEntry;
+    await runWithWorkingCopyRegistrationTransition(workingPath, () => {
+        const existingEntry = workingCopyMap.get(workingPath);
+        if (existingEntry) {
+            existingEntry.originalFileExpectationAbortController?.abort();
+            workingCopyMap.delete(workingPath);
+            refreshCurrentWorkingCopyForOriginal(existingEntry.originalPath, existingEntry.ownerWebContentsId);
+        }
 
-    const role = options.role ?? 'current';
-    const entry: IWorkingCopyOriginalEntry = {
-        originalPath,
-        ...(typeof ownerWebContentsId === 'number' ? {ownerWebContentsId} : {}),
-        registeredAtMs: Date.now(),
-        registrationId: nextWorkingCopyRegistrationId += 1,
-        role,
-    };
-    workingCopyMap.set(workingPath, entry);
-    retiredWorkingCopyOriginalMap.delete(workingPath);
-    setCurrentWorkingCopyForOriginal(workingPath, entry);
+        const role = options.role ?? 'current';
+        const admissionSnapshot = copyAdmissionSnapshot(options.admissionSnapshot);
+        const originalFileExpectation = copyOriginalFileExpectation(options.originalFileExpectation);
+        entry = {
+            ...(admissionSnapshot ? {admissionSnapshot} : {}),
+            backingState: options.backingState ?? 'eager',
+            originalPath,
+            ...(typeof ownerWebContentsId === 'number' ? {ownerWebContentsId} : {}),
+            ...(originalFileExpectation ? {originalFileExpectation} : {}),
+            registeredAtMs: Date.now(),
+            registrationId: nextWorkingCopyRegistrationId += 1,
+            role,
+        };
+        workingCopyMap.set(workingPath, entry);
+        retiredWorkingCopyOriginalMap.delete(workingPath);
+        setCurrentWorkingCopyForOriginal(workingPath, entry);
+    });
 
     // Opening only needs the source mapping. Capturing a full-file fingerprint
     // here competes with PDF.js for the same bytes and compounds across quick
     // close/reopen cycles. Save conflict detection safely falls back to a
     // chunked original-vs-working-copy comparison when no expectation exists.
-    if (options.deferOriginalFileExpectation) {
+    if (options.deferOriginalFileExpectation || options.originalFileExpectation) {
         return;
     }
 
@@ -371,13 +465,22 @@ export function rememberRetiredWorkingCopyOriginal(
         return;
     }
     pruneRetiredWorkingCopyOriginals();
-    const originalFileExpectation = copyOriginalFileExpectation(options.originalFileExpectation);
+    const activeEntry = workingCopyMap.get(workingPath);
+    const admissionSnapshot = copyAdmissionSnapshot(options.admissionSnapshot ?? activeEntry?.admissionSnapshot);
+    const originalFileExpectation = copyOriginalFileExpectation(
+        options.originalFileExpectation ?? activeEntry?.originalFileExpectation,
+    );
+    const sourceBackingErrorCode = options.sourceBackingErrorCode ?? activeEntry?.sourceBackingErrorCode;
     retiredWorkingCopyOriginalMap.set(workingPath, {
+        ...(admissionSnapshot ? {admissionSnapshot} : {}),
+        backingState: options.backingState ?? activeEntry?.backingState ?? 'eager',
         originalPath,
         ...(originalFileExpectation ? {originalFileExpectation} : {}),
         ...(typeof ownerWebContentsId === 'number' ? {ownerWebContentsId} : {}),
         expiresAtMs: Date.now() + RETIRED_WORKING_COPY_TTL_MS,
+        registrationId: activeEntry?.registrationId ?? (nextWorkingCopyRegistrationId += 1),
         role: options.role ?? 'current',
+        ...(sourceBackingErrorCode ? {sourceBackingErrorCode} : {}),
     });
     scheduleRetiredWorkingCopyPrune();
 }
@@ -414,7 +517,6 @@ export function clearWorkingCopyOriginalPaths() {
     }
     workingCopyMap.clear();
     currentWorkingCopyByOriginalPath.clear();
-    nextWorkingCopyRegistrationId = 0;
 }
 
 function canUseWorkingCopyEntry(entry: {ownerWebContentsId?: number}, senderWebContentsId?: number) {
@@ -507,6 +609,104 @@ export function getWorkingCopyRegistrationId(workingPath: string, senderWebConte
     }
 
     return activeEntry.registrationId;
+}
+
+export function getWorkingCopyBackingEntry(
+    workingPath: string,
+    senderWebContentsId?: number,
+): IWorkingCopyOriginalEntry | null {
+    const activeEntry = workingCopyMap.get(workingPath);
+    if (!activeEntry || !canUseWorkingCopyEntry(activeEntry, senderWebContentsId)) {
+        return null;
+    }
+    return activeEntry;
+}
+
+export function getWorkingCopyBackingMetadata(
+    workingPath: string,
+    senderWebContentsId?: number,
+) {
+    const activeEntry = getWorkingCopyBackingEntry(workingPath, senderWebContentsId);
+    if (activeEntry) {
+        return {
+            admissionSnapshot: copyAdmissionSnapshot(activeEntry.admissionSnapshot),
+            backingState: activeEntry.backingState,
+            registrationId: activeEntry.registrationId,
+            retired: false,
+            ...(activeEntry.sourceBackingErrorCode
+                ? {sourceBackingErrorCode: activeEntry.sourceBackingErrorCode}
+                : {}),
+        };
+    }
+
+    pruneRetiredWorkingCopyOriginals();
+    const retiredEntry = retiredWorkingCopyOriginalMap.get(workingPath);
+    if (!retiredEntry || !canUseWorkingCopyEntry(retiredEntry, senderWebContentsId)) {
+        return null;
+    }
+    return {
+        admissionSnapshot: copyAdmissionSnapshot(retiredEntry.admissionSnapshot),
+        backingState: retiredEntry.backingState,
+        registrationId: retiredEntry.registrationId,
+        retired: true,
+        ...(retiredEntry.sourceBackingErrorCode
+            ? {sourceBackingErrorCode: retiredEntry.sourceBackingErrorCode}
+            : {}),
+    };
+}
+
+export function transitionWorkingCopyBackingState(
+    workingPath: string,
+    registrationId: number,
+    backingState: TWorkingCopyBackingState,
+    options: {
+        expectedBackingState?: TWorkingCopyBackingState | TWorkingCopyBackingState[];
+        originalFileExpectation?: IWorkingCopyOriginalFileExpectation;
+        sourceBackingErrorCode?: TWorkingCopyBackingErrorCode | null;
+    } = {},
+) {
+    const activeEntry = workingCopyMap.get(workingPath);
+    if (!activeEntry || activeEntry.registrationId !== registrationId) {
+        return false;
+    }
+    const expectedBackingStates = Array.isArray(options.expectedBackingState)
+        ? options.expectedBackingState
+        : options.expectedBackingState
+            ? [options.expectedBackingState]
+            : null;
+    if (expectedBackingStates && !expectedBackingStates.includes(activeEntry.backingState)) {
+        return false;
+    }
+    activeEntry.backingState = backingState;
+    if (options.originalFileExpectation) {
+        const originalFileExpectation = copyOriginalFileExpectation(options.originalFileExpectation);
+        if (originalFileExpectation) {
+            activeEntry.originalFileExpectation = originalFileExpectation;
+        }
+    }
+    if (options.sourceBackingErrorCode === null) {
+        delete activeEntry.sourceBackingErrorCode;
+    } else if (options.sourceBackingErrorCode) {
+        activeEntry.sourceBackingErrorCode = options.sourceBackingErrorCode;
+    }
+    return true;
+}
+
+export async function runWithWorkingCopyRegistrationFence<T>(
+    workingPath: string,
+    registrationId: number,
+    operation: (entry: IWorkingCopyOriginalEntry) => Promise<T> | T,
+) {
+    return runWithWorkingCopyRegistrationTransition(workingPath, async () => {
+        const activeEntry = workingCopyMap.get(workingPath);
+        if (!activeEntry || activeEntry.registrationId !== registrationId) {
+            return {matched: false as const};
+        }
+        return {
+            matched: true as const,
+            value: await operation(activeEntry),
+        };
+    });
 }
 
 export function getWorkingCopyRole(workingPath: string, senderWebContentsId?: number): TWorkingCopyRole | null {

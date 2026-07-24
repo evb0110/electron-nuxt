@@ -10,7 +10,6 @@ import type {
     IDocumentMutationRevisionOptions,
     TOpenFileResult,
 } from '@contracts/electronApiDocuments';
-import { IPC_DIRECT_BINARY_PAYLOAD_MAX_BYTES } from '@contracts/electronApiDocuments';
 import type { TDocumentOpenOutcome } from '@app/types/documentOpenOutcome';
 import type { IPdfRasterDisplayProfileOpenOptions } from '@app/types/pdfRasterDisplayProfile';
 import {consumeRegisteredPdfRasterDisplayProfile} from '@app/types/pdfRasterDisplayProfile';
@@ -31,11 +30,19 @@ import {
 import { readDocumentBytes } from '@app/utils/documentBytes';
 import { getDocumentRefBaseName } from '@app/utils/documentRef';
 import { getErrorMessage } from '@app/utils/error';
+import { getPerformanceProfile } from '@app/utils/performanceProfile';
+import { resolveOpenPathSecondaryPerformancePolicy } from '@app/utils/openPathSecondaryPerformancePolicy';
 import {
     getDocumentFilesCapability,
     getDocumentOpenCapability,
     getDocumentPickerCapability,
+    getDocumentRecentFilesCapability,
 } from '@app/utils/platformDocuments';
+import type { IDocumentOpenSurfaceSession } from '@app/utils/document-viewer/chassis/documentOpenSurfaceSession';
+import {
+    cacheTrustedPdfOpenGeometry,
+    readPrevalidatedTrustedPdfOpenGeometry,
+} from '@app/modules/pdf-viewer/public/openGeometry';
 
 type TAnalytics = ReturnType<typeof useAnalytics>;
 type TEpochGuard = ReturnType<typeof createEpochGuard>;
@@ -52,7 +59,9 @@ interface ICreateDocumentOpenFlowDeps {
         options?: IPdfConformanceDeferralOptions,
     ) => void;
     incrementSessionVersion: () => void;
+    ensureHistoryBaselineForMutation: () => Promise<boolean>;
     loadEpoch: TEpochGuard;
+    openSurface?: IDocumentOpenSurfaceSession | undefined;
     openEpoch: TEpochGuard;
     pushHistorySnapshot: (
         snapshot: Uint8Array,
@@ -70,10 +79,7 @@ interface ICreateDocumentOpenFlowDeps {
 }
 
 const RECENT_OPEN_LOG_SECTION = 'recent-open';
-// Keep direct document reads within the IPC contract's binary-payload ceiling.
-// Larger PDFs should be handed to PDF.js as path-backed range sources instead
-// of being copied into the renderer and then copied again into a Blob/history.
-const MAX_IN_MEMORY_PDF_BYTES = IPC_DIRECT_BINARY_PAYLOAD_MAX_BYTES;
+const MAX_EAGER_HISTORY_BASELINE_BYTES = 8 * 1024 * 1024;
 
 function createDocumentMutationRevisionOptions(
     expectedDocumentRevisionToken: TDocumentRevisionToken | null | undefined,
@@ -88,6 +94,13 @@ export function createDocumentOpenFlow(
     state: IDocumentSessionState,
     deps: ICreateDocumentOpenFlowDeps,
 ) {
+    const performancePolicy = resolveOpenPathSecondaryPerformancePolicy(getPerformanceProfile());
+    const {
+        deferMediumHistoryBaseline,
+        geometryPreflightMode,
+        maxInMemoryPdfBytes,
+    } = performancePolicy;
+
     function assertPdfHasBytes(size: number) {
         if (size > 0) {
             return;
@@ -187,6 +200,72 @@ export function createDocumentOpenFlow(
         return isCurrentOpenRequest(openRequestId) && isCurrentLoadRequest(loadRequestId);
     }
 
+    function startPdfOpeningGeometryResolution(
+        openRequestId: number,
+        result: Extract<TOpenFileResult, { kind: 'pdf' }>,
+    ) {
+        const openSurface = deps.openSurface;
+        const surfaceSnapshot = openSurface?.snapshot.value;
+        const cachedGeometry = readPrevalidatedTrustedPdfOpenGeometry(result.originalPath, 1);
+
+        if (
+            cachedGeometry
+            && openSurface
+            && surfaceSnapshot?.phase === 'pending'
+            && surfaceSnapshot.identity?.documentId === result.originalPath
+            && openSurface.viewportSession.value.requestedPage === cachedGeometry.pageNumber
+            && isCurrentOpenRequest(openRequestId)
+        ) {
+            openSurface.commitOpeningPageGeometry(surfaceSnapshot.generation, cachedGeometry);
+        }
+
+        const readOpeningGeometry = getDocumentFilesCapability().getPdfOpeningGeometry;
+        if (geometryPreflightMode !== 'concurrent' || !readOpeningGeometry) {
+            return;
+        }
+
+        const geometryTask = readOpeningGeometry(result.workingPath);
+        const recentSourceTask = getDocumentRecentFilesCapability().recentFiles.get()
+            .then(files => files.find(file => file.originalPath === result.originalPath) ?? null)
+            .catch(() => null);
+        void Promise.all([
+            geometryTask,
+            recentSourceTask,
+        ])
+            .then(([
+                openingGeometry,
+                recentSource,
+            ]) => {
+                if (openingGeometry === null) {
+                    return null;
+                }
+                const recentSourceRevision = recentSource?.fileSize !== undefined
+                    && recentSource.modifiedAt !== undefined
+                    ? {
+                        size: recentSource.fileSize,
+                        modifiedAt: recentSource.modifiedAt,
+                    }
+                    : undefined;
+                const sourceRevision = result.openingGeometry
+                    ?? cachedGeometry
+                    ?? recentSourceRevision;
+                return cacheTrustedPdfOpenGeometry(
+                    result.originalPath,
+                    openingGeometry,
+                    {
+                        makeSynchronouslyAvailable: sourceRevision !== undefined,
+                        ...(sourceRevision ? {sourceRevision} : {}),
+                    },
+                );
+            })
+            .catch((error: unknown) => {
+                BrowserLogger.debug(RECENT_OPEN_LOG_SECTION, 'PDF opening geometry unavailable', {
+                    workingPath: result.workingPath,
+                    error: getErrorMessage(error),
+                });
+            });
+    }
+
     async function cleanupAbandonedPdfWorkingCopy(
         result: TOpenFileResult,
         reason: string,
@@ -276,6 +355,10 @@ export function createDocumentOpenFlow(
         );
         const rasterDisplayProfile = options.rasterDisplayProfile
             ?? registeredRasterDisplayProfile;
+        startPdfOpeningGeometryResolution(
+            openRequestId,
+            result,
+        );
         try {
             await loadPdfFromPath(result.workingPath, {
                 markDirty: !!result.isGenerated,
@@ -611,7 +694,13 @@ export function createDocumentOpenFlow(
 
         if (!options?.preserveHistory) {
             deps.incrementSessionVersion();
-            if (nextState.pdfData) {
+            if (
+                nextState.pdfData
+                && (
+                    !deferMediumHistoryBaseline
+                    || nextState.pdfData.byteLength <= MAX_EAGER_HISTORY_BASELINE_BYTES
+                )
+            ) {
                 const didResetHistory = await deps.resetHistory(nextState.pdfData, {
                     reuseSnapshot: true,
                     isCurrent: options?.isCurrent,
@@ -701,13 +790,13 @@ export function createDocumentOpenFlow(
         });
         assertPdfHasBytes(size);
 
-        if (size > MAX_IN_MEMORY_PDF_BYTES) {
+        if (size > maxInMemoryPdfBytes) {
             logPdfRenderTrace('pdf-open-source-ready', {
                 path,
                 ...traceContext,
                 sourceKind: 'path',
                 declaredSize: size,
-                directBinaryPayloadLimit: MAX_IN_MEMORY_PDF_BYTES,
+                directBinaryPayloadLimit: maxInMemoryPdfBytes,
             });
             return {
                 pdfData: null,
@@ -727,7 +816,7 @@ export function createDocumentOpenFlow(
         });
         const data = await readDocumentBytes(path, {
             knownSize: size,
-            maxBytes: MAX_IN_MEMORY_PDF_BYTES,
+            maxBytes: maxInMemoryPdfBytes,
         });
         logPdfRenderTrace('pdf-open-source-read-end', {
             path,
@@ -863,6 +952,15 @@ export function createDocumentOpenFlow(
         const snapshot = data.slice();
         assertPdfHasBytes(snapshot.byteLength);
         if (!deps.loadEpoch.isCurrent(requestId)) {
+            return;
+        }
+        if (!await deps.ensureHistoryBaselineForMutation()) {
+            return;
+        }
+        if (
+            !deps.loadEpoch.isCurrent(requestId)
+            || expectedWorkingPath !== state.workingCopyPath.value
+        ) {
             return;
         }
         const didApplySnapshot = await applySnapshot(

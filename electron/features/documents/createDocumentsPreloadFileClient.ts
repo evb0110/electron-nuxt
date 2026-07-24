@@ -10,6 +10,7 @@ import type {
     IDocumentsRecentFilesCapability,
     IDocumentsWindowCapability,
     IDocumentChunkReadOptions,
+    IWorkingCopyBackingStatus,
     IPdfNativePagePreviewOptions,
     IPdfNativeStagedCommitOptions,
     IPdfOptimizeOptions,
@@ -17,7 +18,10 @@ import type {
     IPdfSerializedCommitCallbacks,
     IPdfSerializedSaveOptions,
 } from '@contracts/electronApiDocuments';
-import { isPdfOptimizePreset } from '@contracts/electronApiDocuments';
+import {
+    decodeWorkingCopyBackingStatus,
+    isPdfOptimizePreset,
+} from '@contracts/electronApiDocuments';
 import {
     normalizePdfNativeModifiedAt,
     normalizePdfNativeMutationSet,
@@ -108,8 +112,12 @@ interface ISerializedPdfPersistencePortResult {
     };
 }
 
-interface IDocumentsFileEventMap {[DOCUMENT_FILES_PLATFORM_FEATURE.eventChannels.onDocumentRevisionChanged]:
-IDocumentRevisionChangedEvent;}
+interface IDocumentsFileEventMap {
+    [DOCUMENT_FILES_PLATFORM_FEATURE.eventChannels.onDocumentRevisionChanged]:
+    IDocumentRevisionChangedEvent;
+    [DOCUMENT_FILES_PLATFORM_FEATURE.eventChannels.onWorkingCopyBackingStatusChanged]:
+    IWorkingCopyBackingStatus;
+}
 
 type TDocumentChunkSource = Parameters<IDocumentsFileCapability['savePdfDataChunks']>[2];
 
@@ -776,10 +784,22 @@ export function createDocumentsPreloadFileClient(
                 DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.getDocumentRevision,
                 assertAbsolutePath(path, 'getDocumentRevision.path'),
             ),
+        getWorkingCopyBackingStatus: (path) =>
+            invokeFiles(
+                DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.getWorkingCopyBackingStatus,
+                assertAbsolutePath(path, 'getWorkingCopyBackingStatus.path'),
+            ),
         onDocumentRevisionChanged: (callback) => {
             return eventSubscriber.onDecodedPayload(
                 DOCUMENT_FILES_PLATFORM_FEATURE.eventChannels.onDocumentRevisionChanged,
                 decodeDocumentRevisionChangedEvent,
+                callback,
+            );
+        },
+        onWorkingCopyBackingStatusChanged: (callback) => {
+            return eventSubscriber.onDecodedPayload(
+                DOCUMENT_FILES_PLATFORM_FEATURE.eventChannels.onWorkingCopyBackingStatusChanged,
+                decodeWorkingCopyBackingStatus,
                 callback,
             );
         },

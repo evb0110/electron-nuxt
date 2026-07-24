@@ -10,14 +10,14 @@ import {abortErrorFromSignal} from '@electron/utils/abort';
 const ORIGINAL_FILE_FINGERPRINT_CHUNK_BYTES = 1024 * 1024;
 const ORIGINAL_FILE_FINGERPRINT_VERSION = 'sha256-full-v1';
 
-function createFingerprintHash(size: number) {
+export function createOriginalFileContentFingerprintHash(size: number) {
     const hash = createHash('sha256');
     hash.update(`${ORIGINAL_FILE_FINGERPRINT_VERSION}\nsize:${size}\n`);
     return hash;
 }
 
 export function createOriginalFileContentFingerprintSync(filePath: string, size: number) {
-    const hash = createFingerprintHash(size);
+    const hash = createOriginalFileContentFingerprintHash(size);
     const fd = openSync(filePath, 'r');
     try {
         const buffer = Buffer.allocUnsafe(Math.min(ORIGINAL_FILE_FINGERPRINT_CHUNK_BYTES, Math.max(size, 1)));
@@ -45,7 +45,7 @@ export async function createOriginalFileContentFingerprint(
     if (signal?.aborted) {
         throw abortErrorFromSignal(signal);
     }
-    const hash = createFingerprintHash(size);
+    const hash = createOriginalFileContentFingerprintHash(size);
     const handle = await open(filePath, 'r');
     try {
         const buffer = Buffer.allocUnsafe(Math.min(ORIGINAL_FILE_FINGERPRINT_CHUNK_BYTES, Math.max(size, 1)));

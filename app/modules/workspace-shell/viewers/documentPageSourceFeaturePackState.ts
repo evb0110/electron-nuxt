@@ -14,12 +14,15 @@ import type { IDocumentViewerRenderSession } from '@app/utils/document-viewer/ch
 import { resolveDocumentContinuousScrollWindow } from '@app/utils/document-viewer/viewport/resolveDocumentContinuousScrollWindow';
 import { createProvisionalDocumentPageMetrics } from '@app/modules/workspace-shell/viewers/loadPrioritizedDocumentPageMetrics';
 import type { TWorkspaceResourcePressureLevel } from '@app/modules/workspace-shell/memory/workspaceSurfaceBudgetController';
+import { resolvePerformanceProfile } from '@app/utils/performanceProfile';
+import { resolveOpenPathSecondaryPerformancePolicy } from '@app/utils/openPathSecondaryPerformancePolicy';
 
 export function resolveInactiveDjvuLeasePolicy(
     tier: THostResourceTier,
     pressureLevel: TWorkspaceResourcePressureLevel,
 ) {
-    return tier === 'low' || ![
+    const policy = resolveOpenPathSecondaryPerformancePolicy(resolvePerformanceProfile({ tier }));
+    return policy.inactiveDjvuLeasePolicy === 'release-immediately' || ![
         'healthy',
         'guarded',
     ].includes(pressureLevel)

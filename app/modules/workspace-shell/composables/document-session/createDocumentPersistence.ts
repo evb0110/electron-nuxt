@@ -43,6 +43,7 @@ interface IPdfPersistPhaseTiming {
 
 interface ICreateDocumentPersistenceDeps {
     deferPdfConformanceProfile: (path: TDocumentRef) => void;
+    ensureHistoryBaselineForMutation: () => Promise<boolean>;
     getHistoryDebugState: () => {
         historyLength: number;
         historyIndex: number;
@@ -404,6 +405,12 @@ export function createDocumentPersistence(
     async function persistPdfDataSilently(data: Uint8Array) {
         const expectedWorkingPath = state.workingCopyPath.value;
         const snapshot = data.slice();
+        if (!await deps.ensureHistoryBaselineForMutation()) {
+            return false;
+        }
+        if (expectedWorkingPath !== state.workingCopyPath.value) {
+            return false;
+        }
         if (expectedWorkingPath) {
             await getDocumentFilesCapability().writeFile(
                 expectedWorkingPath,

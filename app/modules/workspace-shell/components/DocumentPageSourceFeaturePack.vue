@@ -584,6 +584,9 @@ async function renderPage(pageNumber: number) {
                 previous.lease.promotePriority?.(priority);
                 previous.priority = priority;
             }
+            if (!previous.ready && getConnectedPageImage(pageNumber, previous)) {
+                markConnectedPageSurfaceReady(pageNumber, previous);
+            }
             if (previous.ready && priority === 'navigation') {
                 void nextTick(() => commitReadyPageToViewportSession(pageNumber, previous));
             }
@@ -784,10 +787,17 @@ function commitReadyPageToViewportSession(pageNumber: number, state: IDocumentPa
 }
 
 function markConnectedPageSurfaceReady(pageNumber: number, state: IDocumentPageSourceVisualState) {
+    const isInitialOpenTransition = chassisAuthority?.openSurface.viewportSession.value.lifecycle === 'opening';
     state.ready = true;
     state.error = null;
     visualRetryState.markReady(pageNumber);
-    return commitReadyPageToViewportSession(pageNumber, state);
+    const committed = commitReadyPageToViewportSession(pageNumber, state);
+    if (committed && isInitialOpenTransition) {
+        // markReady may detach the opening image on the next tick. The
+        // successful commit is the readiness proof, so emit synchronously.
+        emit('initial-visual-ready', {pageNumber});
+    }
+    return committed;
 }
 
 async function handleSurfaceLoad(pageNumber: number, surface: string, event: Event) {
@@ -823,14 +833,7 @@ async function handleSurfaceLoad(pageNumber: number, surface: string, event: Eve
     ) {
         return;
     }
-    const isInitialOpenTransition = chassisAuthority?.openSurface.viewportSession.value.lifecycle === 'opening';
-    if (!markConnectedPageSurfaceReady(pageNumber, state)) {
-        return;
-    }
-    // markReady may detach this image on the next tick. The successful paint
-    // above is the readiness proof; waiting on the retired node makes initial
-    // visual readiness impossible to emit even though the document is visible.
-    if (isInitialOpenTransition) emit('initial-visual-ready', {pageNumber});
+    markConnectedPageSurfaceReady(pageNumber, state);
 }
 
 function handleSurfaceError(pageNumber: number, surface: string) {
@@ -867,7 +870,7 @@ async function renderMountedPages() {
         needsRender: (pageNumber) => {
             const state = pageStates.get(pageNumber);
             const metric = pageMetrics.value[pageNumber - 1];
-            return !state?.lease || !metric || state.widthPx !== resolveDocumentPageSourceRenderWidthPx(
+            return !state?.lease || !state.ready || !metric || state.widthPx !== resolveDocumentPageSourceRenderWidthPx(
                 metric,
                 pageDisplayLayouts.value[pageNumber - 1]?.scale ?? effectiveZoom.value,
                 window.devicePixelRatio || 1,
@@ -1178,11 +1181,6 @@ watch(
         if (!source.value) {
             seedOpeningPageMetrics();
         }
-        void commitInitialPageShell(
-            geometry.pageNumber,
-            loadGeneration.value,
-            chassisAuthority?.openSurface.snapshot.value.generation ?? null,
-        );
     },
     {immediate: true},
 );

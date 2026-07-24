@@ -42,12 +42,13 @@ const mocks = vi.hoisted(() => ({
     cancelConversion: vi.fn(),
     isAllowedDjvuViewingPath: vi.fn(),
     getDjvuPageSizesForViewing: vi.fn(),
-    getDjvuPageSizeForViewing: vi.fn(),
+    getDjvuPageSourceInfoForViewing: vi.fn(),
     renderDjvuPagePreview: vi.fn(),
     releaseDjvuViewingPath: vi.fn(),
     cleanupDjvuTempPdfPath: vi.fn(),
     pruneStaleDjvuArtifactJobs: vi.fn(),
     getRecentFiles: vi.fn(),
+    readDjvuPageText: vi.fn(),
     searchDjvuText: vi.fn(),
     safeSendToWindow: vi.fn(),
     senderSend: vi.fn(),
@@ -90,12 +91,15 @@ vi.mock('@electron/features/djvu/main/viewing', () => ({
 vi.mock('@electron/features/djvu/main/djvuArtifactManifest', () => ({pruneStaleDjvuArtifactJobs: mocks.pruneStaleDjvuArtifactJobs}));
 vi.mock('@electron/recentFiles', () => ({getRecentFiles: mocks.getRecentFiles}));
 vi.mock('@electron/features/djvu/main/pagePreview', () => ({
-    getDjvuPageSizeForViewing: mocks.getDjvuPageSizeForViewing,
+    getDjvuPageSourceInfoForViewing: mocks.getDjvuPageSourceInfoForViewing,
     getDjvuPageSizesForViewing: mocks.getDjvuPageSizesForViewing,
     renderDjvuPagePreview: mocks.renderDjvuPagePreview,
 }));
 vi.mock('@electron/features/djvu/main/ddjvuConversion', () => ({cancelConversion: mocks.cancelConversion}));
-vi.mock('@electron/djvu/textSearch', () => ({searchDjvuText: mocks.searchDjvuText}));
+vi.mock('@electron/djvu/textSearch', () => ({
+    readDjvuPageText: mocks.readDjvuPageText,
+    searchDjvuText: mocks.searchDjvuText,
+}));
 vi.mock('@electron/djvu/safeSendToWindow', () => ({safeSendToWindow: mocks.safeSendToWindow}));
 vi.mock('@electron/utils/createLogger', () => ({createLogger: () => ({
     debug: vi.fn(),
@@ -212,6 +216,7 @@ describe('registerDjvuIpcAdapter', () => {
         mocks.getDjvuHasText.mockResolvedValue(true);
         mocks.getDjvuMetadata.mockResolvedValue({});
         mocks.parseDjvuOutline.mockReturnValue([]);
+        mocks.readDjvuPageText.mockResolvedValue('');
         mocks.estimateSizes.mockReturnValue([]);
         mocks.handleDjvuConvertToPdf.mockResolvedValue({success: true});
         mocks.handleDjvuCancel.mockResolvedValue({canceled: true});
@@ -223,10 +228,16 @@ describe('registerDjvuIpcAdapter', () => {
             height: 200,
             dpi: 300,
         }]);
-        mocks.getDjvuPageSizeForViewing.mockResolvedValue({
-            width: 100,
-            height: 200,
-            dpi: 300,
+        mocks.getDjvuPageSourceInfoForViewing.mockResolvedValue({
+            pageCount: 1,
+            pageNumber: 1,
+            pageSize: {
+                width: 100,
+                height: 200,
+                dpi: 300,
+            },
+            sourceSize: 1,
+            sourceModifiedAt: 1,
         });
         mocks.renderDjvuPagePreview.mockResolvedValue({
             bytes: new Uint8Array([1]),
@@ -609,6 +620,57 @@ describe('registerDjvuIpcAdapter', () => {
         }
     });
 
+    it('returns native page text and maps a nested outline to interactive provider shape', async () => {
+        const tempRoot = mkdtempSync(join(tmpdir(), 'evb-djvu-provider-test-'));
+        try {
+            const realPath = join(tempRoot, 'real.djvu');
+            writeFileSync(realPath, new Uint8Array([1]));
+            const {allowOpenPath} = await import('@electron/file-access/openPathCapabilities');
+            const event = createIpcEvent(1);
+            allowOpenPath(realPath, event.sender as never);
+            mocks.readDjvuPageText.mockResolvedValue('Native page text');
+            mocks.getDjvuOutline.mockResolvedValue('(bookmarks)');
+            mocks.parseDjvuOutline.mockReturnValue([{
+                title: 'Chapter',
+                pageIndex: 0,
+                namedDest: null,
+                bold: false,
+                italic: false,
+                color: null,
+                items: [{
+                    title: 'Section',
+                    pageIndex: 2,
+                    namedDest: null,
+                    bold: false,
+                    italic: false,
+                    color: null,
+                    items: [],
+                }],
+            }]);
+            registerDjvuIpcAdapter();
+
+            await expect(getHandler('djvu:getPageText')(event, realPath, 3))
+                .resolves
+                .toBe('Native page text');
+            await expect(getHandler('djvu:getOutline')(event, realPath))
+                .resolves
+                .toEqual([{
+                    title: 'Chapter',
+                    pageNumber: 1,
+                    children: [{
+                        title: 'Section',
+                        pageNumber: 3,
+                        children: [],
+                    }],
+                }]);
+        } finally {
+            rmSync(tempRoot, {
+                force: true,
+                recursive: true,
+            });
+        }
+    });
+
     it('probes only the prioritized page size when creating a viewing source', async () => {
         const tempRoot = mkdtempSync(join(tmpdir(), 'evb-djvu-source-info-test-'));
         try {
@@ -619,6 +681,17 @@ describe('registerDjvuIpcAdapter', () => {
             const event = createIpcEvent(1);
             allowOpenPath(realPath, event.sender as never);
             mocks.getDjvuPageCount.mockResolvedValue(431);
+            mocks.getDjvuPageSourceInfoForViewing.mockResolvedValue({
+                pageCount: 431,
+                pageNumber: 7,
+                pageSize: {
+                    width: 100,
+                    height: 200,
+                    dpi: 300,
+                },
+                sourceSize: 1,
+                sourceModifiedAt: 1,
+            });
             registerDjvuIpcAdapter();
 
             await expect(getHandler('djvu:getPageSourceInfo')(event, realPath, 7)).resolves.toEqual({
@@ -633,7 +706,7 @@ describe('registerDjvuIpcAdapter', () => {
                 sourceModifiedAt: expect.any(Number),
             });
 
-            expect(mocks.getDjvuPageSizeForViewing).toHaveBeenCalledWith(canonicalRealPath, 7);
+            expect(mocks.getDjvuPageSourceInfoForViewing).toHaveBeenCalledWith(canonicalRealPath, 7);
             expect(mocks.getDjvuPageSizesForViewing).not.toHaveBeenCalled();
         } finally {
             rmSync(tempRoot, {
@@ -665,7 +738,7 @@ describe('registerDjvuIpcAdapter', () => {
                 pageNumber: 1,
             });
 
-            expect(mocks.getDjvuPageSizeForViewing).toHaveBeenCalledWith(canonicalRealPath, 1);
+            expect(mocks.getDjvuPageSourceInfoForViewing).toHaveBeenCalledWith(canonicalRealPath, 1);
             expect(mocks.isAllowedDjvuViewingPath).not.toHaveBeenCalled();
         } finally {
             rmSync(tempRoot, {
@@ -688,7 +761,7 @@ describe('registerDjvuIpcAdapter', () => {
                 1,
             )).rejects.toThrow('Path not allowed');
 
-            expect(mocks.getDjvuPageSizeForViewing).not.toHaveBeenCalled();
+            expect(mocks.getDjvuPageSourceInfoForViewing).not.toHaveBeenCalled();
         } finally {
             rmSync(tempRoot, {
                 force: true,

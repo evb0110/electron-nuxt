@@ -31,6 +31,7 @@ import { registerIpcHandlers } from '@electron/platform-ipc/registerIpcHandlers'
 import {
     clearAllWorkingCopies,
     cleanupStaleWorkingCopyDirectories,
+    settleAllWorkingCopyMaterializations,
 } from '@electron/file-access/workingCopyCleanup';
 import { allowOpenPaths } from '@electron/file-access/openPathCapabilities';
 import {
@@ -394,6 +395,10 @@ async function performShutdownCleanup() {
                     }
                 }
             },
+        },
+        {
+            label: 'working-copy-materializations',
+            run: () => settleAllWorkingCopyMaterializations(),
         },
         {
             label: 'djvu-conversions',

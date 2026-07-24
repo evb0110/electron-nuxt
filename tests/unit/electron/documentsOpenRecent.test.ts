@@ -137,20 +137,10 @@ describe('document direct-open recent authorization', () => {
         expect(mocks.logRejectedOpenPath).not.toHaveBeenCalled();
     });
 
-    it('discovers authoritative opening geometry only from the admitted working copy', async () => {
+    it('returns the admitted working copy without waiting for or probing geometry', async () => {
         const directPath = '/tmp/cold-large.pdf';
         const context = createOpenContext(42);
-        const geometry = {
-            pageNumber: 1 as const,
-            pageCount: 431,
-            width: 612,
-            height: 792,
-            rotation: 0 as const,
-            size: 538_000_000,
-            modifiedAt: 1_720_000_000_000,
-        };
         mocks.allowedPathsByOwner.set(42, new Set([directPath]));
-        mocks.handlePdfOpeningGeometry.mockResolvedValueOnce(geometry);
         mocks.openInputPaths.mockResolvedValueOnce({
             kind: 'pdf',
             originalPath: directPath,
@@ -162,14 +152,9 @@ describe('document direct-open recent authorization', () => {
             kind: 'pdf',
             originalPath: directPath,
             workingPath: '/tmp/cold-large-working.pdf',
-            openingGeometry: geometry,
         });
-        expect(mocks.handlePdfOpeningGeometry).toHaveBeenCalledWith(context, '/tmp/cold-large-working.pdf');
-        expect(mocks.handlePdfOpeningGeometry).not.toHaveBeenCalledWith(context, directPath);
+        expect(mocks.handlePdfOpeningGeometry).not.toHaveBeenCalled();
         expect(mocks.openInputPaths).toHaveBeenCalledWith([directPath], {}, context.sender);
-        expect(mocks.openInputPaths.mock.invocationCallOrder[0]).toBeLessThan(
-            mocks.handlePdfOpeningGeometry.mock.invocationCallOrder[0] ?? Number.MAX_SAFE_INTEGER,
-        );
     });
 
     it('rejects paths granted only to a different owner', async () => {

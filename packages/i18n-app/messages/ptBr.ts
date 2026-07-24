@@ -1300,6 +1300,8 @@ export default {
         'fileSizeValue': 'Tamanho: {size}',
         'zoomUnknown': 'Zoom: -',
         'zoomValue': 'Zoom: {zoom}%',
+        'preparingDocument': 'Preparando documento',
+        'preparingDocumentProgress': 'Preparando documento · {progress}%',
         'showInFolder': 'Mostrar na pasta',
         'showInFolderUnavailableWeb': 'Salvo neste navegador',
     },

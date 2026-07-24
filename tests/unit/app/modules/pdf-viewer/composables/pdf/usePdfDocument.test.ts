@@ -109,6 +109,27 @@ describe('usePdfDocument range loading', () => {
         expect(documentState.hasExactPageGeometry(7)).toBe(false);
     });
 
+    it('replaces a provisional trusted baseline with authoritative PDF.js geometry', async () => {
+        const documentState = usePdfDocument();
+        expect(documentState.seedTrustedPageGeometry({
+            pageNumber: 1,
+            pageCount: 1,
+            width: 640,
+            height: 900,
+        })).toBe(true);
+
+        const result = await documentState.loadPdf(new Blob(['pdf'], {type: 'application/pdf'}));
+
+        expect(result).not.toBeNull();
+        expect(documentState.pageMetrics.value).toEqual([{
+            width: 100,
+            height: 200,
+        }]);
+        expect(documentState.basePageWidth.value).toBe(100);
+        expect(documentState.basePageHeight.value).toBe(200);
+        expect(documentState.hasExactPageGeometry(1)).toBe(true);
+    });
+
     it('loads a PDF through range transport and populates document state', async () => {
         const size = (1024 * 1024 * 2) + 13;
         electronApi.documentFiles.readFileRange.mockResolvedValue(new Uint8Array([

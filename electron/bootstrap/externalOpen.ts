@@ -20,7 +20,8 @@ const SUPPORTED_EXTENSIONS = new Set([
     '.gif',
 ]);
 
-const EXTERNAL_OPEN_BATCH_WINDOW_MS = 800;
+const EXTERNAL_OPEN_SINGLETON_BATCH_WINDOW_MS = 100;
+const EXTERNAL_OPEN_MULTI_PATH_BATCH_WINDOW_MS = 800;
 const EXTERNAL_OPEN_MAX_BATCH_WAIT_MS = 10_000;
 const EXTERNAL_OPEN_RETRY_DISPATCH_MS = 1_000;
 const EXTERNAL_OPEN_STARTUP_EMPTY_CLAIM_GRACE_MS = 300;
@@ -60,6 +61,17 @@ interface ICreateExternalOpenManagerOptions {
     grantOpenPaths?: (paths: string[]) => void;
     dispatchOpenPaths: (paths: string[]) => boolean;
 }
+
+type TExternalOpenBatchPhase =
+    | { type: 'idle'; }
+    | {
+        type: 'singleton';
+        deadline: number;
+    }
+    | {
+        type: 'multi-path';
+        deadline: number;
+    };
 
 function isSupportedExternalOpenPath(filePath: string) {
     return SUPPORTED_EXTENSIONS.has(extname(filePath).toLowerCase());
@@ -123,7 +135,7 @@ export function createExternalOpenManager(options: ICreateExternalOpenManagerOpt
     const pendingExternalOpenPathSet = new Set<string>();
     let flushPendingFilesTimer: ReturnType<typeof setTimeout> | null = null;
     let retryPendingFilesTimer: ReturnType<typeof setTimeout> | null = null;
-    let batchWindowStartTime: number | null = null;
+    let batchPhase: TExternalOpenBatchPhase = { type: 'idle' };
     let externalOpenBootstrapReady = false;
     let ensureWindowForExternalOpenPromise: Promise<void> | null = null;
     let hasHandledInitialExternalOpenDispatch = false;
@@ -249,17 +261,14 @@ export function createExternalOpenManager(options: ICreateExternalOpenManagerOpt
     }
 
     function enqueueExternalOpenPath(normalizedPath: string) {
-        let wasCoalesced = false;
         let droppedCount = 0;
 
         if (pendingExternalOpenPathSet.has(normalizedPath)) {
-            wasCoalesced = true;
-            const existingIndex = pendingExternalOpenPaths.indexOf(normalizedPath);
-            if (existingIndex >= 0) {
-                pendingExternalOpenPaths.splice(existingIndex, 1);
-            } else {
-                pendingExternalOpenPathSet.delete(normalizedPath);
-            }
+            return {
+                coalescedCount: 1,
+                droppedCount,
+                newPathCount: 0,
+            };
         }
 
         pendingExternalOpenPaths.push(normalizedPath);
@@ -275,8 +284,9 @@ export function createExternalOpenManager(options: ICreateExternalOpenManagerOpt
         }
 
         return {
-            coalescedCount: wasCoalesced ? 1 : 0,
+            coalescedCount: 0,
             droppedCount,
+            newPathCount: 1,
         };
     }
 
@@ -288,10 +298,12 @@ export function createExternalOpenManager(options: ICreateExternalOpenManagerOpt
 
         let coalescedCount = 0;
         let droppedCount = 0;
+        let newPathCount = 0;
         for (const normalizedPath of normalizedPaths) {
             const result = enqueueExternalOpenPath(normalizedPath);
             coalescedCount += result.coalescedCount;
             droppedCount += result.droppedCount;
+            newPathCount += result.newPathCount;
         }
 
         if (coalescedCount > 0) {
@@ -305,7 +317,7 @@ export function createExternalOpenManager(options: ICreateExternalOpenManagerOpt
 
         finishStartupEmptyClaimGrace();
         if (externalOpenBootstrapReady && options.hasWindows()) {
-            scheduleFlushPendingFiles();
+            scheduleFlushPendingFiles(newPathCount);
         }
     }
 
@@ -472,7 +484,7 @@ export function createExternalOpenManager(options: ICreateExternalOpenManagerOpt
             clearTimeout(flushPendingFilesTimer);
             flushPendingFilesTimer = null;
         }
-        batchWindowStartTime = null;
+        batchPhase = { type: 'idle' };
 
         if (pendingExternalOpenPaths.length === 0) {
             pendingFlushRequested = false;
@@ -511,7 +523,29 @@ export function createExternalOpenManager(options: ICreateExternalOpenManagerOpt
         options.logStartupPhase(`Dispatched external file open batch (${paths.length} path(s))`);
     }
 
-    function scheduleFlushPendingFiles() {
+    function armBatchTimer(windowMs: number) {
+        if (batchPhase.type === 'idle') {
+            return;
+        }
+
+        const remainingMs = batchPhase.deadline - Date.now();
+        if (remainingMs <= 0) {
+            flushPendingFiles();
+            return;
+        }
+
+        if (flushPendingFilesTimer) {
+            clearTimeout(flushPendingFilesTimer);
+        }
+
+        flushPendingFilesTimer = setTimeout(
+            flushPendingFiles,
+            Math.min(windowMs, remainingMs),
+        );
+        flushPendingFilesTimer.unref?.();
+    }
+
+    function scheduleFlushPendingFiles(newPathCount = 0) {
         if (pendingExternalOpenPaths.length === 0) {
             pendingFlushRequested = false;
             clearRetryPendingFilesTimer();
@@ -531,21 +565,39 @@ export function createExternalOpenManager(options: ICreateExternalOpenManagerOpt
             return;
         }
 
-        const now = Date.now();
-        batchWindowStartTime ??= now;
-
-        if (now - batchWindowStartTime >= EXTERNAL_OPEN_MAX_BATCH_WAIT_MS) {
-            flushPendingFiles();
+        if (retryPendingFilesTimer) {
             return;
         }
 
-        if (flushPendingFilesTimer) {
-            clearTimeout(flushPendingFilesTimer);
+        if (batchPhase.type === 'idle') {
+            const deadline = Date.now() + EXTERNAL_OPEN_MAX_BATCH_WAIT_MS;
+            if (pendingExternalOpenPaths.length === 1) {
+                batchPhase = {
+                    type: 'singleton',
+                    deadline,
+                };
+                armBatchTimer(EXTERNAL_OPEN_SINGLETON_BATCH_WINDOW_MS);
+            } else {
+                batchPhase = {
+                    type: 'multi-path',
+                    deadline,
+                };
+                armBatchTimer(EXTERNAL_OPEN_MULTI_PATH_BATCH_WINDOW_MS);
+            }
+            return;
         }
 
-        flushPendingFilesTimer = setTimeout(() => {
-            flushPendingFiles();
-        }, EXTERNAL_OPEN_BATCH_WINDOW_MS);
+        if (newPathCount === 0) {
+            return;
+        }
+
+        if (batchPhase.type === 'singleton') {
+            batchPhase = {
+                type: 'multi-path',
+                deadline: batchPhase.deadline,
+            };
+        }
+        armBatchTimer(EXTERNAL_OPEN_MULTI_PATH_BATCH_WINDOW_MS);
     }
 
     function clearTimers() {
@@ -555,7 +607,7 @@ export function createExternalOpenManager(options: ICreateExternalOpenManagerOpt
         }
         clearRetryPendingFilesTimer();
         finishStartupEmptyClaimGrace();
-        batchWindowStartTime = null;
+        batchPhase = { type: 'idle' };
     }
 
     return {

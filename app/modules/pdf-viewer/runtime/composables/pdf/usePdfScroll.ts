@@ -3,7 +3,10 @@ import { clamp } from 'es-toolkit/math';
 import { logPdfNav } from '@app/utils/logPdfNav';
 import type { IScrollToPageOptions } from '@app/modules/pdf-viewer/engine/pdf-outline-navigation/scrollToPageOptions';
 import { getPageContainerByNumber } from '@app/modules/pdf-viewer/engine/pdf-scroll-visibility/getPageContainerByNumber';
-import { getViewportVisibilityFromDom } from '@app/modules/pdf-viewer/engine/pdf-scroll-visibility/getViewportVisibilityFromDom';
+import {
+    getViewportIntersectionLength,
+    getViewportVisibilityFromDom,
+} from '@app/modules/pdf-viewer/engine/pdf-scroll-visibility/getViewportVisibilityFromDom';
 import type { IViewportVisibilityResult } from '@app/modules/pdf-viewer/engine/pdf-scroll-visibility/pdfScrollVisibilityTypes';
 import type { IPdfPageLayoutMetrics } from '@app/modules/pdf-viewer/engine/pdf-page-layout/pdfPageLayoutMetrics';
 import {
@@ -300,9 +303,16 @@ export const usePdfScroll = (options: IUsePdfScrollOptions) => {
             : currentPage.value;
     }
 
-    function setPageLayoutMetrics(metrics: TPageLayoutMetrics | null) {
+    function setPageLayoutMetrics(
+        metrics: TPageLayoutMetrics | null,
+        container?: HTMLElement | null,
+        totalPages = 0,
+    ) {
         pageLayoutMetrics.value = metrics;
         viewportVisibilityCache = null;
+        if (metrics && container && totalPages > 0) {
+            updateVisibleRange(container, totalPages);
+        }
     }
 
     function isViewportVisibilityCacheValid(
@@ -413,12 +423,17 @@ export const usePdfScroll = (options: IUsePdfScrollOptions) => {
             const pageLeft = getLayoutPageLeft(metrics, index, container.clientWidth);
             const pageWidth = getLayoutPageWidth(metrics, index);
             const pageRight = pageLeft + pageWidth;
-            const visibleTop = Math.max(pageTop, viewportTop);
-            const visibleBottom = Math.min(pageBottom, viewportBottom);
-            const visibleLeft = Math.max(pageLeft, viewportLeft);
-            const visibleRight = Math.min(pageRight, viewportRight);
-            const visibleArea = Math.max(0, visibleBottom - visibleTop)
-                * Math.max(0, visibleRight - visibleLeft);
+            const visibleArea = getViewportIntersectionLength(
+                pageTop,
+                pageBottom,
+                viewportTop,
+                viewportBottom,
+            ) * getViewportIntersectionLength(
+                pageLeft,
+                pageRight,
+                viewportLeft,
+                viewportRight,
+            );
 
             if (visibleArea > 0) {
                 firstVisiblePage ??= index + 1;

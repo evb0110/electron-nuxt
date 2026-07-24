@@ -24,6 +24,7 @@ import type { TFeatureMainBindings } from '@contracts/platformFeature';
 import { isRecord } from '@contracts/runtimeGuards';
 import {
     DOCUMENTS_CHANNELS,
+    DOCUMENTS_EVENT_CHANNELS,
     type IDocumentsInvokeMap,
 } from '@electron/features/documents/contract';
 import {createDocumentsService} from '@electron/features/documents/createDocumentsService';
@@ -43,7 +44,9 @@ import { isSupportedOpenPath } from '@electron/image/pdfConversion';
 import { requireManagedWorkingCopyPath } from '@electron/file-access/workingCopyCreation';
 import { createLogger } from '@electron/utils/createLogger';
 import { getErrorMessage } from '@electron/utils/error';
+import { createIpcProgressPump } from '@electron/utils/createIpcProgressPump';
 import { registerPlatformFeatureHandlers } from '@electron/platform-ipc/validatedIpcRegistrar';
+import type { IWorkingCopyBackingStatus } from '@contracts/electronApiDocuments';
 
 interface IRendererFileOpenToken {expiresAtMs: number;}
 interface IDocumentsIpcEventRegistrar {on: (channel: string, handler: (event: IpcMainEvent, ...args: unknown[]) => void) => void;}
@@ -282,6 +285,32 @@ export function registerDocumentsIpcAdapter(
     service: IDocumentsService = createDocumentsService(),
     options: IRegisterDocumentsIpcAdapterOptions = {},
 ) {
+    const backingStatusPump = createIpcProgressPump<IWorkingCopyBackingStatus>({
+        channel: DOCUMENTS_EVENT_CHANNELS.workingCopyBackingStatusChanged,
+        getTarget: () => null,
+        getKey: status => status.documentRef,
+        isTerminal: status => status.state !== 'materializing',
+        intervalMs: 250,
+        onError: error => {
+            logger.debug(`Failed to send working-copy backing status: ${getErrorMessage(error)}`);
+        },
+    });
+    service.onWorkingCopyBackingStatusChanged?.((statusEvent) => {
+        const windows = BrowserWindow.getAllWindows().filter(window => (
+            statusEvent.ownerWebContentsId === undefined
+            || window.webContents.id === statusEvent.ownerWebContentsId
+        ));
+        backingStatusPump.enqueue(statusEvent.status, {
+            isDestroyed: () => windows.every(window => window.webContents.isDestroyed()),
+            send: (channel, status) => {
+                for (const window of windows) {
+                    if (!window.webContents.isDestroyed()) {
+                        window.webContents.send(channel, status);
+                    }
+                }
+            },
+        });
+    });
     const registeredChannels: string[] = [];
     const register = <TChannel extends TDocumentsIpcChannel>(
         channel: TChannel,
@@ -370,6 +399,8 @@ export function registerDocumentsIpcAdapter(
             service.fileExists(context, filePath),
         getDocumentRevision: (context, filePath) =>
             service.getDocumentRevision(context, filePath),
+        getWorkingCopyBackingStatus: (context, filePath) =>
+            service.getWorkingCopyBackingStatus(context, filePath),
         savePdfAs: (context, workingPath, saveOptions, revisionOptions) =>
             service.savePdfAs({
                 ...context,

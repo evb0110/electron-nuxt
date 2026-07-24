@@ -11,22 +11,31 @@ import {
     resolve,
     sep,
 } from 'path';
-import { writeFile } from 'fs/promises';
-import { decryptPdfFileIfNeeded } from '@electron/utils/decryptPdfFileIfNeeded';
+import {
+    copyFile,
+    writeFile,
+} from 'fs/promises';
+import {
+    decryptPdfFileIfNeeded,
+    isPdfFileEncrypted,
+} from '@electron/utils/decryptPdfFileIfNeeded';
 import type { TOpenPath } from '@electron/file-access/openPathCapabilities';
 import {
+    attemptWorkingCopyClone,
     copyFileCopyOnWrite,
     createWorkingDirectory,
     isWorkingCopyDirectoryName,
     safeRemoveDirectory,
 } from '@electron/file-access/workingCopyDirectory';
 import {
+    captureWorkingCopyAdmissionSnapshot,
     forgetRetiredWorkingCopyOriginal,
     getWorkingCopyOriginalPath,
     getWorkingCopyRole,
     isKnownWorkingCopyOriginalPath,
     setWorkingCopyOriginalPath,
     type TWorkingCopyRole,
+    workingCopyAdmissionSnapshotsMatch,
 } from '@electron/file-access/workingCopyStore';
 import { isAllowedOriginalSavePath } from '@electron/file-access/isAllowedOriginalSavePath';
 import { WorkingCopyMissingError } from '@electron/file-access/workingCopyMissingError';
@@ -39,12 +48,25 @@ import {
 } from '@electron/file-access/documentRevisionStore';
 import { readWorkingCopySyncRequiredJournalEntry } from '@electron/file-access/documentRevisionSidecar';
 import {schedulePageIdentityStoreInitialization} from '@electron/file-access/pageIdentityStore';
+import {
+    startBackgroundWorkingCopyMaterialization,
+    WorkingCopyMaterializationError,
+} from '@electron/file-access/workingCopyMaterialization';
 
 const logger = createLogger('working-copy');
 
 interface IWorkingCopyPhaseTiming {
     durationMs: number;
     phase: string;
+}
+
+type TWorkingCopyMaterializationMode = 'eager' | 'background' | 'lazy';
+
+function getWorkingCopyMaterializationMode(): TWorkingCopyMaterializationMode {
+    const configuredMode = process.env.EVB_WORKING_COPY_MATERIALIZATION_MODE ?? 'background';
+    return configuredMode === 'eager' || configuredMode === 'lazy'
+        ? configuredMode
+        : 'background';
 }
 
 async function measureWorkingCopyPhase<T>(
@@ -77,23 +99,86 @@ export async function createWorkingCopy(originalPath: TOpenPath, ownerWebContent
     try {
         const fileName = basename(originalPath);
         const workingPath = join(workDir, fileName);
-        await measureWorkingCopyPhase(phaseTimings, 'copy-on-write', () =>
-            copyFileCopyOnWrite(originalPath, workingPath));
-        if (workingPath.toLowerCase().endsWith('.pdf')) {
-            await measureWorkingCopyPhase(phaseTimings, 'encryption-probe', () =>
-                decryptPdfFileIfNeeded(workingPath));
+        const isPdf = workingPath.toLowerCase().endsWith('.pdf');
+        const materializationMode = getWorkingCopyMaterializationMode();
+        let admissionSnapshot: Awaited<ReturnType<typeof captureWorkingCopyAdmissionSnapshot>> | undefined;
+        let backingState: 'cloned' | 'eager' | 'lazy-original';
+        let encrypted = false;
+
+        if (materializationMode === 'eager') {
+            const cloneOutcome = await measureWorkingCopyPhase(phaseTimings, 'copy-on-write', () =>
+                attemptWorkingCopyClone(originalPath, workingPath));
+            if (cloneOutcome === 'known-unsupported') {
+                await measureWorkingCopyPhase(phaseTimings, 'eager-copy', () =>
+                    copyFile(originalPath, workingPath));
+            }
+            if (isPdf) {
+                encrypted = await measureWorkingCopyPhase(phaseTimings, 'encryption-probe', () =>
+                    decryptPdfFileIfNeeded(workingPath));
+            }
+            backingState = cloneOutcome === 'cloned' && !encrypted ? 'cloned' : 'eager';
+        } else {
+            const cloneOutcome = await measureWorkingCopyPhase(phaseTimings, 'copy-on-write', () =>
+                attemptWorkingCopyClone(originalPath, workingPath));
+            if (cloneOutcome === 'known-unsupported') {
+                const beforeProbe = await measureWorkingCopyPhase(phaseTimings, 'source-stat-before-probe', () =>
+                    captureWorkingCopyAdmissionSnapshot(originalPath));
+                encrypted = isPdf
+                    ? await measureWorkingCopyPhase(phaseTimings, 'encryption-probe', () =>
+                        isPdfFileEncrypted(originalPath))
+                    : false;
+                const afterProbe = await measureWorkingCopyPhase(phaseTimings, 'source-stat-after-probe', () =>
+                    captureWorkingCopyAdmissionSnapshot(originalPath));
+                if (!workingCopyAdmissionSnapshotsMatch(beforeProbe, afterProbe)) {
+                    throw new WorkingCopyMaterializationError(
+                        'SOURCE_BACKING_CHANGED',
+                        'The original document changed while it was being opened',
+                    );
+                }
+                admissionSnapshot = afterProbe;
+                if (encrypted || !isPdf) {
+                    await measureWorkingCopyPhase(phaseTimings, 'eager-copy', () =>
+                        copyFile(originalPath, workingPath));
+                    if (isPdf) {
+                        await measureWorkingCopyPhase(phaseTimings, 'decrypt', () =>
+                            decryptPdfFileIfNeeded(workingPath));
+                    }
+                    backingState = 'eager';
+                } else {
+                    backingState = 'lazy-original';
+                }
+            } else {
+                if (isPdf) {
+                    encrypted = await measureWorkingCopyPhase(phaseTimings, 'encryption-probe', () =>
+                        decryptPdfFileIfNeeded(workingPath));
+                }
+                backingState = cloneOutcome === 'cloned' && !encrypted ? 'cloned' : 'eager';
+            }
         }
 
         await measureWorkingCopyPhase(phaseTimings, 'register-source', () => setWorkingCopyOriginalPath(
             workingPath,
             originalPath,
             ownerWebContentsId,
-            {deferOriginalFileExpectation: true},
+            {
+                ...(admissionSnapshot ? {admissionSnapshot} : {}),
+                backingState,
+                deferOriginalFileExpectation: !encrypted,
+            },
         ));
         const revision = await measureWorkingCopyPhase(phaseTimings, 'revision-sidecar', () =>
             initializeFreshWorkingCopyRevision(workingPath, ownerWebContentsId));
-        if (workingPath.toLowerCase().endsWith('.pdf')) {
+        if (isPdf) {
             void schedulePageIdentityStoreInitialization(workingPath, revision, originalPath);
+        }
+        if (backingState === 'lazy-original' && materializationMode === 'background') {
+            const backgroundMaterialization = startBackgroundWorkingCopyMaterialization(
+                workingPath,
+                ownerWebContentsId,
+            );
+            void backgroundMaterialization?.promise.catch(error => {
+                logger.warn(`Background working-copy materialization failed: ${String(error)}`);
+            });
         }
 
         logger.debug(`Working copy source-critical timings: ${JSON.stringify({
@@ -101,6 +186,8 @@ export async function createWorkingCopy(originalPath: TOpenPath, ownerWebContent
                 'original-file-expectation-on-save',
                 'page-identity-on-mutation',
             ],
+            backingState,
+            materializationMode,
             phases: phaseTimings,
             totalMs: Math.round((performance.now() - operationStartedAt) * 10) / 10,
             workingPath,
@@ -137,6 +224,7 @@ export async function createWorkingCopyFromPath(
 
         const role = resolveWorkingCopyRoleForPathClone(sourcePath, ownerWebContentsId);
         await setWorkingCopyOriginalPath(workingPath, mappedOriginalPath, ownerWebContentsId, {
+            backingState: 'eager',
             deferOriginalFileExpectation: true,
             role,
         });
@@ -177,6 +265,7 @@ export async function createWorkingCopyFromData(
         if (normalizedOriginalPath) {
             const role = isKnownWorkingCopyOriginalPath(normalizedOriginalPath, ownerWebContentsId) ? 'snapshot' : 'current';
             await setWorkingCopyOriginalPath(workingPath, normalizedOriginalPath, ownerWebContentsId, {
+                backingState: 'eager',
                 deferOriginalFileExpectation: true,
                 role,
             });

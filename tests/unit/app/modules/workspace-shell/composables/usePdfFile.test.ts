@@ -7,6 +7,11 @@ import {
 } from 'vitest';
 import type { TOpenFileResult } from '@contracts/electronApiDocuments';
 import { createElectronPlatformApiFixture } from '@tests/helpers/createElectronPlatformApiFixture';
+import { createDocumentOpenSurfaceSession } from '@app/utils/document-viewer/chassis/documentOpenSurfaceSession';
+import {
+    invalidateTrustedPdfOpenGeometry,
+    rememberValidatedTrustedPdfOpenGeometry,
+} from '@app/modules/pdf-viewer/runtime/lifecycle/pdfTrustedOpenGeometryCache';
 
 const mocks = vi.hoisted(() => ({
     hasElectronApi: vi.fn(() => true),
@@ -18,9 +23,11 @@ const mocks = vi.hoisted(() => ({
     stat: vi.fn(),
     write: vi.fn(),
     cleanup: vi.fn(),
+    cloneWorkingCopy: vi.fn(),
     analyzeConformance: vi.fn(),
     validatePdfData: vi.fn(),
     getRevision: vi.fn(),
+    getOpeningGeometry: vi.fn(),
     repair: vi.fn(),
     optimize: vi.fn(),
     optimizeAsCopy: vi.fn(),
@@ -30,6 +37,7 @@ const electronApi = createElectronPlatformApiFixture({
     documentFiles: {
         analyzePdfConformance: mocks.analyzeConformance,
         getDocumentRevision: mocks.getRevision,
+        getPdfOpeningGeometry: mocks.getOpeningGeometry,
         optimizePdfAsCopy: mocks.optimizeAsCopy,
         optimizePdfForInteraction: mocks.optimize,
         readFile: mocks.read,
@@ -54,7 +62,10 @@ const electronApi = createElectronPlatformApiFixture({
         analyzePdfConformance: mocks.analyzeConformance,
         validatePdfData: mocks.validatePdfData,
     },
-    documentWorkingCopy: {cleanupFile: mocks.cleanup},
+    documentWorkingCopy: {
+        cleanupFile: mocks.cleanup,
+        createWorkingCopyFromPath: mocks.cloneWorkingCopy,
+    },
 });
 
 vi.mock('@app/utils/platform', () => ({
@@ -87,8 +98,8 @@ const PDF_BYTES = Uint8Array.from([
     70,
 ]);
 
-function createFacade() {
-    return usePdfFile() as IPdfFileFacade & {
+function createFacade(options: Parameters<typeof usePdfFile>[0] = {}) {
+    return usePdfFile(options) as IPdfFileFacade & {
         optimizeWorkingCopy?: unknown;
         optimizeWorkingCopyAsCopy?: unknown;
         repairWorkingCopy?: unknown;
@@ -143,6 +154,7 @@ describe('usePdfFile façade', () => {
         mocks.readRange.mockResolvedValue(new Uint8Array());
         mocks.write.mockResolvedValue(true);
         mocks.cleanup.mockResolvedValue(undefined);
+        mocks.cloneWorkingCopy.mockResolvedValue('/tmp/history-baseline.pdf');
         mocks.getRevision.mockResolvedValue({
             version: 1,
             documentRef: '/tmp/work.pdf',
@@ -150,6 +162,15 @@ describe('usePdfFile façade', () => {
             contentRevision: 1,
             mintedAt: 1,
             token: 'revision-token',
+        });
+        mocks.getOpeningGeometry.mockResolvedValue({
+            pageNumber: 1,
+            pageCount: 1,
+            width: 612,
+            height: 792,
+            rotation: 0,
+            size: PDF_BYTES.byteLength,
+            modifiedAt: 1,
         });
         mocks.analyzeConformance.mockResolvedValue({
             isSigned: false,
@@ -177,6 +198,38 @@ describe('usePdfFile façade', () => {
             optimizeWorkingCopy: expect.any(Function),
             optimizeWorkingCopyAsCopy: expect.any(Function),
         });
+    });
+
+    it('threads the workspace open surface into PDF open geometry', async () => {
+        const result = pdfResult('surface');
+        const openSurface = createDocumentOpenSurfaceSession();
+        openSurface.begin({
+            documentId: result.originalPath,
+            documentRevision: 'open-intent:1',
+        });
+        rememberValidatedTrustedPdfOpenGeometry({
+            documentId: result.originalPath,
+            pageNumber: 1,
+            pageCount: 7,
+            width: 640,
+            height: 900,
+            rotation: 0,
+            size: PDF_BYTES.byteLength,
+            modifiedAt: 1,
+            savedAt: 2,
+        });
+        mocks.getOpeningGeometry.mockReturnValue(new Promise(() => undefined));
+        const file = createFacade({openSurface});
+
+        await expect(file.openFile(result)).resolves.toMatchObject({status: 'opened'});
+
+        expect(openSurface.snapshot.value.openingPageGeometry).toMatchObject({
+            documentId: result.originalPath,
+            pageCount: 7,
+            width: 640,
+            height: 900,
+        });
+        invalidateTrustedPdfOpenGeometry(result.originalPath, 1);
     });
 
     it('rejects an empty PDF before it can claim the document session', async () => {
@@ -297,5 +350,26 @@ describe('usePdfFile façade', () => {
         await expect(undo).resolves.toBe(false);
         expect(file.workingCopyPath.value).toBeNull();
         expect(file.pdfData.value).toBeNull();
+    });
+
+    it('cleans a staged first-mutation baseline when the document closes', async () => {
+        const size = (16 * 1024 * 1024) + 1;
+        const staging = Promise.withResolvers<string>();
+        mocks.stat.mockResolvedValue({size});
+        mocks.cloneWorkingCopy.mockReturnValue(staging.promise);
+        const file = createFacade();
+        await file.openFile(pdfResult('large'));
+
+        const baseline = file.ensureHistoryBaselineForMutation();
+        await vi.waitFor(() => {
+            expect(mocks.cloneWorkingCopy).toHaveBeenCalledOnce();
+        });
+        file.closeFile();
+        staging.resolve('/tmp/staged-baseline.pdf');
+
+        await expect(baseline).resolves.toBe(false);
+        expect(mocks.cleanup).toHaveBeenCalledWith('/tmp/staged-baseline.pdf');
+        expect(file.workingCopyPath.value).toBeNull();
+        expect(file.canUndo.value).toBe(false);
     });
 });

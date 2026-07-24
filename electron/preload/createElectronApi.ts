@@ -450,6 +450,12 @@ export function createElectronApi(
         ...(baseDocuments.renderPdfNativePagePreview
             ? {renderPdfNativePagePreview: baseDocuments.renderPdfNativePagePreview}
             : {}),
+        ...(baseDocuments.getWorkingCopyBackingStatus
+            ? {getWorkingCopyBackingStatus: baseDocuments.getWorkingCopyBackingStatus}
+            : {}),
+        ...(baseDocuments.onWorkingCopyBackingStatusChanged
+            ? {onWorkingCopyBackingStatusChanged: baseDocuments.onWorkingCopyBackingStatusChanged}
+            : {}),
     };
     const documentFiles = {
         readFile: baseDocuments.readFile,

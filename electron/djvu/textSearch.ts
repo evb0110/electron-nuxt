@@ -494,6 +494,20 @@ async function streamDjvuTextPages(filePath: string, options: IDjvuTextStreamOpt
     return {stop};
 }
 
+export async function readDjvuPageText(filePath: string, pageNumber: number) {
+    let pageText = '';
+    await streamDjvuTextPages(filePath, {onPage(page) {
+        if (page.pageNumber < pageNumber) {
+            return undefined;
+        }
+        if (page.pageNumber === pageNumber) {
+            pageText = page.text;
+        }
+        return false;
+    }});
+    return pageText;
+}
+
 function wordsForPageRange(page: IDjvuParsedTextPage, startOffset: number, endOffset: number) {
     const words: IOcrWord[] = [];
     for (let index = 0; index < page.zoneOffsets.length; index += 1) {

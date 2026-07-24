@@ -238,11 +238,14 @@ function handleViewerOwnerReady(authority: IDocumentOpeningPageFrameAuthority) {
     refreshOpeningFrameOwnerReadiness();
 }
 
-function handleWorkspaceExposeReleased() {
+function handleWorkspaceExposeReleased(expose: IWorkspaceExpose) {
+    if (mountedWorkspace.value !== expose) {
+        return;
+    }
     isViewerOwnerMounted.value = false;
     openingPageFrameAuthority.value = null;
     refreshOpeningFrameOwnerReadiness();
-    releaseWorkspaceExposeBinding();
+    releaseWorkspaceExposeBinding(expose);
 }
 
 function isRecentFileOpenReady(file: IRecentFile) {
@@ -542,7 +545,12 @@ onErrorCaptured((error, instance, info) => {
             const transaction = activeDocumentSession.value.snapshot.value.activeTransaction;
             if (transaction) activeDocumentSession.value.finishTransaction(transaction.id, 'failed');
         },
-        releaseWorkspace: handleWorkspaceExposeReleased,
+        releaseWorkspace: () => {
+            const expose = mountedWorkspace.value;
+            if (expose) {
+                handleWorkspaceExposeReleased(expose);
+            }
+        },
         resetWorkspaceLoad: workspaceLoadGateway.resetWorkspaceLoad,
         setError: value => { workspaceChunkLoadError.value = value; },
     });

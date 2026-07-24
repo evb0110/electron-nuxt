@@ -36,7 +36,7 @@ interface IWorkspaceDocumentLifecycleEffectsOptions extends IDocumentTransitionD
     showSettings: Ref<boolean>;
     emitOpenSettings: () => void;
     clearOcrCache: (path: TDocumentRef) => void;
-    ensureHistoryBaselineForExternalMutation: () => Promise<boolean>;
+    ensureHistoryBaselineForMutation: () => Promise<boolean>;
     reloadWorkingCopyIntoHistory: (opts?: {markDirty?: boolean}) => Promise<boolean>;
     waitForPdfReload: (page: number) => Promise<void>;
     runWithDocumentOperationLease?: <T>(
@@ -87,7 +87,7 @@ export const useWorkspaceDocumentLifecycleEffects = (options: IWorkspaceDocument
         hasPendingProgrammaticPageNavigation,
         clearProgrammaticPageNavigation,
         clearOcrCache,
-        ensureHistoryBaselineForExternalMutation,
+        ensureHistoryBaselineForMutation,
         reloadWorkingCopyIntoHistory,
         waitForPdfReload,
         runWithDocumentOperationLease,
@@ -229,7 +229,7 @@ export const useWorkspaceDocumentLifecycleEffects = (options: IWorkspaceDocument
         clearOcrCache(payload.sourceWorkingCopyPath);
         resetSearchCache();
         try {
-            if (!await ensureHistoryBaselineForExternalMutation()) {
+            if (!await ensureHistoryBaselineForMutation()) {
                 await acknowledgeOcrResultFile(payload);
                 throw new Error('Failed to prime OCR history before applying searchable PDF result');
             }

@@ -1,25 +1,8 @@
 import type { IVisiblePageDebugEntry } from '@app/modules/pdf-viewer/engine/pdf-scroll-visibility/pdfScrollVisibilityTypes';
-
-function normalizePageNumber(value: unknown) {
-    if (typeof value !== 'string' || value.trim().length === 0) {
-        return null;
-    }
-
-    const pageNumber = Number.parseInt(value, 10);
-    if (!Number.isFinite(pageNumber) || pageNumber < 1) {
-        return null;
-    }
-
-    return pageNumber;
-}
-
-function getPageNumberFromElement(element: HTMLElement) {
-    return normalizePageNumber(element.dataset.page);
-}
-
-function isBufferedPageElement(element: HTMLElement) {
-    return element.classList?.contains('page_container--buffered') === true;
-}
+import {
+    getPageNumberFromElement,
+    isBufferedPageElement,
+} from '@app/modules/pdf-viewer/engine/pdf-scroll-visibility/getViewportVisibilityFromDom';
 
 export function getVisiblePageDebugSnapshot(
     container: HTMLElement,

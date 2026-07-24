@@ -56,6 +56,7 @@ const mocks = vi.hoisted(() => ({
     fingerprintFileWithUtilityProcess: vi.fn(),
     loggerDebug: vi.fn(),
     loggerWarn: vi.fn(),
+    ensureWorkingCopyMaterialized: vi.fn(),
 }));
 
 vi.mock('@electron/native-tools/runNativeToolCommand', () => ({runNativeToolCommand: (...args: unknown[]) => mocks.runNativeToolCommand(...args)}));
@@ -94,6 +95,7 @@ vi.mock('@electron/features/documents/main/managedTempFileHandles', () => ({
 vi.mock('@electron/features/documents/main/transitionOriginalAndWorkingCopyRevision', () => ({transitionOriginalAndWorkingCopyRevision: (...args: unknown[]) => mocks.transitionOriginalAndWorkingCopyRevision(...args)}));
 vi.mock('@electron/features/documents/main/commitPdfTempFile', () => ({commitPdfTempFile: (...args: unknown[]) => mocks.commitPdfTempFile(...args)}));
 vi.mock('@electron/features/documents/main/fingerprintFileWithUtilityProcess', () => ({fingerprintFileWithUtilityProcess: (...args: unknown[]) => mocks.fingerprintFileWithUtilityProcess(...args)}));
+vi.mock('@electron/file-access/workingCopyMaterialization', () => ({ensureWorkingCopyMaterialized: (...args: unknown[]) => mocks.ensureWorkingCopyMaterialized(...args)}));
 vi.mock('@electron/utils/createLogger', () => ({createLogger: () => ({
     debug: (...args: unknown[]) => mocks.loggerDebug(...args),
     info: vi.fn(),
@@ -221,6 +223,11 @@ describe('handleNativeNoteTextSave', () => {
         mocks.resolveNativePageOpsPath.mockReturnValue('/native/evb-pdf-page-ops');
         mocks.isAllowedOriginalSavePath.mockReturnValue(true);
         mocks.ensureWorkingCopyDirectory.mockResolvedValue(true);
+        mocks.ensureWorkingCopyMaterialized.mockImplementation(async (path: string) => ({
+            logicalRef: path,
+            physicalWorkingCopyPath: path,
+            sourceFingerprint: '',
+        }));
         mocks.assertWorkingCopyMutationAllowed.mockReturnValue(undefined);
         mocks.assertWorkingCopyRevisionCurrent.mockResolvedValue(undefined);
         mocks.transitionWorkingCopyContentRevision.mockImplementation(async (
@@ -382,6 +389,38 @@ describe('handleNativeNoteTextSave', () => {
         expect(mocks.copyFileCopyOnWrite).toHaveBeenLastCalledWith(originalPath, requestedWorkingPath);
         expect(readFileSyncUtf8(requestedWorkingPath)).toContain('% native incremental update');
         expect(readFileSyncUtf8(latestWorkingPath)).toBe('latest-before');
+    });
+
+    it('propagates materialization failure before fingerprinting or native staging', async () => {
+        const requestedWorkingPath = join(tempRoot, 'lazy-working.pdf');
+        const originalPath = join(tempRoot, 'lazy-original.pdf');
+        writeFileSync(originalPath, 'original-before');
+        mocks.getWorkingCopyOriginalPath.mockReturnValue({originalPath});
+        const failure = Object.assign(new Error('The original document is unavailable'), {
+            code: 'SOURCE_BACKING_UNAVAILABLE',
+            retryable: false,
+        });
+        mocks.ensureWorkingCopyMaterialized.mockRejectedValue(failure);
+        const {handleNativeNoteTextSave} = await import(
+            '@electron/features/documents/main/nativePdfMutationSaveHandlers'
+        );
+
+        await expect(handleNativeNoteTextSave(
+            context,
+            requestedWorkingPath,
+            [{
+                objectNumber: 42,
+                generationNumber: 0,
+                text: 'Updated note',
+            }],
+            'D:20260609133855+03\'00\'',
+            revisionOptions,
+        )).rejects.toBe(failure);
+
+        expect(mocks.fingerprintFileWithUtilityProcess).not.toHaveBeenCalled();
+        expect(mocks.runNativeToolCommand).not.toHaveBeenCalled();
+        expect(mocks.makeSiblingTempPath).not.toHaveBeenCalled();
+        expect(readFileSync(originalPath, 'utf8')).toBe('original-before');
     });
 
     it('rolls back both targets when post-commit working-copy sync fails', async () => {

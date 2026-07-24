@@ -29,6 +29,7 @@ const mocks = vi.hoisted(() => ({
     getTesseractThreadLimit: vi.fn(),
     getSequentialProgressPage: vi.fn(),
     resolveAllowedReadPath: vi.fn<(path: string) => Promise<string | null>>(),
+    ensureWorkingCopyMaterialized: vi.fn(),
     requireManagedWorkingCopyPath: vi.fn<(path: string) => Promise<string>>(),
 }));
 
@@ -59,6 +60,23 @@ vi.mock('@electron/utils/concurrency', () => ({
 }));
 vi.mock('@electron/utils/pathValidator', () => ({resolveAllowedReadPath: mocks.resolveAllowedReadPath}));
 vi.mock('@electron/file-access/workingCopyCreation', () => ({requireManagedWorkingCopyPath: (path: string) => mocks.requireManagedWorkingCopyPath(path)}));
+vi.mock('@electron/file-access/workingCopyMaterialization', () => {
+    class WorkingCopyMaterializationError extends Error {
+        readonly code: string;
+        readonly retryable: boolean;
+
+        constructor(code: string, message: string, options: {retryable?: boolean} = {}) {
+            super(message);
+            this.name = 'WorkingCopyMaterializationError';
+            this.code = code;
+            this.retryable = options.retryable ?? false;
+        }
+    }
+    return {
+        ensureWorkingCopyMaterialized: (...args: unknown[]) => mocks.ensureWorkingCopyMaterialized(...args),
+        WorkingCopyMaterializationError,
+    };
+});
 
 vi.mock('@electron/ocr/jobManager', () => ({
     handleOcrCreateSearchablePdfAsync: mocks.handleOcrCreateSearchablePdfAsync,
@@ -119,6 +137,11 @@ describe('OCR platform feature main bindings', () => {
         mocks.handlers.clear();
         vi.clearAllMocks();
         mocks.resolveAllowedReadPath.mockResolvedValue('/tmp/working-copy.pdf');
+        mocks.ensureWorkingCopyMaterialized.mockImplementation(async (path: string) => ({
+            logicalRef: path,
+            physicalWorkingCopyPath: path,
+            sourceFingerprint: '',
+        }));
         mocks.requireManagedWorkingCopyPath.mockImplementation(async (path: string) => path);
 
         mocks.getOcrToolPaths.mockReturnValue({
@@ -530,7 +553,7 @@ describe('OCR platform feature main bindings', () => {
     });
 
     it('rejects disallowed sourcePdfPath before queuing OCR worker job', async () => {
-        mocks.requireManagedWorkingCopyPath.mockRejectedValue(new Error('sourcePdfPath is not a managed working copy'));
+        mocks.ensureWorkingCopyMaterialized.mockRejectedValue(new Error('sourcePdfPath is not a managed working copy'));
 
         const handler = getHandler('ocr:createSearchablePdf');
         const result = await handler(

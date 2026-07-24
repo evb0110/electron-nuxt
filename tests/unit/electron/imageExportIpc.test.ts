@@ -15,6 +15,11 @@ import {
 } from '@tests/helpers/electronEventEmitterHarness';
 
 const mocks = vi.hoisted(() => ({
+    backingState: 'eager' as 'eager' | 'lazy-original',
+    captureWorkingCopyAdmissionSnapshot: vi.fn(async (_path: string) => ({
+        mtimeNs: 2n,
+        size: 1024n,
+    })),
     ensureWorkingCopyDirectory: vi.fn(async () => true),
     existsSync: vi.fn(() => true),
     exportPdfAsMultiPageTiff: vi.fn(),
@@ -25,6 +30,7 @@ const mocks = vi.hoisted(() => ({
     getPdfPageCount: vi.fn(async () => 10),
     normalizeImageExportPath: vi.fn((path: string) => ({ normalizedPath: path })),
     resolveAllowedWritePath: vi.fn(async (path: string) => path),
+    transitionWorkingCopyBackingState: vi.fn(),
     showSaveDialog: vi.fn(async (..._args: unknown[]) => ({
         canceled: false,
         filePath: '/tmp/export.jpg',
@@ -42,6 +48,60 @@ vi.mock('fs', () => ({ existsSync: mocks.existsSync }));
 vi.mock('@electron/file-access/workingCopyCreation', () => ({ ensureWorkingCopyDirectory: mocks.ensureWorkingCopyDirectory }));
 
 vi.mock('@electron/utils/pathValidator', () => ({ resolveAllowedWritePath: mocks.resolveAllowedWritePath }));
+vi.mock('@electron/file-access/workingCopyStore', () => ({
+    captureWorkingCopyAdmissionSnapshot: (path: string) =>
+        mocks.captureWorkingCopyAdmissionSnapshot(path),
+    getWorkingCopyBackingEntry: (path: string, senderId?: number) => ({
+        admissionSnapshot: {
+            mtimeNs: 2n,
+            size: 1024n,
+        },
+        backingState: mocks.backingState,
+        originalPath: '/original/source.pdf',
+        ownerWebContentsId: senderId,
+        registeredAtMs: 1,
+        registrationId: 9,
+        role: 'current',
+    }),
+    runWithWorkingCopyRegistrationFence: async (
+        _path: string,
+        _registrationId: number,
+        operation: (entry: Record<string, unknown>) => Promise<unknown>,
+    ) => ({
+        matched: true,
+        value: await operation({
+            admissionSnapshot: {
+                mtimeNs: 2n,
+                size: 1024n,
+            },
+            backingState: mocks.backingState,
+            originalPath: '/original/source.pdf',
+            registeredAtMs: 1,
+            registrationId: 9,
+            role: 'current',
+        }),
+    }),
+    transitionWorkingCopyBackingState: (...args: unknown[]) =>
+        mocks.transitionWorkingCopyBackingState(...args),
+    workingCopyAdmissionSnapshotsMatch: (
+        left: {
+            mtimeNs: bigint;
+            size: bigint
+        },
+        right: {
+            mtimeNs: bigint;
+            size: bigint
+        },
+    ) => left.mtimeNs === right.mtimeNs && left.size === right.size,
+}));
+vi.mock('@electron/file-access/workingCopyMaterialization', () => ({WorkingCopyMaterializationError: class WorkingCopyMaterializationError extends Error {
+    public readonly code: string;
+
+    public constructor(code: string, message: string) {
+        super(message);
+        this.code = code;
+    }
+}}));
 
 vi.mock('@electron/features/image-export/main/export', () => ({
     exportPdfAsMultiPageTiff: mocks.exportPdfAsMultiPageTiff,
@@ -109,6 +169,11 @@ function triggerMainFrameNavigation(sender: ITestEventSender) {
 describe('image export IPC lifecycle', () => {
     beforeEach(() => {
         vi.clearAllMocks();
+        mocks.backingState = 'eager';
+        mocks.captureWorkingCopyAdmissionSnapshot.mockResolvedValue({
+            mtimeNs: 2n,
+            size: 1024n,
+        });
         mocks.ensureWorkingCopyDirectory.mockResolvedValue(true);
         mocks.existsSync.mockReturnValue(true);
         mocks.resolveAllowedWritePath.mockImplementation(async (path: string) => path);
@@ -189,6 +254,32 @@ describe('image export IPC lifecycle', () => {
             '/tmp/export.jpg',
             expect.objectContaining({ signal: expect.any(AbortSignal) }),
         );
+        expect(mocks.captureWorkingCopyAdmissionSnapshot).not.toHaveBeenCalled();
+    });
+
+    it('pins lazy-original image export to witnessed source bytes', async () => {
+        const sender = createSender();
+        mocks.backingState = 'lazy-original';
+
+        await expect(handlePdfExportImages(
+            createContext(sender),
+            '/tmp/working.pdf',
+            [2],
+        )).resolves.toEqual({
+            success: true,
+            outputPaths: ['/tmp/export.jpg'],
+        });
+
+        expect(mocks.getPdfPageCount).toHaveBeenCalledWith(
+            '/original/source.pdf',
+            expect.objectContaining({signal: expect.any(AbortSignal)}),
+        );
+        expect(mocks.exportPdfPagesAsImages).toHaveBeenCalledWith(
+            '/original/source.pdf',
+            '/tmp/export.jpg',
+            expect.objectContaining({signal: expect.any(AbortSignal)}),
+        );
+        expect(mocks.captureWorkingCopyAdmissionSnapshot).toHaveBeenCalledTimes(4);
     });
 
     it('routes DjVu image export through the source raster provider', async () => {

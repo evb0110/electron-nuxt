@@ -1,8 +1,10 @@
 import type {
     ICreateCombinedPdfFromFilesOptions,
     IDocumentChunkReadResult,
+    IWorkingCopyBackingStatus,
     TDocumentChunkSource,
 } from '@contracts/electronApiDocuments';
+import {decodeWorkingCopyBackingStatus} from '@contracts/electronApiDocuments';
 import {
     definePlatformFeature,
     runtimeSchema as s,
@@ -112,6 +114,22 @@ const combinedFilesArgs = s.trustedDirect<[
     options?: ICreateCombinedPdfFromFilesOptions,
 ]>(() => [[{} as File]]);
 const combinedPdfResult = s.trustedDirect<Uint8Array>(() => new Uint8Array());
+const workingCopyBackingStatusArgs = pathArgs('path');
+const workingCopyBackingStatus = s.fromParser<IWorkingCopyBackingStatus>(
+    value => decodeWorkingCopyBackingStatus(value) ?? fail('invalid working-copy backing status'),
+    () => ({
+        documentRef: '/tmp/document.pdf',
+        failure: null,
+        progress: 0.5,
+        state: 'materializing',
+    }),
+);
+const nullableWorkingCopyBackingStatus = s.fromParser<IWorkingCopyBackingStatus | null>(
+    value => value === null
+        ? null
+        : decodeWorkingCopyBackingStatus(value) ?? fail('invalid working-copy backing status'),
+    () => null,
+);
 
 function fail(message: string): never {
     throw new Error(message);
@@ -428,6 +446,17 @@ export const DOCUMENT_FILES_PLATFORM_FEATURE = definePlatformFeature({
             'getDocumentRevision', 'document:revision:get', documentRevisionArgs,
             revisionResult, 'getDocumentRevision', 'sender',
         ),
+        getWorkingCopyBackingStatus: {
+            ...defineIpcMethod(
+                'getWorkingCopyBackingStatus',
+                'working-copy:backing-status:get',
+                workingCopyBackingStatusArgs,
+                nullableWorkingCopyBackingStatus,
+                'getWorkingCopyBackingStatus',
+                'sender',
+            ),
+            ...electronImplementedOptional,
+        },
         savePdfAs: defineIpcMethod(
             'savePdfAs', 'dialog:savePdfAs', savePdfAsArgs, nullableStringResult, 'savePdfAs', 'sender',
         ),
@@ -575,11 +604,21 @@ export const DOCUMENT_FILES_PLATFORM_FEATURE = definePlatformFeature({
             ...electronImplementedOptional,
         },
     },
-    events: {onDocumentRevisionChanged: defineEvent(
-        'onDocumentRevisionChanged',
-        'document:revision:changed',
-        documentRevisionEvent,
-    )},
+    events: {
+        onDocumentRevisionChanged: defineEvent(
+            'onDocumentRevisionChanged',
+            'document:revision:changed',
+            documentRevisionEvent,
+        ),
+        onWorkingCopyBackingStatusChanged: {
+            ...defineEvent(
+                'onWorkingCopyBackingStatusChanged',
+                'working-copy:backing-status:changed',
+                workingCopyBackingStatus,
+            ),
+            ...electronImplementedOptional,
+        },
+    },
 });
 
 export const DOCUMENT_PDF_PLATFORM_FEATURE = definePlatformFeature({

@@ -9,16 +9,29 @@ import { ref } from 'vue';
 import { usePageStatusBar } from '@app/modules/workspace-shell/composables/usePageStatusBar';
 
 const {
+    getWorkingCopyBackingStatusMock,
+    onWorkingCopyBackingStatusChangedMock,
     showItemInFolderMock,
     statFileMock,
 } = vi.hoisted(() => ({
+    getWorkingCopyBackingStatusMock: vi.fn(async (): Promise<{
+        documentRef: string;
+        failure: null;
+        progress: number;
+        state: 'lazy-original' | 'materializing' | 'materialized';
+    } | null> => null),
+    onWorkingCopyBackingStatusChangedMock: vi.fn(),
     showItemInFolderMock: vi.fn(async () => true),
     statFileMock: vi.fn(async () => ({ size: 0 })),
 }));
 
 vi.mock('@app/utils/platformDocuments', () => ({
     getDocumentWindowCapability: () => ({ showItemInFolder: showItemInFolderMock }),
-    getDocumentFilesCapability: () => ({ statFile: statFileMock }),
+    getDocumentFilesCapability: () => ({
+        getWorkingCopyBackingStatus: getWorkingCopyBackingStatusMock,
+        onWorkingCopyBackingStatusChanged: onWorkingCopyBackingStatusChangedMock,
+        statFile: statFileMock,
+    }),
 }));
 
 function createDeps(overrides: Partial<Parameters<typeof usePageStatusBar>[0]> = {}) {
@@ -40,6 +53,9 @@ function createDeps(overrides: Partial<Parameters<typeof usePageStatusBar>[0]> =
 describe('usePageStatusBar', () => {
     beforeEach(() => {
         showItemInFolderMock.mockClear();
+        getWorkingCopyBackingStatusMock.mockClear();
+        getWorkingCopyBackingStatusMock.mockResolvedValue(null);
+        onWorkingCopyBackingStatusChangedMock.mockReset();
         statFileMock.mockClear();
         statFileMock.mockResolvedValue({ size: 0 });
     });
@@ -158,5 +174,57 @@ describe('usePageStatusBar', () => {
         });
         expect(statFileMock).not.toHaveBeenCalledWith('/tmp/pending-book.djvu');
         expect(statFileMock).not.toHaveBeenCalledWith('/tmp/adopted-book.djvu');
+    });
+
+    it('derives a quiet monotonic materialization label from the native status stream', async () => {
+        let listener: ((status: {
+            documentRef: string;
+            failure: null;
+            progress: number;
+            state: 'lazy-original' | 'materializing' | 'materialized';
+        }) => void) | undefined;
+        onWorkingCopyBackingStatusChangedMock.mockImplementation((callback) => {
+            listener = callback;
+            return vi.fn();
+        });
+        getWorkingCopyBackingStatusMock.mockResolvedValue({
+            documentRef: '/tmp/managed.pdf',
+            failure: null,
+            progress: 0,
+            state: 'lazy-original',
+        });
+        vi.stubGlobal('useTypedI18n', () => ({ t: (
+            key: string,
+            params?: {progress?: number},
+        ) => params?.progress === undefined ? key : `${key}:${params.progress}` }));
+        const statusBar = usePageStatusBar(createDeps({workingCopyPath: ref('/tmp/managed.pdf')}));
+
+        await vi.waitFor(() => {
+            expect(statusBar.statusMaterializationLabel.value).toBe('status.preparingDocument');
+        });
+        listener?.({
+            documentRef: '/tmp/managed.pdf',
+            failure: null,
+            progress: 0.42,
+            state: 'materializing',
+        });
+        listener?.({
+            documentRef: '/tmp/managed.pdf',
+            failure: null,
+            progress: 0.2,
+            state: 'materializing',
+        });
+
+        expect(statusBar.statusMaterializationLabel.value).toContain('42');
+        expect(statusBar.statusMaterializationIsActive.value).toBe(true);
+
+        listener?.({
+            documentRef: '/tmp/managed.pdf',
+            failure: null,
+            progress: 1,
+            state: 'materialized',
+        });
+        expect(statusBar.statusMaterializationLabel.value).toBeNull();
+        expect(statusBar.statusMaterializationIsActive.value).toBe(false);
     });
 });

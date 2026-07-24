@@ -1033,7 +1033,7 @@ const managedHandleResult = documentResult<'createManagedTempFileHandle'>(
     }),
 );
 const openingGeometryResult = documentResult<'getPdfOpeningGeometry'>(
-    decodeOpeningGeometry,
+    value => value === null ? null : decodeOpeningGeometry(value),
     () => ({
         pageNumber: 1,
         pageCount: 1,

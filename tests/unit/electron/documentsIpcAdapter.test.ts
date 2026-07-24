@@ -1,6 +1,7 @@
 import type { TRegisteredHandler } from '@tests/unit/electron/helpers/ipcRegistryHarness';
 import type { IpcMainEvent } from 'electron';
 import {
+    afterEach,
     beforeEach,
     describe,
     expect,
@@ -16,7 +17,10 @@ import { join } from 'path';
 import { tmpdir } from 'os';
 import { EventEmitter } from 'node:events';
 import { DOCUMENT_PLATFORM_FEATURES } from '@contracts/documentsPlatformFeature';
-import { DOCUMENTS_CHANNELS } from '@electron/features/documents/contract';
+import {
+    DOCUMENTS_CHANNELS,
+    DOCUMENTS_EVENT_CHANNELS,
+} from '@electron/features/documents/contract';
 
 type TRegisteredEventHandler = (event: IpcMainEvent, ...args: unknown[]) => void;
 
@@ -25,6 +29,7 @@ const mocks = vi.hoisted(() => ({
     allowOpenPath: vi.fn(),
     createDocumentsService: vi.fn(() => ({})),
     fromWebContents: vi.fn(),
+    getAllWindows: vi.fn(() => []),
     isSupportedOpenPath: vi.fn((_path: unknown) => true),
     requireOpenPath: vi.fn((..._args: unknown[]) => undefined),
     requireManagedWorkingCopyPath: vi.fn((..._args: unknown[]) => undefined),
@@ -58,7 +63,10 @@ function createRegistrationHarness() {
 vi.mock('@electron/features/documents/createDocumentsService', () => ({createDocumentsService: mocks.createDocumentsService}));
 vi.mock('electron', () => ({
     app: {isPackaged: false},
-    BrowserWindow: {fromWebContents: (...args: unknown[]) => mocks.fromWebContents(...args)},
+    BrowserWindow: {
+        fromWebContents: (...args: unknown[]) => mocks.fromWebContents(...args),
+        getAllWindows: () => mocks.getAllWindows(),
+    },
 }));
 vi.mock('@electron/features/documents/public', () => ({attachSerializedPdfPersistencePort: (...args: unknown[]) => mocks.attachSerializedPdfPersistencePort(...args)}));
 vi.mock('@electron/file-access/openPathCapabilities', () => ({
@@ -71,6 +79,10 @@ vi.mock('@electron/file-access/workingCopyCreation', () => ({requireManagedWorki
 describe('documents ipc adapter', () => {
     beforeEach(() => {
         vi.clearAllMocks();
+    });
+
+    afterEach(() => {
+        vi.useRealTimers();
     });
 
     it('registers every distinct documents channel value exactly once', async () => {
@@ -95,6 +107,93 @@ describe('documents ipc adapter', () => {
         }
         expect(handlers.has(DOCUMENTS_CHANNELS.fileSavePdfDataPort)).toBe(false);
         expect(eventHandlers.has(DOCUMENTS_CHANNELS.fileSavePdfDataPort)).toBe(true);
+    });
+
+    it('forwards backing status only to the owning renderer', async () => {
+        vi.useFakeTimers();
+        const {
+            eventRegistrar,
+            registrar,
+        } = createRegistrationHarness();
+        const { registerDocumentsIpcAdapter } = await import('@electron/features/documents/registerDocumentsIpcAdapter');
+        let statusListener: ((event: {
+            ownerWebContentsId?: number;
+            status: {
+                documentRef: string;
+                failure: null;
+                progress: number;
+                state: 'materialized' | 'materializing';
+            };
+        }) => void) | undefined;
+        const send = vi.fn();
+        mocks.getAllWindows.mockReturnValue([
+            {webContents: {
+                id: 7,
+                isDestroyed: () => false,
+                send,
+            }},
+            {webContents: {
+                id: 8,
+                isDestroyed: () => false,
+                send: vi.fn(),
+            }},
+        ] as never);
+        const service = {onWorkingCopyBackingStatusChanged: (listener: typeof statusListener) => {
+            statusListener = listener;
+            return vi.fn();
+        }};
+
+        registerDocumentsIpcAdapter(registrar as never, service as never, {eventRegistrar});
+        statusListener?.({
+            ownerWebContentsId: 7,
+            status: {
+                documentRef: '/tmp/managed.pdf',
+                failure: null,
+                progress: 0.5,
+                state: 'materializing',
+            },
+        });
+        statusListener?.({
+            ownerWebContentsId: 7,
+            status: {
+                documentRef: '/tmp/managed.pdf',
+                failure: null,
+                progress: 0.75,
+                state: 'materializing',
+            },
+        });
+
+        expect(send).toHaveBeenCalledWith(
+            DOCUMENTS_EVENT_CHANNELS.workingCopyBackingStatusChanged,
+            {
+                documentRef: '/tmp/managed.pdf',
+                failure: null,
+                progress: 0.5,
+                state: 'materializing',
+            },
+        );
+        expect(send).toHaveBeenCalledTimes(1);
+
+        vi.advanceTimersByTime(250);
+        expect(send).toHaveBeenLastCalledWith(
+            DOCUMENTS_EVENT_CHANNELS.workingCopyBackingStatusChanged,
+            expect.objectContaining({progress: 0.75}),
+        );
+
+        statusListener?.({
+            ownerWebContentsId: 7,
+            status: {
+                documentRef: '/tmp/managed.pdf',
+                failure: null,
+                progress: 1,
+                state: 'materialized',
+            },
+        });
+        expect(send).toHaveBeenCalledTimes(3);
+        expect(send).toHaveBeenLastCalledWith(
+            DOCUMENTS_EVENT_CHANNELS.workingCopyBackingStatusChanged,
+            expect.objectContaining({state: 'materialized'}),
+        );
     });
 
     it('fails the documents ipc invariant for duplicate channel values', async () => {

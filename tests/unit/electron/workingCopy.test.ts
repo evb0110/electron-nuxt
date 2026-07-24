@@ -29,20 +29,171 @@ let tempRoot = '';
 
 vi.mock('electron', () => ({ app: { getPath: vi.fn((_name: string) => tempRoot) } }));
 
-vi.mock('@electron/utils/decryptPdfFileIfNeeded', () => ({ decryptPdfFileIfNeeded: vi.fn(async () => undefined) }));
+vi.mock('@electron/utils/decryptPdfFileIfNeeded', () => ({
+    decryptPdfFileIfNeeded: vi.fn(async () => false),
+    isPdfFileEncrypted: vi.fn(async () => false),
+}));
 vi.mock('@electron/pdf/pdfPageCount', () => ({getPdfPageCount: vi.fn(async () => 1)}));
 
 describe('workingCopy', () => {
     beforeEach(() => {
         vi.resetModules();
+        vi.clearAllMocks();
         tempRoot = mkdtempSync(join(tmpdir(), 'evb-working-copy-test-'));
     });
 
     afterEach(() => {
+        delete process.env.EVB_TEST_FORCE_WORKING_COPY_CLONE_RESULT;
+        delete process.env.EVB_WORKING_COPY_MATERIALIZATION_MODE;
         vi.useRealTimers();
         rmSync(tempRoot, {
             force: true,
             recursive: true,
+        });
+    });
+
+    it('publishes unsupported durable PDFs as lazy without copying or fingerprinting', async () => {
+        process.env.EVB_TEST_FORCE_WORKING_COPY_CLONE_RESULT = 'unsupported';
+        process.env.EVB_WORKING_COPY_MATERIALIZATION_MODE = 'lazy';
+        const fingerprint = vi.fn(async () => 'unexpected-fingerprint');
+        vi.doMock('@electron/file-access/workingCopyOriginalFileExpectation', () => ({
+            createOriginalFileContentFingerprint: fingerprint,
+            createOriginalFileContentFingerprintHash: vi.fn(),
+            createOriginalFileContentFingerprintSync: vi.fn(() => 'sync-fingerprint'),
+        }));
+        try {
+            const {createWorkingCopy} = await import('@electron/file-access/workingCopyCreation');
+            const {allowOpenPath} = await import('@electron/file-access/openPathCapabilities');
+            const {getWorkingCopyBackingEntry} = await import('@electron/file-access/workingCopyStore');
+            const originalPath = join(tempRoot, 'lazy-original.pdf');
+            writeFileSync(originalPath, Buffer.alloc(2 * 1024 * 1024, 17));
+            const trustedOriginalPath = allowOpenPath(originalPath);
+            expect(trustedOriginalPath).not.toBeNull();
+
+            const workingPath = await createWorkingCopy(trustedOriginalPath!, 7);
+
+            expect(existsSync(workingPath)).toBe(false);
+            expect(getWorkingCopyBackingEntry(workingPath, 7)).toMatchObject({
+                admissionSnapshot: {size: BigInt(2 * 1024 * 1024)},
+                backingState: 'lazy-original',
+                originalPath: realpathSync.native(originalPath),
+            });
+            expect(fingerprint).not.toHaveBeenCalled();
+        } finally {
+            vi.doUnmock('@electron/file-access/workingCopyOriginalFileExpectation');
+        }
+    });
+
+    it('uses background materialization by default after publishing lazy state', async () => {
+        process.env.EVB_TEST_FORCE_WORKING_COPY_CLONE_RESULT = 'unsupported';
+        const {createWorkingCopy} = await import('@electron/file-access/workingCopyCreation');
+        const {allowOpenPath} = await import('@electron/file-access/openPathCapabilities');
+        const {getWorkingCopyBackingEntry} = await import('@electron/file-access/workingCopyStore');
+        const {ensureWorkingCopyMaterialized} = await import(
+            '@electron/file-access/workingCopyMaterialization'
+        );
+        const originalPath = join(tempRoot, 'background-default.pdf');
+        const originalBytes = Buffer.alloc(3 * 1024 * 1024, 21);
+        writeFileSync(originalPath, originalBytes);
+        const trustedOriginalPath = allowOpenPath(originalPath);
+        expect(trustedOriginalPath).not.toBeNull();
+
+        const workingPath = await createWorkingCopy(trustedOriginalPath!, 7);
+        expect([
+            'materializing',
+            'materialized',
+        ]).toContain(getWorkingCopyBackingEntry(workingPath, 7)?.backingState);
+        await ensureWorkingCopyMaterialized(workingPath, {
+            ownerWebContentsId: 7,
+            reason: 'save',
+        });
+
+        expect(readFileSync(workingPath)).toEqual(originalBytes);
+        expect(getWorkingCopyBackingEntry(workingPath, 7)?.backingState).toBe('materialized');
+    }, 15_000);
+
+    it('records a successful forced clone without starting materialization', async () => {
+        process.env.EVB_TEST_FORCE_WORKING_COPY_CLONE_RESULT = 'success';
+        const {createWorkingCopy} = await import('@electron/file-access/workingCopyCreation');
+        const {allowOpenPath} = await import('@electron/file-access/openPathCapabilities');
+        const {getWorkingCopyBackingEntry} = await import('@electron/file-access/workingCopyStore');
+        const {getWorkingCopyMaterializationFlightCountForTests} = await import(
+            '@electron/file-access/workingCopyMaterialization'
+        );
+        const originalPath = join(tempRoot, 'forced-clone.pdf');
+        const originalBytes = Buffer.from([
+            2,
+            4,
+            6,
+            8,
+        ]);
+        writeFileSync(originalPath, originalBytes);
+        const trustedOriginalPath = allowOpenPath(originalPath);
+        expect(trustedOriginalPath).not.toBeNull();
+
+        const workingPath = await createWorkingCopy(trustedOriginalPath!, 7);
+
+        expect(readFileSync(workingPath)).toEqual(originalBytes);
+        expect(getWorkingCopyBackingEntry(workingPath, 7)?.backingState).toBe('cloned');
+        expect(getWorkingCopyMaterializationFlightCountForTests()).toBe(0);
+    });
+
+    it('keeps eager mode and generated-path creation fully materialized', async () => {
+        process.env.EVB_TEST_FORCE_WORKING_COPY_CLONE_RESULT = 'unsupported';
+        process.env.EVB_WORKING_COPY_MATERIALIZATION_MODE = 'eager';
+        const {
+            createWorkingCopy,
+            createWorkingCopyFromPath,
+        } = await import('@electron/file-access/workingCopyCreation');
+        const {allowOpenPath} = await import('@electron/file-access/openPathCapabilities');
+        const {getWorkingCopyBackingEntry} = await import('@electron/file-access/workingCopyStore');
+        const originalPath = join(tempRoot, 'eager-original.pdf');
+        const originalBytes = Buffer.from([
+            1,
+            3,
+            5,
+            7,
+        ]);
+        writeFileSync(originalPath, originalBytes);
+        const trustedOriginalPath = allowOpenPath(originalPath);
+        expect(trustedOriginalPath).not.toBeNull();
+
+        const eagerWorkingPath = await createWorkingCopy(trustedOriginalPath!, 7);
+        expect(readFileSync(eagerWorkingPath)).toEqual(originalBytes);
+        expect(getWorkingCopyBackingEntry(eagerWorkingPath, 7)?.backingState).toBe('eager');
+
+        process.env.EVB_WORKING_COPY_MATERIALIZATION_MODE = 'lazy';
+        const generatedWorkingPath = await createWorkingCopyFromPath(trustedOriginalPath!, undefined, 7);
+        expect(readFileSync(generatedWorkingPath)).toEqual(originalBytes);
+        expect(getWorkingCopyBackingEntry(generatedWorkingPath, 7)?.backingState).toBe('eager');
+    });
+
+    it('keeps encrypted PDFs eager and fingerprints the encrypted original separately', async () => {
+        process.env.EVB_TEST_FORCE_WORKING_COPY_CLONE_RESULT = 'unsupported';
+        process.env.EVB_WORKING_COPY_MATERIALIZATION_MODE = 'lazy';
+        const {
+            decryptPdfFileIfNeeded,
+            isPdfFileEncrypted,
+        } = await import('@electron/utils/decryptPdfFileIfNeeded');
+        vi.mocked(isPdfFileEncrypted).mockResolvedValueOnce(true);
+        vi.mocked(decryptPdfFileIfNeeded).mockResolvedValueOnce(true);
+        const {createWorkingCopy} = await import('@electron/file-access/workingCopyCreation');
+        const {allowOpenPath} = await import('@electron/file-access/openPathCapabilities');
+        const {getWorkingCopyBackingEntry} = await import('@electron/file-access/workingCopyStore');
+        const originalPath = join(tempRoot, 'encrypted-original.pdf');
+        writeFileSync(originalPath, Buffer.from('%PDF encrypted bytes /Encrypt'));
+        const trustedOriginalPath = allowOpenPath(originalPath);
+        expect(trustedOriginalPath).not.toBeNull();
+
+        const workingPath = await createWorkingCopy(trustedOriginalPath!, 7);
+
+        expect(existsSync(workingPath)).toBe(true);
+        expect(getWorkingCopyBackingEntry(workingPath, 7)).toMatchObject({
+            backingState: 'eager',
+            originalFileExpectation: {
+                contentFingerprint: expect.stringMatching(/^sha256-full-v1:/u),
+                size: readFileSync(originalPath).byteLength,
+            },
         });
     });
 
@@ -164,6 +315,60 @@ describe('workingCopy', () => {
         await vi.advanceTimersByTimeAsync(10 * 60 * 1_000);
 
         expect(getRetiredWorkingCopyOriginalCountForTests()).toBe(0);
+    });
+
+    it('preserves lazy backing metadata and registration identity after retirement', async () => {
+        const {
+            captureWorkingCopyAdmissionSnapshot,
+            forgetWorkingCopyOriginalPath,
+            getWorkingCopyBackingMetadata,
+            rememberRetiredWorkingCopyOriginal,
+            setWorkingCopyOriginalPath,
+        } = await import('@electron/file-access/workingCopyStore');
+        const originalPath = join(tempRoot, 'retired-lazy-original.pdf');
+        const workingPath = join(tempRoot, 'pdf-work-retired-lazy', 'working.pdf');
+        writeFileSync(originalPath, Buffer.alloc(64, 61));
+        const admissionSnapshot = await captureWorkingCopyAdmissionSnapshot(originalPath);
+        await setWorkingCopyOriginalPath(workingPath, originalPath, 7, {
+            admissionSnapshot,
+            backingState: 'lazy-original',
+            deferOriginalFileExpectation: true,
+        });
+        const activeMetadata = getWorkingCopyBackingMetadata(workingPath, 7);
+
+        rememberRetiredWorkingCopyOriginal(workingPath, originalPath, 7);
+        forgetWorkingCopyOriginalPath(workingPath);
+
+        expect(getWorkingCopyBackingMetadata(workingPath, 7)).toEqual({
+            ...activeMetadata,
+            retired: true,
+        });
+    });
+
+    it('never reuses registration IDs after the active registry is cleared', async () => {
+        const {
+            clearWorkingCopyOriginalPaths,
+            getWorkingCopyRegistrationId,
+            setWorkingCopyOriginalPath,
+        } = await import('@electron/file-access/workingCopyStore');
+        const workingPath = join(tempRoot, 'pdf-work-registration-generation', 'working.pdf');
+        await setWorkingCopyOriginalPath(
+            workingPath,
+            join(tempRoot, 'first.pdf'),
+            7,
+            {deferOriginalFileExpectation: true},
+        );
+        const firstRegistrationId = getWorkingCopyRegistrationId(workingPath, 7);
+
+        clearWorkingCopyOriginalPaths();
+        await setWorkingCopyOriginalPath(
+            workingPath,
+            join(tempRoot, 'second.pdf'),
+            7,
+            {deferOriginalFileExpectation: true},
+        );
+
+        expect(getWorkingCopyRegistrationId(workingPath, 7)).toBeGreaterThan(firstRegistrationId ?? 0);
     });
 
     it('recreates an active working copy directory from the original file', async () => {

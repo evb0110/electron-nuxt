@@ -1291,6 +1291,8 @@ export default {
         'fileSizeValue': 'Größe: {size}',
         'zoomUnknown': 'Zoom: -',
         'zoomValue': 'Zoom: {zoom}%',
+        'preparingDocument': 'Dokument wird vorbereitet',
+        'preparingDocumentProgress': 'Dokument wird vorbereitet · {progress}%',
         'showInFolder': 'Im Ordner anzeigen',
         'showInFolderUnavailableWeb': 'In diesem Browser gespeichert',
     },

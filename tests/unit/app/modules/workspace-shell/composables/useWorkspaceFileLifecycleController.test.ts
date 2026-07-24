@@ -50,7 +50,7 @@ vi.mock('@app/modules/workspace-shell/composables/usePdfFile', () => ({usePdfFil
     openFileDirect: mocks.openFileDirect,
     openFileDirectBatch: vi.fn(),
     loadPdfFromPath: vi.fn(),
-    ensureHistoryBaselineForExternalMutation: vi.fn(),
+    ensureHistoryBaselineForMutation: vi.fn(),
     reloadWorkingCopyIntoHistory: vi.fn(),
     loadPdfFromData: vi.fn(),
     persistPdfDataSilently: vi.fn(),

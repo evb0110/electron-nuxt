@@ -5,9 +5,19 @@ import {
     type WebContents,
 } from 'electron';
 import { existsSync } from 'fs';
+import { rm } from 'fs/promises';
 import { extname } from 'path';
 import { resolveAllowedWritePath } from '@electron/utils/pathValidator';
 import { ensureWorkingCopyDirectory } from '@electron/file-access/workingCopyCreation';
+import {
+    captureWorkingCopyAdmissionSnapshot,
+    getWorkingCopyBackingEntry,
+    runWithWorkingCopyRegistrationFence,
+    transitionWorkingCopyBackingState,
+    workingCopyAdmissionSnapshotsMatch,
+    type IWorkingCopyOriginalEntry,
+} from '@electron/file-access/workingCopyStore';
+import { WorkingCopyMaterializationError } from '@electron/file-access/workingCopyMaterialization';
 import {
     exportPdfAsMultiPageTiff,
     exportPdfPagesAsImages,
@@ -52,6 +62,7 @@ interface IImageExportOperationContext {
     senderId: number;
     parentWindow: BrowserWindow | null;
 }
+type TDiscardImageExportResult<T> = (result: T) => Promise<void>;
 
 const imageExportReplay = IMAGE_EXPORT_PLATFORM_FEATURE.events.onProgress.subscription.replay;
 const imageExportJobs = createMainJobRegistry<IImageExportProgress, IImageExportResult, TImageExportError>({
@@ -91,18 +102,138 @@ function subscribeImageExportProgress(sender: Electron.WebContents) {
     imageExportJobs.subscribeOwner({sender});
 }
 
-async function validateWorkingPath(path: unknown, senderWebContentsId: number, sourceKind: 'pdf' | 'djvu') {
-    if (!path || typeof path !== 'string' || path.trim() === '') throw new Error(sourceKind === 'pdf' ? 'Invalid working copy path' : 'Invalid DjVu working copy path');
+function validatePdfWorkingCopyRef(path: unknown, senderWebContentsId: number) {
+    if (!path || typeof path !== 'string' || path.trim() === '') {
+        throw new Error('Invalid working copy path');
+    }
+    const normalizedPath = path.trim();
+    if (extname(normalizedPath).toLowerCase() !== '.pdf') {
+        throw new Error('Working file must be a PDF');
+    }
+    if (!getWorkingCopyBackingEntry(normalizedPath, senderWebContentsId)) {
+        throw new Error('Path is not a managed working copy');
+    }
+    return normalizedPath;
+}
+
+async function validateDjvuWorkingPath(path: unknown, senderWebContentsId: number) {
+    if (!path || typeof path !== 'string' || path.trim() === '') {
+        throw new Error('Invalid DjVu working copy path');
+    }
     if (!await ensureWorkingCopyDirectory(path, senderWebContentsId)) throw new Error('Path is not a managed working copy');
     const resolvedPath = await resolveAllowedWritePath(path);
-    if (!resolvedPath) throw new Error(sourceKind === 'pdf'
-        ? 'Path is outside the allowed working directory'
-        : 'DjVu working copy is outside the allowed working directory');
-    if (!existsSync(resolvedPath)) throw new Error(sourceKind === 'pdf'
-        ? `Working copy not found: ${resolvedPath}`
-        : 'DjVu working copy is outside the allowed working directory');
-    if (sourceKind === 'pdf' ? extname(resolvedPath).toLowerCase() !== '.pdf' : !/\.djvu?$/iu.test(resolvedPath)) throw new Error(sourceKind === 'pdf' ? 'Working file must be a PDF' : 'Working file must be a DjVu document');
+    if (!resolvedPath || !existsSync(resolvedPath)) {
+        throw new Error('DjVu working copy is outside the allowed working directory');
+    }
+    if (!/\.djvu?$/iu.test(resolvedPath)) {
+        throw new Error('Working file must be a DjVu document');
+    }
     return resolvedPath;
+}
+
+function throwImageExportBackingError(
+    entry: IWorkingCopyOriginalEntry,
+    logicalRef: string,
+    code: 'SOURCE_BACKING_CHANGED' | 'SOURCE_BACKING_UNAVAILABLE',
+    cause?: unknown,
+): never {
+    transitionWorkingCopyBackingState(
+        logicalRef,
+        entry.registrationId,
+        'lazy-original',
+        {
+            expectedBackingState: [
+                'lazy-original',
+                'materializing',
+            ],
+            sourceBackingErrorCode: code,
+        },
+    );
+    throw new WorkingCopyMaterializationError(
+        code,
+        code === 'SOURCE_BACKING_CHANGED'
+            ? 'The original document changed during image export'
+            : 'The original document is unavailable',
+        cause === undefined ? {} : {cause},
+    );
+}
+
+async function assertImageExportSourceWitness(
+    entry: IWorkingCopyOriginalEntry,
+    logicalRef: string,
+) {
+    if (!entry.admissionSnapshot) {
+        throw new WorkingCopyMaterializationError(
+            'WORKING_COPY_MATERIALIZATION_FAILED',
+            'Lazy working copy has no admission snapshot',
+        );
+    }
+    let snapshot;
+    try {
+        snapshot = await captureWorkingCopyAdmissionSnapshot(entry.originalPath);
+    } catch (error) {
+        throwImageExportBackingError(entry, logicalRef, 'SOURCE_BACKING_UNAVAILABLE', error);
+    }
+    if (!workingCopyAdmissionSnapshotsMatch(snapshot, entry.admissionSnapshot)) {
+        throwImageExportBackingError(entry, logicalRef, 'SOURCE_BACKING_CHANGED');
+    }
+}
+
+async function runWithPdfReadBacking<T>(
+    logicalRef: string,
+    senderWebContentsId: number,
+    operation: (physicalReadPath: string) => Promise<T>,
+    discard?: TDiscardImageExportResult<T>,
+) {
+    const entry = getWorkingCopyBackingEntry(logicalRef, senderWebContentsId);
+    if (!entry) {
+        throw new Error('Path is not a managed working copy');
+    }
+    const fenced = await runWithWorkingCopyRegistrationFence(
+        logicalRef,
+        entry.registrationId,
+        async currentEntry => {
+            const originalBacked = currentEntry.backingState === 'lazy-original'
+                || currentEntry.backingState === 'materializing';
+            if (!originalBacked) {
+                if (!existsSync(logicalRef)) {
+                    throw new Error(`Working copy not found: ${logicalRef}`);
+                }
+                return operation(logicalRef);
+            }
+            if (
+                currentEntry.sourceBackingErrorCode === 'SOURCE_BACKING_CHANGED'
+                || currentEntry.sourceBackingErrorCode === 'SOURCE_BACKING_UNAVAILABLE'
+            ) {
+                throw new WorkingCopyMaterializationError(
+                    currentEntry.sourceBackingErrorCode,
+                    currentEntry.sourceBackingErrorCode === 'SOURCE_BACKING_CHANGED'
+                        ? 'The original document changed after it was opened'
+                        : 'The original document is unavailable',
+                );
+            }
+            await assertImageExportSourceWitness(currentEntry, logicalRef);
+            const result = await operation(currentEntry.originalPath);
+            try {
+                await assertImageExportSourceWitness(currentEntry, logicalRef);
+            } catch (error) {
+                await discard?.(result);
+                throw error;
+            }
+            return result;
+        },
+    );
+    if (!fenced.matched) {
+        throw new WorkingCopyMaterializationError(
+            'WORKING_COPY_REGISTRATION_CHANGED',
+            'Working-copy registration changed during image export',
+        );
+    }
+    return fenced.value;
+}
+
+async function discardExportedPaths(paths: string[]) {
+    await Promise.all(paths.map(path => rm(path, {force: true}).catch(() => undefined)));
 }
 
 function normalizeRequestedPageNumbers(pageNumbers: unknown): number[] | undefined {
@@ -139,6 +270,37 @@ async function validateRequestedPageNumbersWithinPdf(
     const pageCount = await getPdfPageCount(pdfPath, operationOptions);
     const outOfRangePage = pageNumbers.find(pageNumber => pageNumber > pageCount);
     if (outOfRangePage !== undefined) throw new Error(`Page number ${outOfRangePage} exceeds PDF page count (${pageCount})`);
+}
+
+async function prepareImageExportSource(
+    workingCopyPath: unknown,
+    senderWebContentsId: number,
+    sourceKind: 'pdf' | 'djvu',
+    pageNumbers: unknown,
+    operationOptions: {
+        cancelGroup?: string;
+        signal?: AbortSignal;
+    },
+) {
+    const normalizedWorkingCopyPath = sourceKind === 'pdf'
+        ? validatePdfWorkingCopyRef(workingCopyPath, senderWebContentsId)
+        : await validateDjvuWorkingPath(workingCopyPath, senderWebContentsId);
+    const normalizedPageNumbers = normalizeRequestedPageNumbers(pageNumbers);
+    if (sourceKind === 'pdf') {
+        await runWithPdfReadBacking(
+            normalizedWorkingCopyPath,
+            senderWebContentsId,
+            physicalReadPath => validateRequestedPageNumbersWithinPdf(
+                physicalReadPath,
+                normalizedPageNumbers,
+                operationOptions,
+            ),
+        );
+    }
+    return {
+        normalizedWorkingCopyPath,
+        normalizedPageNumbers,
+    };
 }
 
 function buildSuggestedName(pageNumbers: number[] | undefined, format: TImageExportProgressFormat) {
@@ -264,14 +426,13 @@ export async function handlePdfExportImages(
         cancelGroup,
         reportProgress,
     ) => {
-        const normalizedWorkingCopyPath = await validateWorkingPath(workingCopyPath, context.senderId, sourceKind);
-        const normalizedPageNumbers = normalizeRequestedPageNumbers(pageNumbers);
-        if (sourceKind === 'pdf') {
-            await validateRequestedPageNumbersWithinPdf(normalizedWorkingCopyPath, normalizedPageNumbers, {
-                cancelGroup,
-                signal: job.signal,
-            });
-        }
+        const {
+            normalizedWorkingCopyPath,
+            normalizedPageNumbers,
+        } = await prepareImageExportSource(workingCopyPath, context.senderId, sourceKind, pageNumbers, {
+            cancelGroup,
+            signal: job.signal,
+        });
         const result = await showImageExportDialog(
             context.parentWindow,
             buildSuggestedName(normalizedPageNumbers, 'images'),
@@ -295,7 +456,12 @@ export async function handlePdfExportImages(
         };
         const outputPaths = sourceKind === 'djvu'
             ? await exportDjvuPagesAsPng(normalizedWorkingCopyPath, normalizedPath, exportOptions)
-            : await exportPdfPagesAsImages(normalizedWorkingCopyPath, normalizedPath, exportOptions);
+            : await runWithPdfReadBacking(
+                normalizedWorkingCopyPath,
+                context.senderId,
+                physicalReadPath => exportPdfPagesAsImages(physicalReadPath, normalizedPath, exportOptions),
+                discardExportedPaths,
+            );
         if (job.signal.aborted) {
             job.terminal.cancel(job.signal.reason);
             return {
@@ -329,14 +495,13 @@ export async function handlePdfExportMultiPageTiff(
         cancelGroup,
         reportProgress,
     ) => {
-        const normalizedWorkingCopyPath = await validateWorkingPath(workingCopyPath, context.senderId, sourceKind);
-        const normalizedPageNumbers = normalizeRequestedPageNumbers(pageNumbers);
-        if (sourceKind === 'pdf') {
-            await validateRequestedPageNumbersWithinPdf(normalizedWorkingCopyPath, normalizedPageNumbers, {
-                cancelGroup,
-                signal: job.signal,
-            });
-        }
+        const {
+            normalizedWorkingCopyPath,
+            normalizedPageNumbers,
+        } = await prepareImageExportSource(workingCopyPath, context.senderId, sourceKind, pageNumbers, {
+            cancelGroup,
+            signal: job.signal,
+        });
         const result = await showImageExportDialog(
             context.parentWindow,
             buildSuggestedName(normalizedPageNumbers, 'multipage-tiff'),
@@ -359,7 +524,12 @@ export async function handlePdfExportMultiPageTiff(
         };
         const outputPaths = sourceKind === 'djvu'
             ? await exportDjvuAsMultiPageTiff(normalizedWorkingCopyPath, result.filePath, exportOptions)
-            : await exportPdfAsMultiPageTiff(normalizedWorkingCopyPath, result.filePath, exportOptions);
+            : await runWithPdfReadBacking(
+                normalizedWorkingCopyPath,
+                context.senderId,
+                physicalReadPath => exportPdfAsMultiPageTiff(physicalReadPath, result.filePath, exportOptions),
+                discardExportedPaths,
+            );
         if (job.signal.aborted) {
             job.terminal.cancel(job.signal.reason);
             return {

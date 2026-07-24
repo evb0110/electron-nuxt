@@ -86,12 +86,27 @@ import {
 } from '@electron/file-access/openPathCapabilities';
 import { getWorkingCopyRevision } from '@electron/file-access/documentRevisionStore';
 import {
+    getWorkingCopyBackingEntry,
+    normalizePathForLookup,
+    type TWorkingCopyBackingErrorCode,
+    type TWorkingCopyBackingState,
+} from '@electron/file-access/workingCopyStore';
+import {
+    onWorkingCopyMaterializationProgress,
+    type IWorkingCopyMaterializationProgress,
+} from '@electron/file-access/workingCopyMaterialization';
+import {
     setMenuDocumentState,
     setMenuTabCount,
     updateRecentFilesMenu,
 } from '@electron/menu';
 import { createLogger } from '@electron/utils/createLogger';
 import type { IDocumentsService } from '@electron/features/documents/documentsService';
+import type {
+    IWorkingCopyBackingFailure,
+    IWorkingCopyBackingStatus,
+    TWorkingCopyBackingStatusState,
+} from '@contracts/electronApiDocuments';
 import {
     createManagedTempFileHandle,
     releaseManagedTempFileHandle,
@@ -100,10 +115,95 @@ import {
 const logger = createLogger('documents-service');
 const STARTUP_TRACE_ENABLED = process.env.EVB_STARTUP_TRACE === '1';
 
+interface IWorkingCopyBackingStatusDispatch {
+    ownerWebContentsId?: number;
+    registrationId: number;
+    status: IWorkingCopyBackingStatus;
+}
+
 type TDocumentsServiceArgs<TMethod extends keyof IDocumentsService> =
     IDocumentsService[TMethod] extends (...args: infer TArgs) => unknown ? TArgs : never;
 
+function toRendererBackingState(state: TWorkingCopyBackingState): TWorkingCopyBackingStatusState {
+    return state === 'lazy-original' || state === 'materializing'
+        ? state
+        : 'materialized';
+}
+
+function toBackingFailure(
+    code: TWorkingCopyBackingErrorCode | undefined,
+): IWorkingCopyBackingFailure | null {
+    if (!code) {
+        return null;
+    }
+    return {
+        code,
+        retryable: code === 'WORKING_COPY_MATERIALIZATION_CANCELLED'
+            || code === 'WORKING_COPY_MATERIALIZATION_FAILED'
+            || code === 'WORKING_COPY_MATERIALIZATION_NO_SPACE'
+            || code === 'WORKING_COPY_MATERIALIZATION_VERIFICATION_FAILED',
+    };
+}
+
+function toProgressStatus(
+    progress: IWorkingCopyMaterializationProgress,
+): IWorkingCopyBackingStatus {
+    return {
+        documentRef: progress.documentRef,
+        failure: toBackingFailure(progress.errorCode),
+        progress: progress.status === 'completed'
+            ? 1
+            : Math.min(1, Math.max(0, progress.percent / 100)),
+        state: progress.status === 'completed'
+            ? 'materialized'
+            : progress.status === 'running'
+                ? 'materializing'
+                : 'lazy-original',
+    };
+}
+
 export function createDocumentsService(): IDocumentsService {
+    const backingStatusListeners = new Set<(event: IWorkingCopyBackingStatusDispatch) => void>();
+    const latestBackingStatus = new Map<string, {
+        registrationId: number;
+        status: IWorkingCopyBackingStatus;
+    }>();
+    function publishBackingStatus(dispatch: IWorkingCopyBackingStatusDispatch) {
+        const key = normalizePathForLookup(dispatch.status.documentRef) || dispatch.status.documentRef;
+        const previous = latestBackingStatus.get(key);
+        const status = previous?.registrationId === dispatch.registrationId
+            ? {
+                ...dispatch.status,
+                progress: Math.max(previous.status.progress, dispatch.status.progress),
+            }
+            : dispatch.status;
+        const nextDispatch = {
+            ...dispatch,
+            status,
+        };
+        latestBackingStatus.set(key, {
+            registrationId: dispatch.registrationId,
+            status,
+        });
+        for (const listener of backingStatusListeners) {
+            listener(nextDispatch);
+        }
+    }
+
+    onWorkingCopyMaterializationProgress((progress) => {
+        const entry = getWorkingCopyBackingEntry(progress.documentRef);
+        if (!entry) {
+            return;
+        }
+        publishBackingStatus({
+            ...(entry.ownerWebContentsId === undefined
+                ? {}
+                : {ownerWebContentsId: entry.ownerWebContentsId}),
+            registrationId: entry.registrationId,
+            status: toProgressStatus(progress),
+        });
+    });
+
     const service: IDocumentsService = {
         openDocumentDialog: handleOpenPdfDialog,
         openCombineDialog: (...args: TDocumentsServiceArgs<'openCombineDialog'>) => handleOpenCombineDialog(...args),
@@ -145,6 +245,37 @@ export function createDocumentsService(): IDocumentsService {
                 filePath,
             ] = args;
             return getWorkingCopyRevision(filePath, context.senderId);
+        },
+        getWorkingCopyBackingStatus: (
+            ...args: TDocumentsServiceArgs<'getWorkingCopyBackingStatus'>
+        ) => {
+            const [
+                context,
+                filePath,
+            ] = args;
+            const entry = getWorkingCopyBackingEntry(filePath, context.senderId);
+            if (!entry) {
+                return null;
+            }
+            const state = toRendererBackingState(entry.backingState);
+            const key = normalizePathForLookup(filePath) || filePath;
+            const latestStatus = latestBackingStatus.get(key);
+            return {
+                documentRef: filePath,
+                failure: toBackingFailure(entry.sourceBackingErrorCode),
+                progress: state === 'materialized'
+                    ? 1
+                    : latestStatus?.registrationId === entry.registrationId
+                        ? latestStatus.status.progress
+                        : 0,
+                state,
+            };
+        },
+        onWorkingCopyBackingStatusChanged: (listener) => {
+            backingStatusListeners.add(listener);
+            return () => {
+                backingStatusListeners.delete(listener);
+            };
         },
         analyzePdfConformance: (...args: TDocumentsServiceArgs<'analyzePdfConformance'>) =>
             handleAnalyzePdfConformance(...args),

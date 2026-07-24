@@ -49,6 +49,7 @@ const mocks = vi.hoisted(() => ({
     clearWorkingCopySyncRequired: vi.fn(),
     markWorkingCopyContentChanged: vi.fn(),
     transitionWorkingCopyContentRevision: vi.fn(),
+    ensureWorkingCopyMaterialized: vi.fn(),
 }));
 
 vi.mock('@electron/utils/atomicReplace', () => ({
@@ -81,6 +82,23 @@ vi.mock('@electron/file-access/isAllowedOriginalSavePath', () => ({isAllowedOrig
 vi.mock('@electron/file-access/workingCopyDirectory', () => ({copyFileCopyOnWrite: (...args: [string, string]) => mocks.copyFileCopyOnWrite(...args)}));
 vi.mock('@electron/pdf/nativeToolPaths', () => ({getPdfNativeToolPaths: (...args: unknown[]) => mocks.getPdfNativeToolPaths(...args)}));
 vi.mock('@electron/native-tools/runNativeToolCommand', () => ({runNativeToolCommand: (...args: unknown[]) => mocks.runNativeToolCommand(...args)}));
+vi.mock('@electron/file-access/workingCopyMaterialization', () => {
+    class WorkingCopyMaterializationError extends Error {
+        readonly code: string;
+        readonly retryable: boolean;
+
+        constructor(code: string, message: string, options: {retryable?: boolean} = {}) {
+            super(message);
+            this.name = 'WorkingCopyMaterializationError';
+            this.code = code;
+            this.retryable = options.retryable ?? false;
+        }
+    }
+    return {
+        ensureWorkingCopyMaterialized: (...args: unknown[]) => mocks.ensureWorkingCopyMaterialized(...args),
+        WorkingCopyMaterializationError,
+    };
+});
 
 function createOriginalFileExpectationForTest(originalPath: string) {
     const originalStat = statSync(originalPath);
@@ -107,6 +125,11 @@ describe('workingCopySave', () => {
             warnings: [],
         });
         mocks.ensureWorkingCopyDirectory.mockResolvedValue(true);
+        mocks.ensureWorkingCopyMaterialized.mockImplementation(async (path: string) => ({
+            logicalRef: path,
+            physicalWorkingCopyPath: path,
+            sourceFingerprint: '',
+        }));
         mocks.getWorkingCopyOriginalFileExpectation.mockImplementation((workingPath: string, senderWebContentsId?: number) => {
             const original = mocks.getWorkingCopyOriginalPath(workingPath, senderWebContentsId);
             return original?.originalPath
@@ -272,6 +295,31 @@ describe('workingCopySave', () => {
                 validation: null,
             });
         expect(readFileSyncUtf8(originalPath)).toBe('old-original');
+    });
+
+    it('propagates a typed materialization failure without staging or publishing save bytes', async () => {
+        const workingPath = join(tempRoot, 'lazy-working.pdf');
+        const originalPath = join(tempRoot, 'lazy-original.pdf');
+        writeFileSync(originalPath, 'original-before-failed-materialization');
+        mocks.getWorkingCopyOriginalPath.mockReturnValue({originalPath});
+        const {WorkingCopyMaterializationError} = await import(
+            '@electron/file-access/workingCopyMaterialization'
+        );
+        const failure = new WorkingCopyMaterializationError(
+            'SOURCE_BACKING_UNAVAILABLE',
+            'The original document is unavailable',
+        );
+        mocks.ensureWorkingCopyMaterialized.mockRejectedValue(failure);
+        const {handleFileSaveStructured} = await import(
+            '@electron/features/documents/main/workingCopySave'
+        );
+
+        await expect(handleFileSaveStructured(context, workingPath, revisionOptions))
+            .rejects.toBe(failure);
+
+        expect(mocks.makeSiblingTempPath).not.toHaveBeenCalled();
+        expect(mocks.atomicReplace).not.toHaveBeenCalled();
+        expect(readFileSyncUtf8(originalPath)).toBe('original-before-failed-materialization');
     });
 
     it('resyncs from the latest original mapping even when normal mutations are sync-blocked', async () => {

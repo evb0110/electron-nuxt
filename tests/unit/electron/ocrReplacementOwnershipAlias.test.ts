@@ -35,7 +35,10 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock('fs', () => ({
-    constants: {COPYFILE_FICLONE: 2},
+    constants: {
+        COPYFILE_FICLONE: 2,
+        COPYFILE_FICLONE_FORCE: 4,
+    },
     createReadStream: (...args: unknown[]) => mocks.createReadStream(...args),
     lstatSync: (path: string) => mocks.lstatSync(path),
     realpathSync: (path: string) => mocks.realpathSync(path),
@@ -60,10 +63,12 @@ vi.mock('@electron/utils/pathValidator', () => ({
 vi.mock('@electron/file-access/workingCopyCreation', () => ({ensureWorkingCopyDirectory: mocks.ensureWorkingCopyDirectory}));
 
 vi.mock('@electron/file-access/workingCopyStore', () => ({
+    getWorkingCopyBackingEntry: () => ({backing: 'materialized'}),
     getWorkingCopyOriginalPath: mocks.getWorkingCopyOriginalPath,
     normalizePathForLookup: (path: string) => path.trim(),
     refreshWorkingCopyOriginalFileExpectation: mocks.refreshWorkingCopyOriginalFileExpectation,
 }));
+vi.mock('@electron/file-access/workingCopyMaterialization', () => ({ensureWorkingCopyMaterialized: async (path: string) => ({physicalWorkingCopyPath: path})}));
 
 vi.mock('@electron/file-access/documentRevisionStore', () => ({
     markWorkingCopyContentChanged: (...args: unknown[]) => mocks.markWorkingCopyContentChanged(...args),
@@ -185,7 +190,7 @@ describe('OCR replacement ownership path aliases', () => {
             2,
             canonicalOcrPath,
             expect.stringMatching(/\/private\/var\/folders\/app\/T\/evb-viewer\/pdf-work-1\/\.book\.pdf\.\d+\..+\.tmp$/u),
-            2,
+            4,
         );
         expect(mocks.rename).toHaveBeenCalledWith(
             expect.stringMatching(/\/private\/var\/folders\/app\/T\/evb-viewer\/pdf-work-1\/\.book\.pdf\.\d+\..+\.tmp$/u),

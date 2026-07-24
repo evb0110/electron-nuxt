@@ -82,4 +82,34 @@ describe('shutdown coordinator', () => {
         expect(app.quit).not.toHaveBeenCalled();
         expect(app.exit).not.toHaveBeenCalled();
     });
+
+    it('does not quit until shutdown cancellation cleanup has settled', async () => {
+        const cancellationCleanup = createDeferred();
+        const app = {
+            exit: vi.fn(),
+            quit: vi.fn(),
+        };
+        const coordinator = createShutdownCoordinator({
+            app,
+            logger: {
+                debug: vi.fn(),
+                error: vi.fn(),
+                info: vi.fn(),
+                warn: vi.fn(),
+            },
+            runCleanupSteps: () => cancellationCleanup.promise,
+        });
+
+        coordinator.requestGracefulQuit();
+        await Promise.resolve();
+
+        expect(app.quit).not.toHaveBeenCalled();
+        expect(app.exit).not.toHaveBeenCalled();
+
+        cancellationCleanup.resolve();
+        await vi.waitFor(() => {
+            expect(app.quit).toHaveBeenCalledOnce();
+        });
+        expect(app.exit).not.toHaveBeenCalled();
+    });
 });

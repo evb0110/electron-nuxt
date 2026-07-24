@@ -77,7 +77,7 @@ function createLifecycle(overrides: Record<string, unknown> = {}) {
         hasPendingProgrammaticPageNavigation: vi.fn(() => false),
         clearProgrammaticPageNavigation: vi.fn(),
         clearOcrCache: vi.fn(),
-        ensureHistoryBaselineForExternalMutation: vi.fn(async () => true),
+        ensureHistoryBaselineForMutation: vi.fn(async () => true),
         reloadWorkingCopyIntoHistory: vi.fn(async () => true),
         waitForPdfReload: vi.fn(async () => undefined),
         ...overrides,
@@ -112,7 +112,7 @@ describe('useWorkspaceDocumentLifecycleEffects OCR application', () => {
     it('replaces the working copy with the OCR result under its source revision', async () => {
         const clearOcrCache = vi.fn();
         const resetSearchCache = vi.fn();
-        const ensureHistoryBaselineForExternalMutation = vi.fn(async () => true);
+        const ensureHistoryBaselineForMutation = vi.fn(async () => true);
         const reloadWorkingCopyIntoHistory = vi.fn(async () => true);
         const waitForPdfReload = vi.fn(async () => undefined);
         const runWithDocumentOperationLease = vi.fn(
@@ -121,7 +121,7 @@ describe('useWorkspaceDocumentLifecycleEffects OCR application', () => {
         const lifecycle = createLifecycle({
             clearOcrCache,
             resetSearchCache,
-            ensureHistoryBaselineForExternalMutation,
+            ensureHistoryBaselineForMutation,
             reloadWorkingCopyIntoHistory,
             waitForPdfReload,
             runWithDocumentOperationLease,
@@ -135,7 +135,7 @@ describe('useWorkspaceDocumentLifecycleEffects OCR application', () => {
         );
         expect(clearOcrCache).toHaveBeenCalledWith('/tmp/work.pdf');
         expect(resetSearchCache).toHaveBeenCalledOnce();
-        expect(ensureHistoryBaselineForExternalMutation).toHaveBeenCalledOnce();
+        expect(ensureHistoryBaselineForMutation).toHaveBeenCalledOnce();
         expect(mocks.replaceWorkingCopyFromPath).toHaveBeenCalledWith(
             '/tmp/work.pdf',
             '/tmp/ocr-1-merged.pdf',
@@ -192,6 +192,19 @@ describe('useWorkspaceDocumentLifecycleEffects OCR application', () => {
             color: 'error',
             title: 'errors.ocr.createSearchablePdf',
         });
+        lifecycle.scope.stop();
+    });
+
+    it('does not replace the working copy when OCR history staging fails', async () => {
+        const lifecycle = createLifecycle({ensureHistoryBaselineForMutation: vi.fn(async () => false)});
+
+        await lifecycle.handleOcrComplete(ocrPayload());
+
+        expect(mocks.replaceWorkingCopyFromPath).not.toHaveBeenCalled();
+        expect(mocks.acknowledgeResultFile).toHaveBeenCalledWith(
+            'ocr-1',
+            '/tmp/ocr-1-merged.pdf',
+        );
         lifecycle.scope.stop();
     });
 
