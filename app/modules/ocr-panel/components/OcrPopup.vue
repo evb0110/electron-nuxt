@@ -51,6 +51,12 @@
                         <UIcon name="i-ph-warning-circle" class="size-4" />
                         <div class="error-content flex flex-1 flex-col gap-2">
                             <span class="error-text">{{ effectiveError }}</span>
+                            <span
+                                v-if="hasLanguageDownloadFailure"
+                                class="error-retry-hint"
+                            >
+                                {{ t('ocr.languagePicker.retryDownload') }}
+                            </span>
                             <AppTooltip :text="copyLogsTooltip" :delay-duration="1200">
                                 <UButton
                                     icon="i-ph-copy"
@@ -209,11 +215,24 @@
                     </div>
 
                     <!-- Language Selection -->
-                    <div class="section">
+                    <div class="section language-picker">
+                        <div class="language-picker-header">
+                            <span class="label">{{ t('ocr.languages') }}</span>
+                            <UInput
+                                v-if="showLanguageSearch"
+                                v-model="languageSearchQuery"
+                                icon="i-ph-magnifying-glass"
+                                :placeholder="t('ocr.languagePicker.searchPlaceholder')"
+                                :aria-label="t('ocr.languagePicker.searchPlaceholder')"
+                                size="sm"
+                                class="language-search"
+                            />
+                        </div>
                         <UCheckboxGroup
+                            v-if="languagePickerItems.length > 0"
                             v-model="selectedLanguagesModel"
                             :legend="t('ocr.languages')"
-                            :items="languageChipItems"
+                            :items="languagePickerItems"
                             value-key="value"
                             size="sm"
                             variant="card"
@@ -222,13 +241,46 @@
                             :ui="languageChipGroupUi"
                         >
                             <template #label="{ item }">
+                                <span
+                                    v-if="item.startsGroup"
+                                    class="chip-group"
+                                >
+                                    {{ t(getLanguagePickerGroupKey(item.group), undefined) }}
+                                </span>
                                 <span class="chip-name">{{ item.label }}</span>
                                 <span
-                                    v-if="item.stateLabel"
+                                    v-if="item.modelState === 'missing'"
                                     class="chip-state"
-                                >{{ item.stateLabel }}</span>
+                                >
+                                    <UIcon name="i-ph-download-simple" class="size-3" />
+                                    {{ t('ocr.languagePicker.downloadSizeHint') }}
+                                </span>
+                                <UIcon
+                                    v-else-if="item.modelState === 'downloading'"
+                                    name="i-ph-circle-notch"
+                                    class="chip-spinner size-3 animate-spin"
+                                    :aria-label="t('ocr.languageModelState.downloading')"
+                                />
+                                <span
+                                    v-else-if="item.modelState === 'error'"
+                                    class="chip-state is-error"
+                                >
+                                    <UIcon name="i-ph-warning-circle" class="size-3" />
+                                    {{ t('ocr.languagePicker.downloadFailed') }}
+                                </span>
                             </template>
                         </UCheckboxGroup>
+                        <p v-else class="language-empty">
+                            {{ t('ocr.languagePicker.noResults') }}
+                        </p>
+                        <p
+                            v-if="showMultipleLanguagesHint"
+                            class="language-accuracy-hint"
+                            role="status"
+                        >
+                            <UIcon name="i-ph-info" class="size-4" />
+                            {{ t('ocr.languagePicker.multiLanguageHint') }}
+                        </p>
                     </div>
                 </template>
 
@@ -342,7 +394,10 @@ import AppProgressBar from '@app/components/AppProgressBar.vue';
 import OcrSettingHelpTooltip from '@app/modules/ocr-panel/components/OcrSettingHelpTooltip.vue';
 import type { IOcrPopupAgentExpose } from '@app/types/ocrAgent';
 import { OCR_PAGE_SEGMENTATION_AUTOMATIC_VALUE } from '@app/modules/ocr-panel/runtime/ocrPopupSettings';
-import { useOcrPopupPresenter } from '@app/modules/ocr-panel/runtime/useOcrPopupPresenter';
+import {
+    useOcrPopupPresenter,
+    type TOcrLanguagePickerGroup,
+} from '@app/modules/ocr-panel/runtime/useOcrPopupPresenter';
 import { getReaderCommandToolbarIcon } from '@app/utils/readerCommandIcons';
 import type {
     IOcrSearchablePdfResult,
@@ -350,8 +405,6 @@ import type {
 } from '@app/utils/ocr/ocrTypes';
 
 const { t } = useTypedI18n();
-type TOcrLanguageTranslationKey = Extract<TTranslationKey, `ocr.languageName.${string}`>;
-type TOcrLanguageModelStateKey = Extract<TTranslationKey, `ocr.languageModelState.${string}`>;
 type TOcrQualityProfileLabelKey = Extract<TTranslationKey, `ocr.qualityProfile.options.${string}`>;
 type TOcrPreprocessingModeLabelKey = Extract<TTranslationKey, `ocr.preprocessing.options.${string}`>;
 type TOcrPageSegmentationLabelKey = Extract<TTranslationKey, `ocr.pageSegmentation.options.${string}`>;
@@ -413,8 +466,8 @@ const segmentedRadioGroupUi = {
     label: 'w-full truncate text-center text-xs font-medium',
 } as const;
 const languageChipGroupUi = {
-    fieldset: 'w-full flex-wrap gap-1.5',
-    legend: 'label',
+    fieldset: 'language-picker-list app-scrollbar app-scroll-region--balanced w-full flex-wrap gap-1.5',
+    legend: 'sr-only',
     item: 'language-chip',
     label: 'language-chip-label font-normal text-xs',
 } as const;
@@ -462,9 +515,6 @@ const {
     settings,
     progress,
     progressPercent,
-    latinCyrillicLanguages,
-    greekLanguages,
-    rtlLanguages,
     viewState,
     effectiveError,
     canRunOcr,
@@ -477,6 +527,11 @@ const {
     triggerTooltip,
     hasResultWarning,
     resultStatusText,
+    languageSearchQuery,
+    languagePickerItems,
+    showLanguageSearch,
+    showMultipleLanguagesHint,
+    hasLanguageDownloadFailure,
     selectedLanguagesModel,
     pageSegmentationModeSelectValue,
     handleCopyLogs,
@@ -577,34 +632,14 @@ const pageSegmentationHelpItems = computed(() => ocrPageSegmentationOptions.map(
     label: t(option.labelKey, undefined),
     description: t(option.helpKey, undefined),
 })));
-const languageChipItems = computed(() => [
-    ...latinCyrillicLanguages.value,
-    ...greekLanguages.value,
-    ...rtlLanguages.value,
-].map(lang => ({
-    value: lang.code,
-    label: translateLanguageName(lang.code),
-    stateLabel: translateLanguageStateLabel(lang),
-})));
+const ocrLanguagePickerGroupKeys = {
+    selected: 'ocr.languagePicker.groups.selected',
+    installed: 'ocr.languagePicker.groups.installed',
+    missing: 'ocr.languagePicker.groups.missing',
+} as const satisfies Record<TOcrLanguagePickerGroup, TTranslationKey>;
 
-function getLanguageNameKey(code: string): TOcrLanguageTranslationKey {
-    return `ocr.languageName.${code}` as TOcrLanguageTranslationKey;
-}
-
-function translateLanguageName(code: string) {
-    return t(getLanguageNameKey(code), undefined);
-}
-
-function translateLanguageStateLabel(language: {
-    code: string;
-    modelState?: 'installed' | 'downloading' | 'missing'
-}) {
-    const state = language.modelState ?? 'missing';
-    if (state === 'installed') {
-        return undefined;
-    }
-    const stateKey = `ocr.languageModelState.${state}` as TOcrLanguageModelStateKey;
-    return t(stateKey, undefined);
+function getLanguagePickerGroupKey(group: TOcrLanguagePickerGroup) {
+    return ocrLanguagePickerGroupKeys[group];
 }
 
 function getQualityProfileLabelKey(profile: TOcrQualityProfile): TOcrQualityProfileLabelKey {
@@ -739,6 +774,29 @@ defineExpose<IOcrPopupAgentExpose>({
     color: var(--ui-text-muted);
 }
 
+.language-picker-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--app-space-6xl);
+    margin-bottom: var(--app-space-3xl);
+}
+
+.language-picker-header .label {
+    margin-bottom: 0;
+}
+
+.language-search {
+    width: 100%;
+    max-width: var(--app-settings-select-max-size);
+}
+
+:deep(.language-picker-list) {
+    max-height: var(--app-ocr-language-picker-max-height);
+    overflow-y: auto;
+    padding: var(--app-space-3xs);
+}
+
 :deep(.language-chip) {
     flex: none;
     width: auto;
@@ -769,9 +827,48 @@ defineExpose<IOcrPopupAgentExpose>({
     white-space: nowrap;
 }
 
+.chip-group {
+    padding-inline-end: var(--app-space-sm);
+    border-inline-end: var(--app-hairline-height) solid var(--ui-border);
+    color: var(--ui-text-dimmed);
+    font-size: var(--app-text-size-tiny);
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+}
+
 .chip-state {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--app-space-3xs);
     font-size: var(--app-text-size-micro);
     color: var(--ui-text-muted);
+}
+
+.chip-state.is-error {
+    color: var(--ui-error);
+}
+
+.chip-spinner {
+    color: var(--ui-primary);
+}
+
+.language-empty,
+.language-accuracy-hint {
+    color: var(--ui-text-muted);
+    font-size: var(--app-text-size-kicker);
+}
+
+.language-empty {
+    padding: var(--app-space-6xl);
+    text-align: center;
+}
+
+.language-accuracy-hint {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--app-space-sm);
+    margin-top: var(--app-space-3xl);
 }
 
 .ocr-progress-panel {
@@ -831,6 +928,10 @@ defineExpose<IOcrPopupAgentExpose>({
 .error-text {
     align-self: stretch;
     overflow-wrap: anywhere;
+}
+
+.error-retry-hint {
+    color: var(--ui-text-muted);
 }
 
 .copy-logs {

@@ -11,7 +11,11 @@ import {
     expect,
     it,
 } from 'vitest';
-import { BUNDLED_OCR_LANGUAGE_CODES } from '@contracts/ocrLanguages';
+import {
+    AVAILABLE_OCR_LANGUAGES,
+    BUNDLED_OCR_LANGUAGE_CODES,
+    BUNDLED_OCR_LANGUAGE_CODE_SET,
+} from '@contracts/ocrLanguages';
 import {
     createElectronBuilderResourcePlan,
     renderElectronBuilderResources,
@@ -102,6 +106,11 @@ describe('build artifact generation', () => {
         expect(builderConfig).toContain('extends: ./.tmp/generated-electron-builder-resources.yml');
         for (const code of BUNDLED_OCR_LANGUAGE_CODES) {
             expect(rendered).toContain(`      - ${code}.traineddata`);
+        }
+        for (const {code} of AVAILABLE_OCR_LANGUAGES) {
+            if (!BUNDLED_OCR_LANGUAGE_CODE_SET.has(code)) {
+                expect(rendered).not.toContain(`      - ${code}.traineddata`);
+            }
         }
         for (const family of NATIVE_TOOL_RESOURCE_FAMILIES) {
             for (const platform of [

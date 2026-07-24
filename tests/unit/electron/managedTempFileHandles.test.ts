@@ -30,6 +30,8 @@ const mocks = vi.hoisted(() => ({
     revision: null as null | {token: string},
 }));
 
+const waitForFilesystemTimestampTick = () => new Promise(resolve => setTimeout(resolve, 5));
+
 vi.mock('@electron/features/documents/main/documentFilePathResolution', () => ({resolveExistingReadableBinaryPath: vi.fn(async () => mocks.path)}));
 vi.mock('@electron/file-access/documentRevisionSidecar', () => ({readWorkingCopyRevisionSidecar: vi.fn(async () => mocks.revision)}));
 vi.mock('@electron/features/documents/main/fingerprintFileWithUtilityProcess', () => ({fingerprintFileWithUtilityProcess: mocks.inspect}));
@@ -244,6 +246,7 @@ describe('managed temporary file handles', () => {
         });
         const fileStat = statSync(mocks.path);
 
+        await waitForFilesystemTimestampTick();
         chmodSync(mocks.path, fileStat.mode ^ 0o100);
 
         await expect(resolveTypedStagedArtifact({senderId: 42}, artifact))
@@ -262,6 +265,7 @@ describe('managed temporary file handles', () => {
             fsynced: false,
         });
 
+        await waitForFilesystemTimestampTick();
         writeFileSync(mocks.path, Buffer.from('rewritten-file-bytes'));
 
         await expect(resolveTypedStagedArtifact({senderId: 42}, artifact))
@@ -489,6 +493,7 @@ describe('managed temporary file handles', () => {
             fsynced: false,
         });
         const linkedPath = join(directory, 'linked.pdf');
+        await waitForFilesystemTimestampTick();
         linkSync(mocks.path, linkedPath);
 
         await expect(resolveTypedStagedArtifact({senderId: 42}, artifact))

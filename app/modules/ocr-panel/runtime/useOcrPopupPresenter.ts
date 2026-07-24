@@ -1,7 +1,12 @@
 import type { TDocumentRef } from '@contracts/documentRef';
 import type { IDebugLogEntry } from '@contracts/electronApiCommon';
 import type { TOcrProgressPhase } from '@contracts/electronApiOcr';
-import type { TTranslationKey } from '@i18n-app';
+import type { TOcrLanguageCode } from '@contracts/ocrLanguages';
+import type { IOcrLanguage } from '@contracts/shared';
+import type {
+    TLocale,
+    TTranslationKey,
+} from '@i18n-app';
 import {
     useClipboard,
     useTimeoutFn,
@@ -28,6 +33,153 @@ import {
 } from '@app/modules/ocr-panel/runtime/ocrPopupSettings';
 
 type TOcrViewState = 'configure' | 'running' | 'applying' | 'results' | 'error';
+export type TOcrLanguagePickerGroup = 'selected' | 'installed' | 'missing';
+
+const OCR_LANGUAGE_BCP47_OVERRIDES = {
+    grc: 'grc',
+    kmr: 'kmr',
+    nor: 'no',
+    srp: 'sr-Cyrl',
+    syr: 'syr',
+} as const satisfies Partial<Record<TOcrLanguageCode, string>>;
+
+export const OCR_LANGUAGE_ENGLISH_FALLBACK_NAMES = {
+    ara: 'Arabic',
+    bul: 'Bulgarian',
+    ces: 'Czech',
+    dan: 'Danish',
+    deu: 'German',
+    ell: 'Greek',
+    eng: 'English',
+    fin: 'Finnish',
+    fra: 'French',
+    grc: 'Ancient Greek',
+    heb: 'Hebrew',
+    hrv: 'Croatian',
+    hun: 'Hungarian',
+    ind: 'Indonesian',
+    ita: 'Italian',
+    kmr: 'Kurdish (Kurmanji)',
+    nld: 'Dutch',
+    nor: 'Norwegian',
+    pol: 'Polish',
+    por: 'Portuguese',
+    ron: 'Romanian',
+    rus: 'Russian',
+    slk: 'Slovak',
+    spa: 'Spanish',
+    srp: 'Serbian (Cyrillic)',
+    swe: 'Swedish',
+    syr: 'Syriac',
+    tur: 'Turkish',
+    ukr: 'Ukrainian',
+    vie: 'Vietnamese',
+} as const satisfies Record<TOcrLanguageCode, string>;
+
+function createLanguageDisplayNames(locale: TLocale) {
+    try {
+        return new Intl.DisplayNames(locale, {type: 'language'});
+    } catch {
+        return null;
+    }
+}
+
+export function resolveOcrLanguageDisplayName(
+    code: string,
+    locale: TLocale,
+    displayNames: Intl.DisplayNames | null = createLanguageDisplayNames(locale),
+) {
+    const fallbackName = code in OCR_LANGUAGE_ENGLISH_FALLBACK_NAMES
+        ? OCR_LANGUAGE_ENGLISH_FALLBACK_NAMES[code as TOcrLanguageCode]
+        : code;
+    const languageTag = OCR_LANGUAGE_BCP47_OVERRIDES[
+        code as keyof typeof OCR_LANGUAGE_BCP47_OVERRIDES
+    ] ?? code;
+    try {
+        const localizedName = displayNames?.of(languageTag)?.trim();
+        if (
+            localizedName
+            && localizedName.toLocaleLowerCase(locale) !== languageTag.toLocaleLowerCase(locale)
+            && localizedName.toLocaleLowerCase(locale) !== code.toLocaleLowerCase(locale)
+        ) {
+            return code === 'kmr'
+                ? `${localizedName} (Kurmanji)`
+                : localizedName;
+        }
+    } catch {
+        // Fall through to the canonical English name when ICU rejects a tag.
+    }
+    return fallbackName;
+}
+
+export function findFailedOcrLanguageCodes(
+    languages: readonly IOcrLanguage[],
+    error: string | null,
+) {
+    if (!error) {
+        return new Set<string>();
+    }
+    const normalizedError = error.toLocaleLowerCase();
+    return new Set(languages
+        .map(language => language.code)
+        .filter(code => new RegExp(`(?:^|[^a-z0-9_])${code}(?:$|[^a-z0-9_])`, 'u')
+            .test(normalizedError)));
+}
+
+export function buildOcrLanguagePickerItems(
+    languages: readonly IOcrLanguage[],
+    selectedLanguages: readonly string[],
+    locale: TLocale,
+    searchQuery: string,
+    failedLanguageCodes: ReadonlySet<string>,
+) {
+    const selectedCodes = new Set(selectedLanguages);
+    const displayNames = createLanguageDisplayNames(locale);
+    const normalizedQuery = searchQuery.trim().toLocaleLowerCase(locale);
+    const groupOrder: Record<TOcrLanguagePickerGroup, number> = {
+        selected: 0,
+        installed: 1,
+        missing: 2,
+    };
+    const items = languages
+        .map((language) => {
+            const label = resolveOcrLanguageDisplayName(language.code, locale, displayNames);
+            const group: TOcrLanguagePickerGroup = selectedCodes.has(language.code)
+                ? 'selected'
+                : language.modelState === 'installed'
+                    ? 'installed'
+                    : 'missing';
+            return {
+                value: language.code,
+                label,
+                group,
+                modelState: failedLanguageCodes.has(language.code)
+                    ? 'error' as const
+                    : language.modelState ?? 'missing',
+            };
+        })
+        .filter(item => normalizedQuery.length === 0
+            || item.value.toLocaleLowerCase(locale).includes(normalizedQuery)
+            || item.label.toLocaleLowerCase(locale).includes(normalizedQuery))
+        .sort((left, right) => (
+            groupOrder[left.group] - groupOrder[right.group]
+            || left.label.localeCompare(right.label, locale)
+            || left.value.localeCompare(right.value)
+        ));
+
+    return items.map((item, index) => ({
+        ...item,
+        startsGroup: index === 0 || items[index - 1]?.group !== item.group,
+    }));
+}
+
+export function shouldShowOcrLanguageSearch(languageCount: number) {
+    return languageCount > 12;
+}
+
+export function shouldShowOcrMultiLanguageHint(selectedLanguageCount: number) {
+    return selectedLanguageCount > 3;
+}
 
 export interface IOcrPopupCompletePayload extends IOcrSearchablePdfResult {
     sourceWorkingCopyPath: TDocumentRef;
@@ -80,7 +232,10 @@ export const useOcrPopupPresenter = ({
     events,
     isOpen,
 }: IOcrPopupPresenterOptions) => {
-    const { t } = useTypedI18n();
+    const {
+        locale,
+        t,
+    } = useTypedI18n();
     const { copy: copyClipboardText } = useClipboard();
     const {
         settings,
@@ -91,9 +246,7 @@ export const useOcrPopupPresenter = ({
         error,
         hasResults,
         progressPercent,
-        latinCyrillicLanguages,
-        greekLanguages,
-        rtlLanguages,
+        availableLanguages,
         loadLanguages,
         runOcr,
         cancelOcr,
@@ -107,6 +260,7 @@ export const useOcrPopupPresenter = ({
     const activeOcrSourcePath = ref<TDocumentRef | null>(null);
     const activeOcrSourcePage = ref<number | null>(null);
     const pendingAppliedOcrRequestId = ref<string | null>(null);
+    const languageSearchQuery = ref('');
 
     const {
         start: startCopyLogsStateReset,
@@ -144,11 +298,27 @@ export const useOcrPopupPresenter = ({
         }
         return 'configure';
     });
-    const availableLanguageCodes = computed(() => new Set([
-        ...latinCyrillicLanguages.value,
-        ...greekLanguages.value,
-        ...rtlLanguages.value,
-    ].map(lang => lang.code)));
+    const availableLanguageCodes = computed(() => new Set(
+        availableLanguages.value.map(language => language.code),
+    ));
+    const failedLanguageCodes = computed(() => findFailedOcrLanguageCodes(
+        availableLanguages.value,
+        effectiveError.value,
+    ));
+    const languagePickerItems = computed(() => buildOcrLanguagePickerItems(
+        availableLanguages.value,
+        settings.value.selectedLanguages,
+        locale.value,
+        languageSearchQuery.value,
+        failedLanguageCodes.value,
+    ));
+    const showLanguageSearch = computed(() => shouldShowOcrLanguageSearch(
+        availableLanguages.value.length,
+    ));
+    const showMultipleLanguagesHint = computed(() => shouldShowOcrMultiLanguageHint(
+        settings.value.selectedLanguages.length,
+    ));
+    const hasLanguageDownloadFailure = computed(() => failedLanguageCodes.value.size > 0);
     const hasSelectedAvailableLanguage = computed(() =>
         settings.value.selectedLanguages.some(code => availableLanguageCodes.value.has(code)),
     );
@@ -175,7 +345,7 @@ export const useOcrPopupPresenter = ({
 
         return t(ocrProgressStageKeys[progress.value.phase], undefined);
     });
-    const applyingStatusText = computed(() => 'Applying OCR result…');
+    const applyingStatusText = computed(() => t('ocr.progressStage.applying'));
     const triggerTooltip = computed(() => {
         if (progress.value.isRunning) {
             return progressStatusText.value;
@@ -555,9 +725,7 @@ export const useOcrPopupPresenter = ({
         error,
         hasResults,
         progressPercent,
-        latinCyrillicLanguages,
-        greekLanguages,
-        rtlLanguages,
+        availableLanguages,
         viewState,
         effectiveError,
         canRunOcr,
@@ -571,6 +739,11 @@ export const useOcrPopupPresenter = ({
         triggerTooltip,
         hasResultWarning,
         resultStatusText,
+        languageSearchQuery,
+        languagePickerItems,
+        showLanguageSearch,
+        showMultipleLanguagesHint,
+        hasLanguageDownloadFailure,
         selectedLanguagesModel,
         pageSegmentationModeSelectValue,
         handleCopyLogs,

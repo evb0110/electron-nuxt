@@ -5,6 +5,10 @@ import {
     expect,
     it,
 } from 'vitest';
+import {
+    AVAILABLE_OCR_LANGUAGES,
+    OCR_LANGUAGE_MODEL_SHA256,
+} from '@contracts/ocrLanguages';
 
 function extractRegistryLanguageCodes(source: string) {
     return [...source.matchAll(/code:\s*'([^']+)'/g)].map(match => match[1]);
@@ -16,20 +20,12 @@ describe('download-tessdata.sh', () => {
         const registrySource = readFileSync(join(projectRoot, 'packages/contracts/ocrLanguages.ts'), 'utf8');
         const scriptSource = readFileSync(join(projectRoot, 'scripts/download-tessdata.sh'), 'utf8');
 
-        expect(extractRegistryLanguageCodes(registrySource)).toEqual([
-            'eng',
-            'fra',
-            'deu',
-            'tur',
-            'ell',
-            'grc',
-            'kmr',
-            'rus',
-            'ara',
-            'heb',
-            'syr',
-        ]);
-        expect(registrySource.match(/[a-f0-9]{64}/gu)).toHaveLength(11);
+        expect(extractRegistryLanguageCodes(registrySource)).toEqual(
+            AVAILABLE_OCR_LANGUAGES.map(language => language.code),
+        );
+        expect(registrySource.match(/[a-f0-9]{64}/gu)).toHaveLength(
+            Object.keys(OCR_LANGUAGE_MODEL_SHA256).length,
+        );
         expect(scriptSource).toContain('packages/contracts/ocrLanguages.ts');
         expect(scriptSource).toContain('source.matchAll(languageCodePattern)');
         expect(scriptSource).toContain('TESSDATA_BEST_REF="e12c65a915945e4c28e237a9b52bc4a8f39a0cec"');

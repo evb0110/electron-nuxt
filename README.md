@@ -53,16 +53,36 @@ This repository contains three related apps:
 
 ### OCR Languages
 
-Bundled OCR models currently include:
+English and Russian work offline out of the box. Other supported models download on
+demand the first time they are selected:
 
 - English
 - French
+- Spanish
+- Portuguese
+- Italian
+- Dutch
 - German
+- Polish
+- Czech
+- Slovak
+- Hungarian
+- Romanian
+- Swedish
+- Danish
+- Norwegian
+- Finnish
+- Croatian
+- Indonesian
+- Vietnamese
 - Turkish
 - Greek
 - Ancient Greek
 - Kurdish (Kurmanji)
 - Russian
+- Ukrainian
+- Bulgarian
+- Serbian (Cyrillic)
 - Arabic
 - Hebrew
 - Syriac

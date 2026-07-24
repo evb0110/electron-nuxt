@@ -9,6 +9,25 @@ PaddleOCR or hosted/local vision models may become optional future backends, but
 they should not replace Tesseract until they have a repeatable quality,
 offline/privacy, packaging, and searchable-PDF story.
 
+## Language Models
+
+English and Russian are bundled for offline use. Every other language in the
+canonical OCR registry is downloaded from the pinned `tessdata_best` revision on
+first use, verified by SHA-256, and stored in the app's user-data tessdata
+directory. Development resources contain every registered model, but packaging
+filters continue to ship only English and Russian.
+
+The current on-demand expansion covers widely used Latin and Cyrillic languages.
+Portuguese also serves Brazilian Portuguese because upstream has one Portuguese
+model.
+
+Follow-up candidates are Persian (`fas`, with an Arabic-script quality caveat),
+Catalan (`cat`), Slovenian (`slv`), Estonian (`est`), Latvian (`lav`),
+Lithuanian (`lit`), Macedonian (`mkd`), and Belarusian (`bel`). CJK
+(`jpn`, `chi_sim`, `chi_tra`, `kor`) and Indic (`hin`, `tha`) support is deferred
+until the contracts include their script categories and OCR validation covers
+vertical models such as `jpn_vert` plus representative benchmarks.
+
 ## Profile Benchmark
 
 Run the manual profile benchmark when tuning OCR options:

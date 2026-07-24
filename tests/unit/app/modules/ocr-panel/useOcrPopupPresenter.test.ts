@@ -38,7 +38,10 @@ const translateMock = vi.hoisted(() => (key: string, params?: Record<string, unk
 });
 
 vi.mock('@app/composables/useOcr', () => ({useOcr: useOcrMock}));
-vi.mock('@app/composables/useTypedI18n', () => ({useTypedI18n: () => ({t: translateMock})}));
+vi.mock('@app/composables/useTypedI18n', () => ({useTypedI18n: () => ({
+    locale: ref('en'),
+    t: translateMock,
+})}));
 vi.mock('@vueuse/core', () => ({
     useClipboard: () => ({copy: copyClipboardTextMock}),
     useTimeoutFn: () => ({
@@ -132,15 +135,6 @@ function createOcrMock() {
         isExporting: ref(false),
         hasResults: computed(() => results.value.searchablePdfResult !== null),
         progressPercent: computed(() => 0),
-        latinCyrillicLanguages: computed(() =>
-            languages.value.filter(language => language.script === 'latin' || language.script === 'cyrillic'),
-        ),
-        greekLanguages: computed(() =>
-            languages.value.filter(language => language.script === 'greek'),
-        ),
-        rtlLanguages: computed(() =>
-            languages.value.filter(language => language.script === 'rtl'),
-        ),
         loadLanguages: vi.fn(async () => {}),
         runOcr: vi.fn(async () => {}),
         cancelOcr: vi.fn(async () => ({canceled: true})),

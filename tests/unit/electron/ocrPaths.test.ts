@@ -6,6 +6,21 @@ import {
     it,
     vi,
 } from 'vitest';
+import { AVAILABLE_OCR_LANGUAGES } from '@contracts/ocrLanguages';
+
+const INSTALLED_LANGUAGE_CODES = [
+    'ara',
+    'deu',
+    'ell',
+    'eng',
+    'fra',
+    'grc',
+    'heb',
+    'kmr',
+    'rus',
+    'syr',
+    'tur',
+];
 
 const mocks = vi.hoisted(() => ({
     existsSync: vi.fn(),
@@ -39,17 +54,7 @@ describe('getOcrToolPaths resource base resolution', () => {
         vi.spyOn(process, 'cwd').mockReturnValue('/repo');
         mocks.ensureRuntimeTessdataSeeded.mockResolvedValue(undefined);
         mocks.readdirSync.mockReturnValue([
-            'ara.traineddata',
-            'deu.traineddata',
-            'ell.traineddata',
-            'eng.traineddata',
-            'fra.traineddata',
-            'grc.traineddata',
-            'heb.traineddata',
-            'kmr.traineddata',
-            'rus.traineddata',
-            'syr.traineddata',
-            'tur.traineddata',
+            ...INSTALLED_LANGUAGE_CODES.map(code => `${code}.traineddata`),
             'README',
         ]);
         mocks.runNativeToolCommand.mockResolvedValue({
@@ -130,19 +135,11 @@ describe('getOcrToolPaths resource base resolution', () => {
                 tessdata: {
                     found: true,
                     path: '/repo/resources/tesseract/tessdata',
-                    languages: [
-                        'ara',
-                        'deu',
-                        'ell',
-                        'eng',
-                        'fra',
-                        'grc',
-                        'heb',
-                        'kmr',
-                        'rus',
-                        'syr',
-                        'tur',
-                    ],
+                    languages: [...INSTALLED_LANGUAGE_CODES],
+                    onDemandLanguages: AVAILABLE_OCR_LANGUAGES
+                        .map(language => language.code)
+                        .filter(code => !INSTALLED_LANGUAGE_CODES.includes(code))
+                        .sort(),
                 },
                 pdftoppm: {
                     found: true,

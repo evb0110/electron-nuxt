@@ -99,7 +99,9 @@ export function renderElectronBuilderResources(
 }
 
 async function assertOcrRegistryMatchesResources(root: string) {
-    const registryCodes = AVAILABLE_OCR_LANGUAGES.map(language => language.code).sort();
+    const registryCodes: string[] = AVAILABLE_OCR_LANGUAGES
+        .map(language => language.code)
+        .sort();
     const tessdataDirectory = path.join(root, tessdataRelativePath);
     const tessdataCodes = (await readdir(tessdataDirectory, {withFileTypes: true}))
         .filter(entry => entry.isFile() && entry.name.endsWith('.traineddata'))

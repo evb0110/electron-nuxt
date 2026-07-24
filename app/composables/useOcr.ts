@@ -226,14 +226,14 @@ export const useOcr = () => {
         rejectPending?.(new Error(t('errors.ocr.timeout')));
     }, OCR_TIMEOUT_MS, { immediate: false });
 
-    async function loadLanguages() {
+    async function loadLanguages(surfaceError = true) {
         try {
             const languages = await getOcrCapability().getLanguages();
             if (!disposed) {
                 availableLanguages.value = languages;
             }
         } catch (e) {
-            if (!disposed) {
+            if (!disposed && surfaceError) {
                 error.value = localizeOcrError(e, 'errors.ocr.loadLanguages');
             }
         }
@@ -664,6 +664,7 @@ export const useOcr = () => {
             if (ocrRunLifecycle.clearRunIfActive(runToken)) {
                 cleanupRunState();
             }
+            await loadLanguages(false);
         }
     }
 
@@ -733,18 +734,6 @@ export const useOcr = () => {
         );
     });
 
-    const latinCyrillicLanguages = computed(() =>
-        availableLanguages.value.filter(l => l.script === 'latin' || l.script === 'cyrillic'),
-    );
-
-    const greekLanguages = computed(() =>
-        availableLanguages.value.filter(l => l.script === 'greek'),
-    );
-
-    const rtlLanguages = computed(() =>
-        availableLanguages.value.filter(l => l.script === 'rtl'),
-    );
-
     /**
      * @deprecated OCR popup exports are routed through the workspace-level DOCX export path.
      */
@@ -797,9 +786,6 @@ export const useOcr = () => {
         isExporting,
         hasResults,
         progressPercent,
-        latinCyrillicLanguages,
-        greekLanguages,
-        rtlLanguages,
         loadLanguages,
         runOcr,
         cancelOcr,

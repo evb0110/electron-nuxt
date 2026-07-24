@@ -91,6 +91,7 @@ describe('useOcr', () => {
             jobId: 'job-1',
         });
         mockOcr.cancel.mockResolvedValue({ canceled: true });
+        mockOcr.getLanguages.mockResolvedValue([]);
         mockDocuments.getDocumentRevision.mockResolvedValue({
             version: 1,
             documentRef: '/tmp/work.pdf',
@@ -447,6 +448,7 @@ describe('useOcr', () => {
             expect(ocr.lastCompletedRunSettings.value?.selectedLanguages).toEqual(['eng']);
             expect(ocr.lastCompletedRunSettings.value?.qualityProfile).toBe('balanced');
             expect(ocr.activeRunSettings.value).toBeNull();
+            expect(mockOcr.getLanguages).toHaveBeenCalledOnce();
         } finally {
             scope.stop();
         }

@@ -7,6 +7,7 @@ import {
     AVAILABLE_OCR_LANGUAGES,
     BUNDLED_OCR_LANGUAGE_CODES,
     GREEK_OCR_LANGUAGE_CODES,
+    OCR_LANGUAGE_MODEL_SHA256,
     RTL_OCR_LANGUAGE_CODES,
     isGreekOcrLanguage,
     isRtlOcrLanguage,
@@ -23,6 +24,14 @@ describe('resolveTesseractLanguageConfig', () => {
             AVAILABLE_OCR_LANGUAGES.some(language => language.code === code)
         ))).toBe(true);
         expect(AVAILABLE_OCR_LANGUAGES.length).toBeGreaterThan(BUNDLED_OCR_LANGUAGE_CODES.length);
+    });
+
+    it('pins one SHA-256 digest for every registered language model', () => {
+        expect(Object.keys(OCR_LANGUAGE_MODEL_SHA256).sort()).toEqual(
+            AVAILABLE_OCR_LANGUAGES.map(language => language.code).sort(),
+        );
+        expect(Object.values(OCR_LANGUAGE_MODEL_SHA256).every(digest =>
+            /^[a-f0-9]{64}$/u.test(digest))).toBe(true);
     });
 
     it('derives the rtl language set from the canonical OCR language registry', () => {
