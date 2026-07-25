@@ -454,8 +454,6 @@ export {
 } from '@contracts/ocrText';
 
 export type {
-    IOcrIndexV2Manifest,
-    IOcrIndexV2Page,
     IOcrIndexV3Manifest,
     IOcrIndexV3Page,
     TOcrIndexRotation,

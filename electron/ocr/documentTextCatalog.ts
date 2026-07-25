@@ -66,29 +66,11 @@ export async function rebindDocumentTextCatalogRevision(
     expectedRevision: TDocumentRevisionToken,
     nextRevision: TDocumentRevisionToken,
 ) {
-    const catalogDir = `${workingCopyPath}.ocr`;
-    const manifestPath = join(catalogDir, 'manifest.json');
+    const manifestPath = join(`${workingCopyPath}.ocr`, 'manifest.json');
     const manifest = parseOcrIndexV3Manifest(JSON.parse(await readFile(manifestPath, 'utf8')), 'strict');
     if (!manifest || manifest.documentRevision.token !== expectedRevision) {
         throw new Error('OCR DocumentTextCatalog is missing or stale');
     }
-
-    for (const [
-        rawPageNumber,
-        mapping,
-    ] of Object.entries(manifest.pages)) {
-        const pageNumber = Number(rawPageNumber);
-        const pagePath = join(catalogDir, mapping.path);
-        const page = decodeOcrPage(JSON.parse(await readFile(pagePath, 'utf8')), pageNumber, expectedRevision, 'strict');
-        if (!page) {
-            throw new Error(`OCR DocumentTextCatalog page ${pageNumber} is invalid`);
-        }
-        await writeJsonAtomic(pagePath, {
-            ...page,
-            documentRevision: {token: nextRevision},
-        });
-    }
-
     await writeJsonAtomic(manifestPath, {
         ...manifest,
         documentRevision: {token: nextRevision},
@@ -113,7 +95,6 @@ async function loadCurrentOcrManifest(
 
 async function loadEvbOcrCatalogPage(
     workingCopyPath: string,
-    documentRevision: TDocumentRevisionToken,
     manifest: IOcrIndexV3Manifest,
     pageNumber: number,
 ): Promise<IDocumentTextCatalogPage | null> {
@@ -122,7 +103,7 @@ async function loadEvbOcrCatalogPage(
         return null;
     }
     const ocrPage = await readFile(join(`${workingCopyPath}.ocr`, mapping.path), 'utf8')
-        .then(raw => decodeOcrPage(JSON.parse(raw), pageNumber, documentRevision, 'strict'))
+        .then(raw => decodeOcrPage(JSON.parse(raw), 'strict'))
         .catch(() => null);
     if (!ocrPage) {
         return null;
@@ -175,7 +156,7 @@ export async function resolveDocumentOcrPage(
         documentRevision,
         pageCount: manifest?.pageCount ?? 0,
         page: manifest && pageNumber <= manifest.pageCount
-            ? await loadEvbOcrCatalogPage(workingCopyPath, documentRevision, manifest, pageNumber)
+            ? await loadEvbOcrCatalogPage(workingCopyPath, manifest, pageNumber)
             : null,
     };
 }
@@ -209,7 +190,6 @@ export async function visitDocumentOcrCatalogPages(
         throwIfAborted(options.signal);
         const page = await loadEvbOcrCatalogPage(
             workingCopyPath,
-            documentRevision,
             manifest,
             pageNumber,
         );
@@ -287,7 +267,6 @@ export async function resolveDocumentTextCatalogSnapshot(
             }
             const page = await loadEvbOcrCatalogPage(
                 workingCopyPath,
-                documentRevision,
                 currentManifest,
                 pageNumber,
             );

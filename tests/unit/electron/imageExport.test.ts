@@ -29,6 +29,11 @@ interface IImageExportProgressForTest {
     processed: number;
 }
 
+interface IRenderedRasterSize {
+    width: number;
+    height: number;
+}
+
 const mocks = vi.hoisted(() => ({
     runCommand: vi.fn(),
     stat: vi.fn(),
@@ -43,6 +48,10 @@ const mocks = vi.hoisted(() => ({
     pdfimagesPath: undefined as string | undefined,
     popplerDataDir: undefined as string | undefined,
     popplerFontConfigDir: undefined as string | undefined,
+    sourceImageDpi: 360,
+    pageWidthPts: 439.6,
+    pageHeightPts: 670,
+    renderedRasterSizes: [] as IRenderedRasterSize[],
 }));
 
 vi.mock('fs/promises', async () => {
@@ -62,6 +71,7 @@ vi.mock('fs/promises', async () => {
 
 vi.mock('@electron/pdf/nativeToolPaths', () => ({getPdfNativeToolPaths: () => ({
     pdftoppm: '/mock/pdftoppm',
+    pdfinfo: '/mock/pdfinfo',
     qpdf: '/mock/qpdf',
     pdfimages: mocks.pdfimagesPath,
     popplerDataDir: mocks.popplerDataDir,
@@ -106,6 +116,7 @@ const {
     exportPdfPagesAsImages,
     normalizeImageExportPath,
 } = await import('@electron/features/image-export/main/export');
+const { IMAGE_EXPORT_MAX_NETPBM_READ_BYTES } = await import('@electron/features/image-export/main/imageExportResourceLimits');
 const {
     combinePagesIntoMultiPageTiffLocal,
     estimateMultiPageTiffByteLength,
@@ -113,6 +124,20 @@ const {
 } = await import('@electron/features/image-export/main/combinePagesIntoMultiPageTiffLocal');
 
 const UTIF = utifModule;
+
+function computePdftoppmRasterSize(args: string[]): IRenderedRasterSize {
+    const scaleToIndex = args.indexOf('-scale-to');
+    const resolutionIndex = args.indexOf('-r');
+    const requestedDpi = resolutionIndex >= 0 ? Number.parseFloat(String(args[resolutionIndex + 1])) : 150;
+    const effectiveDpi = scaleToIndex >= 0
+        ? (72 * Number.parseFloat(String(args[scaleToIndex + 1]))) / Math.max(mocks.pageWidthPts, mocks.pageHeightPts)
+        : requestedDpi;
+
+    return {
+        width: Math.ceil((mocks.pageWidthPts * effectiveDpi) / 72),
+        height: Math.ceil((mocks.pageHeightPts * effectiveDpi) / 72),
+    };
+}
 
 function expectSinglePixelPng(bytes: Uint8Array, rgb: [number, number, number]) {
     const decoded = decodePng(bytes);
@@ -165,6 +190,10 @@ describe('image export', () => {
         mocks.pdfimagesPath = undefined;
         mocks.popplerDataDir = undefined;
         mocks.popplerFontConfigDir = undefined;
+        mocks.sourceImageDpi = 360;
+        mocks.pageWidthPts = 439.6;
+        mocks.pageHeightPts = 670;
+        mocks.renderedRasterSizes.length = 0;
         mocks.stat.mockImplementation(async () => ({
             isFile: () => true,
             size: 1024,
@@ -186,6 +215,23 @@ describe('image export', () => {
                 };
             }
 
+            if (command === '/mock/pdfinfo') {
+                const lastPageArgIndex = args.indexOf('-l');
+                const lastPage = lastPageArgIndex >= 0
+                    ? Number.parseInt(String(args[lastPageArgIndex + 1]), 10)
+                    : mocks.pdfPageCount;
+
+                return {
+                    stdout: [
+                        `Pages:           ${mocks.pdfPageCount}`,
+                        ...Array.from({ length: lastPage }, (_, index) =>
+                            `Page ${String(index + 1).padStart(4, ' ')} size:  ${mocks.pageWidthPts} x ${mocks.pageHeightPts} pts`),
+                    ].join('\n'),
+                    stderr: '',
+                    exitCode: 0,
+                };
+            }
+
             if (command === mocks.pdfimagesPath) {
                 const firstPageArgIndex = args.indexOf('-f');
                 const lastPageArgIndex = args.indexOf('-l');
@@ -201,7 +247,7 @@ describe('image export', () => {
                         'page   num  type   width height color comp bpc  enc interp  object ID x-ppi y-ppi size ratio',
                         ...Array.from({ length: lastPage - firstPage + 1 }, (_, index) => {
                             const page = firstPage + index;
-                            return `${String(page).padStart(4, ' ')}     0 image     100   100  rgb     3   8  image  no         1  0   360   360 1.0K 1.0%`;
+                            return `${String(page).padStart(4, ' ')}     0 image     100   100  rgb     3   8  image  no         1  0   ${mocks.sourceImageDpi}   ${mocks.sourceImageDpi} 1.0K 1.0%`;
                         }),
                     ].join('\n'),
                     stderr: '',
@@ -256,8 +302,10 @@ describe('image export', () => {
             const lastPage = lastPageArgIndex >= 0
                 ? Number.parseInt(String(args[lastPageArgIndex + 1]), 10)
                 : mocks.renderPageCount;
+            const rasterSize = computePdftoppmRasterSize(args);
 
             for (let page = firstPage; page <= lastPage; page += 1) {
+                mocks.renderedRasterSizes.push(rasterSize);
                 const pageBytes = extension === 'tif'
                     ? Buffer.from(UTIF.encodeImage(new Uint8Array([
                         page === 1 ? 255 : 0,
@@ -422,44 +470,60 @@ describe('image export', () => {
         });
     });
 
-    it('bounds export DPI probes to the current render chunk', async () => {
+    it('renders every page at its source resolution instead of upscaling it', async () => {
         mocks.pdfimagesPath = '/mock/pdfimages';
         mocks.renderPageCount = 6;
         mocks.pdfPageCount = 6;
 
-        const outputPath = join(tempDir, 'bounded.png');
+        const outputPath = join(tempDir, 'native-scale.png');
 
         await expect(exportPdfPagesAsImages('/tmp/input.pdf', outputPath)).resolves.toHaveLength(6);
 
-        const pdfimagesCalls = mocks.runCommand.mock.calls.filter(([command]) => command === '/mock/pdfimages');
-        expect(pdfimagesCalls.map((call) => {
-            const args = call[1];
-            return [
-                args[args.indexOf('-f') + 1],
-                args[args.indexOf('-l') + 1],
-            ];
-        })).toEqual([
-            [
-                '1',
-                '5',
-            ],
-            [
-                '6',
-                '6',
-            ],
-        ]);
-
-        const pdftoppmCalls = mocks.runCommand.mock.calls.filter(([command]) => command === '/mock/pdftoppm');
-        expect(pdftoppmCalls.map((call) => {
-            const args = call[1];
-            return args[args.indexOf('-r') + 1];
-        })).toEqual([
-            '360',
-            '360',
-        ]);
+        expect(mocks.renderedRasterSizes).toHaveLength(6);
+        expect(mocks.renderedRasterSizes.every(size => size.width === 2198 && size.height === 3350)).toBe(true);
     });
 
-    it('uses the default export DPI when the bounded DPI probe fails', async () => {
+    it('probes the source resolution a bounded number of times regardless of render chunking', async () => {
+        mocks.pdfimagesPath = '/mock/pdfimages';
+        mocks.renderPageCount = 100;
+        mocks.pdfPageCount = 100;
+
+        const outputPath = join(tempDir, 'sampled-probe.png');
+
+        await expect(exportPdfPagesAsImages('/tmp/input.pdf', outputPath)).resolves.toHaveLength(100);
+
+        const renderChunkCount = mocks.runCommand.mock.calls.filter(([command]) => command === '/mock/pdftoppm').length;
+        expect(renderChunkCount).toBe(20);
+
+        const probedPageCount = mocks.runCommand.mock.calls
+            .filter(([command]) => command === '/mock/pdfimages')
+            .reduce((total, call) => {
+                const args = call[1];
+                const firstPage = Number.parseInt(String(args[args.indexOf('-f') + 1]), 10);
+                const lastPage = Number.parseInt(String(args[args.indexOf('-l') + 1]), 10);
+                return total + (lastPage - firstPage + 1);
+            }, 0);
+        expect(probedPageCount).toBeLessThanOrEqual(8);
+    });
+
+    it('keeps an oversized page inside the PPM read limit instead of scaling it up past the limit', async () => {
+        mocks.pdfimagesPath = '/mock/pdfimages';
+        mocks.sourceImageDpi = 1200;
+        mocks.pageWidthPts = 1000;
+        mocks.pageHeightPts = 1000;
+        mocks.renderPageCount = 1;
+        mocks.pdfPageCount = 1;
+
+        const outputPath = join(tempDir, 'oversized.png');
+
+        await expect(exportPdfPagesAsImages('/tmp/input.pdf', outputPath)).resolves.toEqual([outputPath]);
+
+        const rasterSize = mocks.renderedRasterSizes[0];
+        expect(rasterSize).toBeDefined();
+        expect(rasterSize!.width * rasterSize!.height * 3).toBeLessThan(IMAGE_EXPORT_MAX_NETPBM_READ_BYTES);
+    });
+
+    it('uses the default export DPI when the source-resolution probe fails', async () => {
         mocks.pdfimagesPath = '/mock/pdfimages';
         mocks.renderPageCount = 1;
         mocks.pdfPageCount = 1;
@@ -479,9 +543,10 @@ describe('image export', () => {
 
         await expect(exportPdfPagesAsImages('/tmp/input.pdf', outputPath)).resolves.toEqual([outputPath]);
 
-        const pdftoppmCall = mocks.runCommand.mock.calls.find(([command]) => command === '/mock/pdftoppm');
-        const pdftoppmArgs = pdftoppmCall?.[1];
-        expect(pdftoppmArgs?.[pdftoppmArgs.indexOf('-r') + 1]).toBe('300');
+        expect(mocks.renderedRasterSizes[0]).toEqual({
+            width: 1832,
+            height: 2792,
+        });
     });
 
     it('passes bundled Poppler runtime environment to export Poppler commands', async () => {
@@ -789,14 +854,19 @@ describe('image export', () => {
         mocks.renderPageCount = 1;
         mocks.pdfPageCount = 1;
         const controller = new AbortController();
-        mocks.runCommand.mockImplementationOnce(async () => ({
-            stdout: '1',
-            stderr: '',
-            exitCode: 0,
-        })).mockImplementationOnce(async (command: string, args: string[]) => {
+        const defaultRunCommand = mocks.runCommand.getMockImplementation();
+        if (!defaultRunCommand) {
+            throw new Error('Expected default command mock');
+        }
+
+        mocks.runCommand.mockImplementation(async (command: string, args: string[]) => {
+            if (command !== '/mock/pdftoppm') {
+                return defaultRunCommand(command, args);
+            }
+
             const prefix = args[args.length - 1];
-            if (command !== '/mock/pdftoppm' || typeof prefix !== 'string') {
-                throw new Error('Unexpected command');
+            if (typeof prefix !== 'string') {
+                throw new Error('Expected pdftoppm output prefix');
             }
             await writeFile(`${prefix}-1.ppm`, Buffer.concat([
                 Buffer.from('P6\n1 1\n255\n'),

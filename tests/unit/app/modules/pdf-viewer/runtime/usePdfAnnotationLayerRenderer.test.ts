@@ -418,4 +418,47 @@ describe('usePdfAnnotationLayerRenderer', () => {
         expect(annotationLayerRender).toHaveBeenCalledTimes(2);
         expect(annotationUiManager.renderAnnotationElement).toBe(originalRenderAnnotationElement);
     });
+
+    it('parses a page proxy annotations once across re-renders of the same page', async () => {
+        const renderer = usePdfAnnotationLayerRenderer({
+            numPages: ref(3),
+            currentPage: ref(1),
+            pdfDocument: ref({ annotationStorage: {} } as never),
+            showAnnotations: ref(true),
+            annotationUiManager: ref(null),
+            annotationL10n: ref(null),
+        });
+        const annotationLayerDiv = { innerHTML: '' } as HTMLDivElement;
+        const createPageProxy = () => ({getAnnotations: vi.fn(async () => [{
+            id: 'link-1',
+            annotationType: 2,
+            rect: [
+                0,
+                0,
+                10,
+                10,
+            ],
+            noHTML: false,
+        }])});
+        const pdfPage = createPageProxy();
+        const reloadedPdfPage = createPageProxy();
+        const renderAt = (page: unknown, scale: number) => renderer.renderAnnotationLayer(
+            page as never,
+            annotationLayerDiv,
+            {
+                width: 200 * scale,
+                height: 300 * scale,
+                rotation: 0,
+            } as never,
+            1,
+        );
+
+        await renderAt(pdfPage, 1);
+        await renderAt(pdfPage, 2);
+        await renderAt(reloadedPdfPage, 2);
+
+        expect(pdfPage.getAnnotations).toHaveBeenCalledTimes(1);
+        expect(reloadedPdfPage.getAnnotations).toHaveBeenCalledTimes(1);
+        expect(annotationLayerRender).toHaveBeenCalledTimes(3);
+    });
 });

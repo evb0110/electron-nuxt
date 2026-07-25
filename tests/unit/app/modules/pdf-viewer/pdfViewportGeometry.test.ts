@@ -172,8 +172,6 @@ describe('pdfViewportGeometry', () => {
             gap: margin,
             paddingTop: margin,
             paddingBottom: margin,
-            fallbackWidth: null,
-            fallbackHeight: null,
         });
         if (!layout) {
             throw new Error('Expected fit-height page layout');

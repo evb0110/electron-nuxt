@@ -65,7 +65,7 @@ function getIndexPath(pdfPath: string) {
     return `${pdfPath}.index.json`;
 }
 
-function getIndexCacheKey(pdfPath: string, documentRevision: TDocumentRevisionToken) {
+export function getIndexCacheKey(pdfPath: string, documentRevision: TDocumentRevisionToken) {
     return `${pdfPath}\0${documentRevision}`;
 }
 

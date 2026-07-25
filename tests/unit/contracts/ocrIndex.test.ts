@@ -13,8 +13,6 @@ const revision = requireDocumentRevisionToken('drt1:test');
 
 function createPage(overrides: Record<string, unknown> = {}) {
     return {
-        pageNumber: 1,
-        documentRevision: {token: revision},
         rotation: 0,
         render: {
             dpi: 300,
@@ -53,23 +51,36 @@ describe('OCR index codecs', () => {
         })).toBeNull();
     });
 
-    it('repairs a legacy missing page number contextually without accepting mismatches', () => {
-        const {
-            pageNumber: _pageNumber,
-            ...legacyPage
-        } = createPage();
-
-        expect(decodeOcrPage(legacyPage, 1, revision, 'strict')).toBeNull();
-        expect(decodeOcrPage(legacyPage, 1, revision, 'repair-legacy')).toMatchObject({
-            pageNumber: 1,
+    it('reads a page artifact written under the per-page revision schema', () => {
+        expect(decodeOcrPage(createPage({
+            pageNumber: 7,
+            documentRevision: {token: requireDocumentRevisionToken('drt1:some-older-revision')},
+        }))).toEqual({
+            rotation: 0,
+            render: {
+                dpi: 300,
+                imagePx: {
+                    w: 1200,
+                    h: 1600,
+                },
+            },
             text: 'hello',
+            words: [],
         });
-        expect(decodeOcrPage(createPage({pageNumber: 2}), 1, revision, 'repair-legacy')).toBeNull();
     });
 
-    it('rejects stale revisions and malformed OCR words', () => {
-        expect(decodeOcrPage(createPage({documentRevision: {token: requireDocumentRevisionToken('stale')}}), 1, revision)).toBeNull();
-        expect(decodeOcrPage(createPage({words: [{text: 'bad'}]}), 1, revision)).toBeNull();
+    it('salvages text from an incomplete page only in repair-legacy mode', () => {
+        const incompletePage = {
+            text: 'hello',
+            words: [],
+        };
+
+        expect(decodeOcrPage(incompletePage, 'strict')).toBeNull();
+        expect(decodeOcrPage(incompletePage, 'repair-legacy')).toMatchObject({text: 'hello'});
+    });
+
+    it('rejects malformed OCR words', () => {
+        expect(decodeOcrPage(createPage({words: [{text: 'bad'}]}))).toBeNull();
     });
 
     it('rejects zero-sized geometry and zero DPI in strict mode', () => {
@@ -79,13 +90,13 @@ describe('OCR index codecs', () => {
                 w: 0,
                 h: 1600,
             },
-        }}), 1, revision)).toBeNull();
+        }}))).toBeNull();
         expect(decodeOcrPage(createPage({render: {
             dpi: 0,
             imagePx: {
                 w: 1200,
                 h: 1600,
             },
-        }}), 1, revision)).toBeNull();
+        }}))).toBeNull();
     });
 });
