@@ -450,10 +450,11 @@ describe('PdfPageRasterScheduler', () => {
         expect(budget.getSnapshot().reservedBytes).toBe(400);
     });
 
-    it('discards a rejected commit and releases its surface reservation', async () => {
+    it('gives up on a permanently rejected commit without leaking a lease or reservation', async () => {
         const budget = createWorkspaceSurfaceBudgetController(1_000);
         const release = vi.fn();
         const discard = vi.fn();
+        let commitAttempts = 0;
         const scheduler = createPdfPageRasterScheduler({
             documentFence,
             leasePage: async pageNumber => ({
@@ -473,15 +474,75 @@ describe('PdfPageRasterScheduler', () => {
                 id: 'commit-reject',
                 prepare: async () => ({pageNumber: 1}),
                 start: () => createTask(),
-                commit: () => false,
+                commit: () => {
+                    commitAttempts += 1;
+                    return false;
+                },
                 discard,
                 release: vi.fn(),
             },
         });
-        await vi.waitFor(() => expect(release).toHaveBeenCalledOnce());
+        // A target that never accepts must settle rather than spin: once the bounded
+        // reattempt window has elapsed, the attempt count stops climbing.
+        await new Promise(resolve => setTimeout(resolve, 400));
+        const settledAttempts = commitAttempts;
+        expect(settledAttempts).toBeGreaterThan(1);
+        await new Promise(resolve => setTimeout(resolve, 300));
+        expect(commitAttempts).toBe(settledAttempts);
 
-        expect(discard).toHaveBeenCalledOnce();
+        // Every attempt hands back exactly what it took.
+        expect(discard).toHaveBeenCalledTimes(settledAttempts);
+        expect(release).toHaveBeenCalledTimes(settledAttempts);
         expect(budget.getSnapshot().reservedBytes).toBe(0);
+        expect(scheduler.snapshot().residentPages).toEqual([]);
+    });
+
+    // A target declines for reasons that pass: a canvas swapped by a re-render, a
+    // render key still settling. Settled work sits in neither the queue nor the
+    // resident set, so if the scheduler abandons it the surface stays blank until
+    // something republishes demand — which a settled pane never does.
+    it('rasters a still-current demand whose first commit was transiently rejected', async () => {
+        vi.useFakeTimers();
+        const budget = createWorkspaceSurfaceBudgetController(1_000);
+        let commitAttempts = 0;
+        const scheduler = createPdfPageRasterScheduler({
+            documentFence,
+            leasePage: async pageNumber => ({
+                page: {pageNumber} as PDFPageProxy,
+                release: vi.fn(),
+            }),
+            surfaceBudget: budget,
+        });
+        scheduler.setDemand({
+            sourceId: 'thumbnails',
+            input: [createDemand(1, 'thumbnail-current')],
+            policy: {
+                expand: input => input,
+                compareWithinLane: () => 0,
+            },
+            target: {
+                id: 'transient-reject',
+                prepare: async () => ({pageNumber: 1}),
+                start: () => createTask(),
+                commit: () => {
+                    commitAttempts += 1;
+                    return commitAttempts > 1;
+                },
+                discard: vi.fn(),
+                release: vi.fn(),
+            },
+        });
+        await flush();
+        await vi.advanceTimersByTimeAsync(16);
+        await flush();
+
+        expect(commitAttempts).toBe(2);
+        expect(scheduler.snapshot().residentPages).toEqual([{
+            lane: 'thumbnail-current',
+            pageNumber: 1,
+            sourceId: 'thumbnails',
+            targetId: 'transient-reject',
+        }]);
     });
 
     it('evicts prefetch residency before required viewport residency', async () => {

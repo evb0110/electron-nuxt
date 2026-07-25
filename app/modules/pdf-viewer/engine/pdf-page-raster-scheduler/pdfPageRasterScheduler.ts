@@ -381,20 +381,27 @@ export function createPdfPageRasterScheduler(
         });
     }
 
-    function scheduleRetry(work: IRasterWork, error: unknown) {
+    // An attempt that ends without a resident raster while its demand is still
+    // current leaves the surface blank with nothing left to redraw it: settled work
+    // is in neither `residents` nor `queued`, so only a fresh setDemand would
+    // re-enqueue it, and a settled viewport or thumbnail pane has no reason to
+    // republish. Every such ending — a thrown render, a target that declines to
+    // prepare, a target that rejects the commit — reattempts here, so the
+    // scheduler's own contract does not depend on an external nudge.
+    function scheduleReattempt(work: IRasterWork, exhausted: TPdfRasterOutcome) {
         if (!isDemandCurrent(work) || work.retryCount >= MAX_RETRIES) {
-            settleWork(work, {
-                status: isCancellation(error) ? 'cancelled' : 'failed',
-                demand: work.demand,
-                ...(isCancellation(error) ? {} : {error}),
-            } as TPdfRasterOutcome);
+            settleWork(work, exhausted);
             return;
         }
         work.retryCount += 1;
         work.stage = 'queued';
         work.retryTimer = renderSupervisor.armTimer({
             cause: 'render-cancelled-retry',
-            delayMs: RETRY_DELAY_MS,
+            // Backed off, because the conditions a target declines on — a canvas
+            // swapped by a re-render, a debounced remeasure, a resize settling —
+            // outlast a single frame. Flat retries would spend the whole budget
+            // inside one layout pass and observe the same transient state thrice.
+            delayMs: RETRY_DELAY_MS * 2 ** (work.retryCount - 1),
             key: `raster-scheduler:${surfaceScopeId}:${work.key}`,
             metadata: {
                 lane: work.demand.lane,
@@ -468,7 +475,7 @@ export function createPdfPageRasterScheduler(
             work.prepared = await work.target.prepare(work.demand, work.pageLease.page);
             if (!work.prepared) {
                 releaseReservation(work);
-                settleWork(work, {
+                scheduleReattempt(work, {
                     status: 'discarded',
                     demand: work.demand,
                 });
@@ -511,7 +518,7 @@ export function createPdfPageRasterScheduler(
             if (!committed) {
                 discardPrepared(work);
                 releaseReservation(work);
-                settleWork(work, {
+                scheduleReattempt(work, {
                     status: 'discarded',
                     demand: work.demand,
                 });
@@ -548,7 +555,11 @@ export function createPdfPageRasterScheduler(
                     demand: work.demand,
                 });
             } else {
-                scheduleRetry(work, error);
+                scheduleReattempt(work, {
+                    status: 'failed',
+                    demand: work.demand,
+                    error,
+                });
             }
         } finally {
             releasePageLease(work);
