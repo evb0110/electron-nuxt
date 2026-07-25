@@ -546,7 +546,11 @@ async function waitForRecentDjvuOpen(session: IElectronE2ESession, sourcePath: s
         const state = await readRecentOpenDomState(session, sourcePath);
         lastState = state;
 
-        if (state.hasLoader || state.visibleText.includes('.djvu') || state.visibleText.includes('.djv')) {
+        // The persisted source path is already present in the Recent row, so
+        // source text cannot prove that the open transaction owns the
+        // workspace. Start failure detection only after a loader or viewer
+        // surface has positively claimed it.
+        if (state.hasLoader || state.hasViewer) {
             sawOpenAttempt = true;
         }
 
