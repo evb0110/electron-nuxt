@@ -108,15 +108,24 @@ const usePdfPageRenderer = (
         & Partial<TPdfPageRendererOptions>,
 ) => {
     // The document owner registers the raster scheduler for its document with
-    // the retention-aware lease; the renderer only retrieves it.
+    // the retention-aware lease and exposes that exact instance to consumers.
     const document = options.document.pdfDocument.value;
     if (document) {
-        ensurePdfPageRasterScheduler(document, {
-            documentVersion: 1,
+        const rasterScheduler = ensurePdfPageRasterScheduler(document, {
+            documentFence: {
+                loadToken: 1,
+                documentVersion: 1,
+                documentRevision: null,
+            },
             leasePage: options.document.leasePage,
+        });
+        Object.defineProperty(options.document, 'rasterScheduler', {
+            configurable: true,
+            value: rasterScheduler,
         });
     }
     return usePdfPageRendererProduction({
+        setupPagePlaceholders: () => undefined,
         currentPage: ref(1),
         effectiveScale: ref(1),
         bufferPages: ref(0),

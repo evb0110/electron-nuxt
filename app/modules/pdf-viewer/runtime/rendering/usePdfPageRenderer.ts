@@ -11,8 +11,6 @@ import type {
 import { usePdfCanvasRenderer } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfCanvasRenderer';
 import { usePdfTextLayerRenderer } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfTextLayerRenderer';
 import { usePdfAnnotationLayerRenderer } from '@app/modules/pdf-viewer/runtime/rendering/usePdfAnnotationLayerRenderer';
-import { setupPagePlaceholderSizes } from '@app/modules/pdf-viewer/engine/pdf-page-buffer-manager/setupPagePlaceholderSizes';
-import { normalizePageMetrics } from '@app/modules/pdf-viewer/engine/pdf-page-layout/normalizePageMetrics';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { logPdfRenderTrace } from '@app/utils/pdfRenderTrace';
 import { runGuardedTask } from '@app/utils/asyncGuard';
@@ -42,7 +40,6 @@ import {
     type IPdfRenderSupervisorTimer,
 } from '@app/modules/pdf-viewer/engine/pdf-render-supervisor/pdfRenderSupervisor';
 import { createPdfPageLayerRevisionGraph } from '@app/modules/pdf-viewer/runtime/rendering/createPdfPageLayerRevisionGraph';
-import { getPdfPageRasterScheduler } from '@app/modules/pdf-viewer/engine/pdf-page-raster-scheduler/pdfPageRasterScheduler';
 import {
     LANE_CONTINUATION_PRIORITY,
     type IPdfRasterDemand,
@@ -632,23 +629,7 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
         renderSupervisor,
     });
 
-    function setupPagePlaceholders() {
-        const containerRoot = options.container.value;
-        const baseWidth = toValue(basePageWidth);
-        const baseHeight = toValue(basePageHeight);
-        if (!containerRoot || !baseWidth || !baseHeight) {
-            return;
-        }
-
-        const scale = toValue(options.effectiveScale);
-        const normalizedPageMetrics = normalizePageMetrics({
-            pageMetrics: pageMetrics.value,
-            totalPages: numPages.value,
-            fallbackWidth: baseWidth,
-            fallbackHeight: baseHeight,
-        });
-        setupPagePlaceholderSizes(containerRoot, normalizedPageMetrics, scale);
-    }
+    const setupPagePlaceholders = options.setupPagePlaceholders;
 
     interface IViewportRasterJob {
         demand: IPdfRasterDemand;
@@ -967,7 +948,10 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
         }
         // The document owner registers the scheduler with its retention-aware
         // lease and load version; the viewport is only a demand source.
-        const scheduler = getPdfPageRasterScheduler(document);
+        const scheduler = options.document.rasterScheduler;
+        if (!scheduler || document !== pdfDocument.value) {
+            return;
+        }
         activeRasterScheduler = scheduler;
         const jobs = buildViewportRasterJobs(
             range,

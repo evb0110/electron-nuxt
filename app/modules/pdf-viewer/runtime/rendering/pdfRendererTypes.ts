@@ -7,7 +7,7 @@ import type {
     MaybeRefOrGetter,
     Ref,
 } from 'vue';
-import type { usePdfDocument } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfDocument';
+import type { TPdfDocumentSession } from '@app/modules/pdf-viewer/runtime/sessions/pdfDocumentSession';
 import type { IScrollToPageOptions } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfScroll';
 import type {
     IPageRange,
@@ -26,18 +26,7 @@ import type { IPdfViewportWritePort } from '@app/modules/pdf-viewer/runtime/view
 import type { IRenderVisiblePagesOptions } from '@app/modules/pdf-viewer/engine/pdf-page-render-pipeline/bindPdfOpenSurfaceRenderContext';
 export type { IRenderVisiblePagesOptions } from '@app/modules/pdf-viewer/engine/pdf-page-render-pipeline/bindPdfOpenSurfaceRenderContext';
 
-export interface IUsePdfPageRendererOptions {
-    container: Ref<HTMLElement | null>;
-    document: ReturnType<typeof usePdfDocument>;
-    currentPage: Ref<number>;
-    isActive?: MaybeRefOrGetter<boolean>;
-    effectiveScale: MaybeRefOrGetter<number>;
-    bufferPages?: MaybeRefOrGetter<number>;
-    renderConcurrency?: MaybeRefOrGetter<number>;
-    showAnnotations?: MaybeRefOrGetter<boolean>;
-    hiddenAnnotationIds?: MaybeRefOrGetter<Set<string>>;
-    canvasHiddenAnnotationIds?: MaybeRefOrGetter<Set<string>> | undefined;
-    managedAnnotationIds?: MaybeRefOrGetter<Set<string>>;
+export interface IPdfRendererSearchNavigationOptions {
     scrollToPage?: (pageNumber: number, options?: IScrollToPageOptions) => void;
     suppressSnap?: () => void;
     beginSearchNavigation?: (pageNumber: number) => void;
@@ -53,6 +42,22 @@ export interface IUsePdfPageRendererOptions {
     isSearchTransactionCurrent?: (transactionId: number) => boolean;
     settleSearchTransaction?: (transactionId: number) => void;
     cancelSearchTransaction?: (transactionId: number) => void;
+}
+
+export interface IUsePdfPageRendererOptions extends IPdfRendererSearchNavigationOptions {
+    container: Ref<HTMLElement | null>;
+    document: TPdfDocumentSession;
+    currentPage: Ref<number>;
+    isActive?: MaybeRefOrGetter<boolean>;
+    effectiveScale: MaybeRefOrGetter<number>;
+    bufferPages?: MaybeRefOrGetter<number>;
+    renderConcurrency?: MaybeRefOrGetter<number>;
+    showAnnotations?: MaybeRefOrGetter<boolean>;
+    hiddenAnnotationIds?: MaybeRefOrGetter<Set<string>>;
+    canvasHiddenAnnotationIds?: MaybeRefOrGetter<Set<string>> | undefined;
+    managedAnnotationIds?: MaybeRefOrGetter<Set<string>>;
+    /** Placeholder geometry is viewport-owned; the renderer only triggers it. */
+    setupPagePlaceholders: () => void;
     outputScale?: MaybeRefOrGetter<number>;
     rasterDisplayProfile?: MaybeRefOrGetter<TPdfRasterDisplayProfile | null>;
     annotationUiManager?: MaybeRefOrGetter<AnnotationEditorUIManager | null>;

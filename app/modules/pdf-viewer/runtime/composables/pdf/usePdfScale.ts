@@ -17,7 +17,7 @@ import {
 } from '@app/modules/pdf-viewer/runtime/zoom/resolvePdfZoomScale';
 import { DOCUMENT_PAGE_GUTTER_PX } from '@app/utils/document-viewer/layout/documentPageGutterPx';
 
-export interface IFitScalePageOptions {
+interface IFitScalePageOptions {
     page?: number | null | undefined;
     preview?: boolean | undefined;
 }

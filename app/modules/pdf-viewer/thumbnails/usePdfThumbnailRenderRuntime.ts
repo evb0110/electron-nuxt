@@ -8,7 +8,7 @@ import { THUMBNAIL_WIDTH } from '@app/constants/pdfLayout';
 import { createRenderTaskHiddenAnnotationOperationsFilter } from '@app/modules/pdf-viewer/engine/pdf-hidden-annotation-operations/createRenderTaskHiddenAnnotationOperationsFilter';
 import { AnnotationMode } from '@app/services/pdfjs/runtimeLib';
 import { getPdfPageRasterScheduler } from '@app/modules/pdf-viewer/engine/pdf-page-raster-scheduler/pdfPageRasterScheduler';
-import { leasePdfDocumentPage } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfDocument';
+import { leasePdfDocumentPage } from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
 import type {
     IPdfRasterDemand,
     IPdfRasterDemandPolicy,

@@ -1,7 +1,7 @@
 import type { Ref } from 'vue';
 import type { TPdfSource } from '@app/types/pdfUi';
 import type { IPdfViewerProps } from '@app/modules/pdf-viewer/runtime/contracts/pdfViewerComponent.types';
-import type { usePdfViewerRuntime } from '@app/modules/pdf-viewer/runtime/usePdfViewerRuntime';
+import type { TPdfDocumentSession } from '@app/modules/pdf-viewer/runtime/sessions/pdfDocumentSession';
 import type { IDocumentViewerChassisAuthority } from '@app/utils/document-viewer/chassis/documentViewerChassisAuthority';
 import { writeTrustedPdfOpenGeometry } from '@app/modules/pdf-viewer/runtime/lifecycle/pdfTrustedOpenGeometryCache';
 import { commitPdfLoadedOpeningPageGeometry } from '@app/modules/pdf-viewer/runtime/lifecycle/commitPdfLoadedOpeningPageGeometry';
@@ -11,7 +11,7 @@ interface IUsePdfTrustedOpenGeometryLifecycleOptions {
     src: Readonly<Ref<TPdfSource | null>>;
     viewerCurrentPage: Ref<number>;
     chassisAuthority: IDocumentViewerChassisAuthority | null;
-    pdfDocumentResult: ReturnType<typeof usePdfViewerRuntime>['document'];
+    pdfDocumentResult: TPdfDocumentSession;
 }
 
 export const usePdfTrustedOpenGeometryLifecycle = (

@@ -873,7 +873,7 @@ export function getPdfPageRasterScheduler(document: PDFDocumentProxy) {
 export function ensurePdfPageRasterScheduler(
     document: PDFDocumentProxy,
     options: {
-        documentVersion: number;
+        documentFence: IPdfRasterDocumentFence;
         leasePage: ICreatePdfPageRasterSchedulerOptions['leasePage'];
     },
 ) {
@@ -882,11 +882,7 @@ export function ensurePdfPageRasterScheduler(
         return existing;
     }
     const scheduler = createPdfPageRasterScheduler({
-        documentFence: {
-            documentRevision: null,
-            documentVersion: options.documentVersion,
-            loadToken: options.documentVersion,
-        },
+        documentFence: options.documentFence,
         leasePage: options.leasePage,
     });
     pdfDocumentRasterSchedulers.set(document, scheduler);

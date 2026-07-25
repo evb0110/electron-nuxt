@@ -7,7 +7,7 @@ import {
     commitPdfOpenSurfaceViewport,
     createPdfOpenSurfaceViewportCallbacks,
     shouldProjectPdfViewportCommitPage,
-} from '@app/modules/pdf-viewer/runtime/navigation/commitPdfOpenSurfaceViewport';
+} from '@app/modules/pdf-viewer/runtime/sessions/pdfViewportSession';
 import { createDocumentOpenSurfaceSession } from '@app/utils/document-viewer/chassis/documentOpenSurfaceSession';
 import type { IDocumentViewerChassisAuthority } from '@app/utils/document-viewer/chassis/documentViewerChassisAuthority';
 
