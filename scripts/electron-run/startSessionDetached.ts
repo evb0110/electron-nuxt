@@ -30,6 +30,32 @@ import {
 
 const PNPM_COMMAND = process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm';
 
+export function resolveDetachedSessionLaunch(
+    owner: 'dev' | 'e2e',
+    sessionName: string,
+    execPath = process.execPath,
+    pnpmCommand = PNPM_COMMAND,
+) {
+    return owner === 'e2e'
+        ? {
+            args: [
+                '--import',
+                'tsx',
+                'scripts/electron-run/ephemeralSessionEntry.ts',
+                sessionName,
+            ],
+            command: execPath,
+        }
+        : {
+            args: [
+                'electron:run',
+                `--session=${sessionName}`,
+                'start',
+            ],
+            command: pnpmCommand,
+        };
+}
+
 export async function startSessionDetached(options: {
     env?: NodeJS.ProcessEnv;
     owner?: 'dev' | 'e2e';
@@ -53,20 +79,13 @@ export async function startSessionDetached(options: {
 
     mkdirSync(sessionDir(), { recursive: true });
     const logFd = openSync(sessionLogFilePath(), 'w');
-    const isEphemeral = options.owner === 'e2e';
-    const command = isEphemeral ? process.execPath : PNPM_COMMAND;
-    const args = isEphemeral
-        ? [
-            '--import',
-            'tsx',
-            'scripts/electron-run/ephemeralSessionEntry.ts',
-            getCurrentSessionName(),
-        ]
-        : [
-            'electron:run',
-            `--session=${getCurrentSessionName()}`,
-            'start',
-        ];
+    const {
+        args,
+        command,
+    } = resolveDetachedSessionLaunch(
+        options.owner ?? 'dev',
+        getCurrentSessionName(),
+    );
     const child = spawn(command, args, {
         cwd: projectRoot,
         detached: true,

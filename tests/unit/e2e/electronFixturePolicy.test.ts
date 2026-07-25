@@ -19,6 +19,7 @@ import {
     electronUserDataPath,
     sessionDir,
 } from '@scripts/electron-run/electronRunSessionPaths';
+import { resolveDetachedSessionLaunch } from '@scripts/electron-run/startSessionDetached';
 import {
     E2E_RUN_ID_ENV,
     createE2ERunScopedSessionName,
@@ -455,6 +456,40 @@ describe('Electron E2E fixture policy', () => {
 });
 
 describe('Electron E2E deterministic isolation policy', () => {
+    it('dispatches detached ownership through distinct executable commands', () => {
+        const e2eLaunch = resolveDetachedSessionLaunch(
+            'e2e',
+            'e2e-unit-viewer',
+            '/runtime/node',
+            '/runtime/pnpm',
+        );
+        const devLaunch = resolveDetachedSessionLaunch(
+            'dev',
+            'developer-unit',
+            '/runtime/node',
+            '/runtime/pnpm',
+        );
+
+        expect(e2eLaunch).toEqual({
+            args: [
+                '--import',
+                'tsx',
+                'scripts/electron-run/ephemeralSessionEntry.ts',
+                'e2e-unit-viewer',
+            ],
+            command: '/runtime/node',
+        });
+        expect(JSON.stringify(e2eLaunch)).not.toMatch(/devSupervisor|default|electron:run/u);
+        expect(devLaunch).toEqual({
+            args: [
+                'electron:run',
+                '--session=developer-unit',
+                'start',
+            ],
+            command: '/runtime/pnpm',
+        });
+    });
+
     it('gives dev, E2E, and diagnostics distinct entry ownership over one internal controller', async () => {
         const [
             devSupervisor,
