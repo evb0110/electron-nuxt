@@ -1,4 +1,7 @@
-import { readFileSync } from 'node:fs';
+import {
+    existsSync,
+    readFileSync,
+} from 'node:fs';
 import { resolve } from 'node:path';
 import {
     describe,
@@ -69,7 +72,9 @@ describe('PDF viewer session topology', () => {
         expect(rendering).toContain('watch(viewport.demand');
         expect(rendering).not.toContain('viewport.notifyRenderStateChanged');
         expect(viewport).not.toContain('notifyRenderStateChanged');
-        expect(renderer).toContain('options.document.rasterScheduler');
+        expect(rendering).toContain('const viewportRasterTarget');
+        expect(rendering).toContain('return prepared.render.startRender()');
+        expect(renderer).not.toContain('rasterScheduler');
         expect(renderer).not.toContain('getPdfPageRasterScheduler');
         const thumbnails = readFileSync(resolve(
             process.cwd(),
@@ -79,4 +84,18 @@ describe('PDF viewer session topology', () => {
         expect(thumbnails).not.toContain('getPdfPageRasterScheduler');
     });
 
+    it('has no superseded raster or initial-canvas controller files', () => {
+        for (const path of [
+            'runtime/lifecycle/usePdfInitialCanvasCommitCoordinator.ts',
+            'runtime/rendering/usePdfRendererCanvasController.ts',
+            'runtime/rendering/usePdfRendererRerenderController.ts',
+            'runtime/rendering/usePdfRendererSinglePageController.ts',
+            'runtime/rendering/usePdfRendererVisibleRenderController.ts',
+        ]) {
+            expect(existsSync(resolve(
+                process.cwd(),
+                `app/modules/pdf-viewer/${path}`,
+            )), path).toBe(false);
+        }
+    });
 });

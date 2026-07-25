@@ -100,14 +100,10 @@ describe('usePdfViewerWheelZoom', () => {
         const zoomMode = ref<'fit-width' | 'fit-height' | 'custom'>(options?.zoomMode ?? 'fit-width');
         const effectiveScale = ref(options?.effectiveScale ?? 1);
         const zoomVirtualizationFreeze = ref(null);
-        const isProgrammaticNavigationActive = ref(false);
         const singlePageScroll = {
             suppressSnapFor: vi.fn(),
             handleWheel: vi.fn(() => false),
-            handleScroll: vi.fn(),
             cancelProgrammaticNavigation: vi.fn(),
-            isProgrammaticNavigationActive,
-            shouldCancelProgrammaticNavigationForViewportScroll: vi.fn(() => false),
         };
         const cancelPendingSearchScroll = vi.fn();
         const markUserViewportInteraction = vi.fn(() => {
@@ -158,7 +154,6 @@ describe('usePdfViewerWheelZoom', () => {
             scope,
             zoom,
             effectiveScale,
-            isProgrammaticNavigationActive,
             viewerContainer,
             zoomVirtualizationFreeze,
             singlePageScroll,
@@ -420,47 +415,6 @@ describe('usePdfViewerWheelZoom', () => {
             expect(setup.singlePageScroll.cancelProgrammaticNavigation).toHaveBeenCalledOnce();
             expect(setup.singlePageScroll.handleWheel).toHaveBeenCalledWith(event);
             expect(setup.markUserViewportInteraction).toHaveBeenCalledOnce();
-        } finally {
-            setup.scope.stop();
-        }
-    });
-
-    it('marks viewer scroll as user interaction unless programmatic navigation owns it', () => {
-        const setup = setupWheelZoom();
-
-        try {
-            setup.singlePageScroll.shouldCancelProgrammaticNavigationForViewportScroll.mockReturnValue(true);
-            setup.viewerContainer.value!.scrollTop = 180;
-            setup.wheelZoom.handleViewerScroll(new Event('scroll'));
-
-            expect(setup.markUserViewportInteraction).toHaveBeenCalledOnce();
-            expect(setup.singlePageScroll.handleScroll).toHaveBeenCalledOnce();
-
-            setup.isProgrammaticNavigationActive.value = true;
-            setup.singlePageScroll.shouldCancelProgrammaticNavigationForViewportScroll.mockReturnValue(false);
-            setup.viewerContainer.value!.scrollTop = 260;
-            setup.wheelZoom.handleViewerScroll(new Event('scroll'));
-
-            expect(setup.markUserViewportInteraction).toHaveBeenCalledOnce();
-            expect(setup.singlePageScroll.handleScroll).toHaveBeenCalledTimes(2);
-        } finally {
-            setup.scope.stop();
-        }
-    });
-
-    it('cancels programmatic navigation when a held scroll target is overridden', () => {
-        const setup = setupWheelZoom();
-
-        try {
-            setup.isProgrammaticNavigationActive.value = true;
-            setup.singlePageScroll.shouldCancelProgrammaticNavigationForViewportScroll.mockReturnValue(true);
-            setup.viewerContainer.value!.scrollTop = 260;
-
-            setup.wheelZoom.handleViewerScroll(new Event('scroll'));
-
-            expect(setup.markUserViewportInteraction).toHaveBeenCalledOnce();
-            expect(setup.singlePageScroll.cancelProgrammaticNavigation).toHaveBeenCalledOnce();
-            expect(setup.singlePageScroll.handleScroll).toHaveBeenCalledOnce();
         } finally {
             setup.scope.stop();
         }

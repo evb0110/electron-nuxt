@@ -1,5 +1,4 @@
 import type {
-    AnnotationEditorUIManager,
     PDFPageProxy,
     RenderTask,
 } from 'pdfjs-dist';
@@ -14,16 +13,12 @@ import type {
     IPdfPageMatches,
     IPdfSearchMatch,
 } from '@app/types/pdfUi';
-import type { IPdfjsL10n } from '@app/types/pdfjs';
 import type { TDocumentRef } from '@contracts/documentRef';
 import type { TDocumentRevisionToken } from '@contracts/documentRevision';
-import type { TPdfRasterDisplayProfile } from '@app/types/pdfRasterDisplayProfile';
-import type { IPdfViewerTransactionRenderRequest } from '@app/modules/pdf-viewer/engine/pdf-viewer-transaction/pdfViewerTransactionTypes';
-import type { IPageRenderStallPayload } from '@app/modules/pdf-viewer/engine/pdf-page-render-timeout/pdfPageRenderTimeoutTypes';
 import type { IPdfRenderSupervisor } from '@app/modules/pdf-viewer/engine/pdf-render-supervisor/pdfRenderSupervisor';
-import type { IPdfPageSlotRegistry } from '@app/modules/pdf-viewer/runtime/page-slots/pdfPageSlotRegistry';
-import type { IPdfViewportWritePort } from '@app/modules/pdf-viewer/runtime/viewport/pdfViewportWritePort';
 import type { IRenderVisiblePagesOptions } from '@app/modules/pdf-viewer/engine/pdf-page-render-pipeline/bindPdfOpenSurfaceRenderContext';
+import type { TPdfPageRenderState } from '@app/modules/pdf-viewer/runtime/rendering/pdfPageRenderState';
+import type { TPdfViewportSession } from '@app/modules/pdf-viewer/runtime/sessions/createPdfViewportSession';
 export type { IRenderVisiblePagesOptions } from '@app/modules/pdf-viewer/engine/pdf-page-render-pipeline/bindPdfOpenSurfaceRenderContext';
 
 export interface IPdfRendererSearchNavigationOptions {
@@ -44,49 +39,30 @@ export interface IPdfRendererSearchNavigationOptions {
     cancelSearchTransaction?: (transactionId: number) => void;
 }
 
-export interface IUsePdfPageRendererOptions extends IPdfRendererSearchNavigationOptions {
+export interface IUsePdfPageRendererOptions {
     container: Ref<HTMLElement | null>;
     document: TPdfDocumentSession;
-    currentPage: Ref<number>;
+    viewport: TPdfViewportSession;
     isActive?: MaybeRefOrGetter<boolean>;
-    effectiveScale: MaybeRefOrGetter<number>;
-    bufferPages?: MaybeRefOrGetter<number>;
-    renderConcurrency?: MaybeRefOrGetter<number>;
     showAnnotations?: MaybeRefOrGetter<boolean>;
-    hiddenAnnotationIds?: MaybeRefOrGetter<Set<string>>;
-    canvasHiddenAnnotationIds?: MaybeRefOrGetter<Set<string>> | undefined;
-    managedAnnotationIds?: MaybeRefOrGetter<Set<string>>;
-    /** Placeholder geometry is viewport-owned; the renderer only triggers it. */
-    setupPagePlaceholders: () => void;
     outputScale?: MaybeRefOrGetter<number>;
-    rasterDisplayProfile?: MaybeRefOrGetter<TPdfRasterDisplayProfile | null>;
-    annotationUiManager?: MaybeRefOrGetter<AnnotationEditorUIManager | null>;
-    annotationL10n?: MaybeRefOrGetter<IPdfjsL10n | null>;
-    replaceAnnotationUiManager?: ((manager: AnnotationEditorUIManager) => void) | undefined;
     searchPageMatches?: MaybeRefOrGetter<Map<number, IPdfPageMatches>>;
     currentSearchMatch?: MaybeRefOrGetter<IPdfSearchMatch | null>;
     currentSearchMatchNavigationId?: MaybeRefOrGetter<number>;
     workingCopyPath?: MaybeRefOrGetter<TDocumentRef | null>;
     documentRevisionToken?: MaybeRefOrGetter<TDocumentRevisionToken | null>;
-    onRenderStall?: (payload: IPageRenderStallPayload) => void;
     onPageRendered?: (pageNumber: number) => void;
-    onPageCanvasMounted?: (commit: IPdfCanvasDomCommit) => void;
-    resolveOpenSurfaceRenderContext?: (() => {
-        openSurfaceGeneration: number;
-        openSurfaceRevision: string;
-    }) | undefined;
-    isVisibleRenderRangeCurrent?: ((visibleRange: IPageRange) => boolean) | undefined;
-    getProtectedVisibleRange?: (() => IPageRange) | undefined;
-    isRenderRequestCurrent?: ((request: IPdfViewerTransactionRenderRequest) => boolean) | undefined;
-    onAnnotationLayersRendered?: ((pageNumber: number, container: HTMLElement) => void) | undefined;
     onRenderedPageStateChanged?: () => void;
     renderSupervisor?: IPdfRenderSupervisor | undefined;
-    pageSlots?: IPdfPageSlotRegistry | undefined;
-    requestMandatoryRender?: ((
-        visibleRange: IPageRange,
+    /** RenderingSession owns this state; the post-canvas runtime only derives from it. */
+    pageRenderState: TPdfPageRenderState;
+    pageCanvases: Map<number, HTMLCanvasElement>;
+    getRenderVersion: () => number;
+    getRenderDocumentToken: () => string;
+    requestRaster: (
+        range: IPageRange,
         options?: IRenderVisiblePagesOptions,
-    ) => Promise<void>) | undefined;
-    viewportWritePort: IPdfViewportWritePort;
+    ) => Promise<void>;
 }
 
 export interface ICancelableRenderTask {

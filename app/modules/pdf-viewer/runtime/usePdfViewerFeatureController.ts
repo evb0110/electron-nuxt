@@ -199,7 +199,6 @@ export const usePdfViewerFeatureController = (props: IPdfViewerProps, emit: IPdf
     const {
         zoomSnapSuppressed: wheelZoomSnapSuppressed,
         handleViewerWheel,
-        handleViewerScroll,
         consumeZoomViewportAnchor,
         isZoomInteractionLocked,
         setZoomRerenderBusy,
@@ -219,12 +218,7 @@ export const usePdfViewerFeatureController = (props: IPdfViewerProps, emit: IPdf
         singlePageScroll: {
             suppressSnapFor: () => undefined,
             handleWheel: viewportSession.singlePageScroll.handleWheel,
-            handleScroll: viewportSession.singlePageScroll.handleScroll,
-            consumeAuthorityScroll: viewportSession.singlePageScroll.consumeAuthorityScroll,
             cancelProgrammaticNavigation: viewportSession.singlePageScroll.cancelProgrammaticNavigation,
-            isProgrammaticNavigationActive: viewportSession.singlePageScroll.isProgrammaticNavigationActive,
-            shouldCancelProgrammaticNavigationForViewportScroll:
-                viewportSession.singlePageScroll.shouldCancelProgrammaticNavigationForViewportScroll,
         },
         cancelPendingSearchScroll: () => renderingSessionRef.value?.cancelPendingSearchScroll(),
         markUserViewportInteraction: viewportSession.markUserViewportInteraction,
@@ -244,7 +238,10 @@ export const usePdfViewerFeatureController = (props: IPdfViewerProps, emit: IPdf
     });
     watch(wheelZoomSnapSuppressed, (value) => {
         viewportSession.zoomSnapSuppressedForClass.value = value;
-    }, { immediate: true });
+    }, {
+        flush: 'sync',
+        immediate: true,
+    });
 
     let markDelayedSkeletonPageRendered = (_pageNumber: number) => {};
     const renderingSession = createPdfRenderingSession({
@@ -490,10 +487,7 @@ export const usePdfViewerFeatureController = (props: IPdfViewerProps, emit: IPdf
         bottomVirtualSpacerStyle: viewportSession.openVirtualSurfaceGeometry.bottomVirtualSpacerStyle,
         pendingImagePlacement,
         isPendingImagePlacementFinalizing,
-        handleViewportScroll: (event: Event) => {
-            viewportSession.viewModel.syncHorizontalScrollForZoomMode();
-            handleViewerScroll(event);
-        },
+        handleViewportScroll: viewportSession.handleTrustedScroll,
         handleViewerWheel,
         handleViewerMouseDown,
         handleViewerMouseMove,

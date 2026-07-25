@@ -289,6 +289,82 @@ describe('PdfViewportSession behavior', () => {
         }
     });
 
+    it('owns trusted native scroll projection without the navigation or wheel adapters', async () => {
+        const fixture = createViewportFixture({
+            bufferPages: 0,
+            pageCount: 100,
+        });
+        try {
+            fixture.documentSession.basePageHeight.value = 100;
+            fixture.documentSession.pageMetrics.value = Array.from({length: 100}, () => ({
+                width: 600,
+                height: 100,
+            }));
+            fixture.documentSession.pageMetricsVersion.value += 1;
+            await nextTick();
+            const epoch = fixture.viewport.userViewportInteractionEpoch.value;
+            const legacyRangeUpdate = vi.spyOn(fixture.viewport.scroll, 'updateVisibleRange');
+            const legacyVisibility = vi.spyOn(fixture.viewport.scroll, 'getViewportVisibility');
+
+            fixture.container.scrollTop = 10_000;
+            fixture.viewport.handleTrustedScroll({isTrusted: true} as Event);
+
+            expect(legacyRangeUpdate).not.toHaveBeenCalled();
+            expect(legacyVisibility).not.toHaveBeenCalled();
+            expect(fixture.viewport.userViewportInteractionEpoch.value).toBe(epoch + 1);
+            expect(fixture.viewport.currentPage.value).toBeGreaterThan(1);
+            expect(fixture.viewport.visibleRange.value.start).toBeGreaterThan(1);
+            expect(fixture.emittedPages.at(-1)).toBe(fixture.viewport.currentPage.value);
+        } finally {
+            fixture.app.unmount();
+        }
+    });
+
+    it('keeps authority and wheel-zoom scroll passive until their fences clear', async () => {
+        const fixture = createViewportFixture({
+            bufferPages: 0,
+            pageCount: 100,
+        });
+        try {
+            fixture.documentSession.basePageHeight.value = 100;
+            fixture.documentSession.pageMetrics.value = Array.from({length: 100}, () => ({
+                width: 600,
+                height: 100,
+            }));
+            fixture.documentSession.pageMetricsVersion.value += 1;
+            await nextTick();
+            const observeUserScroll = vi.spyOn(
+                fixture.viewport.singlePageScroll.viewportAuthority,
+                'observeUserScroll',
+            );
+            const consumeAuthorityScroll = vi.spyOn(
+                fixture.viewport.viewportWritePort,
+                'consumeAuthorityScroll',
+            ).mockReturnValueOnce(true).mockReturnValue(false);
+            const epoch = fixture.viewport.userViewportInteractionEpoch.value;
+
+            fixture.container.scrollTop = 5_000;
+            fixture.viewport.handleTrustedScroll({isTrusted: true} as Event);
+            expect(consumeAuthorityScroll).toHaveBeenCalledOnce();
+            expect(observeUserScroll).not.toHaveBeenCalled();
+            expect(fixture.viewport.userViewportInteractionEpoch.value).toBe(epoch);
+            expect(fixture.viewport.visibleRange.value.start).toBeGreaterThan(1);
+
+            fixture.viewport.zoomSnapSuppressedForClass.value = true;
+            fixture.container.scrollTop = 7_500;
+            fixture.viewport.handleTrustedScroll({isTrusted: true} as Event);
+            expect(observeUserScroll).not.toHaveBeenCalled();
+            expect(fixture.viewport.userViewportInteractionEpoch.value).toBe(epoch);
+
+            fixture.viewport.zoomSnapSuppressedForClass.value = false;
+            fixture.viewport.handleTrustedScroll({isTrusted: true} as Event);
+            expect(observeUserScroll).toHaveBeenCalledOnce();
+            expect(fixture.viewport.userViewportInteractionEpoch.value).toBe(epoch + 1);
+        } finally {
+            fixture.app.unmount();
+        }
+    });
+
     it('protects the complete facing-page target row and stops layout writes after cancellation', async () => {
         const fixture = createViewportFixture({
             continuousScroll: false,

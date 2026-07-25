@@ -3,10 +3,16 @@ import type {
     IActivePdfTextLayerTask,
     TPdfTextLayerCleanup,
 } from '@app/modules/pdf-viewer/runtime/rendering/pdfRendererTypes';
-import { createPdfPageRenderState } from '@app/modules/pdf-viewer/runtime/rendering/pdfPageRenderState';
+import {
+    createPdfPageRenderState,
+    type TPdfPageRenderState,
+} from '@app/modules/pdf-viewer/runtime/rendering/pdfPageRenderState';
 
-export const usePdfRendererPageRegistry = () => {
-    const pageRenderState = createPdfPageRenderState();
+export const usePdfRendererPageRegistry = (
+    sharedPageRenderState?: TPdfPageRenderState,
+    sharedPageCanvases?: Map<number, HTMLCanvasElement>,
+) => {
+    const pageRenderState = sharedPageRenderState ?? createPdfPageRenderState();
     const {
         renderedPages,
         renderingPages,
@@ -14,7 +20,7 @@ export const usePdfRendererPageRegistry = () => {
     } = pageRenderState;
     const missingRenderTargetRetries = new Map<number, number>();
     const activeRenderTasks = new Map<number, IActivePdfRenderTask>();
-    const pageCanvases = new Map<number, HTMLCanvasElement>();
+    const pageCanvases = sharedPageCanvases ?? new Map<number, HTMLCanvasElement>();
     const textLayerCleanupFns = new Map<number, TPdfTextLayerCleanup>();
     const activeTextLayerAbortControllers = new Map<number, IActivePdfTextLayerTask>();
     const activeOptionalTextLayerTasks = new Map<number, {

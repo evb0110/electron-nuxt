@@ -332,7 +332,6 @@ describe('usePdfSinglePageNavigationController', () => {
 
             viewer.scrollTop = 850;
             isResizeTransitionActive.value = true;
-            controller.handleScroll({isTrusted: true} as Event);
             expect(controller.viewportAuthority.currentPage.value).toBe(1);
             expect(controller.currentPageAuthority.canSyncFromViewport()).toBe(false);
             isResizeTransitionActive.value = false;
@@ -344,9 +343,6 @@ describe('usePdfSinglePageNavigationController', () => {
             const zoom = controller.submitViewportStateIntent('zoom', {zoom: 5.03});
             expect(controller.viewportAuthority.activeIntent.value?.anchor?.page).toBe(2);
             const zoomIntentId = controller.viewportAuthority.activeIntent.value?.id;
-            controller.handleScroll(undefined, true);
-            expect(controller.viewportAuthority.activeIntent.value?.id).toBe(zoomIntentId);
-            controller.handleScroll({isTrusted: true} as Event);
             expect(controller.viewportAuthority.activeIntent.value?.id).toBe(zoomIntentId);
             expect(controller.shouldCancelProgrammaticNavigationForViewportScroll()).toBe(false);
             controller.cancelDestinationNavigationTarget();
