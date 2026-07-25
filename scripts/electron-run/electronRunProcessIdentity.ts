@@ -178,15 +178,28 @@ export function matchesSessionProcessIdentity(
 ) {
     if (expectation.kind === 'controller') {
         const controllerEntry = join(projectRoot, 'scripts', 'electronRun.ts');
+        const ephemeralControllerEntry = join(
+            projectRoot,
+            'scripts',
+            'electron-run',
+            'ephemeralSessionEntry.ts',
+        );
         const hasControllerEntry = hasExactArgument(snapshot.command, controllerEntry)
             || (snapshot.cwd === projectRoot && hasExactArgument(snapshot.command, join('scripts', 'electronRun.ts')));
+        const hasAbsoluteEphemeralControllerEntry = hasExactArgument(snapshot.command, ephemeralControllerEntry);
+        const hasEphemeralControllerEntry = hasAbsoluteEphemeralControllerEntry
+            || (snapshot.cwd === projectRoot
+                && hasExactArgument(snapshot.command, join('scripts', 'electron-run', 'ephemeralSessionEntry.ts')));
         const hasProjectIdentity = snapshot.cwd === projectRoot
             || hasExactArgument(snapshot.command, projectRoot)
-            || (snapshot.platform === 'win32' && hasControllerEntry);
-        return hasProjectIdentity
-            && (snapshot.command.includes('electron:run') || hasControllerEntry)
+            || hasAbsoluteEphemeralControllerEntry
+            || (snapshot.platform === 'win32' && (hasControllerEntry || hasEphemeralControllerEntry));
+        const isLegacyController = (snapshot.command.includes('electron:run') || hasControllerEntry)
             && hasExactArgument(snapshot.command, `--session=${expectation.sessionName}`)
             && /(?:^|\s)start(?:\s|$)/.test(snapshot.command);
+        const isEphemeralController = hasEphemeralControllerEntry
+            && hasExactArgument(snapshot.command, expectation.sessionName);
+        return hasProjectIdentity && (isLegacyController || isEphemeralController);
     }
 
     if (expectation.kind === 'electron') {

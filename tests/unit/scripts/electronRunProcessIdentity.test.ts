@@ -74,6 +74,36 @@ describe('electron run process identity', () => {
         expect(matchesSessionProcessIdentity(snapshot({command: '/usr/bin/sleep 3600'}), expectation)).toBe(false);
     });
 
+    it('accepts the detached E2E controller only with its exact entry, session, and project identity', () => {
+        const expectation = {
+            kind: 'controller' as const,
+            sessionName,
+        };
+        const ephemeralEntry = join('scripts', 'electron-run', 'ephemeralSessionEntry.ts');
+        const absoluteEphemeralEntry = join(projectRoot, ephemeralEntry);
+
+        expect(matchesSessionProcessIdentity(
+            snapshot({command: `node --import tsx ${ephemeralEntry} ${sessionName}`}),
+            expectation,
+        )).toBe(true);
+        expect(matchesSessionProcessIdentity(snapshot({
+            command: `node --import tsx "${absoluteEphemeralEntry}" ${sessionName}`,
+            cwd: null,
+        }), expectation)).toBe(true);
+        expect(matchesSessionProcessIdentity(
+            snapshot({command: `node --import tsx ${ephemeralEntry} ${sessionName}-reused`}),
+            expectation,
+        )).toBe(false);
+        expect(matchesSessionProcessIdentity(
+            snapshot({command: `node --import tsx scripts/electron-run/otherEntry.ts ${sessionName}`}),
+            expectation,
+        )).toBe(false);
+        expect(matchesSessionProcessIdentity(snapshot({
+            command: `node --import tsx ${ephemeralEntry} ${sessionName}`,
+            cwd: '/repo/another-project',
+        }), expectation)).toBe(false);
+    });
+
     it('accepts a Windows controller only when its absolute entry, session, and command match', () => {
         const expectation = {
             kind: 'controller' as const,
