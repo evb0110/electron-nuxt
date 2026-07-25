@@ -1434,6 +1434,7 @@ describe('Electron E2E - Viewer Smoke', () => {
             `viewer-scan-cleanup-detail-tile-${Date.now()}.pdf`,
             1,
             0,
+            2,
         );
         await openPdfInApp(session.page, fixturePath, VIEWER_SMOKE_OPEN_TIMEOUT_MS);
         await waitForPdfLoaded(session.page, VIEWER_SMOKE_OPEN_TIMEOUT_MS);

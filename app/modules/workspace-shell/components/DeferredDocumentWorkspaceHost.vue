@@ -107,7 +107,6 @@ import {
     workspaceSessionHasOpenedDocument as getWorkspaceSessionHasOpenedDocument,
 } from '@app/modules/workspace-shell/host/deferredWorkspaceHostState';
 import { buildPendingTabDocumentHint } from '@app/modules/workspace-shell/tabs/buildPendingTabDocumentHint';
-import { hasWorkspaceViewerDocumentCapabilities } from '@app/modules/workspace-shell/viewers/workspaceViewerAdapters';
 import { createDeferredWorkspaceExposeProxy } from '@app/modules/workspace-shell/expose/createDeferredWorkspaceExposeProxy';
 import type { TStartSection } from '@app/types/startSection';
 import { createTabViewSessionState } from '@app/modules/workspace-shell/tabs/createTabViewSessionState';
@@ -299,12 +298,7 @@ const hasPendingDocumentHint = computed(() => {
     const mountedSnapshot = mountedWorkspace.value?.getToolbarSnapshot() ?? null;
     return shouldKeepWorkspacePendingDocumentHint({
         hasDocumentHint: hasDocumentHint === true,
-        hasMountedOpenError: mountedSnapshot?.hasOpenError === true,
-        hasMountedSuccessfulVisual: Boolean(
-            mountedSnapshot?.hasPdf
-            && mountedSnapshot.initialVisualReady
-            && hasWorkspaceViewerDocumentCapabilities(mountedSnapshot.viewerCapabilities),
-        ),
+        mountedSnapshot,
     });
 });
 const pendingDocumentPath = computed(() => (

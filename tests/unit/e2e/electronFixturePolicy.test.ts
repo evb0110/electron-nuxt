@@ -220,12 +220,28 @@ describe('Electron E2E fixture policy', () => {
 
         expect(openFlow).toContain('isStartupOpenClaimPending?.() === false');
         expect(openFlow).toContain('getActiveTabId?.()');
-        expect(openFlow).toContain('__evbDocumentOpenShellReadyAt');
+        expect(openFlow).not.toContain('__evbDocumentOpenShellReadyAt');
+        expect(openFlow).not.toContain('performance.now()');
         expect(openFlow).toContain('openTriggered = true');
         expect(openFlow.match(/openTriggered = false/gu)).toHaveLength(1);
         expect(openFlow).toContain('DirectDocumentOpenRejectedError');
         expect(openFlow).not.toContain('openFreshTabForDocumentOpen');
         expect(openFlow).not.toContain('New Tab');
+    });
+
+    it('does not abandon an in-flight PDF diagnostic stage before fixture cleanup', async () => {
+        const source = await readFile(
+            'tests/e2e/electron/prBlockingSmoke.e2e.test.ts',
+            'utf8',
+        );
+        const diagnosticStage = source.slice(
+            source.indexOf('async function runPdfDiagnosticStage'),
+            source.indexOf('async function waitForCommittedEmptyBaseline'),
+        );
+
+        expect(diagnosticStage).toContain('const result = await operation();');
+        expect(diagnosticStage).not.toContain('Promise.race');
+        expect(diagnosticStage).not.toContain('setTimeout');
     });
 
     it('generates a scanned large-PDF fixture without constructing dense text layers', async () => {
