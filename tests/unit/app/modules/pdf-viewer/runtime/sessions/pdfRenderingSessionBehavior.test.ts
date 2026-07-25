@@ -19,6 +19,7 @@ import {
 import type { IPageRange } from '@app/types/pdfUi';
 import type { IPdfDocumentTransition } from '@app/modules/pdf-viewer/runtime/sessions/pdfDocumentSession';
 import type { IPdfViewportDemand } from '@app/modules/pdf-viewer/runtime/sessions/createPdfViewportSession';
+import type { TPdfPageRenderState } from '@app/modules/pdf-viewer/runtime/rendering/pdfPageRenderState';
 import { createPdfPageRasterScheduler } from '@app/modules/pdf-viewer/engine/pdf-page-raster-scheduler/pdfPageRasterScheduler';
 
 const rendererFixture = vi.hoisted(() => {
@@ -132,6 +133,7 @@ function createTransition(
 function createRenderingFixture(fixtureOptions: {
     autoResolve?: boolean;
     bufferPages?: number;
+    clampBufferedPages?: readonly number[];
 } = {}) {
     const subscribers: Array<(transition: IPdfDocumentTransition) => void | Promise<void>> = [];
     const disposables: Array<() => void | Promise<void>> = [];
@@ -344,10 +346,16 @@ function createRenderingFixture(fixtureOptions: {
     }
     const canvasHost = canvasHosts.get(3)!;
     document.body.append(viewerElement);
-    canvasFixture.prepare.mockImplementation(async (pageProxy: typeof pdfPage, scale: number) => {
+    canvasFixture.prepare.mockImplementation(async (
+        pageProxy: typeof pdfPage,
+        scale: number,
+        renderOptions: {contentIntent?: string},
+    ) => {
         const canvas = document.createElement('canvas');
         canvas.width = 100;
         canvas.height = 120;
+        const wasClamped = renderOptions.contentIntent === 'canvas-only-buffer'
+            && fixtureOptions.clampBufferedPages?.includes(pageProxy.pageNumber) === true;
         return {
             canvas,
             viewport: pageProxy.getViewport({scale}),
@@ -361,7 +369,7 @@ function createRenderingFixture(fixtureOptions: {
             requestedPixels: 12_000,
             grantedPixels: 12_000,
             pixelScaleFactor: 1,
-            wasClamped: false,
+            wasClamped,
             userUnit: 1,
             totalScaleFactor: scale,
             startRender: () => pageProxy.render(),
@@ -712,6 +720,105 @@ describe('PdfRenderingSession behavior', () => {
                     lane: 'viewport-visible',
                     pageNumber: 4,
                 }));
+        } finally {
+            await fixture.dispose();
+        }
+    });
+
+    it('keeps complete residency while immediately refining a promoted clamped buffer', async () => {
+        const fixture = createRenderingFixture({
+            autoResolve: false,
+            bufferPages: 1,
+            clampBufferedPages: [4],
+        });
+        const residentPages = () => fixture.rasterScheduler.snapshot().residentPages
+            .map(resident => resident.pageNumber)
+            .sort((left, right) => left - right);
+        try {
+            await vi.waitFor(() => expect(fixture.renderTasks).toHaveLength(1));
+            fixture.renderTasks[0]!.resolve();
+            fixture.demand.value = {
+                ...fixture.demand.value,
+                revision: 2,
+                nearbyPages: [4],
+                residentPages: [
+                    3,
+                    4,
+                ],
+                mountedPages: [
+                    3,
+                    4,
+                ],
+                mandatoryRaster: null,
+            };
+            await vi.waitFor(() => expect(fixture.renderTasks).toHaveLength(2));
+            fixture.renderTasks[1]!.resolve();
+            await vi.waitFor(() => expect(residentPages()).toEqual([
+                3,
+                4,
+            ]));
+
+            fixture.demand.value = {
+                ...fixture.demand.value,
+                revision: 3,
+                visibleRange: {
+                    start: 4,
+                    end: 4,
+                },
+                requiredPages: [4],
+                nearbyPages: [5],
+                residentPages: [
+                    4,
+                    5,
+                ],
+                mountedPages: [
+                    4,
+                    5,
+                ],
+                currentPage: 4,
+            };
+            await vi.waitFor(() => expect(fixture.renderTasks).toHaveLength(4));
+            fixture.renderTasks[2]!.resolve();
+            fixture.renderTasks[3]!.resolve();
+            await vi.waitFor(() => expect(residentPages()).toEqual([
+                4,
+                5,
+            ]));
+
+            const renderState = rendererFixture.options?.pageRenderState as TPdfPageRenderState;
+            expect(renderState.getSlot(4).committedRasterQuality?.wasClamped).toBe(false);
+            expect(fixture.rasterScheduler.snapshot().residentPages)
+                .toContainEqual(expect.objectContaining({
+                    lane: 'viewport-visible',
+                    pageNumber: 4,
+                }));
+
+            const requestSearchPageRaster = rendererFixture.options?.requestSearchPageRaster as (
+                pageNumber: number,
+            ) => Promise<void>;
+            await requestSearchPageRaster(4);
+            expect(residentPages()).toEqual([
+                4,
+                5,
+            ]);
+
+            fixture.viewerContainer.value?.querySelector(
+                '.page_container[data-page="4"] .page_canvas canvas',
+            )?.remove();
+            const repair = fixture.rendering.renderVisiblePages({
+                start: 4,
+                end: 4,
+            }, {
+                forceRerender: true,
+                rasterDemandPages: [4],
+            });
+            await vi.waitFor(() => expect(fixture.renderTasks).toHaveLength(5));
+            fixture.renderTasks[4]!.resolve();
+            await repair;
+            expect(residentPages()).toEqual([
+                4,
+                5,
+            ]);
         } finally {
             await fixture.dispose();
         }
