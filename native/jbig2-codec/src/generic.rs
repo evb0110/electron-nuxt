@@ -10,6 +10,7 @@ pub(crate) fn encode(width: u32, height: u32, rows: &[u8], stride: usize) -> Vec
     let mut coder = Encoder::new();
     let mut contexts = vec![0; CONTEXT_COUNT];
     let mut ltp = false;
+    let width = width as usize;
 
     for y in 0..height as usize {
         let duplicate =
@@ -21,21 +22,16 @@ pub(crate) fn encode(width: u32, height: u32, rows: &[u8], stride: usize) -> Vec
             continue;
         }
 
-        let mut c1 = (u16::from(pixel(rows, stride, width, 0, y, 0, -2)) << 2)
-            | (u16::from(pixel(rows, stride, width, 0, y, 1, -2)) << 1)
-            | u16::from(pixel(rows, stride, width, 0, y, 2, -2));
-        let mut c2 = (u16::from(pixel(rows, stride, width, 0, y, 0, -1)) << 3)
-            | (u16::from(pixel(rows, stride, width, 0, y, 1, -1)) << 2)
-            | (u16::from(pixel(rows, stride, width, 0, y, 2, -1)) << 1)
-            | u16::from(pixel(rows, stride, width, 0, y, 3, -1));
-        let mut c3 = 0u16;
+        let current = &rows[y * stride..y * stride + stride];
+        let above = neighbor_rows(&rows[..y * stride], stride, y);
+        let (mut c1, mut c2, mut c3) = initial_contexts(above, width);
 
-        for x in 0..width as usize {
+        for x in 0..width {
             let context = usize::from((c1 << 11) | (c2 << 4) | c3);
-            let bit = pixel(rows, stride, width, x, y, 0, 0);
+            let bit = current[x >> 3] >> (7 - (x & 7)) & 1;
             coder.encode(&mut contexts, context, bit);
-            c1 = ((c1 << 1) | u16::from(pixel(rows, stride, width, x, y, 3, -2))) & 0x1f;
-            c2 = ((c2 << 1) | u16::from(pixel(rows, stride, width, x, y, 4, -1))) & 0x7f;
+            c1 = ((c1 << 1) | u16::from(bit_at(above.0, x + 3, width))) & 0x1f;
+            c2 = ((c2 << 1) | u16::from(bit_at(above.1, x + 4, width))) & 0x7f;
             c3 = ((c3 << 1) | u16::from(bit)) & 0x0f;
         }
     }
@@ -57,32 +53,28 @@ pub(crate) fn decode(
     let mut contexts = vec![0; CONTEXT_COUNT];
     let mut rows = allocate_zeroed(stride, height)?;
     let mut ltp = false;
+    let pixel_width = width as usize;
 
     for y in 0..height as usize {
         ltp ^= coder.decode(&mut contexts, TPGD_CONTEXT) != 0;
+        let (before, current_and_after) = rows.split_at_mut(y * stride);
         if ltp {
             if y > 0 {
-                let (before, current_and_after) = rows.split_at_mut(y * stride);
                 current_and_after[..stride].copy_from_slice(&before[(y - 1) * stride..y * stride]);
             }
             continue;
         }
 
-        let mut c1 = (u16::from(pixel(&rows, stride, width, 0, y, 0, -2)) << 2)
-            | (u16::from(pixel(&rows, stride, width, 0, y, 1, -2)) << 1)
-            | u16::from(pixel(&rows, stride, width, 0, y, 2, -2));
-        let mut c2 = (u16::from(pixel(&rows, stride, width, 0, y, 0, -1)) << 3)
-            | (u16::from(pixel(&rows, stride, width, 0, y, 1, -1)) << 2)
-            | (u16::from(pixel(&rows, stride, width, 0, y, 2, -1)) << 1)
-            | u16::from(pixel(&rows, stride, width, 0, y, 3, -1));
-        let mut c3 = 0u16;
+        let current = &mut current_and_after[..stride];
+        let above = neighbor_rows(before, stride, y);
+        let (mut c1, mut c2, mut c3) = initial_contexts(above, pixel_width);
 
-        for x in 0..width as usize {
+        for x in 0..pixel_width {
             let context = usize::from((c1 << 11) | (c2 << 4) | c3);
             let bit = coder.decode(&mut contexts, context);
-            set_pixel(&mut rows, stride, x, y, bit);
-            c1 = ((c1 << 1) | u16::from(pixel(&rows, stride, width, x, y, 3, -2))) & 0x1f;
-            c2 = ((c2 << 1) | u16::from(pixel(&rows, stride, width, x, y, 4, -1))) & 0x7f;
+            current[x >> 3] |= bit << (7 - (x & 7));
+            c1 = ((c1 << 1) | u16::from(bit_at(above.0, x + 3, pixel_width))) & 0x1f;
+            c2 = ((c2 << 1) | u16::from(bit_at(above.1, x + 4, pixel_width))) & 0x7f;
             c3 = ((c3 << 1) | u16::from(bit)) & 0x0f;
         }
     }
@@ -109,19 +101,31 @@ fn allocate_zeroed(stride: usize, height: u32) -> Result<Vec<u8>, Jbig2Error> {
     Ok(rows)
 }
 
-fn pixel(rows: &[u8], stride: usize, width: u32, x: usize, y: usize, dx: isize, dy: isize) -> u8 {
-    let Some(target_x) = x.checked_add_signed(dx) else {
-        return 0;
-    };
-    let Some(target_y) = y.checked_add_signed(dy) else {
-        return 0;
-    };
-    if target_x >= width as usize || target_y >= rows.len() / stride {
-        return 0;
-    }
-    rows[target_y * stride + target_x / 8] >> (7 - target_x % 8) & 1
+/// The two rows above `y`, in template order: two rows up, then one row up.
+/// Rows above the bitmap read as all-zero, so they are absent rather than
+/// clamped.
+type NeighborRows<'a> = (Option<&'a [u8]>, Option<&'a [u8]>);
+
+fn neighbor_rows(preceding: &[u8], stride: usize, y: usize) -> NeighborRows<'_> {
+    (
+        (y >= 2).then(|| &preceding[(y - 2) * stride..(y - 1) * stride]),
+        (y >= 1).then(|| &preceding[(y - 1) * stride..y * stride]),
+    )
 }
 
-fn set_pixel(rows: &mut [u8], stride: usize, x: usize, y: usize, bit: u8) {
-    rows[y * stride + x / 8] |= bit << (7 - x % 8);
+fn initial_contexts(above: NeighborRows<'_>, width: usize) -> (u16, u16, u16) {
+    let two_up = |x| u16::from(bit_at(above.0, x, width));
+    let one_up = |x| u16::from(bit_at(above.1, x, width));
+    (
+        (two_up(0) << 2) | (two_up(1) << 1) | two_up(2),
+        (one_up(0) << 3) | (one_up(1) << 2) | (one_up(2) << 1) | one_up(3),
+        0,
+    )
+}
+
+fn bit_at(row: Option<&[u8]>, x: usize, width: usize) -> u8 {
+    match row {
+        Some(row) if x < width => row[x >> 3] >> (7 - (x & 7)) & 1,
+        _ => 0,
+    }
 }

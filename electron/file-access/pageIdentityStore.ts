@@ -1,5 +1,7 @@
 import {randomUUID} from 'node:crypto';
+import {constants} from 'node:fs';
 import {
+    copyFile,
     mkdir,
     readFile,
     rename,
@@ -295,28 +297,30 @@ async function remapSearchIndexes(
     ]);
 }
 
+function isIdentityPageDelta(delta: IPageIdentityDelta) {
+    return delta.pages.length === delta.previousPageCount
+        && delta.pages.every((page, index) => 'fromPageNumber' in page && page.fromPageNumber === index + 1);
+}
+
 async function remapOcrCatalog(
     workingCopyPath: string,
     delta: IPageIdentityDelta,
     nextRevision: IDocumentRevisionInfo,
 ) {
     const ocrDir = `${workingCopyPath}.ocr`;
-    const manifest = await readFile(join(ocrDir, 'manifest.json'), 'utf8')
+    const manifestPath = join(ocrDir, 'manifest.json');
+    const manifest = await readFile(manifestPath, 'utf8')
         .then(raw => parseOcrIndexV3Manifest(JSON.parse(raw), 'strict'))
         .catch(() => null);
     if (!manifest) {
         return;
     }
-    const pages = new Map<number, unknown>();
-    for (const [
-        rawPageNumber,
-        mapping,
-    ] of Object.entries(manifest.pages)) {
-        const pageNumber = Number(rawPageNumber);
-        const page = await readFile(join(ocrDir, mapping.path), 'utf8')
-            .then(raw => JSON.parse(raw) as unknown)
-            .catch(() => null);
-        if (page) pages.set(pageNumber, page);
+    if (isIdentityPageDelta(delta) && manifest.pageCount === delta.pages.length) {
+        await writeJsonAtomic(manifestPath, {
+            ...manifest,
+            documentRevision: {token: nextRevision.token},
+        });
+        return;
     }
     const replacement = `${ocrDir}.${process.pid}.${randomUUID()}.tmp`;
     await mkdir(replacement, {recursive: true});
@@ -326,16 +330,13 @@ async function remapOcrCatalog(
         identity,
     ] of delta.pages.entries()) {
         if (!('fromPageNumber' in identity)) continue;
-        const page = pages.get(identity.fromPageNumber);
-        if (!page) continue;
+        const source = manifest.pages[identity.fromPageNumber];
+        if (!source) continue;
         const pageNumber = index + 1;
         const path = `page-${String(pageNumber).padStart(4, '0')}.json`;
-        await writeFile(join(replacement, path), JSON.stringify({
-            ...(page as Record<string, unknown>),
-            pageNumber,
-            documentRevision: {token: nextRevision.token},
-        }), 'utf8');
-        mappings[pageNumber] = {path};
+        const copied = await copyFile(join(ocrDir, source.path), join(replacement, path), constants.COPYFILE_FICLONE)
+            .then(() => true, () => false);
+        if (copied) mappings[pageNumber] = {path};
     }
     await writeFile(join(replacement, 'manifest.json'), JSON.stringify({
         ...manifest,

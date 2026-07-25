@@ -237,17 +237,8 @@ function resolveManifestPagePath(
     return resolvedPath;
 }
 
-function parseOcrPageTextPayload(
-    payload: unknown,
-    expectedPageNumber: number,
-    expectedDocumentRevisionToken: TDocumentRevisionToken,
-) {
-    const page = decodeOcrPage(
-        payload,
-        expectedPageNumber,
-        expectedDocumentRevisionToken,
-        'repair-legacy',
-    );
+function parseOcrPageTextPayload(payload: unknown) {
+    const page = decodeOcrPage(payload, 'repair-legacy');
     if (!page) {
         return null;
     }
@@ -257,19 +248,13 @@ function parseOcrPageTextPayload(
 async function readOcrPageSearchText(
     ocrDir: string,
     pageMapping: { path: string },
-    pageNumber: number,
-    documentRevisionToken: TDocumentRevisionToken,
 ) {
     const pagePath = resolveManifestPagePath(ocrDir, pageMapping.path);
     if (!pagePath) {
         return null;
     }
     try {
-        return parseOcrPageTextPayload(
-            JSON.parse(await readFile(pagePath, 'utf-8')),
-            pageNumber,
-            documentRevisionToken,
-        );
+        return parseOcrPageTextPayload(JSON.parse(await readFile(pagePath, 'utf-8')));
     } catch {
         return null;
     }
@@ -340,12 +325,7 @@ async function collectCompactSearchIndexPages(
         if (!pageMapping) {
             continue;
         }
-        const text = await readOcrPageSearchText(
-            ocrDir,
-            pageMapping,
-            pageNumber,
-            manifest.documentRevision.token,
-        );
+        const text = await readOcrPageSearchText(ocrDir, pageMapping);
         if (text !== null) {
             textsByPage.set(pageNumber, text);
         }
@@ -527,9 +507,7 @@ export async function writeOcrIndexV3(
             const pageFile = `page-${String(pd.pageNumber).padStart(4, '0')}.json`;
 
             const pageData: IOcrIndexV3Page = {
-                pageNumber: pd.pageNumber,
                 rotation: 0,
-                documentRevision: {token: documentRevision.token},
                 render: {
                     dpi: extractionDpi,
                     imagePx: {

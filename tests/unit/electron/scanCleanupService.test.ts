@@ -6,11 +6,18 @@ import {
     vi,
 } from 'vitest';
 import type {WebContents} from 'electron';
+import type {IHostResourceProfileSnapshot} from '@contracts/hostResourceProfile';
+import type * as TJobBrokerModule from '@electron/resources/jobBroker';
 import {decodeScanCleanupRuntimePolicy} from '@contracts/resourcePolicies';
+import {
+    JobBroker,
+    type IJobBrokerRequest,
+    resolveMainJobBrokerCapacity,
+} from '@electron/resources/jobBroker';
 import {createScanCleanupService} from '@electron/features/scan-cleanup/createScanCleanupService';
 
 const mocks = vi.hoisted(() => {
-    const acquire = vi.fn(async () => ({release: vi.fn()}));
+    const acquire = vi.fn(async (_request: IJobBrokerRequest) => ({release: vi.fn()}));
     const runWorker = vi.fn(async (
         _request: unknown,
         _paths: unknown,
@@ -28,28 +35,33 @@ const mocks = vi.hoisted(() => {
         blankPagesSkipped: 0,
         warnings: [],
     }));
+    const host = {
+        logicalCpus: 11,
+        totalRamBytes: 32 * 1024 ** 3,
+        tier: 'high' as 'low' | 'medium' | 'high',
+    };
     return {
         acquire,
-        logicalCpus: 11,
-        resourceTier: 'high' as 'low' | 'medium' | 'high',
+        host,
+        hostProfile: () => host as IHostResourceProfileSnapshot,
         runWorker,
-        totalRamBytes: 32 * 1024 ** 3,
     };
 });
 
 vi.mock('@electron/features/scan-cleanup/runScanCleanupWorkerTask', () => (
     {runScanCleanupWorkerTask: mocks.runWorker}
 ));
-vi.mock('@electron/resources/jobBroker', () => {
-    return {mainJobBroker: {acquire: mocks.acquire}};
+vi.mock('@electron/resources/jobBroker', async importOriginal => {
+    const actual = await importOriginal<typeof TJobBrokerModule>();
+    return {
+        ...actual,
+        mainJobBroker: {
+            acquire: mocks.acquire,
+            getSnapshot: () => ({capacity: actual.resolveMainJobBrokerCapacity(mocks.hostProfile())}),
+        },
+    };
 });
-vi.mock('@electron/resources/hostResourceProfile', () => (
-    {getHostResourceProfileSnapshot: () => ({
-        tier: mocks.resourceTier,
-        logicalCpus: mocks.logicalCpus,
-        totalRamBytes: mocks.totalRamBytes,
-    })}
-));
+vi.mock('@electron/resources/hostResourceProfile', () => ({getHostResourceProfileSnapshot: mocks.hostProfile}));
 vi.mock('@electron/pdf/nativeToolPaths', () => {
     const getPdfNativeToolPaths = () => ({
         qpdf: '/qpdf',
@@ -122,42 +134,76 @@ describe('scan cleanup service', () => {
     beforeEach(() => {
         mocks.acquire.mockClear();
         mocks.runWorker.mockClear();
-        mocks.resourceTier = 'high';
+        Object.assign(mocks.host, {
+            logicalCpus: 11,
+            totalRamBytes: 32 * 1024 ** 3,
+            tier: 'high',
+        });
     });
 
     it.each([
         [
+            '4-core / 8 GiB',
+            4,
+            8,
             'low',
             1,
         ],
         [
+            '6-core / 12 GiB',
+            6,
+            12,
             'medium',
             2,
         ],
         [
+            '11-core / 32 GiB',
+            11,
+            32,
             'high',
-            3,
+            4,
         ],
-    ] as const)('uses %s-tier raster fan-out for worker policy and broker admission', async (
+        [
+            '32-core / 128 GiB',
+            32,
+            128,
+            'high',
+            7,
+        ],
+    ] as const)('fans raster work out to the %s host and leases exactly what it fans out', async (
+        _label,
+        logicalCpus,
+        totalRamGiB,
         tier,
         rasterConcurrency,
     ) => {
-        mocks.resourceTier = tier;
+        Object.assign(mocks.host, {
+            logicalCpus,
+            totalRamBytes: totalRamGiB * 1024 ** 3,
+            tier,
+        });
         const service = createScanCleanupService();
         await service.start(sender(), startRequest);
 
         await vi.waitFor(() => expect(mocks.runWorker).toHaveBeenCalledOnce());
-        expect(mocks.acquire).toHaveBeenCalledWith(expect.objectContaining({resources: {
-            cpuTokens: rasterConcurrency,
-            estimatedResidentBytes: rasterConcurrency * 128 * 1024 * 1024,
-            nativeProcesses: rasterConcurrency,
-            ioWeight: 4,
-        }}));
         expect(decodeScanCleanupRuntimePolicy(mocks.runWorker.mock.calls[0]![2])).toEqual({
             rasterConcurrency,
-            logicalCpus: mocks.logicalCpus,
-            totalRamBytes: mocks.totalRamBytes,
+            logicalCpus,
+            totalRamBytes: totalRamGiB * 1024 ** 3,
         });
+
+        const leased = mocks.acquire.mock.calls[0]![0].resources;
+        expect(leased).toMatchObject({
+            cpuTokens: rasterConcurrency,
+            nativeProcesses: rasterConcurrency,
+        });
+        expect(leased.estimatedResidentBytes / rasterConcurrency).toBeGreaterThanOrEqual(64 * 1024 * 1024);
+        await expect(new JobBroker(resolveMainJobBrokerCapacity(mocks.hostProfile())).acquire({
+            ownerId: 'admission-probe',
+            kind: 'scan-cleanup',
+            priority: 'user',
+            resources: leased,
+        })).resolves.toBeDefined();
     });
 
     it('treats cancellation of an already-terminal owned job as a successful no-op', async () => {
