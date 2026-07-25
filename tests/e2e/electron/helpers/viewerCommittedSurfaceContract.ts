@@ -41,6 +41,17 @@ export interface ICommittedSurfaceTargetCanvasDiagnostic {
     renderedClass: boolean;
 }
 
+export interface ICommittedSurfaceVisiblePdfPageVisual {
+    canonicalCanvasId: number | null;
+    canonicalCanvasNonblank: boolean;
+    canonicalCanvasVisible: boolean;
+    pageNumber: number | null;
+    resizeSnapshotId: number | null;
+    resizeSnapshotNonblank: boolean;
+    resizeSnapshotVisible: boolean;
+    skeletonVisible: boolean;
+}
+
 export interface ICommittedSurfaceFrame {
     bodyOverflow: number;
     canvasAuthorityReady: boolean;
@@ -96,6 +107,7 @@ export interface ICommittedSurfaceFrame {
     viewportScrollLeft?: number | null;
     viewportScrollTop?: number | null;
     viewportScrollWidth?: number | null;
+    visiblePdfPageVisuals?: ICommittedSurfaceVisiblePdfPageVisual[];
 }
 
 export interface ICommittedSurfaceSamplerError {
@@ -885,8 +897,8 @@ export async function installCommittedSurfaceSampler(page: Page) {
             }
             try {
                 const probe = document.createElement('canvas');
-                probe.width = 24;
-                probe.height = 24;
+                probe.width = 128;
+                probe.height = 128;
                 const context = probe.getContext('2d', {willReadFrequently: true});
                 if (!context) {
                     return false;
@@ -897,9 +909,9 @@ export async function installCommittedSurfaceSampler(page: Page) {
                     if (
                         (pixels[offset + 3] ?? 0) > 0
                         && (
-                            (pixels[offset] ?? 255) < 245
-                            || (pixels[offset + 1] ?? 255) < 245
-                            || (pixels[offset + 2] ?? 255) < 245
+                            (pixels[offset] ?? 255) < 252
+                            || (pixels[offset + 1] ?? 255) < 252
+                            || (pixels[offset + 2] ?? 255) < 252
                         )
                     ) {
                         return true;
@@ -1101,6 +1113,32 @@ export async function installCommittedSurfaceSampler(page: Page) {
                     '.page_canvas__render-layer canvas',
                 ) ?? null;
                 const targetCanvasRect = targetCanvas?.getBoundingClientRect() ?? null;
+                const visiblePdfPageVisuals = visiblePages
+                    .filter(candidate => (
+                        candidate.matches('.page_container[data-page]')
+                        && intersectsViewport(candidate)
+                    ))
+                    .map((candidate) => {
+                        const canonicalCanvas = candidate.querySelector<HTMLCanvasElement>(
+                            '.page_canvas__render-layer canvas',
+                        );
+                        const resizeSnapshot = candidate.querySelector<HTMLCanvasElement>(
+                            '.pdf-resize-canvas-snapshot',
+                        );
+                        const skeleton = candidate.querySelector<HTMLElement>(
+                            '.document-page-skeleton',
+                        );
+                        return {
+                            canonicalCanvasId: getElementId(canonicalCanvas),
+                            canonicalCanvasNonblank: canvasHasNonblankPixels(canonicalCanvas),
+                            canonicalCanvasVisible: isVisible(canonicalCanvas),
+                            pageNumber: Number(candidate.dataset.page ?? 0) || null,
+                            resizeSnapshotId: getElementId(resizeSnapshot),
+                            resizeSnapshotNonblank: canvasHasNonblankPixels(resizeSnapshot),
+                            resizeSnapshotVisible: isVisible(resizeSnapshot),
+                            skeletonVisible: isVisible(skeleton),
+                        };
+                    });
                 testWindow.__committedSurfaceFrames!.push({
                     bodyOverflow: Math.max(0, Math.round(document.body.scrollWidth - document.body.clientWidth)),
                     canvasAuthorityReady,
@@ -1236,6 +1274,7 @@ export async function installCommittedSurfaceSampler(page: Page) {
                     viewportScrollLeft: viewport ? Math.round(viewport.scrollLeft) : null,
                     viewportScrollTop: viewport ? Math.round(viewport.scrollTop) : null,
                     viewportScrollWidth: viewport?.scrollWidth ?? null,
+                    visiblePdfPageVisuals,
                 });
             } catch (error) {
                 testWindow.__committedSurfaceErrors!.push({

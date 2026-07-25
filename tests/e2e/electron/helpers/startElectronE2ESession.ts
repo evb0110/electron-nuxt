@@ -26,7 +26,7 @@ import {
     readSessionLogTail,
 } from '@scripts/electron-run/electronRunSessionArtifacts';
 import {
-    getCurrentSessionName,
+    releaseCurrentSessionName,
     sessionDir,
     setCurrentSessionName,
 } from '@scripts/electron-run/electronRunSessionPaths';
@@ -481,9 +481,7 @@ export async function startElectronE2ESession(sessionName: string, options?: {
                 cleanupSessionArtifacts(scopedSessionName);
             }
         } finally {
-            if (getCurrentSessionName() === scopedSessionName) {
-                setCurrentSessionName('default');
-            }
+            releaseCurrentSessionName(scopedSessionName);
         }
     };
 

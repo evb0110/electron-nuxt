@@ -2739,11 +2739,16 @@ describe('Electron E2E - Viewer Smoke', () => {
             }
             applyPressure();
             const pressureTimer = window.setInterval(applyPressure, 200);
-            await new Promise(resolve => setTimeout(resolve, 5_500));
-            window.clearInterval(pressureTimer);
-            const snapshot = probeWindow.__getWorkspaceSurfaceBudgetForE2E?.() ?? null;
-            probeWindow.__setWorkspaceSurfacePressureForE2E('healthy');
-            return {snapshot};
+            try {
+                await new Promise(resolve => setTimeout(resolve, 5_500));
+                window.clearInterval(pressureTimer);
+                applyPressure();
+                const snapshot = probeWindow.__getWorkspaceSurfaceBudgetForE2E?.() ?? null;
+                return {snapshot};
+            } finally {
+                window.clearInterval(pressureTimer);
+                probeWindow.__setWorkspaceSurfacePressureForE2E('healthy');
+            }
         });
         const pressureSnapshot = pressureResult.snapshot;
         const samples = await session.page.evaluate(() => {

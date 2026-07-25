@@ -32,6 +32,11 @@ import {
     waitForVisibleMountedPdfCanvases,
 } from '@tests/e2e/electron/helpers/viewerVirtualizationContract';
 import {
+    installCommittedSurfaceSampler,
+    markCommittedSurfaceInteractionCheckpoint,
+    stopCommittedSurfaceSampler,
+} from '@tests/e2e/electron/helpers/viewerCommittedSurfaceContract';
+import {
     callWorkspaceCommand,
     getLatestAutomationEventId,
     readWorkspaceStateValues,
@@ -62,17 +67,10 @@ interface ICommittedCanvasContinuitySnapshot {
     width: number;
 }
 
-interface ISaveVisualContinuityFrame {
-    pagesWithoutVisual: number;
-    visiblePageCount: number;
-}
-
 type TSaveReceiptProbeWindow = Window & {
     __committedCanvasContinuitySnapshot?: ICommittedCanvasContinuitySnapshot;
     __resumeSaveReceiptCommit?: () => void;
     __saveReceiptProbe?: ISaveReceiptProbe;
-    __saveVisualContinuityFrames?: ISaveVisualContinuityFrame[];
-    __stopSaveVisualContinuitySampler?: () => void;
 };
 
 function hashBytes(bytes: Uint8Array) {
@@ -212,85 +210,50 @@ async function captureCommittedCanvasForSaveContinuity(page: Page) {
     });
 }
 
-async function installSaveVisualContinuitySampler(page: Page) {
-    await page.evaluate(() => {
-        const target = window as TSaveReceiptProbeWindow;
-        target.__stopSaveVisualContinuitySampler?.();
-        const frames: ISaveVisualContinuityFrame[] = [];
-        let running = true;
-        target.__saveVisualContinuityFrames = frames;
-        target.__stopSaveVisualContinuitySampler = () => {
-            running = false;
-        };
-        const isVisible = (element: HTMLElement | null) => {
-            if (!element?.isConnected) {
-                return false;
-            }
-            const rect = element.getBoundingClientRect();
-            const style = window.getComputedStyle(element);
-            return rect.width > 0
-                && rect.height > 0
-                && style.display !== 'none'
-                && style.visibility !== 'hidden'
-                && Number(style.opacity || '1') > 0;
-        };
-        const sample = () => {
-            const activePane = document.querySelector<HTMLElement>('.editor-pane.is-active');
-            const viewport = activePane?.querySelector<HTMLElement>(
-                '[data-document-viewer-chassis-viewport], #pdf-viewer',
-            ) ?? null;
-            const viewportRect = viewport?.getBoundingClientRect() ?? null;
-            const visiblePages = viewportRect
-                ? Array.from(activePane?.querySelectorAll<HTMLElement>(
-                    '.page_container[data-page]',
-                ) ?? []).filter((pageContainer) => {
-                    if (!isVisible(pageContainer)) {
-                        return false;
-                    }
-                    const pageRect = pageContainer.getBoundingClientRect();
-                    return pageRect.bottom > viewportRect.top
-                        && pageRect.top < viewportRect.bottom
-                        && pageRect.right > viewportRect.left
-                        && pageRect.left < viewportRect.right;
-                })
-                : [];
-            const pagesWithoutVisual = visiblePages.filter((pageContainer) => {
-                const canvas = pageContainer.querySelector<HTMLCanvasElement>(
-                    '.page_canvas__render-layer canvas',
-                );
-                const resizeSnapshot = pageContainer.querySelector<HTMLElement>(
-                    '.pdf-resize-canvas-snapshot',
-                );
-                const hasCanonicalCanvas = Boolean(
-                    isVisible(canvas)
-                    && canvas
-                    && canvas.width > 0
-                    && canvas.height > 0,
-                );
-                return !hasCanonicalCanvas && !isVisible(resizeSnapshot);
-            }).length;
-            frames.push({
-                pagesWithoutVisual,
-                visiblePageCount: visiblePages.length,
-            });
-            if (running) {
-                window.requestAnimationFrame(sample);
-            }
-        };
-        window.requestAnimationFrame(sample);
+function expectVisiblePdfPagesStayedPainted(
+    trace: Awaited<ReturnType<typeof stopCommittedSurfaceSampler>>,
+) {
+    expect(trace.errors ?? []).toEqual([]);
+    expect(trace.frames.length).toBeGreaterThan(0);
+    expect(trace.frames.some(frame => frame.interactionCheckpoint === 'save-committed')).toBe(true);
+    const failures = trace.frames.flatMap((frame) => {
+        const visiblePages = frame.visiblePdfPageVisuals ?? [];
+        const stayedPainted = ![
+            'blank',
+            'loader',
+            'neutral',
+        ].includes(frame.kind)
+            && frame.outOfFrameSkeletonCount === 0
+            && visiblePages.length > 0
+            && visiblePages.every(pageVisual => (
+                !pageVisual.skeletonVisible
+                && (
+                    (
+                        pageVisual.canonicalCanvasVisible
+                        && pageVisual.canonicalCanvasNonblank
+                    )
+                    || (
+                        pageVisual.resizeSnapshotVisible
+                        && pageVisual.resizeSnapshotNonblank
+                    )
+                )
+            ));
+        return stayedPainted
+            ? []
+            : [{
+                elapsedMs: frame.elapsedMs,
+                frame: frame.frame,
+                kind: frame.kind,
+                visiblePages,
+            }];
     });
+    expect(failures).toEqual([]);
 }
 
 async function stopSaveVisualContinuitySampler(page: Page) {
+    await markCommittedSurfaceInteractionCheckpoint(page, 'save-committed');
     await waitForAnimationFrames(page, 2);
-    return page.evaluate(() => {
-        const target = window as TSaveReceiptProbeWindow;
-        target.__stopSaveVisualContinuitySampler?.();
-        const frames = target.__saveVisualContinuityFrames ?? [];
-        delete target.__saveVisualContinuityFrames;
-        delete target.__stopSaveVisualContinuitySampler;
-        return frames;
-    });
+    return stopCommittedSurfaceSampler(page);
 }
 
 async function expectCommittedCanvasSurvivedSave(
@@ -350,9 +313,11 @@ describe('Electron E2E - save pipeline diagnostics', () => {
         await session?.page.evaluate(() => {
             const probeWindow = window as TSaveReceiptProbeWindow;
             probeWindow.__resumeSaveReceiptCommit?.();
-            probeWindow.__stopSaveVisualContinuitySampler?.();
             delete probeWindow.__stagedPdfNativeMutationCommitBarrierForAutomation;
         }).catch(() => undefined);
+        if (session) {
+            await stopCommittedSurfaceSampler(session.page).catch(() => undefined);
+        }
         if (session) {
             await waitForWorkspaceToolbarIdle(session.page, {timeoutMs: SAVE_TIMEOUT_MS})
                 .catch(() => undefined);
@@ -383,13 +348,10 @@ describe('Electron E2E - save pipeline diagnostics', () => {
         await createDirtyStickyNote(session.page);
         expect((await captureCommittedCanvasForSaveContinuity(session.page)).rendered).toBe(true);
 
-        await installSaveVisualContinuitySampler(session.page);
+        await installCommittedSurfaceSampler(session.page);
         await saveFromWorkspace(session.page, pdfPath);
-        const firstSaveVisualFrames = await stopSaveVisualContinuitySampler(session.page);
-        expect(firstSaveVisualFrames.length).toBeGreaterThan(0);
-        expect(firstSaveVisualFrames.every(frame => (
-            frame.visiblePageCount > 0 && frame.pagesWithoutVisual === 0
-        ))).toBe(true);
+        const firstSaveVisualTrace = await stopSaveVisualContinuitySampler(session.page);
+        expectVisiblePdfPagesStayedPainted(firstSaveVisualTrace);
         await expectCommittedCanvasSurvivedSave(session.page);
 
         const probe = await session.page.evaluate(
@@ -417,14 +379,11 @@ describe('Electron E2E - save pipeline diagnostics', () => {
 
         await createDirtyFreeText(session.page, `post-save free text ${Date.now()}`);
         expect((await captureCommittedCanvasForSaveContinuity(session.page)).rendered).toBe(true);
-        await installSaveVisualContinuitySampler(session.page);
+        await installCommittedSurfaceSampler(session.page);
         await saveFromWorkspace(session.page, pdfPath);
         await waitForViewerInteractive(session.page, SAVE_TIMEOUT_MS);
-        const secondSaveVisualFrames = await stopSaveVisualContinuitySampler(session.page);
-        expect(secondSaveVisualFrames.length).toBeGreaterThan(0);
-        expect(secondSaveVisualFrames.every(frame => (
-            frame.visiblePageCount > 0 && frame.pagesWithoutVisual === 0
-        ))).toBe(true);
+        const secondSaveVisualTrace = await stopSaveVisualContinuitySampler(session.page);
+        expectVisiblePdfPagesStayedPainted(secondSaveVisualTrace);
         await expectCommittedCanvasSurvivedSave(session.page);
         expect((await readPdfAnnotationSummary(pdfPath)).bySubtype.FreeText ?? 0).toBeGreaterThan(1);
 

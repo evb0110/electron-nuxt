@@ -4,6 +4,8 @@ import {
     it,
 } from 'vitest';
 import {
+    getCurrentSessionName,
+    releaseCurrentSessionName,
     sessionDir,
     setCurrentSessionName,
     validateSessionName,
@@ -32,5 +34,16 @@ describe('electron run session paths', () => {
 
     it('validates the current session before storing it', () => {
         expect(() => setCurrentSessionName('../default')).toThrow(/Session name/u);
+    });
+
+    it('releases only the session that still owns the process scope', () => {
+        setCurrentSessionName('retiring-session');
+        expect(releaseCurrentSessionName('retiring-session')).toBe(true);
+        expect(getCurrentSessionName()).toBe('default');
+
+        setCurrentSessionName('replacement-session');
+        expect(releaseCurrentSessionName('retiring-session')).toBe(false);
+        expect(getCurrentSessionName()).toBe('replacement-session');
+        setCurrentSessionName('default');
     });
 });
