@@ -1,5 +1,6 @@
 import {
     mkdtemp,
+    readdir,
     readFile,
     rm,
     stat,
@@ -7,7 +8,10 @@ import {
     writeFile,
 } from 'fs/promises';
 import {tmpdir} from 'os';
-import {join} from 'path';
+import {
+    join,
+    sep,
+} from 'path';
 import {
     afterEach,
     describe,
@@ -130,6 +134,12 @@ function sender(id = 1) {
         once: vi.fn(),
         removeListener: vi.fn(),
     } satisfies IScanCleanupDetectionSubscriber;
+}
+
+async function retainedRasterCount(dir: string) {
+    const entries = await readdir(dir, {recursive: true});
+    return entries.filter(entry => entry.split(sep)[0]?.startsWith('scan-cleanup-rasters-') === true
+        && entry.endsWith('.png')).length;
 }
 
 async function setup() {
@@ -1922,7 +1932,77 @@ describe('scan cleanup preview', () => {
         expect(service.getDetectionJobState(owner, started.jobId, detectionRequest)?.results).toHaveLength(3);
     });
 
-    it('streams a brokered detect-all lifecycle and leaves the raw cache to preview requests', async () => {
+    it('previews a page detection rasterized without a renderer and without a second page count', async () => {
+        const dir = await setup();
+        const deps = dependencies(dir);
+        deps.acquireDetectionLease = vi.fn(async () => ({release: vi.fn(() => true)}));
+        deps.runSidecar = vi.fn(async (_binary, manifestPath, _signal, _log, onProgress) => {
+            await writeDetectionMetadata(manifestPath);
+            for (const pageNumber of [
+                1,
+                2,
+                3,
+            ]) {
+                onProgress({
+                    stage: 'detecting',
+                    completedUnits: pageNumber,
+                    totalUnits: 3,
+                    percent: pageNumber / 3 * 100,
+                    completedPageNumbers: Array.from({length: pageNumber}, (_, index) => index + 1),
+                }, {
+                    stage: 'page-complete',
+                    completedPages: pageNumber,
+                    totalPages: 3,
+                    pageNumber,
+                    classification: 'single-uncut-page',
+                    confidence: 0.9,
+                });
+            }
+        });
+        const service = createScanCleanupPreviewService(deps);
+        const owner = sender();
+        const started = await service.detectAll(owner, detectionRequest);
+        await vi.waitFor(() => expect(service.getDetectionJobState(
+            owner,
+            started.jobId,
+            detectionRequest,
+        )?.status).toBe('completed'));
+        expect(deps.renderPage).toHaveBeenCalledTimes(3);
+        expect(deps.getPageCount).toHaveBeenCalledOnce();
+
+        const rawRequest = (pageNumber: number, documentRevision = request.documentRevision) => ({
+            ownerId: request.ownerId,
+            documentRevision,
+            sourcePdfPath: request.sourcePdfPath,
+            pageNumber,
+        });
+        for (const pageNumber of [
+            1,
+            2,
+            3,
+        ]) {
+            await expect(service.previewRaw(sender(), rawRequest(pageNumber))).resolves.toMatchObject({
+                pageNumber,
+                totalPages: 3,
+                rawWidthPx: 1,
+                rawHeightPx: 1,
+            });
+        }
+        expect(deps.renderPage).toHaveBeenCalledTimes(3);
+        expect(deps.getPageCount).toHaveBeenCalledOnce();
+
+        await service.previewRaw(sender(), rawRequest(1, 'revision-2'));
+        expect(deps.renderPage).toHaveBeenCalledTimes(4);
+        expect(deps.getPageCount).toHaveBeenCalledTimes(2);
+
+        service.cancel(sender(), {
+            ...request,
+            documentRevision: 'revision-2',
+        });
+        await vi.waitFor(async () => expect(await retainedRasterCount(dir)).toBe(0));
+    });
+
+    it('streams a brokered detect-all lifecycle and hands its rasters to later preview requests', async () => {
         const dir = await setup();
         const deps = dependencies(dir);
         const originalSidecar = deps.runSidecar;
@@ -2082,9 +2162,8 @@ describe('scan cleanup preview', () => {
             pageNumber,
         });
         await service.previewRaw(sender(), rawRequest(2));
-        expect(deps.renderPage).toHaveBeenCalledTimes(5);
         await service.previewRaw(sender(), rawRequest(1));
-        expect(deps.renderPage).toHaveBeenCalledTimes(5);
+        expect(deps.renderPage).toHaveBeenCalledTimes(4);
     });
 
     it('rasterizes detection pages as wide as the 11-core host allows and leases that width', async () => {
