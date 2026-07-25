@@ -10,12 +10,10 @@ import { normalizePdfJsAnnotationId } from '@app/utils/pdfAnnotationRefs';
 import { isImportedEmbeddedShapeSubtype } from '@app/modules/pdf-viewer/engine/pdf-embedded-shape-annotations/isImportedEmbeddedShapeSubtype';
 import { shouldDemandManagedEmbeddedShapeBaseline } from '@app/modules/pdf-viewer/engine/pdf-embedded-shape-import-policy/shouldDemandManagedEmbeddedShapeBaseline';
 import { usePdfAppAnnotationHistory } from '@app/modules/pdf-viewer/runtime/annotations/usePdfAppAnnotationHistory';
-import {
-    AnnotationApplication,
-    usePdfAnnotationColorCommands,
-    usePdfAnnotationCommentActions,
-    usePdfAnnotationCommentModel,
-} from '@app/modules/pdf-viewer/annotations/public';
+import { AnnotationApplication } from '@app/modules/pdf-viewer/annotations/annotationApplication';
+import { usePdfAnnotationColorCommands } from '@app/modules/pdf-viewer/annotations/usePdfAnnotationColorCommands';
+import { usePdfAnnotationCommentActions } from '@app/modules/pdf-viewer/annotations/usePdfAnnotationCommentActions';
+import { usePdfAnnotationCommentModel } from '@app/modules/pdf-viewer/annotations/usePdfAnnotationCommentModel';
 import { usePdfShapeTool } from '@app/modules/pdf-viewer/tools/public';
 import { useAnnotationMutationService } from '@app/modules/pdf-viewer/runtime/annotations/useAnnotationMutationService';
 import { useAnnotationMutationVisualEffects } from '@app/modules/pdf-viewer/runtime/annotations/useAnnotationMutationVisualEffects';
@@ -45,7 +43,7 @@ import type { TPdfDocumentSession } from '@app/modules/pdf-viewer/runtime/sessio
 import type { TPdfViewportSession } from '@app/modules/pdf-viewer/runtime/sessions/createPdfViewportSession';
 import type { TPdfRenderingSession } from '@app/modules/pdf-viewer/runtime/sessions/createPdfRenderingSession';
 import type { IAnnotationContextMenuPayload } from '@app/modules/pdf-viewer/engine/annotationContextMenuPayload';
-import { annotationIdForSummary } from '@app/modules/pdf-viewer/annotations/domain/annotationSummaryIdentity';
+import { annotationIdForSummary } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationSummaryIdentity';
 import {
     asAnnotationId,
     mintAnnotationId,
@@ -550,6 +548,7 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
     };
     const highlight = useAnnotationHighlight({
         viewerContainer: options.viewerContainer,
+        isActive: options.isActive,
         annotationUiManager,
         numPages: documentSession.numPages,
         currentPage: viewport.currentPage,

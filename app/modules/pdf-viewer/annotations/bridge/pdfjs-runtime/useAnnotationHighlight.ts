@@ -6,7 +6,10 @@ import type {
     Ref,
     ShallowRef,
 } from 'vue';
-import { tryOnScopeDispose } from '@vueuse/core';
+import {
+    tryOnScopeDispose,
+    useEventListener,
+} from '@vueuse/core';
 import { delay } from 'es-toolkit/promise';
 import type {
     IAnnotationCommentSummary,
@@ -91,6 +94,7 @@ interface IHighlightToolManager {
 
 interface IUseAnnotationHighlightOptions {
     viewerContainer: Ref<HTMLElement | null>;
+    isActive: {value: boolean};
     annotationUiManager: ShallowRef<AnnotationEditorUIManager | null>;
     numPages: {value: number};
     currentPage: Ref<number>;
@@ -149,6 +153,7 @@ const CREATED_EDITOR_SETTLE_DELAY_MS = 60;
 export const useAnnotationHighlight = (options: IUseAnnotationHighlightOptions) => {
     const {
         viewerContainer,
+        isActive,
         annotationUiManager,
         numPages,
         currentPage,
@@ -1096,6 +1101,28 @@ export const useAnnotationHighlight = (options: IUseAnnotationHighlightOptions) 
         });
     }
 
+    const documentTarget = typeof document !== 'undefined' ? document : null;
+    useEventListener(
+        documentTarget,
+        'selectionchange',
+        () => {
+            if (isActive.value) {
+                cacheCurrentTextSelection();
+            }
+        },
+        { passive: true },
+    );
+    useEventListener(
+        documentTarget,
+        'pointerup',
+        (event) => {
+            if (isActive.value && event instanceof PointerEvent) {
+                handleDocumentPointerUp(event);
+            }
+        },
+        { passive: true },
+    );
+
     function buildAnnotationContextMenuPayload(
         comment: IAnnotationCommentSummary | null,
         clientX: number,
@@ -1130,8 +1157,6 @@ export const useAnnotationHighlight = (options: IUseAnnotationHighlightOptions) 
         placeCommentAtClientPoint,
         startCommentPlacement,
         cancelCommentPlacement,
-        handleDocumentPointerUp,
-        cacheCurrentTextSelection,
         maybeApplySelectionMarkup,
         buildAnnotationContextMenuPayload,
         resolvePagePointTarget,

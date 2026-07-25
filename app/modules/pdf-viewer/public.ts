@@ -25,7 +25,7 @@ export {
     collectLivePdfJsAnnotationChangeIds,
     resetLivePdfJsAnnotationStorageModifiedState,
 } from '@app/modules/pdf-viewer/runtime/save/pdfAnnotationStorageChanges';
-export {annotationIdForSummary} from '@app/modules/pdf-viewer/annotations/domain/annotationSummaryIdentity';
+export {annotationIdForSummary} from '@app/modules/pdf-viewer/engine/annotations/domain/annotationSummaryIdentity';
 export {asAnnotationId} from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
 export type {AnnotationId} from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
 export type {

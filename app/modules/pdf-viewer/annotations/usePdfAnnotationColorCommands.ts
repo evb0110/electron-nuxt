@@ -4,7 +4,7 @@ import type {
     IAnnotationCommentSummary,
     ITextMarkupAnnotationProperties,
 } from '@app/types/annotations';
-import { computeSummaryStableKey } from '@app/modules/pdf-viewer/annotations/domain/annotationSummaryIdentity';
+import { computeSummaryStableKey } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationSummaryIdentity';
 import type { usePdfAnnotationCommentModel } from '@app/modules/pdf-viewer/annotations/usePdfAnnotationCommentModel';
 import type { useAnnotationCrud } from '@app/modules/pdf-viewer/annotations/bridge/pdfjs-runtime/useAnnotationCrud';
 import type { useAnnotationToolState } from '@app/modules/pdf-viewer/annotations/bridge/pdfjs-runtime/useAnnotationToolState';

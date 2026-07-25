@@ -11,7 +11,7 @@ import {
     mergeDuplicateCommentSummary,
     normalizeSummaryStableKey,
     toCanonicalStableKey,
-} from '@app/modules/pdf-viewer/annotations/domain/annotationSummaryIdentity';
+} from '@app/modules/pdf-viewer/engine/annotations/domain/annotationSummaryIdentity';
 import { compareAnnotationCommentSummaries } from '@app/utils/pdfAnnotationComments';
 
 export const useAnnotationIdentity = (

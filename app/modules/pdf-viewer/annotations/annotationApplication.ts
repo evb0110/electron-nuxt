@@ -41,7 +41,7 @@ import {normalizePdfJsAnnotationId} from '@app/utils/pdfAnnotationRefs';
 import {
     computeSummaryStableKey,
     getReplayableFreeTextNoteName,
-} from '@app/modules/pdf-viewer/annotations/domain/annotationSummaryIdentity';
+} from '@app/modules/pdf-viewer/engine/annotations/domain/annotationSummaryIdentity';
 
 const ANNOTATION_VERIFICATION_RANGE_BYTES = 1024 * 1024;
 

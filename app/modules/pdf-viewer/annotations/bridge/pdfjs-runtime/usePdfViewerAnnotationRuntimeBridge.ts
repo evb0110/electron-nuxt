@@ -6,7 +6,6 @@ import type {
 } from 'vue';
 import {
     tryOnScopeDispose,
-    useEventListener,
     useMutationObserver,
 } from '@vueuse/core';
 import { PixelsPerInch } from '@app/services/pdfjs/runtimeLib';
@@ -21,7 +20,7 @@ import type { useAnnotationToolState } from '@app/modules/pdf-viewer/annotations
 import { runGuardedTask } from '@app/utils/asyncGuard';
 import { isTextMarkupSubtype } from '@app/services/pdf/annotationSubtype';
 import { applyAnnotationCommentTextMarkupColor } from '@app/modules/pdf-viewer/engine/annotations/annotation-dom-removal/applyAnnotationCommentTextMarkupColor';
-import { annotationIdForSummary } from '@app/modules/pdf-viewer/annotations/domain/annotationSummaryIdentity';
+import { annotationIdForSummary } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationSummaryIdentity';
 import { syncAnnotationCommentTextMarkupVisualOverlays } from '@app/modules/pdf-viewer/engine/annotations/annotation-dom-removal/syncAnnotationCommentTextMarkupVisualOverlays';
 import { toOpaqueHighlightDisplayColor } from '@app/modules/pdf-viewer/engine/text-markup-color/toOpaqueHighlightDisplayColor';
 import { DEFAULT_ANNOTATION_SETTINGS } from '@app/constants/annotationDefaults';
@@ -48,9 +47,7 @@ interface IUsePdfViewerAnnotationRuntimeBridgeOptions {
         >;};
         highlight: Pick<
             ReturnType<typeof useAnnotationHighlight>,
-            | 'cacheCurrentTextSelection'
-            | 'cancelCommentPlacement'
-            | 'handleDocumentPointerUp'
+            'cancelCommentPlacement'
         >;
     };
 }
@@ -189,28 +186,6 @@ export const usePdfViewerAnnotationRuntimeBridge = (options: IUsePdfViewerAnnota
         return node.matches('svg[data-evb-edited-text-markup-overlay="true"]')
             || Boolean(node.closest('svg[data-evb-edited-text-markup-overlay="true"]'));
     }
-
-    const documentTarget = typeof document !== 'undefined' ? document : null;
-    useEventListener(
-        documentTarget,
-        'selectionchange',
-        () => {
-            if (isActive.value) {
-                highlight.cacheCurrentTextSelection();
-            }
-        },
-        { passive: true },
-    );
-    useEventListener(
-        documentTarget,
-        'pointerup',
-        (event) => {
-            if (isActive.value && event instanceof PointerEvent) {
-                highlight.handleDocumentPointerUp(event);
-            }
-        },
-        { passive: true },
-    );
 
     const annotationCommentIds = computed(() =>
         annotationCommentsCache.value.map(annotationIdForSummary),

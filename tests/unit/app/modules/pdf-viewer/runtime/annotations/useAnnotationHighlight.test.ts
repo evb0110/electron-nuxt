@@ -60,6 +60,7 @@ function createViewerContainer(pages: HTMLElement[]) {
 function createHighlightHarness(viewerContainer: HTMLElement) {
     return useAnnotationHighlight({
         viewerContainer: ref(viewerContainer),
+        isActive: ref(true),
         annotationUiManager: shallowRef(null),
         numPages: ref(2),
         currentPage: ref(1),
@@ -265,6 +266,7 @@ describe('useAnnotationHighlight commentAtPoint', () => {
 
         const highlight = useAnnotationHighlight({
             viewerContainer: ref(viewer),
+            isActive: ref(true),
             annotationUiManager: shallowRef(uiManager as never),
             numPages: ref(1),
             currentPage: ref(1),
@@ -391,6 +393,7 @@ describe('useAnnotationHighlight highlightSelectionInternal', () => {
 
         const highlight = useAnnotationHighlight({
             viewerContainer: ref(viewer),
+            isActive: ref(true),
             annotationUiManager: shallowRef(uiManager as never),
             numPages: ref(1),
             currentPage: ref(1),

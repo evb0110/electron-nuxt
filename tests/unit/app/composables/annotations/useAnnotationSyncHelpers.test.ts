@@ -15,7 +15,7 @@ import { buildPdfAnnotationCommentSummary } from '@app/modules/pdf-viewer/engine
 import { buildPopupIndex } from '@app/modules/pdf-viewer/engine/annotations/annotation-sync-helpers/buildPopupIndex';
 import { collectPagePdfSnapshotEntries } from '@app/modules/pdf-viewer/engine/annotations/annotation-sync-helpers/collectPagePdfSnapshotEntries';
 import { collectPdfAnnotationNamesByPage } from '@app/modules/pdf-viewer/engine/annotations/annotation-sync-helpers/collectPdfAnnotationNamesByPage';
-import { computeSummaryStableKey } from '@app/modules/pdf-viewer/annotations/domain/annotationSummaryIdentity';
+import { computeSummaryStableKey } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationSummaryIdentity';
 import { loadPdfPageAnnotations } from '@app/modules/pdf-viewer/engine/annotations/annotation-sync-helpers/loadPdfPageAnnotations';
 import { pickLatestAnnotationTimestamp } from '@app/modules/pdf-viewer/engine/annotations/annotation-sync-helpers/pickLatestAnnotationTimestamp';
 import { resolveCombinedAnnotationText } from '@app/modules/pdf-viewer/engine/annotations/annotation-sync-helpers/resolveCombinedAnnotationText';
