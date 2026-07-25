@@ -67,8 +67,6 @@ describe('usePdfSinglePageNavigationController', () => {
             gap: 20,
             paddingTop: 20,
             paddingBottom: 20,
-            fallbackWidth: null,
-            fallbackHeight: null,
         });
         if (!layout) {
             throw new Error('Expected PDF layout metrics');
@@ -158,8 +156,6 @@ describe('usePdfSinglePageNavigationController', () => {
             gap: 20,
             paddingTop: 20,
             paddingBottom: 20,
-            fallbackWidth: null,
-            fallbackHeight: null,
         });
         if (!layout) {
             throw new Error('Expected PDF layout metrics');
@@ -279,8 +275,6 @@ describe('usePdfSinglePageNavigationController', () => {
             gap: 20,
             paddingTop: 20,
             paddingBottom: 20,
-            fallbackWidth: null,
-            fallbackHeight: null,
         });
         if (!layout) {
             throw new Error('Expected PDF layout metrics');
@@ -390,8 +384,6 @@ describe('usePdfSinglePageNavigationController', () => {
             gap: 20,
             paddingTop: 20,
             paddingBottom: 20,
-            fallbackWidth: null,
-            fallbackHeight: null,
         });
         if (!layout) {
             throw new Error('Expected PDF layout metrics');
@@ -535,8 +527,6 @@ describe('usePdfSinglePageNavigationController', () => {
             gap: 20,
             paddingTop: 20,
             paddingBottom: 20,
-            fallbackWidth: null,
-            fallbackHeight: null,
         });
         if (!layout) {
             throw new Error('Expected PDF layout metrics');
@@ -744,8 +734,6 @@ describe('usePdfSinglePageNavigationController', () => {
                 gap: 20,
                 paddingTop: 20,
                 paddingBottom: 20,
-                fallbackWidth: null,
-                fallbackHeight: null,
             });
             pageSlots.markMounted(6);
             viewerRef.value = viewer;

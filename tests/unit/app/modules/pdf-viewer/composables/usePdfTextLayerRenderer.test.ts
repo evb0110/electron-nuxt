@@ -34,7 +34,10 @@ const ocrTextContentMock = vi.hoisted(() => ({
     getOcrTextContent: vi.fn(),
     hasPageOcrData: vi.fn(),
 }));
-const textLayerRuntimeMock = vi.hoisted(() => ({sources: [] as unknown[]}));
+const textLayerRuntimeMock = vi.hoisted(() => ({
+    sources: [] as unknown[],
+    updates: [] as unknown[],
+}));
 
 vi.stubGlobal('DOMMatrix', class {
     a = 1;
@@ -79,6 +82,10 @@ vi.mock('@app/services/pdfjs/runtimeLib', () => ({TextLayer: class {
             this.textDivs.push(span);
             this.textContentItemsStr.push(text);
         }
+    }
+
+    update(options: {viewport: unknown}) {
+        textLayerRuntimeMock.updates.push(options.viewport);
     }
 
     cancel() {}
@@ -126,6 +133,20 @@ function domRectLike(options: {
     });
 }
 
+function textLayerViewport(scale: number) {
+    return cast<ReturnType<PDFPageProxy['getViewport']>>({
+        scale,
+        rotation: 0,
+        width: 100 * scale,
+        height: 100 * scale,
+        userUnit: 1,
+        rawDims: {
+            pageWidth: 100,
+            pageHeight: 100,
+        },
+    });
+}
+
 describe('usePdfTextLayerRenderer', () => {
     beforeEach(() => {
         vi.clearAllMocks();
@@ -138,6 +159,7 @@ describe('usePdfTextLayerRenderer', () => {
         });
         vi.spyOn(window, 'cancelAnimationFrame').mockImplementation(() => {});
         textLayerRuntimeMock.sources.length = 0;
+        textLayerRuntimeMock.updates.length = 0;
         highlightPageMock.mockReturnValue({
             elements: [],
             currentMatchRanges: [],
@@ -239,6 +261,107 @@ describe('usePdfTextLayerRenderer', () => {
         expect(ocrTextContentMock.getOcrTextContent).toHaveBeenCalledTimes(1);
         expect(textLayerRuntimeMock.sources[0]).toBe(ocrTextContent);
         expect(textLayerDiv.textContent).toBe('sidecar ocr text');
+    });
+
+    it('relayouts the mounted spans on a scale step instead of refetching the text content', async () => {
+        const streamTextContent = vi.fn(() => ({items: [{
+            str: 'page text',
+            hasEOL: false,
+        }]}));
+        const pdfPage = cast<PDFPageProxy>({
+            pageNumber: 1,
+            getTextContent: vi.fn(),
+            streamTextContent,
+        });
+        const renderer = usePdfTextLayerRenderer({
+            searchPageMatches: ref(new Map()),
+            currentSearchMatch: ref(null),
+            workingCopyPath: ref('/tmp/book.pdf'),
+            documentRevisionToken: ref(TEST_DOCUMENT_REVISION),
+            effectiveScale: ref(1),
+        });
+        const textLayerDiv = document.createElement('div');
+        const onBeforeRebuild = vi.fn();
+
+        await renderer.renderTextLayer(
+            pdfPage, textLayerDiv, textLayerViewport(1), 1, 1, 1, undefined, onBeforeRebuild,
+        );
+        const spanAfterFirstRender = textLayerDiv.querySelector('span');
+        const zoomedViewport = textLayerViewport(2);
+        await renderer.renderTextLayer(
+            pdfPage, textLayerDiv, zoomedViewport, 2, 1, 2, undefined, onBeforeRebuild,
+        );
+
+        expect(streamTextContent).toHaveBeenCalledTimes(1);
+        expect(onBeforeRebuild).toHaveBeenCalledTimes(1);
+        expect(textLayerRuntimeMock.updates).toEqual([zoomedViewport]);
+        expect(textLayerDiv.querySelector('span')).toBe(spanAfterFirstRender);
+        expect(textLayerDiv.textContent).toBe('page text');
+        expect(textLayerDiv.dataset.pdfTextLayerReady).toBe('true');
+    });
+
+    it('rebuilds the text layer when the document revision moves under the same page', async () => {
+        const streamTextContent = vi.fn(() => ({items: [{
+            str: 'page text',
+            hasEOL: false,
+        }]}));
+        const pdfPage = cast<PDFPageProxy>({
+            pageNumber: 1,
+            getTextContent: vi.fn(),
+            streamTextContent,
+        });
+        const documentRevisionToken = ref(TEST_DOCUMENT_REVISION);
+        const renderer = usePdfTextLayerRenderer({
+            searchPageMatches: ref(new Map()),
+            currentSearchMatch: ref(null),
+            workingCopyPath: ref('/tmp/book.pdf'),
+            documentRevisionToken,
+            effectiveScale: ref(1),
+        });
+        const textLayerDiv = document.createElement('div');
+        const onBeforeRebuild = vi.fn();
+
+        await renderer.renderTextLayer(
+            pdfPage, textLayerDiv, textLayerViewport(1), 1, 1, 1, undefined, onBeforeRebuild,
+        );
+        const spanAfterFirstRender = textLayerDiv.querySelector('span');
+        documentRevisionToken.value = requireDocumentRevisionToken('revision-token-2');
+        await renderer.renderTextLayer(
+            pdfPage, textLayerDiv, textLayerViewport(1), 1, 1, 1, undefined, onBeforeRebuild,
+        );
+
+        expect(streamTextContent).toHaveBeenCalledTimes(2);
+        expect(onBeforeRebuild).toHaveBeenCalledTimes(2);
+        expect(textLayerRuntimeMock.updates).toEqual([]);
+        expect(textLayerDiv.querySelector('span')).not.toBe(spanAfterFirstRender);
+    });
+
+    it('rebuilds the text layer after its DOM has been torn down', async () => {
+        const streamTextContent = vi.fn(() => ({items: [{
+            str: 'page text',
+            hasEOL: false,
+        }]}));
+        const pdfPage = cast<PDFPageProxy>({
+            pageNumber: 1,
+            getTextContent: vi.fn(),
+            streamTextContent,
+        });
+        const renderer = usePdfTextLayerRenderer({
+            searchPageMatches: ref(new Map()),
+            currentSearchMatch: ref(null),
+            workingCopyPath: ref('/tmp/book.pdf'),
+            documentRevisionToken: ref(TEST_DOCUMENT_REVISION),
+            effectiveScale: ref(1),
+        });
+        const textLayerDiv = document.createElement('div');
+
+        await renderer.renderTextLayer(pdfPage, textLayerDiv, textLayerViewport(1), 1, 1, 1);
+        renderer.cleanupTextLayerDom(textLayerDiv);
+        await renderer.renderTextLayer(pdfPage, textLayerDiv, textLayerViewport(2), 2, 1, 2);
+
+        expect(streamTextContent).toHaveBeenCalledTimes(2);
+        expect(textLayerRuntimeMock.updates).toEqual([]);
+        expect(textLayerDiv.textContent).toBe('page text');
     });
 
     it('prefers geometry word boxes and keeps repeated words with different boxes', () => {

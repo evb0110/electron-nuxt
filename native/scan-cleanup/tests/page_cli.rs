@@ -248,22 +248,19 @@ fn final_manifest_writes_pbm_only_for_binary_outputs_and_marks_metadata() {
         .lines()
         .map(|line| serde_json::from_str::<Value>(line).unwrap())
         .collect::<Vec<_>>();
+    assert!(
+        !progress
+            .iter()
+            .any(|event| event["progress"]["stage"] == "page-analyzed"),
+        "a final render must not run a separate classification pass"
+    );
     assert_eq!(
         progress
             .iter()
-            .filter(|event| event["progress"]["stage"] == "page-analyzed")
+            .filter(|event| event["progress"]["stage"] == "page-complete")
             .count(),
         2
     );
-    let analyzed_index = progress
-        .iter()
-        .rposition(|event| event["progress"]["stage"] == "page-analyzed")
-        .unwrap();
-    let completed_index = progress
-        .iter()
-        .position(|event| event["progress"]["stage"] == "page-complete")
-        .unwrap();
-    assert!(analyzed_index < completed_index);
     assert!(progress
         .iter()
         .filter(|event| event["progress"]["stage"] == "page-complete")
@@ -1600,4 +1597,90 @@ fn batch_preserves_asymmetric_margin_order_in_named_metadata() {
         metadata_json["outputHeightPx"].as_f64().unwrap(),
         (content["heightPx"].as_f64().unwrap() + 34.0).ceil()
     );
+}
+
+#[cfg(unix)]
+#[test]
+fn final_render_publishes_each_page_without_a_whole_document_analysis_pass() {
+    let scratch = Scratch::new("incremental-final");
+    let input = scratch.path("incremental-input.png");
+    let gated_input = scratch.path("incremental-gate.fifo");
+    let manifest = scratch.path("incremental-manifest.json");
+    let encoded = encode_gray(&GrayImage::new(160, 120, 245)).unwrap();
+    fs::write(&input, &encoded).unwrap();
+    assert!(Command::new("mkfifo")
+        .arg(&gated_input)
+        .status()
+        .unwrap()
+        .success());
+    let pages = [&input, &gated_input]
+        .into_iter()
+        .enumerate()
+        .map(|(index, page_input)| {
+            serde_json::json!({
+                "inputPath": page_input,
+                "sourcePageIndex": index,
+                "pageMetadataPath": scratch.path(&format!("incremental-page-{index}.json")),
+                "options": CleanupOptions::default(),
+                "outputs": [{
+                    "outputPath": scratch.path(&format!("incremental-{index}.png")),
+                    "metadataPath": scratch.path(&format!("incremental-{index}-output.json")),
+                }],
+            })
+        })
+        .collect::<Vec<_>>();
+    fs::write(
+        &manifest,
+        serde_json::to_vec_pretty(&serde_json::json!({
+            "version": 3,
+            "operation": "render",
+            "renderMode": "final",
+            "canvasScope": "document",
+            "pages": pages,
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+
+    let mut child = Command::new(env!("CARGO_BIN_EXE_evb-scan-cleanup"))
+        .args(["--manifest", manifest.to_str().unwrap()])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .unwrap();
+    let stdout = child.stdout.take().unwrap();
+    let (sender, receiver) = std::sync::mpsc::channel();
+    let reader = std::thread::spawn(move || {
+        for line in BufReader::new(stdout).lines() {
+            sender
+                .send(serde_json::from_str::<Value>(&line.unwrap()).unwrap())
+                .unwrap();
+        }
+    });
+
+    let first_complete = loop {
+        match receiver.recv_timeout(Duration::from_secs(60)) {
+            Ok(event) if event["progress"]["stage"] == "page-complete" => break event,
+            Ok(event) => assert_ne!(
+                event["progress"]["stage"], "page-analyzed",
+                "a final render must not classify pages in a separate pass"
+            ),
+            Err(error) => {
+                let _ = child.kill();
+                panic!("no page completed while the second page was still gated: {error}");
+            }
+        }
+    };
+    assert_eq!(first_complete["progress"]["pageNumber"], 1);
+    assert_eq!(first_complete["progress"]["completedPages"], 1);
+    assert!(scratch.path("incremental-0.png").exists());
+    assert!(
+        child.try_wait().unwrap().is_none(),
+        "the gated second page should keep the batch running"
+    );
+
+    fs::write(&gated_input, encoded).unwrap();
+    assert!(child.wait().unwrap().success());
+    reader.join().unwrap();
+    assert!(scratch.path("incremental-1.png").exists());
 }

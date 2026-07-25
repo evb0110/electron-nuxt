@@ -1,11 +1,19 @@
 import {
+    mkdir,
+    readdir,
+    rm,
     stat,
     writeFile,
 } from 'node:fs/promises';
 import { join } from 'node:path';
 import { runOcrCommand } from '@electron/ocr/worker/runOcrCommand';
+import {
+    forEachConcurrent,
+    getOcrConcurrency,
+} from '@electron/utils/concurrency';
 
 const QPDF_TIMEOUT_MS = 10 * 60 * 1000;
+const SPLIT_PAGE_FILE_RE = /^page-(\d+)\.pdf$/u;
 
 interface IStreamingPdfAssemblerOptions {
     qpdfBinary: string;
@@ -37,6 +45,56 @@ async function runQpdf(binary: string, args: string[], signal?: AbortSignal) {
     });
 }
 
+async function writeQpdfArgsFile(path: string, args: readonly string[]) {
+    await writeFile(path, args.map(arg => arg.replace(/\r?\n/gu, ' ')).join('\n'));
+}
+
+async function extractSourcePages(
+    options: IStreamingPdfAssemblerOptions,
+    pageNumbers: readonly number[],
+) {
+    const splitDir = join(options.tempDir, `${options.sessionId}-source-pages`);
+    await mkdir(splitDir, {recursive: true});
+    const argsPath = options.trackTempFile(join(
+        options.tempDir,
+        `${options.sessionId}-qpdf-extract-args.txt`,
+    ));
+    await writeQpdfArgsFile(argsPath, [
+        options.originalPdfPath,
+        '--pages',
+        options.originalPdfPath,
+        pageNumbers.join(','),
+        '--',
+        '--split-pages=1',
+        join(splitDir, 'page.pdf'),
+    ]);
+    await runQpdf(options.qpdfBinary, [`@${argsPath}`], options.signal);
+
+    const produced = (await readdir(splitDir))
+        .map(name => ({
+            name,
+            index: Number(SPLIT_PAGE_FILE_RE.exec(name)?.[1] ?? Number.NaN),
+        }))
+        .filter(entry => Number.isSafeInteger(entry.index))
+        .sort((left, right) => left.index - right.index);
+    if (produced.length !== pageNumbers.length) {
+        throw new Error(
+            `qpdf extracted ${produced.length} source page(s) for ${pageNumbers.length} OCR page(s)`,
+        );
+    }
+    const pathByPage = new Map<number, string>();
+    produced.forEach((entry, index) => {
+        const pageNumber = pageNumbers[index];
+        if (pageNumber !== undefined) {
+            pathByPage.set(pageNumber, options.trackTempFile(join(splitDir, entry.name)));
+        }
+    });
+    return {
+        splitDir,
+        pathByPage,
+    };
+}
+
 function buildPageSelectionArgs(
     originalPdfPath: string,
     replacementByPage: ReadonlyMap<number, string>,
@@ -62,42 +120,46 @@ function buildPageSelectionArgs(
 }
 
 export async function assembleSearchablePdfStreaming(options: IStreamingPdfAssemblerOptions) {
+    throwIfAborted(options.signal);
+    const entries = [...options.ocrPageEntries];
+    const pageNumbers = Array.from(new Set(entries.map(([pageNumber]) => pageNumber)))
+        .sort((left, right) => left - right);
+    const extracted = await extractSourcePages(options, pageNumbers);
+
     const replacements = new Map<number, string>();
-    for (const [
-        pageNumber,
-        ocrPagePath,
-    ] of options.ocrPageEntries) {
-        throwIfAborted(options.signal);
-        const extractedPath = options.trackTempFile(join(
-            options.tempDir,
-            `${options.sessionId}-source-page-${pageNumber}.pdf`,
-        ));
-        const replacementPath = options.trackTempFile(join(
-            options.tempDir,
-            `${options.sessionId}-ocr-page-${pageNumber}.pdf`,
-        ));
-        await runQpdf(options.qpdfBinary, [
-            options.originalPdfPath,
-            '--pages',
-            options.originalPdfPath,
-            String(pageNumber),
-            '--',
-            extractedPath,
-        ], options.signal);
-        await options.mutatePage(extractedPath, ocrPagePath, replacementPath);
-        replacements.set(pageNumber, replacementPath);
+    try {
+        await forEachConcurrent(entries, getOcrConcurrency(entries.length), async ([
+            pageNumber,
+            ocrPagePath,
+        ]) => {
+            throwIfAborted(options.signal);
+            const extractedPath = extracted.pathByPage.get(pageNumber);
+            if (extractedPath === undefined) {
+                throw new Error(`Missing extracted source page ${pageNumber} for OCR assembly`);
+            }
+            const replacementPath = options.trackTempFile(join(
+                options.tempDir,
+                `${options.sessionId}-ocr-page-${pageNumber}.pdf`,
+            ));
+            await options.mutatePage(extractedPath, ocrPagePath, replacementPath);
+            replacements.set(pageNumber, replacementPath);
+        });
+    } finally {
+        await rm(extracted.splitDir, {
+            recursive: true,
+            force: true,
+        }).catch(() => undefined);
     }
 
     const outputPath = options.trackTempFile(join(options.tempDir, `${options.sessionId}-merged.pdf`));
     const argsPath = options.trackTempFile(join(options.tempDir, `${options.sessionId}-qpdf-args.txt`));
-    const args = [
+    await writeQpdfArgsFile(argsPath, [
         options.originalPdfPath,
         '--pages',
         ...buildPageSelectionArgs(options.originalPdfPath, replacements, options.pageCount),
         '--',
         outputPath,
-    ];
-    await writeFile(argsPath, args.map(arg => arg.replace(/\r?\n/gu, ' ')).join('\n'));
+    ]);
     throwIfAborted(options.signal);
     await runQpdf(options.qpdfBinary, [`@${argsPath}`], options.signal);
     if ((await stat(outputPath)).size <= 0) {

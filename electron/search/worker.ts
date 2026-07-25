@@ -25,7 +25,10 @@ import {
 import { parsePageNumber } from '@contracts/pageNumbers';
 import type { IResolvedSearchMatchOptions } from '@pdf-core';
 import type { ICachedIndex } from '@electron/search/worker/ensureSearchIndex';
-import { ensureSearchIndex } from '@electron/search/worker/ensureSearchIndex';
+import {
+    ensureSearchIndex,
+    getIndexCacheKey,
+} from '@electron/search/worker/ensureSearchIndex';
 import { collectSearchMatchWords } from '@pdf-core';
 import { decodeSearchWorkerData } from '@contracts/resourcePolicies';
 
@@ -253,7 +256,7 @@ async function tryCompleteWithNativeSearch(context: ISearchRequestContext) {
             return false;
         }
 
-        indexCache.delete(context.pdfPath);
+        indexCache.delete(getIndexCacheKey(context.pdfPath, context.documentRevision));
         sendProgress(context.requestId, 0, nativeResult.totalPages, true);
         sendProgress(context.requestId, nativeResult.totalPages, nativeResult.totalPages, true, nativeResult.response);
         postSearchComplete(context.requestId, nativeResult.response);
