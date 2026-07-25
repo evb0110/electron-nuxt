@@ -379,11 +379,6 @@ export default {
         },
         'languagePicker': {
             'searchPlaceholder': 'Поиск по языку или коду',
-            'groups': {
-                'selected': 'Выбрано',
-                'installed': 'Установлено',
-                'missing': 'Загрузка',
-            },
             'downloadSizeHint': '~10 МБ',
             'downloadFailed': 'Ошибка загрузки',
             'retryDownload': 'Запустите OCR снова, чтобы повторить загрузку языковой модели.',

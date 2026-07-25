@@ -3,6 +3,7 @@ import {
     expect,
     it,
 } from 'vitest';
+import type { TLocale } from '@i18n-app';
 import { LOCALE_CODES } from '@i18n-core';
 import { AVAILABLE_OCR_LANGUAGES } from '@contracts/ocrLanguages';
 import type { IOcrLanguage } from '@contracts/shared';
@@ -11,6 +12,7 @@ import {
     buildOcrLanguagePickerItems,
     findFailedOcrLanguageCodes,
     resolveOcrLanguageDisplayName,
+    resolveOcrLanguageShortCode,
     shouldShowOcrLanguageSearch,
     shouldShowOcrMultiLanguageHint,
 } from '@app/modules/ocr-panel/runtime/useOcrPopupPresenter';
@@ -83,34 +85,104 @@ describe('OCR language picker ordering and filtering', () => {
         expect(items.map(item => [
             item.value,
             item.group,
-            item.startsGroup,
         ])).toEqual([
             [
                 'rus',
                 'selected',
-                true,
             ],
             [
                 'spa',
                 'selected',
-                false,
             ],
             [
                 'eng',
                 'installed',
-                true,
             ],
             [
                 'fra',
                 'installed',
-                false,
             ],
             [
                 'deu',
                 'missing',
-                true,
             ],
         ]);
+    });
+
+    it('carries the code every chip renders so the list explains itself', () => {
+        const items = buildOcrLanguagePickerItems(
+            AVAILABLE_OCR_LANGUAGES,
+            [],
+            'en',
+            '',
+            new Set(),
+        );
+
+        expect(items).toHaveLength(AVAILABLE_OCR_LANGUAGES.length);
+        for (const item of items) {
+            expect(item.value).toMatch(/^[a-z]{3}$/u);
+        }
+    });
+
+    it('finds a language by its familiar two-letter code in every UI locale', () => {
+        const byQuery = (query: string, locale: TLocale) => buildOcrLanguagePickerItems(
+            AVAILABLE_OCR_LANGUAGES,
+            [],
+            locale,
+            query,
+            new Set(),
+        ).map(item => item.value);
+
+        for (const locale of LOCALE_CODES) {
+            expect(byQuery('pt', locale)).toContain('por');
+            expect(byQuery('ru', locale)).toContain('rus');
+            expect(byQuery('de', locale)).toContain('deu');
+            expect(byQuery('el', locale)).toContain('ell');
+        }
+    });
+
+    it('accepts the bibliographic code a user is likely to remember', () => {
+        const byQuery = (query: string, locale: TLocale = 'en') => buildOcrLanguagePickerItems(
+            AVAILABLE_OCR_LANGUAGES,
+            [],
+            locale,
+            query,
+            new Set(),
+        ).map(item => item.value);
+
+        // `rum` shares no substring with "Romanian" or "румынский", so only the
+        // canonicalized query can find it.
+        expect(byQuery('rum')).toEqual(['ron']);
+        expect(byQuery('rum', 'ru')).toEqual(['ron']);
+        expect(byQuery('ger', 'ru')).toEqual(['deu']);
+    });
+
+    it('finds a language by its English name while the UI runs in another locale', () => {
+        expect(buildOcrLanguagePickerItems(
+            AVAILABLE_OCR_LANGUAGES,
+            [],
+            'ru',
+            'Portuguese',
+            new Set(),
+        ).map(item => item.value)).toEqual(['por']);
+    });
+
+    it('derives short codes rather than inventing them', () => {
+        expect(resolveOcrLanguageShortCode('por')).toBe('pt');
+        expect(resolveOcrLanguageShortCode('srp')).toBe('sr');
+        expect(resolveOcrLanguageShortCode('grc')).toBeNull();
+        expect(resolveOcrLanguageShortCode('syr')).toBeNull();
+        expect(resolveOcrLanguageShortCode('not a locale')).toBeNull();
+    });
+
+    it('returns nothing for a query that matches no language', () => {
+        expect(buildOcrLanguagePickerItems(
+            AVAILABLE_OCR_LANGUAGES,
+            [],
+            'en',
+            'zzzz',
+            new Set(),
+        )).toEqual([]);
     });
 
     it('filters by localized name and Tesseract code', () => {

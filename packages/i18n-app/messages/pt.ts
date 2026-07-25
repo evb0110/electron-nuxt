@@ -791,11 +791,6 @@ export default {
         },
         'languagePicker': {
             'searchPlaceholder': 'Pesquisar idiomas ou códigos',
-            'groups': {
-                'selected': 'Selecionados',
-                'installed': 'Instalados',
-                'missing': 'Transferência',
-            },
             'downloadSizeHint': '~10 MB',
             'downloadFailed': 'Falha na transferência',
             'retryDownload': 'Execute o OCR novamente para repetir a transferência do modelo de idioma.',
