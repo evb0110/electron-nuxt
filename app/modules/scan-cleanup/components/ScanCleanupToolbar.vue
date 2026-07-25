@@ -1,26 +1,55 @@
 <template>
-    <div class="scan-cleanup-toolbar-stack">
-        <header
-            class="toolbar scan-cleanup-toolbar"
-            :aria-label="t('scanCleanup.workspaceTitle')"
-        >
-            <div class="scan-cleanup-toolbar-zone scan-cleanup-toolbar-zone-left">
-                <UButton
-                    class="scan-cleanup-toolbar-done"
-                    type="button"
-                    color="neutral"
-                    variant="ghost"
-                    size="sm"
-                    icon="i-ph-caret-left"
-                    :label="t('scanCleanup.done')"
-                    @click="emit('done')"
-                />
-                <AppTooltip :text="t('scanCleanup.description')" usefulness="always">
-                    <h2 class="scan-cleanup-toolbar-title">{{ t('scanCleanup.workspaceTitle') }}</h2>
-                </AppTooltip>
-            </div>
+    <header
+        class="toolbar scan-cleanup-toolbar"
+        :aria-label="t('scanCleanup.workspaceTitle')"
+    >
+        <div class="scan-cleanup-toolbar-zone scan-cleanup-toolbar-zone-left">
+            <UButton
+                class="scan-cleanup-toolbar-done"
+                type="button"
+                color="neutral"
+                variant="ghost"
+                size="sm"
+                icon="i-ph-caret-left"
+                :label="t('scanCleanup.done')"
+                @click="emit('done')"
+            />
+            <AppTooltip :text="t('scanCleanup.description')" usefulness="always">
+                <h2 class="scan-cleanup-toolbar-title">{{ t('scanCleanup.workspaceTitle') }}</h2>
+            </AppTooltip>
+        </div>
 
-            <div class="scan-cleanup-toolbar-zone scan-cleanup-toolbar-zone-center">
+        <div class="scan-cleanup-toolbar-zone scan-cleanup-toolbar-zone-center">
+            <div
+                v-if="isRunning"
+                class="scan-cleanup-run-meter"
+                role="progressbar"
+                :aria-label="t('scanCleanup.runStatusLabel')"
+                aria-valuemin="0"
+                aria-valuemax="100"
+                :aria-valuenow="normalizedPercent"
+                :aria-valuetext="progressText"
+            >
+                <p class="scan-cleanup-run-meter-head">
+                    <span
+                        class="scan-cleanup-run-meter-phase"
+                        role="status"
+                        aria-live="polite"
+                    >{{ progressPhaseText }}</span>
+                    <span
+                        v-if="progressCountText"
+                        class="scan-cleanup-run-meter-count"
+                    >{{ progressCountText }}</span>
+                    <span class="scan-cleanup-run-meter-percent">{{ progressPercentText }}</span>
+                </p>
+                <span class="scan-cleanup-run-meter-track">
+                    <span
+                        class="scan-cleanup-run-meter-fill"
+                        :style="{width: `${normalizedPercent}%`}"
+                    />
+                </span>
+            </div>
+            <template v-else>
                 <AppTooltip :text="t('scanCleanup.zones.toggleHint')">
                     <UButton
                         class="scan-cleanup-toolbar-zone-editor"
@@ -32,27 +61,9 @@
                         icon="i-ph-bounding-box"
                         :aria-label="t('scanCleanup.zones.toggle')"
                         :aria-pressed="zoneEditing"
-                        :disabled="isRunning"
                         @click="emit('update:zoneEditing', !zoneEditing)"
                     />
                 </AppTooltip>
-                <ol class="scan-cleanup-stepper" :aria-label="t('scanCleanup.steps.label')">
-                    <li
-                        v-for="step in steps"
-                        :key="step.number"
-                        class="scan-cleanup-step"
-                        :class="{
-                            'is-active': step.number === activeStep,
-                            'is-complete': step.number < activeStep,
-                        }"
-                        :aria-current="step.number === activeStep ? 'step' : undefined"
-                    >
-                        <span class="scan-cleanup-step-number" aria-hidden="true">
-                            {{ step.number < activeStep ? '✓' : step.number }}
-                        </span>
-                        <span>{{ step.label }}</span>
-                    </li>
-                </ol>
                 <AppTooltip :text="t('scanCleanup.detectAll.redetect')">
                     <UButton
                         class="scan-cleanup-toolbar-redetect"
@@ -68,15 +79,7 @@
                     />
                 </AppTooltip>
                 <div class="scan-cleanup-toolbar-status-slot">
-                    <template v-if="isRunning">
-                        <span
-                            class="scan-cleanup-toolbar-count"
-                            role="status"
-                            aria-live="polite"
-                            :aria-label="progressText"
-                        >{{ progressText }}</span>
-                    </template>
-                    <template v-else-if="isDetecting">
+                    <template v-if="isDetecting">
                         <span
                             class="scan-cleanup-toolbar-count"
                             role="status"
@@ -106,52 +109,41 @@
                     </span>
                     <span v-else class="scan-cleanup-toolbar-status-placeholder" aria-hidden="true">&nbsp;</span>
                 </div>
-            </div>
+            </template>
+        </div>
 
-            <div class="scan-cleanup-toolbar-zone scan-cleanup-toolbar-zone-right">
-                <div class="scan-cleanup-toolbar-primary-slot">
+        <div class="scan-cleanup-toolbar-zone scan-cleanup-toolbar-zone-right">
+            <div class="scan-cleanup-toolbar-primary-slot">
+                <UButton
+                    v-if="isRunning"
+                    class="scan-cleanup-toolbar-primary-action"
+                    type="button"
+                    color="neutral"
+                    variant="outline"
+                    size="sm"
+                    :label="cancelRequested ? t('scanCleanup.canceling') : t('scanCleanup.cancel')"
+                    :disabled="cancelRequested"
+                    @click="emit('cancel')"
+                />
+                <AppTooltip
+                    v-else
+                    :text="runDisabledReason || runLabel"
+                    usefulness="always"
+                >
                     <UButton
-                        v-if="isRunning"
                         class="scan-cleanup-toolbar-primary-action"
                         type="button"
-                        color="neutral"
-                        variant="outline"
+                        color="primary"
                         size="sm"
-                        :label="cancelRequested ? t('scanCleanup.canceling') : t('scanCleanup.cancel')"
-                        :disabled="cancelRequested"
-                        @click="emit('cancel')"
+                        icon="i-ph-play"
+                        :label="transitionText || runLabel"
+                        :disabled="!canRun"
+                        @click="emit('run')"
                     />
-                    <AppTooltip
-                        v-else
-                        :text="runDisabledReason || runLabel"
-                        usefulness="always"
-                    >
-                        <UButton
-                            class="scan-cleanup-toolbar-primary-action"
-                            type="button"
-                            color="primary"
-                            size="sm"
-                            icon="i-ph-play"
-                            :label="transitionText || runLabel"
-                            :disabled="!canRun"
-                            @click="emit('run')"
-                        />
-                    </AppTooltip>
-                </div>
+                </AppTooltip>
             </div>
-        </header>
-        <div
-            v-if="isRunning"
-            class="scan-cleanup-toolbar-progress"
-            role="progressbar"
-            :aria-label="progressText"
-            aria-valuemin="0"
-            aria-valuemax="100"
-            :aria-valuenow="normalizedPercent"
-        >
-            <span :style="{width: `${normalizedPercent}%`}" />
         </div>
-    </div>
+    </header>
 </template>
 
 <script setup lang="ts">
@@ -166,6 +158,9 @@ const {
     isRunning,
     outputEstimate,
     percent,
+    progressCountText,
+    progressPercentText,
+    progressPhaseText,
     progressText,
     runLabel,
     runDisabledReason,
@@ -182,6 +177,9 @@ const {
     isRunning: boolean;
     outputEstimate: string;
     percent: number;
+    progressCountText: string;
+    progressPercentText: string;
+    progressPhaseText: string;
     progressText: string;
     runLabel: string;
     runDisabledReason: string;
@@ -198,36 +196,13 @@ const emit = defineEmits<{
 }>();
 const {t} = useTypedI18n();
 const normalizedPercent = computed(() => Math.min(100, Math.max(0, Math.round(percent))));
-const activeStep = computed<1 | 2 | 3>(() => isRunning ? 3 : isDetecting || detectionError ? 1 : 2);
-const steps = computed(() => [
-    {
-        number: 1 as const,
-        label: t('scanCleanup.steps.detect'),
-    },
-    {
-        number: 2 as const,
-        label: t('scanCleanup.steps.review'),
-    },
-    {
-        number: 3 as const,
-        label: t('scanCleanup.steps.cleanUp'),
-    },
-]);
-
 </script>
 
 <style scoped>
-.scan-cleanup-toolbar-stack {
-    position: relative;
-    display: flex;
-    min-width: 0;
-    flex-direction: column;
-}
-
 .scan-cleanup-toolbar {
     display: grid;
     grid-template-columns:
-        var(--app-scan-toolbar-left-zone-width)
+        auto
         minmax(0, 1fr)
         var(--app-scan-toolbar-right-zone-width);
     gap: var(--app-space-7xl);
@@ -236,8 +211,6 @@ const steps = computed(() => [
 }
 
 .scan-cleanup-toolbar-zone,
-.scan-cleanup-stepper,
-.scan-cleanup-step,
 .scan-cleanup-toolbar-status-slot,
 .scan-cleanup-toolbar-primary-slot {
     display: flex;
@@ -246,9 +219,7 @@ const steps = computed(() => [
 }
 
 .scan-cleanup-toolbar-zone-left {
-    width: var(--app-scan-toolbar-left-zone-width);
     gap: var(--app-space-5xl);
-    overflow: hidden;
 }
 
 .scan-cleanup-toolbar-zone-center {
@@ -268,46 +239,61 @@ const steps = computed(() => [
 }
 
 .scan-cleanup-toolbar-title {
-    min-width: 0;
-    overflow: hidden;
+    flex: none;
     color: var(--ui-text-highlighted);
     font-size: var(--app-text-size-body);
     font-weight: var(--app-font-weight-heading);
-    text-overflow: ellipsis;
     white-space: nowrap;
 }
 
-.scan-cleanup-stepper {
-    width: var(--app-scan-toolbar-stepper-width);
-    flex: none;
-    justify-content: center;
-    gap: var(--app-space-3xl);
-    color: var(--ui-text-dimmed);
-    font-size: var(--app-text-size-kicker);
-    white-space: nowrap;
-}
-
-.scan-cleanup-step {
+.scan-cleanup-run-meter {
+    display: flex;
+    width: min(100%, var(--app-scan-toolbar-meter-width));
+    flex-direction: column;
     gap: var(--app-space-sm);
 }
 
-.scan-cleanup-step + .scan-cleanup-step::before {
-    margin-inline-end: var(--app-space-sm);
-    color: var(--ui-border);
-    content: '·';
+.scan-cleanup-run-meter-head {
+    display: flex;
+    align-items: baseline;
+    gap: var(--app-space-3xl);
+    font-size: var(--app-text-size-body-sm);
+    white-space: nowrap;
 }
 
-.scan-cleanup-step.is-active {
-    color: var(--ui-text);
+.scan-cleanup-run-meter-phase {
+    min-width: 0;
+    overflow: hidden;
+    color: var(--ui-text-highlighted);
     font-weight: var(--app-font-weight-heading);
+    text-overflow: ellipsis;
 }
 
-.scan-cleanup-step.is-complete {
+.scan-cleanup-run-meter-count {
     color: var(--ui-text-muted);
+    font-variant-numeric: tabular-nums;
 }
 
-.scan-cleanup-step-number {
+.scan-cleanup-run-meter-percent {
+    margin-inline-start: auto;
+    color: var(--ui-text-muted);
     font-variant-numeric: tabular-nums;
+}
+
+.scan-cleanup-run-meter-track {
+    display: block;
+    overflow: hidden;
+    width: 100%;
+    height: var(--app-scan-toolbar-progress-height);
+    border-radius: var(--app-radius-full);
+    background: var(--ui-bg-muted);
+}
+
+.scan-cleanup-run-meter-fill {
+    display: block;
+    height: 100%;
+    background: var(--ui-primary);
+    transition: width var(--app-transition-standard);
 }
 
 .scan-cleanup-toolbar-redetect {
@@ -360,21 +346,5 @@ const steps = computed(() => [
 
 .scan-cleanup-toolbar-error {
     color: var(--ui-error);
-}
-
-.scan-cleanup-toolbar-progress {
-    position: absolute;
-    inset-block-end: 0;
-    inset-inline: 0;
-    height: var(--app-scan-toolbar-progress-height);
-    overflow: hidden;
-    background: var(--ui-bg-muted);
-}
-
-.scan-cleanup-toolbar-progress > span {
-    display: block;
-    height: 100%;
-    background: var(--ui-primary);
-    transition: width var(--app-transition-standard);
 }
 </style>

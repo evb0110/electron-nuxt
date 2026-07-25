@@ -41,6 +41,7 @@ function createDeferred<T>() {
 }
 
 const state = vi.hoisted(() => ({
+    cancelAbortableOperations: vi.fn(() => 0),
     cancelMaterialization: vi.fn(),
     ensureMaterialized: vi.fn(),
     fenceRegistrations: [] as number[],
@@ -95,7 +96,10 @@ vi.mock('@electron/file-access/workingCopyMaterialization', () => ({
     ensureWorkingCopyMaterialized: state.ensureMaterialized,
 }));
 
-vi.mock('@electron/operation-lifecycle/mainOperationLifecycle', () => ({snapshotMainOperations: () => state.operations}));
+vi.mock('@electron/operation-lifecycle/mainOperationLifecycle', () => ({
+    cancelAbortableMainOperationsForWorkingCopy: state.cancelAbortableOperations,
+    snapshotMainOperations: () => state.operations,
+}));
 
 vi.mock('@electron/file-access/workingCopyDirectory', () => ({
     isWorkingCopyDirectoryName: (name: string) => name.startsWith('pdf-work-'),
@@ -142,6 +146,7 @@ function registerWorkingCopy(
 describe('working-copy cleanup materialization retirement', () => {
     beforeEach(async () => {
         state.tempRoot = await mkdtemp(join(tmpdir(), 'evb-working-copy-cleanup-'));
+        state.cancelAbortableOperations.mockClear();
         state.cancelMaterialization.mockReset();
         state.ensureMaterialized.mockReset();
         state.fenceRegistrations.length = 0;
@@ -281,6 +286,26 @@ describe('working-copy cleanup materialization retirement', () => {
             'Working-copy materialization cancelled during cleanup',
         );
         expect(state.workingCopyMap.has(workingPath)).toBe(true);
+    });
+
+    it('stops long native work on the working copy before its directory goes away', async () => {
+        const originalPath = join(state.tempRoot, 'running-original.pdf');
+        const workingPath = join(state.tempRoot, 'pdf-work-running', 'working.pdf');
+        mkdirSync(dirname(workingPath), {recursive: true});
+        writeFileSync(originalPath, 'original');
+        writeFileSync(workingPath, 'managed');
+        registerWorkingCopy(workingPath, originalPath, 'eager');
+        let directoryExistedAtCancel = false;
+        state.cancelAbortableOperations.mockImplementation(() => {
+            directoryExistedAtCancel = existsSync(dirname(workingPath));
+            return 1;
+        });
+
+        await cleanupWorkingCopy(workingPath, 7);
+
+        expect(state.cancelAbortableOperations).toHaveBeenCalledWith(workingPath, 'Working copy is closing');
+        expect(directoryExistedAtCancel).toBe(true);
+        expect(existsSync(dirname(workingPath))).toBe(false);
     });
 
     it('never deletes an original backing located under the managed directory', async () => {

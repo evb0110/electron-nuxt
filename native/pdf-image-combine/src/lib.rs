@@ -178,7 +178,6 @@ pub struct PdfBuildOptions {
     pub max_pages: usize,
     pub max_pixels: u64,
     pub max_bilevel_pixels: u64,
-    pub max_total_pixels: u64,
     pub max_output_bytes: u64,
     pub max_tiff_frames: usize,
 }
@@ -190,7 +189,6 @@ impl Default for PdfBuildOptions {
             max_pages: 500,
             max_pixels: DEFAULT_MAX_IMAGE_PIXELS,
             max_bilevel_pixels: DEFAULT_MAX_BILEVEL_PIXELS,
-            max_total_pixels: 512_000_000,
             max_output_bytes: 512 * 1024 * 1024,
             max_tiff_frames: 250,
         }
@@ -215,7 +213,6 @@ where
 
     let output = OutputLimitWriter::new(output, options.max_output_bytes);
     let mut page_count = 0usize;
-    let mut total_pixels = 0u64;
     let output = write_pdf_to_writer(output, |pdf| {
         for (index, spec) in page_specs.by_ref().enumerate() {
             match spec {
@@ -231,7 +228,6 @@ where
                         frames,
                         options,
                         &mut page_count,
-                        &mut total_pixels,
                     )?;
                 }
                 PageSpec::Layered {
@@ -243,16 +239,6 @@ where
                     page_count = next_page_count_with_limit(page_count, options.max_pages)?;
                     let background = read_exact_image(background, options, Some(page_size))?;
                     let foreground_mask = read_mask(foreground_mask, options.max_bilevel_pixels)?;
-                    total_pixels = add_pixels_with_limit(
-                        total_pixels,
-                        image_pixels(&background),
-                        options.max_total_pixels,
-                    )?;
-                    total_pixels = add_pixels_with_limit(
-                        total_pixels,
-                        mask_pixels(&foreground_mask),
-                        options.max_total_pixels,
-                    )?;
                     pdf.add_layered_page(&LayeredPdfPage {
                         page_size,
                         background: image_page_to_layered_image(background)?,
@@ -266,11 +252,6 @@ where
                 } => {
                     page_count = next_page_count_with_limit(page_count, options.max_pages)?;
                     let foreground_mask = read_mask(foreground_mask, options.max_bilevel_pixels)?;
-                    total_pixels = add_pixels_with_limit(
-                        total_pixels,
-                        mask_pixels(&foreground_mask),
-                        options.max_total_pixels,
-                    )?;
                     pdf.add_mask_page(&MaskPdfPage {
                         page_size,
                         foreground_mask,
@@ -291,12 +272,9 @@ fn write_image_spec<W: Write>(
     frames: FramePolicy,
     options: &PdfBuildOptions,
     page_count: &mut usize,
-    total_pixels: &mut u64,
 ) -> Result<()> {
     let mut add_page = |page: ImagePage| {
         *page_count = next_page_count_with_limit(*page_count, options.max_pages)?;
-        *total_pixels =
-            add_pixels_with_limit(*total_pixels, image_pixels(&page), options.max_total_pixels)?;
         if let Some(page_size) = page_size {
             pdf.add_page_with_size(&page, page_size)
         } else {
@@ -504,26 +482,6 @@ fn next_page_count_with_limit(current: usize, max_pages: usize) -> Result<usize>
         return Err(format!("Combined PDF is capped at {max_pages} pages").into());
     }
     Ok(next)
-}
-
-fn add_pixels_with_limit(current: u64, added: u64, max_total_pixels: u64) -> Result<u64> {
-    let next = current
-        .checked_add(added)
-        .ok_or("Combined PDF aggregate pixel count overflow")?;
-    if next > max_total_pixels {
-        return Err(
-            format!("Combined PDF aggregate pixels are capped at {max_total_pixels}").into(),
-        );
-    }
-    Ok(next)
-}
-
-fn image_pixels(page: &ImagePage) -> u64 {
-    u64::from(page.width) * u64::from(page.height)
-}
-
-fn mask_pixels(mask: &crate::netpbm::PbmP4Image) -> u64 {
-    u64::from(mask.width) * u64::from(mask.height)
 }
 
 fn bilevel_image_page(mut image: crate::netpbm::PbmP4Image) -> Result<ImagePage> {
@@ -1000,16 +958,11 @@ mod tests {
     }
 
     #[test]
-    fn frame_visits_apply_page_and_pixel_limits_before_progress() {
+    fn frame_visits_apply_page_and_frame_limits_before_progress() {
         let tiff = two_page_tiff();
         for options in [
             PdfBuildOptions {
                 max_pages: 1,
-                max_tiff_frames: 10,
-                ..PdfBuildOptions::default()
-            },
-            PdfBuildOptions {
-                max_total_pixels: 1,
                 max_tiff_frames: 10,
                 ..PdfBuildOptions::default()
             },

@@ -6,6 +6,7 @@ import {
     vi,
 } from 'vitest';
 import type {WebContents} from 'electron';
+import {decodeScanCleanupRuntimePolicy} from '@contracts/resourcePolicies';
 import {createScanCleanupService} from '@electron/features/scan-cleanup/createScanCleanupService';
 
 const mocks = vi.hoisted(() => {
@@ -29,8 +30,10 @@ const mocks = vi.hoisted(() => {
     }));
     return {
         acquire,
+        logicalCpus: 11,
         resourceTier: 'high' as 'low' | 'medium' | 'high',
         runWorker,
+        totalRamBytes: 32 * 1024 ** 3,
     };
 });
 
@@ -41,7 +44,11 @@ vi.mock('@electron/resources/jobBroker', () => {
     return {mainJobBroker: {acquire: mocks.acquire}};
 });
 vi.mock('@electron/resources/hostResourceProfile', () => (
-    {getHostResourceProfileSnapshot: () => ({tier: mocks.resourceTier})}
+    {getHostResourceProfileSnapshot: () => ({
+        tier: mocks.resourceTier,
+        logicalCpus: mocks.logicalCpus,
+        totalRamBytes: mocks.totalRamBytes,
+    })}
 ));
 vi.mock('@electron/pdf/nativeToolPaths', () => {
     const getPdfNativeToolPaths = () => ({
@@ -146,7 +153,11 @@ describe('scan cleanup service', () => {
             nativeProcesses: rasterConcurrency,
             ioWeight: 4,
         }}));
-        expect(mocks.runWorker.mock.calls[0]![2]).toEqual({rasterConcurrency});
+        expect(decodeScanCleanupRuntimePolicy(mocks.runWorker.mock.calls[0]![2])).toEqual({
+            rasterConcurrency,
+            logicalCpus: mocks.logicalCpus,
+            totalRamBytes: mocks.totalRamBytes,
+        });
     });
 
     it('treats cancellation of an already-terminal owned job as a successful no-op', async () => {

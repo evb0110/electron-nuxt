@@ -25,7 +25,7 @@ import { runNativeCommand } from '@electron/native-tools/runNativeCommand';
 import { resolveNativeToolPath } from '@electron/native-tools/resolveNativeToolPath';
 import { probeNativeNetpbm } from '@electron/features/djvu/main/probeNativeNetpbm';
 import { withCompactDjvuResourceLease } from '@electron/features/djvu/main/withCompactDjvuResourceLease';
-import { createCompactDjvuProgressHandler } from '@electron/features/djvu/main/createCompactDjvuProgressHandler';
+import { createPdfCombineProgressHandler } from '@electron/native-tools/createPdfCombineProgressHandler';
 import { createLogger } from '@electron/utils/createLogger';
 import { getErrorMessage } from '@electron/utils/error';
 import {
@@ -260,9 +260,11 @@ export async function buildCompactDjvuAwarePdfFromDjvu(options: ICompactDjvuPdfE
                     ...process.env,
                     EVB_PDF_COMBINE_MAX_PAGES: String(Math.max(pageSpecs.length, 1)),
                 },
-                onStdout: createCompactDjvuProgressHandler(
+                onStdout: createPdfCombineProgressHandler(
                     pageSpecs.length,
-                    emitProgress,
+                    (processed, total) => emitProgress(PROGRESS_COMBINE_START + Math.round(
+                        (processed / total) * (PROGRESS_COMBINE_CAP - PROGRESS_COMBINE_START),
+                    )),
                     line => logger.debug(`Ignoring malformed native compact PDF progress: ${line}`),
                 ),
             },

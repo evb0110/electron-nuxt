@@ -201,9 +201,13 @@ export interface IScanCleanupService {
 function resolveScanCleanupRuntimePolicy(
     profile: IHostResourceProfileSnapshot,
 ): IScanCleanupRuntimePolicy {
-    return {rasterConcurrency: profile.tier === 'low'
-        ? 1
-        : profile.tier === 'medium' ? 2 : 3};
+    return {
+        rasterConcurrency: profile.tier === 'low'
+            ? 1
+            : profile.tier === 'medium' ? 2 : 3,
+        logicalCpus: profile.logicalCpus,
+        totalRamBytes: profile.totalRamBytes,
+    };
 }
 
 export function createScanCleanupService(): IScanCleanupService {

@@ -14,6 +14,7 @@ import {
 import type {TDocumentRef} from '@contracts/documentRef';
 import type {ComputedRef} from 'vue';
 import {applyScanCleanupDetectionResults} from '@app/modules/scan-cleanup/runtime/applyScanCleanupDetectionResults';
+import {formatScanCleanupProgress} from '@app/modules/scan-cleanup/runtime/formatScanCleanupProgress';
 import {
     scanCleanupAutoDetectionCanceledDocuments as autoDetectionCanceledDocuments,
     scanCleanupDetectionSessionCache as detectionSessionCache,
@@ -147,15 +148,7 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
         percent: 0,
         completedPageNumbers: [],
     });
-    const progressText = computed(() => t(
-        progress.value.stage === 'rasterizing'
-            ? 'scanCleanup.detectAll.rasterizingProgress'
-            : 'scanCleanup.detectAll.analyzingProgress',
-        {
-            completed: progress.value.completedUnits,
-            total: progress.value.totalUnits,
-        },
-    ));
+    const progressText = computed(() => formatScanCleanupProgress(progress.value, t).text);
     const blankPageCount = computed(() => jobState.value?.status === 'completed'
         ? jobState.value.results.filter(result => result.recommendedOutputModeReason === 'blank').length
         : 0);

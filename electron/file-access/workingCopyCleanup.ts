@@ -43,7 +43,10 @@ import {
     cancelWorkingCopyMaterialization,
     ensureWorkingCopyMaterialized,
 } from '@electron/file-access/workingCopyMaterialization';
-import { snapshotMainOperations } from '@electron/operation-lifecycle/mainOperationLifecycle';
+import {
+    cancelAbortableMainOperationsForWorkingCopy,
+    snapshotMainOperations,
+} from '@electron/operation-lifecycle/mainOperationLifecycle';
 
 const logger = createLogger('working-copy');
 const STALE_WORK_DIR_MAX_AGE_MS = (() => {
@@ -345,6 +348,14 @@ export async function cleanupWorkingCopy(workingPath: string, senderWebContentsI
     ) {
         logger.warn(`Rejected cleanup for working copy path owned by another sender "${normalizedPath}"`);
         return;
+    }
+
+    const canceledOperations = cancelAbortableMainOperationsForWorkingCopy(
+        normalizedPath,
+        'Working copy is closing',
+    );
+    if (canceledOperations > 0) {
+        logger.debug(`Cancelled ${canceledOperations} abortable operation(s) for a closing working copy`);
     }
 
     await drainWorkingCopyMutations(normalizedPath);

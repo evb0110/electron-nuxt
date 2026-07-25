@@ -60,7 +60,7 @@ import { createLogger } from '@electron/utils/createLogger';
 import { getErrorMessage } from '@electron/utils/error';
 import { getWorkingCopyRevision } from '@electron/file-access/documentRevisionStore';
 import { normalizePathForLookup } from '@electron/file-access/workingCopyStore';
-import { estimateOcrRequestWork } from '@electron/ocr/estimateOcrRequestWork';
+import { estimateOcrRequestBytes } from '@electron/ocr/estimateOcrRequestBytes';
 import {
     ensureOcrQueueCapacity,
     getBufferedOcrBytes,
@@ -249,17 +249,13 @@ const {
 });
 
 function ensureQueueCapacity(
-    additionalWork: {
-        bytes: number;
-        pageWork: number;
-        documentJobKey: string
-    },
+    additionalBytes: number,
     options: { excludePreparingJobId?: string } = {},
 ){
     return ensureOcrQueueCapacity({
         activeJobs: activeJobs.values(),
         preparingJobs,
-    }, additionalWork, options);
+    }, additionalBytes, options);
 }
 
 function logQueueDepth(context: string) {
@@ -714,7 +710,7 @@ export async function handleOcrCreateSearchablePdfAsync(
         }
         reservedDocumentJobKey = documentJobKey;
 
-        const requestWork = estimateOcrRequestWork(pages, options);
+        const requestedBytes = estimateOcrRequestBytes(pages, options);
         const startResult = createDeferred<IOcrQueueStartResult>();
         const handle = ocrJobs.start({
             jobId: requestId,
@@ -765,8 +761,7 @@ export async function handleOcrCreateSearchablePdfAsync(
                     webContentsId: context.senderId,
                     sourcePdfPath,
                     documentRevision,
-                    requestedBytes: requestWork.bytes,
-                    pageWork: requestWork.pageWork,
+                    requestedBytes,
                     startedAtMs: Date.now(),
                 };
                 preparingJobs.set(scopedJobId, preparingJob);
@@ -779,11 +774,7 @@ export async function handleOcrCreateSearchablePdfAsync(
                 };
 
                 try {
-                    const capacityResult = ensureQueueCapacity({
-                        bytes: requestWork.bytes,
-                        pageWork: requestWork.pageWork,
-                        documentJobKey,
-                    }, {excludePreparingJobId: scopedJobId});
+                    const capacityResult = ensureQueueCapacity(requestedBytes, {excludePreparingJobId: scopedJobId});
                     if (!capacityResult.ok) {
                         const failure = createOcrQueueFailure(
                             requestId,
@@ -808,11 +799,7 @@ export async function handleOcrCreateSearchablePdfAsync(
                         resolveStart(recheckBlock);
                         return finishPreparationFailure(preparingJob, recheckBlock);
                     }
-                    const capacityRecheck = ensureQueueCapacity({
-                        bytes: requestWork.bytes,
-                        pageWork: requestWork.pageWork,
-                        documentJobKey,
-                    }, {excludePreparingJobId: scopedJobId});
+                    const capacityRecheck = ensureQueueCapacity(requestedBytes, {excludePreparingJobId: scopedJobId});
                     if (!capacityRecheck.ok) {
                         const failure = createOcrQueueFailure(
                             requestId,

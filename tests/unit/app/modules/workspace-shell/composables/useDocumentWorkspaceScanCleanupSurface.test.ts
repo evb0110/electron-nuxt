@@ -8,9 +8,34 @@ import {
 } from 'vitest';
 import {useDocumentWorkspaceScanCleanupSurface} from '@app/modules/workspace-shell/composables/useDocumentWorkspaceScanCleanupSurface';
 import type {IDocumentWorkspaceProps} from '@app/modules/workspace-shell/composables/createDocumentWorkspaceCommandBindings';
+import type {IWorkspaceDocumentIdentity} from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
 import type {ITabViewSessionState} from '@app/modules/workspace-shell/tabs/tabSessionStoreTypes';
 
 type TDocumentSession = NonNullable<IDocumentWorkspaceProps['documentSession']>;
+
+function identity(overrides: Partial<IWorkspaceDocumentIdentity> = {}): IWorkspaceDocumentIdentity {
+    return {
+        documentSessionKey: 'session-1',
+        documentInstanceId: null,
+        documentRef: '/docs/current.pdf',
+        originalPath: '/docs/current.pdf',
+        workingCopyPath: '/work/current.pdf',
+        fileName: 'current.pdf',
+        isDjvu: false,
+        revisionInfo: null,
+        ...overrides,
+    };
+}
+
+function emptyIdentity(): IWorkspaceDocumentIdentity {
+    return identity({
+        documentSessionKey: null,
+        documentRef: null,
+        originalPath: null,
+        workingCopyPath: null,
+        fileName: null,
+    });
+}
 
 function viewState(overrides: Partial<ITabViewSessionState> = {}): ITabViewSessionState {
     return {
@@ -52,6 +77,7 @@ describe('useDocumentWorkspaceScanCleanupSurface', () => {
     it('reads, writes, and clears the document session view state', () => {
         const snapshot = ref({
             ...({} as TDocumentSession['snapshot']['value']),
+            identity: identity(),
             viewState: viewState({scanCleanup: {
                 previewPage: 3,
                 previewViewMode: 'cleaned',
@@ -92,6 +118,7 @@ describe('useDocumentWorkspaceScanCleanupSurface', () => {
     it('preserves an existing scan-cleanup page while restoring an already-open surface', () => {
         const snapshot = ref({
             ...({} as TDocumentSession['snapshot']['value']),
+            identity: identity(),
             viewState: viewState({
                 surfaceMode: 'scan-cleanup',
                 scanCleanup: {
@@ -116,5 +143,81 @@ describe('useDocumentWorkspaceScanCleanupSurface', () => {
         expect(surface.surfaceMode.value).toBe('scan-cleanup');
         expect(surface.scanCleanupSessionState.value?.previewPage).toBe(3);
         expect(documentSession.applyViewState).not.toHaveBeenCalled();
+    });
+
+    it('leaves the scan-cleanup surface when the document identity empties', async () => {
+        const snapshot = ref({
+            ...({} as TDocumentSession['snapshot']['value']),
+            identity: identity(),
+            viewState: viewState({
+                surfaceMode: 'scan-cleanup',
+                scanCleanup: {
+                    previewPage: 3,
+                    previewViewMode: 'cleaned',
+                },
+            }),
+        });
+        const documentSession: TDocumentSession = {
+            ...({} as TDocumentSession),
+            snapshot,
+            applyViewState: vi.fn((next: typeof snapshot.value.viewState) => {
+                snapshot.value = {
+                    ...snapshot.value,
+                    viewState: next,
+                };
+            }),
+        };
+
+        const surface = useDocumentWorkspaceScanCleanupSurface({
+            documentSession,
+            initialViewState: null,
+            closeAllDropdowns: vi.fn(),
+            readDocumentKey: () => '/docs/current.pdf',
+        });
+        expect(surface.surfaceMode.value).toBe('scan-cleanup');
+
+        snapshot.value = {
+            ...snapshot.value,
+            identity: emptyIdentity(),
+        };
+        await nextTick();
+
+        expect(surface.surfaceMode.value).toBe('reader');
+        expect(surface.scanCleanupSessionState.value).toBeNull();
+    });
+
+    it('stays on the reader surface for a session that never had a document', async () => {
+        const snapshot = ref({
+            ...({} as TDocumentSession['snapshot']['value']),
+            identity: emptyIdentity(),
+            viewState: viewState(),
+        });
+        const documentSession: TDocumentSession = {
+            ...({} as TDocumentSession),
+            snapshot,
+            applyViewState: vi.fn((next: typeof snapshot.value.viewState) => {
+                snapshot.value = {
+                    ...snapshot.value,
+                    viewState: next,
+                };
+            }),
+        };
+
+        const surface = useDocumentWorkspaceScanCleanupSurface({
+            documentSession,
+            initialViewState: null,
+            closeAllDropdowns: vi.fn(),
+            readDocumentKey: () => null,
+        });
+
+        snapshot.value = {
+            ...snapshot.value,
+            identity: identity(),
+        };
+        await nextTick();
+        surface.openScanCleanup();
+        await nextTick();
+
+        expect(surface.surfaceMode.value).toBe('scan-cleanup');
     });
 });

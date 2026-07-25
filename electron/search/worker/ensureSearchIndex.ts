@@ -76,6 +76,8 @@ function getIndexBuildKey(
     return getIndexCacheKey(pdfPath, documentRevision);
 }
 
+const MAX_SEARCH_INDEX_REBUILD_ATTEMPTS = 2;
+
 const inFlightIndexBuilds = new Map<string, IInFlightSearchIndexBuild>();
 
 function isPositiveInteger(value: unknown): value is number {
@@ -262,11 +264,6 @@ function shouldRebuildCachedIndex(
         return true;
     }
     if (entry.index.documentRevision?.token !== documentRevision) {
-        return true;
-    }
-
-    const hasAnyText = entry.index.pages.some(page => (page.text ?? '').length > 0);
-    if (!hasAnyText && entry.index.pages.length > 0) {
         return true;
     }
 
@@ -485,7 +482,11 @@ export async function ensureSearchIndex(
 
     let entry = await loadCachedIndex(indexCache, pdfPath, documentRevision, cacheOptions);
     ensureOptions.throwIfCancelled(signal);
-    while (!entry || shouldRebuildCachedIndex(entry, documentRevision, expectedCount)) {
+    let rebuildAttempts = 0;
+    while (!entry || (
+        rebuildAttempts < MAX_SEARCH_INDEX_REBUILD_ATTEMPTS
+        && shouldRebuildCachedIndex(entry, documentRevision, expectedCount)
+    )) {
         entry = await waitForInFlightIndexBuild(createInFlightIndexBuild(
             indexCache,
             pdfPath,
@@ -493,6 +494,7 @@ export async function ensureSearchIndex(
             cacheOptions,
             expectedCount,
         ), signal, ensureOptions.onPageIndexed);
+        rebuildAttempts += 1;
         ensureOptions.throwIfCancelled(signal);
     }
 

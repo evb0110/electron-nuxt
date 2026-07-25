@@ -14,6 +14,7 @@
                     size="xs"
                     portal="body"
                     :ui="{content: 'min-w-fit'}"
+                    :disabled="disabled"
                     :aria-label="t('scanCleanup.pages.sort.label')"
                 />
             </div>
@@ -46,6 +47,7 @@
             item-tag="div"
             role="listbox"
             aria-multiselectable="true"
+            :aria-disabled="disabled"
             :aria-label="t('scanCleanup.pages.title')"
             tabindex="0"
             @go-to-page="handleRowClick"
@@ -1121,6 +1123,9 @@ function includeLabel(page: number) {
 }
 
 function handleRowClick(position: number, event?: MouseEvent) {
+    if (props.disabled) {
+        return;
+    }
     const intent: TScanCleanupSelectionIntent = event?.shiftKey
         ? 'range'
         : event?.ctrlKey || event?.metaKey ? 'toggle' : 'single';
@@ -1128,6 +1133,9 @@ function handleRowClick(position: number, event?: MouseEvent) {
 }
 
 function handleKeydown(event: KeyboardEvent) {
+    if (props.disabled) {
+        return;
+    }
     if (
         event.target instanceof HTMLElement
         && [

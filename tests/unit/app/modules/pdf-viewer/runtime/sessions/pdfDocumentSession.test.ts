@@ -554,6 +554,131 @@ describe('PdfDocumentSession range loading', () => {
         );
     });
 
+    it('queues a range request burst wider than the serialized read chain instead of failing the load', async () => {
+        const deferred = Promise.withResolvers<{
+            numPages: number;
+            getPage: ReturnType<typeof vi.fn>;
+            destroy: ReturnType<typeof vi.fn>;
+        }>();
+        const destroy = vi.fn(() => {
+            deferred.reject(new Error('range load aborted'));
+            return Promise.resolve();
+        });
+
+        pdfjsState.getDocument.mockReturnValue({
+            promise: deferred.promise,
+            destroy,
+        });
+        electronApi.documentFiles.readFileRange.mockImplementation(async (
+            _path: string,
+            _offset: number,
+            length: number,
+        ) => new Uint8Array(length));
+
+        const documentState = createPdfDocumentSession();
+        const loadPromise = documentState.loadPdf({
+            kind: 'path',
+            path: '/tmp/range-burst.pdf',
+            size: 80 * 1024 * 1024,
+        });
+
+        await vi.waitFor(() => {
+            expect(pdfjsState.getDocument).toHaveBeenCalledTimes(1);
+        });
+
+        const getDocumentArg = pdfjsState.getDocument.mock.calls[0]?.[0] as { range?: MockPdfDataRangeTransport } | undefined;
+        const range = getDocumentArg?.range;
+        expect(range).toBeInstanceOf(MockPdfDataRangeTransport);
+        range?.onDataRange.mockClear();
+
+        const burstSize = 64;
+        for (let index = 0; index < burstSize; index += 1) {
+            const begin = (2 + index) * 1024 * 1024;
+            range?.requestDataRange?.(begin, begin + (1024 * 1024));
+        }
+
+        await vi.waitFor(() => {
+            expect(range?.onDataRange).toHaveBeenCalledTimes(burstSize);
+        });
+        expect(loggerError).not.toHaveBeenCalled();
+        expect(range?.abort).not.toHaveBeenCalled();
+
+        deferred.resolve({
+            numPages: 1,
+            getPage: vi.fn(async () => ({
+                cleanup: vi.fn(),
+                getViewport: vi.fn(() => ({
+                    width: 100,
+                    height: 200,
+                })),
+            })),
+            destroy,
+        });
+
+        await expect(loadPromise).resolves.not.toBeNull();
+    });
+
+    it('stops reading queued ranges once the load has already failed', async () => {
+        const deferred = Promise.withResolvers<{
+            numPages: number;
+            getPage: ReturnType<typeof vi.fn>;
+            destroy: ReturnType<typeof vi.fn>;
+        }>();
+        const destroy = vi.fn(() => {
+            deferred.reject(new Error('range load aborted'));
+            return Promise.resolve();
+        });
+
+        pdfjsState.getDocument.mockReturnValue({
+            promise: deferred.promise,
+            destroy,
+        });
+
+        const failingBegin = 2 * 1024 * 1024;
+        electronApi.documentFiles.readFileRange.mockImplementation(async (
+            _path: string,
+            offset: number,
+            length: number,
+        ) => {
+            if (offset === failingBegin) {
+                throw new Error('range read failed');
+            }
+            return new Uint8Array(length);
+        });
+
+        const documentState = createPdfDocumentSession();
+        const loadPromise = documentState.loadPdf({
+            kind: 'path',
+            path: '/tmp/range-burst-failure.pdf',
+            size: 80 * 1024 * 1024,
+        });
+
+        await vi.waitFor(() => {
+            expect(pdfjsState.getDocument).toHaveBeenCalledTimes(1);
+        });
+
+        const getDocumentArg = pdfjsState.getDocument.mock.calls[0]?.[0] as { range?: MockPdfDataRangeTransport } | undefined;
+        const range = getDocumentArg?.range;
+        expect(range).toBeInstanceOf(MockPdfDataRangeTransport);
+        electronApi.documentFiles.readFileRange.mockClear();
+        range?.onDataRange.mockClear();
+
+        for (let index = 0; index < 8; index += 1) {
+            const begin = failingBegin + (index * 1024 * 1024);
+            range?.requestDataRange?.(begin, begin + (1024 * 1024));
+        }
+
+        await expect(loadPromise).resolves.toBeNull();
+
+        expect(electronApi.documentFiles.readFileRange).toHaveBeenCalledTimes(1);
+        expect(electronApi.documentFiles.readFileRange).toHaveBeenCalledWith(
+            '/tmp/range-burst-failure.pdf',
+            failingBegin,
+            1024 * 1024,
+        );
+        expect(range?.onDataRange).not.toHaveBeenCalled();
+    });
+
     it('fulfills a PDF.js range request with multiple platform reads when a read is short', async () => {
         const deferred = Promise.withResolvers<{
             numPages: number;

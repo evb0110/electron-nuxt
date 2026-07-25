@@ -37,6 +37,14 @@ vi.mock('@vueuse/core', () => ({useIntervalFn: mocks.useIntervalFn}));
 vi.mock('@app/utils/getSystemCapability', () => (
     {getSystemCapability: () => ({getMemoryInfo: mocks.getMemoryInfo})}
 ));
+vi.mock('@app/utils/getHostCapability', () => (
+    {getHostCapability: () => ({getResourceProfile: () => ({
+        logicalCpus: 8,
+        performanceMode: 'auto',
+        tier: 'high',
+        totalRamBytes: 32 * 1024 ** 3,
+    })})}
+));
 vi.mock('@app/modules/workspace-shell/memory/workspaceSurfaceBudgetController', () => (
     {workspaceSurfaceBudgetController: {
         getSnapshot: mocks.getSnapshot,

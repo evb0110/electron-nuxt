@@ -32,6 +32,7 @@ import {
     renderPdfPageToPng,
     renderPdfPageToPpm,
 } from '@electron/ocr/worker/popplerStage';
+import { createPdfCombineProgressHandler } from '@electron/native-tools/createPdfCombineProgressHandler';
 import { runNativeToolCommand } from '@electron/native-tools/runNativeToolCommand';
 import type { TWorkerLog } from '@electron/ocr/worker/types';
 import { runScanCleanupSidecar } from '@electron/features/scan-cleanup/worker/runScanCleanupSidecar';
@@ -41,6 +42,13 @@ import {
     readPbmDimensions,
     readPngDimensions,
 } from '@electron/features/scan-cleanup/worker/rasterLayerDimensions';
+import type { TEmitScanCleanupProgress } from '@electron/features/scan-cleanup/worker/createScanCleanupProgressReporter';
+import { createScanCleanupProgressReporter } from '@electron/features/scan-cleanup/worker/createScanCleanupProgressReporter';
+import {
+    logRasterHandoff,
+    readAvailableScratchBytes,
+    resolveRasterHandoff,
+} from '@electron/features/scan-cleanup/worker/resolveRasterHandoff';
 
 export interface IScanCleanupWorkerPaths {
     qpdfBinary: string;
@@ -136,6 +144,7 @@ export interface IRunScanCleanupPipelineDependencies {
     renderPagePpm: typeof renderPdfPageToPpm;
     runSidecar: typeof runScanCleanupSidecar;
     runCommand: typeof runNativeToolCommand;
+    getAvailableScratchBytes: typeof readAvailableScratchBytes;
 }
 
 const defaultDependencies: IRunScanCleanupPipelineDependencies = {
@@ -146,17 +155,12 @@ const defaultDependencies: IRunScanCleanupPipelineDependencies = {
     renderPagePpm: renderPdfPageToPpm,
     runSidecar: runScanCleanupSidecar,
     runCommand: runNativeToolCommand,
+    getAvailableScratchBytes: readAvailableScratchBytes,
 };
 
 const SCAN_CLEANUP_MAX_DIMENSION_PX = 40_000;
 const SIZE_PROBE_DPI = 72;
 const SCAN_CLEANUP_BILEVEL_FALLBACK_DPI = 600;
-// PPM removes the costly PNG encode/decode step for small cleanup scopes, but
-// retaining one uncompressed RGB raster for every page of a large book can
-// consume several gigabytes. Keep the fast handoff only when the complete
-// manifest has a known, bounded footprint; otherwise use compressed PNG.
-const SCAN_CLEANUP_RAW_RASTER_BUDGET_BYTES = 512 * 1024 * 1024;
-const PPM_HEADER_ESTIMATE_BYTES = 64;
 // Rome p1/p7/p49 at source DPI retained scan texture, fine text, and mixed
 // illustration edges at these settings. Color gets two extra quality points
 // for chroma detail; grayscale and mixed pages do not spend bytes on it.
@@ -203,89 +207,11 @@ function resolveSafeRenderDpi(
     )));
 }
 
-interface IScanCleanupRasterHandoffPlan {
-    renderDpi: number;
-    raster: {
-        dpi: number;
-        width: number;
-        height: number
-    } | undefined;
-}
+const COMBINE_OUTPUT_BYTES_PER_PAGE = 8 * 1024 * 1024;
+const COMBINE_OUTPUT_BYTES_FLOOR = 512 * 1024 * 1024;
 
-function resolveRasterHandoff(
-    plans: readonly IScanCleanupRasterHandoffPlan[],
-) {
-    let estimatedBytes = 0;
-    for (const plan of plans) {
-        const raster = plan.raster;
-        if (
-            raster === undefined
-            || !Number.isFinite(plan.renderDpi)
-            || plan.renderDpi <= 0
-            || !Number.isFinite(raster.dpi)
-            || raster.dpi <= 0
-            || !Number.isFinite(raster.width)
-            || raster.width <= 0
-            || !Number.isFinite(raster.height)
-            || raster.height <= 0
-        ) {
-            return {
-                format: 'png' as const,
-                estimatedBytes: null,
-            };
-        }
-        const width = Math.max(1, Math.ceil(raster.width * plan.renderDpi / raster.dpi));
-        const height = Math.max(1, Math.ceil(raster.height * plan.renderDpi / raster.dpi));
-        const pageBytes = width * height * 3 + PPM_HEADER_ESTIMATE_BYTES;
-        if (!Number.isSafeInteger(pageBytes)) {
-            return {
-                format: 'png' as const,
-                estimatedBytes: null,
-            };
-        }
-        estimatedBytes += pageBytes;
-        if (
-            !Number.isSafeInteger(estimatedBytes)
-            || estimatedBytes > SCAN_CLEANUP_RAW_RASTER_BUDGET_BYTES
-        ) {
-            return {
-                format: 'png' as const,
-                estimatedBytes,
-            };
-        }
-    }
-    return {
-        format: 'ppm' as const,
-        estimatedBytes,
-    };
-}
-
-function logRasterHandoff(
-    log: TWorkerLog,
-    scope: string,
-    handoff: ReturnType<typeof resolveRasterHandoff>,
-) {
-    const footprint = handoff.estimatedBytes === null
-        ? 'unknown footprint'
-        : `${Math.ceil(handoff.estimatedBytes / (1024 * 1024))} MiB estimated footprint`;
-    log('debug', `Scan cleanup ${scope} raster handoff uses ${handoff.format.toUpperCase()} (${footprint})`);
-}
-
-function emitProgress(
-    callback: (progress: TScanCleanupProgress) => void,
-    stage: TScanCleanupProgress['stage'],
-    completedUnits: number,
-    totalUnits: number,
-    percent: number,
-    completedPageNumbers?: Iterable<number>,
-) {
-    callback({
-        stage,
-        completedUnits,
-        totalUnits,
-        percent: Math.min(100, Math.max(0, percent)),
-        ...(completedPageNumbers ? {completedPageNumbers: [...completedPageNumbers]} : {}),
-    });
+function resolveCombineOutputByteCap(outputPageCount: number) {
+    return Math.max(COMBINE_OUTPUT_BYTES_FLOOR, outputPageCount * COMBINE_OUTPUT_BYTES_PER_PAGE);
 }
 
 function rectFromPoints(points: Array<{
@@ -435,7 +361,7 @@ async function runLosslessScanCleanup(
     scratch: string,
     stagedPdfPath: string,
     signal: AbortSignal,
-    onProgress: (progress: TScanCleanupProgress) => void,
+    emitProgress: TEmitScanCleanupProgress,
     log: TWorkerLog,
     policy: IScanCleanupRuntimePolicy,
     dependencies: IRunScanCleanupPipelineDependencies,
@@ -471,14 +397,14 @@ async function runLosslessScanCleanup(
                 },
         };
     });
-    const rasterHandoff = resolveRasterHandoff(rasterPlans.map(plan => ({
+    const rasterHandoff = await resolveRasterHandoff(rasterPlans.map(plan => ({
         renderDpi: plan.dpi,
         raster: plan.raster,
-    })));
+    })), scratch, dependencies.getAvailableScratchBytes);
     logRasterHandoff(log, 'lossless analysis', rasterHandoff);
     let rasterizedCount = 0;
     const rasterizedPageNumbers = new Set<number>();
-    emitProgress(onProgress, 'rasterizing', 0, pageNumbers.length, 5, []);
+    emitProgress('rasterizing', 0, pageNumbers.length, []);
     const pageInputs = await mapScanCleanupRasterPages(rasterPlans, policy.rasterConcurrency, async plan => {
         signal.throwIfAborted();
         const extension = rasterHandoff.format;
@@ -498,7 +424,7 @@ async function runLosslessScanCleanup(
         );
         rasterizedCount += 1;
         rasterizedPageNumbers.add(plan.pageNumber);
-        emitProgress(onProgress, 'rasterizing', rasterizedCount, pageNumbers.length, 5 + (35 * rasterizedCount / pageNumbers.length), rasterizedPageNumbers);
+        emitProgress('rasterizing', rasterizedCount, pageNumbers.length, rasterizedPageNumbers);
         return {
             inputPath,
             pageNumber: plan.pageNumber,
@@ -523,22 +449,15 @@ async function runLosslessScanCleanup(
     const pages = manifest.pages;
     const manifestPath = join(scratch, 'lossless-analysis-manifest.json');
     await writeFile(manifestPath, JSON.stringify(manifest));
-    emitProgress(onProgress, 'classifying', 0, pageNumbers.length, 40, []);
+    emitProgress('classifying', 0, pageNumbers.length, []);
     const classifiedPageNumbers = new Set<number>();
     await dependencies.runSidecar(paths.scanCleanupBinary, manifestPath, signal, log, (_progress, nativeProgress) => {
         if (nativeProgress.pageNumber !== undefined) {
             classifiedPageNumbers.add(pageNumbers[nativeProgress.pageNumber - 1]!);
         }
-        const completedUnits = classifiedPageNumbers.size;
-        emitProgress(
-            onProgress,
-            'classifying',
-            completedUnits,
-            pageNumbers.length,
-            40 + (30 * completedUnits / pageNumbers.length),
-            classifiedPageNumbers,
-        );
+        emitProgress('classifying', classifiedPageNumbers.size, pageNumbers.length, classifiedPageNumbers);
     });
+    emitProgress('collecting', 0, pages.length, []);
 
     const summary: TScanCleanupSummary = {
         inputPages: pageNumbers.length,
@@ -565,6 +484,7 @@ async function runLosslessScanCleanup(
         page,
     ] of pages.entries()) {
         const metadata = JSON.parse(await readFile(page.pageMetadataPath, 'utf8')) as ICleanupPageMetadata;
+        emitProgress('collecting', index + 1, pages.length);
         const sourcePageNumber = pageNumbers[index]!;
         const pageOverride = getScanCleanupPageOverride(request.options.pageOverrides, sourcePageNumber);
         if (metadata.excluded) {
@@ -612,7 +532,7 @@ async function runLosslessScanCleanup(
         rotationQuarterTurns: page.rotationQuarterTurns,
         outputs: page.outputs.map(output => ({cropRect: output.cropRect})),
     }))}));
-    emitProgress(onProgress, 'assembling', pageNumbers.length, pageNumbers.length, 82, pageNumbers);
+    emitProgress('assembling', 0, allOutputs.length, []);
     await dependencies.runCommand(paths.pdfPageOpsBinary, [
         'split-pages',
         '--input',
@@ -627,6 +547,7 @@ async function runLosslessScanCleanup(
         timeoutMs: 10 * 60 * 1000,
         log,
     });
+    emitProgress('assembling', allOutputs.length, allOutputs.length);
     return summary;
 }
 
@@ -666,8 +587,12 @@ export async function runScanCleanupPipeline(
         tracked.add(path);
         return path;
     };
+    const emitProgress = createScanCleanupProgressReporter(
+        onProgress,
+        request.options.preserveOriginalQuality === true,
+    );
     try {
-        emitProgress(onProgress, 'normalizing', 0, 0, 2, []);
+        emitProgress('normalizing', 0, 1, []);
         const prepared = await dependencies.preparePdf(
             paths,
             log,
@@ -687,7 +612,8 @@ export async function runScanCleanupPipeline(
             throw new Error('Scan cleanup source page scope is outside the document');
         }
         const pageCount = pageNumbers.length;
-        emitProgress(onProgress, 'probing', 0, pageCount, 3, []);
+        emitProgress('normalizing', 1, 1);
+        emitProgress('probing', 0, pageCount, []);
         const dpiDetails = await dependencies.detectSourceDpi(
             prepared.pdfPath,
             paths.pdfimagesBinary,
@@ -695,13 +621,7 @@ export async function runScanCleanupPipeline(
             undefined,
             signal,
             pageNumbers,
-            (completedPages, totalPages) => emitProgress(
-                onProgress,
-                'probing',
-                completedPages,
-                totalPages,
-                3 + (2 * completedPages / Math.max(1, totalPages)),
-            ),
+            (completedPages, totalPages) => emitProgress('probing', completedPages, totalPages),
         );
         const documentDpi = resolveSourceDpi(dpiDetails.documentDpi);
         if (request.options.preserveOriginalQuality) {
@@ -715,17 +635,17 @@ export async function runScanCleanupPipeline(
                 scratch,
                 stagedPdfPath,
                 signal,
-                onProgress,
+                emitProgress,
                 log,
                 policy,
                 dependencies,
             );
             if ((await stat(stagedPdfPath)).size <= 0) throw new Error('Lossless PDF assembler produced an empty file');
-            emitProgress(onProgress, 'handoff', pageCount, pageCount, 98, pageNumbers);
+            emitProgress('handoff', 0, pageCount, []);
             await copyFile(stagedPdfPath, publishTempPath);
             signal.throwIfAborted();
             await rename(publishTempPath, request.outputPdfPath);
-            emitProgress(onProgress, 'handoff', pageCount, pageCount, 100, pageNumbers);
+            emitProgress('handoff', pageCount, pageCount, pageNumbers);
             return summary;
         }
         const detectedRasterByPage = dpiDetails.pageRasterByNumber;
@@ -780,7 +700,7 @@ export async function runScanCleanupPipeline(
         );
         if (probePages.length > 0) {
             const probedPageNumbers = new Set<number>();
-            emitProgress(onProgress, 'probing', 0, probePages.length, 8, []);
+            emitProgress('probing', 0, probePages.length, []);
             await mapScanCleanupRasterPages(probePages, policy.rasterConcurrency, async pageNumber => {
                 signal.throwIfAborted();
                 const probePath = join(scratch, `size-probe-${pageNumber}.png`);
@@ -799,14 +719,7 @@ export async function runScanCleanupPipeline(
                     ...await readPngDimensions(probePath),
                 });
                 probedPageNumbers.add(pageNumber);
-                emitProgress(
-                    onProgress,
-                    'probing',
-                    probedPageNumbers.size,
-                    probePages.length,
-                    8,
-                    probedPageNumbers,
-                );
+                emitProgress('probing', probedPageNumbers.size, probePages.length, probedPageNumbers);
             });
         }
         const rasterPlans = pageNumbers.map(pageNumber => {
@@ -832,15 +745,15 @@ export async function runScanCleanupPipeline(
                 guardrail,
             };
         });
-        const rasterHandoff = resolveRasterHandoff(rasterPlans.map(plan => ({
+        const rasterHandoff = await resolveRasterHandoff(rasterPlans.map(plan => ({
             renderDpi: plan.dpi,
             raster: plan.guardrail,
-        })));
+        })), scratch, dependencies.getAvailableScratchBytes);
         logRasterHandoff(log, 'final', rasterHandoff);
         const pageDpi = new Map<number, number>();
         let rasterizedCount = 0;
         const rasterizedPageNumbers = new Set<number>();
-        emitProgress(onProgress, 'rasterizing', 0, pageCount, 15, []);
+        emitProgress('rasterizing', 0, pageCount, []);
         const pageInputs = await mapScanCleanupRasterPages(rasterPlans, policy.rasterConcurrency, async plan => {
             signal.throwIfAborted();
             pageDpi.set(plan.pageNumber, plan.dpi);
@@ -880,14 +793,7 @@ export async function runScanCleanupPipeline(
             };
             rasterizedCount += 1;
             rasterizedPageNumbers.add(plan.pageNumber);
-            emitProgress(
-                onProgress,
-                'rasterizing',
-                rasterizedCount,
-                pageCount,
-                15 + (20 * rasterizedCount / pageCount),
-                rasterizedPageNumbers,
-            );
+            emitProgress('rasterizing', rasterizedCount, pageCount, rasterizedPageNumbers);
             return page;
         });
         const manifest = buildNativeScanCleanupManifest({
@@ -907,46 +813,41 @@ export async function runScanCleanupPipeline(
         const pages = manifest.pages;
         const manifestPath = join(scratch, 'cleanup-manifest.json');
         await writeFile(manifestPath, JSON.stringify(manifest));
-        emitProgress(onProgress, 'classifying', 0, pageCount, 45, []);
+        emitProgress('classifying', 0, pageCount, []);
         const classifiedPageNumbers = new Set<number>();
         const renderedPageNumbers = new Set<number>();
         let renderingStarted = false;
+        const startRendering = () => {
+            if (renderingStarted) {
+                return;
+            }
+            renderingStarted = true;
+            emitProgress('rendering', 0, pageCount, []);
+        };
         await dependencies.runSidecar(paths.scanCleanupBinary, manifestPath, signal, log, (_progress, nativeProgress) => {
             if (nativeProgress.stage === 'page-analyzed') {
                 if (nativeProgress.pageNumber !== undefined) {
                     classifiedPageNumbers.add(pageNumbers[nativeProgress.pageNumber - 1]!);
                 }
-                const completedUnits = classifiedPageNumbers.size;
-                emitProgress(
-                    onProgress,
-                    'classifying',
-                    completedUnits,
-                    pageCount,
-                    45 + (15 * completedUnits / pageCount),
-                    classifiedPageNumbers,
-                );
+                if (classifiedPageNumbers.size >= pageCount) {
+                    startRendering();
+                    return;
+                }
+                if (!renderingStarted) {
+                    emitProgress('classifying', classifiedPageNumbers.size, pageCount, classifiedPageNumbers);
+                }
                 return;
             }
             if (nativeProgress.stage !== 'page-complete') {
                 return;
             }
-            if (!renderingStarted) {
-                renderingStarted = true;
-                emitProgress(onProgress, 'rendering', 0, pageCount, 60, []);
-            }
+            startRendering();
             if (nativeProgress.pageNumber !== undefined) {
                 renderedPageNumbers.add(pageNumbers[nativeProgress.pageNumber - 1]!);
             }
-            const completedUnits = renderedPageNumbers.size;
-            emitProgress(
-                onProgress,
-                'rendering',
-                completedUnits,
-                pageCount,
-                60 + (15 * completedUnits / pageCount),
-                renderedPageNumbers,
-            );
+            emitProgress('rendering', renderedPageNumbers.size, pageCount, renderedPageNumbers);
         });
+        emitProgress('collecting', 0, pages.length, []);
         const outputPages: Array<{
             path: string;
             bilevelPath?: string;
@@ -974,6 +875,7 @@ export async function runScanCleanupPipeline(
         ] of pages.entries()) {
             const {outputs} = page;
             const pageMetadata = JSON.parse(await readFile(page.pageMetadataPath, 'utf8')) as ICleanupPageMetadata;
+            emitProgress('collecting', pageIndex + 1, pages.length);
             if (pageMetadata.excluded) {
                 summary.excludedPages += 1;
                 continue;
@@ -1158,7 +1060,7 @@ export async function runScanCleanupPipeline(
                     output.path,
                 ].join('\t');
         }).join('\n') + '\n');
-        emitProgress(onProgress, 'assembling', pageCount, pageCount, 82, pageNumbers);
+        emitProgress('assembling', 0, outputPages.length, []);
         await dependencies.runCommand(paths.pdfImageCombineBinary, [
             '--output',
             stagedPdfPath,
@@ -1169,14 +1071,24 @@ export async function runScanCleanupPipeline(
             signal,
             commandLabel: 'evb-pdf-image-combine(scan-cleanup)',
             timeoutMs: 10 * 60 * 1000,
+            env: {
+                ...process.env,
+                EVB_PDF_COMBINE_MAX_PAGES: String(Math.max(outputPages.length, 1)),
+                EVB_PDF_COMBINE_MAX_OUTPUT_BYTES: String(resolveCombineOutputByteCap(outputPages.length)),
+            },
+            onStdout: createPdfCombineProgressHandler(
+                outputPages.length,
+                (processed, total) => emitProgress('assembling', processed, total),
+                line => log('debug', `Ignoring malformed scan cleanup combine progress: ${line}`),
+            ),
             log,
         });
         if ((await stat(stagedPdfPath)).size <= 0) throw new Error('PDF assembler produced an empty file');
-        emitProgress(onProgress, 'handoff', pageCount, pageCount, 98, pageNumbers);
+        emitProgress('handoff', 0, pageCount, []);
         await copyFile(stagedPdfPath, publishTempPath);
         if (signal.aborted) throw signal.reason;
         await rename(publishTempPath, request.outputPdfPath);
-        emitProgress(onProgress, 'handoff', pageCount, pageCount, 100, pageNumbers);
+        emitProgress('handoff', pageCount, pageCount, pageNumbers);
         return summary;
     } finally {
         await rm(publishTempPath, {force: true}).catch(() => undefined);

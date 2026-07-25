@@ -489,7 +489,7 @@ export function createPdfjsDocumentSourceLoader(options: ICreatePdfjsDocumentSou
             transport,
             src,
             version,
-            rangeFailure.failRangeRead,
+            rangeFailure,
             preloadedRanges,
         );
         const startedAt = performance.now();

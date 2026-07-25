@@ -8,6 +8,7 @@ import {
 import {getMainOperationErrorEnvelope} from '@contracts/mainOperationErrors';
 import {
     beginMainOperationShutdown,
+    cancelAbortableMainOperationsForWorkingCopy,
     cancelAllMainOperations,
     drainCriticalMainOperations,
     registerMainOperation,
@@ -73,6 +74,37 @@ describe('mainOperationLifecycle', () => {
         const result = await drainPromise;
         expect(result.completed).toBe(false);
         expect(result.pending).toHaveLength(1);
+    });
+
+    it('cancels only the abortable work bound to a closing working copy', async () => {
+        const cleanupCancel = vi.fn();
+        const cleanup = registerMainOperation({
+            kind: 'abortable-work',
+            workingCopyPath: '/tmp/closing.pdf',
+            cancel: cleanupCancel,
+        });
+        const otherDocument = registerMainOperation({
+            kind: 'abortable-work',
+            workingCopyPath: '/tmp/other.pdf',
+            cancel: vi.fn(),
+        });
+        const materializationFlight = registerMainOperation({
+            kind: 'abortable-work',
+            workingCopyPath: '/tmp/closing.pdf',
+        });
+        const pendingWrite = registerMainOperation({
+            kind: 'critical-write',
+            workingCopyPath: '/tmp/closing.pdf',
+        });
+
+        expect(cancelAbortableMainOperationsForWorkingCopy('/tmp/closing.pdf', 'Working copy is closing')).toBe(1);
+        await Promise.resolve();
+
+        expect(cleanup.signal.aborted).toBe(true);
+        expect(cleanupCancel).toHaveBeenCalledWith('Working copy is closing');
+        expect(otherDocument.signal.aborted).toBe(false);
+        expect(materializationFlight.signal.aborted).toBe(false);
+        expect(pendingWrite.signal.aborted).toBe(false);
     });
 
     it('completes operations idempotently', () => {

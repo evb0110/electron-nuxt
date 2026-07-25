@@ -238,7 +238,6 @@
                 :file-size-label="statusFileSizeLabel"
                 :zoom-label="statusZoomLabelForDisplay"
                 :materialization-label="statusMaterializationLabel"
-                :materialization-active="statusMaterializationIsActive"
                 :can-show-in-folder="statusCanShowInFolder"
                 :show-in-folder-tooltip="statusShowInFolderTooltip"
                 :show-in-folder-aria-label="statusShowInFolderAriaLabel"
@@ -782,7 +781,6 @@ const {
     statusFileSizeLabel,
     statusZoomLabel,
     statusMaterializationLabel,
-    statusMaterializationIsActive,
     statusCanShowInFolder,
     statusShowInFolderTooltip,
     statusShowInFolderAriaLabel,

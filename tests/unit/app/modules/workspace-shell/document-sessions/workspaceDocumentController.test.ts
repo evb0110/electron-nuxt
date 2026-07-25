@@ -285,6 +285,76 @@ describe('WorkspaceDocumentController', () => {
         expect(session.snapshot.value.identity.documentSessionKey).toBeNull();
     });
 
+    it('returns the record to the empty-tab shape when a close commits', () => {
+        const session = createWorkspaceDocumentController({
+            tabId: 'tab-1',
+            sessionId: 'session-1',
+            initialRecord: createWorkspaceDocumentRecord({
+                tab: {
+                    fileName: 'A.pdf',
+                    originalPath: '/tmp/a.pdf',
+                },
+                documentIdentity: createDocumentRevision('revision-1', '/tmp/a-working.pdf'),
+                toolbarSnapshot: {
+                    hasPdf: true,
+                    viewerCapabilities: {
+                        ...createDefaultWorkspaceViewerCapabilities(),
+                        closeableDocument: true,
+                    },
+                },
+            }),
+        });
+
+        const close = session.beginTransaction({
+            kind: 'close',
+            documentRef: '/tmp/a-working.pdf',
+            persist: false,
+        });
+        session.finishTransaction(close.id, 'committed');
+
+        const record = session.toWorkspaceRecord();
+        expect(record.tab).toMatchObject({
+            fileName: null,
+            originalPath: null,
+            isDirty: false,
+            isDjvu: false,
+        });
+        expect(record.toolbarSnapshot.hasPdf).toBe(false);
+        expect(record.toolbarSnapshot.viewerCapabilities.closeableDocument).toBe(false);
+        expect(session.snapshot.value.closeable).toBe(false);
+        expect(session.snapshot.value.phase).toBe('empty');
+    });
+
+    it('accepts a new document assigned by the shell after a close committed', () => {
+        const session = createWorkspaceDocumentController({
+            tabId: 'tab-1',
+            sessionId: 'session-1',
+            initialRecord: createWorkspaceDocumentRecord({
+                tab: {
+                    fileName: 'A.pdf',
+                    originalPath: '/tmp/a.pdf',
+                },
+                documentIdentity: createDocumentRevision('revision-1', '/tmp/a-working.pdf'),
+            }),
+        });
+
+        const close = session.beginTransaction({
+            kind: 'close',
+            documentRef: '/tmp/a-working.pdf',
+            persist: false,
+        });
+        session.finishTransaction(close.id, 'committed');
+        session.applyTabUpdate({
+            fileName: 'A.pdf',
+            originalPath: '/tmp/a.pdf',
+        });
+
+        expect(session.toWorkspaceRecord().tab).toMatchObject({
+            fileName: 'A.pdf',
+            originalPath: '/tmp/a.pdf',
+        });
+    });
+
     it('ignores a transient empty record while remounting a live document session', () => {
         const session = createWorkspaceDocumentController({
             tabId: 'tab-1',

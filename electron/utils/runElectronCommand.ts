@@ -1,7 +1,5 @@
-import {
-    runNativeCommand,
-    type IRunCommandOptions,
-} from '@electron/native-tools/runNativeCommand';
+import { runNativeCommand } from '@electron/native-tools/runNativeCommand';
+import { withDefinedCommandOptions } from '@electron/native-tools/withDefinedCommandOptions';
 
 export interface IRunCommandResult {
     stdout: string;
@@ -24,50 +22,11 @@ export async function runElectronCommand(
         cancelGroup?: string;
     } = {},
 ): Promise<IRunCommandResult> {
-    const {
-        cwd,
-        env,
-        timeoutMs,
-        maxStdoutBytes,
-        maxStderrBytes,
-        rejectOnStdoutTruncation,
-        allowedExitCodes,
-        signal,
-        cancelGroup,
-    } = options;
-
-    const commandOptions: IRunCommandOptions = {
+    const commandOptions = withDefinedCommandOptions({
         commandLabel: command,
-        includeProcessEnv: env === undefined,
+        includeProcessEnv: options.env === undefined,
         windowsHide: false,
-    };
-    if (cwd !== undefined) {
-        commandOptions.cwd = cwd;
-    }
-    if (env !== undefined) {
-        commandOptions.env = env;
-    }
-    if (timeoutMs !== undefined) {
-        commandOptions.timeoutMs = timeoutMs;
-    }
-    if (maxStdoutBytes !== undefined) {
-        commandOptions.maxStdoutBytes = maxStdoutBytes;
-    }
-    if (maxStderrBytes !== undefined) {
-        commandOptions.maxStderrBytes = maxStderrBytes;
-    }
-    if (rejectOnStdoutTruncation !== undefined) {
-        commandOptions.rejectOnStdoutTruncation = rejectOnStdoutTruncation;
-    }
-    if (allowedExitCodes !== undefined) {
-        commandOptions.allowedExitCodes = allowedExitCodes;
-    }
-    if (signal !== undefined) {
-        commandOptions.signal = signal;
-    }
-    if (cancelGroup !== undefined) {
-        commandOptions.cancelGroup = cancelGroup;
-    }
+    }, options);
 
     return runNativeCommand(command, args, commandOptions);
 }

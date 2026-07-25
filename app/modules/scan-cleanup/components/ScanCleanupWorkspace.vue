@@ -15,6 +15,9 @@
             :is-running="isRunning"
             :output-estimate="outputEstimate"
             :percent="jobProgress.percent"
+            :progress-count-text="progressCountText"
+            :progress-percent-text="progressPercentText"
+            :progress-phase-text="progressPhaseText"
             :progress-text="progressText"
             :run-label="runLabel"
             :run-disabled-reason="runDisabledReason"
@@ -166,6 +169,7 @@
                     :lossless="settings.preserveOriginalQuality === true"
                     :show-first-run-guidance="showFirstRunGuidance"
                     :zone-editing="zoneEditing"
+                    :disabled="isRunning"
                     @previous="navigatePreview(-1)"
                     @next="navigatePreview(1)"
                     @retry="retryPreview"
@@ -240,7 +244,10 @@ const emit = defineEmits<{
     'update:session-state': [state: IScanCleanupTabSessionState];
 }>();
 const workspaceSession = useScanCleanupWorkspaceSession({
-    active: () => true,
+    // Losing the source ends the session: detection and preview cancel instead
+    // of queueing IPC against a working copy the main process has already
+    // retired.
+    active: () => sourcePath !== null,
     sourcePath: () => sourcePath,
     documentKey: () => documentKey,
     documentRevision: () => documentRevision,
@@ -337,6 +344,9 @@ const {
     ownerId,
     processedPages,
     progress: jobProgress,
+    progressCountText,
+    progressPercentText,
+    progressPhaseText,
     progressText,
     runLabel,
     runDisabledReason,

@@ -12,6 +12,7 @@ const progress = s.refine(s.object({
         'rasterizing',
         'classifying',
         'rendering',
+        'collecting',
         'assembling',
         'handoff',
         'detecting',
