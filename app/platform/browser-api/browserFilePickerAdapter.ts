@@ -10,7 +10,7 @@ import {
     toBrowserOwnedArrayBuffer,
 } from '@app/platform/browser-api/browserPlatformHelpers';
 import { yieldToBrowser } from '@app/platform/browser-api/browserYield';
-import { resolveBrowserFilePickerSupport } from '@app/platform/browser-api/resolveBrowserFilePickerSupport';
+import { resolveBrowserFileAccess } from '@app/platform/browser-api/browserFileAccessTier';
 import {
     safeGetSessionStorageItem,
     safeSetSessionStorageItem,
@@ -166,7 +166,7 @@ export async function pickFiles(options: {
     pickerTypes?: IFilePickerAcceptType[];
     preferFileSystemAccess?: boolean;
 }) {
-    const { openFilePicker } = resolveBrowserFilePickerSupport();
+    const { openFilePicker } = resolveBrowserFileAccess();
     const preferFileSystemAccess = options.preferFileSystemAccess ?? true;
     if (openFilePicker && shouldUseFileSystemAccessOpenPicker(preferFileSystemAccess)) {
         try {
@@ -311,7 +311,7 @@ async function saveBlobToPickerOrDownload(
         canDownloadWithoutHandle?: boolean;
     } = {},
 ) {
-    const { saveFilePicker } = resolveBrowserFilePickerSupport();
+    const { saveFilePicker } = resolveBrowserFileAccess();
     if (saveFilePicker) {
         try {
             const handle = await saveFilePicker({
@@ -399,7 +399,7 @@ export async function pickSaveTarget(options: {
     suggestedName: string;
     pickerTypes: IFilePickerAcceptType[];
 }) {
-    const { saveFilePicker } = resolveBrowserFilePickerSupport();
+    const { saveFilePicker } = resolveBrowserFileAccess();
     if (!saveFilePicker) {
         return {
             canceled: false,

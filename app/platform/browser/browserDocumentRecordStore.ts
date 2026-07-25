@@ -103,7 +103,7 @@ async function readFileHandleMetadata(handle: FileSystemFileHandle) {
 }
 
 export class BrowserDocumentRecordStore {
-    protected readonly entries = new Map<string, IBrowserDocumentEntry>();
+    private readonly entries = new Map<string, IBrowserDocumentEntry>();
     private readonly mutationQueue = new BrowserDocumentMutationQueue();
     private readonly revisionListeners = new Set<(event: IDocumentRevisionChangedEvent) => void>();
     private readonly recentFilesStore = new BrowserRecentFilesStore({
@@ -118,6 +118,28 @@ export class BrowserDocumentRecordStore {
     });
     private maintenancePromise: Promise<void> | null = null;
     private maintenanceComplete = false;
+
+    protected hasLoadedEntry(ref: string) {
+        return this.entries.has(ref);
+    }
+
+    protected attachEntry(entry: IBrowserDocumentEntry) {
+        this.entries.set(entry.ref, entry);
+    }
+
+    /**
+     * Drops the in-memory record without touching persisted storage. Passing
+     * `expectedEntry` makes the drop a no-op once a newer record took the ref.
+     */
+    protected dropLoadedEntry(
+        ref: string,
+        expectedEntry?: IBrowserDocumentEntry,
+    ) {
+        if (expectedEntry && this.entries.get(ref) !== expectedEntry) {
+            return;
+        }
+        this.entries.delete(ref);
+    }
 
     protected emitDocumentRevisionChanged(event: IDocumentRevisionChangedEvent) {
         for (const listener of this.revisionListeners) {
@@ -311,14 +333,14 @@ export class BrowserDocumentRecordStore {
         await this.runRefMutation(ref, () => this.removeUnlocked(ref));
     }
 
-    protected async removeUnlocked(ref: string) {
+    private async removeUnlocked(ref: string) {
         await this.ensureMaintenance();
         const entry = await this.ensureEntry(ref);
         if (entry) {
             await clearPendingBrowserDocumentChunks(entry);
             await clearBrowserDocumentExternalChunkStorage(entry);
         }
-        this.entries.delete(ref);
+        this.dropLoadedEntry(ref);
         await deleteRecord(ref);
         await this.removeRecentFile(ref);
     }
@@ -327,7 +349,7 @@ export class BrowserDocumentRecordStore {
         if (this.entries.get(ref)?.memoryOnly) {
             return;
         }
-        this.entries.delete(ref);
+        this.dropLoadedEntry(ref);
     }
 
     public async cleanupDetachedDocument(ref: string) {
@@ -427,7 +449,7 @@ export class BrowserDocumentRecordStore {
         return this.mutationQueue.runMany(refs, operation);
     }
 
-    protected async refreshHandleBackedEntry(
+    private async refreshHandleBackedEntry(
         entry: IBrowserDocumentEntry,
         metadata?: {
             size: number;
