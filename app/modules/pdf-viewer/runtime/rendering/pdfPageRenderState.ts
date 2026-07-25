@@ -1,3 +1,5 @@
+import { logPdfRenderTrace } from '@app/utils/pdfRenderTrace';
+
 type TPdfPageRenderVisualState = 'none' | 'ready';
 type TPdfPageRenderJobState = 'idle' | 'rendering' | 'failed';
 type TPdfPageCanvasReadiness = 'none' | 'ready';
@@ -337,6 +339,14 @@ export function createPdfPageRenderState() {
                 pendingTargetOutputScale: targetOutputScale,
                 pendingContainer: container,
             });
+            logPdfRenderTrace('renderer-single-page-begin', {
+                pageNumber,
+                version,
+                requestId,
+                documentToken,
+                targetScale,
+                preserveCommittedVisual,
+            });
         },
         beginQualityRefine(
             pageNumber: number,
@@ -383,6 +393,12 @@ export function createPdfPageRenderState() {
                 targetOutputScale: current.pendingTargetOutputScale,
                 container: current.pendingContainer,
                 committedRasterQuality,
+            });
+            logPdfRenderTrace('renderer-canvas-mounted', {
+                pageNumber,
+                version,
+                requestId,
+                intent: committedRasterQuality.intent,
             });
             return true;
         },
