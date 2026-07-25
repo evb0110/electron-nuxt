@@ -1,15 +1,4 @@
-import type {
-    IAnnotationCommentSummary,
-    IShapeAnnotation,
-    TMarkupSubtype,
-} from '@app/types/annotations';
-import type { IMarkupSubtypeHint } from '@app/modules/pdf-viewer/engine/pdf-serialization-subtype-hints/pdfSerializationSubtypeHintsTypes';
-import type {IBackendAnnotationMutation} from '@app/modules/pdf-viewer/annotations/persistence/annotationBackendConformance';
-import type {
-    INativePdfMutationProjection,
-    IPdfViewerSaveTransactionDirtyState,
-    IPdfViewerSaveTransactionDocumentStructure,
-} from '@app/modules/pdf-viewer/runtime/save/pdfViewerSaveTransaction.types';
+import type {INativePdfMutationProjection} from '@app/modules/pdf-viewer/runtime/save/pdfViewerSaveTransaction.types';
 export type {INativePdfMutationProjection} from '@app/modules/pdf-viewer/runtime/save/pdfViewerSaveTransaction.types';
 
 /** Save flow supported by the native mutation projection. */
@@ -32,6 +21,7 @@ export interface INativeAppendSaveRoute {
     readonly metadataMutationsAllowed: boolean;
     readonly annotationWorkDirty: boolean;
     readonly pdfjsMaterializeForced: boolean;
+    readonly nativeMutationProjection: INativePdfMutationProjection;
 }
 
 export interface INativePdfMutationSkipEvent {
@@ -43,25 +33,4 @@ export interface INativePdfMutationSkipEvent {
 export interface INativePdfMutationBuildResult<T> {
     value: T | null;
     skipEvents: INativePdfMutationSkipEvent[];
-}
-
-export interface INativePdfMutationProjectionResult {
-    projection: INativePdfMutationProjection | null;
-    skipEvents: INativePdfMutationSkipEvent[];
-}
-
-export interface INativePdfMutationProjectionInput {
-    route: INativeAppendSaveRoute;
-    dirtyState: IPdfViewerSaveTransactionDirtyState;
-    documentStructure: IPdfViewerSaveTransactionDocumentStructure;
-    canonicalAnnotationProgram: readonly IBackendAnnotationMutation[];
-    canonicalComments: IAnnotationCommentSummary[];
-    pendingTexts: Map<string, string>;
-    pendingDeletes: IAnnotationCommentSummary[];
-    totalPageCount: number;
-    shapes: IShapeAnnotation[] | null;
-    deletedEmbeddedShapeAnnotationIds: string[];
-    deletedEmbeddedShapeStableKeys: string[];
-    markupSubtypeOverrides: Map<string, TMarkupSubtype> | undefined;
-    markupSubtypeHints: IMarkupSubtypeHint[];
 }

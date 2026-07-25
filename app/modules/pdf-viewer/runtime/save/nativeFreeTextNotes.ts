@@ -1,9 +1,19 @@
 import type { IAnnotationCommentSummary } from '@app/types/annotations';
 import { toFreeTextNoteMarkerRect } from '@app/modules/pdf-viewer/engine/serialization/pdf-serialization-shared/toFreeTextNoteMarkerRect';
+import { normalizeMarkerRect } from '@app/modules/pdf-viewer/engine/annotation-geometry/normalizeMarkerRect';
 import type { IPdfNativeFreeTextNote } from '@contracts/electronApiDocuments';
 import { parsePageIndex } from '@contracts/pageNumbers';
-import { isReplayableEditorOnlyFreeTextNote } from '@app/modules/pdf-viewer/runtime/save/classifyPdfSaveRoute';
+import {parsePdfJsAnnotationRef} from '@app/utils/pdfAnnotationRefs';
 import type { INativePdfMutationBuildResult } from '@app/modules/pdf-viewer/runtime/save/nativePdfMutationProjectionTypes';
+
+export function isReplayableEditorOnlyFreeTextNote(comment: IAnnotationCommentSummary) {
+    const subtype = comment.subtype?.trim().toLowerCase();
+    return comment.source === 'editor'
+        && !parsePdfJsAnnotationRef(comment.annotationId)
+        && Boolean(comment.hasNote)
+        && Boolean(normalizeMarkerRect(comment.markerRect))
+        && (subtype === 'freetext' || subtype === 'typewriter');
+}
 
 export function toNativeFreeTextNote(comment: IAnnotationCommentSummary): IPdfNativeFreeTextNote | null {
     const markerRect = toFreeTextNoteMarkerRect(comment.markerRect);

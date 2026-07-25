@@ -17,7 +17,6 @@ import {
 } from '@app/modules/pdf-viewer/runtime/save/pdfAnnotationStorageChanges';
 import type {
     IPdfSaveByteRouteDecision,
-    IPdfSaveNativeRouteDecision,
     TPdfSaveRouteDecision,
 } from '@app/modules/pdf-viewer/runtime/save/classifyPdfSaveRoute';
 import { classifyPdfSaveRoute } from '@app/modules/pdf-viewer/runtime/save/classifyPdfSaveRoute';
@@ -27,7 +26,6 @@ import type {
     IPdfViewerSaveTransactionSerializedResult,
     TPdfViewerSaveTransactionSource,
 } from '@app/modules/pdf-viewer/runtime/save/pdfViewerSaveTransaction.types';
-import type { INativePdfMutationProjectionInput } from '@app/modules/pdf-viewer/runtime/save/nativePdfMutationProjectionTypes';
 import type {
     ISerializationPlan,
     ISerializationPlanInputs,
@@ -229,60 +227,6 @@ export const usePdfViewerSaveTransaction = (
         throw new Error('saveDocument failed');
     }
 
-    /** Consumes the granted native route; it never re-derives eligibility. */
-    function projectNativeMutations(
-        plan: ISerializationPlan,
-        request: IPdfViewerSaveTransactionRequest,
-        route: IPdfSaveNativeRouteDecision,
-    ) {
-        const {
-            dirtyState,
-            documentStructure,
-            canonical,
-        } = route;
-        const opts: INativePdfMutationProjectionInput = {
-            route,
-            dirtyState,
-            documentStructure,
-            canonicalAnnotationProgram: projectAnnotationBackendMutations(plan, 'native-append'),
-            canonicalComments: canonical.comments,
-            pendingTexts: canonical.pendingTexts,
-            pendingDeletes: canonical.pendingDeletes,
-            totalPageCount: Math.max(documentStructure.totalPages, options.getPdfDocument?.()?.numPages ?? 0),
-            shapes: dirtyState.shapeStateDirty ? options.getAllShapes?.() ?? null : null,
-            deletedEmbeddedShapeAnnotationIds: dirtyState.shapeStateDirty
-                ? options.getDeletedEmbeddedShapeAnnotationIds?.() ?? []
-                : [],
-            deletedEmbeddedShapeStableKeys: dirtyState.shapeStateDirty
-                ? options.getDeletedEmbeddedShapeStableKeys?.() ?? []
-                : [],
-            markupSubtypeOverrides: route.annotationWorkDirty
-                ? request.markupSubtypeOverrides ?? options.getMarkupSubtypeOverrides?.()
-                : undefined,
-            markupSubtypeHints: route.annotationWorkDirty
-                ? request.markupSubtypeHints ?? options.getMarkupSubtypeHints?.() ?? []
-                : [],
-        };
-        const nativeMutationProjectionResult = projectNativePdfMutationsForSave(opts);
-        nativeMutationProjectionResult.skipEvents.forEach(({
-            event,
-            reason,
-            details,
-        }) => {
-            BrowserLogger.diagnostic('workspace', event, () => ({
-                reason,
-                pendingTexts: opts.pendingTexts.size,
-                pendingDeletes: opts.pendingDeletes.length,
-                shapeStateDirty: dirtyState.shapeStateDirty,
-                savedPdfjsAnnotationBaselineDirty: dirtyState.savedPdfjsAnnotationBaselineDirty,
-                pageLabelsDirty: documentStructure.pageLabelsDirty,
-                bookmarksDirty: documentStructure.bookmarksDirty,
-                ...details,
-            }));
-        });
-        return nativeMutationProjectionResult.projection;
-    }
-
     async function readSourcePdfBytes(request: IPdfViewerSaveTransactionRequest) {
         const data = await request.source?.getSourcePdfData();
         if (!data) {
@@ -460,36 +404,24 @@ export const usePdfViewerSaveTransaction = (
             hasLoadedSource: Boolean(request.source),
             forcePdfjsMaterialize: request.forcePdfjsMaterialize === true,
             includeManagedShapesForLiveSource: request.includeManagedShapes === true,
+            totalPageCount: Math.max(
+                request.documentStructure?.totalPages ?? 0,
+                options.getPdfDocument?.()?.numPages ?? 0,
+            ),
+            shapes: request.dirtyState?.shapeStateDirty ? options.getAllShapes?.() ?? null : null,
+            deletedEmbeddedShapeAnnotationIds: request.dirtyState?.shapeStateDirty
+                ? options.getDeletedEmbeddedShapeAnnotationIds?.() ?? []
+                : [],
+            deletedEmbeddedShapeStableKeys: request.dirtyState?.shapeStateDirty
+                ? options.getDeletedEmbeddedShapeStableKeys?.() ?? []
+                : [],
+            markupSubtypeOverrides: request.markupSubtypeOverrides ?? options.getMarkupSubtypeOverrides?.(),
+            markupSubtypeHints: request.markupSubtypeHints ?? options.getMarkupSubtypeHints?.() ?? [],
         });
         const annotationSavePlan = decision.annotationPlan;
         logSaveRouteDecision(request, decision);
-        const nativeMutationProjection = decision.route === 'native-append'
-            ? projectNativeMutations(globalSerializationPlan, request, decision)
-            : null;
-        if (!nativeMutationProjection && request.planOnly && request.dirtyState?.annotationDirty) {
-            BrowserLogger.diagnostic('workspace', 'Native PDF mutation projection unavailable for dirty annotation save', () => ({
-                expectedEntityCount: globalSerializationPlan.expected.length,
-                canonicalEntityCount: globalSerializationPlan.entities.length,
-                canonicalCommentCount: decision.canonical.comments.length,
-                canonicalComments: decision.canonical.comments.map(comment => ({
-                    appAnnotationId: comment.appAnnotationId ?? null,
-                    annotationId: comment.annotationId ?? null,
-                    hasMarkerRect: Boolean(comment.markerRect),
-                    hasNote: comment.hasNote,
-                    source: comment.source,
-                    stableKey: comment.stableKey,
-                    subtype: comment.subtype ?? null,
-                })),
-                saveRoute: decision.route,
-                nativeRejection: decision.route === 'native-append' ? null : decision.nativeRejection,
-                annotationSavePlan,
-                dirtyState: request.dirtyState,
-                nativeCapabilities: request.nativeCapabilities ?? null,
-                includeManagedShapes: request.includeManagedShapes === true,
-                forceRewrite: request.forceRewrite === true,
-            }));
-        }
-        if (nativeMutationProjection) {
+        if (decision.route === 'native-append') {
+            const nativeMutationProjection = projectNativePdfMutationsForSave(decision);
             nativeVerificationOptions = {preexistingPdfAnnotationRefs: await collectPreexistingPdfAnnotationRefs(
                 options.getPdfDocument?.(),
                 globalSerializationPlan,
@@ -505,7 +437,7 @@ export const usePdfViewerSaveTransaction = (
             };
         }
 
-        const byteRoute = decision.route === 'native-append' ? decision.fallback : decision;
+        const byteRoute = decision;
         if (request.planOnly) {
             return {
                 source: byteRoute.route,
@@ -541,7 +473,7 @@ export const usePdfViewerSaveTransaction = (
             baseBytes: serializedBytes ? null : request.source ? baseBytes : null,
             serializedBytes: serializedResult ? null : serializedBytes,
             serializedResult,
-            nativeMutationProjection,
+            nativeMutationProjection: null,
             annotationSavePlan,
             ...canonicalSaveCallbacks,
         };

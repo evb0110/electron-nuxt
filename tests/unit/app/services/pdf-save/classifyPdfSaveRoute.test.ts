@@ -13,6 +13,7 @@ import type { AnnotationEntity } from '@app/modules/pdf-viewer/annotations/domai
 import { asAnnotationId } from '@app/modules/pdf-viewer/annotations/domain/annotationEntity';
 import type { ISerializationPlanInputs } from '@app/modules/pdf-viewer/serialization/serializationPlan';
 import { buildSerializationPlan } from '@app/modules/pdf-viewer/serialization/serializationPlan';
+import {projectNativePdfMutationsForSave} from '@app/modules/pdf-viewer/runtime/save/projectNativePdfMutationsForSave';
 import { requireDocumentRevisionToken } from '@contracts';
 
 const MARKER_RECT = {
@@ -150,6 +151,12 @@ function capabilities(overrides: Partial<IPdfSaveRouteCapabilities> = {}): IPdfS
         hasLoadedSource: true,
         forcePdfjsMaterialize: false,
         includeManagedShapesForLiveSource: false,
+        totalPageCount: 4,
+        shapes: null,
+        deletedEmbeddedShapeAnnotationIds: [],
+        deletedEmbeddedShapeStableKeys: [],
+        markupSubtypeOverrides: undefined,
+        markupSubtypeHints: [],
         ...overrides,
     };
 }
@@ -241,14 +248,22 @@ describe('classifyPdfSaveRoute annotation routes', () => {
     });
 
     it('keeps clean saves on the source-byte path', () => {
-        const decision = classifyPdfSaveRoute(planOf([]), capabilities());
+        const decision = classifyPdfSaveRoute(planOf([]), capabilities({dirtyState: {
+            annotationDirty: false,
+            hasAnnotationChanges: false,
+            hasLivePdfJsAnnotationChanges: false,
+            savedPdfjsAnnotationBaselineDirty: false,
+            shapeStateDirty: false,
+        }}));
 
         expect(decision.annotationPlan).toMatchObject({
             route: 'source-clean',
             expectedCost: 'small',
             reason: 'no-live-pdfjs-annotation-work',
         });
-        expect(decision.route).toBe('native-append');
+        expect(decision.route).toBe('source-clean');
+        if (decision.route === 'native-append') throw new Error('expected a byte route');
+        expect(decision.nativeRejection).toBe('no-native-mutations-projected');
     });
 
     it('treats a declared dirty state PDF.js can no longer enumerate as unknown live work', () => {
@@ -268,9 +283,20 @@ describe('classifyPdfSaveRoute annotation routes', () => {
 });
 
 describe('classifyPdfSaveRoute native-append grant', () => {
-    it('grants the native route with the unforced annotation route even under forced materialization', () => {
+    it('classifies an unprojectable PDF-backed FreeText edit before granting a route', () => {
         const decision = classifyPdfSaveRoute(
             planOf([embeddedNote('anno_note', '12R')]),
+            capabilities(),
+        );
+
+        expect(decision.route).toBe('source-replay');
+        if (decision.route === 'native-append') throw new Error('expected a byte route');
+        expect(decision.nativeRejection).toBe('pending-texts-not-covered-by-native-mutations');
+    });
+
+    it('grants the native route with the unforced annotation route even under forced materialization', () => {
+        const decision = classifyPdfSaveRoute(
+            planOf([deletedMarkup('anno_deleted', '12R')]),
             capabilities({forcePdfjsMaterialize: true}),
         );
 
@@ -330,7 +356,7 @@ describe('classifyPdfSaveRoute native-append grant', () => {
         expect(decision.nativeRejection).toBe(rejection);
     });
 
-    it('carries the metadata capability and derived annotation work onto the grant', () => {
+    it('rejects structured native work when the metadata capability is unavailable', () => {
         const decision = classifyPdfSaveRoute(planOf([]), capabilities({
             nativeCapabilities: {
                 hasNativePdfMutationCapability: true,
@@ -338,16 +364,28 @@ describe('classifyPdfSaveRoute native-append grant', () => {
             },
             dirtyState: {
                 annotationDirty: false,
-                hasAnnotationChanges: true,
+                hasAnnotationChanges: false,
                 hasLivePdfJsAnnotationChanges: false,
                 savedPdfjsAnnotationBaselineDirty: false,
-                shapeStateDirty: true,
+                shapeStateDirty: false,
+            },
+            documentStructure: {
+                pageLabelsDirty: true,
+                pageLabelRanges: [{
+                    startPage: 1,
+                    style: 'D',
+                    prefix: '',
+                    startNumber: 1,
+                }],
+                bookmarksDirty: false,
+                bookmarkItems: [],
+                untitledBookmarkLabel: 'Untitled',
+                totalPages: 4,
             },
         }));
 
-        if (decision.route !== 'native-append') throw new Error('expected the native route');
-        expect(decision.metadataMutationsAllowed).toBe(false);
-        expect(decision.annotationWorkDirty).toBe(false);
+        if (decision.route === 'native-append') throw new Error('expected a byte route');
+        expect(decision.nativeRejection).toBe('native-structured-save-capability-unavailable');
     });
 });
 
@@ -513,7 +551,7 @@ describe('classifyPdfSaveRoute route properties', () => {
             resolved,
             decision,
         }) => {
-            const granted = plan.routeConstraints.allowedBackends.includes('native-append')
+            const admitted = plan.routeConstraints.allowedBackends.includes('native-append')
                 && !plan.routeConstraints.forceRewrite
                 && resolved.nativeCapabilities !== undefined
                 && resolved.dirtyState !== undefined
@@ -522,7 +560,12 @@ describe('classifyPdfSaveRoute route properties', () => {
                 && resolved.nativeCapabilities.hasNativePdfMutationCapability
                 && !resolved.includeManagedShapesForLiveSource;
 
-            expect(decision.route === 'native-append').toBe(granted);
+            if (decision.route === 'native-append') {
+                expect(admitted).toBe(true);
+                expect(Object.keys(decision.nativeMutationProjection.mutations).length).toBeGreaterThan(0);
+            } else if (!admitted) {
+                expect(decision.route).not.toBe('native-append');
+            }
         }), {numRuns: 400});
     });
 
@@ -534,6 +577,16 @@ describe('classifyPdfSaveRoute route properties', () => {
             expect(decision.replayableAnnotationMutationsAllowed).toBe(
                 decision.annotationRoute.route === 'source-replay',
             );
+        }), {numRuns: 400});
+    });
+
+    it('never falls back after granting native append', () => {
+        fc.assert(fc.property(ROUTE_DECISION_ARBITRARY, ({decision}) => {
+            if (decision.route !== 'native-append') {
+                return;
+            }
+            expect(decision.fallback.nativeRejection).toBe('native-write-failed');
+            expect(projectNativePdfMutationsForSave(decision)).toBe(decision.nativeMutationProjection);
         }), {numRuns: 400});
     });
 });

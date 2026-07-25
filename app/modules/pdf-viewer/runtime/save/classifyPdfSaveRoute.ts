@@ -1,9 +1,16 @@
-import type { IAnnotationCommentSummary } from '@app/types/annotations';
+import type {
+    IAnnotationCommentSummary,
+    IShapeAnnotation,
+    TMarkupSubtype,
+} from '@app/types/annotations';
 import type { AnnotationEntity } from '@app/modules/pdf-viewer/annotations/domain/annotationEntity';
 import { computeSummaryStableKey } from '@app/modules/pdf-viewer/annotations/domain/annotationSummaryIdentity';
-import { assertAnnotationBackendSemanticConformance } from '@app/modules/pdf-viewer/annotations/persistence/annotationBackendConformance';
-import { normalizeMarkerRect } from '@app/modules/pdf-viewer/engine/annotation-geometry/normalizeMarkerRect';
+import {
+    assertAnnotationBackendSemanticConformance,
+    projectAnnotationBackendMutations,
+} from '@app/modules/pdf-viewer/annotations/persistence/annotationBackendConformance';
 import { getPdfAnnotationIdFromStableKey } from '@app/modules/pdf-viewer/engine/pdf-serialization-refs/parsePdfAnnotationStableKey';
+import type { IMarkupSubtypeHint } from '@app/modules/pdf-viewer/engine/pdf-serialization-subtype-hints/pdfSerializationSubtypeHintsTypes';
 import type {
     ISerializationPlan,
     TSerializationBackend,
@@ -23,11 +30,27 @@ import type {
 } from '@app/modules/pdf-viewer/runtime/save/nativePdfMutationProjectionTypes';
 import type {
     IPdfViewerAnnotationSavePlan,
+    INativePdfMutationProjection,
     IPdfViewerSaveTransactionDirtyState,
     IPdfViewerSaveTransactionDocumentStructure,
     IPdfViewerSaveTransactionNativeCapabilities,
     TPdfViewerAnnotationSaveRoute,
 } from '@app/modules/pdf-viewer/runtime/save/pdfViewerSaveTransaction.types';
+import { buildNativeAnnotationDeletesForSave } from '@app/modules/pdf-viewer/runtime/save/buildNativeAnnotationDeletesForSave';
+import {
+    buildNativeFreeTextNotesForSave,
+    isReplayableEditorOnlyFreeTextNote,
+} from '@app/modules/pdf-viewer/runtime/save/nativeFreeTextNotes';
+import { buildNativeMarkupMutationForSave } from '@app/modules/pdf-viewer/runtime/save/nativeMarkupMutations';
+import {
+    buildNativeBookmarksMutationForSave,
+    buildNativePageLabelsMutationForSave,
+} from '@app/modules/pdf-viewer/runtime/save/nativeMetadataMutations';
+import {
+    arePendingTextsCoveredByNativeChanges,
+    buildNativeNoteTextUpdatesForSave,
+} from '@app/modules/pdf-viewer/runtime/save/nativeNoteTextUpdates';
+import {buildNativeShapesMutationForSave} from '@app/modules/pdf-viewer/runtime/save/nativeShapeMutations';
 
 /** Everything outside the frozen plan that save routing is allowed to depend on. */
 export interface IPdfSaveRouteCapabilities {
@@ -40,6 +63,12 @@ export interface IPdfSaveRouteCapabilities {
     readonly hasLoadedSource: boolean;
     readonly forcePdfjsMaterialize: boolean;
     readonly includeManagedShapesForLiveSource: boolean;
+    readonly totalPageCount: number;
+    readonly shapes: IShapeAnnotation[] | null;
+    readonly deletedEmbeddedShapeAnnotationIds: string[];
+    readonly deletedEmbeddedShapeStableKeys: string[];
+    readonly markupSubtypeOverrides: Map<string, TMarkupSubtype> | undefined;
+    readonly markupSubtypeHints: IMarkupSubtypeHint[];
 }
 
 /** Annotation work every backend projector consumes, derived once from the frozen plan. */
@@ -57,6 +86,16 @@ export type TNativeSaveRouteRejection =
     | 'not-save-mode'
     | 'native-save-capability-unavailable'
     | 'managed-shapes-require-materialization'
+    | 'saved-pdfjs-baseline-dirty-requires-materialization'
+    | 'pdfjs-materialize-required'
+    | 'pending-texts-not-covered-by-native-mutations'
+    | 'pending-deletes-not-covered-by-native-mutations'
+    | 'live-pdfjs-annotation-work-not-covered-by-native-mutations'
+    | 'annotation-work-not-covered-by-native-mutations'
+    | 'shape-payload-unavailable'
+    | 'metadata-payload-unavailable'
+    | 'native-structured-save-capability-unavailable'
+    | 'native-write-failed'
     | 'no-native-mutations-projected';
 
 export interface IPdfSaveByteRouteDecision {
@@ -74,20 +113,11 @@ export interface IPdfSaveNativeRouteDecision extends INativeAppendSaveRoute {
     readonly canonical: IPdfSaveCanonicalInputs;
     readonly dirtyState: IPdfViewerSaveTransactionDirtyState;
     readonly documentStructure: IPdfViewerSaveTransactionDocumentStructure;
-    /** Applied when the granted native projection carries no mutation for the planned work. */
+    /** Preclassified atomic alternate if native persistence cannot expose its output. */
     readonly fallback: IPdfSaveByteRouteDecision;
 }
 
 export type TPdfSaveRouteDecision = IPdfSaveNativeRouteDecision | IPdfSaveByteRouteDecision;
-
-export function isReplayableEditorOnlyFreeTextNote(comment: IAnnotationCommentSummary) {
-    const subtype = comment.subtype?.trim().toLowerCase();
-    return comment.source === 'editor'
-        && !parsePdfJsAnnotationRef(comment.annotationId)
-        && Boolean(comment.hasNote)
-        && Boolean(normalizeMarkerRect(comment.markerRect))
-        && (subtype === 'freetext' || subtype === 'typewriter');
-}
 
 function entitySummary(entity: AnnotationEntity): IAnnotationCommentSummary {
     const source = entity.identity.pdfRef || entity.identity.pdfName ? 'pdf' : 'editor';
@@ -426,6 +456,131 @@ function admitNativeAppendRoute(
     };
 }
 
+function buildClassifiedNativeMutationProjection(
+    plan: ISerializationPlan,
+    canonical: IPdfSaveCanonicalInputs,
+    capabilities: IPdfSaveRouteCapabilities,
+    admitted: INativeSaveDescriptors,
+    annotationRoute: IPdfViewerAnnotationSavePlan,
+): INativePdfMutationProjection | TNativeSaveRouteRejection {
+    const replayAllowed = annotationRoute.route === 'source-replay';
+    const noteTextUpdatesResult = replayAllowed && canonical.pendingTexts.size > 0
+        ? buildNativeNoteTextUpdatesForSave({
+            pendingTexts: canonical.pendingTexts,
+            canonicalComments: canonical.comments,
+        })
+        : null;
+    const freeTextNotesResult = replayAllowed
+        ? buildNativeFreeTextNotesForSave({canonicalComments: canonical.comments})
+        : null;
+    const annotationDeletesResult = replayAllowed
+        ? buildNativeAnnotationDeletesForSave({pendingDeletes: canonical.pendingDeletes})
+        : null;
+    const noteTextUpdates = noteTextUpdatesResult?.value ?? [];
+    const freeTextNotes = freeTextNotesResult?.value ?? [];
+    const annotationDeletes = annotationDeletesResult?.value ?? [];
+    const nativeNoteMutationCount = noteTextUpdates.length + freeTextNotes.length + annotationDeletes.length;
+    const pendingDeletesAreFullyCovered = canonical.pendingDeletes.length > 0
+        && annotationDeletes.length === canonical.pendingDeletes.length;
+    if (admitted.dirtyState.savedPdfjsAnnotationBaselineDirty && !pendingDeletesAreFullyCovered) {
+        return 'saved-pdfjs-baseline-dirty-requires-materialization';
+    }
+
+    const annotationWorkDirty = admitted.dirtyState.annotationDirty
+        || (admitted.dirtyState.hasAnnotationChanges && !admitted.dirtyState.shapeStateDirty);
+    const markup = buildNativeMarkupMutationForSave({
+        canonicalComments: canonical.comments,
+        annotationWorkDirty,
+        markupSubtypeOverrides: capabilities.markupSubtypeOverrides,
+        markupSubtypeHints: capabilities.markupSubtypeHints,
+    });
+    const hasMarkupMutations = Boolean(markup);
+    if (capabilities.forcePdfjsMaterialize && nativeNoteMutationCount === 0 && !hasMarkupMutations) {
+        return 'pdfjs-materialize-required';
+    }
+    if (!arePendingTextsCoveredByNativeChanges({
+        pendingTexts: canonical.pendingTexts,
+        nativeNoteTextUpdates: noteTextUpdatesResult?.value ?? null,
+        nativeFreeTextNotes: freeTextNotesResult?.value ?? null,
+    })) {
+        return 'pending-texts-not-covered-by-native-mutations';
+    }
+    if (canonical.pendingDeletes.length > 0 && annotationDeletes.length !== canonical.pendingDeletes.length) {
+        return 'pending-deletes-not-covered-by-native-mutations';
+    }
+    if (admitted.dirtyState.hasLivePdfJsAnnotationChanges && nativeNoteMutationCount === 0) {
+        return 'live-pdfjs-annotation-work-not-covered-by-native-mutations';
+    }
+    if (annotationWorkDirty && nativeNoteMutationCount === 0 && !hasMarkupMutations) {
+        return 'annotation-work-not-covered-by-native-mutations';
+    }
+
+    const shapes = buildNativeShapesMutationForSave({
+        shapeStateDirty: admitted.dirtyState.shapeStateDirty,
+        totalPageCount: capabilities.totalPageCount,
+        shapes: capabilities.shapes,
+        deletedAnnotationIds: capabilities.deletedEmbeddedShapeAnnotationIds,
+        deletedStableKeys: capabilities.deletedEmbeddedShapeStableKeys,
+    });
+    const hasShapeMutations = Boolean(shapes);
+    if (admitted.dirtyState.shapeStateDirty && !hasShapeMutations) {
+        return 'shape-payload-unavailable';
+    }
+    const pageLabels = buildNativePageLabelsMutationForSave({
+        pageLabelsDirty: admitted.documentStructure.pageLabelsDirty,
+        totalPageCount: capabilities.totalPageCount,
+        pageLabelRanges: admitted.documentStructure.pageLabelRanges,
+    });
+    const bookmarks = buildNativeBookmarksMutationForSave({
+        bookmarksDirty: admitted.documentStructure.bookmarksDirty,
+        totalPageCount: capabilities.totalPageCount,
+        bookmarkItems: admitted.documentStructure.bookmarkItems,
+        untitledBookmarkLabel: admitted.documentStructure.untitledBookmarkLabel,
+    });
+    const hasMetadataMutations = Boolean(pageLabels) || Boolean(bookmarks);
+    if (
+        (admitted.documentStructure.pageLabelsDirty || admitted.documentStructure.bookmarksDirty)
+        && !hasMetadataMutations
+    ) {
+        return 'metadata-payload-unavailable';
+    }
+    if (
+        (hasMetadataMutations || hasShapeMutations)
+        && !admitted.nativeCapabilities.canPersistNativeMetadataMutations
+    ) {
+        return 'native-structured-save-capability-unavailable';
+    }
+    if (nativeNoteMutationCount === 0 && !hasMetadataMutations && !hasShapeMutations && !hasMarkupMutations) {
+        return 'no-native-mutations-projected';
+    }
+
+    return {
+        canonicalAnnotationProgram: projectAnnotationBackendMutations(plan, 'native-append'),
+        mutations: {
+            ...(noteTextUpdates.length > 0 ? {updates: noteTextUpdates} : {}),
+            ...(freeTextNotes.length > 0 ? {freeTextNotes} : {}),
+            ...(annotationDeletes.length > 0 ? {deletes: annotationDeletes} : {}),
+            ...(pageLabels ? {pageLabels} : {}),
+            ...(bookmarks ? {bookmarks} : {}),
+            ...(shapes ? {shapes} : {}),
+            ...(markup ? {markup} : {}),
+        },
+        noteTextUpdates,
+        freeTextNotes,
+        annotationDeletes,
+        hasMetadataMutations,
+        hasShapeMutations,
+        hasMarkupMutations,
+        phase: hasMetadataMutations || hasShapeMutations || hasMarkupMutations
+            ? 'persist-native-pdf-mutations'
+            : annotationDeletes.length > 0
+                ? 'persist-native-annotation-changes'
+                : freeTextNotes.length > 0
+                    ? 'persist-native-note-changes'
+                    : 'persist-native-note-text-updates',
+    };
+}
+
 /**
  * The one place save routing is decided. Every projector receives the result and
  * asserts it; none of them may re-derive a mode, capability, or coverage branch.
@@ -449,6 +604,12 @@ export function classifyPdfSaveRoute(
         }
         : replayPlan;
     const admitted = admitNativeAppendRoute(plan, capabilities);
+    const nativeProjection = typeof admitted === 'string'
+        ? admitted
+        : buildClassifiedNativeMutationProjection(plan, canonical, capabilities, admitted, replayPlan);
+    const nativeRejection = typeof nativeProjection === 'string'
+        ? nativeProjection
+        : 'native-write-failed';
     const byteRoute: IPdfSaveByteRouteDecision = {
         route: annotationPlan.route,
         annotationPlan,
@@ -457,9 +618,9 @@ export function classifyPdfSaveRoute(
             ? 'loaded-source'
             : 'pdfjs-materialize',
         sourceFallbackAllowed: annotationPlan.route === 'source-replay',
-        nativeRejection: typeof admitted === 'string' ? admitted : 'no-native-mutations-projected',
+        nativeRejection,
     };
-    if (typeof admitted === 'string') {
+    if (typeof admitted === 'string' || typeof nativeProjection === 'string') {
         return byteRoute;
     }
 
@@ -471,6 +632,7 @@ export function classifyPdfSaveRoute(
         annotationWorkDirty: admitted.dirtyState.annotationDirty
             || (admitted.dirtyState.hasAnnotationChanges && !admitted.dirtyState.shapeStateDirty),
         pdfjsMaterializeForced: capabilities.forcePdfjsMaterialize,
+        nativeMutationProjection: nativeProjection,
         annotationPlan,
         canonical,
         dirtyState: admitted.dirtyState,

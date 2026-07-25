@@ -3,7 +3,7 @@ import { parsePdfJsAnnotationRef } from '@app/utils/pdfAnnotationRefs';
 import { parsePdfAnnotationStableKeyRef } from '@app/modules/pdf-viewer/engine/pdf-serialization-refs/parsePdfAnnotationStableKey';
 import type { IPdfNativeAnnotationDelete } from '@contracts/electronApiDocuments';
 import { parsePageIndex } from '@contracts/pageNumbers';
-import { isReplayableEditorOnlyFreeTextNote } from '@app/modules/pdf-viewer/runtime/save/classifyPdfSaveRoute';
+import { isReplayableEditorOnlyFreeTextNote } from '@app/modules/pdf-viewer/runtime/save/nativeFreeTextNotes';
 import type { INativePdfMutationBuildResult } from '@app/modules/pdf-viewer/runtime/save/nativePdfMutationProjectionTypes';
 
 function parseAnnotationRefFromStableKey(stableKey: string) {

@@ -10,9 +10,9 @@ import type {
 } from '@app/types/annotations';
 import {
     buildNativeFreeTextNotesForSave,
+    isReplayableEditorOnlyFreeTextNote,
     toNativeFreeTextNote,
 } from '@app/modules/pdf-viewer/runtime/save/nativeFreeTextNotes';
-import { isReplayableEditorOnlyFreeTextNote } from '@app/modules/pdf-viewer/runtime/save/classifyPdfSaveRoute';
 import { buildNativeNoteTextUpdatesForSave } from '@app/modules/pdf-viewer/runtime/save/nativeNoteTextUpdates';
 import { buildNativeAnnotationDeletesForSave } from '@app/modules/pdf-viewer/runtime/save/buildNativeAnnotationDeletesForSave';
 import {
@@ -25,10 +25,8 @@ import {
     toNativeMarkupHint,
 } from '@app/modules/pdf-viewer/runtime/save/nativeMarkupMutations';
 import { projectNativePdfMutationsForSave } from '@app/modules/pdf-viewer/runtime/save/projectNativePdfMutationsForSave';
-import type {
-    INativeAppendSaveRoute,
-    INativePdfMutationProjectionInput,
-} from '@app/modules/pdf-viewer/runtime/save/nativePdfMutationProjectionTypes';
+import type {INativeAppendSaveRoute} from '@app/modules/pdf-viewer/runtime/save/nativePdfMutationProjectionTypes';
+import type {INativePdfMutationProjection} from '@app/modules/pdf-viewer/runtime/save/pdfViewerSaveTransaction.types';
 
 function createComment(overrides: Partial<IAnnotationCommentSummary> = {}): IAnnotationCommentSummary {
     return {
@@ -99,6 +97,25 @@ function createShape(overrides: Partial<IShapeAnnotation> = {}): IShapeAnnotatio
 }
 
 function createNativeAppendRoute(overrides: Partial<INativeAppendSaveRoute> = {}): INativeAppendSaveRoute {
+    const nativeMutationProjection: INativePdfMutationProjection = {
+        canonicalAnnotationProgram: [],
+        mutations: {updates: [{
+            objectNumber: 12,
+            generationNumber: 0,
+            text: 'Updated note',
+        }]},
+        noteTextUpdates: [{
+            objectNumber: 12,
+            generationNumber: 0,
+            text: 'Updated note',
+        }],
+        freeTextNotes: [],
+        annotationDeletes: [],
+        hasMetadataMutations: false,
+        hasShapeMutations: false,
+        hasMarkupMutations: false,
+        phase: 'persist-native-note-text-updates',
+    };
     return {
         route: 'native-append',
         annotationRoute: {
@@ -109,38 +126,20 @@ function createNativeAppendRoute(overrides: Partial<INativeAppendSaveRoute> = {}
         metadataMutationsAllowed: true,
         annotationWorkDirty: false,
         pdfjsMaterializeForced: false,
+        nativeMutationProjection,
         ...overrides,
     };
 }
 
-function createMutationProjectionInput(overrides: Partial<INativePdfMutationProjectionInput> = {}): INativePdfMutationProjectionInput {
+function createMutationProjectionInput(overrides: Partial<{
+    canonicalComments: IAnnotationCommentSummary[];
+    pendingTexts: Map<string, string>;
+    pendingDeletes: IAnnotationCommentSummary[];
+}> = {}) {
     return {
-        route: createNativeAppendRoute(),
-        dirtyState: {
-            annotationDirty: false,
-            hasAnnotationChanges: false,
-            hasLivePdfJsAnnotationChanges: false,
-            savedPdfjsAnnotationBaselineDirty: false,
-            shapeStateDirty: false,
-        },
-        documentStructure: {
-            pageLabelsDirty: false,
-            pageLabelRanges: [],
-            bookmarksDirty: false,
-            bookmarkItems: [],
-            untitledBookmarkLabel: 'Untitled',
-            totalPages: 2,
-        },
-        canonicalAnnotationProgram: [],
         pendingTexts: new Map(),
         pendingDeletes: [],
         canonicalComments: [],
-        totalPageCount: 2,
-        shapes: null,
-        deletedEmbeddedShapeAnnotationIds: [],
-        deletedEmbeddedShapeStableKeys: [],
-        markupSubtypeOverrides: undefined,
-        markupSubtypeHints: [],
         ...overrides,
     };
 }
@@ -411,221 +410,54 @@ describe('native markup builders', () => {
 });
 
 describe('native PDF mutation projection', () => {
-    it('assembles native notes, metadata, shapes, and markup into one mutation set', () => {
-        const editorNote = createEditorFreeTextComment();
-        const markerRect = {
-            left: 0.1,
-            top: 0.2,
-            width: 0.1,
-            height: 0.1,
-        };
+    it('returns the exact immutable program admitted by the classifier', () => {
+        const route = createNativeAppendRoute();
 
-        const result = projectNativePdfMutationsForSave(createMutationProjectionInput({
-            route: createNativeAppendRoute({annotationWorkDirty: true}),
-            canonicalComments: [
-                editorNote,
-                createComment({
-                    stableKey: 'ann:0:44R0',
-                    annotationId: '44R0',
-                    subtype: 'Highlight',
-                    color: '#ffee00',
-                    markerRect,
-                }),
-            ],
-            pendingTexts: new Map([[
-                editorNote.stableKey,
-                editorNote.text,
-            ]]),
-            dirtyState: {
-                annotationDirty: true,
-                hasAnnotationChanges: true,
-                hasLivePdfJsAnnotationChanges: false,
-                savedPdfjsAnnotationBaselineDirty: false,
-                shapeStateDirty: true,
+        expect(projectNativePdfMutationsForSave(route)).toBe(route.nativeMutationProjection);
+    });
+
+    it('asserts an impossible replay grant instead of selecting another route', () => {
+        const route = createNativeAppendRoute({annotationRoute: {
+            route: 'pdfjs-materialize',
+            reason: 'test-invalid-route',
+        }});
+
+        expect(() => projectNativePdfMutationsForSave(route)).toThrow(
+            'Native annotation replay was granted on the pdfjs-materialize route',
+        );
+    });
+
+    it('asserts an empty native program instead of returning a fallback', () => {
+        const route = createNativeAppendRoute({nativeMutationProjection: {
+            ...createNativeAppendRoute().nativeMutationProjection,
+            mutations: {},
+            noteTextUpdates: [],
+        }});
+
+        expect(() => projectNativePdfMutationsForSave(route)).toThrow(
+            'Native append was granted without a mutation program',
+        );
+    });
+
+    it('asserts annotation mutations without a replay grant', () => {
+        const route = createNativeAppendRoute({replayableAnnotationMutationsAllowed: false});
+
+        expect(() => projectNativePdfMutationsForSave(route)).toThrow(
+            'Native annotation mutations were projected without a source-replay grant',
+        );
+    });
+
+    it('asserts structured mutations without capability', () => {
+        const route = createNativeAppendRoute({
+            metadataMutationsAllowed: false,
+            nativeMutationProjection: {
+                ...createNativeAppendRoute().nativeMutationProjection,
+                hasMetadataMutations: true,
             },
-            documentStructure: {
-                pageLabelsDirty: true,
-                pageLabelRanges: [{
-                    startPage: 1,
-                    style: 'D',
-                    prefix: 'A-',
-                    startNumber: 1,
-                }],
-                bookmarksDirty: true,
-                bookmarkItems: [{
-                    title: 'Chapter',
-                    pageIndex: 0,
-                    namedDest: null,
-                    bold: false,
-                    italic: false,
-                    color: null,
-                    items: [],
-                }],
-                untitledBookmarkLabel: 'Untitled',
-                totalPages: 2,
-            },
-            shapes: [createShape()],
-            markupSubtypeOverrides: new Map([[
-                '44R0',
-                'Underline',
-            ]]),
-        }));
-
-        expect(result.projection?.phase).toBe('persist-native-pdf-mutations');
-        expect(result.projection?.mutations.freeTextNotes).toEqual([expect.objectContaining({stableKey: editorNote.stableKey})]);
-        expect(result.projection?.mutations.pageLabels?.ranges).toEqual([{
-            startPage: 1,
-            style: 'D',
-            prefix: 'A-',
-            startNumber: 1,
-        }]);
-        expect(result.projection?.mutations.bookmarks?.items).toEqual([expect.objectContaining({title: 'Chapter'})]);
-        expect(result.projection?.mutations.shapes?.shapes).toEqual([expect.objectContaining({id: 'shape-1'})]);
-        expect(result.projection?.mutations.markup?.overrides).toEqual([[
-            '44R0',
-            'Underline',
-        ]]);
-        expect(result.skipEvents).toEqual([expect.objectContaining({
-            event: 'Skipped native note-text save fast path',
-            reason: 'pending-text-not-native-eligible',
-        })]);
-    });
-
-    it('returns null when pending texts are not covered by native mutations', () => {
-        const result = projectNativePdfMutationsForSave(createMutationProjectionInput({
-            pendingTexts: new Map([[
-                'missing-key',
-                'Updated note',
-            ]]),
-            canonicalComments: [createComment()],
-            route: createNativeAppendRoute({annotationWorkDirty: true}),
-        }));
-
-        expect(result.projection).toBeNull();
-        expect(result.skipEvents).toContainEqual({
-            event: 'Skipped native PDF mutation save fast path',
-            reason: 'pending-texts-not-covered-by-native-mutations',
-            details: {},
         });
-    });
 
-    it('requires full serialization for PDF-backed FreeText text edits', () => {
-        const result = projectNativePdfMutationsForSave(createMutationProjectionInput({
-            pendingTexts: new Map([[
-                'ann:0:12R0',
-                'Updated note',
-            ]]),
-            canonicalComments: [createComment({subtype: 'FreeText'})],
-            route: createNativeAppendRoute({annotationWorkDirty: true}),
-        }));
-
-        expect(result.projection).toBeNull();
-        expect(result.skipEvents).toContainEqual({
-            event: 'Skipped native PDF mutation save fast path',
-            reason: 'pending-texts-not-covered-by-native-mutations',
-            details: {},
-        });
-    });
-
-    it('requires materialization for a dirty saved PDF.js baseline even when native note work exists', () => {
-        const result = projectNativePdfMutationsForSave(createMutationProjectionInput({
-            dirtyState: {
-                annotationDirty: true,
-                hasAnnotationChanges: true,
-                hasLivePdfJsAnnotationChanges: false,
-                savedPdfjsAnnotationBaselineDirty: true,
-                shapeStateDirty: false,
-            },
-            pendingTexts: new Map([[
-                'ann:0:12R0',
-                'Updated note',
-            ]]),
-            canonicalComments: [createComment()],
-            route: createNativeAppendRoute({annotationWorkDirty: true}),
-        }));
-
-        expect(result.projection).toBeNull();
-        expect(result.skipEvents).toContainEqual({
-            event: 'Skipped native PDF mutation save fast path',
-            reason: 'saved-pdfjs-baseline-dirty-requires-materialization',
-            details: {},
-        });
-    });
-
-    it('uses an exact native delete when it fully covers a dirty saved PDF.js baseline', () => {
-        const deletedComment = createComment();
-        const result = projectNativePdfMutationsForSave(createMutationProjectionInput({
-            dirtyState: {
-                annotationDirty: true,
-                hasAnnotationChanges: true,
-                hasLivePdfJsAnnotationChanges: true,
-                savedPdfjsAnnotationBaselineDirty: true,
-                shapeStateDirty: false,
-            },
-            pendingDeletes: [deletedComment],
-            canonicalComments: [],
-            route: createNativeAppendRoute({annotationWorkDirty: true}),
-        }));
-
-        expect(result.projection?.mutations.deletes).toEqual([{
-            pageIndex: 0,
-            objectNumber: 12,
-            generationNumber: 0,
-        }]);
-    });
-
-    it('uses native note updates when PDF.js materialization is requested but source replay covers the work', () => {
-        const result = projectNativePdfMutationsForSave(createMutationProjectionInput({
-            route: createNativeAppendRoute({
-                pdfjsMaterializeForced: true,
-                annotationWorkDirty: true,
-            }),
-            pendingTexts: new Map([[
-                'ann:0:12R0',
-                'Updated note',
-            ]]),
-            canonicalComments: [createComment()],
-        }));
-
-        expect(result.projection?.mutations.updates).toEqual([{
-            objectNumber: 12,
-            generationNumber: 0,
-            text: 'Updated note',
-        }]);
-        expect(result.skipEvents).not.toContainEqual(expect.objectContaining({reason: 'pdfjs-materialize-required'}));
-    });
-
-    it('uses native FreeText note upserts and deletes when source replay covers materialized work', () => {
-        const editorNote = createEditorFreeTextComment();
-        const result = projectNativePdfMutationsForSave(createMutationProjectionInput({
-            route: createNativeAppendRoute({
-                pdfjsMaterializeForced: true,
-                annotationWorkDirty: true,
-            }),
-            pendingDeletes: [createComment()],
-            canonicalComments: [editorNote],
-        }));
-
-        expect(result.projection?.mutations.freeTextNotes).toEqual([expect.objectContaining({stableKey: editorNote.stableKey})]);
-        expect(result.projection?.mutations.deletes).toEqual([{
-            pageIndex: 0,
-            objectNumber: 12,
-            generationNumber: 0,
-        }]);
-        expect(result.skipEvents).not.toContainEqual(expect.objectContaining({reason: 'pdfjs-materialize-required'}));
-    });
-
-    it('keeps PDF.js materialization required when the flag is set without native-covered work', () => {
-        const result = projectNativePdfMutationsForSave(createMutationProjectionInput({route: createNativeAppendRoute({
-            pdfjsMaterializeForced: true,
-            annotationWorkDirty: true,
-        })}));
-
-        expect(result.projection).toBeNull();
-        expect(result.skipEvents).toContainEqual({
-            event: 'Skipped native PDF mutation save fast path',
-            reason: 'pdfjs-materialize-required',
-            details: {},
-        });
+        expect(() => projectNativePdfMutationsForSave(route)).toThrow(
+            'Structured native mutations were projected without capability',
+        );
     });
 });
