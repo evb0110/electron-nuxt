@@ -398,7 +398,7 @@ export const usePdfViewerFeatureController = (
         virtualWindowEnd: viewportSession.viewModel.virtualWindowEnd,
         searchNavigationTargetPage: viewportSession.singlePageScroll.searchNavigationTargetPage,
         searchNavigationState: viewportSession.singlePageScroll.searchNavigationState,
-        getRasterSchedulerSnapshot: renderingSession.getRasterSchedulerSnapshot,
+        getRasterSchedulerSnapshot: () => documentSession.rasterScheduler?.snapshot() ?? null,
         summarizeViewerStateForLog,
     });
 
