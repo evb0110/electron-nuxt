@@ -84,7 +84,6 @@ describe('Electron E2E - Performance Profile Visuals', () => {
         session = await startConfiguredElectronE2ESession(
             `e2e-performance-visuals-low-${Date.now()}`,
             'low',
-            [],
         );
         await waitForAppReady(session);
 
@@ -100,7 +99,6 @@ describe('Electron E2E - Performance Profile Visuals', () => {
         session = await startConfiguredElectronE2ESession(
             `e2e-performance-visuals-medium-${Date.now()}`,
             'medium',
-            [],
         );
         await waitForAppReady(session);
 
@@ -139,7 +137,6 @@ describe('Electron E2E - Performance Profile Visuals', () => {
         session = await startConfiguredElectronE2ESession(
             `e2e-performance-visuals-high-${Date.now()}`,
             'high',
-            [],
         );
         await waitForAppReady(session);
 

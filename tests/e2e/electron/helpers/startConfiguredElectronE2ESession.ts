@@ -8,7 +8,6 @@ import {
 export async function startConfiguredElectronE2ESession(
     baseName: string,
     performanceMode: TPerformanceMode,
-    initialOpenPaths: string[],
 ) {
     // The env override drives the main-process profile; the settings cookie
     // drives the renderer fallback used by harness-adopted windows that carry
@@ -16,7 +15,6 @@ export async function startConfiguredElectronE2ESession(
     const session = await startElectronE2ESession(baseName, {
         clean: true,
         extraEnv: {EVB_TEST_PERFORMANCE_MODE: performanceMode},
-        initialOpenPaths,
     });
     await session.page.evaluate((payload: {
         cookieKey: string;

@@ -206,7 +206,6 @@ benchmarkDescribe('Electron E2E - save pipeline benchmark', () => {
         const session = await startConfiguredSession(
             `e2e-save-benchmark-${mode}-${tier}-${Date.now()}`,
             tier,
-            [],
         );
         try {
             await session.page.evaluate((allowLargeSerializedSave: boolean) => {

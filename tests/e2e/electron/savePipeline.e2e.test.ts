@@ -21,11 +21,16 @@ import {
 } from '@tests/e2e/electron/helpers/startElectronE2ESession';
 import {startConfiguredElectronE2ESession as startConfiguredSession} from '@tests/e2e/electron/helpers/startConfiguredElectronE2ESession';
 import {
+    openPdfInApp,
     openAnnotationsTab,
     waitForPdfLoaded,
     waitForViewerInteractive,
 } from '@tests/e2e/electron/helpers/viewerCore';
 import {createFreeTextAnnotation} from '@tests/e2e/electron/helpers/viewerAnnotations';
+import {
+    waitForAnimationFrames,
+    waitForVisibleMountedPdfCanvases,
+} from '@tests/e2e/electron/helpers/viewerVirtualizationContract';
 import {
     callWorkspaceCommand,
     getLatestAutomationEventId,
@@ -51,17 +56,23 @@ interface IPdfSourceStateSnapshot {
 }
 
 interface ICommittedCanvasContinuitySnapshot {
-    canvas: HTMLCanvasElement;
     canvasClassName: string;
     height: number;
     pageContainerClassName: string;
     width: number;
 }
 
+interface ISaveVisualContinuityFrame {
+    pagesWithoutVisual: number;
+    visiblePageCount: number;
+}
+
 type TSaveReceiptProbeWindow = Window & {
     __committedCanvasContinuitySnapshot?: ICommittedCanvasContinuitySnapshot;
     __resumeSaveReceiptCommit?: () => void;
     __saveReceiptProbe?: ISaveReceiptProbe;
+    __saveVisualContinuityFrames?: ISaveVisualContinuityFrame[];
+    __stopSaveVisualContinuitySampler?: () => void;
 };
 
 function hashBytes(bytes: Uint8Array) {
@@ -173,6 +184,7 @@ async function waitForStagedArtifact(page: Page) {
 }
 
 async function captureCommittedCanvasForSaveContinuity(page: Page) {
+    await waitForVisibleMountedPdfCanvases(page, SAVE_TIMEOUT_MS);
     return page.evaluate(() => {
         const pageContainer = document.querySelector<HTMLElement>(
             '.editor-pane.is-active .page_container',
@@ -184,7 +196,6 @@ async function captureCommittedCanvasForSaveContinuity(page: Page) {
             throw new Error('No committed PDF canvas was available before save');
         }
         const snapshot: ICommittedCanvasContinuitySnapshot = {
-            canvas,
             canvasClassName: canvas.className,
             height: canvas.height,
             pageContainerClassName: pageContainer.className,
@@ -201,9 +212,91 @@ async function captureCommittedCanvasForSaveContinuity(page: Page) {
     });
 }
 
+async function installSaveVisualContinuitySampler(page: Page) {
+    await page.evaluate(() => {
+        const target = window as TSaveReceiptProbeWindow;
+        target.__stopSaveVisualContinuitySampler?.();
+        const frames: ISaveVisualContinuityFrame[] = [];
+        let running = true;
+        target.__saveVisualContinuityFrames = frames;
+        target.__stopSaveVisualContinuitySampler = () => {
+            running = false;
+        };
+        const isVisible = (element: HTMLElement | null) => {
+            if (!element?.isConnected) {
+                return false;
+            }
+            const rect = element.getBoundingClientRect();
+            const style = window.getComputedStyle(element);
+            return rect.width > 0
+                && rect.height > 0
+                && style.display !== 'none'
+                && style.visibility !== 'hidden'
+                && Number(style.opacity || '1') > 0;
+        };
+        const sample = () => {
+            const activePane = document.querySelector<HTMLElement>('.editor-pane.is-active');
+            const viewport = activePane?.querySelector<HTMLElement>(
+                '[data-document-viewer-chassis-viewport], #pdf-viewer',
+            ) ?? null;
+            const viewportRect = viewport?.getBoundingClientRect() ?? null;
+            const visiblePages = viewportRect
+                ? Array.from(activePane?.querySelectorAll<HTMLElement>(
+                    '.page_container[data-page]',
+                ) ?? []).filter((pageContainer) => {
+                    if (!isVisible(pageContainer)) {
+                        return false;
+                    }
+                    const pageRect = pageContainer.getBoundingClientRect();
+                    return pageRect.bottom > viewportRect.top
+                        && pageRect.top < viewportRect.bottom
+                        && pageRect.right > viewportRect.left
+                        && pageRect.left < viewportRect.right;
+                })
+                : [];
+            const pagesWithoutVisual = visiblePages.filter((pageContainer) => {
+                const canvas = pageContainer.querySelector<HTMLCanvasElement>(
+                    '.page_canvas__render-layer canvas',
+                );
+                const resizeSnapshot = pageContainer.querySelector<HTMLElement>(
+                    '.pdf-resize-canvas-snapshot',
+                );
+                const hasCanonicalCanvas = Boolean(
+                    isVisible(canvas)
+                    && canvas
+                    && canvas.width > 0
+                    && canvas.height > 0,
+                );
+                return !hasCanonicalCanvas && !isVisible(resizeSnapshot);
+            }).length;
+            frames.push({
+                pagesWithoutVisual,
+                visiblePageCount: visiblePages.length,
+            });
+            if (running) {
+                window.requestAnimationFrame(sample);
+            }
+        };
+        window.requestAnimationFrame(sample);
+    });
+}
+
+async function stopSaveVisualContinuitySampler(page: Page) {
+    await waitForAnimationFrames(page, 2);
+    return page.evaluate(() => {
+        const target = window as TSaveReceiptProbeWindow;
+        target.__stopSaveVisualContinuitySampler?.();
+        const frames = target.__saveVisualContinuityFrames ?? [];
+        delete target.__saveVisualContinuityFrames;
+        delete target.__stopSaveVisualContinuitySampler;
+        return frames;
+    });
+}
+
 async function expectCommittedCanvasSurvivedSave(
     page: Page,
 ) {
+    await waitForVisibleMountedPdfCanvases(page, SAVE_TIMEOUT_MS);
     const continuity = await page.evaluate(() => {
         const snapshot = (window as TSaveReceiptProbeWindow).__committedCanvasContinuitySnapshot;
         if (!snapshot) {
@@ -222,7 +315,6 @@ async function expectCommittedCanvasSurvivedSave(
             height: canvas.height,
             rendered: pageContainer.classList.contains('page_container--rendered'),
             sameCanvasClassName: canvas.className === snapshot.canvasClassName,
-            sameCanvasNode: canvas === snapshot.canvas,
             sameHeight: canvas.height === snapshot.height,
             samePageContainerClassName: pageContainer.className === snapshot.pageContainerClassName,
             sameWidth: canvas.width === snapshot.width,
@@ -233,7 +325,6 @@ async function expectCommittedCanvasSurvivedSave(
         height: expect.any(Number),
         rendered: true,
         sameCanvasClassName: true,
-        sameCanvasNode: true,
         sameHeight: true,
         samePageContainerClassName: true,
         sameWidth: true,
@@ -259,6 +350,7 @@ describe('Electron E2E - save pipeline diagnostics', () => {
         await session?.page.evaluate(() => {
             const probeWindow = window as TSaveReceiptProbeWindow;
             probeWindow.__resumeSaveReceiptCommit?.();
+            probeWindow.__stopSaveVisualContinuitySampler?.();
             delete probeWindow.__stagedPdfNativeMutationCommitBarrierForAutomation;
         }).catch(() => undefined);
         if (session) {
@@ -291,7 +383,13 @@ describe('Electron E2E - save pipeline diagnostics', () => {
         await createDirtyStickyNote(session.page);
         expect((await captureCommittedCanvasForSaveContinuity(session.page)).rendered).toBe(true);
 
+        await installSaveVisualContinuitySampler(session.page);
         await saveFromWorkspace(session.page, pdfPath);
+        const firstSaveVisualFrames = await stopSaveVisualContinuitySampler(session.page);
+        expect(firstSaveVisualFrames.length).toBeGreaterThan(0);
+        expect(firstSaveVisualFrames.every(frame => (
+            frame.visiblePageCount > 0 && frame.pagesWithoutVisual === 0
+        ))).toBe(true);
         await expectCommittedCanvasSurvivedSave(session.page);
 
         const probe = await session.page.evaluate(
@@ -319,8 +417,14 @@ describe('Electron E2E - save pipeline diagnostics', () => {
 
         await createDirtyFreeText(session.page, `post-save free text ${Date.now()}`);
         expect((await captureCommittedCanvasForSaveContinuity(session.page)).rendered).toBe(true);
+        await installSaveVisualContinuitySampler(session.page);
         await saveFromWorkspace(session.page, pdfPath);
         await waitForViewerInteractive(session.page, SAVE_TIMEOUT_MS);
+        const secondSaveVisualFrames = await stopSaveVisualContinuitySampler(session.page);
+        expect(secondSaveVisualFrames.length).toBeGreaterThan(0);
+        expect(secondSaveVisualFrames.every(frame => (
+            frame.visiblePageCount > 0 && frame.pagesWithoutVisual === 0
+        ))).toBe(true);
         await expectCommittedCanvasSurvivedSave(session.page);
         expect((await readPdfAnnotationSummary(pdfPath)).bySubtype.FreeText ?? 0).toBeGreaterThan(1);
 
@@ -405,8 +509,8 @@ describe('Electron E2E - save pipeline diagnostics', () => {
         session = await startConfiguredSession(
             `e2e-save-tier-low-${Date.now()}`,
             'low',
-            [lowPath],
         );
+        await openPdfInApp(session.page, lowPath, SAVE_TIMEOUT_MS);
         await waitForOpenedPdf(session.page, lowPath);
         await createDirtyFreeText(session.page, `low tier ${Date.now()}`);
         await saveFromWorkspace(session.page, lowPath);
@@ -418,8 +522,8 @@ describe('Electron E2E - save pipeline diagnostics', () => {
         session = await startConfiguredSession(
             `e2e-save-tier-high-${Date.now()}`,
             'high',
-            [highPath],
         );
+        await openPdfInApp(session.page, highPath, SAVE_TIMEOUT_MS);
         await waitForOpenedPdf(session.page, highPath);
         await createDirtyFreeText(session.page, `high tier ${Date.now()}`);
         await saveFromWorkspace(session.page, highPath);

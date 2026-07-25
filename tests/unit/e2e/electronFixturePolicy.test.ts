@@ -134,6 +134,8 @@ describe('Electron E2E fixture policy', () => {
         expect(sessionSource).toContain('stopOptions.preserveArtifacts');
         expect(sessionSource).toContain('\'electron-user-data\'');
         expect(sessionSource).toContain('prunePreservedSessionArtifacts(scopedSessionName)');
+        expect(sessionSource).toContain('getCurrentSessionName() === scopedSessionName');
+        expect(sessionSource).toContain('setCurrentSessionName(\'default\')');
     });
 
     it('discards the retiring renderer checkpoint before unmounting it during an in-process reset', async () => {

@@ -26,6 +26,7 @@ import {
     readSessionLogTail,
 } from '@scripts/electron-run/electronRunSessionArtifacts';
 import {
+    getCurrentSessionName,
     sessionDir,
     setCurrentSessionName,
 } from '@scripts/electron-run/electronRunSessionPaths';
@@ -467,16 +468,22 @@ export async function startElectronE2ESession(sessionName: string, options?: {
     };
 
     const stop = async (stopOptions: IElectronE2ESessionStopOptions = {}) => {
-        await withSessionTimeout(
-            scopedSessionName,
-            `Stopping Electron E2E session '${scopedSessionName}'`,
-            SESSION_STOP_TIMEOUT_MS,
-            stopSingleSession(scopedSessionName, {keepNuxt: stopOptions.keepNuxt ?? false}),
-        );
-        if (stopOptions.preserveArtifacts || shouldPreserveE2EArtifacts()) {
-            prunePreservedSessionArtifacts(scopedSessionName);
-        } else {
-            cleanupSessionArtifacts(scopedSessionName);
+        try {
+            await withSessionTimeout(
+                scopedSessionName,
+                `Stopping Electron E2E session '${scopedSessionName}'`,
+                SESSION_STOP_TIMEOUT_MS,
+                stopSingleSession(scopedSessionName, {keepNuxt: stopOptions.keepNuxt ?? false}),
+            );
+            if (stopOptions.preserveArtifacts || shouldPreserveE2EArtifacts()) {
+                prunePreservedSessionArtifacts(scopedSessionName);
+            } else {
+                cleanupSessionArtifacts(scopedSessionName);
+            }
+        } finally {
+            if (getCurrentSessionName() === scopedSessionName) {
+                setCurrentSessionName('default');
+            }
         }
     };
 
