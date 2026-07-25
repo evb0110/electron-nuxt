@@ -113,10 +113,20 @@ describe('writeOcrIndexV3 compact search sidecar', () => {
             },
         ], 2, ['eng'], 300, vi.fn());
 
-        const manifest = JSON.parse(await readFile(`${pdfPath}.ocr/manifest.json`, 'utf-8')) as { pages: Record<string, { path: string }> };
+        const manifest = JSON.parse(await readFile(`${pdfPath}.ocr/manifest.json`, 'utf-8')) as {pages: Record<string, {
+            path: string;
+            generation?: string;
+        }>;};
+        const firstPage = JSON.parse(await readFile(`${pdfPath}.ocr/page-0001.json`, 'utf-8')) as {canonicalText: {generation: string}};
         expect(manifest.pages).toEqual({
-            1: { path: 'page-0001.json' },
-            2: { path: 'page-0002.json' },
+            1: {
+                path: 'page-0001.json',
+                generation: firstPage.canonicalText.generation,
+            },
+            2: {
+                path: 'page-0002.json',
+                generation: firstPage.canonicalText.generation,
+            },
         });
         await expect(readFile(`${pdfPath}.ocr/page-0001.json`, 'utf-8')).resolves.toContain('"words"');
 

@@ -11,6 +11,7 @@ import {
 import {join} from 'node:path';
 import type {IDocumentRevisionInfo} from '@contracts/documentRevision';
 import type {IPageIdentityDelta} from '@contracts/electronApiPageOps';
+import type {IOcrIndexV3Manifest} from '@contracts/ocrIndex';
 import {parseOcrIndexV3Manifest} from '@contracts/ocrIndex';
 import {isRecord} from '@contracts/runtimeGuards';
 import {readWorkingCopyRevisionSidecar} from '@electron/file-access/documentRevisionSidecar';
@@ -324,7 +325,7 @@ async function remapOcrCatalog(
     }
     const replacement = `${ocrDir}.${process.pid}.${randomUUID()}.tmp`;
     await mkdir(replacement, {recursive: true});
-    const mappings: Record<number, {path: string}> = {};
+    const mappings: IOcrIndexV3Manifest['pages'] = {};
     for (const [
         index,
         identity,
@@ -336,7 +337,12 @@ async function remapOcrCatalog(
         const path = `page-${String(pageNumber).padStart(4, '0')}.json`;
         const copied = await copyFile(join(ocrDir, source.path), join(replacement, path), constants.COPYFILE_FICLONE)
             .then(() => true, () => false);
-        if (copied) mappings[pageNumber] = {path};
+        if (copied) {
+            mappings[pageNumber] = {
+                path,
+                ...(source.generation === undefined ? {} : {generation: source.generation}),
+            };
+        }
     }
     await writeFile(join(replacement, 'manifest.json'), JSON.stringify({
         ...manifest,

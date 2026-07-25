@@ -129,7 +129,7 @@ function copyPreservedPageMappings(
             && pageMapping.path.length > 0
             && resolveManifestPagePath(ocrDir, pageMapping.path) !== null
         ) {
-            pages[pageNumber] = { path: pageMapping.path };
+            pages[pageNumber] = {...pageMapping};
         }
     }
 
@@ -545,7 +545,10 @@ export async function writeOcrIndexV3(
             tempPaths.delete(tempPath);
             writtenPagePaths.add(pagePath);
 
-            manifest.pages[pd.pageNumber] = { path: pageFile };
+            manifest.pages[pd.pageNumber] = {
+                path: pageFile,
+                generation,
+            };
         }
 
         throwIfAborted(signal);

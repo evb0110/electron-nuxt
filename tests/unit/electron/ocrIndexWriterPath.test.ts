@@ -58,6 +58,12 @@ function makeDocumentRevision(documentRef: string) {
     };
 }
 
+/** The generation stamped into a freshly written page artifact, as the manifest must mirror it. */
+function writtenPageGeneration(pageFile: string) {
+    const pageWrite = mocks.writeFile.mock.calls.find(([path]) => path.startsWith(`/tmp/work.pdf.ocr/${pageFile}.`));
+    return (JSON.parse(pageWrite?.[1] ?? '{}') as {canonicalText?: {generation?: string}}).canonicalText?.generation;
+}
+
 function writeOcrIndexV3ForTest(
     pdfPath: string,
     ocrPageData: Parameters<typeof writeOcrIndexV3>[2],
@@ -178,7 +184,10 @@ describe('writeOcrIndexV3', () => {
         });
         expect(manifest.pages).toEqual({
             1: { path: 'page-0001.json' },
-            2: { path: 'page-0002.json' },
+            2: {
+                path: 'page-0002.json',
+                generation: writtenPageGeneration('page-0002.json'),
+            },
         });
     });
 
@@ -208,7 +217,10 @@ describe('writeOcrIndexV3', () => {
 
         const manifestWrite = mocks.writeFile.mock.calls.find(([path]) => path.startsWith('/tmp/work.pdf.ocr/manifest.json.'));
         const manifest = JSON.parse(manifestWrite?.[1] ?? '{}') as { pages: Record<string, { path: string }> };
-        expect(manifest.pages).toEqual({2: { path: 'page-0002.json' }});
+        expect(manifest.pages).toEqual({2: {
+            path: 'page-0002.json',
+            generation: writtenPageGeneration('page-0002.json'),
+        }});
     });
 
     it('drops preserved page mappings from legacy v2 manifests', async () => {
@@ -236,7 +248,10 @@ describe('writeOcrIndexV3', () => {
 
         const manifestWrite = mocks.writeFile.mock.calls.find(([path]) => path.startsWith('/tmp/work.pdf.ocr/manifest.json.'));
         const manifest = JSON.parse(manifestWrite?.[1] ?? '{}') as { pages: Record<string, { path: string }> };
-        expect(manifest.pages).toEqual({2: { path: 'page-0002.json' }});
+        expect(manifest.pages).toEqual({2: {
+            path: 'page-0002.json',
+            generation: writtenPageGeneration('page-0002.json'),
+        }});
     });
 
     it('drops preserved page mappings when the existing manifest belongs to a different page set', async () => {
@@ -270,7 +285,10 @@ describe('writeOcrIndexV3', () => {
         expect(manifestWrite).toBeTruthy();
         expect(manifestWrite?.[0]).toMatch(/\/tmp\/work\.pdf\.ocr\/manifest\.json\..+\.tmp$/);
         const manifest = JSON.parse(manifestWrite?.[1] ?? '{}') as { pages: Record<string, { path: string }> };
-        expect(manifest.pages).toEqual({2: { path: 'page-0002.json' }});
+        expect(manifest.pages).toEqual({2: {
+            path: 'page-0002.json',
+            generation: writtenPageGeneration('page-0002.json'),
+        }});
     });
 
     it('rejects duplicate OCR page data before writing v3 page files', async () => {
@@ -352,7 +370,10 @@ describe('writeOcrIndexV3', () => {
         const manifestWrite = mocks.writeFile.mock.calls.find(([path]) => path.startsWith('/tmp/work.pdf.ocr/manifest.json.'));
         const manifest = JSON.parse(manifestWrite?.[1] ?? '{}') as { pages: Record<string, { path: string }> };
         expect(manifest.pages).toEqual({
-            1: { path: 'page-0001.json' },
+            1: {
+                path: 'page-0001.json',
+                generation: writtenPageGeneration('page-0001.json'),
+            },
             2: { path: 'page-0002.json' },
         });
     });

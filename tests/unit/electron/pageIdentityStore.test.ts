@@ -131,9 +131,18 @@ describe('page identity deltas', () => {
                 renderDpi: 300,
             },
             pages: {
-                1: {path: 'page-1.json'},
-                2: {path: 'page-2.json'},
-                3: {path: 'page-3.json'},
+                1: {
+                    path: 'page-1.json',
+                    generation: 'ocr-run-one',
+                },
+                2: {
+                    path: 'page-2.json',
+                    generation: 'ocr-run-one',
+                },
+                3: {
+                    path: 'page-3.json',
+                    generation: 'ocr-run-two',
+                },
             },
         }));
         await writeFile(`${path}.index.json`, JSON.stringify({
@@ -257,8 +266,20 @@ describe('page identity deltas', () => {
             'page-a',
             'page-b',
         ]);
-        const ocrManifest = JSON.parse(await readFile(join(ocrPath, 'manifest.json'), 'utf8')) as {documentRevision: {token: string}};
+        const ocrManifest = JSON.parse(await readFile(join(ocrPath, 'manifest.json'), 'utf8')) as {
+            documentRevision: {token: string};
+            pages: Record<string, {generation?: string}>;
+        };
         expect(ocrManifest.documentRevision.token).toBe(newToken);
+        expect([
+            ocrManifest.pages['1']?.generation,
+            ocrManifest.pages['2']?.generation,
+            ocrManifest.pages['3']?.generation,
+        ]).toEqual([
+            'ocr-run-two',
+            'ocr-run-one',
+            'ocr-run-one',
+        ]);
         await publishRevisionSidecar(path, newToken);
         await expect(resolveDocumentOcrPage(path, newToken, 1)).resolves.toMatchObject({page: {text: 'three'}});
         await expect(loadSearchIndex(path, newToken)).resolves.toMatchObject({
