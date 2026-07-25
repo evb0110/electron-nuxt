@@ -71,7 +71,7 @@ const REQUIRED_SYMBOLS_BY_WORKER: Partial<Record<TWorkerBundleId, string[]>> = {
     ],
     'pdf-conformance': ['analyzePdfConformanceFileDirect'],
     search: [
-        'SEARCH_INDEX_CACHE_MAX_ENTRIES',
+        'indexCacheMaxEntries',
         'tryRunNativeSearch',
         'evb-pdf-search(search)',
         'EVBSIDX2',
