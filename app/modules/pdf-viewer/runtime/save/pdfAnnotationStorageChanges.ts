@@ -14,6 +14,26 @@ export interface IPdfLiveAnnotationChangeSummary {
     fingerprint: string;
 }
 
+/** Unions two observations of the same annotation save work into one summary. */
+export function mergeLivePdfJsAnnotationChanges(
+    left: IPdfLiveAnnotationChangeSummary,
+    right: IPdfLiveAnnotationChangeSummary,
+): IPdfLiveAnnotationChangeSummary {
+    return {
+        ids: new Set([
+            ...left.ids,
+            ...right.ids,
+        ]),
+        replayableEditorNoteIds: new Set([
+            ...left.replayableEditorNoteIds,
+            ...right.replayableEditorNoteIds,
+        ]),
+        hasChanges: left.hasChanges || right.hasChanges,
+        hasUnknownChanges: left.hasUnknownChanges || right.hasUnknownChanges,
+        fingerprint: `${left.fingerprint}|pdfjs:${right.fingerprint}`,
+    };
+}
+
 const PDFJS_FREETEXT_ANNOTATION_EDITOR_TYPE = 3;
 const INVISIBLE_NOTE_PLACEHOLDER_RE = /[\u200B\uFEFF]/gu;
 const EMPTY_ANNOTATION_CHANGE_FINGERPRINT = 'empty';

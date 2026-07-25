@@ -3,11 +3,8 @@ import { parsePdfJsAnnotationRef } from '@app/utils/pdfAnnotationRefs';
 import { parsePdfAnnotationStableKeyRef } from '@app/modules/pdf-viewer/engine/pdf-serialization-refs/parsePdfAnnotationStableKey';
 import type { IPdfNativeAnnotationDelete } from '@contracts/electronApiDocuments';
 import { parsePageIndex } from '@contracts/pageNumbers';
-import { isReplayableEditorOnlyFreeTextNote } from '@app/modules/pdf-viewer/runtime/save/nativeFreeTextNotes';
-import type {
-    INativePdfMutationBuildResult,
-    INativePdfMutationProjectionCommonInput,
-} from '@app/modules/pdf-viewer/runtime/save/nativePdfMutationProjectionTypes';
+import { isReplayableEditorOnlyFreeTextNote } from '@app/modules/pdf-viewer/runtime/save/classifyPdfSaveRoute';
+import type { INativePdfMutationBuildResult } from '@app/modules/pdf-viewer/runtime/save/nativePdfMutationProjectionTypes';
 
 function parseAnnotationRefFromStableKey(stableKey: string) {
     return parsePdfAnnotationStableKeyRef(stableKey)?.ref ?? null;
@@ -20,10 +17,9 @@ function resolveNativeAnnotationDeleteRef(comment: IAnnotationCommentSummary) {
         ?? parsePdfJsAnnotationRef(comment.id);
 }
 
-export type IBuildNativeAnnotationDeletesForSaveInput = INativePdfMutationProjectionCommonInput;
-
+/** Reachable only through a native-append grant whose annotation route is source-replay. */
 export function buildNativeAnnotationDeletesForSave(
-    opts: IBuildNativeAnnotationDeletesForSaveInput,
+    opts: {pendingDeletes: readonly IAnnotationCommentSummary[]},
 ): INativePdfMutationBuildResult<IPdfNativeAnnotationDelete[]> {
     const skip = (reason: string, details: Record<string, unknown> = {}) => {
         return {
@@ -35,32 +31,6 @@ export function buildNativeAnnotationDeletesForSave(
             }],
         };
     };
-
-    if (!opts.pendingDeletes?.length) {
-        return {
-            value: [],
-            skipEvents: [],
-        };
-    }
-    if (opts.mode !== 'save') {
-        return skip('not-save-mode', {mode: opts.mode});
-    }
-    if (!opts.hasNativePdfMutationCapability) {
-        return skip('native-save-capability-unavailable');
-    }
-    if (opts.includeManagedShapesForLiveSource) {
-        return skip('managed-shapes-require-materialization');
-    }
-    if (opts.forceRewrite) {
-        return skip('rewrite-forced');
-    }
-    const plan = opts.annotationSavePlan;
-    if (plan.route !== 'source-replay') {
-        return skip('annotation-save-route-not-source-replay', {
-            route: plan.route,
-            reason: plan.reason,
-        });
-    }
 
     const deletesByRef = new Map<string, IPdfNativeAnnotationDelete>();
     const deletesByStableKey = new Map<string, IPdfNativeAnnotationDelete>();

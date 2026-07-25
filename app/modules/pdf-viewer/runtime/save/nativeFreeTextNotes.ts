@@ -1,22 +1,9 @@
 import type { IAnnotationCommentSummary } from '@app/types/annotations';
-import { normalizeMarkerRect } from '@app/modules/pdf-viewer/engine/annotation-geometry/normalizeMarkerRect';
 import { toFreeTextNoteMarkerRect } from '@app/modules/pdf-viewer/engine/serialization/pdf-serialization-shared/toFreeTextNoteMarkerRect';
-import { parsePdfJsAnnotationRef } from '@app/utils/pdfAnnotationRefs';
 import type { IPdfNativeFreeTextNote } from '@contracts/electronApiDocuments';
 import { parsePageIndex } from '@contracts/pageNumbers';
-import type {
-    INativePdfMutationBuildResult,
-    INativePdfMutationProjectionCommonInput,
-} from '@app/modules/pdf-viewer/runtime/save/nativePdfMutationProjectionTypes';
-
-export function isReplayableEditorOnlyFreeTextNote(comment: IAnnotationCommentSummary) {
-    const subtype = comment.subtype?.trim().toLowerCase();
-    return comment.source === 'editor'
-        && !parsePdfJsAnnotationRef(comment.annotationId)
-        && Boolean(comment.hasNote)
-        && Boolean(normalizeMarkerRect(comment.markerRect))
-        && (subtype === 'freetext' || subtype === 'typewriter');
-}
+import { isReplayableEditorOnlyFreeTextNote } from '@app/modules/pdf-viewer/runtime/save/classifyPdfSaveRoute';
+import type { INativePdfMutationBuildResult } from '@app/modules/pdf-viewer/runtime/save/nativePdfMutationProjectionTypes';
 
 export function toNativeFreeTextNote(comment: IAnnotationCommentSummary): IPdfNativeFreeTextNote | null {
     const markerRect = toFreeTextNoteMarkerRect(comment.markerRect);
@@ -39,10 +26,9 @@ export function toNativeFreeTextNote(comment: IAnnotationCommentSummary): IPdfNa
     };
 }
 
-export interface IBuildNativeFreeTextNotesForSaveInput extends INativePdfMutationProjectionCommonInput {canonicalComments: IAnnotationCommentSummary[];}
-
+/** Reachable only through a native-append grant whose annotation route is source-replay. */
 export function buildNativeFreeTextNotesForSave(
-    opts: IBuildNativeFreeTextNotesForSaveInput,
+    opts: {canonicalComments: IAnnotationCommentSummary[]},
 ): INativePdfMutationBuildResult<IPdfNativeFreeTextNote[]> {
     const skip = (reason: string, details: Record<string, unknown> = {}) => {
         return {
@@ -55,18 +41,6 @@ export function buildNativeFreeTextNotesForSave(
         };
     };
 
-    if (opts.mode !== 'save') {
-        return skip('not-save-mode', {mode: opts.mode});
-    }
-    if (!opts.hasNativePdfMutationCapability) {
-        return skip('native-save-capability-unavailable');
-    }
-    if (opts.includeManagedShapesForLiveSource) {
-        return skip('managed-shapes-require-materialization');
-    }
-    if (opts.forceRewrite) {
-        return skip('rewrite-forced');
-    }
     const candidates = opts.canonicalComments
         .filter(isReplayableEditorOnlyFreeTextNote)
         .flatMap((comment) => {
@@ -75,14 +49,6 @@ export function buildNativeFreeTextNotesForSave(
         });
     if (candidates.length === 0) {
         return skip('no-replayable-editor-free-text-notes');
-    }
-
-    const plan = opts.annotationSavePlan;
-    if (plan.route !== 'source-replay') {
-        return skip('annotation-save-route-not-source-replay', {
-            route: plan.route,
-            reason: plan.reason,
-        });
     }
 
     const notesByStableKey = new Map<string, IPdfNativeFreeTextNote>();
