@@ -885,7 +885,8 @@ export function ensurePdfPageRasterScheduler(
     return scheduler;
 }
 
-export function disposePdfPageRasterScheduler(document: PDFDocumentProxy) {
-    void pdfDocumentRasterSchedulers.get(document)?.dispose();
+export async function disposePdfPageRasterScheduler(document: PDFDocumentProxy) {
+    const scheduler = pdfDocumentRasterSchedulers.get(document);
     pdfDocumentRasterSchedulers.delete(document);
+    await scheduler?.dispose();
 }

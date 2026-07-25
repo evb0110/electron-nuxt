@@ -5,6 +5,12 @@ import {
     it,
     vi,
 } from 'vitest';
+import {
+    computed,
+    nextTick,
+    shallowRef,
+} from 'vue';
+import type { RenderTask } from 'pdfjs-dist';
 import { createElectronPlatformApiFixture } from '@tests/helpers/createElectronPlatformApiFixture';
 
 const loggerError = vi.fn();
@@ -852,7 +858,7 @@ describe('PdfDocumentSession range loading', () => {
         expect(documentState.numPages.value).toBe(0);
         expect(documentState.pageMetrics.value).toEqual([]);
         expect(taskDestroy).not.toHaveBeenCalled();
-        expect(documentDestroy).toHaveBeenCalledTimes(1);
+        await vi.waitFor(() => expect(documentDestroy).toHaveBeenCalledOnce());
     });
 
     it('keeps the accepted source bound to load B when stale load A resolves afterward', async () => {
@@ -1032,6 +1038,98 @@ describe('PdfDocumentSession range loading', () => {
         await expect(secondLoad).resolves.not.toBeNull();
         expect(pdfjsState.getDocument).toHaveBeenCalledTimes(2);
         expect(electronApi.documentFiles.readFileRange).toHaveBeenCalled();
+    });
+
+    it('settles invalidation cancellation and its page lease before destroying the PDF.js document', async () => {
+        const events: string[] = [];
+        const render = Promise.withResolvers<undefined>();
+        const page = {
+            cleanup: vi.fn(() => events.push('page-cleanup')),
+            getViewport: vi.fn(() => ({
+                width: 100,
+                height: 200,
+            })),
+            pageNumber: 1,
+        };
+        const documentDestroy = vi.fn(async () => {
+            events.push('document-destroy');
+        });
+        pdfjsState.getDocument.mockReturnValue({
+            promise: Promise.resolve({
+                numPages: 1,
+                getPage: vi.fn(async () => page),
+                destroy: documentDestroy,
+            }),
+            destroy: vi.fn(() => Promise.resolve()),
+        });
+        electronApi.documentFiles.readFileRange.mockResolvedValue(Uint8Array.of(1, 2, 3, 4));
+        const source = shallowRef<Blob | null>(new Blob([Uint8Array.of(1)]));
+        const documentState = createPdfDocumentSession({src: computed(() => source.value)});
+        await documentState.loadPdf(source.value!);
+        const scheduler = documentState.rasterScheduler!;
+        const demand = {
+            consumerGeneration: 1,
+            documentFence: scheduler.documentFence,
+            estimatedPixels: 100,
+            lane: 'viewport-visible',
+            ordinal: 1,
+            pageNumber: 1,
+            renderKey: 'initial',
+            retention: 'render-cache',
+        } as const;
+        const cancel = vi.fn(() => {
+            events.push('render-cancel');
+        });
+        const renderTask: RenderTask = {
+            _internalRenderTask: null,
+            cancel,
+            imageCoordinates: null,
+            onContinue: vi.fn(),
+            onError: vi.fn(),
+            promise: render.promise,
+            separateAnnots: false,
+        };
+        scheduler.setDemand({
+            sourceId: 'viewport',
+            input: [demand],
+            policy: {
+                expand: input => input,
+                compareWithinLane: () => 0,
+            },
+            target: {
+                id: 'viewport',
+                prepare: async () => ({}),
+                start: () => renderTask,
+                commit: () => true,
+                discard: vi.fn(),
+                release: vi.fn(),
+            },
+        });
+        await vi.waitFor(() => expect(scheduler.snapshot().inFlightPages).toHaveLength(1));
+        documentState.subscribe(async (transition) => {
+            if (transition.phase !== 'invalidated') {
+                return;
+            }
+            await scheduler.cancelSource('viewport');
+            events.push('invalidation-settled');
+        });
+
+        source.value = null;
+        await nextTick();
+        await vi.waitFor(() => expect(cancel).toHaveBeenCalledOnce());
+
+        expect(documentDestroy).not.toHaveBeenCalled();
+        expect(page.cleanup).not.toHaveBeenCalled();
+
+        render.resolve(undefined);
+        await vi.waitFor(() => expect(documentDestroy).toHaveBeenCalledOnce());
+
+        expect(events).toEqual([
+            'render-cancel',
+            'invalidation-settled',
+            'page-cleanup',
+            'document-destroy',
+        ]);
     });
 
     it('bounds the cached PDF pages with an LRU policy', async () => {

@@ -539,12 +539,14 @@ describe('PdfPageRasterScheduler', () => {
         const budget = createWorkspaceSurfaceBudgetController(1_000);
         const releaseScope = vi.spyOn(budget, 'releaseScope');
         const render = Promise.withResolvers<undefined>();
+        const cancel = vi.fn();
+        const release = vi.fn();
         const started: number[] = [];
         const scheduler = createPdfPageRasterScheduler({
             documentFence,
             leasePage: async pageNumber => ({
                 page: {pageNumber} as PDFPageProxy,
-                release: vi.fn(),
+                release,
             }),
             maxConcurrency: 1,
             surfaceBudget: budget,
@@ -562,7 +564,7 @@ describe('PdfPageRasterScheduler', () => {
                 start: ({pageNumber}) => {
                     started.push(pageNumber);
                     return cast<RenderTask>({
-                        cancel: vi.fn(),
+                        cancel,
                         promise: render.promise,
                     });
                 },
@@ -590,12 +592,15 @@ describe('PdfPageRasterScheduler', () => {
         await flush();
 
         expect(disposed).toBe(false);
+        expect(cancel).toHaveBeenCalledOnce();
+        expect(release).not.toHaveBeenCalled();
         expect(releaseScope).not.toHaveBeenCalled();
 
         render.resolve(undefined);
         await disposals;
         await scheduler.dispose();
 
+        expect(release).toHaveBeenCalledOnce();
         expect(releaseScope).toHaveBeenCalledOnce();
         expect(budget.getSnapshot()).toMatchObject({
             leaseCount: 0,
