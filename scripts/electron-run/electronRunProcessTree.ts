@@ -177,6 +177,12 @@ export async function killProcessTree(pid: number, graceMs = 1500) {
     }
 }
 
+export async function killProcessTrees(pids: readonly number[], graceMs = 1200) {
+    for (const pid of uniq(pids)) {
+        await killProcessTree(pid, graceMs);
+    }
+}
+
 export function isProcessAlive(pid: number) {
     if (!Number.isFinite(pid) || pid <= 0) {
         return false;

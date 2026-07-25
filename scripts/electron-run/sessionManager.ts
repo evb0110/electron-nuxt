@@ -50,7 +50,9 @@ import {
     findFreePort,
     isProcessAlive,
     killProcessTree,
+    killProcessTrees,
 } from '@scripts/electron-run/electronRunProcessTree';
+import { createStartupLogger } from '@scripts/electron-run/createStartupLogger';
 import {
     findSessionOwnedElectronPids,
     isVerifiedSessionProcess,
@@ -139,22 +141,6 @@ export function clearAutomationWorkspaceCrashCheckpointAfterSessionExit(
         && clearAutomationWorkspaceCrashCheckpoint(sessionName);
 }
 
-function formatElapsedMs(startedAt: number) {
-    return `${((Date.now() - startedAt) / 1000).toFixed(2)}s`;
-}
-
-function createStartupLogger(startedAt = Date.now()) {
-    return (message: string) => {
-        console.log(`[Startup +${formatElapsedMs(startedAt)}] ${message}`);
-    };
-}
-
-async function killProcessTreeForPids(pids: number[], graceMs = 1200) {
-    for (const pid of new Set(pids)) {
-        await killProcessTree(pid, graceMs);
-    }
-}
-
 async function killElectronProcessesByCdpPort(cdpPort: number | null | undefined) {
     if (!Number.isFinite(cdpPort) || (cdpPort ?? 0) <= 0) {
         return;
@@ -165,7 +151,7 @@ async function killElectronProcessesByCdpPort(cdpPort: number | null | undefined
         sessionName: getCurrentSessionName(),
         cdpPort,
     });
-    await killProcessTreeForPids(pids, 500);
+    await killProcessTrees(pids, 500);
 }
 
 function createElectronStartupLog() {
@@ -455,7 +441,7 @@ async function killStaleElectronForCurrentSession() {
     const pids = new Set(findSessionOwnedElectronPids(expectation));
 
     if (pids.size > 0) {
-        await killProcessTreeForPids([...pids], 500);
+        await killProcessTrees([...pids], 500);
     }
     if (staleInfo?.electronPid && isProcessAlive(staleInfo.electronPid) && !pids.has(staleInfo.electronPid)) {
         await killVerifiedSessionProcess({
