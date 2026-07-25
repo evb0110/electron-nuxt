@@ -24,7 +24,10 @@ import {
     removeCropFromPages,
 } from '@electron/features/page-ops/main/crop';
 
-const mocks = vi.hoisted(() => ({ensureWorkingCopyDirectory: vi.fn()}));
+const mocks = vi.hoisted(() => ({
+    ensureWorkingCopyDirectory: vi.fn(),
+    runNativeToolCommand: vi.fn(),
+}));
 
 vi.mock('@electron/utils/createLogger', () => ({createLogger: () => ({
     debug: vi.fn(),
@@ -33,6 +36,9 @@ vi.mock('@electron/utils/createLogger', () => ({createLogger: () => ({
     error: vi.fn(),
 })}));
 vi.mock('@electron/file-access/workingCopyCreation', () => ({ensureWorkingCopyDirectory: (...args: unknown[]) => mocks.ensureWorkingCopyDirectory(...args)}));
+vi.mock('@electron/native-tools/runNativeToolCommand', () => ({runNativeToolCommand: (...args: unknown[]) => mocks.runNativeToolCommand(...args)}));
+
+const originalEnv = { ...process.env };
 
 async function createPdf(path: string, options?: { inheritedCropBox?: [number, number, number, number] }) {
     const pdfDoc = await PDFDocument.create();
@@ -54,12 +60,14 @@ describe('page crop operations', () => {
 
     beforeEach(async () => {
         vi.clearAllMocks();
+        process.env = { ...originalEnv };
         mocks.ensureWorkingCopyDirectory.mockResolvedValue(true);
         tempDir = await mkdtemp(join(tmpdir(), 'page-crop-test-'));
         pdfPath = join(tempDir, 'sample.pdf');
     });
 
     afterEach(async () => {
+        process.env = { ...originalEnv };
         if (tempDir) {
             await rm(tempDir, {
                 recursive: true,
@@ -155,8 +163,9 @@ describe('page crop operations', () => {
         })).rejects.toThrow('Invalid crop margins');
     });
 
-    it('rejects crop margins that consume the selected page', async () => {
+    it('rejects crop margins that consume the selected page and leaves the document untouched', async () => {
         await createPdf(pdfPath);
+        const originalBytes = await readFile(pdfPath);
 
         await expect(cropPages(pdfPath, [1], {
             top: 0,
@@ -164,6 +173,55 @@ describe('page crop operations', () => {
             left: 120,
             right: 80,
         })).rejects.toThrow('Crop margins consume page 1');
+
+        await expect(readFile(pdfPath)).resolves.toEqual(originalBytes);
+    });
+
+    it('rejects pages outside the document range and leaves the document untouched', async () => {
+        await createPdf(pdfPath);
+        const originalBytes = await readFile(pdfPath);
+
+        await expect(cropPages(pdfPath, [5], {
+            top: 1,
+            bottom: 1,
+            left: 1,
+            right: 1,
+        })).rejects.toThrow('Page 5 is outside the document page range 1-1');
+
+        await expect(readFile(pdfPath)).resolves.toEqual(originalBytes);
+    });
+
+    it('publishes the native crop without parsing the document in JavaScript', async () => {
+        await createPdf(pdfPath);
+        const nativeBinaryPath = join(tempDir, process.platform === 'win32' ? 'evb-pdf-page-ops.exe' : 'evb-pdf-page-ops');
+        await writeFile(nativeBinaryPath, '');
+        process.env.EVB_PDF_PAGE_OPS_ENABLE = '1';
+        process.env.EVB_PDF_PAGE_OPS_PATH = nativeBinaryPath;
+        mocks.runNativeToolCommand.mockImplementation(async (_binaryPath: string, args: string[]) => {
+            await writeFile(args[args.indexOf('--output') + 1]!, '%PDF-1.7\nnative crop');
+            return {
+                exitCode: 0,
+                stdout: '',
+                stderr: '',
+            };
+        });
+        const loadSpy = vi.spyOn(PDFDocument, 'load');
+        let javaScriptParseCount = 0;
+
+        try {
+            await cropPages(pdfPath, [1], {
+                top: 10,
+                bottom: 10,
+                left: 10,
+                right: 10,
+            });
+        } finally {
+            javaScriptParseCount = loadSpy.mock.calls.length;
+            loadSpy.mockRestore();
+        }
+
+        expect(javaScriptParseCount).toBe(0);
+        await expect(readFile(pdfPath, 'utf8')).resolves.toBe('%PDF-1.7\nnative crop');
     });
 
     it('recovers the working-copy directory before local crop reads', async () => {
