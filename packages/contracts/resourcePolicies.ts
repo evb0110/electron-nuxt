@@ -4,6 +4,7 @@ export const SEARCH_NATIVE_SERVICE_IDLE_TIMEOUT_MAX_MS = 2_147_483_647;
 export const SEARCH_INDEX_CACHE_MAX_ENTRIES = 128;
 export const SEARCH_MAX_PAGE_TEXT_BYTES = 32 * 1024 * 1024;
 export const SEARCH_MAX_TOTAL_TEXT_BYTES = 1024 * 1024 * 1024;
+export const SCAN_CLEANUP_MAX_RASTER_CONCURRENCY = 64;
 
 export interface ISearchWorkerResourcePolicy {
     indexCacheMaxEntries: number;
@@ -17,7 +18,11 @@ export interface ISearchWorkerData {
     resourcePolicy: ISearchWorkerResourcePolicy;
 }
 
-export interface IScanCleanupRuntimePolicy {rasterConcurrency: 1 | 2 | 3;}
+export interface IScanCleanupRuntimePolicy {
+    rasterConcurrency: number;
+    logicalCpus: number;
+    totalRamBytes: number;
+}
 
 export function parseBoundedEnvInt(
     value: string | undefined,
@@ -52,6 +57,12 @@ function isPositiveSafeInteger(value: unknown): value is number {
     return typeof value === 'number'
         && Number.isSafeInteger(value)
         && value > 0;
+}
+
+function isNonNegativeSafeInteger(value: unknown): value is number {
+    return typeof value === 'number'
+        && Number.isSafeInteger(value)
+        && value >= 0;
 }
 
 function isPositiveSafeIntegerAtMost(
@@ -120,14 +131,19 @@ export function decodeScanCleanupRuntimePolicy(
 ): IScanCleanupRuntimePolicy | null {
     if (
         !isRecord(value)
-        || (
-            value.rasterConcurrency !== 1
-            && value.rasterConcurrency !== 2
-            && value.rasterConcurrency !== 3
+        || !isPositiveSafeIntegerAtMost(
+            value.rasterConcurrency,
+            SCAN_CLEANUP_MAX_RASTER_CONCURRENCY,
         )
+        || !isNonNegativeSafeInteger(value.logicalCpus)
+        || !isNonNegativeSafeInteger(value.totalRamBytes)
     ) {
         return null;
     }
 
-    return {rasterConcurrency: value.rasterConcurrency};
+    return {
+        rasterConcurrency: value.rasterConcurrency,
+        logicalCpus: value.logicalCpus,
+        totalRamBytes: value.totalRamBytes,
+    };
 }

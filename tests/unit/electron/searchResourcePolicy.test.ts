@@ -8,6 +8,7 @@ import type {
     THostResourceTier,
 } from '@contracts/hostResourceProfile';
 import {
+    SCAN_CLEANUP_MAX_RASTER_CONCURRENCY,
     decodeScanCleanupRuntimePolicy,
     decodeSearchWorkerData,
     decodeSearchWorkerResourcePolicy,
@@ -164,9 +165,63 @@ describe('resolveSearchResourcePolicy', () => {
             ...workerPolicy,
             maxTotalTextBytes: 1024 * MIB + 1,
         })).toBeNull();
-        expect(decodeScanCleanupRuntimePolicy({rasterConcurrency: 2}))
-            .toEqual({rasterConcurrency: 2});
-        expect(decodeScanCleanupRuntimePolicy({rasterConcurrency: 4})).toBeNull();
+    });
+});
+
+describe('decodeScanCleanupRuntimePolicy', () => {
+    const hostPolicy = {
+        rasterConcurrency: 12,
+        logicalCpus: 12,
+        totalRamBytes: 48 * GIB,
+    };
+
+    it('carries host facts and a concurrency above the retired three-value ceiling', () => {
+        expect(decodeScanCleanupRuntimePolicy(hostPolicy)).toEqual(hostPolicy);
+        expect(decodeScanCleanupRuntimePolicy({
+            ...hostPolicy,
+            rasterConcurrency: SCAN_CLEANUP_MAX_RASTER_CONCURRENCY,
+        })).toEqual({
+            ...hostPolicy,
+            rasterConcurrency: SCAN_CLEANUP_MAX_RASTER_CONCURRENCY,
+        });
+        expect(decodeScanCleanupRuntimePolicy({
+            ...hostPolicy,
+            logicalCpus: 0,
+            totalRamBytes: 0,
+        })).toEqual({
+            ...hostPolicy,
+            logicalCpus: 0,
+            totalRamBytes: 0,
+        });
+    });
+
+    it('rejects a concurrency that is zero, fractional, negative or absurd', () => {
+        for (const rasterConcurrency of [
+            0,
+            -1,
+            2.5,
+            Number.NaN,
+            SCAN_CLEANUP_MAX_RASTER_CONCURRENCY + 1,
+            '3',
+        ]) {
+            expect(decodeScanCleanupRuntimePolicy({
+                ...hostPolicy,
+                rasterConcurrency,
+            })).toBeNull();
+        }
+    });
+
+    it('rejects host facts that are missing or nonsensical', () => {
+        expect(decodeScanCleanupRuntimePolicy({rasterConcurrency: 3})).toBeNull();
+        expect(decodeScanCleanupRuntimePolicy({
+            ...hostPolicy,
+            logicalCpus: -1,
+        })).toBeNull();
+        expect(decodeScanCleanupRuntimePolicy({
+            ...hostPolicy,
+            totalRamBytes: 1.5,
+        })).toBeNull();
+        expect(decodeScanCleanupRuntimePolicy(null)).toBeNull();
     });
 });
 

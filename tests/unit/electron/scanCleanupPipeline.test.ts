@@ -137,7 +137,11 @@ const options: IScanCleanupOptions = {
     skipBlankPages: false,
     pageOverrides: {},
 };
-const highTierPolicy: IScanCleanupRuntimePolicy = {rasterConcurrency: 3};
+const highTierPolicy: IScanCleanupRuntimePolicy = {
+    rasterConcurrency: 3,
+    logicalCpus: 11,
+    totalRamBytes: 32 * 1024 ** 3,
+};
 
 async function setup() {
     const dir = await mkdtemp(join(tmpdir(), 'scan-cleanup-test-'));
@@ -395,7 +399,10 @@ async function measurePipelineRasterPeak(
         pipelinePaths(fixture.dir, site === 'lossless'),
         new AbortController().signal,
         vi.fn(),
-        {rasterConcurrency},
+        {
+            ...highTierPolicy,
+            rasterConcurrency,
+        },
         undefined,
         pipelineDependencies,
     );
