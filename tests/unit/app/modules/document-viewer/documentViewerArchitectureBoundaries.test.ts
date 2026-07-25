@@ -29,7 +29,7 @@ describe('document viewer architecture boundaries', () => {
     it('keeps renderer pixel mutations behind the chassis write port', () => {
         for (const path of [
             'app/modules/native-pdf-viewer/components/NativePdfViewer.vue',
-            'app/modules/workspace-shell/components/DocumentPageSourceFeaturePack.vue',
+            'app/modules/workspace-shell/viewers/useDocumentPageSourceRuntime.ts',
             'app/modules/pdf-viewer/runtime/composables/pdf/usePdfDrag.ts',
         ]) {
             const source = read(path);
@@ -41,7 +41,7 @@ describe('document viewer architecture boundaries', () => {
 
     it('projects every renderer into the same viewport chrome', () => {
         const pdfViewport = read('app/modules/pdf-viewer/components/PdfViewerViewport.vue');
-        const sourceFeature = read('app/modules/workspace-shell/components/DocumentPageSourceFeaturePack.vue');
+        const sourceFeature = read('app/modules/workspace-shell/viewers/useDocumentPageSourceRuntime.ts');
         const sharedStyles = read('app/assets/css/main.css');
 
         expect(pdfViewport).toContain('document-viewer-viewport pdfViewer app-scrollbar');
@@ -49,7 +49,7 @@ describe('document viewer architecture boundaries', () => {
         expect(sharedStyles).toMatch(
             /\.document-viewer-viewport\s*\{[^}]*background: var\(--app-document-viewer-bg\);/su,
         );
-        expect(sourceFeature).not.toMatch(/--app-pdf-(?:viewer|page)/u);
+        expect(read('app/modules/workspace-shell/components/DocumentPageSourceFeaturePack.vue')).not.toMatch(/--app-pdf-(?:viewer|page)/u);
         expect(read('app/modules/workspace-shell/components/DocumentViewerChassis.vue'))
             .not.toMatch(/--app-pdf-(?:viewer|page)/u);
     });
@@ -125,14 +125,14 @@ describe('document viewer architecture boundaries', () => {
     it('sequences every renderer activation through the shared visible-layout barrier', () => {
         for (const path of [
             'app/modules/pdf-viewer/runtime/lifecycle/usePdfViewerActivationRestore.ts',
-            'app/modules/workspace-shell/viewers/restoreDocumentPageSourceActivePresentation.ts',
+            'app/modules/workspace-shell/viewers/documentPageSourcePresentation.ts',
         ]) {
             const source = read(path);
             expect(source, path).toContain('runDocumentViewerActivationPresentation');
             expect(source, path).toContain('waitForDocumentViewerVisibleLayout');
         }
-        expect(read('app/modules/workspace-shell/components/DocumentPageSourceFeaturePack.vue'))
-            .toContain('restoreDocumentPageSourceActivePresentation');
+        expect(read('app/modules/workspace-shell/viewers/useDocumentPageSourceRuntime.ts'))
+            .toContain('presentation.restore(transition');
     });
 
     it('owns resize anchoring in the shared chassis with neutral page markers', () => {
@@ -155,7 +155,7 @@ describe('document viewer architecture boundaries', () => {
     });
 
     it('advertises source search independently from page-text extraction', () => {
-        const sourceFeature = read('app/modules/workspace-shell/components/DocumentPageSourceFeaturePack.vue');
+        const sourceFeature = read('app/modules/workspace-shell/viewers/documentPageSourceFeaturePackState.ts');
 
         expect(sourceFeature).toContain(
             'search: Boolean(nextSource.searchProvider ?? nextSource.textProvider)',

@@ -7,53 +7,8 @@ import {
     createWorkspaceSurfaceBudgetController,
     estimateCanvasSurfaceBytes,
 } from '@app/modules/workspace-shell/memory/workspaceSurfaceBudgetController';
-import { resolveInactiveDjvuLeasePolicy } from '@app/modules/workspace-shell/viewers/documentPageSourceFeaturePackState';
 
 describe('workspace surface budget controller', () => {
-    it.each([
-        [
-            'medium',
-            'healthy',
-            'warm-grace',
-        ],
-        [
-            'high',
-            'guarded',
-            'warm-grace',
-        ],
-        [
-            'low',
-            'healthy',
-            'release-immediately',
-        ],
-        [
-            'medium',
-            'moderate',
-            'release-immediately',
-        ],
-        [
-            'medium',
-            'critical',
-            'release-immediately',
-        ],
-        [
-            'medium',
-            'emergency',
-            'release-immediately',
-        ],
-        [
-            'medium',
-            'post-crash-safe-mode',
-            'release-immediately',
-        ],
-    ] as const)('resolves inactive DjVu residency for %s tier under %s pressure', (
-        tier,
-        pressure,
-        expected,
-    ) => {
-        expect(resolveInactiveDjvuLeasePolicy(tier, pressure)).toBe(expected);
-    });
-
     it('accounts and releases every decoded surface category', () => {
         const controller = createWorkspaceSurfaceBudgetController(10_000);
         const categories = [

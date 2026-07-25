@@ -41,16 +41,25 @@ function createSource(pageCount: number) {
 
 describe('prioritized document page metrics', () => {
     it('fences page rendering on exact per-page metric readiness', () => {
-        const featurePack = readFileSync(join(
+        const runtime = readFileSync(join(
             process.cwd(),
-            'app/modules/workspace-shell/components/DocumentPageSourceFeaturePack.vue',
+            'app/modules/workspace-shell/viewers/useDocumentPageSourceRuntime.ts',
+        ), 'utf8');
+        const presentation = readFileSync(join(
+            process.cwd(),
+            'app/modules/workspace-shell/viewers/documentPageSourcePresentation.ts',
+        ), 'utf8');
+        const state = readFileSync(join(
+            process.cwd(),
+            'app/modules/workspace-shell/viewers/documentPageSourceFeaturePackState.ts',
         ), 'utf8');
 
-        expect(featurePack).toContain('const exactPageMetricNumbers = new Set<number>();');
-        expect(featurePack).toContain('if (!exactPageMetricNumbers.has(pageNumber))');
-        expect(featurePack).toContain('await ensureExactPageMetric(activeSource, generation, pageNumber, signal);');
-        expect(featurePack).not.toContain('if (pageNumber !== currentPage)');
-        expect(featurePack).toContain('onMetric: () => scheduleRender.schedule(),');
+        expect(runtime).toContain('const exactPageMetricNumbers = new Set<number>();');
+        expect(runtime).toContain('if (exactPageMetricNumbers.has(pageNumber) && exactMetric)');
+        expect(presentation).toContain('await options.ensureExactPageMetric(');
+        expect(presentation).toContain('if (!isCurrent())');
+        expect(presentation).not.toContain('if (pageNumber !== currentPage)');
+        expect(state).toContain('onMetric: context.scheduleRender,');
     });
 
     it('keeps a stable cold-open page frame before trusted metrics arrive', () => {

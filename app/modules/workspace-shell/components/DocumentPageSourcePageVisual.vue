@@ -1,11 +1,11 @@
 <template>
     <div
-        v-if="presentation.pendingFrame"
+        v-if="visual === 'none'"
         class="document-source-viewer__pending-frame"
         data-document-page-visual="pending"
     />
     <div
-        v-if="presentation.skeleton && !hostOwnsSkeleton"
+        v-if="visual === 'skeleton' && !hostOwnsSkeleton"
         class="document-source-viewer__skeleton"
         data-document-page-visual="skeleton"
         aria-hidden="true"
@@ -16,7 +16,7 @@
         />
     </div>
     <div
-        v-if="presentation.error"
+        v-if="visual === 'error'"
         class="document-source-viewer__error"
         data-document-page-visual="error"
         role="alert"
@@ -28,19 +28,19 @@
         :key="surface"
         :src="surface"
         class="document-source-viewer__image"
-        :class="{'document-page-visual--committed': presentation.fresh}"
+        :class="{'document-page-visual--committed': visual === 'fresh'}"
         alt=""
         draggable="false"
         data-testid="document-page-source-image"
-        :data-document-page-visual="presentation.fresh ? 'committed' : 'pending'"
+        :data-document-page-visual="visual === 'fresh' ? 'committed' : 'pending'"
         :data-page-render-generation="renderGeneration"
         :data-document-load-generation="documentLoadGeneration"
         :data-open-surface-generation="openSurfaceGeneration ?? ''"
         @load="emit('surfaceLoad', surface, $event)"
-        @error="emit('surfaceError', surface)"
+        @error="emit('surfaceError', surface, $event)"
     >
     <DocumentPageSourceSearchLayer
-        v-if="presentation.fresh"
+        v-if="visual === 'fresh'"
         :page-number="pageNumber"
         :results="searchResults"
         :current-result-index="currentSearchResultIndex"
@@ -53,7 +53,6 @@ import DocumentPageSkeleton from '@app/components/document-viewer/DocumentPageSk
 import DocumentPageSourceSearchLayer from '@app/modules/workspace-shell/components/DocumentPageSourceSearchLayer.vue';
 import {
     DOCUMENT_PAGE_SKELETON_PADDING,
-    resolveDocumentPageSourceVisualPresentation,
     type TDocumentPageSourceVisual,
 } from '@app/modules/workspace-shell/viewers/documentPageSourcePresentation';
 
@@ -85,10 +84,8 @@ const {
 
 const emit = defineEmits<{
     surfaceLoad: [surface: string, event: Event];
-    surfaceError: [surface: string];
+    surfaceError: [surface: string, event: Event];
 }>();
-
-const presentation = computed(() => resolveDocumentPageSourceVisualPresentation(visual));
 </script>
 
 <style scoped>

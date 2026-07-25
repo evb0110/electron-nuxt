@@ -2,61 +2,172 @@ import type { ComponentPublicInstance } from 'vue';
 import type { TDocumentRef } from '@contracts/documentRef';
 import type { TDocumentRevisionToken } from '@contracts/documentRevision';
 import type { TDocumentViewMode } from '@contracts/shared';
-import type { THostResourceTier } from '@contracts/hostResourceProfile';
 import type { IDocumentSearchMatch } from '@app/utils/document-viewer/search/documentSearch';
 import type {
     IDocumentPageMetrics,
     IDocumentPageSource,
     IDocumentSourceCapabilities,
-    IDocumentSurfaceLease,
-    TDocumentRenderPriority,
 } from '@app/utils/document-viewer/source/documentPageSource';
 import type { IDocumentTransition } from '@app/utils/document-viewer/lifecycle/createDocumentTransitionChannel';
-import type { IDocumentViewerRenderSession } from '@app/utils/document-viewer/chassis/createDocumentViewerRenderCoordinator';
-import { resolveDocumentContinuousScrollWindow } from '@app/utils/document-viewer/viewport/resolveDocumentContinuousScrollWindow';
-import { createProvisionalDocumentPageMetrics } from '@app/modules/workspace-shell/viewers/loadPrioritizedDocumentPageMetrics';
-import type { TWorkspaceResourcePressureLevel } from '@app/modules/workspace-shell/memory/workspaceSurfaceBudgetController';
-import { resolvePerformanceProfile } from '@app/utils/performanceProfile';
-import { resolveOpenPathSecondaryPerformancePolicy } from '@app/utils/openPathSecondaryPerformancePolicy';
-
+import { createDocumentTransitionChannel } from '@app/utils/document-viewer/lifecycle/createDocumentTransitionChannel';
+import type { IDocumentViewerChassisAuthority } from '@app/utils/document-viewer/chassis/documentViewerChassisAuthority';
+import {
+    createProvisionalDocumentPageMetrics,
+    hydrateRemainingDocumentPageMetrics,
+    loadInitialDocumentPageMetric,
+} from '@app/modules/workspace-shell/viewers/loadPrioritizedDocumentPageMetrics';
+import { createDjvuPagePreviewSourceFromPath } from '@app/platform/browser-api/public';
+import { createDjvuPageSource } from '@app/utils/document-viewer/source/createDjvuPageSource';
+import { resolveDocumentPageSourceOpeningFrame } from '@app/modules/workspace-shell/viewers/resolveDocumentPageSourceOpeningFrame';
+import { DOCUMENT_PAGE_GUTTER_PX } from '@app/utils/document-viewer/layout/documentPageGutterPx';
+import type { workspaceSurfaceBudgetController } from '@app/modules/workspace-shell/memory/workspaceSurfaceBudgetController';
 export interface IDocumentPageSourceFence {
     readonly loadGeneration: number;
     readonly openSurfaceGeneration: number | null;
     readonly documentRevision: string | null;
     readonly src: TDocumentRef | null;
 }
-
-export interface IDocumentPageSourceTransition extends IDocumentTransition<IDocumentPageSourceFence> {
-    readonly phase: 'source-loaded';
-    readonly source: IDocumentPageSource;
-}
-
-export function resolveDocumentPageSourceCapabilities(
-    source: IDocumentPageSource,
-): IDocumentSourceCapabilities {
+export interface IDocumentPageSourceTransition extends IDocumentTransition<IDocumentPageSourceFence> {readonly kind: 'open' | 'settle' | 'invalidate' | 'restore';}
+const SUPERSEDABLE_OPEN_PHASES = new Set([
+    'pending',
+    'geometry-committed',
+    'canvas-committed',
+    'viewport-committed',
+]);
+export function createDocumentPageSourceLifecycle(options: {
+    chassisAuthority: IDocumentViewerChassisAuthority | null;
+    readIsActive: () => boolean;
+    readRevisionToken: () => TDocumentRevisionToken | null;
+    readSrc: () => TDocumentRef | null;
+}) {
+    const loadGeneration = ref(0);
+    const openSurfaceGeneration = ref<number | null>(null);
+    const documentRevision = ref<string | null>(null);
+    const activeFences = new WeakSet<IDocumentPageSourceFence>();
+    const readFence = (): IDocumentPageSourceFence => Object.freeze({
+        loadGeneration: loadGeneration.value,
+        openSurfaceGeneration: openSurfaceGeneration.value,
+        documentRevision: documentRevision.value,
+        src: options.readSrc(),
+    });
+    const isFenceCurrent = (fence: IDocumentPageSourceFence) => (
+        fence.loadGeneration === loadGeneration.value
+        && fence.openSurfaceGeneration === openSurfaceGeneration.value
+        && fence.documentRevision === documentRevision.value
+        && fence.src === options.readSrc()
+        && (!activeFences.has(fence) || options.readIsActive())
+    );
+    const channel = createDocumentTransitionChannel<
+        IDocumentPageSourceFence,
+        IDocumentPageSourceTransition
+    >(isFenceCurrent);
+    function supersede() {
+        const openSurface = options.chassisAuthority?.openSurface;
+        const snapshot = openSurface?.snapshot.value;
+        if (
+            openSurface
+            && snapshot
+            && openSurfaceGeneration.value !== null
+            && snapshot.generation === openSurfaceGeneration.value
+            && snapshot.openingPageFrame !== null
+            && SUPERSEDABLE_OPEN_PHASES.has(snapshot.phase)
+        ) {
+            openSurface.supersede();
+        }
+        openSurfaceGeneration.value = null;
+        documentRevision.value = null;
+    }
+    function start() {
+        watch(
+            [
+                options.readSrc,
+                options.readRevisionToken,
+            ],
+            ([src], previous) => {
+                const previousSrc = previous?.[0] ?? null;
+                if (previousSrc) {
+                    supersede();
+                }
+                const generation = ++loadGeneration.value;
+                documentRevision.value = src
+                    ? String(options.readRevisionToken() ?? `page-source:${String(generation)}`)
+                    : null;
+                const chassisAuthority = options.chassisAuthority;
+                openSurfaceGeneration.value = src && chassisAuthority
+                    ? chassisAuthority.openSurface.claim({
+                        documentId: chassisAuthority.openSurface.snapshot.value.identity?.documentId
+                            ?? String(src),
+                        documentRevision: documentRevision.value ?? '',
+                    })
+                    : null;
+                void channel.publish({
+                    kind: 'open',
+                    fence: readFence(),
+                });
+            },
+            {immediate: true},
+        );
+        watch(
+            () => [
+                options.chassisAuthority?.openSurface.snapshot.value.generation ?? null,
+                options.chassisAuthority?.openSurface.snapshot.value.identity?.documentId ?? null,
+                options.chassisAuthority?.openSurface.snapshot.value.identity?.documentRevision ?? null,
+                options.chassisAuthority?.openSurface.snapshot.value.openingPageFrame?.generation ?? null,
+            ] as const,
+            ([
+                generation,
+                documentId,
+                revision,
+                frameGeneration,
+            ]) => {
+                const src = options.readSrc();
+                if (
+                    generation === null
+                    || frameGeneration !== generation
+                    || !src
+                    || documentId !== String(src)
+                    || revision !== documentRevision.value
+                    || generation === openSurfaceGeneration.value
+                ) {
+                    return;
+                }
+                openSurfaceGeneration.value = generation;
+                void channel.publish({
+                    kind: 'settle',
+                    fence: readFence(),
+                });
+            },
+            {flush: 'sync'},
+        );
+        watch(options.readIsActive, (isActive) => {
+            if (!isActive) {
+                void channel.publish({
+                    kind: 'invalidate',
+                    fence: readFence(),
+                });
+                return;
+            }
+            const fence = readFence();
+            activeFences.add(fence);
+            void channel.publish({
+                kind: 'restore',
+                fence,
+            });
+        }, {flush: 'post'});
+    }
     return {
-        annotations: false,
-        directImageExport: Boolean(source.rasterProvider),
-        outline: Boolean(source.outlineProvider),
-        pageEdits: false,
-        search: Boolean(source.searchProvider ?? source.textProvider),
-        text: Boolean(source.textProvider),
+        channel,
+        dispose() {
+            supersede();
+            channel.dispose();
+        },
+        isCurrent: isFenceCurrent,
+        loadGeneration: readonly(loadGeneration),
+        openSurfaceGeneration: readonly(openSurfaceGeneration),
+        readFence,
+        start,
     };
 }
-
-export function resolveInactiveDjvuLeasePolicy(
-    tier: THostResourceTier,
-    pressureLevel: TWorkspaceResourcePressureLevel,
-) {
-    const policy = resolveOpenPathSecondaryPerformancePolicy(resolvePerformanceProfile({ tier }));
-    return policy.inactiveDjvuLeasePolicy === 'release-immediately' || ![
-        'healthy',
-        'guarded',
-    ].includes(pressureLevel)
-        ? 'release-immediately'
-        : 'warm-grace';
-}
-
 export interface IDocumentPageSourceFeaturePackProps {
     src: TDocumentRef | null;
     zoom?: number;
@@ -72,103 +183,255 @@ export interface IDocumentPageSourceFeaturePackProps {
     searchResults?: readonly IDocumentSearchMatch[];
     currentSearchResultIndex?: number;
 }
-
-export interface IDocumentPageSourceVisualState {
-    generation: number;
-    error: string | null;
-    ready: boolean;
-    lease: IDocumentSurfaceLease | null;
-    priority: TDocumentRenderPriority;
-    widthPx: number;
-    unsubscribeInvalidation: (() => void) | null;
+export type TDocumentPageSourceRuntimeProps = Required<Pick<
+    IDocumentPageSourceFeaturePackProps,
+    'continuousScroll' | 'currentPage' | 'isActive' | 'isResizing' | 'viewMode' | 'zoom' | 'zoomMode'
+>> & Pick<IDocumentPageSourceFeaturePackProps, 'documentRevisionToken' | 'src'>;
+export interface IDocumentPageSourceFeaturePackEmit {
+    (event: 'update:zoom', value: number): void;
+    (event: 'update:zoomMode', value: 'custom' | 'fit-width' | 'fit-height'): void;
+    (event: 'update:effectiveZoom', value: number): void;
+    (event: 'update:currentPage', value: number): void;
+    (event: 'update:totalPages', value: number): void;
+    (event: 'update:document', value: null): void;
+    (event: 'update:sourceCapabilities', value: IDocumentSourceCapabilities): void;
+    (event: 'update:pageSource', value: IDocumentPageSource | null): void;
+    (event: 'loading', value: boolean): void;
+    (event: 'loadError', value: unknown): void;
+    (event: 'initial-visual-pending'): void;
+    (event: 'initial-visual-ready', value: {pageNumber: number;}): void;
 }
-
-export function resolveDocumentPageSourceMountedPages(options: {
-    continuousScroll: boolean;
-    currentPage: number;
-    destinationPage?: number | undefined;
-    maxPages: number;
-    mountRadius: number;
-    pageCount: number;
-    pageGapPx: number;
-    pageHeights: number[];
-    pageTops: number[];
-    renderSession?: IDocumentViewerRenderSession | undefined;
-    scrollTop: number;
-    totalHeight: number;
-    viewportHeight: number;
-}) {
-    if (options.pageCount === 0) {
-        return [];
+export async function openDocumentPageSource(
+    transition: IDocumentPageSourceTransition,
+    context: {
+        chassisAuthority: IDocumentViewerChassisAuthority | null;
+        emit: IDocumentPageSourceFeaturePackEmit;
+        commitPageTerminalError: (pageNumber: number) => string;
+        ensureExactPageMetric: (
+            source: IDocumentPageSource, loadGeneration: number, pageNumber: number,
+            signal: AbortSignal, isCurrent: () => boolean,
+        ) => Promise<IDocumentPageMetrics>;
+        getOpeningShellTarget: (pageNumber: number) => HTMLElement | null;
+        layoutLifecycle: {
+            beginLayoutTransaction: () => void;
+            endLayoutTransaction: () => Promise<void>;
+            preserveLayoutMutation: (mutate: () => void) => void;
+        };
+        loadController: AbortController;
+        openingPageFrameOwnerId: string;
+        markExactPageMetric: (pageNumber: number) => void;
+        measureViewport: () => void;
+        publishPageMetrics: (metrics: IDocumentPageMetrics[]) => void;
+        readCurrentPage: () => number;
+        readPageMetric: (pageNumber: number) => IDocumentPageMetrics | undefined;
+        readPolicy: () => {
+            continuousScroll: boolean;
+            zoom: number;
+            zoomMode: 'custom' | 'fit-width' | 'fit-height';
+        };
+        readViewport: () => HTMLElement | null;
+        renderPage: (pageNumber: number) => Promise<void>;
+        resetMetricPublication: () => void;
+        scheduleRender: () => void;
+        scrollToPage: (pageNumber: number) => void;
+        setSource: (source: IDocumentPageSource | null) => void;
+        surfaceBudget: typeof workspaceSurfaceBudgetController;
+    },
+): Promise<boolean> {
+    const documentRef = transition.fence.src;
+    if (!documentRef) {
+        return false;
     }
-    const viewportPages = options.continuousScroll
-        ? resolveDocumentContinuousScrollWindow({
-            currentPage: options.currentPage,
-            geometry: {
-                pageHeights: options.pageHeights,
-                pageTops: options.pageTops,
-                totalHeight: options.totalHeight,
-            },
-            pageGapPx: options.pageGapPx,
-            pageHeights: options.pageHeights,
-            renderMarginPages: options.mountRadius,
-            scrollTop: options.scrollTop,
-            totalPages: options.pageCount,
-            viewportHeight: options.viewportHeight,
-            overscanViewports: 1,
-        })?.pageNumbers ?? []
-        : [];
-    return options.renderSession?.resolveMountedPages({
-        currentPage: options.currentPage,
-        destinationPage: options.destinationPage,
-        maxPages: options.maxPages,
-        pageCount: options.pageCount,
-        radius: options.continuousScroll ? options.mountRadius : 3,
-        viewportPages,
-    }) ?? [];
-}
-
-export async function prepareDocumentPageSourceInitialState(options: {
-    source: IDocumentPageSource;
-    signal: AbortSignal;
-    isCurrent: () => boolean;
-    getCurrentPage: () => number;
-    loadInitialMetric: (
-        source: IDocumentPageSource,
-        pageNumber: number,
-        signal: AbortSignal,
-    ) => Promise<IDocumentPageMetrics>;
-    loadExactMetric: (pageNumber: number, signal: AbortSignal) => Promise<IDocumentPageMetrics>;
-    markExact: (pageNumber: number) => void;
-    publishMetrics: (metrics: IDocumentPageMetrics[]) => void;
-    publishPageCount: (pageCount: number) => void;
-    waitForRestore: () => Promise<void>;
-}) {
-    const normalizePage = () => Math.max(1, Math.min(
-        options.source.pageCount,
-        Math.trunc(options.getCurrentPage()),
-    ));
-    let initialPage = normalizePage();
-    let initialMetric = await options.loadInitialMetric(options.source, initialPage, options.signal);
-    if (!options.isCurrent()) {
-        return null;
-    }
-    options.publishMetrics(createProvisionalDocumentPageMetrics(options.source.pageCount, initialMetric));
-    options.markExact(initialPage);
-    options.publishPageCount(options.source.pageCount);
-    await options.waitForRestore();
-    const restoredPage = normalizePage();
-    if (restoredPage !== initialPage) {
-        initialPage = restoredPage;
-        initialMetric = await options.loadExactMetric(initialPage, options.signal);
-        if (!options.isCurrent()) {
-            return null;
+    try {
+        const preview = await createDjvuPagePreviewSourceFromPath(documentRef);
+        if (!transition.isCurrent()) {
+            preview.terminate();
+            return false;
         }
+        const nextSource = await createDjvuPageSource(
+            documentRef,
+            preview,
+            context.surfaceBudget,
+            {initialPageNumber: Math.max(1, Math.trunc(context.readCurrentPage()))},
+        ).catch((error: unknown) => {
+            preview.terminate();
+            throw error;
+        });
+        if (!transition.isCurrent()) {
+            nextSource.dispose();
+            return false;
+        }
+        context.setSource(nextSource);
+        context.emit('update:pageSource', nextSource);
+        context.chassisAuthority?.bindSource(nextSource);
+        context.emit('update:sourceCapabilities', {
+            annotations: false,
+            directImageExport: Boolean(nextSource.rasterProvider),
+            outline: Boolean(nextSource.outlineProvider),
+            pageEdits: false,
+            search: Boolean(nextSource.searchProvider ?? nextSource.textProvider),
+            text: Boolean(nextSource.textProvider),
+        });
+        const normalizePage = () => Math.max(1, Math.min(
+            nextSource.pageCount,
+            Math.trunc(context.readCurrentPage()),
+        ));
+        let initialPage = normalizePage();
+        let initialMetric = await loadInitialDocumentPageMetric(
+            nextSource,
+            initialPage,
+            context.loadController.signal,
+        );
+        if (!transition.isCurrent()) {
+            return false;
+        }
+        context.publishPageMetrics(createProvisionalDocumentPageMetrics(nextSource.pageCount, initialMetric));
+        context.markExactPageMetric(initialPage);
+        context.emit('update:totalPages', nextSource.pageCount);
+        await nextTick();
+        if (!transition.isCurrent()) {
+            return false;
+        }
+        const restoredPage = normalizePage();
+        if (restoredPage !== initialPage) {
+            initialPage = restoredPage;
+            initialMetric = await context.ensureExactPageMetric(
+                nextSource,
+                transition.fence.loadGeneration,
+                initialPage,
+                context.loadController.signal,
+                transition.isCurrent,
+            );
+        }
+        if (!transition.isCurrent()) {
+            return false;
+        }
+        context.emit('loading', false);
+        context.scrollToPage(initialPage);
+        if (!transition.isCurrent()) {
+            return false;
+        }
+        context.measureViewport();
+        const generation = transition.fence.openSurfaceGeneration;
+        const authority = context.chassisAuthority;
+        const metric = context.readPageMetric(initialPage);
+        const viewport = context.readViewport();
+        if (
+            generation === null
+            || !authority
+            || !metric
+            || !viewport
+            || authority.openSurface.snapshot.value.generation !== generation
+        ) {
+            throw new Error('Unable to commit the initial document page shell');
+        }
+        const surface = authority.openSurface;
+        let snapshot = surface.snapshot.value;
+        if (snapshot.openingPageGeometry === null && !surface.commitOpeningPageGeometry(generation, {
+            documentId: snapshot.identity?.documentId ?? String(documentRef),
+            pageNumber: initialPage,
+            pageCount: nextSource.pageCount,
+            width: metric.widthPoints,
+            height: metric.heightPoints,
+            rotation: metric.rotation,
+        })) {
+            throw new Error('Unable to commit the initial document page geometry');
+        }
+        snapshot = surface.snapshot.value;
+        const policy = context.readPolicy();
+        const frameGeometry = snapshot.openingPageGeometry;
+        const frame = frameGeometry && resolveDocumentPageSourceOpeningFrame({
+            geometry: frameGeometry,
+            viewportWidth: viewport.clientWidth,
+            viewportHeight: viewport.clientHeight,
+            zoom: policy.zoom,
+            zoomMode: policy.zoomMode,
+        });
+        if (!frame) {
+            throw new Error('Unable to resolve the initial document page shell');
+        }
+        const existingFrame = snapshot.openingPageFrame;
+        if (!(existingFrame
+            ? existingFrame.generation === generation && existingFrame.pageNumber === initialPage
+            : surface.commitOpeningPageFrame(generation, {
+                generation,
+                ownerId: context.openingPageFrameOwnerId,
+                pageNumber: initialPage,
+                intentKey: `page-source:${policy.zoomMode}:${String(policy.zoom)}:${String(policy.continuousScroll)}`,
+                style: frame.style,
+            }))) {
+            throw new Error('Unable to commit the initial document page frame');
+        }
+        await nextTick();
+        if (!transition.isCurrent()) {
+            return false;
+        }
+        const target = context.getOpeningShellTarget(initialPage);
+        const rect = target?.getBoundingClientRect();
+        if (
+            !target
+            || !rect
+            || rect.width <= 0
+            || rect.height <= 0
+            || !surface.commitGeometry(generation, {
+                width: rect.width,
+                height: rect.height,
+                margin: DOCUMENT_PAGE_GUTTER_PX,
+            })
+        ) {
+            throw new Error('Unable to commit the initial document page shell');
+        }
+        await context.renderPage(initialPage);
+        if (!transition.isCurrent()) {
+            return false;
+        }
+        void (async () => {
+            context.layoutLifecycle.beginLayoutTransaction();
+            try {
+                const metrics = await hydrateRemainingDocumentPageMetrics({
+                    source: nextSource,
+                    initialPage,
+                    initialMetric,
+                    signal: context.loadController.signal,
+                    isCurrent: () => (
+                        transition.isCurrent()
+                        && !context.loadController.signal.aborted
+                    ),
+                    getPriorityPage: () => Math.max(1, Math.min(
+                        nextSource.pageCount,
+                        Math.trunc(context.readCurrentPage()),
+                    )),
+                    loadMetric: (pageNumber, signal) => context.ensureExactPageMetric(
+                        nextSource,
+                        transition.fence.loadGeneration,
+                        pageNumber,
+                        signal,
+                        transition.isCurrent,
+                    ),
+                    onMetric: context.scheduleRender,
+                });
+                if (!metrics || !transition.isCurrent()) {
+                    return;
+                }
+                context.resetMetricPublication();
+                context.layoutLifecycle.preserveLayoutMutation(() => context.publishPageMetrics(metrics));
+                context.scheduleRender();
+            } catch (error) {
+                if (transition.isCurrent() && !(error instanceof DOMException && error.name === 'AbortError')) {
+                    context.emit('loadError', error);
+                }
+            } finally {
+                await context.layoutLifecycle.endLayoutTransaction();
+            }
+        })();
+        return true;
+    } catch (error) {
+        if (transition.isCurrent() && !(error instanceof DOMException && error.name === 'AbortError')) {
+            context.emit('loading', false);
+            context.commitPageTerminalError(Math.max(1, Math.trunc(context.readCurrentPage())));
+            context.emit('loadError', error);
+        }
+        return false;
     }
-    return {
-        initialMetric,
-        initialPage,
-    };
 }
-
 export type TDocumentPageElement = Element | ComponentPublicInstance | null;
