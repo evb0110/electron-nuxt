@@ -167,6 +167,79 @@ describe('search worker warmup and cache behavior', () => {
         expect(mocks.buildSearchIndex).not.toHaveBeenCalled();
     });
 
+    it('releases the resident JS index after a search the native sidecar answered', async () => {
+        process.env.EVB_PDF_SEARCH_ENABLE = '1';
+        mocks.stat.mockImplementation(async (path: string) => {
+            if (path.endsWith('.pdf')) {
+                return { mtimeMs: 10 };
+            }
+            if (path.endsWith('.index.json')) {
+                return { mtimeMs: 20 };
+            }
+            throw new Error(`Unexpected stat path: ${path}`);
+        });
+
+        await import('@electron/search/worker');
+        const handleMessage = mocks.messageHandlers.get('message');
+        expect(handleMessage).toBeTypeOf('function');
+
+        handleMessage?.({
+            type: 'search',
+            payload: {
+                requestId: 'evict-warm',
+                pdfPath: TEST_PDF_PATH,
+                documentRevision: DOCUMENT_REVISION,
+                query: '',
+                pageCount: 1,
+                warmup: true,
+            },
+        });
+        await vi.waitFor(() => {
+            expect(mocks.buildSearchIndex).toHaveBeenCalledTimes(1);
+        });
+
+        mocks.tryRunNativeSearch.mockResolvedValue({
+            response: {
+                results: [],
+                truncated: false,
+            },
+            totalPages: 1,
+        });
+        handleMessage?.({
+            type: 'search',
+            payload: {
+                requestId: 'evict-native',
+                pdfPath: TEST_PDF_PATH,
+                documentRevision: DOCUMENT_REVISION,
+                query: 'needle',
+                pageCount: 1,
+            },
+        });
+        await vi.waitFor(() => {
+            expect(mocks.postedMessages).toContainEqual(expect.objectContaining({
+                type: 'complete',
+                requestId: 'evict-native',
+            }));
+        });
+
+        mocks.loadSearchIndex.mockClear();
+        mocks.tryRunNativeSearch.mockResolvedValue(null);
+        handleMessage?.({
+            type: 'search',
+            payload: {
+                requestId: 'evict-js',
+                pdfPath: TEST_PDF_PATH,
+                documentRevision: DOCUMENT_REVISION,
+                query: PAGE_TEXT,
+                pageCount: 1,
+            },
+        });
+
+        await vi.waitFor(() => {
+            expect(mocks.loadSearchIndex).toHaveBeenCalled();
+        });
+    });
+
     it('builds and warms index on explicit warmup requests', async () => {
         await import('@electron/search/worker');
         const handleMessage = mocks.messageHandlers.get('message');
