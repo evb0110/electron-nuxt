@@ -7,11 +7,17 @@ import { isLargeSerializedSaveAllowedForAutomation } from '@app/utils/isLargeSer
 
 const PDF_RANGE_SUBREAD_BYTES = 8 * 1024 * 1024;
 const MAX_AGGREGATE_PDF_RANGE_BYTES = 64 * 1024 * 1024;
-const MAX_QUEUED_PDF_RANGE_REQUESTS = 32;
 
 export interface IPdfPreloadedRange {
     begin: number;
     data: Uint8Array;
+}
+
+interface IPdfRangeReadFailureHandler {
+    rangeReadFailure: Promise<never>;
+    failRangeRead: (error: unknown) => void;
+    hasFailed: () => boolean;
+    complete: () => void;
 }
 
 interface IPdfRangeRequestBridgeOptions {
@@ -24,14 +30,15 @@ export function createPdfRangeRequestBridge({
     onRangeReadFailure,
 }: IPdfRangeRequestBridgeOptions) {
     let rangeReadTail = Promise.resolve();
-    let queuedRangeReads = 0;
-    function createRangeReadFailureHandler() {
+    function createRangeReadFailureHandler(): IPdfRangeReadFailureHandler {
         let rejectRangeReadFailure: ((error: Error) => void) | null = null;
+        let failed = false;
         const rangeReadFailure = new Promise<never>((_resolve, reject) => {
             rejectRangeReadFailure = reject;
         });
 
         const failRangeRead = (error: unknown) => {
+            failed = true;
             if (!rejectRangeReadFailure) {
                 return;
             }
@@ -44,6 +51,7 @@ export function createPdfRangeRequestBridge({
         return {
             rangeReadFailure,
             failRangeRead,
+            hasFailed: () => failed,
             complete: () => {
                 rejectRangeReadFailure = null;
             },
@@ -68,6 +76,7 @@ export function createPdfRangeRequestBridge({
         begin: number,
         end: number,
         version: number,
+        isAbandoned: () => boolean,
         preloadedRanges: readonly IPdfPreloadedRange[],
     ) {
         const totalLength = end - begin;
@@ -80,7 +89,7 @@ export function createPdfRangeRequestBridge({
         ) {
             throw new Error(`PDF range request ${begin}..${end} exceeds ${MAX_AGGREGATE_PDF_RANGE_BYTES} byte limit`);
         }
-        if (version !== getRenderVersion()) {
+        if (isAbandoned()) {
             return;
         }
 
@@ -109,7 +118,7 @@ export function createPdfRangeRequestBridge({
         let outputOffset = 0;
         let output: Uint8Array | null = null;
         while (cursor < end) {
-            if (version !== getRenderVersion()) {
+            if (isAbandoned()) {
                 logPdfRenderTrace('pdf-document-range-request-stale-before-read', {
                     begin,
                     end,
@@ -122,7 +131,7 @@ export function createPdfRangeRequestBridge({
 
             const requestedLength = Math.min(PDF_RANGE_SUBREAD_BYTES, end - cursor);
             const chunk = await documentFiles.readFileRange(src.path, cursor, requestedLength);
-            if (version !== getRenderVersion()) {
+            if (isAbandoned()) {
                 logPdfRenderTrace('pdf-document-range-request-stale-after-read', {
                     begin,
                     end,
@@ -181,9 +190,11 @@ export function createPdfRangeRequestBridge({
         transport: PDFDataRangeTransport,
         src: Extract<TPdfSource, { kind: 'path' }>,
         version: number,
-        failRangeRead: (error: unknown) => void,
+        rangeFailure: IPdfRangeReadFailureHandler,
         preloadedRanges: readonly IPdfPreloadedRange[],
     ) {
+        const isAbandoned = () => version !== getRenderVersion() || rangeFailure.hasFailed();
+
         // PDF.js will call this to request additional chunks.
         transport.requestDataRange = (
             begin,
@@ -196,13 +207,6 @@ export function createPdfRangeRequestBridge({
                     length: end - begin,
                     version,
                 });
-                if (queuedRangeReads >= MAX_QUEUED_PDF_RANGE_REQUESTS) {
-                    const error = new Error('PDF range request queue is full');
-                    failRangeRead(error);
-                    onRangeReadFailure(error, version);
-                    return;
-                }
-                queuedRangeReads += 1;
                 const predecessor = rangeReadTail;
                 let releaseQueueSlot!: () => void;
                 rangeReadTail = new Promise<void>((resolve) => {
@@ -216,10 +220,11 @@ export function createPdfRangeRequestBridge({
                         begin,
                         end,
                         version,
+                        isAbandoned,
                         preloadedRanges,
                     );
                 } catch (error) {
-                    if (version !== getRenderVersion()) {
+                    if (isAbandoned()) {
                         return;
                     }
 
@@ -234,10 +239,9 @@ export function createPdfRangeRequestBridge({
                         'Failed to read PDF range chunk',
                         error,
                     );
-                    failRangeRead(error);
+                    rangeFailure.failRangeRead(error);
                     onRangeReadFailure(error, version);
                 } finally {
-                    queuedRangeReads -= 1;
                     releaseQueueSlot();
                 }
             })();

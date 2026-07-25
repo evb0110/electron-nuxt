@@ -835,7 +835,7 @@ export const usePdfDocument = () => {
             activeRangeTransport,
             src,
             version,
-            rangeFailure.failRangeRead,
+            rangeFailure,
             preloadedRanges,
         );
 
