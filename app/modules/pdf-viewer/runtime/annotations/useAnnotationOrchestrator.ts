@@ -13,6 +13,7 @@ import type {
     ILinkAnnotation,
     TAnnotationTool,
     TAnnotationSettingChange,
+    TMarkupSubtype,
 } from '@app/types/annotations';
 import type { TPdfSource } from '@app/types/pdfUi';
 import type { IAnnotationContextMenuPayload } from '@app/modules/pdf-viewer/engine/annotationContextMenuPayload';
@@ -77,6 +78,12 @@ interface IUseAnnotationOrchestratorOptions {
     emitAnnotationCommentClick: (comment: IAnnotationCommentSummary) => void;
     emitAnnotationToolCancel: () => void;
     emitAnnotationNotePlacementChange: (active: boolean) => void;
+    /** Canonical text-markup subtypes keyed by external id, owned by AnnotationStore. */
+    getCanonicalMarkupSubtypes: () => ReadonlyMap<string, TMarkupSubtype>;
+    recordCanonicalMarkupSubtype: (externalIds: readonly string[], subtype: TMarkupSubtype) => void;
+    resolveCanonicalMarkupSubtype: (externalIds: readonly string[]) => TMarkupSubtype | null;
+    forgetCanonicalMarkupSubtypeIntents: (externalIds: readonly string[]) => void;
+    clearCanonicalMarkupSubtypeIntents: () => void;
 }
 
 type TAnnotationToolState = ReturnType<typeof useAnnotationToolState>;
@@ -173,6 +180,11 @@ export const useAnnotationOrchestrator = (
         annotationSettings,
         numPages,
         getEditorIdentity: identity.getEditorIdentity,
+        getCanonicalMarkupSubtypes: options.getCanonicalMarkupSubtypes,
+        recordCanonicalMarkupSubtype: options.recordCanonicalMarkupSubtype,
+        resolveCanonicalMarkupSubtype: options.resolveCanonicalMarkupSubtype,
+        forgetCanonicalMarkupSubtypeIntents: options.forgetCanonicalMarkupSubtypeIntents,
+        clearCanonicalMarkupSubtypeIntents: options.clearCanonicalMarkupSubtypeIntents,
         getFreeTextResize: () => freeTextResize,
         emitAnnotationToolAutoReset,
     });

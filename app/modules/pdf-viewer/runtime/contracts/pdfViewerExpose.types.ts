@@ -194,7 +194,6 @@ export interface IPdfViewerShapeExpose {
     markSavedShapeState?: () => void;
     getDeletedEmbeddedShapeAnnotationIds: () => string[];
     getDeletedEmbeddedShapeStableKeys?: () => string[];
-    loadShapes: (shapes: IShapeAnnotation[]) => void;
     clearShapes: () => void;
     clearSelectedShape: () => void;
     deleteSelectedShape: () => void;

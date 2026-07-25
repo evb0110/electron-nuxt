@@ -226,7 +226,6 @@ export const usePdfViewerPublicApiController = (options: IUsePdfViewerPublicApiC
                 return result(false, null, 'Shape geometry is too small or invalid.');
             }
 
-            shapeComposable.addShape(shape);
             shapeTool.handleShapeCreated(shape);
             return result(true, toShapeAnnotationCommentSummary(shape));
         },
@@ -292,7 +291,6 @@ export const usePdfViewerPublicApiController = (options: IUsePdfViewerPublicApiC
         getAllShapes: shapeComposable.getAllShapes,
         getDeletedEmbeddedShapeAnnotationIds: shapeComposable.getDeletedEmbeddedAnnotationIds,
         getDeletedEmbeddedShapeStableKeys: shapeComposable.getDeletedEmbeddedShapeStableKeys,
-        loadShapes: shapeComposable.loadShapes,
         clearShapes: shapeComposable.clearShapes,
         clearSelectedShape: selectedShapeCommands.clearSelectedShape,
         deleteSelectedShape: selectedShapeCommands.deleteSelectedShape,

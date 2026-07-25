@@ -39,10 +39,6 @@ import { tracePdfAnnotationSaveEvent } from '@app/modules/pdf-viewer/engine/pdf-
 import type { IPdfCommentSummaryDeps } from '@app/modules/pdf-viewer/engine/annotations/annotation-sync-helpers/annotationSyncHelpersTypes';
 import type { TComputeSummaryStableKey } from '@app/modules/pdf-viewer/annotations/domain/annotationSummaryIdentity';
 import type { TDocumentRevisionToken } from '@contracts/documentRevision';
-import {
-    initialAnnotationSyncState,
-    reduceAnnotationSync,
-} from '@app/modules/pdf-viewer/annotations/sync/annotationSyncMachine';
 
 interface ISyncIdentity {
     getEditorIdentity: (editor: IPdfjsEditor, pageIndex: number) => string;
@@ -61,7 +57,6 @@ interface ISyncMarkupSubtype {
     resolveEditorMarkupSubtypeColor: (editor: IPdfjsEditor, subtype: TMarkupSubtype, pageIndex: number) => string;
     rememberMarkupSubtypeColorOverride: (annotationId: string | null | undefined, color: string | null | undefined) => void;
     syncMarkupSubtypePresentationForEditors: () => void;
-    getMarkupSubtypeOverrides: () => Map<string, TMarkupSubtype>;
     forgetMarkupSubtypeOverride: (annotationId: string | null | undefined) => void;
     clearOverrides: () => void;
 }
@@ -200,7 +195,6 @@ export const useAnnotationSync = (options: IUseAnnotationSyncOptions) => {
         snapshotVersion: number;
         promise: Promise<TPdfAnnotationNameReconciliationResult>;
     } | null = null;
-    let syncMachineState = initialAnnotationSyncState<IAnnotationCommentSummary>();
     let hasAppliedDocumentSnapshot = false;
 
     function getSharedSnapshotKey(pageCount: number) {
@@ -312,22 +306,21 @@ export const useAnnotationSync = (options: IUseAnnotationSyncOptions) => {
         hasAppliedDocumentSnapshot = false;
     });
 
-    function rememberResolvedMarkupSubtypeOverride(
+    /**
+     * Markup colour is presentation memory this bridge owns; the subtype is not.
+     * AnnotationStore holds it, so nothing is copied back here.
+     */
+    function rememberResolvedMarkupSubtypeColor(
         annotationId: string | null,
         resolvedSubtype: string | null | undefined,
         color: string | null | undefined,
         markupSubtype: ISyncMarkupSubtype,
     ) {
-        const overrideRegistration = resolveMarkupSubtypeOverrideRegistration(annotationId, resolvedSubtype);
-        if (!overrideRegistration) {
+        if (!resolveMarkupSubtypeOverrideRegistration(annotationId, resolvedSubtype)) {
             markupSubtype.forgetMarkupSubtypeOverride(annotationId);
             return;
         }
         markupSubtype.rememberMarkupSubtypeColorOverride(annotationId, color);
-        markupSubtype.getMarkupSubtypeOverrides().set(
-            overrideRegistration.annotationId,
-            overrideRegistration.subtype,
-        );
     }
 
     function logPendingAnchorSummary(
@@ -441,7 +434,7 @@ export const useAnnotationSync = (options: IUseAnnotationSyncOptions) => {
         const annotationId = editor.annotationElementId ?? null;
         const color = resolveEditorSummaryColor(editor, data, pageIndex, resolvedSubtype, markupSubtype);
 
-        rememberResolvedMarkupSubtypeOverride(
+        rememberResolvedMarkupSubtypeColor(
             annotationId,
             resolvedSubtype,
             color,
@@ -869,23 +862,16 @@ export const useAnnotationSync = (options: IUseAnnotationSyncOptions) => {
         return false;
     }
 
-    function rememberMarkupSubtypeOverride(
-        summary: IAnnotationCommentSummary,
-        markupSubtype: ISyncMarkupSubtype,
-    ) {
-        rememberResolvedMarkupSubtypeOverride(
-            summary.annotationId,
-            summary.subtype,
-            summary.color,
-            markupSubtype,
-        );
-    }
-
-    function rememberMarkupSubtypeOverrides(
+    function rememberMarkupSubtypeColors(
         comments: IAnnotationCommentSummary[],
         markupSubtype: ISyncMarkupSubtype,
     ) {
-        comments.forEach(comment => rememberMarkupSubtypeOverride(comment, markupSubtype));
+        comments.forEach(comment => rememberResolvedMarkupSubtypeColor(
+            comment.annotationId,
+            comment.subtype,
+            comment.color,
+            markupSubtype,
+        ));
     }
 
     function mergeHydratedSummary(
@@ -979,7 +965,7 @@ export const useAnnotationSync = (options: IUseAnnotationSyncOptions) => {
         appliedComments.forEach((comment) => {
             identity.rememberSummaryText(comment);
         });
-        rememberMarkupSubtypeOverrides(appliedComments, markupSubtype);
+        rememberMarkupSubtypeColors(appliedComments, markupSubtype);
         store.setLinkAnnotations(links);
         markupSubtype.syncMarkupSubtypePresentationForEditors();
         syncInlineCommentIndicators();
@@ -999,10 +985,6 @@ export const useAnnotationSync = (options: IUseAnnotationSyncOptions) => {
         }
 
         const localToken = ++syncToken;
-        syncMachineState = reduceAnnotationSync(syncMachineState, {
-            type: 'begin',
-            generation: localToken,
-        });
         const commentsByKey = new Map<string, IAnnotationCommentSummary>();
         const uiManager = annotationUiManager.value;
         const isDeletedAnnotationElement = resolveDeletedAnnotationElementPredicate(uiManager);
@@ -1010,11 +992,6 @@ export const useAnnotationSync = (options: IUseAnnotationSyncOptions) => {
             sourceOrder,
             hasPostOpenUserMutation,
         } = collectEditorCommentSummaries(identity, uiManager, commentsByKey);
-        syncMachineState = reduceAnnotationSync(syncMachineState, {
-            type: 'receive-editor-snapshot',
-            generation: localToken,
-            records: Array.from(commentsByKey.values()),
-        });
 
         const pdfSnapshot = await getPdfAnnotationSnapshot(
             doc,
@@ -1035,21 +1012,6 @@ export const useAnnotationSync = (options: IUseAnnotationSyncOptions) => {
             links: pdfSnapshot.links.length,
             pageCount: pdfSnapshot.pageCount,
         }));
-        const pdfCommentsByPage = new Map<number, IAnnotationCommentSummary[]>();
-        pdfSnapshot.comments.forEach((comment) => {
-            const records = pdfCommentsByPage.get(comment.pageIndex) ?? [];
-            records.push(comment);
-            pdfCommentsByPage.set(comment.pageIndex, records);
-        });
-        pdfCommentsByPage.forEach((records, pageIndex) => {
-            syncMachineState = reduceAnnotationSync(syncMachineState, {
-                type: 'receive-pdf-page',
-                generation: localToken,
-                pageIndex,
-                records,
-            });
-        });
-
         mergePdfCommentSummaries(
             identity,
             pdfSnapshot,
@@ -1060,14 +1022,6 @@ export const useAnnotationSync = (options: IUseAnnotationSyncOptions) => {
         const collectedLinks = collectVisiblePdfLinks(pdfSnapshot, isDeletedAnnotationElement);
 
         if (localToken !== syncToken) {
-            return null;
-        }
-
-        syncMachineState = reduceAnnotationSync(syncMachineState, {
-            type: 'finish-pdf-snapshot',
-            generation: localToken,
-        });
-        if (syncMachineState.phase !== 'complete') {
             return null;
         }
 

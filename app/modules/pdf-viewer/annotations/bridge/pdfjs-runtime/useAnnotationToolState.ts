@@ -41,10 +41,7 @@ import {
     updateEditorDefaultParams,
     updatePdfjsAnnotationManagerParams,
 } from '@app/modules/pdf-viewer/annotations/bridge/pdfjsAnnotationFacade';
-import {
-    normalizePdfJsAnnotationId,
-    parsePdfJsAnnotationRef,
-} from '@app/utils/pdfAnnotationRefs';
+import { normalizePdfJsAnnotationId } from '@app/utils/pdfAnnotationRefs';
 import { createAnnotationMarkupSubtypeDrawLayer } from '@app/modules/pdf-viewer/engine/annotations/annotation-markup-subtype-draw-layer/createAnnotationMarkupSubtypeDrawLayer';
 import { findClosestHighlightDrawLayerSvg } from '@app/modules/pdf-viewer/engine/annotations/annotation-markup-subtype-draw-layer/findClosestHighlightDrawLayerSvg';
 import { resolveEditorHighlightClipPathId } from '@app/modules/pdf-viewer/engine/annotations/annotation-markup-subtype-draw-layer/resolveEditorHighlightClipPathId';
@@ -74,6 +71,12 @@ interface IUseAnnotationToolStateOptions {
     annotationSettings: Ref<IAnnotationSettings | null>;
     numPages: Ref<number>;
     getEditorIdentity: (editor: IPdfjsEditor, pageIndex: number) => string;
+    /** Canonical text-markup subtypes keyed by external id, owned by AnnotationStore. */
+    getCanonicalMarkupSubtypes: () => ReadonlyMap<string, TMarkupSubtype>;
+    recordCanonicalMarkupSubtype: (externalIds: readonly string[], subtype: TMarkupSubtype) => void;
+    resolveCanonicalMarkupSubtype: (externalIds: readonly string[]) => TMarkupSubtype | null;
+    forgetCanonicalMarkupSubtypeIntents: (externalIds: readonly string[]) => void;
+    clearCanonicalMarkupSubtypeIntents: () => void;
     getFreeTextResize: () => {patchResizableFreeTextEditors: (mgr: AnnotationEditorUIManager) => void;};
     emitAnnotationToolAutoReset: () => void;
 }
@@ -93,6 +96,11 @@ export const useAnnotationToolState = (options: IUseAnnotationToolStateOptions) 
         annotationSettings,
         numPages,
         getEditorIdentity,
+        getCanonicalMarkupSubtypes,
+        recordCanonicalMarkupSubtype,
+        resolveCanonicalMarkupSubtype,
+        forgetCanonicalMarkupSubtypeIntents,
+        clearCanonicalMarkupSubtypeIntents,
         getFreeTextResize,
         emitAnnotationToolAutoReset,
     } = options;
@@ -102,12 +110,8 @@ export const useAnnotationToolState = (options: IUseAnnotationToolStateOptions) 
     let annotationToolUpdateToken = 0;
     let annotationToolUpdatePromise: Promise<void> = Promise.resolve();
 
-    const markupSubtypeOverrides = new Map<string, TMarkupSubtype>();
-    const editorMarkupSubtypeOverrides = new Map<string, TMarkupSubtype>();
     const markupSubtypeColorOverrides = new Map<string, string>();
     const markupSubtypeGeometryHints = new Map<string, IMarkupSubtypeGeometryHintEntry>();
-    const forgottenMaterializedMarkupSubtypeAnnotationIds = new Set<string>();
-    let editorObjectMarkupSubtypeOverrides = new WeakMap<IPdfjsEditor, TMarkupSubtype>();
     let editorObjectMarkupSubtypeColorOverrides = new WeakMap<IPdfjsEditor, string>();
     let lastSelectedMarkupEditor: {
         editor: IPdfjsEditor;
@@ -322,6 +326,16 @@ export const useAnnotationToolState = (options: IUseAnnotationToolStateOptions) 
         return getEditorIdentity(editor, pageIndex);
     }
 
+    function getEditorMarkupSubtypeKeys(editor: IPdfjsEditor, pageIndex: number) {
+        const annotationId = editor.annotationElementId;
+        const normalizedAnnotationId = normalizePdfJsAnnotationId(annotationId);
+        return [
+            getEditorIdentity(editor, pageIndex),
+            annotationId,
+            normalizedAnnotationId,
+        ].filter((value): value is string => Boolean(value));
+    }
+
     function storeEditorMarkupSubtypeColor(editor: IPdfjsEditor, pageIndex: number, color: string) {
         getPdfjsEditorFacadeState(editor).markupSubtypeColor = color;
         editorObjectMarkupSubtypeColorOverrides.set(editor, color);
@@ -340,7 +354,6 @@ export const useAnnotationToolState = (options: IUseAnnotationToolStateOptions) 
         if (!normalizedAnnotationId || !normalizedColor) {
             return;
         }
-        forgottenMaterializedMarkupSubtypeAnnotationIds.delete(normalizedAnnotationId);
         markupSubtypeColorOverrides.set(normalizedAnnotationId, normalizedColor);
         if (annotationId) {
             markupSubtypeColorOverrides.set(annotationId, normalizedColor);
@@ -720,16 +733,8 @@ export const useAnnotationToolState = (options: IUseAnnotationToolStateOptions) 
         subtype: TMarkupSubtype,
         options?: { preferEditorColor?: boolean },
     ) {
-        editorObjectMarkupSubtypeOverrides.set(editor, subtype);
         const identity = getEditorIdentity(editor, pageIndex);
-        editorMarkupSubtypeOverrides.set(identity, subtype);
-        if (editor.annotationElementId) {
-            const normalizedAnnotationId = normalizePdfJsAnnotationId(editor.annotationElementId);
-            if (normalizedAnnotationId) {
-                forgottenMaterializedMarkupSubtypeAnnotationIds.delete(normalizedAnnotationId);
-            }
-            markupSubtypeOverrides.set(editor.annotationElementId, subtype);
-        }
+        recordCanonicalMarkupSubtype(getEditorMarkupSubtypeKeys(editor, pageIndex), subtype);
         const color = resolveInitialMarkupSubtypeColor(editor, subtype, options);
         const visualColor = resolveTextMarkupVisualColor(subtype, color);
         editor.color = visualColor;
@@ -903,39 +908,13 @@ export const useAnnotationToolState = (options: IUseAnnotationToolStateOptions) 
         return true;
     }
 
-    function isMaterializedPdfAnnotationId(annotationId: string | null | undefined) {
-        return Boolean(parsePdfJsAnnotationRef(annotationId));
-    }
-
     function resolveEditorMarkupSubtypeOverride(editor: IPdfjsEditor, pageIndex: number): TMarkupSubtype | null {
-        if (editor.annotationElementId) {
-            const normalizedAnnotationId = normalizePdfJsAnnotationId(editor.annotationElementId);
-            const byAnnotationId = markupSubtypeOverrides.get(editor.annotationElementId)
-                ?? (normalizedAnnotationId ? markupSubtypeOverrides.get(normalizedAnnotationId) : undefined);
-            if (byAnnotationId) {
-                return byAnnotationId;
-            }
-            if (normalizedAnnotationId && forgottenMaterializedMarkupSubtypeAnnotationIds.has(normalizedAnnotationId)) {
-                return null;
-            }
-        }
-        const byObject = editorObjectMarkupSubtypeOverrides.get(editor);
-        if (byObject) {
-            return byObject;
-        }
-        const identity = getEditorIdentity(editor, pageIndex);
-        const byIdentity = editorMarkupSubtypeOverrides.get(identity);
-        if (byIdentity) {
-            return byIdentity;
-        }
-        if (isMaterializedPdfAnnotationId(editor.annotationElementId)) {
-            return null;
-        }
-        return null;
+        return resolveCanonicalMarkupSubtype(getEditorMarkupSubtypeKeys(editor, pageIndex));
     }
 
+    /** Save routing reads the canonical subtypes directly; this holds no map. */
     function getMarkupSubtypeOverrides() {
-        return markupSubtypeOverrides;
+        return new Map(getCanonicalMarkupSubtypes());
     }
 
     function forgetMarkupSubtypeOverride(annotationId: string | null | undefined) {
@@ -943,13 +922,10 @@ export const useAnnotationToolState = (options: IUseAnnotationToolStateOptions) 
         if (!normalizedAnnotationId) {
             return;
         }
-        forgottenMaterializedMarkupSubtypeAnnotationIds.add(normalizedAnnotationId);
-
-        for (const key of Array.from(markupSubtypeOverrides.keys())) {
-            if (normalizePdfJsAnnotationId(key) === normalizedAnnotationId) {
-                markupSubtypeOverrides.delete(key);
-            }
-        }
+        forgetCanonicalMarkupSubtypeIntents([
+            ...(annotationId ? [annotationId] : []),
+            normalizedAnnotationId,
+        ]);
         for (const key of Array.from(markupSubtypeColorOverrides.keys())) {
             if (normalizePdfJsAnnotationId(key) === normalizedAnnotationId) {
                 markupSubtypeColorOverrides.delete(key);
@@ -985,13 +961,10 @@ export const useAnnotationToolState = (options: IUseAnnotationToolStateOptions) 
     }
 
     function clearOverrides() {
-        markupSubtypeOverrides.clear();
-        editorMarkupSubtypeOverrides.clear();
+        clearCanonicalMarkupSubtypeIntents();
         markupSubtypeColorOverrides.clear();
         markupSubtypeGeometryHints.clear();
-        forgottenMaterializedMarkupSubtypeAnnotationIds.clear();
         lastSelectedMarkupEditor = null;
-        editorObjectMarkupSubtypeOverrides = new WeakMap();
         editorObjectMarkupSubtypeColorOverrides = new WeakMap();
         markupSubtypeDrawLayer.clearDrawLayerState();
     }
@@ -1031,7 +1004,6 @@ export const useAnnotationToolState = (options: IUseAnnotationToolStateOptions) 
         getMarkupSubtypeOverrides,
         getMarkupSubtypeHints,
         forgetMarkupSubtypeOverride,
-        markupSubtypeOverrides,
         clearOverrides,
     };
 };

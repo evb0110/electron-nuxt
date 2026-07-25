@@ -6,10 +6,6 @@ import {
 } from 'vitest';
 import {PdfjsAnnotationFacade} from '@app/modules/pdf-viewer/annotations/bridge/pdfjsAnnotationFacade';
 import {asAnnotationId} from '@app/modules/pdf-viewer/annotations/domain/annotationEntity';
-import {
-    initialAnnotationSyncState,
-    reduceAnnotationSync,
-} from '@app/modules/pdf-viewer/annotations/sync/annotationSyncMachine';
 
 describe('annotation bridge leases and sync protocol', () => {
     it('rejects editor continuations after any lease generation changes', () => {
@@ -67,55 +63,5 @@ describe('annotation bridge leases and sync protocol', () => {
         });
         expect(Object.isFrozen(capabilities)).toBe(true);
         expect(Object.isFrozen(capabilities.manager)).toBe(true);
-    });
-
-    it('ignores malformed late snapshots and completes only the active generation', () => {
-        let state = initialAnnotationSyncState<string>();
-        state = reduceAnnotationSync(state, {
-            type: 'begin',
-            generation: 2,
-        });
-        state = reduceAnnotationSync(state, {
-            type: 'receive-editor-snapshot',
-            generation: 1,
-            records: ['stale'],
-        });
-        state = reduceAnnotationSync(state, {
-            type: 'receive-pdf-page',
-            generation: 2,
-            pageIndex: 0,
-            records: ['pdf'],
-        });
-        state = reduceAnnotationSync(state, {
-            type: 'finish-pdf-snapshot',
-            generation: 1,
-        });
-        expect(state.phase).toBe('collecting');
-        expect(state.editorRecords).toEqual([]);
-        state = reduceAnnotationSync(state, {
-            type: 'finish-pdf-snapshot',
-            generation: 2,
-        });
-        expect(state.phase).toBe('complete');
-        expect(state.pdfPages.get(0)).toEqual(['pdf']);
-        const completed = state;
-        state = reduceAnnotationSync(state, {
-            type: 'receive-editor-snapshot',
-            generation: 2,
-            records: ['late'],
-        });
-        expect(state).toBe(completed);
-        let collecting = reduceAnnotationSync(state, {
-            type: 'begin',
-            generation: 3,
-        });
-        const beforeInvalidPage = collecting;
-        collecting = reduceAnnotationSync(collecting, {
-            type: 'receive-pdf-page',
-            generation: 3,
-            pageIndex: -1,
-            records: ['invalid'],
-        });
-        expect(collecting).toBe(beforeInvalidPage);
     });
 });

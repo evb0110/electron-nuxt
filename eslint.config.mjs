@@ -185,7 +185,6 @@ const projectConfig = withNuxt(
         ['packages/contracts/agentPlatformFeature.ts', 1813],
         ['app/modules/workspace-shell/components/AppShellRoot.vue', 900],
         ['app/modules/workspace-shell/agent/useDocumentWorkspaceAgent.ts', 1081],
-        ['app/modules/workspace-shell/components/WorkspaceAnnotationOverlays.vue', 1167],
         ['electron/features/agent/mcp/mcpServerCore.ts', 979],
         ['scripts/architecture/boundary-check.mjs', 1232],
         ['app/modules/pdf-viewer/annotations/bridge/pdfjs-runtime/useAnnotationSync.ts', 1254],

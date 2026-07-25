@@ -9,10 +9,12 @@ import {
     effectScope,
     nextTick,
     ref,
+    shallowRef,
 } from 'vue';
 import { DEFAULT_ANNOTATION_SETTINGS } from '@app/constants/annotationDefaults';
 import type { IShapeAnnotation } from '@app/types/annotations';
 import { useAnnotationShapes } from '@app/modules/pdf-viewer/tools/useAnnotationShapes';
+import { AnnotationApplication } from '@app/modules/pdf-viewer/annotations/annotationApplication';
 import { importEmbeddedShapeAnnotations } from '@app/modules/pdf-viewer/engine/pdf-embedded-shape-annotations/importEmbeddedShapeAnnotations';
 import { readDocumentBytes } from '@app/utils/documentBytes';
 import {
@@ -179,26 +181,49 @@ function createEmbeddedInkShape(overrides: Partial<IShapeAnnotation>): IShapeAnn
     };
 }
 
+/**
+ * Stands in for the canonical projection: it records the intents the composable
+ * forwards, and never decides an import mode of its own.
+ */
 function createManagedShapeStorePort(overrides: Partial<IManagedEmbeddedPdfShapeProjectionPort> = {}): IManagedEmbeddedPdfShapeProjectionPort {
+    let baselineReady = false;
     return {
-        hasShapes: ref(false),
         deletedEmbeddedAnnotationIds: ref(new Set<string>()),
         getAllShapes: () => [],
         getDeletedEmbeddedAnnotationIds: () => [],
         getDeletedEmbeddedShapeStableKeys: () => [],
-        replaceShapes: vi.fn(),
-        reconcilePersistedShapes: vi.fn(),
-        primePersistedShapes: vi.fn(),
-        adoptPersistedShapeMetadata: vi.fn(),
-        captureShapeStateSnapshot: () => ({
-            shapes: [],
-            deletedAnnotationIds: [],
-            deletedStableKeys: [],
-            baselineSignature: '[]',
-            selectedShapeId: null,
+        importEmbeddedShapes: vi.fn(() => {
+            baselineReady = true;
+            return {
+                mode: 'replace' as const,
+                skipRerender: false,
+                reason: 'stub-import',
+            };
         }),
-        restoreShapeStateSnapshot: vi.fn(),
+        resetShapeImportBaseline: vi.fn(() => {
+            baselineReady = false;
+        }),
+        isShapeImportBaselineReady: () => baselineReady,
+        preservesShapeImportBaseline: () => baselineReady,
+        clearPendingShapeImportAdoption: vi.fn(),
+        beginShapeSave: () => ({
+            primePersistedShapes: vi.fn(() => true),
+            rollback: vi.fn(() => true),
+        }),
         ...overrides,
+    };
+}
+
+function createCanonicalShapeProjection() {
+    const application = shallowRef(new AnnotationApplication('canonical-document'));
+    const scope = effectScope();
+    const shapeComposable = scope.run(() => useAnnotationShapes({
+        annotationApplication: application,
+        notifyShapeCommentsChanged: () => undefined,
+    }))!;
+    return {
+        application,
+        shapeComposable,
     };
 }
 
@@ -480,7 +505,10 @@ describe('useManagedEmbeddedPdfShapes', () => {
 
         await managedShapes.ensureManagedShapeBaselineReady();
 
-        expect(shapeComposable.replaceShapes).toHaveBeenCalledWith([]);
+        expect(shapeComposable.importEmbeddedShapes).toHaveBeenCalledWith(
+            [],
+            expect.objectContaining({path: '/tmp/large-shapes.pdf'}),
+        );
         expect(readDocumentBytes).toHaveBeenCalledWith('/tmp/large-shapes.pdf', {signal: expect.any(AbortSignal)});
         expect(importEmbeddedShapeAnnotations).toHaveBeenCalledWith(bytes);
     });
@@ -520,7 +548,10 @@ describe('useManagedEmbeddedPdfShapes', () => {
 
         await managedShapes.ensureManagedShapeBaselineReady();
 
-        expect(shapeComposable.replaceShapes).toHaveBeenCalledWith([expect.objectContaining({annotationId: '91R'})]);
+        expect(shapeComposable.importEmbeddedShapes).toHaveBeenCalledWith(
+            [expect.objectContaining({annotationId: '91R'})],
+            expect.objectContaining({path: '/tmp/large-shapes.pdf'}),
+        );
         expect(readDocumentBytes).toHaveBeenCalledWith('/tmp/large-shapes.pdf', {signal: expect.any(AbortSignal)});
     });
 
@@ -564,12 +595,20 @@ describe('useManagedEmbeddedPdfShapes', () => {
         await expect(managedShapes.ensureManagedShapeBaselineReady()).resolves.toBeUndefined();
 
         expect(importEmbeddedShapeAnnotations).toHaveBeenCalledTimes(2);
-        expect(shapeComposable.replaceShapes).toHaveBeenCalledWith([expect.objectContaining({annotationId: '92R'})]);
+        expect(shapeComposable.importEmbeddedShapes).toHaveBeenCalledWith(
+            [expect.objectContaining({annotationId: '92R'})],
+            expect.objectContaining({path: '/tmp/retry-shapes.pdf'}),
+        );
     });
 
     it('parses saved bytes before priming a shape-free baseline', async () => {
         vi.mocked(importEmbeddedShapeAnnotations).mockReset().mockResolvedValue([]);
-        const shapeComposable = createManagedShapeStorePort();
+        const primePersistedShapes = vi.fn(() => true);
+        const beginShapeSave = () => ({
+            primePersistedShapes,
+            rollback: vi.fn(() => true),
+        });
+        const shapeComposable = createManagedShapeStorePort({beginShapeSave});
         const managedShapes = useManagedEmbeddedPdfShapes({
             viewerContainer: ref(createRenderedViewerContainer()),
             workingCopyPath: ref('/tmp/shape-free.pdf'),
@@ -596,14 +635,17 @@ describe('useManagedEmbeddedPdfShapes', () => {
 
         await expect(managedShapes.preparePersistedManagedShapesForSave(
             new TextEncoder().encode('%PDF-1.7\n% shape-free 431-page representative'),
-        )).resolves.toMatchObject({baselineSignature: '[]'});
+        )).resolves.toMatchObject({rollback: expect.any(Function)});
 
-        expect(shapeComposable.primePersistedShapes).toHaveBeenCalledWith([]);
+        expect(primePersistedShapes).toHaveBeenCalledWith([]);
         expect(importEmbeddedShapeAnnotations).toHaveBeenCalledOnce();
     });
 
     it('adopts same-source saved shape metadata without rerendering the visible canvas', async () => {
-        const shapeComposable = useAnnotationShapes() satisfies IManagedEmbeddedPdfShapeProjectionPort;
+        const {
+            application,
+            shapeComposable,
+        } = createCanonicalShapeProjection();
         const importEmbeddedShapesMock = vi.mocked(importEmbeddedShapeAnnotations);
         importEmbeddedShapesMock.mockReset();
         importEmbeddedShapesMock
@@ -674,7 +716,8 @@ describe('useManagedEmbeddedPdfShapes', () => {
 
         const originalPoints = created!.points?.map(point => ({ ...point }));
         const originalStrokes = created!.strokes?.map(stroke => stroke.map(point => ({ ...point })));
-        managedShapes.adoptPersistedManagedShapesOnNextImport();
+        application.value.createShapeFromGeometry(created!);
+        application.value.store.adoptPersistedShapesOnNextImport();
         invalidatePages.mockClear();
         renderVisiblePages.mockClear();
 
@@ -753,7 +796,7 @@ describe('useManagedEmbeddedPdfShapes', () => {
     });
 
     it('suppresses managed annotations from canvas before their page overlay is ready', async () => {
-        const shapeComposable = useAnnotationShapes();
+        const { shapeComposable } = createCanonicalShapeProjection();
         const importEmbeddedShapesMock = vi.mocked(importEmbeddedShapeAnnotations);
         importEmbeddedShapesMock.mockReset();
         importEmbeddedShapesMock.mockResolvedValueOnce([createEmbeddedInkShape({ annotationId: '12R0' })]);
@@ -853,9 +896,11 @@ describe('useManagedEmbeddedPdfShapes', () => {
         imported.resolve([createEmbeddedInkShape({annotationId: '77R'})]);
         await managedShapes.ensureManagedShapeBaselineReady();
 
-        expect(shapeComposable.reconcilePersistedShapes).toHaveBeenCalledOnce();
-        expect(shapeComposable.replaceShapes).not.toHaveBeenCalledWith(
-            expect.arrayContaining([expect.objectContaining({annotationId: '77R'})]),
+        // The composable forwards the scan; the store alone picks the mode.
+        expect(shapeComposable.importEmbeddedShapes).toHaveBeenCalledOnce();
+        expect(shapeComposable.importEmbeddedShapes).toHaveBeenCalledWith(
+            [expect.objectContaining({annotationId: '77R'})],
+            expect.objectContaining({path: '/tmp/work.pdf'}),
         );
     });
 
@@ -892,16 +937,14 @@ describe('useManagedEmbeddedPdfShapes', () => {
         managedShapes?.settleViewerLoadSettledWithManagedShapes(1, vi.fn());
         managedShapes?.syncAfterPageRendered(1);
         await vi.waitFor(() => expect(importEmbeddedShapesMock).toHaveBeenCalledOnce());
-        vi.mocked(shapeComposable.replaceShapes).mockClear();
-        vi.mocked(shapeComposable.reconcilePersistedShapes).mockClear();
+        vi.mocked(shapeComposable.importEmbeddedShapes).mockClear();
 
         scope.stop();
         imported.resolve([createEmbeddedInkShape({annotationId: '77R'})]);
         await Promise.resolve();
         await Promise.resolve();
 
-        expect(shapeComposable.replaceShapes).not.toHaveBeenCalled();
-        expect(shapeComposable.reconcilePersistedShapes).not.toHaveBeenCalled();
+        expect(shapeComposable.importEmbeddedShapes).not.toHaveBeenCalled();
     });
 
     it('deduplicates revision-equivalent imports without coupling runtime disposal', async () => {
@@ -953,8 +996,11 @@ describe('useManagedEmbeddedPdfShapes', () => {
 
         await expect(firstBaseline).resolves.toBeUndefined();
         await expect(secondBaseline).resolves.toBeUndefined();
-        expect(firstShapeComposable.replaceShapes).not.toHaveBeenCalledWith([expect.objectContaining({annotationId: 'shared-1'})]);
-        expect(secondShapeComposable.replaceShapes).toHaveBeenCalledWith([expect.objectContaining({annotationId: 'shared-1'})]);
+        expect(firstShapeComposable.importEmbeddedShapes).not.toHaveBeenCalled();
+        expect(secondShapeComposable.importEmbeddedShapes).toHaveBeenCalledWith(
+            [expect.objectContaining({annotationId: 'shared-1'})],
+            expect.objectContaining({path: '/tmp/work-b.pdf'}),
+        );
         secondScope.stop();
     });
 });

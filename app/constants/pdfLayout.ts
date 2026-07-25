@@ -54,6 +54,7 @@ export const NOTE_WINDOW = {
     ACTIVE_Z_INDEX_SLOTS: 8,
     ANCHOR_Z_INDEX_BASE: 25,
     ANCHOR_Z_INDEX_SLOTS: 8,
+    MARKER_DRAG_TOOLTIP_RELEASE_MS: 80,
 };
 
 export function resolveNoteWindowAnchorZIndex(order: number) {

@@ -8,10 +8,7 @@ import {
     type TPdfjsAnnotationManager,
 } from '@app/modules/pdf-viewer/annotations/bridge/pdfjsAnnotationFacade';
 import type { GenericL10n } from 'pdfjs-dist/web/pdf_viewer.mjs';
-import {
-    useManagedEmbeddedPdfShapes,
-    type IManagedEmbeddedPdfShapeProjectionPort,
-} from '@app/modules/pdf-viewer/runtime/annotations/useManagedEmbeddedPdfShapes';
+import { useManagedEmbeddedPdfShapes } from '@app/modules/pdf-viewer/runtime/annotations/useManagedEmbeddedPdfShapes';
 import { normalizePdfJsAnnotationId } from '@app/utils/pdfAnnotationRefs';
 import { isImportedEmbeddedShapeSubtype } from '@app/modules/pdf-viewer/engine/pdf-embedded-shape-annotations/isImportedEmbeddedShapeSubtype';
 import { shouldDemandManagedEmbeddedShapeBaseline } from '@app/modules/pdf-viewer/engine/pdf-embedded-shape-import-policy/shouldDemandManagedEmbeddedShapeBaseline';
@@ -137,43 +134,6 @@ export const usePdfViewerAnnotationRuntime = (options: IUsePdfViewerAnnotationRu
         selectedShapeCommands,
     } = shapeTool;
 
-    function commitProjectedShapesToCanonical() {
-        annotationApplication.value.ingestShapes(shapeComposable.getAllShapes());
-    }
-    const canonicalShapeProjectionPort: IManagedEmbeddedPdfShapeProjectionPort = {
-        hasShapes: shapeComposable.hasShapes,
-        deletedEmbeddedAnnotationIds: shapeComposable.deletedEmbeddedAnnotationIds,
-        getAllShapes: shapeComposable.getAllShapes,
-        getDeletedEmbeddedAnnotationIds: shapeComposable.getDeletedEmbeddedAnnotationIds,
-        getDeletedEmbeddedShapeStableKeys: shapeComposable.getDeletedEmbeddedShapeStableKeys,
-        replaceShapes: (shapes) => {
-            annotationApplication.value.ingestShapes(shapes);
-            shapeComposable.replaceShapes(shapes);
-            shapeCommentsChangedHandler?.();
-        },
-        reconcilePersistedShapes: (shapes) => {
-            shapeComposable.reconcilePersistedShapes(shapes);
-            commitProjectedShapesToCanonical();
-            shapeCommentsChangedHandler?.();
-        },
-        primePersistedShapes: (shapes) => {
-            shapeComposable.primePersistedShapes(shapes);
-            commitProjectedShapesToCanonical();
-            shapeCommentsChangedHandler?.();
-        },
-        adoptPersistedShapeMetadata: (shapes) => {
-            shapeComposable.adoptPersistedShapeMetadata(shapes);
-            commitProjectedShapesToCanonical();
-            shapeCommentsChangedHandler?.();
-        },
-        captureShapeStateSnapshot: shapeComposable.captureShapeStateSnapshot,
-        restoreShapeStateSnapshot: (snapshot) => {
-            shapeComposable.restoreShapeStateSnapshot(snapshot);
-            commitProjectedShapesToCanonical();
-            shapeCommentsChangedHandler?.();
-        },
-    };
-
     const managedEmbeddedPdfShapes = useManagedEmbeddedPdfShapes({
         viewerContainer: options.viewerContainer,
         originalPath: options.originalPath,
@@ -182,7 +142,7 @@ export const usePdfViewerAnnotationRuntime = (options: IUsePdfViewerAnnotationRu
         documentRevisionToken: options.documentRevisionToken,
         visibleRange: options.visibleRange,
         bufferPages: options.bufferPages,
-        shapeComposable: canonicalShapeProjectionPort,
+        shapeComposable,
         logger: BrowserLogger,
         runGuardedTask,
         nextTick,
@@ -336,6 +296,18 @@ export const usePdfViewerAnnotationRuntime = (options: IUsePdfViewerAnnotationRu
         emitAnnotationCommentClick: options.emitAnnotationCommentClick,
         emitAnnotationToolCancel: options.emitAnnotationToolCancel,
         emitAnnotationNotePlacementChange: options.emitAnnotationNotePlacementChange,
+        getCanonicalMarkupSubtypes: () => annotationApplication.value.store.markupSubtypesByExternalId(),
+        recordCanonicalMarkupSubtype: (externalIds, subtype) => {
+            annotationApplication.value.store.setPendingMarkupSubtype(externalIds, subtype);
+        },
+        resolveCanonicalMarkupSubtype: externalIds =>
+            annotationApplication.value.store.resolveMarkupSubtype(externalIds),
+        forgetCanonicalMarkupSubtypeIntents: externalIds => {
+            annotationApplication.value.store.forgetPendingMarkupSubtypes(externalIds);
+        },
+        clearCanonicalMarkupSubtypeIntents: () => {
+            annotationApplication.value.store.clearPendingMarkupSubtypes();
+        },
     });
     options.appAnnotationHistory.setReplayEffect(() => {
         const manager = options.annotationUiManager.value;
@@ -491,8 +463,8 @@ export const usePdfViewerAnnotationRuntime = (options: IUsePdfViewerAnnotationRu
         managedEmbeddedAnnotationIds: managedEmbeddedPdfShapes.managedEmbeddedAnnotationIds,
         hiddenEmbeddedAnnotationIds: managedEmbeddedPdfShapes.hiddenEmbeddedAnnotationIds,
         renderHiddenEmbeddedAnnotationIds: managedEmbeddedPdfShapes.renderHiddenEmbeddedAnnotationIds,
-        adoptPersistedManagedShapesOnNextImport: managedEmbeddedPdfShapes.adoptPersistedManagedShapesOnNextImport,
-        clearPendingManagedShapeImportAdoption: managedEmbeddedPdfShapes.clearPendingManagedShapeImportAdoption,
+        adoptPersistedManagedShapesOnNextImport: () => annotationApplication.value.store.adoptPersistedShapesOnNextImport(),
+        clearPendingManagedShapeImportAdoption: () => annotationApplication.value.store.clearPendingShapeImportAdoption(),
         ensureManagedShapeBaselineReady: managedEmbeddedPdfShapes.ensureManagedShapeBaselineReady,
         preparePersistedManagedShapesForSave: managedEmbeddedPdfShapes.preparePersistedManagedShapesForSave,
         restorePreparedManagedShapesAfterFailedSave: managedEmbeddedPdfShapes.restorePreparedManagedShapesAfterFailedSave,

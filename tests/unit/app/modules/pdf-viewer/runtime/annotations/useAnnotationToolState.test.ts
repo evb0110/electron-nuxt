@@ -100,6 +100,11 @@ function mockUiManagerRef(uiManager: ReturnType<typeof createUiManager>) {
 }
 
 function createToolStateOptions(uiManager: ReturnType<typeof createUiManager>, overrides: Record<string, unknown> = {}) {
+    const pendingSubtypes = new Map<string, 'Highlight' | 'Underline' | 'StrikeOut' | 'Squiggly'>();
+    const getCanonicalMarkupSubtypes = (
+        overrides.getCanonicalMarkupSubtypes as (() => ReadonlyMap<string, 'Highlight' | 'Underline' | 'StrikeOut' | 'Squiggly'>)
+        | undefined
+    ) ?? (() => new Map());
     return {
         pdfDocument: shallowRef({}),
         annotationUiManager: mockUiManagerRef(uiManager),
@@ -109,6 +114,22 @@ function createToolStateOptions(uiManager: ReturnType<typeof createUiManager>, o
         annotationSettings: computed(() => createAnnotationSettings()),
         numPages: ref(10),
         getEditorIdentity: vi.fn(() => 'mock-identity'),
+        getCanonicalMarkupSubtypes,
+        recordCanonicalMarkupSubtype: (
+            externalIds: readonly string[],
+            subtype: 'Highlight' | 'Underline' | 'StrikeOut' | 'Squiggly',
+        ) => externalIds.forEach(id => pendingSubtypes.set(id, subtype)),
+        resolveCanonicalMarkupSubtype: (externalIds: readonly string[]) => {
+            const canonical = getCanonicalMarkupSubtypes();
+            return externalIds
+                .map(id => pendingSubtypes.get(id) ?? canonical.get(id))
+                .find(value => value !== undefined)
+                ?? null;
+        },
+        clearCanonicalMarkupSubtypeIntents: () => pendingSubtypes.clear(),
+        forgetCanonicalMarkupSubtypeIntents: (externalIds: readonly string[]) => {
+            externalIds.forEach(id => pendingSubtypes.delete(id));
+        },
         getFreeTextResize: () => ({ patchResizableFreeTextEditors: vi.fn() }),
         emitAnnotationToolAutoReset: vi.fn(),
         ...overrides,
@@ -667,10 +688,10 @@ describe('useAnnotationToolState', () => {
         expect(manager.getMarkupSubtypeHints()).toEqual([]);
     });
 
-    it('clears stale ref overrides for materialized PDF annotations', async () => {
+    it('reads markup subtypes from the canonical store instead of a local override map', async () => {
         const useAnnotationToolState = await loadUseAnnotationToolState();
-        const underlineEditor = {
-            id: 'underline-1',
+        const canonicalEditor = {
+            id: 'canonical-1',
             annotationElementId: '42R0',
             div: createMarkupElement(),
             x: 0.1,
@@ -678,18 +699,34 @@ describe('useAnnotationToolState', () => {
             width: 0.4,
             height: 0.05,
         };
-        underlineEditor.div.classList.add('highlightEditor');
-        const uiManager = createUiManager({ getEditors: vi.fn(() => [underlineEditor]) });
+        canonicalEditor.div.classList.add('highlightEditor');
+        const uiManager = createUiManager({ getEditors: vi.fn(() => [canonicalEditor]) });
         const manager = useAnnotationToolState(createToolStateOptions(uiManager, {
             getEditorIdentity: (editor: { id?: string }) => editor.id ?? 'missing-id',
+            getCanonicalMarkupSubtypes: () => new Map([[
+                '42R',
+                'Squiggly',
+            ]]),
             tool: 'underline',
         }));
 
-        manager.setEditorMarkupSubtypeOverride(underlineEditor, 0, 'Underline');
-        manager.forgetMarkupSubtypeOverride('42R0');
+        // Save routing sees exactly the canonical subtypes; nothing accumulates
+        // here, and a materialized annotation resolves to the store's subtype.
+        expect([...manager.getMarkupSubtypeOverrides()]).toEqual([[
+            '42R',
+            'Squiggly',
+        ]]);
+        expect(manager.resolveEditorMarkupSubtypeOverride(canonicalEditor, 0)).toBe('Squiggly');
 
-        expect(manager.getMarkupSubtypeOverrides().has('42R0')).toBe(false);
-        expect(manager.resolveEditorMarkupSubtypeOverride(underlineEditor, 0)).toBeNull();
+        // Editor-local intent still wins for the editor object the user acted on.
+        manager.setEditorMarkupSubtypeOverride(canonicalEditor, 0, 'Underline');
+        expect(manager.resolveEditorMarkupSubtypeOverride(canonicalEditor, 0)).toBe('Underline');
+        expect([...manager.getMarkupSubtypeOverrides()]).toEqual([[
+            '42R',
+            'Squiggly',
+        ]]);
+
+        manager.forgetMarkupSubtypeOverride('42R0');
         expect(manager.getMarkupSubtypeHints()).toEqual([]);
     });
 

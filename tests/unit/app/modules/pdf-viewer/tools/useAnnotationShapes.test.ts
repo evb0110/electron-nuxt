@@ -4,9 +4,33 @@ import {
     it,
     vi,
 } from 'vitest';
+import {
+    effectScope,
+    shallowRef,
+} from 'vue';
 import { DEFAULT_ANNOTATION_SETTINGS } from '@app/constants/annotationDefaults';
 import { useAnnotationShapes } from '@app/modules/pdf-viewer/tools/useAnnotationShapes';
+import { AnnotationApplication } from '@app/modules/pdf-viewer/annotations/annotationApplication';
 import type { IShapeAnnotation } from '@app/types/annotations';
+
+const IMPORT_SOURCE = {
+    documentKey: 'doc-key',
+    path: '/documents/doc.pdf',
+};
+
+function createShapeProjection() {
+    const application = shallowRef(new AnnotationApplication('doc-key'));
+    const scope = effectScope();
+    const shapes = scope.run(() => useAnnotationShapes({
+        annotationApplication: application,
+        notifyShapeCommentsChanged: () => undefined,
+    }))!;
+    return {
+        application,
+        shapes,
+        store: application.value.store,
+    };
+}
 
 function createEmbeddedShape(): IShapeAnnotation {
     return {
@@ -76,74 +100,150 @@ function createEmbeddedInkShape(overrides?: Partial<IShapeAnnotation>): IShapeAn
     };
 }
 
+function drawLocalShape(projection: ReturnType<typeof createShapeProjection>, tool = 'draw' as const) {
+    const {
+        shapes,
+        application,
+    } = projection;
+    shapes.startDrawing(0, tool, 0.1, 0.2, DEFAULT_ANNOTATION_SETTINGS);
+    shapes.continueDrawing(0.15, 0.25);
+    shapes.continueDrawing(0.25, 0.35);
+    const created = shapes.finishDrawing();
+    expect(created).not.toBeNull();
+    application.value.createShapeFromGeometry(created!);
+    return created!;
+}
+
+function deleteShape(projection: ReturnType<typeof createShapeProjection>, shapeId: string) {
+    const annotationId = projection.application.value.annotationIdForShape({
+        id: shapeId,
+        annotationId: projection.shapes.getShapeById(shapeId)?.annotationId ?? null,
+    });
+    expect(annotationId).not.toBeNull();
+    projection.application.value.delete(annotationId!);
+}
+
 describe('useAnnotationShapes', () => {
+    it('renders the canonical store shapes instead of a second shape map', () => {
+        const projection = createShapeProjection();
+        projection.shapes.importEmbeddedShapes([createEmbeddedShape()], IMPORT_SOURCE);
+
+        const [projected] = projection.shapes.getAllShapes();
+        expect(projected).toMatchObject({
+            id: 'embedded-shape-1',
+            source: 'embedded',
+        });
+
+        // A projection copy is not authority: mutating it cannot change what the
+        // store renders next.
+        projected!.color = '#000000';
+        expect(projection.shapes.getShapeById('embedded-shape-1')?.color).toBe('#336699');
+
+        const entity = projection.application.value.store.listShapes()[0]!;
+        projection.application.value.replaceShapeGeometry(entity.identity.id, {
+            ...entity.geometry,
+            color: '#ff0000',
+        });
+        expect(projection.shapes.getShapeById('embedded-shape-1')?.color).toBe('#ff0000');
+        expect(projection.shapes.getShapesForPage(0)).toHaveLength(1);
+    });
+
     it('does not mark imported embedded shapes as dirty until they change', () => {
-        const shapes = useAnnotationShapes();
-        shapes.loadShapes([createEmbeddedShape()]);
+        const projection = createShapeProjection();
+        projection.shapes.importEmbeddedShapes([createEmbeddedShape()], IMPORT_SOURCE);
 
-        expect(shapes.hasShapes.value).toBe(false);
+        expect(projection.shapes.hasShapes.value).toBe(false);
 
-        shapes.updateShape('embedded-shape-1', { color: '#ff0000' });
+        const entity = projection.application.value.store.listShapes()[0]!;
+        projection.application.value.replaceShapeGeometry(entity.identity.id, {
+            ...entity.geometry,
+            color: '#ff0000',
+        });
 
-        expect(shapes.hasShapes.value).toBe(true);
+        expect(projection.shapes.hasShapes.value).toBe(true);
+    });
+
+    it('reports shape dirty state without reacting to note mutations', () => {
+        const projection = createShapeProjection();
+        projection.shapes.importEmbeddedShapes([createEmbeddedShape()], IMPORT_SOURCE);
+
+        const note = projection.application.value.createStickyNote({
+            kind: 'sticky-note',
+            pageIndex: 0,
+            text: 'note',
+            anchor: {
+                left: 0.1,
+                top: 0.1,
+                width: 0.1,
+                height: 0.1,
+            },
+            color: null,
+            createdAt: null,
+            modifiedAt: null,
+            author: null,
+        });
+        projection.application.value.setNoteText(note.identity.id, 'edited');
+
+        expect(projection.store.hasChangesSinceSavedBaseline()).toBe(true);
+        expect(projection.shapes.hasShapes.value).toBe(false);
     });
 
     it('focuses a shape without selecting it for editing or marking the document dirty', () => {
-        const shapes = useAnnotationShapes();
+        const projection = createShapeProjection();
         const embeddedShape = createEmbeddedShape();
+        projection.shapes.importEmbeddedShapes([embeddedShape], IMPORT_SOURCE);
+        projection.shapes.selectShape(embeddedShape.id);
 
-        shapes.loadShapes([embeddedShape]);
-        shapes.selectShape(embeddedShape.id);
+        projection.shapes.focusShape(embeddedShape.id);
 
-        shapes.focusShape(embeddedShape.id);
-
-        expect(shapes.focusedShapeId.value).toBe(embeddedShape.id);
-        expect(shapes.selectedShapeId.value).toBeNull();
-        expect(shapes.hasShapes.value).toBe(false);
+        expect(projection.shapes.focusedShapeId.value).toBe(embeddedShape.id);
+        expect(projection.shapes.selectedShapeId.value).toBeNull();
+        expect(projection.shapes.hasShapes.value).toBe(false);
     });
 
-    it('clears sidebar focus when a shape is selected or deleted', () => {
-        const shapes = useAnnotationShapes();
+    it('clears sidebar focus when a shape is selected or canonically deleted', () => {
+        const projection = createShapeProjection();
         const embeddedShape = createEmbeddedShape();
 
-        shapes.loadShapes([embeddedShape]);
-        shapes.focusShape(embeddedShape.id);
-        shapes.selectShape(embeddedShape.id);
+        projection.shapes.importEmbeddedShapes([embeddedShape], IMPORT_SOURCE);
+        projection.shapes.focusShape(embeddedShape.id);
+        projection.shapes.selectShape(embeddedShape.id);
 
-        expect(shapes.focusedShapeId.value).toBeNull();
-        expect(shapes.selectedShapeId.value).toBe(embeddedShape.id);
+        expect(projection.shapes.focusedShapeId.value).toBeNull();
+        expect(projection.shapes.selectedShapeId.value).toBe(embeddedShape.id);
 
-        shapes.focusShape(embeddedShape.id);
-        shapes.deleteShape(embeddedShape.id);
+        projection.shapes.focusShape(embeddedShape.id);
+        deleteShape(projection, embeddedShape.id);
 
-        expect(shapes.focusedShapeId.value).toBeNull();
-        expect(shapes.selectedShapeId.value).toBeNull();
+        expect(projection.shapes.focusedShapeId.value).toBeNull();
+        expect(projection.shapes.selectedShapeId.value).toBeNull();
     });
 
-    it('tracks deleted embedded annotation ids and clears them when the same shape is restored', () => {
-        const shapes = useAnnotationShapes();
+    it('derives deleted embedded refs from store tombstones and drops them when the delete is undone', () => {
+        const projection = createShapeProjection();
         const embeddedShape = createEmbeddedShape();
 
-        shapes.loadShapes([embeddedShape]);
-        shapes.deleteShape(embeddedShape.id);
+        projection.shapes.importEmbeddedShapes([embeddedShape], IMPORT_SOURCE);
+        deleteShape(projection, embeddedShape.id);
 
-        expect(shapes.getDeletedEmbeddedAnnotationIds()).toEqual(['12R0']);
-        expect(shapes.hasShapes.value).toBe(true);
+        expect(projection.shapes.getDeletedEmbeddedAnnotationIds()).toEqual(['12R0']);
+        expect(projection.shapes.hasShapes.value).toBe(true);
 
-        shapes.addShape({ ...embeddedShape });
+        projection.store.undo();
 
-        expect(shapes.getDeletedEmbeddedAnnotationIds()).toEqual([]);
-        expect(shapes.hasShapes.value).toBe(false);
+        expect(projection.shapes.getDeletedEmbeddedAnnotationIds()).toEqual([]);
+        expect(projection.shapes.getAllShapes()).toHaveLength(1);
+        expect(projection.shapes.hasShapes.value).toBe(false);
     });
 
-    it('creates draw strokes as local Ink polylines before save without auto-selecting them', () => {
-        const shapes = useAnnotationShapes();
+    it('creates draw strokes as local Ink polyline drafts before they enter the store', () => {
+        const projection = createShapeProjection();
 
-        shapes.startDrawing(0, 'draw', 0.1, 0.2, DEFAULT_ANNOTATION_SETTINGS);
-        shapes.continueDrawing(0.15, 0.25);
-        shapes.continueDrawing(0.25, 0.35);
+        projection.shapes.startDrawing(0, 'draw', 0.1, 0.2, DEFAULT_ANNOTATION_SETTINGS);
+        projection.shapes.continueDrawing(0.15, 0.25);
+        projection.shapes.continueDrawing(0.25, 0.35);
 
-        const created = shapes.finishDrawing();
+        const created = projection.shapes.finishDrawing();
 
         expect(created).toMatchObject({
             type: 'polyline',
@@ -154,32 +254,42 @@ describe('useAnnotationShapes', () => {
             strokeWidth: DEFAULT_ANNOTATION_SETTINGS.inkThickness,
         });
         expect(created?.stableKey).toMatch(/^evb-shape:/);
-        expect(created?.strokes).toHaveLength(1);
         expect(created?.strokes?.[0]).toHaveLength(3);
-        expect(shapes.selectedShapeId.value).toBeNull();
-        expect(shapes.hasShapes.value).toBe(true);
+        // The draft is not canonical until its creator commits it.
+        expect(projection.shapes.getAllShapes()).toEqual([]);
+        expect(projection.shapes.hasShapes.value).toBe(false);
+
+        projection.application.value.createShapeFromGeometry(created!);
+
+        expect(projection.shapes.selectedShapeId.value).toBeNull();
+        expect(projection.shapes.hasShapes.value).toBe(true);
     });
 
-    it('timestamps created drawings and updates their modified time on edits', () => {
+    it('timestamps created drawings and updates their modified time on canonical edits', () => {
         vi.useFakeTimers();
         vi.setSystemTime(new Date('2026-05-25T10:00:00Z'));
 
         try {
-            const shapes = useAnnotationShapes();
-            shapes.startDrawing(0, 'rectangle', 0.1, 0.2, DEFAULT_ANNOTATION_SETTINGS);
+            const projection = createShapeProjection();
+            projection.shapes.startDrawing(0, 'rectangle', 0.1, 0.2, DEFAULT_ANNOTATION_SETTINGS);
 
             vi.setSystemTime(new Date('2026-05-25T10:01:00Z'));
-            shapes.continueDrawing(0.3, 0.4);
-            const created = shapes.finishDrawing();
+            projection.shapes.continueDrawing(0.3, 0.4);
+            const created = projection.shapes.finishDrawing();
 
-            expect(created).not.toBeNull();
             expect(created?.createdAt).toBe(new Date('2026-05-25T10:00:00Z').getTime());
             expect(created?.modifiedAt).toBe(new Date('2026-05-25T10:01:00Z').getTime());
+            projection.application.value.createShapeFromGeometry(created!);
 
             vi.setSystemTime(new Date('2026-05-25T10:02:00Z'));
-            shapes.updateShape(created!.id, { color: '#ff0000' });
+            const entity = projection.application.value.store.listShapes()[0]!;
+            projection.application.value.replaceShapeGeometry(entity.identity.id, {
+                ...entity.geometry,
+                color: '#ff0000',
+                modifiedAt: Date.now(),
+            });
 
-            const updated = shapes.getShapeById(created!.id);
+            const updated = projection.shapes.getShapeById(created!.id);
             expect(updated?.createdAt).toBe(created?.createdAt);
             expect(updated?.modifiedAt).toBe(new Date('2026-05-25T10:02:00Z').getTime());
         } finally {
@@ -188,281 +298,219 @@ describe('useAnnotationShapes', () => {
     });
 
     it('reconciles a freshly saved local draw stroke onto the imported embedded shape without changing its id', () => {
-        const shapes = useAnnotationShapes();
-
-        shapes.startDrawing(0, 'draw', 0.1, 0.2, DEFAULT_ANNOTATION_SETTINGS);
-        shapes.continueDrawing(0.15, 0.25);
-        shapes.continueDrawing(0.25, 0.35);
-
-        const created = shapes.finishDrawing();
-        expect(created).not.toBeNull();
+        const projection = createShapeProjection();
+        const created = drawLocalShape(projection);
 
         const importedEmbeddedInkShape = createEmbeddedInkShape({
-            stableKey: created!.stableKey,
-            x: created!.x,
-            y: created!.y,
-            width: created!.width,
-            height: created!.height,
-            color: created!.color,
-            opacity: created!.opacity,
-            strokeWidth: created!.strokeWidth,
-            points: created!.points,
-            strokes: created!.strokes,
+            stableKey: created.stableKey,
+            x: created.x,
+            y: created.y,
+            width: created.width,
+            height: created.height,
+            color: created.color,
+            opacity: created.opacity,
+            strokeWidth: created.strokeWidth,
+            points: created.points,
+            strokes: created.strokes,
         });
 
-        shapes.reconcilePersistedShapes([importedEmbeddedInkShape]);
+        const plan = projection.shapes.importEmbeddedShapes([importedEmbeddedInkShape], IMPORT_SOURCE);
 
-        expect(shapes.getShapeById(created!.id)).toMatchObject({
-            id: created!.id,
+        expect(plan.mode).toBe('reconcile');
+        expect(projection.shapes.getShapeById(created.id)).toMatchObject({
+            id: created.id,
             source: 'embedded',
             annotationId: '21R',
-            stableKey: created!.stableKey,
+            stableKey: created.stableKey,
             pdfSubtype: 'Ink',
         });
-        expect(shapes.hasShapes.value).toBe(false);
+        expect(projection.shapes.hasShapes.value).toBe(false);
     });
 
-    it('primes a freshly saved local draw stroke onto the imported embedded shape while preserving dirty state until save completes', () => {
-        const shapes = useAnnotationShapes();
+    it('primes saved shape metadata without replacing the live geometry or clearing dirty state', () => {
+        const projection = createShapeProjection();
+        const created = drawLocalShape(projection);
+        expect(projection.shapes.hasShapes.value).toBe(true);
 
-        shapes.startDrawing(0, 'draw', 0.1, 0.2, DEFAULT_ANNOTATION_SETTINGS);
-        shapes.continueDrawing(0.15, 0.25);
-        shapes.continueDrawing(0.25, 0.35);
-
-        const created = shapes.finishDrawing();
-        expect(created).not.toBeNull();
-        expect(shapes.hasShapes.value).toBe(true);
-
-        const importedEmbeddedInkShape = createEmbeddedInkShape({
-            stableKey: created!.stableKey,
-            x: created!.x,
-            y: created!.y,
-            width: created!.width,
-            height: created!.height,
-            color: created!.color,
-            opacity: created!.opacity,
-            strokeWidth: created!.strokeWidth,
-            points: created!.points,
-            strokes: created!.strokes,
-        });
-
-        shapes.primePersistedShapes([importedEmbeddedInkShape]);
-
-        expect(shapes.getShapeById(created!.id)).toMatchObject({
-            id: created!.id,
-            source: 'embedded',
-            annotationId: '21R',
-            stableKey: created!.stableKey,
-            pdfSubtype: 'Ink',
-        });
-        expect(shapes.hasShapes.value).toBe(true);
-    });
-
-    it('primes saved shape metadata without replacing the live drawing geometry', () => {
-        const shapes = useAnnotationShapes();
-
-        shapes.startDrawing(0, 'draw', 0.1, 0.2, DEFAULT_ANNOTATION_SETTINGS);
-        shapes.continueDrawing(0.15, 0.25);
-        shapes.continueDrawing(0.25, 0.35);
-
-        const created = shapes.finishDrawing();
-        expect(created).not.toBeNull();
-
-        const originalPoints = created!.points?.map(point => ({ ...point }));
-        const originalStrokes = created!.strokes?.map(stroke => stroke.map(point => ({ ...point })));
         const importedEmbeddedInkShape = createEmbeddedInkShape({
             annotationId: '99R',
-            stableKey: created!.stableKey,
-            x: created!.x + 0.02,
-            y: created!.y + 0.03,
-            width: created!.width + 0.04,
-            height: created!.height + 0.05,
-            points: created!.points?.map(point => ({
+            stableKey: created.stableKey,
+            x: created.x + 0.02,
+            y: created.y + 0.03,
+            points: created.points?.map(point => ({
                 x: point.x + 0.02,
                 y: point.y + 0.03,
             })),
-            strokes: created!.strokes?.map(stroke => stroke.map(point => ({
+            strokes: created.strokes?.map(stroke => stroke.map(point => ({
                 x: point.x + 0.02,
                 y: point.y + 0.03,
             }))),
         });
 
-        shapes.primePersistedShapes([importedEmbeddedInkShape]);
+        const preparation = projection.shapes.beginShapeSave();
+        preparation.primePersistedShapes([importedEmbeddedInkShape]);
 
-        expect(shapes.getShapeById(created!.id)).toMatchObject({
-            id: created!.id,
+        expect(projection.shapes.getShapeById(created.id)).toMatchObject({
+            id: created.id,
             source: 'embedded',
             annotationId: '99R',
-            stableKey: created!.stableKey,
-            pdfSubtype: 'Ink',
-            x: created!.x,
-            y: created!.y,
-            width: created!.width,
-            height: created!.height,
+            stableKey: created.stableKey,
+            x: created.x,
+            y: created.y,
         });
-        expect(shapes.getShapeById(created!.id)?.points).toEqual(originalPoints);
-        expect(shapes.getShapeById(created!.id)?.strokes).toEqual(originalStrokes);
-        expect(shapes.hasShapes.value).toBe(true);
+        expect(projection.application.value.store.listShapes()[0]).toMatchObject({
+            identity: {pdfRef: '99R'},
+            geometry: {source: 'local'},
+        });
+        expect(projection.shapes.getShapeById(created.id)?.points).toEqual(created.points);
+        expect(projection.shapes.hasShapes.value).toBe(true);
 
-        shapes.markSavedShapeState();
+        projection.shapes.markSavedShapeState();
 
-        expect(shapes.hasShapes.value).toBe(false);
+        expect(projection.shapes.hasShapes.value).toBe(false);
     });
 
-    it('adopts saved shape metadata as clean without replacing visible geometry', () => {
-        const shapes = useAnnotationShapes();
+    it('primes persisted identities without invalidating a captured save frontier', () => {
+        const projection = createShapeProjection();
+        const survivingEmbeddedShape = createEmbeddedShape();
+        projection.shapes.importEmbeddedShapes([survivingEmbeddedShape], IMPORT_SOURCE);
+        const created = drawLocalShape(projection);
 
-        shapes.startDrawing(0, 'draw', 0.1, 0.2, DEFAULT_ANNOTATION_SETTINGS);
-        shapes.continueDrawing(0.15, 0.25);
-        shapes.continueDrawing(0.25, 0.35);
+        const preparation = projection.shapes.beginShapeSave();
+        const frontier = projection.store.beginSave();
+        // The scan carries only the drawn shape, so the embedded one is unmatched.
+        preparation.primePersistedShapes([createEmbeddedInkShape({
+            annotationId: '77R',
+            stableKey: created.stableKey,
+        })]);
 
-        const created = shapes.finishDrawing();
-        expect(created).not.toBeNull();
+        // Identity reconciliation is permitted after the frontier is captured;
+        // priming may neither mutate nor drop a captured entity.
+        expect(() => projection.store.assertSaveFrontierCurrent(frontier)).not.toThrow();
+        const createdId = projection.application.value.annotationIdForShape(created);
+        expect(projection.store.get(createdId!)?.identity.pdfRef).toBe('77R');
+        expect(projection.shapes.getShapeById(survivingEmbeddedShape.id)).not.toBeNull();
+
+        const entity = projection.application.value.store.listShapes()[0]!;
+        projection.application.value.replaceShapeGeometry(entity.identity.id, {
+            ...entity.geometry,
+            color: '#ff0000',
+        });
+
+        expect(() => projection.store.assertSaveFrontierCurrent(frontier))
+            .toThrow(/staleRevisionError/u);
+    });
+
+    it('rolls a primed save back through the store frontier when the persist fails', () => {
+        const projection = createShapeProjection();
+        const created = drawLocalShape(projection);
+
+        const preparation = projection.shapes.beginShapeSave();
+        preparation.primePersistedShapes([createEmbeddedInkShape({stableKey: created.stableKey})]);
+        const createdId = projection.application.value.annotationIdForShape(created);
+        expect(projection.store.get(createdId!)?.identity.pdfRef).toBe('21R');
+
+        expect(preparation.rollback()).toBe(true);
+
+        expect(projection.shapes.getShapeById(created.id)).toMatchObject({
+            id: created.id,
+            source: 'local',
+            stableKey: created.stableKey,
+        });
+        expect(projection.store.get(createdId!)?.identity.pdfRef).toBeUndefined();
+        expect(projection.shapes.hasShapes.value).toBe(true);
+    });
+
+    it('adopts self-saved shape metadata as clean without replacing visible geometry', () => {
+        const projection = createShapeProjection();
+        projection.shapes.importEmbeddedShapes([], IMPORT_SOURCE);
+        const created = drawLocalShape(projection);
 
         const importedEmbeddedInkShape = createEmbeddedInkShape({
             annotationId: '88R',
-            stableKey: created!.stableKey,
-            x: created!.x + 0.02,
-            y: created!.y + 0.03,
-            points: created!.points?.map(point => ({
-                x: point.x + 0.02,
-                y: point.y + 0.03,
-            })),
-            strokes: created!.strokes?.map(stroke => stroke.map(point => ({
-                x: point.x + 0.02,
-                y: point.y + 0.03,
-            }))),
+            stableKey: created.stableKey,
+            x: created.x + 0.02,
+            y: created.y + 0.03,
         });
 
-        shapes.adoptPersistedShapeMetadata([importedEmbeddedInkShape]);
+        projection.application.value.store.adoptPersistedShapesOnNextImport();
+        const plan = projection.shapes.importEmbeddedShapes([importedEmbeddedInkShape], IMPORT_SOURCE);
 
-        expect(shapes.getShapeById(created!.id)).toMatchObject({
-            id: created!.id,
+        expect(plan.mode).toBe('adopt-self-saved');
+        expect(plan.skipRerender).toBe(true);
+        expect(projection.shapes.getShapeById(created.id)).toMatchObject({
+            id: created.id,
             source: 'embedded',
             annotationId: '88R',
-            stableKey: created!.stableKey,
-            x: created!.x,
-            y: created!.y,
+            stableKey: created.stableKey,
+            x: created.x,
+            y: created.y,
         });
-        expect(shapes.getShapeById(created!.id)?.points).toEqual(created!.points);
-        expect(shapes.getShapeById(created!.id)?.strokes).toEqual(created!.strokes);
-        expect(shapes.hasShapes.value).toBe(false);
+        expect(projection.shapes.hasShapes.value).toBe(false);
     });
 
     it('adopts saved shape deletions as clean persisted state', () => {
-        const shapes = useAnnotationShapes();
+        const projection = createShapeProjection();
         const embeddedInkShape = createEmbeddedInkShape();
 
-        shapes.loadShapes([embeddedInkShape]);
-        shapes.deleteShape(embeddedInkShape.id);
+        projection.shapes.importEmbeddedShapes([embeddedInkShape], IMPORT_SOURCE);
+        deleteShape(projection, embeddedInkShape.id);
 
-        expect(shapes.getDeletedEmbeddedAnnotationIds()).toEqual(['21R']);
-        expect(shapes.getDeletedEmbeddedShapeStableKeys()).toEqual(['evb-shape:embedded-ink-1']);
-        expect(shapes.hasShapes.value).toBe(true);
+        expect(projection.shapes.getDeletedEmbeddedAnnotationIds()).toEqual(['21R']);
+        expect(projection.shapes.getDeletedEmbeddedShapeStableKeys()).toEqual(['evb-shape:embedded-ink-1']);
+        expect(projection.shapes.hasShapes.value).toBe(true);
 
-        shapes.adoptPersistedShapeMetadata([]);
+        projection.application.value.store.adoptPersistedShapesOnNextImport();
+        projection.shapes.importEmbeddedShapes([], IMPORT_SOURCE);
 
-        expect(shapes.getAllShapes()).toEqual([]);
-        expect(shapes.getDeletedEmbeddedAnnotationIds()).toEqual([]);
-        expect(shapes.getDeletedEmbeddedShapeStableKeys()).toEqual([]);
-        expect(shapes.hasShapes.value).toBe(false);
+        expect(projection.shapes.getAllShapes()).toEqual([]);
+        expect(projection.shapes.getDeletedEmbeddedAnnotationIds()).toEqual([]);
+        expect(projection.shapes.getDeletedEmbeddedShapeStableKeys()).toEqual([]);
+        expect(projection.shapes.hasShapes.value).toBe(false);
     });
 
     it('reconciles a persisted drawing by stable key when the saved annotation ref changes', () => {
-        const shapes = useAnnotationShapes();
-
-        shapes.startDrawing(0, 'draw', 0.1, 0.2, DEFAULT_ANNOTATION_SETTINGS);
-        shapes.continueDrawing(0.15, 0.25);
-        shapes.continueDrawing(0.25, 0.35);
-
-        const created = shapes.finishDrawing();
-        expect(created).not.toBeNull();
+        const projection = createShapeProjection();
+        const created = drawLocalShape(projection);
 
         const importedEmbeddedInkShape = createEmbeddedInkShape({
             annotationId: '44R',
-            stableKey: created!.stableKey,
-            x: created!.x + 0.0002,
-            y: created!.y + 0.00015,
-            width: created!.width,
-            height: created!.height,
-            color: created!.color,
-            opacity: created!.opacity,
-            strokeWidth: created!.strokeWidth,
-            points: created!.points?.map(point => ({
+            stableKey: created.stableKey,
+            x: created.x + 0.0002,
+            y: created.y + 0.00015,
+            points: created.points?.map(point => ({
                 x: point.x + 0.0002,
                 y: point.y + 0.00015,
             })),
-            strokes: created!.strokes?.map(stroke => stroke.map(point => ({
+            strokes: created.strokes?.map(stroke => stroke.map(point => ({
                 x: point.x + 0.0002,
                 y: point.y + 0.00015,
             }))),
         });
 
-        shapes.reconcilePersistedShapes([importedEmbeddedInkShape]);
+        projection.shapes.importEmbeddedShapes([importedEmbeddedInkShape], IMPORT_SOURCE);
 
-        expect(shapes.getShapeById(created!.id)).toMatchObject({
-            id: created!.id,
+        expect(projection.shapes.getShapeById(created.id)).toMatchObject({
+            id: created.id,
             source: 'embedded',
             annotationId: '44R',
-            stableKey: created!.stableKey,
+            stableKey: created.stableKey,
             pdfSubtype: 'Ink',
         });
-        expect(shapes.getShapeById(created!.id)?.points).toEqual(importedEmbeddedInkShape.points);
-        expect(shapes.getShapeById(created!.id)?.strokes).toEqual(importedEmbeddedInkShape.strokes);
-        expect(shapes.getShapeById(created!.id)?.x).toBe(importedEmbeddedInkShape.x);
-        expect(shapes.getShapeById(created!.id)?.y).toBe(importedEmbeddedInkShape.y);
-        expect(shapes.hasShapes.value).toBe(false);
+        expect(projection.shapes.getShapeById(created.id)?.points).toEqual(importedEmbeddedInkShape.points);
+        expect(projection.shapes.getShapeById(created.id)?.x).toBe(importedEmbeddedInkShape.x);
+        expect(projection.shapes.hasShapes.value).toBe(false);
     });
 
     it('uses the imported managed shape geometry as the saved baseline after same-file reconciliation', () => {
-        const shapes = useAnnotationShapes();
+        const projection = createShapeProjection();
         const embeddedInkShape = createEmbeddedInkShape({
             id: 'shape-current-ink',
             stableKey: 'evb-shape:current-ink',
             annotationId: '21R',
-            x: 0.18,
-            y: 0.24,
-            width: 0.19,
-            height: 0.11,
-            points: [
-                {
-                    x: 0.18,
-                    y: 0.24,
-                },
-                {
-                    x: 0.25,
-                    y: 0.28,
-                },
-                {
-                    x: 0.31,
-                    y: 0.33,
-                },
-                {
-                    x: 0.37,
-                    y: 0.35,
-                },
-            ],
-            strokes: [[
-                {
-                    x: 0.18,
-                    y: 0.24,
-                },
-                {
-                    x: 0.25,
-                    y: 0.28,
-                },
-                {
-                    x: 0.31,
-                    y: 0.33,
-                },
-                {
-                    x: 0.37,
-                    y: 0.35,
-                },
-            ]],
         });
 
-        shapes.loadShapes([embeddedInkShape]);
+        projection.shapes.importEmbeddedShapes([embeddedInkShape], IMPORT_SOURCE);
 
         const importedEmbeddedInkShape = createEmbeddedInkShape({
             id: 'shape-imported-ink',
@@ -470,23 +518,13 @@ describe('useAnnotationShapes', () => {
             annotationId: '44R',
             x: embeddedInkShape.x + 0.012,
             y: embeddedInkShape.y + 0.015,
-            width: embeddedInkShape.width - 0.01,
-            height: embeddedInkShape.height + 0.012,
-            points: embeddedInkShape.points?.map(point => ({
-                x: point.x + 0.012,
-                y: point.y + 0.015,
-            })),
-            strokes: embeddedInkShape.strokes?.map(stroke => stroke.map(point => ({
-                x: point.x + 0.012,
-                y: point.y + 0.015,
-            }))),
             strokeWidth: embeddedInkShape.strokeWidth + 2,
             opacity: 0.5,
         });
 
-        shapes.reconcilePersistedShapes([importedEmbeddedInkShape]);
+        projection.shapes.importEmbeddedShapes([importedEmbeddedInkShape], IMPORT_SOURCE);
 
-        expect(shapes.getShapeById(embeddedInkShape.id)).toEqual({
+        expect(projection.shapes.getShapeById(embeddedInkShape.id)).toEqual({
             ...importedEmbeddedInkShape,
             id: embeddedInkShape.id,
             source: 'embedded',
@@ -494,106 +532,65 @@ describe('useAnnotationShapes', () => {
             stableKey: embeddedInkShape.stableKey,
             pdfSubtype: 'Ink',
         });
-        expect(shapes.hasShapes.value).toBe(false);
+        expect(projection.shapes.hasShapes.value).toBe(false);
     });
 
     it('keeps unmatched local shapes dirty when a late same-file import reconciles saved embedded shapes', () => {
-        const shapes = useAnnotationShapes();
+        const projection = createShapeProjection();
         const embeddedInkShape = createEmbeddedInkShape({
             id: 'shape-saved-ink',
             stableKey: 'evb-shape:saved-ink',
             annotationId: '41R',
         });
-        const localInkShape = {...createEmbeddedInkShape({
-            id: 'shape-local-ink',
-            stableKey: 'evb-shape:local-ink',
-            annotationId: undefined,
-            source: 'local',
-            x: 0.42,
-            y: 0.18,
-            width: 0.16,
-            height: 0.15,
-            color: '#22c55e',
-            points: [
-                {
-                    x: 0.42,
-                    y: 0.18,
-                },
-                {
-                    x: 0.48,
-                    y: 0.24,
-                },
-                {
-                    x: 0.58,
-                    y: 0.33,
-                },
-            ],
-            strokes: [[
-                {
-                    x: 0.42,
-                    y: 0.18,
-                },
-                {
-                    x: 0.48,
-                    y: 0.24,
-                },
-                {
-                    x: 0.58,
-                    y: 0.33,
-                },
-            ]],
-        })} satisfies IShapeAnnotation;
 
-        shapes.loadShapes([embeddedInkShape]);
-        shapes.addShape(localInkShape);
+        projection.shapes.importEmbeddedShapes([embeddedInkShape], IMPORT_SOURCE);
+        const localShape = drawLocalShape(projection);
 
-        shapes.reconcilePersistedShapes([createEmbeddedInkShape({
+        projection.shapes.importEmbeddedShapes([createEmbeddedInkShape({
             ...embeddedInkShape,
             annotationId: '52R',
             x: embeddedInkShape.x + 0.01,
             y: embeddedInkShape.y + 0.01,
-        })]);
+        })], IMPORT_SOURCE);
 
-        expect(shapes.getShapeById(embeddedInkShape.id)).toMatchObject({
+        expect(projection.shapes.getShapeById(embeddedInkShape.id)).toMatchObject({
             id: embeddedInkShape.id,
             source: 'embedded',
             annotationId: '52R',
             stableKey: embeddedInkShape.stableKey,
         });
-        expect(shapes.getShapeById(localInkShape.id)).toMatchObject({
-            id: localInkShape.id,
+        expect(projection.shapes.getShapeById(localShape.id)).toMatchObject({
+            id: localShape.id,
             source: 'local',
-            stableKey: localInkShape.stableKey,
         });
-        expect(shapes.hasShapes.value).toBe(true);
+        expect(projection.shapes.hasShapes.value).toBe(true);
     });
 
-    it('keeps deleted embedded shape tombstones until the imported document no longer contains the deleted annotation', () => {
-        const shapes = useAnnotationShapes();
+    it('keeps deleted embedded shape tombstones until the imported document no longer contains them', () => {
+        const projection = createShapeProjection();
         const embeddedInkShape = createEmbeddedInkShape();
 
-        shapes.loadShapes([embeddedInkShape]);
-        shapes.deleteShape(embeddedInkShape.id);
+        projection.shapes.importEmbeddedShapes([embeddedInkShape], IMPORT_SOURCE);
+        deleteShape(projection, embeddedInkShape.id);
 
-        expect(shapes.getDeletedEmbeddedAnnotationIds()).toEqual(['21R']);
-        expect(shapes.getDeletedEmbeddedShapeStableKeys()).toEqual(['evb-shape:embedded-ink-1']);
-        expect(shapes.hasShapes.value).toBe(true);
+        expect(projection.shapes.getDeletedEmbeddedAnnotationIds()).toEqual(['21R']);
+        expect(projection.shapes.hasShapes.value).toBe(true);
 
-        shapes.reconcilePersistedShapes([embeddedInkShape]);
+        projection.shapes.importEmbeddedShapes([embeddedInkShape], IMPORT_SOURCE);
 
-        expect(shapes.getDeletedEmbeddedAnnotationIds()).toEqual(['21R']);
-        expect(shapes.getDeletedEmbeddedShapeStableKeys()).toEqual(['evb-shape:embedded-ink-1']);
-        expect(shapes.hasShapes.value).toBe(true);
+        expect(projection.shapes.getDeletedEmbeddedAnnotationIds()).toEqual(['21R']);
+        expect(projection.shapes.getDeletedEmbeddedShapeStableKeys()).toEqual(['evb-shape:embedded-ink-1']);
+        expect(projection.shapes.hasShapes.value).toBe(true);
 
-        shapes.reconcilePersistedShapes([]);
+        projection.shapes.importEmbeddedShapes([], IMPORT_SOURCE);
 
-        expect(shapes.getDeletedEmbeddedAnnotationIds()).toEqual([]);
-        expect(shapes.getDeletedEmbeddedShapeStableKeys()).toEqual([]);
-        expect(shapes.hasShapes.value).toBe(false);
+        expect(projection.shapes.getDeletedEmbeddedAnnotationIds()).toEqual([]);
+        expect(projection.shapes.getDeletedEmbeddedShapeStableKeys()).toEqual([]);
+        expect(projection.shapes.hasShapes.value).toBe(false);
     });
 
     it('does not resurrect a just-deleted embedded shape when a stale import finishes after the delete', () => {
-        const shapes = useAnnotationShapes();
+        const projection = createShapeProjection();
         const firstEmbeddedInkShape = createEmbeddedInkShape();
         const secondEmbeddedInkShape = createEmbeddedInkShape({
             id: 'embedded-ink-2',
@@ -602,99 +599,30 @@ describe('useAnnotationShapes', () => {
             color: '#22c55e',
             x: 0.4,
             y: 0.28,
-            width: 0.2,
-            height: 0.16,
-            points: [
-                {
-                    x: 0.4,
-                    y: 0.28,
-                },
-                {
-                    x: 0.5,
-                    y: 0.34,
-                },
-                {
-                    x: 0.6,
-                    y: 0.44,
-                },
-            ],
-            strokes: [[
-                {
-                    x: 0.4,
-                    y: 0.28,
-                },
-                {
-                    x: 0.5,
-                    y: 0.34,
-                },
-                {
-                    x: 0.6,
-                    y: 0.44,
-                },
-            ]],
         });
 
-        shapes.loadShapes([
+        projection.shapes.importEmbeddedShapes([
             firstEmbeddedInkShape,
             secondEmbeddedInkShape,
-        ]);
-        shapes.deleteShape(secondEmbeddedInkShape.id);
+        ], IMPORT_SOURCE);
+        deleteShape(projection, secondEmbeddedInkShape.id);
 
-        shapes.reconcilePersistedShapes([
+        projection.shapes.importEmbeddedShapes([
             firstEmbeddedInkShape,
             secondEmbeddedInkShape,
-        ]);
+        ], IMPORT_SOURCE);
 
-        expect(shapes.getAllShapes()).toHaveLength(1);
-        expect(shapes.getAllShapes()[0]).toMatchObject({
+        expect(projection.shapes.getAllShapes()).toHaveLength(1);
+        expect(projection.shapes.getAllShapes()[0]).toMatchObject({
             id: firstEmbeddedInkShape.id,
-            stableKey: firstEmbeddedInkShape.stableKey,
             annotationId: firstEmbeddedInkShape.annotationId,
         });
-        expect(shapes.getDeletedEmbeddedAnnotationIds()).toEqual(['22R']);
-        expect(shapes.getDeletedEmbeddedShapeStableKeys()).toEqual(['evb-shape:embedded-ink-2']);
-        expect(shapes.hasShapes.value).toBe(true);
-    });
-
-    it('restores a captured shape-state snapshot after a failed primed save attempt', () => {
-        const shapes = useAnnotationShapes();
-
-        shapes.startDrawing(0, 'draw', 0.1, 0.2, DEFAULT_ANNOTATION_SETTINGS);
-        shapes.continueDrawing(0.15, 0.25);
-        shapes.continueDrawing(0.25, 0.35);
-
-        const created = shapes.finishDrawing();
-        expect(created).not.toBeNull();
-
-        const snapshot = shapes.captureShapeStateSnapshot();
-        const importedEmbeddedInkShape = createEmbeddedInkShape({
-            stableKey: created!.stableKey,
-            x: created!.x,
-            y: created!.y,
-            width: created!.width,
-            height: created!.height,
-            color: created!.color,
-            opacity: created!.opacity,
-            strokeWidth: created!.strokeWidth,
-            points: created!.points,
-            strokes: created!.strokes,
-        });
-
-        shapes.primePersistedShapes([importedEmbeddedInkShape]);
-        expect(shapes.getShapeById(created!.id)?.source).toBe('embedded');
-
-        shapes.restoreShapeStateSnapshot(snapshot);
-
-        expect(shapes.getShapeById(created!.id)).toMatchObject({
-            id: created!.id,
-            source: 'local',
-            stableKey: created!.stableKey,
-        });
-        expect(shapes.hasShapes.value).toBe(true);
+        expect(projection.shapes.getDeletedEmbeddedAnnotationIds()).toEqual(['22R']);
+        expect(projection.shapes.hasShapes.value).toBe(true);
     });
 
     it('marks the current shapes as the saved baseline and clears deleted embedded tombstones', () => {
-        const shapes = useAnnotationShapes();
+        const projection = createShapeProjection();
         const firstEmbeddedInkShape = createEmbeddedInkShape();
         const secondEmbeddedInkShape = createEmbeddedInkShape({
             id: 'embedded-ink-2',
@@ -703,53 +631,33 @@ describe('useAnnotationShapes', () => {
             color: '#22c55e',
             x: 0.4,
             y: 0.28,
-            width: 0.2,
-            height: 0.16,
-            points: [
-                {
-                    x: 0.4,
-                    y: 0.28,
-                },
-                {
-                    x: 0.5,
-                    y: 0.34,
-                },
-                {
-                    x: 0.6,
-                    y: 0.44,
-                },
-            ],
-            strokes: [[
-                {
-                    x: 0.4,
-                    y: 0.28,
-                },
-                {
-                    x: 0.5,
-                    y: 0.34,
-                },
-                {
-                    x: 0.6,
-                    y: 0.44,
-                },
-            ]],
         });
 
-        shapes.loadShapes([
+        projection.shapes.importEmbeddedShapes([
             firstEmbeddedInkShape,
             secondEmbeddedInkShape,
-        ]);
-        shapes.deleteShape(firstEmbeddedInkShape.id);
+        ], IMPORT_SOURCE);
+        deleteShape(projection, firstEmbeddedInkShape.id);
 
-        expect(shapes.getDeletedEmbeddedAnnotationIds()).toEqual(['21R']);
-        expect(shapes.getDeletedEmbeddedShapeStableKeys()).toEqual(['evb-shape:embedded-ink-1']);
-        expect(shapes.hasShapes.value).toBe(true);
+        expect(projection.shapes.getDeletedEmbeddedAnnotationIds()).toEqual(['21R']);
+        expect(projection.shapes.hasShapes.value).toBe(true);
 
-        shapes.markSavedShapeState();
+        projection.shapes.markSavedShapeState();
 
-        expect(shapes.getAllShapes()).toEqual([secondEmbeddedInkShape]);
-        expect(shapes.getDeletedEmbeddedAnnotationIds()).toEqual([]);
-        expect(shapes.getDeletedEmbeddedShapeStableKeys()).toEqual([]);
-        expect(shapes.hasShapes.value).toBe(false);
+        expect(projection.shapes.getAllShapes()).toEqual([secondEmbeddedInkShape]);
+        expect(projection.shapes.getDeletedEmbeddedAnnotationIds()).toEqual([]);
+        expect(projection.shapes.getDeletedEmbeddedShapeStableKeys()).toEqual([]);
+        expect(projection.shapes.hasShapes.value).toBe(false);
+    });
+
+    it('replaces the projection when the authority is swapped for another document', () => {
+        const projection = createShapeProjection();
+        projection.shapes.importEmbeddedShapes([createEmbeddedShape()], IMPORT_SOURCE);
+        expect(projection.shapes.getAllShapes()).toHaveLength(1);
+
+        projection.application.value = new AnnotationApplication('other-doc-key');
+
+        expect(projection.shapes.getAllShapes()).toEqual([]);
+        expect(projection.shapes.isShapeImportBaselineReady()).toBe(false);
     });
 });

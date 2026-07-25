@@ -185,7 +185,7 @@ export const usePdfShapeContext = (deps: IUsePdfShapeContextDeps) => {
             shapeComposable.continueDrawing(coords.x, coords.y);
         },
         handleFinishDrawing() {
-            const shape = shapeComposable.finishDrawingDraft();
+            const shape = shapeComposable.finishDrawing();
             if (shape) {
                 onShapeCreated(shape);
             }

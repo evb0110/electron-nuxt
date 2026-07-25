@@ -11,10 +11,7 @@ import {
     shallowRef,
 } from 'vue';
 import type { Ref } from 'vue';
-import type {
-    IAnnotationCommentSummary,
-    TMarkupSubtype,
-} from '@app/types/annotations';
+import type {IAnnotationCommentSummary} from '@app/types/annotations';
 import { useAnnotationIdentity } from '@app/modules/pdf-viewer/runtime/annotations/useAnnotationIdentity';
 import type { IPdfPageAnnotationBundle } from '@app/modules/pdf-viewer/engine/annotations/annotation-sync-helpers/annotationSyncHelpersTypes';
 import { resolvePerformanceProfile } from '@app/utils/performanceProfile';
@@ -91,10 +88,8 @@ async function withAnnotationSyncScope<T>(run: () => Promise<T>) {
 
 function createMarkupSubtypeStore() {
     const colorOverrides = new Map<string, string>();
-    const subtypeOverrides = new Map<string, TMarkupSubtype>();
     return {
         colorOverrides,
-        subtypeOverrides,
         markupSubtype: {
             resolveEditorMarkupSubtypeOverride: vi.fn(() => null),
             resolveEditorSubtypeFromPresentation: vi.fn(() => null),
@@ -109,17 +104,14 @@ function createMarkupSubtypeStore() {
                 colorOverrides.set(annotationId, color);
             }),
             syncMarkupSubtypePresentationForEditors: vi.fn(),
-            getMarkupSubtypeOverrides: vi.fn(() => subtypeOverrides),
             forgetMarkupSubtypeOverride: vi.fn((annotationId: string | null | undefined) => {
                 if (!annotationId) {
                     return;
                 }
                 colorOverrides.delete(annotationId);
-                subtypeOverrides.delete(annotationId);
             }),
             clearOverrides: vi.fn(() => {
                 colorOverrides.clear();
-                subtypeOverrides.clear();
             }),
         },
     };
@@ -365,7 +357,6 @@ describe('useAnnotationSync', () => {
             const {
                 colorOverrides,
                 markupSubtype,
-                subtypeOverrides,
                 sync,
             } = await createSyncHarness({
                 annotationCommentsCache,
@@ -415,7 +406,6 @@ describe('useAnnotationSync', () => {
                 },
             );
             expect(colorOverrides.get('12R0')).toBe(appliedColor);
-            expect(subtypeOverrides.get('12R0')).toBe('Underline');
             expect(markupSubtype.syncMarkupSubtypePresentationForEditors).toHaveBeenCalledTimes(3);
         });
     });

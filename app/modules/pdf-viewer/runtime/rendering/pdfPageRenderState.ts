@@ -1,7 +1,7 @@
 type TPdfPageRenderVisualState = 'none' | 'ready';
 type TPdfPageRenderJobState = 'idle' | 'rendering' | 'failed';
 type TPdfPageCanvasReadiness = 'none' | 'ready';
-export type TPdfPageLayerReadiness = 'none' | 'canvas-only' | 'hydrating' | 'ready';
+type TPdfPageLayerReadiness = 'none' | 'canvas-only' | 'hydrating' | 'ready';
 
 export interface IPdfCommittedRasterQuality {
     readonly requestedPixels: number;

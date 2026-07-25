@@ -71,6 +71,9 @@ describe('annotation architecture boundaries', () => {
         const commentModel = read('app/modules/pdf-viewer/annotations/usePdfAnnotationCommentModel.ts');
         const identityBridge = read('app/modules/pdf-viewer/annotations/bridge/pdfjs-runtime/useAnnotationIdentity.ts');
         const shapeProjection = read('app/modules/pdf-viewer/runtime/annotations/useManagedEmbeddedPdfShapes.ts');
+        const application = read('app/modules/pdf-viewer/annotations/annotationApplication.ts');
+        const store = read('app/modules/pdf-viewer/annotations/domain/annotationStore.ts');
+        const shapeReadModel = read('app/modules/pdf-viewer/tools/useAnnotationShapes.ts');
         const shapeCommands = read('app/modules/pdf-viewer/tools/usePdfShapeTool.ts');
         const shapeContext = read('app/modules/pdf-viewer/tools/usePdfShapeContext.ts');
         const runtime = read('app/modules/pdf-viewer/runtime/annotations/usePdfViewerAnnotationRuntime.ts');
@@ -83,7 +86,19 @@ describe('annotation architecture boundaries', () => {
         expect(identityBridge).not.toMatch(/new Map<.*Summary|commentSummaryMemory/);
         expect(shapeProjection).toContain('IManagedEmbeddedPdfShapeProjectionPort');
         expect(shapeProjection).not.toContain('IManagedEmbeddedPdfShapeStore');
-        expect(shapeCommands).toMatch(/createShapeProjected|replaceShapeGeometryProjected|deleteShapeProjected/);
+        // The shape read model projects the store; it owns no second map,
+        // tombstone set, saved baseline or save snapshot of its own.
+        expect(shapeReadModel).not.toMatch(/deletedEmbedded\w+\s*=\s*ref|baselineSignature|ShapeStateSnapshot/);
+        expect(shapeReadModel).toMatch(/annotationApplication\.value\.store\.listShapes/);
+        // Managed embedded shapes hold no import baseline or save snapshot either.
+        expect(shapeProjection).not.toMatch(/hasEmbeddedShapeImportBaseline|lastEmbeddedShapeImport|ShapeStateSnapshot/);
+        expect(shapeProjection).toMatch(/beginShapeSave\b/);
+        // Only the store decides an import mode: the application boundary
+        // derives canonical ids and forwards the scan as proposals.
+        expect(application).not.toMatch(/#hasShapeImportBaseline|#adoptSelfSavedShapesOnNextImport|#shapeImportSource|planShapeImport/);
+        expect(application).toMatch(/#shapeImportProposals/);
+        expect(store).toMatch(/#hasShapeImportBaseline[\s\S]*planShapeImport/);
+        expect(shapeCommands).toMatch(/createShapeFromGeometry|replaceShapeGeometry|previewShapeGeometry/);
         expect(shapeCommands).not.toContain('usePdfShapeHistory');
         expect(shapeContext).toMatch(/finishDrawingDraft|onShapePreviewed/);
     });
