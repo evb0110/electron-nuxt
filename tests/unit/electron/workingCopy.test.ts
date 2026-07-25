@@ -93,7 +93,7 @@ describe('workingCopy', () => {
             '@electron/file-access/workingCopyMaterialization'
         );
         const originalPath = join(tempRoot, 'background-default.pdf');
-        const originalBytes = Buffer.alloc(3 * 1024 * 1024, 21);
+        const originalBytes = Buffer.alloc(64 * 1024, 21);
         writeFileSync(originalPath, originalBytes);
         const trustedOriginalPath = allowOpenPath(originalPath);
         expect(trustedOriginalPath).not.toBeNull();
