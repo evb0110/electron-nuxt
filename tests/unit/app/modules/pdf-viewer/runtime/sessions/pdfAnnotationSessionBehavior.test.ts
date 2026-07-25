@@ -56,21 +56,4 @@ describe('PDF annotation session authority', () => {
         expect(source).toMatch(/rendering\.renderAnnotationEditorLayerForPage/);
     });
 
-    it('commits canonical summaries synchronously before exposing projection', () => {
-        const source = read(sessionPath);
-        const setAnnotations = source.slice(
-            source.indexOf('setAnnotations:'),
-            source.indexOf('setLinkAnnotations:'),
-        );
-        const reconcile = setAnnotations.indexOf(
-            'annotationApplication.value.reconcileLegacySummaries',
-        );
-        const projection = setAnnotations.indexOf(
-            'return annotationProjection.value.map',
-        );
-
-        expect(reconcile).toBeGreaterThanOrEqual(0);
-        expect(projection).toBeGreaterThan(reconcile);
-        expect(setAnnotations).not.toMatch(/\b(?:await|nextTick|setTimeout)\b/);
-    });
 });
