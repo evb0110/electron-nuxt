@@ -200,3 +200,144 @@ replay; fail-closed release verification; the blocking Electron smoke lane and e
 invariant-violation test; OCR scheduling/resource governance; Rust algorithm crates
 (dewarp, text-line tracing, jbig2, lopdf mutation logic); chunked browser storage; the
 dual native/WASM capability; explicit generated proxies (no clever runtime `Proxy`).
+
+## Remaining-program closure — 2026-07-25
+
+This closes the bounded A–I remaining program, not every target in the larger overhaul.
+The measurements below use the repository LOC calculator at committed revision
+`9875e3da8`: CLOC code lines only, excluding blank/comment lines, bundled resources,
+dependencies, vendor/generated output, build products, lockfiles, binaries, models,
+fonts, and images. The comparison revision `c6cebbc27` is not an ancestor of this
+branch, so the reported `+22,996` source LOC and `-73` source files are a symmetric
+snapshot comparison, not a commit-range delta. They include substantial work outside
+this bounded consolidation; the stage table below is the relevant production delta.
+
+| Audit area | End-state authored LOC | Audit target | Closure result |
+| --- | ---: | ---: | --- |
+| `app/modules/pdf-viewer` | 79,818 | 82–86k | Below target after ownership consolidation |
+| workspace-shell + `app/utils` + `app/platform` | 77,258 | 63–69k | Not reached; later workspace-shell overhaul remains |
+| `electron` + `packages/contracts` | 100,707 | 92–95k | Not reached; contracts grew while feature specs replaced handwritten boundary ceremony |
+| `native` | 47,838 | 33–35k | Not in the bounded A–I implementation |
+| `tests` | 221,916 | 165–180k | Not in the bounded A–I implementation |
+| `scripts` | 31,716 | 22–24k | Partially reduced; release/runner ownership landed |
+| dormant `python` | 0 | 0 | Met; recoverable from Git history |
+| `landing` (whole application) | 8,474 | 0 isolation overhead | Whole-app count is not comparable; workspace folding remains |
+
+The complete snapshot contains 631,183 authored source LOC in 3,159 files, including
+371,052 product/runtime, 226,845 test-purpose, and 33,286 tooling/automation LOC.
+
+### End-state ownership inventory
+
+- One platform-spec constructor, `definePlatformFeature()` in
+  `packages/contracts/platformFeature.ts`, defines method/channel/schema/kind/progress
+  metadata. Twenty-two feature specs feed the one `PLATFORM_FEATURE_REGISTRY` in
+  `packages/contracts/platformApiDescriptor.ts`; generated codecs, preload clients,
+  registrar loops, browser bindings, and fixtures consume those specs.
+- The PDF topology has exactly four session owners under
+  `app/modules/pdf-viewer/runtime/sessions/`: `pdfDocumentSession.ts`,
+  `createPdfViewportSession.ts`, `createPdfRenderingSession.ts`, and
+  `createPdfAnnotationSession.ts`, constructed and disposed in topological order.
+- One `PdfPageRasterScheduler` in
+  `engine/pdf-page-raster-scheduler/pdfPageRasterScheduler.ts` owns viewport,
+  navigation, thumbnail, and prefetch work for a live PDF document.
+- One `AnnotationStore` in `annotations/domain/annotationStore.ts` owns annotation
+  entities, external identities, history, saved baselines, mutation epochs, and save
+  frontiers. PDF.js and UI state are projections.
+- One `classifyPdfSaveRoute()` in `runtime/save/classifyPdfSaveRoute.ts` classifies a
+  frozen save plan once. Projectors and executors consume its discriminated decision.
+- One text-markup presentation controller in
+  `runtime/annotations/useTextMarkupPresentationController.ts` consumes render/store
+  transitions; the DOM observer, fixed retry ladder, draw-layer token loop, and
+  per-page color hook are deleted.
+
+### Bounded flow traces
+
+These are the topological **owner** traces used by the session design: forwarding-only
+views and internal rendering helpers are not counted as additional owners. Literal
+runtime stacks can enter such helpers (and disk persistence adds workspace/preload/
+Electron files), but no helper becomes another state or lifecycle authority.
+
+1. **Scroll → raster (5 authored files):**
+   `components/PdfViewer.vue` (scroll input) →
+   `runtime/usePdfViewerFeatureController.ts` (session composition) →
+   `runtime/sessions/createPdfViewportSession.ts`
+   (`handleTrustedScroll` → `publishDemand`) →
+   `runtime/sessions/createPdfRenderingSession.ts`
+   (`reconcileDemand` → `renderVisiblePages`) →
+   `engine/pdf-page-raster-scheduler/pdfPageRasterScheduler.ts`
+   (`setDemand` → scheduled raster execution).
+2. **Open → first committed canvas (6 authored files):**
+   `components/PdfViewer.vue` → `runtime/usePdfViewerFeatureController.ts` →
+   `runtime/sessions/pdfDocumentSession.ts` (`scheduleLoad` → `ready`) →
+   `runtime/sessions/createPdfViewportSession.ts` (`requestMandatoryRaster`) →
+   `runtime/sessions/createPdfRenderingSession.ts` (target commit and
+   `openSurface.commitCanvas`) →
+   `engine/pdf-page-raster-scheduler/pdfPageRasterScheduler.ts`.
+3. **Highlight → saved bytes (at most 6 authored files):**
+   `annotations/bridge/pdfjs-runtime/useAnnotationHighlight.ts` →
+   `runtime/sessions/createPdfAnnotationSession.ts` →
+   `annotations/domain/annotationStore.ts` →
+   `runtime/save/usePdfViewerSaveTransaction.ts` →
+   `runtime/save/classifyPdfSaveRoute.ts` →
+   `runtime/composables/pdf/usePdfSerialization.ts` on the rewrite route. PDF.js
+   materialization ends in the save transaction after five owners at
+   `pdfDocument.saveDocument()`; native append bypasses the rewrite serializer.
+
+### Preserved invariants and owning tests
+
+| Invariant | Owning test |
+| --- | --- |
+| Annotation save-frontier CAS permits identity reconciliation but rejects semantic mutation | `tests/unit/app/modules/pdf-viewer/annotations/annotationStoreSaveFrontierRollback.test.ts` |
+| Document identity remains fenced by `documentInstanceId` and revision | `tests/unit/app/modules/workspace-shell/document-sessions/workspaceDocumentController.test.ts`; `tests/unit/electron/documentRevisionStore.test.ts` |
+| A superseded/wedged open cannot commit over its successor | `tests/unit/app/modules/pdf-viewer/runtime/sessions/pdfSessionTransitions.test.ts` |
+| Raster priority, cancellation, stale-generation discard, residency, and lease-exactly-once-after-settlement | `tests/unit/app/modules/pdf-viewer/engine/pdfPageRasterScheduler.test.ts` |
+| A document is not destroyed until invalidation, render work, and page leases settle | `tests/unit/app/modules/pdf-viewer/runtime/sessions/pdfDocumentSession.test.ts` |
+| A frozen save plan produces exactly one deterministic route and only documented fallbacks | `tests/unit/app/services/pdf-save/classifyPdfSaveRoute.test.ts` |
+| Active and terminal operation progress is replayable without duplicate live delivery | `tests/unit/electron/createIpcProgressPump.test.ts`; `tests/unit/electron/mainJobRegistry.test.ts` |
+| Release resources and protocol versions fail closed at the disk boundary and remain joined to contracts | `tests/unit/scripts/nativeToolSmokePolicy.test.ts` |
+
+### Deliberately retained deviations
+
+- The 1,200-line default ESLint cap and explicit lower/per-file caps remain. They are
+  guardrails, not completion targets; exceptions may be removed only by a real
+  responsibility split or deletion, never by cosmetic file slicing.
+- Eight legacy method descriptors and seven legacy capability descriptors remain in
+  `platformApiDescriptor.ts`. They are isolated from the 22-spec registry. Remove each
+  only after its app/Electron/browser consumers have migrated and descriptor parity
+  proves no public backend path still depends on it.
+- The 80 ms retry in `useAnnotationHighlight.ts` remains because it discovers a newly
+  created PDF.js editor identity; it is not a visual-repair loop. Remove it only when
+  PDF.js exposes a deterministic created-editor transition.
+- Native algorithm consolidation, test-family table-driving, workspace-shell target
+  completion, and landing workspace folding remain separate overhaul stages. None was
+  disguised as completion of this bounded program.
+
+### Production delta by remaining-program stage
+
+| Stage | Production LOC delta | Note |
+| --- | ---: | --- |
+| A | +12 | Baseline product correction; the later consolidation stages more than offset it |
+| B | -1,123 | Unified raster scheduler and follow-ups |
+| C | -586 | Single annotation authority |
+| D | -4,541 | Integrated `7ede6c9eb..b45e84bb6` app delta |
+| E | -2 | Single markup presentation controller |
+| F | -205 | One-shot save-route classification |
+| G | -59 | Browser/DjVu responsibility splits and web tiers |
+| H | -1 | Release manifest and Electron runner ownership, excluding generated artifacts |
+| I | -16 | Fallow cleanup; `+7/-234` and **-227** across production plus tests |
+| **A–I total** | **-6,521** | Net production deletion; all-source stage cleanup is 211 lines lower again |
+
+Stage D's branch-local evidence was page-source `-23`, annotation `-75`, and render
+`-4,944`. Those branch measurements overlap the shared session foundation and merge
+resolution, so they are recorded as evidence but are not added together; `-4,541` is
+the non-double-counted integrated Stage-D result.
+
+The Stage-I cleanup commit `9875e3da8` removed 23 production lines while adding 7
+(net -16) and deleted a 211-line unused test helper; its all-source textual delta is
+therefore -227 without reclassifying that work into Stage D.
+
+Final `pnpm validate`, sequential isolated headless Electron lanes, release corpus,
+native workspace, resource-matrix, release-dry-run, and duplicate gates are recorded
+as pending until the closure runner supplies their final outputs. The ephemeral E2E
+session-controller detection blocker was fixed in `c44279007`; its rerun remains part
+of that pending matrix.
