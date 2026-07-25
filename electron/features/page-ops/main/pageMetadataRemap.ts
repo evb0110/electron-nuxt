@@ -126,8 +126,6 @@ export async function applyPageMetadataRemap(input: {
             '--modified-at',
             createNativeModifiedAt(),
             '--append',
-            '--incremental-validation',
-            'tail-only',
         ], {
             timeoutMs: PAGE_METADATA_REMAP_TIMEOUT_MS,
             commandLabel: 'evb-pdf-page-ops(page-metadata-remap)',

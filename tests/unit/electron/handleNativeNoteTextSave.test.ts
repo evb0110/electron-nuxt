@@ -549,7 +549,7 @@ describe('handleNativeNoteTextSave', () => {
         expect(readFileSyncUtf8(latestWorkingPath)).toBe('latest-before');
     });
 
-    it('uses tail-only native validation for metadata-only mutation saves', async () => {
+    it('commits a metadata-only mutation save to the original document', async () => {
         const {
             requestedWorkingPath,
             latestWorkingPath,
@@ -599,8 +599,6 @@ describe('handleNativeNoteTextSave', () => {
                 tool: 'native',
             },
         });
-        const runOptions = mocks.runNativeToolCommand.mock.calls[0]?.[2] as {env?: NodeJS.ProcessEnv;} | undefined;
-        expect(runOptions?.env).toMatchObject({EVB_PDF_PAGE_OPS_FULL_INCREMENTAL_VALIDATE: '0'});
         expect(readFileSyncUtf8(requestedWorkingPath)).toContain('% native metadata-only changes');
         expect(readFileSyncUtf8(latestWorkingPath)).toBe('latest-before');
     });
@@ -769,8 +767,6 @@ describe('handleNativeNoteTextSave', () => {
             ]),
             expect.objectContaining({commandLabel: 'evb-pdf-page-ops(save-mutations)'}),
         );
-        const runOptions = mocks.runNativeToolCommand.mock.calls[0]?.[2] as {env?: NodeJS.ProcessEnv;} | undefined;
-        expect(runOptions?.env?.EVB_PDF_PAGE_OPS_FULL_INCREMENTAL_VALIDATE).toBeUndefined();
         expect(mocks.atomicReplace).toHaveBeenCalledWith(tempPath, originalPath);
         expect(mocks.copyFileCopyOnWrite).toHaveBeenLastCalledWith(originalPath, requestedWorkingPath);
         expect(readFileSyncUtf8(requestedWorkingPath)).toContain('% native metadata changes');

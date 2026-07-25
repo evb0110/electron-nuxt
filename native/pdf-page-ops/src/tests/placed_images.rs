@@ -55,17 +55,11 @@
             markup: None,
             placed_images: vec![placed_image],
         };
-        assert!(should_run_full_native_mutation_validation(
-            IncrementalValidationMode::TailOnly,
-            &mutations,
-        ));
-
         append_native_mutations(
             &input_path,
             &output_path,
             &mutations,
             modified_at,
-            IncrementalValidationMode::TailOnly,
         )
         .unwrap();
 

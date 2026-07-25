@@ -48,7 +48,7 @@
 
     fn catalog(document: &Document) -> &Dictionary {
         document
-            .get_dictionary(catalog_id(document).unwrap())
+            .get_dictionary(document.root_id().unwrap())
             .unwrap()
     }
 
@@ -57,7 +57,7 @@
             .duration_since(UNIX_EPOCH)
             .unwrap()
             .as_nanos();
-        env::temp_dir().join(format!("evb-pdf-page-ops-{label}-{unique}.pdf"))
+        std::env::temp_dir().join(format!("evb-pdf-page-ops-{label}-{unique}.pdf"))
     }
 
     fn create_test_note_pdf() -> (Document, ObjectId, ObjectId) {

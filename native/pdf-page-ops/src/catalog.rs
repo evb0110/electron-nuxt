@@ -51,20 +51,12 @@ pub(crate) fn is_implicit_default_page_labels(ranges: &[PageLabelRange], total_p
         && normalized[0].start_number == 1
 }
 
-pub(crate) fn catalog_id(document: &Document) -> Result<ObjectId> {
-    document
-        .trailer
-        .get(b"Root")?
-        .as_reference()
-        .map_err(Into::into)
-}
-
 pub(crate) fn assert_mutation_page_count(
-    document: &Document,
+    document: &impl PdfObjectSource,
     total_pages: u32,
     label: &str,
 ) -> Result<()> {
-    let actual_pages = u32::try_from(document.get_pages().len())?;
+    let actual_pages = u32::try_from(document.page_ids().len())?;
     if total_pages != actual_pages {
         return Err(format!(
             "{label} page count {total_pages} does not match document page count {actual_pages}"
@@ -119,7 +111,7 @@ pub(crate) fn set_page_labels(
     page_labels: &PageLabelsMutation,
 ) -> Result<()> {
     assert_mutation_page_count(document, page_labels.total_pages, "Page-label mutation")?;
-    let catalog_id = catalog_id(document)?;
+    let catalog_id = document.root_id()?;
     let catalog = document.get_dictionary_mut(catalog_id)?;
     set_page_labels_on_catalog(catalog, page_labels);
     Ok(())
@@ -134,7 +126,7 @@ pub(crate) fn set_page_labels_incremental(
         page_labels.total_pages,
         "Page-label mutation",
     )?;
-    let catalog_id = catalog_id(incremental.get_prev_documents())?;
+    let catalog_id = incremental.get_prev_documents().root_id()?;
     incremental.opt_clone_object_to_new_document(catalog_id)?;
     let catalog = incremental.new_document.get_dictionary_mut(catalog_id)?;
     set_page_labels_on_catalog(catalog, page_labels);
@@ -433,7 +425,7 @@ pub(crate) fn set_bookmarks_on_catalog(
         bookmarks.total_pages,
         &bookmarks.untitled_label,
     );
-    let catalog_id = catalog_id(document)?;
+    let catalog_id = document.root_id()?;
     if normalized.is_empty() {
         let catalog = document.get_dictionary_mut(catalog_id)?;
         catalog.remove(b"Outlines");
@@ -478,7 +470,7 @@ pub(crate) fn set_bookmarks_incremental(
         bookmarks.total_pages,
         &bookmarks.untitled_label,
     );
-    let catalog_id = catalog_id(incremental.get_prev_documents())?;
+    let catalog_id = incremental.get_prev_documents().root_id()?;
     incremental.opt_clone_object_to_new_document(catalog_id)?;
     if normalized.is_empty() {
         let catalog = incremental.new_document.get_dictionary_mut(catalog_id)?;

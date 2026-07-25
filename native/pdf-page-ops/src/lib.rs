@@ -8,11 +8,10 @@ use page_sizes::write_page_sizes_json;
 use serde::Deserialize;
 use std::{
     cmp::Ordering,
-    collections::{BinaryHeap, HashMap, HashSet},
-    env,
+    collections::{BTreeMap, BinaryHeap, HashMap, HashSet},
     error::Error,
     fs::{self, File, OpenOptions},
-    io::{Read, Seek, SeekFrom, Write},
+    io::{BufReader, Read, Seek, SeekFrom, Write},
     path::PathBuf,
 };
 

@@ -9,7 +9,10 @@ pub(crate) fn normalize_page_rotation(value: i64) -> i64 {
     }
 }
 
-pub(crate) fn resolve_page_rotation(document: &Document, page_id: ObjectId) -> Result<i64> {
+pub(crate) fn resolve_page_rotation(
+    document: &impl PdfObjectSource,
+    page_id: ObjectId,
+) -> Result<i64> {
     let mut current_id = Some(page_id);
     let mut seen = HashSet::new();
 
@@ -18,9 +21,9 @@ pub(crate) fn resolve_page_rotation(document: &Document, page_id: ObjectId) -> R
             return Err("Page tree cycle while resolving Rotate".into());
         }
 
-        let dict = document.get_dictionary(object_id)?;
+        let dict = document.dictionary(object_id)?;
         if let Ok(object) = dict.get(b"Rotate") {
-            let (_, resolved) = document.dereference(object)?;
+            let resolved = document.resolved(object)?;
             return Ok(normalize_page_rotation(resolved.as_i64()?));
         }
 
@@ -43,7 +46,10 @@ pub(crate) fn intersect_rect(left: PdfRect, right: PdfRect) -> Option<PdfRect> {
     Some(rect)
 }
 
-pub(crate) fn resolve_page_view(document: &Document, page_id: ObjectId) -> Result<PdfRect> {
+pub(crate) fn resolve_page_view(
+    document: &impl PdfObjectSource,
+    page_id: ObjectId,
+) -> Result<PdfRect> {
     let media_box = resolve_inherited_box(document, page_id, b"MediaBox")?;
     match resolve_inherited_box(document, page_id, b"CropBox") {
         Ok(crop_box) => Ok(intersect_rect(crop_box, media_box).unwrap_or(media_box)),
@@ -197,7 +203,7 @@ pub(crate) fn resolve_page_id(
 }
 
 pub(crate) fn resolve_inherited_box(
-    document: &Document,
+    document: &impl PdfObjectSource,
     page_id: ObjectId,
     key: &[u8],
 ) -> Result<PdfRect> {
@@ -213,9 +219,9 @@ pub(crate) fn resolve_inherited_box(
             .into());
         }
 
-        let dict = document.get_dictionary(object_id)?;
+        let dict = document.dictionary(object_id)?;
         if let Ok(object) = dict.get(key) {
-            let (_, resolved) = document.dereference(object)?;
+            let resolved = document.resolved(object)?;
             return parse_rect(resolved);
         }
 

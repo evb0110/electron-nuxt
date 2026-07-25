@@ -43,7 +43,6 @@
                 placed_images: Vec::new(),
             },
             "D:20260609123456+03'00'",
-            IncrementalValidationMode::TailOnly,
         )
         .unwrap();
 
@@ -159,7 +158,6 @@
                 placed_images: Vec::new(),
             },
             "D:20260609123456+03'00'",
-            IncrementalValidationMode::TailOnly,
         )
         .unwrap();
 
@@ -171,28 +169,3 @@
         let _ = remove_file(pdf_path);
     }
 
-    #[test]
-    fn keeps_mixed_metadata_and_annotation_mutations_on_full_validation() {
-        let mutations = NativeMutationsFile {
-            updates: vec![NoteTextUpdate {
-                object_number: 1,
-                generation_number: 0,
-                text: "updated".to_string(),
-            }],
-            free_text_notes: Vec::new(),
-            deletes: Vec::new(),
-            page_labels: Some(PageLabelsMutation {
-                total_pages: 1,
-                ranges: Vec::new(),
-            }),
-            bookmarks: None,
-            shapes: None,
-            markup: None,
-            placed_images: Vec::new(),
-        };
-
-        assert!(should_run_full_native_mutation_validation(
-            IncrementalValidationMode::TailOnly,
-            &mutations,
-        ));
-    }
