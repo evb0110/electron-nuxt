@@ -620,7 +620,28 @@ export function createWorkspaceDocumentController(
             return;
         }
 
+        const closedDocument = snapshot.value.activeTransaction.kind === 'close' && result === 'committed';
         updateSnapshot((current) => {
+            if (closedDocument) {
+                // The close call's own verdict is the only untainted signal that
+                // the document is gone. The mounted workspace keeps publishing a
+                // document-shaped record for as long as the host's pending-document
+                // hint is alive, and that hint is derived from this record, so
+                // waiting for the workspace to report emptiness never terminates.
+                const emptyRecord = createWorkspaceDocumentRecord();
+                return {
+                    ...current,
+                    phase: 'empty' as const,
+                    identity: createEmptyIdentity(),
+                    activeTransaction: null,
+                    pendingDocumentPath: null,
+                    pendingClose: null,
+                    toolbarSnapshot: emptyRecord.toolbarSnapshot,
+                    dirty: false,
+                    closeable: false,
+                };
+            }
+
             const record = createWorkspaceDocumentRecord({
                 tab: {
                     fileName: current.identity.fileName,
@@ -717,6 +738,13 @@ export function createWorkspaceDocumentController(
             isDirty: updates.isDirty ?? current.tab.isDirty,
             isDjvu: updates.isDjvu ?? current.tab.isDjvu,
         };
+        if (tabHasDocumentHint(tab)) {
+            // The shell assigning a file to this tab starts a new document
+            // lifecycle, so the previous close's fence has nothing left to
+            // reject. Leaving it armed would silently drop this document and
+            // every workspace record that follows it.
+            closeRecordFenceActive = false;
+        }
         const pending = tabHasDocumentHint(tab)
             && current.toolbarSnapshot.hasPdf !== true
             && !hasWorkspaceViewerDocumentCapabilities(current.toolbarSnapshot.viewerCapabilities);

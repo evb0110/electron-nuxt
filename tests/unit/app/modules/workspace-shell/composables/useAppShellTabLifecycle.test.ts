@@ -282,6 +282,84 @@ describe('useAppShellTabLifecycle', () => {
         expect(session.snapshot.value.phase).toBe('empty');
     });
 
+    it('returns the retained singleton tab to the empty-tab shape after close', async () => {
+        const pane = {
+            paneId: 'pane-1',
+            activeTabId: 'tab-1',
+            tabIds: ['tab-1'],
+        };
+        const tabs = ref<ITab[]>([{
+            id: 'tab-1',
+            fileName: 'sample.pdf',
+            originalPath: '/tmp/sample.pdf',
+            isDirty: false,
+            isDjvu: false,
+        }]);
+        const workspaceHasPdf = ref(true);
+        let toolbarSnapshot = createReadyRecord('sample.pdf', '/tmp/sample.pdf', {canSave: false}).toolbarSnapshot;
+        const workspace = cast<IWorkspaceExpose>({
+            hasPdf: workspaceHasPdf,
+            getToolbarSnapshot: vi.fn(() => toolbarSnapshot),
+            handleCloseFileFromUi: vi.fn(async () => {
+                workspaceHasPdf.value = false;
+                toolbarSnapshot = createDefaultWorkspaceToolbarSnapshot();
+                return true;
+            }),
+        });
+        const workspaceSplitCache = {
+            set: vi.fn(),
+            peek: vi.fn(),
+            consume: vi.fn(),
+            has: vi.fn(() => false),
+            clear: vi.fn(),
+        };
+        const closeTab = vi.fn();
+        const lifecycle = useAppShellTabLifecycle({
+            panes: ref([pane]),
+            tabs,
+            activePaneId: ref('pane-1'),
+            activeTabId: ref<string | null>('tab-1'),
+            workspaceRefs: ref(new Map([[
+                'tab-1',
+                workspace,
+            ]])),
+            documentSessionsByTabId: shallowRef({}),
+            getDocumentRecord: vi.fn(() => null),
+            workspaceSplitCache,
+            workspaceRestoreTracker: {
+                start: vi.fn(),
+                finish: vi.fn(),
+                has: vi.fn(() => false),
+            },
+            getPaneById: vi.fn((paneId: string | null | undefined) => paneId === 'pane-1' ? pane : null),
+            getTabById: vi.fn((tabId: string | null | undefined) => (
+                tabs.value.find(candidate => candidate.id === tabId) ?? null
+            )),
+            getPaneByTabId: vi.fn((tabId: string | null | undefined) => tabId === 'tab-1' ? pane : null),
+            activatePane: vi.fn(),
+            activateTab: vi.fn(),
+            closeTab,
+            closePane: vi.fn(),
+            requestDirtyTabCloseConfirmation: vi.fn(async () => true),
+        });
+
+        await lifecycle.handleCloseTab('pane-1', 'tab-1');
+
+        expect(closeTab).not.toHaveBeenCalled();
+        expect(tabs.value).toHaveLength(1);
+        expect(tabs.value[0]).toMatchObject({
+            id: 'tab-1',
+            fileName: null,
+            originalPath: null,
+            documentInstanceId: null,
+            isDirty: false,
+            isDjvu: false,
+        });
+        expect(tabs.value[0]?.originalBackend).toBeUndefined();
+        expect(workspaceSplitCache.clear).toHaveBeenCalledWith('tab-1');
+        expect(lifecycle.isSingletonPlaceholderCloseBlocked('pane-1', 'tab-1')).toBe(true);
+    });
+
     it('keeps document, tab, and save projections empty after close despite stale publishes', async () => {
         const panes = ref<IEditorPaneState[]>([{
             paneId: 'pane-1',

@@ -174,6 +174,29 @@ export const useAppShellTabLifecycle = (
         }
     }
 
+    // The retained singleton tab keeps its mounted workspace, so its record must
+    // be returned to the empty-tab shape explicitly. Leaving the closed
+    // document's identity behind keeps `tabHasDocumentHint` true, which the host
+    // reads as an open still in flight and renders as a skeleton forever.
+    function resetTabToPlaceholder(tabId: string) {
+        const tab = getTabById(tabId);
+        if (!tab) {
+            return;
+        }
+
+        Object.assign(tab, {
+            fileName: null,
+            originalPath: null,
+            documentInstanceId: null,
+            isDirty: false,
+            isDjvu: false,
+        });
+        // `originalBackend` is presence-encoded everywhere it is read, so the
+        // empty-tab shape drops the key instead of holding an undefined value.
+        delete tab.originalBackend;
+        workspaceSplitCache.clear(tabId);
+    }
+
     function isPlaceholderTab(tab: ITab) {
         return tab.fileName === null
             && tab.originalPath === null
@@ -444,11 +467,11 @@ export const useAppShellTabLifecycle = (
             workspaceRestoreTracker.finish(tabId);
         }
 
-        if (
-            closed
-            && !workspaceHasPdf(workspace)
-            && !hasWorkspaceViewerDocumentCapabilities(workspace.getToolbarSnapshot().viewerCapabilities)
-        ) {
+        // `closed` is the close call's own verdict and the only untainted one:
+        // the toolbar snapshot still advertises a viewer adapter here, because
+        // the host keeps a pending-document hint alive until this tab drops its
+        // file name. Re-deriving "document gone" from that snapshot deadlocks.
+        if (closed) {
             const pane = getPaneByTabId(tabId) ?? getPaneById(paneId);
             const retainMountedSingletonOwner = panes.value.length === 1
                 && pane?.tabIds.length === 1
@@ -457,7 +480,9 @@ export const useAppShellTabLifecycle = (
             // Keep its mounted workspace/chassis authority instead of deleting
             // it and constructing an equivalent replacement asynchronously;
             // Recent-file commands then remain actionable in the close commit.
-            if (!retainMountedSingletonOwner) {
+            if (retainMountedSingletonOwner) {
+                resetTabToPlaceholder(tabId);
+            } else {
                 closeResolvedTabInState(paneId, tabId);
             }
         }
