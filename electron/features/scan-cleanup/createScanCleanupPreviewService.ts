@@ -58,6 +58,7 @@ import {
     type TMainJobSnapshot,
 } from '@electron/operation-lifecycle/createMainJobRegistry';
 import { ensureWorkingCopyMaterialized } from '@electron/file-access/workingCopyMaterialization';
+import { getWorkingCopyBackingEntry } from '@electron/file-access/workingCopyStore';
 
 const PREVIEW_DPI = 150;
 const DETAIL_TILE_MAX_PIXELS = 4_000_000;
@@ -170,7 +171,19 @@ const defaultDependencies: IScanCleanupPreviewDependencies = {
         signal,
     }),
     getSourceMtimeMs: async sourcePdfPath => (await stat(sourcePdfPath)).mtimeMs,
-    materializeWorkingCopy: ensureWorkingCopyMaterialized,
+    materializeWorkingCopy: (logicalRef, options) => {
+        // Preview work is queued, so the owning tab can close before the tail
+        // runs. Once the registration is retired the request is moot; report it
+        // as a cancellation rather than letting the materializer raise an
+        // ownership error out of the IPC handler.
+        if (!getWorkingCopyBackingEntry(logicalRef, options.ownerWebContentsId)) {
+            return Promise.reject(new DOMException(
+                'Scan cleanup source is no longer available',
+                'AbortError',
+            ));
+        }
+        return ensureWorkingCopyMaterialized(logicalRef, options);
+    },
 };
 
 async function materializeScanCleanupPreviewRequest<
@@ -181,6 +194,7 @@ async function materializeScanCleanupPreviewRequest<
     signal: AbortSignal,
     dependencies: IScanCleanupPreviewDependencies,
 ): Promise<T> {
+    signal.throwIfAborted();
     const materialized = await dependencies.materializeWorkingCopy(request.sourcePdfPath, {
         ownerWebContentsId: senderId,
         reason: 'scan-cleanup',

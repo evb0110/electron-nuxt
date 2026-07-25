@@ -240,7 +240,10 @@ const emit = defineEmits<{
     'update:session-state': [state: IScanCleanupTabSessionState];
 }>();
 const workspaceSession = useScanCleanupWorkspaceSession({
-    active: () => true,
+    // Losing the source ends the session: detection and preview cancel instead
+    // of queueing IPC against a working copy the main process has already
+    // retired.
+    active: () => sourcePath !== null,
     sourcePath: () => sourcePath,
     documentKey: () => documentKey,
     documentRevision: () => documentRevision,

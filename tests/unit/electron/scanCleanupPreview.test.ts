@@ -618,6 +618,50 @@ describe('scan cleanup preview', () => {
         );
     });
 
+    it('cancels preview work whose working copy is no longer registered', async () => {
+        const service = createScanCleanupPreviewService();
+
+        await expect(service.preview(sender(), request)).rejects.toMatchObject({name: 'AbortError'});
+        await expect(service.previewRaw(sender(), {
+            ownerId: request.ownerId,
+            documentRevision: request.documentRevision,
+            sourcePdfPath: request.sourcePdfPath,
+            pageNumber: request.pageNumber,
+        })).rejects.toMatchObject({name: 'AbortError'});
+    });
+
+    it('skips materialization for queued preview work canceled before it dequeues', async () => {
+        const dir = await setup();
+        const deps = dependencies(dir);
+        const originalRenderPage = deps.renderPage;
+        const firstEntered = Promise.withResolvers<undefined>();
+        const releaseFirst = Promise.withResolvers<undefined>();
+        deps.renderPage = vi.fn(async (...args: Parameters<typeof originalRenderPage>) => {
+            firstEntered.resolve(undefined);
+            await waitForRelease(releaseFirst.promise, args[7]!);
+            await originalRenderPage(...args);
+        });
+        const service = createScanCleanupPreviewService(deps);
+        const previewSender = sender();
+
+        const first = service.preview(previewSender, request);
+        await firstEntered.promise;
+        const queued = service.preview(previewSender, {
+            ...request,
+            pageNumber: 2,
+        });
+        service.cancel(previewSender, {
+            ownerId: request.ownerId,
+            documentRevision: request.documentRevision,
+            sourcePdfPath: request.sourcePdfPath,
+        });
+        releaseFirst.resolve(undefined);
+
+        await expect(first).rejects.toMatchObject({name: 'AbortError'});
+        await expect(queued).rejects.toMatchObject({name: 'AbortError'});
+        expect(deps.materializeWorkingCopy).toHaveBeenCalledTimes(1);
+    });
+
     it('keeps eager scan-cleanup preview paths unchanged', async () => {
         const dir = await setup();
         const deps = dependencies(dir);
