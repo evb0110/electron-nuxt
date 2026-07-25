@@ -10,9 +10,10 @@ use evb_native_support::{
     output::{AtomicOutput, ValidatedInputFiles},
 };
 use evb_pdf_image_combine::{
-    combine_tiff_paths, encode_netpbm_path_as_png, probe_netpbm_path, write_pdf, FramePolicy,
-    ImageCompression, ImageProcessing, ImageSpec, InputSource, JpegSizeGuardrail, PageSpec,
-    PdfBuildOptions, PdfPageSize, Result, DEFAULT_MAX_BILEVEL_PIXELS, DEFAULT_MAX_IMAGE_PIXELS,
+    combine_tiff_paths, default_worker_threads, encode_netpbm_path_as_png, probe_netpbm_path,
+    write_pdf, FramePolicy, ImageCompression, ImageProcessing, ImageSpec, InputSource,
+    JpegSizeGuardrail, PageSpec, PdfBuildOptions, PdfPageSize, Result, DEFAULT_MAX_BILEVEL_PIXELS,
+    DEFAULT_MAX_IMAGE_PIXELS, MAX_WORKER_THREADS,
 };
 
 struct Config {
@@ -118,6 +119,12 @@ fn run(raw_args: Vec<String>) -> Result<()> {
                 u64::MAX,
             ),
             max_tiff_frames: read_limit("EVB_PDF_COMBINE_MAX_TIFF_FRAMES", 250, 1, 5_000) as usize,
+            worker_threads: read_limit(
+                "EVB_PDF_COMBINE_THREADS",
+                default_worker_threads() as u64,
+                1,
+                MAX_WORKER_THREADS as u64,
+            ) as usize,
         },
         |processed| {
             if config.json_progress {

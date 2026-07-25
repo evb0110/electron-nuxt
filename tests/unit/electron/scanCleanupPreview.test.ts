@@ -3,6 +3,7 @@ import {
     readFile,
     rm,
     stat,
+    truncate,
     writeFile,
 } from 'fs/promises';
 import {tmpdir} from 'os';
@@ -30,6 +31,19 @@ import {
     decodeScanCleanupPreviewResult,
 } from '@contracts/scan-cleanup/ipcResultCodecs';
 import {SCAN_CLEANUP_PLATFORM_FEATURE} from '@contracts/scanCleanupPlatformFeature';
+import {
+    configureMainJobBroker,
+    mainJobBroker,
+} from '@electron/resources/jobBroker';
+
+configureMainJobBroker({
+    logicalCpus: 11,
+    totalRamBytes: 32 * 1024 ** 3,
+    safeMode: false,
+    detectedTier: 'high',
+    performanceMode: 'auto',
+    tier: 'high',
+});
 
 const SCAN_CLEANUP_CHANNELS = SCAN_CLEANUP_PLATFORM_FEATURE.invokeChannels;
 const SCAN_CLEANUP_IPC_CODECS = SCAN_CLEANUP_PLATFORM_FEATURE.ipcCodecs;
@@ -1863,7 +1877,52 @@ describe('scan cleanup preview', () => {
         });
     });
 
-    it('streams a brokered detect-all lifecycle and reuses preview rasters', async () => {
+    it('rasterizes detection pages straight to disk instead of buffering them', async () => {
+        const dir = await setup();
+        const deps = dependencies(dir);
+        deps.acquireDetectionLease = vi.fn(async () => ({release: vi.fn(() => true)}));
+        deps.renderPage = vi.fn(async (_paths, _log, _page, _source, outputPath) => {
+            await writeFile(outputPath, pngWithDimensions(883, 1335));
+            // Sparse padding well past what the preview path is willing to hold
+            // in memory: detection must never read a rendered page back.
+            await truncate(outputPath, 48 * 1024 * 1024);
+        });
+        deps.runSidecar = vi.fn(async (_binary, manifestPath, _signal, _log, onProgress) => {
+            await writeDetectionMetadata(manifestPath);
+            for (const pageNumber of [
+                1,
+                2,
+                3,
+            ]) {
+                onProgress({
+                    stage: 'detecting',
+                    completedUnits: pageNumber,
+                    totalUnits: 3,
+                    percent: pageNumber / 3 * 100,
+                    completedPageNumbers: Array.from({length: pageNumber}, (_, index) => index + 1),
+                }, {
+                    stage: 'page-complete',
+                    completedPages: pageNumber,
+                    totalPages: 3,
+                    pageNumber,
+                    classification: 'single-uncut-page',
+                    confidence: 0.9,
+                });
+            }
+        });
+        const service = createScanCleanupPreviewService(deps);
+        const owner = sender();
+        const started = await service.detectAll(owner, detectionRequest);
+
+        await vi.waitFor(() => expect(service.getDetectionJobState(
+            owner,
+            started.jobId,
+            detectionRequest,
+        )?.status).toBe('completed'));
+        expect(service.getDetectionJobState(owner, started.jobId, detectionRequest)?.results).toHaveLength(3);
+    });
+
+    it('streams a brokered detect-all lifecycle and leaves the raw cache to preview requests', async () => {
         const dir = await setup();
         const deps = dependencies(dir);
         const originalSidecar = deps.runSidecar;
@@ -2013,8 +2072,67 @@ describe('scan cleanup preview', () => {
             ],
         });
         expect(deps.acquireDetectionLease).toHaveBeenCalledWith(started.jobId, expect.any(AbortSignal));
-        expect(deps.renderPage).toHaveBeenCalledTimes(3);
-        expect(peakRasters).toBe(2);
+        expect(deps.renderPage).toHaveBeenCalledTimes(4);
+        expect(peakRasters).toBe(3);
+
+        const rawRequest = (pageNumber: number) => ({
+            ownerId: request.ownerId,
+            documentRevision: request.documentRevision,
+            sourcePdfPath: request.sourcePdfPath,
+            pageNumber,
+        });
+        await service.previewRaw(sender(), rawRequest(2));
+        expect(deps.renderPage).toHaveBeenCalledTimes(5);
+        await service.previewRaw(sender(), rawRequest(1));
+        expect(deps.renderPage).toHaveBeenCalledTimes(5);
+    });
+
+    it('rasterizes detection pages as wide as the 11-core host allows and leases that width', async () => {
+        const dir = await setup();
+        const deps = dependencies(dir);
+        const acquire = vi.spyOn(mainJobBroker, 'acquire');
+        deps.getPageCount = vi.fn(async () => 8);
+        const originalRenderPage = deps.renderPage;
+        let activeRasters = 0;
+        let peakRasters = 0;
+        deps.renderPage = vi.fn(async (...args) => {
+            activeRasters += 1;
+            peakRasters = Math.max(peakRasters, activeRasters);
+            try {
+                await new Promise(resolve => setTimeout(resolve, 5));
+                await originalRenderPage(
+                    args[0],
+                    args[1],
+                    args[2],
+                    args[3],
+                    args[4],
+                    args[5],
+                    args[6],
+                    args[7],
+                );
+            } finally {
+                activeRasters -= 1;
+            }
+        });
+        deps.runSidecar = vi.fn(async () => {
+            throw new Error('detection stopped once every page was rasterized');
+        });
+        const service = createScanCleanupPreviewService(deps);
+        const owner = sender();
+        const started = await service.detectAll(owner, detectionRequest);
+
+        await vi.waitFor(() => expect(service.getDetectionJobState(
+            owner,
+            started.jobId,
+            detectionRequest,
+        )?.status).toBe('failed'));
+        expect(deps.renderPage).toHaveBeenCalledTimes(8);
+        expect(peakRasters).toBe(4);
+        expect(acquire).toHaveBeenCalledWith(expect.objectContaining({
+            kind: 'scan-cleanup-detect-all',
+            resources: expect.objectContaining({nativeProcesses: peakRasters}),
+        }));
+        acquire.mockRestore();
     });
 
     it.each([
