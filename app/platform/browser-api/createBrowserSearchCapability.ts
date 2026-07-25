@@ -34,10 +34,7 @@ import { browserDocumentStore } from '@app/platform/browserDocumentStore';
 import type { IOcrWord } from '@contracts/shared';
 import { createBrowserSafeId } from '@app/utils/browserSafe';
 import { BrowserLogger } from '@app/utils/browserLogger';
-
-function isIndexedDbAvailable() {
-    return typeof indexedDB !== 'undefined';
-}
+import { resolveBrowserCapabilityTier } from '@app/platform/browser/browserCapabilityTier';
 
 function idbRequestToPromise<T>(
     request: IDBRequest<T>,
@@ -214,12 +211,13 @@ function createDocumentCache(): IPreparedSearchDocumentCache {
 }
 
 function openSearchCacheDb(): Promise<IDBDatabase | null> {
-    if (!isIndexedDbAvailable()) {
+    const { indexedDbFactory } = resolveBrowserCapabilityTier();
+    if (!indexedDbFactory) {
         return Promise.resolve(null);
     }
 
     return new Promise((resolve, reject) => {
-        const request = indexedDB.open(SEARCH_CACHE_DB_NAME, SEARCH_CACHE_DB_VERSION);
+        const request = indexedDbFactory.open(SEARCH_CACHE_DB_NAME, SEARCH_CACHE_DB_VERSION);
         request.onupgradeneeded = () => {
             const db = request.result;
             const store = db.objectStoreNames.contains(SEARCH_CACHE_STORE)

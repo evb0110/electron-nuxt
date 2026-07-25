@@ -1,3 +1,5 @@
+import type { IFilePickerAcceptType } from '@app/platform/browser/browserCapabilityTier';
+
 const SUPPORTED_IMAGE_EXTENSIONS = [
     '.apng',
     '.avif',
@@ -149,7 +151,5 @@ export {
     buildTiffSaveTypes,
     configureBrowserFilePickerDescriptions,
 };
-export type {
-    IFilePickerAcceptType,
-    TBrowserFilePickerDescriptionKey,
-};
+export type { TBrowserFilePickerDescriptionKey };
+export type { IFilePickerAcceptType } from '@app/platform/browser/browserCapabilityTier';

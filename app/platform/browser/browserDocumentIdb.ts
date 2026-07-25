@@ -5,24 +5,15 @@ import {
     DOCUMENT_CHUNKS_STORE,
 } from '@app/platform/browser/browserDocumentConstants';
 import type { IBrowserPersistedDocumentRecord } from '@app/platform/browser/browserDocumentTypes';
-
-type TIndexedDbFactory = typeof indexedDB;
+import { resolveBrowserCapabilityTier } from '@app/platform/browser/browserCapabilityTier';
 
 interface IIndexedDbReadResult<T> {
     available: boolean;
     value: T | null;
 }
 
-function getIndexedDbFactory(): TIndexedDbFactory | null {
-    if (typeof indexedDB === 'undefined') {
-        return null;
-    }
-
-    return indexedDB;
-}
-
 async function openDatabase() {
-    const indexedDbFactory = getIndexedDbFactory();
+    const { indexedDbFactory } = resolveBrowserCapabilityTier();
     if (!indexedDbFactory) {
         return null;
     }
