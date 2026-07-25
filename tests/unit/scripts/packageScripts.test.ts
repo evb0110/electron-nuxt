@@ -72,6 +72,7 @@ const expectedScriptNames = [
     'diag:arnold-pdf-open',
     'diag:scan-cleanup-corpus-verify',
     'diag:pdf-tabs:ci',
+    'benchmark:mutation-validation-rss',
     'benchmark:save-pipeline',
     'dist',
     'release:verify:checks',
@@ -140,7 +141,7 @@ describe('package scripts', () => {
         const scripts = await readPackageScripts();
 
         expect(Object.keys(scripts)).toEqual(expectedScriptNames);
-        expect(Object.keys(scripts)).toHaveLength(90);
+        expect(Object.keys(scripts)).toHaveLength(91);
         expect(Object.keys(scripts).filter(name => name.startsWith('check:'))).toHaveLength(12);
         expect(Object.keys(scripts).filter(name => name.startsWith('test:'))).toHaveLength(20);
         expect(Object.keys(scripts).filter(name => name.startsWith('typecheck:')))
