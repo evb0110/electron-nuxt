@@ -91,6 +91,12 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
     const recommendedOutputModeByPage = reactive(
         new Map<number, NonNullable<IScanCleanupDetectionResult['recommendedOutputMode']>>(),
     );
+    // Pages the running job has finished a stage for, accumulated across the
+    // job: the rasterizing stage reports read pages and the detecting stage
+    // reports analyzed ones, and neither set is a superset of the other. A page
+    // leaves its loading state as soon as its own work lands, instead of
+    // waiting for the whole batch.
+    const settledPages = reactive(new Set<number>());
     const recommendedOutputModeConfidenceByPage = reactive(new Map<number, number>());
     const recommendedOutputModeReasonByPage = reactive(
         new Map<number, NonNullable<IScanCleanupDetectionResult['recommendedOutputModeReason']>>(),
@@ -149,6 +155,12 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
         completedPageNumbers: [],
     });
     const progressText = computed(() => formatScanCleanupProgress(progress.value, t).text);
+    // The same sentence at its widest counter, so the status line can reserve
+    // its box and the cancel button beside it never moves as the count grows.
+    const progressWidestText = computed(() => formatScanCleanupProgress({
+        ...progress.value,
+        completedUnits: progress.value.totalUnits,
+    }, t).text);
     const blankPageCount = computed(() => jobState.value?.status === 'completed'
         ? jobState.value.results.filter(result => result.recommendedOutputModeReason === 'blank').length
         : 0);
@@ -251,6 +263,7 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
             }
         }
         jobState.value = state;
+        for (const pageNumber of state.progress.completedPageNumbers ?? []) settledPages.add(pageNumber);
         const completedWithCurrentEvidence = state.status === 'completed' && evidenceIsCurrent();
         if (completedWithCurrentEvidence) {
             documentCanvasPlan.value = state.documentCanvasPlan;
@@ -335,6 +348,7 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
         confidenceByPage.clear();
         documentPriorByPage.clear();
         documentCanvasPlan.value = undefined;
+        settledPages.clear();
         textAxisByPage.clear();
         clearOutputModeRecommendations();
         jobId = result.jobId;
@@ -491,6 +505,8 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
             pageNumber,
             value,
         ] of cached.signatures) signatures.set(pageNumber, value);
+        settledPages.clear();
+        for (const result of cached.results) settledPages.add(result.pageNumber);
         applyScanCleanupDetectionResults(
             cached.results,
             detectedLayoutByPage,
@@ -557,6 +573,7 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
         confidenceByPage.clear();
         documentPriorByPage.clear();
         documentCanvasPlan.value = undefined;
+        settledPages.clear();
         textAxisByPage.clear();
         clearOutputModeRecommendations();
         autoPending.value = Boolean(options.active() && options.sourcePath.value);
@@ -604,6 +621,7 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
                 }
                 const pageNumber = index + 1;
                 detectedLayoutByPage.delete(pageNumber);
+                settledPages.delete(pageNumber);
                 confidenceByPage.delete(pageNumber);
                 documentPriorByPage.delete(pageNumber);
                 textAxisByPage.delete(pageNumber);
@@ -651,9 +669,11 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
         pending,
         progress,
         progressText,
+        progressWidestText,
         recommendedOutputModeByPage,
         recommendedOutputModeConfidenceByPage,
         recommendedOutputModeReasonByPage,
+        settledPages,
         textAxisByPage,
     };
 };

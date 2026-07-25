@@ -67,7 +67,6 @@
 }
 
 .page-label {
-    min-width: var(--app-scan-preview-page-label-width);
     color: var(--ui-text-muted);
     font-size: var(--app-text-size-secondary);
     text-align: center;
@@ -621,7 +620,11 @@
     font-size: var(--app-text-size-kicker);
 }
 
-.overlay-legend.is-space-reserved {
+/* The legend row, its border and every entry keep their box in every state:
+   only the ink is switched off, so switching Original/Cleaned or toggling
+   "match page size" can never move the preview surface above it. */
+.overlay-legend.is-space-reserved > span,
+.overlay-legend > span.is-hidden-entry {
     visibility: hidden;
 }
 
@@ -679,9 +682,19 @@
     color: var(--app-toolbar-control-hover-fg);
 }
 
+/* Same active vocabulary as ToolbarButton.is-active and the sidebar tabs:
+   an elevated surface plus the active border, never a primary tint. The border
+   is drawn with an inset shadow because these buttons share a segmented edge. */
 .preview-zoom-button.is-active {
     background: var(--app-toolbar-control-active-bg);
-    color: var(--ui-primary);
+    box-shadow: inset 0 0 0 var(--app-hairline-height) var(--app-control-active-border);
+    color: var(--app-toolbar-control-hover-fg);
+}
+
+.preview-zoom-button.is-active:hover:not(:disabled) {
+    background: var(--app-control-active-hover-bg);
+    box-shadow: inset 0 0 0 var(--app-hairline-height) var(--app-control-active-hover-border);
+    color: var(--app-toolbar-control-hover-fg);
 }
 
 .preview-zoom-button:focus-visible,

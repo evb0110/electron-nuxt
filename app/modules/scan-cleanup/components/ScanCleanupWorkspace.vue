@@ -11,6 +11,7 @@
             :detection-cancel-requested="detectionCancelRequested"
             :detection-error="detectionError"
             :detection-progress-text="detectionProgressText"
+            :detection-progress-widest-text="detectionProgressWidestText"
             :is-detecting="detectionPending"
             :is-running="isRunning"
             :output-estimate="outputEstimate"
@@ -140,6 +141,7 @@
                 :disabled="isRunning"
                 :processed-pages="processedPages"
                 :detection-active="detectionPending"
+                :settled-pages="detectionSettledPages"
                 @select-page="selectPage"
                 @update:override="updatePageOverride"
             />
@@ -315,6 +317,8 @@ const {
     outputEstimate,
     pending: detectionPending,
     progressText: detectionProgressText,
+    progressWidestText: detectionProgressWidestText,
+    settledPages: detectionSettledPages,
     recommendedOutputModeByPage,
     recommendedOutputModeConfidenceByPage,
     recommendedOutputModeReasonByPage,
@@ -899,6 +903,25 @@ watch(isRunning, running => {
 .scan-cleanup-selection-hint {
     color: var(--ui-text-muted);
     font-size: var(--app-text-size-kicker);
+}
+
+/* Help text that is gated by another setting keeps its line reserved, so
+   ticking a checkbox or changing scope never moves the controls below it. */
+.scan-cleanup-selection-hint.is-reserved {
+    min-height: calc(var(--app-text-size-kicker) * var(--app-line-height-body));
+}
+
+/* A control whose value no longer applies stays in place and dims, matching
+   ScanCleanupAutoValueRow, instead of unmounting and collapsing its row. */
+.scan-cleanup-field-disabled {
+    opacity: var(--app-scan-disabled-opacity);
+}
+
+/* Conditional badges, override markers and reset buttons are taller than the
+   label text they sit beside; the row reserves their height in every state. */
+.scan-cleanup-selection-field-label,
+.scan-cleanup-margins-header {
+    min-height: var(--app-scan-settings-affordance-height);
 }
 
 .scan-cleanup-lossless-explanation {

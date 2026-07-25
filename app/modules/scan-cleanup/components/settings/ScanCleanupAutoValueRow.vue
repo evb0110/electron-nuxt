@@ -39,7 +39,7 @@
         <div v-if="$slots.entry" class="scan-cleanup-auto-value-entry">
             <slot name="entry" />
         </div>
-        <p v-if="hint" class="scan-cleanup-auto-value-hint">{{ hint }}</p>
+        <p v-if="reserveHint || hint" class="scan-cleanup-auto-value-hint">{{ hint }}&nbsp;</p>
     </div>
 </template>
 
@@ -48,6 +48,9 @@ defineProps<{
     disabled?: boolean;
     hint?: string | undefined;
     label: string;
+    // Rows whose hint arrives asynchronously (detection results) keep the line
+    // reserved, so the surrounding settings never move when it appears.
+    reserveHint?: boolean;
     state: 'auto' | 'manual' | 'mixed';
     valueText?: string | undefined;
 }>();
@@ -64,7 +67,9 @@ const mixedLabel = computed(() => t('scanCleanup.settings.mixed').replace(/^—\
 
 .scan-cleanup-auto-value-header {
     display: flex;
+    box-sizing: border-box;
     min-width: 0;
+    min-height: var(--app-scan-settings-affordance-height);
     align-items: center;
     justify-content: space-between;
     gap: var(--app-space-sm);
@@ -72,15 +77,19 @@ const mixedLabel = computed(() => t('scanCleanup.settings.mixed').replace(/^—\
     font-size: var(--app-text-size-body-sm);
 }
 
+/* The automatic and manual tags are the same box: only the manual one carries a
+   reset button, and that must not make the row taller when deskew is set. */
 .scan-cleanup-auto-value-state {
     display: inline-flex;
+    box-sizing: border-box;
     min-width: 0;
+    height: var(--app-scan-settings-affordance-height);
     flex: none;
     align-items: center;
     gap: var(--app-space-xs);
     border-radius: var(--app-radius-full);
     background: color-mix(in srgb, var(--ui-primary) 16%, var(--ui-bg));
-    padding: var(--app-space-xs) var(--app-space-xl);
+    padding-inline: var(--app-space-xl);
     color: var(--ui-primary);
     font-size: var(--app-text-size-kicker);
     font-weight: 700;

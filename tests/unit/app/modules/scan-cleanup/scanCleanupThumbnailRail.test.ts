@@ -367,6 +367,7 @@ function mountRail(options: {
     source?: IDocumentPageSource | null;
     sourcePending?: boolean;
     detectionActive?: boolean;
+    settledPages?: ReadonlySet<number>;
     classifications?: ReadonlyMap<number, IScanCleanupPreviewMetadata['layoutClassification']>;
     confidences?: ReadonlyMap<number, number>;
     recommendedOutputModes?: ReadonlyMap<number, 'bw' | 'mixed' | 'grayscale' | 'color'>;
@@ -393,6 +394,7 @@ function mountRail(options: {
         source,
         sourcePending: options.sourcePending ?? false,
         detectionActive: options.detectionActive ?? false,
+        settledPages: options.settledPages ?? new Set<number>(),
         totalPages: source?.pageCount ?? 5,
         selectionLeader: leader.value,
         selectedPages: selected.value,
@@ -577,6 +579,32 @@ describe('ScanCleanupThumbnailRail', () => {
         await nextTick();
         expect(harness.host.querySelectorAll('.scan-thumbnail-detection-pending')).toHaveLength(4);
         expect(harness.host.querySelector('[data-page-number="1"]')?.textContent).toContain('Spread');
+    });
+
+    it('settles a page as soon as the running job reports it, while the rest still spin', async () => {
+        const classifications = reactive(new Map<number, IScanCleanupPreviewMetadata['layoutClassification']>());
+        const settledPages = reactive(new Set<number>());
+        const harness = mountRail({
+            classifications,
+            detectionActive: true,
+            settledPages,
+        });
+
+        // Reading the document is the long stage of a large job and reports no
+        // classifications at all: every page used to spin for its whole run.
+        expect(harness.host.querySelectorAll('.scan-thumbnail-detection-pending')).toHaveLength(5);
+
+        settledPages.add(2);
+        settledPages.add(4);
+        await nextTick();
+        expect(harness.host.querySelectorAll('.scan-thumbnail-detection-pending')).toHaveLength(3);
+        expect(harness.host.querySelector('[aria-label="Detecting page 2"]')).toBeNull();
+        expect(harness.host.querySelector('[aria-label="Detecting page 1"]')).not.toBeNull();
+
+        classifications.set(2, 'two-page-spread');
+        await nextTick();
+        expect(harness.host.querySelectorAll('.scan-thumbnail-detection-pending')).toHaveLength(3);
+        expect(harness.host.querySelector('[data-page-number="2"]')?.textContent).toContain('Spread');
     });
 
     it('supports single, Ctrl/Cmd toggle, Shift range, and keyboard leader navigation', async () => {

@@ -526,6 +526,7 @@ const props = defineProps<{
     processedPages?: ReadonlySet<number>;
     sourcePending?: boolean;
     detectionActive?: boolean;
+    settledPages?: ReadonlySet<number>;
 }>();
 const emit = defineEmits<{
     'select-page': [page: number, intent: TScanCleanupSelectionIntent, orderedPages: readonly number[]];
@@ -1112,8 +1113,13 @@ function updateTextAxisPopover(page: number, open: boolean) {
     }
 }
 
+// A page keeps its spinner only while its own detection work is outstanding:
+// once the running job reports that page as read or analyzed it settles, even
+// though the rest of the batch is still going.
 function isDetectionPending(page: number) {
-    return props.detectionActive === true && !props.classifications.has(page);
+    return props.detectionActive === true
+        && !props.classifications.has(page)
+        && props.settledPages?.has(page) !== true;
 }
 
 function includeLabel(page: number) {

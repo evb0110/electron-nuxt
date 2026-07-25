@@ -257,21 +257,23 @@
             </div>
 
             <ScanCleanupAutoValueRow
-                :label="t('scanCleanup.settings.manualSkew')"
+                :label="manualSkewLabel"
                 :state="manualSkewState"
                 :value-text="manualSkewValueText"
                 :hint="manualSkewHint"
+                reserve-hint
                 :disabled="settings.preserveOriginalQuality === true"
                 @reset="$emit('reset-manual-skew')"
             >
                 <template #entry>
                     <UInputNumber
-                        :model-value="manualSkew.mixed ? null : manualSkew.value ?? null"
+                        :model-value="manualSkewEntryValue"
                         :min="SCAN_CLEANUP_MANUAL_SKEW_MIN_DEGREES"
                         :max="SCAN_CLEANUP_MANUAL_SKEW_MAX_DEGREES"
                         :step="0.1"
-                        :placeholder="t('scanCleanup.settings.automatic')"
-                        :aria-label="t('scanCleanup.settings.manualSkew')"
+                        :increment-disabled="manualSkew.mixed"
+                        :decrement-disabled="manualSkew.mixed"
+                        :aria-label="manualSkewLabel"
                         :disabled="settings.preserveOriginalQuality === true"
                         @update:model-value="emitManualSkew"
                     />
@@ -343,8 +345,8 @@
                         @click="$emit('update-placement', item.value)"
                     />
                 </div>
-                <p v-if="!settings.matchPageSize" class="scan-cleanup-selection-hint">
-                    {{ t('scanCleanup.settings.enableMatchPageSize') }}
+                <p class="scan-cleanup-selection-hint is-reserved">
+                    {{ settings.matchPageSize ? '' : t('scanCleanup.settings.enableMatchPageSize') }}&nbsp;
                 </p>
             </div>
 
@@ -413,11 +415,10 @@
                     />
                 </UDropdownMenu>
                 <p
-                    v-if="scope !== 'page'"
                     :id="applyPageHintId"
-                    class="scan-cleanup-selection-hint"
+                    class="scan-cleanup-selection-hint is-reserved"
                 >
-                    {{ t('scanCleanup.settings.applyThisPageToHint') }}
+                    {{ scope === 'page' ? '' : t('scanCleanup.settings.applyThisPageToHint') }}&nbsp;
                 </p>
             </div>
         </section>
@@ -437,7 +438,7 @@
                 @update:model-value="updateDocument('outputMode', $event)"
             />
             <UFormField
-                v-if="settings.outputMode === 'auto' || settings.outputMode === 'bw' || settings.outputMode === 'mixed'"
+                :class="{'scan-cleanup-field-disabled': !thicknessApplies}"
                 :label="t('scanCleanup.thickness.label', {value: thicknessLabel})"
             >
                 <USlider
@@ -447,7 +448,7 @@
                     :step="1"
                     :model-value="settings.thickness"
                     :aria-label="t('scanCleanup.thickness.control')"
-                    :disabled="settings.preserveOriginalQuality === true"
+                    :disabled="!thicknessApplies"
                     @update:model-value="$emit('thickness-input', $event)"
                 />
                 <div class="scan-cleanup-scale" aria-hidden="true">
@@ -734,6 +735,16 @@ const hasContentBoxes = computed(() => props.contentBoxes.mixed
 const manualSkewState = computed(() => props.manualSkew.mixed
     ? 'mixed'
     : props.manualSkew.value === undefined ? 'auto' : 'manual');
+const manualSkewLabel = computed(() => t('scanCleanup.settings.manualSkew', {
+    min: SCAN_CLEANUP_MANUAL_SKEW_MIN_DEGREES,
+    max: SCAN_CLEANUP_MANUAL_SKEW_MAX_DEGREES,
+}));
+// The stepper starts from the neutral 0° rather than from an empty field:
+// a null number field steps to its minimum, which made every first press jump
+// to -15° and put the positive half of the range out of reach.
+const manualSkewEntryValue = computed(() => props.manualSkew.mixed
+    ? null
+    : props.manualSkew.value ?? 0);
 const manualSkewValueText = computed(() => {
     const value = props.manualSkew.value;
     if (props.manualSkew.mixed || value === undefined) {
@@ -752,6 +763,13 @@ const manualSplitState = computed(() => props.manualSplit.mixed
 const contentBoxesState = computed(() => props.contentBoxes.mixed
     ? 'mixed'
     : hasContentBoxes.value ? 'manual' : 'auto');
+// Text thickness only affects bilevel output, but it keeps its place in the
+// panel and disables instead of unmounting: switching B&W/gray/colour must not
+// move the controls below it.
+const thicknessApplies = computed(() => props.settings.preserveOriginalQuality !== true
+    && (props.settings.outputMode === 'auto'
+        || props.settings.outputMode === 'bw'
+        || props.settings.outputMode === 'mixed'));
 const autoDewarpDepthState = computed(() => props.settings.autoDewarpDepth === undefined ? 'auto' : 'manual');
 const autoDewarpDepthDisabled = computed(() => props.settings.preserveOriginalQuality === true
     || !(props.settings.autoDewarp ?? false));
@@ -903,11 +921,13 @@ function updateDocument(key: keyof IScanCleanupOptions, value: unknown) {
 
 .scan-cleanup-override-marker {
     display: inline-flex;
+    box-sizing: border-box;
+    height: var(--app-scan-settings-affordance-height);
     align-items: center;
     gap: var(--app-space-sm);
     border-radius: var(--app-radius-full);
     background: color-mix(in srgb, var(--ui-primary) 16%, var(--ui-bg));
-    padding: var(--app-space-xs) var(--app-space-xl);
+    padding-inline: var(--app-space-xl);
     color: var(--ui-primary);
     font-size: var(--app-text-size-kicker);
     font-weight: 700;

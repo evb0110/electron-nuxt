@@ -18,7 +18,11 @@
                     :disabled="disabled || pageNumber <= 1"
                     @click="$emit('previous')"
                 />
-                <span class="page-label">{{ t('scanCleanup.preview.page', {page: pageNumber, total: totalPages}) }}</span>
+                <ScanCleanupStableWidthText
+                    class="page-label"
+                    :text="t('scanCleanup.preview.page', {page: pageNumber, total: totalPages})"
+                    :widest="t('scanCleanup.preview.page', {page: totalPages, total: totalPages})"
+                />
                 <UButton
                     type="button"
                     color="neutral"
@@ -33,48 +37,56 @@
             </div>
             <div class="preview-controls">
                 <div
-                    v-if="result || rawResult"
                     class="preview-zoom-controls"
                     role="group"
                     :aria-label="t('scanCleanup.preview.zoomControls')"
                 >
-                    <button
-                        type="button"
-                        class="preview-zoom-button"
-                        :aria-label="t('scanCleanup.preview.zoomOut')"
-                        :disabled="disabled || !canZoomOut"
-                        @click="stepPreviewZoom(-1)"
-                    >
-                        <UIcon name="i-ph-minus" class="preview-zoom-icon" />
-                    </button>
-                    <button
-                        type="button"
-                        class="preview-zoom-value"
-                        :aria-label="t('scanCleanup.preview.toggleZoom', {zoom: previewZoomLabel})"
-                        :disabled="disabled"
-                        @click="toggleFitAndActualSize"
-                    >
-                        {{ previewZoomLabel }}
-                    </button>
-                    <button
-                        type="button"
-                        class="preview-zoom-button"
-                        :aria-label="t('scanCleanup.preview.zoomIn')"
-                        :disabled="disabled || !canZoomIn"
-                        @click="stepPreviewZoom(1)"
-                    >
-                        <UIcon name="i-ph-plus" class="preview-zoom-icon" />
-                    </button>
-                    <button
-                        type="button"
-                        class="preview-zoom-button"
-                        :class="{'is-active': previewZoomMode === 'fit'}"
-                        :aria-label="t('scanCleanup.preview.fit')"
-                        :disabled="disabled"
-                        @click="fitPreview"
-                    >
-                        <UIcon name="i-ph-arrows-out" class="preview-zoom-icon" />
-                    </button>
+                    <AppTooltip :text="t('scanCleanup.preview.zoomOut')" usefulness="always">
+                        <button
+                            type="button"
+                            class="preview-zoom-button"
+                            :aria-label="t('scanCleanup.preview.zoomOut')"
+                            :disabled="zoomControlsDisabled || !canZoomOut"
+                            @click="stepPreviewZoom(-1)"
+                        >
+                            <UIcon name="i-ph-minus" class="preview-zoom-icon" />
+                        </button>
+                    </AppTooltip>
+                    <AppTooltip :text="t('scanCleanup.preview.toggleZoom', {zoom: previewZoomLabel})" usefulness="always">
+                        <button
+                            type="button"
+                            class="preview-zoom-value"
+                            :aria-label="t('scanCleanup.preview.toggleZoom', {zoom: previewZoomLabel})"
+                            :disabled="zoomControlsDisabled"
+                            @click="toggleFitAndActualSize"
+                        >
+                            {{ previewZoomLabel }}
+                        </button>
+                    </AppTooltip>
+                    <AppTooltip :text="t('scanCleanup.preview.zoomIn')" usefulness="always">
+                        <button
+                            type="button"
+                            class="preview-zoom-button"
+                            :aria-label="t('scanCleanup.preview.zoomIn')"
+                            :disabled="zoomControlsDisabled || !canZoomIn"
+                            @click="stepPreviewZoom(1)"
+                        >
+                            <UIcon name="i-ph-plus" class="preview-zoom-icon" />
+                        </button>
+                    </AppTooltip>
+                    <AppTooltip :text="t('scanCleanup.preview.fitPage')" usefulness="always">
+                        <button
+                            type="button"
+                            class="preview-zoom-button"
+                            :class="{'is-active': previewZoomMode === 'fit'}"
+                            :aria-label="t('scanCleanup.preview.fitPage')"
+                            :aria-pressed="previewZoomMode === 'fit'"
+                            :disabled="zoomControlsDisabled"
+                            @click="fitPreview"
+                        >
+                            <UIcon name="i-ph-frame-corners" class="preview-zoom-icon" />
+                        </button>
+                    </AppTooltip>
                 </div>
                 <ScanCleanupSegmented
                     :model-value="effectiveViewMode"
@@ -330,13 +342,13 @@
 
         <div
             class="overlay-legend"
-            :class="{'is-space-reserved': effectiveViewMode === 'original' && !lossless}"
-            :aria-hidden="effectiveViewMode === 'original' && !lossless"
+            :class="{'is-space-reserved': legendHidden}"
+            :aria-hidden="legendHidden"
             :aria-label="t('scanCleanup.preview.legend')"
         >
             <span><i class="legend-swatch is-content" />{{ t('scanCleanup.preview.contentBox') }}</span>
             <span><i class="legend-swatch is-margin" />{{ t('scanCleanup.preview.marginBox') }}</span>
-            <span v-if="matchPageSize"><i class="legend-swatch is-canvas" />{{ t('scanCleanup.preview.canvas') }}</span>
+            <span :class="{'is-hidden-entry': !matchPageSize}"><i class="legend-swatch is-canvas" />{{ t('scanCleanup.preview.canvas') }}</span>
         </div>
     </section>
 </template>
@@ -360,6 +372,7 @@ import type {
 import type {CSSProperties} from 'vue';
 import type {IDocumentPageSource} from '@app/utils/document-viewer/source/documentPageSource';
 import ScanCleanupSegmented from '@app/modules/scan-cleanup/components/ScanCleanupSegmented.vue';
+import ScanCleanupStableWidthText from '@app/modules/scan-cleanup/components/ScanCleanupStableWidthText.vue';
 import CleanedCanvas from '@app/modules/scan-cleanup/components/preview/CleanedCanvas.vue';
 import ContentBoxOverlay from '@app/modules/scan-cleanup/components/preview/ContentBoxOverlay.vue';
 import CutterOverlay from '@app/modules/scan-cleanup/components/preview/CutterOverlay.vue';
@@ -547,6 +560,9 @@ const {
 const effectiveViewMode = computed(() => props.lossless
     ? 'original'
     : props.viewMode ?? 'cleaned');
+const zoomControlsDisabled = computed(() => props.disabled === true
+    || (props.result ?? props.rawResult ?? null) === null);
+const legendHidden = computed(() => effectiveViewMode.value === 'original' && !props.lossless);
 const devicePixelScale = ref(typeof window === 'undefined' ? 1 : window.devicePixelRatio || 1);
 let devicePixelMediaQuery: MediaQueryList | null = null;
 
