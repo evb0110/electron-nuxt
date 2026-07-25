@@ -197,6 +197,12 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
         detailLoading.value = false;
     }
 
+    function clearDetail() {
+        invalidateDetailRequest();
+        detailResult.value = null;
+        displayedDetailSourceKey = null;
+    }
+
     function cancel(invalidateRawCache = true) {
         sequence += 1;
         prefetcher.supersede();
@@ -393,6 +399,8 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
             detailLoading.value = false;
             return;
         }
+        detailResult.value = null;
+        displayedDetailSourceKey = null;
         detailLoading.value = true;
         try {
             const documentPrior = options.documentPriorByPage.get(requestPage);
@@ -419,8 +427,6 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
             displayedDetailSourceKey = sourceKey;
         } catch (caught) {
             if (!(caught instanceof Error && caught.name === 'AbortError')) {
-                detailResult.value = null;
-                displayedDetailSourceKey = null;
                 // A failed detail render retries on its own: the viewport is
                 // stationary, so no user gesture would otherwise re-request it.
                 if (requestSequence === detailSequence && detailRetriesRemaining > 0) {
@@ -469,6 +475,7 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
     return {
         cancel,
         classificationDiffersByPage,
+        clearDetail,
         error,
         detailLoading,
         detailResult,

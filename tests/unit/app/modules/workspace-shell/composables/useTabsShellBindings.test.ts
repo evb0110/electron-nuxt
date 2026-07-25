@@ -280,6 +280,7 @@ describe('useTabsShellBindings', () => {
         await expect(window.__evbTestApi?.openFile('/tmp/sample.pdf')).resolves.toBe(true);
         expect(options.openPathInAppropriateTab).toHaveBeenCalledWith('/tmp/sample.pdf');
         expect(window.__evbTestApi?.getActiveTabId()).toBe('tab-1');
+        expect(window.__evbTestApi?.isStartupOpenClaimPending()).toBe(false);
         expect(window.__evbTestApi?.getActiveToolbarSnapshot()?.currentPage).toBe(1);
         await expect(eventPromise).resolves.toMatchObject({
             detail: {page: 3},
@@ -408,6 +409,7 @@ describe('useTabsShellBindings', () => {
     });
 
     it('waits for claimed startup external paths before notifying renderer readiness', async () => {
+        window.__allowRendererFileOpenForAutomation = vi.fn(async () => true);
         const options = createOptions();
         let resolveMatchingWarmup: (() => void) | undefined;
         let resolveStartupOpen: (() => void) | undefined;
@@ -438,6 +440,7 @@ describe('useTabsShellBindings', () => {
 
         expect(options.beginOpenPathsInAppropriateTab).toHaveBeenCalledWith(['/tmp/startup.pdf']);
         expect(options.isStartupOpenClaimPending.value).toBe(true);
+        expect(window.__evbTestApi?.isStartupOpenClaimPending()).toBe(true);
         expect(mocks.notifyRendererReady).not.toHaveBeenCalled();
         expect(mocks.acknowledgePendingExternalOpenPaths).not.toHaveBeenCalled();
 
@@ -446,6 +449,7 @@ describe('useTabsShellBindings', () => {
 
         expect(mocks.acknowledgePendingExternalOpenPaths).toHaveBeenCalledWith([]);
         expect(options.isStartupOpenClaimPending.value).toBe(false);
+        expect(window.__evbTestApi?.isStartupOpenClaimPending()).toBe(false);
         expect(mocks.notifyRendererReady).toHaveBeenCalledOnce();
         expect(mocks.scheduleDesktopViewerWarmup).toHaveBeenCalledOnce();
         expect(mocks.lifecycleOrder).toEqual([

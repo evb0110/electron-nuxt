@@ -12,6 +12,23 @@ import type { IWorkspaceDocumentController } from '@app/modules/workspace-shell/
 import { getDocumentOpenCapability } from '@app/utils/platformDocuments';
 import type { TOpenFileResult } from '@contracts/electronApiDocuments';
 import type { TTranslateFn } from '@i18n-app';
+import type {ITabViewSessionState} from '@app/modules/workspace-shell/tabs/tabSessionStoreTypes';
+
+export function resolveScanCleanupEntryViewState(
+    viewState: ITabViewSessionState,
+): ITabViewSessionState {
+    if (viewState.surfaceMode === 'scan-cleanup') {
+        return viewState;
+    }
+    const {
+        scanCleanup: _scanCleanup,
+        ...freshViewState
+    } = viewState;
+    return {
+        ...freshViewState,
+        surfaceMode: 'scan-cleanup',
+    };
+}
 
 export const useScanCleanupRunCoordinator = (
     activeWorkspace: ComputedRef<IWorkspaceExpose | null>,
@@ -30,10 +47,7 @@ export const useScanCleanupRunCoordinator = (
         openGeneratedPdf: async (path) => {
             const result = await getDocumentOpenCapability().openDocumentDirect(path);
             return result?.kind === 'pdf'
-                ? handleOpenInNewTab({
-                    ...result,
-                    isGenerated: true,
-                })
+                ? handleOpenInNewTab(result)
                 : false;
         },
         saveActiveDocumentAs: async () => activeWorkspace.value?.handleSaveAs() ?? false,
@@ -54,10 +68,9 @@ export const useScanCleanupRunCoordinator = (
                 tabId,
                 session,
             ] = owner;
-            session.applyViewState({
-                ...session.snapshot.value.viewState,
-                surfaceMode: 'scan-cleanup',
-            });
+            session.applyViewState(resolveScanCleanupEntryViewState(
+                session.snapshot.value.viewState,
+            ));
             activateTab(tabId);
             await nextTick();
             return true;

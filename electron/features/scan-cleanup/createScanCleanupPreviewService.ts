@@ -299,7 +299,7 @@ function resolveFallbackDetailDpi(
         ? request.documentCanvasPlan.heightPoints / 72 * PREVIEW_DPI
         : 0;
     const budgetDpi = PREVIEW_DPI * Math.sqrt(
-        DETAIL_TILE_MAX_PIXELS
+        DETAIL_TILE_MAX_PIXELS * 0.98
         / (Math.max(1, widthAtPreviewDpi, canvasWidth)
             * Math.max(1, heightAtPreviewDpi, canvasHeight)),
     );
@@ -407,31 +407,52 @@ function mapBaseOutputToRawSource(
     return inverseRotatePreviewPoint(rotated, metadata);
 }
 
-function resolveBoundedViewport(
+function resolveDetailRenderDpi(
+    viewports: NonNullable<IScanCleanupPreviewRequest['detail']>['viewports'],
+    outputs: IBasePreviewAnalysis['outputs'],
+    requestedRenderDpi: number,
+) {
+    let renderDpi = requestedRenderDpi;
+    for (const half of [
+        'full',
+        'left',
+        'right',
+    ] as const) {
+        const viewport = viewports[half];
+        const metadata = outputs[half];
+        if (!viewport || !metadata) continue;
+        const visiblePixelsAtPreviewDpi = Math.max(
+            1,
+            metadata.outputWidthPx
+                * metadata.outputHeightPx
+                * viewport.widthNormalized
+                * viewport.heightNormalized,
+        );
+        const budgetDpi = PREVIEW_DPI * Math.sqrt(
+            DETAIL_TILE_MAX_PIXELS * 0.98 / visiblePixelsAtPreviewDpi,
+        );
+        renderDpi = Math.min(renderDpi, budgetDpi);
+    }
+    return Math.max(1, Math.floor(renderDpi));
+}
+
+function resolveDetailViewport(
     viewport: IScanCleanupNormalizedRect,
     metadata: INativePreviewOutputMetadata,
     renderScale: number,
-    maxPixels: number,
 ) {
     const targetWidth = metadata.outputWidthPx * renderScale;
     const targetHeight = metadata.outputHeightPx * renderScale;
-    const requestedPixels = targetWidth
-        * targetHeight
-        * viewport.widthNormalized
-        * viewport.heightNormalized;
-    const budgetScale = requestedPixels <= maxPixels
-        ? 1
-        : Math.sqrt(maxPixels * 0.98 / requestedPixels);
-    const widthNormalized = viewport.widthNormalized * budgetScale;
-    const heightNormalized = viewport.heightNormalized * budgetScale;
-    const centerX = viewport.xNormalized + viewport.widthNormalized / 2;
-    const centerY = viewport.yNormalized + viewport.heightNormalized / 2;
-    const xNormalized = Math.min(1 - widthNormalized, Math.max(0, centerX - widthNormalized / 2));
-    const yNormalized = Math.min(1 - heightNormalized, Math.max(0, centerY - heightNormalized / 2));
-    const left = Math.floor(xNormalized * targetWidth);
-    const top = Math.floor(yNormalized * targetHeight);
-    const right = Math.min(Math.round(targetWidth), Math.ceil((xNormalized + widthNormalized) * targetWidth));
-    const bottom = Math.min(Math.round(targetHeight), Math.ceil((yNormalized + heightNormalized) * targetHeight));
+    const left = Math.max(0, Math.floor(viewport.xNormalized * targetWidth));
+    const top = Math.max(0, Math.floor(viewport.yNormalized * targetHeight));
+    const right = Math.min(
+        Math.round(targetWidth),
+        Math.ceil((viewport.xNormalized + viewport.widthNormalized) * targetWidth),
+    );
+    const bottom = Math.min(
+        Math.round(targetHeight),
+        Math.ceil((viewport.yNormalized + viewport.heightNormalized) * targetHeight),
+    );
     return {
         xPx: left,
         yPx: top,
@@ -595,7 +616,23 @@ async function runDetailPreview(
     const requestedRenderDpi = request.detail.outputMode === 'bw'
         ? sourceDpiDetected ? sourceDpi : Math.max(sourceDpi, 600)
         : Math.max(sourceDpi, PREVIEW_DPI);
-    const renderScale = requestedRenderDpi / PREVIEW_DPI;
+    const renderDpi = resolveDetailRenderDpi(
+        request.detail.viewports,
+        analysis.outputs,
+        requestedRenderDpi,
+    );
+    if (renderDpi <= PREVIEW_DPI) {
+        return {
+            pageNumber: request.pageNumber,
+            totalPages: baseRaw.totalPages,
+            rawImageData: baseRaw.bytes,
+            rawWidthPx: baseRaw.width,
+            rawHeightPx: baseRaw.height,
+            pageMetadata: analysis.pageMetadata,
+            outputs: [],
+        };
+    }
+    const renderScale = renderDpi / PREVIEW_DPI;
     const fullSourceWidth = Math.max(1, Math.round(baseRaw.width * renderScale));
     const fullSourceHeight = Math.max(1, Math.round(baseRaw.height * renderScale));
     const maxSourcePixels = resolveScanCleanupPipelineMaxPixels(request.detail.outputMode);
@@ -625,11 +662,10 @@ async function runDetailPreview(
         if (viewport.rotationDegrees !== pageOverride.rotationDegrees) {
             throw new Error('Scan cleanup detail viewport rotation is stale');
         }
-        const renderRegion = resolveBoundedViewport(
+        const renderRegion = resolveDetailViewport(
             viewport,
             baseMetadata,
             renderScale,
-            DETAIL_TILE_MAX_PIXELS,
         );
         const outputWidth = Math.max(1, Math.round(baseMetadata.outputWidthPx * renderScale));
         const outputHeight = Math.max(1, Math.round(baseMetadata.outputHeightPx * renderScale));
@@ -675,7 +711,7 @@ async function runDetailPreview(
             inputPath,
             signal,
             dependencies,
-            requestedRenderDpi,
+            renderDpi,
             maxSourcePixels,
             sourceCrop,
         );
@@ -694,7 +730,7 @@ async function runDetailPreview(
         pageInputs.push({
             inputPath,
             pageNumber: request.pageNumber,
-            dpi: requestedRenderDpi,
+            dpi: renderDpi,
             sourceDpi,
             requestedRenderDpi,
             resolvedOutputMode: request.detail.outputMode,

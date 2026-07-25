@@ -3,8 +3,9 @@ import type {Ref} from 'vue';
 import {clamp} from 'es-toolkit/math';
 import {ZOOM} from '@app/constants/pdfLayout';
 import {
-    DOCUMENT_WHEEL_ZOOM_SENSITIVITY,
+    DOCUMENT_WHEEL_ZOOM_GESTURE_GRACE_MS,
     resolveDocumentWheelInteraction,
+    resolveDocumentWheelZoomTarget,
 } from '@app/utils/document-viewer/input/documentWheelInteraction';
 import type {IScanCleanupDragRect} from '@app/modules/scan-cleanup/composables/useScanCleanupDragTransaction';
 
@@ -19,6 +20,14 @@ interface IPreviewPanGesture {
 interface IPreviewStageSize {
     height: number;
     width: number;
+}
+
+interface IPreviewWheelZoomSession {
+    anchorX: number;
+    anchorY: number;
+    cumulativeDelta: number;
+    lastPacketAtMs: number;
+    startZoom: number;
 }
 
 interface IUseScanCleanupPreviewZoomOptions {
@@ -44,6 +53,7 @@ export const useScanCleanupPreviewZoom = (options: IUseScanCleanupPreviewZoomOpt
         y: 0,
     });
     const panGesture = shallowRef<IPreviewPanGesture | null>(null);
+    let wheelZoomSession: IPreviewWheelZoomSession | null = null;
     const previewFitZoom = computed(() => {
         const result = options.result();
         if (!result || options.stageSize.width <= 0 || options.stageSize.height <= 0) {
@@ -70,7 +80,6 @@ export const useScanCleanupPreviewZoom = (options: IUseScanCleanupPreviewZoomOpt
         > previewMinimumZoom.value + PREVIEW_ZOOM_EPSILON);
     const canZoomIn = computed(() => previewEffectiveZoom.value < ZOOM.MAX - PREVIEW_ZOOM_EPSILON);
     const canPanPreview = computed(() => previewTransformScale.value > 1 + PREVIEW_ZOOM_EPSILON);
-    const previewUsesPixelatedRendering = computed(() => previewEffectiveZoom.value > 1 + PREVIEW_ZOOM_EPSILON);
 
     function previewPanBounds(scale = previewTransformScale.value) {
         return {
@@ -114,6 +123,7 @@ export const useScanCleanupPreviewZoom = (options: IUseScanCleanupPreviewZoomOpt
     }
 
     function fitPreview() {
+        wheelZoomSession = null;
         previewZoomMode.value = 'fit';
         previewPan.x = 0;
         previewPan.y = 0;
@@ -121,6 +131,7 @@ export const useScanCleanupPreviewZoom = (options: IUseScanCleanupPreviewZoomOpt
     }
 
     function toggleFitAndActualSize(event?: MouseEvent) {
+        wheelZoomSession = null;
         if (previewZoomMode.value !== 'fit') {
             fitPreview();
             return;
@@ -135,7 +146,7 @@ export const useScanCleanupPreviewZoom = (options: IUseScanCleanupPreviewZoomOpt
     }
 
     function stepPreviewZoom(direction: -1 | 1) {
-        options.updateGeometry();
+        wheelZoomSession = null;
         setPreviewZoom(previewEffectiveZoom.value + direction * ZOOM.STEP);
     }
 
@@ -147,18 +158,45 @@ export const useScanCleanupPreviewZoom = (options: IUseScanCleanupPreviewZoomOpt
         if (!surface) {
             return;
         }
-        const delta = resolveDocumentWheelInteraction(event, surface).deltaPx;
+        const interaction = resolveDocumentWheelInteraction(event, surface);
+        const nowMs = Date.now();
+        const continuation = wheelZoomSession !== null
+            && nowMs - wheelZoomSession.lastPacketAtMs <= DOCUMENT_WHEEL_ZOOM_GESTURE_GRACE_MS;
+        if (interaction.intent !== 'zoom' && !continuation) {
+            return;
+        }
+        const delta = interaction.deltaPx;
         if (Math.abs(delta) < Number.EPSILON) {
             return;
         }
-        // This stage has no scrollable content, so plain wheel follows image-inspector zoom behavior.
         event.preventDefault();
-        options.updateGeometry();
-        setPreviewZoom(
-            previewEffectiveZoom.value * Math.exp(-delta * DOCUMENT_WHEEL_ZOOM_SENSITIVITY),
-            event.clientX,
-            event.clientY,
+        if (!continuation || !wheelZoomSession) {
+            wheelZoomSession = {
+                anchorX: event.clientX,
+                anchorY: event.clientY,
+                cumulativeDelta: 0,
+                lastPacketAtMs: nowMs,
+                startZoom: previewEffectiveZoom.value,
+            };
+        }
+        const target = resolveDocumentWheelZoomTarget(
+            wheelZoomSession.startZoom,
+            wheelZoomSession.cumulativeDelta,
+            delta,
+            {
+                minimumZoom: previewMinimumZoom.value,
+                maximumZoom: ZOOM.MAX,
+            },
         );
+        wheelZoomSession.cumulativeDelta = target.cumulativeDelta;
+        wheelZoomSession.lastPacketAtMs = nowMs;
+        if (target.valid) {
+            setPreviewZoom(
+                target.nextEffectiveZoom,
+                wheelZoomSession.anchorX,
+                wheelZoomSession.anchorY,
+            );
+        }
     }
 
     // Full-surface overlays (placement control, content box) intentionally stay
@@ -242,7 +280,6 @@ export const useScanCleanupPreviewZoom = (options: IUseScanCleanupPreviewZoomOpt
         previewPan,
         previewTransformScale,
         previewTransformStyle,
-        previewUsesPixelatedRendering,
         previewZoomLabel,
         previewZoomMode,
         startPreviewPan,

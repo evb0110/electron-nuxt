@@ -54,6 +54,7 @@ export const useDocumentWorkspaceScanCleanupSurface = (
 
     function openScanCleanup() {
         options.closeAllDropdowns();
+        surface.discardScanCleanupSessionState();
         surface.openScanCleanup();
     }
 

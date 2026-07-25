@@ -169,8 +169,11 @@ function capabilityHarness() {
 
 function mountSession(documentKey: string, overrides: {
     active?: () => boolean;
+    currentPage?: () => number;
     documentRevision?: () => string | null;
+    initialPreviewPage?: () => number | undefined;
     sourcePath?: () => string | null;
+    totalPages?: () => number;
 } = {}) {
     let session: ReturnType<typeof useScanCleanupWorkspaceSession> | null = null;
     const host = document.createElement('div');
@@ -183,8 +186,11 @@ function mountSession(documentKey: string, overrides: {
             ...(overrides.documentRevision === undefined
                 ? {}
                 : {documentRevision: overrides.documentRevision}),
-            currentPage: () => 1,
-            totalPages: () => 3,
+            currentPage: overrides.currentPage ?? (() => 1),
+            totalPages: overrides.totalPages ?? (() => 3),
+            ...(overrides.initialPreviewPage === undefined
+                ? {}
+                : {initialPreviewPage: overrides.initialPreviewPage}),
         });
         return () => h('div');
     }}));
@@ -218,6 +224,18 @@ describe('scan cleanup workspace session detection guidance', () => {
 
     afterEach(() => {
         capability.value = null;
+    });
+
+    it('starts a fresh session on the reader current page when no cleanup page is restored', () => {
+        capability.value = capabilityHarness().value;
+        const mounted = mountSession(`fresh-preview-page-${Date.now()}`, {
+            currentPage: () => 37,
+            initialPreviewPage: () => undefined,
+            totalPages: () => 100,
+        });
+
+        expect(mounted.session.selection.leader.value).toBe(37);
+        mounted.unmount();
     });
 
     it('auto-switches only for intentional multi-selection and its collapse', () => {
@@ -345,6 +363,34 @@ describe('scan cleanup workspace session detection guidance', () => {
 
         expect(mounted.session.preview.detailResult.value?.pageMetadata.layoutClassification)
             .toBe('single-uncut-page');
+        mounted.unmount();
+    });
+
+    it('clears a displayed detail tile immediately when its viewport becomes stale', async () => {
+        const harness = capabilityHarness();
+        const detail = previewResult(1, 'single-uncut-page');
+        vi.mocked(harness.value.preview).mockImplementation(async request => (
+            request.detail
+                ? detail
+                : previewResult(request.pageNumber, 'single-uncut-page')
+        ));
+        capability.value = harness.value;
+        const mounted = mountSession(`detail-clear-${Date.now()}`);
+        await vi.waitFor(() => expect(mounted.session.preview.resultCurrent.value).toBe(true));
+
+        await mounted.session.preview.requestDetail({full: {
+            xNormalized: 0,
+            yNormalized: 0,
+            widthNormalized: 0.5,
+            heightNormalized: 0.5,
+            rotationDegrees: 0,
+        }});
+        expect(mounted.session.preview.detailResult.value).toBe(detail);
+
+        mounted.session.preview.clearDetail();
+
+        expect(mounted.session.preview.detailResult.value).toBeNull();
+        expect(mounted.session.preview.detailLoading.value).toBe(false);
         mounted.unmount();
     });
 

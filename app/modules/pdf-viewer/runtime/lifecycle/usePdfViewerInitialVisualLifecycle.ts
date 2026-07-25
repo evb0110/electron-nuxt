@@ -34,10 +34,7 @@ export const usePdfViewerInitialVisualLifecycle = (options: IUsePdfViewerInitial
     }
 
     function markInitialVisualReady(pageNumber: number) {
-        if (
-            pendingInitialVisualReadyToken === null
-            || !isInitialVisualCanvasReady(pageNumber)
-        ) {
+        if (!canCommitInitialVisualReady(pageNumber)) {
             return false;
         }
 
@@ -51,6 +48,11 @@ export const usePdfViewerInitialVisualLifecycle = (options: IUsePdfViewerInitial
             source: 'canvas-dom-commit',
         });
         return true;
+    }
+
+    function canCommitInitialVisualReady(pageNumber: number) {
+        return pendingInitialVisualReadyToken !== null
+            && isInitialVisualCanvasReady(pageNumber);
     }
 
     function handlePageCanvasMounted(commit: IPdfCanvasDomCommit) {
@@ -71,6 +73,7 @@ export const usePdfViewerInitialVisualLifecycle = (options: IUsePdfViewerInitial
     return {
         setPendingInitialVisualReadyToken,
         cancelInitialVisualReady,
+        canCommitInitialVisualReady,
         handleRenderedPageStateChanged,
         handlePageCanvasMounted,
         commitInitialVisualReady,

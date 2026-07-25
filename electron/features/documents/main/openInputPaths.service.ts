@@ -36,6 +36,7 @@ import { registerMainOperation } from '@electron/operation-lifecycle/mainOperati
 import { abortErrorFromSignal } from '@electron/utils/abort';
 import { mainJobBroker } from '@electron/resources/jobBroker';
 import { assertOpenInputPathCount } from '@electron/features/documents/public/assertOpenInputPathCount';
+import {isScanCleanupGeneratedOutputPath} from '@electron/features/scan-cleanup/public/generatedOutputs';
 
 const logger = createLogger('documents-open-service');
 
@@ -200,6 +201,7 @@ export async function openInputPaths(
     if (!options.forceCombine && normalizedPaths.length === 1 && isPdfPath(normalizedPaths[0]!)) {
         const sourceCriticalStartedAt = performance.now();
         const originalPath = normalizedPaths[0]!;
+        const isGenerated = isScanCleanupGeneratedOutputPath(originalPath);
         logger.debug(`openInputPaths creating working copy for PDF: ${originalPath}`);
         const inputBytes = await stat(originalPath).then(fileStat => fileStat.size, () => 0);
         const openLease = await mainJobBroker.acquire({
@@ -221,7 +223,9 @@ export async function openInputPaths(
         } finally {
             openLease.release();
         }
-        persistRecentInputsAfterOpen([originalPath], owner);
+        if (!isGenerated) {
+            persistRecentInputsAfterOpen([originalPath], owner);
+        }
         logger.debug(`openInputPaths PDF source-critical timings: ${JSON.stringify({
             recentPersistence: 'background',
             totalMs: Math.round((performance.now() - sourceCriticalStartedAt) * 10) / 10,
@@ -230,6 +234,7 @@ export async function openInputPaths(
             kind: 'pdf',
             workingPath,
             originalPath,
+            ...(isGenerated ? {isGenerated: true} : {}),
         };
     }
 

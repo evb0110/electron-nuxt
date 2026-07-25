@@ -19,7 +19,7 @@
                 :is-render-active="isRenderActive"
                 :is-tab-transition-busy="isTabTransitionBusy"
                 :initial-view-state="initialViewState"
-                :pending-document-open="isDocumentOpenInFlight"
+                :pending-document-open="isDocumentOpenInFlight || hasPendingDocumentHint"
                 :pending-document-path="pendingDocumentPath"
                 suppress-empty-state
                 :document-session="activeDocumentSession"
@@ -91,10 +91,13 @@ import { resolveWorkspaceRequestedState } from '@app/modules/workspace-shell/hos
 import { createDeferredWorkspaceLoadGateway } from '@app/modules/workspace-shell/host/createDeferredWorkspaceLoadGateway';
 import { shouldPreloadWorkspaceOnHostMount } from '@app/modules/workspace-shell/host/shouldPreloadWorkspaceOnHostMount';
 import {
+    shouldKeepWorkspacePendingDocumentHint,
+    shouldShowWorkspacePlaceholder,
+} from '@app/modules/workspace-shell/host/shouldShowWorkspacePlaceholder';
+import {
     isRecentOpenGeometryExactFrameReady,
     readRecentOpenExactGeometry,
 } from '@app/modules/workspace-shell/host/recentOpenGeometryReadiness';
-import { tabHasDocumentHint } from '@app/modules/workspace-shell/tabs/tabHasDocumentHint';
 import {
     createWorkspaceRestoreAttemptState,
     finishWorkspaceRestoreAttempt,
@@ -292,18 +295,31 @@ const activeDocumentOpenTransaction = computed(() => {
         ? transaction
         : null;
 });
-const workspaceVisibleDocument = computed(() => {
-    const snapshot = currentToolbarSnapshot.value;
-    return hasWorkspaceViewerDocumentCapabilities(snapshot.viewerCapabilities)
-        || snapshot.isOpeningDocument || snapshot.hasOpenError || documentRecord?.documentIdentity !== null || tabHasDocumentHint(documentRecord?.tab ?? {});
+const hasPendingDocumentHint = computed(() => {
+    const mountedSnapshot = mountedWorkspace.value?.getToolbarSnapshot() ?? null;
+    return shouldKeepWorkspacePendingDocumentHint({
+        hasDocumentHint: hasDocumentHint === true,
+        hasMountedOpenError: mountedSnapshot?.hasOpenError === true,
+        hasMountedSuccessfulVisual: Boolean(
+            mountedSnapshot?.hasPdf
+            && mountedSnapshot.initialVisualReady
+            && hasWorkspaceViewerDocumentCapabilities(mountedSnapshot.viewerCapabilities),
+        ),
+    });
 });
-const hasPendingDocumentHint = computed(() => hasDocumentHint === true && !workspaceVisibleDocument.value);
 const pendingDocumentPath = computed(() => (
     activeDocumentOpenTransaction.value?.documentRef
     ?? (hasPendingDocumentHint.value ? documentPath : null)
 ));
 const isPlaceholderVisible = computed(() => {
-    return shouldPresentDocumentOpenEmptyPlaceholder(documentOpenSurface.snapshot.value);
+    return shouldShowWorkspacePlaceholder({
+        hasQueuedSplitRestore: hasQueuedSplitRestore.value,
+        hasPendingDocumentHint: hasPendingDocumentHint.value,
+        hasVisibleDocument: !shouldPresentDocumentOpenEmptyPlaceholder(
+            documentOpenSurface.snapshot.value,
+        ),
+        isDocumentOpenInFlight: isDocumentOpenInFlight.value,
+    });
 });
 const workspaceLoadErrorDescription = computed(() => {
     const message = getAsyncChunkLoadErrorMessage(workspaceChunkLoadError.value).trim();

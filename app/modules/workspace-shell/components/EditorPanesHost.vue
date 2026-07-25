@@ -28,6 +28,7 @@
                     :active-pane-id="activePaneId"
                     :is-startup-open-claim-pending="isStartupOpenClaimPending"
                     :is-tab-transition-busy="isTabTransitionBusy"
+                    :presentation-fallback-tab-id="presentationFallbackTabId"
                     :tab-context-availability="tabContextAvailabilityByPane[pane.paneId] ?? null"
                     :start-section-by-tab-id="startSectionByTabId"
                     :tab-lifecycle-by-id="tabLifecycleById"
@@ -96,6 +97,7 @@ const {
     isFullscreen,
     isStartupOpenClaimPending,
     isTabTransitionBusy,
+    presentationFallbackTabId,
     isWorkspaceLayoutResizing = false,
     layout,
     panes,
@@ -113,6 +115,7 @@ const {
     activePaneId: string | null;
     isStartupOpenClaimPending: boolean;
     isTabTransitionBusy: boolean;
+    presentationFallbackTabId: string | null;
     tabContextAvailabilityByPane: Record<string, ITabContextAvailability>;
     startSectionByTabId: Record<string, TStartSection>;
     tabLifecycleById: Record<string, ITabLifecycleState>;

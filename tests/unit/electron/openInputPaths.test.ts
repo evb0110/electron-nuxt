@@ -24,6 +24,7 @@ const mocks = vi.hoisted(() => ({
     existsSync: vi.fn((_path: string) => true),
     isDjvuPath: vi.fn((path: string) => /\.(?:djvu|djv)$/iu.test(path)),
     isPdfPath: vi.fn((path: string) => /\.pdf$/iu.test(path)),
+    isScanCleanupGeneratedOutputPath: vi.fn((_path: string) => false),
     isSupportedOpenPath: vi.fn((_path: string) => true),
     mkdtemp: vi.fn(async (_prefix: string) => '/tmp/pdf-combine-open-test'),
     requireOpenPath: vi.fn((path: string, _owner?: unknown) => path),
@@ -62,6 +63,7 @@ vi.mock('@electron/file-access/openPathCapabilities', () => ({
     requireOpenPath: (path: string, owner?: unknown) => mocks.requireOpenPath(path, owner),
 }));
 vi.mock('@electron/features/documents/main/addRecentInputs.service', () => ({addRecentInputs: (paths: string[], owner?: unknown) => mocks.addRecentInputs(paths, owner)}));
+vi.mock('@electron/features/scan-cleanup/public/generatedOutputs', () => ({isScanCleanupGeneratedOutputPath: (path: string) => mocks.isScanCleanupGeneratedOutputPath(path)}));
 vi.mock('@electron/utils/normalizePossiblyEncodedExistingPath', () => ({normalizePossiblyEncodedExistingPath: () => null}));
 vi.mock('@electron/te', () => ({te: (key: string) => key}));
 vi.mock('@electron/utils/createLogger', () => ({createLogger: () => ({
@@ -74,6 +76,7 @@ vi.mock('@electron/utils/createLogger', () => ({createLogger: () => ({
 describe('openInputPaths', () => {
     beforeEach(() => {
         vi.clearAllMocks();
+        mocks.isScanCleanupGeneratedOutputPath.mockReturnValue(false);
     });
 
     it('mints the generated combined PDF temp path before creating a working copy', async () => {
@@ -144,6 +147,25 @@ describe('openInputPaths', () => {
         });
 
         expect(mocks.addRecentInputs).toHaveBeenCalledWith(['/tmp/source.pdf'], owner);
+    });
+
+    it('marks managed cleanup PDFs as generated without adding their temporary path to recents', async () => {
+        mocks.isScanCleanupGeneratedOutputPath.mockReturnValueOnce(true);
+        const owner = {id: 42};
+        const {openInputPaths} = await import('@electron/features/documents/main/openInputPaths.service');
+
+        await expect(openInputPaths(
+            ['/tmp/scan-cleanup/output/generated-id/source — cleaned.pdf'],
+            {},
+            owner as never,
+        )).resolves.toEqual({
+            kind: 'pdf',
+            workingPath: '/tmp/working/original.pdf',
+            originalPath: '/tmp/scan-cleanup/output/generated-id/source — cleaned.pdf',
+            isGenerated: true,
+        });
+
+        expect(mocks.addRecentInputs).not.toHaveBeenCalled();
     });
 
     it('returns a PDF source before recent-file inspection and persistence settle', async () => {

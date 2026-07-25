@@ -176,7 +176,16 @@ export const useScanCleanupPreviewOverlayGeometry = (
         }
         const stageRect = currentStageRect();
         const surfaceRect = options.previewSurface.value?.getBoundingClientRect();
-        if (!stageRect || !surfaceRect) {
+        if (!stageRect) {
+            options.dragOverlayBounds.x = 0;
+            options.dragOverlayBounds.y = 0;
+            options.dragOverlayBounds.width = 0;
+            options.dragOverlayBounds.height = 0;
+            options.stageSize.width = 0;
+            options.stageSize.height = 0;
+            return;
+        }
+        if (!surfaceRect) {
             return;
         }
         const scale = Math.max(0.001, options.transformScale.value);
@@ -292,6 +301,9 @@ export const useScanCleanupPreviewOverlayGeometry = (
     onMounted(() => {
         observeCutterStage();
         observeOutputFitAreas();
+    });
+    watch(options.cutterStage, () => {
+        void nextTick(observeCutterStage);
     });
     onBeforeUnmount(() => {
         cutterResizeObserver?.disconnect();

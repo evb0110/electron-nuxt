@@ -15,12 +15,15 @@ interface IUseDocumentOpenVisualSettleOptions {
     djvuError: Ref<unknown>;
     showDjvuSource: Ref<boolean>;
     showNativePdfViewer?: Ref<boolean>;
-    openSurface?: Pick<IDocumentOpenSurfaceSession, 'snapshot'>;
+    openSurface: Pick<IDocumentOpenSurfaceSession, 'snapshot'>;
     markAnnotationCommentsLoading: () => void;
 }
 
 export const useDocumentOpenVisualSettle = (options: IUseDocumentOpenVisualSettleOptions) => {
-    const initialDocumentVisualReady = ref(false);
+    const initialDocumentVisualReady = computed(() => {
+        const surface = options.openSurface.snapshot.value;
+        return surface.phase === 'ready' && surface.presentation === 'committed';
+    });
     let documentOpenVisualSettlePromise: Promise<void> | null = null;
     let resolveDocumentOpenVisualSettlePromise: (() => void) | null = null;
     let documentOpenAcceptedPromise: Promise<void> | null = null;
@@ -52,10 +55,6 @@ export const useDocumentOpenVisualSettle = (options: IUseDocumentOpenVisualSettl
         resolveDocumentOpenAcceptedPromise?.();
         documentOpenAcceptedPromise = null;
         resolveDocumentOpenAcceptedPromise = null;
-    }
-
-    function resetDocumentOpenVisualSettleWaiter() {
-        initialDocumentVisualReady.value = false;
     }
 
     function hasSettledDocumentOpenVisualState() {
@@ -109,13 +108,11 @@ export const useDocumentOpenVisualSettle = (options: IUseDocumentOpenVisualSettl
     }
 
     function handlePdfInitialVisualReady() {
-        initialDocumentVisualReady.value = true;
         resolveDocumentOpenVisualSettleIfReady();
     }
 
     function handlePdfInitialVisualPending() {
         options.markAnnotationCommentsLoading();
-        resetDocumentOpenVisualSettleWaiter();
     }
 
     function createDocumentOpenVisualSettleTimeout() {
@@ -171,7 +168,7 @@ export const useDocumentOpenVisualSettle = (options: IUseDocumentOpenVisualSettl
         }
 
         const error = new Error('Document open visual settle timed out');
-        const openSurface = options.openSurface?.snapshot.value;
+        const openSurface = options.openSurface.snapshot.value;
         BrowserLogger.warn('recent-open', error.message, {
             tabId: options.tabId,
             hasPdf: options.hasPdf.value,
@@ -217,6 +214,7 @@ export const useDocumentOpenVisualSettle = (options: IUseDocumentOpenVisualSettl
         options.showDjvuSource,
         ...(options.showNativePdfViewer ? [options.showNativePdfViewer] : []),
         initialDocumentVisualReady,
+        options.openSurface.snapshot,
     ], () => {
         resolveDocumentOpenVisualSettleIfReady();
     });
@@ -225,7 +223,6 @@ export const useDocumentOpenVisualSettle = (options: IUseDocumentOpenVisualSettl
         handlePdfInitialVisualPending,
         handlePdfInitialVisualReady,
         initialDocumentVisualReady,
-        resetDocumentOpenVisualSettleWaiter,
         resolveDocumentOpenVisualSettleIfReady,
         waitForDocumentOpenSettled,
     };

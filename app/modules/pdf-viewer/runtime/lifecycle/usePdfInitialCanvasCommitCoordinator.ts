@@ -85,10 +85,15 @@ export const usePdfInitialCanvasCommitCoordinator = (
         }
     }
 
-    function tryComplete(pageNumber: number, commitInitialVisualReady: (page: number) => boolean) {
-        if (!pending) {
+    function tryComplete(
+        pageNumber: number,
+        commitInitialVisualReady: (page: number) => boolean,
+    ) {
+        const activePending = pending;
+        if (!activePending) {
             return false;
         }
+        activePending.pageNumber = pageNumber;
         const surface = options.chassisAuthority?.openSurface;
         const snapshot = surface?.snapshot.value;
         const fence = snapshot?.committedRender ?? null;
@@ -101,18 +106,16 @@ export const usePdfInitialCanvasCommitCoordinator = (
         ) {
             return false;
         }
+        if (pending !== activePending || surface.snapshot.value.generation !== activePending.generation) {
+            return false;
+        }
         if (snapshot.phase === 'viewport-committed' && !surface.markReady(fence)) {
             return false;
         }
-        const readySnapshot = surface.snapshot.value;
-        if (
-            readySnapshot.phase !== 'ready'
-            || readySnapshot.committedRender?.pageNumber !== pageNumber
-            || readySnapshot.committedViewport?.pageNumber !== pageNumber
-            || !commitInitialVisualReady(pageNumber)
-        ) {
-            return false;
-        }
+        // The joined canvas/viewport fence is the visual readiness authority.
+        // The renderer event is only a notification for metrics and
+        // automation; it must never be a second gate over terminal state.
+        commitInitialVisualReady(pageNumber);
         finish();
         return true;
     }

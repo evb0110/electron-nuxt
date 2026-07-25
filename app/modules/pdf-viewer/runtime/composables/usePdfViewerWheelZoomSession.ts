@@ -1,7 +1,7 @@
 import type { Ref } from 'vue';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { wheelDetailLogThrottleMs } from '@app/modules/pdf-viewer/runtime/zoom/wheelDetailLogThrottleMs';
-import { wheelZoomGestureGraceMs } from '@app/modules/pdf-viewer/runtime/zoom/wheelZoomGestureGraceMs';
+import {DOCUMENT_WHEEL_ZOOM_GESTURE_GRACE_MS} from '@app/utils/document-viewer/input/documentWheelInteraction';
 import { wheelZoomSessionIdleMs } from '@app/modules/pdf-viewer/runtime/zoom/wheelZoomSessionIdleMs';
 import { wheelZoomSessionLockExtensionMs } from '@app/modules/pdf-viewer/runtime/zoom/wheelZoomSessionLockExtensionMs';
 import { zoomViewportAnchorMaxAgeMs } from '@app/modules/pdf-viewer/runtime/zoom/zoomViewportAnchorMaxAgeMs';
@@ -161,7 +161,7 @@ export const usePdfViewerWheelZoomSession = (options: IUsePdfViewerWheelZoomSess
         const current = activeWheelZoomSession;
         const shouldReuseCurrent = Boolean(
             current
-            && nowMs - current.lastPacketAtMs <= wheelZoomGestureGraceMs,
+            && nowMs - current.lastPacketAtMs <= DOCUMENT_WHEEL_ZOOM_GESTURE_GRACE_MS,
         );
         if (shouldReuseCurrent && current) {
             if (!zoomVirtualizationFreeze.value) {
@@ -216,7 +216,7 @@ export const usePdfViewerWheelZoomSession = (options: IUsePdfViewerWheelZoomSess
             const activeSession = getActiveWheelZoomSession(nowMs);
             const canUseSessionFallback = Boolean(
                 activeSession
-                && nowMs - activeSession.lastPacketAtMs <= wheelZoomGestureGraceMs,
+                && nowMs - activeSession.lastPacketAtMs <= DOCUMENT_WHEEL_ZOOM_GESTURE_GRACE_MS,
             );
             if (canUseSessionFallback && activeSession) {
                 const fallbackAnchor: IZoomViewportAnchorIntent = {
