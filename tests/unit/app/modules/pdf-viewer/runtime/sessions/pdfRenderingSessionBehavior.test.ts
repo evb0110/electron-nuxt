@@ -25,12 +25,17 @@ const rendererFixture = vi.hoisted(() => {
     const api = {
         applySearchHighlights: vi.fn(),
         cancelPendingSearchScroll: vi.fn(),
-        cleanupAllPages: vi.fn(async () => undefined),
+        cleanupAllLayers: vi.fn(async () => undefined),
         hideManagedAnnotationEditors: vi.fn(),
-        releaseUnmountedPage: vi.fn(),
+        releasePageLayers: vi.fn(),
         renderAnnotationEditorLayerForPage: vi.fn(),
-        renderCommittedPageLayers: vi.fn(async () => undefined),
+        renderCommittedPageLayers: vi.fn(async (_commit: {
+            pageNumber: number;
+            requestId: number;
+            version: number;
+        }) => undefined),
         renderLayerPromotions: vi.fn(async () => undefined),
+        resolveLayerPromotionDemand: vi.fn(() => null),
         resolveCanvasHiddenAnnotationIds: vi.fn(() => new Set<string>()),
         requestScrollToCurrentResult: vi.fn(),
     };
@@ -428,6 +433,14 @@ describe('PdfRenderingSession behavior', () => {
     beforeEach(() => {
         vi.clearAllMocks();
         rendererFixture.options = null;
+        rendererFixture.api.renderCommittedPageLayers.mockImplementation(async (commit: {
+            pageNumber: number;
+            requestId: number;
+            version: number;
+        }) => {
+            const state = rendererFixture.options?.pageRenderState as {completeRender: (page: number, version: number, requestId: number) => boolean;};
+            state.completeRender(commit.pageNumber, commit.version, commit.requestId);
+        });
         canvasFixture.mount.mockImplementation((
             host: HTMLElement,
             canvas: HTMLCanvasElement,
@@ -577,13 +590,93 @@ describe('PdfRenderingSession behavior', () => {
         const fixture = createRenderingFixture({autoResolve: false});
         try {
             await vi.waitFor(() => expect(fixture.renderTasks).toHaveLength(1));
-            const pageRendererOptions = rendererFixture.options as {requestRaster: () => Promise<void>};
-            expect(pageRendererOptions.requestRaster).toBeTypeOf('function');
+            const pageRendererOptions = rendererFixture.options as {requestSearchPageRaster: () => Promise<void>};
+            expect(pageRendererOptions.requestSearchPageRaster).toBeTypeOf('function');
             expect(fixture.settleMandatoryRaster).not.toHaveBeenCalled();
 
             fixture.renderTasks[0]!.resolve();
             await vi.waitFor(() => expect(fixture.canvasHost.querySelector('canvas')).not.toBeNull());
             await vi.waitFor(() => expect(fixture.settleMandatoryRaster).toHaveBeenCalledWith(1));
+        } finally {
+            await fixture.dispose();
+        }
+    });
+
+    it('shares the exact in-flight job across overlapping same-key direct requests', async () => {
+        const fixture = createRenderingFixture({autoResolve: false});
+        try {
+            await vi.waitFor(() => expect(fixture.renderTasks).toHaveLength(1));
+            const first = fixture.rendering.renderVisiblePages({
+                start: 3,
+                end: 3,
+            }, {bufferOverride: 0});
+            const second = fixture.rendering.renderVisiblePages({
+                start: 3,
+                end: 3,
+            }, {bufferOverride: 0});
+            await Promise.resolve();
+
+            expect(fixture.renderTasks).toHaveLength(1);
+            fixture.renderTasks[0]!.resolve();
+            await Promise.all([
+                first,
+                second,
+            ]);
+
+            expect(fixture.pdfPage.render).toHaveBeenCalledOnce();
+            expect(fixture.canvasHost.querySelector('canvas')).not.toBeNull();
+            expect(canvasFixture.cleanupResult).not.toHaveBeenCalled();
+        } finally {
+            await fixture.dispose();
+        }
+    });
+
+    it('invalidates resident raster identity on unmount and renders the same key after remount', async () => {
+        const fixture = createRenderingFixture({autoResolve: false});
+        try {
+            await vi.waitFor(() => expect(fixture.renderTasks).toHaveLength(1));
+            fixture.renderTasks[0]!.resolve();
+            await vi.waitFor(() => expect(fixture.canvasHost.querySelector('canvas')).not.toBeNull());
+            expect(fixture.rasterScheduler.snapshot().residentPages).toHaveLength(1);
+
+            fixture.rendering.releaseUnmountedPage(3);
+            expect(fixture.rasterScheduler.snapshot().residentPages).toHaveLength(0);
+            expect(fixture.canvasHost.querySelector('canvas')).toBeNull();
+            expect(rendererFixture.api.releasePageLayers).toHaveBeenCalledWith(3);
+
+            const remount = fixture.rendering.renderVisiblePages({
+                start: 3,
+                end: 3,
+            }, {bufferOverride: 0});
+            await vi.waitFor(() => expect(fixture.renderTasks).toHaveLength(2));
+            fixture.renderTasks[1]!.resolve();
+            await remount;
+
+            expect(fixture.canvasHost.querySelector('canvas')).not.toBeNull();
+            expect(fixture.pdfPage.render).toHaveBeenCalledTimes(2);
+        } finally {
+            await fixture.dispose();
+        }
+    });
+
+    it('repairs a tracked page whose mounted canvas disappeared', async () => {
+        const fixture = createRenderingFixture({autoResolve: false});
+        try {
+            await vi.waitFor(() => expect(fixture.renderTasks).toHaveLength(1));
+            fixture.renderTasks[0]!.resolve();
+            await vi.waitFor(() => expect(fixture.canvasHost.querySelector('canvas')).not.toBeNull());
+            fixture.canvasHost.querySelector('canvas')!.remove();
+            fixture.demand.value = {
+                ...fixture.demand.value,
+                revision: 2,
+                mandatoryRaster: null,
+            };
+            await vi.waitFor(() => expect(fixture.renderTasks).toHaveLength(2));
+            fixture.renderTasks[1]!.resolve();
+            await vi.waitFor(() => expect(fixture.canvasHost.querySelector('canvas')).not.toBeNull());
+
+            expect(fixture.canvasHost.querySelector('canvas')).not.toBeNull();
+            expect(fixture.pdfPage.render).toHaveBeenCalledTimes(2);
         } finally {
             await fixture.dispose();
         }

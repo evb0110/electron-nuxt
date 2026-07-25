@@ -73,9 +73,12 @@ describe('PDF viewer session topology', () => {
         expect(rendering).not.toContain('viewport.notifyRenderStateChanged');
         expect(viewport).not.toContain('notifyRenderStateChanged');
         expect(rendering).toContain('const viewportRasterTarget');
+        expect(rendering).toContain('clearAuthoritativePage');
         expect(rendering).toContain('return prepared.render.startRender()');
         expect(renderer).not.toContain('rasterScheduler');
         expect(renderer).not.toContain('getPdfPageRasterScheduler');
+        expect(renderer).not.toContain('pageCanvases');
+        expect(renderer).not.toContain('requestRaster:');
         const thumbnails = readFileSync(resolve(
             process.cwd(),
             'app/modules/pdf-viewer/thumbnails/usePdfThumbnailRenderRuntime.ts',
@@ -91,6 +94,8 @@ describe('PDF viewer session topology', () => {
             'runtime/rendering/usePdfRendererRerenderController.ts',
             'runtime/rendering/usePdfRendererSinglePageController.ts',
             'runtime/rendering/usePdfRendererVisibleRenderController.ts',
+            'runtime/rendering/usePdfRendererCleanupController.ts',
+            'runtime/rendering/usePdfRendererPageRegistry.ts',
         ]) {
             expect(existsSync(resolve(
                 process.cwd(),

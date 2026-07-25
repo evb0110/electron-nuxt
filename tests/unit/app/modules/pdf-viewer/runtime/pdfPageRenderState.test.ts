@@ -172,6 +172,29 @@ describe('pdfPageRenderState', () => {
         )).toBe(false);
     });
 
+    it('rejects stale optional-layer postconditions after a successor canvas commits', () => {
+        const state = createPdfPageRenderState();
+        const staleContainer = {} as HTMLElement;
+        const currentContainer = {} as HTMLElement;
+        state.beginRender(3, 8, 21, 'document-a', 1, 1, staleContainer);
+        state.commitCanvas(3, 8, 21);
+        state.markLayersHydrating(3, 8, 21);
+
+        state.beginRender(3, 9, 22, 'document-a', 2, 1, currentContainer);
+        state.commitVisual(3, 9, 22);
+        state.markCanvasOnly(3, 9, 22);
+        state.completeRender(3, 9, 22);
+
+        expect(state.markLayersReady(3, 8, staleContainer)).toBe(false);
+        expect(state.failLayerHydration(3, 8, 21)).toBe(false);
+        expect(state.getSlot(3)).toEqual(expect.objectContaining({
+            canvasReadiness: 'ready',
+            contentVersion: 9,
+            container: currentContainer,
+            layerReadiness: 'canvas-only',
+        }));
+    });
+
     it('removes empty idle slots', () => {
         const state = createPdfPageRenderState();
         state.renderedPages.add(2);

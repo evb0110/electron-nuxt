@@ -458,4 +458,37 @@ describe('usePdfCanvasRenderer', () => {
         expect(createElement).not.toHaveBeenCalled();
         expect(pdfPage.render).not.toHaveBeenCalled();
     });
+
+    it('reports a stalled hidden-annotation preflight as a bounded canvas-prepare timeout', async () => {
+        vi.useFakeTimers();
+        const { createElement } = installCanvasDocument();
+        const onRenderStall = vi.fn();
+        const pdfPage = createPdfPage({
+            pageNumber: 5,
+            getOperatorList: vi.fn(() => new Promise(() => undefined)),
+            render: vi.fn(),
+        });
+        const renderer = usePdfCanvasRenderer({outputScale: 1});
+        const prepare = renderer.prepareCanvasRender(pdfPage as never, 1, {
+            hiddenAnnotationIds: new Set(['12R0']),
+            onRenderStall,
+        });
+        const rejection = expect(prepare).rejects.toMatchObject({
+            name: 'PdfPageRenderTimeoutError',
+            pageNumber: 5,
+            stage: 'canvas-prepare',
+        });
+
+        await vi.advanceTimersByTimeAsync(15_000);
+
+        await rejection;
+        expect(onRenderStall).toHaveBeenCalledWith({
+            pageNumber: 5,
+            stage: 'canvas-prepare',
+            timeoutMs: 15_000,
+        });
+        expect(createElement).not.toHaveBeenCalled();
+        expect(pdfPage.render).not.toHaveBeenCalled();
+        vi.useRealTimers();
+    });
 });

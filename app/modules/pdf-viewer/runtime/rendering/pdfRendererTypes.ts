@@ -9,14 +9,12 @@ import type {
 import type { TPdfDocumentSession } from '@app/modules/pdf-viewer/runtime/sessions/pdfDocumentSession';
 import type { IScrollToPageOptions } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfScroll';
 import type {
-    IPageRange,
     IPdfPageMatches,
     IPdfSearchMatch,
 } from '@app/types/pdfUi';
 import type { TDocumentRef } from '@contracts/documentRef';
 import type { TDocumentRevisionToken } from '@contracts/documentRevision';
 import type { IPdfRenderSupervisor } from '@app/modules/pdf-viewer/engine/pdf-render-supervisor/pdfRenderSupervisor';
-import type { IRenderVisiblePagesOptions } from '@app/modules/pdf-viewer/engine/pdf-page-render-pipeline/bindPdfOpenSurfaceRenderContext';
 import type { TPdfPageRenderState } from '@app/modules/pdf-viewer/runtime/rendering/pdfPageRenderState';
 import type { TPdfViewportSession } from '@app/modules/pdf-viewer/runtime/sessions/createPdfViewportSession';
 export type { IRenderVisiblePagesOptions } from '@app/modules/pdf-viewer/engine/pdf-page-render-pipeline/bindPdfOpenSurfaceRenderContext';
@@ -56,13 +54,10 @@ export interface IUsePdfPageRendererOptions {
     renderSupervisor?: IPdfRenderSupervisor | undefined;
     /** RenderingSession owns this state; the post-canvas runtime only derives from it. */
     pageRenderState: TPdfPageRenderState;
-    pageCanvases: Map<number, HTMLCanvasElement>;
     getRenderVersion: () => number;
     getRenderDocumentToken: () => string;
-    requestRaster: (
-        range: IPageRange,
-        options?: IRenderVisiblePagesOptions,
-    ) => Promise<void>;
+    getCommittedCanvas: (pageNumber: number) => HTMLCanvasElement | null;
+    requestSearchPageRaster: (pageNumber: number) => Promise<void>;
 }
 
 export interface ICancelableRenderTask {
