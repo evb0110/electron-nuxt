@@ -174,6 +174,12 @@ pub struct ManifestV3 {
     pub canvas_scope: CanvasScope,
     #[serde(default)]
     pub document_canvas: Option<DocumentCanvas>,
+    /// Physical memory of the host that authored this manifest. The sidecar has
+    /// no portable way to read it, so the owning process reports it here and the
+    /// worker pool and stage cache are sized from it. Absent for direct CLI
+    /// invocations, which then size themselves conservatively.
+    #[serde(default)]
+    pub host_memory_bytes: Option<u64>,
     pub pages: Vec<Page>,
 }
 
@@ -197,6 +203,9 @@ impl ManifestV3 {
             return Err(invalid(
                 "Document canvas dimensions must be positive finite points",
             ));
+        }
+        if self.host_memory_bytes == Some(0) {
+            return Err(invalid("Host memory must be a positive byte count"));
         }
         for page in &self.pages {
             page.options.validate().map_err(invalid)?;
@@ -350,6 +359,34 @@ mod tests {
             assert_eq!(page.options.manual_skew_degrees, None);
             assert_eq!(page.options.experimental.auto_dewarp_depth, None);
         }
+    }
+
+    #[test]
+    fn host_memory_is_optional_and_must_be_positive_when_present() {
+        let json = r#"{
+            "version":3,"operation":"analyze","renderMode":"preview","canvasScope":"page",
+            "pages":[{"inputPath":"in.png","sourcePageIndex":0,"pageMetadataPath":"page.json",
+              "outputs":[],"options":{}}]
+        }"#;
+        let absent: ManifestV3 = serde_json::from_str(json).unwrap();
+        absent.validate().unwrap();
+        assert_eq!(absent.host_memory_bytes, None);
+
+        let reported: ManifestV3 = serde_json::from_str(
+            &json.replace("\"pages\"", "\"hostMemoryBytes\":34359738368,\"pages\""),
+        )
+        .unwrap();
+        reported.validate().unwrap();
+        assert_eq!(reported.host_memory_bytes, Some(34_359_738_368));
+
+        let zeroed: ManifestV3 =
+            serde_json::from_str(&json.replace("\"pages\"", "\"hostMemoryBytes\":0,\"pages\""))
+                .unwrap();
+        assert!(zeroed
+            .validate()
+            .unwrap_err()
+            .to_string()
+            .contains("Host memory"));
     }
 
     #[test]
