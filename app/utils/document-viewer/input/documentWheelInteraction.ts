@@ -4,6 +4,7 @@ import { clampDocumentManualZoom } from '@app/utils/document-viewer/zoomPolicy';
 import type { TZoomMode } from '@contracts/shared';
 
 export const DOCUMENT_WHEEL_ZOOM_SENSITIVITY = 0.0016;
+export const DOCUMENT_WHEEL_ZOOM_GESTURE_GRACE_MS = 180;
 const WHEEL_LINE_DELTA_PX = 16;
 const WHEEL_DELTA_LINE_MODE = 1;
 const WHEEL_DELTA_PAGE_MODE = 2;
@@ -118,7 +119,13 @@ export function resolveDocumentWheelZoomTarget(
     startZoom: number,
     cumulativeDelta: number,
     deltaPx: number,
+    limits: {
+        maximumZoom?: number;
+        minimumZoom?: number;
+    } = {},
 ): IDocumentWheelZoomTarget | IDocumentWheelZoomInvalidTarget {
+    const minimumZoom = limits.minimumZoom ?? ZOOM.MIN;
+    const maximumZoom = limits.maximumZoom ?? ZOOM.MAX;
     let nextCumulativeDelta = cumulativeDelta + deltaPx;
     let zoomFactor = Math.exp(-nextCumulativeDelta * DOCUMENT_WHEEL_ZOOM_SENSITIVITY);
     if (!Number.isFinite(zoomFactor) || zoomFactor <= 0) {
@@ -130,7 +137,7 @@ export function resolveDocumentWheelZoomTarget(
     }
 
     const rawNextEffectiveZoom = startZoom * zoomFactor;
-    if (startZoom < ZOOM.MIN && rawNextEffectiveZoom <= startZoom) {
+    if (startZoom < minimumZoom && rawNextEffectiveZoom <= startZoom) {
         return {
             cumulativeDelta: 0,
             reason: 'below-manual-min-zoom-out',
@@ -139,7 +146,9 @@ export function resolveDocumentWheelZoomTarget(
         };
     }
 
-    const nextEffectiveZoom = clampDocumentManualZoom(rawNextEffectiveZoom);
+    const nextEffectiveZoom = limits.minimumZoom === undefined && limits.maximumZoom === undefined
+        ? clampDocumentManualZoom(rawNextEffectiveZoom)
+        : Math.min(maximumZoom, Math.max(minimumZoom, rawNextEffectiveZoom));
     if (Math.abs(rawNextEffectiveZoom - nextEffectiveZoom) >= 0.001) {
         const clampedCumulativeDelta = resolveDocumentWheelCumulativeDelta(startZoom, nextEffectiveZoom);
         if (clampedCumulativeDelta !== null) {

@@ -28,6 +28,7 @@ interface IUseAppShellWorkspaceRoutingOptions {
     activePaneId: Ref<string | null>;
     activeTabId: Ref<string | null>;
     activeWorkspace: ComputedRef<IWorkspaceExpose | null>;
+    presentationFallbackTabId: Ref<string | null>;
     workspaceRefs: Ref<Map<string, IWorkspaceExpose>>;
     waitForWorkspace: (tabId: string, timeoutMs?: number) => Promise<IWorkspaceExpose | null>;
     getDocumentRecord: (tabId: string | null | undefined) => IWorkspaceDocumentRecord | null;
@@ -75,6 +76,7 @@ export const useAppShellWorkspaceRouting = (options: IUseAppShellWorkspaceRoutin
         activePaneId,
         activeTabId,
         activeWorkspace,
+        presentationFallbackTabId,
         workspaceRefs,
         waitForWorkspace,
         getDocumentRecord,
@@ -354,29 +356,52 @@ export const useAppShellWorkspaceRouting = (options: IUseAppShellWorkspaceRoutin
 
     async function handleOpenInNewTab(pathOrResult: TWorkspaceOpenDocumentTarget, paneId?: string) {
         const targetPaneId = paneId ?? activePaneId.value ?? undefined;
-        const tab = createTab({
-            ...(targetPaneId !== undefined ? { paneId: targetPaneId } : {}),
-            activate: true,
-        });
-        const workspace = await waitForWorkspace(tab.id);
-        if (!workspace) {
-            removeTabFromState(tab.id);
-            return false;
-        }
-
-        const opened = await openDocumentInWorkspace(workspace, pathOrResult);
-        const seededHint = opened ? seedTabDocumentHint(tab.id, pathOrResult) : null;
-        if (!opened) {
-            if (await waitForSettledDocumentEvidence(tab.id, workspace, pathOrResult)) {
-                seedTabDocumentHint(tab.id, pathOrResult);
-                BrowserLogger.warn('workspace-routing', 'Keeping new tab after open returned false because document state settled', {tabId: tab.id});
-                return true;
+        const pendingHint = buildPendingTabDocumentHint(pathOrResult);
+        const outgoingTabId = activeTabId.value;
+        presentationFallbackTabId.value = outgoingTabId;
+        try {
+            const tab = createTab({
+                ...(targetPaneId !== undefined ? { paneId: targetPaneId } : {}),
+                activate: true,
+                initial: {
+                    fileName: pendingHint.fileName ?? null,
+                    isDjvu: pendingHint.isDjvu ?? false,
+                },
+            });
+            const workspace = await waitForWorkspace(tab.id);
+            if (!workspace) {
+                removeTabFromState(tab.id);
+                return false;
             }
 
-            rollbackSeededTabDocumentHint(tab.id, seededHint);
-            removeTabFromState(tab.id);
+            let opened: boolean;
+            try {
+                opened = await openDocumentInWorkspace(workspace, pathOrResult);
+            } catch (error) {
+                BrowserLogger.error('workspace-routing', 'New-tab document open failed', {
+                    error,
+                    tabId: tab.id,
+                });
+                removeTabFromState(tab.id);
+                return false;
+            }
+            if (!opened) {
+                if (await waitForSettledDocumentEvidence(tab.id, workspace, pathOrResult)) {
+                    replaceTabDocumentHint(tab.id, pathOrResult);
+                    BrowserLogger.warn('workspace-routing', 'Keeping new tab after open returned false because document state settled', {tabId: tab.id});
+                    return true;
+                }
+
+                removeTabFromState(tab.id);
+                return false;
+            }
+            replaceTabDocumentHint(tab.id, pathOrResult);
+            return true;
+        } finally {
+            if (presentationFallbackTabId.value === outgoingTabId) {
+                presentationFallbackTabId.value = null;
+            }
         }
-        return opened;
     }
 
     async function openDocumentInAppropriateTab(pathOrResult: TWorkspaceOpenDocumentTarget) {

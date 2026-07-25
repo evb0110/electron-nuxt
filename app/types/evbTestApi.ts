@@ -42,6 +42,7 @@ export interface IEvbTestApi {
     getActiveTabId: () => string | null;
     getActiveToolbarSnapshot: () => IWorkspaceToolbarSnapshot | null;
     getActiveWorkspaceHandle: () => IWorkspaceExpose | null;
+    isStartupOpenClaimPending: () => boolean;
     onAutomationEvent: (cb: TEvbAutomationEventListener) => () => void;
     openFile: (path: TDocumentRef) => Promise<boolean>;
     openFiles: (paths: TDocumentRef[]) => Promise<void>;

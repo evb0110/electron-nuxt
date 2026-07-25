@@ -10,11 +10,11 @@ import { BrowserLogger } from '@app/utils/browserLogger';
 import type { IZoomVirtualizationFreeze } from '@app/modules/pdf-viewer/runtime/composables/usePdfViewerVirtualization';
 import { wheelDetailLogThrottleMs } from '@app/modules/pdf-viewer/runtime/zoom/wheelDetailLogThrottleMs';
 import { wheelZoomExpectedScrollWindowMs } from '@app/modules/pdf-viewer/runtime/zoom/wheelZoomExpectedScrollWindowMs';
-import { wheelZoomGestureGraceMs } from '@app/modules/pdf-viewer/runtime/zoom/wheelZoomGestureGraceMs';
 import { wheelZoomSessionIdleMs } from '@app/modules/pdf-viewer/runtime/zoom/wheelZoomSessionIdleMs';
 import { wheelZoomSessionLockExtensionMs } from '@app/modules/pdf-viewer/runtime/zoom/wheelZoomSessionLockExtensionMs';
 import { usePdfViewerWheelZoomSession } from '@app/modules/pdf-viewer/runtime/composables/usePdfViewerWheelZoomSession';
 import {
+    DOCUMENT_WHEEL_ZOOM_GESTURE_GRACE_MS,
     resolveDocumentWheelZoomTarget,
     type IDocumentWheelInteraction,
     type IDocumentWheelSourceEvent,
@@ -145,7 +145,7 @@ export const usePdfViewerWheelZoom = (options: IUsePdfViewerWheelZoomOptions) =>
         const activeSession = getActiveWheelZoomSession(nowMs);
         const isContinuationPacket = Boolean(
             activeSession
-            && nowMs - activeSession.lastPacketAtMs <= wheelZoomGestureGraceMs,
+            && nowMs - activeSession.lastPacketAtMs <= DOCUMENT_WHEEL_ZOOM_GESTURE_GRACE_MS,
         );
         const hasModifierZoomSignal = interaction.intent === 'zoom';
 
@@ -240,7 +240,7 @@ export const usePdfViewerWheelZoom = (options: IUsePdfViewerWheelZoomOptions) =>
             ? nowMs - lastModifierWheelZoomAtMs
             : null;
         const isWithinModifierZoomGraceWindow = modifierZoomAgeMs !== null
-            && modifierZoomAgeMs <= wheelZoomGestureGraceMs;
+            && modifierZoomAgeMs <= DOCUMENT_WHEEL_ZOOM_GESTURE_GRACE_MS;
 
         return {
             nowMs,
@@ -343,7 +343,7 @@ export const usePdfViewerWheelZoom = (options: IUsePdfViewerWheelZoomOptions) =>
             '[wheel] suppressed non-modifier packet during active zoom lock',
             {
                 zoomInteractionLocked: context.zoomInteractionLocked,
-                graceWindowMs: wheelZoomGestureGraceMs,
+                graceWindowMs: DOCUMENT_WHEEL_ZOOM_GESTURE_GRACE_MS,
                 recentModifierZoomEventId: lastModifierWheelZoomEventId || null,
                 modifierZoomAgeMs: context.modifierZoomAgeMs,
                 activeSessionId: context.activeSession?.id ?? null,

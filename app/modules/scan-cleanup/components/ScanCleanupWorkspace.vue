@@ -145,7 +145,6 @@
                 <ScanCleanupPreviewPane
                     :result="previewResult"
                     :detail-result="previewDetailResult"
-                    :detail-loading="previewDetailLoading"
                     :raw-result="previewRawResult"
                     :loading="previewLoading"
                     :error="previewError"
@@ -170,6 +169,7 @@
                     @previous="navigatePreview(-1)"
                     @next="navigatePreview(1)"
                     @retry="retryPreview"
+                    @invalidate-detail="clearPreviewDetail"
                     @request-detail="requestPreviewDetail"
                     @update:view-mode="previewViewMode = $event"
                     @update:manual-split="updateCurrentManualSplit"
@@ -314,8 +314,8 @@ const {
     textAxisByPage: detectedTextAxisByPage,
 } = workspaceSession.detection;
 const {
+    clearDetail: clearPreviewDetail,
     error: previewError,
-    detailLoading: previewDetailLoading,
     detailResult: previewDetailResult,
     loading: previewLoading,
     metadataByPage: previewMetadataByPage,

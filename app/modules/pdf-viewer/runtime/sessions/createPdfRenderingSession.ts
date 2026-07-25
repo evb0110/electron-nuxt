@@ -61,7 +61,7 @@ import type {
     IPdfViewportDemand,
     TPdfViewportSession,
 } from '@app/modules/pdf-viewer/runtime/sessions/createPdfViewportSession';
-import { wheelZoomGestureGraceMs } from '@app/modules/pdf-viewer/runtime/zoom/wheelZoomGestureGraceMs';
+import { DOCUMENT_WHEEL_ZOOM_GESTURE_GRACE_MS } from '@app/utils/document-viewer/input/documentWheelInteraction';
 const QUALITY_REFINE_INPUT_IDLE_MS = 160;
 export interface ICreatePdfRenderingSessionOptions {
     document: TPdfDocumentSession;
@@ -1177,7 +1177,7 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
         handlePageRenderStall,
         captureZoomVisualSnapshots: () => {
             const anchor = buildResizeAnchorContext();
-            captureResizeVisualSnapshots(anchor, wheelZoomGestureGraceMs);
+            captureResizeVisualSnapshots(anchor, DOCUMENT_WHEEL_ZOOM_GESTURE_GRACE_MS);
             return anchor;
         },
     };

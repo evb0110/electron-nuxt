@@ -139,6 +139,32 @@ describe('document wheel interaction policy', () => {
         });
     });
 
+    it('supports a feature-specific fitted minimum while preserving cumulative zoom', () => {
+        const first = resolveDocumentWheelZoomTarget(0.4, 0, -1, {
+            minimumZoom: 0.4,
+            maximumZoom: ZOOM.MAX,
+        });
+        expect(first.valid).toBe(true);
+        if (!first.valid) {
+            return;
+        }
+        expect(first.nextEffectiveZoom).toBeGreaterThan(0.4);
+
+        const zoomOut = resolveDocumentWheelZoomTarget(
+            0.4,
+            first.cumulativeDelta,
+            2,
+            {
+                minimumZoom: 0.4,
+                maximumZoom: ZOOM.MAX,
+            },
+        );
+        expect(zoomOut.valid).toBe(true);
+        if (zoomOut.valid) {
+            expect(zoomOut.nextEffectiveZoom).toBe(0.4);
+        }
+    });
+
     it('consumes only zoom interactions and emits a shared custom-zoom transition', () => {
         const emitZoom = vi.fn();
         const emitZoomMode = vi.fn();

@@ -78,10 +78,7 @@ describe('useDocumentWorkspaceScanCleanupSurface', () => {
         expect(surface.scanCleanupSessionState.value?.previewPage).toBe(3);
         surface.openScanCleanup();
         expect(applyViewState).toHaveBeenLastCalledWith({
-            ...viewState({scanCleanup: {
-                previewPage: 3,
-                previewViewMode: 'cleaned',
-            }}),
+            ...viewState(),
             surfaceMode: 'scan-cleanup',
         });
 
@@ -90,5 +87,34 @@ describe('useDocumentWorkspaceScanCleanupSurface', () => {
             ...viewState(),
             surfaceMode: 'scan-cleanup',
         });
+    });
+
+    it('preserves an existing scan-cleanup page while restoring an already-open surface', () => {
+        const snapshot = ref({
+            ...({} as TDocumentSession['snapshot']['value']),
+            viewState: viewState({
+                surfaceMode: 'scan-cleanup',
+                scanCleanup: {
+                    previewPage: 3,
+                    previewViewMode: 'cleaned',
+                },
+            }),
+        });
+        const documentSession: TDocumentSession = {
+            ...({} as TDocumentSession),
+            snapshot,
+            applyViewState: vi.fn(),
+        };
+
+        const surface = useDocumentWorkspaceScanCleanupSurface({
+            documentSession,
+            initialViewState: null,
+            closeAllDropdowns: vi.fn(),
+            readDocumentKey: () => '/docs/current.pdf',
+        });
+
+        expect(surface.surfaceMode.value).toBe('scan-cleanup');
+        expect(surface.scanCleanupSessionState.value?.previewPage).toBe(3);
+        expect(documentSession.applyViewState).not.toHaveBeenCalled();
     });
 });

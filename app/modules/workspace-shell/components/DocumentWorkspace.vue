@@ -872,7 +872,6 @@ const {
     handlePdfInitialVisualPending,
     handlePdfInitialVisualReady,
     initialDocumentVisualReady,
-    resetDocumentOpenVisualSettleWaiter,
     resolveDocumentOpenVisualSettleIfReady,
     waitForDocumentOpenSettled,
 } = useDocumentOpenVisualSettle({
@@ -1114,7 +1113,6 @@ const {
 watch(pdfSrc, (src) => {
     navigationFeedbackPage.value = null;
     if (src) {
-        resetDocumentOpenVisualSettleWaiter();
         scheduleStartupOpenVisualReady('pdf-src');
     }
 });

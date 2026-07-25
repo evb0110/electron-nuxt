@@ -24,7 +24,11 @@
             <template v-for="tab in visibleTabs" :key="tab.id">
                 <DeferredDocumentWorkspaceHost
                     v-if="shouldMountHost(tab.id)"
-                    v-show="tab.id === pane.activeTabId"
+                    v-show="tab.id === pane.activeTabId || tab.id === presentationFallbackTabId"
+                    :class="{
+                        'is-presentation-fallback': tab.id === presentationFallbackTabId
+                            && tab.id !== pane.activeTabId,
+                    }"
                     :tab-id="tab.id"
                     :document-path="tab.originalPath"
                     :document-record="documentRecordsByTabId[tab.id] ?? null"
@@ -88,6 +92,7 @@ const {
     activePaneId: string | null;
     isStartupOpenClaimPending: boolean;
     isTabTransitionBusy: boolean;
+    presentationFallbackTabId: string | null;
     tabContextAvailability: ITabContextAvailability | null;
     startSectionByTabId: Record<string, TStartSection>;
     tabLifecycleById: Record<string, ITabLifecycleState>;
@@ -172,12 +177,20 @@ function shouldMountHost(tabId: string) {
 }
 
 .editor-pane-content {
+    position: relative;
     display: flex;
     flex: 1;
     min-width: 0;
     min-height: 0;
     overflow: hidden;
     box-sizing: border-box;
+}
+
+.editor-pane-content > .is-presentation-fallback {
+    position: absolute;
+    inset: 0;
+    z-index: var(--app-z-workspace-overlay);
+    pointer-events: none;
 }
 
 .editor-pane-content > * {

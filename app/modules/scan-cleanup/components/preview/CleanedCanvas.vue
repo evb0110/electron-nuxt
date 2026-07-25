@@ -46,12 +46,6 @@
                             alt=""
                             @load="$emit('load', output.metadata.half, output.pixelSwap.incomingUrl)"
                         >
-                        <span
-                            v-if="detailLoading && !detailUrls[output.metadata.half]"
-                            class="preview-detail-shimmer"
-                            :style="detailStyles?.[output.metadata.half] ?? {inset: '0'}"
-                            aria-hidden="true"
-                        />
                         <img
                             v-if="detailUrls[output.metadata.half]"
                             class="cleaned-image preview-detail-pixel"
@@ -80,7 +74,6 @@ import type {IRenderedScanCleanupOutput} from '@app/modules/scan-cleanup/runtime
 defineProps<{
     activePlacementHalf: TScanCleanupOutputHalf | null;
     altByHalf: Partial<Record<TScanCleanupOutputHalf, string>>;
-    detailLoading?: boolean;
     detailUrls: Partial<Record<TScanCleanupOutputHalf, string>>;
     detailStyles?: Partial<Record<TScanCleanupOutputHalf, CSSProperties>>;
     matchPageSize: boolean;

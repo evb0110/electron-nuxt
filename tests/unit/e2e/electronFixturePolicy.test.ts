@@ -188,7 +188,7 @@ describe('Electron E2E fixture policy', () => {
         );
         const sourceWait = viewerCore.slice(
             viewerCore.indexOf('export async function waitForActiveDocumentSource'),
-            viewerCore.indexOf('async function openFreshTabForDocumentOpen'),
+            viewerCore.indexOf('export async function waitForPdfLoaded'),
         );
         const recentFilesSuite = await readFile(
             'tests/e2e/electron/recentFiles.e2e.test.ts',
@@ -201,6 +201,26 @@ describe('Electron E2E fixture policy', () => {
         expect(sourceWait).not.toContain('basename');
         expect(recentFilesSuite).toContain('row.dataset.recentSource === targetSourcePath');
         expect(recentFilesSuite).toContain('two files share a basename');
+    });
+
+    it('waits for startup ownership and never retries a slow direct open in a fresh tab', async () => {
+        const viewerCore = await readFile(
+            'tests/e2e/electron/helpers/viewerCore.ts',
+            'utf8',
+        );
+        const openFlow = viewerCore.slice(
+            viewerCore.indexOf('async function openPathInApp'),
+            viewerCore.indexOf('export async function triggerOpenPathInApp'),
+        );
+
+        expect(openFlow).toContain('isStartupOpenClaimPending?.() === false');
+        expect(openFlow).toContain('getActiveTabId?.()');
+        expect(openFlow).toContain('__evbDocumentOpenShellReadyAt');
+        expect(openFlow).toContain('openTriggered = true');
+        expect(openFlow.match(/openTriggered = false/gu)).toHaveLength(1);
+        expect(openFlow).toContain('DirectDocumentOpenRejectedError');
+        expect(openFlow).not.toContain('openFreshTabForDocumentOpen');
+        expect(openFlow).not.toContain('New Tab');
     });
 
     it('generates a scanned large-PDF fixture without constructing dense text layers', async () => {

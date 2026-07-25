@@ -90,7 +90,6 @@
                 'is-stale-page': isStalePage,
                 'can-pan-preview': canPanPreview,
                 'is-panning-preview': panGesture !== null,
-                'is-pixelated-preview': previewUsesPixelatedRendering,
             }"
             :data-preview-zoom-mode="previewZoomMode"
             :data-preview-zoom-percent="Math.round(previewEffectiveZoom * 100)"
@@ -140,7 +139,6 @@
                             v-else-if="result"
                             :active-placement-half="activePlacementHalf"
                             :alt-by-half="cleanedAltByHalf"
-                            :detail-loading="detailLayerEligible && detailLoading"
                             :detail-styles="detailRegionStyles"
                             :detail-urls="detailResultMatchesPage ? detailPixelUrls : {}"
                             :match-page-size="matchPageSize"
@@ -430,7 +428,6 @@ type TScanCleanupDragGeometry = ICutterDragGeometry | IContentDragGeometry | IPl
 const props = defineProps<{
     result: IScanCleanupPreviewResult | null;
     detailResult?: IScanCleanupPreviewResult | null;
-    detailLoading?: boolean;
     rawResult?: IScanCleanupRawPreviewResult | null;
     loading: boolean;
     error: string;
@@ -464,6 +461,7 @@ const emit = defineEmits<{
     'update:manualZones': [value: IScanCleanupManualZones];
     'update:placement': [half: TScanCleanupOutputHalf, value: TScanCleanupPageAlignment];
     useMixedOutput: [];
+    invalidateDetail: [];
     requestDetail: [viewports: NonNullable<IScanCleanupPreviewRequest['detail']>['viewports']];
 }>();
 const {t} = useTypedI18n();
@@ -505,7 +503,6 @@ const {
     previewPan,
     previewTransformScale,
     previewTransformStyle,
-    previewUsesPixelatedRendering,
     previewZoomLabel,
     previewZoomMode,
     startPreviewPan,
@@ -1183,6 +1180,7 @@ const {
 let detailTimer: ReturnType<typeof setTimeout> | null = null;
 
 function scheduleDetailRequest() {
+    emit('invalidateDetail');
     if (detailTimer !== null) {
         clearTimeout(detailTimer);
         detailTimer = null;

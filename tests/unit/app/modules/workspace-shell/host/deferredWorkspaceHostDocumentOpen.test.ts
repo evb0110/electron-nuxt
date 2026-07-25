@@ -14,7 +14,13 @@ import {
 } from '@app/modules/workspace-shell/host/deferredWorkspaceHostDocumentOpen';
 import { createWorkspaceDocumentController } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
 import { createDocumentOpenSurfaceSession } from '@app/utils/document-viewer/chassis/documentOpenSurfaceSession';
-import { createDefaultWorkspaceToolbarSnapshot } from '@app/types/workspaceExpose';
+import {
+    createDefaultWorkspaceToolbarSnapshot,
+    createDefaultWorkspaceViewerCapabilities,
+    type IWorkspaceExpose,
+} from '@app/types/workspaceExpose';
+import { workspaceSessionHasOpenedDocument } from '@app/modules/workspace-shell/host/deferredWorkspaceHostState';
+import { cast } from '@tests/helpers/cast';
 
 const PDF_GEOMETRY = {
     pageNumber: 1 as const,
@@ -75,6 +81,68 @@ describe('deferredWorkspaceHostDocumentOpen', () => {
         expect(canBeginDocumentOpenSynchronously('openRecentFromPlaceholder', true, false)).toBe(false);
         expect(canBeginDocumentOpenSynchronously('handleOpenFileWithResultFromUi', true, true)).toBe(false);
         expect(canBeginDocumentOpenSynchronously('restoreColdDocument', true, true)).toBe(false);
+    });
+
+    it('publishes open identity before source loading and resolves only after a live visual commits', async () => {
+        const controller = createWorkspaceDocumentController({tabId: 'tab-1'});
+        let toolbarSnapshot = createDefaultWorkspaceToolbarSnapshot();
+        const waitForDocumentOpenSettled = vi.fn(async () => {
+            toolbarSnapshot = {
+                ...toolbarSnapshot,
+                hasPdf: true,
+                initialVisualReady: true,
+                totalPages: 1,
+                viewerCapabilities: {
+                    ...createDefaultWorkspaceViewerCapabilities(),
+                    closeableDocument: true,
+                    pdfDocument: true,
+                    pdfMutationActions: true,
+                },
+            };
+        });
+        const workspace = cast<IWorkspaceExpose>({
+            getToolbarSnapshot: () => toolbarSnapshot,
+            waitForDocumentOpenSettled,
+        });
+        controller.attachWorkspace(workspace);
+        controller.attachOpenTransactionHost({
+            documentOpenSurface: createDocumentOpenSurfaceSession(),
+            openingPageFrameAuthority: shallowRef(null),
+            ensureWorkspaceLoaded: async () => workspace,
+            getActiveTransactionId: () => controller.snapshot.value.activeTransaction?.id ?? null,
+            getInitialViewState: () => null,
+            getSeedToolbarSnapshot: () => toolbarSnapshot,
+            hasDocumentOrOpenError: () => toolbarSnapshot.hasOpenError
+                || toolbarSnapshot.viewerCapabilities.pdfDocument,
+            hasOpenedDocument: () => toolbarSnapshot.viewerCapabilities.pdfDocument,
+            hasSessionOpenedDocument: () => workspaceSessionHasOpenedDocument(controller.snapshot.value),
+            isHostUnmounted: () => false,
+            isViewerOwnerMounted: () => true,
+            publishDocumentRecord: record => controller.applyWorkspaceRecord(record, 'host'),
+            requestWorkspaceMount: vi.fn(),
+        });
+        const sourceOpen = vi.fn(async () => {
+            expect(controller.snapshot.value.activeTransaction).not.toBeNull();
+            expect(controller.snapshot.value.identity.originalPath).toBe('/documents/generated.pdf');
+            return true;
+        });
+
+        await expect(controller.open({
+            action: 'handleOpenFileDirectWithPersist',
+            target: {
+                fileName: 'generated.pdf',
+                originalPath: '/documents/generated.pdf',
+                isDjvu: false,
+            },
+        }, sourceOpen)).resolves.toBe(true);
+
+        expect(sourceOpen).toHaveBeenCalledOnce();
+        expect(waitForDocumentOpenSettled).toHaveBeenCalledOnce();
+        expect(controller.snapshot.value.activeTransaction).toBeNull();
+        expect(controller.snapshot.value.identity.originalPath).toBe('/documents/generated.pdf');
+        expect(workspaceSessionHasOpenedDocument(controller.snapshot.value)).toBe(true);
+        expect(toolbarSnapshot.initialVisualReady).toBe(true);
+        expect(toolbarSnapshot.viewerCapabilities.pdfDocument).toBe(true);
     });
 
     it('claims an early startup Recent command before queueing for its viewer owner', async () => {

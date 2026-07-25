@@ -11,7 +11,10 @@ import {
     vi,
 } from 'vitest';
 import { useDocumentOpenVisualSettle } from '@app/modules/workspace-shell/composables/useDocumentOpenVisualSettle';
-import type {IDocumentOpenSurfaceSnapshot} from '@app/utils/document-viewer/chassis/documentOpenSurfaceSession';
+import {
+    createDocumentOpenSurfaceSession,
+    type IDocumentOpenSurfaceSnapshot,
+} from '@app/utils/document-viewer/chassis/documentOpenSurfaceSession';
 
 const mocks = vi.hoisted(() => ({browserWarn: vi.fn()}));
 
@@ -43,6 +46,10 @@ function createHarness(overrides: IHarnessOverrides = {}) {
     const showDjvuSource = ref(overrides.showDjvuSource ?? false);
     const showNativePdfViewer = ref(overrides.showNativePdfViewer ?? false);
     const markAnnotationCommentsLoading = vi.fn();
+    const surfaceSession = createDocumentOpenSurfaceSession();
+    const openSurface = overrides.openSurfaceSnapshot
+        ? {snapshot: ref(overrides.openSurfaceSnapshot)}
+        : surfaceSession;
 
     const settle = useDocumentOpenVisualSettle({
         tabId: 'tab-1',
@@ -56,7 +63,7 @@ function createHarness(overrides: IHarnessOverrides = {}) {
         djvuError,
         showDjvuSource,
         showNativePdfViewer,
-        ...(overrides.openSurfaceSnapshot ? {openSurface: {snapshot: ref(overrides.openSurfaceSnapshot)}} : {}),
+        openSurface,
         markAnnotationCommentsLoading,
     });
 
@@ -70,10 +77,42 @@ function createHarness(overrides: IHarnessOverrides = {}) {
         pdfError,
         pdfSrc,
         settle,
+        surfaceSession,
         showDjvuSource,
         showNativePdfViewer,
         totalPages,
     };
+}
+
+function commitHarnessSurfaceReady(harness: ReturnType<typeof createHarness>) {
+    const generation = harness.surfaceSession.begin({
+        documentId: 'fixture.pdf',
+        documentRevision: 'revision-1',
+    });
+    harness.surfaceSession.commitGeometry(generation, {
+        width: 612,
+        height: 792,
+        margin: 20,
+    });
+    const fence = harness.surfaceSession.createRenderFence({
+        generation,
+        documentRevision: 'revision-1',
+        renderVersion: 1,
+        requestId: 1,
+        pageNumber: 1,
+    })!;
+    harness.surfaceSession.commitCanvas(fence);
+    harness.surfaceSession.commitViewport({
+        generation,
+        documentRevision: 'revision-1',
+        viewportIntentId: fence.viewportIntentId,
+        documentGeometryRevision: 1,
+        interactionEpoch: 0,
+        pageNumber: 1,
+        left: 0,
+        top: 0,
+    });
+    expect(harness.surfaceSession.markReady(fence)).toBe(true);
 }
 
 async function flushSettleWatchers() {
@@ -115,7 +154,7 @@ describe('useDocumentOpenVisualSettle', () => {
 
         await expectStillPending(settled);
 
-        harness.settle.handlePdfInitialVisualReady();
+        commitHarnessSurfaceReady(harness);
 
         await vi.waitFor(() => expect(settled).toHaveBeenCalledOnce());
     });
@@ -135,7 +174,7 @@ describe('useDocumentOpenVisualSettle', () => {
         await vi.waitFor(() => expect(accepted).toHaveBeenCalledOnce());
         await expectStillPending(visual);
 
-        harness.settle.handlePdfInitialVisualReady();
+        commitHarnessSurfaceReady(harness);
 
         await vi.waitFor(() => expect(visual).toHaveBeenCalledOnce());
     });
@@ -155,7 +194,7 @@ describe('useDocumentOpenVisualSettle', () => {
         await vi.waitFor(() => expect(accepted).toHaveBeenCalledOnce());
         await expectStillPending(visual);
 
-        harness.settle.handlePdfInitialVisualReady();
+        commitHarnessSurfaceReady(harness);
 
         await vi.waitFor(() => expect(visual).toHaveBeenCalledOnce());
         expect(harness.pageLabelsResolved.value).toBe(false);
@@ -180,7 +219,7 @@ describe('useDocumentOpenVisualSettle', () => {
 
         await expectStillPending(settled);
 
-        harness.settle.handlePdfInitialVisualReady();
+        commitHarnessSurfaceReady(harness);
 
         await vi.waitFor(() => expect(settled).toHaveBeenCalledOnce());
     });
@@ -202,7 +241,7 @@ describe('useDocumentOpenVisualSettle', () => {
         });
         const settled = observeSettlement(harness.settle.waitForDocumentOpenSettled());
 
-        harness.settle.handlePdfInitialVisualReady();
+        commitHarnessSurfaceReady(harness);
         await expectStillPending(settled);
 
         harness.isLoading.value = false;
@@ -236,7 +275,7 @@ describe('useDocumentOpenVisualSettle', () => {
         await rejection;
 
         harness.isLoading.value = false;
-        harness.settle.handlePdfInitialVisualReady();
+        commitHarnessSurfaceReady(harness);
 
         await expect(harness.settle.waitForDocumentOpenSettled()).resolves.toBeUndefined();
     });

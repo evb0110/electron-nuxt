@@ -24,7 +24,10 @@ import {
 
 function createDefaultsSetup(
     settings: Partial<ISettingsData> = {},
-    options: {preserveInitialStateForFirstSource?: boolean} = {},
+    options: {
+        initialDocumentSourceKey?: unknown;
+        preserveInitialStateForFirstSource?: boolean;
+    } = {},
 ) {
     const scope = effectScope();
     const appSettings = ref<ISettingsData>(sanitizeSettings({
@@ -47,7 +50,7 @@ function createDefaultsSetup(
     const effectiveZoom = ref(2);
     const zoomMode = ref<TZoomMode>('custom');
     const pdfSrc = ref<TPdfSource | null>(null);
-    const documentSourceKey = ref<unknown>(null);
+    const documentSourceKey = ref<unknown>(options.initialDocumentSourceKey ?? null);
 
     const defaults = scope.run(() => useWorkspaceViewerDefaults({
         appSettings,
@@ -89,6 +92,63 @@ async function openPdf(pdfSrc: Ref<TPdfSource | null>) {
 }
 
 describe('useWorkspaceViewerDefaults', () => {
+    it('prepares the configured view before a synchronous open starts from an empty workspace', () => {
+        const setup = createDefaultsSetup({
+            defaultZoomPreset: 'fit-width',
+            defaultViewMode: 'single',
+            defaultContinuousScroll: true,
+        });
+
+        try {
+            expect(setup.documentSourceKey.value).toBeNull();
+            expect(setup.fitMode.value).toBe('width');
+            expect(setup.zoom.value).toBe(1);
+            expect(setup.effectiveZoom.value).toBe(1);
+            expect(setup.zoomMode.value).toBe('fit-width');
+            expect(setup.viewMode.value).toBe('single');
+            expect(setup.continuousScroll.value).toBe(true);
+        } finally {
+            setup.stop();
+        }
+    });
+
+    it('prepares a numeric zoom preset before a synchronous open starts', () => {
+        const setup = createDefaultsSetup({defaultZoomPreset: '150'});
+
+        try {
+            expect(setup.documentSourceKey.value).toBeNull();
+            expect(setup.zoom.value).toBe(1.5);
+            expect(setup.effectiveZoom.value).toBe(1.5);
+            expect(setup.zoomMode.value).toBe('custom');
+        } finally {
+            setup.stop();
+        }
+    });
+
+    it('preserves a document source already attached during setup', async () => {
+        const setup = createDefaultsSetup(
+            {defaultZoomPreset: 'fit-width'},
+            {initialDocumentSourceKey: 'pdf:/docs/transferred.pdf'},
+        );
+
+        try {
+            expect(setup.fitMode.value).toBe('height');
+            expect(setup.zoom.value).toBe(2);
+            expect(setup.effectiveZoom.value).toBe(2);
+            expect(setup.zoomMode.value).toBe('custom');
+
+            setup.documentSourceKey.value = 'pdf:/docs/replacement.pdf';
+            await nextTick();
+
+            expect(setup.fitMode.value).toBe('width');
+            expect(setup.zoom.value).toBe(1);
+            expect(setup.effectiveZoom.value).toBe(1);
+            expect(setup.zoomMode.value).toBe('fit-width');
+        } finally {
+            setup.stop();
+        }
+    });
+
     it('applies fit-width as the sanitized default zoom preset', async () => {
         const setup = createDefaultsSetup({
             defaultZoomPreset: 'fit-width',
@@ -278,14 +338,21 @@ describe('useWorkspaceViewerDefaults', () => {
         );
 
         try {
-            setup.zoom.value = 4.3;
-            setup.effectiveZoom.value = 4.3;
-            setup.zoomMode.value = 'custom';
+            expect(setup.viewMode.value).toBe('facing');
+            expect(setup.continuousScroll.value).toBe(false);
+            expect(setup.fitMode.value).toBe('height');
+            expect(setup.zoom.value).toBe(2);
+            expect(setup.effectiveZoom.value).toBe(2);
+            expect(setup.zoomMode.value).toBe('custom');
+
             setup.documentSourceKey.value = 'djvu:/docs/restored.djvu';
             await nextTick();
 
-            expect(setup.zoom.value).toBe(4.3);
-            expect(setup.effectiveZoom.value).toBe(4.3);
+            expect(setup.viewMode.value).toBe('facing');
+            expect(setup.continuousScroll.value).toBe(false);
+            expect(setup.fitMode.value).toBe('height');
+            expect(setup.zoom.value).toBe(2);
+            expect(setup.effectiveZoom.value).toBe(2);
             expect(setup.zoomMode.value).toBe('custom');
 
             setup.documentSourceKey.value = 'pdf:/docs/replacement.pdf';

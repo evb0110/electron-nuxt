@@ -206,6 +206,7 @@ export const useTabsShellBindings = (options: IUseTabsShellBindingsOptions) => {
             getActiveTabId: () => activeTabId.value,
             getActiveWorkspaceHandle,
             getActiveToolbarSnapshot: () => readWorkspaceSnapshot(activeTabId.value, getActiveWorkspaceHandle()),
+            isStartupOpenClaimPending: () => isStartupOpenClaimPending.value,
             readActiveWorkspaceStateValues,
             callActiveWorkspaceCommand,
             collectWorkspaceDebugState: (): IEvbTestWorkspaceDebugState => {

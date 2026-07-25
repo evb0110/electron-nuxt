@@ -776,15 +776,18 @@ describe('scan cleanup preview', () => {
                 return;
             }
             const region = detailPlan.renderRegion;
+            const renderDpi = Number(manifestOptions?.dpi ?? 150);
+            const outputWidthPx = Math.round(1_000 * renderDpi / 150);
+            const outputHeightPx = Math.round(1_500 * renderDpi / 150);
             await writeFile(output.outputPath, pngWithDimensions(region.widthPx, region.heightPx));
             await writeFile(output.metadataPath, JSON.stringify({
                 ...metadata,
-                outputWidthPx: 2_000,
-                outputHeightPx: 3_000,
-                canvasWidthPx: 2_000,
-                canvasHeightPx: 3_000,
+                outputWidthPx,
+                outputHeightPx,
+                canvasWidthPx: outputWidthPx,
+                canvasHeightPx: outputHeightPx,
                 sourceDpi: 300,
-                renderDpi: 300,
+                renderDpi,
                 requestedRenderDpi: 300,
                 renderRegion: region,
             }));
@@ -860,6 +863,44 @@ describe('scan cleanup preview', () => {
             },
         });
 
+        const budgetedResult = await service.preview(previewSender, {
+            ...request,
+            detail: {
+                viewports: {full: {
+                    xNormalized: 0,
+                    yNormalized: 0,
+                    widthNormalized: 1,
+                    heightNormalized: 1,
+                    rotationDegrees: 0,
+                }},
+                outputMode: 'bw',
+            },
+        });
+        expect(renderCalls[2]?.dpi).toBe(242);
+        expect(manifestOptions).toMatchObject({
+            dpi: 242,
+            sourceDpi: 300,
+            requestedRenderDpi: 300,
+        });
+        expect(detailPlan?.renderRegion).toEqual({
+            xPx: 0,
+            yPx: 0,
+            widthPx: 1_613,
+            heightPx: 2_420,
+        });
+        expect(budgetedResult.outputs[0]?.metadata).toMatchObject({
+            outputWidthPx: 1_613,
+            outputHeightPx: 2_420,
+            renderDpi: 242,
+            requestedRenderDpi: 300,
+            renderRegion: {
+                xPx: 0,
+                yPx: 0,
+                widthPx: 1_613,
+                heightPx: 2_420,
+            },
+        });
+
         const mixedFallback = await service.preview(previewSender, {
             ...request,
             detail: {
@@ -873,10 +914,10 @@ describe('scan cleanup preview', () => {
                 outputMode: 'mixed',
             },
         });
-        expect(renderCalls[2]).toEqual({dpi: 233});
+        expect(renderCalls[3]).toEqual({dpi: 231});
         expect(detailPlan).toBeUndefined();
         expect(manifestOptions).toMatchObject({
-            dpi: 233,
+            dpi: 231,
             sourceDpi: 300,
             requestedRenderDpi: 300,
             outputMode: 'mixed',
@@ -934,10 +975,10 @@ describe('scan cleanup preview', () => {
                 outputMode: 'bw',
             },
         });
-        expect(renderCalls).toHaveLength(3);
+        expect(renderCalls).toHaveLength(4);
         expect(detailPlan).toBeUndefined();
         expect(manifestOptions).toMatchObject({
-            dpi: 233,
+            dpi: 231,
             outputMode: 'bw',
         });
         expect(manualZoneFallback.outputs[0]?.metadata.renderRegion).toBeUndefined();

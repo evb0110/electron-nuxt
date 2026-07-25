@@ -8,7 +8,8 @@ export type TCommittedSurfaceKind =
     | 'committed-empty'
     | 'loader'
     | 'neutral'
-    | 'page-shell';
+    | 'page-shell'
+    | 'tool-surface';
 
 export type TCommittedEmptySource = 'live-empty-state';
 
@@ -916,9 +917,15 @@ export async function installCommittedSurfaceSampler(page: Page) {
                 const activeHost = document.querySelector<HTMLElement>(
                     '.editor-pane.is-active .workspace-host[data-workspace-active="true"]',
                 ) ?? document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
-                const host = isVisible(activeHost)
+                const presentationFallback = document.querySelector<HTMLElement>(
+                    '.editor-pane.is-active .workspace-host.is-presentation-fallback',
+                );
+                let host = isVisible(activeHost)
                     ? activeHost
                     : Array.from(document.querySelectorAll<HTMLElement>('.workspace-host')).find(isVisible) ?? null;
+                if (isVisible(presentationFallback) && ownsVisibleCenter(presentationFallback)) {
+                    host = presentationFallback;
+                }
                 const viewport = host?.querySelector<HTMLElement>('[data-document-viewer-chassis-viewport]')
                 ?? host?.querySelector<HTMLElement>('#pdf-viewer')
                 ?? null;
@@ -927,6 +934,9 @@ export async function installCommittedSurfaceSampler(page: Page) {
                 ) ?? []).find(ownsVisibleCenter) ?? null;
                 const visibleLoader = Array.from(host?.querySelectorAll<HTMLElement>(
                     '.workspace-host__loading, .document-loading, .pdf-loading, .pdf-loading-overlay',
+                ) ?? []).find(ownsVisibleCenter) ?? null;
+                const visibleToolSurface = Array.from(host?.querySelectorAll<HTMLElement>(
+                    '.scan-cleanup-surface',
                 ) ?? []).find(ownsVisibleCenter) ?? null;
                 const outerPlaceholder = host?.querySelector<HTMLElement>('.workspace-host__placeholder') ?? null;
                 const visibleLiveEmptyState = Array.from(
@@ -1038,6 +1048,8 @@ export async function installCommittedSurfaceSampler(page: Page) {
                     kind = 'neutral';
                 } else if (visibleLoader) {
                     kind = 'loader';
+                } else if (visibleToolSurface) {
+                    kind = 'tool-surface';
                 } else if (canvasAuthorityReady && pageCanvas && ownsVisibleCenter(page)) {
                     kind = 'committed-canvas';
                 } else if (

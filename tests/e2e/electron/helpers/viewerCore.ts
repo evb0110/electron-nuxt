@@ -56,6 +56,8 @@ interface IAutomationFileOpenGrantApi {
     electronAPI?: { documents?: { recentFiles?: { add?: (value: string) => Promise<void>; }; }; };
 }
 
+class DirectDocumentOpenRejectedError extends Error {}
+
 function getToolbarActionIconHints(label: string) {
     return TOOLBAR_ACTION_ICON_HINTS[label] ?? [];
 }
@@ -165,39 +167,6 @@ export async function waitForActiveDocumentSource(page: Page, path: string, time
         ];
         return candidates.some(candidate => normalize(candidate) === requestedPath);
     }, {timeout: timeoutMs}, {path: sourcePath});
-}
-
-async function openFreshTabForDocumentOpen(page: Page, timeoutMs = DEFAULT_TIMEOUT_MS) {
-    const clicked = await runWithExecutionContextRetry(page, async () => evaluateInPage(page, () => {
-        const isVisible = (element: HTMLElement) => {
-            const rect = element.getBoundingClientRect();
-            const style = window.getComputedStyle(element);
-            return (
-                style.display !== 'none'
-                && style.visibility !== 'hidden'
-                && Number(style.opacity || '1') > 0
-                && rect.width > 8
-                && rect.height > 8
-            );
-        };
-        const button = Array.from(document.querySelectorAll<HTMLButtonElement>('button, .tab-new'))
-            .find(candidate => (
-                !candidate.disabled
-                && isVisible(candidate)
-                && (
-                    candidate.classList.contains('tab-new')
-                    || candidate.getAttribute('aria-label')?.trim() === 'New Tab'
-                )
-            ));
-        button?.click();
-        return Boolean(button);
-    }));
-    if (!clicked) {
-        throw new Error('Could not open a fresh tab for document open fallback');
-    }
-
-    await waitForActiveWorkspaceHost(page, timeoutMs);
-    await delay(250);
 }
 
 export async function waitForPdfLoaded(page: Page, timeoutMs = DEFAULT_TIMEOUT_MS) {
@@ -461,7 +430,6 @@ async function openPathInApp(
     let lastError: Error | null = null;
     let openTriggered = false;
     let openBaselineEventId = 0;
-    let openedFreshTabAfterBlockedOpen = false;
 
     try {
         await waitForActiveDocumentSource(page, sourcePath, 300);
@@ -478,6 +446,20 @@ async function openPathInApp(
             await waitForRendererBindings(page, Math.min(remainingMs, 8_000));
 
             if (!openTriggered) {
+                await waitForFunctionInPage(page, () => {
+                    const target = window as IE2EWindow & {__evbDocumentOpenShellReadyAt?: number;};
+                    const api = target.__evbTestApi;
+                    const activeTabId = api?.getActiveTabId?.();
+                    const shellReady = api?.isStartupOpenClaimPending?.() === false
+                        && typeof activeTabId === 'string'
+                        && activeTabId.length > 0;
+                    if (!shellReady) {
+                        delete target.__evbDocumentOpenShellReadyAt;
+                        return false;
+                    }
+                    target.__evbDocumentOpenShellReadyAt ??= performance.now();
+                    return performance.now() - target.__evbDocumentOpenShellReadyAt >= 15_000;
+                }, {timeout: remainingMs});
                 openBaselineEventId = await getLatestAutomationEventId(page);
                 const openResult = await runWithExecutionContextRetry(page, async () => {
                     return evaluateInPage(page, async (path: string) => {
@@ -493,27 +475,14 @@ async function openPathInApp(
                         return openFileDirect(path);
                     }, path);
                 });
+                openTriggered = true;
 
                 if (!openResult) {
-                    lastError = new Error('window.__openFileDirect returned false');
-                    try {
-                        await waitForActiveDocumentSource(page, sourcePath, Math.min(3_000, remainingMs));
-                        await waitForLoaded(page, remainingMs);
-                        return;
-                    } catch (error) {
-                        lastError = error instanceof Error ? error : new Error(describeError(error));
-                        if (!openedFreshTabAfterBlockedOpen) {
-                            openedFreshTabAfterBlockedOpen = true;
-                            await openFreshTabForDocumentOpen(page, Math.min(remainingMs, 8_000));
-                            await delay(250);
-                            continue;
-                        }
-                        await delay(250);
-                        continue;
-                    }
+                    const diagnostics = await collectDocumentOpenDiagnostics(page);
+                    throw new DirectDocumentOpenRejectedError(
+                        `window.__openFileDirect returned false. Diagnostics: ${JSON.stringify(diagnostics)}`,
+                    );
                 }
-
-                openTriggered = true;
             }
 
             const domWait = (async () => {
@@ -545,6 +514,9 @@ async function openPathInApp(
             ]);
             return;
         } catch (error) {
+            if (error instanceof DirectDocumentOpenRejectedError) {
+                throw error;
+            }
             if (!isExecutionContextDestroyedError(error)) {
                 lastError = error instanceof Error ? error : new Error(describeError(error));
             } else {

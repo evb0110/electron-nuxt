@@ -1,4 +1,6 @@
+// Public because document opening must distinguish managed cleanup outputs from user files.
 import {randomUUID} from 'crypto';
+import {realpathSync} from 'fs';
 import {
     mkdir,
     readdir,
@@ -8,15 +10,44 @@ import {
 import {
     basename,
     extname,
+    isAbsolute,
     join,
+    relative,
     resolve,
+    sep,
 } from 'path';
-import {getAppTempDir} from '@electron/utils/appTempDir';
+import {
+    getAppTempDir,
+    getAppTempDirPath,
+} from '@electron/utils/appTempDir';
 
 export const SCAN_CLEANUP_OUTPUT_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 
 export function getScanCleanupOutputRoot(appTempDir = getAppTempDir()) {
     return join(appTempDir, 'scan-cleanup', 'output');
+}
+
+export function isScanCleanupGeneratedOutputPath(
+    outputPath: string,
+    appTempDir = getAppTempDirPath(),
+) {
+    let relativePath: string;
+    try {
+        relativePath = relative(
+            realpathSync(getScanCleanupOutputRoot(appTempDir)),
+            realpathSync(outputPath),
+        );
+    } catch {
+        return false;
+    }
+    const segments = relativePath.split(sep);
+    return relativePath.length > 0
+        && relativePath !== '..'
+        && !relativePath.startsWith(`..${sep}`)
+        && !isAbsolute(relativePath)
+        && segments.length === 2
+        && /^[\da-f]{8}-(?:[\da-f]{4}-){3}[\da-f]{12}$/iu.test(segments[0] ?? '')
+        && extname(segments[1] ?? '').toLowerCase() === '.pdf';
 }
 
 function humanOutputName(sourcePdfPath: string, partial: boolean) {
