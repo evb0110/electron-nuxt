@@ -1,25 +1,18 @@
 import type {
     ComputedRef,
     Ref,
+    ShallowRef,
 } from 'vue';
-import { groupBy } from 'es-toolkit/array';
 import type {
     IAnnotationSettings,
     IShapeAnnotation,
     TDrawableShapeType,
-    TShapeAnnotationPatch,
     TShapeResizeHandle,
 } from '@app/types/annotations';
-import { isShapeTool } from '@app/modules/pdf-viewer/engine/annotations/annotation-rules/isShapeTool';
-import { normalizeManagedShapeStableKey } from '@app/modules/pdf-viewer/engine/pdf-serialization-refs/normalizeManagedShapeStableKey';
-import { normalizePdfJsAnnotationId } from '@app/utils/pdfAnnotationRefs';
-import {
-    getNormalizedShapeAnnotationId,
-    getNormalizedShapeStableKey,
-    shapeStableRefsMatch,
-} from '@app/modules/pdf-viewer/engine/annotations/shape-annotation-identity/shapeAnnotationIdentity';
-import { cloneShapePoints } from '@app/modules/pdf-viewer/engine/pdf-shape-strokes/cloneShapePoints';
-import { cloneShapeStrokes } from '@app/modules/pdf-viewer/engine/pdf-shape-strokes/cloneShapeStrokes';
+import type { AnnotationApplication } from '@app/modules/pdf-viewer/annotations/annotationApplication';
+import type { IShapeEntity } from '@app/modules/pdf-viewer/annotations/domain/annotationEntity';
+import type { IShapeImportSource } from '@app/modules/pdf-viewer/annotations/domain/annotationStore';
+import { cloneShape } from '@app/modules/pdf-viewer/engine/shapes/cloneShape';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import {
     buildShapeAnnotation,
@@ -27,14 +20,6 @@ import {
     isDrawableFinishedShape,
     updateDrawingShapeForPoint,
 } from '@app/modules/pdf-viewer/tools/annotationShapeDrawing';
-
-function normalizeComparableNumber(value: number | null | undefined) {
-    if (typeof value !== 'number' || !Number.isFinite(value)) {
-        return null;
-    }
-
-    return Number(value.toFixed(6));
-}
 
 export interface IShapeContextProvide {
     selectedShapeId: Ref<string | null>;
@@ -81,218 +66,114 @@ export interface IShapeContextProvide {
     }) => void;
 }
 
-interface IShapeStateSnapshot {
-    shapes: IShapeAnnotation[];
-    deletedAnnotationIds: string[];
-    deletedStableKeys: string[];
-    baselineSignature: string;
-    selectedShapeId: string | null;
+interface IUseAnnotationShapesOptions {
+    annotationApplication: ShallowRef<AnnotationApplication>;
+    notifyShapeCommentsChanged: () => void;
 }
 
-export const useAnnotationShapes = () => {
-    const shapes = ref<Map<number, IShapeAnnotation[]>>(new Map());
+/**
+ * Renders the canonical shapes `AnnotationStore` owns and forwards drawing and
+ * import intents back to it. It holds no shape map, tombstone set or saved
+ * baseline of its own: the only state here is transient drawing/selection UI,
+ * plus a cache of the last store emission so Vue can depend on it.
+ */
+export const useAnnotationShapes = ({
+    annotationApplication,
+    notifyShapeCommentsChanged,
+}: IUseAnnotationShapesOptions) => {
     const selectedShapeId = ref<string | null>(null);
     const focusedShapeId = ref<string | null>(null);
     const drawingShape = ref<IShapeAnnotation | null>(null);
     const isDrawing = ref(false);
-    const deletedEmbeddedAnnotationIds = ref<Set<string>>(new Set());
-    const deletedEmbeddedShapeStableKeys = ref<Set<string>>(new Set());
-    const baselineSignature = ref('[]');
+    const shapeEntities = shallowRef<readonly IShapeEntity[]>([]);
     let drawOrigin: {
         x: number;
         y: number
     } | null = null;
 
-    function cloneShape(shape: IShapeAnnotation): IShapeAnnotation {
-        return {
-            ...shape,
-            points: cloneShapePoints(shape.points),
-            strokes: cloneShapeStrokes(shape.strokes),
-        };
-    }
-
-    function groupShapesByPage(input: IShapeAnnotation[]): Map<number, IShapeAnnotation[]> {
-        return new Map(
-            Object.entries(groupBy(input, shape => shape.pageIndex))
-                .map(([
-                    pageIndex,
-                    shapes,
-                ]) => ([
-                    Number(pageIndex),
-                    shapes,
-                ])),
-        );
-    }
-
-    function replaceShapeState(
-        nextShapes: IShapeAnnotation[],
-        options?: {
-            deletedIds?: Set<string>;
-            deletedStableKeys?: Set<string>;
-            baselineShapes?: IShapeAnnotation[];
-            baselineSignatureValue?: string;
-        },
-    ) {
-        shapes.value = groupShapesByPage(nextShapes);
-        deletedEmbeddedAnnotationIds.value = new Set(options?.deletedIds ?? []);
-        deletedEmbeddedShapeStableKeys.value = new Set(options?.deletedStableKeys ?? []);
-        baselineSignature.value = options?.baselineSignatureValue
-            ?? toShapesSignature(options?.baselineShapes ?? nextShapes);
-
-        BrowserLogger.debug('pdf-shapes', 'Replaced shape state', () => ({
-            shapeCount: nextShapes.length,
-            embeddedCount: nextShapes.filter(shape => shape.source === 'embedded').length,
-            localCount: nextShapes.filter(shape => shape.source !== 'embedded').length,
-            deletedAnnotationIds: [...deletedEmbeddedAnnotationIds.value],
-            deletedStableKeys: [...deletedEmbeddedShapeStableKeys.value],
-            baselineShapeCount: options?.baselineShapes?.length ?? nextShapes.length,
-            usedExplicitBaselineSignature: typeof options?.baselineSignatureValue === 'string',
-        }));
-
-        if (selectedShapeId.value && !nextShapes.some(shape => shape.id === selectedShapeId.value)) {
+    function projectCanonicalShapes() {
+        const entities = annotationApplication.value.store.listShapes({includeDeleted: true});
+        shapeEntities.value = entities;
+        const liveIds = new Set(entities.filter(entity => !entity.deleted).map(entity => entity.geometry.id));
+        if (selectedShapeId.value && !liveIds.has(selectedShapeId.value)) {
             selectedShapeId.value = null;
         }
-        if (focusedShapeId.value && !nextShapes.some(shape => shape.id === focusedShapeId.value)) {
+        if (focusedShapeId.value && !liveIds.has(focusedShapeId.value)) {
             focusedShapeId.value = null;
         }
     }
 
-    function resetDrawingState() {
-        isDrawing.value = false;
-        drawingShape.value = null;
-        drawOrigin = null;
-    }
+    let stopProjection: (() => void) | null = null;
+    watch(annotationApplication, (application) => {
+        stopProjection?.();
+        stopProjection = application.store.subscribe(projectCanonicalShapes);
+    }, {
+        immediate: true,
+        flush: 'sync',
+    });
+    onScopeDispose(() => stopProjection?.());
 
-    function toComparableShape(shape: IShapeAnnotation) {
-        const comparable = {
-            annotationId: getNormalizedShapeAnnotationId(shape) ?? shape.annotationId ?? null,
-            color: shape.color,
-            fillColor: shape.fillColor ?? null,
-            height: shape.height,
-            lineEndStyle: shape.lineEndStyle ?? null,
-            lineStartStyle: shape.lineStartStyle ?? null,
-            opacity: shape.opacity,
-            pageIndex: shape.pageIndex,
-            pdfSubtype: shape.pdfSubtype ?? null,
-            stableKey: getNormalizedShapeStableKey(shape) ?? null,
-            points: shape.points?.map(point => ({
-                x: point.x,
-                y: point.y,
-            })) ?? null,
-            strokes: shape.strokes?.map(points => points.map(point => ({
-                x: point.x,
-                y: point.y,
-            }))) ?? null,
-            source: shape.source ?? 'local',
-            strokeWidth: shape.strokeWidth,
-            type: shape.type,
-            width: shape.width,
-            x: shape.x,
-            x2: shape.x2 ?? null,
-            y: shape.y,
-            y2: shape.y2 ?? null,
+    function projectShape(entity: IShapeEntity) {
+        return {
+            ...entity.geometry,
+            ...(entity.identity.pdfRef
+                ? {
+                    source: 'embedded' as const,
+                    annotationId: entity.identity.pdfRef,
+                }
+                : {}),
+            ...(entity.identity.pdfName ? {stableKey: entity.identity.pdfName} : {}),
         };
-        return comparable;
     }
 
-    function toReconciliationKey(shape: IShapeAnnotation) {
-        return JSON.stringify({
-            color: shape.color,
-            fillColor: shape.fillColor ?? null,
-            height: normalizeComparableNumber(shape.height),
-            lineEndStyle: shape.lineEndStyle ?? null,
-            lineStartStyle: shape.lineStartStyle ?? null,
-            opacity: normalizeComparableNumber(shape.opacity),
-            pageIndex: shape.pageIndex,
-            pdfSubtype: shape.pdfSubtype ?? null,
-            stableKey: getNormalizedShapeStableKey(shape) ?? null,
-            points: shape.points?.map(point => ({
-                x: normalizeComparableNumber(point.x),
-                y: normalizeComparableNumber(point.y),
-            })) ?? null,
-            strokes: shape.strokes?.map(points => points.map(point => ({
-                x: normalizeComparableNumber(point.x),
-                y: normalizeComparableNumber(point.y),
-            }))) ?? null,
-            strokeWidth: normalizeComparableNumber(shape.strokeWidth),
-            type: shape.type,
-            width: normalizeComparableNumber(shape.width),
-            x: normalizeComparableNumber(shape.x),
-            x2: normalizeComparableNumber(shape.x2),
-            y: normalizeComparableNumber(shape.y),
-            y2: normalizeComparableNumber(shape.y2),
+    const liveShapes = computed(() => shapeEntities.value
+        .filter(entity => !entity.deleted)
+        .map(projectShape));
+    const tombstones = computed(() => shapeEntities.value
+        .filter(entity => entity.deleted)
+        .map(projectShape)
+        .filter(shape => shape.source === 'embedded'));
+
+    const shapesByPage = computed(() => {
+        const byPage = new Map<number, IShapeAnnotation[]>();
+        liveShapes.value.forEach((shape) => {
+            const pageShapes = byPage.get(shape.pageIndex);
+            if (pageShapes) {
+                pageShapes.push(shape);
+                return;
+            }
+            byPage.set(shape.pageIndex, [shape]);
         });
-    }
+        return byPage;
+    });
 
-    function mergeImportedShape(currentShape: IShapeAnnotation, importedShape: IShapeAnnotation): IShapeAnnotation {
-        return {
-            ...cloneShape(importedShape),
-            id: currentShape.id,
-        };
-    }
-
-    function mergeImportedShapeMetadata(currentShape: IShapeAnnotation, importedShape: IShapeAnnotation): IShapeAnnotation {
-        return {
-            ...cloneShape(currentShape),
-            source: importedShape.source ?? 'embedded',
-            annotationId: importedShape.annotationId ?? currentShape.annotationId ?? null,
-            stableKey: importedShape.stableKey ?? currentShape.stableKey ?? null,
-            pdfSubtype: importedShape.pdfSubtype ?? currentShape.pdfSubtype ?? null,
-            lineStartStyle: importedShape.lineStartStyle ?? currentShape.lineStartStyle,
-            lineEndStyle: importedShape.lineEndStyle ?? currentShape.lineEndStyle,
-        };
-    }
-
-    function matchesDeletedImportedShape(
-        shape: IShapeAnnotation,
-        deletedAnnotationIds: Set<string>,
-        deletedStableKeys: Set<string>,
-    ) {
-        const annotationId = getNormalizedShapeAnnotationId(shape);
-        if (annotationId && deletedAnnotationIds.has(annotationId)) {
-            return true;
-        }
-
-        const stableKey = getNormalizedShapeStableKey(shape);
-        if (stableKey && deletedStableKeys.has(stableKey)) {
-            return true;
-        }
-
-        return false;
-    }
-
-    function toShapesSignature(input: IShapeAnnotation[]) {
-        const comparable = input
-            .map(shape => toComparableShape(shape))
-            .sort((left, right) => (
-                left.pageIndex - right.pageIndex
-                || (left.annotationId ?? left.type).localeCompare(right.annotationId ?? right.type)
-                || left.x - right.x
-                || left.y - right.y
-            ));
-        return JSON.stringify(comparable);
-    }
+    const deletedEmbeddedAnnotationIds = computed(() => new Set(
+        tombstones.value
+            .map(shape => shape.annotationId)
+            .filter((annotationId): annotationId is string => Boolean(annotationId)),
+    ));
+    const deletedEmbeddedShapeStableKeys = computed(() => new Set(
+        tombstones.value
+            .map(shape => shape.stableKey)
+            .filter((stableKey): stableKey is string => Boolean(stableKey)),
+    ));
+    const hasShapes = computed(() => {
+        // Depend on the projection so dirty state re-evaluates with every
+        // canonical emission; the store remains the only judge of it.
+        void shapeEntities.value;
+        return annotationApplication.value.store.hasChangesSinceSavedBaseline('shape');
+    });
 
     function getShapesForPage(pageIndex: number): IShapeAnnotation[] {
-        return shapes.value.get(pageIndex) ?? [];
+        return shapesByPage.value.get(pageIndex) ?? [];
     }
 
     function getAllShapes(): IShapeAnnotation[] {
-        const all: IShapeAnnotation[] = [];
-        for (const pageShapes of shapes.value.values()) {
-            all.push(...pageShapes.map(shape => cloneShape(shape)));
-        }
-        return all;
+        return liveShapes.value.map(shape => structuredClone(shape));
     }
 
     function getShapeById(id: string): IShapeAnnotation | null {
-        for (const pageShapes of shapes.value.values()) {
-            const shape = pageShapes.find(s => s.id === id);
-            if (shape) {
-                return shape;
-            }
-        }
-        return null;
+        return liveShapes.value.find(shape => shape.id === id) ?? null;
     }
 
     function getDeletedEmbeddedAnnotationIds() {
@@ -303,217 +184,73 @@ export const useAnnotationShapes = () => {
         return [...deletedEmbeddedShapeStableKeys.value];
     }
 
-    function getManagedEmbeddedAnnotationIds() {
-        const ids = new Set(deletedEmbeddedAnnotationIds.value);
-        for (const shape of getAllShapes()) {
-            if (shape.source === 'embedded' && shape.annotationId) {
-                ids.add(shape.annotationId);
-            }
-        }
-        return [...ids];
-    }
-
-    type TShapeHistoryMatchKind = 'none' | 'durable' | 'fallback';
-
-    function shapeHistoryMatchKind(candidate: IShapeAnnotation, reference: IShapeAnnotation): TShapeHistoryMatchKind {
-        if (candidate.id === reference.id) {
-            return 'durable';
-        }
-
-        if (shapeStableRefsMatch(candidate, reference)) {
-            return 'durable';
-        }
-
-        return toReconciliationKey(candidate) === toReconciliationKey(reference)
-            ? 'fallback'
-            : 'none';
-    }
-
-    function removeShapeHistoryReferenceMatches(input: IShapeAnnotation[], reference: IShapeAnnotation) {
-        const durableMatches = new Set(
-            input
-                .filter(candidate => shapeHistoryMatchKind(candidate, reference) === 'durable')
-                .map(candidate => candidate.id),
-        );
-
-        if (durableMatches.size > 0) {
-            return input.filter(candidate => !durableMatches.has(candidate.id));
-        }
-
-        let removedFallback = false;
-        return input.filter((candidate) => {
-            if (!removedFallback && shapeHistoryMatchKind(candidate, reference) === 'fallback') {
-                removedFallback = true;
-                return false;
-            }
-            return true;
-        });
-    }
-
-    function getShapeHistoryReferenceMatchIds(reference: IShapeAnnotation) {
-        const allShapes = getAllShapes();
-        const durableMatchIds = allShapes
-            .filter(candidate => shapeHistoryMatchKind(candidate, reference) === 'durable')
-            .map(candidate => candidate.id);
-        if (durableMatchIds.length > 0) {
-            return new Set(durableMatchIds);
-        }
-
-        const fallbackMatch = allShapes.find(candidate => shapeHistoryMatchKind(candidate, reference) === 'fallback');
-        return new Set(fallbackMatch ? [fallbackMatch.id] : []);
-    }
-
-    function addShape(shape: IShapeAnnotation) {
-        const nextShapes = removeShapeHistoryReferenceMatches(getAllShapes(), shape);
-        nextShapes.push(cloneShape(shape));
-        shapes.value = groupShapesByPage(nextShapes);
-        shapes.value = new Map(shapes.value);
-        if (shape.annotationId) {
-            const nextDeletedIds = new Set(deletedEmbeddedAnnotationIds.value);
-            nextDeletedIds.delete(shape.annotationId);
-            deletedEmbeddedAnnotationIds.value = nextDeletedIds;
-        }
-        if (shape.stableKey) {
-            const nextDeletedStableKeys = new Set(deletedEmbeddedShapeStableKeys.value);
-            nextDeletedStableKeys.delete(shape.stableKey);
-            deletedEmbeddedShapeStableKeys.value = nextDeletedStableKeys;
-        }
-    }
-
-    function markDeletedEmbeddedShape(deletedShape: IShapeAnnotation) {
-        if (deletedShape.source === 'embedded' && deletedShape.annotationId) {
-            const nextDeletedIds = new Set(deletedEmbeddedAnnotationIds.value);
-            nextDeletedIds.add(deletedShape.annotationId);
-            deletedEmbeddedAnnotationIds.value = nextDeletedIds;
-        }
-        if (deletedShape.source === 'embedded' && deletedShape.stableKey) {
-            const nextDeletedStableKeys = new Set(deletedEmbeddedShapeStableKeys.value);
-            nextDeletedStableKeys.add(deletedShape.stableKey);
-            deletedEmbeddedShapeStableKeys.value = nextDeletedStableKeys;
-        }
-    }
-
-    function deleteShapesByPredicate(
-        predicate: (shape: IShapeAnnotation) => boolean,
-        debugReference: Pick<IShapeAnnotation, 'id' | 'source' | 'annotationId' | 'stableKey' | 'pageIndex' | 'color'>,
-    ) {
-        const deletedShapes: IShapeAnnotation[] = [];
-        const nextShapes = getAllShapes().filter((shape) => {
-            if (!predicate(shape)) {
-                return true;
-            }
-            deletedShapes.push(shape);
-            return false;
-        });
-
-        if (deletedShapes.length === 0) {
-            return [];
-        }
-
-        BrowserLogger.debug('pdf-shapes', 'Deleting shape', () => ({
-            id: debugReference.id,
-            source: debugReference.source,
-            annotationId: debugReference.annotationId ?? null,
-            stableKey: debugReference.stableKey ?? null,
-            pageIndex: debugReference.pageIndex,
-            color: debugReference.color,
-            deletedCount: deletedShapes.length,
-            deletedAnnotationIdsBefore: [...deletedEmbeddedAnnotationIds.value],
-            deletedStableKeysBefore: [...deletedEmbeddedShapeStableKeys.value],
+    function importEmbeddedShapes(imported: IShapeAnnotation[], source: IShapeImportSource) {
+        const plan = annotationApplication.value.importEmbeddedShapes(imported, source);
+        BrowserLogger.debug('pdf-shapes', 'Applied embedded shape import', () => ({
+            importedShapeCount: imported.length,
+            mode: plan.mode,
+            reason: plan.reason,
+            shapeCount: liveShapes.value.length,
+            deletedAnnotationIds: getDeletedEmbeddedAnnotationIds(),
+            deletedStableKeys: getDeletedEmbeddedShapeStableKeys(),
         }));
-
-        for (const deletedShape of deletedShapes) {
-            markDeletedEmbeddedShape(deletedShape);
-            if (selectedShapeId.value === deletedShape.id) {
-                selectedShapeId.value = null;
-            }
-            if (focusedShapeId.value === deletedShape.id) {
-                focusedShapeId.value = null;
-            }
-        }
-
-        shapes.value = groupShapesByPage(nextShapes);
-        shapes.value = new Map(shapes.value);
-
-        BrowserLogger.debug('pdf-shapes', 'Deleted shape', () => ({
-            id: debugReference.id,
-            remainingShapeCount: getAllShapes().length,
-            deletedAnnotationIdsAfter: [...deletedEmbeddedAnnotationIds.value],
-            deletedStableKeysAfter: [...deletedEmbeddedShapeStableKeys.value],
-        }));
-        return deletedShapes.map(shape => cloneShape(shape));
+        notifyShapeCommentsChanged();
+        return plan;
     }
 
-    function updateShape(id: string, updates: TShapeAnnotationPatch) {
-        for (const [
-            pageIndex,
-            pageShapes,
-        ] of shapes.value.entries()) {
-            const index = pageShapes.findIndex((s: IShapeAnnotation) => s.id === id);
-            if (index !== -1) {
-                const currentShape = pageShapes[index];
-                if (!currentShape) {
-                    continue;
+    function resetShapeImportBaseline() {
+        annotationApplication.value.store.resetShapeImportBaseline();
+        notifyShapeCommentsChanged();
+    }
+
+    function isShapeImportBaselineReady() {
+        return annotationApplication.value.store.hasShapeImportBaseline;
+    }
+
+    function preservesShapeImportBaseline(source: IShapeImportSource) {
+        return annotationApplication.value.store.preservesShapeImportBaseline(source);
+    }
+
+    function clearPendingShapeImportAdoption() {
+        annotationApplication.value.store.clearPendingShapeImportAdoption();
+    }
+
+    /**
+     * Captures the shape save frontier bound to the store that owns it, so a
+     * rollback after a failed save can never reach a store that replaced this
+     * one — a later document's structurally identical frontier included.
+     */
+    function beginShapeSave() {
+        const store = annotationApplication.value.store;
+        const frontier = store.beginSave();
+        return {
+            primePersistedShapes(imported: IShapeAnnotation[]) {
+                const applied = annotationApplication.value.store === store
+                    && annotationApplication.value.primePersistedShapes(imported, frontier);
+                if (applied) {
+                    notifyShapeCommentsChanged();
                 }
-                const updatedAt = Date.now();
-                pageShapes[index] = {
-                    ...currentShape,
-                    ...updates,
-                    points: updates.points ? cloneShapePoints(updates.points) : currentShape.points,
-                    strokes: updates.strokes ? cloneShapeStrokes(updates.strokes) : currentShape.strokes,
-                    createdAt: updates.createdAt ?? currentShape.createdAt ?? updatedAt,
-                    modifiedAt: updatedAt,
-                };
-                shapes.value.set(pageIndex, [...pageShapes]);
-                shapes.value = new Map(shapes.value);
-                return;
-            }
-        }
+                return applied;
+            },
+            rollback() {
+                const rolledBack = store.rollbackToSaveFrontier(frontier);
+                if (rolledBack && annotationApplication.value.store === store) {
+                    notifyShapeCommentsChanged();
+                }
+                return rolledBack;
+            },
+        };
     }
 
-    function replaceShapeSnapshot(id: string, snapshot: IShapeAnnotation) {
-        for (const [
-            pageIndex,
-            pageShapes,
-        ] of shapes.value.entries()) {
-            const index = pageShapes.findIndex(shape => shape.id === id);
-            if (index === -1) {
-                continue;
-            }
-            const currentShape = pageShapes[index];
-            if (!currentShape) {
-                continue;
-            }
-            if (snapshot.id !== currentShape.id || snapshot.pageIndex !== currentShape.pageIndex) {
-                throw new Error('Shape snapshots cannot change id or pageIndex');
-            }
-            pageShapes[index] = cloneShape(snapshot);
-            shapes.value.set(pageIndex, [...pageShapes]);
-            shapes.value = new Map(shapes.value);
-            return;
-        }
+    function markSavedShapeState() {
+        annotationApplication.value.store.markShapesSaved();
     }
 
-    function deleteShape(id: string) {
-        const deletedShape = getShapeById(id);
-        if (!deletedShape) {
-            return;
-        }
-        deleteShapesByPredicate(shape => shape.id === id, deletedShape);
-    }
-
-    function deleteShapeByReference(reference: IShapeAnnotation) {
-        const matchIds = getShapeHistoryReferenceMatchIds(reference);
-        return deleteShapesByPredicate(
-            shape => matchIds.has(shape.id),
-            reference,
-        );
-    }
-
-    function deleteSelectedShape() {
-        if (selectedShapeId.value) {
-            deleteShape(selectedShapeId.value);
-        }
+    function clearShapes() {
+        annotationApplication.value.store.resetShapeImportBaseline();
+        selectedShapeId.value = null;
+        focusedShapeId.value = null;
+        resetDrawingState();
     }
 
     function selectShape(id: string | null) {
@@ -526,333 +263,10 @@ export const useAnnotationShapes = () => {
         selectedShapeId.value = null;
     }
 
-    function clearShapes() {
-        shapes.value = new Map();
-        selectedShapeId.value = null;
-        focusedShapeId.value = null;
-        drawingShape.value = null;
+    function resetDrawingState() {
         isDrawing.value = false;
+        drawingShape.value = null;
         drawOrigin = null;
-        deletedEmbeddedAnnotationIds.value = new Set();
-        deletedEmbeddedShapeStableKeys.value = new Set();
-        baselineSignature.value = '[]';
-    }
-
-    function replaceShapes(loaded: IShapeAnnotation[]) {
-        replaceShapeState(
-            loaded.map(shape => cloneShape(shape)),
-            {
-                deletedIds: new Set(),
-                baselineShapes: loaded,
-            },
-        );
-    }
-
-    function findImportedShapeIndexForCurrentShape(
-        currentShape: IShapeAnnotation,
-        remainingImportedShapes: IShapeAnnotation[],
-    ) {
-        const currentStableKey = getNormalizedShapeStableKey(currentShape);
-        const importedIndexByStableKey = currentStableKey
-            ? remainingImportedShapes.findIndex(shape => getNormalizedShapeStableKey(shape) === currentStableKey)
-            : -1;
-
-        if (importedIndexByStableKey !== -1) {
-            return importedIndexByStableKey;
-        }
-
-        const currentAnnotationId = getNormalizedShapeAnnotationId(currentShape);
-        const importedIndexByAnnotationId = currentAnnotationId
-            ? remainingImportedShapes.findIndex(shape => getNormalizedShapeAnnotationId(shape) === currentAnnotationId)
-            : -1;
-
-        if (importedIndexByAnnotationId !== -1) {
-            return importedIndexByAnnotationId;
-        }
-
-        const currentShapeKey = toReconciliationKey(currentShape);
-        return remainingImportedShapes.findIndex(
-            shape => toReconciliationKey(shape) === currentShapeKey,
-        );
-    }
-
-    function buildMergedPersistedShapes(
-        currentShapes: IShapeAnnotation[],
-        loaded: IShapeAnnotation[],
-        currentDeletedIds: Set<string>,
-        currentDeletedStableKeys: Set<string>,
-    ) {
-        const remainingImportedShapes = loaded.map(shape => cloneShape(shape));
-        const nextShapes: IShapeAnnotation[] = [];
-
-        for (const currentShape of currentShapes) {
-            const importedIndex = findImportedShapeIndexForCurrentShape(currentShape, remainingImportedShapes);
-            if (importedIndex !== -1) {
-                const importedShape = remainingImportedShapes.splice(importedIndex, 1)[0];
-                if (!importedShape) {
-                    continue;
-                }
-                nextShapes.push(mergeImportedShape(currentShape, importedShape));
-                continue;
-            }
-
-            if (currentShape.source !== 'embedded') {
-                nextShapes.push(currentShape);
-            }
-        }
-
-        nextShapes.push(
-            ...remainingImportedShapes.filter(shape => !matchesDeletedImportedShape(
-                shape,
-                currentDeletedIds,
-                currentDeletedStableKeys,
-            )),
-        );
-
-        return nextShapes;
-    }
-
-    function buildMetadataPrimedPersistedShapes(
-        currentShapes: IShapeAnnotation[],
-        loaded: IShapeAnnotation[],
-        currentDeletedIds: Set<string>,
-        currentDeletedStableKeys: Set<string>,
-    ) {
-        const remainingImportedShapes = loaded.map(shape => cloneShape(shape));
-        const nextShapes: IShapeAnnotation[] = [];
-
-        for (const currentShape of currentShapes) {
-            const importedIndex = findImportedShapeIndexForCurrentShape(currentShape, remainingImportedShapes);
-            if (importedIndex !== -1) {
-                const importedShape = remainingImportedShapes.splice(importedIndex, 1)[0];
-                if (!importedShape) {
-                    continue;
-                }
-                nextShapes.push(mergeImportedShapeMetadata(currentShape, importedShape));
-                continue;
-            }
-
-            if (currentShape.source !== 'embedded') {
-                nextShapes.push(currentShape);
-            }
-        }
-
-        nextShapes.push(
-            ...remainingImportedShapes.filter(shape => !matchesDeletedImportedShape(
-                shape,
-                currentDeletedIds,
-                currentDeletedStableKeys,
-            )),
-        );
-
-        return nextShapes;
-    }
-
-    function createPersistedShapeLoadDebugPayload(
-        currentShapes: IShapeAnnotation[],
-        loaded: IShapeAnnotation[],
-        currentDeletedIds: Set<string>,
-        currentDeletedStableKeys: Set<string>,
-    ) {
-        return {
-            currentShapeCount: currentShapes.length,
-            loadedShapeCount: loaded.length,
-            currentEmbeddedCount: currentShapes.filter(shape => shape.source === 'embedded').length,
-            loadedEmbeddedCount: loaded.filter(shape => shape.source === 'embedded').length,
-            currentDeletedIds: [...currentDeletedIds],
-            currentDeletedStableKeys: [...currentDeletedStableKeys],
-        };
-    }
-
-    function preparePersistedShapeMerge(loaded: IShapeAnnotation[]) {
-        const currentShapes = getAllShapes().map(shape => cloneShape(shape));
-        const currentDeletedIds = new Set(deletedEmbeddedAnnotationIds.value);
-        const currentDeletedStableKeys = new Set(deletedEmbeddedShapeStableKeys.value);
-        const nextShapes = buildMergedPersistedShapes(
-            currentShapes,
-            loaded,
-            currentDeletedIds,
-            currentDeletedStableKeys,
-        );
-
-        return {
-            currentShapes,
-            currentDeletedIds,
-            currentDeletedStableKeys,
-            nextShapes,
-        };
-    }
-
-    function reconcilePersistedShapes(loaded: IShapeAnnotation[]) {
-        const {
-            currentShapes,
-            currentDeletedIds,
-            currentDeletedStableKeys,
-            nextShapes,
-        } = preparePersistedShapeMerge(loaded);
-
-        BrowserLogger.debug('pdf-shapes', 'Reconciling persisted shapes', () => createPersistedShapeLoadDebugPayload(
-            currentShapes,
-            loaded,
-            currentDeletedIds,
-            currentDeletedStableKeys,
-        ));
-
-        const nextDeletedIds = new Set<string>();
-        const nextDeletedStableKeys = new Set<string>();
-        currentDeletedIds.forEach((rawAnnotationId) => {
-            const normalizedDeletedId = normalizePdfJsAnnotationId(rawAnnotationId);
-            const stillPresentInImportedShapes = normalizedDeletedId
-                ? loaded.some(shape => getNormalizedShapeAnnotationId(shape) === normalizedDeletedId)
-                : loaded.some(shape => shape.annotationId === rawAnnotationId);
-
-            if (stillPresentInImportedShapes) {
-                nextDeletedIds.add(rawAnnotationId);
-            }
-        });
-        currentDeletedStableKeys.forEach((rawStableKey) => {
-            const normalizedDeletedStableKey = normalizeManagedShapeStableKey(rawStableKey);
-            const stillPresentInImportedShapes = normalizedDeletedStableKey
-                ? loaded.some(shape => getNormalizedShapeStableKey(shape) === normalizedDeletedStableKey)
-                : loaded.some(shape => shape.stableKey === rawStableKey);
-
-            if (stillPresentInImportedShapes) {
-                nextDeletedStableKeys.add(rawStableKey);
-            }
-        });
-
-        replaceShapeState(nextShapes, {
-            deletedIds: nextDeletedIds,
-            deletedStableKeys: nextDeletedStableKeys,
-            baselineShapes: loaded,
-        });
-
-        BrowserLogger.debug('pdf-shapes', 'Reconciled persisted shapes', () => ({
-            nextShapeCount: nextShapes.length,
-            nextEmbeddedCount: nextShapes.filter(shape => shape.source === 'embedded').length,
-            nextLocalCount: nextShapes.filter(shape => shape.source !== 'embedded').length,
-            nextDeletedIds: [...nextDeletedIds],
-            nextDeletedStableKeys: [...nextDeletedStableKeys],
-        }));
-    }
-
-    function primePersistedShapes(loaded: IShapeAnnotation[]) {
-        const preservedBaselineSignature = baselineSignature.value;
-        const currentShapes = getAllShapes().map(shape => cloneShape(shape));
-        const currentDeletedIds = new Set(deletedEmbeddedAnnotationIds.value);
-        const currentDeletedStableKeys = new Set(deletedEmbeddedShapeStableKeys.value);
-        const nextShapes = buildMetadataPrimedPersistedShapes(
-            currentShapes,
-            loaded,
-            currentDeletedIds,
-            currentDeletedStableKeys,
-        );
-
-        BrowserLogger.debug('pdf-shapes', 'Priming persisted shapes before save', () => createPersistedShapeLoadDebugPayload(
-            currentShapes,
-            loaded,
-            currentDeletedIds,
-            currentDeletedStableKeys,
-        ));
-
-        replaceShapeState(nextShapes, {
-            deletedIds: currentDeletedIds,
-            deletedStableKeys: currentDeletedStableKeys,
-            baselineSignatureValue: preservedBaselineSignature,
-        });
-
-        BrowserLogger.debug('pdf-shapes', 'Primed persisted shapes before save', () => ({
-            nextShapeCount: nextShapes.length,
-            nextEmbeddedCount: nextShapes.filter(shape => shape.source === 'embedded').length,
-            nextLocalCount: nextShapes.filter(shape => shape.source !== 'embedded').length,
-            preservedDirtyState: true,
-            deletedIds: [...currentDeletedIds],
-            deletedStableKeys: [...currentDeletedStableKeys],
-        }));
-    }
-
-    function adoptPersistedShapeMetadata(loaded: IShapeAnnotation[]) {
-        const currentShapes = getAllShapes().map(shape => cloneShape(shape));
-        const currentDeletedIds = new Set(deletedEmbeddedAnnotationIds.value);
-        const currentDeletedStableKeys = new Set(deletedEmbeddedShapeStableKeys.value);
-        const nextShapes = buildMetadataPrimedPersistedShapes(
-            currentShapes,
-            loaded,
-            currentDeletedIds,
-            currentDeletedStableKeys,
-        );
-
-        BrowserLogger.debug('pdf-shapes', 'Adopting persisted shape metadata after save', () => createPersistedShapeLoadDebugPayload(
-            currentShapes,
-            loaded,
-            currentDeletedIds,
-            currentDeletedStableKeys,
-        ));
-
-        replaceShapeState(nextShapes, {
-            deletedIds: new Set(),
-            deletedStableKeys: new Set(),
-            baselineShapes: nextShapes,
-        });
-
-        BrowserLogger.debug('pdf-shapes', 'Adopted persisted shape metadata after save', () => ({
-            nextShapeCount: nextShapes.length,
-            nextEmbeddedCount: nextShapes.filter(shape => shape.source === 'embedded').length,
-            nextLocalCount: nextShapes.filter(shape => shape.source !== 'embedded').length,
-            clearedDeletedIds: [...currentDeletedIds],
-            clearedDeletedStableKeys: [...currentDeletedStableKeys],
-        }));
-    }
-
-    function loadShapes(loaded: IShapeAnnotation[]) {
-        replaceShapes(loaded);
-    }
-
-    function markSavedShapeState() {
-        const currentShapes = getAllShapes().map(shape => cloneShape(shape));
-        replaceShapeState(currentShapes, {
-            deletedIds: new Set(),
-            deletedStableKeys: new Set(),
-            baselineShapes: currentShapes,
-        });
-
-        BrowserLogger.debug('pdf-shapes', 'Marked current shape state as saved', () => ({
-            shapeCount: currentShapes.length,
-            embeddedCount: currentShapes.filter(shape => shape.source === 'embedded').length,
-            localCount: currentShapes.filter(shape => shape.source !== 'embedded').length,
-        }));
-    }
-
-    function captureShapeStateSnapshot(): IShapeStateSnapshot {
-        return {
-            shapes: getAllShapes().map(shape => cloneShape(shape)),
-            deletedAnnotationIds: [...deletedEmbeddedAnnotationIds.value],
-            deletedStableKeys: [...deletedEmbeddedShapeStableKeys.value],
-            baselineSignature: baselineSignature.value,
-            selectedShapeId: selectedShapeId.value,
-        };
-    }
-
-    function restoreShapeStateSnapshot(snapshot: IShapeStateSnapshot) {
-        replaceShapeState(snapshot.shapes.map(shape => cloneShape(shape)), {
-            deletedIds: new Set(snapshot.deletedAnnotationIds),
-            deletedStableKeys: new Set(snapshot.deletedStableKeys),
-            baselineSignatureValue: snapshot.baselineSignature,
-        });
-
-        if (snapshot.selectedShapeId && getShapeById(snapshot.selectedShapeId)) {
-            selectedShapeId.value = snapshot.selectedShapeId;
-        } else {
-            selectedShapeId.value = null;
-        }
-        focusedShapeId.value = null;
-
-        BrowserLogger.debug('pdf-shapes', 'Restored shape state snapshot', () => ({
-            shapeCount: snapshot.shapes.length,
-            deletedAnnotationIds: snapshot.deletedAnnotationIds,
-            deletedStableKeys: snapshot.deletedStableKeys,
-            selectedShapeId: selectedShapeId.value,
-        }));
     }
 
     function startDrawing(
@@ -877,88 +291,49 @@ export const useAnnotationShapes = () => {
             return;
         }
 
-        const shape = drawingShape.value;
-        drawingShape.value = updateDrawingShapeForPoint(shape, drawOrigin, x, y);
+        drawingShape.value = updateDrawingShapeForPoint(drawingShape.value, drawOrigin, x, y);
     }
 
-    function finishDrawingInternal(addToProjection: boolean) {
+    /** Returns the finished draft; the shape enters the store through its creator. */
+    function finishDrawing() {
         if (!drawingShape.value || !isDrawing.value) {
             return null;
         }
 
-        const shape: IShapeAnnotation = {
+        const shape = cloneShape({
             ...drawingShape.value,
             modifiedAt: Date.now(),
-        };
+        });
         resetDrawingState();
-
-        if (!isDrawableFinishedShape(shape)) {
-            return null;
-        }
-
-        if (addToProjection) {
-            addShape(shape);
-        }
-        return shape;
+        return isDrawableFinishedShape(shape) ? shape : null;
     }
-
-    function finishDrawing() {
-        return finishDrawingInternal(true);
-    }
-
-    function finishDrawingDraft() {
-        return finishDrawingInternal(false);
-    }
-
-    function cancelDrawing() {
-        resetDrawingState();
-    }
-
-    const hasShapes = computed(() => (
-        deletedEmbeddedAnnotationIds.value.size > 0
-        || deletedEmbeddedShapeStableKeys.value.size > 0
-        || toShapesSignature(getAllShapes()) !== baselineSignature.value
-    ));
 
     return {
-        shapes,
         selectedShapeId,
         focusedShapeId,
         drawingShape,
-        isDrawing,
         hasShapes,
-        isShapeTool,
         getShapesForPage,
         getAllShapes,
         getShapeById,
         getDeletedEmbeddedAnnotationIds,
         getDeletedEmbeddedShapeStableKeys,
-        getManagedEmbeddedAnnotationIds,
-        addShape,
-        updateShape,
-        replaceShapeSnapshot,
-        deleteShape,
-        deleteShapeByReference,
-        deleteSelectedShape,
         deletedEmbeddedAnnotationIds,
         deletedEmbeddedShapeStableKeys,
         selectShape,
         focusShape,
         clearShapes,
-        loadShapes,
-        replaceShapes,
-        reconcilePersistedShapes,
-        primePersistedShapes,
-        adoptPersistedShapeMetadata,
+        importEmbeddedShapes,
+        resetShapeImportBaseline,
+        isShapeImportBaselineReady,
+        preservesShapeImportBaseline,
+        clearPendingShapeImportAdoption,
+        beginShapeSave,
         markSavedShapeState,
-        captureShapeStateSnapshot,
-        restoreShapeStateSnapshot,
         buildShapeAnnotation,
         startDrawing,
         continueDrawing,
         finishDrawing,
-        finishDrawingDraft,
-        cancelDrawing,
     };
 };
 

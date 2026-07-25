@@ -487,62 +487,30 @@ describe('AnnotationApplication', () => {
         await expect(application.verifyAndAcknowledgeSave(session, new Uint8Array([1]), {reopen: async () => [note({text: 'stale'})]})).rejects.toThrow('text mismatch');
     });
 
-    it('rolls canonical shape creation back when the projection executor fails', () => {
+    it('publishes shape undo and redo to subscribers from the single canonical history command', () => {
         const application = new AnnotationApplication('document');
+        const projected: IShapeAnnotation[][] = [];
+        application.store.subscribe(() => {
+            projected.push(application.store.listShapes().map(entity => entity.geometry));
+        });
 
-        expect(() => application.createShapeProjected({
-            kind: 'shape',
-            pageIndex: 0,
-            createdAt: 1,
-            modifiedAt: 1,
-            author: null,
-            geometry: shape(),
-        }, () => {
-            throw new Error('projection failed');
-        })).toThrow('projection failed');
-
-        expect(application.store.list({includeDeleted: true})).toEqual([]);
-        expect(application.store.canUndo).toBe(false);
-    });
-
-    it('projects shape undo and redo from the single canonical history command', () => {
-        const application = new AnnotationApplication('document');
-        const projected: IShapeAnnotation[] = [];
-        const applyProjection = (next: {geometry: Readonly<IShapeAnnotation>} | null) => {
-            projected.splice(0, projected.length, ...(next ? [structuredClone(next.geometry)] : []));
-        };
-
-        application.createShapeProjected({
-            kind: 'shape',
-            pageIndex: 0,
-            createdAt: 1,
-            modifiedAt: 1,
-            author: null,
-            geometry: shape(),
-        }, applyProjection);
+        application.createShapeFromGeometry(shape());
         const annotationId = application.annotationIdForShape(shape());
 
         expect(annotationId).not.toBeNull();
-        expect(projected).toHaveLength(1);
+        expect(projected.at(-1)).toHaveLength(1);
         expect(application.undo()).toBe(true);
         expect(application.store.list({includeDeleted: true})).toEqual([]);
-        expect(projected).toEqual([]);
+        expect(projected.at(-1)).toEqual([]);
         expect(application.redo()).toBe(true);
         expect(application.store.get(annotationId!)).toMatchObject({kind: 'shape'});
-        expect(projected).toHaveLength(1);
+        expect(projected.at(-1)).toHaveLength(1);
     });
 
     it('remaps surviving annotation and shape identities through a page-tree delta', () => {
         const application = new AnnotationApplication('document');
         application.store.createStickyNote(note({pageIndex: 0}));
-        application.createShapeProjected({
-            kind: 'shape',
-            pageIndex: 2,
-            createdAt: 1,
-            modifiedAt: 1,
-            author: null,
-            geometry: shape({pageIndex: 2}),
-        }, () => undefined);
+        application.createShapeFromGeometry(shape({pageIndex: 2}));
         const shapeId = application.annotationIdForShape(shape({pageIndex: 2}));
 
         application.remapPages({

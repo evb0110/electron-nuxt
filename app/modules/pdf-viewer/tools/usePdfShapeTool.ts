@@ -33,38 +33,13 @@ interface IUsePdfShapeToolOptions {
 }
 
 export const usePdfShapeTool = (options: IUsePdfShapeToolOptions) => {
-    const shapeComposable = useAnnotationShapes();
-
-    function projectCanonicalShape(
-        nextShape: IShapeAnnotation | null,
-        previousShape: IShapeAnnotation | null,
-    ) {
-        if (nextShape) {
-            if (shapeComposable.getShapeById(nextShape.id)) {
-                shapeComposable.replaceShapeSnapshot(nextShape.id, nextShape);
-            } else {
-                shapeComposable.addShape(nextShape);
-            }
-            return;
-        }
-        if (previousShape) {
-            const deleted = shapeComposable.deleteShapeByReference(previousShape);
-            deleted.forEach(shape => options.getDeletedShapeHandler()?.(shape));
-        }
-    }
+    const shapeComposable = useAnnotationShapes({
+        annotationApplication: options.annotationApplication,
+        notifyShapeCommentsChanged: () => options.getShapeCommentsChangedHandler()?.(),
+    });
 
     function handleShapeCreated(shape: IShapeAnnotation) {
-        options.annotationApplication.value.createShapeProjected({
-            kind: 'shape',
-            pageIndex: shape.pageIndex,
-            createdAt: shape.createdAt ?? Date.now(),
-            modifiedAt: shape.modifiedAt ?? Date.now(),
-            author: null,
-            geometry: cloneShape(shape),
-        }, (next, previous) => projectCanonicalShape(
-            next && !next.deleted ? cloneShape(next.geometry) : null,
-            previous && !previous.deleted ? cloneShape(previous.geometry) : null,
-        ));
+        options.annotationApplication.value.createShapeFromGeometry(shape);
         options.markModified();
         options.getShapeCommentsChangedHandler()?.();
     }
@@ -78,13 +53,9 @@ export const usePdfShapeTool = (options: IUsePdfShapeToolOptions) => {
     }
 
     function applyShapeUpdateWithHistory(previousShape: IShapeAnnotation, nextShape: IShapeAnnotation) {
-        options.annotationApplication.value.replaceShapeGeometryProjected(
+        options.annotationApplication.value.replaceShapeGeometry(
             resolveShapeAnnotationId(previousShape),
             cloneShape(nextShape),
-            (next, previous) => projectCanonicalShape(
-                next && !next.deleted ? cloneShape(next.geometry) : null,
-                previous && !previous.deleted ? cloneShape(previous.geometry) : null,
-            ),
             cloneShape(previousShape),
         );
         options.markModified();
@@ -92,24 +63,15 @@ export const usePdfShapeTool = (options: IUsePdfShapeToolOptions) => {
     }
 
     function previewShapeUpdate(shape: IShapeAnnotation) {
-        options.annotationApplication.value.previewShapeGeometryProjected(
+        options.annotationApplication.value.previewShapeGeometry(
             resolveShapeAnnotationId(shape),
             cloneShape(shape),
-            (next, previous) => projectCanonicalShape(
-                next && !next.deleted ? cloneShape(next.geometry) : null,
-                previous && !previous.deleted ? cloneShape(previous.geometry) : null,
-            ),
         );
     }
 
     function deleteShape(shape: IShapeAnnotation) {
-        options.annotationApplication.value.deleteShapeProjected(
-            resolveShapeAnnotationId(shape),
-            (next, previous) => projectCanonicalShape(
-                next && !next.deleted ? cloneShape(next.geometry) : null,
-                previous && !previous.deleted ? cloneShape(previous.geometry) : null,
-            ),
-        );
+        options.annotationApplication.value.delete(resolveShapeAnnotationId(shape));
+        options.getDeletedShapeHandler()?.(shape);
     }
 
     const selectedShapeCommands = usePdfSelectedShapeCommands({

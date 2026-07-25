@@ -20,9 +20,13 @@ import {
     mintAnnotationId,
     normalizeAnnotationText,
 } from '@app/modules/pdf-viewer/annotations/domain/annotationEntity';
+import { cloneShape } from '@app/modules/pdf-viewer/engine/shapes/cloneShape';
+import { getNormalizedShapeStableKey } from '@app/modules/pdf-viewer/engine/annotations/shape-annotation-identity/shapeAnnotationIdentity';
 import {
     AnnotationStore,
     type IAnnotationSaveFrontier,
+    type IShapeImportProposal,
+    type IShapeImportSource,
 } from '@app/modules/pdf-viewer/annotations/domain/annotationStore';
 import { ExternalIdentityConflictError } from '@app/modules/pdf-viewer/annotations/domain/externalIdentityIndex';
 import {
@@ -62,7 +66,6 @@ export interface IAnnotationSaveVerificationOptions {readonly preexistingPdfAnno
 
 type TCreateStickyNote = Omit<IStickyNoteEntity, 'identity' | 'revision' | 'persistedRevision' | 'deleted'>;
 type TCreateTextMarkup = Omit<ITextMarkupEntity, 'identity' | 'revision' | 'persistedRevision' | 'deleted'>;
-type TCreateShape = Omit<IShapeEntity, 'identity' | 'revision' | 'persistedRevision' | 'deleted'>;
 
 interface IPdfjsReopenedAnnotation {
     readonly id?: string;
@@ -101,7 +104,6 @@ export class AnnotationApplication {
     readonly store: AnnotationStore;
     readonly legacyIdentityConflicts = new Set<string>();
     readonly #mintedIds = new Map<string, AnnotationId>();
-    readonly #pdfjsAuthoritativelyObservedTransientIds = new Set<AnnotationId>();
 
     constructor(readonly documentKey: string, store = new AnnotationStore()) {
         this.store = store;
@@ -155,6 +157,13 @@ export class AnnotationApplication {
                         },
                     });
                 }
+                this.store.acknowledgePendingMarkupSubtype(existing.identity.id, [
+                    comment.id,
+                    comment.uid ?? '',
+                    comment.annotationId ?? '',
+                    comment.annotationName ?? '',
+                    persistentKey,
+                ]);
                 return;
             }
             const identity = {
@@ -217,33 +226,9 @@ export class AnnotationApplication {
         const present = new Set(comments
             .map(comment => this.annotationIdForSummary(comment))
             .filter((value): value is AnnotationId => Boolean(value)));
-        this.store.list().forEach((entity) => {
-            if (
-                entity.persistedRevision >= 0
-                || entity.deleted
-                || entity.kind === 'shape'
-                || present.has(entity.identity.id)
-                || !this.#pdfjsAuthoritativelyObservedTransientIds.has(entity.identity.id)
-            ) {
-                return;
-            }
-            this.store.import({
-                ...entity,
-                deleted: true,
-                revision: entity.revision + 1,
-                modifiedAt: Date.now(),
-            });
-        });
-        this.store.list().forEach((entity) => {
-            if (
-                entity.persistedRevision < 0
-                && !entity.deleted
-                && entity.kind !== 'shape'
-                && present.has(entity.identity.id)
-            ) {
-                this.#pdfjsAuthoritativelyObservedTransientIds.add(entity.identity.id);
-            }
-        });
+        // Forward the observed-present canonical ids as a proposal; the store
+        // alone decides which transients to tombstone.
+        this.store.reconcileObservedTransients(present);
         if (options.adoptAsSavedBaseline) {
             const baselineIds = new Set(comments.flatMap((comment) => {
                 const annotationId = this.annotationIdForSummary(comment);
@@ -257,83 +242,53 @@ export class AnnotationApplication {
     }
 
     reconcilePdfjsEditorPresence(presentExternalIds: ReadonlySet<string>) {
-        this.store.list({includeDeleted: true}).forEach((entity) => {
-            if (entity.kind === 'shape') {
-                return;
-            }
-            const candidates = [
-                entity.identity.pdfRef,
-                entity.identity.pdfjsUid,
-                entity.identity.elementId,
-            ].filter((value): value is string => Boolean(value));
-            const present = candidates.some(candidate => presentExternalIds.has(candidate));
-            const shouldRestore = present && entity.deleted;
-            const shouldDeleteTransient = !present && entity.persistedRevision < 0 && !entity.deleted;
-            if (!shouldRestore && !shouldDeleteTransient) {
-                return;
-            }
-            this.store.import({
-                ...entity,
-                deleted: !present,
-                revision: entity.revision + 1,
-                modifiedAt: Date.now(),
-            }, {preserveSavedBaseline: true});
+        // Forward the rendered external ids as a proposal; the store alone
+        // decides canonical restoration and transient tombstoning.
+        this.store.reconcileEditorPresence(presentExternalIds);
+    }
+
+    /**
+     * Translates a scanned document's shape records into canonical proposals.
+     * Deriving the id needs this boundary's document key; every decision the
+     * proposals feed — mode, adoption, tombstones, baseline — is the store's.
+     */
+    importEmbeddedShapes(shapes: readonly IShapeAnnotation[], source: IShapeImportSource) {
+        return this.store.reconcileImportedShapes(this.#shapeImportProposals(shapes), source);
+    }
+
+    primePersistedShapes(
+        shapes: readonly IShapeAnnotation[],
+        frontier: IAnnotationSaveFrontier,
+    ) {
+        return this.store.primeImportedShapes(this.#shapeImportProposals(shapes), frontier);
+    }
+
+    createShapeFromGeometry(geometry: IShapeAnnotation) {
+        return this.store.createShape({
+            kind: 'shape',
+            identity: {
+                id: mintAnnotationId(),
+                elementId: geometry.id,
+            },
+            pageIndex: geometry.pageIndex,
+            revision: 0,
+            persistedRevision: -1,
+            deleted: false,
+            createdAt: geometry.createdAt ?? Date.now(),
+            modifiedAt: geometry.modifiedAt ?? Date.now(),
+            author: null,
+            geometry: cloneShape(geometry),
         });
     }
 
-    ingestShapes(shapes: readonly IShapeAnnotation[]) {
-        const present = new Set<AnnotationId>();
-        shapes.forEach((shape) => {
-            const persistentKey = shape.annotationId ?? shape.id;
-            const annotationId = shape.source === 'embedded'
-                ? deriveAnnotationId(this.documentKey, persistentKey)
-                : this.#mintedIds.get(persistentKey) ?? mintAnnotationId();
-            if (shape.source !== 'embedded') this.#mintedIds.set(persistentKey, annotationId);
-            present.add(annotationId);
-            const existing = this.store.get(annotationId);
-            if (existing) {
-                if (existing.kind === 'shape' && !existing.deleted && JSON.stringify(existing.geometry) !== JSON.stringify(shape)) {
-                    // The shape executor has already registered the domain
-                    // command with the shared history authority. Projection
-                    // ingestion must not register a second undo entry.
-                    this.store.import({
-                        ...existing,
-                        geometry: structuredClone(shape),
-                        revision: existing.revision + 1,
-                        modifiedAt: shape.modifiedAt ?? Date.now(),
-                    });
-                }
-                return;
-            }
-            const entity = {
-                kind: 'shape',
-                identity: {
-                    id: annotationId,
-                    ...(shape.annotationId ? {pdfRef: shape.annotationId} : {}),
-                    ...(shape.stableKey ? {pdfName: shape.stableKey.replace(/^nm:/u, '')} : {}),
-                    ...(shape.id ? {elementId: shape.id} : {}),
-                },
-                pageIndex: shape.pageIndex,
-                revision: 0,
-                persistedRevision: shape.source === 'embedded' ? 0 : -1,
-                deleted: false,
-                createdAt: shape.createdAt ?? null,
-                modifiedAt: shape.modifiedAt ?? null,
-                author: null,
-                geometry: structuredClone(shape),
-            } as const;
-            this.store.import(entity);
-        });
-        this.store.list().forEach((entity) => {
-            if (entity.kind === 'shape' && !entity.deleted && !present.has(entity.identity.id)) {
-                this.store.import({
-                    ...entity,
-                    deleted: true,
-                    revision: entity.revision + 1,
-                    modifiedAt: Date.now(),
-                });
-            }
-        });
+    #shapeImportProposals(shapes: readonly IShapeAnnotation[]): IShapeImportProposal[] {
+        return shapes.map(shape => ({
+            annotationId: deriveAnnotationId(
+                this.documentKey,
+                shape.annotationId ?? getNormalizedShapeStableKey(shape) ?? shape.id,
+            ),
+            geometry: cloneShape(shape),
+        }));
     }
 
     listReadModels(): readonly IAnnotationReadModel[] {
@@ -475,78 +430,11 @@ export class AnnotationApplication {
         });
     }
 
-    createShape(input: TCreateShape) {
-        return this.store.createShape({
-            ...input,
-            identity: {id: mintAnnotationId()},
-            revision: 0,
-            persistedRevision: -1,
-            deleted: false,
-        });
-    }
-
-    createShapeProjected(
-        input: TCreateShape,
-        project: (next: IShapeEntity | null, previous: IShapeEntity | null) => void,
-    ) {
-        return this.store.createShapeProjected({
-            ...input,
-            identity: {
-                id: mintAnnotationId(),
-                elementId: input.geometry.id,
-            },
-            revision: 0,
-            persistedRevision: -1,
-            deleted: false,
-        }, (next, previous) => project(
-            next?.kind === 'shape' ? next : null,
-            previous?.kind === 'shape' ? previous : null,
-        ));
-    }
-
     annotationIdForShape(shape: Pick<IShapeAnnotation, 'id' | 'annotationId'>) {
         return this.store.resolveExternal({
             ...(shape.annotationId ? {pdfRef: shape.annotationId} : {}),
             elementId: shape.id,
         });
-    }
-
-    replaceShapeGeometryProjected(
-        annotationId: AnnotationId,
-        geometry: IShapeEntity['geometry'],
-        project: (next: IShapeEntity | null, previous: IShapeEntity | null) => void,
-        historyBeforeGeometry?: IShapeEntity['geometry'],
-    ) {
-        return this.store.replaceShapeGeometryProjected(
-            annotationId,
-            geometry,
-            (next, previous) => project(
-                next?.kind === 'shape' ? next : null,
-                previous?.kind === 'shape' ? previous : null,
-            ),
-            historyBeforeGeometry,
-        );
-    }
-
-    previewShapeGeometryProjected(
-        annotationId: AnnotationId,
-        geometry: IShapeEntity['geometry'],
-        project: (next: IShapeEntity | null, previous: IShapeEntity | null) => void,
-    ) {
-        return this.store.previewShapeGeometryProjected(annotationId, geometry, (next, previous) => project(
-            next?.kind === 'shape' ? next : null,
-            previous?.kind === 'shape' ? previous : null,
-        ));
-    }
-
-    deleteShapeProjected(
-        annotationId: AnnotationId,
-        project: (next: IShapeEntity | null, previous: IShapeEntity | null) => void,
-    ) {
-        return this.store.deleteProjected(annotationId, (next, previous) => project(
-            next?.kind === 'shape' ? next : null,
-            previous?.kind === 'shape' ? previous : null,
-        ));
     }
 
     setNoteText(annotationId: AnnotationId, text: string) {
@@ -561,8 +449,16 @@ export class AnnotationApplication {
         return this.store.moveAnchor(annotationId, anchor);
     }
 
-    replaceShapeGeometry(annotationId: AnnotationId, geometry: IShapeEntity['geometry']) {
-        return this.store.replaceShapeGeometry(annotationId, geometry);
+    replaceShapeGeometry(
+        annotationId: AnnotationId,
+        geometry: IShapeEntity['geometry'],
+        historyBeforeGeometry?: IShapeEntity['geometry'],
+    ) {
+        return this.store.replaceShapeGeometry(annotationId, geometry, historyBeforeGeometry);
+    }
+
+    previewShapeGeometry(annotationId: AnnotationId, geometry: IShapeEntity['geometry']) {
+        return this.store.previewShapeGeometry(annotationId, geometry);
     }
 
     delete(annotationId: AnnotationId) {
@@ -863,6 +759,11 @@ export class AnnotationApplication {
 
     acknowledgeSave(session: IAnnotationSaveSession) {
         this.store.acknowledgeSave(session.frontier, session.materializedPdfRefs);
+    }
+
+    /** Reports whether this authority still owned the failed save's frontier. */
+    rollbackSave(session: IAnnotationSaveSession) {
+        return this.store.rollbackToSaveFrontier(session.frontier);
     }
 
     assertSaveCurrent(session: IAnnotationSaveSession) {

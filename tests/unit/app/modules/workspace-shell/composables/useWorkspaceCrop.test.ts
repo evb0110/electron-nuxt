@@ -90,7 +90,6 @@ function createPdfViewerExpose(overrides: Partial<IPdfViewerExpose> = {}): IPdfV
         getMarkupSubtypeOverrides: () => new Map(),
         getAllShapes: () => [],
         getDeletedEmbeddedShapeAnnotationIds: () => [],
-        loadShapes: vi.fn(),
         clearShapes: vi.fn(),
         clearSelectedShape: vi.fn(),
         deleteSelectedShape: vi.fn(),
