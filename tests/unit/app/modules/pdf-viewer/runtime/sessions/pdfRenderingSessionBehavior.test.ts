@@ -19,6 +19,7 @@ import {
 } from 'vitest';
 import type { IPageRange } from '@app/types/pdfUi';
 import type { IPdfDocumentTransition } from '@app/modules/pdf-viewer/runtime/sessions/pdfDocumentSession';
+import type { IPdfViewportDemand } from '@app/modules/pdf-viewer/runtime/sessions/createPdfViewportSession';
 
 const rendererFixture = vi.hoisted(() => {
     const api = {
@@ -27,6 +28,9 @@ const rendererFixture = vi.hoisted(() => {
         cancelPendingSearchScroll: vi.fn(),
         cancelRasterDemand: vi.fn(async () => undefined),
         cleanupAllPages: vi.fn(async () => undefined),
+        getPageRasterState: vi.fn<() => 'current' | 'absent' | 'in-flight' | 'stale-scale' | 'failed'>(
+            () => 'absent',
+        ),
         getPageRenderFailureToken: vi.fn(() => null),
         hideManagedAnnotationEditors: vi.fn(),
         invalidatePages: vi.fn(),
@@ -37,7 +41,10 @@ const rendererFixture = vi.hoisted(() => {
         isPageRendering: vi.fn(() => false),
         reRenderAllVisiblePages: vi.fn(async () => undefined),
         renderAnnotationEditorLayerForPage: vi.fn(),
-        renderVisiblePages: vi.fn(async () => undefined),
+        renderVisiblePages: vi.fn<(
+            range: IPageRange,
+            options?: Record<string, unknown>,
+        ) => Promise<void>>(async () => undefined),
     };
     return {
         api,
@@ -130,7 +137,7 @@ function createRenderingFixture() {
     const subscribers: Array<(transition: IPdfDocumentTransition) => void | Promise<void>> = [];
     const disposables: Array<() => void | Promise<void>> = [];
     const currentPage = ref(3);
-    const demand = shallowRef({
+    const demand = shallowRef<IPdfViewportDemand>({
         revision: 1,
         visibleRange: {
             start: 3,
@@ -313,6 +320,7 @@ describe('PdfRenderingSession behavior', () => {
     beforeEach(() => {
         vi.clearAllMocks();
         rendererFixture.options = null;
+        rendererFixture.api.getPageRasterState.mockReturnValue('absent');
         rendererFixture.api.isPageCanvasCommitted.mockReturnValue(false);
     });
 
@@ -453,6 +461,94 @@ describe('PdfRenderingSession behavior', () => {
             expect(rendererFixture.api.applySearchHighlights).toHaveBeenCalledOnce();
             expect(firstRasterOrder)
                 .toBeLessThan(rendererFixture.api.applySearchHighlights.mock.invocationCallOrder[0]!);
+        } finally {
+            fixture.app.unmount();
+        }
+    });
+
+    it.each([
+        [
+            'absent',
+            false,
+        ],
+        [
+            'stale-scale',
+            true,
+        ],
+    ] as const)('forces only explicit raster repair for %s pages', async (state, forceRerender) => {
+        const fixture = createRenderingFixture();
+        try {
+            await vi.waitFor(() => expect(rendererFixture.api.renderVisiblePages).toHaveBeenCalled());
+            rendererFixture.api.renderVisiblePages.mockClear();
+            rendererFixture.api.getPageRasterState.mockReturnValue(state);
+            fixture.demand.value = {
+                ...fixture.demand.value,
+                revision: fixture.demand.value.revision + 1,
+                mandatoryRaster: null,
+            };
+
+            await vi.waitFor(() => expect(rendererFixture.api.renderVisiblePages).toHaveBeenCalled());
+
+            const renderOptions = rendererFixture.api.renderVisiblePages.mock.calls.at(-1)?.[1];
+            if (forceRerender) {
+                expect(renderOptions).toMatchObject({
+                    forceRerender: true,
+                    rasterDemandPages: [3],
+                });
+            } else {
+                expect(renderOptions).toMatchObject({rasterDemandPages: [3]});
+                expect(renderOptions).not.toHaveProperty('forceRerender');
+            }
+        } finally {
+            fixture.app.unmount();
+        }
+    });
+
+    it.each([
+        'in-flight',
+        'failed',
+    ] as const)('does not republish %s required-page work', async (state) => {
+        const fixture = createRenderingFixture();
+        try {
+            await vi.waitFor(() => expect(rendererFixture.api.renderVisiblePages).toHaveBeenCalled());
+            rendererFixture.api.renderVisiblePages.mockClear();
+            rendererFixture.api.getPageRasterState.mockReturnValue(state);
+            fixture.demand.value = {
+                ...fixture.demand.value,
+                revision: fixture.demand.value.revision + 1,
+                mandatoryRaster: null,
+            };
+
+            await new Promise(resolve => requestAnimationFrame(() => resolve(undefined)));
+
+            expect(rendererFixture.api.renderVisiblePages).not.toHaveBeenCalled();
+        } finally {
+            fixture.app.unmount();
+        }
+    });
+
+    it('reconciles renderer state changes locally without republishing viewport demand', async () => {
+        const fixture = createRenderingFixture();
+        try {
+            await vi.waitFor(() => expect(rendererFixture.api.renderVisiblePages).toHaveBeenCalled());
+            rendererFixture.api.getPageRasterState.mockReturnValue('current');
+            fixture.demand.value = {
+                ...fixture.demand.value,
+                revision: fixture.demand.value.revision + 1,
+                mandatoryRaster: null,
+            };
+            await nextTick();
+            rendererFixture.api.renderVisiblePages.mockClear();
+            rendererFixture.api.getPageRasterState.mockReturnValue('absent');
+
+            const rendererOptions = rendererFixture.options as {onRenderedPageStateChanged: () => void};
+            rendererOptions.onRenderedPageStateChanged();
+
+            await vi.waitFor(() => expect(rendererFixture.api.renderVisiblePages).toHaveBeenCalled());
+            expect(rendererFixture.api.renderVisiblePages).toHaveBeenLastCalledWith(
+                fixture.demand.value.visibleRange,
+                expect.objectContaining({rasterDemandPages: [3]}),
+            );
         } finally {
             fixture.app.unmount();
         }

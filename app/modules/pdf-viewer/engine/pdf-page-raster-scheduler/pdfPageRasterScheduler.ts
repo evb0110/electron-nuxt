@@ -603,6 +603,10 @@ export function createPdfPageRasterScheduler(
         }
         const existing = queued.get(key) ?? inFlight.get(key);
         if (existing) {
+            // Republished authoritative demand with the same render key is
+            // still the same work. Advance its generation in place so the
+            // current-demand guard does not cancel and restart that raster.
+            existing.demand = demand;
             if (resolve) {
                 const previousResolve = existing.resolve;
                 existing.resolve = (outcome) => {

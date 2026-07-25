@@ -230,21 +230,31 @@ describe('usePdfPageRenderer resilience', () => {
             container: ref(createContainerRoot(pageContainer)),
             document: document as never,
         });
+        const scheduler = Reflect.get(document, 'rasterScheduler') as {invalidate: (...args: unknown[]) => unknown};
+        const invalidateScheduler = vi.spyOn(scheduler, 'invalidate');
 
         const first = renderer.renderVisiblePages({
             start: 1,
             end: 1,
-        }, {forceRerender: true});
+        }, {
+            forceRerender: true,
+            preserveInFlightRequiredPages: true,
+        });
         await vi.waitFor(() => {
             expect(canvasRendererMock.renderCanvas).toHaveBeenCalledOnce();
         });
+        invalidateScheduler.mockClear();
         const repeated = renderer.renderVisiblePages({
             start: 1,
             end: 1,
-        }, {forceRerender: true});
+        }, {
+            forceRerender: true,
+            preserveInFlightRequiredPages: true,
+        });
 
         expect(document.leasePage).toHaveBeenCalledOnce();
         expect(canvasRendererMock.renderCanvas).toHaveBeenCalledOnce();
+        expect(invalidateScheduler).not.toHaveBeenCalled();
 
         pendingCanvas.resolve(createRenderResult());
         await Promise.all([
@@ -403,12 +413,16 @@ describe('usePdfPageRenderer resilience', () => {
             end: 1,
         });
         setMountedCanvas(null);
+        expect(renderer.getPageRasterState(1)).toBe('stale-scale');
         await renderer.renderVisiblePages(
             {
                 start: 1,
                 end: 1,
             },
-            { preserveRenderedPages: true },
+            {
+                forceRerender: true,
+                preserveRenderedPages: true,
+            },
         );
 
         expect(renderer.isPageRendered(1)).toBe(true);
@@ -491,6 +505,7 @@ describe('usePdfPageRenderer resilience', () => {
             intent: 'buffer-preview',
         });
         expect(renderer.isPageQualityRefineEligible(2)).toBe(true);
+        expect(canvasRendererMock.renderCanvas).toHaveBeenCalledTimes(2);
 
         const settledRender = Promise.withResolvers<ReturnType<typeof createRenderResult> & {
             requestedPixels: number;
@@ -504,10 +519,12 @@ describe('usePdfPageRenderer resilience', () => {
             end: 2,
         }, {
             bufferOverride: 0,
+            contentIntent: 'canvas-only-refine',
             forceRerender: true,
             preserveCommittedVisual: true,
         });
         await vi.waitFor(() => expect(canvasRendererMock.renderCanvas).toHaveBeenCalledTimes(3));
+        expect(renderer.getPageRasterState(2)).toBe('in-flight');
 
         expect(renderer.isPageCanvasCommitted(2)).toBe(true);
         expect(renderer.getCommittedRasterQuality(2)?.intent).toBe('buffer-preview');
@@ -521,6 +538,7 @@ describe('usePdfPageRenderer resilience', () => {
         });
         await refine;
 
+        expect(renderer.getPageRasterState(2)).toBe('current');
         expect(renderer.isPageCanvasCommitted(2)).toBe(true);
         expect(renderer.getCommittedRasterQuality(2)?.intent).toBe('settled');
         expect(renderer.isPageQualityRefineEligible(2)).toBe(false);
@@ -789,12 +807,16 @@ describe('usePdfPageRenderer resilience', () => {
         expect(renderer.isPageRendered(1)).toBe(true);
 
         setMountedCanvas(null);
+        expect(renderer.getPageRasterState(1)).toBe('stale-scale');
         const staleRender = renderer.renderVisiblePages(
             {
                 start: 1,
                 end: 1,
             },
-            { preserveRenderedPages: true },
+            {
+                forceRerender: true,
+                preserveRenderedPages: true,
+            },
         );
         await vi.waitFor(() => {
             expect(canvasRendererMock.mountCanvas).toHaveBeenCalledTimes(2);

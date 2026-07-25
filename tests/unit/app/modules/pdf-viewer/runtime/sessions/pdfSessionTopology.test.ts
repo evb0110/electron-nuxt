@@ -67,6 +67,8 @@ describe('PDF viewer session topology', () => {
         expect(viewport).not.toContain('attachRasterPort');
         expect(viewport).not.toContain('IPdfViewportRasterPort');
         expect(rendering).toContain('watch(viewport.demand');
+        expect(rendering).not.toContain('viewport.notifyRenderStateChanged');
+        expect(viewport).not.toContain('notifyRenderStateChanged');
         expect(renderer).toContain('options.document.rasterScheduler');
         expect(renderer).not.toContain('getPdfPageRasterScheduler');
         const thumbnails = readFileSync(resolve(

@@ -634,22 +634,21 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
     interface IViewportRasterJob {
         demand: IPdfRasterDemand;
         forceRerender: boolean;
+        rasterState: TPdfPageRasterState;
         renderOptions: IRenderVisiblePagesOptions;
         version: number;
         visibleRange: IPageRange;
     }
-
     interface IPreparedViewportRaster {
         job: IViewportRasterJob;
         page: PDFPageProxy;
     }
-
     const viewportRasterJobs = new Map<string, IViewportRasterJob>();
     const viewportRasterWaiters = new Map<number, Set<() => void>>();
     const currentViewportDemandPages = new Set<number>();
     let activeRasterScheduler: IPdfPageRasterScheduler | null = null;
     let viewportDemandGeneration = 0;
-
+    type TPdfPageRasterState = 'current' | 'absent' | 'in-flight' | 'stale-scale' | 'failed';
     function resolveViewportRasterWaiters(pageNumber: number) {
         const waiters = viewportRasterWaiters.get(pageNumber);
         if (!waiters) {
@@ -671,7 +670,12 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
             viewportRasterWaiters.set(pageNumber, waiters);
         });
     }
-
+    function shouldRasterizeViewportJob(job: IViewportRasterJob) {
+        return job.forceRerender
+            || job.rasterState === 'absent'
+            || job.rasterState === 'stale-scale'
+            || job.renderOptions.contentIntent === 'canvas-only-refine';
+    }
     const viewportRasterTarget: IPdfRasterRenderTarget<IPreparedViewportRaster> = {
         id: 'pdf-viewport',
         prepare(demand, page) {
@@ -680,6 +684,7 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
                 !job
                 || job.version !== renderVersion
                 || pdfDocument.value === null
+                || !shouldRasterizeViewportJob(job)
             ) {
                 return Promise.resolve(null);
             }
@@ -841,7 +846,6 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
         );
         const scale = toValue(options.effectiveScale);
         const pixelRatio = toValue(outputScale);
-        const forceRerender = renderOptions.forceRerender === true;
         const jobs: IViewportRasterJob[] = [];
         for (let pageNumber = start; pageNumber <= end; pageNumber += 1) {
             if (
@@ -872,6 +876,12 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
                         : {}),
                 }
                 : renderOptions;
+            const rasterState = getPageRasterState(pageNumber);
+            const forceRerender = rasterState === 'stale-scale'
+                || (renderOptions.forceRerender === true && (
+                    rasterState !== 'in-flight'
+                    || renderOptions.preserveInFlightRequiredPages !== true
+                ));
             const demand: IPdfRasterDemand = {
                 consumerGeneration: renderVersion,
                 documentFence: scheduler.documentFence,
@@ -906,6 +916,7 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
             const job = {
                 demand,
                 forceRerender,
+                rasterState,
                 renderOptions: pageRenderOptions,
                 version: renderVersion,
                 visibleRange,
@@ -960,11 +971,8 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
         );
         currentViewportDemandPages.clear();
         jobs.forEach(job => currentViewportDemandPages.add(job.demand.pageNumber));
-        const jobsRequiringRaster = jobs.filter(job => (
-            job.forceRerender
-            || !isCommittedVisualCurrent(job.demand.pageNumber)
-        ));
-        for (const job of jobsRequiringRaster) {
+        const jobsRequiringRaster = jobs.filter(shouldRasterizeViewportJob);
+        for (const job of jobs.filter(job => job.forceRerender)) {
             scheduler.invalidate({
                 pages: [job.demand.pageNumber],
                 reason: 'viewport-raster-repair-or-replacement',
@@ -1028,6 +1036,17 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
         return container
             ? getPageContentReadiness(pageNumber, container).canvasReady
             : false;
+    }
+    function getPageRasterState(pageNumber: number): TPdfPageRasterState {
+        const slot = pageRenderState.getSlot(pageNumber);
+        return viewportRasterWaiters.has(pageNumber)
+            || (slot.job === 'rendering' && slot.version === renderVersion)
+            ? 'in-flight'
+            : slot.job === 'failed' && slot.version === renderVersion
+                ? 'failed'
+                : isCommittedVisualCurrent(pageNumber)
+                    ? 'current'
+                    : slot.canvasReadiness === 'ready' ? 'stale-scale' : 'absent';
     }
 
     function renderTransactionPages(request: IPdfViewerTransactionRenderRequest) {
@@ -1132,6 +1151,7 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
         isPageRendered: (pageNumber: number) => pageRenderState.getSlot(pageNumber).canvasReadiness === 'ready',
         isPageFreshlyRendered: (pageNumber: number) => pageRenderState.getSlot(pageNumber).canvasReadiness === 'ready',
         isPageCanvasCommitted: isCommittedVisualCurrent,
+        getPageRasterState,
         isPageQualityRefineEligible: (pageNumber: number) => {
             const slot = pageRenderState.getSlot(pageNumber);
             return isCommittedVisualCurrent(pageNumber)

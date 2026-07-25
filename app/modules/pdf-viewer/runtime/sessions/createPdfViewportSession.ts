@@ -1173,7 +1173,6 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
             pageSlots.markUnmounted(pageNumber);
             publishDemand();
         },
-        notifyRenderStateChanged: publishDemand,
         requestMandatoryRaster,
         settleMandatoryRaster,
         commitVisibleRange,

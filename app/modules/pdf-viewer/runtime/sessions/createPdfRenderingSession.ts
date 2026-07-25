@@ -188,7 +188,7 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
     function handlePageCanvasMounted(commit: IPdfCanvasDomCommit) {
         renderedPageStateVersion.value += 1;
         projection.value?.pageCommitted(commit.pageNumber);
-        notifyRenderStateChanged();
+        queueFrame();
         if (!chassisAuthority) {
             return;
         }
@@ -323,7 +323,7 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
         getProtectedVisibleRange: () => viewport.getProtectedVisibleRange(),
         onRenderedPageStateChanged: () => {
             renderedPageStateVersion.value += 1;
-            notifyRenderStateChanged();
+            queueFrame();
         },
         pageSlots: viewport.pageSlots,
     });
@@ -439,18 +439,42 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
             });
             return;
         }
-        const missingRequiredPages = demand.requiredPages.filter(page => !rendering.isPageCanvasCommitted(page));
+        const requiredRasterStates = demand.requiredPages.map(page => ({
+            page,
+            state: rendering.getPageRasterState(page),
+        }));
+        const repairPages = requiredRasterStates
+            .filter(({state}) => state === 'stale-scale')
+            .map(({page}) => page);
+        if (repairPages.length > 0) {
+            const repairRange = {
+                start: Math.min(...repairPages),
+                end: Math.max(...repairPages),
+            };
+            void renderVisiblePages(repairRange, {
+                bufferMaxCanvasPixels: options.maxBufferCanvasPixels,
+                forceRerender: true,
+                preserveCommittedVisual: true,
+                preserveInFlightRequiredPages: true,
+                preserveRenderedPages: true,
+                rasterDemandPages: demand.residentPages,
+                renderWindowOverride: repairRange,
+            });
+            return;
+        }
+        const missingRequiredPages = requiredRasterStates
+            .filter(({state}) => state === 'absent')
+            .map(({page}) => page);
         if (missingRequiredPages.length > 0) {
             void renderVisiblePages(demand.visibleRange, {
                 bufferMaxCanvasPixels: options.maxBufferCanvasPixels,
-                // Strict readiness also rejects a resident canvas at a stale
-                // scale. Force the promotion so the renderer cannot take its
-                // resident-canvas shortcut and strand the page as a skeleton.
-                forceRerender: true,
                 preserveInFlightRequiredPages: true,
                 preserveRenderedPages: true,
                 rasterDemandPages: demand.residentPages,
             });
+            return;
+        }
+        if (requiredRasterStates.some(({state}) => state === 'in-flight' || state === 'failed')) {
             return;
         }
         const layerPromotionPages = demand.requiredPages.filter(page => !rendering.isPageLayerReady(page));
@@ -492,10 +516,6 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
             preserveRenderedPages: true,
             rasterDemandPages: demand.residentPages,
         });
-    }
-
-    function notifyRenderStateChanged() {
-        viewport.notifyRenderStateChanged();
     }
 
     function getPageVisualReadiness(pageNumber: number): TPdfPageVisualReadiness {
