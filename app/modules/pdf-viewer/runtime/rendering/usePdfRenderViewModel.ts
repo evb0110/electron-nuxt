@@ -16,13 +16,14 @@ import type {
     TPdfSource,
 } from '@app/types/pdfUi';
 import type { ILinkAnnotation } from '@app/types/annotations';
+import type { IDocumentOpenSurfaceSession } from '@app/utils/document-viewer/chassis/documentOpenSurfaceSession';
 
 interface IUsePdfRenderViewModelOptions {
     src: ComputedRef<TPdfSource | null>;
     isLoading: Ref<boolean>;
     pdfDocument: ShallowRef<PDFDocumentProxy | null>;
     getPage: (pageNumber: number) => Promise<PDFPageProxy>;
-    viewerContainer: Ref<HTMLElement | null>;
+    openSurface: Pick<IDocumentOpenSurfaceSession, 'snapshot' | 'viewportSession'>;
     isVisualReloadTransitionActive: Ref<boolean>;
     suppressLoadingOverlay: ComputedRef<boolean>;
     skeletonContentInsets: Ref<IContentInsets | null>;
@@ -54,7 +55,8 @@ export const usePdfRenderViewModel = (options: IUsePdfRenderViewModelOptions) =>
         src: options.src,
         isLoading: options.isLoading,
         pdfDocument: options.pdfDocument,
-        viewerContainer: options.viewerContainer,
+        currentPage: options.currentPage,
+        openSurface: options.openSurface,
         holdOverlayVisible: options.isVisualReloadTransitionActive,
     });
     const isInitialSkeletonGeometryPending = computed(() => (

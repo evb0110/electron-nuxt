@@ -1,4 +1,4 @@
-import { injectDocumentViewerChassisAuthority } from '@app/utils/document-viewer/chassis/documentViewerChassisAuthority';
+import type { IDocumentViewerChassisAuthority } from '@app/utils/document-viewer/chassis/documentViewerChassisAuthority';
 import { getPerformanceProfile } from '@app/utils/performanceProfile';
 import { resolvePdfRenderPerformancePolicy } from '@app/modules/pdf-viewer/engine/pdf-render-performance/resolvePdfRenderPerformancePolicy';
 import { summarizeViewerMetrics } from '@app/modules/pdf-viewer/engine/pdf-viewer-metrics/summarizeViewerMetrics';
@@ -43,9 +43,12 @@ import type {
  * models and commands to `PdfViewer.vue` and the exposed viewer API. It owns
  * no lifecycle of its own.
  */
-export const usePdfViewerFeatureController = (props: IPdfViewerProps, emit: IPdfViewerEmit) => {
-    const chassisAuthority = injectDocumentViewerChassisAuthority();
-    const openSurfaceRenderOwner = chassisAuthority?.openSurface.claimRenderOwner();
+export const usePdfViewerFeatureController = (
+    props: IPdfViewerProps,
+    emit: IPdfViewerEmit,
+    chassisAuthority: IDocumentViewerChassisAuthority,
+) => {
+    const openSurfaceRenderOwner = chassisAuthority.openSurface.claimRenderOwner();
     const {
         src,
         reloadSrc,
@@ -317,7 +320,7 @@ export const usePdfViewerFeatureController = (props: IPdfViewerProps, emit: IPdf
         isLoading: documentSession.isLoading,
         pdfDocument: documentSession.pdfDocument,
         getPage: documentSession.getPage,
-        viewerContainer,
+        openSurface: chassisAuthority.openSurface,
         isVisualReloadTransitionActive: viewportSession.reloadTransition.isVisualReloadTransitionActive,
         suppressLoadingOverlay,
         skeletonContentInsets: viewportSession.skeletonInsets.skeletonContentInsets,
@@ -509,6 +512,7 @@ export const usePdfViewerFeatureController = (props: IPdfViewerProps, emit: IPdf
         cropSelection,
         visibleMarkersByPage: renderViewModel.visibleMarkersByPage,
         visibleLinksByPage: renderViewModel.visibleLinksByPage,
+        isViewerLoadingOverlayVisible: renderViewModel.isViewerLoadingOverlayVisible,
         handleMarkerOpenNote: annotationSession.handleMarkerOpenNote,
         handleMarkerContextMenu: annotationSession.handleMarkerContextMenu,
         handleMarkerMove: annotationSession.handleMarkerMove,
