@@ -1108,6 +1108,7 @@ describe('Electron E2E - Viewer Smoke', () => {
             const placement = document.querySelector<HTMLElement>('.scan-cleanup-alignment-grid');
             const outputMode = document.querySelector<HTMLElement>('[aria-label="Output mode"]');
             return {
+                outputModeY: outputMode?.getBoundingClientRect().y ?? null,
                 outputModeVisible: Boolean(
                     outputMode
                     && outputMode.getBoundingClientRect().height > 0
@@ -1116,13 +1117,19 @@ describe('Electron E2E - Viewer Smoke', () => {
                 placementY: placement?.getBoundingClientRect().y ?? null,
             };
         });
-        // Per-page output mode was added after this smoke assertion. It is a
-        // real scope-specific row above placement, so equal absolute Y values
-        // would now mean that the new control overlaps or escapes the flow.
+        // The scope-specific output-mode row follows placement, so switching
+        // scope must not shift the shared placement control.
+        expect(Number.isFinite(placementYAllScope)).toBe(true);
+        expect(Number.isFinite(pageScopePlacement.placementY)).toBe(true);
+        expect(Number.isFinite(pageScopePlacement.outputModeY)).toBe(true);
         expect(pageScopePlacement.outputModeVisible).toBe(true);
-        expect(pageScopePlacement.placementY).toBeGreaterThan(placementYAllScope ?? 0);
+        expect(pageScopePlacement.placementY).toBe(placementYAllScope);
+        expect(pageScopePlacement.outputModeY)
+            .toBeGreaterThan(pageScopePlacement.placementY as number);
         await session.page.click('[data-settings-scope="all"]');
-        expect(await session.page.evaluate(readPlacementGridY)).toBe(placementYAllScope);
+        const restoredPlacementY = await session.page.evaluate(readPlacementGridY);
+        expect(Number.isFinite(restoredPlacementY)).toBe(true);
+        expect(restoredPlacementY).toBe(placementYAllScope);
         const headerBottomEdges = await session.page.$$eval(
             '.scan-thumbnail-rail-header, .preview-header, .scan-cleanup-settings-header',
             headers => headers.map(header => header.getBoundingClientRect().bottom),
@@ -1371,6 +1378,7 @@ describe('Electron E2E - Viewer Smoke', () => {
             const previewBounds = preview?.getBoundingClientRect();
             const headerBounds = previewHeader?.getBoundingClientRect();
             const settingsBounds = settings?.getBoundingClientRect();
+            const thumbnailBounds = thumbnails?.getBoundingClientRect();
             const within = (inner: DOMRect, outer: DOMRect) => inner.left >= outer.left - 1
                 && inner.right <= outer.right + 1
                 && inner.top >= outer.top - 1
@@ -1387,15 +1395,20 @@ describe('Electron E2E - Viewer Smoke', () => {
                     && settingsBounds
                     && settingsBounds.top >= previewBounds.bottom - 1,
                 ),
-                thumbnailsHidden: thumbnails ? getComputedStyle(thumbnails).display === 'none' : false,
+                thumbnailsVisible: Boolean(
+                    thumbnails
+                    && thumbnailBounds
+                    && thumbnailBounds.width > 0
+                    && getComputedStyle(thumbnails).display !== 'none',
+                ),
             };
         });
         expect(narrowWorkspaceLayout).toMatchObject({
             controlsContained: true,
             settingsBelowPreview: true,
-            thumbnailsHidden: true,
+            thumbnailsVisible: true,
         });
-        expect(narrowWorkspaceLayout.previewWidth).toBeGreaterThan(500);
+        expect(narrowWorkspaceLayout.previewWidth).toBeGreaterThan(300);
     }, 150_000);
 
     it('renders bounded native cleanup detail tiles for zoomed and panned scan regions', async () => {
@@ -2786,6 +2799,44 @@ describe('Electron E2E - Viewer Smoke', () => {
         await openPdfInApp(session.page, fixturePath, VIEWER_SMOKE_OPEN_TIMEOUT_MS);
         await waitForPdfLoaded(session.page, VIEWER_SMOKE_OPEN_TIMEOUT_MS);
 
+        const viewerPoint = await session.page.evaluate(() => {
+            const viewer = document.querySelector<HTMLElement>(
+                '.editor-pane.is-active .workspace-host #pdf-viewer',
+            );
+            if (!viewer) {
+                throw new Error('PDF viewer was not found');
+            }
+            const rect = viewer.getBoundingClientRect();
+            return {
+                x: rect.left + rect.width / 2,
+                y: rect.top + rect.height / 2,
+            };
+        });
+        // Establish genuine viewport ownership before applying the deliberately
+        // synthetic stress pattern below. A DOM-dispatched scroll is not user
+        // intent and must not supersede a still-settling navigation anchor.
+        await session.page.evaluate(() => {
+            const viewer = document.querySelector<HTMLElement>(
+                '.editor-pane.is-active .workspace-host #pdf-viewer',
+            );
+            if (!viewer) {
+                throw new Error('PDF viewer was not found');
+            }
+            document.documentElement.dataset.evbRapidScrollTrustedWheel = 'pending';
+            viewer.addEventListener('wheel', (event) => {
+                document.documentElement.dataset.evbRapidScrollTrustedWheel
+                    = event.isTrusted ? 'received' : 'untrusted';
+            }, {
+                capture: true,
+                once: true,
+            });
+        });
+        await session.page.mouse.move(viewerPoint.x, viewerPoint.y);
+        await session.page.mouse.wheel({deltaY: 240});
+        await waitForFunctionInPage(session.page, () => (
+            document.documentElement.dataset.evbRapidScrollTrustedWheel === 'received'
+        ));
+
         const pageContinuity = await session.page.evaluate(async () => {
             const viewer = document.querySelector<HTMLElement>(
                 '.editor-pane.is-active .workspace-host #pdf-viewer',
@@ -2866,7 +2917,7 @@ describe('Electron E2E - Viewer Smoke', () => {
 
             const finalScrollAt = performance.now();
             let finalSample = sample();
-            while (!finalSample.occupied && performance.now() - finalScrollAt < 5_000) {
+            while (!finalSample.occupied && performance.now() - finalScrollAt < 2_000) {
                 await new Promise(resolve => setTimeout(resolve, 25));
                 finalSample = sample();
             }

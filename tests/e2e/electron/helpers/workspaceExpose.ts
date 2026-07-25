@@ -8,6 +8,7 @@ import type {
     IWorkspaceExpose,
     IWorkspaceToolbarSnapshot,
 } from '@app/types/workspaceExpose';
+import { delay } from 'es-toolkit/promise';
 import {
     evaluateInPage,
     waitForFunctionInPage,
@@ -263,6 +264,83 @@ export async function waitForWorkspaceToolbarIdle(
         ...searchOptions,
         requiredMethods: collectRequiredMethods(searchOptions, 'getToolbarSnapshot'),
     });
+}
+
+export async function waitForSaveFrontierReady(
+    page: Page,
+    timeoutMs = 20_000,
+) {
+    const quietIntervalMs = 400;
+    const pollIntervalMs = 50;
+    const requiredStableObservations = 3;
+    const startedAt = Date.now();
+    let stableFingerprint: string | null = null;
+    let stableSince = 0;
+    let stableObservationCount = 0;
+
+    await installWorkspaceExposeProbe(page);
+    while (Date.now() - startedAt < timeoutMs) {
+        const observation = await evaluateInPage(page, () => {
+            const api = (window as IWorkspaceExposeProbeWindow).__evbTestApi;
+            const workspace = api?.getActiveWorkspaceHandle() ?? null;
+            const toolbar = api?.getActiveToolbarSnapshot()
+                ?? workspace?.getToolbarSnapshot?.()
+                ?? null;
+            const ready = toolbar?.canSave === true
+                && toolbar.isAnySaving !== true
+                && toolbar.isSaving !== true
+                && toolbar.isSavingAs !== true;
+            if (!ready || !workspace) {
+                return {
+                    fingerprint: null,
+                    ready: false,
+                };
+            }
+
+            const editorState = Array.from(document.querySelectorAll<HTMLElement>(
+                '.annotationEditorLayer .annotationEditor, .annotation-editor-layer .annotationEditor',
+            )).map(editor => ({
+                attributes: Array.from(editor.attributes)
+                    .filter(attribute => attribute.name === 'id' || attribute.name.startsWith('data-'))
+                    .map(attribute => [
+                        attribute.name,
+                        attribute.value,
+                    ] as [string, string])
+                    .sort(([left], [right]) => left.localeCompare(right)),
+                text: editor.textContent ?? '',
+            }));
+            return {
+                fingerprint: JSON.stringify({
+                    automationState: workspace.getAutomationStateSnapshot(),
+                    editorState,
+                    shapes: workspace.getAllShapes?.() ?? [],
+                }),
+                ready: true,
+            };
+        });
+
+        const now = Date.now();
+        if (!observation.ready || observation.fingerprint === null) {
+            stableFingerprint = null;
+            stableSince = 0;
+            stableObservationCount = 0;
+        } else if (observation.fingerprint !== stableFingerprint) {
+            stableFingerprint = observation.fingerprint;
+            stableSince = now;
+            stableObservationCount = 1;
+        } else {
+            stableObservationCount += 1;
+            if (
+                stableObservationCount >= requiredStableObservations
+                && now - stableSince >= quietIntervalMs
+            ) {
+                return;
+            }
+        }
+
+        await delay(pollIntervalMs);
+    }
+    throw new Error('Save frontier did not become ready after the document changed');
 }
 
 export async function waitForAutomationEvent(

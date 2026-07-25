@@ -8,11 +8,12 @@ import {
     stat,
     writeFile,
 } from 'node:fs/promises';
+import {createReadStream} from 'node:fs';
+import {createHash} from 'node:crypto';
 import {spawnSync} from 'node:child_process';
 import {tmpdir} from 'node:os';
 import {
     dirname,
-    isAbsolute,
     join,
     resolve,
 } from 'node:path';
@@ -34,6 +35,13 @@ const SCENARIOS = [
     },
 ];
 
+function readOptionValue(argument, value) {
+    if (!value || value.startsWith('--')) {
+        throw new Error(`${argument} requires a value`);
+    }
+    return value;
+}
+
 export function parseSavePipelineBenchmarkArgs(argv) {
     const options = {
         fixture: null,
@@ -48,16 +56,16 @@ export function parseSavePipelineBenchmarkArgs(argv) {
             continue;
         }
         if (argument === '--fixture' || argument === '--pdf') {
-            options.fixture = value ?? null;
+            options.fixture = readOptionValue(argument, value);
             index += 1;
         } else if (argument === '--iterations') {
-            options.iterations = Number.parseInt(value ?? '', 10);
+            options.iterations = Number(readOptionValue(argument, value));
             index += 1;
         } else if (argument === '--output' || argument === '--out') {
-            options.output = value ?? null;
+            options.output = readOptionValue(argument, value);
             index += 1;
         } else if (argument === '--warmups') {
-            options.warmups = Number.parseInt(value ?? '', 10);
+            options.warmups = Number(readOptionValue(argument, value));
             index += 1;
         } else if (argument === '--help') {
             return {
@@ -74,9 +82,9 @@ export function parseSavePipelineBenchmarkArgs(argv) {
     };
 }
 
-export function validateSavePipelineBenchmarkOptions(options) {
-    if (!options.fixture || !isAbsolute(options.fixture)) {
-        throw new Error('--fixture must be an absolute PDF path');
+export function validateSavePipelineBenchmarkOptions(options, cwd = process.cwd()) {
+    if (!options.fixture) {
+        throw new Error('--fixture is required');
     }
     if (!options.output) {
         throw new Error('--output is required');
@@ -88,9 +96,9 @@ export function validateSavePipelineBenchmarkOptions(options) {
         throw new Error('--warmups must be a positive integer');
     }
     return {
-        fixture: options.fixture,
+        fixture: resolve(cwd, options.fixture),
         iterations: options.iterations,
-        output: resolve(options.output),
+        output: resolve(cwd, options.output),
         warmups: options.warmups,
     };
 }
@@ -113,6 +121,17 @@ function pnpmCommand() {
     return process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm';
 }
 
+async function hashFile(path) {
+    const hash = createHash('sha256');
+    await new Promise((resolvePromise, rejectPromise) => {
+        const stream = createReadStream(path);
+        stream.on('data', chunk => hash.update(chunk));
+        stream.on('error', rejectPromise);
+        stream.on('end', resolvePromise);
+    });
+    return hash.digest('hex');
+}
+
 async function runScenario(options, scenario, temporaryDirectory) {
     const outputPath = join(
         temporaryDirectory,
@@ -125,6 +144,8 @@ async function runScenario(options, scenario, temporaryDirectory) {
         '--project',
         'e2e-save-pipeline',
         'tests/e2e/electron/savePipelineBenchmark.e2e.test.ts',
+        '--retry',
+        '0',
         '--reporter',
         'verbose',
     ], {
@@ -139,11 +160,78 @@ async function runScenario(options, scenario, temporaryDirectory) {
     return JSON.parse(await readFile(outputPath, 'utf8'));
 }
 
-function assertSemanticParity(results) {
-    const baseline = JSON.stringify(results[0]?.semanticReopen ?? null);
-    if (results.some(result => JSON.stringify(result.semanticReopen ?? null) !== baseline)) {
+export function normalizeSemanticReopenSummary(summary) {
+    if (
+        !summary
+        || !Number.isSafeInteger(summary.total)
+        || summary.total < 0
+        || !summary.bySubtype
+        || typeof summary.bySubtype !== 'object'
+        || Array.isArray(summary.bySubtype)
+    ) {
+        throw new Error('Invalid semantic reopen summary');
+    }
+    const subtypeEntries = Object.entries(summary.bySubtype);
+    if (subtypeEntries.some(([
+        , count,
+    ]) => !Number.isSafeInteger(count) || count < 0)) {
+        throw new Error('Invalid semantic reopen subtype count');
+    }
+    const rawTotal = subtypeEntries.reduce((sum, [
+        , count,
+    ]) => sum + count, 0);
+    if (rawTotal !== summary.total) {
+        throw new Error('Semantic reopen total does not match subtype counts');
+    }
+    const bySubtype = Object.fromEntries(
+        subtypeEntries
+            // A Popup is the structural companion of a user-visible annotation,
+            // not an independently authored semantic annotation.
+            .filter(([subtype]) => subtype !== 'Popup')
+            .sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0),
+    );
+    return {
+        total: Object.values(bySubtype).reduce((sum, count) => sum + count, 0),
+        bySubtype,
+    };
+}
+
+function expectedAuthoredFreeTextSummary(sourceSummary) {
+    const bySubtype = {
+        ...sourceSummary.bySubtype,
+        FreeText: (sourceSummary.bySubtype.FreeText ?? 0) + 1,
+    };
+    return {
+        total: sourceSummary.total + 1,
+        bySubtype: Object.fromEntries(
+            Object.entries(bySubtype)
+                .sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0),
+        ),
+    };
+}
+
+export function assertSemanticParity(results) {
+    const summaries = results.map((result) => {
+        try {
+            const source = normalizeSemanticReopenSummary(result.sourceSemanticReopen);
+            const output = normalizeSemanticReopenSummary(result.semanticReopen);
+            const expected = expectedAuthoredFreeTextSummary(source);
+            if (JSON.stringify(output) !== JSON.stringify(expected)) {
+                throw new Error('output does not contain exactly one additional FreeText annotation');
+            }
+            return JSON.stringify(output);
+        } catch (error) {
+            const reason = error instanceof Error ? error.message : String(error);
+            throw new Error(
+                `Save benchmark scenario ${result.scenario ?? '<unknown>'} has missing or invalid semantic reopen evidence: ${reason}`,
+            );
+        }
+    });
+    const baseline = summaries[0];
+    if (summaries.some(summary => summary !== baseline)) {
         throw new Error('Save benchmark scenarios produced different semantic reopen summaries');
     }
+    return baseline ? JSON.parse(baseline) : null;
 }
 
 export function buildSavePipelineBenchmarkReport(options, scenarios, meta) {
@@ -152,16 +240,18 @@ export function buildSavePipelineBenchmarkReport(options, scenarios, meta) {
         generatedAt: meta.generatedAt,
         fixturePath: options.fixture,
         fixtureBytes: meta.fixtureBytes,
+        fixtureSha256: meta.fixtureSha256,
         inputPath: options.fixture,
         outputPath: options.output,
         warmups: options.warmups,
         iterations: options.iterations,
         hostProfile: scenarios[0]?.hostProfile ?? null,
-        hostTier: scenarios[0]?.hostProfile?.tier ?? null,
+        hostTier: scenarios[0]?.hostProfile?.tier ?? scenarios[0]?.tier ?? null,
         cloneMode: {
             measured: 'auto',
             forcedNoClone: 'unavailable',
         },
+        semanticParity: meta.semanticParity ?? null,
         scenarios,
     };
 }
@@ -186,10 +276,19 @@ export async function runSavePipelineBenchmark(rawOptions) {
         for (const scenario of SCENARIOS) {
             results.push(await runScenario(options, scenario, temporaryDirectory));
         }
-        assertSemanticParity(results);
-        const report = buildSavePipelineBenchmarkReport(options, results, {
+        const semanticParitySummary = assertSemanticParity(results);
+        const scenarios = results.map(result => ({
+            ...result,
+            semanticReopenComparable: normalizeSemanticReopenSummary(result.semanticReopen),
+        }));
+        const report = buildSavePipelineBenchmarkReport(options, scenarios, {
             fixtureBytes: fixtureStat.size,
+            fixtureSha256: await hashFile(options.fixture),
             generatedAt: new Date().toISOString(),
+            semanticParity: {
+                ignoredSubtypes: ['Popup'],
+                summary: semanticParitySummary,
+            },
         });
         await mkdir(dirname(options.output), {recursive: true});
         await writeFile(options.output, `${JSON.stringify(report, null, 2)}\n`);
@@ -205,7 +304,7 @@ export async function runSavePipelineBenchmark(rawOptions) {
 
 function printUsage() {
     process.stdout.write(
-        'Usage: node scripts/benchmark-save-pipeline.mjs (--fixture|--pdf) /absolute/input.pdf --iterations 10 (--output|--out) .devkit/analysis/save-pipeline.json [--warmups 5]\n',
+        'Usage: node scripts/benchmark-save-pipeline.mjs (--fixture|--pdf) input.pdf --iterations 10 (--output|--out) .devkit/analysis/save-pipeline.json [--warmups 5]\n',
     );
 }
 

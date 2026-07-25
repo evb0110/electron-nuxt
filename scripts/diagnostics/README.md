@@ -11,22 +11,25 @@ The save timing diagnostic extends the existing hidden-session save-pipeline ben
 it does not maintain a separate harness. Run either entry point:
 
 ```bash
-pnpm run benchmark:save-pipeline -- --fixture /absolute/path/to/source.pdf --iterations 10 --output .devkit/analysis/save-pipeline.json
-pnpm run diag:pdf-save-timing -- --pdf /absolute/path/to/source.pdf --iterations 10 --out .devkit/analysis/save-pipeline.json
+pnpm run benchmark:save-pipeline -- --fixture path/to/source.pdf --iterations 10 --output .devkit/analysis/save-pipeline.json
+pnpm run diag:pdf-save-timing -- --pdf path/to/source.pdf --iterations 10 --out .devkit/analysis/save-pipeline.json
 ```
 
-`--pdf` aliases `--fixture`, and `--out` aliases `--output`. The source must be an
-absolute, non-empty PDF path. The benchmark builds the native page-operations tool and
+`--pdf` aliases `--fixture`, and `--out` aliases `--output`. Relative paths resolve
+from the caller's working directory; the source must be a non-empty PDF. The benchmark builds the native page-operations tool and
 Electron, then runs native FreeText and serialized-fallback saves at the configured low
 and high tiers in isolated hidden sessions.
 
 The top-level JSON retains the existing schema-version, generation time, fixture size,
 warmup/iteration counts, clone mode, and scenario fields. It additionally records the
-normalized `inputPath` and `outputPath`, plus the synchronous `hostProfile` snapshot and
-its effective `hostTier`. Each scenario retains its numeric `totalMs.samples`, p50/p95,
-peak RSS, I/O and phase placeholders, byte counts, output SHA-256, and semantic-reopen
-summary. Its additive `iterationMeasurements` entries contain `iteration`, `timestamp`,
-`beforeBytes`, `afterBytes`, and `durationMs`; the scenario also records the synchronous
+normalized `inputPath` and `outputPath`, a streaming fixture SHA-256, plus the synchronous
+`hostProfile` snapshot and its effective `hostTier`. Each scenario retains its numeric `totalMs.samples`, p50/p95,
+peak RSS, I/O and phase placeholders, byte counts, output SHA-256, and raw semantic-reopen
+summary. Additive comparable semantic summaries ignore structural Popup companions and
+prove that every output contains exactly one additional FreeText annotation. Each
+scenario identifies the annotation action used for its route. Its additive
+`iterationMeasurements` entries contain `iteration`, `timestamp`, `beforeBytes`,
+`afterBytes`, `durationMs`, and peak RSS; the scenario also records the synchronous
 profile effective for that hidden session and the source/working-output paths.
 
 ## Scan-cleanup release corpus

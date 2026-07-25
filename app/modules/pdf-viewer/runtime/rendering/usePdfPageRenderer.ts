@@ -375,6 +375,7 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
     function bumpRenderVersion(
         reason = 'unspecified',
         payload?: Record<string, unknown>,
+        notifyStateChange = true,
     ) {
         const previousVersion = renderVersion;
         renderVersion += 1;
@@ -394,7 +395,9 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
         canvasController.abortQueuedCanvasRenders();
         cancelAllActiveRenderTasks();
         cancelAllActiveTextLayerRenders();
-        options.onRenderedPageStateChanged?.();
+        if (notifyStateChange) {
+            options.onRenderedPageStateChanged?.();
+        }
         return renderVersion;
     }
 
@@ -927,6 +930,55 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
         clearPageVisual,
     });
 
+    watch(
+        [
+            pdfDocument,
+            () => getRenderDocumentToken(),
+        ],
+        ([
+            document,
+            documentToken,
+        ], [
+            previousDocument,
+            previousDocumentToken,
+        ]) => {
+            if (
+                !document
+                || document !== previousDocument
+                || documentToken === previousDocumentToken
+            ) {
+                return;
+            }
+            // Native annotation saves preserve the loaded PDFDocument and its
+            // painted page pixels while advancing the persisted file revision.
+            // Re-authorize those canvases under the new persistence token; the
+            // version bump cancels old-token work so a late render cannot win.
+            const nextRenderVersion = bumpRenderVersion('document-revision-token-changed', {
+                previousDocumentToken,
+                documentToken,
+            }, false);
+            for (const pageNumber of renderedPages) {
+                const slot = pageRenderState.getSlot(pageNumber);
+                if (
+                    pageRenderState.adoptCommittedCanvasVersion(
+                        pageNumber,
+                        nextRenderVersion,
+                        documentToken,
+                    )
+                    && slot.layerReadiness === 'hydrating'
+                ) {
+                    const container = getMountedPageContainer(pageNumber, options.container.value);
+                    if (container) {
+                        container.dataset.pageLayerReadiness = 'canvas-only';
+                    }
+                }
+            }
+            missingRenderTargetRetries.clear();
+            options.onRenderedPageStateChanged?.();
+        },
+        {flush: 'post'},
+    );
+
     const { applySearchHighlights } = searchController;
 
     function invalidatePages(pages: number[]) {
@@ -949,7 +1001,7 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
     function cancelInFlightRenders() {
         const activeRenderTasksSettled = waitForActiveRenderTasksToSettle();
         const optionalTextLayerTasksSettled = waitForOptionalTextLayerTasksToSettle();
-        const nextRenderVersion = bumpRenderVersion('cancel-in-flight-renders');
+        const nextRenderVersion = bumpRenderVersion('cancel-in-flight-renders', undefined, false);
         for (const pageNumber of renderedPages) {
             const slot = pageRenderState.getSlot(pageNumber);
             if (
@@ -963,6 +1015,7 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
             }
         }
         missingRenderTargetRetries.clear();
+        options.onRenderedPageStateChanged?.();
         return Promise.all([
             activeRenderTasksSettled,
             optionalTextLayerTasksSettled,

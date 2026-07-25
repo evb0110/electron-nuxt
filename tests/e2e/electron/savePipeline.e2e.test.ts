@@ -9,7 +9,6 @@ import {
     expect,
     it,
 } from 'vitest';
-import {delay} from 'es-toolkit/promise';
 import type {Page} from 'puppeteer-core';
 import type {ITypedStagedArtifact} from '@contracts/stagedArtifacts';
 import {
@@ -30,9 +29,9 @@ import {createFreeTextAnnotation} from '@tests/e2e/electron/helpers/viewerAnnota
 import {
     callWorkspaceCommand,
     getLatestAutomationEventId,
-    getWorkspaceToolbarSnapshot,
     readWorkspaceStateValues,
     waitForAutomationEvent,
+    waitForSaveFrontierReady,
     waitForWorkspaceToolbarIdle,
 } from '@tests/e2e/electron/helpers/workspaceExpose';
 
@@ -51,7 +50,16 @@ interface IPdfSourceStateSnapshot {
     reloadPath: string | null;
 }
 
+interface ICommittedCanvasContinuitySnapshot {
+    canvas: HTMLCanvasElement;
+    canvasClassName: string;
+    height: number;
+    pageContainerClassName: string;
+    width: number;
+}
+
 type TSaveReceiptProbeWindow = Window & {
+    __committedCanvasContinuitySnapshot?: ICommittedCanvasContinuitySnapshot;
     __resumeSaveReceiptCommit?: () => void;
     __saveReceiptProbe?: ISaveReceiptProbe;
 };
@@ -85,22 +93,10 @@ async function waitForOpenedPdf(page: Page, path: string) {
     await waitForViewerInteractive(page, SAVE_TIMEOUT_MS);
 }
 
-async function waitForSaveAvailable(page: Page) {
-    const startedAt = Date.now();
-    while (Date.now() - startedAt < 20_000) {
-        const snapshot = await getWorkspaceToolbarSnapshot(page);
-        if (snapshot?.canSave === true && snapshot.isAnySaving !== true) {
-            return;
-        }
-        await delay(100);
-    }
-    throw new Error('Save did not become available after creating the annotation');
-}
-
 async function createDirtyFreeText(page: Page, text: string) {
     await openAnnotationsTab(page, 30_000);
     expect(await createFreeTextAnnotation(page, text)).toBeGreaterThan(0);
-    await waitForSaveAvailable(page);
+    await waitForSaveFrontierReady(page);
 }
 
 async function createDirtyStickyNote(page: Page) {
@@ -117,15 +113,7 @@ async function createDirtyStickyNote(page: Page) {
     });
     await page.keyboard.press('Escape');
     await waitForWorkspaceToolbarIdle(page, {timeoutMs: 20_000});
-    await waitForSaveAvailable(page);
-    await waitForStablePdfjsAnnotationState();
-}
-
-async function waitForStablePdfjsAnnotationState() {
-    // The save frontier fingerprints live PDF.js annotation change ids; a
-    // save issued while the editor is still settling legitimately fails the
-    // freshness assertion, so mirror a user settle-then-save timing.
-    await delay(750);
+    await waitForSaveFrontierReady(page);
 }
 
 async function saveFromWorkspace(page: Page, path: string) {
@@ -184,6 +172,77 @@ async function waitForStagedArtifact(page: Page) {
     return artifact;
 }
 
+async function captureCommittedCanvasForSaveContinuity(page: Page) {
+    return page.evaluate(() => {
+        const pageContainer = document.querySelector<HTMLElement>(
+            '.editor-pane.is-active .page_container',
+        );
+        const canvas = pageContainer?.querySelector<HTMLCanvasElement>(
+            '.page_canvas__render-layer canvas',
+        );
+        if (!pageContainer || !canvas || canvas.width <= 0 || canvas.height <= 0) {
+            throw new Error('No committed PDF canvas was available before save');
+        }
+        const snapshot: ICommittedCanvasContinuitySnapshot = {
+            canvas,
+            canvasClassName: canvas.className,
+            height: canvas.height,
+            pageContainerClassName: pageContainer.className,
+            width: canvas.width,
+        };
+        (window as TSaveReceiptProbeWindow).__committedCanvasContinuitySnapshot = snapshot;
+        return {
+            canvasClassName: snapshot.canvasClassName,
+            height: snapshot.height,
+            pageContainerClassName: snapshot.pageContainerClassName,
+            rendered: pageContainer.classList.contains('page_container--rendered'),
+            width: snapshot.width,
+        };
+    });
+}
+
+async function expectCommittedCanvasSurvivedSave(
+    page: Page,
+) {
+    const continuity = await page.evaluate(() => {
+        const snapshot = (window as TSaveReceiptProbeWindow).__committedCanvasContinuitySnapshot;
+        if (!snapshot) {
+            throw new Error('No committed PDF canvas continuity snapshot was captured before save');
+        }
+        const pageContainer = document.querySelector<HTMLElement>(
+            '.editor-pane.is-active .page_container',
+        );
+        const canvas = pageContainer?.querySelector<HTMLCanvasElement>(
+            '.page_canvas__render-layer canvas',
+        );
+        if (!pageContainer || !canvas) {
+            throw new Error('No committed PDF canvas was available after save');
+        }
+        return {
+            height: canvas.height,
+            rendered: pageContainer.classList.contains('page_container--rendered'),
+            sameCanvasClassName: canvas.className === snapshot.canvasClassName,
+            sameCanvasNode: canvas === snapshot.canvas,
+            sameHeight: canvas.height === snapshot.height,
+            samePageContainerClassName: pageContainer.className === snapshot.pageContainerClassName,
+            sameWidth: canvas.width === snapshot.width,
+            width: canvas.width,
+        };
+    });
+    expect(continuity).toEqual({
+        height: expect.any(Number),
+        rendered: true,
+        sameCanvasClassName: true,
+        sameCanvasNode: true,
+        sameHeight: true,
+        samePageContainerClassName: true,
+        sameWidth: true,
+        width: expect.any(Number),
+    });
+    expect(continuity.height).toBeGreaterThan(0);
+    expect(continuity.width).toBeGreaterThan(0);
+}
+
 async function isLinearizedPdf(path: string) {
     const bytes = await readFile(path);
     return bytes.subarray(0, Math.min(bytes.byteLength, 4096))
@@ -230,8 +289,10 @@ describe('Electron E2E - save pipeline diagnostics', () => {
         await waitForOpenedPdf(session.page, pdfPath);
         await installReceiptProbe(session.page, false);
         await createDirtyStickyNote(session.page);
+        expect((await captureCommittedCanvasForSaveContinuity(session.page)).rendered).toBe(true);
 
         await saveFromWorkspace(session.page, pdfPath);
+        await expectCommittedCanvasSurvivedSave(session.page);
 
         const probe = await session.page.evaluate(
             () => (window as TSaveReceiptProbeWindow).__saveReceiptProbe ?? null,
@@ -255,6 +316,13 @@ describe('Electron E2E - save pipeline diagnostics', () => {
             reloadPath: sourceState.workingCopyPath,
         });
         expect((await readPdfAnnotationSummary(pdfPath)).bySubtype.FreeText ?? 0).toBeGreaterThan(0);
+
+        await createDirtyFreeText(session.page, `post-save free text ${Date.now()}`);
+        expect((await captureCommittedCanvasForSaveContinuity(session.page)).rendered).toBe(true);
+        await saveFromWorkspace(session.page, pdfPath);
+        await waitForViewerInteractive(session.page, SAVE_TIMEOUT_MS);
+        await expectCommittedCanvasSurvivedSave(session.page);
+        expect((await readPdfAnnotationSummary(pdfPath)).bySubtype.FreeText ?? 0).toBeGreaterThan(1);
 
         const navigated = await callWorkspaceCommand(session.page, 'handleGoToPage', [2]);
         expect(navigated.called).toBe(true);

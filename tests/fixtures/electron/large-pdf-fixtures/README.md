@@ -57,11 +57,14 @@ To run it locally, point it at an oversized PDF and require the lane explicitly:
 
 You do not need to store or download such a file. `scripts/generate-large-pdf-e2e-fixture.mjs`
 produces a valid, deterministic ≥512 MiB PDF in well under a second by writing a
-small pdf-lib document and sparse-padding it to the target size, so it costs a few
-hundred KiB of real disk rather than 512 MiB:
+small pdf-lib document with an existing FreeText note and sparse-padding it to the
+target size. The note also satisfies the annotation-save sibling in the combined
+large-PDF project, while the sparse padding costs a few hundred KiB of real disk
+rather than 512 MiB:
 
 ```sh
-fixture="$(mktemp -u).pdf"
+fixture_dir="$(mktemp -d)"
+fixture="$fixture_dir/native-preview.pdf"
 node scripts/generate-large-pdf-e2e-fixture.mjs --output="$fixture"
 EVB_E2E_LARGE_PDF_FIXTURE="$fixture" \
 EVB_E2E_REQUIRE_NATIVE_LARGE_PDF_FIXTURE=1 \

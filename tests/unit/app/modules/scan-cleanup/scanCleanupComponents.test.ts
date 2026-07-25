@@ -745,7 +745,7 @@ function mountPreviewZoomHarness(options: {
         readingOrder: 'ltr',
         detailLoading: options.detailLoading ?? false,
         detailResult: options.detailResult ?? null,
-        onRequestDetail: options.onRequestDetail,
+        ...(options.onRequestDetail ? {onRequestDetail: options.onRequestDetail} : {}),
         'onUpdate:manualSplit': (value: IScanCleanupNormalizedSplit | null) => {
             if (value) splitUpdates.push(value);
         },

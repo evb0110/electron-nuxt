@@ -755,6 +755,7 @@ async function collectFreeTextCreationDebugState(page: Page, pageNumber?: number
         const host = globalThis.__evbE2E.getActiveWorkspaceHost(pageSelector);
         const pageContainer = host?.querySelector<HTMLElement>(pageSelector) ?? null;
         const layer = pageContainer?.querySelector<HTMLElement>('.annotationEditorLayer, .annotation-editor-layer') ?? null;
+        const viewer = layer?.closest<HTMLElement>('.pdfViewer') ?? null;
         const uiManager = (window as IWorkspaceExposeProbeWindow).__evbFindWorkspaceExpose?.({ requiredMethods: ['getLayer'] }) as Record<string, unknown> | null | undefined;
         const pageAttribute = Number(pageContainer?.dataset.page ?? '1');
         const resolvedPageNumber = Number.isFinite(pageAttribute) && pageAttribute > 0
@@ -789,6 +790,11 @@ async function collectFreeTextCreationDebugState(page: Page, pageNumber?: number
                     height: Math.round(pageContainer.getBoundingClientRect().height),
                 }
                 : null,
+            pageClassName: pageContainer?.className ?? null,
+            pageLayerReadiness: pageContainer?.dataset.pageLayerReadiness ?? null,
+            pagePointerEvents: pageContainer ? window.getComputedStyle(pageContainer).pointerEvents : null,
+            viewerClassName: viewer?.className ?? null,
+            viewerPointerEvents: viewer ? window.getComputedStyle(viewer).pointerEvents : null,
             layerClassName: layer?.className ?? null,
             layerPointerEvents: layer ? window.getComputedStyle(layer).pointerEvents : null,
             hasProgrammaticUiManager: Boolean(uiManager),

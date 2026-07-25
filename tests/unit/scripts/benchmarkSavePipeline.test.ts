@@ -4,12 +4,86 @@ import {
     it,
 } from 'vitest';
 import {
+    assertSemanticParity,
     buildSavePipelineBenchmarkReport,
+    normalizeSemanticReopenSummary,
     parseSavePipelineBenchmarkArgs,
     validateSavePipelineBenchmarkOptions,
 } from '@scripts/benchmark-save-pipeline.mjs';
 
 describe('benchmark-save-pipeline', () => {
+    it('treats popup companions as structural rather than semantic annotations', () => {
+        expect(normalizeSemanticReopenSummary({
+            total: 2,
+            bySubtype: {
+                FreeText: 1,
+                Popup: 1,
+            },
+        })).toEqual({
+            total: 1,
+            bySubtype: {FreeText: 1},
+        });
+    });
+
+    it('rejects malformed or internally inconsistent semantic summaries', () => {
+        expect(() => normalizeSemanticReopenSummary({
+            total: 1,
+            bySubtype: {FreeText: -1},
+        })).toThrow('Invalid semantic reopen subtype count');
+        expect(() => normalizeSemanticReopenSummary({
+            total: 1,
+            bySubtype: {FreeText: '1'},
+        })).toThrow('Invalid semantic reopen subtype count');
+        expect(() => normalizeSemanticReopenSummary({
+            total: 2,
+            bySubtype: {FreeText: 1},
+        })).toThrow('Semantic reopen total does not match subtype counts');
+    });
+
+    it('requires every scenario to persist exactly one additional FreeText annotation', () => {
+        expect(assertSemanticParity([
+            {
+                scenario: 'native-freetext-high',
+                sourceSemanticReopen: {
+                    total: 0,
+                    bySubtype: {},
+                },
+                semanticReopen: {
+                    total: 2,
+                    bySubtype: {
+                        FreeText: 1,
+                        Popup: 1,
+                    },
+                },
+            },
+            {
+                scenario: 'serialized-fallback-low',
+                sourceSemanticReopen: {
+                    total: 0,
+                    bySubtype: {},
+                },
+                semanticReopen: {
+                    total: 1,
+                    bySubtype: {FreeText: 1},
+                },
+            },
+        ])).toEqual({
+            total: 1,
+            bySubtype: {FreeText: 1},
+        });
+        expect(() => assertSemanticParity([{
+            scenario: 'serialized-fallback-high',
+            sourceSemanticReopen: {
+                total: 0,
+                bySubtype: {},
+            },
+            semanticReopen: {
+                total: 0,
+                bySubtype: {},
+            },
+        }])).toThrow('exactly one additional FreeText annotation');
+    });
+
     it('parses the documented benchmark options', () => {
         expect(parseSavePipelineBenchmarkArgs([
             '--fixture',
@@ -78,6 +152,7 @@ describe('benchmark-save-pipeline', () => {
             schemaVersion: 1,
             scenario: 'native-freetext-high',
             mode: 'native-freetext',
+            annotationAction: 'page-note',
             tier: 'high',
             hostProfile: {tier: 'high'},
             fixturePath: '/tmp/input.pdf',
@@ -90,6 +165,7 @@ describe('benchmark-save-pipeline', () => {
                 afterBytes: 2048,
                 beforeBytes: 1024,
                 durationMs: 12.5,
+                peakRssBytes: 4096,
                 timestamp: '2026-07-25T00:00:00.000Z',
             }],
             totalMs: {
@@ -104,7 +180,21 @@ describe('benchmark-save-pipeline', () => {
             inputBytes: 1024,
             outputBytes: 2048,
             outputSha256: 'a'.repeat(64),
-            semanticReopen: {annotations: 1},
+            sourceSemanticReopen: {
+                total: 0,
+                bySubtype: {},
+            },
+            semanticReopen: {
+                total: 2,
+                bySubtype: {
+                    FreeText: 1,
+                    Popup: 1,
+                },
+            },
+            semanticReopenComparable: {
+                total: 1,
+                bySubtype: {FreeText: 1},
+            },
         };
         const report = buildSavePipelineBenchmarkReport(
             {
@@ -116,6 +206,7 @@ describe('benchmark-save-pipeline', () => {
             [scenario],
             {
                 fixtureBytes: 1024,
+                fixtureSha256: 'b'.repeat(64),
                 generatedAt: '2026-07-25T00:00:00.000Z',
             },
         );
@@ -124,6 +215,7 @@ describe('benchmark-save-pipeline', () => {
             generatedAt: '2026-07-25T00:00:00.000Z',
             fixturePath: '/tmp/input.pdf',
             fixtureBytes: 1024,
+            fixtureSha256: 'b'.repeat(64),
             inputPath: '/tmp/input.pdf',
             outputPath: '/tmp/out.json',
             warmups: 5,
@@ -134,6 +226,7 @@ describe('benchmark-save-pipeline', () => {
                 measured: 'auto',
                 forcedNoClone: 'unavailable',
             },
+            semanticParity: null,
             scenarios: [scenario],
         });
         const [reportedScenario] = report.scenarios;
@@ -146,13 +239,17 @@ describe('benchmark-save-pipeline', () => {
             ],
         });
         expect(reportedScenario.iterationMeasurements).toHaveLength(1);
+        expect(reportedScenario.iterationMeasurements[0]?.peakRssBytes).toBe(4096);
         expect(reportedScenario.peakRssBytes).toBe(4096);
         expect(reportedScenario.outputBytes).toBe(2048);
         expect(reportedScenario.outputSha256).toHaveLength(64);
-        expect(reportedScenario.semanticReopen).toEqual({annotations: 1});
+        expect(reportedScenario.semanticReopenComparable).toEqual({
+            total: 1,
+            bySubtype: {FreeText: 1},
+        });
     });
 
-    it('derives a null host tier when the scenario omits a host profile', () => {
+    it('falls back to the applied scenario tier when the host profile is unavailable', () => {
         const report = buildSavePipelineBenchmarkReport(
             {
                 fixture: '/tmp/input.pdf',
@@ -160,23 +257,41 @@ describe('benchmark-save-pipeline', () => {
                 output: '/tmp/out.json',
                 warmups: 5,
             },
-            [{hostProfile: null}],
+            [{
+                hostProfile: null,
+                tier: 'low',
+            }],
             {
                 fixtureBytes: 1024,
+                fixtureSha256: 'b'.repeat(64),
                 generatedAt: '2026-07-25T00:00:00.000Z',
             },
         );
         expect(report.hostProfile).toBeNull();
-        expect(report.hostTier).toBeNull();
+        expect(report.hostTier).toBe('low');
     });
 
-    it('requires an absolute fixture and positive run counts', () => {
-        expect(() => validateSavePipelineBenchmarkOptions({
+    it('resolves the documented relative alias paths from the caller cwd', () => {
+        expect(validateSavePipelineBenchmarkOptions({
             fixture: 'relative.pdf',
             iterations: 10,
             output: 'result.json',
             warmups: 5,
-        })).toThrow('--fixture must be an absolute PDF path');
+        }, '/workspace')).toEqual({
+            fixture: '/workspace/relative.pdf',
+            iterations: 10,
+            output: '/workspace/result.json',
+            warmups: 5,
+        });
+    });
+
+    it('requires a fixture and positive run counts', () => {
+        expect(() => validateSavePipelineBenchmarkOptions({
+            fixture: null,
+            iterations: 10,
+            output: 'result.json',
+            warmups: 5,
+        })).toThrow('--fixture is required');
         expect(() => validateSavePipelineBenchmarkOptions({
             fixture: '/tmp/input.pdf',
             iterations: 0,
@@ -185,8 +300,38 @@ describe('benchmark-save-pipeline', () => {
         })).toThrow('--iterations must be a positive integer');
     });
 
-    it('rejects unknown options', () => {
+    it('rejects unknown options and missing option values', () => {
         expect(() => parseSavePipelineBenchmarkArgs(['--unknown']))
             .toThrow('Unknown benchmark option: --unknown');
+        expect(() => parseSavePipelineBenchmarkArgs([
+            '--fixture',
+            '--help',
+        ]))
+            .toThrow('--fixture requires a value');
+        expect(() => parseSavePipelineBenchmarkArgs(['--out']))
+            .toThrow('--out requires a value');
+    });
+
+    it('rejects fractional and partially numeric run counts', () => {
+        const fractional = parseSavePipelineBenchmarkArgs([
+            '--fixture',
+            'input.pdf',
+            '--output',
+            'output.json',
+            '--iterations',
+            '1.5',
+        ]);
+        expect(() => validateSavePipelineBenchmarkOptions(fractional))
+            .toThrow('--iterations must be a positive integer');
+        const partial = parseSavePipelineBenchmarkArgs([
+            '--fixture',
+            'input.pdf',
+            '--output',
+            'output.json',
+            '--warmups',
+            '10garbage',
+        ]);
+        expect(() => validateSavePipelineBenchmarkOptions(partial))
+            .toThrow('--warmups must be a positive integer');
     });
 });

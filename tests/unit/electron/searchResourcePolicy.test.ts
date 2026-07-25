@@ -123,6 +123,24 @@ describe('resolveSearchResourcePolicy', () => {
         ));
     });
 
+    it('preserves the legacy minimum clamp and rejects unsafe unbounded worker values', () => {
+        const policy = resolveSearchResourcePolicy(
+            createResourceProfile('high'),
+            {
+                EVB_SEARCH_WORKER_IDLE_TTL_MS: '3000000000',
+                EVB_PDF_SEARCH_SERVICE_IDLE_TIMEOUT_MS: '3000000000',
+                EVB_SEARCH_WORKER_MAX_ACTIVE: '0',
+                EVB_SEARCH_INDEX_CACHE_TTL_MS: String(Number.MAX_SAFE_INTEGER + 1),
+            },
+        );
+        expect(policy.maxActiveSenderWorkers).toBe(1);
+        expect(policy.workerIdleTtlMs).toBe(2_147_483_647);
+        expect(policy.nativeServiceIdleTimeoutMs).toBe(2_147_483_647);
+        expect(policy.workerResourcePolicy.indexCacheTtlMs).toBe(2 * 60_000);
+        expect(decodeSearchWorkerResourcePolicy(policy.workerResourcePolicy))
+            .toEqual(policy.workerResourcePolicy);
+    });
+
     it('decodes worker-boundary policies and rejects malformed values', () => {
         const workerPolicy = resolveSearchResourcePolicy(
             createResourceProfile('low'),
@@ -133,6 +151,18 @@ describe('resolveSearchResourcePolicy', () => {
         expect(decodeSearchWorkerResourcePolicy({
             ...workerPolicy,
             maxTotalTextBytes: 0,
+        })).toBeNull();
+        expect(decodeSearchWorkerResourcePolicy({
+            ...workerPolicy,
+            indexCacheMaxEntries: 129,
+        })).toBeNull();
+        expect(decodeSearchWorkerResourcePolicy({
+            ...workerPolicy,
+            maxPageTextBytes: 32 * MIB + 1,
+        })).toBeNull();
+        expect(decodeSearchWorkerResourcePolicy({
+            ...workerPolicy,
+            maxTotalTextBytes: 1024 * MIB + 1,
         })).toBeNull();
         expect(decodeScanCleanupRuntimePolicy({rasterConcurrency: 2}))
             .toEqual({rasterConcurrency: 2});
@@ -176,6 +206,20 @@ describe('parseBoundedEnvInt', () => {
             min: 2,
         })).toBe(2);
     });
+
+    it('can preserve clamped-minimum and safe-integer override semantics', () => {
+        expect(parseBoundedEnvInt('0', {
+            clampBelowMin: true,
+            fallback: 2,
+            min: 1,
+            max: 256,
+        })).toBe(1);
+        expect(parseBoundedEnvInt(String(Number.MAX_SAFE_INTEGER + 1), {
+            fallback: 60_000,
+            min: 1,
+            requireSafeInteger: true,
+        })).toBe(60_000);
+    });
 });
 
 describe('decodeSearchWorkerData', () => {
@@ -198,6 +242,10 @@ describe('decodeSearchWorkerData', () => {
         expect(decodeSearchWorkerData({
             ...validEnvelope,
             nativeServiceIdleTimeoutMs: 0,
+        })).toBeNull();
+        expect(decodeSearchWorkerData({
+            ...validEnvelope,
+            nativeServiceIdleTimeoutMs: 3_000_000_000,
         })).toBeNull();
         expect(decodeSearchWorkerData({
             ...validEnvelope,

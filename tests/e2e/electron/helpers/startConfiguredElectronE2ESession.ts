@@ -1,6 +1,9 @@
 import type {TPerformanceMode} from '@contracts/hostResourceProfile';
 import {BROWSER_SETTINGS_COOKIE_KEY} from '@app/utils/browserSettingsPersistence';
-import {startElectronE2ESession} from '@tests/e2e/electron/helpers/startElectronE2ESession';
+import {
+    stabilizeSharedRendererClient,
+    startElectronE2ESession,
+} from '@tests/e2e/electron/helpers/startElectronE2ESession';
 
 export async function startConfiguredElectronE2ESession(
     baseName: string,
@@ -25,5 +28,6 @@ export async function startConfiguredElectronE2ESession(
         performanceMode,
     });
     await session.page.reload({waitUntil: 'domcontentloaded'});
+    await stabilizeSharedRendererClient(session.page);
     return session;
 }

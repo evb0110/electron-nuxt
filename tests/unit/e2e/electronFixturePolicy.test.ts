@@ -12,7 +12,13 @@ import {
     stat,
     writeFile,
 } from 'node:fs/promises';
-import { PDFDocument } from 'pdf-lib';
+import {
+    PDFArray,
+    PDFDict,
+    PDFDocument,
+    PDFName,
+    PDFRef,
+} from 'pdf-lib';
 import { join } from 'node:path';
 import { resolveE2EGlobalSetupSessionName } from '@tests/e2e/electron/resolveE2EGlobalSetupSessionName';
 import {
@@ -236,6 +242,15 @@ describe('Electron E2E fixture policy', () => {
             expect((await stat(outputPath)).size).toBe(2 * 1024 * 1024);
             const parsed = await PDFDocument.load(await readFile(outputPath), { updateMetadata: false });
             expect(parsed.getPageCount()).toBe(7);
+            const annotations = parsed.getPage(0).node.Annots();
+            expect(annotations).toBeInstanceOf(PDFArray);
+            const annotationRef = annotations?.get(0);
+            expect(annotationRef).toBeInstanceOf(PDFRef);
+            if (!(annotationRef instanceof PDFRef)) {
+                throw new Error('Generated large-PDF fixture omitted its existing annotation');
+            }
+            const annotation = parsed.context.lookupMaybe(annotationRef, PDFDict);
+            expect(annotation?.get(PDFName.of('Subtype'))?.toString()).toBe('/FreeText');
         } finally {
             await rm(outputPath, { force: true });
         }

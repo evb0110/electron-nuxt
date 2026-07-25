@@ -14,7 +14,8 @@ import {
     nextTick,
     ref,
 } from 'vue';
-import { DEFAULT_SETTINGS } from '@contracts/settings';
+import {DEFAULT_SETTINGS} from '@contracts/settings';
+import type {TPerformanceMode} from '@contracts/hostResourceProfile';
 import SettingsPerformancePanel from '@app/components/settings/SettingsPerformancePanel.vue';
 
 vi.mock('@app/composables/useTypedI18n', () => ({useTypedI18n: () => ({t: (key: string) => key})}));
@@ -59,7 +60,7 @@ const activeUnmounts = new Set<() => void>();
 
 const RESTART_NOTICE_SELECTOR = '.settings-performance-restart-notice';
 
-function mount(performanceMode: string) {
+function mount(performanceMode: TPerformanceMode) {
     const host = document.createElement('div');
     document.body.append(host);
     const emitted: string[] = [];
@@ -83,7 +84,7 @@ function mount(performanceMode: string) {
         activeUnmounts.delete(unmount);
     };
     activeUnmounts.add(unmount);
-    const setPersistedMode = async (mode: string) => {
+    const setPersistedMode = async (mode: TPerformanceMode) => {
         performanceModeRef.value = mode;
         await nextTick();
     };
