@@ -52,6 +52,54 @@ function committedCanvas(sequence: number, elapsedMs: number) {
 }
 
 describe('viewport lifecycle skeleton sampling', () => {
+    it('starts Recent lifecycle ownership at the open-surface claim', () => {
+        const violations = findViewportLifecycleViolations({frames: [
+            frame(1, 0, {
+                kind: 'committed-empty',
+                openSurfacePhase: 'idle',
+                openSurfacePresentation: 'idle',
+                pageNumber: null,
+                shellId: null,
+            }),
+            frame(2, 20, {
+                openSurfacePhase: 'opening',
+                openSurfacePresentation: 'opening',
+            }),
+            committedCanvas(3, 40),
+        ]}, {
+            expectedFinalPage: TARGET_PAGE,
+            interactionCheckpoint: CHECKPOINT,
+            startAtOpenSurfaceClaim: true,
+        });
+
+        expect(violations).toEqual([]);
+    });
+
+    it('still rejects Recent after the open surface has been claimed', () => {
+        const violations = findViewportLifecycleViolations({frames: [
+            frame(1, 0, {
+                openSurfacePhase: 'opening',
+                openSurfacePresentation: 'opening',
+            }),
+            frame(2, 20, {
+                kind: 'committed-empty',
+                openSurfacePhase: 'idle',
+                openSurfacePresentation: 'idle',
+                pageNumber: null,
+                shellId: null,
+            }),
+            committedCanvas(3, 40),
+        ]}, {
+            expectedFinalPage: TARGET_PAGE,
+            interactionCheckpoint: CHECKPOINT,
+            startAtOpenSurfaceClaim: true,
+        });
+
+        expect(violations).toContain(
+            'frame 2 retained the Recent surface after navigation was requested',
+        );
+    });
+
     it('does not infer overdue bare-shell visibility across an unsampled animation-frame gap', () => {
         const violations = findViewportLifecycleViolations({frames: [
             bareShell(1, 0),

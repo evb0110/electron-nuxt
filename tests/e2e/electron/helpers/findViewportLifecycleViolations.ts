@@ -10,13 +10,32 @@ export interface IViewportLifecycleContract {
     minimumSkeletonDelayMs?: number;
     rejectUnexpectedCanvasPages?: boolean;
     requireSkeleton?: boolean;
+    startAtOpenSurfaceClaim?: boolean;
 }
 
 function getCheckpointFrames(
     trace: ICommittedSurfaceTrace,
-    checkpoint: string,
+    contract: IViewportLifecycleContract,
 ) {
-    return trace.frames.filter(frame => frame.interactionCheckpoint === checkpoint);
+    const checkpointFrames = trace.frames.filter(
+        frame => frame.interactionCheckpoint === contract.interactionCheckpoint,
+    );
+    if (!contract.startAtOpenSurfaceClaim) {
+        return checkpointFrames;
+    }
+
+    // A Recent click first validates that the persisted path still exists.
+    // Retain those raw-click frames in the trace for diagnostics, but begin the
+    // viewport-ownership contract only once the open transaction positively
+    // claims its surface.
+    const firstClaimedFrameIndex = checkpointFrames.findIndex(frame => (
+        Boolean(frame.openSurfacePhase && frame.openSurfacePhase !== 'idle')
+        || Boolean(frame.openSurfacePresentation && frame.openSurfacePresentation !== 'idle')
+        || frame.kind === 'page-shell'
+    ));
+    return firstClaimedFrameIndex >= 0
+        ? checkpointFrames.slice(firstClaimedFrameIndex)
+        : [];
 }
 
 function findVisibleOwnerViolation(frame: ICommittedSurfaceFrame) {
@@ -73,7 +92,7 @@ export function findViewportLifecycleViolations(
     contract: IViewportLifecycleContract,
 ) {
     const violations: string[] = [];
-    const frames = getCheckpointFrames(trace, contract.interactionCheckpoint);
+    const frames = getCheckpointFrames(trace, contract);
     if (frames.length < 2) {
         return [`checkpoint ${contract.interactionCheckpoint} sampled fewer than two RAFs`];
     }

@@ -1184,6 +1184,7 @@ describe('Electron E2E - PR Blocking Smoke', () => {
             interactionCheckpoint: 'recent-early-navigation',
             rejectUnexpectedCanvasPages: true,
             requireSkeleton: true,
+            startAtOpenSurfaceClaim: true,
         });
         expect(
             earlyNavigationViolations,
