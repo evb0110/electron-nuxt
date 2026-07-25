@@ -529,7 +529,9 @@ async function verifyFixture(fixture, expectedFixture, workRoot) {
         const expectedPage = expectedFixture?.pages?.[String(page.pageNumber)];
         const outputFiles = [];
         for (const output of renderPage.outputs) {
-            if (!await readableFile(output.outputPath)) continue;
+            // The sidecar publishes one raster per output and writes this
+            // metadata beside it, so its absence means the half was skipped.
+            if (!await readableFile(output.metadataPath)) continue;
             const metadata = JSON.parse(await readFile(output.metadataPath, 'utf8'));
             const bilevelPath = metadata.bilevelWritten && await readableFile(output.bilevelOutputPath)
                 ? output.bilevelOutputPath

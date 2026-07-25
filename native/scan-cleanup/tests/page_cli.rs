@@ -270,7 +270,10 @@ fn final_manifest_writes_pbm_only_for_binary_outputs_and_marks_metadata() {
         assert!(page["recommendedOutputMode"].is_null());
     }
     assert!(fs::read(&bw_pbm).unwrap().starts_with(b"P4\n"));
-    assert!(bw_output.exists());
+    assert!(
+        !bw_output.exists(),
+        "a published PBM must not be shadowed by a full-resolution composite"
+    );
     assert_eq!(
         serde_json::from_slice::<Value>(&fs::read(&bw_metadata).unwrap()).unwrap()
             ["bilevelWritten"],
@@ -378,7 +381,10 @@ fn final_mixed_manifest_writes_inpainted_background_and_full_resolution_mask() {
     let metadata: Value = serde_json::from_slice(&fs::read(&output_metadata).unwrap()).unwrap();
     assert_eq!(metadata["layeredWritten"], true);
     assert_eq!(metadata["layeredBackgroundDpi"], 300.0);
-    assert!(output.exists());
+    assert!(
+        !output.exists(),
+        "a published layer pair must not be shadowed by a full-resolution composite"
+    );
     assert!(!bilevel_output.exists());
     let mask = decode_p4(&fs::read(&foreground_mask_output).unwrap(), 180 * 120, 200).unwrap();
     assert_eq!((mask.width(), mask.height()), (180, 120));
@@ -400,7 +406,7 @@ fn final_mixed_manifest_writes_inpainted_background_and_full_resolution_mask() {
 }
 
 #[test]
-fn matched_canvas_repadding_keeps_png_and_pbm_pixel_identical() {
+fn matched_canvas_repads_the_published_pbm_without_a_composite() {
     let scratch = Scratch::new("matched");
     let small_input = scratch.path("matched-bilevel-small-input.png");
     let large_input = scratch.path("matched-bilevel-large-input.png");
@@ -480,39 +486,56 @@ fn matched_canvas_repadding_keeps_png_and_pbm_pixel_identical() {
         String::from_utf8_lossy(&result.stderr)
     );
 
-    let png = decode_gray(&fs::read(&small_output).unwrap(), 20_000, 200).unwrap();
-    assert_eq!((png.width(), png.height()), (100, 90));
-    let pbm = fs::read(&small_pbm).unwrap();
-    let header_end = pbm
-        .iter()
-        .enumerate()
-        .filter_map(|(index, byte)| (*byte == b'\n').then_some(index))
-        .nth(1)
-        .unwrap()
-        + 1;
-    let dimensions = std::str::from_utf8(&pbm[3..header_end - 1])
-        .unwrap()
-        .split_ascii_whitespace()
-        .map(|value| value.parse::<usize>().unwrap())
-        .collect::<Vec<_>>();
-    assert_eq!(dimensions, [png.width(), png.height()]);
-    let row_stride = png.width().div_ceil(8);
-    let bitmap = &pbm[header_end..];
-    assert_eq!(bitmap.len(), row_stride * png.height());
-    for y in 0..png.height() {
-        for x in 0..png.width() {
-            let black = bitmap[y * row_stride + x / 8] & (1 << (7 - x % 8)) != 0;
-            assert_eq!(
-                png.get(x, y),
-                if black { 0 } else { 255 },
-                "pixel ({x}, {y})"
-            );
+    for composite in [&small_output, &large_output] {
+        assert!(
+            !composite.exists(),
+            "matched-canvas repadding must operate on the PBM the combiner reads"
+        );
+    }
+    let small_padded = decode_p4(&fs::read(&small_pbm).unwrap(), 20_000, 200).unwrap();
+    let large_padded = decode_p4(&fs::read(&large_pbm).unwrap(), 20_000, 200).unwrap();
+    assert_eq!(
+        (small_padded.width(), small_padded.height()),
+        (large_padded.width(), large_padded.height()),
+        "both pages must land on the same uniform canvas"
+    );
+    let metadata: Value = serde_json::from_slice(&fs::read(&small_metadata).unwrap()).unwrap();
+    assert_eq!(metadata["uniformCanvas"], true);
+    assert_eq!(
+        metadata["canvasWidthPx"].as_u64().unwrap() as usize,
+        small_padded.width()
+    );
+    assert_eq!(
+        metadata["canvasHeightPx"].as_u64().unwrap() as usize,
+        small_padded.height()
+    );
+    let offset_x = metadata["placementOffsetXPx"].as_u64().unwrap() as usize;
+    let offset_y = metadata["placementOffsetYPx"].as_u64().unwrap() as usize;
+    let intrinsic_width = metadata["outputWidthPx"].as_u64().unwrap() as usize;
+    let intrinsic_height = metadata["outputHeightPx"].as_u64().unwrap() as usize;
+    assert!(offset_x + intrinsic_width <= small_padded.width());
+    assert!(offset_y + intrinsic_height <= small_padded.height());
+    let mut ink_inside_payload = 0usize;
+    for y in 0..small_padded.height() {
+        for x in 0..small_padded.width() {
+            let inside = x >= offset_x
+                && x < offset_x + intrinsic_width
+                && y >= offset_y
+                && y < offset_y + intrinsic_height;
+            if small_padded.get(x, y) == 0 {
+                assert!(inside, "repadding must leave the added margin white");
+                ink_inside_payload += 1;
+            }
         }
     }
+    assert!(
+        ink_inside_payload > 0,
+        "repadding must preserve the page's ink"
+    );
 }
 
 #[test]
-fn failed_bilevel_publication_removes_that_pages_png_and_metadata() {
+fn failed_bilevel_publication_falls_back_to_the_composite() {
     let scratch = Scratch::new("failed-bilevel");
     let input = scratch.path("failed-bilevel-input.png");
     let output = scratch.path("failed-bilevel-output.png");
@@ -546,11 +569,33 @@ fn failed_bilevel_publication_removes_that_pages_png_and_metadata() {
         .output()
         .unwrap();
 
-    assert!(!result.status.success());
-    assert!(!output.exists());
-    assert!(!metadata.exists());
-    assert!(!page_metadata.exists());
+    assert!(
+        result.status.success(),
+        "stdout={}\nstderr={}",
+        String::from_utf8_lossy(&result.stdout),
+        String::from_utf8_lossy(&result.stderr)
+    );
+    assert!(
+        output.exists(),
+        "the composite is the fallback an unpublishable PBM falls back to"
+    );
+    assert!(page_metadata.exists());
     assert!(bilevel_output.is_dir());
+    let published: Value = serde_json::from_slice(&fs::read(&metadata).unwrap()).unwrap();
+    assert!(published
+        .get("bilevelWritten")
+        .is_none_or(|written| written == false));
+    assert!(
+        published["warnings"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|warning| warning
+                .as_str()
+                .unwrap()
+                .contains("the composite fallback was published instead")),
+        "the fallback must be reported: {published}"
+    );
 }
 
 #[test]

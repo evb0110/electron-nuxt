@@ -788,11 +788,6 @@ export default {
         },
         'languagePicker': {
             'searchPlaceholder': 'Talen of codes zoeken',
-            'groups': {
-                'selected': 'Geselecteerd',
-                'installed': 'Geïnstalleerd',
-                'missing': 'Download',
-            },
             'downloadSizeHint': '~10 MB',
             'downloadFailed': 'Download mislukt',
             'retryDownload': 'Voer OCR opnieuw uit om het taalmodel opnieuw te downloaden.',

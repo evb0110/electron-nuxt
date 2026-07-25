@@ -33,7 +33,7 @@ import {
 } from '@app/modules/ocr-panel/runtime/ocrPopupSettings';
 
 type TOcrViewState = 'configure' | 'running' | 'applying' | 'results' | 'error';
-export type TOcrLanguagePickerGroup = 'selected' | 'installed' | 'missing';
+type TOcrLanguagePickerGroup = 'selected' | 'installed' | 'missing';
 
 const OCR_LANGUAGE_BCP47_OVERRIDES = {
     grc: 'grc',
@@ -110,6 +110,28 @@ export function resolveOcrLanguageDisplayName(
     return fallbackName;
 }
 
+export function resolveOcrLanguageShortCode(code: string) {
+    try {
+        const shortCode = Intl.getCanonicalLocales(code)[0]?.split('-')[0];
+        return shortCode && shortCode !== code ? shortCode : null;
+    } catch {
+        return null;
+    }
+}
+
+function matchesOcrLanguageQuery(
+    haystack: ReadonlyArray<string | null>,
+    normalizedQuery: string,
+    canonicalQuery: string | null,
+    locale: TLocale,
+) {
+    return haystack.some(candidate => candidate !== null
+        && (
+            candidate.toLocaleLowerCase(locale).includes(normalizedQuery)
+            || (canonicalQuery !== null && candidate === canonicalQuery)
+        ));
+}
+
 export function findFailedOcrLanguageCodes(
     languages: readonly IOcrLanguage[],
     error: string | null,
@@ -133,12 +155,15 @@ export function buildOcrLanguagePickerItems(
     const selectedCodes = new Set(groupingSelection);
     const displayNames = createLanguageDisplayNames(locale);
     const normalizedQuery = searchQuery.trim().toLocaleLowerCase(locale);
+    const canonicalQuery = normalizedQuery.length === 0
+        ? null
+        : resolveOcrLanguageShortCode(normalizedQuery) ?? normalizedQuery;
     const groupOrder: Record<TOcrLanguagePickerGroup, number> = {
         selected: 0,
         installed: 1,
         missing: 2,
     };
-    const items = languages
+    return languages
         .map((language) => {
             const label = resolveOcrLanguageDisplayName(language.code, locale, displayNames);
             const group: TOcrLanguagePickerGroup = selectedCodes.has(language.code)
@@ -149,6 +174,7 @@ export function buildOcrLanguagePickerItems(
             return {
                 value: language.code,
                 label,
+                shortCode: resolveOcrLanguageShortCode(language.code),
                 group,
                 modelState: failedLanguageCodes.has(language.code)
                     ? 'error' as const
@@ -156,18 +182,24 @@ export function buildOcrLanguagePickerItems(
             };
         })
         .filter(item => normalizedQuery.length === 0
-            || item.value.toLocaleLowerCase(locale).includes(normalizedQuery)
-            || item.label.toLocaleLowerCase(locale).includes(normalizedQuery))
+            || matchesOcrLanguageQuery(
+                [
+                    item.value,
+                    item.shortCode,
+                    item.label,
+                    item.value in OCR_LANGUAGE_ENGLISH_FALLBACK_NAMES
+                        ? OCR_LANGUAGE_ENGLISH_FALLBACK_NAMES[item.value as TOcrLanguageCode]
+                        : null,
+                ],
+                normalizedQuery,
+                canonicalQuery,
+                locale,
+            ))
         .sort((left, right) => (
             groupOrder[left.group] - groupOrder[right.group]
             || left.label.localeCompare(right.label, locale)
             || left.value.localeCompare(right.value)
         ));
-
-    return items.map((item, index) => ({
-        ...item,
-        startsGroup: index === 0 || items[index - 1]?.group !== item.group,
-    }));
 }
 
 export function shouldShowOcrLanguageSearch(languageCount: number) {

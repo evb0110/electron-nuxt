@@ -1,56 +1,44 @@
 <template>
     <div class="document-search-bar flex flex-col gap-1.5 px-2 py-1.5">
-        <UInput
+        <AppSearchInput
             ref="inputRef"
             v-model="searchQuery"
             class="w-full"
+            icon="i-ph-magnifying-glass"
             :aria-label="t('documentSourceSidebar.searchPlaceholder')"
             :placeholder="t('search.placeholder')"
             autofocus
+            @cleared="onQueryCleared"
             @keydown.enter.exact.prevent="onSearch"
             @keydown.shift.enter="onPrevious"
         >
-            <template #leading>
-                <UIcon name="i-ph-magnifying-glass" class="size-4" />
-            </template>
-            <template v-if="searchQuery" #trailing>
-                <div class="flex items-center gap-0.5">
-                    <AppTooltip :text="t('search.previousMatch')" :delay-duration="1200">
-                        <UButton
-                            icon="i-ph-caret-up"
-                            variant="ghost"
-                            color="neutral"
-                            size="xs"
-                            class="min-w-auto px-1"
-                            :disabled="totalMatches === 0"
-                            :aria-label="t('search.previousMatchLabel')"
-                            @click="onPrevious"
-                        />
-                    </AppTooltip>
-                    <AppTooltip :text="t('search.nextMatch')" :delay-duration="1200">
-                        <UButton
-                            icon="i-ph-caret-down"
-                            variant="ghost"
-                            color="neutral"
-                            size="xs"
-                            class="min-w-auto px-1"
-                            :disabled="totalMatches === 0"
-                            :aria-label="t('search.nextMatchLabel')"
-                            @click="onNext"
-                        />
-                    </AppTooltip>
+            <template #actions>
+                <AppTooltip :text="t('search.previousMatch')" :delay-duration="1200">
                     <UButton
-                        icon="i-ph-x"
+                        icon="i-ph-caret-up"
                         variant="ghost"
                         color="neutral"
                         size="xs"
                         class="min-w-auto px-1"
-                        :aria-label="t('search.clearSearchLabel')"
-                        @click="clearQuery"
+                        :disabled="totalMatches === 0"
+                        :aria-label="t('search.previousMatchLabel')"
+                        @click="onPrevious"
                     />
-                </div>
+                </AppTooltip>
+                <AppTooltip :text="t('search.nextMatch')" :delay-duration="1200">
+                    <UButton
+                        icon="i-ph-caret-down"
+                        variant="ghost"
+                        color="neutral"
+                        size="xs"
+                        class="min-w-auto px-1"
+                        :disabled="totalMatches === 0"
+                        :aria-label="t('search.nextMatchLabel')"
+                        @click="onNext"
+                    />
+                </AppTooltip>
             </template>
-        </UInput>
+        </AppSearchInput>
 
         <div class="flex items-center gap-1">
             <div class="search-toggle-group">
@@ -106,6 +94,7 @@
 
 <script setup lang="ts">
 import type { IResolvedSearchMatchOptions } from '@contracts/search';
+import AppSearchInput from '@app/components/AppSearchInput.vue';
 
 const { t } = useTypedI18n();
 
@@ -130,7 +119,7 @@ const emit = defineEmits<{
     previous: [];
 }>();
 
-const inputRef = ref<{ $el: HTMLElement } | null>(null);
+const inputRef = useTemplateRef<{focus: () => void}>('inputRef');
 
 const searchQuery = computed({
     get: () => modelValue,
@@ -143,16 +132,11 @@ const searchQuery = computed({
 });
 
 function focus() {
-    inputRef.value?.$el?.querySelector('input')?.focus();
+    inputRef.value?.focus();
 }
 
-function clearQuery() {
-    if (!searchQuery.value) {
-        return;
-    }
-    searchQuery.value = '';
+function onQueryCleared() {
     emit('search');
-    focus();
 }
 
 function onSearch() {

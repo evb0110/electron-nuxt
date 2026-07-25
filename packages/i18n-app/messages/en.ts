@@ -373,11 +373,6 @@ export default {
         },
         'languagePicker': {
             'searchPlaceholder': 'Search languages or codes',
-            'groups': {
-                'selected': 'Selected',
-                'installed': 'Installed',
-                'missing': 'Download',
-            },
             'downloadSizeHint': '~10 MB',
             'downloadFailed': 'Download failed',
             'retryDownload': 'Run OCR again to retry the language model download.',

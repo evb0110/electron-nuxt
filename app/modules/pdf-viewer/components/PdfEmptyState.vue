@@ -78,7 +78,7 @@
                                 {{ t('emptyState.recentFiles') }}
                             </h3>
                             <div class="recent-controls">
-                                <UInput
+                                <AppSearchInput
                                     v-model="recentSearch"
                                     class="recent-search"
                                     color="neutral"
@@ -312,6 +312,7 @@ import type { TStartSection } from '@app/types/startSection';
 import { getDocumentKindFromPath } from '@app/utils/supportedDocumentPaths';
 import PdfOpenBatchProgress from '@app/modules/pdf-viewer/components/PdfOpenBatchProgress.vue';
 import type { IPdfOpenBatchProgress } from '@app/modules/pdf-viewer/runtime/contracts/pdfOpenBatchProgress.types';
+import AppSearchInput from '@app/components/AppSearchInput.vue';
 
 const {
     recentFiles,

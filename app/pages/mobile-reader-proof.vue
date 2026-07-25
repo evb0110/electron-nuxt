@@ -118,7 +118,7 @@
             class="flex shrink-0 items-center gap-2 border-b border-[var(--ui-border)] bg-[var(--app-chrome)] px-3 py-2"
             @submit.prevent="handleSearch"
         >
-            <UInput
+            <AppSearchInput
                 v-model="searchDraft"
                 class="min-w-0 flex-1"
                 size="sm"
@@ -230,6 +230,7 @@ import { usePdfFile } from '@app/modules/workspace-shell/public';
 import SettingsDialog from '@app/components/SettingsDialog.vue';
 import ToolbarOverflowMenu from '@app/components/toolbar/ToolbarOverflowMenu.vue';
 import { MOBILE_READER_COMMAND_SURFACE } from '@app/utils/readerCommandSurface';
+import AppSearchInput from '@app/components/AppSearchInput.vue';
 
 const PdfViewer = defineAsyncComponent(() =>
     import('@app/modules/pdf-viewer/public/component-exports/pdfViewer').then(module => module.PdfViewer));

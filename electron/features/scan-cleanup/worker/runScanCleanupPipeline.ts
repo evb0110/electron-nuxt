@@ -177,6 +177,25 @@ function resolveTonalJpegQuality(mode: TScanCleanupOutputMode) {
     return undefined;
 }
 
+// The sidecar publishes exactly one raster per output and records which one in
+// its metadata, so a declared payload that is missing here is a broken run
+// rather than a case to degrade around.
+async function requirePublishedRaster(path: string | undefined, pageNumber: number, role: string) {
+    if (path === undefined) {
+        throw new Error(`Page ${pageNumber} declared a ${role} without an output destination`);
+    }
+    const stats = await stat(path).catch((error: NodeJS.ErrnoException) => {
+        throw new Error(`Page ${pageNumber} ${role} is unavailable: ${error.message}`);
+    });
+    if (!stats.isFile()) {
+        throw new Error(`Page ${pageNumber} ${role} is not a file: ${path}`);
+    }
+    await access(path, fsConstants.R_OK).catch((error: NodeJS.ErrnoException) => {
+        throw new Error(`Page ${pageNumber} ${role} is unreadable: ${error.message}`);
+    });
+    return path;
+}
+
 function resolveSourceDpi(value: number | null | undefined, fallback = 300) {
     const candidate = value ?? fallback;
     return Number.isFinite(candidate) && candidate > 0
@@ -862,108 +881,84 @@ export async function runScanCleanupPipeline(
             summary.blankPagesSkipped += pageMetadata.blankOutputsSkipped;
             const pageOutputPages: typeof outputPages = [];
             for (const output of outputs) {
+                // The sidecar publishes one raster per output and writes this
+                // metadata beside it, so its absence means the output half was
+                // never produced.
+                let metadataJson: string;
                 try {
-                    await stat(output.outputPath);
+                    metadataJson = await readFile(output.metadataPath, 'utf8');
                 } catch (error) {
                     if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
                     continue;
                 }
-                const metadata = JSON.parse(await readFile(output.metadataPath, 'utf8')) as ICleanupMetadata;
+                const metadata = JSON.parse(metadataJson) as ICleanupMetadata;
+                const pageNumber = pageNumbers[pageIndex]!;
                 let bilevelPath: string | undefined;
-                if (metadata.bilevelWritten) {
-                    try {
-                        if (output.bilevelOutputPath === undefined) {
-                            throw new Error('no bilevel output path was declared');
-                        }
-                        const bilevelStats = await stat(output.bilevelOutputPath);
-                        if (!bilevelStats.isFile()) {
-                            throw new Error('bilevel output path is not a file');
-                        }
-                        await access(output.bilevelOutputPath, fsConstants.R_OK);
-                        bilevelPath = output.bilevelOutputPath;
-                    } catch (error) {
-                        log(
-                            'warn',
-                            `Page ${pageNumbers[pageIndex]} bilevel output is missing or unreadable; using PNG fallback: ${(error as Error).message}`,
-                        );
-                    }
-                }
                 let backgroundPath: string | undefined;
                 let foregroundMaskPath: string | undefined;
                 let backgroundIsColor: boolean | undefined;
                 if (metadata.layeredWritten) {
-                    try {
-                        if (
-                            output.backgroundOutputPath === undefined
-                            || output.foregroundMaskOutputPath === undefined
-                        ) {
-                            throw new Error('no mixed layer output paths were declared');
-                        }
-                        const [
-                            backgroundStats,
-                            maskStats,
-                        ] = await Promise.all([
-                            stat(output.backgroundOutputPath),
-                            stat(output.foregroundMaskOutputPath),
-                        ]);
-                        if (!backgroundStats.isFile() || !maskStats.isFile()) {
-                            throw new Error('a mixed layer output path is not a file');
-                        }
-                        await Promise.all([
-                            access(output.backgroundOutputPath, fsConstants.R_OK),
-                            access(output.foregroundMaskOutputPath, fsConstants.R_OK),
-                        ]);
-                        const [
-                            backgroundHeader,
-                            maskHeader,
-                        ] = await Promise.all([
-                            readPngDimensions(output.backgroundOutputPath),
-                            readPbmDimensions(output.foregroundMaskOutputPath),
-                        ]);
-                        const renderDpi = metadata.renderDpi
-                            ?? pageDpi.get(pageNumbers[pageIndex]!)
-                            ?? documentDpi;
-                        const backgroundDpi = metadata.layeredBackgroundDpi;
-                        if (
-                            !Number.isFinite(renderDpi)
-                            || renderDpi <= 0
-                            || backgroundDpi === undefined
-                            || !Number.isFinite(backgroundDpi)
-                            || backgroundDpi <= 0
-                        ) {
-                            throw new Error('mixed layer DPI metadata is invalid');
-                        }
-                        const expectedBackgroundWidth = Math.max(
-                            1,
-                            Math.round(metadata.canvasWidthPx * backgroundDpi / renderDpi),
-                        );
-                        const expectedBackgroundHeight = Math.max(
-                            1,
-                            Math.round(metadata.canvasHeightPx * backgroundDpi / renderDpi),
-                        );
-                        if (
-                            maskHeader.width !== metadata.canvasWidthPx
-                            || maskHeader.height !== metadata.canvasHeightPx
-                            || backgroundHeader.width !== expectedBackgroundWidth
-                            || backgroundHeader.height !== expectedBackgroundHeight
-                        ) {
-                            throw new Error(
-                                'mixed layer dimensions do not match metadata '
-                                + `(background ${backgroundHeader.width}x${backgroundHeader.height}, `
-                                + `expected ${expectedBackgroundWidth}x${expectedBackgroundHeight}; `
-                                + `mask ${maskHeader.width}x${maskHeader.height}, `
-                                + `expected ${metadata.canvasWidthPx}x${metadata.canvasHeightPx})`,
-                            );
-                        }
-                        backgroundPath = output.backgroundOutputPath;
-                        foregroundMaskPath = output.foregroundMaskOutputPath;
-                        backgroundIsColor = backgroundHeader.isColor;
-                    } catch (error) {
-                        log(
-                            'warn',
-                            `Page ${pageNumbers[pageIndex]} mixed layers are missing, malformed, or mismatched; using composite JPEG fallback: ${(error as Error).message}`,
+                    backgroundPath = await requirePublishedRaster(
+                        output.backgroundOutputPath,
+                        pageNumber,
+                        'mixed background layer',
+                    );
+                    foregroundMaskPath = await requirePublishedRaster(
+                        output.foregroundMaskOutputPath,
+                        pageNumber,
+                        'mixed foreground mask',
+                    );
+                    const [
+                        backgroundHeader,
+                        maskHeader,
+                    ] = await Promise.all([
+                        readPngDimensions(backgroundPath),
+                        readPbmDimensions(foregroundMaskPath),
+                    ]);
+                    const renderDpi = metadata.renderDpi
+                        ?? pageDpi.get(pageNumber)
+                        ?? documentDpi;
+                    const backgroundDpi = metadata.layeredBackgroundDpi;
+                    if (
+                        !Number.isFinite(renderDpi)
+                        || renderDpi <= 0
+                        || backgroundDpi === undefined
+                        || !Number.isFinite(backgroundDpi)
+                        || backgroundDpi <= 0
+                    ) {
+                        throw new Error(`Page ${pageNumber} mixed layer DPI metadata is invalid`);
+                    }
+                    const expectedBackgroundWidth = Math.max(
+                        1,
+                        Math.round(metadata.canvasWidthPx * backgroundDpi / renderDpi),
+                    );
+                    const expectedBackgroundHeight = Math.max(
+                        1,
+                        Math.round(metadata.canvasHeightPx * backgroundDpi / renderDpi),
+                    );
+                    if (
+                        maskHeader.width !== metadata.canvasWidthPx
+                        || maskHeader.height !== metadata.canvasHeightPx
+                        || backgroundHeader.width !== expectedBackgroundWidth
+                        || backgroundHeader.height !== expectedBackgroundHeight
+                    ) {
+                        throw new Error(
+                            `Page ${pageNumber} mixed layer dimensions do not match metadata `
+                            + `(background ${backgroundHeader.width}x${backgroundHeader.height}, `
+                            + `expected ${expectedBackgroundWidth}x${expectedBackgroundHeight}; `
+                            + `mask ${maskHeader.width}x${maskHeader.height}, `
+                            + `expected ${metadata.canvasWidthPx}x${metadata.canvasHeightPx})`,
                         );
                     }
+                    backgroundIsColor = backgroundHeader.isColor;
+                } else if (metadata.bilevelWritten) {
+                    bilevelPath = await requirePublishedRaster(
+                        output.bilevelOutputPath,
+                        pageNumber,
+                        'bilevel output',
+                    );
+                } else {
+                    await requirePublishedRaster(output.outputPath, pageNumber, 'composite output');
                 }
                 pageOutputPages.push({
                     path: output.outputPath,
@@ -1023,9 +1018,7 @@ export async function runScanCleanupPipeline(
                     output.foregroundMaskPath,
                 ].join('\t');
             }
-            const jpegQuality = output.metadata.bilevelWritten
-                ? undefined
-                : resolveTonalJpegQuality(output.resolvedOutputMode);
+            const jpegQuality = resolveTonalJpegQuality(output.resolvedOutputMode);
             return jpegQuality === undefined
                 ? [
                     'image',
