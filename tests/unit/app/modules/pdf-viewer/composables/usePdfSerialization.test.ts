@@ -929,7 +929,7 @@ describe('usePdfSerialization embedded shapes', () => {
         expect(firstPersistedAnnotationId).toBeTruthy();
         expect(shapes.hasShapes.value).toBe(false);
 
-        application.value.delete(application.value.annotationIdForShape({
+        application.value.store.delete(application.value.annotationIdForShape({
             id: firstDraw!.id,
             annotationId: firstPersistedAnnotationId,
         })!);

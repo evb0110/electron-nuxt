@@ -3,7 +3,10 @@ import {
     expect,
     it,
 } from 'vitest';
-import {asAnnotationId} from '@app/modules/pdf-viewer/annotations/domain/annotationEntity';
+import {
+    asAnnotationId,
+    type IStickyNoteEntity,
+} from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
 import {AnnotationStore} from '@app/modules/pdf-viewer/annotations/domain/annotationStore';
 import {AnnotationApplication} from '@app/modules/pdf-viewer/annotations/annotationApplication';
 import type {
@@ -38,6 +41,28 @@ function importPersistedHighlight(store: AnnotationStore) {
         opacity: 1,
     });
     return annotationId;
+}
+
+function stickyNote(id: string, text: string): IStickyNoteEntity {
+    return {
+        kind: 'sticky-note',
+        identity: {id: asAnnotationId(id)},
+        pageIndex: 0,
+        revision: 0,
+        persistedRevision: -1,
+        deleted: false,
+        createdAt: 1_781_000_000_000,
+        modifiedAt: null,
+        author: null,
+        text,
+        anchor: {
+            left: 0.1,
+            top: 0.2,
+            width: 0.01,
+            height: 0.01,
+        },
+        color: '#ffcc00',
+    };
 }
 
 describe('AnnotationStore saved semantic baseline', () => {
@@ -83,21 +108,10 @@ describe('AnnotationStore saved semantic baseline', () => {
         const application = new AnnotationApplication('document');
         const frontier = application.beginSave();
 
-        application.createStickyNote({
-            kind: 'sticky-note',
-            pageIndex: 0,
-            createdAt: null,
-            modifiedAt: null,
-            author: null,
-            text: 'created after save started',
-            anchor: {
-                left: 0.1,
-                top: 0.2,
-                width: 0.01,
-                height: 0.01,
-            },
-            color: '#ffcc00',
-        });
+        application.store.createStickyNote(stickyNote(
+            'created-after-save-started',
+            'created after save started',
+        ));
 
         expect(() => application.assertSaveCurrent(frontier)).toThrow(
             'staleRevisionError: annotations changed after the save frontier was captured',
@@ -226,21 +240,10 @@ describe('AnnotationStore saved semantic baseline', () => {
 
     it('does not adopt an unsaved canonical note when the initial authoritative snapshot arrives late', () => {
         const application = new AnnotationApplication('document');
-        application.createStickyNote({
-            kind: 'sticky-note',
-            pageIndex: 0,
-            createdAt: 1_781_000_000_000,
-            modifiedAt: null,
-            author: null,
-            text: 'Created before initial PDF.js sync',
-            anchor: {
-                left: 0.1,
-                top: 0.2,
-                width: 0.01,
-                height: 0.01,
-            },
-            color: '#ffcc00',
-        });
+        application.store.createStickyNote(stickyNote(
+            'created-before-initial-sync',
+            'Created before initial PDF.js sync',
+        ));
 
         application.reconcileLegacySummaries([], {adoptAsSavedBaseline: true});
 
@@ -254,21 +257,10 @@ describe('AnnotationStore saved semantic baseline', () => {
 
     it('adopts only persisted snapshot entities when an unsaved canonical note predates initial sync', () => {
         const application = new AnnotationApplication('document');
-        application.createStickyNote({
-            kind: 'sticky-note',
-            pageIndex: 0,
-            createdAt: 1_781_000_000_000,
-            modifiedAt: null,
-            author: null,
-            text: 'Unsaved canonical note',
-            anchor: {
-                left: 0.1,
-                top: 0.2,
-                width: 0.01,
-                height: 0.01,
-            },
-            color: '#ffcc00',
-        });
+        application.store.createStickyNote(stickyNote(
+            'unsaved-canonical-note',
+            'Unsaved canonical note',
+        ));
         application.reconcileLegacySummaries([{
             source: 'pdf',
             id: '13271R',

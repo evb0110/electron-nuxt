@@ -10,7 +10,7 @@ import type {
     TShapeResizeHandle,
 } from '@app/types/annotations';
 import type { AnnotationApplication } from '@app/modules/pdf-viewer/annotations/annotationApplication';
-import type { IShapeEntity } from '@app/modules/pdf-viewer/annotations/domain/annotationEntity';
+import type { IShapeEntity } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
 import type { IShapeImportSource } from '@app/modules/pdf-viewer/annotations/domain/annotationStore';
 import { cloneShape } from '@app/modules/pdf-viewer/engine/shapes/cloneShape';
 import { BrowserLogger } from '@app/utils/browserLogger';

@@ -787,7 +787,7 @@ describe('useAnnotationToolState', () => {
         });
         expect(new Set(manager.getMarkupSubtypeOverrides().values())).toEqual(new Set(['StrikeOut']));
 
-        application.delete(canonical!.identity.id);
+        application.store.delete(canonical!.identity.id);
         manager.forgetMarkupSubtypeOverride('52R0');
         expect(manager.getMarkupSubtypeOverrides()).toEqual(new Map());
     });

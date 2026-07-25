@@ -11,7 +11,7 @@ import {
 import {
     asAnnotationId,
     deriveAnnotationId,
-} from '@app/modules/pdf-viewer/annotations/domain/annotationEntity';
+} from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
 
 const nonBlankString = fc.string({
     minLength: 1,

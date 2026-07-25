@@ -12,6 +12,7 @@ import { DEFAULT_ANNOTATION_SETTINGS } from '@app/constants/annotationDefaults';
 import { useAnnotationShapes } from '@app/modules/pdf-viewer/tools/useAnnotationShapes';
 import { AnnotationApplication } from '@app/modules/pdf-viewer/annotations/annotationApplication';
 import type { IShapeAnnotation } from '@app/types/annotations';
+import {asAnnotationId} from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
 
 const IMPORT_SOURCE = {
     documentKey: 'doc-key',
@@ -120,7 +121,7 @@ function deleteShape(projection: ReturnType<typeof createShapeProjection>, shape
         annotationId: projection.shapes.getShapeById(shapeId)?.annotationId ?? null,
     });
     expect(annotationId).not.toBeNull();
-    projection.application.value.delete(annotationId!);
+    projection.application.value.store.delete(annotationId!);
 }
 
 describe('useAnnotationShapes', () => {
@@ -167,9 +168,13 @@ describe('useAnnotationShapes', () => {
         const projection = createShapeProjection();
         projection.shapes.importEmbeddedShapes([createEmbeddedShape()], IMPORT_SOURCE);
 
-        const note = projection.application.value.createStickyNote({
+        const note = projection.application.value.store.createStickyNote({
             kind: 'sticky-note',
+            identity: {id: asAnnotationId('shape-dirty-note')},
             pageIndex: 0,
+            revision: 0,
+            persistedRevision: -1,
+            deleted: false,
             text: 'note',
             anchor: {
                 left: 0.1,
@@ -182,7 +187,7 @@ describe('useAnnotationShapes', () => {
             modifiedAt: null,
             author: null,
         });
-        projection.application.value.setNoteText(note.identity.id, 'edited');
+        projection.application.value.store.setNoteText(note.identity.id, 'edited');
 
         expect(projection.store.hasChangesSinceSavedBaseline()).toBe(true);
         expect(projection.shapes.hasShapes.value).toBe(false);

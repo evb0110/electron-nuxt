@@ -13,7 +13,7 @@ import { usePdfViewerSaveTransaction } from '@app/modules/pdf-viewer/runtime/sav
 import { AnnotationApplication } from '@app/modules/pdf-viewer/annotations/annotationApplication';
 import {requireDocumentRevisionToken} from '@contracts';
 import {buildSerializationPlan} from '@app/modules/pdf-viewer/serialization/serializationPlan';
-import {asAnnotationId} from '@app/modules/pdf-viewer/annotations/domain/annotationEntity';
+import {asAnnotationId} from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
 
 vi.mock(
     '@app/modules/pdf-viewer/engine/pdf-serialization-worker-client/bindCanonicalAnnotationIdentitiesOffThread',
@@ -26,9 +26,13 @@ vi.mock(
 describe('usePdfViewerSaveTransaction', () => {
     it('serializes the synchronous canonical frontier and CAS-preserves a newer mutation', async () => {
         const application = new AnnotationApplication('save-transaction-document');
-        const created = application.createStickyNote({
+        const created = application.store.createStickyNote({
             kind: 'sticky-note',
+            identity: {id: asAnnotationId('save-transaction-note')},
             pageIndex: 0,
+            revision: 0,
+            persistedRevision: -1,
+            deleted: false,
             createdAt: null,
             modifiedAt: null,
             author: null,
@@ -72,7 +76,7 @@ describe('usePdfViewerSaveTransaction', () => {
             ?? result.baseBytes,
         ).toEqual(bytes);
 
-        application.setNoteText(created.identity.id, 'newer while serialized bytes publish');
+        application.store.setNoteText(created.identity.id, 'newer while serialized bytes publish');
         expect(() => result.commitAnnotationSave?.()).toThrow('staleRevisionError');
 
         expect(application.store.get(created.identity.id)).toMatchObject({

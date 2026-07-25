@@ -135,6 +135,10 @@ async function collectFiles(rootDir, relDir = '') {
     if (!(await pathExists(scanDir))) {
         return [];
     }
+    const scanTarget = await fs.stat(scanDir);
+    if (scanTarget.isFile()) {
+        return isSourceFile(scanDir) ? [toPosixPath(relDir)] : [];
+    }
 
     const entries = await fs.readdir(scanDir, { withFileTypes: true });
     const files = await Promise.all(entries.map(async entry => {

@@ -9,7 +9,6 @@ interface IUsePdfViewerMouseInteractionsOptions {
     handleDragStart: (event: MouseEvent) => void;
     handleDragMove: (event: MouseEvent) => void;
     stopDrag: () => void;
-    handleViewerMouseUpAnnotation: () => void;
     handleViewerClickAnnotation: (event: MouseEvent) => void | Promise<void>;
     handleViewerDblClickAnnotation: (event: MouseEvent) => void;
     handleViewerContextMenuAnnotation: (event: MouseEvent) => void;
@@ -43,7 +42,6 @@ export const usePdfViewerMouseInteractions = (options: IUsePdfViewerMouseInterac
         handleDragStart,
         handleDragMove,
         stopDrag,
-        handleViewerMouseUpAnnotation,
         handleViewerClickAnnotation,
         handleViewerDblClickAnnotation,
         handleViewerContextMenuAnnotation,
@@ -82,7 +80,6 @@ export const usePdfViewerMouseInteractions = (options: IUsePdfViewerMouseInterac
         if (snipActive || isImagePlacementTarget(event.target)) {
             return;
         }
-        handleViewerMouseUpAnnotation();
     }
 
     function handleViewerMouseLeave() {

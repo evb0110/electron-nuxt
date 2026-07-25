@@ -3,7 +3,7 @@ import type {
     IShapeAnnotation,
     TMarkupSubtype,
 } from '@app/types/annotations';
-import type { AnnotationEntity } from '@app/modules/pdf-viewer/annotations/domain/annotationEntity';
+import type { AnnotationEntity } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
 import { computeSummaryStableKey } from '@app/modules/pdf-viewer/annotations/domain/annotationSummaryIdentity';
 import {
     assertAnnotationBackendSemanticConformance,

@@ -2,11 +2,16 @@
 // runtime port; raw editors never cross this bridge as retained state.
 import { AnnotationEditorType } from '@app/services/pdfjs/runtimeLib';
 import type { AnnotationEditorUIManager } from 'pdfjs-dist';
+import type {
+    Ref,
+    ShallowRef,
+} from 'vue';
 import { tryOnScopeDispose } from '@vueuse/core';
 import { delay } from 'es-toolkit/promise';
 import type {
     IAnnotationCommentSummary,
     IAnnotationMarkerRect,
+    TAnnotationTool,
     TMarkupSubtype,
 } from '@app/types/annotations';
 import type {
@@ -18,11 +23,6 @@ import type {
     ICreateTextMarkupFromTextResult,
     TAgentTextMarkupKind,
 } from '@app/modules/pdf-viewer/runtime/contracts/pdfViewerExpose.types';
-import type {
-    IEditorSnapshot,
-    IHighlightToolManager,
-    IUseAnnotationHighlightOptions,
-} from '@app/modules/pdf-viewer/annotations/bridge/pdfjs-runtime/annotationHighlightBridge.types';
 import { getCommentText } from '@app/modules/pdf-viewer/engine/pdf-annotation-editor-utils/getCommentText';
 import type { IAnnotationContextMenuPayload } from '@app/modules/pdf-viewer/engine/annotationContextMenuPayload';
 import { clamp01 } from '@app/modules/pdf-viewer/engine/annotation-geometry/clamp01';
@@ -59,6 +59,88 @@ import {
 } from '@app/modules/pdf-viewer/engine/pdf-annotation-editor-utils/commentMarkerAnchorEditor';
 import { useAnnotationTextSelectionCache } from '@app/modules/pdf-viewer/runtime/annotations/useAnnotationTextSelectionCache';
 
+interface IHighlightIdentity {getEditorIdentity: (editor: IPdfjsEditor, pageIndex: number) => string;}
+
+interface IHighlightMarkupSubtype {
+    toolToMarkupSubtype: Partial<Record<TAnnotationTool, TMarkupSubtype>>;
+    isSelectionMarkupTool: (tool: TAnnotationTool) => boolean;
+    setEditorMarkupSubtypeOverride: (
+        editor: IPdfjsEditor,
+        pageIndex: number,
+        subtype: TMarkupSubtype,
+        options?: { preferEditorColor?: boolean },
+    ) => void;
+    resolveEditorMarkupSubtypeOverride: (editor: IPdfjsEditor, pageIndex: number) => TMarkupSubtype | null;
+    resolveEditorSubtypeFromPresentation: (editor: IPdfjsEditor) => TMarkupSubtype | null;
+    syncMarkupSubtypePresentationForEditors: () => void;
+}
+
+interface IHighlightSync {
+    scheduleAnnotationCommentsSync: (immediate?: boolean) => void;
+    toEditorSummary: (editor: IPdfjsEditor, pageIndex: number, text: string) => IAnnotationCommentSummary;
+}
+
+interface IHighlightToolManager {
+    updateModeWithRetry: (
+        uiManager: AnnotationEditorUIManager,
+        mode: Parameters<AnnotationEditorUIManager['updateMode']>[0],
+        pageNumber?: number,
+    ) => Promise<unknown>;
+    maybeAutoResetAnnotationTool: () => void;
+}
+
+interface IUseAnnotationHighlightOptions {
+    viewerContainer: Ref<HTMLElement | null>;
+    annotationUiManager: ShallowRef<AnnotationEditorUIManager | null>;
+    numPages: {value: number};
+    currentPage: Ref<number>;
+    annotationTool: Ref<TAnnotationTool>;
+    getIdentity: () => IHighlightIdentity;
+    getMarkupSubtype: () => IHighlightMarkupSubtype;
+    getSync: () => IHighlightSync;
+    getToolManager: () => IHighlightToolManager;
+    annotationIntentSink: {
+        submitSelectionMarkupIntent: (input: {
+            pageIndex: number;
+            requestedSubtype: TMarkupSubtype | null;
+            geometry: readonly IAnnotationMarkerRect[];
+            observedEditors: ReadonlyArray<{
+                summary: IAnnotationCommentSummary;
+                subtype: TMarkupSubtype;
+                geometry: readonly IAnnotationMarkerRect[];
+            }>;
+        }) => {
+            annotationId: string;
+            subtype: TMarkupSubtype;
+            comment: IAnnotationCommentSummary;
+            replacements: ReadonlyArray<{
+                annotationId: string;
+                sourceStableKey: string;
+                geometry: readonly IAnnotationMarkerRect[];
+                deleted: boolean;
+            }>;
+        };
+        submitStickyNoteIntent: (input: {
+            pageIndex: number;
+            anchor: IAnnotationMarkerRect;
+        }) => {
+            annotationId: string;
+            comment: IAnnotationCommentSummary;
+        };
+        bindProjectedEditorIdentity: (
+            annotationId: string,
+            summary: IAnnotationCommentSummary,
+        ) => void;
+    };
+    ensureAnnotationEditorLayerReady?: (pageNumber: number) => Promise<void>;
+    deferCreatedEditorUndoToStorage?: boolean;
+    stopDrag: () => void;
+    emitAnnotationOpenNote: (comment: IAnnotationCommentSummary) => void;
+    emitAnnotationNotePlacementChange: (active: boolean) => void;
+}
+
+interface IEditorSnapshot {editorsBeforeIds: Set<string>;}
+
 const ANNOTATION_EDITOR_RETRY_ATTEMPTS = 12;
 const ANNOTATION_EDITOR_RETRY_DELAY_MS = 80;
 const SELECTION_CLEAR_FALLBACK_DELAY_MS = 80;
@@ -75,7 +157,7 @@ export const useAnnotationHighlight = (options: IUseAnnotationHighlightOptions) 
         getMarkupSubtype,
         getSync,
         getToolManager,
-        getAnnotationCommands,
+        annotationIntentSink,
         ensureAnnotationEditorLayerReady,
         deferCreatedEditorUndoToStorage = false,
         stopDrag,
@@ -250,35 +332,31 @@ export const useAnnotationHighlight = (options: IUseAnnotationHighlightOptions) 
         clearSelectionCache();
 
         const previousMode = uiManager.getMode();
-        const markupSubtypeOverride = selectionOptions.markupSubtype
-            ?? markupSubtype.toolToMarkupSubtype[annotationTool.value]
-            ?? null;
-        const canonicalSubtype = markupSubtypeOverride ?? 'Highlight';
-        const overlapEditors = canonicalSubtype === 'Highlight'
-            ? []
-            : getEditorsForPage(pageIndex).flatMap((editor) => {
-                const existingSubtype = markupSubtype.resolveEditorMarkupSubtypeOverride(editor, pageIndex)
-                    ?? markupSubtype.resolveEditorSubtypeFromPresentation(editor);
-                const editorBoxes = getEditorMarkupBoxes(editor);
-                if (existingSubtype !== canonicalSubtype || !editorBoxes) {
-                    return [];
-                }
-                return [{
-                    editor,
-                    summary: commentSync.toEditorSummary(editor, pageIndex, getCommentText(editor)),
-                    observedGeometry: markerRectsFromBoxes(editorBoxes),
-                }];
-            });
-        const annotationCommands = getAnnotationCommands();
-        const canonicalPlan = annotationCommands.applySelectionMarkup({
+        const observedEditors = getEditorsForPage(pageIndex).flatMap((editor) => {
+            const observedSubtype = markupSubtype.resolveEditorMarkupSubtypeOverride(editor, pageIndex)
+                ?? markupSubtype.resolveEditorSubtypeFromPresentation(editor);
+            const editorBoxes = getEditorMarkupBoxes(editor);
+            if (!observedSubtype || !editorBoxes) {
+                return [];
+            }
+            return [{
+                editor,
+                summary: commentSync.toEditorSummary(editor, pageIndex, getCommentText(editor)),
+                subtype: observedSubtype,
+                geometry: markerRectsFromBoxes(editorBoxes),
+            }];
+        });
+        const canonicalPlan = annotationIntentSink.submitSelectionMarkupIntent({
             pageIndex,
-            subtype: canonicalSubtype,
+            requestedSubtype: selectionOptions.markupSubtype ?? null,
             geometry: markerRectsFromBoxes(boxes),
-            overlapCandidates: overlapEditors.map(candidate => ({
+            observedEditors: observedEditors.map(candidate => ({
                 summary: candidate.summary,
-                observedGeometry: candidate.observedGeometry,
+                subtype: candidate.subtype,
+                geometry: candidate.geometry,
             })),
         });
+        const projectedSubtype = canonicalPlan.subtype;
         const createdAnnotation = true;
         let editorSnapshot = captureEditorSnapshot(pageIndex, getEditorsForPage, identity.getEditorIdentity);
 
@@ -306,7 +384,7 @@ export const useAnnotationHighlight = (options: IUseAnnotationHighlightOptions) 
                 return false;
             }
             getPdfjsEditorFacadeState(editor).canonicalAnnotationId = annotationId;
-            annotationCommands.bindEditorIdentity(
+            annotationIntentSink.bindProjectedEditorIdentity(
                 annotationId,
                 commentSync.toEditorSummary(editor, pageIndex, getCommentText(editor)),
             );
@@ -317,14 +395,11 @@ export const useAnnotationHighlight = (options: IUseAnnotationHighlightOptions) 
                 return false;
             }
             attachSelectionPreviewText(editor, selectionPreviewText);
-            if (!markupSubtypeOverride) {
-                return false;
-            }
             getPdfjsEditorFacadeState(editor).markupBoxes = cloneHighlightBoxes(boxes);
             markupSubtype.setEditorMarkupSubtypeOverride(
                 editor,
                 pageIndex,
-                markupSubtypeOverride,
+                projectedSubtype,
                 { preferEditorColor: false },
             );
             queueMicrotask(() => {
@@ -414,7 +489,7 @@ export const useAnnotationHighlight = (options: IUseAnnotationHighlightOptions) 
                 }
             };
             canonicalPlan.replacements.forEach((replacement) => {
-                const source = overlapEditors.find(candidate => (
+                const source = observedEditors.find(candidate => (
                     candidate.summary.stableKey === replacement.sourceStableKey
                 ))?.editor;
                 if (!source) {
@@ -437,7 +512,7 @@ export const useAnnotationHighlight = (options: IUseAnnotationHighlightOptions) 
                         markupSubtype.setEditorMarkupSubtypeOverride(
                             replacementEditor,
                             pageIndex,
-                            canonicalSubtype,
+                            projectedSubtype,
                         );
                         bindCanonicalEditor(replacementEditor, replacement.annotationId);
                     }
@@ -851,8 +926,7 @@ export const useAnnotationHighlight = (options: IUseAnnotationHighlightOptions) 
         if (!clickMarkerRect) {
             return false;
         }
-        const annotationCommands = getAnnotationCommands();
-        const canonicalNote = annotationCommands.createStickyNote({
+        const canonicalNote = annotationIntentSink.submitStickyNoteIntent({
             pageIndex,
             anchor: clickMarkerRect,
         });
@@ -895,7 +969,7 @@ export const useAnnotationHighlight = (options: IUseAnnotationHighlightOptions) 
                 return false;
             }
             getPdfjsEditorFacadeState(editor).canonicalAnnotationId = canonicalNote.annotationId;
-            annotationCommands.bindEditorIdentity(
+            annotationIntentSink.bindProjectedEditorIdentity(
                 canonicalNote.annotationId,
                 commentSync.toEditorSummary(editor, pageIndex, getCommentText(editor)),
             );
@@ -1011,10 +1085,6 @@ export const useAnnotationHighlight = (options: IUseAnnotationHighlightOptions) 
         return created;
     }
 
-    function handleViewerMouseUp() {
-        stopDrag();
-    }
-
     function handleDocumentPointerUp(event: PointerEvent) {
         if (event.button !== 0) {
             return;
@@ -1060,7 +1130,6 @@ export const useAnnotationHighlight = (options: IUseAnnotationHighlightOptions) 
         placeCommentAtClientPoint,
         startCommentPlacement,
         cancelCommentPlacement,
-        handleViewerMouseUp,
         handleDocumentPointerUp,
         cacheCurrentTextSelection,
         maybeApplySelectionMarkup,

@@ -70,7 +70,11 @@ export const usePdfShapeTool = (options: IUsePdfShapeToolOptions) => {
     }
 
     function deleteShape(shape: IShapeAnnotation) {
-        options.annotationApplication.value.delete(resolveShapeAnnotationId(shape));
+        const application = options.annotationApplication.value;
+        const annotationId = resolveShapeAnnotationId(shape);
+        if (!application.store.get(annotationId)?.deleted) {
+            application.store.delete(annotationId);
+        }
         options.getDeletedShapeHandler()?.(shape);
     }
 

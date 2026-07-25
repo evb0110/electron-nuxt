@@ -110,4 +110,35 @@ describe('annotation architecture boundaries', () => {
         );
         expect(existsSync(identityPath) ? readdirSync(identityPath) : []).toEqual([]);
     });
+
+    it('keeps authored annotation intent in the session and PDF.js projection-only', () => {
+        const session = read('app/modules/pdf-viewer/runtime/sessions/createPdfAnnotationSession.ts');
+        const application = read('app/modules/pdf-viewer/annotations/annotationApplication.ts');
+        const highlightBridge = read(
+            'app/modules/pdf-viewer/annotations/bridge/pdfjs-runtime/useAnnotationHighlight.ts',
+        );
+        const featureController = read(
+            'app/modules/pdf-viewer/runtime/usePdfViewerFeatureController.ts',
+        );
+        const mouseAdapter = read(
+            'app/modules/pdf-viewer/runtime/composables/usePdfViewerMouseInteractions.ts',
+        );
+
+        expect(session).toContain('application.store.applyTextMarkupSelection');
+        expect(session).toContain('application.store.createStickyNote');
+        expect(session).toContain('application.store.bindIdentity');
+        expect(application).not.toContain('store.applyTextMarkupSelection');
+        expect(application).not.toContain('store.createStickyNote');
+        expect(highlightBridge).not.toMatch(/\bstore\.|getAnnotationCommands|canonicalSubtype/);
+        expect(featureController).not.toContain('highlightComposable.handleViewerMouseUp');
+        expect(mouseAdapter).not.toContain('handleViewerMouseUpAnnotation');
+    });
+
+    it('has no single-consumer compatibility files in the annotation flow', () => {
+        [
+            'app/modules/pdf-viewer/annotations/domain/annotationEntity.ts',
+            'app/modules/pdf-viewer/annotations/bridge/pdfjs-runtime/annotationHighlightBridge.types.ts',
+            'app/modules/pdf-viewer/runtime/contracts/createPdfViewerPublicApi.ts',
+        ].forEach(path => expect(existsSync(join(process.cwd(), path))).toBe(false));
+    });
 });

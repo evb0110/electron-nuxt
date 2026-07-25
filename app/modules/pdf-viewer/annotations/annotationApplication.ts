@@ -7,21 +7,17 @@ import type {PDFDocumentProxy} from '@app/types/pdfContracts';
 import type {TDocumentRevisionToken} from '@contracts/documentRevision';
 import type {IPageIdentityDelta} from '@contracts/electronApiPageOps';
 import type {
-    ITextMarkupOverlapCandidate,
-    ITextMarkupSelectionProjection,
     AnnotationEntity,
     AnnotationId,
     IShapeEntity,
     IStickyNoteEntity,
-    ITextMarkupEntity,
-    TAnnotationStyle,
-} from '@app/modules/pdf-viewer/annotations/domain/annotationEntity';
+} from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
 import {
     deriveAnnotationId,
     asAnnotationId,
     mintAnnotationId,
     normalizeAnnotationText,
-} from '@app/modules/pdf-viewer/annotations/domain/annotationEntity';
+} from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
 import { cloneShape } from '@app/modules/pdf-viewer/engine/shapes/cloneShape';
 import { getNormalizedShapeStableKey } from '@app/modules/pdf-viewer/engine/annotations/shape-annotation-identity/shapeAnnotationIdentity';
 import {
@@ -65,10 +61,6 @@ export interface IAnnotationSaveSession {
 
 /** Evidence used to distinguish a newly appended annotation from prior identical content. */
 export interface IAnnotationSaveVerificationOptions {readonly preexistingPdfAnnotationRefs?: readonly string[];}
-
-type TCreateStickyNote = Omit<IStickyNoteEntity, 'identity' | 'revision' | 'persistedRevision' | 'deleted'>;
-type TCreateTextMarkup = Omit<ITextMarkupEntity, 'identity' | 'revision' | 'persistedRevision' | 'deleted'>;
-export interface ITextMarkupSelectionInput extends TCreateTextMarkup {readonly overlapCandidates: readonly ITextMarkupOverlapCandidate[];}
 
 interface IPdfjsReopenedAnnotation {
     readonly id?: string;
@@ -413,75 +405,11 @@ export class AnnotationApplication {
         });
     }
 
-    createStickyNote(input: TCreateStickyNote) {
-        return this.store.createStickyNote({
-            ...input,
-            identity: {id: mintAnnotationId()},
-            revision: 0,
-            persistedRevision: -1,
-            deleted: false,
-        });
-    }
-
-    createTextMarkup(input: TCreateTextMarkup) {
-        return this.store.createTextMarkup({
-            ...input,
-            identity: {id: mintAnnotationId()},
-            revision: 0,
-            persistedRevision: -1,
-            deleted: false,
-        });
-    }
-
-    applyTextMarkupSelection(input: ITextMarkupSelectionInput): ITextMarkupSelectionProjection {
-        const {
-            overlapCandidates,
-            ...created
-        } = input;
-        return this.store.applyTextMarkupSelection({
-            ...created,
-            identity: {id: mintAnnotationId()},
-            revision: 0,
-            persistedRevision: -1,
-            deleted: false,
-        }, overlapCandidates);
-    }
-
-    bindEditorSummaryIdentity(annotationId: AnnotationId, summary: IAnnotationCommentSummary) {
-        const entity = this.store.get(annotationId);
-        if (!entity) {
-            return false;
-        }
-        this.store.bindIdentity({
-            annotationId,
-            expectedRevision: entity.revision,
-            bindings: {
-                ...(summary.annotationId ? {pdfRef: summary.annotationId} : {}),
-                ...(summary.annotationName ? {pdfName: summary.annotationName} : {}),
-                ...(summary.uid ? {pdfjsUid: summary.uid} : {}),
-                ...(summary.id ? {elementId: summary.id} : {}),
-            },
-        });
-        return true;
-    }
-
     annotationIdForShape(shape: Pick<IShapeAnnotation, 'id' | 'annotationId'>) {
         return this.store.resolveExternal({
             ...(shape.annotationId ? {pdfRef: shape.annotationId} : {}),
             elementId: shape.id,
         });
-    }
-
-    setNoteText(annotationId: AnnotationId, text: string) {
-        return this.store.setNoteText(annotationId, text);
-    }
-
-    setStyle(annotationId: AnnotationId, style: TAnnotationStyle) {
-        return this.store.setStyle(annotationId, style);
-    }
-
-    moveAnchor(annotationId: AnnotationId, anchor: IStickyNoteEntity['anchor']) {
-        return this.store.moveAnchor(annotationId, anchor);
     }
 
     replaceShapeGeometry(
@@ -496,26 +424,7 @@ export class AnnotationApplication {
         return this.store.previewShapeGeometry(annotationId, geometry);
     }
 
-    delete(annotationId: AnnotationId) {
-        const existing = this.store.get(annotationId);
-        if (existing?.deleted) {
-            // PDF.js projection reconciliation can observe the editor's removal
-            // before the originating mutation reaches this canonical boundary.
-            // Treat that repeated delivery as the same delete command instead of
-            // crashing the document workspace or recording a second history step.
-            return existing;
-        }
-        return this.store.delete(annotationId);
-    }
-
-    restore(annotationId: AnnotationId) {
-        return this.store.restore(annotationId);
-    }
-
     remapPages(delta: IPageIdentityDelta) { this.store.remapPages(delta); }
-
-    undo() { return this.store.undo(); }
-    redo() { return this.store.redo(); }
 
     beginSave(documentRevisionToken: TDocumentRevisionToken | null = null): IAnnotationSaveSession {
         if (this.legacyIdentityConflicts.size) {

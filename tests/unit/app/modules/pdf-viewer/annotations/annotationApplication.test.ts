@@ -10,7 +10,7 @@ import {
     asAnnotationId,
     type IStickyNoteEntity,
     type ITextMarkupEntity,
-} from '@app/modules/pdf-viewer/annotations/domain/annotationEntity';
+} from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
 import type { IShapeAnnotation } from '@app/types/annotations';
 
 const pdfjsMocks = vi.hoisted(() => ({
@@ -181,7 +181,7 @@ describe('AnnotationApplication', () => {
             },
             persistedRevision: 0,
         }));
-        application.delete(annotationId);
+        application.store.delete(annotationId);
         const savedDelete = application.store.beginSave();
         application.store.acknowledgeSave(savedDelete);
         expect(application.store.hasChangesSinceSavedBaseline()).toBe(false);
@@ -430,7 +430,7 @@ describe('AnnotationApplication', () => {
         const application = new AnnotationApplication('document');
         application.store.createStickyNote(note());
         const session = application.beginSave();
-        application.setNoteText(asAnnotationId('anno_test'), 'newer');
+        application.store.setNoteText(asAnnotationId('anno_test'), 'newer');
 
         await expect(application.verifyAndAcknowledgeSave(
             session,
@@ -456,7 +456,7 @@ describe('AnnotationApplication', () => {
             pageIndex: 1,
             persistedRevision: 0,
         }));
-        application.delete(asAnnotationId('anno_test'));
+        application.store.delete(asAnnotationId('anno_test'));
         const getPage = vi.fn();
         pdfjsMocks.getDocument.mockReturnValue({promise: Promise.resolve({
             destroy: pdfjsMocks.destroy,
@@ -474,39 +474,19 @@ describe('AnnotationApplication', () => {
     it('normalizes adapter-only liveness sentinels and preserves tombstones through history', () => {
         const application = new AnnotationApplication('document');
         application.store.createStickyNote(note());
-        application.setNoteText(asAnnotationId('anno_test'), '\u200Bhello\uFEFF');
-        application.delete(asAnnotationId('anno_test'));
+        application.store.setNoteText(asAnnotationId('anno_test'), '\u200Bhello\uFEFF');
+        application.store.delete(asAnnotationId('anno_test'));
         expect(application.store.get(asAnnotationId('anno_test'))).toMatchObject({
             deleted: true,
             text: 'hello',
         });
-        expect(application.undo()).toBe(true);
+        expect(application.store.undo()).toBe(true);
         expect(application.store.get(asAnnotationId('anno_test'))).toMatchObject({
             deleted: false,
             text: 'hello',
         });
-        expect(application.redo()).toBe(true);
+        expect(application.store.redo()).toBe(true);
         expect(application.store.get(asAnnotationId('anno_test'))).toMatchObject({deleted: true});
-    });
-
-    it('treats a repeated canonical delete delivery as an idempotent no-op', () => {
-        const application = new AnnotationApplication('document');
-        const annotationId = asAnnotationId('anno_test');
-        application.store.createStickyNote(note());
-
-        const firstDelete = application.delete(annotationId);
-        const repeatedDelete = application.delete(annotationId);
-
-        expect(repeatedDelete).toEqual(firstDelete);
-        expect(repeatedDelete).toMatchObject({
-            deleted: true,
-            revision: 1,
-        });
-        expect(application.undo()).toBe(true);
-        expect(application.store.get(annotationId)).toMatchObject({
-            deleted: false,
-            revision: 0,
-        });
     });
 
     it('replaces overlapping markup in one observable and undoable Store command', () => {
@@ -519,8 +499,9 @@ describe('AnnotationApplication', () => {
         });
         emissions = 0;
 
-        const projection = application.applyTextMarkupSelection({
+        const projection = application.store.applyTextMarkupSelection({
             kind: 'text-markup',
+            identity: {id: asAnnotationId('new-underline')},
             pageIndex: 0,
             subtype: 'Underline',
             text: '',
@@ -535,11 +516,13 @@ describe('AnnotationApplication', () => {
             author: 'Tester',
             createdAt: 2,
             modifiedAt: 2,
-            overlapCandidates: [{
-                annotationId: existing.identity.id,
-                observedGeometry: existing.geometry,
-            }],
-        });
+            revision: 0,
+            persistedRevision: -1,
+            deleted: false,
+        }, [{
+            annotationId: existing.identity.id,
+            observedGeometry: existing.geometry,
+        }]);
 
         expect(emissions).toBe(1);
         expect(projection.replacements).toHaveLength(1);
@@ -558,16 +541,17 @@ describe('AnnotationApplication', () => {
         expect(projection.replacements[0]?.geometry[1]?.width).toBeCloseTo(0.2);
         expect(application.store.list()).toHaveLength(2);
 
-        expect(application.undo()).toBe(true);
+        expect(application.store.undo()).toBe(true);
         expect(application.store.list()).toEqual([existing]);
-        expect(application.redo()).toBe(true);
+        expect(application.store.redo()).toBe(true);
         expect(application.store.list()).toHaveLength(2);
     });
 
     it('binds a created editor to its canonical markup without duplicate legacy ingestion', () => {
         const application = new AnnotationApplication('document');
-        const projection = application.applyTextMarkupSelection({
+        const projection = application.store.applyTextMarkupSelection({
             kind: 'text-markup',
+            identity: {id: asAnnotationId('new-highlight')},
             pageIndex: 0,
             subtype: 'Highlight',
             text: '',
@@ -582,8 +566,10 @@ describe('AnnotationApplication', () => {
             author: null,
             createdAt: 1,
             modifiedAt: 1,
-            overlapCandidates: [],
-        });
+            revision: 0,
+            persistedRevision: -1,
+            deleted: false,
+        }, []);
         const summary = {
             appAnnotationId: projection.created.identity.id,
             id: 'editor-1',
@@ -602,7 +588,14 @@ describe('AnnotationApplication', () => {
             markerRect: projection.created.geometry[0]!,
         };
 
-        application.bindEditorSummaryIdentity(projection.created.identity.id, summary);
+        application.store.bindIdentity({
+            annotationId: projection.created.identity.id,
+            expectedRevision: projection.created.revision,
+            bindings: {
+                pdfjsUid: summary.uid!,
+                elementId: summary.id,
+            },
+        });
         application.ingestLegacySummaries([summary]);
 
         expect(application.store.list()).toHaveLength(1);
@@ -628,10 +621,10 @@ describe('AnnotationApplication', () => {
 
         expect(annotationId).not.toBeNull();
         expect(projected.at(-1)).toHaveLength(1);
-        expect(application.undo()).toBe(true);
+        expect(application.store.undo()).toBe(true);
         expect(application.store.list({includeDeleted: true})).toEqual([]);
         expect(projected.at(-1)).toEqual([]);
-        expect(application.redo()).toBe(true);
+        expect(application.store.redo()).toBe(true);
         expect(application.store.get(annotationId!)).toMatchObject({kind: 'shape'});
         expect(projected.at(-1)).toHaveLength(1);
     });

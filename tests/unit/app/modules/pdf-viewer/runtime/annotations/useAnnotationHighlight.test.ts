@@ -86,15 +86,15 @@ function createHighlightHarness(viewerContainer: HTMLElement) {
             updateModeWithRetry: async () => null,
             maybeAutoResetAnnotationTool: () => {},
         }),
-        getAnnotationCommands: () => ({
-            applySelectionMarkup: () => {
+        annotationIntentSink: {
+            submitSelectionMarkupIntent: () => {
                 throw new Error('not used in resolvePagePointTarget tests');
             },
-            createStickyNote: () => {
+            submitStickyNoteIntent: () => {
                 throw new Error('not used in resolvePagePointTarget tests');
             },
-            bindEditorIdentity: () => {},
-        }),
+            bindProjectedEditorIdentity: () => {},
+        },
         stopDrag: () => {},
         emitAnnotationOpenNote: () => {},
         emitAnnotationNotePlacementChange: () => {},
@@ -303,19 +303,19 @@ describe('useAnnotationHighlight commentAtPoint', () => {
                 },
                 maybeAutoResetAnnotationTool: () => {},
             }),
-            getAnnotationCommands: () => ({
-                applySelectionMarkup: () => {
+            annotationIntentSink: {
+                submitSelectionMarkupIntent: () => {
                     throw new Error('not used in point note test');
                 },
-                createStickyNote: () => {
+                submitStickyNoteIntent: () => {
                     order.push('store-command');
                     return {
                         annotationId: 'canonical-note',
                         comment: canonicalComment,
                     };
                 },
-                bindEditorIdentity: () => {},
-            }),
+                bindProjectedEditorIdentity: () => {},
+            },
             stopDrag: () => {},
             emitAnnotationOpenNote,
             emitAnnotationNotePlacementChange: () => {},
@@ -426,11 +426,12 @@ describe('useAnnotationHighlight highlightSelectionInternal', () => {
                 updateModeWithRetry: async () => null,
                 maybeAutoResetAnnotationTool: () => {},
             }),
-            getAnnotationCommands: () => ({
-                applySelectionMarkup: () => {
+            annotationIntentSink: {
+                submitSelectionMarkupIntent: () => {
                     order.push('store-command');
                     return {
                         annotationId: 'canonical-highlight',
+                        subtype: 'Highlight',
                         comment: {
                             appAnnotationId: 'canonical-highlight',
                             id: 'canonical-highlight',
@@ -450,11 +451,11 @@ describe('useAnnotationHighlight highlightSelectionInternal', () => {
                         replacements: [],
                     };
                 },
-                createStickyNote: () => {
+                submitStickyNoteIntent: () => {
                     throw new Error('not used in highlight selection test');
                 },
-                bindEditorIdentity,
-            }),
+                bindProjectedEditorIdentity: bindEditorIdentity,
+            },
             stopDrag: () => {},
             emitAnnotationOpenNote: () => {},
             emitAnnotationNotePlacementChange: () => {},

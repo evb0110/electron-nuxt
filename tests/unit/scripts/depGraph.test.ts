@@ -27,6 +27,7 @@ const {
     pathToFileURL(resolve(process.cwd(), 'scripts/architecture/boundary-check.mjs')).href
 );
 const {
+    ANNOTATION_GRAPH_SCAN_ROOTS,
     ANNOTATION_LATE_BOUND_EDGES,
     checkAnnotationDependencyEdge,
     checkAnnotationDependencyGraph,
@@ -56,6 +57,19 @@ describe('dependency graph', () => {
         });
 
         expect(graph.nodes.map((node: { file: string }) => node.file)).toEqual(['packages/release-selection/index.ts']);
+    });
+
+    it('accepts a source file as a configured root', async () => {
+        const projectRoot = await mkdtemp(join(tmpdir(), 'evb-dep-graph-'));
+        await mkdir(join(projectRoot, 'app'), { recursive: true });
+        await writeFile(join(projectRoot, 'app/session.ts'), 'export const session = true;\n');
+
+        const graph = await buildDependencyGraph({
+            projectRoot,
+            roots: ['app/session.ts'],
+        });
+
+        expect(graph.nodes.map((node: { file: string }) => node.file)).toEqual(['app/session.ts']);
     });
 
     it('ignores generated Vercel output when scanning all architecture roots', async () => {
@@ -822,16 +836,7 @@ describe('dependency graph', () => {
     it('keeps the annotation dependency graph explicit and acyclic', async () => {
         const graph = await buildDependencyGraph({
             projectRoot: process.cwd(),
-            roots: [
-                'app/modules/pdf-viewer/runtime/annotations',
-                'app/modules/pdf-viewer/annotations',
-                'app/modules/pdf-viewer/tools',
-                'app/modules/pdf-viewer/runtime/save',
-                'app/modules/pdf-viewer/engine/annotations',
-                'app/modules/pdf-viewer/engine/pdf-serialization-comments',
-                'app/modules/pdf-viewer/engine/pdf-serialization-operations',
-                'app/modules/pdf-viewer/engine/serialization',
-            ],
+            roots: ANNOTATION_GRAPH_SCAN_ROOTS,
         });
         const result = checkAnnotationDependencyGraph(graph, { includeDirectEdgeViolations: true });
 

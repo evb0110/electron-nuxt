@@ -9,7 +9,7 @@ import {
     useAnnotationMutationService,
     type IUseAnnotationMutationServiceOptions,
 } from '@app/modules/pdf-viewer/runtime/annotations/useAnnotationMutationService';
-import { asAnnotationId } from '@app/modules/pdf-viewer/annotations/domain/annotationEntity';
+import { asAnnotationId } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
 
 function createComment(): IAnnotationCommentSummary {
     return {

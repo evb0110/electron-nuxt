@@ -9,9 +9,9 @@ import {
     type IPdfSaveRouteCapabilities,
 } from '@app/modules/pdf-viewer/runtime/save/classifyPdfSaveRoute';
 import type { IPdfLiveAnnotationChangeSummary } from '@app/modules/pdf-viewer/runtime/save/pdfAnnotationStorageChanges';
-import type { AnnotationEntity } from '@app/modules/pdf-viewer/annotations/domain/annotationEntity';
+import type { AnnotationEntity } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
 import type {IShapeAnnotation} from '@app/types/annotations';
-import { asAnnotationId } from '@app/modules/pdf-viewer/annotations/domain/annotationEntity';
+import { asAnnotationId } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
 import type { ISerializationPlanInputs } from '@app/modules/pdf-viewer/serialization/serializationPlan';
 import { buildSerializationPlan } from '@app/modules/pdf-viewer/serialization/serializationPlan';
 import { requireDocumentRevisionToken } from '@contracts';

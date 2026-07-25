@@ -8,7 +8,7 @@ import type {
     IAnnotationMutationVisualEffectsState,
 } from '@app/modules/pdf-viewer/runtime/annotations/annotationMutationVisualEffects.types';
 import type { ITextMarkupColorMutationResult } from '@app/modules/pdf-viewer/annotations/usePdfAnnotationColorCommands';
-import type { AnnotationId } from '@app/modules/pdf-viewer/annotations/domain/annotationEntity';
+import type { AnnotationId } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
 
 interface IAnnotationMutationContext {source: 'user' | 'note-window' | 'agent' | 'undo' | 'redo' | 'sync' | 'save-reload';}
 

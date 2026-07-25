@@ -8,6 +8,7 @@ import { buildDependencyGraph } from './dep-graph.mjs';
 
 export const ANNOTATION_GRAPH_SCAN_ROOTS = [
     'app/modules/pdf-viewer/runtime/annotations',
+    'app/modules/pdf-viewer/runtime/sessions/createPdfAnnotationSession.ts',
     'app/modules/pdf-viewer/annotations',
     'app/modules/pdf-viewer/tools',
     'app/modules/pdf-viewer/runtime/save',
@@ -94,22 +95,6 @@ export const ANNOTATION_LATE_BOUND_EDGES = [
         label: 'getSync',
         phase: 'event-time',
         evidence: 'useAnnotationCrud resolves comment sync for active comment, deletion, and editor summary flows.',
-    },
-    {
-        source: 'app/modules/pdf-viewer/runtime/annotations/useManagedEmbeddedPdfShapes.ts',
-        target: ANNOTATION_SESSION,
-        kind: 'late-bound',
-        label: 'suppressCommentAnnotationId',
-        phase: 'event-time',
-        evidence: 'createPdfAnnotationSession wires managed embedded shapes to annotations.commentSync suppression.',
-    },
-    {
-        source: 'app/modules/pdf-viewer/annotations/usePdfAnnotationCommentModel.ts',
-        target: ANNOTATION_SESSION,
-        kind: 'late-bound',
-        label: 'suppress/unsuppress annotation ids',
-        phase: 'event-time',
-        evidence: 'createPdfAnnotationSession wires comment model callbacks to annotations.commentSync after construction.',
     },
 ];
 

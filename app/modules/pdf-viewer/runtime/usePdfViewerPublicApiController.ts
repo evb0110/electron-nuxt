@@ -1,14 +1,30 @@
 import type { Ref } from 'vue';
+import type { Merge } from 'type-fest';
 import type { TPdfDocumentSession } from '@app/modules/pdf-viewer/runtime/sessions/pdfDocumentSession';
 import type { TPdfViewportSession } from '@app/modules/pdf-viewer/runtime/sessions/createPdfViewportSession';
 import type { TPdfAnnotationSession } from '@app/modules/pdf-viewer/runtime/sessions/createPdfAnnotationSession';
-import { createPdfViewerPublicApi } from '@app/modules/pdf-viewer/runtime/contracts/createPdfViewerPublicApi';
-import type { TPdfViewerPublicApiSource } from '@app/modules/pdf-viewer/runtime/contracts/createPdfViewerPublicApi';
 import type { IPdfViewerExpose } from '@app/modules/pdf-viewer/runtime/contracts/pdfViewerExpose.types';
 import { DEFAULT_ANNOTATION_SETTINGS } from '@app/constants/annotationDefaults';
 import { toShapeAnnotationCommentSummary } from '@app/modules/pdf-viewer/engine/annotations/shape-annotation-comments/toShapeAnnotationCommentSummary';
 import { getPageContainerByNumber } from '@app/modules/pdf-viewer/engine/pdf-scroll-visibility/getPageContainerByNumber';
 import { toSelectedTextMarkupComment } from '@app/modules/pdf-viewer/annotations/usePdfAnnotationColorCommands';
+
+type TPdfViewerPublicApiRefBackedKeys =
+    | 'annotationHistoryMutationVersion'
+    | 'annotationHistoryResetVersion'
+    | 'hasShapes'
+    | 'isCapturingRegion'
+    | 'isCropSelecting'
+    | 'selectedShapeId';
+
+type TPdfViewerRefBackedSource = {
+    [TKey in TPdfViewerPublicApiRefBackedKeys]-?: Readonly<Ref<Exclude<IPdfViewerExpose[TKey], undefined>>>;
+};
+
+type TPdfViewerPublicApiSource = Merge<
+    Omit<IPdfViewerExpose, TPdfViewerPublicApiRefBackedKeys>,
+    TPdfViewerRefBackedSource
+>;
 
 interface IUsePdfViewerPublicApiControllerOptions {
     viewerContainer: Ref<HTMLElement | null>;
@@ -44,7 +60,9 @@ interface IUsePdfViewerPublicApiControllerOptions {
     requestScrollToCurrentResult: IPdfViewerExpose['requestScrollToCurrentResult'];
 }
 
-export const usePdfViewerPublicApiController = (options: IUsePdfViewerPublicApiControllerOptions) => {
+export const usePdfViewerPublicApiController = (
+    options: IUsePdfViewerPublicApiControllerOptions,
+): TPdfViewerPublicApiSource => {
     const {
         annotationSession,
         documentSession,
@@ -103,7 +121,7 @@ export const usePdfViewerPublicApiController = (options: IUsePdfViewerPublicApiC
         return renderAnnotationPage(pageNumber);
     }
 
-    return createPdfViewerPublicApi({
+    return {
         getViewerContainer: () => options.viewerContainer.value,
         getCurrentPage: () => currentPage.value,
         getPendingNavigationTargetPage: () => viewportSession.singlePageScroll.navigationAnchorPage.value,
@@ -315,5 +333,5 @@ export const usePdfViewerPublicApiController = (options: IUsePdfViewerPublicApiC
         cancelCropSelection: options.cancelCropSelection,
         isCropSelecting: options.isCropSelecting,
         requestScrollToCurrentResult: options.requestScrollToCurrentResult,
-    });
+    };
 };

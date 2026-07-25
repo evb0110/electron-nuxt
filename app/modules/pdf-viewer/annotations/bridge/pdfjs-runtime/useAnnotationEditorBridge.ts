@@ -61,7 +61,7 @@ import {
     decodePdfjsAnnotationStatePatch,
 } from '@app/modules/pdf-viewer/runtime/annotations/pdfjsAnnotationState';
 import type { IPdfjsAnnotationEditorState } from '@app/modules/pdf-viewer/runtime/annotations/pdfjsAnnotationState';
-import { deriveAnnotationId } from '@app/modules/pdf-viewer/annotations/domain/annotationEntity';
+import { deriveAnnotationId } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
 
 type TEditorParamType = Parameters<TAnnotationEditorUIManager['updateParams']>[0];
 type TEditorParamValue = unknown;

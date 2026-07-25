@@ -12,7 +12,7 @@ import {applyCanonicalAnnotationIdentityBindings} from '@app/modules/pdf-viewer/
 import type {IAnnotationCommentSummary} from '@app/types/annotations';
 import type {IBackendAnnotationMutation} from '@app/modules/pdf-viewer/engine/annotations/persistence/backendAnnotationMutation';
 import {getPdfStringValue} from '@app/utils/pdfDict';
-import {asAnnotationId} from '@app/modules/pdf-viewer/annotations/domain/annotationEntity';
+import {asAnnotationId} from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
 
 function comment(overrides: Partial<IAnnotationCommentSummary>): IAnnotationCommentSummary {
     return {

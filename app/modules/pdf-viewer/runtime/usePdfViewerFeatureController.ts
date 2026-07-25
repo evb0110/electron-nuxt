@@ -379,7 +379,6 @@ export const usePdfViewerFeatureController = (props: IPdfViewerProps, emit: IPdf
         handleDragStart: event => startDrag(event, viewerContainer.value),
         handleDragMove: event => onDrag(event, viewerContainer.value),
         stopDrag,
-        handleViewerMouseUpAnnotation: () => annotationSession.highlightComposable.handleViewerMouseUp(),
         handleViewerClickAnnotation: event => annotationSession.commentCrud.handleAnnotationCommentClick(event),
         handleViewerDblClickAnnotation: event => annotationSession.commentCrud.handleAnnotationEditorDblClick(event),
         handleViewerContextMenuAnnotation: event => annotationSession.commentCrud.handleAnnotationCommentContextMenu(event),

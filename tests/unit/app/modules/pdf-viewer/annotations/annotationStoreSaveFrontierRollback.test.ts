@@ -3,7 +3,10 @@ import {
     expect,
     it,
 } from 'vitest';
-import {asAnnotationId} from '@app/modules/pdf-viewer/annotations/domain/annotationEntity';
+import {
+    asAnnotationId,
+    type IStickyNoteEntity,
+} from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
 import {AnnotationStore} from '@app/modules/pdf-viewer/annotations/domain/annotationStore';
 import {AnnotationApplication} from '@app/modules/pdf-viewer/annotations/annotationApplication';
 import {requireDocumentRevisionToken} from '@contracts';
@@ -35,6 +38,28 @@ function importPersistedHighlight(store: AnnotationStore) {
         opacity: 1,
     });
     return annotationId;
+}
+
+function stickyNote(id: string, text: string, left: number): IStickyNoteEntity {
+    return {
+        kind: 'sticky-note',
+        identity: {id: asAnnotationId(id)},
+        pageIndex: 0,
+        revision: 0,
+        persistedRevision: -1,
+        deleted: false,
+        createdAt: null,
+        modifiedAt: null,
+        author: null,
+        text,
+        anchor: {
+            left,
+            top: 0.2,
+            width: 0.01,
+            height: 0.01,
+        },
+        color: '#ffcc00',
+    };
 }
 
 describe('AnnotationStore save frontier rollback', () => {
@@ -97,7 +122,7 @@ describe('AnnotationStore save frontier rollback', () => {
         expect(primed && 'geometry' in primed ? primed.geometry : null).toEqual(geometry);
         expect(() => application.assertSaveCurrent(session)).not.toThrow();
 
-        application.setStyle(created.identity.id, {color: '#ff0000'});
+        application.store.setStyle(created.identity.id, {color: '#ff0000'});
         application.store.bindIdentity({
             annotationId: created.identity.id,
             expectedRevision: 1,
@@ -273,39 +298,11 @@ describe('AnnotationStore save frontier rollback', () => {
 
     it('preserves post-frontier application mutations when a save fails', () => {
         const application = new AnnotationApplication('document');
-        application.createStickyNote({
-            kind: 'sticky-note',
-            pageIndex: 0,
-            createdAt: null,
-            modifiedAt: null,
-            author: null,
-            text: 'note to persist',
-            anchor: {
-                left: 0.1,
-                top: 0.2,
-                width: 0.01,
-                height: 0.01,
-            },
-            color: '#ffcc00',
-        });
+        application.store.createStickyNote(stickyNote('note-to-persist', 'note to persist', 0.1));
         const session = application.beginSave();
 
         // A second note is created after the frontier; the save then fails.
-        application.createStickyNote({
-            kind: 'sticky-note',
-            pageIndex: 0,
-            createdAt: null,
-            modifiedAt: null,
-            author: null,
-            text: 'created after save started',
-            anchor: {
-                left: 0.3,
-                top: 0.4,
-                width: 0.01,
-                height: 0.01,
-            },
-            color: '#ffcc00',
-        });
+        application.store.createStickyNote(stickyNote('post-frontier-note', 'created after save started', 0.3));
         expect(() => application.assertSaveCurrent(session)).toThrow('staleRevisionError');
 
         application.rollbackSave(session);

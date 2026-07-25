@@ -16,7 +16,7 @@ import type {
     ITextMarkupOverlapCandidate,
     ITextMarkupSelectionProjection,
     TAnnotationStyle,
-} from '@app/modules/pdf-viewer/annotations/domain/annotationEntity';
+} from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
 import {
     buildTextMarkupSelectionPlan,
     normalizeAnnotationText,
@@ -26,7 +26,7 @@ import {
     semanticSnapshot,
     semanticSnapshotsEqual,
     snapshotOfKind,
-} from '@app/modules/pdf-viewer/annotations/domain/annotationEntity';
+} from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
 import { ExternalIdentityIndex } from '@app/modules/pdf-viewer/annotations/domain/externalIdentityIndex';
 import {
     findImportedShapeMatchIndex,
