@@ -175,7 +175,6 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
         if (commit.pageNumber !== authoritativePageNumber) {
             return;
         }
-        const generation = surface.snapshot.value.generation;
         const fence = options.openSurfaceRenderOwner && surface.createOwnedRenderFence(options.openSurfaceRenderOwner, {
             generation: commit.openSurfaceGeneration,
             documentRevision: commit.documentRevision,
@@ -194,7 +193,7 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
             commit.pageNumber,
             {
                 authoritativePageNumber,
-                expectedGeneration: generation,
+                expectedGeneration: surface.snapshot.value.generation,
                 minimumScrollHeight: viewport.openVirtualSurfaceGeometry.openingVirtualExtentMinimumScrollHeight.value,
                 requireVisibleSkeleton: false,
             },
@@ -316,8 +315,7 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
         );
     }
     function isPreparedRasterCurrent(prepared: IPreparedViewportRaster) {
-        const currentJob = viewportRasterJobs.get(prepared.job.demand.renderKey);
-        return currentJob === prepared.job
+        return viewportRasterJobs.get(prepared.job.demand.renderKey) === prepared.job
             && prepared.job.demand.consumerGeneration === renderVersion
             && documentSession.pdfDocument.value !== null
             && activeRasterScheduler === documentSession.rasterScheduler
@@ -346,7 +344,6 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
             const version = demand.consumerGeneration;
             const scale = viewport.scale.effectiveScale.value;
             const requestId = ++visibleRenderRequestId;
-            const preserveCommittedVisual = pageRenderState.getSlot(pageNumber).canvasReadiness === 'ready';
             pageRenderState.beginRender(
                 pageNumber,
                 version,
@@ -355,7 +352,7 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
                 scale,
                 options.outputScale.value,
                 target.container,
-                {preserveCommittedVisual},
+                {preserveCommittedVisual: pageRenderState.getSlot(pageNumber).canvasReadiness === 'ready'},
             );
             const shouldContinue = () => (
                 version === renderVersion
@@ -497,8 +494,7 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
                 ? renderOptions.transactionRequest?.priority === 'authoritative'
                     ? 'navigation-target' : 'viewport-visible'
                 : distance <= 1 ? 'viewport-nearby' : 'prefetch';
-            const buffered = lane === 'viewport-nearby' || lane === 'prefetch';
-            const pageRenderOptions = buffered ? {
+            const pageRenderOptions = lane === 'viewport-nearby' || lane === 'prefetch' ? {
                 ...renderOptions,
                 contentIntent: 'canvas-only-buffer' as const,
                 ...(renderOptions.bufferMaxCanvasPixels ?? renderOptions.maxCanvasPixels
@@ -559,8 +555,7 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
             },
         ) ?? {};
         if (renderOptions.contentIntent === 'layers-only-promotion') {
-            await pageRenderer.renderLayerPromotions(range, renderOptions);
-            return;
+            return pageRenderer.renderLayerPromotions(range, renderOptions);
         }
         const document = documentSession.pdfDocument.value;
         if (!document || !rasterOperational.value) {
@@ -575,9 +570,7 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
         ) {
             return;
         }
-        if (didHydrateMetrics) {
-            viewport.setupPagePlaceholders();
-        }
+        if (didHydrateMetrics) viewport.setupPagePlaceholders();
         const scheduler = documentSession.rasterScheduler;
         if (!scheduler || document !== documentSession.pdfDocument.value) {
             return;
@@ -656,8 +649,12 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
         currentSearchMatchNavigationId: options.currentSearchMatchNavigationId,
         workingCopyPath: options.workingCopyPath,
         documentRevisionToken: options.documentRevisionToken,
-        onPageRendered: (pageNumber) => {
-            options.markDelayedSkeletonPageRendered(pageNumber);
+        onPageRendered: options.markDelayedSkeletonPageRendered,
+        onPageLayersCommitted: (signal, fence) => {
+            if (!documentSession.isCurrent(fence)) {
+                return;
+            }
+            textMarkupPresentation.value?.notify(signal);
         },
         onRenderedPageStateChanged: () => {
             renderedPageStateVersion.value += 1;
@@ -675,6 +672,7 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
             prioritizeTextLayer: true,
         }),
     });
+    const textMarkupPresentation = shallowRef<NonNullable<Parameters<typeof pageRenderer.attachAnnotationProjection>[0]['textMarkupPresentation']> | null>(null);
     function bumpRenderVersion() {
         renderVersion += 1;
         viewportDemandGeneration += 1;
@@ -766,12 +764,11 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
     }
     async function cleanupRenderedPages() {
         bumpRenderVersion();
-        const pages = new Set([
+        new Set([
             ...pageCanvases.keys(),
             ...pageRenderState.renderedPages,
             ...pageRenderState.renderingPages.keys(),
-        ]);
-        pages.forEach(pageNumber => clearAuthoritativePage(pageNumber, false));
+        ]).forEach(pageNumber => clearAuthoritativePage(pageNumber, false));
         await pageRenderer.cleanupAllLayers();
         documentSession.cleanupPageCache();
     }
@@ -1073,10 +1070,8 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
         applySearchHighlights: pageRenderer.applySearchHighlights,
     });
     watch(options.outputScale, (nextScale, previousScale) => {
-        if (nextScale === previousScale || !documentSession.pdfDocument.value || documentSession.isLoading.value) {
-            return;
-        }
-        if (shouldDeferPdfDprRerenderForResize(options.isResizing.value)) {
+        if (nextScale === previousScale || !documentSession.pdfDocument.value || documentSession.isLoading.value
+            || shouldDeferPdfDprRerenderForResize(options.isResizing.value)) {
             return;
         }
         runGuardedTask(
@@ -1093,6 +1088,7 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
             return;
         }
         if (transition.phase === 'loading') {
+            textMarkupPresentation.value?.notify({kind: 'document-invalidated'});
             pendingInitialVisualReadyToken = transition.fence.loadToken;
             reconcileInitialVisual();
             if (transition.plan.isSelectiveReload && transition.plan.pagesToInvalidate) {
@@ -1102,8 +1098,8 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
             } else if (!transition.plan.preserveVisibleContent) {
                 await cleanupRenderedPages();
             }
-            return;
         } else if (transition.phase === 'invalidated') {
+            textMarkupPresentation.value?.notify({kind: 'document-invalidated'});
             pendingInitialVisualReadyToken = null;
             pageRenderer.cancelPendingSearchScroll();
             await cancelInFlightRenders();
@@ -1158,6 +1154,10 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
     });
     return {
         ...pageRenderer,
+        attachAnnotationProjection(attached: Parameters<typeof pageRenderer.attachAnnotationProjection>[0]) {
+            textMarkupPresentation.value = attached.textMarkupPresentation ?? null;
+            return pageRenderer.attachAnnotationProjection(attached, textMarkupPresentation);
+        },
         renderVisiblePages,
         reRenderAllVisiblePages,
         cancelInFlightRenders,

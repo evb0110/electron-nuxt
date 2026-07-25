@@ -4,6 +4,7 @@ import type {
     ShallowRef,
 } from 'vue';
 import type { IPdfjsL10n } from '@app/types/pdfjs';
+import type { ITextMarkupPresentationController } from '@app/modules/pdf-viewer/runtime/annotations/useTextMarkupPresentationController';
 import type {
     IPageRange,
     IPdfPageMatches,
@@ -37,8 +38,8 @@ interface IPdfAnnotationProjection {
     readonly hiddenAnnotationIds: Readonly<Ref<Set<string>>>;
     readonly canvasHiddenAnnotationIds: Readonly<Ref<Set<string>>>;
     readonly managedAnnotationIds: Readonly<Ref<Set<string>>>;
+    readonly textMarkupPresentation?: ITextMarkupPresentationController | undefined;
     replaceAnnotationUiManager(manager: AnnotationEditorUIManager): void;
-    pageLayersRendered(pageNumber: number, container: HTMLElement): void;
     pageCommitted(pageNumber: number): void;
 }
 
@@ -299,8 +300,6 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
         cleanupPageIfCurrentRender,
         logNonCriticalStageError,
         renderSupervisor,
-        onAnnotationLayersRendered: (pageNumber, container) =>
-            projection.value?.pageLayersRendered(pageNumber, container),
     });
     const renderTextLayerForPage = usePdfRendererTextLayerController({
         textLayerRenderer,
@@ -343,10 +342,12 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
             options.onRenderedPageStateChanged?.();
             return;
         }
+        const documentFence = options.document.captureFence();
         const lease = await options.document.leasePage(pageNumber);
         const shouldContinue = () => {
             const slot = pageRenderState.getSlot(pageNumber);
-            return options.getRenderVersion() === version
+            return options.document.isCurrent(documentFence)
+                && options.getRenderVersion() === version
                 && slot.contentVersion === version
                 && slot.container === container
                 && container.isConnected !== false
@@ -393,6 +394,13 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
             if (!pageRenderState.completeRender(pageNumber, version, requestId)) {
                 return;
             }
+            if (!shouldContinue()) {
+                return;
+            }
+            options.onPageLayersCommitted?.({
+                kind: 'page-layer-committed',
+                pageNumber,
+            }, documentFence);
             options.onPageRendered?.(pageNumber);
             options.onRenderedPageStateChanged?.();
             if (priority === 'text-first') {
@@ -598,10 +606,22 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
                 pageContainer: container,
             });
         },
-        attachAnnotationProjection(attached: IPdfAnnotationProjection) {
+        attachAnnotationProjection(
+            attached: IPdfAnnotationProjection,
+            presentation?: Ref<IPdfAnnotationProjection['textMarkupPresentation'] | null>,
+        ) {
             projection.value = attached;
+            if (presentation) {
+                presentation.value = attached.textMarkupPresentation ?? null;
+            }
             return () => {
-                if (projection.value === attached) projection.value = null;
+                if (projection.value !== attached) {
+                    return;
+                }
+                projection.value = null;
+                if (presentation) {
+                    presentation.value = null;
+                }
             };
         },
     };

@@ -6,7 +6,10 @@ import type {
     MaybeRefOrGetter,
     Ref,
 } from 'vue';
-import type { TPdfDocumentSession } from '@app/modules/pdf-viewer/runtime/sessions/pdfDocumentSession';
+import type {
+    IPdfDocumentFence,
+    TPdfDocumentSession,
+} from '@app/modules/pdf-viewer/runtime/sessions/pdfDocumentSession';
 import type { IScrollToPageOptions } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfScroll';
 import type {
     IPdfPageMatches,
@@ -50,6 +53,13 @@ export interface IUsePdfPageRendererOptions {
     workingCopyPath?: MaybeRefOrGetter<TDocumentRef | null>;
     documentRevisionToken?: MaybeRefOrGetter<TDocumentRevisionToken | null>;
     onPageRendered?: (pageNumber: number) => void;
+    onPageLayersCommitted?: (
+        signal: {
+            kind: 'page-layer-committed';
+            pageNumber: number;
+        },
+        fence: IPdfDocumentFence,
+    ) => void;
     onRenderedPageStateChanged?: () => void;
     renderSupervisor?: IPdfRenderSupervisor | undefined;
     /** RenderingSession owns this state; the post-canvas runtime only derives from it. */

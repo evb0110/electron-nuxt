@@ -28,7 +28,6 @@ interface IUsePdfRendererAnnotationLayerControllerOptions {
     cleanupPageIfCurrentRender: (pageNumber: number, version: number, requestId?: number) => void;
     logNonCriticalStageError: (pageNumber: number, stage: string, error: unknown) => void;
     renderSupervisor?: IPdfRenderSupervisor | undefined;
-    onAnnotationLayersRendered?: ((pageNumber: number, container: HTMLElement) => void) | undefined;
 }
 
 export const usePdfRendererAnnotationLayerController = (options: IUsePdfRendererAnnotationLayerControllerOptions) => {
@@ -39,7 +38,6 @@ export const usePdfRendererAnnotationLayerController = (options: IUsePdfRenderer
         getRenderVersion,
         cleanupPageIfCurrentRender,
         logNonCriticalStageError,
-        onAnnotationLayersRendered,
     } = options;
     const activeAnnotationLayerAbortControllers = new Map<number, AbortController>();
 
@@ -199,15 +197,6 @@ export const usePdfRendererAnnotationLayerController = (options: IUsePdfRenderer
 
         }
 
-        try {
-            onAnnotationLayersRendered?.(pageNumber, container);
-        } catch (error) {
-            logNonCriticalStageError(
-                pageNumber,
-                'annotation color sync',
-                error,
-            );
-        }
         if (getRenderVersion() !== version || !shouldContinue()) {
             if (!preserveCanvasOnStale) {
                 cleanupPageIfCurrentRender(pageNumber, version, requestId);
