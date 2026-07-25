@@ -643,14 +643,20 @@ describe('PdfRenderingSession behavior', () => {
             fixture.renderTasks[0]!.resolve();
             await vi.waitFor(() => expect(fixture.canvasHost.querySelector('canvas')).not.toBeNull());
             const resident = fixture.canvasHost.querySelector('canvas');
+            expect(fixture.rendering.isPageRenderedForClass(3)).toBe(true);
+            expect(fixture.rendering.isPageVisualReady(3)).toBe(true);
 
             fixture.outputScale.value = 2;
             await vi.waitFor(() => expect(fixture.renderTasks).toHaveLength(2));
             expect(fixture.canvasHost.querySelector('canvas')).toBe(resident);
+            expect(fixture.rendering.isPageRenderedForClass(3)).toBe(true);
+            expect(fixture.rendering.isPageVisualReady(3)).toBe(false);
 
             fixture.renderTasks[1]!.resolve();
             await vi.waitFor(() => expect(fixture.canvasHost.querySelector('canvas')).not.toBe(resident));
             expect(resident?.isConnected).toBe(false);
+            expect(fixture.rendering.isPageRenderedForClass(3)).toBe(true);
+            expect(fixture.rendering.isPageVisualReady(3)).toBe(true);
         } finally {
             await fixture.dispose();
         }
@@ -697,6 +703,8 @@ describe('PdfRenderingSession behavior', () => {
 
             expect(fixture.canvasHost.querySelector('canvas')).toBeNull();
             expect(rendererFixture.api.renderCommittedPageLayers).not.toHaveBeenCalled();
+            const renderState = rendererFixture.options?.pageRenderState as TPdfPageRenderState;
+            expect(renderState.getSlot(3).job).toBe('idle');
         } finally {
             await fixture.dispose();
         }
@@ -745,7 +753,6 @@ describe('PdfRenderingSession behavior', () => {
     it('shares the exact in-flight job across overlapping same-key direct requests', async () => {
         const fixture = createRenderingFixture({autoResolve: false});
         try {
-            await vi.waitFor(() => expect(fixture.renderTasks).toHaveLength(1));
             const first = fixture.rendering.renderVisiblePages({
                 start: 3,
                 end: 3,
@@ -754,9 +761,8 @@ describe('PdfRenderingSession behavior', () => {
                 start: 3,
                 end: 3,
             }, {bufferOverride: 0});
-            await Promise.resolve();
 
-            expect(fixture.renderTasks).toHaveLength(1);
+            await vi.waitFor(() => expect(fixture.renderTasks).toHaveLength(1));
             fixture.renderTasks[0]!.resolve();
             await Promise.all([
                 first,

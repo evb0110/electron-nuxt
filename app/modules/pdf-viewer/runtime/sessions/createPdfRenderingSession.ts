@@ -244,25 +244,31 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
             canvasHost,
         } : null;
     }
-    function isCommittedVisualCurrent(pageNumber: number) {
+    function hasCommittedVisual(pageNumber: number) {
         const target = getMountedRasterTarget(pageNumber), canvas = pageCanvases.get(pageNumber);
         if (!target || !canvas) {
+            return false;
+        }
+        const slot = pageRenderState.getSlot(pageNumber);
+        return slot.canvasReadiness === 'ready'
+            && slot.documentToken === getRenderDocumentToken()
+            && slot.container === target.container
+            && target.canvasHost.contains(canvas) && canvas.isConnected
+            && canvas.width > 0 && canvas.height > 0;
+    }
+    function isCommittedVisualCurrent(pageNumber: number) {
+        if (!hasCommittedVisual(pageNumber)) {
             return false;
         }
         const slot = pageRenderState.getSlot(pageNumber);
         const scale = viewport.scale.effectiveScale.value;
         const outputScale = options.outputScale.value;
         const tolerance = (value: number) => Math.max(1, Math.abs(value)) * Number.EPSILON * 8;
-        return slot.canvasReadiness === 'ready'
-            && slot.documentToken === getRenderDocumentToken()
-            && slot.contentVersion === renderVersion
-            && slot.container === target.container
+        return slot.contentVersion === renderVersion
             && slot.targetScale !== null
             && Math.abs(slot.targetScale - scale) <= tolerance(scale)
             && slot.targetOutputScale !== null
-            && Math.abs(slot.targetOutputScale - outputScale) <= tolerance(outputScale)
-            && target.canvasHost.contains(canvas) && canvas.isConnected
-            && canvas.width > 0 && canvas.height > 0;
+            && Math.abs(slot.targetOutputScale - outputScale) <= tolerance(outputScale);
     }
     function getPageRasterState(pageNumber: number): TPdfPageRasterState {
         const slot = pageRenderState.getSlot(pageNumber);
@@ -450,8 +456,15 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
                 job,
                 requestId,
             } = prepared;
-            if (viewportRasterJobs.get(job.demand.renderKey) === job) {
+            if (
+                isPreparedRasterCurrent(prepared)
+                && pageRenderState.getSlot(job.demand.pageNumber).canvasReadiness !== 'ready'
+            ) {
                 pageRenderState.markRenderFailed(
+                    job.demand.pageNumber, job.demand.consumerGeneration, requestId,
+                );
+            } else {
+                pageRenderState.completeRender(
                     job.demand.pageNumber, job.demand.consumerGeneration, requestId,
                 );
             }
@@ -531,14 +544,20 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
                 retention: 'render-cache',
             };
             const existing = viewportRasterJobs.get(demand.renderKey);
-            const job = rasterState === 'in-flight' && existing
-                ? existing
-                : {
-                    demand,
-                    rasterState: rasterState === 'in-flight' ? 'absent' : rasterState,
-                    renderOptions: pageRenderOptions,
-                };
-            if (job !== existing) viewportRasterJobs.set(demand.renderKey, job);
+            const job = existing ?? {
+                demand,
+                rasterState,
+                renderOptions: pageRenderOptions,
+            };
+            if (existing) {
+                Object.assign(existing.demand, demand);
+                existing.renderOptions = pageRenderOptions;
+                if (rasterState !== 'in-flight') {
+                    existing.rasterState = rasterState;
+                }
+            } else {
+                viewportRasterJobs.set(demand.renderKey, job);
+            }
             jobs.push(job);
         }
         return jobs;
@@ -1166,7 +1185,7 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
         isPageRendering: (pageNumber: number) => pageRenderState.getSlot(pageNumber).job === 'rendering',
         renderedPageStateVersion,
         isPageVisualReady,
-        isPageRenderedForClass: isPageVisualReady,
+        isPageRenderedForClass: hasCommittedVisual,
         isPageRenderFailed: (pageNumber: number) => {
             const slot = pageRenderState.getSlot(pageNumber);
             return slot.job === 'failed' && slot.version === renderVersion;
