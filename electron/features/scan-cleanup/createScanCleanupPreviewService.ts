@@ -559,15 +559,15 @@ function readPngDimensions(bytes: Uint8Array, maxPixels = 45_000_000) {
     };
 }
 
-async function renderDetailRaster(
-    request: Pick<IScanCleanupPreviewRequest, 'sourcePdfPath'>,
+async function renderRasterToDisk(
+    sourcePdfPath: string,
     pageNumber: number,
     outputPath: string,
     signal: AbortSignal,
     dependencies: IScanCleanupPreviewDependencies,
     renderDpi: number,
-    maxPixels: number,
-    crop: {
+    maxPixels?: number,
+    crop?: {
         x: number;
         y: number;
         width: number;
@@ -578,7 +578,7 @@ async function renderDetailRaster(
         {pdftoppmBinary: dependencies.getPdftoppmBinary()},
         (level, message) => logger[level](message),
         pageNumber,
-        request.sourcePdfPath,
+        sourcePdfPath,
         outputPath,
         renderDpi,
         undefined,
@@ -590,7 +590,7 @@ async function renderDetailRaster(
         const header = Buffer.alloc(24);
         const {bytesRead} = await handle.read(header, 0, header.byteLength, 0);
         if (bytesRead !== header.byteLength) {
-            throw new Error('Scan cleanup detail raster produced a truncated PNG');
+            throw new Error('Scan cleanup raster produced a truncated PNG');
         }
         return readPngDimensions(header, maxPixels);
     } finally {
@@ -719,8 +719,8 @@ async function runDetailPreview(
             );
         }
         const inputPath = join(scratch, `detail-source-${half}.png`);
-        const renderedSource = await renderDetailRaster(
-            request,
+        const renderedSource = await renderRasterToDisk(
+            request.sourcePdfPath,
             request.pageNumber,
             inputPath,
             signal,
@@ -1171,7 +1171,6 @@ async function mapDetectionPages<T>(
 async function runDetection(
     request: IScanCleanupDetectionRequest,
     signal: AbortSignal,
-    rawCache: Map<string, IRawPreview>,
     dependencies: IScanCleanupPreviewDependencies,
     publish: (results: IScanCleanupDetectionResult[], progress: TScanCleanupProgress) => void,
 ) {
@@ -1190,14 +1189,13 @@ async function runDetection(
         const manifestPages = await mapDetectionPages(pageNumbers, async pageNumber => {
             if (signal.aborted) throw signal.reason;
             const inputPath = join(scratch, `source-${pageNumber}.png`);
-            await materializeRawRaster(
-                request,
+            await renderRasterToDisk(
+                request.sourcePdfPath,
                 pageNumber,
                 inputPath,
                 signal,
-                rawCache,
                 dependencies,
-                totalPages,
+                PREVIEW_DPI,
             );
             return {
                 inputPath,
@@ -1599,7 +1597,6 @@ export function createScanCleanupPreviewService(
                         const detection = await runDetection(
                             materializedRequest,
                             job.signal,
-                            rawCache,
                             dependencies,
                             (nextResults, progress) => job.publish({
                                 jobId,

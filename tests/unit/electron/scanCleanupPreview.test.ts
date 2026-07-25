@@ -3,6 +3,7 @@ import {
     readFile,
     rm,
     stat,
+    truncate,
     writeFile,
 } from 'fs/promises';
 import {tmpdir} from 'os';
@@ -1863,7 +1864,52 @@ describe('scan cleanup preview', () => {
         });
     });
 
-    it('streams a brokered detect-all lifecycle and reuses preview rasters', async () => {
+    it('rasterizes detection pages straight to disk instead of buffering them', async () => {
+        const dir = await setup();
+        const deps = dependencies(dir);
+        deps.acquireDetectionLease = vi.fn(async () => ({release: vi.fn(() => true)}));
+        deps.renderPage = vi.fn(async (_paths, _log, _page, _source, outputPath) => {
+            await writeFile(outputPath, pngWithDimensions(883, 1335));
+            // Sparse padding well past what the preview path is willing to hold
+            // in memory: detection must never read a rendered page back.
+            await truncate(outputPath, 48 * 1024 * 1024);
+        });
+        deps.runSidecar = vi.fn(async (_binary, manifestPath, _signal, _log, onProgress) => {
+            await writeDetectionMetadata(manifestPath);
+            for (const pageNumber of [
+                1,
+                2,
+                3,
+            ]) {
+                onProgress({
+                    stage: 'detecting',
+                    completedUnits: pageNumber,
+                    totalUnits: 3,
+                    percent: pageNumber / 3 * 100,
+                    completedPageNumbers: Array.from({length: pageNumber}, (_, index) => index + 1),
+                }, {
+                    stage: 'page-complete',
+                    completedPages: pageNumber,
+                    totalPages: 3,
+                    pageNumber,
+                    classification: 'single-uncut-page',
+                    confidence: 0.9,
+                });
+            }
+        });
+        const service = createScanCleanupPreviewService(deps);
+        const owner = sender();
+        const started = await service.detectAll(owner, detectionRequest);
+
+        await vi.waitFor(() => expect(service.getDetectionJobState(
+            owner,
+            started.jobId,
+            detectionRequest,
+        )?.status).toBe('completed'));
+        expect(service.getDetectionJobState(owner, started.jobId, detectionRequest)?.results).toHaveLength(3);
+    });
+
+    it('streams a brokered detect-all lifecycle and leaves the raw cache to preview requests', async () => {
         const dir = await setup();
         const deps = dependencies(dir);
         const originalSidecar = deps.runSidecar;
@@ -2013,8 +2059,19 @@ describe('scan cleanup preview', () => {
             ],
         });
         expect(deps.acquireDetectionLease).toHaveBeenCalledWith(started.jobId, expect.any(AbortSignal));
-        expect(deps.renderPage).toHaveBeenCalledTimes(3);
+        expect(deps.renderPage).toHaveBeenCalledTimes(4);
         expect(peakRasters).toBe(2);
+
+        const rawRequest = (pageNumber: number) => ({
+            ownerId: request.ownerId,
+            documentRevision: request.documentRevision,
+            sourcePdfPath: request.sourcePdfPath,
+            pageNumber,
+        });
+        await service.previewRaw(sender(), rawRequest(2));
+        expect(deps.renderPage).toHaveBeenCalledTimes(5);
+        await service.previewRaw(sender(), rawRequest(1));
+        expect(deps.renderPage).toHaveBeenCalledTimes(5);
     });
 
     it.each([
