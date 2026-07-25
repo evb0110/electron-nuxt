@@ -35,7 +35,8 @@ import {
     buildPopplerEnv,
     type IPopplerRuntimePaths,
 } from '@electron/native-tools/buildPopplerEnv';
-import { clampDpi } from '@electron/image/imageDpi';
+import { detectSourceDpiDetails } from '@electron/pdf/sourceDpiDetection';
+import { forEachConcurrent } from '@electron/utils/concurrency';
 import { runNativeToolCommand } from '@electron/native-tools/runNativeToolCommand';
 import { createLogger } from '@electron/utils/createLogger';
 import { measureElectronPerfAsync } from '@electron/utils/measureElectronPerfAsync';
@@ -65,7 +66,9 @@ import {
 } from '@electron/utils/managedScratchTemp';
 import {
     addStagedImageFileBytes,
-    IMAGE_EXPORT_MAX_RENDER_DIMENSION,
+    type IExportPageSize,
+    IMAGE_EXPORT_MAX_NETPBM_READ_BYTES,
+    resolveExportRenderDpi,
     validateRenderedImagePageFiles,
 } from '@electron/features/image-export/main/imageExportResourceLimits';
 import {
@@ -103,10 +106,11 @@ interface IExportPageRange {
 
 const logger = createLogger('image-export');
 const __dirname = dirnameFromPath(fileURLToPath(import.meta.url));
-const PDFIMAGES_DPI_PROBE_TIMEOUT_MS = 30 * 1000;
+const PDFINFO_PAGE_SIZE_TIMEOUT_MS = 30 * 1000;
 const PDFTOPPM_TIMEOUT_MS = 3 * 60 * 1000;
 const QPDF_TIMEOUT_MS = 2 * 60 * 1000;
-const IMAGE_EXPORT_MAX_NETPBM_READ_BYTES = 192 * 1024 * 1024;
+const PDF_EXPORT_DPI_PROBE_SAMPLE_PAGES = 8;
+const PDF_EXPORT_PPM_CONVERT_CONCURRENCY = parseIntegerEnv('EVB_PDF_IMAGE_EXPORT_CONVERT_CONCURRENCY', 4, 1, 16);
 const PDF_EXPORT_MAX_PAGES = parseIntegerEnv('EVB_PDF_IMAGE_EXPORT_MAX_PAGES', 500, 1, 10_000);
 const PDF_EXPORT_RENDER_CHUNK_PAGES = parseIntegerEnv('EVB_PDF_IMAGE_EXPORT_RENDER_CHUNK_PAGES', 25, 1, 100);
 const PDF_EXPORT_PNG_RENDER_CHUNK_PAGES = parseIntegerEnv('EVB_PDF_IMAGE_EXPORT_PNG_RENDER_CHUNK_PAGES', 5, 1, 25);
@@ -448,46 +452,42 @@ function throwIfAborted(signal?: AbortSignal) {
     }
 }
 
-function parsePdfImagesListDpi(output: string) {
-    let detectedDpi = 0;
+function parsePdfInfoPageSizes(output: string) {
+    const pageSizes: IExportPageSize[] = [];
     for (const line of output.split(/\r?\n/u)) {
-        const parts = line.trim().split(/\s+/u);
-        if (parts.length < 14) {
+        const match = line.match(/^Page(?:\s+\d+)?\s+size:\s+([\d.]+)\s*x\s*([\d.]+)\s*pts/u);
+        if (!match) {
             continue;
         }
 
-        const xPpi = Number.parseInt(parts[12] ?? '', 10);
-        const yPpi = Number.parseInt(parts[13] ?? '', 10);
-        const dpi = Math.max(
-            Number.isFinite(xPpi) ? xPpi : 0,
-            Number.isFinite(yPpi) ? yPpi : 0,
-        );
-        if (dpi > 0) {
-            detectedDpi = Math.max(detectedDpi, dpi);
+        const widthPts = Number.parseFloat(match[1] ?? '');
+        const heightPts = Number.parseFloat(match[2] ?? '');
+        if (!Number.isFinite(widthPts) || !Number.isFinite(heightPts) || widthPts <= 0 || heightPts <= 0) {
+            continue;
         }
+
+        pageSizes.push({
+            widthPts,
+            heightPts,
+        });
     }
 
-    return detectedDpi > 0 ? detectedDpi : null;
+    return pageSizes;
 }
 
-async function detectExportDpi(
+async function readExportPageSizes(
     pdfPath: string,
-    pdfimagesBinary: string | undefined,
-    popplerRuntimePaths: IPopplerRuntimePaths,
-    pageRange: IExportPageRange,
+    popplerRuntimePaths: IPopplerRuntimePaths & { pdfinfo: string },
+    pageCount: number,
     signal?: AbortSignal,
     cancelGroup?: string,
 ) {
-    if (!pdfimagesBinary) {
-        return null;
-    }
-
     throwIfAborted(signal);
     try {
         const popplerEnv = buildPopplerEnv(popplerRuntimePaths);
         const commandOptions: Parameters<typeof runNativeToolCommand>[2] = {
-            timeoutMs: PDFIMAGES_DPI_PROBE_TIMEOUT_MS,
-            commandLabel: 'pdfimages(export-dpi)',
+            timeoutMs: PDFINFO_PAGE_SIZE_TIMEOUT_MS,
+            commandLabel: 'pdfinfo(export-page-size)',
             ...(signal ? { signal } : {}),
             ...(cancelGroup ? { cancelGroup } : {}),
         };
@@ -495,25 +495,59 @@ async function detectExportDpi(
             commandOptions.env = popplerEnv;
         }
 
-        const result = await runNativeToolCommand(pdfimagesBinary, [
+        const result = await runNativeToolCommand(popplerRuntimePaths.pdfinfo, [
             '-f',
-            String(pageRange.firstPage),
+            '1',
             '-l',
-            String(pageRange.lastPage),
-            '-list',
+            String(pageCount),
             pdfPath,
         ], commandOptions);
-        return parsePdfImagesListDpi(result.stdout);
+        return parsePdfInfoPageSizes(result.stdout);
     } catch (error) {
         if (signal?.aborted) {
             throw signal.reason instanceof Error ? signal.reason : error;
         }
 
-        logger.debug(
-            `pdfimages export DPI probe failed for pages ${pageRange.firstPage}-${pageRange.lastPage}: ${getErrorMessage(error)}`,
-        );
-        return null;
+        logger.debug(`pdfinfo export page-size probe failed: ${getErrorMessage(error)}`);
+        return [];
     }
+}
+
+function selectDpiProbePages(pageCount: number) {
+    const sampleCount = Math.min(pageCount, PDF_EXPORT_DPI_PROBE_SAMPLE_PAGES);
+    if (sampleCount < 2) {
+        return [1];
+    }
+
+    return uniq(range(0, sampleCount).map(index => 1 + Math.round((index * (pageCount - 1)) / (sampleCount - 1))));
+}
+
+async function detectExportRenderDpi(
+    pdfPath: string,
+    popplerRuntimePaths: IPopplerRuntimePaths & {
+        pdfinfo: string;
+        pdfimages?: string;
+    },
+    pageCount: number,
+    signal?: AbortSignal,
+    cancelGroup?: string,
+) {
+    const [
+        pageSizes,
+        detection,
+    ] = await Promise.all([
+        readExportPageSizes(pdfPath, popplerRuntimePaths, pageCount, signal, cancelGroup),
+        detectSourceDpiDetails(
+            pdfPath,
+            popplerRuntimePaths.pdfimages,
+            (level, message) => logger[level](message),
+            buildPopplerEnv(popplerRuntimePaths),
+            signal,
+            selectDpiProbePages(pageCount),
+        ),
+    ]);
+
+    return resolveExportRenderDpi(detection.documentDpi, pageSizes);
 }
 
 export async function getPdfPageCount(
@@ -572,6 +606,7 @@ async function renderPdfToTempPages(
     format: TImageExportFormat,
     pageRange: IExportPageRange,
     tempDir: string,
+    renderDpi: number,
     signal?: AbortSignal,
     cancelGroup?: string,
 ): Promise<IRenderedPageFile[]> {
@@ -579,17 +614,6 @@ async function renderPdfToTempPages(
     const paths = getPdfNativeToolPaths();
     throwIfAborted(signal);
 
-    const detectedDpi = await detectExportDpi(
-        pdfPath,
-        paths.pdfimages,
-        paths,
-        pageRange,
-        signal,
-        cancelGroup,
-    );
-    const renderDpi = clampDpi(detectedDpi ?? 300);
-
-    throwIfAborted(signal);
     const renderFormat: TPageRenderFormat = format === 'png' ? 'ppm' : format;
     const popplerEnv = buildPopplerEnv(paths);
     const commandOptions: Parameters<typeof runNativeToolCommand>[2] = {
@@ -606,8 +630,6 @@ async function renderPdfToTempPages(
         ...toPdftoppmFormatArgs(renderFormat),
         '-r',
         String(renderDpi),
-        '-scale-to',
-        String(IMAGE_EXPORT_MAX_RENDER_DIMENSION),
         '-f',
         String(pageRange.firstPage),
         '-l',
@@ -639,10 +661,10 @@ async function renderPdfToTempPages(
     }
 
     if (renderFormat === 'ppm') {
-        for (const pageFile of pageFiles) {
+        await forEachConcurrent(pageFiles, PDF_EXPORT_PPM_CONVERT_CONCURRENCY, async (pageFile) => {
             throwIfAborted(signal);
             pageFile.path = await convertRenderedPpmToPng(pageFile.path, signal, cancelGroup);
-        }
+        });
     }
 
     await validateRenderedImagePageFiles(pageFiles);
@@ -767,6 +789,13 @@ export async function exportPdfPagesAsImages(
             ...(options.cancelGroup ? { cancelGroup: options.cancelGroup } : {}),
         });
         assertExportPageCountWithinLimit(pageCount);
+        const renderDpi = await detectExportRenderDpi(
+            preparedSourcePdf,
+            getPdfNativeToolPaths(),
+            pageCount,
+            options.signal,
+            options.cancelGroup,
+        );
         const exportedPaths = resolveOutputPathConflicts(buildImageExportOutputPaths(
             normalizedPath,
             pageCount,
@@ -799,6 +828,7 @@ export async function exportPdfPagesAsImages(
                         format,
                         pageRange,
                         tempDir,
+                        renderDpi,
                         options.signal,
                         options.cancelGroup,
                     );
@@ -1009,6 +1039,13 @@ export async function exportPdfAsMultiPageTiff(
                 ...(options.cancelGroup ? { cancelGroup: options.cancelGroup } : {}),
             });
             assertExportPageCountWithinLimit(pageCount);
+            const renderDpi = await detectExportRenderDpi(
+                preparedSourcePdf,
+                getPdfNativeToolPaths(),
+                pageCount,
+                options.signal,
+                options.cancelGroup,
+            );
             const pageFiles: IRenderedPageFile[] = [];
             let stagedPageBytes = 0;
             let renderedPageCount = 0;
@@ -1026,6 +1063,7 @@ export async function exportPdfAsMultiPageTiff(
                     'tiff',
                     pageRange,
                     tempDir,
+                    renderDpi,
                     options.signal,
                     options.cancelGroup,
                 );
