@@ -45,6 +45,12 @@ export default async function setup() {
             `[E2E setup] Isolated shared renderer '${sharedRendererSessionName}' ready`,
             `http://127.0.0.1:${sharedRendererPort}/electron`,
         ].join(' at '));
+    } catch (error) {
+        const pid = sharedRendererProcess?.pid ?? null;
+        if (pid && isProcessAlive(pid)) {
+            await killProcessTree(pid, 1200);
+        }
+        throw error;
     } finally {
         setCurrentSessionName(previousSessionName);
     }

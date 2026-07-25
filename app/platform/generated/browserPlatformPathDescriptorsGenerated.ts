@@ -43,6 +43,8 @@ export const browserPlatformPathDescriptorsGenerated = {
         claimPendingExternalOpenPaths: {kind: 'async', path: ["windowTabs","claimPendingExternalOpenPaths"]},
         acknowledgePendingExternalOpenPaths: {kind: 'async', path: ["windowTabs","acknowledgePendingExternalOpenPaths"]},
         saveWorkspaceCheckpoint: {kind: 'async', path: ["windowTabs","saveWorkspaceCheckpoint"]},
+        discardWorkspaceCheckpoint: {kind: 'async', path: ["windowTabs","discardWorkspaceCheckpoint"]},
+        resumeWorkspaceCheckpoint: {kind: 'async', path: ["windowTabs","resumeWorkspaceCheckpoint"]},
         claimWorkspaceCheckpoint: {kind: 'async', path: ["windowTabs","claimWorkspaceCheckpoint"]},
         onIncomingTransfer: {kind: 'event', path: ["windowTabs","onIncomingTransfer"]},
         onWindowAction: {kind: 'event', path: ["windowTabs","onWindowAction"]},

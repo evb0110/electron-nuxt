@@ -202,6 +202,43 @@ describe('importEmbeddedShapeAnnotationsUsingWorker', () => {
         ]);
     });
 
+    it('preserves the oversized-input cap unless an automation caller explicitly overrides it', async () => {
+        const documentSize = 96 * 1024 * 1024 + 1;
+        documentMocks.statFile.mockResolvedValue({size: documentSize});
+        documentMocks.readFileRange.mockImplementation(async (_path, _offset, length) => new Uint8Array(length));
+        const postedTypes: unknown[] = [];
+
+        class FakeWorker {
+            onmessage: ((event: MessageEvent) => void) | null = null;
+            onerror: ((event: ErrorEvent) => void) | null = null;
+
+            postMessage(message: Record<string, unknown>) {
+                postedTypes.push(message.type);
+                if (message.type === 'path-finish') {
+                    queueMicrotask(() => this.onmessage?.({data: {
+                        ok: true,
+                        shapes: [],
+                    }} as MessageEvent));
+                }
+            }
+
+            terminate() {}
+        }
+
+        vi.stubGlobal('window', {});
+        vi.stubGlobal('Worker', FakeWorker);
+
+        await expect(importEmbeddedShapeAnnotationsFromPathInWorker('/tmp/oversized.pdf'))
+            .rejects.toThrow('larger than 96 MiB');
+        await expect(importEmbeddedShapeAnnotationsFromPathInWorker(
+            '/tmp/oversized.pdf',
+            {allowOversizedInput: true},
+        )).resolves.toEqual([]);
+
+        expect(postedTypes.at(0)).toBe('path-start');
+        expect(postedTypes.at(-1)).toBe('path-finish');
+    });
+
     it('terminates superseded worker parsing immediately', async () => {
         const terminate = vi.fn();
         class PendingWorker {

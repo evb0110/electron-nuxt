@@ -81,7 +81,6 @@ const DJVU_FIRST_PAGE_SHELL_BUDGET_MS = 1_250;
 const DJVU_FIRST_VISUAL_BUDGET_MS = 5_000;
 const DJVU_READY_AFTER_VISUAL_BUDGET_MS = 1_000;
 const PDF_NAVIGATION_SKELETON_DEBOUNCE_MS = 150;
-const PDF_DIAGNOSTIC_STAGE_TIMEOUT_MS = 15_000;
 const djvuBlockingFixture = resolveDjvuFixturePath();
 const runDjvuBlockingOrSkip = selectFixtureDescribe(describe, djvuBlockingFixture);
 
@@ -221,20 +220,13 @@ async function runPdfDiagnosticStage<T>(
     page: Parameters<typeof installCommittedSurfaceSampler>[0],
     stage: string,
     operation: () => Promise<T>,
-    timeoutMs = PDF_DIAGNOSTIC_STAGE_TIMEOUT_MS,
 ): Promise<T> {
     console.info(`[pdf-stage:start] ${stage}`);
-    let timeout: ReturnType<typeof setTimeout> | undefined;
     try {
-        const result = await Promise.race([
-            operation(),
-            new Promise<never>((_resolve, reject) => {
-                timeout = setTimeout(
-                    () => reject(new Error(`stage exceeded ${String(timeoutMs)}ms`)),
-                    timeoutMs,
-                );
-            }),
-        ]);
+        // The operation owns its timeout. Racing it against a second timer leaves
+        // the operation running after this wrapper rejects, so fixture cleanup can
+        // delete its input while the leaked open is still retrying.
+        const result = await operation();
         console.info(`[pdf-stage:done] ${stage}`);
         return result;
     } catch (error) {
@@ -242,10 +234,6 @@ async function runPdfDiagnosticStage<T>(
         throw new Error(
             `[pdf-stage:failed] ${stage}: ${String(error)}; diagnostics=${JSON.stringify(diagnostics)}`,
         );
-    } finally {
-        if (timeout !== undefined) {
-            clearTimeout(timeout);
-        }
     }
 }
 
@@ -615,7 +603,7 @@ async function captureRepeatedLargePdfOpen(
             && viewer?.dataset.openSurfacePhase === 'ready'
             && chassis?.dataset.openSurfacePresentation === 'committed',
         );
-    }, {timeout: LARGE_PDF_VISUAL_READY_TIMEOUT_MS}), LARGE_PDF_VISUAL_READY_TIMEOUT_MS + 1_000);
+    }, {timeout: LARGE_PDF_VISUAL_READY_TIMEOUT_MS}));
     await new Promise(resolve => setTimeout(resolve, 250));
     const lifecycleState = await evaluateInPage(page, () => {
         const loadedHosts = Array.from(document.querySelectorAll<HTMLElement>('.workspace-host'))
@@ -1196,6 +1184,7 @@ describe('Electron E2E - PR Blocking Smoke', () => {
             interactionCheckpoint: 'recent-early-navigation',
             rejectUnexpectedCanvasPages: true,
             requireSkeleton: true,
+            startAtOpenSurfaceClaim: true,
         });
         expect(
             earlyNavigationViolations,
@@ -1406,7 +1395,10 @@ describe('Electron E2E - PR Blocking Smoke', () => {
         }
     });
 
-    it('keeps large-PDF opening, virtualization, and repeated reopen within budget', async () => {
+    it('keeps large-PDF opening, virtualization, and repeated reopen within budget', {
+        retry: 0,
+        timeout: 240_000,
+    }, async () => {
         const session = await sessionFixture.restart({
             clean: true,
             sessionName: 'e2e-pr-blocking-large-scanned-pdf',

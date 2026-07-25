@@ -180,8 +180,8 @@ export async function killProcessTree(pid: number, graceMs = 1500) {
     }
 }
 
-export async function killProcessTreeForPids(pids: number[], graceMs = 1200) {
-    for (const pid of new Set(pids)) {
+export async function killProcessTrees(pids: readonly number[], graceMs = 1200) {
+    for (const pid of uniq(pids)) {
         await killProcessTree(pid, graceMs);
     }
 }

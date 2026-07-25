@@ -3,6 +3,7 @@ import {
     copyFile,
     mkdir,
     readFile,
+    rm,
     stat,
     writeFile,
 } from 'node:fs/promises';
@@ -20,14 +21,17 @@ import {getSessionInfo} from '@scripts/electron-run/electronRunSessionArtifacts'
 import {startConfiguredElectronE2ESession as startConfiguredSession} from '@tests/e2e/electron/helpers/startConfiguredElectronE2ESession';
 import {
     openAnnotationsTab,
-    waitForPdfLoaded,
+    openPdfInApp,
     waitForViewerInteractive,
 } from '@tests/e2e/electron/helpers/viewerCore';
-import {createFreeTextAnnotation} from '@tests/e2e/electron/helpers/viewerAnnotations';
+import {
+    createFreeTextAnnotation,
+    waitForNoOpenNoteWindows,
+} from '@tests/e2e/electron/helpers/viewerAnnotations';
 import {
     callWorkspaceCommand,
-    getLatestAutomationEventId,
-    waitForAutomationEvent,
+    waitForSaveFrontierReady,
+    waitForWorkspaceToolbarIdle,
 } from '@tests/e2e/electron/helpers/workspaceExpose';
 import {readPdfAnnotationSummary} from '@tests/e2e/electron/helpers/fixtures';
 
@@ -49,64 +53,109 @@ function percentile(values: number[], fraction: number) {
     return sorted[Math.min(sorted.length - 1, Math.ceil(sorted.length * fraction) - 1)] ?? 0;
 }
 
-async function waitForOpenedPdf(page: Page, path: string) {
-    await Promise.all([
-        waitForAutomationEvent(page, 'document-opened', {
-            path,
-            timeoutMs: SAVE_TIMEOUT_MS,
-        }),
-        waitForAutomationEvent(page, 'first-page-rendered', {
-            path,
-            timeoutMs: SAVE_TIMEOUT_MS,
-        }),
-    ]);
-    await waitForPdfLoaded(page, SAVE_TIMEOUT_MS);
-    await waitForViewerInteractive(page, SAVE_TIMEOUT_MS);
-    await openAnnotationsTab(page, SAVE_TIMEOUT_MS);
-}
-
-async function forceSerializedFallback(page: Page) {
+async function installNativeProjectionProbe(page: Page) {
     await page.evaluate(() => {
-        const notApplied = async () => ({
-            applied: false,
-            validation: null,
-        });
-        const capabilities = [window.electronAPI?.documentFiles];
-        for (const capability of capabilities) {
-            if (!capability) {
-                continue;
-            }
-            capability.applyPdfNativeMutationsToWorkingCopy = notApplied;
-            capability.savePdfNativeMutations = notApplied;
-            capability.savePdfNoteChanges = notApplied;
-            capability.savePdfNoteTextUpdates = notApplied;
-        }
+        document.documentElement.dataset.evbNativeProjectionEngaged = 'false';
+        window.__stagedPdfNativeMutationCommitBarrierForAutomation = async () => {
+            document.documentElement.dataset.evbNativeProjectionEngaged = 'true';
+        };
     });
 }
 
-async function runSave(page: Page, path: string, text: string) {
-    expect(await createFreeTextAnnotation(page, text)).toBeGreaterThan(0);
-    const afterEventId = await getLatestAutomationEventId(page);
-    const committed = waitForAutomationEvent(page, 'save-committed', {
-        afterEventId,
-        path,
-        timeoutMs: SAVE_TIMEOUT_MS,
-    });
+async function runSave(
+    page: Page,
+    path: string,
+    text: string,
+    electronPid: number | null,
+    mode: 'native-freetext' | 'serialized-fallback',
+) {
+    const position = {
+        x: 0.27,
+        y: 0.28,
+    };
+    if (mode === 'native-freetext') {
+        const created = await callWorkspaceCommand<boolean>(page, 'commentAtPoint', [
+            1,
+            position.x,
+            position.y,
+            {preferTextAnchor: false},
+        ]);
+        expect(created).toEqual({
+            called: true,
+            value: true,
+        });
+        await page.waitForSelector('textarea.note-window__textarea', {timeout: 20_000});
+        await page.evaluate((noteText: string) => {
+            const textarea = Array.from(document.querySelectorAll<HTMLTextAreaElement>(
+                'textarea.note-window__textarea',
+            )).at(-1);
+            if (!textarea) {
+                throw new Error('Benchmark note editor did not open');
+            }
+            const setter = Object.getOwnPropertyDescriptor(
+                HTMLTextAreaElement.prototype,
+                'value',
+            )?.set;
+            setter?.call(textarea, noteText);
+            textarea.dispatchEvent(new InputEvent('input', {
+                bubbles: true,
+                data: noteText,
+                inputType: 'insertText',
+            }));
+            textarea.dispatchEvent(new Event('change', {bubbles: true}));
+            textarea.dispatchEvent(new Event('blur', {bubbles: true}));
+        }, text);
+    } else {
+        expect(await createFreeTextAnnotation(page, text, position)).toBeGreaterThan(0);
+    }
+    await waitForWorkspaceToolbarIdle(page, {timeoutMs: 20_000});
+    await waitForSaveFrontierReady(page);
     const beforeBytes = (await stat(path)).size;
     const timestamp = new Date().toISOString();
+    let sampling = true;
+    let peakRssBytes = await readResidentBytes(electronPid);
+    const rssSampler = (async () => {
+        while (sampling) {
+            await new Promise(resolve => setTimeout(resolve, 50));
+            if (!sampling) {
+                break;
+            }
+            const rssBytes = await readResidentBytes(electronPid);
+            if (rssBytes !== null) {
+                peakRssBytes = Math.max(peakRssBytes ?? 0, rssBytes);
+            }
+        }
+    })();
     const startedAt = performance.now();
-    const result = await callWorkspaceCommand<boolean>(page, 'handleSave');
-    const durationMs = performance.now() - startedAt;
-    expect(result).toEqual({
+    let durationMs = 0;
+    try {
+        const result = await callWorkspaceCommand<boolean>(page, 'handleSave');
+        expect(result).toEqual({
+            called: true,
+            value: true,
+        });
+        await waitForWorkspaceToolbarIdle(page, {timeoutMs: SAVE_TIMEOUT_MS});
+        await waitForViewerInteractive(page, SAVE_TIMEOUT_MS);
+        durationMs = performance.now() - startedAt;
+    } finally {
+        sampling = false;
+        await rssSampler;
+    }
+    const afterBytes = (await stat(path)).size;
+    if (mode === 'native-freetext') {
+        await page.keyboard.press('Escape');
+        await waitForNoOpenNoteWindows(page);
+    }
+    const closed = await callWorkspaceCommand<boolean>(page, 'handleCloseFileFromUi', [{persist: false}]);
+    expect(closed).toEqual({
         called: true,
         value: true,
     });
-    await committed;
-    const afterBytes = (await stat(path)).size;
     return {
         afterBytes,
         beforeBytes,
         durationMs,
+        peakRssBytes,
         timestamp,
     };
 }
@@ -149,40 +198,59 @@ benchmarkDescribe('Electron E2E - save pipeline benchmark', () => {
         const outputPath = benchmarkOutput!;
         const workingFixture = `${outputPath}.${mode}-${tier}.pdf`;
         await mkdir(dirname(outputPath), {recursive: true});
-        await copyFile(fixturePath, workingFixture);
-        const inputBytes = (await stat(workingFixture)).size;
+        const inputBytes = (await stat(fixturePath)).size;
+        const sourceSemanticReopen = await readPdfAnnotationSummary(fixturePath);
         process.env.EVB_PDF_PAGE_OPS_ENABLE = mode === 'native-freetext' ? '1' : '0';
         process.env.EVB_LARGE_PDF_SAVE_OPTIMIZE_MIN_BYTES = '1';
 
         const session = await startConfiguredSession(
             `e2e-save-benchmark-${mode}-${tier}-${Date.now()}`,
             tier,
-            [workingFixture],
         );
         try {
-            await waitForOpenedPdf(session.page, workingFixture);
+            await session.page.evaluate((allowLargeSerializedSave: boolean) => {
+                window.__allowLargeSerializedSaveForAutomation = allowLargeSerializedSave;
+            }, mode === 'serialized-fallback');
+            await session.page.waitForFunction(
+                (expectedTier: TPerformanceMode) => (
+                    document.documentElement.classList.contains(`performance-tier-${expectedTier}`)
+                ),
+                {timeout: SAVE_TIMEOUT_MS},
+                tier,
+            );
             const hostProfile = await session.page.evaluate(() => (
                 window.electronAPI?.host.getResourceProfile() ?? null
             ));
-            expect(hostProfile).toMatchObject({tier});
-            if (mode === 'serialized-fallback') {
-                await forceSerializedFallback(session.page);
+            if (hostProfile) {
+                expect(hostProfile).toMatchObject({tier});
             }
             const totalRuns = warmups + iterations;
             const timings: number[] = [];
             const iterationMeasurements = [];
             let peakRssBytes: number | null = null;
+            const electronPid = getSessionInfo(session.name)?.electronPid ?? null;
             for (let index = 0; index < totalRuns; index += 1) {
+                const runFixture = index === totalRuns - 1
+                    ? workingFixture
+                    : `${workingFixture}.${String(index)}.pdf`;
+                await copyFile(fixturePath, runFixture);
+                await openPdfInApp(session.page, runFixture, SAVE_TIMEOUT_MS);
+                await waitForViewerInteractive(session.page, SAVE_TIMEOUT_MS);
+                await openAnnotationsTab(session.page, SAVE_TIMEOUT_MS);
+                await installNativeProjectionProbe(session.page);
                 const measurement = await runSave(
                     session.page,
-                    workingFixture,
-                    `save benchmark ${mode} ${tier} ${String(index)}`,
+                    runFixture,
+                    'save-benchmark-freetext',
+                    electronPid,
+                    mode,
                 );
-                const rssBytes = await readResidentBytes(
-                    getSessionInfo(session.name)?.electronPid ?? null,
+                const nativeProjectionEngaged = await session.page.evaluate(
+                    () => document.documentElement.dataset.evbNativeProjectionEngaged === 'true',
                 );
-                if (rssBytes !== null) {
-                    peakRssBytes = Math.max(peakRssBytes ?? 0, rssBytes);
+                expect(nativeProjectionEngaged).toBe(mode === 'native-freetext');
+                if (measurement.peakRssBytes !== null) {
+                    peakRssBytes = Math.max(peakRssBytes ?? 0, measurement.peakRssBytes);
                 }
                 if (index >= warmups) {
                     timings.push(measurement.durationMs);
@@ -191,6 +259,9 @@ benchmarkDescribe('Electron E2E - save pipeline benchmark', () => {
                         ...measurement,
                     });
                 }
+                if (runFixture !== workingFixture) {
+                    await rm(runFixture, {force: true});
+                }
             }
             const outputBytes = await readFile(workingFixture);
             const semanticReopen = await readPdfAnnotationSummary(workingFixture);
@@ -198,6 +269,9 @@ benchmarkDescribe('Electron E2E - save pipeline benchmark', () => {
                 schemaVersion: 1,
                 scenario: `${mode}-${tier}`,
                 mode,
+                annotationAction: mode === 'native-freetext'
+                    ? 'page-note'
+                    : 'pdfjs-free-text',
                 tier,
                 hostProfile,
                 fixturePath,
@@ -235,6 +309,7 @@ benchmarkDescribe('Electron E2E - save pipeline benchmark', () => {
                 inputBytes,
                 outputBytes: outputBytes.byteLength,
                 outputSha256: createHash('sha256').update(outputBytes).digest('hex'),
+                sourceSemanticReopen,
                 semanticReopen,
             };
             await writeFile(outputPath, `${JSON.stringify(result, null, 2)}\n`);

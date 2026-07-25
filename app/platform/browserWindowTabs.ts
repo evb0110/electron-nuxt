@@ -739,6 +739,8 @@ export function syncBrowserWindowTitle() {
 
 export const browserWindowTabsCapability: IWindowTabsCapability = {
     async saveWorkspaceCheckpoint() {},
+    discardWorkspaceCheckpoint: () => Promise.resolve('1'),
+    async resumeWorkspaceCheckpoint() {},
     claimWorkspaceCheckpoint: () => Promise.resolve(null),
     async transfer(request: IWindowTabTransferRequest) {
         initializeBrowserWindowTabs();

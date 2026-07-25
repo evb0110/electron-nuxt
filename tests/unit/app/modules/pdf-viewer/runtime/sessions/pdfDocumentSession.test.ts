@@ -773,6 +773,51 @@ describe('PdfDocumentSession range loading', () => {
         expect(destroy).toHaveBeenCalledTimes(1);
     });
 
+    it('allows an explicitly gated automation benchmark to aggregate an oversized range', async () => {
+        const deferred = Promise.withResolvers<never>();
+        const destroy = vi.fn(() => {
+            deferred.reject(new Error('oversized automation range test cancelled load'));
+            return Promise.resolve();
+        });
+        pdfjsState.getDocument.mockReturnValue({
+            promise: deferred.promise,
+            destroy,
+        });
+        electronApi.documentFiles.readFileRange.mockImplementation(
+            async (_path, _offset, length) => new Uint8Array(length),
+        );
+        vi.stubGlobal('window', {
+            __allowRendererFileOpenForAutomation: vi.fn(),
+            __allowLargeSerializedSaveForAutomation: true,
+        });
+
+        const documentState = usePdfDocument();
+        const loadPromise = documentState.loadPdf({
+            kind: 'path',
+            path: '/tmp/oversized-automation-range.pdf',
+            size: 128 * 1024 * 1024,
+        });
+        await vi.waitFor(() => {
+            expect(pdfjsState.getDocument).toHaveBeenCalledTimes(1);
+        });
+
+        const range = (pdfjsState.getDocument.mock.calls[0]?.[0] as { range?: MockPdfDataRangeTransport } | undefined)?.range;
+        const rangeEnd = 64 * 1024 * 1024 + 1;
+        electronApi.documentFiles.readFileRange.mockClear();
+        range?.requestDataRange?.(0, rangeEnd);
+        await vi.waitFor(() => {
+            expect(range?.onDataRange).toHaveBeenCalledTimes(1);
+        });
+
+        expect(electronApi.documentFiles.readFileRange).toHaveBeenCalledTimes(9);
+        expect(range?.onDataRange).toHaveBeenCalledWith(0, expect.any(Uint8Array));
+        expect((range?.onDataRange.mock.calls[0]?.[1] as Uint8Array).byteLength).toBe(rangeEnd);
+
+        documentState.cleanup();
+        vi.stubGlobal('window', undefined);
+        await expect(loadPromise).resolves.toBeNull();
+    });
+
     it('invalidates an accepted document when a later range read rejects', async () => {
         const documentDestroy = vi.fn();
         const taskDestroy = vi.fn(() => Promise.resolve());

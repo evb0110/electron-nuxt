@@ -34,7 +34,7 @@ import {
 import {
     findFreePort,
     isProcessAlive,
-    killProcessTreeForPids,
+    killProcessTrees,
     killSpawnedProcessTree,
 } from '@scripts/electron-run/electronRunProcessTree';
 import { findSessionOwnedElectronPids } from '@scripts/electron-run/electronRunProcessIdentity';
@@ -69,7 +69,7 @@ export async function killElectronProcessesByCdpPort(cdpPort: number | null | un
         sessionName: getCurrentSessionName(),
         cdpPort,
     });
-    await killProcessTreeForPids(pids, 500);
+    await killProcessTrees(pids, 500);
 }
 
 function createElectronStartupLog() {

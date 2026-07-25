@@ -490,13 +490,18 @@ export function createPdfPageRenderState() {
             });
             return true;
         },
-        adoptCommittedCanvasVersion(pageNumber: number, contentVersion: number) {
+        adoptCommittedCanvasVersion(
+            pageNumber: number,
+            contentVersion: number,
+            documentToken = getSlot(pageNumber).documentToken,
+        ) {
             const current = getSlot(pageNumber);
             if (current.canvasReadiness !== 'ready') {
                 return false;
             }
             updateSlot(pageNumber, {
                 contentVersion,
+                documentToken,
                 layerReadiness: current.layerReadiness === 'hydrating'
                     ? 'canvas-only'
                     : current.layerReadiness,

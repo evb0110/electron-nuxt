@@ -5,9 +5,11 @@ import {
 } from 'node:child_process';
 import { rmSync } from 'node:fs';
 import { join } from 'node:path';
-import { uniq } from 'es-toolkit/array';
 import { delay } from 'es-toolkit/promise';
-import { buildNuxtDevServerEnv } from '@scripts/electron-run/electronRunLaunchConfig';
+import {
+    buildNuxtDevServerEnv,
+    resolveNuxtDevServerArtifactDirs,
+} from '@scripts/electron-run/electronRunLaunchConfig';
 import { getActiveDevServerOutputTee } from '@scripts/electron-run/devServerOutputTee';
 import { isReusableNuxtResponse } from '@scripts/electron-run/isReusableNuxtResponse';
 import {
@@ -22,7 +24,9 @@ import {
     isProcessAlive,
     killPids,
     killProcessTree,
+    killProcessTrees,
 } from '@scripts/electron-run/electronRunProcessTree';
+import { createStartupLogger } from '@scripts/electron-run/createStartupLogger';
 import {
     isVerifiedSessionProcess,
     killVerifiedSessionProcess,
@@ -47,22 +51,6 @@ const NUXT_DEPENDENCY_WARMUP_REQUEST_TIMEOUT_MS = 2_000;
 const NUXT_DEPENDENCY_WARMUP_STABLE_POLLS = 2;
 const NUXT_DEPENDENCY_WARMUP_POLL_INTERVAL_MS = 500;
 const DYNAMIC_IMPORT_FAILURE_MARKER = 'Failed to fetch dynamically imported module';
-
-function formatElapsedMs(startedAt: number) {
-    return `${((Date.now() - startedAt) / 1000).toFixed(2)}s`;
-}
-
-function createStartupLogger(startedAt = Date.now()) {
-    return (message: string) => {
-        console.log(`[Startup +${formatElapsedMs(startedAt)}] ${message}`);
-    };
-}
-
-async function killProcessTreeForPids(pids: number[], graceMs = 1200) {
-    for (const pid of uniq(pids)) {
-        await killProcessTree(pid, graceMs);
-    }
-}
 
 function getDescendantPids(rootPid: number) {
     if (!Number.isFinite(rootPid) || rootPid <= 0 || process.platform === 'win32') {
@@ -131,20 +119,30 @@ export async function waitForReusableNuxtServer(timeoutMs: number) {
 export async function killExistingNuxt() {
     try {
         const pids = getPidsOnPort(getNuxtPort());
-        await killProcessTreeForPids(pids, 1200);
+        await killProcessTrees(pids, 1200);
         killPids(pids);
         await delay(500);
     } catch {}
 }
 
-function clearViteCache() {
-    const cachePaths = [
-        join(projectRoot, 'node_modules', '.vite'),
-        join(projectRoot, 'node_modules', '.cache', 'vite'),
-        join(projectRoot, '.nuxt'),
-    ];
+export function resolveNuxtForceCleanCachePaths(
+    rootDir = projectRoot,
+    artifactDirs = resolveNuxtDevServerArtifactDirs(),
+) {
+    return artifactDirs
+        ? [
+            artifactDirs.buildDir,
+            artifactDirs.viteCacheDir,
+        ]
+        : [
+            join(rootDir, 'node_modules', '.vite'),
+            join(rootDir, 'node_modules', '.cache', 'vite'),
+            join(rootDir, '.nuxt'),
+        ];
+}
 
-    for (const cachePath of cachePaths) {
+function clearViteCache() {
+    for (const cachePath of resolveNuxtForceCleanCachePaths()) {
         try {
             rmSync(cachePath, {
                 recursive: true,
@@ -339,7 +337,7 @@ export async function cleanupOrphanedProjectNuxtRoots(reason: string) {
     }
 
     console.log(`[Nuxt] Cleaning orphaned project dev server root(s) (${reason}): ${targets.join(', ')}`);
-    await killProcessTreeForPids(targets, 1200);
+    await killProcessTrees(targets, 1200);
     killPids(targets);
     await delay(500);
     return true;

@@ -531,11 +531,12 @@ export async function createLargeScannedFixturePdf(
     filename: string,
     pageCount = 431,
     attachmentSizeBytes = 28 * 1024 * 1024,
+    rasterScale = 1,
 ) {
     ensureFixtureDir();
     const filePath = join(getFixtureDir(), filename);
     const cacheKey = createHash('sha256')
-        .update(`large-scanned-v3:${pageCount}:${attachmentSizeBytes}`)
+        .update(`large-scanned-v3:${pageCount}:${attachmentSizeBytes}:${rasterScale}`)
         .digest('hex');
     const cachePath = join(FIXTURE_CACHE_DIR, `${cacheKey}.pdf`);
     if (existsSync(cachePath)) {
@@ -543,10 +544,11 @@ export async function createLargeScannedFixturePdf(
         return filePath;
     }
 
-    const canvas = createCanvas(1224, 1584);
+    const canvas = createCanvas(1224 * rasterScale, 1584 * rasterScale);
     const context = canvas.getContext('2d');
+    context.scale(rasterScale, rasterScale);
     context.fillStyle = '#f8f7f3';
-    context.fillRect(0, 0, canvas.width, canvas.height);
+    context.fillRect(0, 0, 1224, 1584);
     context.fillStyle = '#242424';
     context.font = 'bold 54px serif';
     context.fillText('E2E scanned PDF fixture', 110, 150);

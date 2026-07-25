@@ -12,7 +12,13 @@ import {
     stat,
     writeFile,
 } from 'node:fs/promises';
-import { PDFDocument } from 'pdf-lib';
+import {
+    PDFArray,
+    PDFDict,
+    PDFDocument,
+    PDFName,
+    PDFRef,
+} from 'pdf-lib';
 import { join } from 'node:path';
 import { resolveE2EGlobalSetupSessionName } from '@tests/e2e/electron/resolveE2EGlobalSetupSessionName';
 import {
@@ -131,6 +137,42 @@ describe('Electron E2E fixture policy', () => {
         expect(sessionSource).toContain('prunePreservedSessionArtifacts(scopedSessionName)');
     });
 
+    it('discards the retiring renderer checkpoint before unmounting it during an in-process reset', async () => {
+        const source = await readFile(
+            'tests/e2e/electron/helpers/startElectronE2ESession.ts',
+            'utf8',
+        );
+        const resetBlock = source.slice(
+            source.indexOf('const resetForE2E = async () =>'),
+            source.indexOf('\\n\\n    return {', source.indexOf('const resetForE2E = async () =>')),
+        );
+        const savePreferencesAt = resetBlock.indexOf('settings.save(defaultSettings)');
+        const unmountAt = resetBlock.indexOf('about:blank');
+        const discardCheckpointAt = resetBlock.indexOf('discardWorkspaceCheckpoint()');
+        const clearOriginAt = resetBlock.indexOf('Storage.clearDataForOrigin');
+        const cleanupFixturesAt = resetBlock.indexOf('cleanupSessionFixtures(scopedSessionName)');
+        const restoreRendererAt = resetBlock.indexOf('page.goto(rendererUrl');
+        const rendererReadyAt = resetBlock.indexOf('waitForRendererReady(page)');
+        const resumeCheckpointAt = resetBlock.indexOf('resumeWorkspaceCheckpoint(discardToken)');
+        const restoreRendererCallAt = resetBlock.indexOf(
+            'restoreRendererAndResumeCheckpoint();',
+            clearOriginAt,
+        );
+
+        expect(savePreferencesAt).toBeGreaterThan(-1);
+        expect(discardCheckpointAt).toBeGreaterThan(savePreferencesAt);
+        expect(unmountAt).toBeGreaterThan(discardCheckpointAt);
+        expect(cleanupFixturesAt).toBeGreaterThan(unmountAt);
+        expect(clearOriginAt).toBeGreaterThan(cleanupFixturesAt);
+        expect(restoreRendererCallAt).toBeGreaterThan(clearOriginAt);
+        expect(rendererReadyAt).toBeGreaterThan(restoreRendererAt);
+        expect(resumeCheckpointAt).toBeGreaterThan(rendererReadyAt);
+        expect(resetBlock).not.toContain('workspace-checkpoint.json');
+        expect(resetBlock).not.toContain('claimWorkspaceCheckpoint');
+        expect(resetBlock).toContain('installPageEvaluationShims(page)');
+        expect(resetBlock).toContain('waitForRendererReady(page)');
+    });
+
     it('retains bounded failure evidence without keeping Electron profile or app copies', async () => {
         const sessionName = `e2e-unit-retained-artifacts-${process.pid}`;
         const root = sessionDir(sessionName);
@@ -215,12 +257,28 @@ describe('Electron E2E fixture policy', () => {
 
         expect(openFlow).toContain('isStartupOpenClaimPending?.() === false');
         expect(openFlow).toContain('getActiveTabId?.()');
-        expect(openFlow).toContain('__evbDocumentOpenShellReadyAt');
+        expect(openFlow).not.toContain('__evbDocumentOpenShellReadyAt');
+        expect(openFlow).not.toContain('performance.now()');
         expect(openFlow).toContain('openTriggered = true');
         expect(openFlow.match(/openTriggered = false/gu)).toHaveLength(1);
         expect(openFlow).toContain('DirectDocumentOpenRejectedError');
         expect(openFlow).not.toContain('openFreshTabForDocumentOpen');
         expect(openFlow).not.toContain('New Tab');
+    });
+
+    it('does not abandon an in-flight PDF diagnostic stage before fixture cleanup', async () => {
+        const source = await readFile(
+            'tests/e2e/electron/prBlockingSmoke.e2e.test.ts',
+            'utf8',
+        );
+        const diagnosticStage = source.slice(
+            source.indexOf('async function runPdfDiagnosticStage'),
+            source.indexOf('async function waitForCommittedEmptyBaseline'),
+        );
+
+        expect(diagnosticStage).toContain('const result = await operation();');
+        expect(diagnosticStage).not.toContain('Promise.race');
+        expect(diagnosticStage).not.toContain('setTimeout');
     });
 
     it('generates a scanned large-PDF fixture without constructing dense text layers', async () => {
@@ -257,6 +315,15 @@ describe('Electron E2E fixture policy', () => {
             expect((await stat(outputPath)).size).toBe(2 * 1024 * 1024);
             const parsed = await PDFDocument.load(await readFile(outputPath), { updateMetadata: false });
             expect(parsed.getPageCount()).toBe(7);
+            const annotations = parsed.getPage(0).node.Annots();
+            expect(annotations).toBeInstanceOf(PDFArray);
+            const annotationRef = annotations?.get(0);
+            expect(annotationRef).toBeInstanceOf(PDFRef);
+            if (!(annotationRef instanceof PDFRef)) {
+                throw new Error('Generated large-PDF fixture omitted its existing annotation');
+            }
+            const annotation = parsed.context.lookupMaybe(annotationRef, PDFDict);
+            expect(annotation?.get(PDFName.of('Subtype'))?.toString()).toBe('/FreeText');
         } finally {
             await rm(outputPath, { force: true });
         }
@@ -432,15 +499,19 @@ describe('Electron E2E fixture policy', () => {
         expect(source).toContain('wheelPdfViewportAndWaitForSettlement');
         expect(source).toContain('sessionFixture.restart({');
         expect(source).toContain('it(\'keeps large-PDF interaction transitions causally stable\'');
+        const cumulativeTestStart = source.indexOf(
+            'it(\'keeps large-PDF opening, virtualization, and repeated reopen within budget\'',
+        );
         const interactionTestStart = source.indexOf('it(\'keeps large-PDF interaction transitions causally stable\'');
         const interactionTestEnd = source.indexOf(
             'it(\'does not report a delayed render error for a high-zoom current page\'',
             interactionTestStart,
         );
+        const cumulativeTestSource = source.slice(cumulativeTestStart, interactionTestStart);
         const interactionTestSource = source.slice(interactionTestStart, interactionTestEnd);
-        expect(interactionTestStart).toBeGreaterThan(
-            source.indexOf('it(\'keeps large-PDF opening, virtualization, and repeated reopen within budget\''),
-        );
+        expect(interactionTestStart).toBeGreaterThan(cumulativeTestStart);
+        expect(cumulativeTestSource).toContain('retry: 0');
+        expect(cumulativeTestSource).toContain('timeout: 240_000');
         expect(interactionTestSource.match(/waitForAnimationFrames\(session\.page, 10\)/gu)).toHaveLength(4);
         expect(interactionTestSource).toContain('horizontalOverflowCheckpoint: \'high-zoom-transition\'');
         expect(source).not.toContain('createLargeMultiPageTextFixturePdf');
@@ -472,6 +543,19 @@ describe('Electron E2E fixture policy', () => {
         expect(source).toContain('PDFJS_NATIVE_PREVIEW_MIN_BYTES');
         expect(source).toContain('EVB_E2E_REQUIRE_NATIVE_LARGE_PDF_FIXTURE');
         expect(source).toContain('Set EVB_E2E_LARGE_PDF_FIXTURE to an oversized PDF');
+        expect(source).toContain('scripts/generate-large-pdf-e2e-fixture.mjs');
+    });
+
+    it('documents the native-preview lane skip and its self-provisioning fixture in the lane README', async () => {
+        const readme = await readFile(
+            'tests/fixtures/electron/large-pdf-fixtures/README.md',
+            'utf8',
+        );
+
+        expect(readme).toContain('EVB_E2E_LARGE_PDF_FIXTURE');
+        expect(readme).toContain('EVB_E2E_REQUIRE_NATIVE_LARGE_PDF_FIXTURE=1');
+        expect(readme).toContain('scripts/generate-large-pdf-e2e-fixture.mjs');
+        expect(readme).toMatch(/skips? permanently/i);
     });
 });
 

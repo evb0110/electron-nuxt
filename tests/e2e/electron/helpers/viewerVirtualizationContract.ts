@@ -1,4 +1,5 @@
 import type { Page } from 'puppeteer-core';
+import {PDF_RESIZE_RERENDER_DEBOUNCE_MS} from '@app/constants/timeouts';
 import {
     evaluateInPage,
     waitForFunctionInPage,
@@ -171,12 +172,15 @@ export async function collectPdfVirtualizationSnapshot(page: Page): Promise<IPdf
 
 export async function waitForVisibleMountedPdfCanvases(page: Page, timeoutMs = 15_000) {
     await evaluateInPage(page, async ({
+        stabilityMs,
         timeout,
         viewportSelector,
     }) => {
         const deadline = performance.now() + timeout;
-        let stableFrameCount = 0;
+        const canvasIds = new WeakMap<HTMLCanvasElement, number>();
+        let nextCanvasId = 1;
         let stableSignature = '';
+        let stableSince = 0;
         while (performance.now() < deadline) {
             await new Promise<void>(resolve => window.requestAnimationFrame(() => resolve()));
             const visibleHosts = Array.from(document.querySelectorAll<HTMLElement>('.workspace-host'))
@@ -197,9 +201,12 @@ export async function waitForVisibleMountedPdfCanvases(page: Page, timeoutMs = 1
                 : (visibleHosts.length === 1 ? visibleHosts[0] ?? null : null);
             const viewport = activeHost?.querySelector<HTMLElement>(viewportSelector) ?? null;
             if (!activeHost || !viewport) {
-                stableFrameCount = 0;
+                stableSignature = '';
+                stableSince = 0;
                 continue;
             }
+            const pageTrack = viewport.querySelector<HTMLElement>('[data-pdf-page-track]')
+                ?? viewport.querySelector<HTMLElement>('.pdfViewer');
             const viewportRect = viewport.getBoundingClientRect();
             const visiblePages = Array.from(activeHost.querySelectorAll<HTMLElement>('.page_container[data-page]'))
                 .filter((container) => {
@@ -209,39 +216,58 @@ export async function waitForVisibleMountedPdfCanvases(page: Page, timeoutMs = 1
                         && rect.right > viewportRect.left
                         && rect.left < viewportRect.right;
                 });
-            const ready = visiblePages.length > 0 && visiblePages.every((container) => {
-                const canvas = container.querySelector<HTMLCanvasElement>('.page_canvas canvas');
-                const skeleton = container.querySelector<HTMLElement>('.document-page-skeleton');
-                const skeletonVisible = skeleton
-                    ? window.getComputedStyle(skeleton).display !== 'none'
-                        && window.getComputedStyle(skeleton).visibility !== 'hidden'
-                    : false;
-                return Boolean(
-                    canvas?.isConnected
-                    && canvas.width > 0
-                    && canvas.height > 0
-                    && container.classList.contains('page_container--rendered')
-                    && !skeletonVisible,
-                );
-            });
+            const ready = !pageTrack?.classList.contains('pdfViewer--resize-transition')
+                && visiblePages.length > 0
+                && visiblePages.every((container) => {
+                    const canvas = container.querySelector<HTMLCanvasElement>('.page_canvas canvas');
+                    const skeleton = container.querySelector<HTMLElement>('.document-page-skeleton');
+                    const skeletonVisible = skeleton
+                        ? window.getComputedStyle(skeleton).display !== 'none'
+                            && window.getComputedStyle(skeleton).visibility !== 'hidden'
+                        : false;
+                    return Boolean(
+                        canvas?.isConnected
+                        && canvas.width > 0
+                        && canvas.height > 0
+                        && container.classList.contains('page_container--rendered')
+                        && !skeletonVisible,
+                    );
+                });
             const signature = ready
                 ? `${String(Math.round(viewport.scrollTop))}:${visiblePages
-                    .map(container => container.dataset.page ?? '')
+                    .map((container) => {
+                        const canvas = container.querySelector<HTMLCanvasElement>('.page_canvas canvas');
+                        if (!canvas) {
+                            return '';
+                        }
+                        let canvasId = canvasIds.get(canvas);
+                        if (!canvasId) {
+                            canvasId = nextCanvasId;
+                            nextCanvasId += 1;
+                            canvasIds.set(canvas, canvasId);
+                        }
+                        return [
+                            container.dataset.page ?? '',
+                            canvasId,
+                            canvas.width,
+                            canvas.height,
+                        ].join(':');
+                    })
                     .sort()
                     .join(',')}`
                 : '';
             if (signature && signature === stableSignature) {
-                stableFrameCount += 1;
-                if (stableFrameCount >= 6) {
+                if (performance.now() - stableSince >= stabilityMs) {
                     return;
                 }
             } else {
                 stableSignature = signature;
-                stableFrameCount = signature ? 1 : 0;
+                stableSince = signature ? performance.now() : 0;
             }
         }
         throw new Error(`Visible PDF canvases did not stabilize within ${String(timeout)}ms`);
     }, {
+        stabilityMs: PDF_RESIZE_RERENDER_DEBOUNCE_MS + 34,
         timeout: timeoutMs,
         viewportSelector: VIEWPORT_SELECTOR,
     });

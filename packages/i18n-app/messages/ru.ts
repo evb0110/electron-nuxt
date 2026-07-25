@@ -1482,6 +1482,7 @@ export default {
         'performanceModeLow': 'Низкий — минимум фоновой работы',
         'performanceModeMedium': 'Средний — сбалансированный',
         'performanceModeHigh': 'Высокий — максимальная скорость',
+        'performanceRestartNotice': 'Перезапустите приложение, чтобы применить изменение.',
     },
     'updates': {
         'checkingTitle': 'Проверка обновлений',

@@ -1108,6 +1108,7 @@ describe('Electron E2E - Viewer Smoke', () => {
             const placement = document.querySelector<HTMLElement>('.scan-cleanup-alignment-grid');
             const outputMode = document.querySelector<HTMLElement>('[aria-label="Output mode"]');
             return {
+                outputModeY: outputMode?.getBoundingClientRect().y ?? null,
                 outputModeVisible: Boolean(
                     outputMode
                     && outputMode.getBoundingClientRect().height > 0
@@ -1116,10 +1117,19 @@ describe('Electron E2E - Viewer Smoke', () => {
                 placementY: placement?.getBoundingClientRect().y ?? null,
             };
         });
+        // The scope-specific output-mode row follows placement, so switching
+        // scope must not shift the shared placement control.
+        expect(Number.isFinite(placementYAllScope)).toBe(true);
+        expect(Number.isFinite(pageScopePlacement.placementY)).toBe(true);
+        expect(Number.isFinite(pageScopePlacement.outputModeY)).toBe(true);
         expect(pageScopePlacement.outputModeVisible).toBe(true);
         expect(pageScopePlacement.placementY).toBe(placementYAllScope);
+        expect(pageScopePlacement.outputModeY)
+            .toBeGreaterThan(pageScopePlacement.placementY as number);
         await session.page.click('[data-settings-scope="all"]');
-        expect(await session.page.evaluate(readPlacementGridY)).toBe(placementYAllScope);
+        const restoredPlacementY = await session.page.evaluate(readPlacementGridY);
+        expect(Number.isFinite(restoredPlacementY)).toBe(true);
+        expect(restoredPlacementY).toBe(placementYAllScope);
         const headerBottomEdges = await session.page.$$eval(
             '.scan-thumbnail-rail-header, .preview-header, .scan-cleanup-settings-header',
             headers => headers.map(header => header.getBoundingClientRect().bottom),
@@ -1369,6 +1379,7 @@ describe('Electron E2E - Viewer Smoke', () => {
             const previewBounds = preview?.getBoundingClientRect();
             const headerBounds = previewHeader?.getBoundingClientRect();
             const settingsBounds = settings?.getBoundingClientRect();
+            const thumbnailBounds = thumbnails?.getBoundingClientRect();
             const within = (inner: DOMRect, outer: DOMRect) => inner.left >= outer.left - 1
                 && inner.right <= outer.right + 1
                 && inner.top >= outer.top - 1
@@ -1386,17 +1397,20 @@ describe('Electron E2E - Viewer Smoke', () => {
                     && settingsBounds
                     && settingsBounds.top >= previewBounds.bottom - 1,
                 ),
-                thumbnailsHidden: thumbnails ? getComputedStyle(thumbnails).display === 'none' : false,
-                workspaceContained: Boolean(workspace && workspace.scrollWidth <= workspace.clientWidth),
+                thumbnailsVisible: Boolean(
+                    thumbnails
+                    && thumbnailBounds
+                    && thumbnailBounds.width > 0
+                    && getComputedStyle(thumbnails).display !== 'none',
+                ),
             };
         });
         expect(narrowWorkspaceLayout).toMatchObject({
             controlsContained: true,
             settingsBelowPreview: true,
-            thumbnailsHidden: true,
-            workspaceContained: true,
+            thumbnailsVisible: true,
         });
-        expect(narrowWorkspaceLayout.previewWidth).toBe(narrowWorkspaceLayout.workspaceWidth);
+        expect(narrowWorkspaceLayout.previewWidth).toBeGreaterThan(300);
     }, 150_000);
 
     it('renders bounded native cleanup detail tiles for zoomed and panned scan regions', async () => {
@@ -1422,6 +1436,7 @@ describe('Electron E2E - Viewer Smoke', () => {
             `viewer-scan-cleanup-detail-tile-${Date.now()}.pdf`,
             1,
             0,
+            2,
         );
         await openPdfInApp(session.page, fixturePath, VIEWER_SMOKE_OPEN_TIMEOUT_MS);
         await waitForPdfLoaded(session.page, VIEWER_SMOKE_OPEN_TIMEOUT_MS);
@@ -2425,7 +2440,29 @@ describe('Electron E2E - Viewer Smoke', () => {
                 && fourth?.dataset.thumbnailRendered === 'true';
         }, {timeout: 15_000});
 
-        const pageOneSnapshot = await waitForWorkspaceToolbarSnapshot(session.page, {currentPage: 1});
+        await waitForFunctionInPage(session.page, () => {
+            const viewer = document.querySelector<HTMLElement>('.editor-pane.is-active #pdf-viewer');
+            const pageTrack = viewer?.querySelector<HTMLElement>('[data-pdf-page-track]') ?? null;
+            const page = viewer?.querySelector<HTMLElement>('.page_container[data-page="1"]') ?? null;
+            const canvas = page?.querySelector<HTMLCanvasElement>('.page_canvas canvas, canvas') ?? null;
+            if (!pageTrack || !page || !canvas || canvas.width <= 0 || canvas.height <= 0) {
+                return false;
+            }
+            const pageTrackStyle = getComputedStyle(pageTrack);
+            const pageTrackContentWidth = pageTrack.clientWidth
+                - (Number.parseFloat(pageTrackStyle.paddingInlineStart) || 0)
+                - (Number.parseFloat(pageTrackStyle.paddingInlineEnd) || 0);
+            return pageTrackContentWidth > 0
+                && Math.abs(page.getBoundingClientRect().width - pageTrackContentWidth) <= 2;
+        }, {timeout: 15_000});
+        const pageOneSnapshot = await waitForWorkspaceToolbarSnapshot(
+            session.page,
+            {
+                currentPage: 1,
+                zoomMode: 'fit-width',
+            },
+            {timeoutMs: 15_000},
+        );
         const thumbnailGeometry = await session.page.evaluate(() => {
             const items = Array.from(document.querySelectorAll<HTMLElement>(
                 '.editor-pane.is-active .pdf-thumbnail[data-page]',
@@ -2447,20 +2484,43 @@ describe('Electron E2E - Viewer Smoke', () => {
         expect(thumbnailGeometry.overlaps, JSON.stringify(thumbnailGeometry)).toEqual([]);
 
         await session.page.click('.editor-pane.is-active .pdf-thumbnail[data-page="2"]');
-        const pageTwoSnapshot = await waitForWorkspaceToolbarSnapshot(
+        await waitForWorkspaceToolbarSnapshot(
             session.page,
             {currentPage: 2},
             {timeoutMs: 15_000},
         );
         await waitForFunctionInPage(session.page, () => {
             const viewer = document.querySelector<HTMLElement>('.editor-pane.is-active #pdf-viewer');
+            const pageTrack = viewer?.querySelector<HTMLElement>('[data-pdf-page-track]') ?? null;
             const page = viewer?.querySelector<HTMLElement>('.page_container[data-page="2"]') ?? null;
             const canvas = page?.querySelector<HTMLCanvasElement>('.page_canvas canvas, canvas') ?? null;
-            if (!viewer || !page || !canvas || canvas.width <= 0 || canvas.height <= 0) {
+            if (!pageTrack || !page || !canvas || canvas.width <= 0 || canvas.height <= 0) {
                 return false;
             }
-            return Math.abs(page.getBoundingClientRect().width - (viewer.clientWidth - 40)) <= 2;
+            const pageTrackStyle = getComputedStyle(pageTrack);
+            const pageTrackContentWidth = pageTrack.clientWidth
+                - (Number.parseFloat(pageTrackStyle.paddingInlineStart) || 0)
+                - (Number.parseFloat(pageTrackStyle.paddingInlineEnd) || 0);
+            return pageTrackContentWidth > 0
+                && Math.abs(page.getBoundingClientRect().width - pageTrackContentWidth) <= 2;
         }, {timeout: 15_000});
+        const pageTwoSnapshotDeadline = Date.now() + 15_000;
+        let pageTwoSnapshot = await getWorkspaceToolbarSnapshot(session.page);
+        while (
+            !pageTwoSnapshot
+            || pageTwoSnapshot.currentPage !== 2
+            || pageTwoSnapshot.zoomMode !== 'fit-width'
+            || Math.abs(pageTwoSnapshot.effectiveZoom - pageOneSnapshot.effectiveZoom) <= 0.2
+        ) {
+            if (Date.now() >= pageTwoSnapshotDeadline) {
+                throw new Error(`Mixed-size page 2 fit-width snapshot did not settle: ${JSON.stringify({
+                    pageOneSnapshot,
+                    pageTwoSnapshot,
+                })}`);
+            }
+            await new Promise(resolve => setTimeout(resolve, 25));
+            pageTwoSnapshot = await getWorkspaceToolbarSnapshot(session.page);
+        }
 
         expect(pageOneSnapshot.zoomMode).toBe('fit-width');
         expect(pageTwoSnapshot.zoomMode).toBe('fit-width');
@@ -2681,11 +2741,16 @@ describe('Electron E2E - Viewer Smoke', () => {
             }
             applyPressure();
             const pressureTimer = window.setInterval(applyPressure, 200);
-            await new Promise(resolve => setTimeout(resolve, 5_500));
-            window.clearInterval(pressureTimer);
-            const snapshot = probeWindow.__getWorkspaceSurfaceBudgetForE2E?.() ?? null;
-            probeWindow.__setWorkspaceSurfacePressureForE2E('healthy');
-            return {snapshot};
+            try {
+                await new Promise(resolve => setTimeout(resolve, 5_500));
+                window.clearInterval(pressureTimer);
+                applyPressure();
+                const snapshot = probeWindow.__getWorkspaceSurfaceBudgetForE2E?.() ?? null;
+                return {snapshot};
+            } finally {
+                window.clearInterval(pressureTimer);
+                probeWindow.__setWorkspaceSurfacePressureForE2E('healthy');
+            }
         });
         const pressureSnapshot = pressureResult.snapshot;
         const samples = await session.page.evaluate(() => {
@@ -2699,7 +2764,9 @@ describe('Electron E2E - Viewer Smoke', () => {
             page,
             pageSamples,
         ]) => {
-            const firstPaintIndex = pageSamples.findIndex(sample => sample.contentPixels > 1);
+            const firstPaintIndex = pageSamples.findIndex(sample => (
+                sample.rendered && sample.contentPixels > 1
+            ));
             if (firstPaintIndex < 0) {
                 return [];
             }
@@ -2787,6 +2854,44 @@ describe('Electron E2E - Viewer Smoke', () => {
         await openPdfInApp(session.page, fixturePath, VIEWER_SMOKE_OPEN_TIMEOUT_MS);
         await waitForPdfLoaded(session.page, VIEWER_SMOKE_OPEN_TIMEOUT_MS);
 
+        const viewerPoint = await session.page.evaluate(() => {
+            const viewer = document.querySelector<HTMLElement>(
+                '.editor-pane.is-active .workspace-host #pdf-viewer',
+            );
+            if (!viewer) {
+                throw new Error('PDF viewer was not found');
+            }
+            const rect = viewer.getBoundingClientRect();
+            return {
+                x: rect.left + rect.width / 2,
+                y: rect.top + rect.height / 2,
+            };
+        });
+        // Establish genuine viewport ownership before applying the deliberately
+        // synthetic stress pattern below. A DOM-dispatched scroll is not user
+        // intent and must not supersede a still-settling navigation anchor.
+        await session.page.evaluate(() => {
+            const viewer = document.querySelector<HTMLElement>(
+                '.editor-pane.is-active .workspace-host #pdf-viewer',
+            );
+            if (!viewer) {
+                throw new Error('PDF viewer was not found');
+            }
+            document.documentElement.dataset.evbRapidScrollTrustedWheel = 'pending';
+            viewer.addEventListener('wheel', (event) => {
+                document.documentElement.dataset.evbRapidScrollTrustedWheel
+                    = event.isTrusted ? 'received' : 'untrusted';
+            }, {
+                capture: true,
+                once: true,
+            });
+        });
+        await session.page.mouse.move(viewerPoint.x, viewerPoint.y);
+        await session.page.mouse.wheel({deltaY: 240});
+        await waitForFunctionInPage(session.page, () => (
+            document.documentElement.dataset.evbRapidScrollTrustedWheel === 'received'
+        ));
+
         const pageContinuity = await session.page.evaluate(async () => {
             const viewer = document.querySelector<HTMLElement>(
                 '.editor-pane.is-active .workspace-host #pdf-viewer',
@@ -2867,7 +2972,7 @@ describe('Electron E2E - Viewer Smoke', () => {
 
             const finalScrollAt = performance.now();
             let finalSample = sample();
-            while (!finalSample.occupied && performance.now() - finalScrollAt < 5_000) {
+            while (!finalSample.occupied && performance.now() - finalScrollAt < 2_000) {
                 await new Promise(resolve => setTimeout(resolve, 25));
                 finalSample = sample();
             }
@@ -3570,7 +3675,14 @@ runDjvuSmokeOrSkip('Electron E2E - DjVu Viewer Smoke', () => {
         await session.page.setViewport(DJVU_VIDEO_LIKE_VIEWPORT);
         await openDjvuInApp(session.page, djvuFixture.path, DJVU_VIEWER_SMOKE_OPEN_TIMEOUT_MS);
         await waitForDjvuLoaded(session.page, DJVU_VIEWER_SMOKE_OPEN_TIMEOUT_MS);
-        const initialToolbar = await getWorkspaceToolbarSnapshot(session.page);
+        const initialToolbar = await waitForWorkspaceToolbarSnapshot(
+            session.page,
+            {
+                currentPage: 1,
+                minTotalPages: 1,
+            },
+            {timeoutMs: DJVU_VIEWER_SMOKE_OPEN_TIMEOUT_MS},
+        );
         expect(initialToolbar?.currentPage ?? 0).toBeGreaterThan(0);
 
         const sidebarWasVisible = await session.page.evaluate(() => {

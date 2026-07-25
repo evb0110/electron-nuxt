@@ -13,6 +13,8 @@ import {
 import { fileURLToPath } from 'node:url';
 import {
     PDFDocument,
+    PDFName,
+    PDFString,
     StandardFonts,
 } from 'pdf-lib';
 
@@ -58,6 +60,26 @@ export async function generateLargePdfE2eFixture({
             y: 696,
         });
     }
+
+    const existingNote = pdf.context.obj({
+        Type: PDFName.of('Annot'),
+        Subtype: PDFName.of('FreeText'),
+        Rect: [
+            54,
+            620,
+            300,
+            662,
+        ],
+        Contents: PDFString.of('EVB deterministic existing FreeText note'),
+        DA: PDFString.of('/Helvetica 12 Tf 0 g'),
+        F: 4,
+        Border: [
+            0,
+            0,
+            1,
+        ],
+    });
+    pdf.getPage(0).node.addAnnot(pdf.context.register(existingNote));
 
     const basePdf = await pdf.save({
         addDefaultPage: false,

@@ -27,6 +27,7 @@ import {
     waitForSessionReady,
 } from '@scripts/electron-run/electronRunSessionArtifacts';
 import {
+    releaseCurrentSessionName,
     sessionDir,
     setCurrentSessionName,
 } from '@scripts/electron-run/electronRunSessionPaths';
@@ -34,6 +35,7 @@ import {
     buildStrictE2ERunEnv,
     createE2ERunScopedSessionName,
 } from '@scripts/electron-run/electronRunRunId';
+import { readE2ESharedRendererConfig } from '@scripts/electron-run/electronRunE2ESharedRenderer';
 import type { TElectronRunCommand } from '@scripts/electron-run/electronRunProtocol';
 import {DEFAULT_SETTINGS} from '@contracts/settings';
 import type { IE2EWindow } from '@tests/e2e/electron/helpers/e2EWindow';
@@ -50,6 +52,12 @@ const RENDERER_READY_TIMEOUT_MS = 30_000;
 const SESSION_STOP_TIMEOUT_MS = 15_000;
 const PRESERVE_E2E_ARTIFACTS_ENV = 'EVB_E2E_PRESERVE_ARTIFACTS';
 const FAILURE_ARTIFACTS_BASE_DIR = join(projectRoot, '.devkit', 'test', 'electron-e2e-artifacts');
+const SHARED_RENDERER_CLIENT_IDLE_MS = 10_000;
+const SHARED_RENDERER_CLIENT_SETTLE_TIMEOUT_MS = 75_000;
+const SHARED_RENDERER_CLIENT_RECOVERY_ATTEMPTS = 2;
+const SHARED_RENDERER_CLIENT_STABILIZE_TIMEOUT_MS = SHARED_RENDERER_CLIENT_SETTLE_TIMEOUT_MS
+    * (SHARED_RENDERER_CLIENT_RECOVERY_ATTEMPTS * 3 - 2);
+let sharedRendererClientStabilized = false;
 
 export interface IElectronE2ESession {
     name: string;
@@ -215,6 +223,65 @@ async function waitForRendererReady(page: Page, timeoutMs = RENDERER_READY_TIMEO
     }, { timeout: timeoutMs });
 }
 
+async function waitForSharedRendererClientQuiet(page: Page) {
+    const startedAt = Date.now();
+    let stableSince = startedAt;
+    let previousSignature = '';
+
+    while (Date.now() - startedAt < SHARED_RENDERER_CLIENT_SETTLE_TIMEOUT_MS) {
+        try {
+            const state = await page.evaluate(() => ({
+                bindingsReady: typeof (window as IE2EWindow & {__openFileDirect?: unknown}).__openFileDirect === 'function',
+                bodyText: document.body?.innerText ?? '',
+                navigationEpoch: performance.timeOrigin,
+                resourceCount: performance.getEntriesByType('resource').length,
+            }));
+            const signature = `${String(state.navigationEpoch)}:${String(state.resourceCount)}`;
+            if (signature !== previousSignature) {
+                previousSignature = signature;
+                stableSince = Date.now();
+            } else if (Date.now() - stableSince >= SHARED_RENDERER_CLIENT_IDLE_MS) {
+                return state;
+            }
+        } catch {
+            previousSignature = '';
+            stableSince = Date.now();
+        }
+        await delay(500);
+    }
+
+    throw new Error('Shared Electron renderer client resources did not settle');
+}
+
+export async function stabilizeSharedRendererClient(page: Page) {
+    if (!readE2ESharedRendererConfig(process.env)) {
+        return;
+    }
+    await installPageEvaluationShims(page);
+    await waitForRendererReady(page, SHARED_RENDERER_CLIENT_SETTLE_TIMEOUT_MS);
+    for (let attempt = 0; attempt < SHARED_RENDERER_CLIENT_RECOVERY_ATTEMPTS; attempt += 1) {
+        const state = await waitForSharedRendererClientQuiet(page);
+        const initializationFailed = state.bodyText.includes('Internal Server Error')
+            || state.bodyText.includes('useHead() was called without provide context');
+        if (state.bindingsReady && !initializationFailed) {
+            sharedRendererClientStabilized = true;
+            return;
+        }
+        if (attempt + 1 >= SHARED_RENDERER_CLIENT_RECOVERY_ATTEMPTS) {
+            throw new Error(
+                'Shared Electron renderer client did not stabilize after Vite dependency discovery'
+                + ` (bindingsReady=${String(state.bindingsReady)}, body="${state.bodyText.replace(/\s+/g, ' ').slice(0, 180)}")`,
+            );
+        }
+        await page.reload({
+            waitUntil: 'domcontentloaded',
+            timeout: SHARED_RENDERER_CLIENT_SETTLE_TIMEOUT_MS,
+        });
+        await installPageEvaluationShims(page);
+        await waitForRendererReady(page, SHARED_RENDERER_CLIENT_SETTLE_TIMEOUT_MS);
+    }
+}
+
 async function waitForHealthReady(sessionName: string, timeoutMs = SESSION_READY_TIMEOUT_MS) {
     const start = Date.now();
 
@@ -375,6 +442,20 @@ export async function startElectronE2ESession(sessionName: string, options?: {
         connectToSessionPage(scopedSessionName),
         { cleanupOnTimeout: true },
     );
+    if (readE2ESharedRendererConfig(process.env) && !sharedRendererClientStabilized) {
+        try {
+            await withSessionTimeout(
+                scopedSessionName,
+                `Stabilizing shared Electron renderer client '${scopedSessionName}'`,
+                SHARED_RENDERER_CLIENT_STABILIZE_TIMEOUT_MS,
+                stabilizeSharedRendererClient(page),
+                {cleanupOnTimeout: true},
+            );
+        } catch (error) {
+            await stopSingleSession(scopedSessionName).catch(() => undefined);
+            throw error;
+        }
+    }
 
     const command = async <T = unknown>(
         nextCommand: TElectronRunCommand,
@@ -386,45 +467,79 @@ export async function startElectronE2ESession(sessionName: string, options?: {
     };
 
     const stop = async (stopOptions: IElectronE2ESessionStopOptions = {}) => {
-        await withSessionTimeout(
-            scopedSessionName,
-            `Stopping Electron E2E session '${scopedSessionName}'`,
-            SESSION_STOP_TIMEOUT_MS,
-            stopSingleSession(scopedSessionName, {keepNuxt: stopOptions.keepNuxt ?? false}),
-        );
-        if (stopOptions.preserveArtifacts || shouldPreserveE2EArtifacts()) {
-            prunePreservedSessionArtifacts(scopedSessionName);
-        } else {
-            cleanupSessionArtifacts(scopedSessionName);
+        try {
+            await withSessionTimeout(
+                scopedSessionName,
+                `Stopping Electron E2E session '${scopedSessionName}'`,
+                SESSION_STOP_TIMEOUT_MS,
+                stopSingleSession(scopedSessionName, {keepNuxt: stopOptions.keepNuxt ?? false}),
+            );
+            if (stopOptions.preserveArtifacts || shouldPreserveE2EArtifacts()) {
+                prunePreservedSessionArtifacts(scopedSessionName);
+            } else {
+                cleanupSessionArtifacts(scopedSessionName);
+            }
+        } finally {
+            releaseCurrentSessionName(scopedSessionName);
         }
     };
 
     const resetForE2E = async () => {
-        cleanupSessionFixtures(scopedSessionName);
-        rmSync(join(sessionDir(scopedSessionName), 'electron-user-data', 'workspace-checkpoint.json'), {force: true});
-        await page.evaluate(async (defaultSettings) => {
+        const rendererUrl = page.url();
+        const rendererOrigin = new URL(rendererUrl).origin;
+        const checkpointDiscardToken = await page.evaluate(async (defaultSettings) => {
             const target = window as IE2EWindow;
             await target.electronAPI?.documentRecentFiles?.recentFiles.clear();
             await target.electronAPI?.settings.save(defaultSettings);
-
-            localStorage.clear();
-            sessionStorage.clear();
-            await Promise.all((await caches.keys()).map(cacheName => caches.delete(cacheName)));
+            const discardWorkspaceCheckpoint = target.electronAPI?.windowTabs.discardWorkspaceCheckpoint;
+            if (!discardWorkspaceCheckpoint) {
+                throw new Error('Electron checkpoint discard bridge is unavailable before renderer teardown');
+            }
+            return discardWorkspaceCheckpoint();
         }, DEFAULT_SETTINGS);
-        const client = await page.createCDPSession();
+        let checkpointResumed = false;
+        const restoreRendererAndResumeCheckpoint = async () => {
+            await page.goto(rendererUrl, {waitUntil: 'domcontentloaded'});
+            await installPageEvaluationShims(page);
+            await waitForRendererReady(page);
+            await page.evaluate(async (discardToken) => {
+                const target = window as IE2EWindow;
+                const resumeWorkspaceCheckpoint = target.electronAPI?.windowTabs.resumeWorkspaceCheckpoint;
+                if (!resumeWorkspaceCheckpoint) {
+                    throw new Error('Electron checkpoint resume bridge is unavailable after renderer restart');
+                }
+                await resumeWorkspaceCheckpoint(discardToken);
+            }, checkpointDiscardToken);
+            checkpointResumed = true;
+        };
+
         try {
-            const origin = new URL(page.url()).origin;
-            await client.send('Storage.clearDataForOrigin', {
-                origin,
-                storageTypes: 'all',
-            });
-            await client.send('Network.clearBrowserCache');
-        } finally {
-            await client.detach();
+            await page.goto('about:blank', {waitUntil: 'domcontentloaded'});
+            cleanupSessionFixtures(scopedSessionName);
+            const client = await page.createCDPSession();
+            try {
+                await client.send('Storage.clearDataForOrigin', {
+                    origin: rendererOrigin,
+                    storageTypes: 'all',
+                });
+                await client.send('Network.clearBrowserCache');
+            } finally {
+                await client.detach();
+            }
+            await restoreRendererAndResumeCheckpoint();
+        } catch (error) {
+            if (!checkpointResumed) {
+                try {
+                    await restoreRendererAndResumeCheckpoint();
+                } catch (recoveryError) {
+                    throw new AggregateError([
+                        error,
+                        recoveryError,
+                    ], 'Electron E2E reset failed and checkpoint persistence could not be resumed');
+                }
+            }
+            throw error;
         }
-        await page.reload({waitUntil: 'domcontentloaded'});
-        await installPageEvaluationShims(page);
-        await waitForRendererReady(page);
     };
 
     return {

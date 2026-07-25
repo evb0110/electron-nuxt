@@ -24,6 +24,15 @@ export function setCurrentSessionName(name: string) {
     currentSessionName = validateSessionName(name);
 }
 
+export function releaseCurrentSessionName(name: string) {
+    const validatedName = validateSessionName(name);
+    if (currentSessionName !== validatedName) {
+        return false;
+    }
+    currentSessionName = 'default';
+    return true;
+}
+
 export const sessionsBaseDir = join(projectRoot, '.devkit', 'sessions');
 
 export function sessionDir(name = getCurrentSessionName()) {

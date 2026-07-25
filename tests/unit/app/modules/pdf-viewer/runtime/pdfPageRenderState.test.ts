@@ -157,6 +157,7 @@ describe('pdfPageRenderState', () => {
             canvasReadiness: 'ready',
             committedRasterQuality: bufferQuality,
             contentVersion: 9,
+            documentToken: 'document-a',
             job: 'idle',
             layerReadiness: 'ready',
         }));
@@ -193,6 +194,25 @@ describe('pdfPageRenderState', () => {
             container: currentContainer,
             layerReadiness: 'canvas-only',
         }));
+    });
+
+    it('re-authorizes a committed canvas without letting old-token work commit afterward', () => {
+        const state = createPdfPageRenderState();
+        const container = {} as HTMLElement;
+        state.beginRender(3, 8, 21, 'document-a', 1.25, 2, container);
+        expect(state.commitCanvas(3, 8, 21)).toBe(true);
+        state.beginQualityRefine(3, 9, 22, 'document-a', 1.25, 2, container);
+
+        expect(state.adoptCommittedCanvasVersion(3, 10, 'document-b')).toBe(true);
+        expect(state.getSlot(3)).toEqual(expect.objectContaining({
+            canvasReadiness: 'ready',
+            contentVersion: 10,
+            documentToken: 'document-b',
+            job: 'idle',
+            layerReadiness: 'none',
+        }));
+        expect(state.commitCanvas(3, 9, 22)).toBe(false);
+        expect(state.getSlot(3).documentToken).toBe('document-b');
     });
 
     it('removes empty idle slots', () => {

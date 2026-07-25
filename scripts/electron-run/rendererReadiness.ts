@@ -10,6 +10,7 @@ import {
     waitForReusableNuxtServer,
 } from '@scripts/electron-run/electronRunNuxtServer';
 import { getNuxtPort } from '@scripts/electron-run/electronRunPortConfig';
+import { createStartupLogger } from '@scripts/electron-run/createStartupLogger';
 
 const RENDERER_READY_TIMEOUT_MS = 30_000;
 const ELECTRON_APP_PAGE_APPEAR_TIMEOUT_MS = 20_000;
@@ -17,16 +18,6 @@ const VITE_OPTIMIZE_DEP_ERROR_MARKER = 'VITE_OPTIMIZE_DEP_504';
 const RENDERER_READINESS_ERROR_NAME = 'RendererReadinessError';
 const RENDERER_DEAD_PAGE_RELOAD_INTERVAL_MS = 5_000;
 const RENDERER_DEAD_PAGE_MAX_RELOADS = 5;
-
-function formatElapsedMs(startedAt: number) {
-    return `${((Date.now() - startedAt) / 1000).toFixed(2)}s`;
-}
-
-function createStartupLogger(startedAt = Date.now()) {
-    return (message: string) => {
-        console.log(`[Startup +${formatElapsedMs(startedAt)}] ${message}`);
-    };
-}
 
 function createViteOptimizeDepError(details = '') {
     const message = details

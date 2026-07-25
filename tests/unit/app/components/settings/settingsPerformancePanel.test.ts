@@ -11,8 +11,11 @@ import {
     createApp,
     defineComponent,
     h,
+    nextTick,
+    ref,
 } from 'vue';
-import { DEFAULT_SETTINGS } from '@contracts/settings';
+import {DEFAULT_SETTINGS} from '@contracts/settings';
+import type {TPerformanceMode} from '@contracts/hostResourceProfile';
 import SettingsPerformancePanel from '@app/components/settings/SettingsPerformancePanel.vue';
 
 vi.mock('@app/composables/useTypedI18n', () => ({useTypedI18n: () => ({t: (key: string) => key})}));
@@ -45,16 +48,27 @@ const SelectMenuStub = defineComponent({
     }>).map(item => h('option', {value: item.value}, item.label))),
 });
 
+const IconStub = defineComponent({
+    props: {name: {
+        type: String,
+        default: '',
+    }},
+    setup: props => () => h('span', {'data-ui-icon': props.name}),
+});
+
 const activeUnmounts = new Set<() => void>();
 
-function mount(performanceMode: string) {
+const RESTART_NOTICE_SELECTOR = '.settings-performance-restart-notice';
+
+function mount(performanceMode: TPerformanceMode) {
     const host = document.createElement('div');
     document.body.append(host);
     const emitted: string[] = [];
+    const performanceModeRef = ref(performanceMode);
     const app = createApp(defineComponent({setup: () => () => h(SettingsPerformancePanel, {
         settings: {
             ...DEFAULT_SETTINGS,
-            performanceMode,
+            performanceMode: performanceModeRef.value,
         },
         'onUpdate:performanceMode': (value: string | { value: string }) => {
             emitted.push(typeof value === 'string' ? value : value.value);
@@ -62,6 +76,7 @@ function mount(performanceMode: string) {
     })}));
     app.component('UFormField', FormFieldStub);
     app.component('USelectMenu', SelectMenuStub);
+    app.component('UIcon', IconStub);
     app.mount(host);
     const unmount = () => {
         app.unmount();
@@ -69,9 +84,14 @@ function mount(performanceMode: string) {
         activeUnmounts.delete(unmount);
     };
     activeUnmounts.add(unmount);
+    const setPersistedMode = async (mode: TPerformanceMode) => {
+        performanceModeRef.value = mode;
+        await nextTick();
+    };
     return {
         host,
         emitted,
+        setPersistedMode,
         unmount,
     };
 }
@@ -107,5 +127,30 @@ describe('SettingsPerformancePanel', () => {
         select.value = 'high';
         select.dispatchEvent(new Event('change'));
         expect(emitted).toEqual(['high']);
+    });
+
+    it('hides the restart notice while the mode matches the value applied at mount', () => {
+        const { host } = mount('auto');
+        expect(host.querySelector(RESTART_NOTICE_SELECTOR)).toBeNull();
+    });
+
+    it('shows the restart notice once the persisted mode differs from the applied one', async () => {
+        const {
+            host,
+            setPersistedMode,
+        } = mount('auto');
+        await setPersistedMode('low');
+        expect(host.querySelector(RESTART_NOTICE_SELECTOR)?.textContent).toContain('settings.performanceRestartNotice');
+    });
+
+    it('clears the restart notice when the mode is reverted to the applied one before restart', async () => {
+        const {
+            host,
+            setPersistedMode,
+        } = mount('auto');
+        await setPersistedMode('high');
+        expect(host.querySelector(RESTART_NOTICE_SELECTOR)).not.toBeNull();
+        await setPersistedMode('auto');
+        expect(host.querySelector(RESTART_NOTICE_SELECTOR)).toBeNull();
     });
 });

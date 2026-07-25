@@ -22,6 +22,10 @@ import {
     shouldShowWorkspacePlaceholder,
 } from '@app/modules/workspace-shell/host/shouldShowWorkspacePlaceholder';
 import { tabHasDocumentHint } from '@app/modules/workspace-shell/tabs/tabHasDocumentHint';
+import {
+    createDefaultWorkspaceToolbarSnapshot,
+    createDefaultWorkspaceViewerCapabilities,
+} from '@app/types/workspaceExpose';
 
 function createRecordingViewerChunkLoaders(loadedChunks: string[]) {
     const record = (target: TWorkspaceViewerChunkTarget) => () => {
@@ -351,14 +355,56 @@ describe('workspace host startup visibility', () => {
     it('releases a title-only pending hint from live committed workspace evidence', () => {
         expect(shouldKeepWorkspacePendingDocumentHint({
             hasDocumentHint: true,
-            hasMountedOpenError: false,
-            hasMountedSuccessfulVisual: false,
+            isClosingDocument: false,
+            mountedSnapshot: null,
         })).toBe(true);
         expect(shouldKeepWorkspacePendingDocumentHint({
             hasDocumentHint: true,
-            hasMountedOpenError: false,
-            hasMountedSuccessfulVisual: true,
+            isClosingDocument: false,
+            mountedSnapshot: {
+                ...createDefaultWorkspaceToolbarSnapshot(),
+                hasPdf: true,
+                initialVisualReady: true,
+                viewerCapabilities: {
+                    ...createDefaultWorkspaceViewerCapabilities(),
+                    closeableDocument: true,
+                },
+            },
         })).toBe(false);
+    });
+
+    it('releases a pending hint and toolbar opening state for a committed DjVu visual', () => {
+        const mountedSnapshot = {
+            ...createDefaultWorkspaceToolbarSnapshot(),
+            hasPdf: false,
+            initialVisualReady: true,
+            isDjvuMode: true,
+            viewerCapabilities: {
+                ...createDefaultWorkspaceViewerCapabilities(),
+                closeableDocument: true,
+            },
+        };
+        const hasPendingDocumentHint = shouldKeepWorkspacePendingDocumentHint({
+            hasDocumentHint: true,
+            isClosingDocument: false,
+            mountedSnapshot,
+        });
+
+        expect(hasPendingDocumentHint).toBe(false);
+        expect(mountedSnapshot.isOpeningDocument || hasPendingDocumentHint).toBe(false);
+    });
+
+    it('does not republish a stale title-only document hint while closing', () => {
+        expect(shouldKeepWorkspacePendingDocumentHint({
+            hasDocumentHint: true,
+            isClosingDocument: true,
+            mountedSnapshot: null,
+        })).toBe(false);
+        expect(shouldKeepWorkspacePendingDocumentHint({
+            hasDocumentHint: true,
+            isClosingDocument: false,
+            mountedSnapshot: null,
+        })).toBe(true);
     });
 
     it('does not place the startup loader over host errors', () => {

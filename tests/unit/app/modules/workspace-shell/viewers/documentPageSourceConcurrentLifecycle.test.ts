@@ -17,6 +17,7 @@ import {
     type Ref,
 } from 'vue';
 import type { TDocumentRef } from '@contracts/documentRef';
+import {requireDocumentRevisionToken} from '@contracts/documentRevision';
 import DocumentPageSourceFeaturePack from '@app/modules/workspace-shell/components/DocumentPageSourceFeaturePack.vue';
 import { useDocumentOpenVisualSettle } from '@app/modules/workspace-shell/composables/useDocumentOpenVisualSettle';
 import {
@@ -125,7 +126,7 @@ function createFeaturePackHost(
                     }),
                     h(DocumentPageSourceFeaturePack, {
                         currentPage: 1,
-                        documentRevisionToken: `revision:${documentRef}`,
+                        documentRevisionToken: requireDocumentRevisionToken(`revision:${documentRef}`),
                         isActive: isActive.value,
                         isResizing: isResizing.value,
                         onInitialVisualPending: settle.handlePdfInitialVisualPending,

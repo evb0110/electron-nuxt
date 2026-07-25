@@ -34,6 +34,12 @@ type TVoidResult = ReturnType<() => void>;
 
 const noArgs = s.tuple([]);
 const voidResult = s.declared<TVoidResult>()(s.undefined());
+const checkpointDiscardToken = s.fromParser<string>((value) => {
+    if (typeof value !== 'string' || !/^\d+$/.test(value)) {
+        throw new Error('invalid workspace checkpoint discard token');
+    }
+    return value;
+}, () => '1');
 const documentRef = s.fromParser<TDocumentRef>((value) => {
     if (typeof value !== 'string' || value.trim().length === 0) {
         throw new Error('invalid document reference');
@@ -205,6 +211,20 @@ export const WINDOW_TABS_PLATFORM_FEATURE = definePlatformFeature({
             args: s.tuple([workspaceCheckpoint]),
             result: voidResult,
             main: 'saveWorkspaceCheckpoint',
+        }),
+        discardWorkspaceCheckpoint: defineForwardedPlatformMethod({
+            name: 'discardWorkspaceCheckpoint',
+            channel: 'workspace:checkpointDiscard',
+            args: noArgs,
+            result: checkpointDiscardToken,
+            main: 'discardWorkspaceCheckpoint',
+        }),
+        resumeWorkspaceCheckpoint: defineForwardedPlatformMethod({
+            name: 'resumeWorkspaceCheckpoint',
+            channel: 'workspace:checkpointResume',
+            args: s.tuple([checkpointDiscardToken]),
+            result: voidResult,
+            main: 'resumeWorkspaceCheckpoint',
         }),
         claimWorkspaceCheckpoint: defineForwardedPlatformMethod({
             name: 'claimWorkspaceCheckpoint',

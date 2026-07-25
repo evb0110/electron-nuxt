@@ -447,18 +447,11 @@ async function openPathInApp(
 
             if (!openTriggered) {
                 await waitForFunctionInPage(page, () => {
-                    const target = window as IE2EWindow & {__evbDocumentOpenShellReadyAt?: number;};
-                    const api = target.__evbTestApi;
+                    const api = (window as IE2EWindow).__evbTestApi;
                     const activeTabId = api?.getActiveTabId?.();
-                    const shellReady = api?.isStartupOpenClaimPending?.() === false
+                    return api?.isStartupOpenClaimPending?.() === false
                         && typeof activeTabId === 'string'
                         && activeTabId.length > 0;
-                    if (!shellReady) {
-                        delete target.__evbDocumentOpenShellReadyAt;
-                        return false;
-                    }
-                    target.__evbDocumentOpenShellReadyAt ??= performance.now();
-                    return performance.now() - target.__evbDocumentOpenShellReadyAt >= 15_000;
                 }, {timeout: remainingMs});
                 openBaselineEventId = await getLatestAutomationEventId(page);
                 const openResult = await runWithExecutionContextRetry(page, async () => {

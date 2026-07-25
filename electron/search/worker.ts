@@ -27,8 +27,7 @@ import type { IResolvedSearchMatchOptions } from '@pdf-core';
 import type { ICachedIndex } from '@electron/search/worker/ensureSearchIndex';
 import { ensureSearchIndex } from '@electron/search/worker/ensureSearchIndex';
 import { collectSearchMatchWords } from '@pdf-core';
-import { decodeSearchWorkerResourcePolicy } from '@contracts/resourcePolicies';
-import { isRecord } from '@contracts/runtimeGuards';
+import { decodeSearchWorkerData } from '@contracts/resourcePolicies';
 
 interface ISearchRequestContext extends IResolvedSearchMatchOptions {
     requestId: string;
@@ -76,23 +75,11 @@ function resolveWorkerResourcePolicy(value: unknown) {
             resourcePolicy: DEFAULT_SEARCH_WORKER_RESOURCE_POLICY,
         };
     }
-    if (!isRecord(value)) {
+    const workerData = decodeSearchWorkerData(value);
+    if (!workerData) {
         throw new Error('Invalid search workerData');
     }
-    const resourcePolicy = decodeSearchWorkerResourcePolicy(value.resourcePolicy);
-    if (!resourcePolicy) {
-        throw new Error('Invalid search workerData.resourcePolicy');
-    }
-    if (
-        !Number.isSafeInteger(value.nativeServiceIdleTimeoutMs)
-        || (value.nativeServiceIdleTimeoutMs as number) <= 0
-    ) {
-        throw new Error('Invalid search workerData.nativeServiceIdleTimeoutMs');
-    }
-    return {
-        nativeServiceIdleTimeoutMs: value.nativeServiceIdleTimeoutMs as number,
-        resourcePolicy,
-    };
+    return workerData;
 }
 
 const workerResourcePolicy = resolveWorkerResourcePolicy(workerData);

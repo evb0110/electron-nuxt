@@ -686,8 +686,18 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
         for (const pageNumber of viewportRasterWaiters.keys()) {
             resolveViewportRasterWaiters(pageNumber);
         }
+        const documentToken = getRenderDocumentToken();
         for (const pageNumber of pageRenderState.renderedPages) {
-            pageRenderState.adoptCommittedCanvasVersion(pageNumber, renderVersion);
+            const wasHydrating = pageRenderState.getSlot(pageNumber).layerReadiness === 'hydrating';
+            if (
+                pageRenderState.adoptCommittedCanvasVersion(pageNumber, renderVersion, documentToken)
+                && wasHydrating
+            ) {
+                getMountedRasterTarget(pageNumber)?.container.setAttribute(
+                    'data-page-layer-readiness',
+                    'canvas-only',
+                );
+            }
         }
         renderedPageStateVersion.value += 1;
         return renderVersion;
@@ -705,6 +715,33 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
         bumpRenderVersion();
         await cancellation;
     }
+    watch(
+        [
+            documentSession.pdfDocument,
+            getRenderDocumentToken,
+        ],
+        ([
+            document,
+            documentToken,
+        ], [
+            previousDocument,
+            previousDocumentToken,
+        ]) => {
+            if (
+                !document
+                || document !== previousDocument
+                || documentToken === previousDocumentToken
+            ) {
+                return;
+            }
+            // Native annotation saves preserve the loaded PDFDocument and its
+            // painted page pixels while advancing the persisted file revision.
+            // Re-authorize those canvases under the new persistence token; the
+            // version bump cancels old-token work so a late render cannot win.
+            bumpRenderVersion();
+        },
+        {flush: 'post'},
+    );
     function clearAuthoritativePage(pageNumber: number, invalidateScheduler = true) {
         for (const key of viewportRasterJobs.keys()) {
             if (viewportRasterJobs.get(key)?.demand.pageNumber === pageNumber) viewportRasterJobs.delete(key);

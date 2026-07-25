@@ -93,10 +93,13 @@ export type {
 
 export {
     decodeScanCleanupRuntimePolicy,
+    decodeSearchWorkerData,
     decodeSearchWorkerResourcePolicy,
+    parseBoundedEnvInt,
 } from '@contracts/resourcePolicies';
 export type {
     IScanCleanupRuntimePolicy,
+    ISearchWorkerData,
     ISearchWorkerResourcePolicy,
 } from '@contracts/resourcePolicies';
 

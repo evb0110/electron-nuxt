@@ -1,3 +1,6 @@
+import type { IWorkspaceToolbarSnapshot } from '@app/types/workspaceExpose';
+import { hasWorkspaceViewerDocumentCapabilities } from '@app/modules/workspace-shell/viewers/workspaceViewerAdapters';
+
 interface IWorkspaceHostPlaceholderSignals {
     hasQueuedSplitRestore: boolean;
     hasPendingDocumentHint: boolean;
@@ -16,10 +19,14 @@ export function shouldShowWorkspacePlaceholder(signals: IWorkspaceHostPlaceholde
 
 export function shouldKeepWorkspacePendingDocumentHint(signals: {
     hasDocumentHint: boolean;
-    hasMountedOpenError: boolean;
-    hasMountedSuccessfulVisual: boolean;
+    isClosingDocument: boolean;
+    mountedSnapshot: IWorkspaceToolbarSnapshot | null;
 }) {
     return signals.hasDocumentHint
-        && !signals.hasMountedOpenError
-        && !signals.hasMountedSuccessfulVisual;
+        && !signals.isClosingDocument
+        && signals.mountedSnapshot?.hasOpenError !== true
+        && !(
+            signals.mountedSnapshot?.initialVisualReady
+            && hasWorkspaceViewerDocumentCapabilities(signals.mountedSnapshot.viewerCapabilities)
+        );
 }

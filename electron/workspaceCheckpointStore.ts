@@ -60,6 +60,8 @@ interface IPendingWorkspaceCheckpointSave {
 let checkpointWriteInFlight: Promise<void> | null = null;
 let pendingLatestCheckpointSave: IPendingWorkspaceCheckpointSave | null = null;
 let checkpointBarrierQueue: Promise<unknown> = Promise.resolve();
+const discardedCheckpointOwnerGenerations = new Map<number, string>();
+let nextDiscardedCheckpointOwnerGeneration = 1;
 
 function getStoragePath() {
     return join(app.getPath('userData'), 'workspace-checkpoint.json');
@@ -365,6 +367,9 @@ function enqueueWorkspaceCheckpointBarrier<T>(operation: () => Promise<T>) {
 }
 
 export async function saveWorkspaceCheckpoint(checkpoint: IWorkspaceCheckpoint, ownerWebContentsId: number) {
+    if (discardedCheckpointOwnerGenerations.has(ownerWebContentsId)) {
+        return;
+    }
     for (const tab of checkpoint.tabs) {
         if (tab.workingCopyRef && getWorkingCopyOwnerWebContentsId(tab.workingCopyRef) !== ownerWebContentsId) {
             throw new Error('Workspace checkpoint contains an unowned working copy');
@@ -383,6 +388,9 @@ export async function saveWorkspaceCheckpoint(checkpoint: IWorkspaceCheckpoint, 
         ...(lazyWorkingCopies.length === 0 ? {} : {lazyWorkingCopies}),
     };
     await checkpointBarrierQueue;
+    if (discardedCheckpointOwnerGenerations.has(ownerWebContentsId)) {
+        return;
+    }
     return enqueueWorkspaceCheckpointSave(stored);
 }
 
@@ -462,4 +470,32 @@ export async function claimWorkspaceCheckpoint(newOwnerWebContentsId: number) {
 
 export function clearWorkspaceCheckpoint() {
     return enqueueWorkspaceCheckpointBarrier(() => rm(getStoragePath(), {force: true}));
+}
+
+export async function discardWorkspaceCheckpoint(ownerWebContentsId: number) {
+    const generation = String(nextDiscardedCheckpointOwnerGeneration);
+    nextDiscardedCheckpointOwnerGeneration += 1;
+    discardedCheckpointOwnerGenerations.set(
+        ownerWebContentsId,
+        generation,
+    );
+    try {
+        await clearWorkspaceCheckpoint();
+    } catch (error) {
+        if (discardedCheckpointOwnerGenerations.get(ownerWebContentsId) === generation) {
+            discardedCheckpointOwnerGenerations.delete(ownerWebContentsId);
+        }
+        throw error;
+    }
+    return generation;
+}
+
+export function resumeWorkspaceCheckpoint(
+    ownerWebContentsId: number,
+    discardToken: string,
+) {
+    if (discardedCheckpointOwnerGenerations.get(ownerWebContentsId) !== discardToken) {
+        throw new Error('Workspace checkpoint discard token is stale or invalid');
+    }
+    discardedCheckpointOwnerGenerations.delete(ownerWebContentsId);
 }

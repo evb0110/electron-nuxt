@@ -27,10 +27,11 @@ import {
 } from '@scripts/electron-run/electronRunNuxtServer';
 import {
     isProcessAlive,
-    killProcessTreeForPids,
+    killProcessTrees,
     killSpawnedProcessTree,
     waitForProcessExit,
 } from '@scripts/electron-run/electronRunProcessTree';
+import { createStartupLogger } from '@scripts/electron-run/createStartupLogger';
 import {
     findSessionOwnedElectronPids,
     killVerifiedSessionProcess,
@@ -84,16 +85,6 @@ export function clearAutomationWorkspaceCrashCheckpointAfterSessionExit(
 ) {
     return shouldClearAutomationWorkspaceCrashCheckpointOnExit(exitCode)
         && clearAutomationWorkspaceCrashCheckpoint(sessionName);
-}
-
-function formatElapsedMs(startedAt: number) {
-    return `${((Date.now() - startedAt) / 1000).toFixed(2)}s`;
-}
-
-function createStartupLogger(startedAt = Date.now()) {
-    return (message: string) => {
-        console.log(`[Startup +${formatElapsedMs(startedAt)}] ${message}`);
-    };
 }
 
 async function ensureSessionCanStart() {
@@ -151,7 +142,7 @@ async function killStaleElectronForCurrentSession() {
     const pids = new Set(findSessionOwnedElectronPids(expectation));
 
     if (pids.size > 0) {
-        await killProcessTreeForPids([...pids], 500);
+        await killProcessTrees([...pids], 500);
     }
     if (staleInfo?.electronPid && isProcessAlive(staleInfo.electronPid) && !pids.has(staleInfo.electronPid)) {
         await killVerifiedSessionProcess({

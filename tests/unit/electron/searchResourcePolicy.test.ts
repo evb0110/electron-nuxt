@@ -9,7 +9,9 @@ import type {
 } from '@contracts/hostResourceProfile';
 import {
     decodeScanCleanupRuntimePolicy,
+    decodeSearchWorkerData,
     decodeSearchWorkerResourcePolicy,
+    parseBoundedEnvInt,
 } from '@contracts/resourcePolicies';
 import { resolveSearchResourcePolicy } from '@electron/features/search/main/searchResourcePolicy';
 
@@ -121,6 +123,24 @@ describe('resolveSearchResourcePolicy', () => {
         ));
     });
 
+    it('preserves the legacy minimum clamp and rejects unsafe unbounded worker values', () => {
+        const policy = resolveSearchResourcePolicy(
+            createResourceProfile('high'),
+            {
+                EVB_SEARCH_WORKER_IDLE_TTL_MS: '3000000000',
+                EVB_PDF_SEARCH_SERVICE_IDLE_TIMEOUT_MS: '3000000000',
+                EVB_SEARCH_WORKER_MAX_ACTIVE: '0',
+                EVB_SEARCH_INDEX_CACHE_TTL_MS: String(Number.MAX_SAFE_INTEGER + 1),
+            },
+        );
+        expect(policy.maxActiveSenderWorkers).toBe(1);
+        expect(policy.workerIdleTtlMs).toBe(2_147_483_647);
+        expect(policy.nativeServiceIdleTimeoutMs).toBe(2_147_483_647);
+        expect(policy.workerResourcePolicy.indexCacheTtlMs).toBe(2 * 60_000);
+        expect(decodeSearchWorkerResourcePolicy(policy.workerResourcePolicy))
+            .toEqual(policy.workerResourcePolicy);
+    });
+
     it('decodes worker-boundary policies and rejects malformed values', () => {
         const workerPolicy = resolveSearchResourcePolicy(
             createResourceProfile('low'),
@@ -132,8 +152,107 @@ describe('resolveSearchResourcePolicy', () => {
             ...workerPolicy,
             maxTotalTextBytes: 0,
         })).toBeNull();
+        expect(decodeSearchWorkerResourcePolicy({
+            ...workerPolicy,
+            indexCacheMaxEntries: 129,
+        })).toBeNull();
+        expect(decodeSearchWorkerResourcePolicy({
+            ...workerPolicy,
+            maxPageTextBytes: 32 * MIB + 1,
+        })).toBeNull();
+        expect(decodeSearchWorkerResourcePolicy({
+            ...workerPolicy,
+            maxTotalTextBytes: 1024 * MIB + 1,
+        })).toBeNull();
         expect(decodeScanCleanupRuntimePolicy({rasterConcurrency: 2}))
             .toEqual({rasterConcurrency: 2});
         expect(decodeScanCleanupRuntimePolicy({rasterConcurrency: 4})).toBeNull();
+    });
+});
+
+describe('parseBoundedEnvInt', () => {
+    it('parses a valid override and applies the ceiling only when max is set', () => {
+        expect(parseBoundedEnvInt('42', {
+            fallback: 1,
+            min: 1,
+        })).toBe(42);
+        expect(parseBoundedEnvInt('999', {
+            fallback: 1,
+            min: 1,
+            max: 256,
+        })).toBe(256);
+        expect(parseBoundedEnvInt('10', {
+            fallback: 1,
+            min: 1,
+            max: 256,
+        })).toBe(10);
+    });
+
+    it('falls back for undefined, non-numeric, and below-minimum values', () => {
+        expect(parseBoundedEnvInt(undefined, {
+            fallback: 7,
+            min: 2,
+        })).toBe(7);
+        expect(parseBoundedEnvInt('nope', {
+            fallback: 7,
+            min: 2,
+        })).toBe(7);
+        expect(parseBoundedEnvInt('1', {
+            fallback: 7,
+            min: 2,
+        })).toBe(7);
+        expect(parseBoundedEnvInt('2', {
+            fallback: 7,
+            min: 2,
+        })).toBe(2);
+    });
+
+    it('can preserve clamped-minimum and safe-integer override semantics', () => {
+        expect(parseBoundedEnvInt('0', {
+            clampBelowMin: true,
+            fallback: 2,
+            min: 1,
+            max: 256,
+        })).toBe(1);
+        expect(parseBoundedEnvInt(String(Number.MAX_SAFE_INTEGER + 1), {
+            fallback: 60_000,
+            min: 1,
+            requireSafeInteger: true,
+        })).toBe(60_000);
+    });
+});
+
+describe('decodeSearchWorkerData', () => {
+    const validEnvelope = {
+        nativeServiceIdleTimeoutMs: 60_000,
+        resourcePolicy: {
+            indexCacheMaxEntries: 1,
+            indexCacheTtlMs: 2 * 60_000,
+            maxPageTextBytes: 2 * MIB,
+            maxTotalTextBytes: 48 * MIB,
+        },
+    };
+
+    it('accepts a well-formed envelope and returns the typed value', () => {
+        expect(decodeSearchWorkerData(validEnvelope)).toEqual(validEnvelope);
+    });
+
+    it('rejects a non-record, a bad idle timeout, and a malformed resource policy', () => {
+        expect(decodeSearchWorkerData(null)).toBeNull();
+        expect(decodeSearchWorkerData({
+            ...validEnvelope,
+            nativeServiceIdleTimeoutMs: 0,
+        })).toBeNull();
+        expect(decodeSearchWorkerData({
+            ...validEnvelope,
+            nativeServiceIdleTimeoutMs: 3_000_000_000,
+        })).toBeNull();
+        expect(decodeSearchWorkerData({
+            ...validEnvelope,
+            resourcePolicy: {
+                ...validEnvelope.resourcePolicy,
+                maxTotalTextBytes: 0,
+            },
+        })).toBeNull();
     });
 });

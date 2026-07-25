@@ -235,6 +235,8 @@ export function createLazyBrowserPlatformApiGenerated({
     const windowTabsClaimPendingExternalOpenPathsMethod = lazyAsync(pathDescriptors.windowTabs.claimPendingExternalOpenPaths.path);
     const windowTabsAcknowledgePendingExternalOpenPathsMethod = lazyAsync(pathDescriptors.windowTabs.acknowledgePendingExternalOpenPaths.path);
     const windowTabsSaveWorkspaceCheckpointMethod = lazyAsync(pathDescriptors.windowTabs.saveWorkspaceCheckpoint.path);
+    const windowTabsDiscardWorkspaceCheckpointMethod = lazyAsync(pathDescriptors.windowTabs.discardWorkspaceCheckpoint.path);
+    const windowTabsResumeWorkspaceCheckpointMethod = lazyAsync(pathDescriptors.windowTabs.resumeWorkspaceCheckpoint.path);
     const windowTabsClaimWorkspaceCheckpointMethod = lazyAsync(pathDescriptors.windowTabs.claimWorkspaceCheckpoint.path);
     const windowTabsOnIncomingTransferMethod = lazyEvent(pathDescriptors.windowTabs.onIncomingTransfer.path);
     const windowTabsOnWindowActionMethod = lazyEvent(pathDescriptors.windowTabs.onWindowAction.path);
@@ -289,6 +291,8 @@ export function createLazyBrowserPlatformApiGenerated({
         claimPendingExternalOpenPaths: windowTabsClaimPendingExternalOpenPathsMethod,
         acknowledgePendingExternalOpenPaths: windowTabsAcknowledgePendingExternalOpenPathsMethod,
         saveWorkspaceCheckpoint: windowTabsSaveWorkspaceCheckpointMethod,
+        discardWorkspaceCheckpoint: windowTabsDiscardWorkspaceCheckpointMethod,
+        resumeWorkspaceCheckpoint: windowTabsResumeWorkspaceCheckpointMethod,
         claimWorkspaceCheckpoint: windowTabsClaimWorkspaceCheckpointMethod,
         onIncomingTransfer: windowTabsOnIncomingTransferMethod,
         onWindowAction: windowTabsOnWindowActionMethod,

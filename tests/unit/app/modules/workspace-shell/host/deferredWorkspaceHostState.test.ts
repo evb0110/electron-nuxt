@@ -6,6 +6,7 @@ import {
 } from 'vitest';
 import {
     createDefaultWorkspaceToolbarSnapshot,
+    createDefaultWorkspaceViewerCapabilities,
     type IWorkspaceExpose,
 } from '@app/types/workspaceExpose';
 import { createWorkspaceDocumentController } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
@@ -14,6 +15,7 @@ import {
     createWorkspaceRestoreAttemptState,
     finishWorkspaceRestoreAttempt,
     tryClaimWorkspaceRestoreAttempt,
+    workspaceHasDocumentOrOpenError,
     workspaceHasOpenedDocument,
 } from '@app/modules/workspace-shell/host/deferredWorkspaceHostState';
 import { cast } from '@tests/helpers/cast';
@@ -42,6 +44,12 @@ function createEmptyMountedWorkspace() {
     return cast<IWorkspaceExpose>({getToolbarSnapshot: vi.fn(() => createDefaultWorkspaceToolbarSnapshot())});
 }
 
+function createMountedWorkspace(
+    toolbarSnapshot: ReturnType<typeof createDefaultWorkspaceToolbarSnapshot>,
+) {
+    return cast<IWorkspaceExpose>({getToolbarSnapshot: vi.fn(() => toolbarSnapshot)});
+}
+
 describe('deferredWorkspaceHostState', () => {
     it('claims exactly one cold restore when reactivating a tab under aggressive lifecycle', () => {
         const firstSession = createColdDocumentSession('tab-1', '/tmp/first.pdf');
@@ -67,6 +75,68 @@ describe('deferredWorkspaceHostState', () => {
         }
 
         expect(restoredPaths).toEqual(['/tmp/first.pdf']);
+    });
+
+    it('restores a cold PDF once when pending capabilities have no committed source', () => {
+        const session = createColdDocumentSession('tab-1', '/tmp/pending.pdf');
+        const restoreAttempts = createWorkspaceRestoreAttemptState();
+        const restoredPaths: string[] = [];
+        const pendingWorkspace = createMountedWorkspace({
+            ...createDefaultWorkspaceToolbarSnapshot(),
+            isOpeningDocument: true,
+            viewerCapabilities: {
+                ...createDefaultWorkspaceViewerCapabilities(),
+                closeableDocument: true,
+                pdfDocument: true,
+            },
+        });
+
+        expect(workspaceHasOpenedDocument(pendingWorkspace, session.snapshot.value)).toBe(false);
+        expect(workspaceHasDocumentOrOpenError(pendingWorkspace, session.snapshot.value)).toBe(false);
+
+        for (let attempt = 0; attempt < 2; attempt += 1) {
+            if (
+                !workspaceHasOpenedDocument(pendingWorkspace, session.snapshot.value)
+                && tryClaimWorkspaceRestoreAttempt(
+                    restoreAttempts,
+                    session.snapshot.value,
+                    '/tmp/pending.pdf',
+                )
+            ) {
+                restoredPaths.push('/tmp/pending.pdf');
+            }
+        }
+
+        expect(restoredPaths).toEqual(['/tmp/pending.pdf']);
+    });
+
+    it('recognizes a committed PDF source with document capabilities as opened', () => {
+        const workspace = createMountedWorkspace({
+            ...createDefaultWorkspaceToolbarSnapshot(),
+            hasPdf: true,
+            viewerCapabilities: {
+                ...createDefaultWorkspaceViewerCapabilities(),
+                closeableDocument: true,
+                pdfDocument: true,
+            },
+        });
+
+        expect(workspaceHasOpenedDocument(workspace)).toBe(true);
+        expect(workspaceHasDocumentOrOpenError(workspace)).toBe(true);
+    });
+
+    it('recognizes a committed DjVu source with document capabilities as opened', () => {
+        const workspace = createMountedWorkspace({
+            ...createDefaultWorkspaceToolbarSnapshot(),
+            isDjvuMode: true,
+            viewerCapabilities: {
+                ...createDefaultWorkspaceViewerCapabilities(),
+                closeableDocument: true,
+            },
+        });
+
+        expect(workspaceHasOpenedDocument(workspace)).toBe(true);
+        expect(workspaceHasDocumentOrOpenError(workspace)).toBe(true);
     });
 
     it('allows a failed cold restore claim to retry and keeps completed restores one-shot', () => {

@@ -805,18 +805,6 @@ watch(isRunning, running => {
     }
 }
 
-@container (width <= 40rem) {
-    .scan-cleanup-workspace {
-        grid-template:
-            'preview' minmax(16rem, 3fr)
-            'settings' minmax(12rem, 2fr) / minmax(0, 1fr);
-    }
-
-    .scan-cleanup-workspace > .scan-thumbnail-rail {
-        display: none;
-    }
-}
-
 .scan-cleanup-blank-hint-anchor {
     position: relative;
     height: 0;

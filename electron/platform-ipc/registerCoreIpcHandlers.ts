@@ -29,6 +29,8 @@ import {
 } from '@electron/platform-ipc/coreContract';
 import {
     claimWorkspaceCheckpoint,
+    discardWorkspaceCheckpoint,
+    resumeWorkspaceCheckpoint,
     saveWorkspaceCheckpoint,
 } from '@electron/workspaceCheckpointStore';
 import { allowOpenPaths } from '@electron/file-access/openPathCapabilities';
@@ -59,6 +61,15 @@ function buildTabTransferTargetLabels(sourceWindowId: number): IWindowTabTargetW
             label: duplicateCount > 1 ? `${title} (${window.id})` : title,
         };
     });
+}
+
+function assertAutomationCheckpointReset() {
+    if (
+        !process.env.EVB_AUTOMATION_USER_DATA_DIR?.trim()
+        || !process.env.EVB_AUTOMATION_SESSION_NAME?.trim()
+    ) {
+        throw new Error('Workspace checkpoint reset is available only to isolated automation sessions');
+    }
 }
 
 export function registerCoreIpcHandlers(
@@ -93,6 +104,14 @@ export function registerCoreIpcHandlers(
         },
         saveWorkspaceCheckpoint: async ({senderId}, checkpoint) => {
             await saveWorkspaceCheckpoint(checkpoint, senderId);
+        },
+        discardWorkspaceCheckpoint: async ({senderId}) => {
+            assertAutomationCheckpointReset();
+            return discardWorkspaceCheckpoint(senderId);
+        },
+        resumeWorkspaceCheckpoint: ({senderId}, discardToken) => {
+            assertAutomationCheckpointReset();
+            resumeWorkspaceCheckpoint(senderId, discardToken);
         },
         claimWorkspaceCheckpoint: async ({
             sender,

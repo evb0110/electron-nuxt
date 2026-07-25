@@ -2,6 +2,9 @@ import { getSystemCapability } from '@app/utils/getSystemCapability';
 import { getHostCapability } from '@app/utils/getHostCapability';
 import { readBrowserPerformanceModeSnapshot } from '@app/utils/browserSettingsPersistence';
 import {
+    HOST_TIER_HIGH_RAM_MIN_GIB,
+    HOST_TIER_LOW_RAM_MAX_GIB,
+    HOST_TIER_MODEST_CPU_MAX,
     resolveDetectedHostResourceTier,
     type THostResourceTier,
     type TPerformanceMode,
@@ -89,6 +92,11 @@ function normalizePositiveNumber(value: number | undefined) {
         : null;
 }
 
+// The `workstation` super-profile (high tier + >=32 GiB + >=12 CPU) is a
+// renderer-only PDF-canvas refinement: it widens render/prefetch/proxy budgets
+// on genuinely large desktops. It is intentionally NOT a `THostResourceTier`
+// case — the canonical host classifier stops at low/medium/high — so it must
+// never be treated as a missing tier branch elsewhere in the codebase.
 function resolveWorkstationProfile(
     tier: THostResourceTier,
     hardwareConcurrency: number | null,
@@ -178,13 +186,13 @@ export function resolvePerformanceProfile(
     }
 
     const lowMemory = totalMemoryGiB !== null
-        ? totalMemoryGiB <= 8
+        ? totalMemoryGiB <= HOST_TIER_LOW_RAM_MAX_GIB
         : (deviceMemory ?? 4) <= 4;
     const highCanvasMemory = totalMemoryGiB !== null
-        ? totalMemoryGiB >= 16
+        ? totalMemoryGiB >= HOST_TIER_HIGH_RAM_MIN_GIB
         : (deviceMemory ?? 0) >= 8;
     const workstationMemory = totalMemoryGiB !== null && totalMemoryGiB >= 32;
-    const lowCpu = (hardwareConcurrency ?? 4) <= 4;
+    const lowCpu = (hardwareConcurrency ?? 4) <= HOST_TIER_MODEST_CPU_MAX;
     const workstationCpu = hardwareConcurrency !== null && hardwareConcurrency >= 12;
     const workstationProfile = workstationMemory && workstationCpu;
     // The tier itself always comes from the canonical detection table so the

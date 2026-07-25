@@ -709,6 +709,32 @@ describe('workspaceSaveService', () => {
         }));
     });
 
+    it('allows the large serialized-save benchmark only behind both automation gates', async () => {
+        const getWorkingCopySize = vi.fn(async () => 512 * 1024 * 1024 + 1);
+        const {
+            deps,
+            saveFile,
+        } = createDeps({
+            annotationDirty: ref(true),
+            getWorkingCopySize,
+        });
+        vi.stubGlobal('window', {
+            __allowRendererFileOpenForAutomation: vi.fn(async () => true),
+            __allowLargeSerializedSaveForAutomation: true,
+        });
+        try {
+            const {handleSave} = useWorkspaceSaveServiceForTest(deps);
+
+            await expect(handleSave()).resolves.toBe(true);
+
+            expect(getWorkingCopySize).toHaveBeenCalledWith('/tmp/work.pdf');
+            expect(deps.getSourcePdfData).toHaveBeenCalledOnce();
+            expect(saveFile).toHaveBeenCalledOnce();
+        } finally {
+            vi.stubGlobal('window', undefined);
+        }
+    });
+
     it('saves clean Save As from the working copy without serialization', async () => {
         const {
             deps,

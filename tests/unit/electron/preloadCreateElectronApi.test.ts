@@ -242,6 +242,26 @@ describe('createElectronApi', () => {
         expect(typeof api.system.getMemoryInfo).toBe('function');
     });
 
+    it('forwards token-bound workspace checkpoint discard and resume calls', async () => {
+        const {
+            api,
+            ipcRenderer,
+        } = await createApiHarness({invoke: async channel =>
+            channel === WINDOW_TABS_PLATFORM_FEATURE.invokeChannels.discardWorkspaceCheckpoint
+                ? '7'
+                : undefined});
+
+        await expect(api.windowTabs.discardWorkspaceCheckpoint()).resolves.toBe('7');
+        expect(ipcRenderer.invoke).toHaveBeenCalledWith(
+            WINDOW_TABS_PLATFORM_FEATURE.invokeChannels.discardWorkspaceCheckpoint,
+        );
+        await expect(api.windowTabs.resumeWorkspaceCheckpoint('7')).resolves.toBeUndefined();
+        expect(ipcRenderer.invoke).toHaveBeenCalledWith(
+            WINDOW_TABS_PLATFORM_FEATURE.invokeChannels.resumeWorkspaceCheckpoint,
+            '7',
+        );
+    });
+
     it('exposes decoded native DjVu page text and nested outline methods', async () => {
         const ipcRenderer = {
             invoke: vi.fn(async (channel: string) => {
