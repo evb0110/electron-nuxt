@@ -24,6 +24,7 @@ import { createPdfPageRasterScheduler } from '@app/modules/pdf-viewer/engine/pdf
 
 const rendererFixture = vi.hoisted(() => {
     const api = {
+        adoptCommittedCanvasVersions: vi.fn(),
         applySearchHighlights: vi.fn(),
         attachAnnotationProjection: vi.fn(() => vi.fn()),
         cancelPendingSearchScroll: vi.fn(),

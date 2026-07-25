@@ -586,6 +586,20 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
     }
 
     return {
+        adoptCommittedCanvasVersions(contentVersion: number, documentToken: string) {
+            for (const pageNumber of pageRenderState.renderedPages) {
+                const wasHydrating = pageRenderState.getSlot(pageNumber).layerReadiness === 'hydrating';
+                if (
+                    pageRenderState.adoptCommittedCanvasVersion(pageNumber, contentVersion, documentToken)
+                    && wasHydrating
+                ) {
+                    const container = getMountedPageContainer(pageNumber, options.container.value);
+                    if (container) {
+                        container.dataset.pageLayerReadiness = 'canvas-only';
+                    }
+                }
+            }
+        },
         renderCommittedPageLayers,
         renderLayerPromotions,
         resolveLayerPromotionDemand,

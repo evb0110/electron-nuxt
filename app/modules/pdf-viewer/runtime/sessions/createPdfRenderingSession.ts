@@ -122,7 +122,6 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
             pageNumber,
         };
     }
-    const hasExactInitialCanvasCommit = () => readExactInitialCommit(false) !== null;
     function reconcileInitialVisual() {
         const current = readExactInitialCommit(true);
         if (!current
@@ -451,9 +450,8 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
             canvasRenderer.cleanupCanvasRenderResult(prepared.render);
             const pageNumber = prepared.job.demand.pageNumber;
             const generation = prepared.job.demand.consumerGeneration;
-            const shouldFail = isPreparedRasterCurrent(prepared)
-                && pageRenderState.getSlot(pageNumber).canvasReadiness !== 'ready';
-            if (shouldFail) {
+            if (isPreparedRasterCurrent(prepared)
+                && pageRenderState.getSlot(pageNumber).canvasReadiness !== 'ready') {
                 pageRenderState.markRenderFailed(pageNumber, generation, prepared.requestId);
             } else {
                 pageRenderState.completeRender(pageNumber, generation, prepared.requestId);
@@ -686,19 +684,7 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
         for (const pageNumber of viewportRasterWaiters.keys()) {
             resolveViewportRasterWaiters(pageNumber);
         }
-        const documentToken = getRenderDocumentToken();
-        for (const pageNumber of pageRenderState.renderedPages) {
-            const wasHydrating = pageRenderState.getSlot(pageNumber).layerReadiness === 'hydrating';
-            if (
-                pageRenderState.adoptCommittedCanvasVersion(pageNumber, renderVersion, documentToken)
-                && wasHydrating
-            ) {
-                getMountedRasterTarget(pageNumber)?.container.setAttribute(
-                    'data-page-layer-readiness',
-                    'canvas-only',
-                );
-            }
-        }
+        pageRenderer.adoptCommittedCanvasVersions(renderVersion, getRenderDocumentToken());
         renderedPageStateVersion.value += 1;
         return renderVersion;
     }
@@ -715,33 +701,19 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
         bumpRenderVersion();
         await cancellation;
     }
-    watch(
-        [
-            documentSession.pdfDocument,
-            getRenderDocumentToken,
-        ],
-        ([
-            document,
-            documentToken,
-        ], [
-            previousDocument,
-            previousDocumentToken,
-        ]) => {
-            if (
-                !document
-                || document !== previousDocument
-                || documentToken === previousDocumentToken
-            ) {
-                return;
-            }
-            // Native annotation saves preserve the loaded PDFDocument and its
-            // painted page pixels while advancing the persisted file revision.
-            // Re-authorize those canvases under the new persistence token; the
-            // version bump cancels old-token work so a late render cannot win.
+    // Native annotation saves preserve the loaded PDFDocument and its painted
+    // page pixels while advancing the persisted file revision. Re-authorize
+    // those canvases under the new persistence token; the version bump cancels
+    // old-token work so a late render cannot win.
+    let reauthorizedDocument = documentSession.pdfDocument.value;
+    const stopRevisionReauthorizationWatch = watch(getRenderDocumentToken, (token, previousToken) => {
+        const document = documentSession.pdfDocument.value;
+        const isSameDocument = document !== null && document === reauthorizedDocument;
+        reauthorizedDocument = document;
+        if (isSameDocument && token !== previousToken) {
             bumpRenderVersion();
-        },
-        {flush: 'post'},
-    );
+        }
+    }, {flush: 'post'});
     function clearAuthoritativePage(pageNumber: number, invalidateScheduler = true) {
         for (const key of viewportRasterJobs.keys()) {
             if (viewportRasterJobs.get(key)?.demand.pageNumber === pageNumber) viewportRasterJobs.delete(key);
@@ -1087,7 +1059,7 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
         renderVisiblePages,
         syncCurrentPageFromViewport: viewport.syncCurrentPageFromViewport,
         transactionController: viewport.transactionController,
-        isInitialCanvasCommitted: hasExactInitialCanvasCommit,
+        isInitialCanvasCommitted: () => readExactInitialCommit(false) !== null,
         onTerminalFailure: options.emitLoadError,
     });
     const {
@@ -1177,6 +1149,7 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
         stopCancelRasterWatch();
         stopVisualReadyWatch();
         stopNavigationCommitWatch();
+        stopRevisionReauthorizationWatch();
         if (frameId !== null) {
             window.cancelAnimationFrame(frameId);
         }

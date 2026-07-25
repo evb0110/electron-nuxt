@@ -791,7 +791,7 @@ describe('PdfDocumentSession range loading', () => {
             __allowLargeSerializedSaveForAutomation: true,
         });
 
-        const documentState = usePdfDocument();
+        const documentState = createPdfDocumentSession();
         const loadPromise = documentState.loadPdf({
             kind: 'path',
             path: '/tmp/oversized-automation-range.pdf',
