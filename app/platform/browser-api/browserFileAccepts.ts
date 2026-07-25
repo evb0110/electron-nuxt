@@ -27,11 +27,6 @@ const OPEN_INPUT_ACCEPT = [
     OPEN_DJVU_ACCEPT,
 ].join(',');
 
-interface IFilePickerAcceptType {
-    description?: string;
-    accept: Record<string, string[]>;
-}
-
 const DEFAULT_FILE_PICKER_DESCRIPTIONS = {
     documents: 'Documents',
     images: 'Images',
