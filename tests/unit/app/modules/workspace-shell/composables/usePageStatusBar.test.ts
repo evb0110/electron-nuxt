@@ -191,7 +191,7 @@ describe('usePageStatusBar', () => {
             documentRef: '/tmp/managed.pdf',
             failure: null,
             progress: 0,
-            state: 'lazy-original',
+            state: 'materializing',
         });
         vi.stubGlobal('useTypedI18n', () => ({ t: (
             key: string,
@@ -216,7 +216,6 @@ describe('usePageStatusBar', () => {
         });
 
         expect(statusBar.statusMaterializationLabel.value).toContain('42');
-        expect(statusBar.statusMaterializationIsActive.value).toBe(true);
 
         listener?.({
             documentRef: '/tmp/managed.pdf',
@@ -225,6 +224,13 @@ describe('usePageStatusBar', () => {
             state: 'materialized',
         });
         expect(statusBar.statusMaterializationLabel.value).toBeNull();
-        expect(statusBar.statusMaterializationIsActive.value).toBe(false);
+
+        listener?.({
+            documentRef: '/tmp/managed.pdf',
+            failure: null,
+            progress: 0,
+            state: 'lazy-original',
+        });
+        expect(statusBar.statusMaterializationLabel.value).toBeNull();
     });
 });

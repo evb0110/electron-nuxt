@@ -1,9 +1,6 @@
-const PROGRESS_COMBINE_START = 88;
-const PROGRESS_COMBINE_CAP = 94;
-
-export function createCompactDjvuProgressHandler(
+export function createPdfCombineProgressHandler(
     totalPages: number,
-    emitProgress: (percent: number) => void,
+    onProcessed: (processed: number, total: number) => void,
     onMalformedLine?: (line: string) => void,
 ) {
     let buffer = '';
@@ -23,10 +20,8 @@ export function createCompactDjvuProgressHandler(
                 const processed = typeof payload.processed === 'number' ? payload.processed : 0;
                 const total = typeof payload.total === 'number' && payload.total > 0
                     ? payload.total
-                    : totalPages;
-                emitProgress(PROGRESS_COMBINE_START + Math.round(
-                    (processed / Math.max(1, total)) * (PROGRESS_COMBINE_CAP - PROGRESS_COMBINE_START),
-                ));
+                    : Math.max(1, totalPages);
+                onProcessed(Math.min(processed, total), total);
             } catch {
                 onMalformedLine?.(line);
             }

@@ -25,10 +25,7 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock('@app/modules/workspace-shell/composables/usePageStatusBar', () => ({usePageStatusBar: (deps: {workingCopyPath?: unknown}) => {
     mocks.statusBarDeps = deps;
-    return {
-        statusMaterializationIsActive: ref(true),
-        statusMaterializationLabel: ref('Preparing document'),
-    };
+    return {statusMaterializationLabel: ref('Preparing document')};
 }}));
 
 vi.mock('@app/modules/workspace-shell/composables/usePageOpsHandlers', () => ({ usePageOpsHandlers: (deps: unknown) => {
@@ -138,6 +135,5 @@ describe('useWorkspaceDocumentControls', () => {
 
         expect(mocks.statusBarDeps?.workingCopyPath).toBe(options.workingCopyPath);
         expect(controls.statusMaterializationLabel.value).toBe('Preparing document');
-        expect(controls.statusMaterializationIsActive.value).toBe(true);
     });
 });

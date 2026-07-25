@@ -26,9 +26,8 @@
                 role="status"
             >
                 <UIcon
-                    :name="materializationActive ? 'i-ph-circle-notch' : 'i-ph-clock'"
-                    class="status-materialization-icon"
-                    :class="{ 'animate-spin motion-reduce:animate-none': materializationActive }"
+                    name="i-ph-circle-notch"
+                    class="status-materialization-icon animate-spin motion-reduce:animate-none"
                     aria-hidden="true"
                 />
                 <span>{{ materializationLabel }}</span>
@@ -57,7 +56,6 @@ defineProps<{
     fileSizeLabel: string;
     zoomLabel: string;
     materializationLabel: string | null;
-    materializationActive: boolean;
     canShowInFolder: boolean;
     showInFolderTooltip: string;
     showInFolderAriaLabel: string;

@@ -65,13 +65,6 @@ fn run(raw_args: Vec<String>) -> Result<()> {
         1_000_000,
         u64::MAX,
     );
-    let max_total_pixels = read_limit(
-        "EVB_PDF_COMBINE_MAX_TOTAL_PIXELS",
-        512_000_000,
-        1_000_000,
-        u64::MAX,
-    );
-
     if config.output_format == OutputFormat::Tiff {
         combine_tiff_paths(
             &config.input_paths,
@@ -118,7 +111,6 @@ fn run(raw_args: Vec<String>) -> Result<()> {
             max_pages: read_limit("EVB_PDF_COMBINE_MAX_PAGES", 500, 1, 10_000) as usize,
             max_pixels,
             max_bilevel_pixels: DEFAULT_MAX_BILEVEL_PIXELS,
-            max_total_pixels,
             max_output_bytes: read_limit(
                 "EVB_PDF_COMBINE_MAX_OUTPUT_BYTES",
                 512 * 1024 * 1024,

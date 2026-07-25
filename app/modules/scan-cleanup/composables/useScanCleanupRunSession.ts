@@ -13,6 +13,7 @@ import {
     setScanCleanupRunError,
     startScanCleanup,
 } from '@app/modules/scan-cleanup/runtime/scanCleanupRunCoordinator';
+import {formatScanCleanupProgress} from '@app/modules/scan-cleanup/runtime/formatScanCleanupProgress';
 import {toPlainScanCleanupOptions} from '@app/modules/scan-cleanup/persistence/preferencesRepository';
 import {getScanCleanupCapability} from '@app/utils/getScanCleanupCapability';
 
@@ -93,10 +94,11 @@ export const useScanCleanupRunSession = (options: IUseScanCleanupRunSessionOptio
         }
         return '';
     });
-    const progressText = computed(() => t(`scanCleanup.runProgress.${progress.value.stage}`, {
-        completed: progress.value.completedUnits,
-        total: progress.value.totalUnits,
-    }));
+    const progressParts = computed(() => formatScanCleanupProgress(progress.value, t));
+    const progressPhaseText = computed(() => progressParts.value.phase);
+    const progressCountText = computed(() => progressParts.value.count);
+    const progressText = computed(() => progressParts.value.text);
+    const progressPercentText = computed(() => t('scanCleanup.runPercent', {percent: Math.round(Math.min(100, Math.max(0, progress.value.percent)))}));
     const runLabel = computed(() => options.sourcePageNumbers.value === null
         ? t('scanCleanup.cleanUp')
         : options.sourcePageNumbers.value.length === 1
@@ -176,6 +178,9 @@ export const useScanCleanupRunSession = (options: IUseScanCleanupRunSessionOptio
         isRunning,
         processedPages,
         progress,
+        progressCountText,
+        progressPercentText,
+        progressPhaseText,
         progressText,
         runLabel,
         runDisabledReason,

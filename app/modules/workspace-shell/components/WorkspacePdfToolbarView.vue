@@ -274,6 +274,7 @@ import type {
 import type { IWorkspaceToolbarSnapshot } from '@app/types/workspaceExpose';
 import type { IReaderCommandSurface } from '@app/utils/readerCommandSurface';
 import {
+    formatScanCleanupProgress,
     isScanCleanupRunning,
     ScanCleanupScissorsIcon,
     scanCleanupRun,
@@ -434,10 +435,7 @@ const scanCleanupTriggerTooltip = computed(() => {
     if (!isScanCleanupRunning.value) {
         return t('scanCleanup.button');
     }
-    return t(`scanCleanup.runProgress.${scanCleanupJobProgress.value.stage}`, {
-        completed: scanCleanupJobProgress.value.completedUnits,
-        total: scanCleanupJobProgress.value.totalUnits,
-    });
+    return formatScanCleanupProgress(scanCleanupJobProgress.value, t).text;
 });
 
 const zoom = computed({

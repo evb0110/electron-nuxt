@@ -167,6 +167,9 @@ vi.mock('@app/modules/scan-cleanup/composables/useScanCleanupWorkspaceSession', 
             ownerId: session.ownerId,
             processedPages: session.processedPages,
             progress: session.jobProgress,
+            progressCountText: session.progressCountText ?? ref(''),
+            progressPercentText: session.progressPercentText ?? ref(''),
+            progressPhaseText: session.progressPhaseText ?? session.progressText,
             progressText: session.progressText,
             runLabel: session.runLabel ?? ref('Clean up'),
             runDisabledReason: session.runDisabledReason ?? ref(''),
@@ -284,10 +287,7 @@ const translations: Record<string, string> = {
     'scanCleanup.pages.resetConfirm': 'Reset all page overrides?',
     'scanCleanup.pages.resetConfirmBody': 'Clear overrides',
     'scanCleanup.pages.resetAction': 'Reset',
-    'scanCleanup.steps.label': 'Scan cleanup progress',
-    'scanCleanup.steps.detect': 'Detect',
-    'scanCleanup.steps.review': 'Review',
-    'scanCleanup.steps.cleanUp': 'Clean up',
+    'scanCleanup.runStatusLabel': 'Cleanup progress',
     'scanCleanup.firstRun.title': 'How scan cleanup works',
     'scanCleanup.firstRun.detect': 'Pages are detected automatically.',
     'scanCleanup.firstRun.review': 'Review pages — drag the cutter or boxes, and adjust per-page settings.',
@@ -1521,7 +1521,7 @@ describe('Scan cleanup components', () => {
         await nextTick();
         expect(harness.host.querySelector('.scan-cleanup-toolbar')?.textContent)
             .toContain('Processed 3 of 12 source pages');
-        expect(harness.host.querySelector('.scan-cleanup-toolbar-progress')).not.toBeNull();
+        expect(harness.host.querySelector('.scan-cleanup-run-meter')).not.toBeNull();
         expect(harness.host.querySelector('.scan-cleanup-header')).toBeNull();
         expect(harness.host.querySelector('.scan-cleanup-footer')).toBeNull();
         expect(harness.host.querySelector('.scan-cleanup-progress-overlay')).toBeNull();
@@ -1601,7 +1601,10 @@ describe('Scan cleanup components', () => {
             isRunning: state.running,
             outputEstimate: '120 source pages → about 145 output pages',
             percent: 42,
-            progressText: 'Rendering 51 / 120',
+            progressCountText: '51 / 120',
+            progressPercentText: '42%',
+            progressPhaseText: 'Cleaning pages',
+            progressText: 'Cleaning pages — 51 / 120',
             runLabel: 'Clean up',
             runDisabledReason: '',
             transitionText: '',
@@ -1610,12 +1613,12 @@ describe('Scan cleanup components', () => {
             .map(zone => zone.getBoundingClientRect().width);
 
         const reviewWidths = widths();
-        expect(harness.host.querySelector('[aria-current="step"]')?.textContent).toContain('Review');
+        expect(harness.host.querySelector('.scan-cleanup-toolbar-status-slot')?.textContent)
+            .toContain('120 source pages → about 145 output pages');
 
         state.detecting = true;
         await nextTick();
         expect(widths()).toEqual(reviewWidths);
-        expect(harness.host.querySelector('[aria-current="step"]')?.textContent).toContain('Detect');
         expect(harness.host.querySelector('.scan-cleanup-toolbar-status-slot')?.textContent)
             .toContain('Analyzing 17 / 120');
 
@@ -1623,8 +1626,12 @@ describe('Scan cleanup components', () => {
         state.running = true;
         await nextTick();
         expect(widths()).toEqual(reviewWidths);
-        expect(harness.host.querySelector('[aria-current="step"]')?.textContent).toContain('Clean up');
-        expect(harness.host.querySelector('.scan-cleanup-toolbar-status-slot')?.textContent).toContain('51 / 120');
+        const meter = harness.host.querySelector('.scan-cleanup-run-meter');
+        expect(meter?.textContent).toContain('Cleaning pages');
+        expect(meter?.textContent).toContain('51 / 120');
+        expect(meter?.textContent).toContain('42%');
+        expect(meter?.getAttribute('aria-valuenow')).toBe('42');
+        expect(harness.host.querySelector('.scan-cleanup-toolbar-status-slot')).toBeNull();
         expect(harness.host.querySelectorAll('.scan-cleanup-toolbar-primary-action')).toHaveLength(1);
         rectSpy.mockRestore();
     });

@@ -169,17 +169,14 @@ export const usePageStatusBar = (deps: IPageStatusBarDeps) => {
     });
     const statusMaterializationLabel = computed(() => {
         const status = workingCopyBackingStatus.value;
-        if (!status || status.state === 'materialized') {
+        if (status?.state !== 'materializing') {
             return null;
         }
         const progress = Math.round(status.progress * 100);
-        return status.state === 'materializing' && progress > 0
+        return progress > 0
             ? t('status.preparingDocumentProgress', {progress})
             : t('status.preparingDocument');
     });
-    const statusMaterializationIsActive = computed(() => (
-        workingCopyBackingStatus.value?.state === 'materializing'
-    ));
     const statusSaveDotState = computed<TSaveDotState>(() => {
         if (!pdfSrc.value) {
             return 'idle';
@@ -266,7 +263,6 @@ export const usePageStatusBar = (deps: IPageStatusBarDeps) => {
         statusFileSizeLabel,
         statusZoomLabel,
         statusMaterializationLabel,
-        statusMaterializationIsActive,
         statusCanShowInFolder,
         statusShowInFolderTooltip,
         statusShowInFolderAriaLabel,

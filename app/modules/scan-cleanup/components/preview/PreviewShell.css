@@ -610,8 +610,13 @@
 }
 
 .overlay-legend {
+    box-sizing: border-box;
     flex-wrap: wrap;
+    justify-content: center;
     gap: var(--app-space-5xl);
+    border-block-start: var(--app-hairline-height) solid var(--ui-border);
+    padding-block: var(--app-space-3xl);
+    padding-inline: var(--app-space-12xl);
     color: var(--ui-text-muted);
     font-size: var(--app-text-size-kicker);
 }

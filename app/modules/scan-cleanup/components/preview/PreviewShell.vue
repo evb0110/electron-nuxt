@@ -15,7 +15,7 @@
                     square
                     icon="i-ph-caret-left"
                     :aria-label="t('scanCleanup.preview.previous')"
-                    :disabled="pageNumber <= 1"
+                    :disabled="disabled || pageNumber <= 1"
                     @click="$emit('previous')"
                 />
                 <span class="page-label">{{ t('scanCleanup.preview.page', {page: pageNumber, total: totalPages}) }}</span>
@@ -27,7 +27,7 @@
                     square
                     icon="i-ph-caret-right"
                     :aria-label="t('scanCleanup.preview.next')"
-                    :disabled="pageNumber >= totalPages"
+                    :disabled="disabled || pageNumber >= totalPages"
                     @click="$emit('next')"
                 />
             </div>
@@ -42,7 +42,7 @@
                         type="button"
                         class="preview-zoom-button"
                         :aria-label="t('scanCleanup.preview.zoomOut')"
-                        :disabled="!canZoomOut"
+                        :disabled="disabled || !canZoomOut"
                         @click="stepPreviewZoom(-1)"
                     >
                         <UIcon name="i-ph-minus" class="preview-zoom-icon" />
@@ -51,6 +51,7 @@
                         type="button"
                         class="preview-zoom-value"
                         :aria-label="t('scanCleanup.preview.toggleZoom', {zoom: previewZoomLabel})"
+                        :disabled="disabled"
                         @click="toggleFitAndActualSize"
                     >
                         {{ previewZoomLabel }}
@@ -59,7 +60,7 @@
                         type="button"
                         class="preview-zoom-button"
                         :aria-label="t('scanCleanup.preview.zoomIn')"
-                        :disabled="!canZoomIn"
+                        :disabled="disabled || !canZoomIn"
                         @click="stepPreviewZoom(1)"
                     >
                         <UIcon name="i-ph-plus" class="preview-zoom-icon" />
@@ -69,6 +70,7 @@
                         class="preview-zoom-button"
                         :class="{'is-active': previewZoomMode === 'fit'}"
                         :aria-label="t('scanCleanup.preview.fit')"
+                        :disabled="disabled"
                         @click="fitPreview"
                     >
                         <UIcon name="i-ph-arrows-out" class="preview-zoom-icon" />
@@ -77,6 +79,7 @@
                 <ScanCleanupSegmented
                     :model-value="effectiveViewMode"
                     :items="viewModes"
+                    :disabled="disabled"
                     :group-label="t('scanCleanup.preview.comparison')"
                     @update:model-value="$emit('update:viewMode', $event as 'original' | 'cleaned')"
                 />
@@ -148,7 +151,7 @@
                             @set-canvas="setOutputCanvas"
                             @set-fit-area="setOutputFitArea"
                         >
-                            <template #paper-overlay="{output}">
+                            <template v-if="!disabled" #paper-overlay="{output}">
                                 <PlacementOverlay
                                     :anchors="placementAnchors"
                                     :enabled="matchPageSize"
@@ -254,7 +257,7 @@
                 </div>
             </div>
             <div
-                v-if="result"
+                v-if="result && !disabled"
                 class="drag-overlay-layer"
                 :style="[dragOverlayStyle, previewTransformStyle]"
             >
@@ -295,7 +298,7 @@
                 />
             </div>
             <ZoneEditorControls
-                v-if="result && zoneEditing"
+                v-if="result && zoneEditing && !disabled"
                 :output-mode="outputMode ?? 'bw'"
                 :selected-layer="selectedPictureLayer"
                 :zone-count="zoneCount"
@@ -445,6 +448,7 @@ const props = defineProps<{
     placementOverrides?: Partial<Record<TScanCleanupOutputHalf, TScanCleanupPageAlignment>>;
     outputMode?: TScanCleanupOutputMode;
     zoneEditing?: boolean;
+    disabled?: boolean;
     lossless?: boolean;
     source?: IDocumentPageSource | null;
     layoutClassification?: IScanCleanupPreviewMetadata['layoutClassification'] | undefined;
@@ -820,6 +824,9 @@ const cutterStyle = computed(() => {
     return {insetInlineStart: `${visualRatio * 100}%`};
 });
 function navigateFromKeyboard(direction: 'previous' | 'next') {
+    if (props.disabled) {
+        return;
+    }
     if (direction === 'previous' && props.pageNumber > 1) emit('previous');
     if (direction === 'next' && props.pageNumber < props.totalPages) emit('next');
 }

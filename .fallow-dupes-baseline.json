@@ -1,6 +1,6 @@
 {
   "clone_groups": [
-    "app/assets/css/main.css:459-468|app/assets/css/main.css:933-942",
+    "app/assets/css/main.css:458-467|app/assets/css/main.css:932-941",
     "app/modules/agent-panel/components/AssistantEffortSwitcher.vue:127-149|app/modules/agent-panel/components/AssistantSpeedSwitcher.vue:113-135",
     "app/modules/agent-panel/components/AssistantEffortSwitcher.vue:215-232|app/modules/agent-panel/components/AssistantSpeedSwitcher.vue:195-212",
     "app/modules/agent-panel/utils/assistantSelectionState.ts:18-41|electron/features/agent/assistantChatSessionStore.ts:92-134",
@@ -53,14 +53,12 @@
     "electron/features/scan-cleanup/worker/rasterLayerDimensions.ts:7-26|scripts/diagnostics/scan-cleanup-corpus-verify.mjs:315-334",
     "electron/image/tryCreatePdfWithNativeImageCombiner.ts:159-174|electron/utils/printHandoff.ts:86-101",
     "electron/image/tryCreatePdfWithNativeImageCombiner.ts:215-238|electron/image/tryCreatePdfWithNativeImageCombiner.ts:246-269",
-    "electron/native-tools/runNativeToolCommand.ts:168-200|electron/utils/runElectronCommand.ts:39-70",
     "electron/search/extractTextWithPdfjs.ts:145-170|electron/search/extractTextWithPdfjs.ts:221-247",
     "packages/contracts/agentPlatformFeature.ts:92-124|packages/contracts/ocrPlatformFeature.ts:62-82",
     "packages/contracts/agentPlatformFeature.ts:1041-1048|packages/contracts/agentPlatformFeature.ts:972-981",
     "packages/contracts/agentPlatformFeature.ts:1363-1379|packages/contracts/ocrPlatformFeature.ts:135-151",
     "packages/contracts/nativePdfMutations.ts:1032-1042|packages/contracts/nativePdfMutations.ts:989-998",
     "scripts/diagnostics/runPdfSkeletonNavigationDiagnostics.ts:469-483|scripts/diagnostics/runPdfSkeletonNavigationDiagnostics.ts:512-526",
-    "scripts/diagnostics/runPdfSkeletonNavigationDiagnostics.ts:530-541|scripts/diagnostics/runPdfSkeletonNavigationDiagnostics.ts:594-605",
-    "scripts/electron-run/electronRunNuxtServer.ts:51-64|scripts/electron-run/sessionManager.ts:142-155"
+    "scripts/diagnostics/runPdfSkeletonNavigationDiagnostics.ts:530-541|scripts/diagnostics/runPdfSkeletonNavigationDiagnostics.ts:594-605"
   ]
 }

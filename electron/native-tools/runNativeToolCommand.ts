@@ -3,6 +3,7 @@ import {
     runNativeCommand,
     type IRunCommandOptions,
 } from '@electron/native-tools/runNativeCommand';
+import { withDefinedCommandOptions } from '@electron/native-tools/withDefinedCommandOptions';
 import type { IProcessResult } from '@electron/native-tools/processResult';
 import { GENERATED_RUST_NATIVE_TOOL_PROTOCOLS } from '@contracts/nativeToolProtocols';
 import { abortErrorFromSignal } from '@electron/utils/abort';
@@ -18,6 +19,7 @@ export interface IRunNativeToolCommandOptions {
     signal?: AbortSignal;
     cancelGroup?: string;
     commandLabel?: string;
+    onStdout?: (chunk: string) => void;
     log?: (level: 'debug' | 'warn' | 'error', message: string) => void;
 }
 
@@ -151,59 +153,10 @@ function createProtocolHandshakeCommandOptions(options: IRunNativeToolCommandOpt
 }
 
 function createBaseRunCommandOptions(options: IRunNativeToolCommandOptions): IRunCommandOptions {
-    const {
-        cwd,
-        env,
-        timeoutMs,
-        maxStdoutBytes,
-        maxStderrBytes,
-        rejectOnStdoutTruncation,
-        allowedExitCodes,
-        signal,
-        cancelGroup,
-        commandLabel,
-        log,
-    } = options;
-
-    const commandOptions: IRunCommandOptions = {
+    return withDefinedCommandOptions({
         defaultCwdToCommandDir: true,
         prependCommandDirToPath: true,
         includeProcessEnv: true,
         windowsHide: true,
-    };
-    if (cwd !== undefined) {
-        commandOptions.cwd = cwd;
-    }
-    if (env !== undefined) {
-        commandOptions.env = env;
-    }
-    if (timeoutMs !== undefined) {
-        commandOptions.timeoutMs = timeoutMs;
-    }
-    if (maxStdoutBytes !== undefined) {
-        commandOptions.maxStdoutBytes = maxStdoutBytes;
-    }
-    if (maxStderrBytes !== undefined) {
-        commandOptions.maxStderrBytes = maxStderrBytes;
-    }
-    if (rejectOnStdoutTruncation !== undefined) {
-        commandOptions.rejectOnStdoutTruncation = rejectOnStdoutTruncation;
-    }
-    if (allowedExitCodes !== undefined) {
-        commandOptions.allowedExitCodes = allowedExitCodes;
-    }
-    if (signal !== undefined) {
-        commandOptions.signal = signal;
-    }
-    if (cancelGroup !== undefined) {
-        commandOptions.cancelGroup = cancelGroup;
-    }
-    if (commandLabel !== undefined) {
-        commandOptions.commandLabel = commandLabel;
-    }
-    if (log !== undefined) {
-        commandOptions.log = log;
-    }
-
-    return commandOptions;
+    }, options);
 }
