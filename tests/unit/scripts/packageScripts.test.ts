@@ -40,7 +40,6 @@ const expectedScriptNames = [
     'fallow:health:summary',
     'typecheck:coverage',
     'validate',
-    'test',
     'test:coverage',
     'test:electron-bundle-static-integrity',
     'test:electron-bundle-static-integrity:no-build',
@@ -64,7 +63,6 @@ const expectedScriptNames = [
     'electron:run',
     'electron:run:headless',
     'diag:pdf-navigation-blink-trace',
-    'diag:pdf-save-timing',
     'diag:ocr-profile-benchmark',
     'test:ocr:native-smoke:required',
     'diag:pdf-skeleton-navigation',
@@ -140,7 +138,7 @@ describe('package scripts', () => {
         const scripts = await readPackageScripts();
 
         expect(Object.keys(scripts)).toEqual(expectedScriptNames);
-        expect(Object.keys(scripts)).toHaveLength(90);
+        expect(Object.keys(scripts)).toHaveLength(88);
         expect(Object.keys(scripts).filter(name => name.startsWith('check:'))).toHaveLength(12);
         expect(Object.keys(scripts).filter(name => name.startsWith('test:'))).toHaveLength(20);
         expect(Object.keys(scripts).filter(name => name.startsWith('typecheck:')))
@@ -256,7 +254,6 @@ describe('package scripts', () => {
         expect(scripts['test:coverage']).toContain('vitest run --coverage');
         expect(scripts['test:coverage']).toContain('scripts/checkCoverageRatchet.ts');
         expect(scripts['test:coverage']).toContain('scripts/checkZeroExecutionCoverage.ts');
-        expect(scripts['test']).toBe('pnpm run test:unit');
     });
 
     it('keeps release, database, and static-integrity commands first-class', async () => {
@@ -371,9 +368,6 @@ describe('package scripts', () => {
             'pnpm run build:electron',
             'pnpm exec tsx scripts/diagnostics/pdfNavigationBlinkTrace.ts',
         ]);
-        expect(scripts['diag:pdf-save-timing']).toBe(
-            'node scripts/benchmark-save-pipeline.mjs',
-        );
         expect(scripts['benchmark:save-pipeline']).toBe(
             'node scripts/benchmark-save-pipeline.mjs',
         );

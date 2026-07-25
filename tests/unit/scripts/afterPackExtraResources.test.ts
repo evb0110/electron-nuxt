@@ -28,8 +28,12 @@ interface IAfterPackContext {
 }
 
 interface IRequiredExtraResource {
-    identityRelativePath?: string | null;
     label: string;
+    packagedEntries?: Array<{
+        label: string;
+        relativePath: string;
+        type: TRequiredExtraResourceType;
+    }>;
     sourcePath: string;
     stagedPath: string;
     tag: string;
@@ -83,8 +87,11 @@ async function createRequiredPaths(entries: IRequiredExtraResource[], side: 'sou
     await Promise.all(entries.map(async (entry) => {
         const rootPath = side === 'source' ? entry.sourcePath : entry.stagedPath;
         await createRequiredPath(rootPath, entry.type);
-        if (entry.identityRelativePath) {
-            await createRequiredPath(path.join(rootPath, entry.identityRelativePath), 'file');
+        for (const packagedEntry of entry.packagedEntries ?? []) {
+            await createRequiredPath(
+                path.join(rootPath, packagedEntry.relativePath),
+                packagedEntry.type,
+            );
         }
     }));
 }
@@ -351,13 +358,17 @@ describe('afterPack extraResources preflight', () => {
             expect(() => assertRequiredExtraResources(context, {projectRoot: tempRoot})).not.toThrow();
 
             const pdfSearch = entries.find(entry => entry.label.startsWith('PDF search native tool'))!;
+            const pdfSearchBinary = pdfSearch.packagedEntries?.find(entry => (
+                entry.label === 'evb-pdf-search binary'
+            ));
+            expect(pdfSearchBinary).toBeDefined();
             await writeFile(
-                path.join(pdfSearch.stagedPath, pdfSearch.identityRelativePath!),
+                path.join(pdfSearch.stagedPath, pdfSearchBinary!.relativePath),
                 'stale-binary',
                 'utf8',
             );
             const mismatchMessage = captureErrorMessage(() => assertRequiredExtraResources(context, {projectRoot: tempRoot}));
-            expect(mismatchMessage).toContain('packaged PDF search native tool (win32-arm64) binary differs from staged build');
+            expect(mismatchMessage).toContain('packaged evb-pdf-search binary differs from staged build');
         } finally {
             await rm(tempRoot, {
                 force: true,

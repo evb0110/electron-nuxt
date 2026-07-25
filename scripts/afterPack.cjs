@@ -3,105 +3,7 @@ const crypto = require('crypto');
 const path = require('path');
 
 const projectRoot = path.resolve(__dirname, '..');
-const SUPPORTED_EXTRA_RESOURCE_PLATFORMS = new Set([
-    'darwin',
-    'linux',
-    'win32',
-]);
-const REQUIRED_GLOBAL_EXTRA_RESOURCES = [
-    {
-        label: 'tessdata directory',
-        sourceSegments: [
-            'resources',
-            'tesseract',
-            'tessdata',
-        ],
-        stagedSegments: [
-            'tesseract',
-            'tessdata',
-        ],
-        type: 'directory',
-    },
-    {
-        label: 'application resource icon',
-        sourceSegments: [
-            'resources',
-            'icon.png',
-        ],
-        stagedSegments: ['icon.png'],
-        type: 'file',
-    },
-];
-const REQUIRED_PLATFORM_EXTRA_RESOURCE_ROOTS = [
-    {
-        label: 'Tesseract native tools',
-        sourceRootSegments: [
-            'resources',
-            'tesseract',
-        ],
-        stagedRootSegments: ['tesseract'],
-    },
-    {
-        label: 'Poppler native tools',
-        sourceRootSegments: [
-            'resources',
-            'poppler',
-        ],
-        stagedRootSegments: ['poppler'],
-    },
-    {
-        label: 'qpdf native tools',
-        sourceRootSegments: [
-            'resources',
-            'qpdf',
-        ],
-        stagedRootSegments: ['qpdf'],
-    },
-    {
-        label: 'DjVuLibre native tools',
-        sourceRootSegments: [
-            'resources',
-            'djvulibre',
-        ],
-        stagedRootSegments: ['djvulibre'],
-    },
-    {
-        binaryName: 'evb-pdf-image-combine',
-        label: 'PDF image combine native tool',
-        sourceRootSegments: [
-            '.tmp',
-            'pdf-image-combine',
-        ],
-        stagedRootSegments: ['pdf-image-combine'],
-    },
-    {
-        binaryName: 'evb-pdf-page-ops',
-        label: 'PDF page ops native tool',
-        sourceRootSegments: [
-            '.tmp',
-            'pdf-page-ops',
-        ],
-        stagedRootSegments: ['pdf-page-ops'],
-    },
-    {
-        binaryName: 'evb-pdf-search',
-        label: 'PDF search native tool',
-        sourceRootSegments: [
-            '.tmp',
-            'pdf-search',
-        ],
-        stagedRootSegments: ['pdf-search'],
-    },
-    {
-        binaryName: 'evb-scan-cleanup',
-        label: 'Scan cleanup native tool',
-        sourceRootSegments: [
-            '.tmp',
-            'scan-cleanup',
-        ],
-        stagedRootSegments: ['scan-cleanup'],
-    },
-];
+const {manifest: RELEASE_TARGET_MANIFEST} = require('./release/generated-release-targets.cjs');
 const SUPPORTED_CHROMIUM_LOCALES = {
     darwin: new Set([
         'de',
@@ -166,7 +68,7 @@ function resourcesDirForContext(context) {
 
 function platformArchTagForContext(context) {
     const platform = context.electronPlatformName;
-    if (!SUPPORTED_EXTRA_RESOURCE_PLATFORMS.has(platform)) {
+    if (!RELEASE_TARGET_MANIFEST.electronBuilderPlatformKeys[platform]) {
         throw new Error(`[afterPack] Unsupported required extraResources platform: ${platform}`);
     }
 
@@ -183,7 +85,7 @@ function requiredExtraResourcesForContext(context, {
     resourcesDir = resourcesDirForContext(context),
 } = {}) {
     const tag = platformArchTagForContext(context);
-    const entries = REQUIRED_GLOBAL_EXTRA_RESOURCES.map(entry => ({
+    const entries = RELEASE_TARGET_MANIFEST.globalResources.map(entry => ({
         label: entry.label,
         sourcePath: path.join(root, ...entry.sourceSegments),
         stagedPath: path.join(resourcesDir, ...entry.stagedSegments),
@@ -191,13 +93,19 @@ function requiredExtraResourcesForContext(context, {
         type: entry.type,
     }));
 
-    for (const entry of REQUIRED_PLATFORM_EXTRA_RESOURCE_ROOTS) {
+    for (const entry of RELEASE_TARGET_MANIFEST.families) {
         const binaryExtension = context.electronPlatformName === 'win32' ? '.exe' : '';
+        const packagedEntries = entry.packagedEntries
+            .filter(resource => !resource.platforms || resource.platforms.includes(context.electronPlatformName))
+            .map(resource => ({
+                label: resource.label,
+                relativePath: path.join(...resource.pathSegments)
+                    .replaceAll('{exeSuffix}', binaryExtension),
+                type: resource.type,
+            }));
         entries.push({
-            identityRelativePath: entry.binaryName
-                ? path.join('bin', `${entry.binaryName}${binaryExtension}`)
-                : null,
             label: `${entry.label} (${tag})`,
+            packagedEntries,
             sourcePath: path.join(root, ...entry.sourceRootSegments, tag),
             stagedPath: path.join(resourcesDir, ...entry.stagedRootSegments, tag),
             tag,
@@ -238,22 +146,23 @@ function assertRequiredExtraResources(context, options) {
             continue;
         }
 
-        if (entry.identityRelativePath !== null && entry.identityRelativePath !== undefined) {
-            const sourceBinaryPath = path.join(entry.sourcePath, entry.identityRelativePath);
-            const packagedBinaryPath = path.join(entry.stagedPath, entry.identityRelativePath);
-            if (!hasExpectedPathType(sourceBinaryPath, 'file')) {
-                missing.push(`source ${entry.label} binary: ${sourceBinaryPath}`);
+        for (const packagedEntry of entry.packagedEntries ?? []) {
+            const sourceEntryPath = path.join(entry.sourcePath, packagedEntry.relativePath);
+            const packagedEntryPath = path.join(entry.stagedPath, packagedEntry.relativePath);
+            if (!hasExpectedPathType(sourceEntryPath, packagedEntry.type)) {
+                missing.push(`source ${packagedEntry.label}: ${sourceEntryPath}`);
                 continue;
             }
-            if (!hasExpectedPathType(packagedBinaryPath, 'file')) {
-                missing.push(`packaged ${entry.label} binary: ${packagedBinaryPath}`);
+            if (!hasExpectedPathType(packagedEntryPath, packagedEntry.type)) {
+                missing.push(`packaged ${packagedEntry.label}: ${packagedEntryPath}`);
                 continue;
             }
-
-            const sourceHash = crypto.createHash('sha256').update(fs.readFileSync(sourceBinaryPath)).digest('hex');
-            const packagedHash = crypto.createHash('sha256').update(fs.readFileSync(packagedBinaryPath)).digest('hex');
-            if (sourceHash !== packagedHash) {
-                missing.push(`packaged ${entry.label} binary differs from staged build: ${packagedBinaryPath}`);
+            if (packagedEntry.type === 'file') {
+                const sourceHash = crypto.createHash('sha256').update(fs.readFileSync(sourceEntryPath)).digest('hex');
+                const packagedHash = crypto.createHash('sha256').update(fs.readFileSync(packagedEntryPath)).digest('hex');
+                if (sourceHash !== packagedHash) {
+                    missing.push(`packaged ${packagedEntry.label} differs from staged build: ${packagedEntryPath}`);
+                }
             }
         }
     }
@@ -369,24 +278,14 @@ function moveMacNativeToolResources(context) {
     const tag = `darwin-${arch}`;
     const resourcesDir = resourcesDirForContext(context);
     const nativeToolsDir = nativeToolsDirForContext(context);
-    const toolRoots = [
-        'djvulibre',
-        'pdf-image-combine',
-        'pdf-page-ops',
-        'pdf-search',
-        'scan-cleanup',
-        'poppler',
-        'qpdf',
-        'tesseract',
-    ];
 
-    for (const toolRoot of toolRoots) {
-        const src = path.join(resourcesDir, toolRoot, tag);
+    for (const family of RELEASE_TARGET_MANIFEST.families) {
+        const src = path.join(resourcesDir, ...family.stagedRootSegments, tag);
         if (!fs.existsSync(src)) {
             continue;
         }
 
-        const dst = path.join(nativeToolsDir, toolRoot, tag);
+        const dst = path.join(nativeToolsDir, ...family.stagedRootSegments, tag);
         fs.rmSync(dst, {
             force: true,
             recursive: true,

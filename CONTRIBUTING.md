@@ -15,7 +15,7 @@ Run the smallest useful check while iterating, then run the broader gates before
 ```bash
 pnpm lint
 pnpm typecheck
-pnpm test
+pnpm run test:unit
 ```
 
 For release, packaging, Electron runtime, native-tool, OCR, DjVu, worker, or cross-architecture changes, also run:

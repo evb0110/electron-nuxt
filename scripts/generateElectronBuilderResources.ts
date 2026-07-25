@@ -1,16 +1,14 @@
-import {
-    mkdir,
-    readFile,
-    readdir,
-    writeFile,
-} from 'node:fs/promises';
+import { readdir } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { writeGeneratedFileIfChanged } from '@scripts/writeGeneratedFileIfChanged';
 import {
     AVAILABLE_OCR_LANGUAGES,
     BUNDLED_OCR_LANGUAGE_CODES,
 } from '@contracts/ocrLanguages';
 import {
+    ELECTRON_BUILDER_PLATFORM_KEYS,
+    GLOBAL_PACKAGED_RESOURCES,
     NATIVE_TOOL_RESOURCE_FAMILIES,
     type INativeToolResourceFamily,
     type TNativeResourcePlatform,
@@ -39,15 +37,11 @@ function renderNativeResource(
         `    - from: ${path.posix.join(...family.sourceRootSegments, platformTag(platform))}`,
         `      to: ${path.posix.join(...family.stagedRootSegments, platformTag(platform))}`,
     ];
-    if (family.id === 'poppler' && platform === 'win32') {
+    const filters = family.packageFiltersByPlatform?.[platform];
+    if (filters) {
         lines.push(
             '      filter:',
-            '        - "**/*"',
-            '        - "!share/poppler/CMakeLists.txt"',
-            '        - "!share/poppler/Makefile"',
-            '        - "!share/poppler/README"',
-            '        - "!share/poppler/poppler-data.pc"',
-            '        - "!share/poppler/poppler-data.pc.in"',
+            ...filters.map(filter => `        - "${filter}"`),
         );
     }
     return lines.join('\n');
@@ -59,33 +53,32 @@ export function renderElectronBuilderResources(
 ) {
     const rootResources = [
         'extraResources:',
-        '  - from: resources/tesseract/tessdata',
-        '    to: tesseract/tessdata',
-        '    filter:',
-        ...bundledOcrCodes.map(code => `      - ${code}.traineddata`),
-        '  - from: resources/icon.png',
-        '    to: icon.png',
+        ...GLOBAL_PACKAGED_RESOURCES.flatMap(resource => {
+            const filters = resource.id === 'tessdata'
+                ? bundledOcrCodes.map(code => `${code}.traineddata`)
+                : resource.filters;
+            return [
+                `  - from: ${path.posix.join(...resource.sourceSegments)}`,
+                `    to: ${path.posix.join(...resource.stagedSegments)}`,
+                ...(filters
+                    ? [
+                        '    filter:',
+                        ...filters.map(filter => `      - ${filter}`),
+                    ]
+                    : []),
+            ];
+        }),
     ].join('\n');
-    const platformResources = ([
-        [
-            'mac',
-            'darwin',
-        ],
-        [
-            'win',
-            'win32',
-        ],
-        [
-            'linux',
-            'linux',
-        ],
-    ] as const).map(([
-        configKey,
+    const platformResources = Object.entries(ELECTRON_BUILDER_PLATFORM_KEYS).map(([
         platform,
+        configKey,
     ]) => [
         `${configKey}:`,
         '  extraResources:',
-        ...nativeResourceFamilies.map(family => renderNativeResource(family, platform)),
+        ...nativeResourceFamilies.map(family => renderNativeResource(
+            family,
+            platform as TNativeResourcePlatform,
+        )),
     ].join('\n')).join('\n\n');
 
     return [
@@ -138,14 +131,7 @@ export async function generateElectronBuilderResources(
 ) {
     const root = options.projectRoot ?? projectRoot;
     const plan = await createElectronBuilderResourcePlan({projectRoot: root});
-    const outputPath = path.join(root, plan.relativePath);
-    const current = await readFile(outputPath, 'utf8').catch(() => null);
-    if (current === plan.content) {
-        return false;
-    }
-    await mkdir(path.dirname(outputPath), {recursive: true});
-    await writeFile(outputPath, plan.content, 'utf8');
-    return true;
+    return writeGeneratedFileIfChanged(path.join(root, plan.relativePath), plan.content);
 }
 
 const isDirectCliRun = process.argv[1] !== undefined

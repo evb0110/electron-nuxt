@@ -3,14 +3,17 @@ import {
     unlinkSync,
     writeFileSync,
 } from 'node:fs';
-import { join } from 'node:path';
 import { delay } from 'es-toolkit/promise';
 import {
     cleanupOrphanedProjectNuxtRoots,
     hasOtherAliveSessionUsingNuxt,
     killExistingNuxt,
+    readNuxtSessionShareMetadata,
 } from '@scripts/electron-run/electronRunNuxtServer';
-import {isProcessAlive} from '@scripts/electron-run/electronRunProcessTree';
+import {
+    isProcessAlive,
+    waitForProcessExit,
+} from '@scripts/electron-run/electronRunProcessTree';
 import {
     findSessionOwnedElectronPids,
     isVerifiedSessionProcess,
@@ -29,25 +32,14 @@ import {
     getCurrentSessionName,
     sessionDir,
     sessionFilePath,
+    sessionKeepNuxtMarkerPath,
 } from '@scripts/electron-run/electronRunSessionPaths';
 import type { ISessionInfo } from '@scripts/electron-run/electronRunSessionTypes';
 import { sendCommandToSession } from '@scripts/electron-run/sendCommand';
 import { clearAutomationWorkspaceCrashCheckpoint } from '@scripts/electron-run/electronRunWorkspaceCheckpoint';
 
-const KEEP_NUXT_ON_STOP_MARKER = 'keep-nuxt-on-stop';
 const SESSION_CONTROLLER_SHUTDOWN_TIMEOUT_MS = 12_000;
 const SESSION_SHUTDOWN_COMMAND_TIMEOUT_MS = 2_000;
-
-async function waitForProcessExit(pid: number, timeoutMs: number) {
-    const start = Date.now();
-    while (Date.now() - start < timeoutMs) {
-        if (!isProcessAlive(pid)) {
-            return true;
-        }
-        await delay(100);
-    }
-    return !isProcessAlive(pid);
-}
 
 interface IVerifiedTerminationResult {
     terminated: number;
@@ -86,25 +78,10 @@ export function shouldRemoveSessionStopArtifacts(outcomes: readonly boolean[]) {
     return outcomes.every(Boolean);
 }
 
-function readNuxtSessionShareMetadata() {
-    return listAllSessionNames().flatMap((name) => {
-        const info = getSessionInfo(name);
-        return info ? [{
-            name,
-            sessionAlive: isVerifiedSessionProcess(info.pid, {
-                kind: 'controller',
-                sessionName: name,
-            }),
-            nuxtPid: info.nuxtPid,
-            nuxtPort: info.nuxtPort,
-        }] : [];
-    });
-}
-
 async function stopSessionController(info: ISessionInfo, name: string, keepNuxt?: boolean) {
     if (keepNuxt && info.nuxtPid && isProcessAlive(info.nuxtPid)) {
         mkdirSync(sessionDir(name), {recursive: true});
-        writeFileSync(join(sessionDir(name), KEEP_NUXT_ON_STOP_MARKER), String(Date.now()));
+        writeFileSync(sessionKeepNuxtMarkerPath(name), String(Date.now()));
     }
     if (!isProcessAlive(info.pid)) {
         return true;
@@ -187,7 +164,7 @@ async function stopNuxtForSessionInfo(info: ISessionInfo, name: string, keepNuxt
 
 function removeSessionStopFiles(name: string) {
     try { unlinkSync(sessionFilePath(name)); } catch {}
-    try { unlinkSync(join(sessionDir(name), KEEP_NUXT_ON_STOP_MARKER)); } catch {}
+    try { unlinkSync(sessionKeepNuxtMarkerPath(name)); } catch {}
 }
 
 async function killOrphanedSessionElectron(name: string) {

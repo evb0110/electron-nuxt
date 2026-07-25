@@ -12,8 +12,8 @@ import { delay } from 'es-toolkit/promise';
 import { startDiagnosticFrameCapture } from '@scripts/diagnostics/diagnosticFrameCapture';
 import {
     type IElectronE2ESession,
-    startElectronE2ESession,
-} from '@tests/e2e/electron/helpers/startElectronE2ESession';
+    startPdfDiagnosticsElectronSession,
+} from '@scripts/diagnostics/startPdfDiagnosticsElectronSession';
 import {
     evaluateInPage,
     waitForFunctionInPage,
@@ -251,7 +251,7 @@ export async function runPdfDiagnosticScenario<TState = undefined>(
         throw new Error(scenario.fixtureError);
     }
 
-    const session = await startElectronE2ESession(`${scenario.name}-${Date.now()}`);
+    const session = await startPdfDiagnosticsElectronSession(scenario.name);
     const context = createContext(session, scenario.diagnostics);
     let state: TState | undefined;
     try {

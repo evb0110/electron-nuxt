@@ -127,6 +127,7 @@ describe('changed-area classifier', () => {
         expect(classifyChangedFiles(['packages/release-selection/index.ts']).landing?.matched).toBe(true);
         expect(classifyChangedFiles(['scripts/ci/classify-changed-areas.mjs']).landing?.matched).toBe(true);
         expect(classifyChangedFiles(['app/modules/pdf-viewer/PdfViewer.vue']).electron_smoke?.matched).toBe(true);
+        expect(classifyChangedFiles(['scripts/electron-run/electronLaunch.ts']).electron_smoke?.matched).toBe(true);
         expect(classifyChangedFiles(['app/platform/browser/browserDocumentIdb.ts']).browser_integration?.matched).toBe(true);
         expect(classifyChangedFiles(['app/app.vue'])).toMatchObject({
             landing: { matched: false },

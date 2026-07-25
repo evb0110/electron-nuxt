@@ -198,8 +198,7 @@ describe('macOS native tool workflow', () => {
             label: 'unpaper',
             reason: 'not bundled on Windows',
         });
-        expect(verifier).toContain('unpaper binary');
-        expect(verifier).toContain('run_macos_packaged_tool_smoke "unpaper"');
+        expect(verifier).toContain('run_macos_packaged_tool_smoke "unpaper" "$(packaged_entry_path unpaper)" --help');
         expect(bundleUnpaper).toContain('if "$DEST/bin/unpaper" --help > /dev/null 2>&1; then');
         expect(bundleUnpaper).toContain('exit 1');
     });
@@ -310,12 +309,25 @@ describe('macOS native tool workflow', () => {
         expect(afterPack).toContain('makeTreeOwnerWritable(nativeToolsDir)');
         expect(afterSign).toContain('const nativeToolsDir = path.join(appPath, \'Contents\', \'MacOS\', \'native-tools\');');
         expect(verifier).toContain('find "$release_dir" -path "*/Contents/MacOS/native-tools"');
-        expect(verifier).toContain('check_file "$native_tool_root/djvulibre/$platform_arch/bin/djvused$exe_suffix"');
-        expect(verifier).toContain('check_file "$native_tool_root/djvulibre/$platform_arch/bin/djvudump$exe_suffix"');
-        expect(verifier).toContain('run_macos_packaged_tool_smoke "djvused" "$native_tool_root/djvulibre/$platform_arch/bin/djvused" --help');
-        expect(verifier).toContain('run_macos_packaged_tool_smoke "djvudump" "$native_tool_root/djvulibre/$platform_arch/bin/djvudump" --help');
+        expect(getNativeSourceMatrixCheckEntries('darwin-arm64')).toEqual(expect.arrayContaining([
+            {
+                kind: 'required',
+                label: 'djvused',
+                path: 'resources/djvulibre/darwin-arm64/bin/djvused',
+                type: 'file',
+            },
+            {
+                kind: 'required',
+                label: 'djvudump',
+                path: 'resources/djvulibre/darwin-arm64/bin/djvudump',
+                type: 'file',
+            },
+        ]));
+        expect(verifier).toContain('check_file "$entry_path" "$entry_label"');
+        expect(verifier).toContain('run_macos_packaged_tool_smoke "djvused" "$(packaged_entry_path djvused)" --help');
+        expect(verifier).toContain('run_macos_packaged_tool_smoke "djvudump" "$(packaged_entry_path djvudump)" --help');
         expect(verifier).not.toContain('run_macos_packaged_tool_smoke "djvused" "$resource_root');
-        expect(verifier).toContain('run_macos_packaged_tool_smoke "evb-pdf-image-combine-compact-manifest" "$native_tool_root/pdf-image-combine/$platform_arch/bin/evb-pdf-image-combine" --compact-manifest');
+        expect(verifier).toContain('run_macos_packaged_tool_smoke "evb-pdf-image-combine-compact-manifest" "$(packaged_entry_path evb-pdf-image-combine)" --compact-manifest');
     });
 
     it('keeps the packaged native-tool payload writable for ShipIt quarantine removal', async () => {

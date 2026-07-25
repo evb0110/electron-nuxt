@@ -27,7 +27,7 @@ import { sessionDir } from '@scripts/electron-run/electronRunSessionPaths';
 import {
     clearAutomationWorkspaceCrashCheckpointAfterSessionExit,
     shouldClearAutomationWorkspaceCrashCheckpointOnExit,
-} from '@scripts/electron-run/sessionManager';
+} from '@scripts/electron-run/sessionController';
 
 const projectRoot = process.cwd();
 
@@ -48,11 +48,11 @@ describe('Electron automation graceful shutdown policy', () => {
     });
 
     it('closes the renderer window before browser and process-tree fallbacks', () => {
-        const sessionSource = readProjectSource('scripts/electron-run/sessionManager.ts');
+        const sessionSource = readProjectSource('scripts/electron-run/sessionController.ts');
         const stopSource = readProjectSource('scripts/electron-run/stopSession.ts');
         const gracefulCloseIndex = sessionSource.indexOf('electronAPI?.windowTabs.closeCurrentWindow');
         const browserFallbackIndex = sessionSource.indexOf('state.browser.close()');
-        const electronFallbackIndex = sessionSource.indexOf('killProcessTree(electronPid');
+        const electronFallbackIndex = sessionSource.indexOf('killSpawnedProcessTree(state.electronProcess');
         const shutdownCommandIndex = stopSource.indexOf('info, \'shutdown\'');
         const controllerFallbackIndex = stopSource.indexOf('killVerifiedSessionProcess', shutdownCommandIndex);
 
@@ -83,10 +83,9 @@ describe('Electron automation graceful shutdown policy', () => {
     });
 
     it('preserves crash recovery during a normal start until an explicit stop owns cleanup', () => {
-        const sessionSource = readProjectSource('scripts/electron-run/sessionManager.ts');
+        const sessionSource = readProjectSource('scripts/electron-run/sessionController.ts');
         const startBody = sessionSource.slice(
-            sessionSource.indexOf('export async function startSession('),
-            sessionSource.indexOf('async function waitForProcessExit', sessionSource.indexOf('export async function startSession(')),
+            sessionSource.indexOf('export async function startControlledSession('),
         );
 
         expect(startBody).not.toContain('clearAutomationWorkspaceCrashCheckpoint');

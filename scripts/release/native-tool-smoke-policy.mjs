@@ -1,10 +1,14 @@
-import { GENERATED_RELEASE_NATIVE_TOOL_PROTOCOLS } from './generated-native-tool-protocols.mjs';
+import releaseTargetManifest from './generated-release-targets.cjs';
+
+export const RELEASE_TARGET_MANIFEST = releaseTargetManifest.manifest;
 
 const protocolVersionByBinaryName = new Map(
-    GENERATED_RELEASE_NATIVE_TOOL_PROTOCOLS.map(descriptor => [
-        descriptor.binaryName,
-        descriptor.protocolVersion,
-    ]),
+    RELEASE_TARGET_MANIFEST.families
+        .filter(family => family.binaryName !== null)
+        .map(family => [
+            family.binaryName,
+            family.protocolVersion,
+        ]),
 );
 
 function getGeneratedProtocolVersion(binaryName) {

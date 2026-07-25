@@ -1,10 +1,6 @@
-import {
-    mkdir,
-    readFile,
-    writeFile,
-} from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { writeGeneratedFileIfChanged } from '@scripts/writeGeneratedFileIfChanged';
 import {
     PLATFORM_API_DESCRIPTOR,
     PLATFORM_FEATURE_REGISTRY,
@@ -209,22 +205,12 @@ export function createPlatformApiArtifactPlan(): IPlatformApiArtifact[] {
     ];
 }
 
-async function writeIfChanged(filePath: string, content: string) {
-    const existing = await readFile(filePath, 'utf8').catch(() => null);
-    if (existing === content) {
-        return false;
-    }
-    await mkdir(path.dirname(filePath), {recursive: true});
-    await writeFile(filePath, content);
-    return true;
-}
-
 export async function generatePlatformApiArtifacts(
     options: IGeneratePlatformApiArtifactsOptions = {},
 ) {
     const root = options.projectRoot ?? repoRoot;
     const changed = await Promise.all(createPlatformApiArtifactPlan().map(artifact => (
-        writeIfChanged(path.join(root, artifact.relativePath), artifact.content)
+        writeGeneratedFileIfChanged(path.join(root, artifact.relativePath), artifact.content)
     )));
     return changed.some(Boolean);
 }

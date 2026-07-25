@@ -8,11 +8,10 @@ and JSON schemas remain scenario-specific.
 ## Save-pipeline timing
 
 The save timing diagnostic extends the existing hidden-session save-pipeline benchmark;
-it does not maintain a separate harness. Run either entry point:
+it does not maintain a separate harness. Run the benchmark entry point:
 
 ```bash
 pnpm run benchmark:save-pipeline -- --fixture /absolute/path/to/source.pdf --iterations 10 --output .devkit/analysis/save-pipeline.json
-pnpm run diag:pdf-save-timing -- --pdf /absolute/path/to/source.pdf --iterations 10 --out .devkit/analysis/save-pipeline.json
 ```
 
 `--pdf` aliases `--fixture`, and `--out` aliases `--output`. The source must be an

@@ -33,7 +33,10 @@ import {
 } from '@scripts/electron-run/electronRunE2ESharedRenderer';
 import {
     checkNuxtHttpReadiness,
+    hasOtherAliveSessionUsingNuxt,
     resolveNuxtPortStrategy,
+    selectOrphanedProjectNuxtRootCleanupTargets,
+    selectStaleNuxtPortOwnerCleanupTargets,
     shouldCleanupOrphanedProjectNuxtRoots,
     warmupElectronAppDependencies,
     warmupElectronAppDependenciesBestEffort,
@@ -52,15 +55,12 @@ import {
     shouldUseStrictE2EIsolation,
 } from '@scripts/electron-run/electronRunRunId';
 import { isReusableNuxtResponse } from '@scripts/electron-run/isReusableNuxtResponse';
+import { allocateAutomationPorts } from '@scripts/electron-run/electronLaunch';
 import {
-    allocateAutomationPorts,
-    hasOtherAliveSessionUsingNuxt,
     isElectronAppPageUrl,
     isNuxtDevServerUrl,
     isRendererReadinessError,
-    selectOrphanedProjectNuxtRootCleanupTargets,
-    selectStaleNuxtPortOwnerCleanupTargets,
-} from '@scripts/electron-run/sessionManager';
+} from '@scripts/electron-run/rendererReadiness';
 const rootPackage = JSON.parse(await readFile('package.json', 'utf8')) as {version: string};
 
 describe('sessionManager automation launch args', () => {

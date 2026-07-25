@@ -2,6 +2,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { generateElectronBuilderResources } from '@scripts/generateElectronBuilderResources';
 import { generateNativeToolProtocols } from '@scripts/generateNativeToolProtocols';
+import { generateReleaseTargetManifest } from '@scripts/generateReleaseTargetManifest';
 import { generatePlatformApiArtifacts } from '@scripts/platform-api/generatePlatformApiArtifacts';
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -20,6 +21,7 @@ export async function generateBuildArtifacts({
             : [
                 generateElectronBuilderResources({projectRoot: targetRoot}),
                 generateNativeToolProtocols({projectRoot: targetRoot}),
+                generateReleaseTargetManifest({projectRoot: targetRoot}),
             ],
         generatePlatformApiArtifacts({projectRoot: targetRoot}),
     ]);

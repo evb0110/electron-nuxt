@@ -1,5 +1,8 @@
 import { createServer as createNetServer } from 'node:net';
-import { execSync } from 'node:child_process';
+import {
+    execSync,
+    type ChildProcess,
+} from 'node:child_process';
 import { uniq } from 'es-toolkit/array';
 import { delay } from 'es-toolkit/promise';
 
@@ -175,6 +178,38 @@ export async function killProcessTree(pid: number, graceMs = 1500) {
     if (remaining.length > 0) {
         killPids(remaining, { signal: 'SIGKILL' });
     }
+}
+
+export async function killProcessTreeForPids(pids: number[], graceMs = 1200) {
+    for (const pid of new Set(pids)) {
+        await killProcessTree(pid, graceMs);
+    }
+}
+
+/**
+ * Terminate a child this process spawned: prefer the process tree while it is
+ * still alive so orphaned grandchildren die with it, and otherwise fall back to
+ * the handle's own kill. Every session teardown path uses this one helper.
+ */
+export async function killSpawnedProcessTree(child: ChildProcess | null | undefined, graceMs: number) {
+    try {
+        if (child?.pid && isProcessAlive(child.pid)) {
+            await killProcessTree(child.pid, graceMs);
+        } else {
+            child?.kill();
+        }
+    } catch {}
+}
+
+export async function waitForProcessExit(pid: number, timeoutMs: number) {
+    const start = Date.now();
+    while (Date.now() - start < timeoutMs) {
+        if (!isProcessAlive(pid)) {
+            return true;
+        }
+        await delay(100);
+    }
+    return !isProcessAlive(pid);
 }
 
 export function isProcessAlive(pid: number) {
