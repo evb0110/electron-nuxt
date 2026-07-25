@@ -57,7 +57,7 @@ describe('createRenderTaskHiddenAnnotationOperationsFilter', () => {
         expect(runtime.bindTask(cast<RenderTask>({}))).toBe(false);
     });
 
-    it('reports optimized lists that flattened annotation boundaries for caller fallback', () => {
+    it('keeps every operator when the bound page carries no annotation boundaries', () => {
         const runtime = createRenderTaskHiddenAnnotationOperationsFilter(new Set(['12R']));
         expect(runtime.bindTask(createTask([
             10,
@@ -69,11 +69,26 @@ describe('createRenderTaskHiddenAnnotationOperationsFilter', () => {
 
         expect(runtime.filter(0)).toBe(true);
         expect(runtime.filter(1)).toBe(true);
-        expect(runtime.getDiagnostics()).toMatchObject({
-            callCount: 2,
-            hiddenMatchCount: 0,
-            hiddenAnnotationIds: ['12R'],
-            seenAnnotationIds: [],
-        });
+    });
+
+    it('keeps filtering after pdf.js appends further operator-list chunks in place', () => {
+        const runtime = createRenderTaskHiddenAnnotationOperationsFilter(new Set(['12R']));
+        const fnArray = [10];
+        const argsArray: unknown[] = [[]];
+        expect(runtime.bindTask(createTask(fnArray, argsArray))).toBe(true);
+        expect(runtime.filter(0)).toBe(true);
+
+        fnArray.push(80, 20, 81);
+        argsArray.push(['12R'], [], []);
+
+        expect([
+            runtime.filter(1),
+            runtime.filter(2),
+            runtime.filter(3),
+        ]).toEqual([
+            false,
+            false,
+            false,
+        ]);
     });
 });

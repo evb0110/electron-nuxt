@@ -82,12 +82,6 @@ import { formatPageIndicatorWithOptions } from '@app/utils/pdfPageLabels';
 import { THUMBNAIL_WIDTH } from '@app/constants/pdfLayout';
 import { usePageDragDrop } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePageDragDrop';
 import {
-    createEditedTextMarkupThumbnailVisualSignature,
-    createHiddenAnnotationIdsSignature,
-    getEditedTextMarkupThumbnailComments,
-} from '@app/modules/pdf-viewer/thumbnails/pdfThumbnailTextMarkupVisuals';
-import { collectEditedTextMarkupCanvasSuppressionIds } from '@app/modules/pdf-viewer/annotations/edited-text-markup-canvas-suppression/collectEditedTextMarkupCanvasSuppressionIds';
-import {
     DEFAULT_THUMBNAIL_ITEM_HEIGHT,
     VIRTUAL_OVERSCAN,
     createThumbnailCanvasStyle,
@@ -172,16 +166,6 @@ let getThumbnailRenderSummary = () => ({
     renderingCount: 0,
 });
 
-const editedTextMarkupComments = computed(() => getEditedTextMarkupThumbnailComments(annotationComments ?? []));
-const hiddenAnnotationIdSet = computed(() => collectEditedTextMarkupCanvasSuppressionIds(
-    annotationComments ?? [],
-    hiddenAnnotationIds ?? [],
-));
-const hiddenAnnotationIdsSignature = computed(() => createHiddenAnnotationIdsSignature(hiddenAnnotationIdSet.value));
-const editedTextMarkupVisualSignature = computed(() => createEditedTextMarkupThumbnailVisualSignature(
-    editedTextMarkupComments.value,
-    annotationSettings,
-));
 const {
     aspectRatios: thumbnailAspectRatios,
     clearAspectRatios: clearThumbnailAspectRatios,
@@ -837,11 +821,9 @@ const thumbnailRenderRuntime = usePdfThumbnailRenderRuntime({
         totalPages: computed(() => totalPages),
     },
     visuals: {
+        annotationComments: computed(() => annotationComments ?? []),
         annotationSettings: computed(() => annotationSettings),
-        editedTextMarkupComments,
-        editedTextMarkupVisualSignature,
-        hiddenAnnotationIdSet,
-        hiddenAnnotationIdsSignature,
+        hiddenAnnotationIds: computed(() => hiddenAnnotationIds ?? []),
     },
 });
 const { scheduleVisibleThumbnailRender } = thumbnailRenderRuntime;

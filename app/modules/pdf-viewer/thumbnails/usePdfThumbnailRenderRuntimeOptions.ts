@@ -22,11 +22,9 @@ interface IPdfThumbnailRenderRuntimeSource {
 }
 
 interface IPdfThumbnailRenderRuntimeVisuals {
+    annotationComments: ComputedRef<readonly IAnnotationCommentSummary[]>;
     annotationSettings: ComputedRef<IAnnotationSettings | null | undefined>;
-    editedTextMarkupComments: ComputedRef<IAnnotationCommentSummary[]>;
-    editedTextMarkupVisualSignature: ComputedRef<string>;
-    hiddenAnnotationIdSet: ComputedRef<Set<string>>;
-    hiddenAnnotationIdsSignature: ComputedRef<string>;
+    hiddenAnnotationIds: ComputedRef<readonly string[]>;
 }
 
 interface IPdfThumbnailRenderRuntimeLayout {
