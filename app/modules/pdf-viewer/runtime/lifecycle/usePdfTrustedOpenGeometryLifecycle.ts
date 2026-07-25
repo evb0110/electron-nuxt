@@ -1,34 +1,47 @@
-import type { Ref } from 'vue';
-import type { TPdfSource } from '@app/types/pdfUi';
-import type { IPdfViewerProps } from '@app/modules/pdf-viewer/runtime/contracts/pdfViewerComponent.types';
-import type { TPdfDocumentSession } from '@app/modules/pdf-viewer/runtime/sessions/pdfDocumentSession';
+import type {
+    ComputedRef,
+    Ref,
+} from 'vue';
+import type {
+    IPdfPageMetric,
+    TPdfSource,
+} from '@app/types/pdfUi';
 import type { IDocumentViewerChassisAuthority } from '@app/utils/document-viewer/chassis/documentViewerChassisAuthority';
 import { writeTrustedPdfOpenGeometry } from '@app/modules/pdf-viewer/runtime/lifecycle/pdfTrustedOpenGeometryCache';
 import { commitPdfLoadedOpeningPageGeometry } from '@app/modules/pdf-viewer/runtime/lifecycle/commitPdfLoadedOpeningPageGeometry';
 
 interface IUsePdfTrustedOpenGeometryLifecycleOptions {
-    props: IPdfViewerProps;
-    src: Readonly<Ref<TPdfSource | null>>;
-    viewerCurrentPage: Ref<number>;
+    acceptedSource: Readonly<Ref<TPdfSource | null>>;
     chassisAuthority: IDocumentViewerChassisAuthority | null;
-    pdfDocumentResult: TPdfDocumentSession;
+    currentPage: ComputedRef<number>;
+    documentId: ComputedRef<string | null>;
+    numPages: Readonly<Ref<number>>;
+    pageMetrics: Readonly<Ref<IPdfPageMetric[]>>;
+    pageMetricsVersion: Readonly<Ref<number>>;
+    seedTrustedPageGeometry: (input: {
+        pageNumber: number;
+        pageCount: number;
+        width: number;
+        height: number;
+        rotation?: number;
+    }) => boolean;
+    src: Readonly<Ref<TPdfSource | null>>;
 }
 
 export const usePdfTrustedOpenGeometryLifecycle = (
     options: IUsePdfTrustedOpenGeometryLifecycleOptions,
 ) => {
     const {
-        props,
-        src,
-        viewerCurrentPage,
+        acceptedSource,
         chassisAuthority,
-        pdfDocumentResult,
-    } = options;
-    const {
+        currentPage,
+        documentId,
         numPages,
         pageMetrics,
         pageMetricsVersion,
-    } = pdfDocumentResult;
+        seedTrustedPageGeometry,
+        src,
+    } = options;
     const trustedGeometryStat = shallowRef<{
         size: number;
         modifiedAt?: number;
@@ -36,8 +49,8 @@ export const usePdfTrustedOpenGeometryLifecycle = (
 
     watch(
         () => [
-            props.originalPath,
-            props.src,
+            documentId.value,
+            src.value,
         ] as const,
         ([
             documentId,
@@ -51,7 +64,7 @@ export const usePdfTrustedOpenGeometryLifecycle = (
             const prevalidatedGeometry = chassisAuthority.openSurface.snapshot.value.openingPageGeometry;
             if (
                 prevalidatedGeometry?.documentId === documentId
-                && prevalidatedGeometry.pageNumber === viewerCurrentPage.value
+                && prevalidatedGeometry.pageNumber === currentPage.value
             ) {
                 if (
                     'size' in prevalidatedGeometry
@@ -64,7 +77,7 @@ export const usePdfTrustedOpenGeometryLifecycle = (
                         modifiedAt: prevalidatedGeometry.modifiedAt,
                     };
                 }
-                pdfDocumentResult.seedTrustedPageGeometry({
+                seedTrustedPageGeometry({
                     pageNumber: prevalidatedGeometry.pageNumber,
                     pageCount: prevalidatedGeometry.pageCount,
                     width: prevalidatedGeometry.width,
@@ -109,12 +122,12 @@ export const usePdfTrustedOpenGeometryLifecycle = (
 
     watch(
         [
-            () => props.originalPath,
-            viewerCurrentPage,
+            documentId,
+            currentPage,
             numPages,
             pageMetricsVersion,
             trustedGeometryStat,
-            pdfDocumentResult.acceptedSource,
+            acceptedSource,
             () => chassisAuthority?.openSurface.snapshot.value.generation ?? 0,
             () => chassisAuthority?.openSurface.snapshot.value.phase ?? 'idle',
             () => chassisAuthority?.openSurface.snapshot.value.identity?.documentId ?? null,
@@ -134,10 +147,10 @@ export const usePdfTrustedOpenGeometryLifecycle = (
                 commitPdfLoadedOpeningPageGeometry(chassisAuthority, {
                     expectedGeneration: snapshot.generation,
                     documentId: snapshot.identity.documentId,
-                    metricSource: pdfDocumentResult.acceptedSource.value,
+                    metricSource: acceptedSource.value,
                     currentSource: src.value,
                     pageNumber,
-                    currentPage: viewerCurrentPage.value,
+                    currentPage: currentPage.value,
                     pageCount,
                     metric,
                 });

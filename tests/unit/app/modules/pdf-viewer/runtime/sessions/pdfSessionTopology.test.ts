@@ -8,9 +8,9 @@ import {
 
 const SESSION_ORDER = [
     'pdfDocumentSession',
-    'pdfViewportSession',
-    'pdfRenderingSession',
-    'pdfAnnotationSession',
+    'createPdfViewportSession',
+    'createPdfRenderingSession',
+    'createPdfAnnotationSession',
 ] as const;
 
 const SESSION_DIRECTORY = 'app/modules/pdf-viewer/runtime/sessions';
@@ -56,8 +56,8 @@ describe('PDF viewer session topology', () => {
     });
 
     it('keeps viewport demand and document transitions one-way', () => {
-        const viewport = readSession('pdfViewportSession');
-        const rendering = readSession('pdfRenderingSession');
+        const viewport = readSession('createPdfViewportSession');
+        const rendering = readSession('createPdfRenderingSession');
         const renderer = readFileSync(resolve(
             process.cwd(),
             'app/modules/pdf-viewer/runtime/rendering/usePdfPageRenderer.ts',
@@ -69,6 +69,12 @@ describe('PDF viewer session topology', () => {
         expect(rendering).toContain('watch(viewport.demand');
         expect(renderer).toContain('options.document.rasterScheduler');
         expect(renderer).not.toContain('getPdfPageRasterScheduler');
+        const thumbnails = readFileSync(resolve(
+            process.cwd(),
+            'app/modules/pdf-viewer/thumbnails/usePdfThumbnailRenderRuntime.ts',
+        ), 'utf8');
+        expect(thumbnails).toContain('source.rasterScheduler');
+        expect(thumbnails).not.toContain('getPdfPageRasterScheduler');
     });
 
 });

@@ -1,4 +1,3 @@
-/* eslint-disable custom/file-naming -- Session modules use the architecture's role-based names. */
 import type {
     ComputedRef,
     Ref,
@@ -22,8 +21,8 @@ import { usePdfViewerAnnotationRuntime } from '@app/modules/pdf-viewer/runtime/a
 import { usePdfViewerAnnotationRuntimeBridge } from '@app/modules/pdf-viewer/runtime/annotations/usePdfViewerAnnotationRuntimeBridge';
 import { useEditedTextMarkupVisualSync } from '@app/modules/pdf-viewer/runtime/annotations/useEditedTextMarkupVisualSync';
 import type { TPdfDocumentSession } from '@app/modules/pdf-viewer/runtime/sessions/pdfDocumentSession';
-import type { TPdfViewportSession } from '@app/modules/pdf-viewer/runtime/sessions/pdfViewportSession';
-import type { TPdfRenderingSession } from '@app/modules/pdf-viewer/runtime/sessions/pdfRenderingSession';
+import type { TPdfViewportSession } from '@app/modules/pdf-viewer/runtime/sessions/createPdfViewportSession';
+import type { TPdfRenderingSession } from '@app/modules/pdf-viewer/runtime/sessions/createPdfRenderingSession';
 
 export interface ICreatePdfAnnotationSessionOptions {
     document: TPdfDocumentSession;

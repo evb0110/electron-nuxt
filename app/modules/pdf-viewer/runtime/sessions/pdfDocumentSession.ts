@@ -6,6 +6,7 @@ import type {
     PDFPageProxy,
 } from 'pdfjs-dist';
 import type { TDocumentRevisionToken } from '@contracts/documentRevision';
+import type { TDocumentRef } from '@contracts/documentRef';
 import type {
     IPdfPageMetric,
     TPdfSource,
@@ -16,10 +17,12 @@ import type { IDocumentViewerChassisAuthority } from '@app/utils/document-viewer
 import {
     createDocumentTransitionChannel,
     type IDocumentTransition,
-    type IDocumentTransitionFence,
-} from '@app/utils/document-viewer/lifecycle/documentTransitionChannel';
+} from '@app/utils/document-viewer/lifecycle/createDocumentTransitionChannel';
 import { buildTrustedPdfGeometrySeed } from '@app/modules/pdf-viewer/runtime/lifecycle/buildTrustedPdfGeometrySeed';
-import { pdfjsDocumentTeardownCoordinator } from '@app/modules/pdf-viewer/runtime/composables/pdf/pdfjsDocumentTeardownCoordinator';
+import { usePdfTrustedOpenGeometryLifecycle } from '@app/modules/pdf-viewer/runtime/lifecycle/usePdfTrustedOpenGeometryLifecycle';
+import { renderPdfDocumentPageSource } from '@app/modules/pdf-viewer/runtime/renderPdfDocumentPageSource';
+import { createPdfPageSource } from '@app/utils/document-viewer/source/createPdfPageSource';
+import { pdfjsDocumentTeardownCoordinator } from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfjsDocumentTeardownCoordinator';
 import {
     createPdfjsDocumentSourceLoader,
     createPdfDocumentPageCache,
@@ -59,7 +62,12 @@ type TPdfDocumentLoadState = TaggedUnion<'status', {
 }>;
 
 /** Currentness coordinates every downstream session captures and revalidates. */
-export interface IPdfDocumentFence extends IDocumentTransitionFence {}
+export interface IPdfDocumentFence {
+    readonly loadToken: number;
+    readonly documentVersion: number;
+    readonly documentRevision: string | null;
+    readonly openSurfaceGeneration: number;
+}
 
 /** What the document owner decided about this load before any presentation ran. */
 export interface IPdfDocumentLoadPlan {
@@ -91,12 +99,16 @@ export interface ICreatePdfDocumentSessionOptions {
     reloadSrc?: ComputedRef<TPdfSource | null> | undefined;
     documentLifecycleKey?: ComputedRef<string | null> | undefined;
     documentRevisionToken?: ComputedRef<TDocumentRevisionToken | null> | undefined;
+    originalDocumentId?: ComputedRef<string | null> | undefined;
+    currentPage?: ComputedRef<number> | undefined;
+    pageSourceDocumentRef?: ComputedRef<TDocumentRef | null> | undefined;
     isActive?: ComputedRef<boolean> | undefined;
     isAnySaving?: ComputedRef<boolean> | undefined;
     emitDocument?: ((document: PDFDocumentProxy | null) => void) | undefined;
     emitTotalPages?: ((total: number) => void) | undefined;
     emitLoading?: ((loading: boolean) => void) | undefined;
     emitLoadError?: ((error: unknown) => void) | undefined;
+    emitRasterScheduler?: ((scheduler: IPdfPageRasterScheduler | null) => void) | undefined;
 }
 
 const IDLE_PLAN: IPdfDocumentLoadPlan = {
@@ -611,6 +623,10 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
     }
 
     function clearAcceptedDocumentState() {
+        if (activeRasterScheduler) {
+            activeRasterScheduler = null;
+            options.emitRasterScheduler?.(null);
+        }
         pageCache.cleanupAll();
         pageMetricLoads.clear();
         const document = pdfDocument.value;
@@ -720,8 +736,9 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
         teardownWaitAbortController = null;
         const version = incrementRenderVersion();
         const document = pdfDocument.value;
-        if (document) {
+        if (activeRasterScheduler) {
             activeRasterScheduler = null;
+            options.emitRasterScheduler?.(null);
         }
         pageCache.cleanupAll();
         pageMetricLoads.clear();
@@ -850,6 +867,7 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
         }
 
         let loaded: Awaited<ReturnType<typeof loadPdf>> = null;
+        let thrownLoadError: unknown = null;
         try {
             loaded = await loadPdf(src as TPdfSource, {
                 ...(options.documentLifecycleKey?.value
@@ -858,14 +876,14 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
                 ...(activePlan.preservePageStructure ? {preservePageStructure: true} : {}),
             });
         } catch (error) {
-            options.emitLoadError?.(error);
+            thrownLoadError = error;
         }
 
         if (activeLoadToken !== documentLoadToken) {
             return;
         }
         if (!loaded) {
-            const error = loadError.value;
+            const error = thrownLoadError ?? loadError.value;
             if (error) {
                 options.emitLoadError?.(error);
             }
@@ -875,6 +893,7 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
             return;
         }
 
+        options.emitRasterScheduler?.(activeRasterScheduler);
         options.emitDocument?.(pdfDocument.value);
         options.emitTotalPages?.(numPages.value);
 
@@ -951,6 +970,59 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
         resolveLoadSettle();
         cleanup();
     }
+
+    if (options.originalDocumentId && options.currentPage && options.src) {
+        usePdfTrustedOpenGeometryLifecycle({
+            acceptedSource,
+            chassisAuthority: options.chassisAuthority ?? null,
+            currentPage: options.currentPage,
+            documentId: options.originalDocumentId,
+            numPages,
+            pageMetrics,
+            pageMetricsVersion,
+            seedTrustedPageGeometry,
+            src: options.src,
+        });
+    }
+
+    watch(
+        [
+            pdfDocument,
+            () => options.src?.value ?? null,
+            () => options.pageSourceDocumentRef?.value ?? null,
+        ],
+        ([
+            document,
+            source,
+            documentRef,
+        ], _previous, onCleanup) => {
+            const authority = options.chassisAuthority;
+            if (!authority || !document) {
+                if (authority?.source.value?.kind === 'pdf') {
+                    authority.bindSource(null);
+                }
+                return;
+            }
+            const pageSource = createPdfPageSource({
+                documentRef: documentRef ?? (typeof source === 'string' ? source : 'memory://pdf'),
+                pdfDocument: document,
+                renderPage: request => renderPdfDocumentPageSource({
+                    document,
+                    request,
+                    surfaceBudget: authority.surfaceBudget,
+                    scopeId: `pdf-page-source:${String(documentRef ?? source ?? 'memory')}`,
+                }),
+            });
+            authority.bindSource(pageSource);
+            onCleanup(() => {
+                pageSource.dispose();
+                if (authority.source.value === pageSource) {
+                    authority.bindSource(null);
+                }
+            });
+        },
+        {immediate: true},
+    );
 
     const isEffectivelyLoading = computed(() => Boolean(options.src?.value) && isLoading.value);
     watch(isEffectivelyLoading, value => options.emitLoading?.(value), { immediate: true });

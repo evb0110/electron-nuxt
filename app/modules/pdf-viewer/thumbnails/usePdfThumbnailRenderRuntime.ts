@@ -7,7 +7,6 @@ import type {
 import { THUMBNAIL_WIDTH } from '@app/constants/pdfLayout';
 import { createRenderTaskHiddenAnnotationOperationsFilter } from '@app/modules/pdf-viewer/engine/pdf-hidden-annotation-operations/createRenderTaskHiddenAnnotationOperationsFilter';
 import { AnnotationMode } from '@app/services/pdfjs/runtimeLib';
-import { getPdfPageRasterScheduler } from '@app/modules/pdf-viewer/engine/pdf-page-raster-scheduler/pdfPageRasterScheduler';
 import { leasePdfDocumentPage } from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
 import type {
     IPdfRasterDemand,
@@ -685,10 +684,12 @@ export const usePdfThumbnailRenderRuntime = (
         [
             () => source.pdfDocument.value,
             () => source.totalPages.value,
+            () => source.rasterScheduler.value,
         ],
         ([
             document,
             totalPages,
+            rasterScheduler,
         ], [previousDocument]) => {
             visibleThumbnailRenderScheduler.cancel();
             if (activeScheduler) {
@@ -698,9 +699,7 @@ export const usePdfThumbnailRenderRuntime = (
             thumbnailKeySignal.value += 1;
             effects.onSourceCycleStarted();
             activeDocument = document;
-            activeScheduler = document
-                ? getPdfPageRasterScheduler(document)
-                : null;
+            activeScheduler = document ? rasterScheduler : null;
 
             if (!document || totalPages <= 0) {
                 if (totalPages <= 0) {

@@ -862,14 +862,6 @@ export function createPdfPageRasterScheduler(
 
 const pdfDocumentRasterSchedulers = new WeakMap<PDFDocumentProxy, IPdfPageRasterScheduler>();
 
-export function getPdfPageRasterScheduler(document: PDFDocumentProxy) {
-    const scheduler = pdfDocumentRasterSchedulers.get(document);
-    if (!scheduler) {
-        throw new Error('PDF document raster scheduler is unavailable');
-    }
-    return scheduler;
-}
-
 export function ensurePdfPageRasterScheduler(
     document: PDFDocumentProxy,
     options: {

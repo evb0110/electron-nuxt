@@ -23,8 +23,8 @@ import {
 } from 'vitest';
 
 const featureControllerPath = 'app/modules/pdf-viewer/runtime/usePdfViewerFeatureController.ts';
-const viewportSessionPath = 'app/modules/pdf-viewer/runtime/sessions/pdfViewportSession.ts';
-const renderingSessionPath = 'app/modules/pdf-viewer/runtime/sessions/pdfRenderingSession.ts';
+const viewportSessionPath = 'app/modules/pdf-viewer/runtime/sessions/createPdfViewportSession.ts';
+const renderingSessionPath = 'app/modules/pdf-viewer/runtime/sessions/createPdfRenderingSession.ts';
 
 function readProjectSource(path: string) {
     const source = readFileSync(resolve(process.cwd(), path), 'utf8');

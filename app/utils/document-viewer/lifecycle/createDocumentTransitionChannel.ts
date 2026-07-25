@@ -1,30 +1,20 @@
-/* eslint-disable custom/file-naming -- The shared lifecycle module is named for its domain role. */
-export interface IDocumentTransitionFence {
-    readonly loadToken: number;
-    readonly documentVersion: number;
-    readonly documentRevision: string | null;
-    readonly openSurfaceGeneration: number;
-}
-
-export interface IDocumentTransition<TFence extends IDocumentTransitionFence> {
+export interface IDocumentTransition<TFence> {
     readonly fence: TFence;
     readonly isCurrent: () => boolean;
 }
 
 type TDocumentTransitionInput<
-    TFence extends IDocumentTransitionFence,
+    TFence,
     TTransition extends IDocumentTransition<TFence>,
 > = Omit<TTransition, 'isCurrent'>;
 
 /**
- * Ordered, latest-wins transition delivery shared by document feature packs.
- *
- * The owner supplies the sole currentness predicate. A transition is checked
- * before delivery and again before every subscriber, so a listener that starts
- * a newer open prevents the stale transition reaching later session owners.
+ * Delivers transitions serially while the owning lifecycle says their fence
+ * is current. Fence coordinates belong to the owner; this channel only
+ * preserves order and revalidates between subscribers.
  */
 export function createDocumentTransitionChannel<
-    TFence extends IDocumentTransitionFence,
+    TFence,
     TTransition extends IDocumentTransition<TFence>,
 >(isFenceCurrent: (fence: TFence) => boolean) {
     const listeners = new Set<(transition: TTransition) => void | Promise<void>>();

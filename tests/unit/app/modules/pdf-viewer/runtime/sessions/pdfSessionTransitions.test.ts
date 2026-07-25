@@ -110,6 +110,49 @@ describe('PdfDocumentSession transitions', () => {
         ]);
     });
 
+    it('publishes the document-owned raster scheduler only after metrics are ready and clears it on cleanup', async () => {
+        pdfjsState.getDocument.mockReturnValue({
+            promise: Promise.resolve(createDocumentProxy('scheduler-owner')),
+            destroy: vi.fn(),
+        });
+        const emitRasterScheduler = vi.fn();
+        const session = createPdfDocumentSession({
+            src: computed(() => new Blob(['pdf'], {type: 'application/pdf'}) as never),
+            emitRasterScheduler,
+        });
+
+        await session.load();
+
+        expect(emitRasterScheduler).toHaveBeenCalledTimes(1);
+        expect(emitRasterScheduler).toHaveBeenLastCalledWith(session.rasterScheduler);
+        expect(session.rasterScheduler).not.toBeNull();
+
+        session.cleanup();
+
+        expect(emitRasterScheduler).toHaveBeenLastCalledWith(null);
+        expect(session.rasterScheduler).toBeNull();
+    });
+
+    it('never publishes a live raster scheduler when initial metric priming fails', async () => {
+        const document = createDocumentProxy('metric-failure');
+        document.getPage.mockRejectedValueOnce(new Error('page one metric failed'));
+        pdfjsState.getDocument.mockReturnValue({
+            promise: Promise.resolve(document),
+            destroy: vi.fn(),
+        });
+        const emitRasterScheduler = vi.fn();
+        const session = createPdfDocumentSession({
+            src: computed(() => new Blob(['pdf'], {type: 'application/pdf'}) as never),
+            emitRasterScheduler,
+        });
+
+        await session.load();
+
+        expect(emitRasterScheduler.mock.calls).toEqual([[null]]);
+        expect(session.rasterScheduler).toBeNull();
+        expect(session.document.value).toBeNull();
+    });
+
     it('restores a remounted rendering subscriber after its predecessor wedged mid-open', async () => {
         const wedgedDocument = createDocumentProxy('wedged');
         const wedged = createDeferredLoadingTask(wedgedDocument);

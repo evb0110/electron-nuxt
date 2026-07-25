@@ -16,12 +16,12 @@ import { maxCachedPdfPages } from '@app/modules/pdf-viewer/engine/maxCachedPdfPa
 import {
     PDFJS_NATIVE_PREVIEW_MIN_BYTES,
     shouldUseNativePdfPreview,
-} from '@app/modules/pdf-viewer/runtime/pdfNativePreviewRouting';
-import { pdfjsDocumentTeardownCoordinator } from '@app/modules/pdf-viewer/runtime/composables/pdf/pdfjsDocumentTeardownCoordinator';
+} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfNativePreviewRouting';
+import { pdfjsDocumentTeardownCoordinator } from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfjsDocumentTeardownCoordinator';
 import {
     createPdfRangeRequestBridge,
     type IPdfPreloadedRange,
-} from '@app/modules/pdf-viewer/runtime/composables/pdf/createPdfRangeRequestBridge';
+} from '@app/modules/pdf-viewer/engine/pdf-document-source/createPdfRangeRequestBridge';
 import type {
     IPdfDocumentPageLease,
     TPdfDocumentPageLeaseRetention,

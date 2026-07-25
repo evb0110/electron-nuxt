@@ -221,6 +221,38 @@ describe('usePdfPageRenderer resilience', () => {
         await authoritativeRender;
     });
 
+    it('does not restart a forced required-page render when demand republishes mid-flight', async () => {
+        const {pageContainer} = createPageContainer();
+        const pendingCanvas = Promise.withResolvers<ReturnType<typeof createRenderResult>>();
+        canvasRendererMock.renderCanvas.mockReturnValue(pendingCanvas.promise);
+        const document = createDocumentState();
+        const renderer = usePdfPageRenderer({
+            container: ref(createContainerRoot(pageContainer)),
+            document: document as never,
+        });
+
+        const first = renderer.renderVisiblePages({
+            start: 1,
+            end: 1,
+        }, {forceRerender: true});
+        await vi.waitFor(() => {
+            expect(canvasRendererMock.renderCanvas).toHaveBeenCalledOnce();
+        });
+        const repeated = renderer.renderVisiblePages({
+            start: 1,
+            end: 1,
+        }, {forceRerender: true});
+
+        expect(document.leasePage).toHaveBeenCalledOnce();
+        expect(canvasRendererMock.renderCanvas).toHaveBeenCalledOnce();
+
+        pendingCanvas.resolve(createRenderResult());
+        await Promise.all([
+            first,
+            repeated,
+        ]);
+    });
+
 
     it('does not replay postconditions from a render invalidated by cleanup', async () => {
         vi.useFakeTimers();

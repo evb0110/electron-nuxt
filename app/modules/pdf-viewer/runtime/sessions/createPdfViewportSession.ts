@@ -1,4 +1,3 @@
-/* eslint-disable max-lines -- The viewport session intentionally co-locates its single state machine. */
 import type {
     ComputedRef,
     Ref,
@@ -8,15 +7,13 @@ import type {
     TPdfViewMode,
     TZoomMode,
 } from '@app/types/pdfContracts';
-import type {
-    IPageRange,
-    TPdfSource,
-} from '@app/types/pdfUi';
+import type { IPageRange } from '@app/types/pdfUi';
 import type { ILinkAnnotation } from '@app/types/annotations';
 import type { IDocumentViewerChassisAuthority } from '@app/utils/document-viewer/chassis/documentViewerChassisAuthority';
 import {
+    commitDocumentOpenSurfaceViewport,
     hasCommittedDocumentOpeningLayout,
-    resolveDocumentViewportCurrentPage,
+    shouldProjectDocumentViewportCommitPage,
     type IDocumentOpenSurfaceSession,
 } from '@app/utils/document-viewer/chassis/documentOpenSurfaceSession';
 import { BrowserLogger } from '@app/utils/browserLogger';
@@ -93,10 +90,8 @@ export interface ICreatePdfViewportSessionOptions {
     performancePolicy: IPdfRenderPerformancePolicy;
     maxBufferCanvasPixels: number;
     settledMaxCanvasPixels: number;
-    viewerHost: Ref<HTMLElement | null>;
     viewerContainer: Ref<HTMLElement | null>;
     viewportWritePort: IPdfViewportWritePort;
-    src: ComputedRef<TPdfSource | null>;
     zoom: ComputedRef<number>;
     zoomMode: ComputedRef<TZoomMode>;
     fitMode: ComputedRef<TFitMode>;
@@ -114,60 +109,7 @@ export interface ICreatePdfViewportSessionOptions {
     emitZoom: (value: number) => void;
     emitEffectiveZoom: (value: number) => void;
     summarizeViewerStateForLog: () => unknown;
-    loadingLabel: () => string;
     clearPendingImagePlacement: () => void;
-}
-
-export function shouldProjectPdfViewportCommitPage(
-    surface: IDocumentOpenSurfaceSession,
-    commit: IPdfViewportPositionCommit,
-) {
-    const viewport = surface.viewportSession.value;
-    // The shared surface owns page commands. A PDF-local position commit may
-    // settle that command, but it must never create or retarget one: there is
-    // no shared intent id on this callback with which to distinguish a late
-    // commit from the live command. User scrolling is projected separately
-    // through the chassis observation channel.
-    return viewport.requestedPage === commit.page
-        && resolveDocumentViewportCurrentPage(viewport) === commit.page;
-}
-
-/**
- * Projects a settled PDF viewport position into the shared document surface.
- *
- * PDF.js has its own semantic viewport authority, whose intent ids describe
- * layout work such as `viewport-observed-*`. The document surface owns the
- * cross-viewer open/navigation intent. A viewport commit must therefore carry
- * the surface's exact live intent id, not copy the PDF-local id. Page and
- * generation checks keep a late PDF commit from being relabelled as a newer
- * surface intent.
- */
-export function commitPdfOpenSurfaceViewport(
-    surface: IDocumentOpenSurfaceSession,
-    commit: IPdfViewportPositionCommit,
-) {
-    const snapshot = surface.snapshot.value;
-    const viewport = surface.viewportSession.value;
-    const intent = viewport.viewportIntent;
-    if (
-        snapshot.identity === null
-        || intent === null
-        || intent.generation !== viewport.generation
-        || viewport.requestedPage !== commit.page
-        || intent.pageNumber !== commit.page
-    ) {
-        return false;
-    }
-    return surface.commitViewport({
-        generation: snapshot.generation,
-        documentRevision: snapshot.identity.documentRevision,
-        viewportIntentId: intent.id,
-        documentGeometryRevision: commit.geometryRevision,
-        interactionEpoch: commit.interactionEpoch,
-        pageNumber: commit.page,
-        left: commit.left,
-        top: commit.top,
-    });
 }
 
 function projectSettledProgrammaticPage(
@@ -200,12 +142,12 @@ function projectPdfViewportPositionCommit(
         emitCurrentPage(commit.page);
         return false;
     }
-    if (!shouldProjectPdfViewportCommitPage(surface, commit)) {
+    if (!shouldProjectDocumentViewportCommitPage(surface, commit)) {
         return false;
     }
     surface.requestNavigation(commit.page);
     emitCurrentPage(commit.page);
-    return commitPdfOpenSurfaceViewport(surface, commit);
+    return commitDocumentOpenSurfaceViewport(surface, commit);
 }
 
 /** Open-surface projection of the PDF-local viewport authority. */
@@ -923,34 +865,6 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
     }
 
     watch(
-        [
-            () => Boolean(options.src.value),
-            isLoading,
-        ],
-        ([
-            hasSrc,
-            loading,
-        ], [
-            prevHasSrc,
-            prevLoading,
-        ]) => {
-            if (hasSrc === prevHasSrc && loading === prevLoading) {
-                return;
-            }
-            const hostRect = options.viewerHost.value?.getBoundingClientRect();
-            BrowserLogger.debug('loader', 'PDF viewer loader state changed', {
-                hasSrc,
-                loading,
-                overlayVisible: false,
-                label: options.loadingLabel(),
-                hostWidth: hostRect ? Math.round(hostRect.width) : null,
-                hostHeight: hostRect ? Math.round(hostRect.height) : null,
-            });
-        },
-        { immediate: true },
-    );
-
-    watch(
         () => [
             options.zoomMode.value,
             options.fitMode.value,
@@ -1264,28 +1178,6 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
         settleMandatoryRaster,
         commitVisibleRange,
         commitViewportVisibleRange,
-        applyReloadViewport,
-        beginReloadPlacement,
-        applyRestoredReloadZoom,
-        pinCurrentPageToRestoreTarget,
-        settleReloadTransaction,
-        settleVisualReloadTransition,
-        cancelReloadTransaction,
-        createReloadCancellation,
-        isReloadTransactionCurrent,
-        releasePreservedVisualSnapshotNow,
-        schedulePreservedVisualSnapshotRelease,
-
-        get activeReloadTransactionId() {
-            return activeReloadTransactionId;
-        },
-        get preservedVisibleContent() {
-            return activePreservedVisibleContent;
-        },
-        get resolvedPageToRestore() {
-            return resolvedPageToRestore;
-        },
-
         preserveNextSourceReloadVisibleContent(request?: IPreservedVisibleContentRequest) {
             nextPreservedVisibleContentState = capturePreservedVisibleContentState(request);
             documentSession.preserveNextReloadVisibleContent(nextPreservedVisibleContentState !== null);

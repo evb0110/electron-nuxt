@@ -1,4 +1,3 @@
-/* eslint-disable custom/file-naming -- Session modules use the architecture's role-based names. */
 import type {
     ComputedRef,
     Ref,
@@ -46,7 +45,7 @@ import type { TPdfDocumentSession } from '@app/modules/pdf-viewer/runtime/sessio
 import type {
     IPdfViewportDemand,
     TPdfViewportSession,
-} from '@app/modules/pdf-viewer/runtime/sessions/pdfViewportSession';
+} from '@app/modules/pdf-viewer/runtime/sessions/createPdfViewportSession';
 
 const QUALITY_REFINE_INPUT_IDLE_MS = 160;
 const EMPTY_ID_SET: ReadonlySet<string> = new Set<string>();

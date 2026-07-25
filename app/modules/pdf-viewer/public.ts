@@ -53,4 +53,5 @@ export { readPrevalidatedTrustedPdfOpenGeometry } from '@app/modules/pdf-viewer/
 export {
     isPathPdfSource,
     shouldUseNativePdfPreview,
-} from '@app/modules/pdf-viewer/runtime/pdfNativePreviewRouting';
+} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfNativePreviewRouting';
+export type { IPdfPageRasterScheduler } from '@app/modules/pdf-viewer/engine/pdf-page-raster-scheduler/pdfPageRasterScheduler';

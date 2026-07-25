@@ -7,15 +7,42 @@ import type { IDocumentSearchMatch } from '@app/utils/document-viewer/search/doc
 import type {
     IDocumentPageMetrics,
     IDocumentPageSource,
+    IDocumentSourceCapabilities,
     IDocumentSurfaceLease,
     TDocumentRenderPriority,
 } from '@app/utils/document-viewer/source/documentPageSource';
+import type { IDocumentTransition } from '@app/utils/document-viewer/lifecycle/createDocumentTransitionChannel';
 import type { IDocumentViewerRenderSession } from '@app/utils/document-viewer/chassis/createDocumentViewerRenderCoordinator';
 import { resolveDocumentContinuousScrollWindow } from '@app/utils/document-viewer/viewport/resolveDocumentContinuousScrollWindow';
 import { createProvisionalDocumentPageMetrics } from '@app/modules/workspace-shell/viewers/loadPrioritizedDocumentPageMetrics';
 import type { TWorkspaceResourcePressureLevel } from '@app/modules/workspace-shell/memory/workspaceSurfaceBudgetController';
 import { resolvePerformanceProfile } from '@app/utils/performanceProfile';
 import { resolveOpenPathSecondaryPerformancePolicy } from '@app/utils/openPathSecondaryPerformancePolicy';
+
+export interface IDocumentPageSourceFence {
+    readonly loadGeneration: number;
+    readonly openSurfaceGeneration: number | null;
+    readonly documentRevision: string | null;
+    readonly src: TDocumentRef | null;
+}
+
+export interface IDocumentPageSourceTransition extends IDocumentTransition<IDocumentPageSourceFence> {
+    readonly phase: 'source-loaded';
+    readonly source: IDocumentPageSource;
+}
+
+export function resolveDocumentPageSourceCapabilities(
+    source: IDocumentPageSource,
+): IDocumentSourceCapabilities {
+    return {
+        annotations: false,
+        directImageExport: Boolean(source.rasterProvider),
+        outline: Boolean(source.outlineProvider),
+        pageEdits: false,
+        search: Boolean(source.searchProvider ?? source.textProvider),
+        text: Boolean(source.textProvider),
+    };
+}
 
 export function resolveInactiveDjvuLeasePolicy(
     tier: THostResourceTier,

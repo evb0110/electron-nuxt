@@ -1,5 +1,4 @@
 import { injectDocumentViewerChassisAuthority } from '@app/utils/document-viewer/chassis/documentViewerChassisAuthority';
-import { createPdfPageSource } from '@app/utils/document-viewer/source/createPdfPageSource';
 import { getPerformanceProfile } from '@app/utils/performanceProfile';
 import { resolvePdfRenderPerformancePolicy } from '@app/modules/pdf-viewer/engine/pdf-render-performance/resolvePdfRenderPerformancePolicy';
 import { summarizeViewerMetrics } from '@app/modules/pdf-viewer/engine/pdf-viewer-metrics/summarizeViewerMetrics';
@@ -10,19 +9,18 @@ import { createPdfDocumentSession } from '@app/modules/pdf-viewer/runtime/sessio
 import {
     createPdfViewportSession,
     type TPdfViewportSession,
-} from '@app/modules/pdf-viewer/runtime/sessions/pdfViewportSession';
+} from '@app/modules/pdf-viewer/runtime/sessions/createPdfViewportSession';
 import {
     createPdfRenderingSession,
     type TPdfRenderingSession,
-} from '@app/modules/pdf-viewer/runtime/sessions/pdfRenderingSession';
+} from '@app/modules/pdf-viewer/runtime/sessions/createPdfRenderingSession';
 import {
     createPdfAnnotationSession,
     type TPdfAnnotationSession,
-} from '@app/modules/pdf-viewer/runtime/sessions/pdfAnnotationSession';
+} from '@app/modules/pdf-viewer/runtime/sessions/createPdfAnnotationSession';
 import { usePdfViewerExposeControllers } from '@app/modules/pdf-viewer/runtime/usePdfViewerExposeControllers';
 import { usePdfViewerPublicApiController } from '@app/modules/pdf-viewer/runtime/usePdfViewerPublicApiController';
 import { usePdfViewerNavigationDiagnostics } from '@app/modules/pdf-viewer/runtime/lifecycle/usePdfViewerNavigationDiagnostics';
-import { usePdfTrustedOpenGeometryLifecycle } from '@app/modules/pdf-viewer/runtime/lifecycle/usePdfTrustedOpenGeometryLifecycle';
 import { usePdfViewerMouseInteractions } from '@app/modules/pdf-viewer/runtime/composables/usePdfViewerMouseInteractions';
 import { usePdfViewerWheelZoom } from '@app/modules/pdf-viewer/runtime/composables/usePdfViewerWheelZoom';
 import { usePdfViewerOutputScale } from '@app/modules/pdf-viewer/runtime/composables/usePdfViewerOutputScale';
@@ -33,7 +31,6 @@ import { usePdfViewerSelectionToolState } from '@app/modules/pdf-viewer/tools/pu
 import { createPdfViewerEventAdapter } from '@app/modules/pdf-viewer/runtime/contracts/createPdfViewerEventAdapter';
 import { createPdfViewportWritePort } from '@app/modules/pdf-viewer/runtime/viewport/pdfViewportWritePort';
 import { usePdfViewerPropModel } from '@app/modules/pdf-viewer/runtime/contracts/usePdfViewerPropModel';
-import { renderPdfDocumentPageSource } from '@app/modules/pdf-viewer/runtime/renderPdfDocumentPageSource';
 import type {
     IPdfViewerProps,
     IPdfViewerEmit,
@@ -103,6 +100,9 @@ export const usePdfViewerFeatureController = (props: IPdfViewerProps, emit: IPdf
         reloadSrc,
         documentLifecycleKey: computed(() => props.originalPath ?? null),
         documentRevisionToken,
+        originalDocumentId: computed(() => props.originalPath ?? null),
+        currentPage: viewerCurrentPage,
+        pageSourceDocumentRef: workingCopyPath,
         isActive,
         isAnySaving,
         emitDocument: document => emit('update:document', document),
@@ -112,14 +112,7 @@ export const usePdfViewerFeatureController = (props: IPdfViewerProps, emit: IPdf
             emit('loading', loading);
         },
         emitLoadError: viewerEvents.loadError,
-    });
-
-    usePdfTrustedOpenGeometryLifecycle({
-        props,
-        src,
-        viewerCurrentPage,
-        chassisAuthority,
-        pdfDocumentResult: documentSession,
+        emitRasterScheduler: scheduler => emit('update:rasterScheduler', scheduler),
     });
 
     const {
@@ -165,10 +158,8 @@ export const usePdfViewerFeatureController = (props: IPdfViewerProps, emit: IPdf
         performancePolicy,
         maxBufferCanvasPixels: performanceProfile.maxBufferCanvasPixels,
         settledMaxCanvasPixels: performanceProfile.settledMaxCanvasPixels,
-        viewerHost,
         viewerContainer,
         viewportWritePort,
-        src,
         zoom,
         zoomMode,
         fitMode,
@@ -201,7 +192,6 @@ export const usePdfViewerFeatureController = (props: IPdfViewerProps, emit: IPdf
         emitZoom: value => emit('update:zoom', value),
         emitEffectiveZoom: viewerEvents.updateEffectiveZoom,
         summarizeViewerStateForLog,
-        loadingLabel: () => t('common.loading'),
         clearPendingImagePlacement,
     });
     viewportSessionRef.value = viewportSession;
@@ -410,40 +400,6 @@ export const usePdfViewerFeatureController = (props: IPdfViewerProps, emit: IPdf
         searchNavigationState: viewportSession.singlePageScroll.searchNavigationState,
         summarizeViewerStateForLog,
     });
-
-    watch([
-        documentSession.pdfDocument,
-        src,
-        workingCopyPath,
-    ], ([
-        documentProxy,
-        sourceRef,
-        workingCopyRef,
-    ], _previous, onCleanup) => {
-        if (!chassisAuthority || !documentProxy) {
-            if (chassisAuthority?.source.value?.kind === 'pdf') {
-                chassisAuthority.bindSource(null);
-            }
-            return;
-        }
-        const pageSource = createPdfPageSource({
-            documentRef: workingCopyRef ?? (typeof sourceRef === 'string' ? sourceRef : 'memory://pdf'),
-            pdfDocument: documentProxy,
-            renderPage: request => renderPdfDocumentPageSource({
-                document: documentProxy,
-                request,
-                surfaceBudget: chassisAuthority.surfaceBudget,
-                scopeId: `pdf-page-source:${String(workingCopyRef ?? sourceRef ?? 'memory')}`,
-            }),
-        });
-        chassisAuthority.bindSource(pageSource);
-        onCleanup(() => {
-            pageSource.dispose();
-            if (chassisAuthority.source.value === pageSource) {
-                chassisAuthority.bindSource(null);
-            }
-        });
-    }, {immediate: true});
 
     const {
         applyFitWidthToCurrentPage,
