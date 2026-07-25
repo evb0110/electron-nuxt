@@ -1,6 +1,3 @@
-// Sole owner of text-markup visual correctness. Render, activation, scale,
-// settings, comment and editor signals coalesce into one frame. A page that is
-// not presentable gets one bounded supervisor-owned escalation ladder.
 import type {
     ComputedRef,
     Ref,
@@ -55,6 +52,8 @@ export type TTextMarkupPresentationSignal =
         pageNumber: number;
     };
 
+type TCommentColorMutation = Extract<TTextMarkupPresentationSignal, {kind: 'comment-color-mutated'}>;
+
 export interface ITextMarkupPresentationController {notify: (signal: TTextMarkupPresentationSignal) => void;}
 
 interface IUseTextMarkupPresentationControllerOptions<TEditorPresentation extends ITextMarkupEditorPresentation> {
@@ -84,7 +83,7 @@ export const useTextMarkupPresentationController = <TEditorPresentation extends 
 ): ITextMarkupPresentationController => {
     const supervisor = createPdfRenderSupervisor();
     const pendingPages = new Set<number>();
-    const pendingMutations = new Map<string, Extract<TTextMarkupPresentationSignal, {kind: 'comment-color-mutated'}>>();
+    const pendingMutations = new Map<string, TCommentColorMutation>();
     const firedAttemptsByPage = new Map<number, number>();
     const armedTimersByPage = new Map<number, IPdfRenderSupervisorTimer>();
     let pendingAllPages = false;
@@ -93,8 +92,7 @@ export const useTextMarkupPresentationController = <TEditorPresentation extends 
     let frameQueued = false;
 
     function resolveHighlightOpacity() {
-        return options.annotationSettings.value?.highlightOpacity
-            ?? DEFAULT_ANNOTATION_SETTINGS.highlightOpacity;
+        return options.annotationSettings.value?.highlightOpacity ?? DEFAULT_ANNOTATION_SETTINGS.highlightOpacity;
     }
 
     function resolveDisplayColor(comment: IAnnotationCommentSummary, color: string | null) {
@@ -154,7 +152,6 @@ export const useTextMarkupPresentationController = <TEditorPresentation extends 
                 if (!options.isActive.value || timerGeneration !== generation) {
                     return;
                 }
-                // The budget advances only when a live timer actually fires.
                 firedAttemptsByPage.set(pageNumber, attempt + 1);
                 pendingPages.add(pageNumber);
                 scheduleFrame();
@@ -186,14 +183,11 @@ export const useTextMarkupPresentationController = <TEditorPresentation extends 
     function applyPresentation(
         container: HTMLElement,
         pageNumber: number | null,
-        mutations: Map<string, Extract<TTextMarkupPresentationSignal, {kind: 'comment-color-mutated'}>>,
+        mutations: Map<string, TCommentColorMutation>,
     ) {
         const unresolvedPages = new Set<number>();
         const comments = options.annotationCommentsCache.value;
-        const foldedMutations = new Map<string, Extract<
-            TTextMarkupPresentationSignal,
-            {kind: 'comment-color-mutated'}
-        >>();
+        const foldedMutations = new Map<string, TCommentColorMutation>();
         for (const comment of comments) {
             if (
                 !isRepairableTextMarkupComment(comment)
@@ -210,9 +204,7 @@ export const useTextMarkupPresentationController = <TEditorPresentation extends 
                 mutation?.sourceColor,
             );
             if (unresolvedPage !== null) unresolvedPages.add(unresolvedPage);
-            if (mutation) {
-                foldedMutations.set(comment.stableKey, mutation);
-            }
+            if (mutation) foldedMutations.set(comment.stableKey, mutation);
             mutations.delete(comment.stableKey);
         }
 
@@ -241,7 +233,7 @@ export const useTextMarkupPresentationController = <TEditorPresentation extends 
 
     function applyCommentColorMutation(
         container: HTMLElement,
-        signal: Extract<TTextMarkupPresentationSignal, {kind: 'comment-color-mutated'}>,
+        signal: TCommentColorMutation,
     ) {
         const unresolvedPage = applyCommentColor(
             container,
@@ -355,9 +347,6 @@ export const useTextMarkupPresentationController = <TEditorPresentation extends 
             return;
         }
         if (signal.kind === 'editor-presentation-cleared') {
-            // Destructive clears are safe and idempotent even while the tab is
-            // inactive. Deferring would strand drawLayer-owned visuals after
-            // the deleted editor disappears from the activation read model.
             options.clearEditorPresentation(signal.editor);
             return;
         }
