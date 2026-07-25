@@ -157,6 +157,13 @@ export class AnnotationApplication {
                         },
                     });
                 }
+                this.store.acknowledgePendingMarkupSubtype(existing.identity.id, [
+                    comment.id,
+                    comment.uid ?? '',
+                    comment.annotationId ?? '',
+                    comment.annotationName ?? '',
+                    persistentKey,
+                ]);
                 return;
             }
             const identity = {

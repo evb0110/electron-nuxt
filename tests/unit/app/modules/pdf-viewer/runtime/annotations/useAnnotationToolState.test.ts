@@ -18,6 +18,7 @@ import type { AnnotationEditorUIManager } from 'pdfjs-dist';
 import type { IAnnotationSettings } from '@app/types/annotations';
 import { cast } from '@tests/helpers/cast';
 import { getPdfjsEditorFacadeState } from '@app/modules/pdf-viewer/annotations/bridge/pdfjsAnnotationFacade';
+import { AnnotationApplication } from '@app/modules/pdf-viewer/annotations/annotationApplication';
 
 vi.mock('pdfjs-dist', () => ({
     AnnotationEditorType: {
@@ -688,11 +689,12 @@ describe('useAnnotationToolState', () => {
         expect(manager.getMarkupSubtypeHints()).toEqual([]);
     });
 
-    it('reads markup subtypes from the canonical store instead of a local override map', async () => {
+    it('absorbs pending editor aliases into Store ingestion and the save projection', async () => {
         const useAnnotationToolState = await loadUseAnnotationToolState();
+        const application = new AnnotationApplication('markup-alias-document');
         const canonicalEditor = {
-            id: 'canonical-1',
-            annotationElementId: '42R0',
+            id: 'editor-52',
+            annotationElementId: '52R0',
             div: createMarkupElement(),
             x: 0.1,
             y: 0.1,
@@ -703,31 +705,91 @@ describe('useAnnotationToolState', () => {
         const uiManager = createUiManager({ getEditors: vi.fn(() => [canonicalEditor]) });
         const manager = useAnnotationToolState(createToolStateOptions(uiManager, {
             getEditorIdentity: (editor: { id?: string }) => editor.id ?? 'missing-id',
-            getCanonicalMarkupSubtypes: () => new Map([[
-                '42R',
-                'Squiggly',
-            ]]),
+            getCanonicalMarkupSubtypes: () => application.store.markupSubtypesByExternalId(),
+            recordCanonicalMarkupSubtype: (aliases: readonly string[], subtype: 'Highlight' | 'Underline' | 'StrikeOut' | 'Squiggly') => {
+                application.store.setPendingMarkupSubtype(aliases, subtype);
+            },
+            resolveCanonicalMarkupSubtype: (aliases: readonly string[]) =>
+                application.store.resolveMarkupSubtype(aliases),
+            forgetCanonicalMarkupSubtypeIntents: (aliases: readonly string[]) => {
+                application.store.forgetPendingMarkupSubtypes(aliases);
+            },
+            clearCanonicalMarkupSubtypeIntents: () => application.store.clearPendingMarkupSubtypes(),
             tool: 'underline',
         }));
 
-        // Save routing sees exactly the canonical subtypes; nothing accumulates
-        // here, and a materialized annotation resolves to the store's subtype.
-        expect([...manager.getMarkupSubtypeOverrides()]).toEqual([[
-            '42R',
-            'Squiggly',
-        ]]);
-        expect(manager.resolveEditorMarkupSubtypeOverride(canonicalEditor, 0)).toBe('Squiggly');
-
-        // Editor-local intent still wins for the editor object the user acted on.
         manager.setEditorMarkupSubtypeOverride(canonicalEditor, 0, 'Underline');
         expect(manager.resolveEditorMarkupSubtypeOverride(canonicalEditor, 0)).toBe('Underline');
-        expect([...manager.getMarkupSubtypeOverrides()]).toEqual([[
-            '42R',
-            'Squiggly',
-        ]]);
+        expect([...manager.getMarkupSubtypeOverrides()]).toEqual(expect.arrayContaining([
+            [
+                'editor-52',
+                'Underline',
+            ],
+            [
+                '52R0',
+                'Underline',
+            ],
+            [
+                '52R',
+                'Underline',
+            ],
+        ]));
 
-        manager.forgetMarkupSubtypeOverride('42R0');
-        expect(manager.getMarkupSubtypeHints()).toEqual([]);
+        const ingestionSummary = {
+            source: 'editor',
+            id: 'editor-52',
+            stableKey: 'ann:0:52R0',
+            pageIndex: 0,
+            pageNumber: 1,
+            text: '',
+            subtype: 'Highlight',
+            author: null,
+            modifiedAt: null,
+            color: '#ffff00',
+            opacity: 1,
+            uid: null,
+            annotationId: '52R0',
+            hasNote: false,
+            markerRect: {
+                left: 0.1,
+                top: 0.1,
+                width: 0.4,
+                height: 0.05,
+            },
+        } as const;
+        application.ingestLegacySummaries([ingestionSummary]);
+
+        const [canonical] = application.store.list();
+        expect(canonical).toMatchObject({
+            kind: 'text-markup',
+            subtype: 'Underline',
+        });
+        expect([...manager.getMarkupSubtypeOverrides()]).toEqual(expect.arrayContaining([
+            [
+                'editor-52',
+                'Underline',
+            ],
+            [
+                '52R0',
+                'Underline',
+            ],
+            [
+                '52R',
+                'Underline',
+            ],
+        ]));
+
+        manager.setEditorMarkupSubtypeOverride(canonicalEditor, 0, 'StrikeOut');
+        application.ingestLegacySummaries([ingestionSummary]);
+        expect(application.store.get(canonical!.identity.id)).toMatchObject({
+            revision: 1,
+            subtype: 'StrikeOut',
+        });
+        expect(new Set(manager.getMarkupSubtypeOverrides().values())).toEqual(new Set(['StrikeOut']));
+
+        application.delete(canonical!.identity.id);
+        manager.forgetMarkupSubtypeOverride('52R0');
+        expect(manager.getMarkupSubtypeOverrides()).toEqual(new Map());
     });
 
     it('keeps underline and strikethrough colors/opacity literal', async () => {

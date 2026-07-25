@@ -21,6 +21,7 @@ import {
     getNormalizedShapeStableKey,
     shapeStableRefsMatch,
 } from '@app/modules/pdf-viewer/engine/annotations/shape-annotation-identity/shapeAnnotationIdentity';
+import { normalizePdfJsAnnotationId } from '@app/utils/pdfAnnotationRefs';
 
 interface IHistoryEntry {
     before: AnnotationEntity | null;
@@ -94,6 +95,11 @@ interface ISavePreparationChange {
 }
 
 interface ISaveFrontierState {readonly preparedChanges: Map<AnnotationId, ISavePreparationChange>;}
+
+interface IPendingMarkupSubtypeIntent {
+    readonly aliases: ReadonlySet<string>;
+    readonly subtype: TMarkupSubtype;
+}
 
 function semanticSnapshot(entities: Iterable<AnnotationEntity>) {
     return new Map(Array.from(entities, entity => (
@@ -202,7 +208,7 @@ export class AnnotationStore {
     readonly #history: IAnnotationHistoryAuthority;
     readonly #saveFrontiers = new WeakMap<IAnnotationSaveFrontier, ISaveFrontierState>();
     readonly #pdfjsObservedTransientIds = new Set<AnnotationId>();
-    readonly #pendingMarkupSubtypes = new Map<string, TMarkupSubtype>();
+    readonly #pendingMarkupSubtypes = new Map<string, IPendingMarkupSubtypeIntent>();
     #savedSemanticSnapshot = new Map<AnnotationId, ISavedSemanticEntry>();
     #mutationEpoch = 0;
     #shapeImportSource: IShapeImportSource = {
@@ -239,14 +245,26 @@ export class AnnotationStore {
         if (current && current.revision > entity.revision) {
             return current;
         }
-        this.#identities.bind(entity.identity);
-        this.#entities.set(entity.identity.id, cloneEntity(entity));
-        if (entity.persistedRevision >= 0 && wasSemanticallyClean && !options.preserveSavedBaseline) {
+        const pendingSubtype = entity.kind === 'text-markup'
+            ? this.#findPendingMarkupSubtype(this.#externalIdentityKeys(entity.identity))
+            : null;
+        const imported = pendingSubtype
+            ? {
+                ...entity,
+                subtype: pendingSubtype.subtype,
+            }
+            : entity;
+        this.#identities.bind(imported.identity);
+        this.#entities.set(imported.identity.id, cloneEntity(imported));
+        if (pendingSubtype) {
+            this.#forgetPendingMarkupSubtype(pendingSubtype);
+        }
+        if (imported.persistedRevision >= 0 && wasSemanticallyClean && !options.preserveSavedBaseline) {
             this.#savedSemanticSnapshot = semanticSnapshot(this.#entities.values());
         }
         this.#mutationEpoch += 1;
         this.#emit();
-        return entity;
+        return imported;
     }
 
     createStickyNote(entity: IStickyNoteEntity) { return this.#create(entity); }
@@ -267,7 +285,7 @@ export class AnnotationStore {
             this.#savedSemanticSnapshot.delete(id);
             this.#pdfjsObservedTransientIds.delete(id);
             if (entity) {
-                this.#externalIdentityKeys(entity.identity).forEach(key => this.#pendingMarkupSubtypes.delete(key));
+                this.forgetPendingMarkupSubtypes(this.#externalIdentityKeys(entity.identity));
             }
         });
         if (!removed) {
@@ -528,19 +546,19 @@ export class AnnotationStore {
      * accumulate: the subtype of a markup annotation is entity state.
      */
     markupSubtypesByExternalId(): ReadonlyMap<string, TMarkupSubtype> {
-        const subtypes = new Map(this.#pendingMarkupSubtypes);
+        const subtypes = new Map(Array.from(this.#pendingMarkupSubtypes, ([
+            alias,
+            intent,
+        ]) => [
+            alias,
+            intent.subtype,
+        ]));
         this.#entities.forEach((entity) => {
             if (entity.kind !== 'text-markup' || entity.deleted) {
                 return;
             }
-            [
-                entity.identity.pdfRef,
-                entity.identity.pdfName,
-                entity.identity.pdfjsUid,
-                entity.identity.elementId,
-            ].forEach((externalId) => {
-                if (externalId) subtypes.set(externalId, entity.subtype);
-            });
+            this.#externalIdentityKeys(entity.identity)
+                .forEach(externalId => subtypes.set(externalId, entity.subtype));
         });
         return subtypes;
     }
@@ -551,7 +569,17 @@ export class AnnotationStore {
      * without a bridge-owned subtype mirror.
      */
     setPendingMarkupSubtype(externalIds: readonly string[], subtype: TMarkupSubtype) {
-        externalIds.filter(Boolean).forEach(id => this.#pendingMarkupSubtypes.set(id, subtype));
+        const aliases = this.#markupSubtypeAliases(externalIds);
+        const connected = new Set(Array.from(aliases)
+            .map(alias => this.#pendingMarkupSubtypes.get(alias))
+            .filter((intent): intent is IPendingMarkupSubtypeIntent => Boolean(intent)));
+        connected.forEach(intent => intent.aliases.forEach(alias => aliases.add(alias)));
+        connected.forEach(intent => this.#forgetPendingMarkupSubtype(intent));
+        const intent = {
+            aliases,
+            subtype,
+        };
+        aliases.forEach(alias => this.#pendingMarkupSubtypes.set(alias, intent));
     }
 
     resolveMarkupSubtype(externalIds: readonly string[]) {
@@ -567,7 +595,36 @@ export class AnnotationStore {
     }
 
     forgetPendingMarkupSubtypes(externalIds: readonly string[]) {
-        externalIds.forEach(id => this.#pendingMarkupSubtypes.delete(id));
+        const aliases = this.#markupSubtypeAliases(externalIds);
+        const intents = new Set(Array.from(aliases)
+            .map(alias => this.#pendingMarkupSubtypes.get(alias))
+            .filter((intent): intent is IPendingMarkupSubtypeIntent => Boolean(intent)));
+        intents.forEach(intent => this.#forgetPendingMarkupSubtype(intent));
+        aliases.forEach(alias => this.#pendingMarkupSubtypes.delete(alias));
+    }
+
+    acknowledgePendingMarkupSubtype(annotationId: AnnotationId, externalIds: readonly string[]) {
+        const entity = this.#entities.get(annotationId);
+        if (!entity) {
+            return null;
+        }
+        const intent = this.#findPendingMarkupSubtype([
+            ...externalIds,
+            ...this.#externalIdentityKeys(entity.identity),
+        ]);
+        if (!intent) {
+            return cloneEntity(entity);
+        }
+        this.#forgetPendingMarkupSubtype(intent);
+        if (entity.kind !== 'text-markup' || entity.deleted || entity.subtype === intent.subtype) {
+            return cloneEntity(entity);
+        }
+        return this.#update(annotationId, current => current.kind === 'text-markup'
+            ? {
+                ...current,
+                subtype: intent.subtype,
+            }
+            : current);
     }
 
     /**
@@ -1062,12 +1119,42 @@ export class AnnotationStore {
     }
 
     #externalIdentityKeys(identity: AnnotationEntity['identity']) {
-        return [
+        return Array.from(this.#markupSubtypeAliases([
             identity.pdfRef,
             identity.pdfName,
             identity.pdfjsUid,
             identity.elementId,
-        ].filter((value): value is string => Boolean(value));
+        ].filter((value): value is string => Boolean(value))));
+    }
+
+    #markupSubtypeAliases(externalIds: readonly string[]) {
+        const aliases = new Set<string>();
+        externalIds.filter(Boolean).forEach((externalId) => {
+            aliases.add(externalId);
+            const normalized = normalizePdfJsAnnotationId(externalId);
+            if (normalized) {
+                aliases.add(normalized);
+            }
+        });
+        return aliases;
+    }
+
+    #findPendingMarkupSubtype(externalIds: readonly string[]) {
+        for (const alias of this.#markupSubtypeAliases(externalIds)) {
+            const intent = this.#pendingMarkupSubtypes.get(alias);
+            if (intent) {
+                return intent;
+            }
+        }
+        return null;
+    }
+
+    #forgetPendingMarkupSubtype(intent: IPendingMarkupSubtypeIntent) {
+        intent.aliases.forEach((alias) => {
+            if (this.#pendingMarkupSubtypes.get(alias) === intent) {
+                this.#pendingMarkupSubtypes.delete(alias);
+            }
+        });
     }
 
     #conditionallyRestoreIdentity(
