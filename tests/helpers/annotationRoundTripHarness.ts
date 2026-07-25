@@ -75,7 +75,6 @@ export function createAnnotationRoundTripPayload(): IPdfSerializationSavePayload
         freeTextComments: [],
         annotationComments: [],
         pendingEmbeddedTextUpdates: [],
-        pendingEmbeddedAnnotationDeletes: [],
         pageLabelsDirty: false,
         pageLabelRanges: [],
         totalPages: 1,

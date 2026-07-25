@@ -14,7 +14,7 @@ import type {IAnnotationCommentSummary} from '@app/types/annotations';
 
 function canonicalEmbeddedDeletes(payload: IPdfSerializationSavePayload): IAnnotationCommentSummary[] {
     return (payload.canonicalAnnotationProgram ?? []).flatMap((mutation) => {
-        if (mutation.operation !== 'delete-annotation') {
+        if (mutation.operation !== 'delete-annotation' || mutation.fields.kind === 'shape') {
             return [];
         }
         const identity = mutation.fields.identity;
@@ -55,7 +55,6 @@ function hasSaveWork(payload: IPdfSerializationSavePayload) {
         || payload.deletedShapeStableKeys.length > 0
         || payload.freeTextComments.length > 0
         || payload.pendingEmbeddedTextUpdates.length > 0
-        || payload.pendingEmbeddedAnnotationDeletes.length > 0
         || payload.pageLabelsDirty
         || payload.bookmarksDirty
         || Boolean(payload.placedImage);
@@ -80,10 +79,7 @@ export async function serializePdfEdits(
         payload.deletedShapeStableKeys,
         payload.rewriteShapeState,
     ) || modified;
-    modified = applyEmbeddedAnnotationDeletes(doc, [
-        ...payload.pendingEmbeddedAnnotationDeletes,
-        ...canonicalEmbeddedDeletes(payload),
-    ]) || modified;
+    modified = applyEmbeddedAnnotationDeletes(doc, canonicalEmbeddedDeletes(payload)) || modified;
     modified = applyFreeTextNoteRects(doc, payload.freeTextComments) || modified;
     modified = applyNewFreeTextNoteAnnotations(doc, payload.freeTextComments) || modified;
     modified = applyEmbeddedNoteTextUpdates(doc, payload.annotationComments, payload.pendingEmbeddedTextUpdates) || modified;

@@ -23,7 +23,6 @@ export interface IPdfSerializationSavePayload {
     freeTextComments: IAnnotationCommentSummary[];
     annotationComments: IAnnotationCommentSummary[];
     pendingEmbeddedTextUpdates: Array<readonly [string, string]>;
-    pendingEmbeddedAnnotationDeletes: IAnnotationCommentSummary[];
     pageLabelsDirty: boolean;
     pageLabelRanges: IPdfPageLabelRange[];
     totalPages: number;

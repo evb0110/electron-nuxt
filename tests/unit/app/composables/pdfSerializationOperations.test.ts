@@ -42,7 +42,6 @@ function createEmptyPayload(): IPdfSerializationSavePayload {
         freeTextComments: [],
         annotationComments: [],
         pendingEmbeddedTextUpdates: [],
-        pendingEmbeddedAnnotationDeletes: [],
         pageLabelsDirty: false,
         pageLabelRanges: [],
         totalPages: 1,
@@ -590,36 +589,6 @@ describe('serializePdfEdits embedded geometric shapes', () => {
         ]);
     });
 
-    it('removes queued embedded annotation deletes during save serialization', async () => {
-        const {
-            bytes,
-            squareRef,
-            lineRef,
-        } = await createPdfWithSquareAndLineAnnotations();
-
-        const payload = createEmptyPayload();
-        payload.pendingEmbeddedAnnotationDeletes = [{
-            id: `${lineRef.objectNumber}R${lineRef.generationNumber}`,
-            stableKey: `ann:0:${lineRef.objectNumber}R${lineRef.generationNumber}`,
-            pageIndex: 0,
-            pageNumber: 1,
-            text: '',
-            author: null,
-            modifiedAt: null,
-            color: null,
-            uid: null,
-            annotationId: `${lineRef.objectNumber}R${lineRef.generationNumber}`,
-            source: 'pdf',
-        } satisfies IAnnotationCommentSummary];
-
-        const result = await serializePdfEdits(bytes, payload);
-        const doc = await PDFDocument.load(result, { updateMetadata: false });
-        const annotRefs = getPageAnnotRefs(doc);
-
-        expect(annotRefs.map(ref => ref.toString())).toEqual([squareRef.toString()]);
-        expect(getAnnotDict(doc, lineRef)).toBeInstanceOf(PDFDict);
-    });
-
     it('removes embedded annotations from the canonical delete program during source replay', async () => {
         const {
             bytes,
@@ -639,7 +608,7 @@ describe('serializePdfEdits embedded geometric shapes', () => {
                     pdfRef: lineId,
                 },
                 pageIndex: 0,
-                kind: 'shape',
+                kind: 'text-markup',
             },
         }];
 
@@ -650,6 +619,59 @@ describe('serializePdfEdits embedded geometric shapes', () => {
         expect(getAnnotDict(doc, lineRef)).toBeInstanceOf(PDFDict);
     });
 
+    it('leaves canonical shape deletes to the shape channel', async () => {
+        const {
+            bytes,
+            squareRef,
+            lineRef,
+        } = await createPdfWithSquareAndLineAnnotations();
+        const lineId = `${lineRef.objectNumber}R${lineRef.generationNumber}`;
+        const payload = createEmptyPayload();
+        payload.deletedShapeAnnotationIds = [lineId];
+        payload.canonicalAnnotationProgram = [{
+            backend: 'pdf-lib-rewrite',
+            order: 0,
+            annotationId: 'anno-line' as never,
+            operation: 'delete-annotation',
+            fields: {
+                identity: {
+                    id: 'anno-line',
+                    pdfRef: lineId,
+                },
+                pageIndex: 0,
+                kind: 'shape',
+            },
+        }];
+
+        const result = await serializePdfEdits(bytes, payload);
+        const doc = await PDFDocument.load(result, { updateMetadata: false });
+
+        expect(getPageAnnotRefs(doc).map(ref => ref.toString())).toEqual([squareRef.toString()]);
+    });
+
+    it('does not fail a save whose canonical shape delete targets a ref outside the serialized document', async () => {
+        const {bytes} = await createPdfWithSquareAndLineAnnotations();
+        const payload = createEmptyPayload();
+        payload.rewriteShapeState = true;
+        payload.deletedShapeAnnotationIds = ['9999R0'];
+        payload.canonicalAnnotationProgram = [{
+            backend: 'pdf-lib-rewrite',
+            order: 0,
+            annotationId: 'anno-shape' as never,
+            operation: 'delete-annotation',
+            fields: {
+                identity: {
+                    id: 'anno-shape',
+                    pdfRef: '9999R0',
+                },
+                pageIndex: 0,
+                kind: 'shape',
+            },
+        }];
+
+        await expect(serializePdfEdits(bytes, payload)).resolves.toBeInstanceOf(Uint8Array);
+    });
+
     it('removes queued embedded Stamp annotations during save serialization', async () => {
         const {
             bytes,
@@ -658,20 +680,20 @@ describe('serializePdfEdits embedded geometric shapes', () => {
 
         const stampId = `${stampRef.objectNumber}R${stampRef.generationNumber}`;
         const payload = createEmptyPayload();
-        payload.pendingEmbeddedAnnotationDeletes = [{
-            id: stampId,
-            stableKey: `ann:0:${stampId}`,
-            pageIndex: 0,
-            pageNumber: 1,
-            text: '',
-            author: null,
-            modifiedAt: null,
-            color: null,
-            uid: null,
-            annotationId: stampId,
-            source: 'pdf',
-            subtype: 'Stamp',
-        } satisfies IAnnotationCommentSummary];
+        payload.canonicalAnnotationProgram = [{
+            backend: 'pdf-lib-rewrite',
+            order: 0,
+            annotationId: 'anno-stamp' as never,
+            operation: 'delete-annotation',
+            fields: {
+                identity: {
+                    id: 'anno-stamp',
+                    pdfRef: stampId,
+                },
+                pageIndex: 0,
+                kind: 'text-markup',
+            },
+        }];
 
         const result = await serializePdfEdits(bytes, payload);
         const doc = await PDFDocument.load(result, { updateMetadata: false });

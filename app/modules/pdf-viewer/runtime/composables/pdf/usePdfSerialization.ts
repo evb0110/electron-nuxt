@@ -326,7 +326,6 @@ export const usePdfSerialization = (deps: IPdfSerializationDeps) => {
             freeTextComments: [],
             annotationComments: [],
             pendingEmbeddedTextUpdates: [],
-            pendingEmbeddedAnnotationDeletes: [],
             pageLabelsDirty: false,
             pageLabelRanges: [],
             totalPages: totalPages.value,
