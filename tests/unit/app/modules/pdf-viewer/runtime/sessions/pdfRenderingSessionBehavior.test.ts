@@ -129,7 +129,10 @@ function createTransition(
     };
 }
 
-function createRenderingFixture(fixtureOptions: {autoResolve?: boolean} = {}) {
+function createRenderingFixture(fixtureOptions: {
+    autoResolve?: boolean;
+    bufferPages?: number;
+} = {}) {
     const subscribers: Array<(transition: IPdfDocumentTransition) => void | Promise<void>> = [];
     const disposables: Array<() => void | Promise<void>> = [];
     const currentPage = ref(3);
@@ -178,7 +181,7 @@ function createRenderingFixture(fixtureOptions: {autoResolve?: boolean} = {}) {
         visualReadySignal: shallowReadonly(visualReadySignal),
         navigationCommittedSignal: shallowReadonly(navigationCommittedSignal),
         userViewportInteractionEpoch: ref(0),
-        pageSlots: {isMounted: vi.fn((page: number) => page === 3)},
+        pageSlots: {isMounted: vi.fn((page: number) => demand.value.mountedPages.includes(page))},
         settleMandatoryRaster,
         notifyRenderStateChanged: vi.fn(),
         scale: {
@@ -266,8 +269,11 @@ function createRenderingFixture(fixtureOptions: {autoResolve?: boolean} = {}) {
         }),
     };
     const pdfDocument = {numPages: 5};
-    const leasePage = vi.fn(async () => ({
-        page: pdfPage,
+    const leasePage = vi.fn(async (pageNumber: number) => ({
+        page: pageNumber === 3 ? pdfPage : {
+            ...pdfPage,
+            pageNumber,
+        },
         release: vi.fn(),
     }));
     const rasterScheduler = createPdfPageRasterScheduler({
@@ -313,21 +319,30 @@ function createRenderingFixture(fixtureOptions: {autoResolve?: boolean} = {}) {
     const viewerElement = document.createElement('div');
     const viewerContainer = ref<HTMLElement | null>(viewerElement);
     const outputScale = ref(1);
-    const page = document.createElement('div');
-    page.className = 'page_container';
-    page.dataset.page = '3';
-    const canvasSurface = document.createElement('div');
-    canvasSurface.className = 'page_canvas';
-    const canvasHost = document.createElement('div');
-    canvasHost.className = 'page_canvas__render-layer';
-    canvasSurface.append(canvasHost);
-    page.append(
-        canvasSurface,
-        Object.assign(document.createElement('div'), {className: 'text-layer'}),
-        Object.assign(document.createElement('div'), {className: 'annotation-layer'}),
-        Object.assign(document.createElement('div'), {className: 'annotation-editor-layer'}),
-    );
-    viewerElement.append(page);
+    const canvasHosts = new Map<number, HTMLElement>();
+    for (const pageNumber of [
+        3,
+        4,
+        5,
+    ]) {
+        const page = document.createElement('div');
+        page.className = 'page_container';
+        page.dataset.page = String(pageNumber);
+        const canvasSurface = document.createElement('div');
+        canvasSurface.className = 'page_canvas';
+        const canvasHost = document.createElement('div');
+        canvasHost.className = 'page_canvas__render-layer';
+        canvasHosts.set(pageNumber, canvasHost);
+        canvasSurface.append(canvasHost);
+        page.append(
+            canvasSurface,
+            Object.assign(document.createElement('div'), {className: 'text-layer'}),
+            Object.assign(document.createElement('div'), {className: 'annotation-layer'}),
+            Object.assign(document.createElement('div'), {className: 'annotation-editor-layer'}),
+        );
+        viewerElement.append(page);
+    }
+    const canvasHost = canvasHosts.get(3)!;
     document.body.append(viewerElement);
     canvasFixture.prepare.mockImplementation(async (pageProxy: typeof pdfPage, scale: number) => {
         const canvas = document.createElement('canvas');
@@ -375,7 +390,7 @@ function createRenderingFixture(fixtureOptions: {autoResolve?: boolean} = {}) {
                 continuousScroll: computed(() => true),
                 outputScale,
                 rasterDisplayProfile: computed(() => null),
-                bufferPages: computed(() => 0),
+                bufferPages: computed(() => fixtureOptions.bufferPages ?? 0),
                 showAnnotations: computed(() => true),
                 searchPageMatches: computed(() => new Map()),
                 currentSearchMatch: computed(() => null),
@@ -626,6 +641,139 @@ describe('PdfRenderingSession behavior', () => {
             expect(fixture.pdfPage.render).toHaveBeenCalledOnce();
             expect(fixture.canvasHost.querySelector('canvas')).not.toBeNull();
             expect(canvasFixture.cleanupResult).not.toHaveBeenCalled();
+        } finally {
+            await fixture.dispose();
+        }
+    });
+
+    it('publishes a resident shift when the newly required raster is already current', async () => {
+        const fixture = createRenderingFixture({
+            autoResolve: false,
+            bufferPages: 1,
+        });
+        const residentPages = () => fixture.rasterScheduler.snapshot().residentPages
+            .map(resident => resident.pageNumber)
+            .sort((left, right) => left - right);
+        try {
+            await vi.waitFor(() => expect(fixture.renderTasks).toHaveLength(1));
+            fixture.renderTasks[0]!.resolve();
+            await vi.waitFor(() => expect(residentPages()).toEqual([3]));
+
+            fixture.demand.value = {
+                ...fixture.demand.value,
+                revision: 2,
+                nearbyPages: [4],
+                residentPages: [
+                    3,
+                    4,
+                ],
+                mountedPages: [
+                    3,
+                    4,
+                ],
+                mandatoryRaster: null,
+            };
+            await vi.waitFor(() => expect(fixture.renderTasks).toHaveLength(2));
+            fixture.renderTasks[1]!.resolve();
+            await vi.waitFor(() => expect(residentPages()).toEqual([
+                3,
+                4,
+            ]));
+
+            fixture.demand.value = {
+                ...fixture.demand.value,
+                revision: 3,
+                visibleRange: {
+                    start: 4,
+                    end: 4,
+                },
+                requiredPages: [4],
+                nearbyPages: [5],
+                residentPages: [
+                    4,
+                    5,
+                ],
+                mountedPages: [
+                    4,
+                    5,
+                ],
+                currentPage: 4,
+            };
+            await vi.waitFor(() => expect(fixture.renderTasks).toHaveLength(3));
+            fixture.renderTasks[2]!.resolve();
+            await vi.waitFor(() => expect(residentPages()).toEqual([
+                4,
+                5,
+            ]));
+
+            expect(fixture.canvasHost.querySelector('canvas')).toBeNull();
+            expect(fixture.rasterScheduler.snapshot().residentPages)
+                .toContainEqual(expect.objectContaining({
+                    lane: 'viewport-visible',
+                    pageNumber: 4,
+                }));
+        } finally {
+            await fixture.dispose();
+        }
+    });
+
+    it('schedules a new render key when authoritative demand supersedes in-flight buffer work', async () => {
+        const fixture = createRenderingFixture({
+            autoResolve: false,
+            bufferPages: 1,
+        });
+        try {
+            await vi.waitFor(() => expect(fixture.renderTasks).toHaveLength(1));
+            fixture.renderTasks[0]!.resolve();
+
+            fixture.demand.value = {
+                ...fixture.demand.value,
+                revision: 2,
+                nearbyPages: [4],
+                residentPages: [
+                    3,
+                    4,
+                ],
+                mountedPages: [
+                    3,
+                    4,
+                ],
+                mandatoryRaster: null,
+            };
+            await vi.waitFor(() => expect(fixture.renderTasks).toHaveLength(2));
+
+            fixture.demand.value = {
+                ...fixture.demand.value,
+                revision: 3,
+                visibleRange: {
+                    start: 4,
+                    end: 4,
+                },
+                requiredPages: [4],
+                nearbyPages: [5],
+                residentPages: [
+                    4,
+                    5,
+                ],
+                mountedPages: [
+                    4,
+                    5,
+                ],
+                currentPage: 4,
+            };
+            await vi.waitFor(() => expect(fixture.renderTasks[1]!.cancel).toHaveBeenCalledOnce());
+            await vi.waitFor(() => expect(fixture.renderTasks).toHaveLength(4));
+            fixture.renderTasks[2]!.resolve();
+            fixture.renderTasks[3]!.resolve();
+            await vi.waitFor(() => expect(fixture.rasterScheduler.snapshot().residentPages
+                .map(resident => resident.pageNumber)
+                .sort((left, right) => left - right)).toEqual([
+                4,
+                5,
+            ]));
+            expect(fixture.viewerContainer.value?.querySelector(
+                '.page_container[data-page="4"] .page_canvas canvas',
+            )).not.toBeNull();
         } finally {
             await fixture.dispose();
         }
