@@ -1756,6 +1756,12 @@ fn scale_x(x: f64, from_width: usize, to_width: usize) -> f64 {
     x / from_width.max(1) as f64 * to_width as f64
 }
 
+/// The result detection returns for an already-resolved single-region layout,
+/// without inspecting pixels.
+pub(crate) fn single_page(width: usize, height: usize) -> SplitResult {
+    single(width, height, 1.0, SplitDiagnostics::default())
+}
+
 fn single(
     width: usize,
     height: usize,
