@@ -421,7 +421,7 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
             await rendering.renderVisiblePages(
                 {
                     start: pageNumber,
-                    end: pageNumber, 
+                    end: pageNumber,
                 },
                 {
                     preserveRenderedPages: true,

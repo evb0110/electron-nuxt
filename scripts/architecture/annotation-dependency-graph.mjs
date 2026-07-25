@@ -26,8 +26,9 @@ const RUNTIME_ANNOTATION_ROOT = 'app/modules/pdf-viewer/runtime/annotations';
 const ANNOTATION_TOOLS_ROOT = 'app/modules/pdf-viewer/tools';
 const RUNTIME_SAVE_ROOT = 'app/modules/pdf-viewer/runtime/save';
 const PDF_VIEWER_MODULE_ROOT = 'app/modules/pdf-viewer';
+const ANNOTATION_SESSION = 'app/modules/pdf-viewer/runtime/sessions/createPdfAnnotationSession.ts';
 
-const RUNTIME_TOOLS_ALLOWED_EDGES = new Set(['app/modules/pdf-viewer/runtime/annotations/usePdfViewerAnnotationRuntime.ts -> app/modules/pdf-viewer/tools/public.ts']);
+const RUNTIME_TOOLS_ALLOWED_EDGES = new Set();
 
 export const ANNOTATION_LATE_BOUND_EDGES = [
     {
@@ -36,7 +37,7 @@ export const ANNOTATION_LATE_BOUND_EDGES = [
         kind: 'late-bound',
         label: 'scheduleAnnotationCommentsSync',
         phase: 'event-time',
-        evidence: 'useAnnotationOrchestrator wires useFreeTextResize with () => commentSync.scheduleAnnotationCommentsSync().',
+        evidence: 'createPdfAnnotationSession wires useFreeTextResize with () => commentSync.scheduleAnnotationCommentsSync().',
     },
     {
         source: 'app/modules/pdf-viewer/runtime/annotations/useAnnotationToolState.ts',
@@ -96,19 +97,19 @@ export const ANNOTATION_LATE_BOUND_EDGES = [
     },
     {
         source: 'app/modules/pdf-viewer/runtime/annotations/useManagedEmbeddedPdfShapes.ts',
-        target: 'app/modules/pdf-viewer/runtime/annotations/useAnnotationOrchestrator.ts',
+        target: ANNOTATION_SESSION,
         kind: 'late-bound',
         label: 'suppressCommentAnnotationId',
         phase: 'event-time',
-        evidence: 'usePdfViewerAnnotationRuntime wires managed embedded shapes to annotations.commentSync suppression.',
+        evidence: 'createPdfAnnotationSession wires managed embedded shapes to annotations.commentSync suppression.',
     },
     {
         source: 'app/modules/pdf-viewer/annotations/usePdfAnnotationCommentModel.ts',
-        target: 'app/modules/pdf-viewer/runtime/annotations/useAnnotationOrchestrator.ts',
+        target: ANNOTATION_SESSION,
         kind: 'late-bound',
         label: 'suppress/unsuppress annotation ids',
         phase: 'event-time',
-        evidence: 'usePdfViewerAnnotationRuntime wires comment model callbacks to annotations.commentSync after construction.',
+        evidence: 'createPdfAnnotationSession wires comment model callbacks to annotations.commentSync after construction.',
     },
 ];
 
@@ -121,7 +122,8 @@ function annotationEdgeKey(edge) {
 }
 
 function isAnnotationPolicyNode(filePath) {
-    return ANNOTATION_POLICY_ROOTS.some(root => matchesRoot(filePath, root));
+    return filePath === ANNOTATION_SESSION
+        || ANNOTATION_POLICY_ROOTS.some(root => matchesRoot(filePath, root));
 }
 
 function isPdfViewerInternalSource(filePath) {

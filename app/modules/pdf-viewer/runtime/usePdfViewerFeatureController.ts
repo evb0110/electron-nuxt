@@ -18,8 +18,9 @@ import {
     createPdfAnnotationSession,
     type TPdfAnnotationSession,
 } from '@app/modules/pdf-viewer/runtime/sessions/createPdfAnnotationSession';
-import { usePdfViewerExposeControllers } from '@app/modules/pdf-viewer/runtime/usePdfViewerExposeControllers';
 import { usePdfViewerPublicApiController } from '@app/modules/pdf-viewer/runtime/usePdfViewerPublicApiController';
+import { usePdfViewerFitWidthController } from '@app/modules/pdf-viewer/runtime/viewport/usePdfViewerFitWidthController';
+import type { IBrowserPrintDocument } from '@app/utils/pdfPrintShared';
 import { usePdfViewerNavigationDiagnostics } from '@app/modules/pdf-viewer/runtime/lifecycle/usePdfViewerNavigationDiagnostics';
 import { usePdfViewerMouseInteractions } from '@app/modules/pdf-viewer/runtime/composables/usePdfViewerMouseInteractions';
 import { usePdfViewerWheelZoom } from '@app/modules/pdf-viewer/runtime/composables/usePdfViewerWheelZoom';
@@ -398,22 +399,14 @@ export const usePdfViewerFeatureController = (props: IPdfViewerProps, emit: IPdf
         virtualWindowEnd: viewportSession.viewModel.virtualWindowEnd,
         searchNavigationTargetPage: viewportSession.singlePageScroll.searchNavigationTargetPage,
         searchNavigationState: viewportSession.singlePageScroll.searchNavigationState,
+        getRasterSchedulerSnapshot: renderingSession.getRasterSchedulerSnapshot,
         summarizeViewerStateForLog,
     });
 
-    const {
-        applyFitWidthToCurrentPage,
-        materializePdfJsDocumentForInternalUse,
-        runSaveTransaction,
-        saveViewerDocument,
-        renderLoadedPdfPagesForBrowserPrint,
-    } = usePdfViewerExposeControllers({
+    const { applyFitWidthToCurrentPage } = usePdfViewerFitWidthController({
         viewerContainer,
         currentPage: viewportSession.currentPage,
         pdfDocument: documentSession.pdfDocument,
-        documentRevisionToken,
-        annotationUiManager: annotationSession.annotationUiManager,
-        annotationRuntime: annotationSession,
         isLoading: documentSession.isLoading,
         continuousScroll,
         fitMode,
@@ -425,15 +418,25 @@ export const usePdfViewerFeatureController = (props: IPdfViewerProps, emit: IPdf
         numPages: documentSession.numPages,
         pageMetricsVersion: documentSession.pageMetricsVersion,
         visibleRange: viewportSession.visibleRange,
-        resolveHorizontalScrollClampForActiveSpread: viewportSession.viewModel.resolveHorizontalScrollClampForActiveSpread,
         syncHorizontalScrollForZoomMode: viewportSession.viewModel.syncHorizontalScrollForZoomMode,
-        scrollToPage: viewportSession.singlePageScroll.scrollToPage,
         computeFitWidthScale: viewportSession.scale.computeFitWidthScale,
         isFitWidthScaleCurrent: viewportSession.scale.isFitWidthScaleCurrent,
         cancelInFlightRenders: renderingSession.cancelInFlightRenders,
         reRenderAllVisiblePages: renderingSession.reRenderAllVisiblePages,
         emitZoomMode: viewerEvents.updateZoomMode,
     });
+    async function renderLoadedPdfPagesForBrowserPrint(
+        targetDocument: IBrowserPrintDocument,
+        pageNumbers: number[],
+        renderOptions?: { signal?: AbortSignal },
+    ) {
+        const pdfDocument = documentSession.pdfDocument.value;
+        if (!pdfDocument) {
+            throw new Error('Missing loaded PDF document');
+        }
+        const { renderPdfDocumentPagesForBrowserPrint } = await import('@app/utils/pdfPrint');
+        await renderPdfDocumentPagesForBrowserPrint(targetDocument, pdfDocument, pageNumbers, renderOptions);
+    }
 
     const pdfViewerPublicApi = usePdfViewerPublicApiController({
         viewerContainer,
@@ -441,18 +444,12 @@ export const usePdfViewerFeatureController = (props: IPdfViewerProps, emit: IPdf
         viewportSession,
         getUserViewportInteractionEpoch: () => viewportSession.userViewportInteractionEpoch.value,
         cancelPendingSearchScroll: () => renderingSession.cancelPendingSearchScroll(),
-        annotationRuntime: annotationSession,
-        appAnnotationHistory: annotationSession.appAnnotationHistory,
+        annotationSession,
         applyFitWidthToCurrentPage,
         waitForViewerLoadSettled: documentSession.waitForLoadSettled,
         renderVisiblePages: renderingSession.renderVisiblePages,
         preserveNextSourceReloadVisibleContent: viewportSession.preserveNextSourceReloadVisibleContent,
-        runSaveTransaction,
-        saveViewerDocument,
-        materializePdfJsDocumentForInternalUse,
         renderLoadedPdfPagesForBrowserPrint,
-        undoAnnotation: annotationSession.undoAnnotation,
-        redoAnnotation: annotationSession.redoAnnotation,
         startImagePlacement,
         clearPendingImagePlacement,
         restorePendingImagePlacement,

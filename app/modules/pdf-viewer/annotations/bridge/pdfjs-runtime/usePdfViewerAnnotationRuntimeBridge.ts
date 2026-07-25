@@ -16,7 +16,8 @@ import type {
     IAnnotationSettings,
     TAnnotationTool,
 } from '@app/types/annotations';
-import type { TAnnotationOrchestrator } from '@app/modules/pdf-viewer/runtime/annotations/annotationOrchestrator';
+import type { useAnnotationHighlight } from '@app/modules/pdf-viewer/runtime/annotations/useAnnotationHighlight';
+import type { useAnnotationToolState } from '@app/modules/pdf-viewer/runtime/annotations/useAnnotationToolState';
 import { runGuardedTask } from '@app/utils/asyncGuard';
 import { isTextMarkupSubtype } from '@app/services/pdf/annotationSubtype';
 import { applyAnnotationCommentTextMarkupColor } from '@app/modules/pdf-viewer/engine/annotations/annotation-dom-removal/applyAnnotationCommentTextMarkupColor';
@@ -37,7 +38,21 @@ interface IUsePdfViewerAnnotationRuntimeBridgeOptions {
     annotationUiManager: ShallowRef<AnnotationEditorUIManager | null>;
     annotationCommentsCache: Ref<IAnnotationCommentSummary[]>;
     activeCommentStableKey: Ref<string | null>;
-    annotations: TAnnotationOrchestrator;
+    annotations: {
+        editor: Pick<
+            ReturnType<typeof useAnnotationToolState>,
+            'applyAnnotationSettings' | 'setAnnotationTool'
+        > & {markupSubtype: Pick<
+            ReturnType<typeof useAnnotationToolState>,
+            'syncMarkupSubtypePresentationForEditors'
+        >;};
+        highlight: Pick<
+            ReturnType<typeof useAnnotationHighlight>,
+            | 'cacheCurrentTextSelection'
+            | 'cancelCommentPlacement'
+            | 'handleDocumentPointerUp'
+        >;
+    };
 }
 
 export const usePdfViewerAnnotationRuntimeBridge = (options: IUsePdfViewerAnnotationRuntimeBridgeOptions) => {

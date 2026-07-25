@@ -5,8 +5,9 @@ import type {
     ITextMarkupAnnotationProperties,
 } from '@app/types/annotations';
 import { computeSummaryStableKey } from '@app/modules/pdf-viewer/annotations/domain/annotationSummaryIdentity';
-import type { TAnnotationOrchestrator } from '@app/modules/pdf-viewer/runtime/annotations/annotationOrchestrator';
 import type { usePdfAnnotationCommentModel } from '@app/modules/pdf-viewer/annotations/usePdfAnnotationCommentModel';
+import type { useAnnotationCrud } from '@app/modules/pdf-viewer/runtime/annotations/useAnnotationCrud';
+import type { useAnnotationToolState } from '@app/modules/pdf-viewer/runtime/annotations/useAnnotationToolState';
 import { getStoredAnnotationEditor } from '@app/modules/pdf-viewer/annotations/bridge/pdfjsAnnotationFacade';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { resetLivePdfJsAnnotationStorageModifiedIds } from '@app/modules/pdf-viewer/runtime/save/pdfAnnotationStorageChanges';
@@ -15,7 +16,20 @@ type TAnnotationCommentModel = ReturnType<typeof usePdfAnnotationCommentModel>;
 
 interface IUsePdfAnnotationColorCommandsOptions {
     pdfDocument: ShallowRef<PDFDocumentProxy | null>;
-    annotations: TAnnotationOrchestrator;
+    annotations: {
+        crud: Pick<
+            ReturnType<typeof useAnnotationCrud>,
+            'findEditorByAnnotationElementId' | 'findEditorForComment'
+        >;
+        editor: {markupSubtype: Pick<
+            ReturnType<typeof useAnnotationToolState>,
+                | 'getSelectedTextMarkupAnnotationProperties'
+                | 'rememberMarkupSubtypeColorOverride'
+                | 'syncMarkupSubtypePresentationForEditors'
+                | 'updateSelectedTextMarkupAnnotationColor'
+                | 'updateTextMarkupAnnotationColor'
+        >;};
+    };
     annotationCommentModel: TAnnotationCommentModel;
     emitForcedAnnotationMutation: (options?: { scheduleCommentSync?: boolean }) => void;
 }

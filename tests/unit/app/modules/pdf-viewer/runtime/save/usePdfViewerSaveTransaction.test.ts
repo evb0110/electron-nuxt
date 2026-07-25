@@ -1,15 +1,86 @@
 import {
+    computed,
+    shallowRef,
+} from 'vue';
+import {
     describe,
     expect,
     it,
     vi,
 } from 'vitest';
 import { usePdfViewerSaveTransaction } from '@app/modules/pdf-viewer/runtime/save/usePdfViewerSaveTransaction';
+import { AnnotationApplication } from '@app/modules/pdf-viewer/annotations/annotationApplication';
 import {requireDocumentRevisionToken} from '@contracts';
 import {buildSerializationPlan} from '@app/modules/pdf-viewer/serialization/serializationPlan';
 import {asAnnotationId} from '@app/modules/pdf-viewer/annotations/domain/annotationEntity';
 
+vi.mock(
+    '@app/modules/pdf-viewer/engine/pdf-serialization-worker-client/bindCanonicalAnnotationIdentitiesOffThread',
+    () => ({bindCanonicalAnnotationIdentitiesOffThread: vi.fn(async (data: Uint8Array) => ({
+        data,
+        identityBindings: [],
+    }))}),
+);
+
 describe('usePdfViewerSaveTransaction', () => {
+    it('serializes the synchronous canonical frontier and CAS-preserves a newer mutation', async () => {
+        const application = new AnnotationApplication('save-transaction-document');
+        const created = application.createStickyNote({
+            kind: 'sticky-note',
+            pageIndex: 0,
+            createdAt: null,
+            modifiedAt: null,
+            author: null,
+            text: 'canonical before PDF.js projection',
+            anchor: {
+                left: 0.1,
+                top: 0.2,
+                width: 0.01,
+                height: 0.01,
+            },
+            color: '#ffcc00',
+        });
+        const events: string[] = [];
+        const bytes = new Uint8Array([
+            7,
+            8,
+            9,
+        ]);
+        const { runSaveTransaction } = usePdfViewerSaveTransaction({
+            annotationApplication: shallowRef(application),
+            documentRevisionToken: computed(() => requireDocumentRevisionToken('revision-1')),
+            flushAnnotationMutationsForSave: async () => {
+                expect(application.store.get(created.identity.id)).toMatchObject({text: 'canonical before PDF.js projection'});
+                events.push('pdfjs-projection');
+            },
+            materializePdfJsDocumentForInternalUse: async () => {
+                events.push('pdfjs-materialize');
+                return bytes;
+            },
+        });
+
+        const result = await runSaveTransaction({mode: 'persist'});
+        expect(events).toEqual([
+            'pdfjs-projection',
+            'pdfjs-materialize',
+        ]);
+        expect(result.source).toBe('pdfjs-materialize');
+        expect(
+            result.serializedResult?.finalBytes
+            ?? result.serializedBytes
+            ?? result.baseBytes,
+        ).toEqual(bytes);
+
+        application.setNoteText(created.identity.id, 'newer while serialized bytes publish');
+        expect(() => result.commitAnnotationSave?.()).toThrow('staleRevisionError');
+
+        expect(application.store.get(created.identity.id)).toMatchObject({
+            text: 'newer while serialized bytes publish',
+            persistedRevision: -1,
+        });
+        expect(application.store.hasChangesSinceSavedBaseline()).toBe(true);
+    });
+
     it('materializes through the existing PDF.js save path for the initial facade', async () => {
         const bytes = new Uint8Array([
             10,
@@ -29,6 +100,21 @@ describe('usePdfViewerSaveTransaction', () => {
             route: 'source-clean',
             reason: 'no-live-pdfjs-annotation-work',
         });
+    });
+
+    it('commits session-owned PDF.js editors exactly once before materialization', async () => {
+        const commitOrRemove = vi.fn();
+        const saveDocument = vi.fn(async () => new Uint8Array([4]));
+        const { runSaveTransaction } = usePdfViewerSaveTransaction({
+            pdfDocument: shallowRef({saveDocument} as never),
+            annotationUiManager: shallowRef({commitOrRemove} as never),
+        });
+
+        const result = await runSaveTransaction({mode: 'persist'});
+
+        expect(commitOrRemove).toHaveBeenCalledOnce();
+        expect(saveDocument).toHaveBeenCalledOnce();
+        expect(result.serializedBytes).toEqual(new Uint8Array([4]));
     });
 
     it('carries the canonical save frontier verification and commit callbacks', async () => {
