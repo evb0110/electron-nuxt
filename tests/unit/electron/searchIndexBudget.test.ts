@@ -48,7 +48,7 @@ interface IBuildSearchIndexOptionsForTest {
     validateBeforePersist?: (index: IIndexForTest) => void;
 }
 
-describe('ensureSearchIndex text budget handling', () => {
+describe('ensureSearchIndex', () => {
     beforeEach(() => {
         vi.resetModules();
         vi.clearAllMocks();
@@ -109,6 +109,72 @@ describe('ensureSearchIndex text budget handling', () => {
             pageNumber: 1,
             text: 'healed',
         }]);
+    });
+
+    it('accepts a complete index that holds no extractable text without rebuilding it', async () => {
+        const { ensureSearchIndex } = await import('@electron/search/worker/ensureSearchIndex');
+        mocks.loadSearchIndex.mockResolvedValue({
+            schemaVersion: 7,
+            documentRevision: {token: DOCUMENT_REVISION},
+            pdfPath: PDF_PATH,
+            createdAt: 1,
+            pageCount: 2,
+            pages: [
+                {
+                    pageNumber: 1,
+                    text: '',
+                },
+                {
+                    pageNumber: 2,
+                    text: '',
+                },
+            ],
+        });
+
+        const entry = await ensureSearchIndex(new Map(), PDF_PATH, {
+            maxEntries: 4,
+            ttlMs: 60_000,
+            maxPageTextBytes: 1024,
+            maxTotalTextBytes: 4096,
+        }, {
+            documentRevision: DOCUMENT_REVISION,
+            pageCount: 2,
+            throwIfCancelled: () => undefined,
+        });
+
+        expect(mocks.buildSearchIndex).not.toHaveBeenCalled();
+        expect(entry.index.pages).toHaveLength(2);
+    });
+
+    it('stops rebuilding when a build cannot satisfy the expected page count', async () => {
+        const { ensureSearchIndex } = await import('@electron/search/worker/ensureSearchIndex');
+        const shortIndex = {
+            schemaVersion: 7,
+            documentRevision: {token: DOCUMENT_REVISION},
+            pdfPath: PDF_PATH,
+            createdAt: 2,
+            pageCount: 1,
+            pages: [{
+                pageNumber: 1,
+                text: 'only page',
+            }],
+        };
+        mocks.loadSearchIndex.mockResolvedValue(shortIndex);
+        mocks.buildSearchIndex.mockResolvedValue(shortIndex);
+
+        const entry = await ensureSearchIndex(new Map(), PDF_PATH, {
+            maxEntries: 4,
+            ttlMs: 60_000,
+            maxPageTextBytes: 1024,
+            maxTotalTextBytes: 4096,
+        }, {
+            documentRevision: DOCUMENT_REVISION,
+            pageCount: 3,
+            throwIfCancelled: () => undefined,
+        });
+
+        expect(mocks.buildSearchIndex).toHaveBeenCalledTimes(2);
+        expect(entry.index.pages).toHaveLength(1);
     });
 
     it('passes the text budget validator into index builds before persistence', async () => {

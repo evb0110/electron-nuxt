@@ -45,7 +45,6 @@ export interface IOcrQueuedJob extends IOcrRegistryJob {
     options: IOcrSearchablePdfOptions;
     queuedAtMs: number;
     requestedBytes: number;
-    pageWork: number;
 }
 
 export interface IOcrPreparingJob extends IOcrRegistryJob {
@@ -56,7 +55,6 @@ export interface IOcrPreparingJob extends IOcrRegistryJob {
     sourcePdfPath: string;
     documentRevision: IDocumentRevisionInfo;
     requestedBytes: number;
-    pageWork: number;
     startedAtMs: number;
 }
 
