@@ -30,8 +30,6 @@ function createLayout(totalPages: number, viewMode: TPdfViewMode) {
         gap: GAP,
         paddingTop: PADDING,
         paddingBottom: PADDING,
-        fallbackWidth: 300,
-        fallbackHeight: PAGE_HEIGHT,
     });
     expect(layout).not.toBeNull();
     return layout!;

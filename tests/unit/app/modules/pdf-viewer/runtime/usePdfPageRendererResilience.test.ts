@@ -68,6 +68,20 @@ const canvasRendererMock = {
     mountCanvas: vi.fn(),
 };
 
+// The real renderer only tears the mounted layer down when it rebuilds it, and
+// reports that through the trailing callback. Model both so the controller's
+// rebuild-only teardown is exercised the way production drives it.
+function renderTextLayerRebuild(result: () => Promise<unknown>) {
+    return (...args: unknown[]) => {
+        args.find((arg): arg is () => void => typeof arg === 'function')?.();
+        return result();
+    };
+}
+
+function resolveTextLayerAbortSignal(args: unknown[]) {
+    return args.find((arg): arg is AbortSignal => arg instanceof AbortSignal) ?? null;
+}
+
 const textLayerRendererMock = {
     renderTextLayer: vi.fn(),
     setupTextLayerInteraction: vi.fn(),
@@ -146,7 +160,7 @@ describe('usePdfPageRenderer resilience', () => {
             host.appendChild?.(canvas);
         });
         canvasRendererMock.renderCanvas.mockResolvedValue(createRenderResult());
-        textLayerRendererMock.renderTextLayer.mockResolvedValue(undefined);
+        textLayerRendererMock.renderTextLayer.mockImplementation(renderTextLayerRebuild(() => Promise.resolve()));
         annotationLayerRendererMock.renderAnnotationLayer.mockResolvedValue(null);
     });
 
@@ -211,12 +225,12 @@ describe('usePdfPageRenderer resilience', () => {
         let didAbortTextLayer = false;
         const textLayerPromise = new Promise<void>((resolve) => {
             textLayerRendererMock.renderTextLayer.mockImplementation((...args: unknown[]) => {
-                textLayerSignal = args.at(-1) as AbortSignal;
-                textLayerSignal.addEventListener('abort', () => {
+                textLayerSignal = resolveTextLayerAbortSignal(args);
+                textLayerSignal?.addEventListener('abort', () => {
                     didAbortTextLayer = true;
                     resolve();
                 });
-                return textLayerPromise;
+                return renderTextLayerRebuild(() => textLayerPromise)(...args);
             });
         });
         const pageLease = createPageLease({render: vi.fn(() => ({promise: Promise.resolve()}))});
@@ -543,7 +557,7 @@ describe('usePdfPageRenderer resilience', () => {
             numPages: ref(1),
             leasePage: vi.fn(async () => createPageLease({ render: vi.fn(() => ({ promise: Promise.resolve() })) })),
         };
-        textLayerRendererMock.renderTextLayer.mockReturnValue(textLayerRender.promise);
+        textLayerRendererMock.renderTextLayer.mockImplementation(renderTextLayerRebuild(() => textLayerRender.promise));
 
         const renderer = usePdfPageRenderer({
             container: ref(containerRoot),
@@ -673,8 +687,8 @@ describe('usePdfPageRenderer resilience', () => {
             leasePage: vi.fn(async () => createPageLease({ render: vi.fn((_ctx: IRenderContext) => ({ promise: Promise.resolve() })) })),
         };
         textLayerRendererMock.renderTextLayer
-            .mockReturnValueOnce(firstTextLayerRender.promise)
-            .mockResolvedValue(undefined);
+            .mockImplementationOnce(renderTextLayerRebuild(() => firstTextLayerRender.promise))
+            .mockImplementation(renderTextLayerRebuild(() => Promise.resolve()));
 
         const renderer = usePdfPageRenderer({
             container: ref(containerRoot),
@@ -721,8 +735,8 @@ describe('usePdfPageRenderer resilience', () => {
             setMountedCanvas(canvas);
         });
         textLayerRendererMock.renderTextLayer
-            .mockResolvedValueOnce(undefined)
-            .mockReturnValueOnce(staleTextLayerRender.promise);
+            .mockImplementationOnce(renderTextLayerRebuild(() => Promise.resolve()))
+            .mockImplementationOnce(renderTextLayerRebuild(() => staleTextLayerRender.promise));
 
         const renderer = usePdfPageRenderer({
             container: ref(containerRoot),
@@ -782,11 +796,11 @@ describe('usePdfPageRenderer resilience', () => {
             leasePage: vi.fn(async () => createPageLease({render: vi.fn((_ctx: IRenderContext) => ({ promise: Promise.resolve() }))})),
         };
         textLayerRendererMock.renderTextLayer.mockImplementation((...args: unknown[]) => {
-            textLayerSignal = args.at(-1) as AbortSignal;
-            textLayerSignal.addEventListener('abort', () => {
+            textLayerSignal = resolveTextLayerAbortSignal(args);
+            textLayerSignal?.addEventListener('abort', () => {
                 didAbortTextLayer = true;
             });
-            return new Promise(() => {});
+            return renderTextLayerRebuild(() => new Promise(() => {}))(...args);
         });
 
         const renderer = usePdfPageRenderer({

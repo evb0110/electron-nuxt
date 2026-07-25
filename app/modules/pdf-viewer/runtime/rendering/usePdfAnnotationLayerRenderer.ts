@@ -57,6 +57,28 @@ const hiddenAnnotationGuardQueues = new WeakMap<
     Promise<unknown>
 >();
 const quarantinedHiddenAnnotationGuards = new WeakSet<AnnotationEditorUIManager>();
+// pdf.js parses a page's annotations once per document but re-serializes them,
+// and re-extracts their text content, on every `getAnnotations()` call. The page
+// proxy is replaced whenever the document is reloaded, so it is the exact
+// lifetime of the parsed data.
+const parsedPageAnnotations = new WeakMap<
+    PDFPageProxy,
+    ReturnType<PDFPageProxy['getAnnotations']>
+>();
+
+function getParsedPageAnnotations(pdfPage: PDFPageProxy) {
+    const cached = parsedPageAnnotations.get(pdfPage);
+    if (cached) {
+        return cached;
+    }
+
+    const pending = pdfPage.getAnnotations().catch((error: unknown) => {
+        parsedPageAnnotations.delete(pdfPage);
+        throw error;
+    });
+    parsedPageAnnotations.set(pdfPage, pending);
+    return pending;
+}
 
 export function didRenderAnnotationEditorLayer(result: TAnnotationEditorLayerRenderResult) {
     return result.ok && result.rendered;
@@ -439,7 +461,7 @@ export const usePdfAnnotationLayerRenderer = (deps: {
         );
         try {
             const annotations = await raceWithAnnotationAbort(
-                pdfPage.getAnnotations(),
+                getParsedPageAnnotations(pdfPage),
                 pageNumber,
                 options,
             );

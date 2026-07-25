@@ -1,7 +1,6 @@
 import type { TPdfViewMode } from '@app/types/pdfContracts';
 import type { IPdfPageMetric } from '@app/types/pdfUi';
 import { clamp } from 'es-toolkit/math';
-import { normalizePageMetrics } from '@app/modules/pdf-viewer/engine/pdf-page-layout/normalizePageMetrics';
 import type {
     IPdfPageLayoutBase,
     IPdfPageLayoutMetrics,
@@ -106,33 +105,19 @@ function buildPageLayoutBase(options: {
     pageMetricsVersion: number;
     totalPages: number;
     viewMode: TPdfViewMode;
-    fallbackWidth: number | null;
-    fallbackHeight: number | null;
 }) {
     const cacheKey = [
         options.pageMetricsVersion,
         options.totalPages,
         options.viewMode,
-        options.fallbackWidth ?? 'null',
-        options.fallbackHeight ?? 'null',
     ].join(':');
     const cached = baseCache.get(options.pageMetrics)?.get(cacheKey);
     if (cached) {
         return cached;
     }
 
-    const metrics = normalizePageMetrics({
-        pageMetrics: options.pageMetrics,
-        totalPages: options.totalPages,
-        fallbackWidth: options.fallbackWidth,
-        fallbackHeight: options.fallbackHeight,
-    });
-    if (metrics.length === 0) {
-        return null;
-    }
-
-    const pageWidths = metrics.map(metric => metric.width);
-    const pageHeights = metrics.map(metric => metric.height);
+    const pageWidths = options.pageMetrics.map(metric => metric.width);
+    const pageHeights = options.pageMetrics.map(metric => metric.height);
     const pageRowIndices = Array.from({ length: options.totalPages }, () => 0);
     const rowStartPages: number[] = [];
     const rowEndPages: number[] = [];
@@ -173,6 +158,11 @@ function buildPageLayoutBase(options: {
     return base;
 }
 
+/**
+ * `pageMetrics` must already be normalized to `totalPages` entries by
+ * `normalizePageMetrics`; this builder trusts that shape instead of re-deriving
+ * it on every metrics-version bump.
+ */
 export function buildPageLayoutMetrics(options: {
     pageMetrics: IPdfPageMetric[];
     pageMetricsVersion?: number;
@@ -182,8 +172,6 @@ export function buildPageLayoutMetrics(options: {
     gap: number;
     paddingTop: number;
     paddingBottom?: number;
-    fallbackWidth: number | null;
-    fallbackHeight: number | null;
 }): IPdfPageLayoutMetrics | null {
     if (options.totalPages <= 0 || !Number.isFinite(options.scale) || options.scale <= 0) {
         return null;
@@ -194,12 +182,7 @@ export function buildPageLayoutMetrics(options: {
         pageMetricsVersion: options.pageMetricsVersion ?? 0,
         totalPages: options.totalPages,
         viewMode: options.viewMode,
-        fallbackWidth: options.fallbackWidth,
-        fallbackHeight: options.fallbackHeight,
     });
-    if (!base) {
-        return null;
-    }
 
     const {
         gap,
