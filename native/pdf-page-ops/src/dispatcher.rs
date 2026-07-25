@@ -73,7 +73,7 @@ pub(crate) fn mutate_pdf(config: Config) -> Result<()> {
         Operation::SplitPages { instructions_file } => {
             let instructions = read_split_pages_file(&instructions_file)
                 .map_err(|error| reclassify_domain_error(error, NativeErrorCode::InvalidRequest))?;
-            split_pages(&document, &instructions, &config.output_path)?;
+            split_pages(document, &instructions, &config.output_path)?;
             return Ok(());
         }
         Operation::Crop {

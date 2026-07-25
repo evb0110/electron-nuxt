@@ -147,25 +147,24 @@ fn has_valid_oc_properties(document: &Document, catalog_id: ObjectId) -> bool {
     })
 }
 
-fn drop_invalid_oc_properties(document: &mut Document, catalog_id: ObjectId) -> Result<bool> {
+fn drop_invalid_oc_properties(document: &mut Document, catalog_id: ObjectId) -> Result<()> {
     if has_valid_oc_properties(document, catalog_id) {
-        return Ok(false);
+        return Ok(());
     }
     document
         .get_dictionary_mut(catalog_id)?
         .remove(b"OCProperties");
-    Ok(true)
+    Ok(())
 }
 
 pub(crate) fn split_pages(
-    source: &Document,
+    mut document: Document,
     instructions: &SplitPagesFile,
     output_path: &Path,
 ) -> Result<()> {
-    let source_pages = source.get_pages();
-    let mut output = source.clone();
-    let pages_id = output.new_object_id();
-    let mut output_page_ids = Vec::new();
+    let source_pages = document.get_pages();
+    let pages_id = document.new_object_id();
+    let mut materialized_pages = Vec::new();
 
     for instruction in &instructions.pages {
         if !(0..=3).contains(&instruction.rotation_quarter_turns) {
@@ -177,10 +176,10 @@ pub(crate) fn split_pages(
         let page_number = u32::try_from(instruction.source_page_index + 1)
             .map_err(|_| "split-pages sourcePageIndex is too large")?;
         let source_page_id = resolve_page_id(&source_pages, page_number)?;
-        let source_rotation = resolve_page_rotation(source, source_page_id)?;
+        let source_rotation = resolve_page_rotation(&document, source_page_id)?;
         for output_instruction in &instruction.outputs {
             let crop = validate_crop_rect(output_instruction.crop_rect)?;
-            let mut page = materialized_page_dictionary(source, source_page_id)?;
+            let mut page = materialized_page_dictionary(&document, source_page_id)?;
             set_page_box(&mut page, "MediaBox", crop);
             set_page_box(&mut page, "CropBox", crop);
             page.remove(b"BleedBox");
@@ -191,16 +190,20 @@ pub(crate) fn split_pages(
                 normalize_page_rotation(source_rotation + instruction.rotation_quarter_turns * 90),
             );
             page.set("Parent", pages_id);
-            output_page_ids.push(output.add_object(page));
+            materialized_pages.push(page);
         }
     }
 
+    let output_page_ids = materialized_pages
+        .into_iter()
+        .map(|page| document.add_object(page))
+        .collect::<Vec<_>>();
     let kids = output_page_ids
         .iter()
         .copied()
         .map(Object::Reference)
         .collect::<Vec<_>>();
-    output.objects.insert(
+    document.objects.insert(
         pages_id,
         dictionary! {
             "Type" => "Pages",
@@ -209,14 +212,12 @@ pub(crate) fn split_pages(
         }
         .into(),
     );
-    let catalog_id = output.trailer.get(b"Root")?.as_reference()?;
-    output
+    let catalog_id = document.trailer.get(b"Root")?.as_reference()?;
+    document
         .get_dictionary_mut(catalog_id)?
         .set("Pages", pages_id);
-    output.prune_objects();
-    if drop_invalid_oc_properties(&mut output, catalog_id)? {
-        output.prune_objects();
-    }
-    output.save(output_path)?;
+    drop_invalid_oc_properties(&mut document, catalog_id)?;
+    document.prune_objects();
+    document.save(output_path)?;
     Ok(())
 }
