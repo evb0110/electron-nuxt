@@ -5,8 +5,10 @@ import {
     vi,
 } from 'vitest';
 import type { IAnnotationCommentSummary } from '@app/types/annotations';
-import { useAnnotationMutationService } from '@app/modules/pdf-viewer/runtime/annotations/useAnnotationMutationService';
-import type { IUseAnnotationMutationServiceOptions } from '@app/modules/pdf-viewer/runtime/annotations/annotationMutationService.types';
+import {
+    useAnnotationMutationService,
+    type IUseAnnotationMutationServiceOptions,
+} from '@app/modules/pdf-viewer/runtime/annotations/useAnnotationMutationService';
 import { asAnnotationId } from '@app/modules/pdf-viewer/annotations/domain/annotationEntity';
 
 function createComment(): IAnnotationCommentSummary {
