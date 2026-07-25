@@ -9,6 +9,7 @@ import { ref } from 'vue';
 import type { IPageGeometry } from '@contracts/shared';
 import type { IPdfViewerExpose } from '@app/modules/workspace-shell/types/workspaceOrchestration.types';
 import type { ICropSelectionResult } from '@app/types/crop';
+import {TEST_PDF_SAVE_BYTE_ROUTE_DECISION} from '@tests/unit/app/modules/pdf-viewer/runtime/save/testPdfSaveByteRouteDecision';
 
 type TCreateTextMarkupOptions = Parameters<IPdfViewerExpose['createTextMarkupFromText']>[0];
 type TCreatePointNoteOptions = Parameters<IPdfViewerExpose['createPointNoteAnnotation']>[0];
@@ -44,6 +45,7 @@ function createPdfViewerExpose(overrides: Partial<IPdfViewerExpose> = {}): IPdfV
             serializedBytes: null,
             serializedResult: null,
             nativeMutationProjection: null,
+            fallbackDecision: TEST_PDF_SAVE_BYTE_ROUTE_DECISION,
             annotationSavePlan: {
                 route: 'source-clean' as const,
                 expectedCost: 'small' as const,

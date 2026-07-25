@@ -8,19 +8,16 @@ import type {
 } from '@app/types/annotations';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { normalizePdfJsAnnotationId } from '@app/utils/pdfAnnotationRefs';
-import { projectNativePdfMutationsForSave } from '@app/modules/pdf-viewer/runtime/save/projectNativePdfMutationsForSave';
 import type { IMarkupSubtypeHint } from '@app/modules/pdf-viewer/engine/pdf-serialization-subtype-hints/pdfSerializationSubtypeHintsTypes';
 import {
     collectNewPdfJsAnnotationStorageEditorOrder,
     collectLivePdfJsAnnotationChangeIds,
     mergeLivePdfJsAnnotationChanges,
 } from '@app/modules/pdf-viewer/runtime/save/pdfAnnotationStorageChanges';
-import type {
-    IPdfSaveByteRouteDecision,
-    TPdfSaveRouteDecision,
-} from '@app/modules/pdf-viewer/runtime/save/classifyPdfSaveRoute';
+import type {TPdfSaveRouteDecision} from '@app/modules/pdf-viewer/runtime/save/classifyPdfSaveRoute';
 import { classifyPdfSaveRoute } from '@app/modules/pdf-viewer/runtime/save/classifyPdfSaveRoute';
 import type {
+    IPdfSaveByteRouteDecision,
     IPdfViewerSaveTransactionRequest,
     IPdfViewerSaveTransactionResult,
     IPdfViewerSaveTransactionSerializedResult,
@@ -391,7 +388,7 @@ export const usePdfViewerSaveTransaction = (
             },
         };
         // Routing is decided exactly once, here; every projector below consumes the result.
-        const decision = classifyPdfSaveRoute(globalSerializationPlan, {
+        const decision: TPdfSaveRouteDecision = request.routeDecision ?? classifyPdfSaveRoute(globalSerializationPlan, {
             saveFlowMode: request.saveFlowMode ?? 'save',
             availableBackends: AVAILABLE_SERIALIZATION_BACKENDS,
             nativeCapabilities: request.nativeCapabilities,
@@ -421,7 +418,29 @@ export const usePdfViewerSaveTransaction = (
         const annotationSavePlan = decision.annotationPlan;
         logSaveRouteDecision(request, decision);
         if (decision.route === 'native-append') {
-            const nativeMutationProjection = projectNativePdfMutationsForSave(decision);
+            const nativeMutationProjection = decision.nativeMutationProjection;
+            if (decision.replayableAnnotationMutationsAllowed && decision.annotationRoute.route !== 'source-replay') {
+                throw new Error(`Native annotation replay was granted on the ${decision.annotationRoute.route} route`);
+            }
+            if (Object.keys(nativeMutationProjection.mutations).length === 0) {
+                throw new Error('Native append was granted without a mutation program');
+            }
+            if (
+                !decision.replayableAnnotationMutationsAllowed
+                && (
+                    nativeMutationProjection.noteTextUpdates.length > 0
+                    || nativeMutationProjection.freeTextNotes.length > 0
+                    || nativeMutationProjection.annotationDeletes.length > 0
+                )
+            ) {
+                throw new Error('Native annotation mutations were projected without a source-replay grant');
+            }
+            if (
+                !decision.metadataMutationsAllowed
+                && (nativeMutationProjection.hasMetadataMutations || nativeMutationProjection.hasShapeMutations)
+            ) {
+                throw new Error('Structured native mutations were projected without capability');
+            }
             nativeVerificationOptions = {preexistingPdfAnnotationRefs: await collectPreexistingPdfAnnotationRefs(
                 options.getPdfDocument?.(),
                 globalSerializationPlan,
@@ -432,6 +451,7 @@ export const usePdfViewerSaveTransaction = (
                 serializedBytes: null,
                 serializedResult: null,
                 nativeMutationProjection,
+                fallbackDecision: decision.fallback,
                 annotationSavePlan,
                 ...canonicalSaveCallbacks,
             };
@@ -445,6 +465,7 @@ export const usePdfViewerSaveTransaction = (
                 serializedBytes: null,
                 serializedResult: null,
                 nativeMutationProjection: null,
+                fallbackDecision: byteRoute,
                 annotationSavePlan,
                 ...canonicalSaveCallbacks,
             };
@@ -474,6 +495,7 @@ export const usePdfViewerSaveTransaction = (
             serializedBytes: serializedResult ? null : serializedBytes,
             serializedResult,
             nativeMutationProjection: null,
+            fallbackDecision: byteRoute,
             annotationSavePlan,
             ...canonicalSaveCallbacks,
         };

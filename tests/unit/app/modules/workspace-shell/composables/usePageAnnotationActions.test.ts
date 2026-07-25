@@ -24,6 +24,7 @@ import type { TDocumentOperationKind } from '@app/types/documentOperationKind';
 import { usePageAnnotationActions } from '@app/modules/workspace-shell/composables/usePageAnnotationActions';
 import { createElectronPlatformApiFixture } from '@tests/helpers/createElectronPlatformApiFixture';
 import { createTestDomRect } from '@tests/helpers/domGeometryTestHarness';
+import {TEST_PDF_SAVE_BYTE_ROUTE_DECISION} from '@tests/unit/app/modules/pdf-viewer/runtime/save/testPdfSaveByteRouteDecision';
 
 const { resolveAnnotationCommentTextMarkupColor } = vi.hoisted(() => ({resolveAnnotationCommentTextMarkupColor: vi.fn(() => null as string | null)}));
 
@@ -186,6 +187,7 @@ function createHarness() {
             serializedBytes: Uint8Array.of(9, 9),
             serializedResult: null,
             nativeMutationProjection: null,
+            fallbackDecision: TEST_PDF_SAVE_BYTE_ROUTE_DECISION,
             annotationSavePlan: {
                 route: 'source-clean' as const,
                 expectedCost: 'small' as const,

@@ -12,6 +12,7 @@ import type { PDFDocumentProxy } from 'pdfjs-dist';
 import { createSerializeCurrentPdfForEmbeddedFallback } from '@app/modules/workspace-shell/annotations/createSerializeCurrentPdfForEmbeddedFallback';
 import { hasAnnotationChanges } from '@app/modules/workspace-shell/annotations/hasAnnotationChanges';
 import { hasViewerShapeChanges } from '@app/modules/workspace-shell/annotations/hasViewerShapeChanges';
+import {TEST_PDF_SAVE_BYTE_ROUTE_DECISION} from '@tests/unit/app/modules/pdf-viewer/runtime/save/testPdfSaveByteRouteDecision';
 
 function createSaveTransaction(bytes: Uint8Array | null) {
     return vi.fn(async () => ({
@@ -20,6 +21,7 @@ function createSaveTransaction(bytes: Uint8Array | null) {
         serializedBytes: bytes,
         serializedResult: null,
         nativeMutationProjection: null,
+        fallbackDecision: TEST_PDF_SAVE_BYTE_ROUTE_DECISION,
         annotationSavePlan: {
             route: 'source-clean' as const,
             expectedCost: 'small' as const,

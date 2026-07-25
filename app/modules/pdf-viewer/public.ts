@@ -19,7 +19,7 @@ export { usePdfHistory } from '@app/modules/pdf-viewer/runtime/composables/usePd
 export { usePdfSearch } from '@app/modules/pdf-viewer/runtime/composables/usePdfSearch';
 export { usePdfSerialization } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfSerialization';
 export type { IScrollToPageOptions } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfScroll';
-export type { INativePdfMutationProjection } from '@app/modules/pdf-viewer/runtime/save/projectNativePdfMutationsForSave';
+export type { INativePdfMutationProjection } from '@app/modules/pdf-viewer/runtime/save/pdfViewerSaveTransaction.types';
 export {
     collectLivePdfJsAnnotationChangeFingerprint,
     collectLivePdfJsAnnotationChangeIds,
@@ -29,6 +29,7 @@ export {annotationIdForSummary} from '@app/modules/pdf-viewer/annotations/domain
 export {asAnnotationId} from '@app/modules/pdf-viewer/annotations/domain/annotationEntity';
 export type {AnnotationId} from '@app/modules/pdf-viewer/annotations/domain/annotationEntity';
 export type {
+    IPdfSaveByteRouteDecision,
     IPdfViewerSaveTransactionRequest,
     IPdfViewerSaveTransactionResult,
 } from '@app/modules/pdf-viewer/runtime/save/pdfViewerSaveTransaction.types';

@@ -1,4 +1,7 @@
-import type {TMarkupSubtype} from '@app/types/annotations';
+import type {
+    IAnnotationCommentSummary,
+    TMarkupSubtype,
+} from '@app/types/annotations';
 import type {
     IPdfBookmarkEntry,
     IPdfPageLabelRange,
@@ -13,6 +16,7 @@ import type {
     IPdfNativeMutationSet,
     IPdfNoteTextUpdate,
 } from '@contracts/electronApiDocuments';
+import type {IPdfLiveAnnotationChangeSummary} from '@app/modules/pdf-viewer/runtime/save/pdfAnnotationStorageChanges';
 
 export type TPdfViewerSaveTransactionMode =
     | 'persist'
@@ -49,6 +53,42 @@ export interface IPdfViewerAnnotationSavePlan {
     expectedCost: 'small' | 'full-document';
     reason: TPdfViewerAnnotationSaveReason;
     unreplayableLiveAnnotationIds: string[];
+}
+
+export interface IPdfSaveCanonicalInputs {
+    readonly comments: IAnnotationCommentSummary[];
+    readonly pendingTexts: Map<string, string>;
+    readonly pendingDeletes: IAnnotationCommentSummary[];
+    readonly liveAnnotationChanges: IPdfLiveAnnotationChangeSummary;
+    readonly replayableEmbeddedAnnotationIds: ReadonlySet<string>;
+}
+
+export type TNativeSaveRouteRejection =
+    | 'backend-not-native-append'
+    | 'save-descriptors-unavailable'
+    | 'not-save-mode'
+    | 'native-save-capability-unavailable'
+    | 'managed-shapes-require-materialization'
+    | 'saved-pdfjs-baseline-dirty-requires-materialization'
+    | 'pdfjs-materialize-required'
+    | 'pending-texts-not-covered-by-native-mutations'
+    | 'pending-deletes-not-covered-by-native-mutations'
+    | 'live-pdfjs-annotation-work-not-covered-by-native-mutations'
+    | 'annotation-work-not-covered-by-native-mutations'
+    | 'shape-payload-unavailable'
+    | 'metadata-payload-unavailable'
+    | 'native-structured-save-capability-unavailable'
+    | 'native-write-failed'
+    | 'no-native-mutations-projected';
+
+export interface IPdfSaveByteRouteDecision {
+    readonly route: TPdfViewerAnnotationSaveRoute;
+    readonly annotationPlan: IPdfViewerAnnotationSavePlan;
+    readonly canonical: IPdfSaveCanonicalInputs;
+    readonly baseBytes: 'loaded-source' | 'pdfjs-materialize';
+    /** Precondition: source bytes may only replace a failed materialization on the source-replay route. */
+    readonly sourceFallbackAllowed: boolean;
+    readonly nativeRejection: TNativeSaveRouteRejection;
 }
 
 export interface IPdfViewerSaveTransactionNativeCapabilities {
@@ -117,6 +157,8 @@ export interface IPdfViewerSaveTransactionRequest {
     dirtyState?: IPdfViewerSaveTransactionDirtyState;
     documentStructure?: IPdfViewerSaveTransactionDocumentStructure;
     source?: IPdfViewerSaveTransactionSource;
+    /** Executes an already-classified byte route without selecting another route. */
+    routeDecision?: IPdfSaveByteRouteDecision;
 }
 
 export interface IPdfViewerSaveTransactionSerializedResult {
@@ -132,6 +174,8 @@ export interface IPdfViewerSaveTransactionResult {
     serializedBytes: Uint8Array | null;
     serializedResult: IPdfViewerSaveTransactionSerializedResult | null;
     nativeMutationProjection: INativePdfMutationProjection | null;
+    /** Exact classifier-owned alternate; consumers must not independently plan another route. */
+    fallbackDecision: IPdfSaveByteRouteDecision;
     annotationSavePlan: IPdfViewerAnnotationSavePlan;
     verifyAnnotationSave?(bytes: Uint8Array): Promise<void>;
     verifyAnnotationSavePath?(path: string, knownSize: number): Promise<void>;

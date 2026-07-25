@@ -10,10 +10,10 @@ import {
 } from '@app/modules/pdf-viewer/runtime/save/classifyPdfSaveRoute';
 import type { IPdfLiveAnnotationChangeSummary } from '@app/modules/pdf-viewer/runtime/save/pdfAnnotationStorageChanges';
 import type { AnnotationEntity } from '@app/modules/pdf-viewer/annotations/domain/annotationEntity';
+import type {IShapeAnnotation} from '@app/types/annotations';
 import { asAnnotationId } from '@app/modules/pdf-viewer/annotations/domain/annotationEntity';
 import type { ISerializationPlanInputs } from '@app/modules/pdf-viewer/serialization/serializationPlan';
 import { buildSerializationPlan } from '@app/modules/pdf-viewer/serialization/serializationPlan';
-import {projectNativePdfMutationsForSave} from '@app/modules/pdf-viewer/runtime/save/projectNativePdfMutationsForSave';
 import { requireDocumentRevisionToken } from '@contracts';
 
 const MARKER_RECT = {
@@ -90,6 +90,37 @@ function deletedMarkup(id: string, pdfRef: string): AnnotationEntity {
             pdfRef,
         },
         deleted: true,
+    };
+}
+
+function embeddedMarkup(id: string, pdfRef: string): AnnotationEntity {
+    return {
+        ...editorMarkup(id),
+        identity: {
+            id: asAnnotationId(id),
+            pdfRef,
+        },
+        persistedRevision: 0,
+    };
+}
+
+function nativeShape(): IShapeAnnotation {
+    return {
+        id: 'shape-1',
+        type: 'rectangle',
+        pageIndex: 0,
+        x: 0.1,
+        y: 0.2,
+        width: 0.3,
+        height: 0.4,
+        color: '#00aaff',
+        opacity: 0.75,
+        strokeWidth: 2,
+        annotationId: '22R0',
+        stableKey: 'ann:0:22R0',
+        pdfSubtype: 'Square',
+        createdAt: 1_781_000_000_000,
+        modifiedAt: 1_781_000_000_100,
     };
 }
 
@@ -283,6 +314,72 @@ describe('classifyPdfSaveRoute annotation routes', () => {
 });
 
 describe('classifyPdfSaveRoute native-append grant', () => {
+    it('classifies one combined notes, metadata, shapes, and markup payload', () => {
+        const deleted = deletedMarkup('anno_deleted', '20R');
+        const decision = classifyPdfSaveRoute(
+            planOf(
+                [deleted],
+                [
+                    editorNote('anno_editor_note'),
+                    embeddedMarkup('anno_markup', '44R'),
+                    deleted,
+                ],
+            ),
+            capabilities({
+                dirtyState: {
+                    annotationDirty: true,
+                    hasAnnotationChanges: true,
+                    hasLivePdfJsAnnotationChanges: false,
+                    savedPdfjsAnnotationBaselineDirty: false,
+                    shapeStateDirty: true,
+                },
+                documentStructure: {
+                    pageLabelsDirty: true,
+                    pageLabelRanges: [{
+                        startPage: 1,
+                        style: 'D',
+                        prefix: 'A-',
+                        startNumber: 1,
+                    }],
+                    bookmarksDirty: true,
+                    bookmarkItems: [{
+                        title: 'Chapter',
+                        pageIndex: 0,
+                        namedDest: null,
+                        bold: false,
+                        italic: false,
+                        color: null,
+                        items: [],
+                    }],
+                    untitledBookmarkLabel: 'Untitled',
+                    totalPages: 4,
+                },
+                shapes: [nativeShape()],
+                markupSubtypeOverrides: new Map([[
+                    '44R',
+                    'Underline',
+                ]]),
+            }),
+        );
+
+        expect(decision.route).toBe('native-append');
+        if (decision.route !== 'native-append') throw new Error('expected the native route');
+        expect(decision.nativeMutationProjection.mutations).toMatchObject({
+            freeTextNotes: [expect.objectContaining({stableKey: 'src:editor:0:pdfjs_internal_editor_0'})],
+            deletes: [expect.objectContaining({
+                objectNumber: 20,
+                generationNumber: 0,
+            })],
+            pageLabels: {ranges: [expect.objectContaining({prefix: 'A-'})]},
+            bookmarks: {items: [expect.objectContaining({title: 'Chapter'})]},
+            shapes: {shapes: [expect.objectContaining({id: 'shape-1'})]},
+            markup: {overrides: [[
+                '44R',
+                'Underline',
+            ]]},
+        });
+    });
+
     it('classifies an unprojectable PDF-backed FreeText edit before granting a route', () => {
         const decision = classifyPdfSaveRoute(
             planOf([embeddedNote('anno_note', '12R')]),
@@ -586,7 +683,7 @@ describe('classifyPdfSaveRoute route properties', () => {
                 return;
             }
             expect(decision.fallback.nativeRejection).toBe('native-write-failed');
-            expect(projectNativePdfMutationsForSave(decision)).toBe(decision.nativeMutationProjection);
+            expect(Object.keys(decision.nativeMutationProjection.mutations).length).toBeGreaterThan(0);
         }), {numRuns: 400});
     });
 });

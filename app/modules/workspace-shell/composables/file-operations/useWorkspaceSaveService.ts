@@ -27,6 +27,7 @@ import {
     isStaleRevisionError,
 } from '@contracts/documentMutationErrors';
 import type {
+    IPdfSaveByteRouteDecision,
     IPdfViewerSaveExpose,
     INativePdfMutationProjection,
 } from '@app/modules/pdf-viewer/public';
@@ -445,6 +446,7 @@ function buildSaveTransactionRequest(
     options: {
         allowNativeMutationPlan: boolean;
         planOnly?: boolean;
+        routeDecision?: IPdfSaveByteRouteDecision;
     },
 ) {
     return {
@@ -457,6 +459,7 @@ function buildSaveTransactionRequest(
         rewriteShapeState: plan.baseline.shapes,
         forceRewrite: body.forceRewrite,
         ...(options.planOnly !== undefined ? {planOnly: options.planOnly} : {}),
+        ...(options.routeDecision ? {routeDecision: options.routeDecision} : {}),
         dirtyState: {
             annotationDirty: plan.dirtyState.annotationDirty,
             hasAnnotationChanges: plan.dirtyState.annotationChanges,
@@ -534,10 +537,14 @@ async function executeSerializedBytesSave(
     body: IWorkspaceSerializedSaveBody,
     deps: IWorkspaceSaveDependencies,
     reloadWaiter: IPostSaveReloadWaiter | null,
+    routeDecision?: IPdfSaveByteRouteDecision,
 ): Promise<TWorkspaceSaveExecutionResult> {
     await assertRendererSerializedSaveAllowed(plan, body, deps);
     const saveTransaction = await deps.pdf.runSaveTransaction(
-        buildSaveTransactionRequest(plan, deps, body, {allowNativeMutationPlan: false}),
+        buildSaveTransactionRequest(plan, deps, body, {
+            allowNativeMutationPlan: false,
+            ...(routeDecision ? {routeDecision} : {}),
+        }),
     );
     const finalBytes = saveTransaction.serializedResult?.finalBytes
         ?? saveTransaction.serializedBytes
@@ -697,6 +704,7 @@ async function executeNativeMutationSave(
             plan.serializedFallback,
             deps,
             getReloadWaiter(),
+            saveTransaction.fallbackDecision,
         );
     }
 
@@ -713,6 +721,7 @@ async function executeNativeMutationSave(
             plan.serializedFallback,
             deps,
             getReloadWaiter(),
+            saveTransaction.fallbackDecision,
         );
     }
     if (!persisted.success) {

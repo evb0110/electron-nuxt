@@ -11,6 +11,7 @@ import type { TDocumentOpenOutcome } from '@app/types/documentOpenOutcome';
 import { useWorkspaceSplitPayload } from '@app/modules/workspace-shell/composables/useWorkspaceSplitPayload';
 import { IPC_DIRECT_BINARY_PAYLOAD_MAX_BYTES } from '@contracts/electronApiDocuments';
 import { requireDocumentRevisionToken } from '@contracts/documentRevision';
+import {TEST_PDF_SAVE_BYTE_ROUTE_DECISION} from '@tests/unit/app/modules/pdf-viewer/runtime/save/testPdfSaveByteRouteDecision';
 
 const mocks = vi.hoisted(() => ({
     createWorkingCopyFromPath: vi.fn(),
@@ -211,6 +212,7 @@ describe('useWorkspaceSplitPayload', () => {
                 serializedBytes,
                 serializedResult: null,
                 nativeMutationProjection: null,
+                fallbackDecision: TEST_PDF_SAVE_BYTE_ROUTE_DECISION,
                 annotationSavePlan: {
                     route: 'pdfjs-materialize' as const,
                     expectedCost: 'full-document' as const,

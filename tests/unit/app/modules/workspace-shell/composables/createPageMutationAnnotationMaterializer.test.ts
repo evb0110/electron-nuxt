@@ -6,6 +6,7 @@ import {
 } from 'vitest';
 import {ref} from 'vue';
 import {createPageMutationAnnotationMaterializer} from '@app/modules/workspace-shell/composables/createPageMutationAnnotationMaterializer';
+import {TEST_PDF_SAVE_BYTE_ROUTE_DECISION} from '@tests/unit/app/modules/pdf-viewer/runtime/save/testPdfSaveByteRouteDecision';
 
 describe('createPageMutationAnnotationMaterializer', () => {
     it('commits the captured annotation frontier while conserving sidebar and annotation selection state', async () => {
@@ -23,6 +24,7 @@ describe('createPageMutationAnnotationMaterializer', () => {
             serializedBytes: null,
             serializedResult: null,
             nativeMutationProjection: null,
+            fallbackDecision: TEST_PDF_SAVE_BYTE_ROUTE_DECISION,
             annotationSavePlan: {
                 route: 'pdfjs-materialize' as const,
                 expectedCost: 'full-document' as const,

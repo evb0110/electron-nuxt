@@ -24,9 +24,6 @@ import {
     buildNativeMarkupMutationForSave,
     toNativeMarkupHint,
 } from '@app/modules/pdf-viewer/runtime/save/nativeMarkupMutations';
-import { projectNativePdfMutationsForSave } from '@app/modules/pdf-viewer/runtime/save/projectNativePdfMutationsForSave';
-import type {INativeAppendSaveRoute} from '@app/modules/pdf-viewer/runtime/save/nativePdfMutationProjectionTypes';
-import type {INativePdfMutationProjection} from '@app/modules/pdf-viewer/runtime/save/pdfViewerSaveTransaction.types';
 
 function createComment(overrides: Partial<IAnnotationCommentSummary> = {}): IAnnotationCommentSummary {
     return {
@@ -92,41 +89,6 @@ function createShape(overrides: Partial<IShapeAnnotation> = {}): IShapeAnnotatio
         pdfSubtype: 'Square',
         createdAt: 1781009077123,
         modifiedAt: 1781009077999,
-        ...overrides,
-    };
-}
-
-function createNativeAppendRoute(overrides: Partial<INativeAppendSaveRoute> = {}): INativeAppendSaveRoute {
-    const nativeMutationProjection: INativePdfMutationProjection = {
-        canonicalAnnotationProgram: [],
-        mutations: {updates: [{
-            objectNumber: 12,
-            generationNumber: 0,
-            text: 'Updated note',
-        }]},
-        noteTextUpdates: [{
-            objectNumber: 12,
-            generationNumber: 0,
-            text: 'Updated note',
-        }],
-        freeTextNotes: [],
-        annotationDeletes: [],
-        hasMetadataMutations: false,
-        hasShapeMutations: false,
-        hasMarkupMutations: false,
-        phase: 'persist-native-note-text-updates',
-    };
-    return {
-        route: 'native-append',
-        annotationRoute: {
-            route: 'source-replay',
-            reason: 'test-source-replay',
-        },
-        replayableAnnotationMutationsAllowed: true,
-        metadataMutationsAllowed: true,
-        annotationWorkDirty: false,
-        pdfjsMaterializeForced: false,
-        nativeMutationProjection,
         ...overrides,
     };
 }
@@ -406,58 +368,5 @@ describe('native markup builders', () => {
         });
 
         expect(mutation).toBeNull();
-    });
-});
-
-describe('native PDF mutation projection', () => {
-    it('returns the exact immutable program admitted by the classifier', () => {
-        const route = createNativeAppendRoute();
-
-        expect(projectNativePdfMutationsForSave(route)).toBe(route.nativeMutationProjection);
-    });
-
-    it('asserts an impossible replay grant instead of selecting another route', () => {
-        const route = createNativeAppendRoute({annotationRoute: {
-            route: 'pdfjs-materialize',
-            reason: 'test-invalid-route',
-        }});
-
-        expect(() => projectNativePdfMutationsForSave(route)).toThrow(
-            'Native annotation replay was granted on the pdfjs-materialize route',
-        );
-    });
-
-    it('asserts an empty native program instead of returning a fallback', () => {
-        const route = createNativeAppendRoute({nativeMutationProjection: {
-            ...createNativeAppendRoute().nativeMutationProjection,
-            mutations: {},
-            noteTextUpdates: [],
-        }});
-
-        expect(() => projectNativePdfMutationsForSave(route)).toThrow(
-            'Native append was granted without a mutation program',
-        );
-    });
-
-    it('asserts annotation mutations without a replay grant', () => {
-        const route = createNativeAppendRoute({replayableAnnotationMutationsAllowed: false});
-
-        expect(() => projectNativePdfMutationsForSave(route)).toThrow(
-            'Native annotation mutations were projected without a source-replay grant',
-        );
-    });
-
-    it('asserts structured mutations without capability', () => {
-        const route = createNativeAppendRoute({
-            metadataMutationsAllowed: false,
-            nativeMutationProjection: {
-                ...createNativeAppendRoute().nativeMutationProjection,
-                hasMetadataMutations: true,
-            },
-        });
-
-        expect(() => projectNativePdfMutationsForSave(route)).toThrow(
-            'Structured native mutations were projected without capability',
-        );
     });
 });

@@ -924,6 +924,53 @@ describe('workspaceSaveService', () => {
         expect(deps.markBookmarksSaved).toHaveBeenCalledOnce();
     });
 
+    it('executes the classifier-owned fallback without planning another route after native persistence declines', async () => {
+        const trySavePdfNativeMutations = vi.fn(async () => null);
+        const {
+            deps,
+            saveFile,
+        } = createDeps({
+            totalPages: ref(3),
+            pageLabelsDirty: ref(true),
+            pageLabelRanges: ref([{
+                startPage: 1,
+                style: 'D',
+                prefix: '',
+                startNumber: 1,
+            }]),
+            trySavePdfNativeMutations,
+        });
+        const classifyAndExecute = deps.runSaveTransaction;
+        let classifiedFallback: Awaited<ReturnType<typeof classifyAndExecute>>['fallbackDecision'] | null = null;
+        const observeRouteDecision: typeof deps.runSaveTransaction = async (request) => {
+            const result = await classifyAndExecute(request);
+            if (request.routeDecision) {
+                expect(request.routeDecision).toBe(classifiedFallback);
+            } else {
+                classifiedFallback = result.fallbackDecision;
+            }
+            return result;
+        };
+        deps.runSaveTransaction = vi.fn(observeRouteDecision);
+        const {handleSave} = useWorkspaceSaveServiceForTest(deps);
+
+        await expect(handleSave()).resolves.toBe(true);
+
+        expect(trySavePdfNativeMutations).toHaveBeenCalledOnce();
+        expect(deps.runSaveTransaction).toHaveBeenCalledTimes(2);
+        expect(deps.runSaveTransaction).toHaveBeenNthCalledWith(
+            2,
+            expect.objectContaining({routeDecision: classifiedFallback}),
+        );
+        expect(classifiedFallback).toMatchObject({
+            route: 'source-clean',
+            nativeRejection: 'native-write-failed',
+        });
+        expect(deps.saveDocument).not.toHaveBeenCalled();
+        expect(deps.getSourcePdfData).toHaveBeenCalledOnce();
+        expect(saveFile).toHaveBeenCalledOnce();
+    });
+
     it('refreshes page-label and bookmark baselines when a native metadata save changes tokens', async () => {
         let pageLabelsToken = 'labels-before';
         let bookmarksToken = 'bookmarks-before';

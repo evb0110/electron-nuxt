@@ -29,12 +29,14 @@ import type {
     TNativePdfMutationSaveMode,
 } from '@app/modules/pdf-viewer/runtime/save/nativePdfMutationProjectionTypes';
 import type {
+    IPdfSaveByteRouteDecision,
+    IPdfSaveCanonicalInputs,
     IPdfViewerAnnotationSavePlan,
     INativePdfMutationProjection,
     IPdfViewerSaveTransactionDirtyState,
     IPdfViewerSaveTransactionDocumentStructure,
     IPdfViewerSaveTransactionNativeCapabilities,
-    TPdfViewerAnnotationSaveRoute,
+    TNativeSaveRouteRejection,
 } from '@app/modules/pdf-viewer/runtime/save/pdfViewerSaveTransaction.types';
 import { buildNativeAnnotationDeletesForSave } from '@app/modules/pdf-viewer/runtime/save/buildNativeAnnotationDeletesForSave';
 import {
@@ -51,6 +53,12 @@ import {
     buildNativeNoteTextUpdatesForSave,
 } from '@app/modules/pdf-viewer/runtime/save/nativeNoteTextUpdates';
 import {buildNativeShapesMutationForSave} from '@app/modules/pdf-viewer/runtime/save/nativeShapeMutations';
+
+export type {
+    IPdfSaveByteRouteDecision,
+    IPdfSaveCanonicalInputs,
+    TNativeSaveRouteRejection,
+} from '@app/modules/pdf-viewer/runtime/save/pdfViewerSaveTransaction.types';
 
 /** Everything outside the frozen plan that save routing is allowed to depend on. */
 export interface IPdfSaveRouteCapabilities {
@@ -69,43 +77,6 @@ export interface IPdfSaveRouteCapabilities {
     readonly deletedEmbeddedShapeStableKeys: string[];
     readonly markupSubtypeOverrides: Map<string, TMarkupSubtype> | undefined;
     readonly markupSubtypeHints: IMarkupSubtypeHint[];
-}
-
-/** Annotation work every backend projector consumes, derived once from the frozen plan. */
-export interface IPdfSaveCanonicalInputs {
-    readonly comments: IAnnotationCommentSummary[];
-    readonly pendingTexts: Map<string, string>;
-    readonly pendingDeletes: IAnnotationCommentSummary[];
-    readonly liveAnnotationChanges: IPdfLiveAnnotationChangeSummary;
-    readonly replayableEmbeddedAnnotationIds: ReadonlySet<string>;
-}
-
-export type TNativeSaveRouteRejection =
-    | 'backend-not-native-append'
-    | 'save-descriptors-unavailable'
-    | 'not-save-mode'
-    | 'native-save-capability-unavailable'
-    | 'managed-shapes-require-materialization'
-    | 'saved-pdfjs-baseline-dirty-requires-materialization'
-    | 'pdfjs-materialize-required'
-    | 'pending-texts-not-covered-by-native-mutations'
-    | 'pending-deletes-not-covered-by-native-mutations'
-    | 'live-pdfjs-annotation-work-not-covered-by-native-mutations'
-    | 'annotation-work-not-covered-by-native-mutations'
-    | 'shape-payload-unavailable'
-    | 'metadata-payload-unavailable'
-    | 'native-structured-save-capability-unavailable'
-    | 'native-write-failed'
-    | 'no-native-mutations-projected';
-
-export interface IPdfSaveByteRouteDecision {
-    readonly route: TPdfViewerAnnotationSaveRoute;
-    readonly annotationPlan: IPdfViewerAnnotationSavePlan;
-    readonly canonical: IPdfSaveCanonicalInputs;
-    readonly baseBytes: 'loaded-source' | 'pdfjs-materialize';
-    /** Precondition: source bytes may only replace a failed materialization on the source-replay route. */
-    readonly sourceFallbackAllowed: boolean;
-    readonly nativeRejection: TNativeSaveRouteRejection;
 }
 
 export interface IPdfSaveNativeRouteDecision extends INativeAppendSaveRoute {
