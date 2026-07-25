@@ -10,6 +10,7 @@ import {
     toBrowserOwnedArrayBuffer,
 } from '@app/platform/browser-api/browserPlatformHelpers';
 import { yieldToBrowser } from '@app/platform/browser-api/browserYield';
+import { resolveBrowserFileAccess } from '@app/platform/browser-api/browserFileAccessTier';
 import {
     safeGetSessionStorageItem,
     safeSetSessionStorageItem,
@@ -35,34 +36,9 @@ type TPermissionCapableFileHandle = FileSystemFileHandle & {
     queryPermission?: (descriptor?: { mode?: TFileSystemPermissionMode }) => Promise<TFileSystemPermissionState>;
     requestPermission?: (descriptor?: { mode?: TFileSystemPermissionMode }) => Promise<TFileSystemPermissionState>;
 };
-interface IWindowWithBrowserFilePickers extends Window {
-    showOpenFilePicker?: (
-        options?: {
-            multiple?: boolean;
-            excludeAcceptAllOption?: boolean;
-            types?: IFilePickerAcceptType[];
-        },
-    ) => Promise<FileSystemFileHandle[]>;
-    showSaveFilePicker?: (
-        options?: {
-            suggestedName?: string;
-            excludeAcceptAllOption?: boolean;
-            types?: IFilePickerAcceptType[];
-        },
-    ) => Promise<FileSystemFileHandle>;
-}
-
 let browserLargeSaveHandleHintProvider = () => (
     'Use a browser with local file system access enabled to save large documents.'
 );
-
-function getWindowWithPickers() {
-    if (typeof window === 'undefined') {
-        return null;
-    }
-
-    return window as IWindowWithBrowserFilePickers;
-}
 
 export function configureBrowserFilePickerMessages(options: { largeSaveHandleHint?: () => string; }) {
     browserLargeSaveHandleHintProvider = options.largeSaveHandleHint ?? browserLargeSaveHandleHintProvider;
@@ -148,11 +124,8 @@ async function ensureFileHandleWritePermission(handle: FileSystemFileHandle) {
     }
 }
 
-function shouldUseFileSystemAccessOpenPicker(
-    preferFileSystemAccess: boolean,
-    hasOpenPicker: boolean,
-) {
-    if (!preferFileSystemAccess || !hasOpenPicker) {
+function shouldUseFileSystemAccessOpenPicker(preferFileSystemAccess: boolean) {
+    if (!preferFileSystemAccess) {
         return false;
     }
 
@@ -193,12 +166,11 @@ export async function pickFiles(options: {
     pickerTypes?: IFilePickerAcceptType[];
     preferFileSystemAccess?: boolean;
 }) {
-    const pickerWindow = getWindowWithPickers();
-    const showOpenFilePicker = pickerWindow?.showOpenFilePicker?.bind(pickerWindow);
+    const { openFilePicker } = resolveBrowserFileAccess();
     const preferFileSystemAccess = options.preferFileSystemAccess ?? true;
-    if (shouldUseFileSystemAccessOpenPicker(preferFileSystemAccess, Boolean(showOpenFilePicker)) && showOpenFilePicker) {
+    if (openFilePicker && shouldUseFileSystemAccessOpenPicker(preferFileSystemAccess)) {
         try {
-            const handles = await showOpenFilePicker({
+            const handles = await openFilePicker({
                 multiple: options.multiple ?? false,
                 ...(options.pickerTypes ? { types: options.pickerTypes } : {}),
             });
@@ -339,10 +311,10 @@ async function saveBlobToPickerOrDownload(
         canDownloadWithoutHandle?: boolean;
     } = {},
 ) {
-    const pickerWindow = getWindowWithPickers();
-    if (pickerWindow?.showSaveFilePicker) {
+    const { saveFilePicker } = resolveBrowserFileAccess();
+    if (saveFilePicker) {
         try {
-            const handle = await pickerWindow.showSaveFilePicker({
+            const handle = await saveFilePicker({
                 suggestedName,
                 types: pickerTypes,
             });
@@ -427,8 +399,8 @@ export async function pickSaveTarget(options: {
     suggestedName: string;
     pickerTypes: IFilePickerAcceptType[];
 }) {
-    const pickerWindow = getWindowWithPickers();
-    if (!pickerWindow?.showSaveFilePicker) {
+    const { saveFilePicker } = resolveBrowserFileAccess();
+    if (!saveFilePicker) {
         return {
             canceled: false,
             fileName: options.suggestedName,
@@ -437,7 +409,7 @@ export async function pickSaveTarget(options: {
     }
 
     try {
-        const handle = await pickerWindow.showSaveFilePicker({
+        const handle = await saveFilePicker({
             suggestedName: options.suggestedName,
             types: options.pickerTypes,
         });

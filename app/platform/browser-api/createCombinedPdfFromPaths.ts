@@ -31,10 +31,8 @@ import {
     runBrowserPdfCombineWorkerRequest,
 } from '@app/platform/browser-api/browserPdfCombineWorkerClient';
 import { yieldToBrowser } from '@app/platform/browser-api/browserYield';
-import {
-    browserDjvuCapability,
-    getBrowserDjvuBookmarksForCombine,
-} from '@app/platform/browser-api/browserDjvuCapability';
+import { browserDjvuCapability } from '@app/platform/browser-api/browserDjvuCapability';
+import { getBrowserDjvuBookmarksForCombine } from '@app/platform/browser-api/browserDjvuConversionPipeline';
 import { emitBrowserOpenDocumentDirectBatchProgress } from '@app/platform/browser-api/documentsMenuCapability';
 import type { TOpenBatchProgressOperation } from '@contracts/electronApiDocuments';
 import {
