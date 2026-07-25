@@ -36,6 +36,10 @@ export function projectNativePdfMutationsForSave(
     opts: INativePdfMutationProjectionInput,
 ): INativePdfMutationProjectionResult {
     assertNativeAnnotationReplayGrant(opts.route);
+    const {
+        dirtyState,
+        documentStructure,
+    } = opts;
     const skipEvents: INativePdfMutationSkipEvent[] = [];
     const skip = (reason: string, details: Record<string, unknown> = {}) => {
         return {
@@ -85,7 +89,7 @@ export function projectNativePdfMutationsForSave(
     const nativeNoteMutationCount = noteTextUpdates.length + freeTextNotes.length + annotationDeletes.length;
     const pendingDeletesAreFullyCovered = opts.pendingDeletes.length > 0
         && annotationDeletes.length === opts.pendingDeletes.length;
-    if (opts.savedPdfjsAnnotationBaselineDirty && !pendingDeletesAreFullyCovered) {
+    if (dirtyState.savedPdfjsAnnotationBaselineDirty && !pendingDeletesAreFullyCovered) {
         // A preserved live PDF.js session can hide deleted/undone existing markup
         // outside annotationStorage until PDF.js serializes it.
         return skip('saved-pdfjs-baseline-dirty-requires-materialization');
@@ -110,7 +114,7 @@ export function projectNativePdfMutationsForSave(
             nativeDeletes: annotationDeletes.length,
         });
     }
-    if (opts.hasLivePdfJsAnnotationChanges && nativeNoteMutationCount === 0) {
+    if (dirtyState.hasLivePdfJsAnnotationChanges && nativeNoteMutationCount === 0) {
         return skip('live-pdfjs-annotation-work-not-covered-by-native-mutations');
     }
     if (annotationWorkDirty && nativeNoteMutationCount === 0 && !hasMarkupMutations) {
@@ -118,29 +122,29 @@ export function projectNativePdfMutationsForSave(
     }
 
     const shapes = buildNativeShapesMutationForSave({
-        shapeStateDirty: opts.shapeStateDirty,
+        shapeStateDirty: dirtyState.shapeStateDirty,
         totalPageCount: opts.totalPageCount,
         shapes: opts.shapes,
         deletedAnnotationIds: opts.deletedEmbeddedShapeAnnotationIds,
         deletedStableKeys: opts.deletedEmbeddedShapeStableKeys,
     });
     const hasShapeMutations = Boolean(shapes);
-    if (opts.shapeStateDirty && !hasShapeMutations) {
+    if (dirtyState.shapeStateDirty && !hasShapeMutations) {
         return skip('shape-payload-unavailable');
     }
     const pageLabels = buildNativePageLabelsMutationForSave({
-        pageLabelsDirty: opts.pageLabelsDirty,
+        pageLabelsDirty: documentStructure.pageLabelsDirty,
         totalPageCount: opts.totalPageCount,
-        pageLabelRanges: opts.pageLabelRanges,
+        pageLabelRanges: documentStructure.pageLabelRanges,
     });
     const bookmarks = buildNativeBookmarksMutationForSave({
-        bookmarksDirty: opts.bookmarksDirty,
+        bookmarksDirty: documentStructure.bookmarksDirty,
         totalPageCount: opts.totalPageCount,
-        bookmarkItems: opts.bookmarkItems,
-        untitledBookmarkLabel: opts.untitledBookmarkLabel,
+        bookmarkItems: documentStructure.bookmarkItems,
+        untitledBookmarkLabel: documentStructure.untitledBookmarkLabel,
     });
     const hasMetadataMutations = Boolean(pageLabels) || Boolean(bookmarks);
-    if ((opts.pageLabelsDirty || opts.bookmarksDirty) && !hasMetadataMutations) {
+    if ((documentStructure.pageLabelsDirty || documentStructure.bookmarksDirty) && !hasMetadataMutations) {
         return skip('metadata-payload-unavailable');
     }
     if ((hasMetadataMutations || hasShapeMutations) && !opts.route.metadataMutationsAllowed) {

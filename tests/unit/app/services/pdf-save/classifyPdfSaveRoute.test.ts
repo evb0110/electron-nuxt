@@ -214,6 +214,23 @@ describe('classifyPdfSaveRoute annotation routes', () => {
         });
     });
 
+    it('materializes unknown live work even when pending replayable work covers every enumerated id', () => {
+        const decision = classifyPdfSaveRoute(
+            planOf([embeddedNote('anno_note', '12R')]),
+            capabilities({liveAnnotationChanges: liveChanges({
+                ids: new Set(),
+                hasChanges: true,
+                hasUnknownChanges: true,
+                fingerprint: 'unknown-empty',
+            })}),
+        );
+
+        expect(decision.annotationPlan).toMatchObject({
+            route: 'pdfjs-materialize',
+            reason: 'unknown-live-pdfjs-annotation-storage',
+        });
+    });
+
     it('materializes editor-only annotations that our serializer cannot replay', () => {
         const decision = classifyPdfSaveRoute(planOf([], [editorMarkup('anno_markup')]), capabilities());
 
@@ -345,14 +362,22 @@ const ENTITY_POOL: readonly AnnotationEntity[] = [
 
 const CAPABILITIES_ARBITRARY = fc.record({
     saveFlowMode: fc.constantFrom('save' as const, 'save_as' as const),
+    withNativeCapabilities: fc.boolean(),
+    withDirtyState: fc.boolean(),
+    withDocumentStructure: fc.boolean(),
     hasNativePdfMutationCapability: fc.boolean(),
     canPersistNativeMetadataMutations: fc.boolean(),
-    withDescriptors: fc.boolean(),
+    annotationDirty: fc.boolean(),
+    hasAnnotationChanges: fc.boolean(),
+    hasLivePdfJsAnnotationChanges: fc.boolean(),
+    savedPdfjsAnnotationBaselineDirty: fc.boolean(),
+    shapeStateDirty: fc.boolean(),
+    pageLabelsDirty: fc.boolean(),
+    bookmarksDirty: fc.boolean(),
     hasLoadedSource: fc.boolean(),
     forcePdfjsMaterialize: fc.boolean(),
     includeManagedShapesForLiveSource: fc.boolean(),
     forceRewrite: fc.boolean(),
-    hasLivePdfJsAnnotationChanges: fc.boolean(),
     liveIds: fc.array(fc.constantFrom('10R', '11R', 'pdfjs_internal_editor_0', '20R'), {maxLength: 3}),
     liveHasChanges: fc.boolean(),
     liveHasUnknownChanges: fc.boolean(),
@@ -361,29 +386,28 @@ const CAPABILITIES_ARBITRARY = fc.record({
 type TGeneratedCapabilities = ReturnType<typeof CAPABILITIES_ARBITRARY.generate>['value'];
 
 function generatedCapabilities(generated: TGeneratedCapabilities): IPdfSaveRouteCapabilities {
-    const descriptors = generated.withDescriptors;
     return capabilities({
         saveFlowMode: generated.saveFlowMode,
-        nativeCapabilities: descriptors
+        nativeCapabilities: generated.withNativeCapabilities
             ? {
                 hasNativePdfMutationCapability: generated.hasNativePdfMutationCapability,
                 canPersistNativeMetadataMutations: generated.canPersistNativeMetadataMutations,
             }
             : undefined,
-        dirtyState: descriptors
+        dirtyState: generated.withDirtyState
             ? {
-                annotationDirty: true,
-                hasAnnotationChanges: true,
+                annotationDirty: generated.annotationDirty,
+                hasAnnotationChanges: generated.hasAnnotationChanges,
                 hasLivePdfJsAnnotationChanges: generated.hasLivePdfJsAnnotationChanges,
-                savedPdfjsAnnotationBaselineDirty: false,
-                shapeStateDirty: false,
+                savedPdfjsAnnotationBaselineDirty: generated.savedPdfjsAnnotationBaselineDirty,
+                shapeStateDirty: generated.shapeStateDirty,
             }
             : undefined,
-        documentStructure: descriptors
+        documentStructure: generated.withDocumentStructure
             ? {
-                pageLabelsDirty: false,
+                pageLabelsDirty: generated.pageLabelsDirty,
                 pageLabelRanges: [],
-                bookmarksDirty: false,
+                bookmarksDirty: generated.bookmarksDirty,
                 bookmarkItems: [],
                 untitledBookmarkLabel: 'Untitled',
                 totalPages: 4,
@@ -394,7 +418,9 @@ function generatedCapabilities(generated: TGeneratedCapabilities): IPdfSaveRoute
         includeManagedShapesForLiveSource: generated.includeManagedShapesForLiveSource,
         liveAnnotationChanges: liveChanges({
             ids: new Set(generated.liveIds),
-            hasChanges: generated.liveHasChanges || generated.liveIds.length > 0,
+            hasChanges: generated.liveHasChanges
+                || generated.liveHasUnknownChanges
+                || generated.liveIds.length > 0,
             hasUnknownChanges: generated.liveHasUnknownChanges,
             fingerprint: generated.liveIds.join(','),
         }),

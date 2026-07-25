@@ -5,8 +5,14 @@ import type {
     TPdfSaveMode,
 } from '@app/types/pdfContracts';
 import type { IMarkupSubtypeHint } from '@app/modules/pdf-viewer/engine/pdf-serialization-subtype-hints/pdfSerializationSubtypeHintsTypes';
-import type { INativePdfMutationProjection } from '@app/modules/pdf-viewer/runtime/save/nativePdfMutationProjectionTypes';
 import type {ISerializationPlan} from '@app/modules/pdf-viewer/serialization/serializationPlan';
+import type {IBackendAnnotationMutation} from '@app/modules/pdf-viewer/annotations/persistence/annotationBackendConformance';
+import type {
+    IPdfNativeAnnotationDelete,
+    IPdfNativeFreeTextNote,
+    IPdfNativeMutationSet,
+    IPdfNoteTextUpdate,
+} from '@contracts/electronApiDocuments';
 
 export type TPdfViewerSaveTransactionMode =
     | 'persist'
@@ -65,6 +71,18 @@ export interface IPdfViewerSaveTransactionDirtyState {
     hasLivePdfJsAnnotationChanges: boolean;
     savedPdfjsAnnotationBaselineDirty: boolean;
     shapeStateDirty: boolean;
+}
+
+export interface INativePdfMutationProjection {
+    canonicalAnnotationProgram: readonly IBackendAnnotationMutation[];
+    mutations: IPdfNativeMutationSet;
+    noteTextUpdates: IPdfNoteTextUpdate[];
+    freeTextNotes: IPdfNativeFreeTextNote[];
+    annotationDeletes: IPdfNativeAnnotationDelete[];
+    hasMetadataMutations: boolean;
+    hasShapeMutations: boolean;
+    hasMarkupMutations: boolean;
+    phase: string;
 }
 
 export interface IPdfViewerSaveTransactionSerializationOptions {

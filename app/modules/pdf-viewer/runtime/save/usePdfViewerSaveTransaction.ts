@@ -32,10 +32,7 @@ import type {
     ISerializationPlan,
     ISerializationPlanInputs,
 } from '@app/modules/pdf-viewer/serialization/serializationPlan';
-import {
-    buildSerializationPlan,
-    withSerializationBackendProjection,
-} from '@app/modules/pdf-viewer/serialization/serializationPlan';
+import { buildSerializationPlan } from '@app/modules/pdf-viewer/serialization/serializationPlan';
 import { projectAnnotationBackendMutations } from '@app/modules/pdf-viewer/annotations/persistence/annotationBackendConformance';
 import type {ICanonicalAnnotationIdentityBinding} from '@app/modules/pdf-viewer/engine/serialization/pdf-serialization-annotations/applyCanonicalAnnotationIdentityBindings';
 import {bindCanonicalAnnotationIdentitiesOffThread} from '@app/modules/pdf-viewer/engine/pdf-serialization-worker-client/bindCanonicalAnnotationIdentitiesOffThread';
@@ -245,19 +242,13 @@ export const usePdfViewerSaveTransaction = (
         } = route;
         const opts: INativePdfMutationProjectionInput = {
             route,
+            dirtyState,
+            documentStructure,
             canonicalAnnotationProgram: projectAnnotationBackendMutations(plan, 'native-append'),
             canonicalComments: canonical.comments,
             pendingTexts: canonical.pendingTexts,
             pendingDeletes: canonical.pendingDeletes,
-            shapeStateDirty: dirtyState.shapeStateDirty,
-            pageLabelsDirty: documentStructure.pageLabelsDirty,
-            bookmarksDirty: documentStructure.bookmarksDirty,
-            savedPdfjsAnnotationBaselineDirty: dirtyState.savedPdfjsAnnotationBaselineDirty,
-            hasLivePdfJsAnnotationChanges: dirtyState.hasLivePdfJsAnnotationChanges,
             totalPageCount: Math.max(documentStructure.totalPages, options.getPdfDocument?.()?.numPages ?? 0),
-            pageLabelRanges: documentStructure.pageLabelRanges,
-            bookmarkItems: documentStructure.bookmarkItems,
-            untitledBookmarkLabel: documentStructure.untitledBookmarkLabel,
             shapes: dirtyState.shapeStateDirty ? options.getAllShapes?.() ?? null : null,
             deletedEmbeddedShapeAnnotationIds: dirtyState.shapeStateDirty
                 ? options.getDeletedEmbeddedShapeAnnotationIds?.() ?? []
@@ -272,9 +263,7 @@ export const usePdfViewerSaveTransaction = (
                 ? request.markupSubtypeHints ?? options.getMarkupSubtypeHints?.() ?? []
                 : [],
         };
-        const nativeMutationProjectionResult = projectNativePdfMutationsForSave(
-            withSerializationBackendProjection(plan, opts).backendProjection,
-        );
+        const nativeMutationProjectionResult = projectNativePdfMutationsForSave(opts);
         nativeMutationProjectionResult.skipEvents.forEach(({
             event,
             reason,
@@ -284,10 +273,10 @@ export const usePdfViewerSaveTransaction = (
                 reason,
                 pendingTexts: opts.pendingTexts.size,
                 pendingDeletes: opts.pendingDeletes.length,
-                shapeStateDirty: opts.shapeStateDirty,
-                savedPdfjsAnnotationBaselineDirty: opts.savedPdfjsAnnotationBaselineDirty,
-                pageLabelsDirty: opts.pageLabelsDirty,
-                bookmarksDirty: opts.bookmarksDirty,
+                shapeStateDirty: dirtyState.shapeStateDirty,
+                savedPdfjsAnnotationBaselineDirty: dirtyState.savedPdfjsAnnotationBaselineDirty,
+                pageLabelsDirty: documentStructure.pageLabelsDirty,
+                bookmarksDirty: documentStructure.bookmarksDirty,
                 ...details,
             }));
         });

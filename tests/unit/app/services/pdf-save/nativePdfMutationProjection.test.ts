@@ -116,19 +116,26 @@ function createNativeAppendRoute(overrides: Partial<INativeAppendSaveRoute> = {}
 function createMutationProjectionInput(overrides: Partial<INativePdfMutationProjectionInput> = {}): INativePdfMutationProjectionInput {
     return {
         route: createNativeAppendRoute(),
+        dirtyState: {
+            annotationDirty: false,
+            hasAnnotationChanges: false,
+            hasLivePdfJsAnnotationChanges: false,
+            savedPdfjsAnnotationBaselineDirty: false,
+            shapeStateDirty: false,
+        },
+        documentStructure: {
+            pageLabelsDirty: false,
+            pageLabelRanges: [],
+            bookmarksDirty: false,
+            bookmarkItems: [],
+            untitledBookmarkLabel: 'Untitled',
+            totalPages: 2,
+        },
         canonicalAnnotationProgram: [],
         pendingTexts: new Map(),
         pendingDeletes: [],
         canonicalComments: [],
-        shapeStateDirty: false,
-        savedPdfjsAnnotationBaselineDirty: false,
-        pageLabelsDirty: false,
-        bookmarksDirty: false,
-        hasLivePdfJsAnnotationChanges: false,
         totalPageCount: 2,
-        pageLabelRanges: null,
-        bookmarkItems: null,
-        untitledBookmarkLabel: 'Untitled',
         shapes: null,
         deletedEmbeddedShapeAnnotationIds: [],
         deletedEmbeddedShapeStableKeys: [],
@@ -429,24 +436,34 @@ describe('native PDF mutation projection', () => {
                 editorNote.stableKey,
                 editorNote.text,
             ]]),
-            pageLabelsDirty: true,
-            pageLabelRanges: [{
-                startPage: 1,
-                style: 'D',
-                prefix: 'A-',
-                startNumber: 1,
-            }],
-            bookmarksDirty: true,
-            bookmarkItems: [{
-                title: 'Chapter',
-                pageIndex: 0,
-                namedDest: null,
-                bold: false,
-                italic: false,
-                color: null,
-                items: [],
-            }],
-            shapeStateDirty: true,
+            dirtyState: {
+                annotationDirty: true,
+                hasAnnotationChanges: true,
+                hasLivePdfJsAnnotationChanges: false,
+                savedPdfjsAnnotationBaselineDirty: false,
+                shapeStateDirty: true,
+            },
+            documentStructure: {
+                pageLabelsDirty: true,
+                pageLabelRanges: [{
+                    startPage: 1,
+                    style: 'D',
+                    prefix: 'A-',
+                    startNumber: 1,
+                }],
+                bookmarksDirty: true,
+                bookmarkItems: [{
+                    title: 'Chapter',
+                    pageIndex: 0,
+                    namedDest: null,
+                    bold: false,
+                    italic: false,
+                    color: null,
+                    items: [],
+                }],
+                untitledBookmarkLabel: 'Untitled',
+                totalPages: 2,
+            },
             shapes: [createShape()],
             markupSubtypeOverrides: new Map([[
                 '44R0',
@@ -512,7 +529,13 @@ describe('native PDF mutation projection', () => {
 
     it('requires materialization for a dirty saved PDF.js baseline even when native note work exists', () => {
         const result = projectNativePdfMutationsForSave(createMutationProjectionInput({
-            savedPdfjsAnnotationBaselineDirty: true,
+            dirtyState: {
+                annotationDirty: true,
+                hasAnnotationChanges: true,
+                hasLivePdfJsAnnotationChanges: false,
+                savedPdfjsAnnotationBaselineDirty: true,
+                shapeStateDirty: false,
+            },
             pendingTexts: new Map([[
                 'ann:0:12R0',
                 'Updated note',
@@ -532,11 +555,16 @@ describe('native PDF mutation projection', () => {
     it('uses an exact native delete when it fully covers a dirty saved PDF.js baseline', () => {
         const deletedComment = createComment();
         const result = projectNativePdfMutationsForSave(createMutationProjectionInput({
-            savedPdfjsAnnotationBaselineDirty: true,
+            dirtyState: {
+                annotationDirty: true,
+                hasAnnotationChanges: true,
+                hasLivePdfJsAnnotationChanges: true,
+                savedPdfjsAnnotationBaselineDirty: true,
+                shapeStateDirty: false,
+            },
             pendingDeletes: [deletedComment],
             canonicalComments: [],
             route: createNativeAppendRoute({annotationWorkDirty: true}),
-            hasLivePdfJsAnnotationChanges: true,
         }));
 
         expect(result.projection?.mutations.deletes).toEqual([{

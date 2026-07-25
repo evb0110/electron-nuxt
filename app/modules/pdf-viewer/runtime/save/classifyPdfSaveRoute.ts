@@ -321,6 +321,15 @@ function planAnnotationRoute(canonical: IPdfSaveCanonicalInputs): IPdfViewerAnno
         && !isReplayableEditorOnlyFreeTextNote(comment),
     );
 
+    if (live.hasUnknownChanges) {
+        return {
+            route: 'pdfjs-materialize',
+            expectedCost: 'full-document',
+            reason: 'unknown-live-pdfjs-annotation-storage',
+            unreplayableLiveAnnotationIds: [],
+        };
+    }
+
     if (hasPendingReplayableEmbeddedChanges && !hasEditorOnlyAnnotationsPendingMaterialization) {
         // FreeText sticky notes are replayed by our serializer. Large scanned PDFs can
         // make PDF.js saveDocument stall, so keep replayable-only note saves off that path.
@@ -352,15 +361,6 @@ function planAnnotationRoute(canonical: IPdfSaveCanonicalInputs): IPdfViewerAnno
                 unreplayableLiveAnnotationIds,
             };
         }
-    }
-
-    if (live.hasUnknownChanges) {
-        return {
-            route: 'pdfjs-materialize',
-            expectedCost: 'full-document',
-            reason: 'unknown-live-pdfjs-annotation-storage',
-            unreplayableLiveAnnotationIds: [],
-        };
     }
 
     if (live.hasChanges) {

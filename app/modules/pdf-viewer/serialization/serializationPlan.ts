@@ -83,7 +83,7 @@ export interface IAnnotationMutationStep {
     readonly fields: Readonly<Record<string, unknown>>;
 }
 
-export interface ISerializationPlan<TBackendProjection = never> {
+export interface ISerializationPlan {
     readonly frontier: IAnnotationSaveFrontier;
     readonly sourceRevision: IAnnotationSaveFrontier['documentRevisionToken'];
     readonly sourceEpoch: number;
@@ -94,8 +94,6 @@ export interface ISerializationPlan<TBackendProjection = never> {
     readonly ocrOperations: readonly ISerializationOcrOperation[];
     readonly routeConstraints: ISerializationRouteConstraints;
     readonly postconditions: ISerializationPostconditions;
-    /** Immutable mechanism-specific projection captured only after the semantic plan is complete. */
-    readonly backendProjection: TBackendProjection | null;
     readonly steps: readonly IAnnotationMutationStep[];
     readonly expected: readonly AnnotationEntity[];
     readonly entities: readonly AnnotationEntity[];
@@ -291,24 +289,10 @@ export function buildSerializationPlan(
             preserveLoadedSource: inputs.routeConstraints?.preserveLoadedSource ?? false,
         }),
         postconditions,
-        backendProjection: null,
         steps: Object.freeze(steps),
         expected: Object.freeze(expected),
         entities: Object.freeze(canonicalEntities),
         changedObjectRefs: postconditions.changedObjectRefs,
-    });
-}
-
-export function withSerializationBackendProjection<TBackendProjection>(
-    plan: ISerializationPlan,
-    projection: TBackendProjection,
-): ISerializationPlan<TBackendProjection> & {readonly backendProjection: TBackendProjection} {
-    return Object.freeze({
-        ...plan,
-        // Callers construct a detached DTO while completing the plan. Avoid
-        // structuredClone here because Vue may wrap otherwise plain snapshots
-        // in proxies that are deliberately not cloneable.
-        backendProjection: Object.freeze(projection as object) as TBackendProjection,
     });
 }
 

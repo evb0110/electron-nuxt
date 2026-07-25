@@ -3,18 +3,14 @@ import type {
     IShapeAnnotation,
     TMarkupSubtype,
 } from '@app/types/annotations';
-import type {
-    IPdfBookmarkEntry,
-    IPdfPageLabelRange,
-} from '@app/types/pdfContracts';
 import type { IMarkupSubtypeHint } from '@app/modules/pdf-viewer/engine/pdf-serialization-subtype-hints/pdfSerializationSubtypeHintsTypes';
-import type {
-    IPdfNativeAnnotationDelete,
-    IPdfNativeFreeTextNote,
-    IPdfNativeMutationSet,
-    IPdfNoteTextUpdate,
-} from '@contracts/electronApiDocuments';
 import type {IBackendAnnotationMutation} from '@app/modules/pdf-viewer/annotations/persistence/annotationBackendConformance';
+import type {
+    INativePdfMutationProjection,
+    IPdfViewerSaveTransactionDirtyState,
+    IPdfViewerSaveTransactionDocumentStructure,
+} from '@app/modules/pdf-viewer/runtime/save/pdfViewerSaveTransaction.types';
+export type {INativePdfMutationProjection} from '@app/modules/pdf-viewer/runtime/save/pdfViewerSaveTransaction.types';
 
 /** Save flow supported by the native mutation projection. */
 export type TNativePdfMutationSaveMode = 'save' | 'save_as';
@@ -49,18 +45,6 @@ export interface INativePdfMutationBuildResult<T> {
     skipEvents: INativePdfMutationSkipEvent[];
 }
 
-export interface INativePdfMutationProjection {
-    canonicalAnnotationProgram: readonly IBackendAnnotationMutation[];
-    mutations: IPdfNativeMutationSet;
-    noteTextUpdates: IPdfNoteTextUpdate[];
-    freeTextNotes: IPdfNativeFreeTextNote[];
-    annotationDeletes: IPdfNativeAnnotationDelete[];
-    hasMetadataMutations: boolean;
-    hasShapeMutations: boolean;
-    hasMarkupMutations: boolean;
-    phase: string;
-}
-
 export interface INativePdfMutationProjectionResult {
     projection: INativePdfMutationProjection | null;
     skipEvents: INativePdfMutationSkipEvent[];
@@ -68,19 +52,13 @@ export interface INativePdfMutationProjectionResult {
 
 export interface INativePdfMutationProjectionInput {
     route: INativeAppendSaveRoute;
+    dirtyState: IPdfViewerSaveTransactionDirtyState;
+    documentStructure: IPdfViewerSaveTransactionDocumentStructure;
     canonicalAnnotationProgram: readonly IBackendAnnotationMutation[];
     canonicalComments: IAnnotationCommentSummary[];
     pendingTexts: Map<string, string>;
     pendingDeletes: IAnnotationCommentSummary[];
-    shapeStateDirty: boolean;
-    pageLabelsDirty: boolean;
-    bookmarksDirty: boolean;
-    savedPdfjsAnnotationBaselineDirty: boolean;
-    hasLivePdfJsAnnotationChanges: boolean;
     totalPageCount: number;
-    pageLabelRanges: IPdfPageLabelRange[] | null;
-    bookmarkItems: IPdfBookmarkEntry[] | null;
-    untitledBookmarkLabel: string;
     shapes: IShapeAnnotation[] | null;
     deletedEmbeddedShapeAnnotationIds: string[];
     deletedEmbeddedShapeStableKeys: string[];
