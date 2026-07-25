@@ -8,6 +8,7 @@ import { buildDependencyGraph } from './dep-graph.mjs';
 
 export const ANNOTATION_GRAPH_SCAN_ROOTS = [
     'app/modules/pdf-viewer/runtime/annotations',
+    'app/modules/pdf-viewer/runtime/sessions/createPdfAnnotationSession.ts',
     'app/modules/pdf-viewer/annotations',
     'app/modules/pdf-viewer/tools',
     'app/modules/pdf-viewer/runtime/save',
@@ -26,44 +27,45 @@ const RUNTIME_ANNOTATION_ROOT = 'app/modules/pdf-viewer/runtime/annotations';
 const ANNOTATION_TOOLS_ROOT = 'app/modules/pdf-viewer/tools';
 const RUNTIME_SAVE_ROOT = 'app/modules/pdf-viewer/runtime/save';
 const PDF_VIEWER_MODULE_ROOT = 'app/modules/pdf-viewer';
+const ANNOTATION_SESSION = 'app/modules/pdf-viewer/runtime/sessions/createPdfAnnotationSession.ts';
 
-const RUNTIME_TOOLS_ALLOWED_EDGES = new Set(['app/modules/pdf-viewer/runtime/annotations/usePdfViewerAnnotationRuntime.ts -> app/modules/pdf-viewer/tools/public.ts']);
+const RUNTIME_TOOLS_ALLOWED_EDGES = new Set();
 
 export const ANNOTATION_LATE_BOUND_EDGES = [
     {
-        source: 'app/modules/pdf-viewer/runtime/annotations/useFreeTextResize.ts',
-        target: 'app/modules/pdf-viewer/runtime/annotations/useAnnotationSync.ts',
+        source: 'app/modules/pdf-viewer/annotations/bridge/pdfjs-runtime/useFreeTextResize.ts',
+        target: 'app/modules/pdf-viewer/annotations/bridge/pdfjs-runtime/useAnnotationSync.ts',
         kind: 'late-bound',
         label: 'scheduleAnnotationCommentsSync',
         phase: 'event-time',
-        evidence: 'useAnnotationOrchestrator wires useFreeTextResize with () => commentSync.scheduleAnnotationCommentsSync().',
+        evidence: 'createPdfAnnotationSession wires useFreeTextResize with () => commentSync.scheduleAnnotationCommentsSync().',
     },
     {
-        source: 'app/modules/pdf-viewer/runtime/annotations/useAnnotationToolState.ts',
-        target: 'app/modules/pdf-viewer/runtime/annotations/useFreeTextResize.ts',
+        source: 'app/modules/pdf-viewer/annotations/bridge/pdfjs-runtime/useAnnotationToolState.ts',
+        target: 'app/modules/pdf-viewer/annotations/bridge/pdfjs-runtime/useFreeTextResize.ts',
         kind: 'late-bound',
         label: 'getFreeTextResize',
         phase: 'event-time',
         evidence: 'useAnnotationToolState calls getFreeTextResize().patchResizableFreeTextEditors().',
     },
     {
-        source: 'app/modules/pdf-viewer/runtime/annotations/useAnnotationEditorBridge.ts',
-        target: 'app/modules/pdf-viewer/runtime/annotations/useAnnotationSync.ts',
+        source: 'app/modules/pdf-viewer/annotations/bridge/pdfjs-runtime/useAnnotationEditorBridge.ts',
+        target: 'app/modules/pdf-viewer/annotations/bridge/pdfjs-runtime/useAnnotationSync.ts',
         kind: 'late-bound',
         label: 'getCommentSync',
         phase: 'init/event-time',
         evidence: 'useAnnotationEditorBridge resolves getCommentSync() during dialog and editor initialization flows.',
     },
     {
-        source: 'app/modules/pdf-viewer/runtime/annotations/useAnnotationEditorBridge.ts',
-        target: 'app/modules/pdf-viewer/runtime/annotations/useAnnotationToolState.ts',
+        source: 'app/modules/pdf-viewer/annotations/bridge/pdfjs-runtime/useAnnotationEditorBridge.ts',
+        target: 'app/modules/pdf-viewer/annotations/bridge/pdfjs-runtime/useAnnotationToolState.ts',
         kind: 'late-bound',
         label: 'getToolManager/getMarkupSubtype',
         phase: 'init/event-time',
         evidence: 'useAnnotationEditorBridge resolves tool manager and markup subtype ports during annotation editor setup.',
     },
     {
-        source: 'app/modules/pdf-viewer/runtime/annotations/useAnnotationSync.ts',
+        source: 'app/modules/pdf-viewer/annotations/bridge/pdfjs-runtime/useAnnotationSync.ts',
         target: 'app/modules/pdf-viewer/runtime/annotations/useAnnotationMarkerViewModel.ts',
         kind: 'late-bound',
         label: 'syncInlineCommentIndicators',
@@ -71,44 +73,28 @@ export const ANNOTATION_LATE_BOUND_EDGES = [
         evidence: 'useAnnotationSync receives inline indicator sync as an injected callback.',
     },
     {
-        source: 'app/modules/pdf-viewer/runtime/annotations/useAnnotationHighlight.ts',
-        target: 'app/modules/pdf-viewer/runtime/annotations/useAnnotationSync.ts',
+        source: 'app/modules/pdf-viewer/annotations/bridge/pdfjs-runtime/useAnnotationHighlight.ts',
+        target: 'app/modules/pdf-viewer/annotations/bridge/pdfjs-runtime/useAnnotationSync.ts',
         kind: 'late-bound',
         label: 'getSync',
         phase: 'event-time',
         evidence: 'useAnnotationHighlight resolves comment sync while creating text markup and note comments.',
     },
     {
-        source: 'app/modules/pdf-viewer/runtime/annotations/useAnnotationCrud.ts',
-        target: 'app/modules/pdf-viewer/runtime/annotations/useAnnotationHighlight.ts',
+        source: 'app/modules/pdf-viewer/annotations/bridge/pdfjs-runtime/useAnnotationCrud.ts',
+        target: 'app/modules/pdf-viewer/annotations/bridge/pdfjs-runtime/useAnnotationHighlight.ts',
         kind: 'late-bound',
         label: 'getHighlight',
         phase: 'event-time',
         evidence: 'useAnnotationCrud resolves highlight placement/page-point helpers during click and note flows.',
     },
     {
-        source: 'app/modules/pdf-viewer/runtime/annotations/useAnnotationCrud.ts',
-        target: 'app/modules/pdf-viewer/runtime/annotations/useAnnotationSync.ts',
+        source: 'app/modules/pdf-viewer/annotations/bridge/pdfjs-runtime/useAnnotationCrud.ts',
+        target: 'app/modules/pdf-viewer/annotations/bridge/pdfjs-runtime/useAnnotationSync.ts',
         kind: 'late-bound',
         label: 'getSync',
         phase: 'event-time',
         evidence: 'useAnnotationCrud resolves comment sync for active comment, deletion, and editor summary flows.',
-    },
-    {
-        source: 'app/modules/pdf-viewer/runtime/annotations/useManagedEmbeddedPdfShapes.ts',
-        target: 'app/modules/pdf-viewer/runtime/annotations/useAnnotationOrchestrator.ts',
-        kind: 'late-bound',
-        label: 'suppressCommentAnnotationId',
-        phase: 'event-time',
-        evidence: 'usePdfViewerAnnotationRuntime wires managed embedded shapes to annotations.commentSync suppression.',
-    },
-    {
-        source: 'app/modules/pdf-viewer/annotations/usePdfAnnotationCommentModel.ts',
-        target: 'app/modules/pdf-viewer/runtime/annotations/useAnnotationOrchestrator.ts',
-        kind: 'late-bound',
-        label: 'suppress/unsuppress annotation ids',
-        phase: 'event-time',
-        evidence: 'usePdfViewerAnnotationRuntime wires comment model callbacks to annotations.commentSync after construction.',
     },
 ];
 
@@ -121,7 +107,8 @@ function annotationEdgeKey(edge) {
 }
 
 function isAnnotationPolicyNode(filePath) {
-    return ANNOTATION_POLICY_ROOTS.some(root => matchesRoot(filePath, root));
+    return filePath === ANNOTATION_SESSION
+        || ANNOTATION_POLICY_ROOTS.some(root => matchesRoot(filePath, root));
 }
 
 function isPdfViewerInternalSource(filePath) {

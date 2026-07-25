@@ -31,6 +31,10 @@ interface IZoomRerenderBusySignal {
     operationId?: TZoomInteractionLockOperationId | null | undefined;
     reason: string;
 }
+export type TPdfZoomRerenderBusySetter = (
+    busy: boolean,
+    signal?: IZoomRerenderBusySignal,
+) => TZoomInteractionLockOperationId | null | undefined;
 
 interface IZoomQueueTransactionController {
     beginTransaction: (options: {
@@ -64,10 +68,7 @@ interface IUsePdfViewerZoomRerenderQueueOptions {
     scheduleEndResizeTransition?: (token: number, reason: string, page: number | null) => void;
     isZoomInteractionLocked?: (() => boolean) | undefined;
     isZoomGestureSessionLocked?: (() => boolean) | undefined;
-    setZoomRerenderBusy?: ((
-        busy: boolean,
-        signal?: IZoomRerenderBusySignal,
-    ) => TZoomInteractionLockOperationId | null | undefined) | undefined;
+    setZoomRerenderBusy?: TPdfZoomRerenderBusySetter | undefined;
     transactionController?: IZoomQueueTransactionController | undefined;
 }
 

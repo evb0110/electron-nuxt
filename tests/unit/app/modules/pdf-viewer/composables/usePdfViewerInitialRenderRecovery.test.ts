@@ -39,7 +39,6 @@ describe('usePdfViewerInitialRenderRecovery', () => {
         currentPage?: number;
         renderVisiblePages?: () => Promise<void>;
         isInitialCanvasCommitted?: () => boolean;
-        isInitialVisualCommitted?: () => boolean;
     } = {}) {
         const container = options.container ?? document.createElement('div');
         const renderVisiblePages = vi.fn(options.renderVisiblePages ?? (async () => {}));
@@ -94,7 +93,6 @@ describe('usePdfViewerInitialRenderRecovery', () => {
             syncCurrentPageFromViewport,
             transactionController,
             isInitialCanvasCommitted: options.isInitialCanvasCommitted,
-            isInitialVisualCommitted: options.isInitialVisualCommitted,
             onTerminalFailure,
         });
 

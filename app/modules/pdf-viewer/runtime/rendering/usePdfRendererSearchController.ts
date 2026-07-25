@@ -8,12 +8,12 @@ import type {
     IPdfSearchMatch,
 } from '@app/types/pdfUi';
 import { createPdfSearchMatchScroller } from '@app/modules/pdf-viewer/engine/pdf-search-match-scroller/createPdfSearchMatchScroller';
-import type { IScrollToPageOptions } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfScroll';
+import type { IPdfRendererSearchNavigationOptions } from '@app/modules/pdf-viewer/runtime/rendering/pdfRendererTypes';
 import type { usePdfTextLayerRenderer } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfTextLayerRenderer';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { logPdfNav } from '@app/utils/logPdfNav';
 
-interface IUsePdfRendererSearchControllerOptions {
+interface IUsePdfRendererSearchControllerOptions extends IPdfRendererSearchNavigationOptions {
     container: Ref<HTMLElement | null>;
     isActive: MaybeRefOrGetter<boolean>;
     isLoading: Ref<boolean>;
@@ -23,24 +23,6 @@ interface IUsePdfRendererSearchControllerOptions {
     currentSearchMatch: MaybeRefOrGetter<IPdfSearchMatch | null>;
     currentSearchMatchNavigationId: MaybeRefOrGetter<number>;
     scheduleRenderForSinglePage: (pageNumber: number) => void;
-    scrollToPage?: (
-        pageNumber: number,
-        options?: IScrollToPageOptions,
-    ) => void;
-    suppressSnap?: () => void;
-    beginSearchNavigation?: (pageNumber: number) => void;
-    revealSearchNavigationTarget?: (
-        pageNumber: number,
-        options?: Pick<IScrollToPageOptions, 'markerRect'>,
-    ) => void;
-    endSearchNavigation?: (settleMs?: number) => void;
-    beginSearchTransaction?: (
-        pageNumber: number,
-        options?: Pick<IScrollToPageOptions, 'markerRect'>,
-    ) => number | null;
-    isSearchTransactionCurrent?: (transactionId: number) => boolean;
-    settleSearchTransaction?: (transactionId: number) => void;
-    cancelSearchTransaction?: (transactionId: number) => void;
     isPageRenderPending?: (pageNumber: number) => boolean;
 }
 

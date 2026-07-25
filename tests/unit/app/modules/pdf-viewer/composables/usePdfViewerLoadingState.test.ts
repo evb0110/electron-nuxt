@@ -1,246 +1,161 @@
 import {
-    beforeEach,
     describe,
     expect,
     it,
-    vi,
 } from 'vitest';
 import {
     computed,
     effectScope,
-    nextTick,
     ref,
     shallowRef,
 } from 'vue';
 import { usePdfViewerLoadingState } from '@app/modules/pdf-viewer/runtime/composables/usePdfViewerLoadingState';
+import {
+    createDocumentOpenSurfaceSession,
+    type IDocumentOpenSurfaceRenderFence,
+} from '@app/utils/document-viewer/chassis/documentOpenSurfaceSession';
 import type { PDFDocumentProxy } from '@app/types/pdfContracts';
 
-class TestNodeList<TNode extends Node> implements NodeListOf<TNode> {
-    readonly length: number;
-    readonly [index: number]: TNode;
-
-    constructor(private readonly nodes: TNode[]) {
-        this.length = nodes.length;
-        nodes.forEach((node, index) => {
-            Object.defineProperty(this, index, { value: node });
-        });
+function createHarness() {
+    const scope = effectScope();
+    const src = shallowRef<Blob | null>(new Blob([new Uint8Array([1])], {type: 'application/pdf'}));
+    const isLoading = ref(false);
+    const pdfDocument = shallowRef<PDFDocumentProxy | null>({} as PDFDocumentProxy);
+    const currentPage = ref(1);
+    const openSurface = createDocumentOpenSurfaceSession();
+    const state = scope.run(() => usePdfViewerLoadingState({
+        src: computed(() => src.value),
+        isLoading,
+        pdfDocument,
+        currentPage,
+        openSurface,
+    }));
+    if (!state) {
+        throw new Error('Failed to create PDF viewer loading state');
     }
+    return {
+        scope,
+        src,
+        isLoading,
+        pdfDocument,
+        currentPage,
+        openSurface,
+        state,
+    };
+}
 
-    entries() {
-        return this.nodes.entries();
-    }
+function beginSurface(
+    harness: ReturnType<typeof createHarness>,
+    revision: string,
+    pageNumber = 1,
+) {
+    const generation = harness.openSurface.begin({
+        documentId: 'scan.pdf',
+        documentRevision: revision,
+    }, null, pageNumber);
+    harness.openSurface.commitGeometry(generation, {
+        width: 612,
+        height: 792,
+        margin: 20,
+    });
+    return generation;
+}
 
-    forEach(
-        callbackfn: (value: TNode, key: number, parent: NodeListOf<TNode>) => void,
-        thisArg?: unknown,
-    ) {
-        this.nodes.forEach((node, index) => {
-            callbackfn.call(thisArg, node, index, this);
-        });
+function commitPage(
+    harness: ReturnType<typeof createHarness>,
+    generation: number,
+    revision: string,
+    pageNumber: number,
+    requestId = 1,
+) {
+    const fence = harness.openSurface.createRenderFence({
+        generation,
+        documentRevision: revision,
+        renderVersion: 1,
+        requestId,
+        pageNumber,
+    });
+    if (!fence) {
+        throw new Error('Failed to create render fence');
     }
+    expect(harness.openSurface.commitCanvas(fence)).toBe(true);
+    expect(harness.openSurface.commitViewport({
+        generation,
+        documentRevision: revision,
+        viewportIntentId: fence.viewportIntentId,
+        documentGeometryRevision: 1,
+        interactionEpoch: 0,
+        pageNumber,
+        left: 0,
+        top: 0,
+    })).toBe(true);
+    return fence;
+}
 
-    item(index: number) {
-        return this.nodes[index]!;
-    }
-
-    keys() {
-        return this.nodes.keys();
-    }
-
-    values() {
-        return this.nodes.values();
-    }
-
-    [Symbol.iterator]() {
-        return this.values();
-    }
+function markReady(
+    harness: ReturnType<typeof createHarness>,
+    fence: IDocumentOpenSurfaceRenderFence,
+) {
+    expect(harness.openSurface.markReady(fence)).toBe(true);
 }
 
 describe('usePdfViewerLoadingState', () => {
-    let triggerObservedMutation: (() => void) | null = null;
+    it('hides the loading overlay after a failed load leaves no document', () => {
+        const harness = createHarness();
+        harness.pdfDocument.value = null;
 
-    function createRenderedCanvas(size = 100) {
-        return {
-            height: size,
-            isConnected: true,
-            width: size,
-        } as HTMLCanvasElement;
-    }
-
-    function createViewerContainer() {
-        const container: HTMLElement = Object.create(null);
-        Object.defineProperty(container, 'querySelectorAll', {
-            configurable: true,
-            value: () => new TestNodeList<Element>([]),
-        });
-        return container;
-    }
-
-    function createCanvasNodeList(canvas: HTMLCanvasElement) {
-        return new TestNodeList<Element>([canvas]);
-    }
-
-    beforeEach(() => {
-        vi.unstubAllGlobals();
-        vi.stubGlobal('MutationObserver', class {
-            constructor(callback: () => void) {
-                triggerObservedMutation = callback;
-            }
-
-            observe() {}
-            disconnect() {}
-        });
-        vi.stubGlobal('document', { createElement: createViewerContainer });
+        expect(harness.state.isViewerLoadingOverlayVisible.value).toBe(false);
+        harness.scope.stop();
     });
 
-    it('hides the loading overlay after a failed load leaves no document to render', async () => {
-        const scope = effectScope();
-        try {
-            const state = scope.run(() => {
-                const src = computed(() =>
-                    new Blob([new Uint8Array([1])], { type: 'application/pdf' }),
-                );
-                const isLoading = ref(false);
-                const pdfDocument = shallowRef<PDFDocumentProxy | null>(null);
-                const viewerContainer = ref<HTMLElement | null>(document.createElement('div'));
+    it('accepts only the current generation and revision committed by the open surface', () => {
+        const harness = createHarness();
+        const staleGeneration = beginSurface(harness, 'load:1');
+        const staleFence = commitPage(harness, staleGeneration, 'load:1', 1);
+        const currentGeneration = beginSurface(harness, 'load:2');
 
-                return usePdfViewerLoadingState({
-                    src,
-                    isLoading,
-                    pdfDocument,
-                    viewerContainer,
-                });
-            });
+        expect(harness.openSurface.markReady(staleFence)).toBe(false);
+        expect(harness.state.isViewerLoadingOverlayVisible.value).toBe(true);
 
-            expect(state).toBeTruthy();
-            await nextTick();
-
-            expect(state?.isViewerLoadingOverlayVisible.value).toBe(false);
-        } finally {
-            scope.stop();
-        }
+        const currentFence = commitPage(harness, currentGeneration, 'load:2', 1, 2);
+        markReady(harness, currentFence);
+        expect(harness.state.isViewerLoadingOverlayVisible.value).toBe(false);
+        harness.scope.stop();
     });
 
-    it('keeps the loading overlay visible until the loaded document paints its first canvas', async () => {
-        const scope = effectScope();
-        try {
-            const state = scope.run(() => {
-                const src = computed(() =>
-                    new Blob([new Uint8Array([1])], { type: 'application/pdf' }),
-                );
-                const isLoading = ref(false);
-                const pdfDocument = shallowRef<PDFDocumentProxy | null>({} as PDFDocumentProxy);
-                const viewerContainer = ref<HTMLElement | null>(document.createElement('div'));
+    it('waits for the current page when early navigation supersedes the opening page', () => {
+        const harness = createHarness();
+        const generation = beginSurface(harness, 'load:1');
+        expect(harness.openSurface.requestNavigation(2, 0)).not.toBeNull();
+        harness.currentPage.value = 2;
 
-                return usePdfViewerLoadingState({
-                    src,
-                    isLoading,
-                    pdfDocument,
-                    viewerContainer,
-                });
-            });
+        expect(harness.openSurface.createRenderFence({
+            generation,
+            documentRevision: 'load:1',
+            renderVersion: 1,
+            requestId: 1,
+            pageNumber: 1,
+        })).toBeNull();
+        expect(harness.state.isViewerLoadingOverlayVisible.value).toBe(true);
 
-            expect(state).toBeTruthy();
-            await nextTick();
-
-            expect(state?.isViewerLoadingOverlayVisible.value).toBe(true);
-        } finally {
-            scope.stop();
-        }
+        const currentFence = commitPage(harness, generation, 'load:1', 2, 2);
+        markReady(harness, currentFence);
+        expect(harness.state.isViewerLoadingOverlayVisible.value).toBe(false);
+        harness.scope.stop();
     });
 
-    it('hides the loading overlay only after the first nonzero rendered canvas appears', async () => {
-        const scope = effectScope();
-        try {
-            let renderedCanvasSize: number | null = null;
-            const container = document.createElement('div');
-            const querySelector = vi
-                .spyOn(container, 'querySelectorAll')
-                .mockImplementation(() => (
-                    renderedCanvasSize === null
-                        ? new TestNodeList<Element>([])
-                        : createCanvasNodeList(createRenderedCanvas(renderedCanvasSize))
-                ));
+    it('becomes pending again when navigation advances beyond the committed page', () => {
+        const harness = createHarness();
+        const generation = beginSurface(harness, 'load:1');
+        markReady(harness, commitPage(harness, generation, 'load:1', 1));
+        expect(harness.state.isViewerLoadingOverlayVisible.value).toBe(false);
 
-            const state = scope.run(() => {
-                const src = computed(() =>
-                    new Blob([new Uint8Array([1])], { type: 'application/pdf' }),
-                );
-                const isLoading = ref(false);
-                const pdfDocument = shallowRef<PDFDocumentProxy | null>({} as PDFDocumentProxy);
-                const viewerContainer = ref<HTMLElement | null>(container);
+        expect(harness.openSurface.requestNavigation(2, 0)).not.toBeNull();
+        harness.currentPage.value = 2;
+        expect(harness.state.isViewerLoadingOverlayVisible.value).toBe(true);
 
-                return usePdfViewerLoadingState({
-                    src,
-                    isLoading,
-                    pdfDocument,
-                    viewerContainer,
-                });
-            });
-
-            expect(state).toBeTruthy();
-            await nextTick();
-            expect(state?.isViewerLoadingOverlayVisible.value).toBe(true);
-
-            renderedCanvasSize = 0;
-            triggerObservedMutation?.();
-            await nextTick();
-            expect(state?.isViewerLoadingOverlayVisible.value).toBe(true);
-
-            renderedCanvasSize = 100;
-            triggerObservedMutation?.();
-            await nextTick();
-
-            expect(querySelector).toHaveBeenCalledWith('.page_container--rendered .page_canvas canvas');
-            expect(state?.isViewerLoadingOverlayVisible.value).toBe(false);
-        } finally {
-            scope.stop();
-        }
-    });
-
-    it('restores the loading overlay for a direct source replacement until the new document paints', async () => {
-        const scope = effectScope();
-        try {
-            let hasRenderedCanvas = true;
-            const container = document.createElement('div');
-            vi.spyOn(container, 'querySelectorAll')
-                .mockImplementation(() => (
-                    hasRenderedCanvas
-                        ? createCanvasNodeList(createRenderedCanvas())
-                        : new TestNodeList<Element>([])
-                ));
-            const sourceA = new Blob([new Uint8Array([1])], {type: 'application/pdf'});
-            const sourceB = new Blob([new Uint8Array([2])], {type: 'application/pdf'});
-            const documentA = {} as PDFDocumentProxy;
-            const documentB = {} as PDFDocumentProxy;
-            const src = shallowRef(sourceA);
-            const pdfDocument = shallowRef<PDFDocumentProxy | null>(documentA);
-
-            const state = scope.run(() => usePdfViewerLoadingState({
-                src: computed(() => src.value),
-                isLoading: ref(false),
-                pdfDocument,
-                viewerContainer: ref<HTMLElement | null>(container),
-            }));
-
-            await nextTick();
-            expect(state?.isViewerLoadingOverlayVisible.value).toBe(false);
-
-            src.value = sourceB;
-            await nextTick();
-            expect(state?.isViewerLoadingOverlayVisible.value).toBe(true);
-
-            hasRenderedCanvas = false;
-            pdfDocument.value = documentB;
-            await nextTick();
-            expect(state?.isViewerLoadingOverlayVisible.value).toBe(true);
-
-            hasRenderedCanvas = true;
-            triggerObservedMutation?.();
-            await nextTick();
-            expect(state?.isViewerLoadingOverlayVisible.value).toBe(false);
-        } finally {
-            scope.stop();
-        }
+        markReady(harness, commitPage(harness, generation, 'load:1', 2, 2));
+        expect(harness.state.isViewerLoadingOverlayVisible.value).toBe(false);
+        harness.scope.stop();
     });
 });

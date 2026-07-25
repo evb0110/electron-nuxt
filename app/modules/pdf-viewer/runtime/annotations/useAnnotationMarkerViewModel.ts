@@ -12,7 +12,7 @@ import { resolveDetachedMarkerPlacement } from '@app/modules/pdf-viewer/engine/a
 import { normalizeMarkerRect } from '@app/modules/pdf-viewer/engine/annotation-geometry/normalizeMarkerRect';
 import type { IDetachedMarkerOccupied } from '@app/modules/pdf-viewer/engine/annotations/annotation-marker-geometry/annotationMarkerGeometryTypes';
 import { FOCUS_PULSE_MS } from '@app/constants/timeouts';
-import { annotationIdForSummary } from '@app/modules/pdf-viewer/annotations/domain/annotationSummaryIdentity';
+import { annotationIdForSummary } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationSummaryIdentity';
 
 interface IUseAnnotationMarkerViewModelOptions {
     viewerContainer: Ref<HTMLElement | null>;

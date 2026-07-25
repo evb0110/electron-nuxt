@@ -27,6 +27,7 @@ const {
     pathToFileURL(resolve(process.cwd(), 'scripts/architecture/boundary-check.mjs')).href
 );
 const {
+    ANNOTATION_GRAPH_SCAN_ROOTS,
     ANNOTATION_LATE_BOUND_EDGES,
     checkAnnotationDependencyEdge,
     checkAnnotationDependencyGraph,
@@ -56,6 +57,19 @@ describe('dependency graph', () => {
         });
 
         expect(graph.nodes.map((node: { file: string }) => node.file)).toEqual(['packages/release-selection/index.ts']);
+    });
+
+    it('accepts a source file as a configured root', async () => {
+        const projectRoot = await mkdtemp(join(tmpdir(), 'evb-dep-graph-'));
+        await mkdir(join(projectRoot, 'app'), { recursive: true });
+        await writeFile(join(projectRoot, 'app/session.ts'), 'export const session = true;\n');
+
+        const graph = await buildDependencyGraph({
+            projectRoot,
+            roots: ['app/session.ts'],
+        });
+
+        expect(graph.nodes.map((node: { file: string }) => node.file)).toEqual(['app/session.ts']);
     });
 
     it('ignores generated Vercel output when scanning all architecture roots', async () => {
@@ -814,7 +828,7 @@ describe('dependency graph', () => {
         )).toEqual([]);
 
         expect(checkArchitectureBoundarySource(
-            'app/modules/pdf-viewer/runtime/annotations/useAnnotationEditorBridge.ts',
+            'app/modules/pdf-viewer/annotations/bridge/pdfjs-runtime/useAnnotationEditorBridge.ts',
             'annotationStorage.onSetModified = handler;',
         )).toEqual([]);
     });
@@ -822,16 +836,7 @@ describe('dependency graph', () => {
     it('keeps the annotation dependency graph explicit and acyclic', async () => {
         const graph = await buildDependencyGraph({
             projectRoot: process.cwd(),
-            roots: [
-                'app/modules/pdf-viewer/runtime/annotations',
-                'app/modules/pdf-viewer/annotations',
-                'app/modules/pdf-viewer/tools',
-                'app/modules/pdf-viewer/runtime/save',
-                'app/modules/pdf-viewer/engine/annotations',
-                'app/modules/pdf-viewer/engine/pdf-serialization-comments',
-                'app/modules/pdf-viewer/engine/pdf-serialization-operations',
-                'app/modules/pdf-viewer/engine/serialization',
-            ],
+            roots: ANNOTATION_GRAPH_SCAN_ROOTS,
         });
         const result = checkAnnotationDependencyGraph(graph, { includeDirectEdgeViolations: true });
 
@@ -844,13 +849,13 @@ describe('dependency graph', () => {
     it('blocks new hidden annotation runtime/tool crossings', () => {
         expect(checkAnnotationDependencyEdge({
             source: 'app/modules/pdf-viewer/tools/usePdfShapeTool.ts',
-            target: 'app/modules/pdf-viewer/runtime/annotations/useAnnotationCrud.ts',
-            specifier: '@app/modules/pdf-viewer/runtime/annotations/useAnnotationCrud',
+            target: 'app/modules/pdf-viewer/runtime/annotations/fixtureRuntime.ts',
+            specifier: '@app/modules/pdf-viewer/annotations/bridge/pdfjs-runtime/useAnnotationCrud',
         })).toEqual([{
             rule: 'annotation-tools-to-runtime',
             source: 'app/modules/pdf-viewer/tools/usePdfShapeTool.ts',
-            target: 'app/modules/pdf-viewer/runtime/annotations/useAnnotationCrud.ts',
-            specifier: '@app/modules/pdf-viewer/runtime/annotations/useAnnotationCrud',
+            target: 'app/modules/pdf-viewer/runtime/annotations/fixtureRuntime.ts',
+            specifier: '@app/modules/pdf-viewer/annotations/bridge/pdfjs-runtime/useAnnotationCrud',
             message: 'PDF annotation tools must not import runtime annotation composables; share pure helpers through engine/types ports.',
         }]);
 
@@ -882,13 +887,13 @@ describe('dependency graph', () => {
     it('reports annotation cycle paths for negative fixtures', () => {
         const fixtureGraph = { edges: [
             {
-                source: 'app/modules/pdf-viewer/runtime/annotations/useAnnotationCrud.ts',
-                target: 'app/modules/pdf-viewer/runtime/annotations/useAnnotationHighlight.ts',
+                source: 'app/modules/pdf-viewer/annotations/bridge/pdfjs-runtime/useAnnotationCrud.ts',
+                target: 'app/modules/pdf-viewer/annotations/bridge/pdfjs-runtime/useAnnotationHighlight.ts',
                 specifier: 'fixture-crud-to-highlight',
             },
             {
-                source: 'app/modules/pdf-viewer/runtime/annotations/useAnnotationHighlight.ts',
-                target: 'app/modules/pdf-viewer/runtime/annotations/useAnnotationCrud.ts',
+                source: 'app/modules/pdf-viewer/annotations/bridge/pdfjs-runtime/useAnnotationHighlight.ts',
+                target: 'app/modules/pdf-viewer/annotations/bridge/pdfjs-runtime/useAnnotationCrud.ts',
                 specifier: 'fixture-highlight-to-crud',
             },
         ] };
@@ -896,10 +901,10 @@ describe('dependency graph', () => {
 
         expect(result.violations).toEqual([{
             rule: 'annotation-dependency-cycle',
-            source: 'app/modules/pdf-viewer/runtime/annotations/useAnnotationCrud.ts',
-            target: 'app/modules/pdf-viewer/runtime/annotations/useAnnotationHighlight.ts',
+            source: 'app/modules/pdf-viewer/annotations/bridge/pdfjs-runtime/useAnnotationCrud.ts',
+            target: 'app/modules/pdf-viewer/annotations/bridge/pdfjs-runtime/useAnnotationHighlight.ts',
             specifier: 'direct import / late-bound annotation dependency graph',
-            message: 'Disallowed annotation dependency cycle: app/modules/pdf-viewer/runtime/annotations/useAnnotationCrud.ts -> app/modules/pdf-viewer/runtime/annotations/useAnnotationHighlight.ts -> app/modules/pdf-viewer/runtime/annotations/useAnnotationCrud.ts',
+            message: 'Disallowed annotation dependency cycle: app/modules/pdf-viewer/annotations/bridge/pdfjs-runtime/useAnnotationCrud.ts -> app/modules/pdf-viewer/annotations/bridge/pdfjs-runtime/useAnnotationHighlight.ts -> app/modules/pdf-viewer/annotations/bridge/pdfjs-runtime/useAnnotationCrud.ts',
         }]);
     });
 });

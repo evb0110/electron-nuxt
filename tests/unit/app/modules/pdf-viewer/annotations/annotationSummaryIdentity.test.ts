@@ -6,7 +6,7 @@ import {
 import {
     annotationCommentsMatch,
     dedupeAnnotationCommentSummaries,
-} from '@app/modules/pdf-viewer/annotations/domain/annotationSummaryIdentity';
+} from '@app/modules/pdf-viewer/engine/annotations/domain/annotationSummaryIdentity';
 import type { IAnnotationCommentSummary } from '@app/types/annotations';
 
 function summary(overrides: Partial<IAnnotationCommentSummary> = {}): IAnnotationCommentSummary {

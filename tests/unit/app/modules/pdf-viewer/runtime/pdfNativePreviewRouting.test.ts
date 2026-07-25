@@ -7,7 +7,7 @@ import {
     PDFJS_NATIVE_PREVIEW_MIN_BYTES,
     isPathPdfSource,
     shouldUseNativePdfPreview,
-} from '@app/modules/pdf-viewer/runtime/pdfNativePreviewRouting';
+} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfNativePreviewRouting';
 
 describe('pdfNativePreviewRouting', () => {
     it('routes only oversized desktop path-backed PDFs to native preview', () => {

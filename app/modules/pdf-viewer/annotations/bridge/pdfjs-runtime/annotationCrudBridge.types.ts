@@ -11,7 +11,9 @@ import type {
 import type { IPdfjsEditor } from '@app/types/pdfjs';
 import type { PDFDocumentProxy } from '@app/types/pdfContracts';
 import type { IAnnotationContextMenuPayload } from '@app/modules/pdf-viewer/engine/annotationContextMenuPayload';
-import type { IPdfAnnotationRenderingPort } from '@app/modules/pdf-viewer/runtime/annotations/createAttachablePdfAnnotationRenderingPort';
+import type { IRenderVisiblePagesOptions } from '@app/modules/pdf-viewer/runtime/rendering/pdfRendererTypes';
+import type { IPageRange } from '@app/types/pdfUi';
+import type { ITextMarkupPresentationController } from '@app/modules/pdf-viewer/runtime/annotations/useTextMarkupPresentationController';
 
 export interface ICrudIdentity {
     resolveCommentFromCache: (comment: IAnnotationCommentSummary) => IAnnotationCommentSummary | null;
@@ -40,14 +42,11 @@ export interface ICrudSync {
 
 export interface ICrudFreeTextResize {ensureFreeTextEditorCanResize: (editor: IPdfjsEditor) => void;}
 
-export interface ICrudToolManager {
-    updateModeWithRetry: (
-        uiManager: AnnotationEditorUIManager,
-        mode: Parameters<AnnotationEditorUIManager['updateMode']>[0],
-        pageNumber?: number,
-    ) => Promise<unknown>;
-    clearMarkupSubtypeEditorClass?: (editor: IPdfjsEditor) => void;
-}
+export interface ICrudToolManager {updateModeWithRetry: (
+    uiManager: AnnotationEditorUIManager,
+    mode: Parameters<AnnotationEditorUIManager['updateMode']>[0],
+    pageNumber?: number,
+) => Promise<unknown>;}
 
 export interface ICrudInlineIndicators {
     debouncedSyncInlineCommentIndicators: () => void;
@@ -92,6 +91,7 @@ export interface IUseAnnotationCrudOptions {
     getToolManager: () => ICrudToolManager;
     getInlineIndicators: () => ICrudInlineIndicators;
     getHighlight: () => ICrudHighlight;
+    textMarkupPresentation: ITextMarkupPresentationController;
     scrollToPage: (
         pageNumber: number,
         options?: {
@@ -99,7 +99,13 @@ export interface IUseAnnotationCrudOptions {
             preferExactDom?: boolean;
         },
     ) => void;
-    renderVisiblePages: IPdfAnnotationRenderingPort['renderVisiblePages'];
+    renderVisiblePages: (
+        range: IPageRange,
+        options?: Pick<
+            IRenderVisiblePagesOptions,
+            'preserveRenderedPages' | 'forceRerender' | 'bufferOverride'
+        >,
+    ) => Promise<void>;
     updateVisibleRange: (container: HTMLElement | null, numPages: number) => void;
     emitAnnotationModified: () => void;
     emitAnnotationOpenNote: (comment: IAnnotationCommentSummary) => void;

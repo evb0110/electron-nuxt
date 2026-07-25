@@ -46,6 +46,7 @@
                 </template>
                     <PdfThumbnails
                         :pdf-document="pdfDocument"
+                        :raster-scheduler="rasterScheduler"
                         :current-page="currentPage"
                         :total-pages="totalPages"
                         :page-labels="pageLabels"
@@ -128,11 +129,13 @@ import AppSidebarShell from '@app/components/sidebar/AppSidebarShell.vue';
 import DocumentSidebarPagesPanel from '@app/components/document-viewer/DocumentSidebarPagesPanel.vue';
 import {useDocumentSidebarCapabilitySession} from '@app/utils/document-viewer/sidebar/useDocumentSidebarCapabilitySession';
 import { createPdfDocumentSearchSession } from '@app/modules/pdf-viewer/search/createPdfDocumentSearchSession';
+import type { IPdfPageRasterScheduler } from '@app/modules/pdf-viewer/engine/pdf-page-raster-scheduler/pdfPageRasterScheduler';
 
 interface IProps {
     isOpen: boolean;
     isResizing?: boolean | undefined;
     pdfDocument: PDFDocumentProxy | null;
+    rasterScheduler: IPdfPageRasterScheduler | null;
     currentPage: number;
     totalPages: number;
     pageLabels?: string[] | null | undefined;

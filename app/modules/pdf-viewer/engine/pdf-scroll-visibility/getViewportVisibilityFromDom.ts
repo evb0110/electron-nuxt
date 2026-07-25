@@ -4,6 +4,14 @@ import type {
     IViewportVisibilityResult,
     IVisiblePageRange,
 } from '@app/modules/pdf-viewer/engine/pdf-scroll-visibility/pdfScrollVisibilityTypes';
+import type { IPdfPageLayoutMetrics } from '@app/modules/pdf-viewer/engine/pdf-page-layout/pdfPageLayoutMetrics';
+import {
+    getLayoutPageHeight,
+    getLayoutPageTop as getResolvedLayoutPageTop,
+    getLayoutPageWidth,
+    getLayoutRowHeight,
+    getLayoutRowTop as getResolvedLayoutRowTop,
+} from '@app/modules/pdf-viewer/engine/pdf-page-layout/pdfPageLayoutMetrics';
 
 interface IVisiblePageMetrics {
     range: IVisiblePageRange | null;
@@ -39,6 +47,153 @@ export function getViewportIntersectionLength(
     viewportEnd: number,
 ) {
     return Math.max(0, Math.min(end, viewportEnd) - Math.max(start, viewportStart));
+}
+
+function getLayoutPageTop(metrics: IPdfPageLayoutMetrics, index: number) {
+    return Math.max(0, (getResolvedLayoutPageTop(metrics, index) ?? 0) - metrics.paddingTop);
+}
+
+function getLayoutRowTop(metrics: IPdfPageLayoutMetrics, rowIndex: number) {
+    return Math.max(0, getResolvedLayoutRowTop(metrics, rowIndex) - metrics.paddingTop);
+}
+
+function getLayoutRowBottom(metrics: IPdfPageLayoutMetrics, rowIndex: number) {
+    return getLayoutRowTop(metrics, rowIndex) + getLayoutRowHeight(metrics, rowIndex);
+}
+
+function getLayoutRowWidth(metrics: IPdfPageLayoutMetrics, rowIndex: number) {
+    const rowStartPage = metrics.base.rowStartPages[rowIndex] ?? 1;
+    const rowEndPage = metrics.base.rowEndPages[rowIndex] ?? rowStartPage;
+    let width = 0;
+    for (let pageNumber = rowStartPage; pageNumber <= rowEndPage; pageNumber += 1) {
+        width += getLayoutPageWidth(metrics, pageNumber - 1);
+    }
+    return width;
+}
+
+function getLayoutPageLeft(metrics: IPdfPageLayoutMetrics, index: number, containerWidth: number) {
+    const rowIndex = metrics.base.pageRowIndices[index] ?? 0;
+    const rowStartPage = metrics.base.rowStartPages[rowIndex] ?? index + 1;
+    let pageLeft = Math.max(0, (containerWidth - getLayoutRowWidth(metrics, rowIndex)) / 2);
+    for (let pageNumber = rowStartPage; pageNumber < index + 1; pageNumber += 1) {
+        pageLeft += getLayoutPageWidth(metrics, pageNumber - 1);
+    }
+    return pageLeft;
+}
+
+function findFirstVisibleLayoutRowIndex(metrics: IPdfPageLayoutMetrics, viewportTop: number) {
+    let low = 0;
+    let high = metrics.base.rowHeights.length - 1;
+    let result = -1;
+    while (low <= high) {
+        const mid = low + Math.floor((high - low) / 2);
+        if (getLayoutRowBottom(metrics, mid) > viewportTop) {
+            result = mid;
+            high = mid - 1;
+        } else {
+            low = mid + 1;
+        }
+    }
+    return result;
+}
+
+function findLastVisibleLayoutRowIndex(metrics: IPdfPageLayoutMetrics, viewportBottom: number) {
+    let low = 0;
+    let high = metrics.base.rowHeights.length - 1;
+    let result = -1;
+    while (low <= high) {
+        const mid = low + Math.floor((high - low) / 2);
+        if (getLayoutRowTop(metrics, mid) < viewportBottom) {
+            result = mid;
+            low = mid + 1;
+        } else {
+            high = mid - 1;
+        }
+    }
+    return result;
+}
+
+export function getViewportVisibilityFromLayout(
+    container: HTMLElement,
+    totalPages: number,
+    metrics: IPdfPageLayoutMetrics | null,
+): IViewportVisibilityResult | null {
+    if (!metrics || metrics.base.totalPages !== totalPages) {
+        return null;
+    }
+    const viewportTop = Math.max(0, container.scrollTop - metrics.paddingTop);
+    const viewportBottom = viewportTop + container.clientHeight;
+    const layoutPageCount = Math.min(
+        totalPages,
+        metrics.base.pageRowIndices.length,
+        metrics.base.pageHeights.length,
+    );
+    if (layoutPageCount <= 0) {
+        return null;
+    }
+    const firstVisibleRowIndex = findFirstVisibleLayoutRowIndex(metrics, viewportTop);
+    const lastVisibleRowIndex = findLastVisibleLayoutRowIndex(metrics, viewportBottom);
+    if (
+        firstVisibleRowIndex === -1
+        || lastVisibleRowIndex === -1
+        || lastVisibleRowIndex < firstVisibleRowIndex
+    ) {
+        return null;
+    }
+    const viewportLeft = Math.max(0, container.scrollLeft);
+    const viewportRight = viewportLeft + container.clientWidth;
+    let firstVisiblePage: number | null = null;
+    let lastVisiblePage: number | null = null;
+    let mostVisiblePage: number | null = null;
+    let maxVisibleArea = 0;
+    const firstVisibleIndex = clamp(
+        (metrics.base.rowStartPages[firstVisibleRowIndex] ?? 1) - 1,
+        0,
+        layoutPageCount - 1,
+    );
+    const lastVisibleIndex = clamp(
+        (metrics.base.rowEndPages[lastVisibleRowIndex] ?? layoutPageCount) - 1,
+        0,
+        layoutPageCount - 1,
+    );
+    for (let index = firstVisibleIndex; index <= lastVisibleIndex; index += 1) {
+        const pageTop = getLayoutPageTop(metrics, index);
+        const pageHeight = getLayoutPageHeight(metrics, index);
+        const pageLeft = getLayoutPageLeft(metrics, index, container.clientWidth);
+        const pageWidth = getLayoutPageWidth(metrics, index);
+        const visibleArea = getViewportIntersectionLength(
+            pageTop,
+            pageTop + pageHeight,
+            viewportTop,
+            viewportBottom,
+        ) * getViewportIntersectionLength(
+            pageLeft,
+            pageLeft + pageWidth,
+            viewportLeft,
+            viewportRight,
+        );
+        if (visibleArea <= 0) {
+            continue;
+        }
+        firstVisiblePage ??= index + 1;
+        lastVisiblePage = index + 1;
+        if (visibleArea > maxVisibleArea) {
+            maxVisibleArea = visibleArea;
+            mostVisiblePage = index + 1;
+        }
+    }
+    if (firstVisiblePage === null || lastVisiblePage === null) {
+        return null;
+    }
+    return {
+        range: {
+            start: clamp(firstVisiblePage, 1, totalPages),
+            end: clamp(lastVisiblePage, 1, totalPages),
+        },
+        mostVisiblePage: maxVisibleArea > 0 && mostVisiblePage !== null
+            ? clamp(mostVisiblePage, 1, totalPages)
+            : null,
+    };
 }
 
 function collectVisiblePageMetrics(container: HTMLElement): IVisiblePageMetrics {

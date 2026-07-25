@@ -1,7 +1,7 @@
 import type {
     AnnotationEntity,
     AnnotationId,
-} from '@app/modules/pdf-viewer/annotations/domain/annotationEntity';
+} from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
 import type { IAnnotationSaveFrontier } from '@app/modules/pdf-viewer/annotations/domain/annotationStore';
 import type {TAnnotationMutationOperation} from '@app/modules/pdf-viewer/engine/annotations/persistence/backendAnnotationMutation';
 import type {

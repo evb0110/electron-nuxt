@@ -49,7 +49,7 @@ describe('document search architecture boundaries', () => {
         const featurePack = read('app/modules/workspace-shell/components/DocumentPageSourceFeaturePack.vue');
 
         expect(featurePack).not.toContain('DocumentSourceSidebar');
-        expect(featurePack).toContain('\'update:pageSource\'');
+        expect(read('app/modules/workspace-shell/viewers/useDocumentPageSourceRuntime.ts')).toContain('\'update:pageSource\'');
     });
 
     it('projects workspace-owned source search geometry into inert page overlays', () => {

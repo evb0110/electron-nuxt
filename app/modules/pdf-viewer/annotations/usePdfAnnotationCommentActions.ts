@@ -1,6 +1,6 @@
 import type { Ref } from 'vue';
 import type { IAnnotationCommentSummary } from '@app/types/annotations';
-import { annotationIdForSummary } from '@app/modules/pdf-viewer/annotations/domain/annotationSummaryIdentity';
+import { annotationIdForSummary } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationSummaryIdentity';
 import type { usePdfAnnotationCommentModel } from '@app/modules/pdf-viewer/annotations/usePdfAnnotationCommentModel';
 import type { usePdfShapeTool } from '@app/modules/pdf-viewer/tools/public';
 import type { IPageRange } from '@app/types/pdfUi';

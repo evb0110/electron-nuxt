@@ -3,7 +3,7 @@ import {
     expect,
     it,
 } from 'vitest';
-import {asAnnotationId} from '@app/modules/pdf-viewer/annotations/domain/annotationEntity';
+import {asAnnotationId} from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
 import {AnnotationStore} from '@app/modules/pdf-viewer/annotations/domain/annotationStore';
 import {buildSerializationPlan} from '@app/modules/pdf-viewer/serialization/serializationPlan';
 import {requireDocumentRevisionToken} from '@contracts';

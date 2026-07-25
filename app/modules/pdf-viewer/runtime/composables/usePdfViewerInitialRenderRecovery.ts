@@ -58,7 +58,6 @@ interface IUsePdfViewerInitialRenderRecoveryOptions {
     syncCurrentPageFromViewport: (options?: ICurrentPageSyncOptions) => Promise<void>;
     transactionController?: IInitialRenderRecoveryTransactionController | undefined;
     isInitialCanvasCommitted?: (() => boolean) | undefined;
-    isInitialVisualCommitted?: (() => boolean) | undefined;
     onTerminalFailure?: ((error: Error) => void) | undefined;
 }
 
@@ -104,9 +103,6 @@ export const usePdfViewerInitialRenderRecovery = (
     function hasCommittedInitialCanvas() {
         if (options.isInitialCanvasCommitted) {
             return options.isInitialCanvasCommitted();
-        }
-        if (options.isInitialVisualCommitted) {
-            return options.isInitialVisualCommitted();
         }
         const container = options.viewerContainer.value;
         if (!container || options.numPages.value <= 0) {

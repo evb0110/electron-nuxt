@@ -39,12 +39,10 @@ export function createDocumentPageMetricPublication(
 
     return {
         clear,
-        dispose: clear,
         enqueue(pageNumber: number, metric: IDocumentPageMetrics) {
             pendingMetrics.set(pageNumber, metric);
             schedule.schedule();
         },
         flush,
-        hasPending: (pageNumber: number) => pendingMetrics.has(pageNumber),
     };
 }

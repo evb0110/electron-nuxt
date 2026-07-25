@@ -3,7 +3,7 @@ import type {
     IAnnotationMarkerRect,
 } from '@app/types/annotations';
 import type { IAnnotationContextMenuPayload } from '@app/modules/pdf-viewer/engine/annotationContextMenuPayload';
-import { annotationIdForSummary } from '@app/modules/pdf-viewer/annotations/domain/annotationSummaryIdentity';
+import { annotationIdForSummary } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationSummaryIdentity';
 
 interface IUsePdfViewerPortalAnnotationHandlersOptions {
     activeCommentStableKey: { value: string | null };

@@ -180,4 +180,52 @@ describe('useDocumentViewportLayoutLifecycle', () => {
         expect(viewport.scrollTop).toBe(640);
         scope.stop();
     });
+
+    it('does not let a stale transaction restore geometry after its successor begins', async () => {
+        const frames: FrameRequestCallback[] = [];
+        vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
+            frames.push(callback);
+            return frames.length;
+        });
+        const scope = effectScope();
+        const viewport = createViewport(120);
+        const viewerContainer = ref<HTMLElement | null>(viewport);
+        const pageLayouts = ref([
+            {
+                top: 0,
+                width: 100,
+                height: 100,
+            },
+            {
+                top: 120,
+                width: 100,
+                height: 100,
+            },
+        ]);
+        const writes: number[] = [];
+        const lifecycle = scope.run(() => useDocumentViewportLayoutLifecycle({
+            viewerContainer,
+            pageLayouts,
+            captureRestoreEpoch: () => 2,
+            canRestore: epoch => epoch === 2,
+            applyRestoredScroll: restored => {
+                viewport.scrollTop = restored.top;
+                writes.push(restored.top);
+            },
+        }));
+        if (!lifecycle) throw new Error('Failed to create viewport layout lifecycle');
+
+        const predecessor = lifecycle.beginLayoutTransaction();
+        viewport.scrollTop = 0;
+        const successor = lifecycle.beginLayoutTransaction();
+        await lifecycle.endLayoutTransaction(predecessor, false);
+        expect(writes).toEqual([]);
+
+        const endSuccessor = lifecycle.endLayoutTransaction(successor, true);
+        await vi.waitFor(() => expect(frames).toHaveLength(1));
+        frames.splice(0).forEach(callback => callback(0));
+        await endSuccessor;
+        expect(writes).not.toContain(120);
+        scope.stop();
+    });
 });

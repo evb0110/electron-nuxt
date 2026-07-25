@@ -180,14 +180,29 @@ async function collectNavigationControlState(session: IElectronE2ESession) {
 
 async function collectVisiblePageState(session: IElectronE2ESession) {
     return session.page.evaluate(() => {
-        const viewport = document.querySelector<HTMLElement>('.pdf-viewer-viewport, .pdfViewer, #pdf-viewer');
+        const activeHost = document.querySelector<HTMLElement>(
+            '.editor-pane.is-active .workspace-host[data-workspace-active="true"]',
+        ) ?? document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
+        const viewport = activeHost?.querySelector<HTMLElement>(
+            '.pdf-viewer-viewport, .pdfViewer, #pdf-viewer',
+        ) ?? null;
+        if (!activeHost || !viewport) {
+            return [];
+        }
         const viewportRect = viewport?.getBoundingClientRect() ?? {
             left: 0,
             right: window.innerWidth,
             top: 0,
             bottom: window.innerHeight,
         };
-        return Array.from(document.querySelectorAll<HTMLElement>('.page_container'))
+        return Array.from(activeHost.querySelectorAll<HTMLElement>('.page_container'))
+            .filter((container) => {
+                const rect = container.getBoundingClientRect();
+                return rect.bottom > viewportRect.top
+                    && rect.top < viewportRect.bottom
+                    && rect.right > viewportRect.left
+                    && rect.left < viewportRect.right;
+            })
             .map((container): IVisiblePageState => {
                 const rect = container.getBoundingClientRect();
                 const skeleton = container.querySelector<HTMLElement>('.document-page-skeleton');
@@ -222,12 +237,7 @@ async function collectVisiblePageState(session: IElectronE2ESession) {
                     topmost: topmost?.closest('.page_container') === container,
                 };
             })
-            .filter(page => {
-                const bottom = page.rectTop + page.rectHeight;
-                return page.computedVisible
-                    && bottom >= viewportRect.top
-                    && page.rectTop <= viewportRect.bottom;
-            });
+            .filter(page => page.computedVisible);
     });
 }
 
@@ -355,6 +365,66 @@ async function collectRapidNavigationDebug(session: IElectronE2ESession) {
             workspaceDebugState: probeWindow.__evbTestApi?.collectWorkspaceDebugState?.() ?? null,
         };
     });
+}
+
+async function collectRapidNavigationFrameSamples(session: IElectronE2ESession, durationMs = 1_000) {
+    return session.page.evaluate(async (duration) => {
+        const samples: unknown[] = [];
+        const startedAt = performance.now();
+        const collectPage = (activeHost: HTMLElement, pageNumber: number) => {
+            const page = activeHost.querySelector<HTMLElement>(
+                `.page_container[data-page="${String(pageNumber)}"]`,
+            );
+            const rect = page?.getBoundingClientRect() ?? null;
+            const canvas = page?.querySelector<HTMLCanvasElement>('.page_canvas canvas') ?? null;
+            return {
+                buffered: page?.classList.contains('page_container--buffered') ?? false,
+                canvasHeight: canvas?.height ?? 0,
+                canvasMounted: Boolean(canvas?.isConnected),
+                canvasWidth: canvas?.width ?? 0,
+                rect: rect ? {
+                    bottom: rect.bottom,
+                    height: rect.height,
+                    top: rect.top,
+                } : null,
+                rendered: page?.classList.contains('page_container--rendered') ?? false,
+            };
+        };
+        while (performance.now() - startedAt < duration) {
+            await new Promise<void>(resolve => window.requestAnimationFrame(() => resolve()));
+            const activeHost = document.querySelector<HTMLElement>(
+                '.editor-pane.is-active .workspace-host[data-workspace-active="true"]',
+            ) ?? document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
+            const viewport = activeHost?.querySelector<HTMLElement>('#pdf-viewer') ?? null;
+            const chassis = viewport?.closest<HTMLElement>('.document-viewer-chassis') ?? null;
+            samples.push({
+                chassis: chassis ? {
+                    committedPage: Number(chassis.dataset.viewportCommittedPage) || null,
+                    lifecycle: chassis.dataset.viewportLifecycle ?? null,
+                    requestedPage: Number(chassis.dataset.viewportRequestedPage) || null,
+                    stagedRenderPage: Number(chassis.dataset.viewportStagedRenderPage) || null,
+                    stagedViewportPage: Number(chassis.dataset.viewportStagedViewportPage) || null,
+                    visualPage: Number(chassis.dataset.viewportVisualPage) || null,
+                    visualPresentation: chassis.dataset.viewportVisualPresentation ?? null,
+                } : null,
+                elapsedMs: Math.round(performance.now() - startedAt),
+                page20: activeHost ? collectPage(activeHost, 20) : null,
+                page21: activeHost ? collectPage(activeHost, 21) : null,
+                toolbarPage: (window as IRapidNavigationProbeWindow)
+                    .__evbTestApi?.getActiveToolbarSnapshot?.()?.currentPage ?? null,
+                viewport: viewport ? {
+                    clientHeight: viewport.clientHeight,
+                    rect: {
+                        bottom: viewport.getBoundingClientRect().bottom,
+                        top: viewport.getBoundingClientRect().top,
+                    },
+                    scrollHeight: viewport.scrollHeight,
+                    scrollTop: viewport.scrollTop,
+                } : null,
+            });
+        }
+        return samples;
+    }, durationMs);
 }
 
 async function clickPageNavigationButton(session: IElectronE2ESession, label: string) {
@@ -1090,6 +1160,7 @@ describe('Electron E2E - PDF Page Jump Rendering', () => {
         let navigationControls: Awaited<ReturnType<typeof collectNavigationControlState>> | null = null;
         let rapidNavigationDebug: Awaited<ReturnType<typeof collectRapidNavigationDebug>> | null = null;
         let trace: IPdfRenderTraceEntry[] = [];
+        let frameSamples: Awaited<ReturnType<typeof collectRapidNavigationFrameSamples>> = [];
         let toolbarReachedTarget = false;
         let failureMessage: string | null = null;
 
@@ -1104,6 +1175,7 @@ describe('Electron E2E - PDF Page Jump Rendering', () => {
             toolbarReachedTarget = true;
 
             targetCanvasMounted = await waitForVisiblePageCanvas(session, 21, 14_000);
+            frameSamples = await collectRapidNavigationFrameSamples(session);
             await waitForAnimationFrames(session.page, 2);
             await waitForVisibleMountedPdfCanvases(session.page, 5_000);
             visiblePages = await collectVisiblePageState(session);
@@ -1130,6 +1202,7 @@ describe('Electron E2E - PDF Page Jump Rendering', () => {
                 pdfPath: pageJumpPdfPath,
                 scenario: 'toolbar-rapid-next-to-21',
                 failureMessage,
+                frameSamples,
                 navigationControls,
                 rapidNavigationDebug,
                 toolbarReachedTarget,

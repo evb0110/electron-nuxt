@@ -3,12 +3,12 @@ import {
     expect,
     it,
 } from 'vitest';
+import { createPdfOpenSurfaceViewportCallbacks } from '@app/modules/pdf-viewer/runtime/sessions/createPdfViewportSession';
 import {
-    commitPdfOpenSurfaceViewport,
-    createPdfOpenSurfaceViewportCallbacks,
-    shouldProjectPdfViewportCommitPage,
-} from '@app/modules/pdf-viewer/runtime/navigation/commitPdfOpenSurfaceViewport';
-import { createDocumentOpenSurfaceSession } from '@app/utils/document-viewer/chassis/documentOpenSurfaceSession';
+    commitDocumentOpenSurfaceViewport,
+    createDocumentOpenSurfaceSession,
+    shouldProjectDocumentViewportCommitPage,
+} from '@app/utils/document-viewer/chassis/documentOpenSurfaceSession';
 import type { IDocumentViewerChassisAuthority } from '@app/utils/document-viewer/chassis/documentViewerChassisAuthority';
 
 describe('commitPdfOpenSurfaceViewport', () => {
@@ -33,10 +33,7 @@ describe('commitPdfOpenSurfaceViewport', () => {
         expect(renderFence).not.toBeNull();
         expect(surface.commitCanvas(renderFence!)).toBe(true);
 
-        expect(commitPdfOpenSurfaceViewport(surface, {
-            intentId: 'viewport-observed-1',
-            intentKind: 'user-scroll',
-            documentRevision: 1,
+        expect(commitDocumentOpenSurfaceViewport(surface, {
             geometryRevision: 7,
             interactionEpoch: 0,
             page: 1,
@@ -62,10 +59,7 @@ describe('commitPdfOpenSurfaceViewport', () => {
         });
         surface.requestNavigation(2, 0);
 
-        expect(commitPdfOpenSurfaceViewport(surface, {
-            intentId: 'stale-pdf-intent',
-            intentKind: 'fit',
-            documentRevision: 1,
+        expect(commitDocumentOpenSurfaceViewport(surface, {
             geometryRevision: 7,
             interactionEpoch: 0,
             page: 1,
@@ -102,10 +96,7 @@ describe('commitPdfOpenSurfaceViewport', () => {
         expect(renderFence).not.toBeNull();
         expect(surface.commitCanvas(renderFence!)).toBe(true);
 
-        expect(commitPdfOpenSurfaceViewport(surface, {
-            intentId: 'viewport-observed-2',
-            intentKind: 'user-scroll',
-            documentRevision: 2,
+        expect(commitDocumentOpenSurfaceViewport(surface, {
             geometryRevision: 8,
             interactionEpoch: 0,
             page: 1,
@@ -132,18 +123,7 @@ describe('commitPdfOpenSurfaceViewport', () => {
             top: 0,
         } as const;
 
-        expect(shouldProjectPdfViewportCommitPage(surface, {
-            ...baseCommit,
-            intentKind: 'fit',
-        })).toBe(false);
-        expect(shouldProjectPdfViewportCommitPage(surface, {
-            ...baseCommit,
-            intentKind: 'user-scroll',
-        })).toBe(false);
-        expect(shouldProjectPdfViewportCommitPage(surface, {
-            ...baseCommit,
-            intentKind: 'navigate',
-        })).toBe(false);
+        expect(shouldProjectDocumentViewportCommitPage(surface, baseCommit)).toBe(false);
     });
 
     it('rejects a stale requested-page geometry echo after free scrolling changes the semantic page', () => {
@@ -194,14 +174,7 @@ describe('commitPdfOpenSurfaceViewport', () => {
             left: 0,
             top: 0,
         } as const;
-        expect(shouldProjectPdfViewportCommitPage(surface, {
-            ...stalePageOneCommit,
-            intentKind: 'fit',
-        })).toBe(false);
-        expect(shouldProjectPdfViewportCommitPage(surface, {
-            ...stalePageOneCommit,
-            intentKind: 'navigate',
-        })).toBe(false);
+        expect(shouldProjectDocumentViewportCommitPage(surface, stalePageOneCommit)).toBe(false);
     });
 
     it('does not let a late PDF navigation commit supersede a newer shared command', () => {

@@ -35,7 +35,8 @@ export const useDocumentViewportLayoutLifecycle = (
     let retainedAnchor: IDocumentZoomAnchor | null = null;
     let dragAnchor: IDocumentZoomAnchor | null = null;
     let layoutTransactionAnchor: IDocumentZoomAnchor | null = null;
-    let layoutTransactionDepth = 0;
+    let activeLayoutTransaction: number | null = null;
+    let nextLayoutTransaction = 0;
     let transitionGeneration = 0;
     let pendingRestore: {
         anchor: IDocumentZoomAnchor | null;
@@ -116,36 +117,38 @@ export const useDocumentViewportLayoutLifecycle = (
     };
 
     const beginLayoutTransaction = () => {
-        layoutTransactionDepth += 1;
-        if (layoutTransactionDepth === 1) {
-            layoutTransactionAnchor = captureCurrentAnchor();
-        }
+        activeLayoutTransaction = ++nextLayoutTransaction;
+        layoutTransactionAnchor = captureCurrentAnchor();
+        return activeLayoutTransaction;
     };
 
     const refreshLayoutTransactionAnchor = () => {
         const anchor = captureCurrentAnchor();
         retainedAnchor = anchor;
-        if (layoutTransactionDepth > 0) {
+        if (activeLayoutTransaction !== null) {
             layoutTransactionAnchor = anchor;
         }
     };
 
-    const endLayoutTransaction = async () => {
-        if (layoutTransactionDepth === 0) {
+    const endLayoutTransaction = async (
+        transaction = activeLayoutTransaction,
+        restore = true,
+    ) => {
+        if (transaction === null || activeLayoutTransaction !== transaction) {
             return;
         }
-        layoutTransactionDepth -= 1;
-        if (layoutTransactionDepth > 0) {
+        activeLayoutTransaction = null;
+        const anchor = layoutTransactionAnchor;
+        layoutTransactionAnchor = null;
+        if (!restore) {
             return;
         }
         const epoch = options.captureRestoreEpoch();
-        const anchor = layoutTransactionAnchor;
         await nextTick();
         applyAnchor(anchor, epoch);
         await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
         applyAnchor(anchor, epoch);
         retainedAnchor = anchor;
-        layoutTransactionAnchor = null;
     };
 
     if (options.isResizing) {

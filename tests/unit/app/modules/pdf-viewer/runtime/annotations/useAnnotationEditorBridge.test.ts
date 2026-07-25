@@ -129,9 +129,6 @@ interface IMarkupSubtypeHarness {
     resolveEditorMarkupSubtypeOverride: (e: IPdfjsEditor, pi: number) => TMarkupSubtype | null;
     resolveEditorSubtypeFromPresentation: (e: IPdfjsEditor) => TMarkupSubtype | null;
     setEditorMarkupSubtypeOverride: (e: IPdfjsEditor, pi: number, s: TMarkupSubtype) => void;
-    clearMarkupSubtypeEditorClass: (e: IPdfjsEditor) => void;
-    applyEditorMarkupSubtypePresentation: (e: IPdfjsEditor, s: TMarkupSubtype | null) => void;
-    syncMarkupSubtypePresentationForEditors: () => void;
     clearOverrides: () => void;
 }
 
@@ -142,7 +139,7 @@ async function createBridgeHarness(
         markupSubtype?: Partial<IMarkupSubtypeHarness>;
     },
 ) {
-    const { useAnnotationEditorBridge } = await import('@app/modules/pdf-viewer/runtime/annotations/useAnnotationEditorBridge');
+    const { useAnnotationEditorBridge } = await import('@app/modules/pdf-viewer/annotations/bridge/pdfjs-runtime/useAnnotationEditorBridge');
     const container = document.createElement('div');
     document.body.append(container);
 
@@ -165,6 +162,7 @@ async function createBridgeHarness(
     });
     const scheduleAnnotationCommentsSync = vi.fn();
     const markupSubtype = createMarkupSubtypeHarness(options?.markupSubtype);
+    const textMarkupPresentation = {notify: vi.fn()};
 
     const bridge = useAnnotationEditorBridge({
         viewerContainer: ref(container),
@@ -205,6 +203,7 @@ async function createBridgeHarness(
         emitAnnotationState,
         emitAnnotationOpenNote,
         recordPdfjsExecutorCommand,
+        textMarkupPresentation,
     });
 
     bridge.initAnnotationEditor();
@@ -224,6 +223,7 @@ async function createBridgeHarness(
         markupSubtype,
         recordPdfjsExecutorCommand,
         scheduleAnnotationCommentsSync,
+        textMarkupPresentation,
         uiManager,
         eventBus,
     };
@@ -237,9 +237,6 @@ function createMarkupSubtypeHarness(overrides?: Partial<IMarkupSubtypeHarness>) 
         resolveEditorMarkupSubtypeOverride: vi.fn<IMarkupSubtypeHarness['resolveEditorMarkupSubtypeOverride']>(() => null),
         resolveEditorSubtypeFromPresentation: vi.fn<IMarkupSubtypeHarness['resolveEditorSubtypeFromPresentation']>(() => null),
         setEditorMarkupSubtypeOverride: vi.fn<IMarkupSubtypeHarness['setEditorMarkupSubtypeOverride']>(),
-        clearMarkupSubtypeEditorClass: vi.fn<IMarkupSubtypeHarness['clearMarkupSubtypeEditorClass']>(),
-        applyEditorMarkupSubtypePresentation: vi.fn<IMarkupSubtypeHarness['applyEditorMarkupSubtypePresentation']>(),
-        syncMarkupSubtypePresentationForEditors: vi.fn<IMarkupSubtypeHarness['syncMarkupSubtypePresentationForEditors']>(),
         clearOverrides: vi.fn<IMarkupSubtypeHarness['clearOverrides']>(),
         ...overrides,
     };
@@ -366,14 +363,11 @@ describe('useAnnotationEditorBridge', () => {
 
         uiManager.addToAnnotationStorage(editor);
 
-        const applyPresentation = vi.mocked(markupSubtype.applyEditorMarkupSubtypePresentation);
         expect(markupSubtype.setEditorMarkupSubtypeOverride).not.toHaveBeenCalled();
-        expect(applyPresentation.mock.calls.map(call => call[1])).not.toContain('Underline');
     });
 
     it('keeps new text markup creation out of the parallel PDF.js undo stack', async () => {
         const {
-            markupSubtype,
             recordPdfjsExecutorCommand,
             uiManager,
         } = await createBridgeHarness('underline', { markupSubtype: { toolToMarkupSubtype: { underline: 'Underline' } } });
@@ -403,7 +397,6 @@ describe('useAnnotationEditorBridge', () => {
         expect(editor.annotationElementId).toBe('generated-annotation-id');
         expect(remove).not.toHaveBeenCalled();
         expect(rebuild).not.toHaveBeenCalled();
-        expect(markupSubtype.clearMarkupSubtypeEditorClass).not.toHaveBeenCalled();
     });
 
     it('syncs annotation mutation state after deleting through the UI manager', async () => {

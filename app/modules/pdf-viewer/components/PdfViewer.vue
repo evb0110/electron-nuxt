@@ -100,23 +100,21 @@ import type {
     IPdfViewerEmit,
 } from '@app/modules/pdf-viewer/runtime/contracts/pdfViewerComponent.types';
 import { usePdfViewerFeatureController } from '@app/modules/pdf-viewer/runtime/usePdfViewerFeatureController';
-import { injectDocumentViewerChassisAuthority } from '@app/utils/document-viewer/chassis/documentViewerChassisAuthority';
+import {
+    createDocumentViewerChassisAuthority,
+    injectDocumentViewerChassisAuthority,
+} from '@app/utils/document-viewer/chassis/documentViewerChassisAuthority';
 import { createDocumentOpenGenerationErrorLatch } from '@app/utils/document-viewer/chassis/createDocumentOpenGenerationErrorLatch';
 import { shouldShowPdfViewportPageSkeleton } from '@app/modules/pdf-viewer/runtime/navigation/shouldShowPdfViewportPageSkeleton';
 
 import '@app/assets/css/vendor/pdfjs-viewer-sanitized.css';
 
 const props = defineProps<IPdfViewerProps>();
-const chassisAuthority = injectDocumentViewerChassisAuthority();
+const injectedChassisAuthority = injectDocumentViewerChassisAuthority();
+const chassisAuthority = injectedChassisAuthority
+    ?? createDocumentViewerChassisAuthority(ref('pdf'), props.currentPage);
 const emitBase = defineEmits<IPdfViewerEmit>();
 const openErrorLatch = createDocumentOpenGenerationErrorLatch();
-const initialSurfacePlaceholderPending = ref(Boolean(props.src));
-const showInitialSurfacePlaceholder = computed(() => (
-    chassisAuthority === null
-    &&
-    initialSurfacePlaceholderPending.value
-    && props.isActive !== false
-));
 const isCommittedInitialPageTransition = computed(() => {
     const snapshot = chassisAuthority?.openSurface.snapshot.value;
     return snapshot !== undefined
@@ -128,26 +126,20 @@ const isCommittedInitialPageTransition = computed(() => {
         );
 });
 const emit = ((event: string, ...args: unknown[]) => {
-    if (event === 'initial-visual-pending') {
-        initialSurfacePlaceholderPending.value = true;
-    }
-    if (event === 'initial-visual-ready' || event === 'load-error') {
-        initialSurfacePlaceholderPending.value = false;
-    }
-    if (event === 'initial-visual-ready' && chassisAuthority) {
+    if (event === 'initial-visual-ready') {
         const generation = chassisAuthority.openSurface.snapshot.value.generation;
         if (openErrorLatch.consumeMatchingSuccess(generation)) {
             (emitBase as (event: string, ...args: unknown[]) => void)('load-error', null);
         }
     }
-    if (event === 'load-error' && chassisAuthority) {
+    if (event === 'load-error') {
         const generation = chassisAuthority.openSurface.snapshot.value.generation;
         openErrorLatch.recordFailure(generation);
         chassisAuthority.openSurface.fail(generation, 'PDF viewer load failed');
     }
     (emitBase as (event: string, ...args: unknown[]) => void)(event, ...args);
 }) as IPdfViewerEmit;
-const controller = usePdfViewerFeatureController(props, emit);
+const controller = usePdfViewerFeatureController(props, emit, chassisAuthority);
 const {
     t,
     viewerHost,
@@ -188,6 +180,7 @@ const {
     cropSelection,
     visibleMarkersByPage,
     visibleLinksByPage,
+    isViewerLoadingOverlayVisible,
     handleMarkerOpenNote,
     handleMarkerContextMenu,
     handleMarkerMove,
@@ -195,11 +188,16 @@ const {
     handleViewerContainerRef,
     pdfViewerPublicApi,
 } = controller;
+const showInitialSurfacePlaceholder = computed(() => (
+    injectedChassisAuthority === null
+    && isViewerLoadingOverlayVisible.value
+    && props.isActive !== false
+));
 
 const initialSurfacePlaceholderPageStyle = computed(() => buildPdfInitialSurfacePlaceholderStyle({
     pageStyle: getPagePlaceholderStyle(1),
     scaledMargin: scaledMargin.value,
-    viewportOwnsPadding: chassisAuthority !== null,
+    viewportOwnsPadding: injectedChassisAuthority !== null,
 }));
 const committedInitialPageNumber = computed(() => Math.max(1, Math.trunc(props.currentPage ?? 1)));
 const openingPageFrameOwnerId = createPdfOpeningPageFrameOwnerId();
@@ -495,10 +493,6 @@ onBeforeUnmount(() => {
 });
 
 void annotationUiManager;
-
-watch(() => props.src, (nextSrc) => {
-    initialSurfacePlaceholderPending.value = Boolean(nextSrc);
-});
 
 defineExpose(pdfViewerPublicApi);
 </script>

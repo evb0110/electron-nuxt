@@ -21,7 +21,6 @@ import {
 } from '@app/utils/document-viewer/input/documentWheelInteraction';
 
 const WHEEL_DISPATCH_LOG_THROTTLE_MS = 420;
-const WHEEL_SCROLL_LOG_THROTTLE_MS = 420;
 
 interface IViewerRange {
     start: number;
@@ -50,11 +49,7 @@ interface IUsePdfViewerWheelZoomOptions {
     singlePageScroll: {
         suppressSnapFor: (ms: number) => void;
         handleWheel: (event: IDocumentWheelSourceEvent) => boolean;
-        handleScroll: (event?: Event, authorityScrollConsumed?: boolean) => void;
-        consumeAuthorityScroll?: () => boolean;
         cancelProgrammaticNavigation: (reason?: string) => void;
-        isProgrammaticNavigationActive?: Ref<boolean>;
-        shouldCancelProgrammaticNavigationForViewportScroll?: () => boolean;
     };
     cancelPendingSearchScroll: () => void;
     markUserViewportInteraction?: (() => void) | undefined;
@@ -82,16 +77,6 @@ interface IWheelDispatchContext {
     zoomInteractionLocked: boolean;
 }
 
-interface IViewerScrollContext {
-    nowMs: number;
-    deltaTop: number | null;
-    deltaLeft: number | null;
-    activeZoomIntent: TWheelZoomAnchor;
-    activeSession: TWheelZoomActiveSession;
-    zoomInteractionLocked: boolean;
-    zoomScrollExpected: boolean;
-}
-
 export const usePdfViewerWheelZoom = (options: IUsePdfViewerWheelZoomOptions) => {
     const {
         viewerContainer,
@@ -116,8 +101,6 @@ export const usePdfViewerWheelZoom = (options: IUsePdfViewerWheelZoomOptions) =>
     } = options;
 
     let zoomDebugWheelEventId = 0;
-    let lastViewerScrollTop = 0;
-    let lastViewerScrollLeft = 0;
     let lastModifierWheelZoomAtMs = 0;
     let lastModifierWheelZoomEventId = 0;
 
@@ -130,14 +113,12 @@ export const usePdfViewerWheelZoom = (options: IUsePdfViewerWheelZoomOptions) =>
         getActiveWheelZoomSession,
         ensureWheelZoomSession,
         markExpectedZoomScroll,
-        completeExpectedZoomScroll,
         isZoomInteractionLocked,
         setZoomRerenderBusy,
         consumeZoomViewportAnchor,
         cleanupWheelZoomSession,
         getIsZoomRerenderBusyFromCore,
         getZoomRerenderBusyLockUntilMs,
-        getExpectedZoomScrollUntilMs,
     } = usePdfViewerWheelZoomSession({
         viewerContainer,
         effectiveScale,
@@ -244,31 +225,6 @@ export const usePdfViewerWheelZoom = (options: IUsePdfViewerWheelZoomOptions) =>
                 wheelZoomExpectedScrollWindowMs,
             ),
         );
-    }
-
-    function readViewerScrollPosition() {
-        const container = viewerContainer.value;
-        const currentTop = container ? Math.round(container.scrollTop) : null;
-        const currentLeft = container ? Math.round(container.scrollLeft) : null;
-        const deltaTop = currentTop === null ? null : currentTop - lastViewerScrollTop;
-        const deltaLeft = currentLeft === null ? null : currentLeft - lastViewerScrollLeft;
-
-        if (currentTop !== null) {
-            lastViewerScrollTop = currentTop;
-        }
-        if (currentLeft !== null) {
-            lastViewerScrollLeft = currentLeft;
-        }
-
-        return {
-            deltaTop,
-            deltaLeft,
-        };
-    }
-
-    function hasUnexpectedScrollDrift(deltaTop: number | null, deltaLeft: number | null) {
-        return (typeof deltaTop === 'number' && Math.abs(deltaTop) >= 10)
-            || (typeof deltaLeft === 'number' && Math.abs(deltaLeft) >= 10);
     }
 
     function createWheelDispatchContext(): IWheelDispatchContext {
@@ -394,69 +350,6 @@ export const usePdfViewerWheelZoom = (options: IUsePdfViewerWheelZoomOptions) =>
         );
         cancelPendingSearchScroll();
         return true;
-    }
-
-    function createViewerScrollContext(): IViewerScrollContext {
-        const nowMs = Date.now();
-        const {
-            deltaTop,
-            deltaLeft,
-        } = readViewerScrollPosition();
-        const activeZoomIntent = pendingZoomViewportAnchor.value;
-
-        return {
-            nowMs,
-            deltaTop,
-            deltaLeft,
-            activeZoomIntent,
-            activeSession: getActiveWheelZoomSession(nowMs),
-            zoomInteractionLocked: isZoomInteractionLocked(nowMs),
-            zoomScrollExpected: nowMs <= getExpectedZoomScrollUntilMs(),
-        };
-    }
-
-    function logViewerScroll(event: Event, context: IViewerScrollContext) {
-        BrowserLogger.diagnosticThrottled('pdf-zoom-debug', 'scroll-viewer', WHEEL_SCROLL_LOG_THROTTLE_MS, '[scroll] viewer', {
-            type: event.type,
-            deltaTop: context.deltaTop,
-            deltaLeft: context.deltaLeft,
-            viewer: summarizeViewerStateForLog(),
-            activeZoomIntentId: context.activeZoomIntent?.id ?? null,
-            activeZoomIntentAgeMs: context.activeZoomIntent
-                ? context.nowMs - context.activeZoomIntent.capturedAtMs
-                : null,
-            activeSessionId: context.activeSession?.id ?? null,
-            zoomInteractionLocked: context.zoomInteractionLocked,
-            zoomScrollExpected: context.zoomScrollExpected,
-        });
-    }
-
-    function warnUnexpectedScrollDriftIfNeeded(context: IViewerScrollContext) {
-        if (
-            !context.zoomInteractionLocked
-            || context.zoomScrollExpected
-            || !hasUnexpectedScrollDrift(context.deltaTop, context.deltaLeft)
-        ) {
-            return;
-        }
-
-        BrowserLogger.diagnosticThrottled(
-            'pdf-zoom-debug',
-            'scroll-drift-unexpected-during-zoom-lock',
-            WHEEL_SCROLL_LOG_THROTTLE_MS,
-            '[scroll-drift] unexpected scroll delta during active zoom lock',
-            {
-                deltaTop: context.deltaTop,
-                deltaLeft: context.deltaLeft,
-                activeSessionId: context.activeSession?.id ?? null,
-                recentZoomIntentId: context.activeZoomIntent?.id ?? null,
-                recentZoomIntentAgeMs: context.activeZoomIntent
-                    ? context.nowMs - context.activeZoomIntent.capturedAtMs
-                    : null,
-                expectedZoomScrollUntilMs: getExpectedZoomScrollUntilMs(),
-                viewer: summarizeViewerStateForLog(),
-            },
-        );
     }
 
     function handleViewerModifierWheelZoom(interaction: IDocumentWheelInteraction) {
@@ -658,44 +551,6 @@ export const usePdfViewerWheelZoom = (options: IUsePdfViewerWheelZoomOptions) =>
         markWheelViewportInteraction();
     }
 
-    function handleViewerScroll(event: Event) {
-        if (singlePageScroll.consumeAuthorityScroll?.()) {
-            singlePageScroll.handleScroll(undefined, true);
-            return;
-        }
-        const context = createViewerScrollContext();
-        logViewerScroll(event, context);
-        warnUnexpectedScrollDriftIfNeeded(context);
-
-        if (context.zoomInteractionLocked || context.zoomScrollExpected) {
-            suppressSinglePageSnapForWheelZoom();
-        }
-
-        if (context.zoomScrollExpected) {
-            completeExpectedZoomScroll({
-                operationId: context.activeZoomIntent?.zoomLockOperationId,
-                reason: 'viewer-scroll-applied',
-            });
-        }
-
-        const shouldCancelProgrammaticNavigation = singlePageScroll.shouldCancelProgrammaticNavigationForViewportScroll
-            ? singlePageScroll.shouldCancelProgrammaticNavigationForViewportScroll()
-            : singlePageScroll.isProgrammaticNavigationActive?.value !== true;
-        if (
-            !context.zoomInteractionLocked
-            && !context.zoomScrollExpected
-            && shouldCancelProgrammaticNavigation
-        ) {
-            if (markUserViewportInteraction) {
-                markUserViewportInteraction();
-            } else {
-                singlePageScroll.cancelProgrammaticNavigation('viewer-scroll-interaction');
-            }
-        }
-
-        singlePageScroll.handleScroll(event);
-    }
-
     onScopeDispose(() => {
         cleanupWheelZoomSession();
     });
@@ -703,7 +558,6 @@ export const usePdfViewerWheelZoom = (options: IUsePdfViewerWheelZoomOptions) =>
     return {
         zoomSnapSuppressed,
         handleViewerWheel,
-        handleViewerScroll,
         consumeZoomViewportAnchor,
         isZoomInteractionLocked,
         setZoomRerenderBusy,

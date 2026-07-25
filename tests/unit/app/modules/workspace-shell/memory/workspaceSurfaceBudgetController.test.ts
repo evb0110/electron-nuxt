@@ -7,51 +7,64 @@ import {
     createWorkspaceSurfaceBudgetController,
     estimateCanvasSurfaceBytes,
 } from '@app/modules/workspace-shell/memory/workspaceSurfaceBudgetController';
-import { resolveInactiveDjvuLeasePolicy } from '@app/modules/workspace-shell/viewers/documentPageSourceFeaturePackState';
+import {
+    DOCUMENT_SOURCE_INACTIVE_LEASE_GRACE_MS,
+    shouldRetainInactiveDocumentPageSourceLease,
+} from '@app/modules/workspace-shell/viewers/useDocumentPageSourceRuntime';
+import { resolvePerformanceProfile } from '@app/utils/performanceProfile';
+import { resolveOpenPathSecondaryPerformancePolicy } from '@app/utils/openPathSecondaryPerformancePolicy';
 
 describe('workspace surface budget controller', () => {
     it.each([
         [
             'medium',
             'healthy',
-            'warm-grace',
+            true,
         ],
         [
             'high',
             'guarded',
-            'warm-grace',
+            true,
         ],
         [
             'low',
             'healthy',
-            'release-immediately',
+            false,
         ],
         [
             'medium',
             'moderate',
-            'release-immediately',
+            false,
         ],
         [
             'medium',
             'critical',
-            'release-immediately',
+            false,
         ],
         [
             'medium',
             'emergency',
-            'release-immediately',
+            false,
         ],
         [
             'medium',
             'post-crash-safe-mode',
-            'release-immediately',
+            false,
         ],
-    ] as const)('resolves inactive DjVu residency for %s tier under %s pressure', (
+    ] as const)('plans inactive DjVu residency for %s tier under %s pressure', (
         tier,
         pressure,
         expected,
     ) => {
-        expect(resolveInactiveDjvuLeasePolicy(tier, pressure)).toBe(expected);
+        const policy = resolveOpenPathSecondaryPerformancePolicy(resolvePerformanceProfile({tier}));
+        expect(shouldRetainInactiveDocumentPageSourceLease(
+            policy.inactiveDjvuLeasePolicy === 'warm-grace',
+            pressure,
+        )).toEqual(expected);
+    });
+
+    it('retains the inactive current page for exactly 1.5 seconds', () => {
+        expect(DOCUMENT_SOURCE_INACTIVE_LEASE_GRACE_MS).toBe(1_500);
     });
 
     it('accounts and releases every decoded surface category', () => {

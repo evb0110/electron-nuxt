@@ -11,15 +11,13 @@ import type {
     AnnotationId,
     IShapeEntity,
     IStickyNoteEntity,
-    ITextMarkupEntity,
-    TAnnotationStyle,
-} from '@app/modules/pdf-viewer/annotations/domain/annotationEntity';
+} from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
 import {
     deriveAnnotationId,
     asAnnotationId,
     mintAnnotationId,
     normalizeAnnotationText,
-} from '@app/modules/pdf-viewer/annotations/domain/annotationEntity';
+} from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
 import { cloneShape } from '@app/modules/pdf-viewer/engine/shapes/cloneShape';
 import { getNormalizedShapeStableKey } from '@app/modules/pdf-viewer/engine/annotations/shape-annotation-identity/shapeAnnotationIdentity';
 import {
@@ -43,7 +41,7 @@ import {normalizePdfJsAnnotationId} from '@app/utils/pdfAnnotationRefs';
 import {
     computeSummaryStableKey,
     getReplayableFreeTextNoteName,
-} from '@app/modules/pdf-viewer/annotations/domain/annotationSummaryIdentity';
+} from '@app/modules/pdf-viewer/engine/annotations/domain/annotationSummaryIdentity';
 
 const ANNOTATION_VERIFICATION_RANGE_BYTES = 1024 * 1024;
 
@@ -63,9 +61,6 @@ export interface IAnnotationSaveSession {
 
 /** Evidence used to distinguish a newly appended annotation from prior identical content. */
 export interface IAnnotationSaveVerificationOptions {readonly preexistingPdfAnnotationRefs?: readonly string[];}
-
-type TCreateStickyNote = Omit<IStickyNoteEntity, 'identity' | 'revision' | 'persistedRevision' | 'deleted'>;
-type TCreateTextMarkup = Omit<ITextMarkupEntity, 'identity' | 'revision' | 'persistedRevision' | 'deleted'>;
 
 interface IPdfjsReopenedAnnotation {
     readonly id?: string;
@@ -410,43 +405,11 @@ export class AnnotationApplication {
         });
     }
 
-    createStickyNote(input: TCreateStickyNote) {
-        return this.store.createStickyNote({
-            ...input,
-            identity: {id: mintAnnotationId()},
-            revision: 0,
-            persistedRevision: -1,
-            deleted: false,
-        });
-    }
-
-    createTextMarkup(input: TCreateTextMarkup) {
-        return this.store.createTextMarkup({
-            ...input,
-            identity: {id: mintAnnotationId()},
-            revision: 0,
-            persistedRevision: -1,
-            deleted: false,
-        });
-    }
-
     annotationIdForShape(shape: Pick<IShapeAnnotation, 'id' | 'annotationId'>) {
         return this.store.resolveExternal({
             ...(shape.annotationId ? {pdfRef: shape.annotationId} : {}),
             elementId: shape.id,
         });
-    }
-
-    setNoteText(annotationId: AnnotationId, text: string) {
-        return this.store.setNoteText(annotationId, text);
-    }
-
-    setStyle(annotationId: AnnotationId, style: TAnnotationStyle) {
-        return this.store.setStyle(annotationId, style);
-    }
-
-    moveAnchor(annotationId: AnnotationId, anchor: IStickyNoteEntity['anchor']) {
-        return this.store.moveAnchor(annotationId, anchor);
     }
 
     replaceShapeGeometry(
@@ -461,26 +424,7 @@ export class AnnotationApplication {
         return this.store.previewShapeGeometry(annotationId, geometry);
     }
 
-    delete(annotationId: AnnotationId) {
-        const existing = this.store.get(annotationId);
-        if (existing?.deleted) {
-            // PDF.js projection reconciliation can observe the editor's removal
-            // before the originating mutation reaches this canonical boundary.
-            // Treat that repeated delivery as the same delete command instead of
-            // crashing the document workspace or recording a second history step.
-            return existing;
-        }
-        return this.store.delete(annotationId);
-    }
-
-    restore(annotationId: AnnotationId) {
-        return this.store.restore(annotationId);
-    }
-
     remapPages(delta: IPageIdentityDelta) { this.store.remapPages(delta); }
-
-    undo() { return this.store.undo(); }
-    redo() { return this.store.redo(); }
 
     beginSave(documentRevisionToken: TDocumentRevisionToken | null = null): IAnnotationSaveSession {
         if (this.legacyIdentityConflicts.size) {
@@ -518,9 +462,14 @@ export class AnnotationApplication {
         session: IAnnotationSaveSession,
         bytes: Uint8Array,
         reader: IAnnotationReopenReader,
+        currentDocumentRevisionToken: TDocumentRevisionToken | null = session.frontier.documentRevisionToken,
     ) {
         await verifyAnnotationSave(bytes, session.plan, reader);
-        this.store.acknowledgeSave(session.frontier, session.materializedPdfRefs);
+        this.store.acknowledgeSave(
+            session.frontier,
+            session.materializedPdfRefs,
+            currentDocumentRevisionToken,
+        );
     }
 
     async verifySaveBytes(
@@ -757,8 +706,15 @@ export class AnnotationApplication {
         await verifyAnnotationSave(verificationToken, session.plan, {reopen: () => Promise.resolve(reopened)});
     }
 
-    acknowledgeSave(session: IAnnotationSaveSession) {
-        this.store.acknowledgeSave(session.frontier, session.materializedPdfRefs);
+    acknowledgeSave(
+        session: IAnnotationSaveSession,
+        currentDocumentRevisionToken: TDocumentRevisionToken | null = session.frontier.documentRevisionToken,
+    ) {
+        this.store.acknowledgeSave(
+            session.frontier,
+            session.materializedPdfRefs,
+            currentDocumentRevisionToken,
+        );
     }
 
     /** Reports whether this authority still owned the failed save's frontier. */
@@ -766,8 +722,11 @@ export class AnnotationApplication {
         return this.store.rollbackToSaveFrontier(session.frontier);
     }
 
-    assertSaveCurrent(session: IAnnotationSaveSession) {
-        this.store.assertSaveFrontierCurrent(session.frontier);
+    assertSaveCurrent(
+        session: IAnnotationSaveSession,
+        currentDocumentRevisionToken: TDocumentRevisionToken | null = session.frontier.documentRevisionToken,
+    ) {
+        this.store.assertSaveFrontierCurrent(session.frontier, currentDocumentRevisionToken);
     }
 
     #normalizePdfRect(rect: readonly number[] | undefined, view: readonly number[]) {

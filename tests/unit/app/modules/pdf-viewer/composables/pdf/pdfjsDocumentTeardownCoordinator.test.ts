@@ -4,7 +4,7 @@ import {
     it,
     vi,
 } from 'vitest';
-import {createPdfjsDocumentTeardownCoordinator} from '@app/modules/pdf-viewer/runtime/composables/pdf/pdfjsDocumentTeardownCoordinator';
+import {createPdfjsDocumentTeardownCoordinator} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfjsDocumentTeardownCoordinator';
 
 describe('pdfjsDocumentTeardownCoordinator', () => {
     it('sequences a reopen behind teardown of the same canonical source', async () => {

@@ -6,7 +6,7 @@ import {
     expect,
     it,
 } from 'vitest';
-import { PDFJS_NATIVE_PREVIEW_MIN_BYTES } from '@app/modules/pdf-viewer/runtime/pdfNativePreviewRouting';
+import { PDFJS_NATIVE_PREVIEW_MIN_BYTES } from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfNativePreviewRouting';
 import {
     type IFixtureAvailability,
     resolveLargePdfFixtureAvailability,

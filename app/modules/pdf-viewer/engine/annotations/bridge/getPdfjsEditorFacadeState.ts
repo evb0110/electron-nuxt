@@ -5,6 +5,7 @@ import type {
 } from '@app/types/pdfjs';
 
 interface IPdfjsEditorFacadeState {
+    canonicalAnnotationId?: string | null | undefined;
     selectionText?: string | null | undefined;
     markupBoxes?: IPdfjsHighlightBox[] | null | undefined;
     creationHistoryRegistered?: boolean | undefined;

@@ -1,4 +1,11 @@
-import type { PDFDocumentProxy } from 'pdfjs-dist';
+import type {
+    AnnotationEditorUIManager,
+    PDFDocumentProxy,
+} from 'pdfjs-dist';
+import type {
+    ComputedRef,
+    ShallowRef,
+} from 'vue';
 import { delay } from 'es-toolkit/promise';
 import { isTimeoutError } from '@contracts/isTimeoutError';
 import { PDF_SAVE_TIMEOUT_MS } from '@app/constants/timeouts';
@@ -31,7 +38,14 @@ import { buildSerializationPlan } from '@app/modules/pdf-viewer/serialization/se
 import { projectAnnotationBackendMutations } from '@app/modules/pdf-viewer/annotations/persistence/annotationBackendConformance';
 import type {ICanonicalAnnotationIdentityBinding} from '@app/modules/pdf-viewer/engine/serialization/pdf-serialization-annotations/applyCanonicalAnnotationIdentityBindings';
 import {bindCanonicalAnnotationIdentitiesOffThread} from '@app/modules/pdf-viewer/engine/pdf-serialization-worker-client/bindCanonicalAnnotationIdentitiesOffThread';
-import type {IAnnotationSaveVerificationOptions} from '@app/modules/pdf-viewer/annotations/annotationApplication';
+import type {
+    AnnotationApplication,
+    IAnnotationSaveVerificationOptions,
+} from '@app/modules/pdf-viewer/annotations/annotationApplication';
+import { isPdfDocumentUsable } from '@app/utils/isPdfDocumentUsable';
+import type { TDocumentRevisionToken } from '@contracts/documentRevision';
+import type { TPdfDocumentSession } from '@app/modules/pdf-viewer/runtime/sessions/pdfDocumentSession';
+import { createStaleRevisionError } from '@contracts/documentMutationErrors';
 
 const PDF_SAVE_TIMEOUT_QUIESCE_MS = 2_000;
 const DEFAULT_TRANSACTION_SAVE_MODE = 'rewrite';
@@ -42,7 +56,16 @@ const AVAILABLE_SERIALIZATION_BACKENDS = [
 ] as const;
 
 interface IUsePdfViewerSaveTransactionOptions {
-    materializePdfJsDocumentForInternalUse: () => Promise<Uint8Array | null>;
+    materializePdfJsDocumentForInternalUse?: () => Promise<Uint8Array | null>;
+    /**
+     * Production sessions pass their live authorities. The callback variants
+     * below remain only as narrow test/workspace-save seams.
+     */
+    pdfDocument?: ShallowRef<PDFDocumentProxy | null>;
+    annotationUiManager?: ShallowRef<AnnotationEditorUIManager | null>;
+    annotationApplication?: ShallowRef<AnnotationApplication>;
+    documentRevisionToken?: ComputedRef<TDocumentRevisionToken | null>;
+    documentSession?: Pick<TPdfDocumentSession, 'captureFence' | 'isCurrent'>;
     flushAnnotationMutationsForSave?: () => Promise<unknown>;
     commitPdfEditorsForSave?: () => Promise<void>;
     getPdfDocument?: () => PDFDocumentProxy | null;
@@ -64,6 +87,70 @@ interface IUsePdfViewerSaveTransactionOptions {
         recordMaterializedIdentityBinding?(binding: ICanonicalAnnotationIdentityBinding): void;
         commit(): void;
     };
+}
+
+interface ISavePdfDocumentWithCommittedEditorsOptions {
+    pdfDocument: PDFDocumentProxy | null;
+    annotationUiManager: AnnotationEditorUIManager | null;
+    getCurrentPdfDocument?: () => PDFDocumentProxy | null;
+    isPdfDocumentCurrent?: (pdfDocument: PDFDocumentProxy) => boolean;
+    commitEditors?: boolean;
+}
+
+async function waitForCommittedEditorsToSettle() {
+    await nextTick();
+    if (typeof window === 'undefined' || typeof window.requestAnimationFrame !== 'function') {
+        return;
+    }
+    await new Promise<void>((resolve) => {
+        window.requestAnimationFrame(() => {
+            window.requestAnimationFrame(() => resolve());
+        });
+    });
+    await nextTick();
+}
+
+function isSaveTargetCurrent(
+    options: ISavePdfDocumentWithCommittedEditorsOptions,
+    pdfDocument: PDFDocumentProxy,
+) {
+    return isPdfDocumentUsable(pdfDocument)
+        && (!options.getCurrentPdfDocument || options.getCurrentPdfDocument() === pdfDocument)
+        && options.isPdfDocumentCurrent?.(pdfDocument) !== false;
+}
+
+export async function commitPdfEditorsForSave(annotationUiManager: AnnotationEditorUIManager | null) {
+    annotationUiManager?.commitOrRemove();
+    await waitForCommittedEditorsToSettle();
+}
+
+/**
+ * Raw PDF.js materialization remains public for the viewer expose contract,
+ * but its commit/settle/current-document fence is owned by the save
+ * transaction rather than a second save adapter.
+ */
+export async function savePdfDocumentWithCommittedEditors(
+    options: ISavePdfDocumentWithCommittedEditorsOptions,
+) {
+    const pdfDocument = options.pdfDocument;
+    if (!pdfDocument || !isSaveTargetCurrent(options, pdfDocument)) {
+        return null;
+    }
+    if (options.commitEditors !== false) {
+        await commitPdfEditorsForSave(options.annotationUiManager);
+    }
+    if (!isSaveTargetCurrent(options, pdfDocument)) {
+        return null;
+    }
+    try {
+        const savedBytes = await pdfDocument.saveDocument();
+        return isSaveTargetCurrent(options, pdfDocument) ? savedBytes : null;
+    } catch (error) {
+        if (!isSaveTargetCurrent(options, pdfDocument)) {
+            return null;
+        }
+        throw error;
+    }
 }
 
 async function collectPreexistingPdfAnnotationRefs(
@@ -142,9 +229,52 @@ function createSerializedResult(input: {
 export const usePdfViewerSaveTransaction = (
     options: IUsePdfViewerSaveTransactionOptions,
 ) => {
+    const getPdfDocument = () => options.pdfDocument?.value ?? options.getPdfDocument?.() ?? null;
+    async function materializePdfJsDocumentForInternalUse(commitEditors = true) {
+        if (options.materializePdfJsDocumentForInternalUse) {
+            return options.materializePdfJsDocumentForInternalUse();
+        }
+        return savePdfDocumentWithCommittedEditors({
+            pdfDocument: getPdfDocument(),
+            annotationUiManager: options.annotationUiManager?.value ?? null,
+            getCurrentPdfDocument: getPdfDocument,
+            commitEditors,
+        });
+    }
+
+    function prepareAnnotationSave(input: {
+        annotationApplication: AnnotationApplication | undefined;
+        documentRevisionToken: TDocumentRevisionToken | null;
+    }) {
+        if (options.prepareAnnotationSave) {
+            return options.prepareAnnotationSave();
+        }
+        const application = input.annotationApplication;
+        if (!application) {
+            return undefined;
+        }
+        const session = application.beginSave(input.documentRevisionToken);
+        return {
+            plan: session.plan,
+            verify: (bytes: Uint8Array) => application.verifySaveBytes(session, bytes),
+            verifyPath: (
+                path: string,
+                knownSize: number,
+                verificationOptions?: IAnnotationSaveVerificationOptions,
+            ) => application.verifySavePath(session, path, knownSize, verificationOptions),
+            assertCurrent: () => application.assertSaveCurrent(session, input.documentRevisionToken),
+            recordMaterializedIdentityBinding: (binding: ICanonicalAnnotationIdentityBinding) =>
+                application.recordMaterializedIdentityBinding(session, binding.annotationId, binding.pdfRef),
+            commit: () => application.acknowledgeSave(session, input.documentRevisionToken),
+        };
+    }
+
     async function runSaveDocumentAttemptWithTimeout() {
         const savePromise = (async () => {
-            const data = await options.materializePdfJsDocumentForInternalUse();
+            // The transaction committed and settled the editor frontier before
+            // route selection. Do not commit it a second time while
+            // materializing the selected PDF.js byte route.
+            const data = await materializePdfJsDocumentForInternalUse(false);
             if (!data) {
                 throw new Error('saveDocument returned no data');
             }
@@ -241,11 +371,11 @@ export const usePdfViewerSaveTransaction = (
             projectAnnotationBackendMutations(input.request.annotationSerializationPlan, 'pdfjs-save-document');
         }
         const newPdfJsAnnotationEditorOrder = collectNewPdfJsAnnotationStorageEditorOrder(
-            options.getPdfDocument?.(),
+            getPdfDocument(),
         );
         const preexistingPdfAnnotationRefs = input.request.annotationSerializationPlan
             ? await collectPreexistingPdfAnnotationRefs(
-                options.getPdfDocument?.(),
+                getPdfDocument(),
                 input.request.annotationSerializationPlan,
             )
             : [];
@@ -318,8 +448,52 @@ export const usePdfViewerSaveTransaction = (
     }
 
     async function runSaveTransaction(
-        request: IPdfViewerSaveTransactionRequest,
+        initialRequest: IPdfViewerSaveTransactionRequest,
     ): Promise<IPdfViewerSaveTransactionResult> {
+        const capturedTarget = {
+            annotationApplication: options.annotationApplication?.value,
+            pdfDocument: getPdfDocument(),
+            documentRevisionToken: options.documentRevisionToken?.value ?? null,
+            documentFence: options.documentSession?.captureFence(),
+        };
+        const staleTargetError = (message: string) => createStaleRevisionError({
+            expectedRevision: capturedTarget.documentRevisionToken,
+            actualRevision: options.documentRevisionToken?.value ?? null,
+            message,
+        });
+        function assertSaveTargetCurrent() {
+            if (
+                options.annotationApplication
+                && options.annotationApplication.value !== capturedTarget.annotationApplication
+            ) {
+                throw staleTargetError('Annotation application changed after the save frontier was captured');
+            }
+            if (
+                (options.pdfDocument || options.documentSession)
+                && getPdfDocument() !== capturedTarget.pdfDocument
+            ) {
+                throw staleTargetError('PDF document changed after the save frontier was captured');
+            }
+            if (capturedTarget.pdfDocument && !isPdfDocumentUsable(capturedTarget.pdfDocument)) {
+                throw staleTargetError('Captured PDF document is no longer usable');
+            }
+            if (
+                options.documentRevisionToken
+                && options.documentRevisionToken.value !== capturedTarget.documentRevisionToken
+            ) {
+                throw staleTargetError('Document revision changed after the save frontier was captured');
+            }
+            if (
+                options.documentSession
+                && (
+                    !capturedTarget.documentFence
+                    || !options.documentSession.isCurrent(capturedTarget.documentFence)
+                )
+            ) {
+                throw staleTargetError('Document open fence changed after the save frontier was captured');
+            }
+        }
+        let request = {...initialRequest};
         if (
             request.serializeResult === true
             || request.includeManagedShapes === true
@@ -327,14 +501,21 @@ export const usePdfViewerSaveTransaction = (
             || request.forceRewrite === true
         ) {
             await options.ensureManagedShapeBaselineReady?.();
+            assertSaveTargetCurrent();
         }
-        const pdfjsLiveChangesBeforeCommit = collectLivePdfJsAnnotationChangeIds(options.getPdfDocument?.());
+        const pdfjsLiveChangesBeforeCommit = collectLivePdfJsAnnotationChangeIds(getPdfDocument());
         if (!request.planOnly) {
             await options.flushAnnotationMutationsForSave?.();
-            await options.commitPdfEditorsForSave?.();
+            assertSaveTargetCurrent();
+            if (options.annotationUiManager) {
+                await commitPdfEditorsForSave(options.annotationUiManager.value);
+            } else {
+                await options.commitPdfEditorsForSave?.();
+            }
+            assertSaveTargetCurrent();
         }
-        const capturedPdfjsLiveChanges = collectLivePdfJsAnnotationChangeIds(options.getPdfDocument?.());
-        const canonicalSave = options.prepareAnnotationSave?.();
+        const capturedPdfjsLiveChanges = collectLivePdfJsAnnotationChangeIds(getPdfDocument());
+        const canonicalSave = prepareAnnotationSave(capturedTarget);
         // Complete the annotation frontier into the global immutable save plan
         // before route selection. From this point onward no backend is allowed to
         // sample metadata or route constraints from mutable UI state.
@@ -371,24 +552,51 @@ export const usePdfViewerSaveTransaction = (
         };
         let nativeVerificationOptions: IAnnotationSaveVerificationOptions | undefined;
         const canonicalSaveCallbacks = {
-            verifyAnnotationSave: (bytes: Uint8Array) => canonicalSave?.verify(bytes) ?? Promise.resolve(),
-            verifyAnnotationSavePath: (path: string, knownSize: number) => canonicalSave?.verifyPath?.(
-                path,
-                knownSize,
-                nativeVerificationOptions,
-            )
-                ?? Promise.reject(new Error('Path-backed annotation verification is unavailable')),
-            commitAnnotationSave: () => canonicalSave?.commit(),
+            verifyAnnotationSave: async (bytes: Uint8Array) => {
+                assertSaveTargetCurrent();
+                await canonicalSave?.verify(bytes);
+                assertSaveTargetCurrent();
+            },
+            verifyAnnotationSavePath: async (path: string, knownSize: number) => {
+                assertSaveTargetCurrent();
+                if (!canonicalSave?.verifyPath) {
+                    throw new Error('Path-backed annotation verification is unavailable');
+                }
+                await canonicalSave.verifyPath(path, knownSize, nativeVerificationOptions);
+                assertSaveTargetCurrent();
+            },
+            commitAnnotationSave: () => {
+                // Persistence may legitimately advance the document revision and
+                // open fence. The frozen store frontier still performs semantic
+                // CAS. If a successful Save As/reload retired this application,
+                // its old frontier has no live authority left to acknowledge.
+                if (
+                    options.annotationApplication
+                    && options.annotationApplication.value !== capturedTarget.annotationApplication
+                ) {
+                    return;
+                }
+                canonicalSave?.commit();
+            },
             assertAnnotationSaveCurrent: async () => {
-                await canonicalSave?.assertCurrent?.();
-                const currentPdfjsLiveChanges = collectLivePdfJsAnnotationChangeIds(options.getPdfDocument?.());
+                assertSaveTargetCurrent();
+                try {
+                    await canonicalSave?.assertCurrent?.();
+                } catch (error) {
+                    if (error instanceof Error && error.message.includes('staleRevisionError')) {
+                        throw staleTargetError(error.message.replace(/^staleRevisionError:\s*/u, ''));
+                    }
+                    throw error;
+                }
+                assertSaveTargetCurrent();
+                const currentPdfjsLiveChanges = collectLivePdfJsAnnotationChangeIds(getPdfDocument());
                 if (currentPdfjsLiveChanges.fingerprint !== capturedPdfjsLiveChanges.fingerprint) {
-                    throw new Error('staleRevisionError: PDF.js annotations changed after the save frontier was captured');
+                    throw staleTargetError('PDF.js annotations changed after the save frontier was captured');
                 }
             },
         };
         // Routing is decided exactly once, here; every projector below consumes the result.
-        const decision: TPdfSaveRouteDecision = request.routeDecision ?? classifyPdfSaveRoute(globalSerializationPlan, {
+        const decision: TPdfSaveRouteDecision = classifyPdfSaveRoute(globalSerializationPlan, {
             saveFlowMode: request.saveFlowMode ?? 'save',
             availableBackends: AVAILABLE_SERIALIZATION_BACKENDS,
             nativeCapabilities: request.nativeCapabilities,
@@ -403,7 +611,7 @@ export const usePdfViewerSaveTransaction = (
             includeManagedShapesForLiveSource: request.includeManagedShapes === true,
             totalPageCount: Math.max(
                 request.documentStructure?.totalPages ?? 0,
-                options.getPdfDocument?.()?.numPages ?? 0,
+                getPdfDocument()?.numPages ?? 0,
             ),
             shapes: request.dirtyState?.shapeStateDirty ? options.getAllShapes?.() ?? null : null,
             deletedEmbeddedShapeAnnotationIds: request.dirtyState?.shapeStateDirty
@@ -417,6 +625,42 @@ export const usePdfViewerSaveTransaction = (
         });
         const annotationSavePlan = decision.annotationPlan;
         logSaveRouteDecision(request, decision);
+        async function executeByteRoute(
+            byteRoute: IPdfSaveByteRouteDecision,
+            executionRequest: IPdfViewerSaveTransactionRequest = request,
+        ) {
+            await canonicalSaveCallbacks.assertAnnotationSaveCurrent();
+            const baseBytes = await selectBaseBytes({
+                request: executionRequest,
+                byteRoute,
+                onIdentityBound: canonicalSave?.recordMaterializedIdentityBinding,
+            });
+            await canonicalSaveCallbacks.assertAnnotationSaveCurrent();
+            const serializedBytes = await serializeResultBytes({
+                request: executionRequest,
+                baseBytes,
+            });
+            await canonicalSaveCallbacks.assertAnnotationSaveCurrent();
+            const resultSource: TPdfViewerSaveTransactionSource = executionRequest.source
+                ? serializedBytes ? 'serialized-rewrite' : byteRoute.route
+                : 'pdfjs-materialize';
+            const serializedResult = createSerializedResult({
+                request: executionRequest,
+                resultSource,
+                serializedBytes,
+            });
+
+            return {
+                source: resultSource,
+                baseBytes: serializedBytes ? null : executionRequest.source ? baseBytes : null,
+                serializedBytes: serializedResult ? null : serializedBytes,
+                serializedResult,
+                nativeMutationProjection: null,
+                fallbackDecision: byteRoute,
+                annotationSavePlan,
+                ...canonicalSaveCallbacks,
+            };
+        }
         if (decision.route === 'native-append') {
             const nativeMutationProjection = decision.nativeMutationProjection;
             if (decision.replayableAnnotationMutationsAllowed && decision.annotationRoute.route !== 'source-replay') {
@@ -442,9 +686,16 @@ export const usePdfViewerSaveTransaction = (
                 throw new Error('Structured native mutations were projected without capability');
             }
             nativeVerificationOptions = {preexistingPdfAnnotationRefs: await collectPreexistingPdfAnnotationRefs(
-                options.getPdfDocument?.(),
+                getPdfDocument(),
                 globalSerializationPlan,
             )};
+            await canonicalSaveCallbacks.assertAnnotationSaveCurrent();
+            const fallbackExecutionRequest = {
+                ...request,
+                planOnly: false,
+                serializeResult: true,
+            };
+            let fallbackExecution: Promise<IPdfViewerSaveTransactionResult> | null = null;
             return {
                 source: 'native-mutation-projection',
                 baseBytes: null,
@@ -454,11 +705,16 @@ export const usePdfViewerSaveTransaction = (
                 fallbackDecision: decision.fallback,
                 annotationSavePlan,
                 ...canonicalSaveCallbacks,
+                executeFallback: () => (
+                    fallbackExecution ??= executeByteRoute(decision.fallback, fallbackExecutionRequest)
+                ),
             };
         }
 
         const byteRoute = decision;
         if (request.planOnly) {
+            await canonicalSaveCallbacks.assertAnnotationSaveCurrent();
+            let fallbackExecution: Promise<IPdfViewerSaveTransactionResult> | null = null;
             return {
                 source: byteRoute.route,
                 baseBytes: null,
@@ -468,38 +724,22 @@ export const usePdfViewerSaveTransaction = (
                 fallbackDecision: byteRoute,
                 annotationSavePlan,
                 ...canonicalSaveCallbacks,
+                executeFallback: () => (
+                    fallbackExecution ??= executeByteRoute(byteRoute, {
+                        ...request,
+                        planOnly: false,
+                        serializeResult: true,
+                    })
+                ),
             };
         }
-
-        const baseBytes = await selectBaseBytes({
-            request,
-            byteRoute,
-            onIdentityBound: canonicalSave?.recordMaterializedIdentityBinding,
-        });
-        const serializedBytes = await serializeResultBytes({
-            request,
-            baseBytes,
-        });
-        const resultSource: TPdfViewerSaveTransactionSource = request.source
-            ? serializedBytes ? 'serialized-rewrite' : byteRoute.route
-            : 'pdfjs-materialize';
-        const serializedResult = createSerializedResult({
-            request,
-            resultSource,
-            serializedBytes,
-        });
-
-        return {
-            source: resultSource,
-            baseBytes: serializedBytes ? null : request.source ? baseBytes : null,
-            serializedBytes: serializedResult ? null : serializedBytes,
-            serializedResult,
-            nativeMutationProjection: null,
-            fallbackDecision: byteRoute,
-            annotationSavePlan,
-            ...canonicalSaveCallbacks,
-        };
+        return executeByteRoute(byteRoute);
     }
 
-    return {runSaveTransaction};
+    return {
+        commitPdfEditorsForSave: () => commitPdfEditorsForSave(options.annotationUiManager?.value ?? null),
+        materializePdfJsDocumentForInternalUse: () => materializePdfJsDocumentForInternalUse(),
+        runSaveTransaction,
+        saveViewerDocument: () => materializePdfJsDocumentForInternalUse(),
+    };
 };

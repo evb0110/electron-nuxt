@@ -20,7 +20,7 @@ import {
     asAnnotationId,
     deriveAnnotationId,
     type AnnotationEntity,
-} from '@app/modules/pdf-viewer/annotations/domain/annotationEntity';
+} from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
 import {buildSerializationPlan} from '@app/modules/pdf-viewer/serialization/serializationPlan';
 import { cast } from '@tests/helpers/cast';
 

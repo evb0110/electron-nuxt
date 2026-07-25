@@ -25,9 +25,9 @@ export {
     collectLivePdfJsAnnotationChangeIds,
     resetLivePdfJsAnnotationStorageModifiedState,
 } from '@app/modules/pdf-viewer/runtime/save/pdfAnnotationStorageChanges';
-export {annotationIdForSummary} from '@app/modules/pdf-viewer/annotations/domain/annotationSummaryIdentity';
-export {asAnnotationId} from '@app/modules/pdf-viewer/annotations/domain/annotationEntity';
-export type {AnnotationId} from '@app/modules/pdf-viewer/annotations/domain/annotationEntity';
+export {annotationIdForSummary} from '@app/modules/pdf-viewer/engine/annotations/domain/annotationSummaryIdentity';
+export {asAnnotationId} from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
+export type {AnnotationId} from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
 export type {
     IPdfSaveByteRouteDecision,
     IPdfViewerSaveTransactionRequest,
@@ -54,4 +54,5 @@ export { readPrevalidatedTrustedPdfOpenGeometry } from '@app/modules/pdf-viewer/
 export {
     isPathPdfSource,
     shouldUseNativePdfPreview,
-} from '@app/modules/pdf-viewer/runtime/pdfNativePreviewRouting';
+} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfNativePreviewRouting';
+export type { IPdfPageRasterScheduler } from '@app/modules/pdf-viewer/engine/pdf-page-raster-scheduler/pdfPageRasterScheduler';

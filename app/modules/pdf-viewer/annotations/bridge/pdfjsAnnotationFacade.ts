@@ -1,4 +1,4 @@
-import type { AnnotationId } from '@app/modules/pdf-viewer/annotations/domain/annotationEntity';
+import type { AnnotationId } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
 import type { AnnotationEditorUIManager } from 'pdfjs-dist';
 import type { IAnnotationMarkerRect } from '@app/types/annotations';
 import { syncCommentMarkerAnchorEditor } from '@app/modules/pdf-viewer/engine/pdf-annotation-editor-utils/commentMarkerAnchorEditor';

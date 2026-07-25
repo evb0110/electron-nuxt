@@ -12,7 +12,7 @@ import {
     ref,
     shallowRef,
 } from 'vue';
-import { useAnnotationHighlight } from '@app/modules/pdf-viewer/runtime/annotations/useAnnotationHighlight';
+import { useAnnotationHighlight } from '@app/modules/pdf-viewer/annotations/bridge/pdfjs-runtime/useAnnotationHighlight';
 
 vi.mock('pdfjs-dist', () => ({AnnotationEditorType: {FREETEXT: 3}}));
 
@@ -60,6 +60,7 @@ function createViewerContainer(pages: HTMLElement[]) {
 function createHighlightHarness(viewerContainer: HTMLElement) {
     return useAnnotationHighlight({
         viewerContainer: ref(viewerContainer),
+        isActive: ref(true),
         annotationUiManager: shallowRef(null),
         numPages: ref(2),
         currentPage: ref(1),
@@ -74,7 +75,6 @@ function createHighlightHarness(viewerContainer: HTMLElement) {
             setEditorMarkupSubtypeOverride: () => {},
             resolveEditorMarkupSubtypeOverride: () => null,
             resolveEditorSubtypeFromPresentation: () => null,
-            syncMarkupSubtypePresentationForEditors: () => {},
         }),
         getSync: () => ({
             scheduleAnnotationCommentsSync: () => {},
@@ -86,6 +86,16 @@ function createHighlightHarness(viewerContainer: HTMLElement) {
             updateModeWithRetry: async () => null,
             maybeAutoResetAnnotationTool: () => {},
         }),
+        textMarkupPresentation: {notify: vi.fn()},
+        annotationIntentSink: {
+            submitSelectionMarkupIntent: () => {
+                throw new Error('not used in resolvePagePointTarget tests');
+            },
+            submitStickyNoteIntent: () => {
+                throw new Error('not used in resolvePagePointTarget tests');
+            },
+            bindProjectedEditorIdentity: () => {},
+        },
         stopDrag: () => {},
         emitAnnotationOpenNote: () => {},
         emitAnnotationNotePlacementChange: () => {},
@@ -231,9 +241,32 @@ describe('useAnnotationHighlight commentAtPoint', () => {
             waitForEditorsRendered: vi.fn(async () => undefined),
         };
         const emitAnnotationOpenNote = vi.fn();
+        const order: string[] = [];
+        const canonicalComment = {
+            appAnnotationId: 'canonical-note',
+            id: 'canonical-note',
+            stableKey: 'src:editor:0:canonical-note' as const,
+            pageIndex: 0,
+            pageNumber: 1,
+            text: '',
+            author: null,
+            modifiedAt: null,
+            color: null,
+            uid: null,
+            annotationId: null,
+            source: 'editor' as const,
+            hasNote: true,
+            markerRect: {
+                left: 0.4992,
+                top: 0.4992,
+                width: 0.0016,
+                height: 0.0016,
+            },
+        };
 
         const highlight = useAnnotationHighlight({
             viewerContainer: ref(viewer),
+            isActive: ref(true),
             annotationUiManager: shallowRef(uiManager as never),
             numPages: ref(1),
             currentPage: ref(1),
@@ -245,7 +278,6 @@ describe('useAnnotationHighlight commentAtPoint', () => {
                 setEditorMarkupSubtypeOverride: () => {},
                 resolveEditorMarkupSubtypeOverride: () => null,
                 resolveEditorSubtypeFromPresentation: () => null,
-                syncMarkupSubtypePresentationForEditors: () => {},
             }),
             getSync: () => ({
                 scheduleAnnotationCommentsSync: () => {},
@@ -266,9 +298,26 @@ describe('useAnnotationHighlight commentAtPoint', () => {
                 }),
             }),
             getToolManager: () => ({
-                updateModeWithRetry: async () => null,
+                updateModeWithRetry: async () => {
+                    order.push('pdfjs-mode');
+                    return null;
+                },
                 maybeAutoResetAnnotationTool: () => {},
             }),
+            textMarkupPresentation: {notify: vi.fn()},
+            annotationIntentSink: {
+                submitSelectionMarkupIntent: () => {
+                    throw new Error('not used in point note test');
+                },
+                submitStickyNoteIntent: () => {
+                    order.push('store-command');
+                    return {
+                        annotationId: 'canonical-note',
+                        comment: canonicalComment,
+                    };
+                },
+                bindProjectedEditorIdentity: () => {},
+            },
             stopDrag: () => {},
             emitAnnotationOpenNote,
             emitAnnotationNotePlacementChange: () => {},
@@ -276,8 +325,10 @@ describe('useAnnotationHighlight commentAtPoint', () => {
 
         const created = await highlight.commentAtPoint(1, 0.5, 0.5, { preferTextAnchor: false });
 
-        expect(created).toBe(false);
-        expect(emitAnnotationOpenNote).not.toHaveBeenCalled();
+        expect(created).toBe(true);
+        expect(order[0]).toBe('store-command');
+        expect(order[1]).toBe('pdfjs-mode');
+        expect(emitAnnotationOpenNote).toHaveBeenCalledWith(canonicalComment);
     });
 });
 
@@ -318,7 +369,10 @@ describe('useAnnotationHighlight highlightSelectionInternal', () => {
             div: document.createElement('div'),
             addCommands: vi.fn(),
             addUndoableEditor: vi.fn(),
-            createAndAddNewEditor: vi.fn(() => createdEditor),
+            createAndAddNewEditor: vi.fn(() => {
+                order.push('pdfjs-create');
+                return createdEditor;
+            }),
         };
         const selectionBoxes = [{
             x: 0.1,
@@ -334,9 +388,12 @@ describe('useAnnotationHighlight highlightSelectionInternal', () => {
             getSelectionBoxes: vi.fn(() => selectionBoxes),
             waitForEditorsRendered: vi.fn(async () => undefined),
         };
+        const order: string[] = [];
+        const bindEditorIdentity = vi.fn();
 
         const highlight = useAnnotationHighlight({
             viewerContainer: ref(viewer),
+            isActive: ref(true),
             annotationUiManager: shallowRef(uiManager as never),
             numPages: ref(1),
             currentPage: ref(1),
@@ -348,18 +405,60 @@ describe('useAnnotationHighlight highlightSelectionInternal', () => {
                 setEditorMarkupSubtypeOverride: () => {},
                 resolveEditorMarkupSubtypeOverride: () => null,
                 resolveEditorSubtypeFromPresentation: () => null,
-                syncMarkupSubtypePresentationForEditors: () => {},
             }),
             getSync: () => ({
                 scheduleAnnotationCommentsSync: () => {},
-                toEditorSummary: () => {
-                    throw new Error('not used in highlight selection test');
-                },
+                toEditorSummary: (_editor, pageIndex) => ({
+                    id: 'created-editor',
+                    stableKey: `src:editor:${pageIndex}:created-editor`,
+                    pageIndex,
+                    pageNumber: pageIndex + 1,
+                    text: '',
+                    author: null,
+                    modifiedAt: null,
+                    color: null,
+                    uid: null,
+                    annotationId: null,
+                    source: 'editor',
+                    hasNote: false,
+                    markerRect: null,
+                }),
             }),
             getToolManager: () => ({
                 updateModeWithRetry: async () => null,
                 maybeAutoResetAnnotationTool: () => {},
             }),
+            textMarkupPresentation: {notify: vi.fn()},
+            annotationIntentSink: {
+                submitSelectionMarkupIntent: () => {
+                    order.push('store-command');
+                    return {
+                        annotationId: 'canonical-highlight',
+                        subtype: 'Highlight',
+                        comment: {
+                            appAnnotationId: 'canonical-highlight',
+                            id: 'canonical-highlight',
+                            stableKey: 'src:editor:0:canonical-highlight',
+                            pageIndex: 0,
+                            pageNumber: 1,
+                            text: '',
+                            author: null,
+                            modifiedAt: null,
+                            color: null,
+                            uid: null,
+                            annotationId: null,
+                            source: 'editor',
+                            hasNote: false,
+                            markerRect: null,
+                        },
+                        replacements: [],
+                    };
+                },
+                submitStickyNoteIntent: () => {
+                    throw new Error('not used in highlight selection test');
+                },
+                bindProjectedEditorIdentity: bindEditorIdentity,
+            },
             stopDrag: () => {},
             emitAnnotationOpenNote: () => {},
             emitAnnotationNotePlacementChange: () => {},
@@ -368,6 +467,14 @@ describe('useAnnotationHighlight highlightSelectionInternal', () => {
         const created = await highlight.highlightSelectionInternal(false, range);
 
         expect(created).toBe(true);
+        expect(order).toEqual([
+            'store-command',
+            'pdfjs-create',
+        ]);
+        expect(bindEditorIdentity).toHaveBeenCalledWith(
+            'canonical-highlight',
+            expect.objectContaining({id: 'created-editor'}),
+        );
         expect(layer.createAndAddNewEditor).toHaveBeenCalled();
         expect(layer.addCommands).toHaveBeenCalledTimes(1);
         expect(layer.addCommands).toHaveBeenCalledWith(expect.objectContaining({ mustExec: false }));

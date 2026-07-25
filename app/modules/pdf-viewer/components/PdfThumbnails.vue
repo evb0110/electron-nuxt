@@ -140,12 +140,11 @@ const {
     isResizing = false,
     pageLabels = undefined,
     pdfDocument,
+    rasterScheduler,
     selectedPages = undefined,
     totalPages,
 } = defineProps<IPdfThumbnailsProps>();
-
 const emit = defineEmits<IPdfThumbnailsEmits>();
-
 const containerRef = ref<HTMLElement | null>(null);
 function setContainerRef(element: HTMLElement | null) {
     containerRef.value = element;
@@ -834,6 +833,7 @@ const thumbnailRenderRuntime = usePdfThumbnailRenderRuntime({
         invalidationRequest: computed(() => invalidationRequest),
         isActive: computed(() => isActive ?? true),
         pdfDocument: computed(() => pdfDocument),
+        rasterScheduler: computed(() => rasterScheduler),
         totalPages: computed(() => totalPages),
     },
     visuals: {

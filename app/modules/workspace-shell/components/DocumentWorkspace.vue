@@ -108,6 +108,7 @@
                     :is-open="showSidebar"
                     :is-resizing="isResizingSidebar"
                     :pdf-document="pdfDocument"
+                    :raster-scheduler="pdfRasterScheduler"
                     :current-page="currentPage"
                     :total-pages="totalPages"
                     :page-labels="pageLabels"
@@ -612,6 +613,7 @@ const {
     currentPage,
     totalPages,
     pdfDocument,
+    pdfRasterScheduler,
     isLoading,
     continuousScroll,
     showSidebar,

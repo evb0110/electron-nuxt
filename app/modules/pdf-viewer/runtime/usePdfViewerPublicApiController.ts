@@ -1,23 +1,38 @@
 import type { Ref } from 'vue';
-import type { usePdfAppAnnotationHistory } from '@app/modules/pdf-viewer/runtime/annotations/usePdfAppAnnotationHistory';
-import type { usePdfViewerRuntime } from '@app/modules/pdf-viewer/runtime/usePdfViewerRuntime';
-import type { usePdfViewerAnnotationRuntime } from '@app/modules/pdf-viewer/runtime/annotations/usePdfViewerAnnotationRuntime';
-import type { usePdfSinglePageNavigationController } from '@app/modules/pdf-viewer/runtime/navigation/usePdfSinglePageNavigationController';
-import { createPdfViewerPublicApi } from '@app/modules/pdf-viewer/runtime/contracts/createPdfViewerPublicApi';
-import type { TPdfViewerPublicApiSource } from '@app/modules/pdf-viewer/runtime/contracts/createPdfViewerPublicApi';
+import type { Merge } from 'type-fest';
+import type { TPdfDocumentSession } from '@app/modules/pdf-viewer/runtime/sessions/pdfDocumentSession';
+import type { TPdfViewportSession } from '@app/modules/pdf-viewer/runtime/sessions/createPdfViewportSession';
+import type { TPdfAnnotationSession } from '@app/modules/pdf-viewer/runtime/sessions/createPdfAnnotationSession';
 import type { IPdfViewerExpose } from '@app/modules/pdf-viewer/runtime/contracts/pdfViewerExpose.types';
 import { DEFAULT_ANNOTATION_SETTINGS } from '@app/constants/annotationDefaults';
 import { toShapeAnnotationCommentSummary } from '@app/modules/pdf-viewer/engine/annotations/shape-annotation-comments/toShapeAnnotationCommentSummary';
 import { getPageContainerByNumber } from '@app/modules/pdf-viewer/engine/pdf-scroll-visibility/getPageContainerByNumber';
+import { toSelectedTextMarkupComment } from '@app/modules/pdf-viewer/annotations/usePdfAnnotationColorCommands';
+
+type TPdfViewerPublicApiRefBackedKeys =
+    | 'annotationHistoryMutationVersion'
+    | 'annotationHistoryResetVersion'
+    | 'hasShapes'
+    | 'isCapturingRegion'
+    | 'isCropSelecting'
+    | 'selectedShapeId';
+
+type TPdfViewerRefBackedSource = {
+    [TKey in TPdfViewerPublicApiRefBackedKeys]-?: Readonly<Ref<Exclude<IPdfViewerExpose[TKey], undefined>>>;
+};
+
+type TPdfViewerPublicApiSource = Merge<
+    Omit<IPdfViewerExpose, TPdfViewerPublicApiRefBackedKeys>,
+    TPdfViewerRefBackedSource
+>;
 
 interface IUsePdfViewerPublicApiControllerOptions {
     viewerContainer: Ref<HTMLElement | null>;
-    viewerRuntime: ReturnType<typeof usePdfViewerRuntime>;
-    singlePageScroll: ReturnType<typeof usePdfSinglePageNavigationController>;
+    documentSession: TPdfDocumentSession;
+    viewportSession: TPdfViewportSession;
     getUserViewportInteractionEpoch: () => number;
     cancelPendingSearchScroll: () => void;
-    annotationRuntime: ReturnType<typeof usePdfViewerAnnotationRuntime>;
-    appAnnotationHistory: ReturnType<typeof usePdfAppAnnotationHistory>;
+    annotationSession: TPdfAnnotationSession;
     applyFitWidthToCurrentPage: NonNullable<IPdfViewerExpose['applyFitWidthToCurrentPage']>;
     waitForViewerLoadSettled: NonNullable<IPdfViewerExpose['waitForViewerLoadSettled']>;
     renderVisiblePages: (
@@ -32,12 +47,7 @@ interface IUsePdfViewerPublicApiControllerOptions {
         },
     ) => Promise<void>;
     preserveNextSourceReloadVisibleContent: NonNullable<IPdfViewerExpose['preserveNextSourceReloadVisibleContent']>;
-    runSaveTransaction: IPdfViewerExpose['runSaveTransaction'];
-    saveViewerDocument: IPdfViewerExpose['saveDocument'];
-    materializePdfJsDocumentForInternalUse: IPdfViewerExpose['materializePdfJsDocumentForInternalUse'];
     renderLoadedPdfPagesForBrowserPrint: NonNullable<IPdfViewerExpose['renderLoadedPdfPagesForBrowserPrint']>;
-    undoAnnotation: IPdfViewerExpose['undoAnnotation'];
-    redoAnnotation: IPdfViewerExpose['redoAnnotation'];
     startImagePlacement: IPdfViewerExpose['startImagePlacement'];
     clearPendingImagePlacement: IPdfViewerExpose['clearPendingImagePlacement'];
     restorePendingImagePlacement: IPdfViewerExpose['restorePendingImagePlacement'];
@@ -50,11 +60,15 @@ interface IUsePdfViewerPublicApiControllerOptions {
     requestScrollToCurrentResult: IPdfViewerExpose['requestScrollToCurrentResult'];
 }
 
-export const usePdfViewerPublicApiController = (options: IUsePdfViewerPublicApiControllerOptions) => {
+export const usePdfViewerPublicApiController = (
+    options: IUsePdfViewerPublicApiControllerOptions,
+): TPdfViewerPublicApiSource => {
     const {
-        annotationRuntime,
-        viewerRuntime,
+        annotationSession,
+        documentSession,
     } = options;
+    const annotationRuntime = annotationSession;
+    const viewportSession = options.viewportSession;
     const {
         annotations,
         annotationMutationService,
@@ -65,18 +79,18 @@ export const usePdfViewerPublicApiController = (options: IUsePdfViewerPublicApiC
         shapeComposable,
         selectedShapeCommands,
     } = annotationRuntime;
-    const { currentPage } = viewerRuntime.scroll;
+    const currentPage = viewportSession.currentPage;
 
     async function renderAnnotationPage(pageNumber: number, optionsOverride: { forceRerender?: boolean } = {}) {
         if (!Number.isFinite(pageNumber)) {
             return false;
         }
         const normalizedPageNumber = Math.max(1, Math.trunc(pageNumber));
-        if (viewerRuntime.numPages.value > 0 && normalizedPageNumber > viewerRuntime.numPages.value) {
+        if (documentSession.numPages.value > 0 && normalizedPageNumber > documentSession.numPages.value) {
             return false;
         }
         await options.waitForViewerLoadSettled();
-        await viewerRuntime.document.ensurePageMetricsInRange(normalizedPageNumber, normalizedPageNumber);
+        await documentSession.ensurePageMetricsInRange(normalizedPageNumber, normalizedPageNumber);
         await options.renderVisiblePages(
             {
                 start: normalizedPageNumber,
@@ -98,31 +112,31 @@ export const usePdfViewerPublicApiController = (options: IUsePdfViewerPublicApiC
     }
 
     async function ensurePublicAnnotationTargetPageReady(pageNumber: number) {
-        if (viewerRuntime.numPages.value > 0 && pageNumber > viewerRuntime.numPages.value) {
+        if (documentSession.numPages.value > 0 && pageNumber > documentSession.numPages.value) {
             return false;
         }
         options.cancelPendingSearchScroll();
-        options.singlePageScroll.scrollToPage(pageNumber);
+        viewportSession.singlePageScroll.scrollToPage(pageNumber);
         await nextTick();
         return renderAnnotationPage(pageNumber);
     }
 
-    return createPdfViewerPublicApi({
+    return {
         getViewerContainer: () => options.viewerContainer.value,
         getCurrentPage: () => currentPage.value,
-        getPendingNavigationTargetPage: () => options.singlePageScroll.navigationAnchorPage.value,
+        getPendingNavigationTargetPage: () => viewportSession.singlePageScroll.navigationAnchorPage.value,
         getUserViewportInteractionEpoch: options.getUserViewportInteractionEpoch,
         scrollToPage: (pageNumber, scrollOptions) => {
             options.cancelPendingSearchScroll();
-            options.singlePageScroll.scrollToPage(pageNumber, scrollOptions);
+            viewportSession.singlePageScroll.scrollToPage(pageNumber, scrollOptions);
         },
         cancelProgrammaticNavigation: () => {
             options.cancelPendingSearchScroll();
-            options.singlePageScroll.cancelProgrammaticNavigation('public-api');
+            viewportSession.singlePageScroll.cancelProgrammaticNavigation('public-api');
         },
         applyFitWidthToCurrentPage: options.applyFitWidthToCurrentPage,
-        ensurePageMetricsInRange: viewerRuntime.document.ensurePageMetricsInRange,
-        getPageMetricsSnapshot: () => viewerRuntime.document.pageMetrics.value.map(metric => ({ ...metric })),
+        ensurePageMetricsInRange: documentSession.ensurePageMetricsInRange,
+        getPageMetricsSnapshot: () => documentSession.pageMetrics.value.map(metric => ({ ...metric })),
         waitForViewerLoadSettled: options.waitForViewerLoadSettled,
         preserveNextSourceReloadVisibleContent: options.preserveNextSourceReloadVisibleContent,
         adoptPersistedManagedShapesOnNextImport: annotationRuntime.adoptPersistedManagedShapesOnNextImport,
@@ -130,16 +144,16 @@ export const usePdfViewerPublicApiController = (options: IUsePdfViewerPublicApiC
         ensureManagedShapeBaselineReady: annotationRuntime.ensureManagedShapeBaselineReady,
         preparePersistedManagedShapesForSave: annotationRuntime.preparePersistedManagedShapesForSave,
         restorePreparedManagedShapesAfterFailedSave: annotationRuntime.restorePreparedManagedShapesAfterFailedSave,
-        runSaveTransaction: options.runSaveTransaction,
-        saveDocument: options.saveViewerDocument,
-        materializePdfJsDocumentForInternalUse: options.materializePdfJsDocumentForInternalUse,
-        clearAnnotationHistory: () => options.appAnnotationHistory.clear(),
+        runSaveTransaction: annotationSession.runSaveTransaction,
+        saveDocument: annotationSession.saveViewerDocument,
+        materializePdfJsDocumentForInternalUse: annotationSession.materializePdfJsDocumentForInternalUse,
+        clearAnnotationHistory: () => annotationSession.appAnnotationHistory.clear(),
         renderLoadedPdfPagesForBrowserPrint: options.renderLoadedPdfPagesForBrowserPrint,
         markSavedShapeState: () => {
             shapeComposable.markSavedShapeState();
             // Saving changes the clean shape baseline but must not collapse the
             // app-managed undo/redo stack; re-emit so toolbar state stays current.
-            options.appAnnotationHistory.emitCombinedState();
+            annotationSession.appAnnotationHistory.emitCombinedState();
         },
         highlightSelection: annotationRuntime.highlightComposable.highlightSelection,
         commentSelection: annotationRuntime.highlightComposable.commentSelection,
@@ -172,7 +186,7 @@ export const usePdfViewerPublicApiController = (options: IUsePdfViewerPublicApiC
                 ...(reason ? {reason} : {}),
             });
 
-            if (viewerRuntime.numPages.value > 0 && pageNumber > viewerRuntime.numPages.value) {
+            if (documentSession.numPages.value > 0 && pageNumber > documentSession.numPages.value) {
                 return result(false, `Page ${pageNumber} is outside the document.`);
             }
 
@@ -206,7 +220,7 @@ export const usePdfViewerPublicApiController = (options: IUsePdfViewerPublicApiC
                 ...(reason ? {reason} : {}),
             });
 
-            if (viewerRuntime.numPages.value > 0 && pageNumber > viewerRuntime.numPages.value) {
+            if (documentSession.numPages.value > 0 && pageNumber > documentSession.numPages.value) {
                 return result(false, null, `Page ${pageNumber} is outside the document.`);
             }
 
@@ -229,33 +243,32 @@ export const usePdfViewerPublicApiController = (options: IUsePdfViewerPublicApiC
             shapeTool.handleShapeCreated(shape);
             return result(true, toShapeAnnotationCommentSummary(shape));
         },
-        annotationHistoryMutationVersion: options.appAnnotationHistory.annotationHistoryMutationVersion,
-        annotationHistoryResetVersion: options.appAnnotationHistory.annotationHistoryResetVersion,
+        annotationHistoryMutationVersion: annotationSession.appAnnotationHistory.annotationHistoryMutationVersion,
+        annotationHistoryResetVersion: annotationSession.appAnnotationHistory.annotationHistoryResetVersion,
         hasCanonicalAnnotationChanges: annotationRuntime.hasCanonicalAnnotationChanges,
         getDeletedCanonicalAnnotationIds: annotationRuntime.getDeletedCanonicalAnnotationIds,
         getDeletedPersistedCanonicalAnnotationCount: annotationRuntime.getDeletedPersistedCanonicalAnnotationCount,
-        setWorkspaceCommandSink: options.appAnnotationHistory.setWorkspaceCommandSink,
+        setWorkspaceCommandSink: annotationSession.appAnnotationHistory.setWorkspaceCommandSink,
         startCommentPlacement: annotationRuntime.highlightComposable.startCommentPlacement,
         cancelCommentPlacement: annotationRuntime.highlightComposable.cancelCommentPlacement,
-        undoAnnotation: options.undoAnnotation,
-        redoAnnotation: options.redoAnnotation,
+        undoAnnotation: annotationSession.undoAnnotation,
+        redoAnnotation: annotationSession.redoAnnotation,
         registerAnnotationHistoryCommand: annotationRuntime.registerShapeHistoryCommand,
         ensurePdfAnnotationNameReconciliation: annotations.commentSync.ensurePdfAnnotationNameReconciliation,
         focusAnnotationComment,
         updateAnnotationComment: (comment, text) => {
-            const update = () => annotationMutationService.updateComment(
+            const updated = annotationMutationService.updateComment(
                 {
                     comment,
                     text,
                 },
                 { source: 'user' },
             );
-            if (comment.source !== 'pdf' || comment.annotationName) {
-                return update();
+            if (comment.source === 'pdf' && !comment.annotationName) {
+                void annotations.commentSync
+                    .ensurePdfAnnotationNameReconciliation('existing-annotation-mutation');
             }
-            return annotations.commentSync
-                .ensurePdfAnnotationNameReconciliation('existing-annotation-mutation')
-                .then(update);
+            return updated;
         },
         moveAnnotationMarker: (comment, rect) => annotationMutationService.moveMarker(
             {
@@ -273,9 +286,10 @@ export const usePdfViewerPublicApiController = (options: IUsePdfViewerPublicApiC
         getMarkupSubtypeOverrides: annotations.editor.getMarkupSubtypeOverrides,
         getMarkupSubtypeHints: annotations.editor.getMarkupSubtypeHints,
         getSelectedTextMarkupAnnotationProperties: annotations.editor.markupSubtype.getSelectedTextMarkupAnnotationProperties,
-        updateSelectedTextMarkupAnnotationColor: color => annotationMutationService.updateColor(
+        updateSelectedTextMarkupAnnotationColor: (color, selected) => annotationMutationService.updateColor(
             {
                 color,
+                comment: toSelectedTextMarkupComment(selected),
                 selected: true,
             },
             { source: 'user' },
@@ -319,5 +333,5 @@ export const usePdfViewerPublicApiController = (options: IUsePdfViewerPublicApiC
         cancelCropSelection: options.cancelCropSelection,
         isCropSelecting: options.isCropSelecting,
         requestScrollToCurrentResult: options.requestScrollToCurrentResult,
-    });
+    };
 };

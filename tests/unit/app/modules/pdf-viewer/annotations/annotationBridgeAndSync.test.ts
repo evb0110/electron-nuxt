@@ -5,7 +5,7 @@ import {
     vi,
 } from 'vitest';
 import {PdfjsAnnotationFacade} from '@app/modules/pdf-viewer/annotations/bridge/pdfjsAnnotationFacade';
-import {asAnnotationId} from '@app/modules/pdf-viewer/annotations/domain/annotationEntity';
+import {asAnnotationId} from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
 
 describe('annotation bridge leases and sync protocol', () => {
     it('rejects editor continuations after any lease generation changes', () => {

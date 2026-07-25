@@ -594,7 +594,12 @@ export function createPdfPageRasterScheduler(
         resolve: ((outcome: TPdfRasterOutcome) => void) | null,
     ) {
         const key = createWorkKey(target.id, demand);
-        if (residents.has(key)) {
+        const resident = residents.get(key);
+        if (resident) {
+            if (resident.demand.lane !== demand.lane) {
+                resident.reservation.setPriority?.(LANE_ORDER[demand.lane]);
+            }
+            resident.demand = demand;
             resolve?.({
                 status: 'committed',
                 demand,
@@ -603,6 +608,10 @@ export function createPdfPageRasterScheduler(
         }
         const existing = queued.get(key) ?? inFlight.get(key);
         if (existing) {
+            // Republished authoritative demand with the same render key is
+            // still the same work. Advance its generation in place so the
+            // current-demand guard does not cancel and restart that raster.
+            existing.demand = demand;
             if (resolve) {
                 const previousResolve = existing.resolve;
                 existing.resolve = (outcome) => {
@@ -862,18 +871,10 @@ export function createPdfPageRasterScheduler(
 
 const pdfDocumentRasterSchedulers = new WeakMap<PDFDocumentProxy, IPdfPageRasterScheduler>();
 
-export function getPdfPageRasterScheduler(document: PDFDocumentProxy) {
-    const scheduler = pdfDocumentRasterSchedulers.get(document);
-    if (!scheduler) {
-        throw new Error('PDF document raster scheduler is unavailable');
-    }
-    return scheduler;
-}
-
 export function ensurePdfPageRasterScheduler(
     document: PDFDocumentProxy,
     options: {
-        documentVersion: number;
+        documentFence: IPdfRasterDocumentFence;
         leasePage: ICreatePdfPageRasterSchedulerOptions['leasePage'];
     },
 ) {
@@ -882,18 +883,15 @@ export function ensurePdfPageRasterScheduler(
         return existing;
     }
     const scheduler = createPdfPageRasterScheduler({
-        documentFence: {
-            documentRevision: null,
-            documentVersion: options.documentVersion,
-            loadToken: options.documentVersion,
-        },
+        documentFence: options.documentFence,
         leasePage: options.leasePage,
     });
     pdfDocumentRasterSchedulers.set(document, scheduler);
     return scheduler;
 }
 
-export function disposePdfPageRasterScheduler(document: PDFDocumentProxy) {
-    void pdfDocumentRasterSchedulers.get(document)?.dispose();
+export async function disposePdfPageRasterScheduler(document: PDFDocumentProxy) {
+    const scheduler = pdfDocumentRasterSchedulers.get(document);
     pdfDocumentRasterSchedulers.delete(document);
+    await scheduler?.dispose();
 }

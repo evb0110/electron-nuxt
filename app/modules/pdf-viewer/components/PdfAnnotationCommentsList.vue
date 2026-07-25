@@ -155,7 +155,7 @@ import type {
     TAnnotationCommentsStatus,
 } from '@app/types/annotations';
 import DocumentPanelEmptyState from '@app/components/document-viewer/DocumentPanelEmptyState.vue';
-import { annotationIdForSummary } from '@app/modules/pdf-viewer/annotations/domain/annotationSummaryIdentity';
+import { annotationIdForSummary } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationSummaryIdentity';
 import {
     compareAnnotationCommentSummaries,
     getAnnotationCommentDisplayTimestamp,

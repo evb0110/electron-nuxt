@@ -158,6 +158,68 @@ describe('PdfPageRasterScheduler', () => {
         await vi.waitFor(() => expect(harness.committed).toEqual([3]));
     });
 
+    it('promotes resident demand and its surface priority without rerendering', async () => {
+        const budget = createWorkspaceSurfaceBudgetController(800);
+        const externalEvict = vi.fn();
+        const start = vi.fn(() => createTask());
+        const release = vi.fn();
+        const scheduler = createPdfPageRasterScheduler({
+            documentFence,
+            leasePage: async pageNumber => ({
+                page: {pageNumber} as PDFPageProxy,
+                release: vi.fn(),
+            }),
+            maxConcurrency: 1,
+            surfaceBudget: budget,
+        });
+        const target: IPdfRasterRenderTarget<{pageNumber: number}> = {
+            id: 'resident-promotion',
+            prepare: async demand => ({pageNumber: demand.pageNumber}),
+            start,
+            commit: () => true,
+            discard: vi.fn(),
+            release,
+        };
+        const setDemand = (demand: IPdfRasterDemand) => scheduler.setDemand({
+            sourceId: 'viewport',
+            input: [demand],
+            policy: {
+                expand: input => input,
+                compareWithinLane: () => 0,
+            },
+            target,
+        });
+
+        setDemand(createDemand(1, 'viewport-nearby'));
+        await vi.waitFor(() => expect(scheduler.snapshot().residentPages).toEqual([{
+            lane: 'viewport-nearby',
+            pageNumber: 1,
+            sourceId: 'viewport',
+            targetId: 'resident-promotion',
+        }]));
+        budget.reserve({
+            scopeId: 'external',
+            category: 'native-preview',
+            bytes: 400,
+            priority: 400,
+            evict: externalEvict,
+        });
+
+        setDemand(createDemand(1, 'viewport-visible'));
+        budget.setPressureLevel('moderate');
+
+        expect(scheduler.snapshot().residentPages).toEqual([{
+            lane: 'viewport-visible',
+            pageNumber: 1,
+            sourceId: 'viewport',
+            targetId: 'resident-promotion',
+        }]);
+        expect(start).toHaveBeenCalledOnce();
+        expect(externalEvict).toHaveBeenCalledOnce();
+        expect(release).not.toHaveBeenCalled();
+        expect(budget.getSnapshot().reservedBytes).toBe(400);
+    });
+
     it('rejects one-shot requests outside navigation-target', async () => {
         const harness = createHarness();
 
@@ -539,12 +601,14 @@ describe('PdfPageRasterScheduler', () => {
         const budget = createWorkspaceSurfaceBudgetController(1_000);
         const releaseScope = vi.spyOn(budget, 'releaseScope');
         const render = Promise.withResolvers<undefined>();
+        const cancel = vi.fn();
+        const release = vi.fn();
         const started: number[] = [];
         const scheduler = createPdfPageRasterScheduler({
             documentFence,
             leasePage: async pageNumber => ({
                 page: {pageNumber} as PDFPageProxy,
-                release: vi.fn(),
+                release,
             }),
             maxConcurrency: 1,
             surfaceBudget: budget,
@@ -562,7 +626,7 @@ describe('PdfPageRasterScheduler', () => {
                 start: ({pageNumber}) => {
                     started.push(pageNumber);
                     return cast<RenderTask>({
-                        cancel: vi.fn(),
+                        cancel,
                         promise: render.promise,
                     });
                 },
@@ -590,12 +654,15 @@ describe('PdfPageRasterScheduler', () => {
         await flush();
 
         expect(disposed).toBe(false);
+        expect(cancel).toHaveBeenCalledOnce();
+        expect(release).not.toHaveBeenCalled();
         expect(releaseScope).not.toHaveBeenCalled();
 
         render.resolve(undefined);
         await disposals;
         await scheduler.dispose();
 
+        expect(release).toHaveBeenCalledOnce();
         expect(releaseScope).toHaveBeenCalledOnce();
         expect(budget.getSnapshot()).toMatchObject({
             leaseCount: 0,

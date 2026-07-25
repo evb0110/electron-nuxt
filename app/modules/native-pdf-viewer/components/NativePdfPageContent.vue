@@ -38,7 +38,6 @@
         aria-hidden="true"
     >
         <DocumentPageSkeleton
-            :padding="skeletonPadding"
             :content-height="skeletonContentHeight"
         />
     </div>
@@ -80,12 +79,6 @@ const emit = defineEmits<{
 
 const { t } = useTypedI18n();
 
-const skeletonPadding = {
-    top: 56,
-    right: 56,
-    bottom: 56,
-    left: 56,
-};
 const skeletonContentHeight = 760;
 const showPageNumber = computed(() => (
     props.visualCommitted === true

@@ -5,9 +5,11 @@ import type {
 } from '@app/types/annotations';
 import type { PDFDocumentProxy } from 'pdfjs-dist';
 import type { IScrollToPageOptions } from '@app/modules/pdf-viewer/engine/pdf-outline-navigation/scrollToPageOptions';
+import type { IPdfPageRasterScheduler } from '@app/modules/pdf-viewer/engine/pdf-page-raster-scheduler/pdfPageRasterScheduler';
 
 export interface IPdfThumbnailsProps {
     pdfDocument: PDFDocumentProxy | null;
+    rasterScheduler: IPdfPageRasterScheduler | null;
     currentPage: number;
     totalPages: number;
     pageLabels?: string[] | null | undefined;

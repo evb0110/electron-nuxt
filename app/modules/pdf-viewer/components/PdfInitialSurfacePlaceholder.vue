@@ -10,7 +10,6 @@
             :style="pageStyle ?? undefined"
         >
             <DocumentPageSkeleton
-                :padding="skeletonPadding"
                 :content-height="skeletonContentHeight"
             />
         </div>
@@ -23,12 +22,6 @@ import DocumentPageSkeleton from '@app/components/document-viewer/DocumentPageSk
 
 defineProps<{ pageStyle?: StyleValue | null }>();
 
-const skeletonPadding = {
-    top: 56,
-    right: 56,
-    bottom: 56,
-    left: 56,
-};
 const skeletonContentHeight = 760;
 </script>
 

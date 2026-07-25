@@ -29,8 +29,8 @@ import type {
     ICrudSync,
     ICrudToolManager,
     IUseAnnotationCrudOptions,
-} from '@app/modules/pdf-viewer/runtime/annotations/annotationCrudTypes';
-import { getCommentCandidateIds } from '@app/modules/pdf-viewer/annotations/domain/annotationSummaryIdentity';
+} from '@app/modules/pdf-viewer/annotations/bridge/pdfjs-runtime/annotationCrudBridge.types';
+import { getCommentCandidateIds } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationSummaryIdentity';
 import { runGuardedTask } from '@app/utils/asyncGuard';
 import {
     getEditorById,
@@ -64,6 +64,7 @@ export const useAnnotationCrud = (options: IUseAnnotationCrudOptions) => {
         getToolManager,
         getInlineIndicators,
         getHighlight,
+        textMarkupPresentation,
         scrollToPage,
         renderVisiblePages,
         updateVisibleRange,
@@ -450,7 +451,10 @@ export const useAnnotationCrud = (options: IUseAnnotationCrudOptions) => {
     ) {
         if (editor) {
             try {
-                getToolManager().clearMarkupSubtypeEditorClass?.(editor);
+                textMarkupPresentation.notify({
+                    editor,
+                    kind: 'editor-presentation-cleared',
+                });
             } catch (error) {
                 logCrudDebug('Failed to clear markup subtype visuals before annotation delete', error);
             }

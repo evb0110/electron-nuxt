@@ -48,10 +48,16 @@ interface IPadding {
 }
 
 interface IProps {
-    padding: IPadding | null;
+    padding?: IPadding | null;
     contentHeight: number | null;
 }
 
+const defaultPadding: IPadding = {
+    top: 56,
+    right: 56,
+    bottom: 56,
+    left: 56,
+};
 const emptyPadding: IPadding = {
     top: 0,
     right: 0,
@@ -59,12 +65,12 @@ const emptyPadding: IPadding = {
     left: 0,
 };
 
-function resolvePadding(padding: IPadding | null) {
-    return padding ?? emptyPadding;
+function resolvePadding(padding: IPadding | null | undefined) {
+    return padding === undefined ? defaultPadding : padding ?? emptyPadding;
 }
 
 const {
-    padding,
+    padding = undefined,
     contentHeight,
 } = defineProps<IProps>();
 

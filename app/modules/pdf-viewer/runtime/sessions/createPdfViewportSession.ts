@@ -1,0 +1,1176 @@
+import type {
+    ComputedRef,
+    Ref,
+} from 'vue';
+import type {
+    TFitMode,
+    TPdfViewMode,
+    TZoomMode,
+} from '@app/types/pdfContracts';
+import type { IPageRange } from '@app/types/pdfUi';
+import type { ILinkAnnotation } from '@app/types/annotations';
+import type { IDocumentViewerChassisAuthority } from '@app/utils/document-viewer/chassis/documentViewerChassisAuthority';
+import {
+    commitDocumentOpenSurfaceViewport,
+    hasCommittedDocumentOpeningLayout,
+    shouldProjectDocumentViewportCommitPage,
+    type IDocumentOpenSurfaceSession,
+} from '@app/utils/document-viewer/chassis/documentOpenSurfaceSession';
+import { BrowserLogger } from '@app/utils/browserLogger';
+import { createPageNavigationRequest } from '@app/modules/pdf-viewer/engine/viewport/createPageNavigationRequest';
+import { getPageRowBoundsForViewMode } from '@app/modules/pdf-viewer/engine/pdf-page-layout/getPageRowBoundsForViewMode';
+import { normalizePageMetrics } from '@app/modules/pdf-viewer/engine/pdf-page-layout/normalizePageMetrics';
+import { setupPagePlaceholderSizes } from '@app/modules/pdf-viewer/engine/pdf-page-buffer-manager/setupPagePlaceholderSizes';
+import type { IPdfPageLayoutMetrics } from '@app/modules/pdf-viewer/engine/pdf-page-layout/pdfPageLayoutMetrics';
+import {
+    getViewportVisibilityFromDom,
+    getViewportVisibilityFromLayout,
+} from '@app/modules/pdf-viewer/engine/pdf-scroll-visibility/getViewportVisibilityFromDom';
+import {
+    isPdfVisibleRenderRangeCurrent,
+    resolvePdfProtectedVisibleRange,
+} from '@app/modules/pdf-viewer/engine/pdf-visible-render-range-policy/isPdfVisibleRenderRangeCurrent';
+import type { IPdfRenderPerformancePolicy } from '@app/modules/pdf-viewer/engine/pdf-render-performance/resolvePdfRenderPerformancePolicy';
+import { createPdfPageSlotRegistry } from '@app/modules/pdf-viewer/runtime/page-slots/pdfPageSlotRegistry';
+import { resolvePdfRasterResidencyPlan } from '@app/modules/pdf-viewer/runtime/rendering/resolvePdfRasterResidencyPlan';
+import type { IRenderVisiblePagesOptions } from '@app/modules/pdf-viewer/engine/pdf-page-render-pipeline/bindPdfOpenSurfaceRenderContext';
+import { usePdfScale } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfScale';
+import { usePdfScroll } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfScroll';
+import type { IScrollToPageOptions } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfScroll';
+import { useViewportPagePin } from '@app/modules/pdf-viewer/runtime/composables/pdf/useViewportPagePin';
+import { usePdfSkeletonInsets } from '@app/modules/pdf-viewer/runtime/skeleton/usePdfSkeletonInsets';
+import { usePdfViewerReloadTransition } from '@app/modules/pdf-viewer/runtime/composables/usePdfViewerReloadTransition';
+import { usePdfViewerCurrentPageSync } from '@app/modules/pdf-viewer/runtime/composables/usePdfViewerCurrentPageSync';
+import {
+    usePdfViewerPreservedVisibleContent,
+    type IPreservedVisibleContentRequest,
+    type IPreservedVisibleContentState,
+} from '@app/modules/pdf-viewer/runtime/composables/usePdfViewerPreservedVisibleContent';
+import { usePdfViewportViewModel } from '@app/modules/pdf-viewer/runtime/viewport/usePdfViewportViewModel';
+import { usePdfOpenVirtualSurfaceGeometry } from '@app/modules/pdf-viewer/runtime/viewport/usePdfOpenVirtualSurfaceGeometry';
+import { usePdfSinglePageNavigationController } from '@app/modules/pdf-viewer/runtime/navigation/usePdfSinglePageNavigationController';
+import { usePdfViewerTransactionController } from '@app/modules/pdf-viewer/runtime/transactions/usePdfViewerTransactionController';
+import type { IPdfViewportPositionCommit } from '@app/modules/pdf-viewer/runtime/viewport/createViewportAuthority';
+import type { IPdfViewportWritePort } from '@app/modules/pdf-viewer/runtime/viewport/pdfViewportWritePort';
+import type { IZoomVirtualizationFreeze } from '@app/modules/pdf-viewer/runtime/composables/usePdfViewerVirtualization';
+import type { IResizeTransitionSignal } from '@app/modules/pdf-viewer/runtime/viewport/pdfViewerViewportTypes';
+import { resolvePdfPreparedOpeningFitScale } from '@app/modules/pdf-viewer/runtime/lifecycle/resolvePdfPreparedOpeningFitScale';
+import { resolveCustomReloadZoomMultiplier } from '@app/modules/pdf-viewer/runtime/reload-zoom/resolveCustomReloadZoomMultiplier';
+import type {
+    IPdfDocumentTransition,
+    TPdfDocumentSession,
+} from '@app/modules/pdf-viewer/runtime/sessions/pdfDocumentSession';
+import {
+    createPdfViewportGeometryFromLayout,
+    resolveRetainedAnchorFromScroll,
+    type IPdfSemanticAnchor,
+} from '@app/modules/pdf-viewer/runtime/viewport/pdfViewportGeometry';
+const RELOAD_RECOVERY_PAGE_PIN_MS = 900;
+export interface IPdfViewportDemand {
+    readonly revision: number;
+    readonly visibleRange: IPageRange;
+    readonly requiredPages: readonly number[];
+    readonly nearbyPages: readonly number[];
+    readonly residentPages: readonly number[];
+    readonly mountedPages: readonly number[];
+    readonly currentPage: number;
+    readonly destinationPage: number | null;
+    readonly operational: boolean;
+    readonly mandatoryRaster: IPdfViewportMandatoryRaster | null;
+}
+export interface IPdfViewportMandatoryRaster {
+    readonly id: number;
+    readonly range: IPageRange;
+    readonly options: IRenderVisiblePagesOptions;
+}
+interface IPdfViewportReloadPlacement {
+    readonly displayZoomToRestore: number | null;
+    readonly shouldPinReloadPage: boolean;
+}
+export interface ICreatePdfViewportSessionOptions {
+    document: TPdfDocumentSession;
+    chassisAuthority: IDocumentViewerChassisAuthority | null;
+    performancePolicy: IPdfRenderPerformancePolicy;
+    maxBufferCanvasPixels: number;
+    settledMaxCanvasPixels: number;
+    viewerContainer: Ref<HTMLElement | null>;
+    viewportWritePort: IPdfViewportWritePort;
+    zoom: ComputedRef<number>;
+    zoomMode: ComputedRef<TZoomMode>;
+    fitMode: ComputedRef<TFitMode>;
+    viewMode: ComputedRef<TPdfViewMode>;
+    continuousScroll: ComputedRef<boolean>;
+    bufferPages: ComputedRef<number>;
+    isActive: ComputedRef<boolean>;
+    isResizing: ComputedRef<boolean>;
+    requestedCurrentPage: Ref<number | undefined>;
+    outputScale: Ref<number>;
+    selectionMarkupStyle: Parameters<typeof usePdfViewportViewModel>[0]['selectionMarkupStyle'];
+    classState: Parameters<typeof usePdfViewportViewModel>[0]['classState'];
+    emitCurrentPage: (page: number) => void;
+    emitNavigationFeedbackPage: (page: number | null) => void;
+    emitZoom: (value: number) => void;
+    emitEffectiveZoom: (value: number) => void;
+    summarizeViewerStateForLog: () => unknown;
+    clearPendingImagePlacement: () => void;
+}
+function projectSettledProgrammaticPage(
+    authority: IDocumentViewerChassisAuthority | null | undefined,
+    commit: IPdfViewportPositionCommit,
+    emitCurrentPage: (page: number) => void,
+) {
+    const surface = authority?.openSurface;
+    if (
+        !surface
+        || surface.viewportSession.value.lifecycle !== 'ready'
+        || ![
+            'navigate',
+            'search',
+            'wheel-page',
+        ].includes(commit.intentKind)
+    ) {
+        return false;
+    }
+    emitCurrentPage(authority.observePage(commit.page));
+    return true;
+}
+function projectPdfViewportPositionCommit(
+    surface: IDocumentOpenSurfaceSession | null | undefined,
+    commit: IPdfViewportPositionCommit,
+    emitCurrentPage: (page: number) => void,
+) {
+    if (!surface) {
+        emitCurrentPage(commit.page);
+        return false;
+    }
+    if (!shouldProjectDocumentViewportCommitPage(surface, commit)) {
+        return false;
+    }
+    surface.requestNavigation(commit.page);
+    emitCurrentPage(commit.page);
+    return commitDocumentOpenSurfaceViewport(surface, commit);
+}
+export function createPdfOpenSurfaceViewportCallbacks(
+    authority: IDocumentViewerChassisAuthority | null | undefined,
+    emitCurrentPage: (page: number) => void,
+    onNavigationViewportCommitted: (page: number) => void,
+) {
+    return {
+        onUserViewportPageObserved: (page: number) => {
+            emitCurrentPage(authority?.observePage(page, {supersedeNavigation: true}) ?? page);
+        },
+        onViewportPositionCommitted: (commit: IPdfViewportPositionCommit) => {
+            if (commit.intentKind === 'user-scroll') {
+                return;
+            }
+            if (projectPdfViewportPositionCommit(authority?.openSurface, commit, emitCurrentPage)) {
+                onNavigationViewportCommitted(commit.page);
+                return;
+            }
+            projectSettledProgrammaticPage(authority, commit, emitCurrentPage);
+        },
+    };
+}
+export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptions) => {
+    const documentSession = options.document;
+    const {
+        pdfDocument,
+        numPages,
+        isLoading,
+        basePageWidth,
+        basePageHeight,
+        pageMetrics,
+        pageMetricsVersion,
+    } = documentSession;
+    const chassisAuthority = options.chassisAuthority;
+    const viewportWritePort = options.viewportWritePort;
+    const pageSlots = createPdfPageSlotRegistry();
+    const userViewportInteractionEpoch = ref(0);
+    const zoomVirtualizationFreeze = ref<IZoomVirtualizationFreeze | null>(null);
+    const resizeTransitionVisible = ref(false);
+    const resizeTransitionAnchorPage = ref<number | null>(null);
+    const zoomSnapSuppressedForClass = ref(false);
+    const cancelPendingSearchRevision = ref(0);
+    const cancelRasterRevision = ref(0);
+    const visualReadySignal = shallowRef({
+        revision: 0,
+        pageNumber: 0,
+    });
+    const navigationCommittedSignal = shallowRef({
+        revision: 0,
+        pageNumber: 0,
+    });
+    const viewportPin = useViewportPagePin({summarizeViewerStateForLog: options.summarizeViewerStateForLog});
+    const scroll = usePdfScroll({
+        getPinnedMostVisiblePage: () => viewportPin.getPinnedViewportPage(),
+        viewportWritePort,
+    });
+    const scale = usePdfScale(
+        options.zoom,
+        options.zoomMode,
+        options.fitMode,
+        options.viewMode,
+        numPages,
+        pageMetrics,
+        pageMetricsVersion,
+        basePageWidth,
+        basePageHeight,
+        scroll.currentPage,
+    );
+    const reloadTransition = usePdfViewerReloadTransition({
+        emitEffectiveZoom: options.emitEffectiveZoom,
+        summarizeViewerStateForLog: options.summarizeViewerStateForLog,
+    });
+    watch(
+        () => scale.layoutScale.value,
+        value => reloadTransition.emitEffectiveZoom(value),
+        { immediate: true },
+    );
+    const skeletonInsets = usePdfSkeletonInsets(basePageWidth, basePageHeight, scale.effectiveScale);
+    const currentPage = scroll.currentPage;
+    const visibleRange = ref({
+        start: 1,
+        end: 1,
+    });
+    const viewportLayoutMetrics = shallowRef<IPdfPageLayoutMetrics | null>(null);
+    function seedPreparedOpeningFitScale() {
+        if (!chassisAuthority) {
+            return false;
+        }
+        const preparedScale = resolvePdfPreparedOpeningFitScale(
+            chassisAuthority.openSurface.snapshot.value,
+            options.zoomMode.value === 'custom',
+        );
+        return preparedScale === null ? false : scale.seedOpeningFitScale(preparedScale);
+    }
+    watchEffect(seedPreparedOpeningFitScale);
+    function shouldPreserveOpeningLayout() {
+        const snapshot = chassisAuthority?.openSurface.snapshot.value;
+        return snapshot !== undefined && hasCommittedDocumentOpeningLayout(snapshot);
+    }
+    function setupPagePlaceholders() {
+        const containerRoot = options.viewerContainer.value;
+        const baseWidth = basePageWidth.value;
+        const baseHeight = basePageHeight.value;
+        if (!containerRoot || !baseWidth || !baseHeight) {
+            return;
+        }
+        setupPagePlaceholderSizes(
+            containerRoot,
+            normalizePageMetrics({
+                pageMetrics: pageMetrics.value,
+                totalPages: numPages.value,
+                fallbackWidth: baseWidth,
+                fallbackHeight: baseHeight,
+            }),
+            scale.effectiveScale.value,
+        );
+    }
+    function getNavigationRenderTargetPage() {
+        return transactionController.targetPage.value
+            ?? singlePageScroll.navigationAnchorPage.value
+            ?? null;
+    }
+    function getProtectedVisibleRange() {
+        return resolvePdfProtectedVisibleRange({
+            visibleRange: visibleRange.value,
+            navigationTargetPage: getNavigationRenderTargetPage(),
+            viewMode: options.viewMode.value,
+            totalPages: numPages.value,
+        });
+    }
+    function isVisibleRenderRangeCurrent(range: IPageRange) {
+        return isPdfVisibleRenderRangeCurrent({
+            range,
+            visibleRange: visibleRange.value,
+            navigationTargetPage: getNavigationRenderTargetPage(),
+            viewMode: options.viewMode.value,
+            totalPages: numPages.value,
+        });
+    }
+    async function prepareNavigationLayout(pageNumber: number, signal: AbortSignal) {
+        const range = getPageRowBoundsForViewMode({
+            pageNumber,
+            viewMode: options.viewMode.value,
+            totalPages: numPages.value,
+        });
+        await documentSession.ensurePageMetricsInRange(range.start, range.end);
+        if (signal.aborted || options.zoomMode.value === 'custom') {
+            return;
+        }
+        scale.computeFitWidthScale(options.viewerContainer.value, {page: pageNumber});
+        setupPagePlaceholders();
+        await nextTick();
+    }
+    const {
+        capturePreservedVisibleContentState,
+        releasePreservedVisualSnapshotNow,
+        schedulePreservedVisualSnapshotRelease,
+    } = usePdfViewerPreservedVisibleContent({
+        viewerContainer: options.viewerContainer,
+        currentPage,
+    });
+    let nextPreservedVisibleContentState: IPreservedVisibleContentState | null = null;
+    let activePreservedVisibleContent: IPreservedVisibleContentState | null = null;
+    let resolvedPageToRestore = 1;
+    let activeReloadTransactionId: number | null = null;
+    let visualReloadTransitionToken: number | null = null;
+    function projectViewportVisibleRange(container: HTMLElement | null, totalPages: number) {
+        if (!container || totalPages <= 0) {
+            return visibleRange.value;
+        }
+        const domVisibility = getViewportVisibilityFromDom(container, totalPages);
+        const visibility = domVisibility.range || domVisibility.mostVisiblePage !== null
+            ? domVisibility
+            : getViewportVisibilityFromLayout(container, totalPages, viewportLayoutMetrics.value) ?? domVisibility;
+        visibleRange.value = visibility.range ?? visibleRange.value;
+        return visibleRange.value;
+    }
+    function getVisibleRange(): IPageRange {
+        if (!options.continuousScroll.value && numPages.value > 0) {
+            const rowBounds = getPageRowBoundsForViewMode({
+                pageNumber: currentPage.value,
+                viewMode: options.viewMode.value,
+                totalPages: numPages.value,
+            });
+            return {
+                start: rowBounds.start,
+                end: rowBounds.end,
+            };
+        }
+        projectViewportVisibleRange(options.viewerContainer.value, numPages.value);
+        return visibleRange.value;
+    }
+    const openSurfaceViewportCallbacks = createPdfOpenSurfaceViewportCallbacks(
+        chassisAuthority,
+        options.emitCurrentPage,
+        (page) => {
+            navigationCommittedSignal.value = {
+                revision: navigationCommittedSignal.value.revision + 1,
+                pageNumber: page,
+            };
+        },
+    );
+    const singlePageScroll = usePdfSinglePageNavigationController({
+        viewerContainer: options.viewerContainer,
+        numPages,
+        currentPage,
+        scaledMargin: scale.scaledMargin,
+        viewMode: options.viewMode,
+        continuousScroll: options.continuousScroll,
+        isResizeTransitionActive: computed(() => options.isResizing.value || resizeTransitionVisible.value),
+        isLoading,
+        pdfDocument,
+        getMostVisiblePage: scroll.getMostVisiblePage,
+        scrollToPageInternal: scroll.scrollToPage,
+        updateVisibleRange: projectViewportVisibleRange,
+        updateCurrentPage: scroll.updateCurrentPage,
+        commitVisibleRange: (range, commitOptions) => transactionController.commitVisibleRange(range, commitOptions),
+        renderVisiblePages: (range, renderOptions) => requestMandatoryRaster(range, renderOptions),
+        ensurePageMetricsInRange: documentSession.ensurePageMetricsInRange,
+        prepareNavigationLayout,
+        isPageFreshlyRenderedForNavigation: () => true,
+        visibleRange,
+        emitCurrentPage: options.emitCurrentPage,
+        emitNavigationFeedbackPage: options.emitNavigationFeedbackPage,
+        viewportWritePort,
+        getPageLayoutMetrics: () => viewportLayoutMetrics.value,
+        bindCurrentPageProjection: scroll.bindCurrentPageProjection,
+        getDocumentRevision: () => documentSession.captureFence().loadToken,
+        getGeometryRevision: () => pageMetricsVersion.value + 1,
+        pageSlots,
+        requestedCurrentPage: options.requestedCurrentPage,
+        cancelPendingSearchScroll: () => {
+            cancelPendingSearchRevision.value += 1;
+        },
+        requestSurfacePageNavigation: page => chassisAuthority?.navigate(page) ?? page,
+        onPageVisualReady: page => {
+            visualReadySignal.value = {
+                revision: visualReadySignal.value.revision + 1,
+                pageNumber: page,
+            };
+        },
+        ...openSurfaceViewportCallbacks,
+    });
+    const transactionController = usePdfViewerTransactionController({
+        currentPage,
+        visibleRange,
+        numPages,
+        viewMode: options.viewMode,
+        pdfDocument,
+        userViewportInteractionEpoch,
+        getDocumentLoadToken: () => documentSession.captureFence().loadToken,
+        getDocumentVersion: documentSession.getRenderVersion,
+        executeCancellationEffects: (cancellation) => {
+            if (cancellation.cancelInFlightRenders || cancellation.bumpRenderVersion) {
+                cancelRasterRevision.value += 1;
+            }
+        },
+        navigationState: singlePageScroll.navigationState,
+    });
+    const {
+        summarizeViewerMetricsForLog,
+        summarizeVisiblePageSnapshotForLog,
+        syncCurrentPageFromViewport,
+    } = usePdfViewerCurrentPageSync({
+        viewerContainer: options.viewerContainer,
+        numPages,
+        visibleRange,
+        currentPage,
+        pdfDocument,
+        isLoading,
+        getMostVisiblePage: scroll.getMostVisiblePage,
+        updateCurrentPage: scroll.updateCurrentPage,
+        emitCurrentPage: options.emitCurrentPage,
+        canSyncCurrentPageFromViewport: () => singlePageScroll.currentPageAuthority.canSyncFromViewport(),
+        commitCurrentPageFromViewport: page => singlePageScroll.currentPageAuthority.commitViewportPage(page),
+    });
+    const viewModel = usePdfViewportViewModel({
+        performancePolicy: options.performancePolicy,
+        viewerContainer: options.viewerContainer,
+        bufferPages: options.bufferPages,
+        viewMode: options.viewMode,
+        numPages,
+        currentPage,
+        continuousScroll: options.continuousScroll,
+        basePageWidth,
+        basePageHeight,
+        pageMetrics,
+        pageMetricsVersion,
+        effectiveScale: scale.layoutScale,
+        scaledMargin: scale.scaledMargin,
+        visibleRange,
+        navigationAnchorPage: singlePageScroll.navigationAnchorPage,
+        resizeTransitionAnchorPage,
+        zoomVirtualizationFreeze,
+        scaleContainerStyle: scale.containerStyle,
+        selectionMarkupStyle: options.selectionMarkupStyle,
+        viewportWritePort,
+        classState: options.classState,
+    });
+    const openVirtualSurfaceGeometry = usePdfOpenVirtualSurfaceGeometry({
+        chassisAuthority,
+        continuousScroll: options.continuousScroll,
+        viewMode: options.viewMode,
+        scaledMargin: scale.scaledMargin,
+        virtualizedBottomVirtualSpacerStyle: viewModel.bottomVirtualSpacerStyle,
+        getLastMountedPage: () => viewModel.virtualPageSegments.value.at(-1)?.end,
+        viewerContainer: options.viewerContainer,
+        zoomMode: options.zoomMode,
+        hasExactPageGeometry: documentSession.hasExactPageGeometry,
+        isFitWidthScaleCurrent: scale.isFitWidthScaleCurrent,
+        getPagePlaceholderStyle: viewModel.getPagePlaceholderStyle,
+    });
+    let mandatoryRasterId = 0;
+    let pendingMandatoryRaster: IPdfViewportMandatoryRaster | null = null;
+    const mandatoryRasterResolvers = new Map<number, () => void>();
+    let demandRevision = 0;
+    function estimatePageRasterPixels(pageNumber: number) {
+        const metric = pageMetrics.value[pageNumber - 1];
+        const width = metric?.width ?? basePageWidth.value ?? 1;
+        const height = metric?.height ?? basePageHeight.value ?? 1;
+        const scaled = scale.effectiveScale.value * options.outputScale.value;
+        const requestedPixels = Math.max(1, Math.round(width * scaled))
+            * Math.max(1, Math.round(height * scaled));
+        return Math.min(requestedPixels, options.settledMaxCanvasPixels);
+    }
+    function clampedProtectedVisibleRange(): IPageRange {
+        const requested = getProtectedVisibleRange();
+        const pageCount = Math.max(1, numPages.value);
+        const start = Math.max(1, Math.min(pageCount, Math.trunc(requested.start)));
+        return {
+            start,
+            end: Math.max(start, Math.min(pageCount, Math.trunc(requested.end))),
+        };
+    }
+    const demand = shallowRef<IPdfViewportDemand>({
+        revision: 0,
+        visibleRange: {
+            start: 1,
+            end: 1,
+        },
+        requiredPages: [],
+        nearbyPages: [],
+        residentPages: [],
+        mountedPages: [],
+        currentPage: 1,
+        destinationPage: null,
+        operational: false,
+        mandatoryRaster: null,
+    });
+    function resolveDemand(): IPdfViewportDemand {
+        demandRevision += 1;
+        const range = clampedProtectedVisibleRange();
+        const operational = (options.isActive.value || pendingMandatoryRaster !== null)
+            && !isLoading.value
+            && pdfDocument.value !== null
+            && numPages.value > 0;
+        if (!operational) {
+            return {
+                revision: demandRevision,
+                visibleRange: range,
+                requiredPages: [],
+                nearbyPages: [],
+                residentPages: [],
+                mountedPages: [],
+                currentPage: currentPage.value,
+                destinationPage: getNavigationRenderTargetPage(),
+                operational: false,
+                mandatoryRaster: pendingMandatoryRaster,
+            };
+        }
+        const mountedPages = viewModel.pagesToRender.value.filter(page => pageSlots.isMounted(page));
+        const plan = resolvePdfRasterResidencyPlan({
+            mountedPages,
+            visibleRange: range,
+            bufferRadius: options.bufferPages.value,
+            maxBufferPixels: options.maxBufferCanvasPixels,
+            estimatePagePixels: estimatePageRasterPixels,
+        });
+        const mounted = new Set(mountedPages);
+        const requiredPages = plan.visiblePages.filter(page => mounted.has(page));
+        const nearbyPages = plan.bufferPages.filter(page => mounted.has(page));
+        return {
+            revision: demandRevision,
+            visibleRange: range,
+            requiredPages,
+            nearbyPages,
+            residentPages: [
+                ...requiredPages,
+                ...nearbyPages,
+            ],
+            mountedPages,
+            currentPage: currentPage.value,
+            destinationPage: getNavigationRenderTargetPage(),
+            operational: true,
+            mandatoryRaster: pendingMandatoryRaster,
+        };
+    }
+    function publishDemand() {
+        demand.value = resolveDemand();
+    }
+    function requestMandatoryRaster(
+        range: IPageRange,
+        renderOptions: IRenderVisiblePagesOptions = {},
+    ) {
+        if (pendingMandatoryRaster) {
+            mandatoryRasterResolvers.get(pendingMandatoryRaster.id)?.();
+            mandatoryRasterResolvers.delete(pendingMandatoryRaster.id);
+        }
+        return new Promise<void>((resolve) => {
+            const id = ++mandatoryRasterId;
+            pendingMandatoryRaster = {
+                id,
+                range,
+                options: {
+                    ...renderOptions,
+                    bufferOverride: renderOptions.bufferOverride ?? 0,
+                    preserveInFlightRequiredPages: renderOptions.preserveInFlightRequiredPages ?? true,
+                    preserveRenderedPages: renderOptions.preserveRenderedPages ?? true,
+                },
+            };
+            mandatoryRasterResolvers.set(id, resolve);
+            publishDemand();
+        });
+    }
+    function settleMandatoryRaster(id: number) {
+        mandatoryRasterResolvers.get(id)?.();
+        mandatoryRasterResolvers.delete(id);
+        if (pendingMandatoryRaster?.id !== id) {
+            return;
+        }
+        pendingMandatoryRaster = null;
+        publishDemand();
+    }
+    function cancelMandatoryRaster() {
+        for (const resolve of mandatoryRasterResolvers.values()) {
+            resolve();
+        }
+        mandatoryRasterResolvers.clear();
+        pendingMandatoryRaster = null;
+        publishDemand();
+    }
+    watch(
+        () => [
+            visibleRange.value.start,
+            visibleRange.value.end,
+            viewModel.pagesToRender.value.join(','),
+            options.bufferPages.value,
+            options.isActive.value,
+            isLoading.value,
+            Boolean(pdfDocument.value),
+            numPages.value,
+            userViewportInteractionEpoch.value,
+            transactionController.activeTransaction.value !== null,
+        ] as const,
+        publishDemand,
+        {
+            flush: 'sync',
+            immediate: true,
+        },
+    );
+    function commitVisibleRange(range: IPageRange, transactionId: number | null) {
+        const didCommit = transactionController.commitVisibleRange(
+            range,
+            transactionId !== null ? { transactionId } : undefined,
+        );
+        if (didCommit !== undefined) {
+            return didCommit;
+        }
+        visibleRange.value = range;
+        return true;
+    }
+    function applyReloadViewport(pageNumber: number, scrollOptions?: IScrollToPageOptions) {
+        scroll.scrollToPage(
+            options.viewerContainer.value,
+            pageNumber,
+            numPages.value,
+            scale.scaledMargin.value,
+            scrollOptions,
+        );
+        singlePageScroll.commitCurrentViewportPosition(
+            pageNumber,
+            `reload-viewport-${String(documentSession.captureFence().loadToken)}-${String(pageNumber)}`,
+        );
+    }
+    function settleVisualReloadTransition(reason: string) {
+        if (visualReloadTransitionToken === null) {
+            return;
+        }
+        reloadTransition.endVisualReloadTransition(visualReloadTransitionToken, reason);
+        visualReloadTransitionToken = null;
+    }
+    function beginReloadPlacement(transition: IPdfDocumentTransition): IPdfViewportReloadPlacement {
+        const plan = transition.plan;
+        const preservedRequest = plan.preserveVisibleContent ? nextPreservedVisibleContentState : null;
+        if (nextPreservedVisibleContentState && !preservedRequest) {
+            releasePreservedVisualSnapshotNow(
+                nextPreservedVisibleContentState,
+                plan.isSelectiveReload ? 'selective-reload' : 'non-reload-load',
+            );
+        }
+        nextPreservedVisibleContentState = null;
+        activePreservedVisibleContent = preservedRequest;
+        const pageToRestore = plan.isReload
+            ? preservedRequest?.pageToRestore ?? currentPage.value
+            : 1;
+        resolvedPageToRestore = Math.max(1, Math.floor(pageToRestore));
+        const displayZoomToRestore = plan.isReload && options.zoomMode.value === 'custom'
+            ? scale.effectiveScale.value
+            : null;
+        const shouldPinReloadPage = plan.isReload && resolvedPageToRestore > 1;
+        activeReloadTransactionId = transactionController.beginTransaction({
+            kind: 'reload',
+            source: 'reload',
+            page: resolvedPageToRestore,
+            range: {
+                start: resolvedPageToRestore,
+                end: resolvedPageToRestore,
+            },
+            anchor: 'top',
+            scrollPlan: {
+                preferExactDom: true,
+                commitCurrentPageOnScroll: true,
+                suppressSnapAfterScroll: true,
+                holdProgrammaticNavigationMs: RELOAD_RECOVERY_PAGE_PIN_MS,
+            },
+        })?.id ?? null;
+        visualReloadTransitionToken = shouldPinReloadPage
+            ? reloadTransition.beginVisualReloadTransition('reload-recovery')
+            : null;
+        if (shouldPinReloadPage) {
+            viewportPin.pinCurrentPageDuringRecovery(resolvedPageToRestore, {
+                durationMs: RELOAD_RECOVERY_PAGE_PIN_MS,
+                reason: 'reload-recovery',
+            });
+        }
+        options.emitCurrentPage(pageToRestore);
+        const preserveOpeningLayout = !plan.isReload
+            && !plan.preserveVisibleContent
+            && shouldPreserveOpeningLayout();
+        const preserveReloadDisplayZoom = plan.isReload
+            && !plan.isSelectiveReload
+            && displayZoomToRestore !== null;
+        if (plan.preserveVisibleContent) {
+            if (plan.isReload || preserveReloadDisplayZoom) {
+                scale.invalidateScaleCache();
+            }
+        } else if (!plan.isSelectiveReload) {
+            if (plan.isReload || preserveReloadDisplayZoom || preserveOpeningLayout) {
+                scale.invalidateScaleCache();
+            } else {
+                scale.resetScale();
+            }
+            if (!preserveOpeningLayout) {
+                skeletonInsets.resetInsets();
+            }
+            commitVisibleRange({
+                start: pageToRestore,
+                end: pageToRestore,
+            }, activeReloadTransactionId);
+        }
+        seedPreparedOpeningFitScale();
+        return {
+            displayZoomToRestore,
+            shouldPinReloadPage,
+        };
+    }
+    async function applyRestoredReloadZoom(displayZoomToRestore: number | null) {
+        if (displayZoomToRestore === null) {
+            return;
+        }
+        const nextZoom = resolveCustomReloadZoomMultiplier({
+            currentZoom: options.zoom.value,
+            currentEffectiveScale: scale.effectiveScale.value,
+            targetDisplayZoom: displayZoomToRestore,
+        });
+        if (nextZoom === null || Math.abs(nextZoom - options.zoom.value) <= 0.001) {
+            return;
+        }
+        options.emitZoom(nextZoom);
+        for (let attempt = 0; attempt < 6; attempt += 1) {
+            await nextTick();
+            if (Math.abs(options.zoom.value - nextZoom) <= 0.001) {
+                return;
+            }
+        }
+        BrowserLogger.diagnostic('pdf-nav', '[load-from-source] zoom restore did not sync before render', {
+            currentZoom: options.zoom.value,
+            targetZoom: nextZoom,
+        });
+    }
+    /**
+     * The navigation controller projects `currentPage`; the reload path only
+     * republishes it once the owning transaction is still current.
+     */
+    function pinCurrentPageToRestoreTarget() {
+        if (
+            activeReloadTransactionId !== null
+            && !transactionController.isTransactionCurrent(activeReloadTransactionId)
+        ) {
+            return false;
+        }
+        options.emitCurrentPage(currentPage.value);
+        return true;
+    }
+    function handleResizeTransitionSignal(payload: IResizeTransitionSignal) {
+        const nextAnchorPage = payload.active ? payload.anchorPage : null;
+        if (
+            resizeTransitionVisible.value === payload.active
+            && resizeTransitionAnchorPage.value === nextAnchorPage
+        ) {
+            return;
+        }
+        resizeTransitionVisible.value = payload.active;
+        resizeTransitionAnchorPage.value = nextAnchorPage;
+        BrowserLogger.diagnostic('pdf-nav', `[resize-transition-ui] active=${payload.active}`, {
+            ...payload,
+            storedAnchorPage: resizeTransitionAnchorPage.value,
+            viewer: options.summarizeViewerStateForLog(),
+            currentPage: currentPage.value,
+            visibleRange: {
+                start: visibleRange.value.start,
+                end: visibleRange.value.end,
+            },
+        });
+    }
+    function resolveTrustedScrollAnchor(container: HTMLElement): IPdfSemanticAnchor {
+        const authority = singlePageScroll.viewportAuthority;
+        const metrics = viewportLayoutMetrics.value;
+        if (options.continuousScroll.value && metrics) {
+            const geometry = createPdfViewportGeometryFromLayout(metrics, {
+                width: container.clientWidth,
+                height: container.clientHeight,
+            }, pageMetricsVersion.value + 1);
+            return resolveRetainedAnchorFromScroll(
+                geometry,
+                {
+                    left: container.scrollLeft,
+                    top: container.scrollTop,
+                },
+                authority.committedAnchor.value,
+            );
+        }
+        const page = Math.max(1, Math.min(Math.max(1, numPages.value), Math.trunc(authority.currentPage.value)));
+        const pageElement = container.querySelector<HTMLElement>(
+            `.page_container[data-page="${String(page)}"]`,
+        );
+        if (!pageElement) {
+            return authority.committedAnchor.value?.page === page
+                ? authority.committedAnchor.value
+                : {
+                    page,
+                    pageXFraction: 0.5,
+                    pageYFraction: 0.5,
+                    viewportXFraction: 0.5,
+                    viewportYFraction: 0.5,
+                    affinity: 'center',
+                };
+        }
+        const viewportRect = container.getBoundingClientRect();
+        const pageRect = pageElement.getBoundingClientRect();
+        const clampFraction = (value: number) => Math.max(0, Math.min(1, value));
+        return {
+            page,
+            pageXFraction: clampFraction(
+                (viewportRect.left + container.clientWidth / 2 - pageRect.left) / Math.max(1, pageRect.width),
+            ),
+            pageYFraction: clampFraction(
+                (viewportRect.top + container.clientHeight / 2 - pageRect.top) / Math.max(1, pageRect.height),
+            ),
+            viewportXFraction: 0.5,
+            viewportYFraction: 0.5,
+            affinity: 'center',
+        };
+    }
+    function handleTrustedScroll(event: Event) {
+        const container = options.viewerContainer.value;
+        if (!container) {
+            return;
+        }
+        viewModel.syncHorizontalScrollForZoomMode();
+        const authority = singlePageScroll.viewportAuthority;
+        if (
+            viewportWritePort.consumeAuthorityScroll(container)
+            || authority.activeIntent.value !== null
+            || options.isResizing.value
+            || resizeTransitionVisible.value
+            || zoomSnapSuppressedForClass.value
+            || !event.isTrusted
+        ) {
+            projectViewportVisibleRange(container, numPages.value);
+            options.emitCurrentPage(authority.currentPage.value);
+            return;
+        }
+        userViewportInteractionEpoch.value += 1;
+        const anchor = resolveTrustedScrollAnchor(container);
+        authority.observeUserScroll(anchor);
+        viewportWritePort.observeUserScroll(container);
+        projectViewportVisibleRange(container, numPages.value);
+        openSurfaceViewportCallbacks.onUserViewportPageObserved(anchor.page);
+        authority.commitSettledPosition({
+            intentId: `native-user-scroll-${String(userViewportInteractionEpoch.value)}`,
+            intentKind: 'user-scroll',
+            documentRevision: documentSession.captureFence().loadToken,
+            geometryRevision: pageMetricsVersion.value + 1,
+            page: anchor.page,
+            left: container.scrollLeft,
+            top: container.scrollTop,
+            anchor,
+        });
+        options.emitCurrentPage(anchor.page);
+    }
+    watch(
+        () => [
+            options.zoomMode.value,
+            options.fitMode.value,
+            currentPage.value,
+            scale.effectiveScale.value,
+            options.viewMode.value,
+            numPages.value,
+            pageMetricsVersion.value,
+        ] as const,
+        () => {
+            void nextTick(viewModel.syncHorizontalScrollForZoomMode);
+        },
+        { immediate: true },
+    );
+    watchEffect(() => {
+        const layout = viewModel.pageLayout.value;
+        viewportLayoutMetrics.value = layout;
+        scroll.setPageLayoutMetrics(layout);
+        if (layout && options.continuousScroll.value) {
+            projectViewportVisibleRange(options.viewerContainer.value, numPages.value);
+        }
+    });
+    onBeforeUnmount(() => {
+        viewportPin.clearPinnedViewportPage('before-unmount');
+        options.clearPendingImagePlacement();
+        scroll.setPageLayoutMetrics(null);
+        resizeTransitionVisible.value = false;
+        resizeTransitionAnchorPage.value = null;
+    });
+    function markUserViewportInteraction() {
+        userViewportInteractionEpoch.value += 1;
+        singlePageScroll.cancelProgrammaticNavigation('user-viewport-interaction');
+    }
+    function handleLinkDestination(dest: NonNullable<ILinkAnnotation['dest']>) {
+        const request = createPageNavigationRequest(currentPage.value, 'bookmark');
+        request.target = {
+            kind: 'named-dest',
+            destination: dest,
+        };
+        request.alignment = 'page-top';
+        request.readiness = 'page-canvas';
+        singlePageScroll.submitNavigationRequest(request);
+    }
+    let anchoredZoomAlreadySubmitted: number | null = null;
+    watch(() => singlePageScroll.viewportAuthority.activeIntent.value, (activeIntent, previousIntent) => {
+        if (activeIntent === null && previousIntent !== null) {
+            const terminalOutcome = singlePageScroll.viewportAuthority.getTerminalOutcome(previousIntent.id);
+            if (terminalOutcome === 'settled') {
+                singlePageScroll.commitCurrentViewportIfSettled(
+                    singlePageScroll.viewportAuthority.currentPage.value,
+                );
+            }
+        }
+        if (activeIntent !== null) {
+            return;
+        }
+        const surface = chassisAuthority?.openSurface;
+        const committedRender = surface?.snapshot.value.committedRender;
+        if (!surface || !committedRender || surface.snapshot.value.committedViewport) {
+            return;
+        }
+        if (singlePageScroll.commitCurrentViewportIfSettled(committedRender.pageNumber)) {
+            navigationCommittedSignal.value = {
+                revision: navigationCommittedSignal.value.revision + 1,
+                pageNumber: committedRender.pageNumber,
+            };
+        }
+    }, { flush: 'sync' });
+    watch(options.zoom, (value) => {
+        if (
+            anchoredZoomAlreadySubmitted !== null
+            && Math.abs(anchoredZoomAlreadySubmitted - value) < 0.000_001
+        ) {
+            anchoredZoomAlreadySubmitted = null;
+            return;
+        }
+        anchoredZoomAlreadySubmitted = null;
+        void singlePageScroll.submitViewportStateIntent('zoom', { zoom: value });
+    });
+    watch(options.fitMode, () => { void singlePageScroll.submitViewportStateIntent('fit'); });
+    watch(options.viewMode, value => {
+        void singlePageScroll.submitViewportStateIntent('view-mode', { viewMode: value });
+    });
+    watch(options.outputScale, value => {
+        void singlePageScroll.submitViewportStateIntent('dpr', { dpr: value });
+    });
+    watch(options.isActive, (active) => {
+        if (!active) {
+            singlePageScroll.viewportAuthority.suspend();
+            return;
+        }
+        void singlePageScroll.submitViewportStateIntent('activation');
+    });
+    let activeDocumentPlacement: IPdfViewportReloadPlacement | null = null;
+    async function applyReadyDocumentTransition(transition: IPdfDocumentTransition) {
+        if (!transition.isCurrent()) {
+            return;
+        }
+        const placement = activeDocumentPlacement ?? {
+            shouldPinReloadPage: false,
+            displayZoomToRestore: null,
+        };
+        activeDocumentPlacement = null;
+        pinCurrentPageToRestoreTarget();
+        if (!transition.plan.preserveVisibleContent) {
+            await documentSession.ensurePageMetricsInRange(
+                transition.plan.isReload && !transition.plan.isSelectiveReload && currentPage.value > 1
+                    ? 1
+                    : currentPage.value,
+                currentPage.value,
+            );
+            if (!transition.isCurrent()) {
+                return;
+            }
+            if (!transition.plan.isSelectiveReload) {
+                scale.computeFitWidthScale(options.viewerContainer.value);
+            }
+            if (!transition.plan.isSelectiveReload) {
+                await applyRestoredReloadZoom(placement.displayZoomToRestore);
+            }
+            if (!transition.isCurrent()) {
+                return;
+            }
+            await nextTick();
+            if (!transition.isCurrent()) {
+                return;
+            }
+            setupPagePlaceholders();
+            // Placeholder projection is a render boundary. Let Vue install
+            // the authoritative page containers before handing raster demand
+            // downstream, otherwise that projection can replace a canvas
+            // committed against the preceding DOM.
+            await nextTick();
+            if (!transition.isCurrent()) {
+                return;
+            }
+            if (transition.plan.isReload && currentPage.value > 1) {
+                applyReloadViewport(currentPage.value);
+                await nextTick();
+            } else if (!transition.plan.isReload) {
+                applyReloadViewport(resolvedPageToRestore);
+            }
+            if (!transition.isCurrent()) {
+                return;
+            }
+            commitVisibleRange(
+                projectViewportVisibleRange(options.viewerContainer.value, numPages.value),
+                activeReloadTransactionId,
+            );
+        }
+        const initialRange = {
+            start: currentPage.value,
+            end: currentPage.value,
+        };
+        await requestMandatoryRaster(initialRange, transition.plan.preserveVisibleContent
+            ? {
+                preserveRenderedPages: true,
+                bufferOverride: 0,
+                forceRerender: true,
+            }
+            : {bufferOverride: 0});
+        if (!transition.isCurrent()) {
+            return;
+        }
+        if (transition.plan.preserveVisibleContent) {
+            const preserved = activePreservedVisibleContent;
+            const anchor = preserved?.semanticAnchor;
+            applyReloadViewport(resolvedPageToRestore, {
+                navigationSource: 'restore',
+                preferExactDom: true,
+                ...(anchor
+                    ? {
+                        pageYRatio: anchor.yRatio,
+                        markerRect: {
+                            left: anchor.xRatio,
+                            top: anchor.yRatio,
+                            width: 0,
+                            height: 0,
+                        },
+                    }
+                    : {}),
+            });
+            schedulePreservedVisualSnapshotRelease(
+                {
+                    preservedVisibleContent: preserved,
+                    resolvedPageToRestore,
+                },
+                'preserved-render-visible-done',
+            );
+        }
+        if (placement.shouldPinReloadPage) {
+            pinCurrentPageToRestoreTarget();
+        } else {
+            await syncCurrentPageFromViewport({source: 'load-from-source'});
+        }
+        if (!transition.isCurrent()) {
+            return;
+        }
+        await requestMandatoryRaster(getVisibleRange());
+        if (!transition.isCurrent()) {
+            return;
+        }
+        settleVisualReloadTransition('warm-render-complete');
+        const transactionId = activeReloadTransactionId;
+        activeReloadTransactionId = null;
+        if (transactionId !== null) {
+            transactionController.advanceTransaction(transactionId, 'settled');
+        }
+    }
+    const unsubscribeDocumentTransitions = documentSession.subscribe(async (transition) => {
+        if (!transition.isCurrent()) {
+            return;
+        }
+        if (transition.phase === 'loading') {
+            activeDocumentPlacement = beginReloadPlacement(transition);
+            return;
+        }
+        if (transition.phase === 'invalidated') {
+            activeDocumentPlacement = null;
+            cancelMandatoryRaster();
+            const preserved = activePreservedVisibleContent;
+            if (preserved) {
+                releasePreservedVisualSnapshotNow(preserved, transition.reason);
+            }
+            settleVisualReloadTransition(transition.reason);
+            const transactionId = activeReloadTransactionId;
+            activeReloadTransactionId = null;
+            if (transactionId !== null && transactionController.isTransactionCurrent(transactionId)) {
+                transactionController.cancelActiveTransaction({
+                    reason: transition.reason === 'load-aborted' ? 'reload' : 'document-changed',
+                    cancelInFlightRenders: true,
+                    bumpRenderVersion: true,
+                    preserveVisualContent: false,
+                }, transactionId);
+            }
+            cancelPendingSearchRevision.value += 1;
+            cancelRasterRevision.value += 1;
+            return;
+        }
+        if (transition.phase === 'ready') {
+            try {
+                await applyReadyDocumentTransition(transition);
+            } catch (error) {
+                if (transition.isCurrent()) {
+                    BrowserLogger.error('pdf-viewer', 'Failed to place PDF viewport after source load', error);
+                }
+            }
+        }
+    });
+    documentSession.registerDisposable(() => {
+        unsubscribeDocumentTransitions();
+        cancelMandatoryRaster();
+        pageSlots.dispose();
+    });
+    return {
+        currentPage,
+        visibleRange,
+        demand: shallowReadonly(demand),
+        cancelPendingSearchRevision: readonly(cancelPendingSearchRevision),
+        cancelRasterRevision: readonly(cancelRasterRevision),
+        visualReadySignal: shallowReadonly(visualReadySignal),
+        navigationCommittedSignal: shallowReadonly(navigationCommittedSignal),
+        pageSlots,
+        userViewportInteractionEpoch,
+        resizeTransitionVisible,
+        resizeTransitionAnchorPage,
+        zoomVirtualizationFreeze,
+        zoomSnapSuppressedForClass,
+        scroll,
+        scale,
+        viewportPin,
+        skeletonInsets,
+        reloadTransition,
+        viewModel,
+        openVirtualSurfaceGeometry,
+        singlePageScroll,
+        transactionController,
+        viewportWritePort,
+        summarizeViewerMetricsForLog,
+        summarizeVisiblePageSnapshotForLog,
+        getVisibleRange,
+        getProtectedVisibleRange,
+        isVisibleRenderRangeCurrent,
+        setupPagePlaceholders,
+        syncCurrentPageFromViewport,
+        markUserViewportInteraction,
+        handleLinkDestination,
+        handleResizeTransitionSignal,
+        handleTrustedScroll,
+        handleViewerContainerRef: (element: HTMLElement | null) => {
+            options.viewerContainer.value = element;
+        },
+        markAnchoredZoomSubmitted: (zoom: number) => {
+            anchoredZoomAlreadySubmitted = zoom;
+        },
+        markPageMounted(pageNumber: number) {
+            pageSlots.markMounted(pageNumber);
+            publishDemand();
+        },
+        markPageUnmounted(pageNumber: number) {
+            pageSlots.markUnmounted(pageNumber);
+            publishDemand();
+        },
+        requestMandatoryRaster,
+        settleMandatoryRaster,
+        commitVisibleRange,
+        preserveNextSourceReloadVisibleContent(request?: IPreservedVisibleContentRequest) {
+            nextPreservedVisibleContentState = capturePreservedVisibleContentState(request);
+            documentSession.preserveNextReloadVisibleContent(nextPreservedVisibleContentState !== null);
+        },
+    };
+};
+export type TPdfViewportSession = ReturnType<typeof createPdfViewportSession>;

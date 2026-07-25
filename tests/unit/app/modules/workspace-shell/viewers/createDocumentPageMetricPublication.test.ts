@@ -37,7 +37,6 @@ describe('createDocumentPageMetricPublication', () => {
         publication.enqueue(1, metric(101));
         publication.enqueue(3, metric(303));
         expect(committed).toHaveLength(0);
-        expect(publication.hasPending(3)).toBe(true);
 
         expect(frame.callback).not.toBeNull();
         if (!frame.callback) {
@@ -51,6 +50,5 @@ describe('createDocumentPageMetricPublication', () => {
             metric(303),
         ]]);
         expect(onPublished).toHaveBeenCalledOnce();
-        expect(publication.hasPending(3)).toBe(false);
     });
 });

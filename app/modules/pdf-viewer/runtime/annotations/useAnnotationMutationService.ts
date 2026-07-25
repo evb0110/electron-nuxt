@@ -1,18 +1,49 @@
 import { syncPdfjsCommentMarkerAnchor } from '@app/modules/pdf-viewer/annotations/bridge/pdfjsAnnotationFacade';
 import type {
-    IAnnotationMoveMarkerInput,
-    IAnnotationMutationContext,
-    IAnnotationMutationService,
-    IAnnotationUpdateColorInput,
-    IAnnotationUpdateCommentInput,
-    IAnnotationUpdateMetadataInput,
-    IUseAnnotationMutationServiceOptions,
-} from '@app/modules/pdf-viewer/runtime/annotations/annotationMutationService.types';
-import type { IAnnotationCommentSummary } from '@app/types/annotations';
+    IAnnotationCommentSummary,
+    IAnnotationMarkerRect,
+} from '@app/types/annotations';
 import type {
     IAnnotationMutationVisualEffect,
     IAnnotationMutationVisualEffectsState,
 } from '@app/modules/pdf-viewer/runtime/annotations/annotationMutationVisualEffects.types';
+import type { ITextMarkupColorMutationResult } from '@app/modules/pdf-viewer/annotations/usePdfAnnotationColorCommands';
+import type { AnnotationId } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
+
+interface IAnnotationMutationContext {source: 'user' | 'note-window' | 'agent' | 'undo' | 'redo' | 'sync' | 'save-reload';}
+
+export interface IUseAnnotationMutationServiceOptions {
+    runHistoryTransaction?: <T>(action: () => T) => T;
+    updateAnnotationComment: (comment: IAnnotationCommentSummary, text: string) => boolean;
+    deleteAnnotationComment: (comment: IAnnotationCommentSummary) => Promise<boolean>;
+    updateSelectedTextMarkupAnnotationColor: (color: string) => ITextMarkupColorMutationResult;
+    updateTextMarkupAnnotationColor: (comment: IAnnotationCommentSummary, color: string) => ITextMarkupColorMutationResult;
+    markAnnotationLocallyDeleted: (comment: IAnnotationCommentSummary) => void;
+    restoreAnnotationLocally: (comment: IAnnotationCommentSummary) => void;
+    removeAnnotationFromInternalCache: (stableKey: string) => void;
+    findAnnotationCommentByStableKey?: (stableKey: string) => IAnnotationCommentSummary | null;
+    clearPendingMarkerMoves: () => void;
+    handleMarkerMove: (
+        comment: IAnnotationCommentSummary,
+        markerRect: IAnnotationMarkerRect,
+        options?: {
+            markEditorPending?: (
+                updated: IAnnotationCommentSummary,
+                original: IAnnotationCommentSummary,
+                markerRect: IAnnotationMarkerRect,
+            ) => void;
+            markModified?: () => void;
+        },
+    ) => boolean;
+    findEditorForComment: (comment: IAnnotationCommentSummary) => object | null;
+    markModified: () => void;
+    flushAnnotationCommentsForSave: () => Promise<unknown>;
+    resolveCanonicalAnnotationId?: (comment: IAnnotationCommentSummary) => AnnotationId | null;
+    setCanonicalNoteText: (id: AnnotationId, text: string) => void;
+    deleteCanonicalAnnotation: (id: AnnotationId) => void;
+    setCanonicalColor: (id: AnnotationId, color: string) => void;
+    moveCanonicalAnchor: (id: AnnotationId, rect: IAnnotationMarkerRect) => void;
+}
 
 function hasTargetValue(value: string | null | undefined): value is string {
     return typeof value === 'string' && value.length > 0;
@@ -49,9 +80,8 @@ function createAnnotationMutationVisualEffectsState(): IAnnotationMutationVisual
 
 export const useAnnotationMutationService = (
     options: IUseAnnotationMutationServiceOptions,
-): IAnnotationMutationService => {
+) => {
     const visualEffects = createAnnotationMutationVisualEffectsState();
-
     function runHistoryTransaction<T>(action: () => T) {
         return options.runHistoryTransaction?.(action) ?? action();
     }
@@ -66,14 +96,20 @@ export const useAnnotationMutationService = (
     }
 
     function updateComment(
-        input: IAnnotationUpdateCommentInput,
+        input: {
+            comment: IAnnotationCommentSummary;
+            text: string;
+        },
         _context: IAnnotationMutationContext,
     ) {
         return runHistoryTransaction(() => {
             const id = options.resolveCanonicalAnnotationId?.(input.comment);
-            const updated = options.updateAnnotationComment(input.comment, input.text);
-            if (updated && id) options.setCanonicalNoteText?.(id, input.text);
-            return updated;
+            if (!id) {
+                return false;
+            }
+            options.setCanonicalNoteText(id, input.text);
+            options.updateAnnotationComment(input.comment, input.text);
+            return true;
         });
     }
 
@@ -86,56 +122,70 @@ export const useAnnotationMutationService = (
     ) {
         return runHistoryTransaction(async () => {
             const id = options.resolveCanonicalAnnotationId?.(input.comment);
+            if (!id) {
+                return false;
+            }
+            options.deleteCanonicalAnnotation(id);
             if (input.strategy === 'local-only') {
                 options.markAnnotationLocallyDeleted(input.comment);
                 enqueueAnnotationDomRemoval(input.comment);
                 return true;
             }
-            const deleted = await options.deleteAnnotationComment(input.comment);
-            if (deleted) {
-                enqueueAnnotationDomRemoval(input.comment);
-                if (id) options.deleteCanonicalAnnotation?.(id);
-            }
-            return deleted;
+            try {
+                await options.deleteAnnotationComment(input.comment);
+            } catch { /* canonical tombstone and removal effect remain authoritative */ }
+            enqueueAnnotationDomRemoval(input.comment);
+            return true;
         });
     }
 
     function updateColor(
-        input: IAnnotationUpdateColorInput,
+        input: {
+            comment?: IAnnotationCommentSummary | null;
+            color: string;
+            selected?: boolean;
+        },
         _context: IAnnotationMutationContext,
     ) {
         return runHistoryTransaction(() => updateColorInTransaction(input));
     }
 
-    function updateColorInTransaction(input: IAnnotationUpdateColorInput) {
+    function updateColorInTransaction(input: {
+        comment?: IAnnotationCommentSummary | null;
+        color: string;
+        selected?: boolean;
+    }) {
+        const comment = input.comment ?? null;
+        const id = comment ? options.resolveCanonicalAnnotationId?.(comment) : null;
+        if (!comment || !id) {
+            return false;
+        }
+        options.setCanonicalColor(id, input.color);
         const result = input.selected === true
             ? options.updateSelectedTextMarkupAnnotationColor(input.color)
-            : input.comment
-                ? options.updateTextMarkupAnnotationColor(input.comment, input.color)
-                : null;
-        if (!result?.updated || !result.comment) {
-            return result?.updated === true;
-        }
-        const id = options.resolveCanonicalAnnotationId?.(result.comment);
-        if (id) options.setCanonicalColor?.(id, input.color);
+            : options.updateTextMarkupAnnotationColor(comment, input.color);
+        const projectedComment = result.comment ?? {
+            ...comment,
+            color: input.color,
+        };
         if (result.shouldApplyTextMarkupColor) {
             visualEffects.enqueue({
                 kind: 'text-markup-color',
-                stableKey: result.comment.stableKey,
-                annotationId: result.comment.annotationId,
-                pageNumber: result.comment.pageNumber,
-                commentSnapshot: result.comment,
+                stableKey: projectedComment.stableKey,
+                annotationId: projectedComment.annotationId,
+                pageNumber: projectedComment.pageNumber,
+                commentSnapshot: projectedComment,
                 color: input.color,
                 sourceColor: result.sourceColor,
             });
         }
-        if (result.shouldRefreshPage) {
+        if (result.shouldRefreshPage || !result.updated) {
             visualEffects.enqueue({
                 kind: 'render-page-text-markup',
-                stableKey: result.comment.stableKey,
-                annotationId: result.comment.annotationId,
-                pageNumber: result.comment.pageNumber,
-                commentSnapshot: result.comment,
+                stableKey: projectedComment.stableKey,
+                annotationId: projectedComment.annotationId,
+                pageNumber: projectedComment.pageNumber,
+                commentSnapshot: projectedComment,
             });
         }
         return true;
@@ -177,23 +227,26 @@ export const useAnnotationMutationService = (
         });
     }
 
-    function updateMetadata(
-        _input: IAnnotationUpdateMetadataInput,
-        _context: IAnnotationMutationContext,
-    ) {
-        return false;
-    }
-
     function moveMarker(
-        input: IAnnotationMoveMarkerInput,
+        input: {
+            comment: IAnnotationCommentSummary;
+            rect: IAnnotationMarkerRect;
+        },
         _context: IAnnotationMutationContext,
     ) {
         return runHistoryTransaction(() => moveMarkerInTransaction(input));
     }
 
-    function moveMarkerInTransaction(input: IAnnotationMoveMarkerInput) {
+    function moveMarkerInTransaction(input: {
+        comment: IAnnotationCommentSummary;
+        rect: IAnnotationMarkerRect;
+    }) {
         const id = options.resolveCanonicalAnnotationId?.(input.comment);
-        const moved = options.handleMarkerMove(input.comment, input.rect, {
+        if (!id) {
+            return false;
+        }
+        options.moveCanonicalAnchor(id, input.rect);
+        options.handleMarkerMove(input.comment, input.rect, {
             markEditorPending: (updated, original, markerRect) => {
                 const editor = options.findEditorForComment(updated) ?? options.findEditorForComment(original);
                 if (!editor) {
@@ -203,8 +256,7 @@ export const useAnnotationMutationService = (
             },
             markModified: options.markModified,
         });
-        if (moved && id) options.moveCanonicalAnchor?.(id, input.rect);
-        return moved;
+        return true;
     }
 
     function restoreAnnotation(
@@ -231,7 +283,6 @@ export const useAnnotationMutationService = (
         updateComment,
         deleteAnnotation,
         updateColor,
-        updateMetadata,
         moveMarker,
         restoreAnnotation,
         enqueueAnnotationDomRemoval,

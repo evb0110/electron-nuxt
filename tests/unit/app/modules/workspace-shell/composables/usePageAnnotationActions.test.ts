@@ -18,7 +18,7 @@ import type {
     TAnnotationCommentsStatus,
     TAnnotationTool,
 } from '@app/types/annotations';
-import {annotationIdForSummary} from '@app/modules/pdf-viewer/annotations/domain/annotationSummaryIdentity';
+import {annotationIdForSummary} from '@app/modules/pdf-viewer/engine/annotations/domain/annotationSummaryIdentity';
 import type { IPdfPlacedImageFinalizePayload } from '@app/types/pdfImagePlacement';
 import type { TDocumentOperationKind } from '@app/types/documentOperationKind';
 import { usePageAnnotationActions } from '@app/modules/workspace-shell/composables/usePageAnnotationActions';

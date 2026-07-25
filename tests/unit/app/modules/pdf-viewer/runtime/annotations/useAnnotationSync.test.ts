@@ -12,7 +12,7 @@ import {
 } from 'vue';
 import type { Ref } from 'vue';
 import type {IAnnotationCommentSummary} from '@app/types/annotations';
-import { useAnnotationIdentity } from '@app/modules/pdf-viewer/runtime/annotations/useAnnotationIdentity';
+import { useAnnotationIdentity } from '@app/modules/pdf-viewer/annotations/bridge/pdfjs-runtime/useAnnotationIdentity';
 import type { IPdfPageAnnotationBundle } from '@app/modules/pdf-viewer/engine/annotations/annotation-sync-helpers/annotationSyncHelpersTypes';
 import { resolvePerformanceProfile } from '@app/utils/performanceProfile';
 import { resolveOpenPathSecondaryPerformancePolicy } from '@app/utils/openPathSecondaryPerformancePolicy';
@@ -64,7 +64,7 @@ vi.mock('@app/services/pdfjs/getPdfjsViewerRuntimeProbeFailures', () => ({
     EventBus: vi.fn(),
     GenericL10n: vi.fn(),
 }));
-vi.mock('@app/modules/pdf-viewer/runtime/composables/pdf/usePdfDocument', () => ({leasePdfDocumentPage}));
+vi.mock('@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource', () => ({leasePdfDocumentPage}));
 vi.mock('@app/modules/pdf-viewer/engine/annotations/annotation-sync-helpers/collectPdfAnnotationNamesByPage', () => (
     {collectPdfAnnotationNamesByPage}
 ));
@@ -103,7 +103,6 @@ function createMarkupSubtypeStore() {
                 }
                 colorOverrides.set(annotationId, color);
             }),
-            syncMarkupSubtypePresentationForEditors: vi.fn(),
             forgetMarkupSubtypeOverride: vi.fn((annotationId: string | null | undefined) => {
                 if (!annotationId) {
                     return;
@@ -135,7 +134,8 @@ async function createSyncHarness(options: {
         annotationCommentsCache.value = comments;
         return comments;
     });
-    const { useAnnotationSync } = await import('@app/modules/pdf-viewer/runtime/annotations/useAnnotationSync');
+    const { useAnnotationSync } = await import('@app/modules/pdf-viewer/annotations/bridge/pdfjs-runtime/useAnnotationSync');
+    const textMarkupPresentation = {notify: vi.fn()};
     const sync = useAnnotationSync({
         pdfDocument: shallowRef(options.pdfDocument ?? {}),
         documentIdentity: options.documentIdentity ?? ref('document'),
@@ -152,6 +152,7 @@ async function createSyncHarness(options: {
             setActiveKey: vi.fn(),
         }),
         syncInlineCommentIndicators: vi.fn(),
+        textMarkupPresentation,
         getAnnotationNameReadLimits: () => options.limits ?? resolvePdfAnnotationNameReadLimits('medium'),
         getPdfSourceByteSize: options.getPdfSourceByteSize ?? (() => null),
         isPdfSourceBlob: options.isPdfSourceBlob ?? (() => false),
@@ -161,6 +162,7 @@ async function createSyncHarness(options: {
         ...markupSubtypeStore,
         setAnnotations,
         sync,
+        textMarkupPresentation,
     };
 }
 
@@ -356,8 +358,8 @@ describe('useAnnotationSync', () => {
             });
             const {
                 colorOverrides,
-                markupSubtype,
                 sync,
+                textMarkupPresentation,
             } = await createSyncHarness({
                 annotationCommentsCache,
                 documentIdentity,
@@ -406,7 +408,8 @@ describe('useAnnotationSync', () => {
                 },
             );
             expect(colorOverrides.get('12R0')).toBe(appliedColor);
-            expect(markupSubtype.syncMarkupSubtypePresentationForEditors).toHaveBeenCalledTimes(3);
+            expect(textMarkupPresentation.notify).toHaveBeenCalledTimes(3);
+            expect(textMarkupPresentation.notify).toHaveBeenLastCalledWith({kind: 'editors-changed'});
         });
     });
 

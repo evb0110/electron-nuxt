@@ -41,7 +41,6 @@ describe('usePdfViewerMouseInteractions', () => {
             handleDragStart: vi.fn(),
             handleDragMove: vi.fn(),
             stopDrag: vi.fn(),
-            handleViewerMouseUpAnnotation: vi.fn(),
             handleViewerClickAnnotation: vi.fn(),
             handleViewerDblClickAnnotation: vi.fn(),
             handleViewerContextMenuAnnotation,
@@ -69,7 +68,6 @@ describe('usePdfViewerMouseInteractions', () => {
             handleDragStart: vi.fn(),
             handleDragMove: vi.fn(),
             stopDrag: vi.fn(),
-            handleViewerMouseUpAnnotation: vi.fn(),
             handleViewerClickAnnotation: vi.fn(),
             handleViewerDblClickAnnotation: vi.fn(),
             handleViewerContextMenuAnnotation,
@@ -98,7 +96,6 @@ describe('usePdfViewerMouseInteractions', () => {
             handleDragStart,
             handleDragMove: vi.fn(),
             stopDrag: vi.fn(),
-            handleViewerMouseUpAnnotation: vi.fn(),
             handleViewerClickAnnotation: vi.fn(),
             handleViewerDblClickAnnotation: vi.fn(),
             handleViewerContextMenuAnnotation: vi.fn(),
@@ -124,7 +121,6 @@ describe('usePdfViewerMouseInteractions', () => {
             }
         });
         const stopDrag = vi.fn();
-        const handleViewerMouseUpAnnotation = vi.fn();
         const interactions = usePdfViewerMouseInteractions({
             isSnipActive: () => false,
             isCommentPlacementActive: () => false,
@@ -133,7 +129,6 @@ describe('usePdfViewerMouseInteractions', () => {
             handleDragStart: vi.fn(),
             handleDragMove: vi.fn(),
             stopDrag,
-            handleViewerMouseUpAnnotation,
             handleViewerClickAnnotation: vi.fn(),
             handleViewerDblClickAnnotation: vi.fn(),
             handleViewerContextMenuAnnotation: vi.fn(),
@@ -143,6 +138,5 @@ describe('usePdfViewerMouseInteractions', () => {
         interactions.handleViewerMouseUp(event);
 
         expect(stopDrag).toHaveBeenCalledOnce();
-        expect(handleViewerMouseUpAnnotation).toHaveBeenCalledOnce();
     });
 });

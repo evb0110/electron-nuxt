@@ -71,4 +71,4 @@ pdf-lib performs a full re-serialize when saving, so a large size reduction is r
 | `app/modules/pdf-viewer/engine/serialization/pdf-serialization-embedded-notes/applyEmbeddedNoteTextUpdates.ts` | Applies note text updates during full serialization |
 | `app/modules/pdf-viewer/engine/pdf-serialization-comments/updateAnnotationTextByRef.ts` | Writes note text to FreeText `/Contents` for targeted updates |
 | `app/modules/pdf-viewer/runtime/annotations/useAnnotationSync.ts` | ZWS stripping when selecting text source |
-| `app/modules/pdf-viewer/annotations/domain/annotationEntity.ts` | Canonical ZWS/BOM normalization before store commands |
+| `app/modules/pdf-viewer/engine/annotations/domain/annotationEntity.ts` | Canonical ZWS/BOM normalization before store commands |

@@ -1,7 +1,7 @@
 import type {
     AnnotationId,
     IAnnotationIdentity,
-} from '@app/modules/pdf-viewer/annotations/domain/annotationEntity';
+} from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
 
 type TBindingKey = Exclude<keyof IAnnotationIdentity, 'id'>;
 

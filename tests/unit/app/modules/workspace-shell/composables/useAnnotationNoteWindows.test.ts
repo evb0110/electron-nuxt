@@ -9,7 +9,7 @@ import {
     ref,
 } from 'vue';
 import type { IAnnotationCommentSummary } from '@app/types/annotations';
-import type { AnnotationId } from '@app/modules/pdf-viewer/annotations/domain/annotationEntity';
+import type { AnnotationId } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
 import { useAnnotationNoteWindows } from '@app/modules/workspace-shell/composables/useAnnotationNoteWindows';
 
 function createComment(overrides: Partial<IAnnotationCommentSummary> = {}): IAnnotationCommentSummary {

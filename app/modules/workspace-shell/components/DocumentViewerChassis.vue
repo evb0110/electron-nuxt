@@ -61,7 +61,6 @@
                 >
                     <DocumentPageSkeleton
                         v-if="chassisAuthority.openingPageVisual.value === 'skeleton'"
-                        :padding="openingSkeletonPadding"
                         :content-height="chassisOpeningPageShell.height"
                     />
                 </section>
@@ -355,12 +354,6 @@ watch(
 function bindChassisOpeningPageElement(element: Element | ComponentPublicInstance | null) {
     chassisAuthority.bindOpeningPageElement(element instanceof HTMLElement ? element : null);
 }
-const openingSkeletonPadding = Object.freeze({
-    top: 56,
-    right: 56,
-    bottom: 56,
-    left: 56,
-});
 const chassisOpeningPageShell = computed(() => {
     void openingFrameLayoutRevision.value;
     const snapshot = chassisAuthority.openSurface.snapshot.value;

@@ -46,7 +46,7 @@ import type {
 } from '@app/types/annotations';
 import { clamp } from 'es-toolkit/math';
 import { useEventListener } from '@vueuse/core';
-import { annotationIdForSummary } from '@app/modules/pdf-viewer/annotations/domain/annotationSummaryIdentity';
+import { annotationIdForSummary } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationSummaryIdentity';
 
 const DRAG_THRESHOLD = 5;
 const DEFAULT_POINT_MARKER_SIZE = 0.0016;

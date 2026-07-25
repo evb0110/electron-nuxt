@@ -2,136 +2,51 @@ import type {
     ComputedRef,
     Ref,
 } from 'vue';
-import { useMutationObserver } from '@vueuse/core';
 import type { TPdfSource } from '@app/types/pdfUi';
 import type { PDFDocumentProxy } from 'pdfjs-dist';
+import type { IDocumentOpenSurfaceSession } from '@app/utils/document-viewer/chassis/documentOpenSurfaceSession';
 
 interface IUsePdfViewerLoadingStateOptions {
     src: ComputedRef<TPdfSource | null>;
     isLoading: Ref<boolean>;
     pdfDocument: Ref<PDFDocumentProxy | null>;
-    viewerContainer: Ref<HTMLElement | null>;
+    currentPage: Ref<number>;
+    openSurface: Pick<IDocumentOpenSurfaceSession, 'snapshot' | 'viewportSession'>;
     holdOverlayVisible?: Ref<boolean>;
 }
 
 export const usePdfViewerLoadingState = (options: IUsePdfViewerLoadingStateOptions) => {
-    const {
-        src,
-        isLoading,
-        pdfDocument,
-        viewerContainer,
-        holdOverlayVisible,
-    } = options;
-
-    const hasCompletedInitialRenderForCurrentSource = ref(false);
-    const mutationObserverWindow = typeof window !== 'undefined'
-        ? window
-        : globalThis as Window & typeof globalThis;
-    const initialRenderObserverTarget = computed(() => {
-        if (
-            !src.value
-            || isLoading.value
-            || !pdfDocument.value
-            || hasCompletedInitialRenderForCurrentSource.value
-        ) {
-            return null;
-        }
-
-        return viewerContainer.value;
-    });
-
-    function hasRenderedCanvasInDom() {
-        const container = viewerContainer.value;
-        if (!container) {
-            return false;
-        }
-
-        return Array.from(
-            container.querySelectorAll<HTMLCanvasElement>('.page_container--rendered .page_canvas canvas'),
-        ).some(canvas => canvas.isConnected && canvas.width > 0 && canvas.height > 0);
-    }
-
-    function markInitialRenderCompleteIfReady() {
-        if (hasCompletedInitialRenderForCurrentSource.value) {
-            return true;
-        }
-
-        if (!hasRenderedCanvasInDom()) {
-            return false;
-        }
-
-        hasCompletedInitialRenderForCurrentSource.value = true;
-        return true;
-    }
-
-    useMutationObserver(
-        initialRenderObserverTarget,
-        markInitialRenderCompleteIfReady,
-        {
-            childList: true,
-            subtree: true,
-            attributes: true,
-            attributeFilter: ['class'],
-            window: mutationObserverWindow,
-        },
-    );
-
-    watch(
-        [
-            () => src.value,
-            isLoading,
-            pdfDocument,
-        ],
-        async ([
-            source,
-            loading,
-            document,
-        ], [
-            previousSource,
-            ,
-            previousDocument,
-        ]) => {
-            const sourceChanged = source !== previousSource;
-            if (sourceChanged || !source || loading || !document) {
-                hasCompletedInitialRenderForCurrentSource.value = false;
-            }
-            if (!source || loading || !document) {
-                return;
-            }
-            if (sourceChanged && document === previousDocument) {
-                return;
-            }
-
-            await nextTick();
-            if (src.value !== source || pdfDocument.value !== document) {
-                return;
-            }
-            markInitialRenderCompleteIfReady();
-        },
-        { immediate: true },
-    );
-
-    watch(viewerContainer, () => {
-        if (
-            !src.value
-            || isLoading.value
-            || !pdfDocument.value
-            || hasCompletedInitialRenderForCurrentSource.value
-        ) {
-            return;
-        }
-
-        markInitialRenderCompleteIfReady();
+    const isCurrentPageOpenSurfaceReady = computed(() => {
+        const snapshot = options.openSurface.snapshot.value;
+        const viewport = options.openSurface.viewportSession.value;
+        const identity = snapshot.identity;
+        const render = snapshot.committedRender;
+        const committedViewport = snapshot.committedViewport;
+        const currentPage = Math.max(1, Math.trunc(options.currentPage.value));
+        return snapshot.phase === 'ready'
+            && identity !== null
+            && render !== null
+            && committedViewport !== null
+            && render.generation === snapshot.generation
+            && render.documentRevision === identity.documentRevision
+            && render.pageNumber === currentPage
+            && committedViewport.generation === snapshot.generation
+            && committedViewport.documentRevision === identity.documentRevision
+            && committedViewport.pageNumber === currentPage
+            && viewport.generation === snapshot.generation
+            && viewport.identity?.revision === identity.documentRevision
+            && viewport.requestedPage === currentPage
+            && viewport.committedPage === currentPage;
     });
 
     const isViewerLoadingOverlayVisible = computed(() => (
-        Boolean(src.value) && (
-            isLoading.value
+        Boolean(options.src.value) && (
+            options.isLoading.value
             || (
-                Boolean(pdfDocument.value)
-                && !hasCompletedInitialRenderForCurrentSource.value
+                Boolean(options.pdfDocument.value)
+                && !isCurrentPageOpenSurfaceReady.value
             )
-            || holdOverlayVisible?.value === true
+            || options.holdOverlayVisible?.value === true
         )
     ));
 

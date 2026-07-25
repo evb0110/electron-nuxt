@@ -940,34 +940,68 @@ describe('workspaceSaveService', () => {
             }]),
             trySavePdfNativeMutations,
         });
-        const classifyAndExecute = deps.runSaveTransaction;
-        let classifiedFallback: Awaited<ReturnType<typeof classifyAndExecute>>['fallbackDecision'] | null = null;
-        const observeRouteDecision: typeof deps.runSaveTransaction = async (request) => {
-            const result = await classifyAndExecute(request);
-            if (request.routeDecision) {
-                expect(request.routeDecision).toBe(classifiedFallback);
-            } else {
-                classifiedFallback = result.fallbackDecision;
-            }
-            return result;
-        };
-        deps.runSaveTransaction = vi.fn(observeRouteDecision);
         const {handleSave} = useWorkspaceSaveServiceForTest(deps);
 
         await expect(handleSave()).resolves.toBe(true);
 
         expect(trySavePdfNativeMutations).toHaveBeenCalledOnce();
-        expect(deps.runSaveTransaction).toHaveBeenCalledTimes(2);
-        expect(deps.runSaveTransaction).toHaveBeenNthCalledWith(
-            2,
-            expect.objectContaining({routeDecision: classifiedFallback}),
-        );
-        expect(classifiedFallback).toMatchObject({
-            route: 'source-clean',
-            nativeRejection: 'native-write-failed',
-        });
+        expect(deps.runSaveTransaction).toHaveBeenCalledOnce();
         expect(deps.saveDocument).not.toHaveBeenCalled();
         expect(deps.getSourcePdfData).toHaveBeenCalledOnce();
+        expect(saveFile).toHaveBeenCalledOnce();
+    });
+
+    it('reclassifies only in the outer retry when native decline exposes a newer annotation mutation', async () => {
+        const serializableMap = new Map<string, unknown>();
+        const modifiedIds = new Set<string>();
+        const pdfDocument = shallowRef(cast<PDFDocumentProxy>({
+            numPages: 3,
+            annotationStorage: {
+                serializable: {
+                    map: serializableMap,
+                    get hash() {
+                        return `${serializableMap.size}`;
+                    },
+                },
+                modifiedIds: {ids: modifiedIds},
+                resetModified: vi.fn(),
+            },
+        }));
+        const trySavePdfNativeMutations = vi.fn(async () => {
+            serializableMap.set('late-editor', {
+                annotationType: 3,
+                value: 'authored during native attempt',
+            });
+            modifiedIds.add('late-editor');
+            return null;
+        });
+        const {
+            deps,
+            saveFile,
+        } = createDeps({
+            pdfDocument,
+            totalPages: ref(3),
+            pageLabelsDirty: ref(true),
+            pageLabelRanges: ref([{
+                startPage: 1,
+                style: 'D',
+                prefix: '',
+                startNumber: 1,
+            }]),
+            hasLivePdfJsAnnotationChanges: () => modifiedIds.size > 0,
+            trySavePdfNativeMutations,
+        });
+        const {handleSave} = useWorkspaceSaveServiceForTest(deps);
+
+        await expect(handleSave()).resolves.toBe(true);
+
+        // Attempt A owns one classifier/frontier. Its continuation observes the
+        // mutation and fails stale; attempt B owns the only reclassification.
+        expect(deps.runSaveTransaction).toHaveBeenCalledTimes(2);
+        expect(trySavePdfNativeMutations).toHaveBeenCalledOnce();
+        expect(deps.getSourcePdfData).not.toHaveBeenCalled();
+        expect(deps.saveDocument).toHaveBeenCalledOnce();
+        expect(deps.serializePdfForSave).toHaveBeenCalledOnce();
         expect(saveFile).toHaveBeenCalledOnce();
     });
 

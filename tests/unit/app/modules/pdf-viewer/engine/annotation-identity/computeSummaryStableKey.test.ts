@@ -3,7 +3,7 @@ import {
     expect,
     it,
 } from 'vitest';
-import { computeSummaryStableKey } from '@app/modules/pdf-viewer/annotations/domain/annotationSummaryIdentity';
+import { computeSummaryStableKey } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationSummaryIdentity';
 
 describe('computeSummaryStableKey', () => {
     it('prefers durable pdf-side identity before runtime ids', () => {
