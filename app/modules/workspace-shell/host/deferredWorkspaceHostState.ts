@@ -1,4 +1,7 @@
-import type { IWorkspaceExpose } from '@app/types/workspaceExpose';
+import type {
+    IWorkspaceExpose,
+    IWorkspaceToolbarSnapshot,
+} from '@app/types/workspaceExpose';
 import type { TDocumentRef } from '@contracts/documentRef';
 import type { IWorkspaceDocumentSnapshot } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
 import { hasWorkspaceViewerDocumentCapabilities } from '@app/modules/workspace-shell/viewers/workspaceViewerAdapters';
@@ -65,6 +68,11 @@ export function finishWorkspaceRestoreAttempt(
     }
 }
 
+function toolbarSnapshotHasOpenedDocument(toolbarSnapshot: IWorkspaceToolbarSnapshot) {
+    return (toolbarSnapshot.hasPdf || toolbarSnapshot.isDjvuMode)
+        && hasWorkspaceViewerDocumentCapabilities(toolbarSnapshot.viewerCapabilities);
+}
+
 export function workspaceHasDocumentOrOpenError(
     workspace: IWorkspaceExpose | null,
     snapshot?: IWorkspaceDocumentSnapshot | null,
@@ -74,7 +82,7 @@ export function workspaceHasDocumentOrOpenError(
     }
 
     const toolbarSnapshot = workspace.getToolbarSnapshot();
-    return hasWorkspaceViewerDocumentCapabilities(toolbarSnapshot.viewerCapabilities) || toolbarSnapshot.hasOpenError;
+    return toolbarSnapshotHasOpenedDocument(toolbarSnapshot) || toolbarSnapshot.hasOpenError;
 }
 
 export function workspaceHasOpenedDocument(
@@ -86,5 +94,5 @@ export function workspaceHasOpenedDocument(
     }
 
     const toolbarSnapshot = workspace.getToolbarSnapshot();
-    return hasWorkspaceViewerDocumentCapabilities(toolbarSnapshot.viewerCapabilities);
+    return toolbarSnapshotHasOpenedDocument(toolbarSnapshot);
 }

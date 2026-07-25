@@ -481,31 +481,61 @@ export async function startElectronE2ESession(sessionName: string, options?: {
     };
 
     const resetForE2E = async () => {
-        cleanupSessionFixtures(scopedSessionName);
-        rmSync(join(sessionDir(scopedSessionName), 'electron-user-data', 'workspace-checkpoint.json'), {force: true});
-        await page.evaluate(async (defaultSettings) => {
+        const rendererUrl = page.url();
+        const rendererOrigin = new URL(rendererUrl).origin;
+        const checkpointDiscardToken = await page.evaluate(async (defaultSettings) => {
             const target = window as IE2EWindow;
             await target.electronAPI?.documentRecentFiles?.recentFiles.clear();
             await target.electronAPI?.settings.save(defaultSettings);
-
-            localStorage.clear();
-            sessionStorage.clear();
-            await Promise.all((await caches.keys()).map(cacheName => caches.delete(cacheName)));
+            const discardWorkspaceCheckpoint = target.electronAPI?.windowTabs.discardWorkspaceCheckpoint;
+            if (!discardWorkspaceCheckpoint) {
+                throw new Error('Electron checkpoint discard bridge is unavailable before renderer teardown');
+            }
+            return discardWorkspaceCheckpoint();
         }, DEFAULT_SETTINGS);
-        const client = await page.createCDPSession();
+        let checkpointResumed = false;
+        const restoreRendererAndResumeCheckpoint = async () => {
+            await page.goto(rendererUrl, {waitUntil: 'domcontentloaded'});
+            await installPageEvaluationShims(page);
+            await waitForRendererReady(page);
+            await page.evaluate(async (discardToken) => {
+                const target = window as IE2EWindow;
+                const resumeWorkspaceCheckpoint = target.electronAPI?.windowTabs.resumeWorkspaceCheckpoint;
+                if (!resumeWorkspaceCheckpoint) {
+                    throw new Error('Electron checkpoint resume bridge is unavailable after renderer restart');
+                }
+                await resumeWorkspaceCheckpoint(discardToken);
+            }, checkpointDiscardToken);
+            checkpointResumed = true;
+        };
+
         try {
-            const origin = new URL(page.url()).origin;
-            await client.send('Storage.clearDataForOrigin', {
-                origin,
-                storageTypes: 'all',
-            });
-            await client.send('Network.clearBrowserCache');
-        } finally {
-            await client.detach();
+            await page.goto('about:blank', {waitUntil: 'domcontentloaded'});
+            cleanupSessionFixtures(scopedSessionName);
+            const client = await page.createCDPSession();
+            try {
+                await client.send('Storage.clearDataForOrigin', {
+                    origin: rendererOrigin,
+                    storageTypes: 'all',
+                });
+                await client.send('Network.clearBrowserCache');
+            } finally {
+                await client.detach();
+            }
+            await restoreRendererAndResumeCheckpoint();
+        } catch (error) {
+            if (!checkpointResumed) {
+                try {
+                    await restoreRendererAndResumeCheckpoint();
+                } catch (recoveryError) {
+                    throw new AggregateError([
+                        error,
+                        recoveryError,
+                    ], 'Electron E2E reset failed and checkpoint persistence could not be resumed');
+                }
+            }
+            throw error;
         }
-        await page.reload({waitUntil: 'domcontentloaded'});
-        await installPageEvaluationShims(page);
-        await waitForRendererReady(page);
     };
 
     return {

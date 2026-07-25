@@ -136,6 +136,42 @@ describe('Electron E2E fixture policy', () => {
         expect(sessionSource).toContain('prunePreservedSessionArtifacts(scopedSessionName)');
     });
 
+    it('discards the retiring renderer checkpoint before unmounting it during an in-process reset', async () => {
+        const source = await readFile(
+            'tests/e2e/electron/helpers/startElectronE2ESession.ts',
+            'utf8',
+        );
+        const resetBlock = source.slice(
+            source.indexOf('const resetForE2E = async () =>'),
+            source.indexOf('\\n\\n    return {', source.indexOf('const resetForE2E = async () =>')),
+        );
+        const savePreferencesAt = resetBlock.indexOf('settings.save(defaultSettings)');
+        const unmountAt = resetBlock.indexOf('about:blank');
+        const discardCheckpointAt = resetBlock.indexOf('discardWorkspaceCheckpoint()');
+        const clearOriginAt = resetBlock.indexOf('Storage.clearDataForOrigin');
+        const cleanupFixturesAt = resetBlock.indexOf('cleanupSessionFixtures(scopedSessionName)');
+        const restoreRendererAt = resetBlock.indexOf('page.goto(rendererUrl');
+        const rendererReadyAt = resetBlock.indexOf('waitForRendererReady(page)');
+        const resumeCheckpointAt = resetBlock.indexOf('resumeWorkspaceCheckpoint(discardToken)');
+        const restoreRendererCallAt = resetBlock.indexOf(
+            'restoreRendererAndResumeCheckpoint();',
+            clearOriginAt,
+        );
+
+        expect(savePreferencesAt).toBeGreaterThan(-1);
+        expect(discardCheckpointAt).toBeGreaterThan(savePreferencesAt);
+        expect(unmountAt).toBeGreaterThan(discardCheckpointAt);
+        expect(cleanupFixturesAt).toBeGreaterThan(unmountAt);
+        expect(clearOriginAt).toBeGreaterThan(cleanupFixturesAt);
+        expect(restoreRendererCallAt).toBeGreaterThan(clearOriginAt);
+        expect(rendererReadyAt).toBeGreaterThan(restoreRendererAt);
+        expect(resumeCheckpointAt).toBeGreaterThan(rendererReadyAt);
+        expect(resetBlock).not.toContain('workspace-checkpoint.json');
+        expect(resetBlock).not.toContain('claimWorkspaceCheckpoint');
+        expect(resetBlock).toContain('installPageEvaluationShims(page)');
+        expect(resetBlock).toContain('waitForRendererReady(page)');
+    });
+
     it('retains bounded failure evidence without keeping Electron profile or app copies', async () => {
         const sessionName = `e2e-unit-retained-artifacts-${process.pid}`;
         const root = sessionDir(sessionName);

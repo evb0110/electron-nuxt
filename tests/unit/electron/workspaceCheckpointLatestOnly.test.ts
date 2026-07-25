@@ -21,6 +21,7 @@ function deferred() {
 const mocks = vi.hoisted(() => ({
     atomicReplace: vi.fn(),
     persisted: null as string | null,
+    remove: vi.fn(),
     staged: new Map<string, string>(),
     tempIndex: 0,
 }));
@@ -33,9 +34,7 @@ vi.mock('node:fs/promises', () => ({
         }
         return mocks.persisted;
     }),
-    rm: vi.fn(async () => {
-        mocks.persisted = null;
-    }),
+    rm: mocks.remove,
     writeFile: vi.fn(async (path: string, value: string) => {
         mocks.staged.set(path, value);
     }),
@@ -75,6 +74,9 @@ describe('workspace checkpoint latest-only writer', () => {
         vi.resetModules();
         vi.clearAllMocks();
         mocks.persisted = null;
+        mocks.remove.mockImplementation(async () => {
+            mocks.persisted = null;
+        });
         mocks.staged.clear();
         mocks.tempIndex = 0;
     });
@@ -205,5 +207,115 @@ describe('workspace checkpoint latest-only writer', () => {
         await save;
         await clear;
         expect(mocks.persisted).toBeNull();
+    });
+
+    it('suppresses late saves from a discarded renderer until its token-bound resume', async () => {
+        const firstGate = deferred();
+        mocks.atomicReplace
+            .mockImplementationOnce(async (source: string) => {
+                await firstGate.promise;
+                mocks.persisted = mocks.staged.get(source) ?? null;
+            })
+            .mockImplementation(async (source: string) => {
+                mocks.persisted = mocks.staged.get(source) ?? null;
+            });
+        const {
+            discardWorkspaceCheckpoint,
+            resumeWorkspaceCheckpoint,
+            saveWorkspaceCheckpoint,
+        } = await import('@electron/workspaceCheckpointStore');
+
+        const activeSave = saveWorkspaceCheckpoint(createCheckpoint(1), 10);
+        await vi.waitFor(() => expect(mocks.atomicReplace).toHaveBeenCalledOnce());
+        const discard = discardWorkspaceCheckpoint(10);
+        const lateSave = saveWorkspaceCheckpoint(createCheckpoint(2), 10);
+        firstGate.resolve();
+
+        const [
+            ,
+            discardToken,
+        ] = await Promise.all([
+            activeSave,
+            discard,
+            lateSave,
+        ]);
+        expect(mocks.persisted).toBeNull();
+        expect(mocks.atomicReplace).toHaveBeenCalledOnce();
+
+        resumeWorkspaceCheckpoint(10, discardToken);
+        await saveWorkspaceCheckpoint(createCheckpoint(3), 10);
+        expect(JSON.parse(mocks.persisted ?? '{}').checkpoint.capturedAt).toBe(3);
+        expect(mocks.atomicReplace).toHaveBeenCalledTimes(2);
+    });
+
+    it('does not let a claim already behind the write barrier resume a later discard', async () => {
+        const firstGate = deferred();
+        mocks.atomicReplace
+            .mockImplementationOnce(async (source: string) => {
+                await firstGate.promise;
+                mocks.persisted = mocks.staged.get(source) ?? null;
+            })
+            .mockImplementation(async (source: string) => {
+                mocks.persisted = mocks.staged.get(source) ?? null;
+            });
+        const {
+            claimWorkspaceCheckpoint,
+            discardWorkspaceCheckpoint,
+            resumeWorkspaceCheckpoint,
+            saveWorkspaceCheckpoint,
+        } = await import('@electron/workspaceCheckpointStore');
+
+        const activeSave = saveWorkspaceCheckpoint(createCheckpoint(1), 10);
+        await vi.waitFor(() => expect(mocks.atomicReplace).toHaveBeenCalledOnce());
+        const staleClaim = claimWorkspaceCheckpoint(10);
+        const discard = discardWorkspaceCheckpoint(10);
+        const retiringRendererSave = saveWorkspaceCheckpoint(createCheckpoint(2), 10);
+        firstGate.resolve();
+
+        await activeSave;
+        await expect(staleClaim).resolves.toMatchObject({capturedAt: 1});
+        const discardToken = await discard;
+        await retiringRendererSave;
+        await saveWorkspaceCheckpoint(createCheckpoint(3), 10);
+        expect(mocks.persisted).toBeNull();
+        expect(mocks.atomicReplace).toHaveBeenCalledOnce();
+
+        resumeWorkspaceCheckpoint(10, discardToken);
+        await saveWorkspaceCheckpoint(createCheckpoint(4), 10);
+        expect(JSON.parse(mocks.persisted ?? '{}').checkpoint.capturedAt).toBe(4);
+        expect(mocks.atomicReplace).toHaveBeenCalledTimes(2);
+    });
+
+    it('rejects a stale resume token after a newer discard', async () => {
+        const {
+            discardWorkspaceCheckpoint,
+            resumeWorkspaceCheckpoint,
+            saveWorkspaceCheckpoint,
+        } = await import('@electron/workspaceCheckpointStore');
+
+        const staleToken = await discardWorkspaceCheckpoint(10);
+        const currentToken = await discardWorkspaceCheckpoint(10);
+        expect(() => resumeWorkspaceCheckpoint(10, staleToken)).toThrow('stale or invalid');
+        await saveWorkspaceCheckpoint(createCheckpoint(1), 10);
+        expect(mocks.atomicReplace).not.toHaveBeenCalled();
+
+        resumeWorkspaceCheckpoint(10, currentToken);
+        await saveWorkspaceCheckpoint(createCheckpoint(2), 10);
+        expect(JSON.parse(mocks.persisted ?? '{}').checkpoint.capturedAt).toBe(2);
+    });
+
+    it('rolls back suppression when checkpoint deletion fails', async () => {
+        mocks.remove.mockRejectedValueOnce(new Error('checkpoint delete failed'));
+        mocks.atomicReplace.mockImplementation(async (source: string) => {
+            mocks.persisted = mocks.staged.get(source) ?? null;
+        });
+        const {
+            discardWorkspaceCheckpoint,
+            saveWorkspaceCheckpoint,
+        } = await import('@electron/workspaceCheckpointStore');
+
+        await expect(discardWorkspaceCheckpoint(10)).rejects.toThrow('checkpoint delete failed');
+        await saveWorkspaceCheckpoint(createCheckpoint(1), 10);
+        expect(JSON.parse(mocks.persisted ?? '{}').checkpoint.capturedAt).toBe(1);
     });
 });

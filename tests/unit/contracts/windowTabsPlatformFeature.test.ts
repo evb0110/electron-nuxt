@@ -27,6 +27,8 @@ describe('window tabs platform feature schemas', () => {
             claimPendingExternalOpenPaths: 'app:claimPendingExternalOpenPaths',
             acknowledgePendingExternalOpenPaths: 'app:acknowledgePendingExternalOpenPaths',
             saveWorkspaceCheckpoint: 'workspace:checkpointSave',
+            discardWorkspaceCheckpoint: 'workspace:checkpointDiscard',
+            resumeWorkspaceCheckpoint: 'workspace:checkpointResume',
             claimWorkspaceCheckpoint: 'workspace:checkpointClaim',
         });
         expect(WINDOW_TABS_PLATFORM_FEATURE.eventChannels).toEqual({
@@ -39,7 +41,7 @@ describe('window tabs platform feature schemas', () => {
             onMenuMoveTabToPane: 'menu:moveTabToPane',
             onMenuCopyTabToPane: 'menu:copyTabToPane',
         });
-        expect(WINDOW_TABS_PLATFORM_FEATURE.platformDescriptors.methods).toHaveLength(17);
+        expect(WINDOW_TABS_PLATFORM_FEATURE.platformDescriptors.methods).toHaveLength(19);
         expect(WINDOW_TABS_PLATFORM_FEATURE.platformDescriptors.methods)
             .not.toContainEqual(expect.objectContaining({path: [
                 'windowTabs',
@@ -51,6 +53,10 @@ describe('window tabs platform feature schemas', () => {
         expect(codecs[channels.transfer]!.decodeArgs([transferRequest])).toEqual([transferRequest]);
         expect(codecs[channels.transfer]!.decodeResult(transferResult)).toEqual(transferResult);
         expect(codecs[channels.saveWorkspaceCheckpoint]!.decodeArgs([checkpoint])).toEqual([checkpoint]);
+        expect(codecs[channels.discardWorkspaceCheckpoint]!.decodeArgs([])).toEqual([]);
+        expect(codecs[channels.discardWorkspaceCheckpoint]!.decodeResult('7')).toBe('7');
+        expect(codecs[channels.resumeWorkspaceCheckpoint]!.decodeArgs(['7'])).toEqual(['7']);
+        expect(codecs[channels.resumeWorkspaceCheckpoint]!.decodeResult(undefined)).toBeUndefined();
         expect(codecs[channels.claimWorkspaceCheckpoint]!.decodeResult(checkpoint)).toEqual(checkpoint);
         expect(codecs[channels.claimWorkspaceCheckpoint]!.decodeResult(null)).toBeNull();
         expect(codecs[channels.acknowledgePendingExternalOpenPaths]!.decodeArgs([['/tmp/a.pdf']]))

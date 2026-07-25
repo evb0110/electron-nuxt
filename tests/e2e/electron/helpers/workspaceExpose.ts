@@ -32,6 +32,7 @@ export interface IWorkspaceToolbarSnapshotRequirements {
     minEffectiveZoom?: number;
     minTotalPages?: number;
     showSidebar?: boolean;
+    zoomMode?: IWorkspaceToolbarSnapshot['zoomMode'];
 }
 
 export interface IWaitForWorkspaceToolbarSnapshotOptions extends IFindWorkspaceExposeOptions {timeoutMs?: number;}
@@ -212,6 +213,7 @@ export async function waitForWorkspaceToolbarSnapshot(
             && (typeof payload.requirements.continuousScroll !== 'boolean' || snapshot.continuousScroll === payload.requirements.continuousScroll)
             && (typeof payload.requirements.minTotalPages !== 'number' || (snapshot.totalPages ?? 0) >= payload.requirements.minTotalPages)
             && (typeof payload.requirements.minEffectiveZoom !== 'number' || (snapshot.effectiveZoom ?? 0) >= payload.requirements.minEffectiveZoom)
+            && (payload.requirements.zoomMode === undefined || snapshot.zoomMode === payload.requirements.zoomMode)
         );
     }, { timeout: timeoutMs }, {
         requirements,
@@ -227,10 +229,12 @@ export async function waitForWorkspaceToolbarSnapshot(
         if (
             snapshot
             && (typeof requirements.hasPdf !== 'boolean' || snapshot.hasPdf === requirements.hasPdf)
+            && (typeof requirements.showSidebar !== 'boolean' || snapshot.showSidebar === requirements.showSidebar)
             && (typeof requirements.currentPage !== 'number' || snapshot.currentPage === requirements.currentPage)
             && (typeof requirements.continuousScroll !== 'boolean' || snapshot.continuousScroll === requirements.continuousScroll)
             && (typeof requirements.minTotalPages !== 'number' || snapshot.totalPages >= requirements.minTotalPages)
             && (typeof requirements.minEffectiveZoom !== 'number' || snapshot.effectiveZoom >= requirements.minEffectiveZoom)
+            && (requirements.zoomMode === undefined || snapshot.zoomMode === requirements.zoomMode)
         ) {
             return snapshot;
         }

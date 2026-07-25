@@ -2438,7 +2438,29 @@ describe('Electron E2E - Viewer Smoke', () => {
                 && fourth?.dataset.thumbnailRendered === 'true';
         }, {timeout: 15_000});
 
-        const pageOneSnapshot = await waitForWorkspaceToolbarSnapshot(session.page, {currentPage: 1});
+        await waitForFunctionInPage(session.page, () => {
+            const viewer = document.querySelector<HTMLElement>('.editor-pane.is-active #pdf-viewer');
+            const pageTrack = viewer?.querySelector<HTMLElement>('[data-pdf-page-track]') ?? null;
+            const page = viewer?.querySelector<HTMLElement>('.page_container[data-page="1"]') ?? null;
+            const canvas = page?.querySelector<HTMLCanvasElement>('.page_canvas canvas, canvas') ?? null;
+            if (!pageTrack || !page || !canvas || canvas.width <= 0 || canvas.height <= 0) {
+                return false;
+            }
+            const pageTrackStyle = getComputedStyle(pageTrack);
+            const pageTrackContentWidth = pageTrack.clientWidth
+                - (Number.parseFloat(pageTrackStyle.paddingInlineStart) || 0)
+                - (Number.parseFloat(pageTrackStyle.paddingInlineEnd) || 0);
+            return pageTrackContentWidth > 0
+                && Math.abs(page.getBoundingClientRect().width - pageTrackContentWidth) <= 2;
+        }, {timeout: 15_000});
+        const pageOneSnapshot = await waitForWorkspaceToolbarSnapshot(
+            session.page,
+            {
+                currentPage: 1,
+                zoomMode: 'fit-width',
+            },
+            {timeoutMs: 15_000},
+        );
         const thumbnailGeometry = await session.page.evaluate(() => {
             const items = Array.from(document.querySelectorAll<HTMLElement>(
                 '.editor-pane.is-active .pdf-thumbnail[data-page]',
@@ -2460,7 +2482,7 @@ describe('Electron E2E - Viewer Smoke', () => {
         expect(thumbnailGeometry.overlaps, JSON.stringify(thumbnailGeometry)).toEqual([]);
 
         await session.page.click('.editor-pane.is-active .pdf-thumbnail[data-page="2"]');
-        const pageTwoSnapshot = await waitForWorkspaceToolbarSnapshot(
+        await waitForWorkspaceToolbarSnapshot(
             session.page,
             {currentPage: 2},
             {timeoutMs: 15_000},
@@ -2480,6 +2502,23 @@ describe('Electron E2E - Viewer Smoke', () => {
             return pageTrackContentWidth > 0
                 && Math.abs(page.getBoundingClientRect().width - pageTrackContentWidth) <= 2;
         }, {timeout: 15_000});
+        const pageTwoSnapshotDeadline = Date.now() + 15_000;
+        let pageTwoSnapshot = await getWorkspaceToolbarSnapshot(session.page);
+        while (
+            !pageTwoSnapshot
+            || pageTwoSnapshot.currentPage !== 2
+            || pageTwoSnapshot.zoomMode !== 'fit-width'
+            || Math.abs(pageTwoSnapshot.effectiveZoom - pageOneSnapshot.effectiveZoom) <= 0.2
+        ) {
+            if (Date.now() >= pageTwoSnapshotDeadline) {
+                throw new Error(`Mixed-size page 2 fit-width snapshot did not settle: ${JSON.stringify({
+                    pageOneSnapshot,
+                    pageTwoSnapshot,
+                })}`);
+            }
+            await new Promise(resolve => setTimeout(resolve, 25));
+            pageTwoSnapshot = await getWorkspaceToolbarSnapshot(session.page);
+        }
 
         expect(pageOneSnapshot.zoomMode).toBe('fit-width');
         expect(pageTwoSnapshot.zoomMode).toBe('fit-width');
@@ -3629,7 +3668,14 @@ runDjvuSmokeOrSkip('Electron E2E - DjVu Viewer Smoke', () => {
         await session.page.setViewport(DJVU_VIDEO_LIKE_VIEWPORT);
         await openDjvuInApp(session.page, djvuFixture.path, DJVU_VIEWER_SMOKE_OPEN_TIMEOUT_MS);
         await waitForDjvuLoaded(session.page, DJVU_VIEWER_SMOKE_OPEN_TIMEOUT_MS);
-        const initialToolbar = await getWorkspaceToolbarSnapshot(session.page);
+        const initialToolbar = await waitForWorkspaceToolbarSnapshot(
+            session.page,
+            {
+                currentPage: 1,
+                minTotalPages: 1,
+            },
+            {timeoutMs: DJVU_VIEWER_SMOKE_OPEN_TIMEOUT_MS},
+        );
         expect(initialToolbar?.currentPage ?? 0).toBeGreaterThan(0);
 
         const sidebarWasVisible = await session.page.evaluate(() => {
