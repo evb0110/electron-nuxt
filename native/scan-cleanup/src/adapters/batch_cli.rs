@@ -41,6 +41,8 @@ struct WrittenOutput {
     options: CleanupOptions,
     is_color: bool,
     half: crate::pipeline::PageHalf,
+    width: usize,
+    height: usize,
 }
 
 #[derive(Serialize)]
@@ -960,26 +962,26 @@ fn run_page(
     let write_started = Instant::now();
     let publication_result = (|| -> Result<(), Box<dyn Error>> {
         for (output, destination) in result.outputs.iter_mut().zip(&destinations) {
-            if let Some(color) = &output.color_image {
-                png::write_rgb_atomic(&destination.output_path, color)
-                    .map_err(|message| NativeError::new(NativeErrorCode::Io, message))?;
-            } else {
-                png::write_gray_atomic(&destination.output_path, &output.image)
-                    .map_err(|message| NativeError::new(NativeErrorCode::Io, message))?;
-            }
-            let bilevel_output_path = if matches!(
+            let bilevel_destination = (matches!(
                 output.metadata.output_mode,
                 OutputMode::Bw | OutputMode::Mixed
             ) && output.color_image.is_none()
-                && output.mixed_layers.is_none()
-            {
-                if let Some(path) = &destination.bilevel_output_path {
-                    pbm::write_p4_atomic(path, &output.image)
-                        .map_err(|message| NativeError::new(NativeErrorCode::Io, message))?;
-                    output.metadata.bilevel_written = true;
-                    Some(path.clone())
-                } else {
-                    None
+                && output.mixed_layers.is_none())
+            .then_some(destination.bilevel_output_path.as_ref())
+            .flatten();
+            let bilevel_output_path = if let Some(path) = bilevel_destination {
+                match pbm::write_p4_atomic(path, &output.image) {
+                    Ok(()) => {
+                        output.metadata.bilevel_written = true;
+                        Some(path.clone())
+                    }
+                    Err(error) => {
+                        let _ = fs::remove_file(path);
+                        output.metadata.warnings.push(format!(
+                            "Bilevel output was not written; the composite fallback was published instead: {error}"
+                        ));
+                        None
+                    }
                 }
             } else {
                 None
@@ -1031,7 +1033,7 @@ fn run_page(
                     let _ = fs::remove_file(background_path);
                     let _ = fs::remove_file(mask_path);
                     output.metadata.warnings.push(format!(
-                            "Mixed layers were not written; the composite fallback remains available: {error}"
+                            "Mixed layers were not written; the composite fallback was published instead: {error}"
                         ));
                     (None, None)
                 } else {
@@ -1043,6 +1045,18 @@ fn run_page(
             } else {
                 (None, None)
             };
+            // The composite carries the page only when no primary raster did.
+            // Deflating and fsyncing a full-resolution copy beside a published
+            // PBM or layer pair buys insurance nobody collects.
+            if bilevel_output_path.is_none() && background_output_path.is_none() {
+                if let Some(color) = &output.color_image {
+                    png::write_rgb_atomic(&destination.output_path, color)
+                        .map_err(|message| NativeError::new(NativeErrorCode::Io, message))?;
+                } else {
+                    png::write_gray_atomic(&destination.output_path, &output.image)
+                        .map_err(|message| NativeError::new(NativeErrorCode::Io, message))?;
+                }
+            }
             write_json_atomic(&destination.metadata_path, &output.metadata)?;
             written.push(WrittenOutput {
                 output_path: destination.output_path.clone(),
@@ -1053,6 +1067,8 @@ fn run_page(
                 options: options.clone(),
                 is_color: output.color_image.is_some(),
                 half: output.metadata.half,
+                width: output.image.width(),
+                height: output.image.height(),
             });
         }
         Ok(())
@@ -1233,23 +1249,11 @@ fn match_page_sizes(
         return Ok(());
     }
 
-    let images = eligible
-        .iter()
-        .map(|output| {
-            raster::read_gray(
-                &output.output_path,
-                output.options.max_pixels,
-                output.options.max_dimension,
-            )
-            .map_err(map_image_error)
-        })
-        .collect::<Result<Vec<_>, _>>()?;
     let target_width_points = document_canvas.map_or_else(
         || {
             eligible
                 .iter()
-                .zip(&images)
-                .map(|(output, image)| image.width() as f64 / output.options.dpi * 72.0)
+                .map(|output| output.width as f64 / output.options.dpi * 72.0)
                 .fold(0.0, f64::max)
         },
         |canvas| canvas.width_points,
@@ -1258,24 +1262,23 @@ fn match_page_sizes(
         || {
             eligible
                 .iter()
-                .zip(&images)
-                .map(|(output, image)| image.height() as f64 / output.options.dpi * 72.0)
+                .map(|output| output.height as f64 / output.options.dpi * 72.0)
                 .fold(0.0, f64::max)
         },
         |canvas| canvas.height_points,
     );
 
-    for (output, image) in eligible.into_iter().zip(images) {
+    for output in eligible {
         let repad_result = (|| -> Result<(), Box<dyn Error>> {
             let target_width = ((target_width_points / 72.0) * output.options.dpi)
                 .ceil()
-                .max(image.width() as f64) as usize;
+                .max(output.width as f64) as usize;
             let target_height = ((target_height_points / 72.0) * output.options.dpi)
                 .ceil()
-                .max(image.height() as f64) as usize;
+                .max(output.height as f64) as usize;
             validate_canvas(target_width, target_height, output)?;
-            let available_width = target_width - image.width();
-            let available_height = target_height - image.height();
+            let available_width = target_width - output.width;
+            let available_height = target_height - output.height;
             let (left, top) = output
                 .options
                 .placement_for(output.half)
@@ -1297,8 +1300,27 @@ fn match_page_sizes(
             metadata.placement_offset_x = left;
             metadata.placement_offset_y = top;
 
-            if !preview_mode && (available_width != 0 || available_height != 0) {
-                if output.is_color {
+            // Repad whichever raster actually carries the page. Only one of the
+            // three is on disk, so this decodes each page at most once.
+            if !preview_mode
+                && !metadata.layered_written
+                && (available_width != 0 || available_height != 0)
+            {
+                if metadata.bilevel_written {
+                    let bilevel_path = output.bilevel_output_path.as_ref().ok_or_else(|| {
+                        invalid("Bilevel cleanup metadata is missing its output destination")
+                    })?;
+                    let image = pbm::read_p4(
+                        bilevel_path,
+                        output.options.max_pixels,
+                        output.options.max_dimension,
+                    )
+                    .map_err(map_image_error)?;
+                    let canvas =
+                        place_on_white_canvas(&image, target_width, target_height, left, top);
+                    pbm::write_p4_atomic(bilevel_path, &canvas)
+                        .map_err(|message| NativeError::new(NativeErrorCode::Io, message))?;
+                } else if output.is_color {
                     let image = raster::read_image(
                         &output.output_path,
                         output.options.max_pixels,
@@ -1310,20 +1332,16 @@ fn match_page_sizes(
                     png::write_rgb_atomic(&output.output_path, &canvas)
                         .map_err(|message| NativeError::new(NativeErrorCode::Io, message))?;
                 } else {
+                    let image = raster::read_gray(
+                        &output.output_path,
+                        output.options.max_pixels,
+                        output.options.max_dimension,
+                    )
+                    .map_err(map_image_error)?;
                     let canvas =
                         place_on_white_canvas(&image, target_width, target_height, left, top);
                     png::write_gray_atomic(&output.output_path, &canvas)
                         .map_err(|message| NativeError::new(NativeErrorCode::Io, message))?;
-                    if metadata.bilevel_written {
-                        let bilevel_path =
-                            output.bilevel_output_path.as_ref().ok_or_else(|| {
-                                invalid(
-                                    "Bilevel cleanup metadata is missing its output destination",
-                                )
-                            })?;
-                        pbm::write_p4_atomic(bilevel_path, &canvas)
-                            .map_err(|message| NativeError::new(NativeErrorCode::Io, message))?;
-                    }
                 }
             }
             if !preview_mode && metadata.layered_written {
@@ -1413,19 +1431,9 @@ fn match_page_sizes(
                     }
                     Ok(())
                 })();
-                if let Err(error) = layer_result {
-                    if let Some(background_path) = &output.background_output_path {
-                        let _ = fs::remove_file(background_path);
-                    }
-                    if let Some(mask_path) = &output.foreground_mask_output_path {
-                        let _ = fs::remove_file(mask_path);
-                    }
-                    metadata.layered_written = false;
-                    metadata.layered_background_dpi = None;
-                    metadata.warnings.push(format!(
-                        "Mixed layers could not be finalized; the composite fallback remains available: {error}"
-                    ));
-                }
+                // The layer pair is this page's only raster once publication
+                // succeeded, so a failure here has nothing left to fall back to.
+                layer_result?;
             }
             write_json_atomic(&output.metadata_path, &metadata)?;
             Ok(())

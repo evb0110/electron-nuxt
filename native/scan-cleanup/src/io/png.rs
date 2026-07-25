@@ -1,11 +1,7 @@
-use super::decode_limits;
+use super::{decode_limits, write_atomic};
 use evb_raster_io::{decode_png, encode_png, PixelBuffer};
 use scan_primitives::GrayImage;
-use std::{
-    fs::{self, File},
-    io::{Cursor, Write},
-    path::{Path, PathBuf},
-};
+use std::{io::Cursor, path::Path};
 
 pub use evb_raster_io::DecodedRaster;
 pub use scan_primitives::RgbImage;
@@ -31,20 +27,6 @@ pub fn write_rgb_atomic(path: &Path, image: &RgbImage) -> Result<(), String> {
     write_atomic(path, &encode_rgb(image)?)
 }
 
-fn write_atomic(path: &Path, bytes: &[u8]) -> Result<(), String> {
-    let temporary = temporary_sibling(path);
-    let result = (|| {
-        let mut file = File::create(&temporary).map_err(|error| error.to_string())?;
-        file.write_all(bytes).map_err(|error| error.to_string())?;
-        file.sync_all().map_err(|error| error.to_string())?;
-        fs::rename(&temporary, path).map_err(|error| error.to_string())
-    })();
-    if result.is_err() {
-        let _ = fs::remove_file(&temporary);
-    }
-    result
-}
-
 pub fn encode_gray(image: &GrayImage) -> Result<Vec<u8>, String> {
     encode_png(PixelBuffer::Gray {
         width: image.width(),
@@ -63,10 +45,4 @@ pub fn encode_rgb(image: &RgbImage) -> Result<Vec<u8>, String> {
         data: image.data(),
     })
     .map_err(|error| error.to_string())
-}
-
-fn temporary_sibling(path: &Path) -> PathBuf {
-    let mut name = path.file_name().unwrap_or_default().to_os_string();
-    name.push(format!(".{}.tmp", std::process::id()));
-    path.with_file_name(name)
 }

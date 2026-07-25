@@ -1,4 +1,9 @@
 use evb_raster_io::DecodeLimits;
+use std::{
+    fs::{self, File},
+    io::Write,
+    path::{Path, PathBuf},
+};
 
 pub mod pbm;
 pub mod png;
@@ -12,4 +17,20 @@ pub(crate) fn decode_limits(max_pixels: u64, max_dimension: u32) -> DecodeLimits
         max_dimension,
         max_compressed_bytes: MAX_COMPRESSED_BYTES,
     }
+}
+
+pub(crate) fn write_atomic(path: &Path, bytes: &[u8]) -> Result<(), String> {
+    let mut name = path.file_name().unwrap_or_default().to_os_string();
+    name.push(format!(".{}.tmp", std::process::id()));
+    let temporary = path.with_file_name(PathBuf::from(name));
+    let result = (|| {
+        let mut file = File::create(&temporary).map_err(|error| error.to_string())?;
+        file.write_all(bytes).map_err(|error| error.to_string())?;
+        file.sync_all().map_err(|error| error.to_string())?;
+        fs::rename(&temporary, path).map_err(|error| error.to_string())
+    })();
+    if result.is_err() {
+        let _ = fs::remove_file(&temporary);
+    }
+    result
 }
