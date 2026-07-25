@@ -1,15 +1,19 @@
 import type { IOcrWord } from '@contracts/shared';
 import { isOcrWord } from '@contracts/shared';
-import type {
-    IDocumentRevisionStamp,
-    TDocumentRevisionToken,
-} from '@contracts/documentRevision';
+import type { IDocumentRevisionStamp } from '@contracts/documentRevision';
 import { parseDocumentRevisionToken } from '@contracts/documentRevision';
 import { isRecord } from '@contracts/runtimeGuards';
 
 export type TOcrIndexRotation = 0 | 90 | 180 | 270;
 
-interface IOcrIndexManifestBase {
+/**
+ * The manifest is the sole owner of the catalog's revision and page ordering.
+ * Page artifacts are position- and revision-independent so a revision bump or a
+ * page reorder costs one manifest write instead of one rewrite per page.
+ */
+export interface IOcrIndexV3Manifest {
+    version: 3;
+    documentRevision: IDocumentRevisionStamp;
     createdAt: number;
     source: { pdfPath: string };
     pageCount: number;
@@ -22,8 +26,7 @@ interface IOcrIndexManifestBase {
     pages: Record<number, { path: string }>;
 }
 
-interface IOcrIndexPageBase {
-    pageNumber: number;
+export interface IOcrIndexV3Page {
     rotation: TOcrIndexRotation;
     render: {
         dpi: number;
@@ -40,17 +43,6 @@ interface IOcrIndexPageBase {
         contentDigest: string;
     };
 }
-
-export interface IOcrIndexV2Manifest extends IOcrIndexManifestBase { version: 2; }
-
-export interface IOcrIndexV2Page extends IOcrIndexPageBase {}
-
-export interface IOcrIndexV3Manifest extends IOcrIndexManifestBase {
-    version: 3;
-    documentRevision: IDocumentRevisionStamp;
-}
-
-export interface IOcrIndexV3Page extends IOcrIndexPageBase { documentRevision: IDocumentRevisionStamp; }
 
 export type TOcrIndexDecodeMode = 'strict' | 'repair-legacy';
 
@@ -146,26 +138,19 @@ export function parseOcrIndexV3Manifest(
     };
 }
 
+/**
+ * Decodes a page artifact. Identity and freshness belong to the manifest that
+ * points at the artifact, so `pageNumber` and `documentRevision` written by
+ * older catalogs are ignored rather than validated.
+ */
 export function decodeOcrPage(
     value: unknown,
-    expectedPageNumber: number,
-    expectedRevision: TDocumentRevisionToken,
     mode: TOcrIndexDecodeMode = 'strict',
 ): IOcrIndexV3Page | null {
-    if (!isRecord(value) || !isPositiveSafeInteger(expectedPageNumber)) {
-        return null;
-    }
-    const documentRevision = parseDocumentRevisionStamp(value.documentRevision);
-    if (!documentRevision || documentRevision.token !== expectedRevision) {
+    if (!isRecord(value)) {
         return null;
     }
     const strict = mode === 'strict';
-    const pageNumber = value.pageNumber === undefined && !strict
-        ? expectedPageNumber
-        : value.pageNumber;
-    if (!isPositiveSafeInteger(pageNumber) || pageNumber !== expectedPageNumber) {
-        return null;
-    }
     const rotation = parseOcrRotation(value.rotation);
     const render = isRecord(value.render) ? value.render : null;
     const imagePx = isRecord(render?.imagePx) ? render.imagePx : null;
@@ -190,8 +175,6 @@ export function decodeOcrPage(
         return null;
     }
     return {
-        pageNumber,
-        documentRevision,
         rotation: rotation ?? 0,
         render: {
             dpi: dpi ?? 0,

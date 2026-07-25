@@ -26,8 +26,6 @@ export const mixedEmbeddedTextPages = [
 
 const evbText = 'EVB generated text generation two';
 export const mixedEvbPage: IOcrIndexV3Page = {
-    pageNumber: 4,
-    documentRevision: {token: MIXED_OCR_CORPUS_REVISION},
     rotation: 0,
     render: {
         dpi: 300,
