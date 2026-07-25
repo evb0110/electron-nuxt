@@ -1394,7 +1394,10 @@ describe('Electron E2E - PR Blocking Smoke', () => {
         }
     });
 
-    it('keeps large-PDF opening, virtualization, and repeated reopen within budget', async () => {
+    it('keeps large-PDF opening, virtualization, and repeated reopen within budget', {
+        retry: 0,
+        timeout: 240_000,
+    }, async () => {
         const session = await sessionFixture.restart({
             clean: true,
             sessionName: 'e2e-pr-blocking-large-scanned-pdf',

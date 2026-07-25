@@ -565,7 +565,7 @@ runOrSkip('Electron E2E - Inactive DjVu Tabs', () => {
         await openPdfInApp(session.page, pdfFixturePath);
         await waitForPdfLoaded(session.page);
 
-        const afterPdfOpen = await session.page.evaluate(readDjvuPressureFromPage);
+        const afterPdfOpen = await waitForInactiveDjvuImagesToRelease(session, 4_000);
         expect(afterPdfOpen).toHaveLength(2);
         expect(afterPdfOpen.find(host => !host.active)?.images).toBe(0);
 

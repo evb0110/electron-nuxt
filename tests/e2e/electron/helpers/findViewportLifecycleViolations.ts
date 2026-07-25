@@ -100,23 +100,27 @@ export function findViewportLifecycleViolations(
     // render delay; the skeleton contract only applies when the target page
     // actually had to wait for its render. The skeleton is deliberately
     // debounced, so a bare shell that commits within the debounce allowance
-    // owes no skeleton, while a long bare wait remains a violation even if
-    // the canvas eventually commits.
-    const firstTargetShellFrame = frames.find(frame => (
+    // owes no skeleton. A missing skeleton is only a violation when another
+    // sampled RAF proves that the same bare shell outlived the allowance;
+    // elapsed time across an unsampled gap before canvas commit is not visual
+    // evidence that the bare shell remained exposed.
+    const bareTargetShellFrames = frames.filter(frame => (
         frame.kind === 'page-shell'
         && frame.pageNumber === contract.expectedFinalPage
+        && frame.skeletonCount === 0
     ));
-    const firstTargetCanvasFrame = frames.find(frame => (
-        frame.kind === 'committed-canvas'
-        && frame.pageNumber === contract.expectedFinalPage
-    ));
-    const bareShellWaitMs = firstTargetShellFrame
-        ? firstTargetCanvasFrame
-            ? Math.max(0, firstTargetCanvasFrame.elapsedMs - firstTargetShellFrame.elapsedMs)
-            : Number.POSITIVE_INFINITY
-        : 0;
-    const warmTargetCommit = bareShellWaitMs <= SKELETON_DEBOUNCE_ALLOWANCE_MS;
-    if (contract.requireSkeleton && skeletonFrames.length === 0 && !warmTargetCommit) {
+    const firstBareTargetShellFrame = bareTargetShellFrames[0];
+    const overdueBareShellObserved = firstBareTargetShellFrame
+        ? bareTargetShellFrames.some(frame => (
+            frame.elapsedMs - firstBareTargetShellFrame.elapsedMs
+            > SKELETON_DEBOUNCE_ALLOWANCE_MS
+        ))
+        : false;
+    if (
+        contract.requireSkeleton
+        && skeletonFrames.length === 0
+        && overdueBareShellObserved
+    ) {
         violations.push('the controlled slow render never exposed its delayed page skeleton');
     }
 

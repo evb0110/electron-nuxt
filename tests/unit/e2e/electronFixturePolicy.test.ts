@@ -462,15 +462,19 @@ describe('Electron E2E fixture policy', () => {
         expect(source).toContain('wheelPdfViewportAndWaitForSettlement');
         expect(source).toContain('sessionFixture.restart({');
         expect(source).toContain('it(\'keeps large-PDF interaction transitions causally stable\'');
+        const cumulativeTestStart = source.indexOf(
+            'it(\'keeps large-PDF opening, virtualization, and repeated reopen within budget\'',
+        );
         const interactionTestStart = source.indexOf('it(\'keeps large-PDF interaction transitions causally stable\'');
         const interactionTestEnd = source.indexOf(
             'it(\'does not report a delayed render error for a high-zoom current page\'',
             interactionTestStart,
         );
+        const cumulativeTestSource = source.slice(cumulativeTestStart, interactionTestStart);
         const interactionTestSource = source.slice(interactionTestStart, interactionTestEnd);
-        expect(interactionTestStart).toBeGreaterThan(
-            source.indexOf('it(\'keeps large-PDF opening, virtualization, and repeated reopen within budget\''),
-        );
+        expect(interactionTestStart).toBeGreaterThan(cumulativeTestStart);
+        expect(cumulativeTestSource).toContain('retry: 0');
+        expect(cumulativeTestSource).toContain('timeout: 240_000');
         expect(interactionTestSource.match(/waitForAnimationFrames\(session\.page, 10\)/gu)).toHaveLength(4);
         expect(interactionTestSource).toContain('horizontalOverflowCheckpoint: \'high-zoom-transition\'');
         expect(source).not.toContain('createLargeMultiPageTextFixturePdf');

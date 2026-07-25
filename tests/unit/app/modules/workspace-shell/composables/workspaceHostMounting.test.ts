@@ -355,10 +355,12 @@ describe('workspace host startup visibility', () => {
     it('releases a title-only pending hint from live committed workspace evidence', () => {
         expect(shouldKeepWorkspacePendingDocumentHint({
             hasDocumentHint: true,
+            isClosingDocument: false,
             mountedSnapshot: null,
         })).toBe(true);
         expect(shouldKeepWorkspacePendingDocumentHint({
             hasDocumentHint: true,
+            isClosingDocument: false,
             mountedSnapshot: {
                 ...createDefaultWorkspaceToolbarSnapshot(),
                 hasPdf: true,
@@ -384,11 +386,25 @@ describe('workspace host startup visibility', () => {
         };
         const hasPendingDocumentHint = shouldKeepWorkspacePendingDocumentHint({
             hasDocumentHint: true,
+            isClosingDocument: false,
             mountedSnapshot,
         });
 
         expect(hasPendingDocumentHint).toBe(false);
         expect(mountedSnapshot.isOpeningDocument || hasPendingDocumentHint).toBe(false);
+    });
+
+    it('does not republish a stale title-only document hint while closing', () => {
+        expect(shouldKeepWorkspacePendingDocumentHint({
+            hasDocumentHint: true,
+            isClosingDocument: true,
+            mountedSnapshot: null,
+        })).toBe(false);
+        expect(shouldKeepWorkspacePendingDocumentHint({
+            hasDocumentHint: true,
+            isClosingDocument: false,
+            mountedSnapshot: null,
+        })).toBe(true);
     });
 
     it('does not place the startup loader over host errors', () => {

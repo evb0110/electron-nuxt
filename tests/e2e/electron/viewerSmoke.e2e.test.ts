@@ -2467,12 +2467,18 @@ describe('Electron E2E - Viewer Smoke', () => {
         );
         await waitForFunctionInPage(session.page, () => {
             const viewer = document.querySelector<HTMLElement>('.editor-pane.is-active #pdf-viewer');
+            const pageTrack = viewer?.querySelector<HTMLElement>('[data-pdf-page-track]') ?? null;
             const page = viewer?.querySelector<HTMLElement>('.page_container[data-page="2"]') ?? null;
             const canvas = page?.querySelector<HTMLCanvasElement>('.page_canvas canvas, canvas') ?? null;
-            if (!viewer || !page || !canvas || canvas.width <= 0 || canvas.height <= 0) {
+            if (!pageTrack || !page || !canvas || canvas.width <= 0 || canvas.height <= 0) {
                 return false;
             }
-            return Math.abs(page.getBoundingClientRect().width - (viewer.clientWidth - 40)) <= 2;
+            const pageTrackStyle = getComputedStyle(pageTrack);
+            const pageTrackContentWidth = pageTrack.clientWidth
+                - (Number.parseFloat(pageTrackStyle.paddingInlineStart) || 0)
+                - (Number.parseFloat(pageTrackStyle.paddingInlineEnd) || 0);
+            return pageTrackContentWidth > 0
+                && Math.abs(page.getBoundingClientRect().width - pageTrackContentWidth) <= 2;
         }, {timeout: 15_000});
 
         expect(pageOneSnapshot.zoomMode).toBe('fit-width');
@@ -2712,7 +2718,9 @@ describe('Electron E2E - Viewer Smoke', () => {
             page,
             pageSamples,
         ]) => {
-            const firstPaintIndex = pageSamples.findIndex(sample => sample.contentPixels > 1);
+            const firstPaintIndex = pageSamples.findIndex(sample => (
+                sample.rendered && sample.contentPixels > 1
+            ));
             if (firstPaintIndex < 0) {
                 return [];
             }

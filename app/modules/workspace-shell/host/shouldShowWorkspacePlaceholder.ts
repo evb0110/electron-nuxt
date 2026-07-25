@@ -19,9 +19,11 @@ export function shouldShowWorkspacePlaceholder(signals: IWorkspaceHostPlaceholde
 
 export function shouldKeepWorkspacePendingDocumentHint(signals: {
     hasDocumentHint: boolean;
+    isClosingDocument: boolean;
     mountedSnapshot: IWorkspaceToolbarSnapshot | null;
 }) {
     return signals.hasDocumentHint
+        && !signals.isClosingDocument
         && signals.mountedSnapshot?.hasOpenError !== true
         && !(
             signals.mountedSnapshot?.initialVisualReady

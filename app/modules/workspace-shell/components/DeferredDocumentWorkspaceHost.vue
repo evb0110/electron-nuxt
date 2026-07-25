@@ -294,10 +294,14 @@ const activeDocumentOpenTransaction = computed(() => {
         ? transaction
         : null;
 });
+const isClosingDocument = computed(() => (
+    activeDocumentSession.value.snapshot.value.activeTransaction?.kind === 'close'
+));
 const hasPendingDocumentHint = computed(() => {
     const mountedSnapshot = mountedWorkspace.value?.getToolbarSnapshot() ?? null;
     return shouldKeepWorkspacePendingDocumentHint({
         hasDocumentHint: hasDocumentHint === true,
+        isClosingDocument: isClosingDocument.value,
         mountedSnapshot,
     });
 });
