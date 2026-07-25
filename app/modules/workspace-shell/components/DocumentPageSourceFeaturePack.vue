@@ -103,6 +103,7 @@ import {
     waitForDocumentPageImagePaint,
 } from '@app/modules/workspace-shell/viewers/documentPageSourcePresentation';
 import { useDocumentViewportLayoutLifecycle } from '@app/utils/document-viewer/lifecycle/useDocumentViewportLayoutLifecycle';
+import { createDocumentTransitionChannel } from '@app/utils/document-viewer/lifecycle/createDocumentTransitionChannel';
 import DocumentPageSourcePageVisual from '@app/modules/workspace-shell/components/DocumentPageSourcePageVisual.vue';
 import {createPageSourcePagedWheelNavigation} from '@app/modules/workspace-shell/viewers/createPageSourcePagedWheelNavigation';
 import { createDocumentPageMetricPublication } from '@app/modules/workspace-shell/viewers/createDocumentPageMetricPublication';
@@ -114,8 +115,11 @@ import { getPerformanceProfile } from '@app/utils/performanceProfile';
 import { createDocumentViewerActivationRunGuard } from '@app/utils/document-viewer/lifecycle/createDocumentViewerActivationRunGuard';
 import {
     type IDocumentPageSourceFeaturePackProps,
+    type IDocumentPageSourceFence,
+    type IDocumentPageSourceTransition,
     type IDocumentPageSourceVisualState,
     prepareDocumentPageSourceInitialState,
+    resolveDocumentPageSourceCapabilities,
     resolveInactiveDjvuLeasePolicy,
     resolveDocumentPageSourceMountedPages,
     type TDocumentPageElement,
@@ -195,6 +199,18 @@ let deferredMetricHydration: (() => Promise<void>) | null = null;
 let inactiveLeaseReleaseTimer: ReturnType<typeof setTimeout> | null = null;
 const activeOpenSurfaceGeneration = ref<number | null>(null);
 const activeOpenSurfaceRevision = ref<string | null>(null);
+const sourceTransitions = createDocumentTransitionChannel<IDocumentPageSourceFence, IDocumentPageSourceTransition>(fence => (
+    fence.loadGeneration === loadGeneration.value
+    && fence.openSurfaceGeneration === activeOpenSurfaceGeneration.value
+    && fence.documentRevision === activeOpenSurfaceRevision.value
+    && fence.src === src
+));
+sourceTransitions.subscribe((transition) => {
+    source.value = transition.source;
+    emit('update:pageSource', transition.source);
+    chassisAuthority?.bindSource(transition.source);
+    emit('update:sourceCapabilities', resolveDocumentPageSourceCapabilities(transition.source));
+});
 let nextViewportRenderRequestId = 0;
 function supersedeActiveOpenSurfaceGeneration() {
     const openSurface = chassisAuthority?.openSurface;
@@ -230,14 +246,12 @@ onMounted(() => {
         wheel: handleWheel,
     }) ?? null;
 });
-
 function measureViewport() {
     containerWidth.value = viewerContainer.value?.clientWidth ?? 0;
     containerHeight.value = viewerContainer.value?.clientHeight ?? 0;
     viewportScrollTop.value = viewerContainer.value?.scrollTop ?? 0;
 }
 useResizeObserver(viewerContainer, measureViewport);
-
 const pageDisplayLayouts = computed(() => resolveDocumentPageDisplayLayouts({
     availableHeight: Math.max(1, containerHeight.value - DOCUMENT_PAGE_GUTTER_PX * 2),
     availableWidth: Math.max(1, containerWidth.value - DOCUMENT_PAGE_GUTTER_PX * 2),
@@ -368,7 +382,6 @@ function getVisualError(pageNumber: number) {
             : null)
         ?? `Unable to display page ${String(pageNumber)}`;
 }
-
 function beginPagePresentationPending(
     _pageNumber: number,
     state: IDocumentPageSourceVisualState,
@@ -442,7 +455,6 @@ function setPageElement(pageNumber: number, element: TDocumentPageElement) {
         pageSlots?.markUnmounted(pageNumber);
     }
 }
-
 let chassisOpeningSlotPage: number | null = null;
 watch(
     () => [
@@ -499,7 +511,6 @@ const metricPublication = createDocumentPageMetricPublication({
     }),
     onPublished: () => scheduleRender.schedule(),
 });
-
 function ensureExactPageMetric(
     activeSource: IDocumentPageSource,
     generation: number,
@@ -527,7 +538,6 @@ function ensureExactPageMetric(
     exactPageMetricLoads.set(pageNumber, metricLoad);
     return metricLoad;
 }
-
 async function renderPage(pageNumber: number) {
     const activeSource = source.value;
     const generation = loadGeneration.value;
@@ -717,7 +727,6 @@ async function renderPage(pageNumber: number) {
         }
     }
 }
-
 function isOwnedConnectedPageImage(image: HTMLImageElement, pageNumber: number) {
     return isOwnedConnectedDocumentPageImage(
         image,
@@ -725,7 +734,6 @@ function isOwnedConnectedPageImage(image: HTMLImageElement, pageNumber: number) 
         getChassisOpeningShellTarget(pageNumber),
     );
 }
-
 function getConnectedPageImage(pageNumber: number, state: IDocumentPageSourceVisualState) {
     return findConnectedDocumentPageImage({
         loadGeneration: loadGeneration.value,
@@ -735,7 +743,6 @@ function getConnectedPageImage(pageNumber: number, state: IDocumentPageSourceVis
         viewerContainer: viewerContainer.value,
     });
 }
-
 function commitReadyPageToViewportSession(pageNumber: number, state: IDocumentPageSourceVisualState) {
     const openSurface = chassisAuthority?.openSurface;
     const snapshot = openSurface?.snapshot.value;
@@ -785,7 +792,6 @@ function commitReadyPageToViewportSession(pageNumber: number, state: IDocumentPa
         && openSurface.markReady(fence),
     );
 }
-
 function markConnectedPageSurfaceReady(pageNumber: number, state: IDocumentPageSourceVisualState) {
     const isInitialOpenTransition = chassisAuthority?.openSurface.viewportSession.value.lifecycle === 'opening';
     state.ready = true;
@@ -799,7 +805,6 @@ function markConnectedPageSurfaceReady(pageNumber: number, state: IDocumentPageS
     }
     return committed;
 }
-
 async function handleSurfaceLoad(pageNumber: number, surface: string, event: Event) {
     let state = pageStates.get(pageNumber);
     const image = event.currentTarget;
@@ -835,7 +840,6 @@ async function handleSurfaceLoad(pageNumber: number, surface: string, event: Eve
     }
     markConnectedPageSurfaceReady(pageNumber, state);
 }
-
 function handleSurfaceError(pageNumber: number, surface: string) {
     const state = pageStates.get(pageNumber);
     if (state?.lease?.surface !== surface) {
@@ -884,7 +888,6 @@ async function renderMountedPages() {
     await Promise.all(renderQueue.pagesToRender.map(renderPage));
 }
 const scheduleRender = createRafCoalescedCallback(() => void renderMountedPages());
-
 async function restoreActivePagePresentation(runId: number) {
     const isCurrent = () => activationRun.isCurrent(runId);
     await restoreDocumentPageSourceActivePresentation({
@@ -1060,7 +1063,6 @@ function releaseInactivePageStates() {
         releaseAllPageStates();
         return;
     }
-
     for (const pageNumber of [...pageStates.keys()]) {
         if (pageNumber === currentPage) {
             continue;
@@ -1151,7 +1153,6 @@ async function commitInitialPageShell(
         margin: DOCUMENT_PAGE_GUTTER_PX,
     });
 }
-
 function seedOpeningPageMetrics() {
     const geometry = chassisAuthority?.openSurface.snapshot.value.openingPageGeometry;
     if (!geometry) {
@@ -1164,14 +1165,12 @@ function seedOpeningPageMetrics() {
     });
     return true;
 }
-
 function seedColdOpenProvisionalPageMetrics() {
     const requestedPage = Math.max(1, Math.trunc(
         chassisAuthority?.currentPage.value ?? currentPage,
     ));
     pageMetrics.value = createColdOpenProvisionalDocumentPageMetrics(requestedPage);
 }
-
 watch(
     () => chassisAuthority?.openSurface.snapshot.value.openingPageGeometry ?? null,
     (geometry) => {
@@ -1184,7 +1183,6 @@ watch(
     },
     {immediate: true},
 );
-
 watch(() => src, (documentRef, previousDocumentRef) => {
     activationRun.invalidate();
     cancelInactiveLeaseRelease();
@@ -1203,6 +1201,12 @@ watch(() => src, (documentRef, previousDocumentRef) => {
             documentRevision: activeOpenSurfaceRevision.value ?? '',
         })
         : null;
+    const sourceFence: IDocumentPageSourceFence = {
+        loadGeneration: generation,
+        openSurfaceGeneration: activeOpenSurfaceGeneration.value,
+        documentRevision: activeOpenSurfaceRevision.value,
+        src: documentRef,
+    };
     loadController?.abort();
     const activeLoadController = new AbortController();
     loadController = activeLoadController;
@@ -1254,17 +1258,14 @@ watch(() => src, (documentRef, previousDocumentRef) => {
                 nextSource.dispose();
                 return;
             }
-            source.value = nextSource;
-            emit('update:pageSource', nextSource);
-            chassisAuthority?.bindSource(nextSource);
-            emit('update:sourceCapabilities', {
-                annotations: false,
-                directImageExport: Boolean(nextSource.rasterProvider),
-                outline: Boolean(nextSource.outlineProvider),
-                pageEdits: false,
-                search: Boolean(nextSource.searchProvider ?? nextSource.textProvider),
-                text: Boolean(nextSource.textProvider),
-            });
+            if (!await sourceTransitions.publish({
+                fence: sourceFence,
+                phase: 'source-loaded',
+                source: nextSource,
+            })) {
+                nextSource.dispose();
+                return;
+            }
             const initialState = await prepareDocumentPageSourceInitialState({
                 source: nextSource,
                 signal: activeLoadController.signal,
@@ -1424,6 +1425,7 @@ watch(() => renderDemand.value.residentPages, (pages) => {
     scheduleRender.schedule();
 });
 onBeforeUnmount(() => {
+    sourceTransitions.dispose();
     activationRun.invalidate();
     cancelInactiveLeaseRelease();
     supersedeActiveOpenSurfaceGeneration();
@@ -1469,5 +1471,4 @@ defineExpose<IDocumentViewerExpose & {
     },
 });
 </script>
-
 <style scoped src="./DocumentPageSourceFeaturePack.css"></style>

@@ -603,6 +603,10 @@ export function createPdfPageRasterScheduler(
         }
         const existing = queued.get(key) ?? inFlight.get(key);
         if (existing) {
+            // Republished authoritative demand with the same render key is
+            // still the same work. Advance its generation in place so the
+            // current-demand guard does not cancel and restart that raster.
+            existing.demand = demand;
             if (resolve) {
                 const previousResolve = existing.resolve;
                 existing.resolve = (outcome) => {
@@ -862,18 +866,10 @@ export function createPdfPageRasterScheduler(
 
 const pdfDocumentRasterSchedulers = new WeakMap<PDFDocumentProxy, IPdfPageRasterScheduler>();
 
-export function getPdfPageRasterScheduler(document: PDFDocumentProxy) {
-    const scheduler = pdfDocumentRasterSchedulers.get(document);
-    if (!scheduler) {
-        throw new Error('PDF document raster scheduler is unavailable');
-    }
-    return scheduler;
-}
-
 export function ensurePdfPageRasterScheduler(
     document: PDFDocumentProxy,
     options: {
-        documentVersion: number;
+        documentFence: IPdfRasterDocumentFence;
         leasePage: ICreatePdfPageRasterSchedulerOptions['leasePage'];
     },
 ) {
@@ -882,11 +878,7 @@ export function ensurePdfPageRasterScheduler(
         return existing;
     }
     const scheduler = createPdfPageRasterScheduler({
-        documentFence: {
-            documentRevision: null,
-            documentVersion: options.documentVersion,
-            loadToken: options.documentVersion,
-        },
+        documentFence: options.documentFence,
         leasePage: options.leasePage,
     });
     pdfDocumentRasterSchedulers.set(document, scheduler);

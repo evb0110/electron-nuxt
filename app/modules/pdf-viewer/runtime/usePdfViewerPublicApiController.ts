@@ -1,8 +1,8 @@
 import type { Ref } from 'vue';
 import type { usePdfAppAnnotationHistory } from '@app/modules/pdf-viewer/runtime/annotations/usePdfAppAnnotationHistory';
-import type { usePdfViewerRuntime } from '@app/modules/pdf-viewer/runtime/usePdfViewerRuntime';
+import type { TPdfDocumentSession } from '@app/modules/pdf-viewer/runtime/sessions/pdfDocumentSession';
+import type { TPdfViewportSession } from '@app/modules/pdf-viewer/runtime/sessions/createPdfViewportSession';
 import type { usePdfViewerAnnotationRuntime } from '@app/modules/pdf-viewer/runtime/annotations/usePdfViewerAnnotationRuntime';
-import type { usePdfSinglePageNavigationController } from '@app/modules/pdf-viewer/runtime/navigation/usePdfSinglePageNavigationController';
 import { createPdfViewerPublicApi } from '@app/modules/pdf-viewer/runtime/contracts/createPdfViewerPublicApi';
 import type { TPdfViewerPublicApiSource } from '@app/modules/pdf-viewer/runtime/contracts/createPdfViewerPublicApi';
 import type { IPdfViewerExpose } from '@app/modules/pdf-viewer/runtime/contracts/pdfViewerExpose.types';
@@ -12,8 +12,8 @@ import { getPageContainerByNumber } from '@app/modules/pdf-viewer/engine/pdf-scr
 
 interface IUsePdfViewerPublicApiControllerOptions {
     viewerContainer: Ref<HTMLElement | null>;
-    viewerRuntime: ReturnType<typeof usePdfViewerRuntime>;
-    singlePageScroll: ReturnType<typeof usePdfSinglePageNavigationController>;
+    documentSession: TPdfDocumentSession;
+    viewportSession: TPdfViewportSession;
     getUserViewportInteractionEpoch: () => number;
     cancelPendingSearchScroll: () => void;
     annotationRuntime: ReturnType<typeof usePdfViewerAnnotationRuntime>;
@@ -53,8 +53,9 @@ interface IUsePdfViewerPublicApiControllerOptions {
 export const usePdfViewerPublicApiController = (options: IUsePdfViewerPublicApiControllerOptions) => {
     const {
         annotationRuntime,
-        viewerRuntime,
+        documentSession,
     } = options;
+    const viewportSession = options.viewportSession;
     const {
         annotations,
         annotationMutationService,
@@ -65,18 +66,18 @@ export const usePdfViewerPublicApiController = (options: IUsePdfViewerPublicApiC
         shapeComposable,
         selectedShapeCommands,
     } = annotationRuntime;
-    const { currentPage } = viewerRuntime.scroll;
+    const currentPage = viewportSession.currentPage;
 
     async function renderAnnotationPage(pageNumber: number, optionsOverride: { forceRerender?: boolean } = {}) {
         if (!Number.isFinite(pageNumber)) {
             return false;
         }
         const normalizedPageNumber = Math.max(1, Math.trunc(pageNumber));
-        if (viewerRuntime.numPages.value > 0 && normalizedPageNumber > viewerRuntime.numPages.value) {
+        if (documentSession.numPages.value > 0 && normalizedPageNumber > documentSession.numPages.value) {
             return false;
         }
         await options.waitForViewerLoadSettled();
-        await viewerRuntime.document.ensurePageMetricsInRange(normalizedPageNumber, normalizedPageNumber);
+        await documentSession.ensurePageMetricsInRange(normalizedPageNumber, normalizedPageNumber);
         await options.renderVisiblePages(
             {
                 start: normalizedPageNumber,
@@ -98,11 +99,11 @@ export const usePdfViewerPublicApiController = (options: IUsePdfViewerPublicApiC
     }
 
     async function ensurePublicAnnotationTargetPageReady(pageNumber: number) {
-        if (viewerRuntime.numPages.value > 0 && pageNumber > viewerRuntime.numPages.value) {
+        if (documentSession.numPages.value > 0 && pageNumber > documentSession.numPages.value) {
             return false;
         }
         options.cancelPendingSearchScroll();
-        options.singlePageScroll.scrollToPage(pageNumber);
+        viewportSession.singlePageScroll.scrollToPage(pageNumber);
         await nextTick();
         return renderAnnotationPage(pageNumber);
     }
@@ -110,19 +111,19 @@ export const usePdfViewerPublicApiController = (options: IUsePdfViewerPublicApiC
     return createPdfViewerPublicApi({
         getViewerContainer: () => options.viewerContainer.value,
         getCurrentPage: () => currentPage.value,
-        getPendingNavigationTargetPage: () => options.singlePageScroll.navigationAnchorPage.value,
+        getPendingNavigationTargetPage: () => viewportSession.singlePageScroll.navigationAnchorPage.value,
         getUserViewportInteractionEpoch: options.getUserViewportInteractionEpoch,
         scrollToPage: (pageNumber, scrollOptions) => {
             options.cancelPendingSearchScroll();
-            options.singlePageScroll.scrollToPage(pageNumber, scrollOptions);
+            viewportSession.singlePageScroll.scrollToPage(pageNumber, scrollOptions);
         },
         cancelProgrammaticNavigation: () => {
             options.cancelPendingSearchScroll();
-            options.singlePageScroll.cancelProgrammaticNavigation('public-api');
+            viewportSession.singlePageScroll.cancelProgrammaticNavigation('public-api');
         },
         applyFitWidthToCurrentPage: options.applyFitWidthToCurrentPage,
-        ensurePageMetricsInRange: viewerRuntime.document.ensurePageMetricsInRange,
-        getPageMetricsSnapshot: () => viewerRuntime.document.pageMetrics.value.map(metric => ({ ...metric })),
+        ensurePageMetricsInRange: documentSession.ensurePageMetricsInRange,
+        getPageMetricsSnapshot: () => documentSession.pageMetrics.value.map(metric => ({ ...metric })),
         waitForViewerLoadSettled: options.waitForViewerLoadSettled,
         preserveNextSourceReloadVisibleContent: options.preserveNextSourceReloadVisibleContent,
         adoptPersistedManagedShapesOnNextImport: annotationRuntime.adoptPersistedManagedShapesOnNextImport,
@@ -172,7 +173,7 @@ export const usePdfViewerPublicApiController = (options: IUsePdfViewerPublicApiC
                 ...(reason ? {reason} : {}),
             });
 
-            if (viewerRuntime.numPages.value > 0 && pageNumber > viewerRuntime.numPages.value) {
+            if (documentSession.numPages.value > 0 && pageNumber > documentSession.numPages.value) {
                 return result(false, `Page ${pageNumber} is outside the document.`);
             }
 
@@ -206,7 +207,7 @@ export const usePdfViewerPublicApiController = (options: IUsePdfViewerPublicApiC
                 ...(reason ? {reason} : {}),
             });
 
-            if (viewerRuntime.numPages.value > 0 && pageNumber > viewerRuntime.numPages.value) {
+            if (documentSession.numPages.value > 0 && pageNumber > documentSession.numPages.value) {
                 return result(false, null, `Page ${pageNumber} is outside the document.`);
             }
 

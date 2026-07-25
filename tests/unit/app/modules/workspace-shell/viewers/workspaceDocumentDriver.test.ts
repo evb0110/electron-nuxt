@@ -10,7 +10,7 @@ import {
     it,
     vi,
 } from 'vitest';
-import { PDFJS_NATIVE_PREVIEW_MIN_BYTES } from '@app/modules/pdf-viewer/runtime/pdfNativePreviewRouting';
+import { PDFJS_NATIVE_PREVIEW_MIN_BYTES } from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfNativePreviewRouting';
 import {
     createWorkspaceDocumentDriverForAdapter,
     useWorkspaceDocumentDriver,
@@ -81,6 +81,7 @@ function createBindingHarness() {
     const isRenderActive = ref(false);
     const isWorkspaceLayoutResizing = ref(false);
     const onPageSourceUpdate = vi.fn();
+    const onRasterSchedulerUpdate = vi.fn();
     const onSourceCapabilitiesUpdate = vi.fn();
     const fallbacks = new Map<PropertyKey, unknown>();
     const options = new Proxy({
@@ -90,6 +91,7 @@ function createBindingHarness() {
         isWorkspaceLayoutResizing,
         nativePdfViewerRef,
         onPageSourceUpdate,
+        onRasterSchedulerUpdate,
         onSourceCapabilitiesUpdate,
         pdfSrc: ref({
             kind: 'path' as const,
@@ -116,6 +118,7 @@ function createBindingHarness() {
         isWorkspaceLayoutResizing,
         nativePdfViewerRef,
         onPageSourceUpdate,
+        onRasterSchedulerUpdate,
         onSourceCapabilitiesUpdate,
         pdfViewerRef,
     };
@@ -272,6 +275,8 @@ describe('WorkspaceDocumentDriver', () => {
         expect(harness.djvuViewerRef.value).toBe(djvuViewer);
         expect(harness.binding.activeViewerProps.value).toHaveProperty('searchResults');
         expect(harness.binding.activeViewerListeners.value['update:pageSource']).toBe(harness.onPageSourceUpdate);
+        expect(harness.binding.activeViewerListeners.value['update:rasterScheduler'])
+            .toBe(harness.onRasterSchedulerUpdate);
         expect(harness.binding.activeViewerListeners.value['update:sourceCapabilities']).toBe(harness.onSourceCapabilitiesUpdate);
     });
 });

@@ -7,6 +7,7 @@ import { uniq } from 'es-toolkit/array';
 import { clamp } from 'es-toolkit/math';
 import {
     resolvePdfViewerSaveTransactionFinalBytes,
+    type IPdfPageRasterScheduler,
     useOcrTextContent,
     usePageContextMenu,
     usePdfHistory,
@@ -173,6 +174,7 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         documentRevisionToken,
         ...(deps.initialViewState !== undefined ? { initialViewState: deps.initialViewState } : {}),
     });
+    const pdfRasterScheduler = shallowRef<IPdfPageRasterScheduler | null>(null);
     const {
         pdfViewerRef,
         documentViewerRef,
@@ -1086,6 +1088,9 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
             onAnnotationToolCancel: annotationSession.handleAnnotationToolCancel,
             onCurrentPageUpdate: handleCurrentPage,
             onDocumentUpdate: value => { pdfDocument.value = value as typeof pdfDocument.value; },
+            onRasterSchedulerUpdate: (scheduler) => {
+                pdfRasterScheduler.value = scheduler;
+            },
             onEffectiveZoomUpdate: value => { effectiveZoom.value = value; },
             onFitModeUpdate: value => { fitMode.value = value; },
             onImagePlacementFinalize: annotationActions.handleFinalizePlacedImage,
@@ -1140,7 +1145,10 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
             bindWorkspaceProjection,
             documentKey,
         },
-        viewerShell: sidebarSearch,
+        viewerShell: {
+            ...sidebarSearch,
+            pdfRasterScheduler,
+        },
         annotationSession: {
             ...annotationSession,
             ...annotationActions,

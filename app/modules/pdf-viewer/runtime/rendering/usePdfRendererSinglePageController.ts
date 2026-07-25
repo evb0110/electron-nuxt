@@ -284,13 +284,16 @@ export const usePdfRendererSinglePageController = <TRenderResult extends IPdfLay
         version: number,
         forceRerender: boolean,
         target: ISinglePageRenderTarget,
-        requestId: number,
     ) {
         if (getRenderVersion() !== version) {
             return true;
         }
         if (renderingPages.get(pageNumber) === version) {
-            return renderingPageRequestIds.get(pageNumber) === requestId;
+            // Demand publication is reactive and may repeat while the same
+            // required-page job is still running. A new request id does not
+            // make that same-version work stale; version invalidation is the
+            // explicit supersession boundary.
+            return true;
         }
         if (pageRenderState.getSlot(pageNumber).visual === 'ready') {
             const hasMountedCanvas = Boolean(
@@ -913,7 +916,7 @@ export const usePdfRendererSinglePageController = <TRenderResult extends IPdfLay
             );
             return;
         }
-        if (shouldSkipSingleVisiblePageRender(pageNumber, version, forceRerender, target, requestId)) {
+        if (shouldSkipSingleVisiblePageRender(pageNumber, version, forceRerender, target)) {
             logPdfRenderTrace('renderer-single-page-skip', {
                 pageNumber,
                 version,

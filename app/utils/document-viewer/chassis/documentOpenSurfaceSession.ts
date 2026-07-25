@@ -198,6 +198,56 @@ export function shouldProjectDocumentViewportScroll(
         && viewportSession.requestedPage === viewportSession.committedPage;
 }
 
+export interface IDocumentViewportPositionProjection {
+    readonly geometryRevision: number;
+    readonly interactionEpoch: number;
+    readonly left: number;
+    readonly page: number;
+    readonly top: number;
+}
+
+export function shouldProjectDocumentViewportCommitPage(
+    surface: IDocumentOpenSurfaceSession,
+    commit: IDocumentViewportPositionProjection,
+) {
+    const viewport = surface.viewportSession.value;
+    return viewport.requestedPage === commit.page
+        && resolveDocumentViewportCurrentPage(viewport) === commit.page;
+}
+
+/**
+ * Commits a feature-local viewport position against the shared surface's
+ * exact live navigation intent. Feature-local intent ids never cross this
+ * boundary, so a late position cannot be relabelled as a newer command.
+ */
+export function commitDocumentOpenSurfaceViewport(
+    surface: IDocumentOpenSurfaceSession,
+    commit: IDocumentViewportPositionProjection,
+) {
+    const snapshot = surface.snapshot.value;
+    const viewport = surface.viewportSession.value;
+    const intent = viewport.viewportIntent;
+    if (
+        snapshot.identity === null
+        || intent === null
+        || intent.generation !== viewport.generation
+        || viewport.requestedPage !== commit.page
+        || intent.pageNumber !== commit.page
+    ) {
+        return false;
+    }
+    return surface.commitViewport({
+        generation: snapshot.generation,
+        documentRevision: snapshot.identity.documentRevision,
+        viewportIntentId: intent.id,
+        documentGeometryRevision: commit.geometryRevision,
+        interactionEpoch: commit.interactionEpoch,
+        pageNumber: commit.page,
+        left: commit.left,
+        top: commit.top,
+    });
+}
+
 type TDocumentOpenSurfaceVisualPresentation = Exclude<TDocumentOpenSurfacePresentation, 'failed'>;
 
 interface IDocumentOpenSurfaceVisualState {

@@ -58,15 +58,13 @@ const electronApi = createElectronPlatformApiFixture({documentFiles: {readFileRa
 
 vi.mock('@app/utils/platform', () => ({getPlatformAPI: () => electronApi}));
 
-const {
-    leasePdfDocumentPage,
-    usePdfDocument,
-} = await import('@app/modules/pdf-viewer/runtime/composables/pdf/usePdfDocument');
+const {leasePdfDocumentPage} = await import('@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource');
+const {createPdfDocumentSession} = await import('@app/modules/pdf-viewer/runtime/sessions/pdfDocumentSession');
 const {maxCachedPdfPages} = await import('@app/modules/pdf-viewer/engine/maxCachedPdfPages');
 
 const rangePreloadTestTimeoutMs = 15_000;
 
-describe('usePdfDocument range loading', () => {
+describe('PdfDocumentSession range loading', () => {
     beforeEach(() => {
         vi.clearAllMocks();
         electronApi.documentFiles.readFileRange.mockReset();
@@ -93,7 +91,7 @@ describe('usePdfDocument range loading', () => {
     });
 
     it('distinguishes an exact trusted target-page seed from normalized fallback pages', () => {
-        const documentState = usePdfDocument();
+        const documentState = createPdfDocumentSession();
 
         expect(documentState.hasExactPageGeometry(7)).toBe(false);
         expect(documentState.seedTrustedPageGeometry({
@@ -110,7 +108,7 @@ describe('usePdfDocument range loading', () => {
     });
 
     it('replaces a provisional trusted baseline with authoritative PDF.js geometry', async () => {
-        const documentState = usePdfDocument();
+        const documentState = createPdfDocumentSession();
         expect(documentState.seedTrustedPageGeometry({
             pageNumber: 1,
             pageCount: 1,
@@ -139,7 +137,7 @@ describe('usePdfDocument range loading', () => {
             4,
         ]));
 
-        const documentState = usePdfDocument();
+        const documentState = createPdfDocumentSession();
         const source = {
             kind: 'path',
             path: '/tmp/success.pdf',
@@ -225,7 +223,7 @@ describe('usePdfDocument range loading', () => {
             throw new Error(`Unexpected PDF range read ${offset}..${offset + length}`);
         });
 
-        const documentState = usePdfDocument();
+        const documentState = createPdfDocumentSession();
         const loadPromise = documentState.loadPdf({
             kind: 'path',
             path: '/tmp/preloaded-tail.pdf',
@@ -304,7 +302,7 @@ describe('usePdfDocument range loading', () => {
             4,
         ]));
 
-        const documentState = usePdfDocument();
+        const documentState = createPdfDocumentSession();
         const result = await documentState.loadPdf({
             kind: 'path',
             path: '/tmp/mixed-sizes.pdf',
@@ -361,7 +359,7 @@ describe('usePdfDocument range loading', () => {
             4,
         ]));
 
-        const documentState = usePdfDocument();
+        const documentState = createPdfDocumentSession();
         await documentState.loadPdf({
             kind: 'path',
             path: '/tmp/lazy-metrics.pdf',
@@ -430,7 +428,7 @@ describe('usePdfDocument range loading', () => {
             4,
         ]));
 
-        const documentState = usePdfDocument();
+        const documentState = createPdfDocumentSession();
         await documentState.loadPdf({
             kind: 'path',
             path: '/tmp/cache-metrics-for-render.pdf',
@@ -452,7 +450,7 @@ describe('usePdfDocument range loading', () => {
             3,
         ]));
 
-        const documentState = usePdfDocument();
+        const documentState = createPdfDocumentSession();
         const result = await documentState.loadPdf({
             kind: 'path',
             path: '/tmp/a.pdf',
@@ -473,7 +471,7 @@ describe('usePdfDocument range loading', () => {
     it('returns null and clears loading when initial range read fails', async () => {
         electronApi.documentFiles.readFileRange.mockRejectedValue(new Error('read failed'));
 
-        const documentState = usePdfDocument();
+        const documentState = createPdfDocumentSession();
         const result = await documentState.loadPdf({
             kind: 'path',
             path: '/tmp/b.pdf',
@@ -517,7 +515,7 @@ describe('usePdfDocument range loading', () => {
             ]))
             .mockRejectedValueOnce(new Error('late range read failed'));
 
-        const documentState = usePdfDocument();
+        const documentState = createPdfDocumentSession();
         const loadPromise = documentState.loadPdf({
             kind: 'path',
             path: '/tmp/late-failure.pdf',
@@ -581,7 +579,7 @@ describe('usePdfDocument range loading', () => {
             return new Uint8Array(Math.min(length, 4));
         });
 
-        const documentState = usePdfDocument();
+        const documentState = createPdfDocumentSession();
         const loadPromise = documentState.loadPdf({
             kind: 'path',
             path: '/tmp/short-range-read.pdf',
@@ -648,7 +646,7 @@ describe('usePdfDocument range loading', () => {
             length: number,
         ) => new Uint8Array(length));
 
-        const documentState = usePdfDocument();
+        const documentState = createPdfDocumentSession();
         const loadPromise = documentState.loadPdf({
             kind: 'path',
             path: '/tmp/large-range.pdf',
@@ -707,7 +705,7 @@ describe('usePdfDocument range loading', () => {
             4,
         ]));
 
-        const documentState = usePdfDocument();
+        const documentState = createPdfDocumentSession();
         const result = await documentState.loadPdf({
             kind: 'path',
             path: '/tmp/native-preview-required.pdf',
@@ -746,7 +744,7 @@ describe('usePdfDocument range loading', () => {
             4,
         ]));
 
-        const documentState = usePdfDocument();
+        const documentState = createPdfDocumentSession();
         const loadPromise = documentState.loadPdf({
             kind: 'path',
             path: '/tmp/pathological-range.pdf',
@@ -793,7 +791,7 @@ describe('usePdfDocument range loading', () => {
             4,
         ]));
 
-        const documentState = usePdfDocument();
+        const documentState = createPdfDocumentSession();
         await expect(documentState.loadPdf({
             kind: 'path',
             path: '/tmp/post-load-range-failure.pdf',
@@ -841,7 +839,7 @@ describe('usePdfDocument range loading', () => {
             4,
         ]));
 
-        const documentState = usePdfDocument();
+        const documentState = createPdfDocumentSession();
         const result = await documentState.loadPdf({
             kind: 'path',
             path: '/tmp/metric-prime-failure.pdf',
@@ -885,7 +883,7 @@ describe('usePdfDocument range loading', () => {
                 destroy: vi.fn(() => Promise.resolve()),
             });
 
-        const documentState = usePdfDocument();
+        const documentState = createPdfDocumentSession();
         const sourceA = new Blob([Uint8Array.of(1)]);
         const sourceB = new Blob([Uint8Array.of(2)]);
         const loadA = documentState.loadPdf(sourceA);
@@ -908,7 +906,7 @@ describe('usePdfDocument range loading', () => {
 
     it('clears the accepted source on explicit cleanup', async () => {
         electronApi.documentFiles.readFileRange.mockResolvedValue(Uint8Array.of(1, 2, 3, 4));
-        const documentState = usePdfDocument();
+        const documentState = createPdfDocumentSession();
         const source = {
             kind: 'path',
             path: '/tmp/cleanup-source.pdf',
@@ -937,7 +935,7 @@ describe('usePdfDocument range loading', () => {
             4,
         ]));
 
-        const documentState = usePdfDocument();
+        const documentState = createPdfDocumentSession();
         const result = await documentState.loadPdf({
             kind: 'path',
             path: '/tmp/parse-failure.pdf',
@@ -962,7 +960,7 @@ describe('usePdfDocument range loading', () => {
             destroy,
         });
 
-        const documentState = usePdfDocument();
+        const documentState = createPdfDocumentSession();
         const result = await documentState.loadPdf(new Blob([Uint8Array.of(1, 2, 3)]));
 
         expect(result).toBeNull();
@@ -1004,7 +1002,7 @@ describe('usePdfDocument range loading', () => {
             });
         electronApi.documentFiles.readFileRange.mockResolvedValue(Uint8Array.of(1, 2, 3, 4));
 
-        const documentState = usePdfDocument();
+        const documentState = createPdfDocumentSession();
         await expect(documentState.loadPdf({
             kind: 'path',
             path: '/tmp/first.pdf',
@@ -1078,7 +1076,7 @@ describe('usePdfDocument range loading', () => {
             4,
         ]));
 
-        const documentState = usePdfDocument();
+        const documentState = createPdfDocumentSession();
         await documentState.loadPdf({
             kind: 'path',
             path: '/tmp/cache-lru.pdf',
@@ -1139,7 +1137,7 @@ describe('usePdfDocument range loading', () => {
             4,
         ]));
 
-        const documentState = usePdfDocument();
+        const documentState = createPdfDocumentSession();
         await documentState.loadPdf({
             kind: 'path',
             path: '/tmp/deferred-lease-cleanup.pdf',
@@ -1192,7 +1190,7 @@ describe('usePdfDocument range loading', () => {
         });
         electronApi.documentFiles.readFileRange.mockResolvedValue(Uint8Array.of(1, 2, 3, 4));
 
-        const documentState = usePdfDocument();
+        const documentState = createPdfDocumentSession();
         await documentState.loadPdf({
             kind: 'path',
             path: '/tmp/background-page-inventory.pdf',
@@ -1232,7 +1230,7 @@ describe('usePdfDocument range loading', () => {
         });
         electronApi.documentFiles.readFileRange.mockResolvedValue(Uint8Array.of(1, 2, 3, 4));
 
-        const documentState = usePdfDocument();
+        const documentState = createPdfDocumentSession();
         await documentState.loadPdf({
             kind: 'path',
             path: '/tmp/stable-proxy-leases.pdf',

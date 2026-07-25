@@ -21,6 +21,7 @@ import type {
 } from '@app/types/pdfUi';
 import type { TDocumentRevisionToken } from '@contracts/documentRevision';
 import type { TPdfRasterDisplayProfile } from '@app/types/pdfRasterDisplayProfile';
+import type { IPdfPageRasterScheduler } from '@app/modules/pdf-viewer/engine/pdf-page-raster-scheduler/pdfPageRasterScheduler';
 
 export interface IPdfViewerProps {
     src: TPdfSource | null;
@@ -64,6 +65,7 @@ export interface IPdfViewerEmit {
     (e: 'update:totalPages', total: number): void;
     (e: 'update:loading', loading: boolean): void;
     (e: 'update:document', document: PDFDocumentProxy | null): void;
+    (e: 'update:rasterScheduler', scheduler: IPdfPageRasterScheduler | null): void;
     (e: 'loading', loading: boolean): void;
     (e: 'load-error', error: unknown): void;
     (e: 'annotation-state', state: IAnnotationEditorState): void;

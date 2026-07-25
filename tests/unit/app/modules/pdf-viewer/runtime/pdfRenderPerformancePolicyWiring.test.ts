@@ -23,7 +23,8 @@ import {
 } from 'vitest';
 
 const featureControllerPath = 'app/modules/pdf-viewer/runtime/usePdfViewerFeatureController.ts';
-const runtimeLifecyclePath = 'app/modules/pdf-viewer/runtime/lifecycle/usePdfViewerRuntimeLifecycle.ts';
+const viewportSessionPath = 'app/modules/pdf-viewer/runtime/sessions/createPdfViewportSession.ts';
+const renderingSessionPath = 'app/modules/pdf-viewer/runtime/sessions/createPdfRenderingSession.ts';
 
 function readProjectSource(path: string) {
     const source = readFileSync(resolve(process.cwd(), path), 'utf8');
@@ -96,14 +97,15 @@ function getCallPropertyText(
 describe('PDF render performance policy wiring', () => {
     it('resolves once and passes the same policy through every section-1 seam', () => {
         const featureController = readProjectSource(featureControllerPath);
-        const runtimeLifecycle = readProjectSource(runtimeLifecyclePath);
+        const viewportSession = readProjectSource(viewportSessionPath);
+        const renderingSession = readProjectSource(renderingSessionPath);
 
         expect(findCalls(featureController, 'getPerformanceProfile')).toHaveLength(1);
         expect(getCallArgumentText(featureController, 'resolvePdfRenderPerformancePolicy')).toBe('performanceProfile');
         expect(getCallArgumentText(featureController, 'usePdfViewerOutputScale')).toBe('performancePolicy');
-        expect(getCallPropertyText(featureController, 'usePdfViewerRenderingRuntime', 'performancePolicy')).toBe('performancePolicy');
-        expect(getCallPropertyText(featureController, 'usePdfViewportViewModel', 'performancePolicy')).toBe('performancePolicy');
-        expect(getCallPropertyText(featureController, 'usePdfViewerRuntimeLifecycle', 'performancePolicy')).toBe('performancePolicy');
-        expect(getCallPropertyText(runtimeLifecycle, 'usePdfViewerZoomRerenderQueue', 'performancePolicy')).toBe('options.performancePolicy');
+        expect(getCallPropertyText(featureController, 'createPdfViewportSession', 'performancePolicy')).toBe('performancePolicy');
+        expect(getCallPropertyText(featureController, 'createPdfRenderingSession', 'performancePolicy')).toBe('performancePolicy');
+        expect(getCallPropertyText(viewportSession, 'usePdfViewportViewModel', 'performancePolicy')).toBe('options.performancePolicy');
+        expect(getCallPropertyText(renderingSession, 'usePdfViewerZoomRerenderQueue', 'performancePolicy')).toBe('options.performancePolicy');
     });
 });
