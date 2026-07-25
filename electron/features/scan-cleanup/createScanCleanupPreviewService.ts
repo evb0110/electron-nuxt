@@ -41,8 +41,10 @@ import {detectSourceDpiDetails} from '@electron/pdf/sourceDpiDetection';
 import {renderPdfPageToPng} from '@electron/ocr/worker/popplerStage';
 import {runScanCleanupSidecar} from '@electron/features/scan-cleanup/worker/runScanCleanupSidecar';
 import {
+    SCAN_CLEANUP_RASTER_SLOT_RESIDENT_BYTES,
     classifyScanCleanupError,
     resolveScanCleanupPath,
+    resolveScanCleanupRasterConcurrency,
 } from '@electron/features/scan-cleanup/createScanCleanupService';
 import {SCAN_CLEANUP_PLATFORM_FEATURE} from '@contracts/scanCleanupPlatformFeature';
 import {mainJobBroker} from '@electron/resources/jobBroker';
@@ -66,7 +68,6 @@ const DEFAULT_SOURCE_DPI = 300;
 const PREVIEW_MAX_IMAGE_BYTES = 32 * 1024 * 1024;
 const RAW_CACHE_PAGE_LIMIT = 32;
 const RAW_CACHE_BYTE_LIMIT = 128 * 1024 * 1024;
-const DETECTION_RASTER_CONCURRENCY = 2;
 const logger = createLogger('scan-cleanup-preview');
 
 interface IRawPreview {
@@ -157,19 +158,22 @@ const defaultDependencies: IScanCleanupPreviewDependencies = {
         );
         return result.pageDpiByNumber.get(pageNumber) ?? null;
     },
-    acquireDetectionLease: (jobId, signal) => mainJobBroker.acquire({
-        ownerId: jobId,
-        kind: 'scan-cleanup-detect-all',
-        priority: 'foreground',
-        resources: {
-            cpuTokens: 0.5,
-            estimatedResidentBytes: 128 * 1024 * 1024,
-            nativeProcesses: 1,
-            ioWeight: 2,
-        },
-        perOwnerLimit: 1,
-        signal,
-    }),
+    acquireDetectionLease: (jobId, signal) => {
+        const rasterConcurrency = resolveScanCleanupRasterConcurrency();
+        return mainJobBroker.acquire({
+            ownerId: jobId,
+            kind: 'scan-cleanup-detect-all',
+            priority: 'foreground',
+            resources: {
+                cpuTokens: rasterConcurrency,
+                estimatedResidentBytes: rasterConcurrency * SCAN_CLEANUP_RASTER_SLOT_RESIDENT_BYTES,
+                nativeProcesses: rasterConcurrency,
+                ioWeight: 2,
+            },
+            perOwnerLimit: 1,
+            signal,
+        });
+    },
     getSourceMtimeMs: async sourcePdfPath => (await stat(sourcePdfPath)).mtimeMs,
     materializeWorkingCopy: (logicalRef, options) => {
         // Preview work is queued, so the owning tab can close before the tail
@@ -1153,7 +1157,7 @@ async function mapDetectionPages<T>(
     const results = new Array<T>(pages.length);
     let nextIndex = 0;
     let completedPages = 0;
-    const workers = Array.from({length: Math.min(DETECTION_RASTER_CONCURRENCY, pages.length)}, async () => {
+    const workers = Array.from({length: Math.min(resolveScanCleanupRasterConcurrency(), pages.length)}, async () => {
         while (nextIndex < pages.length) {
             const index = nextIndex;
             nextIndex += 1;

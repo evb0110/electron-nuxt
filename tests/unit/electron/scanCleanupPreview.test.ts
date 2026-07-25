@@ -30,6 +30,19 @@ import {
     decodeScanCleanupPreviewResult,
 } from '@contracts/scan-cleanup/ipcResultCodecs';
 import {SCAN_CLEANUP_PLATFORM_FEATURE} from '@contracts/scanCleanupPlatformFeature';
+import {
+    configureMainJobBroker,
+    mainJobBroker,
+} from '@electron/resources/jobBroker';
+
+configureMainJobBroker({
+    logicalCpus: 11,
+    totalRamBytes: 32 * 1024 ** 3,
+    safeMode: false,
+    detectedTier: 'high',
+    performanceMode: 'auto',
+    tier: 'high',
+});
 
 const SCAN_CLEANUP_CHANNELS = SCAN_CLEANUP_PLATFORM_FEATURE.invokeChannels;
 const SCAN_CLEANUP_IPC_CODECS = SCAN_CLEANUP_PLATFORM_FEATURE.ipcCodecs;
@@ -2015,6 +2028,54 @@ describe('scan cleanup preview', () => {
         expect(deps.acquireDetectionLease).toHaveBeenCalledWith(started.jobId, expect.any(AbortSignal));
         expect(deps.renderPage).toHaveBeenCalledTimes(3);
         expect(peakRasters).toBe(2);
+    });
+
+    it('rasterizes detection pages as wide as the 11-core host allows and leases that width', async () => {
+        const dir = await setup();
+        const deps = dependencies(dir);
+        const acquire = vi.spyOn(mainJobBroker, 'acquire');
+        deps.getPageCount = vi.fn(async () => 8);
+        const originalRenderPage = deps.renderPage;
+        let activeRasters = 0;
+        let peakRasters = 0;
+        deps.renderPage = vi.fn(async (...args) => {
+            activeRasters += 1;
+            peakRasters = Math.max(peakRasters, activeRasters);
+            try {
+                await new Promise(resolve => setTimeout(resolve, 5));
+                await originalRenderPage(
+                    args[0],
+                    args[1],
+                    args[2],
+                    args[3],
+                    args[4],
+                    args[5],
+                    args[6],
+                    args[7],
+                );
+            } finally {
+                activeRasters -= 1;
+            }
+        });
+        deps.runSidecar = vi.fn(async () => {
+            throw new Error('detection stopped once every page was rasterized');
+        });
+        const service = createScanCleanupPreviewService(deps);
+        const owner = sender();
+        const started = await service.detectAll(owner, detectionRequest);
+
+        await vi.waitFor(() => expect(service.getDetectionJobState(
+            owner,
+            started.jobId,
+            detectionRequest,
+        )?.status).toBe('failed'));
+        expect(deps.renderPage).toHaveBeenCalledTimes(8);
+        expect(peakRasters).toBe(4);
+        expect(acquire).toHaveBeenCalledWith(expect.objectContaining({
+            kind: 'scan-cleanup-detect-all',
+            resources: expect.objectContaining({nativeProcesses: peakRasters}),
+        }));
+        acquire.mockRestore();
     });
 
     it.each([
