@@ -56,7 +56,6 @@ import type { IZoomVirtualizationFreeze } from '@app/modules/pdf-viewer/runtime/
 import type { IResizeTransitionSignal } from '@app/modules/pdf-viewer/runtime/viewport/pdfViewerViewportTypes';
 import { resolvePdfPreparedOpeningFitScale } from '@app/modules/pdf-viewer/runtime/lifecycle/resolvePdfPreparedOpeningFitScale';
 import { resolveCustomReloadZoomMultiplier } from '@app/modules/pdf-viewer/runtime/reload-zoom/resolveCustomReloadZoomMultiplier';
-import type { IPdfViewerTransactionCancellation } from '@app/modules/pdf-viewer/engine/pdf-viewer-transaction/pdfViewerTransactionTypes';
 import type {
     IPdfDocumentTransition,
     TPdfDocumentSession,
@@ -621,14 +620,6 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
         visibleRange.value = range;
         return true;
     }
-    function isReloadTransactionCurrent(transactionId: number | null) {
-        return transactionId === null
-            || transactionController.isTransactionCurrent(transactionId);
-    }
-    function commitViewportVisibleRange(transactionId: number | null) {
-        const range = projectViewportVisibleRange(options.viewerContainer.value, numPages.value);
-        return commitVisibleRange(range, transactionId);
-    }
     function applyReloadViewport(pageNumber: number, scrollOptions?: IScrollToPageOptions) {
         scroll.scrollToPage(
             options.viewerContainer.value,
@@ -641,33 +632,6 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
             pageNumber,
             `reload-viewport-${String(documentSession.captureFence().loadToken)}-${String(pageNumber)}`,
         );
-    }
-    function createReloadCancellation(
-        reason: IPdfViewerTransactionCancellation['reason'],
-        preserveVisualContent: boolean,
-    ): IPdfViewerTransactionCancellation {
-        return {
-            reason,
-            cancelInFlightRenders: true,
-            bumpRenderVersion: reason === 'document-changed' || reason === 'reload',
-            preserveVisualContent,
-        };
-    }
-    function cancelReloadTransaction(cancellation: IPdfViewerTransactionCancellation) {
-        const transactionId = activeReloadTransactionId;
-        activeReloadTransactionId = null;
-        if (transactionId === null || !transactionController.isTransactionCurrent(transactionId)) {
-            return;
-        }
-        transactionController.cancelActiveTransaction(cancellation, transactionId);
-    }
-    function settleReloadTransaction() {
-        const transactionId = activeReloadTransactionId;
-        activeReloadTransactionId = null;
-        if (transactionId === null) {
-            return true;
-        }
-        return transactionController.advanceTransaction(transactionId, 'settled');
     }
     function settleVisualReloadTransition(reason: string) {
         if (visualReloadTransitionToken === null) {
@@ -780,7 +744,10 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
      * republishes it once the owning transaction is still current.
      */
     function pinCurrentPageToRestoreTarget() {
-        if (!isReloadTransactionCurrent(activeReloadTransactionId)) {
+        if (
+            activeReloadTransactionId !== null
+            && !transactionController.isTransactionCurrent(activeReloadTransactionId)
+        ) {
             return false;
         }
         options.emitCurrentPage(currentPage.value);
@@ -1039,7 +1006,10 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
             if (!transition.isCurrent()) {
                 return;
             }
-            commitViewportVisibleRange(activeReloadTransactionId);
+            commitVisibleRange(
+                projectViewportVisibleRange(options.viewerContainer.value, numPages.value),
+                activeReloadTransactionId,
+            );
         }
         const initialRange = {
             start: currentPage.value,
@@ -1094,7 +1064,11 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
             return;
         }
         settleVisualReloadTransition('warm-render-complete');
-        settleReloadTransaction();
+        const transactionId = activeReloadTransactionId;
+        activeReloadTransactionId = null;
+        if (transactionId !== null) {
+            transactionController.advanceTransaction(transactionId, 'settled');
+        }
     }
     const unsubscribeDocumentTransitions = documentSession.subscribe(async (transition) => {
         if (!transition.isCurrent()) {
@@ -1112,10 +1086,16 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
                 releasePreservedVisualSnapshotNow(preserved, transition.reason);
             }
             settleVisualReloadTransition(transition.reason);
-            cancelReloadTransaction(createReloadCancellation(
-                transition.reason === 'load-aborted' ? 'reload' : 'document-changed',
-                false,
-            ));
+            const transactionId = activeReloadTransactionId;
+            activeReloadTransactionId = null;
+            if (transactionId !== null && transactionController.isTransactionCurrent(transactionId)) {
+                transactionController.cancelActiveTransaction({
+                    reason: transition.reason === 'load-aborted' ? 'reload' : 'document-changed',
+                    cancelInFlightRenders: true,
+                    bumpRenderVersion: true,
+                    preserveVisualContent: false,
+                }, transactionId);
+            }
             cancelPendingSearchRevision.value += 1;
             cancelRasterRevision.value += 1;
             return;
@@ -1165,9 +1145,6 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
         getProtectedVisibleRange,
         isVisibleRenderRangeCurrent,
         setupPagePlaceholders,
-        seedPreparedOpeningFitScale,
-        shouldPreserveOpeningLayout,
-        getNavigationRenderTargetPage,
         syncCurrentPageFromViewport,
         markUserViewportInteraction,
         handleLinkDestination,
@@ -1190,7 +1167,6 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
         requestMandatoryRaster,
         settleMandatoryRaster,
         commitVisibleRange,
-        commitViewportVisibleRange,
         preserveNextSourceReloadVisibleContent(request?: IPreservedVisibleContentRequest) {
             nextPreservedVisibleContentState = capturePreservedVisibleContentState(request);
             documentSession.preserveNextReloadVisibleContent(nextPreservedVisibleContentState !== null);
