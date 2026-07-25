@@ -9,6 +9,7 @@ import {
     resolveVideoDirectory,
     summarizeTrace,
 } from '@scripts/diagnostics/pdfNavigationBlinkTrace';
+import { assertPdfNavigationBlinkTraceSummary } from '@scripts/diagnostics/assertPdfNavigationBlinkTraceSummary';
 
 describe('pdf navigation blink trace options', () => {
     it('parses opt-in video capture flags', () => {
@@ -74,7 +75,11 @@ describe('pdf navigation blink trace summary', () => {
                     event: 'raster-scheduler-snapshot',
                     payload: {scheduler: {
                         accepting: true,
+                        inFlightByLane: {},
+                        inFlightPages: [],
                         queueDepth: 2,
+                        queuedByLane: {},
+                        residentPages: [],
                         reservedPixels: 120,
                     }},
                 },
@@ -82,7 +87,11 @@ describe('pdf navigation blink trace summary', () => {
                     event: 'raster-scheduler-snapshot',
                     payload: {scheduler: {
                         accepting: true,
+                        inFlightByLane: {},
+                        inFlightPages: [],
                         queueDepth: 5,
+                        queuedByLane: {},
+                        residentPages: [],
                         reservedPixels: 480,
                     }},
                 },
@@ -92,15 +101,33 @@ describe('pdf navigation blink trace summary', () => {
         expect(summary.rasterSchedulerSnapshots).toEqual([
             {
                 accepting: true,
+                inFlightByLane: {},
+                inFlightPages: [],
                 queueDepth: 2,
+                queuedByLane: {},
+                residentPages: [],
                 reservedPixels: 120,
             },
             {
                 accepting: true,
+                inFlightByLane: {},
+                inFlightPages: [],
                 queueDepth: 5,
+                queuedByLane: {},
+                residentPages: [],
                 reservedPixels: 480,
             },
         ]);
+    });
+
+    it('rejects assert mode when no valid scheduler snapshot was captured', () => {
+        const summary = summarizeTrace({
+            trace: {},
+            renderTrace: [],
+        });
+
+        expect(() => assertPdfNavigationBlinkTraceSummary(summary))
+            .toThrow('no valid raster scheduler snapshot was captured');
     });
 
     it('summarizes visual ownership and post-click instability', () => {

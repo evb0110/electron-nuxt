@@ -5,6 +5,7 @@ import type {
 import type { TPdfViewMode } from '@app/types/pdfContracts';
 import type { IPageRange } from '@app/types/pdfUi';
 import type { IPdfRasterSchedulerSnapshot } from '@app/modules/pdf-viewer/engine/pdf-page-raster-scheduler/pdfPageRasterScheduler';
+import { BrowserLogger } from '@app/utils/browserLogger';
 import { logPdfNav } from '@app/utils/logPdfNav';
 import { logPdfRenderTrace } from '@app/utils/pdfRenderTrace';
 
@@ -28,7 +29,7 @@ interface IUsePdfViewerNavigationDiagnosticsOptions {
 }
 
 type TNavigationDiagnosticSnapshot = readonly [boolean, number, number, number, number, number, number | null, string];
-type TViewerDiagnosticSnapshot = readonly [number, number, number];
+type TViewerDiagnosticSnapshot = readonly [number, number, number, boolean];
 
 export const usePdfViewerNavigationDiagnostics = (options: IUsePdfViewerNavigationDiagnosticsOptions) => {
     watch(
@@ -69,11 +70,63 @@ export const usePdfViewerNavigationDiagnostics = (options: IUsePdfViewerNavigati
         },
     );
 
+    watch(options.currentPage, (next, previous) => {
+        if (next === previous) {
+            return;
+        }
+        BrowserLogger.diagnostic('pdf-nav', `[viewer-current-page-ref] ${previous}->${next}`, {
+            previous,
+            next,
+            isLoading: options.isLoading.value,
+            continuousScroll: options.continuousScroll.value,
+            fitMode: options.fitMode.value,
+            viewMode: options.viewMode.value,
+            zoom: options.zoom.value,
+            visibleRange: {
+                start: options.visibleRange.value.start,
+                end: options.visibleRange.value.end,
+            },
+            viewer: options.summarizeViewerStateForLog(),
+        });
+    });
+
+    watch(
+        () => [
+            options.visibleRange.value.start,
+            options.visibleRange.value.end,
+        ] as const,
+        (nextSnapshot, previousSnapshot) => {
+            const nextStart = nextSnapshot[0];
+            const nextEnd = nextSnapshot[1];
+            const prevStart = previousSnapshot[0];
+            const prevEnd = previousSnapshot[1];
+
+            if (nextStart === prevStart && nextEnd === prevEnd) {
+                return;
+            }
+            BrowserLogger.diagnostic('pdf-nav', `[viewer-visible-range] ${prevStart}-${prevEnd} -> ${nextStart}-${nextEnd}`, {
+                previous: {
+                    start: prevStart,
+                    end: prevEnd,
+                },
+                next: {
+                    start: nextStart,
+                    end: nextEnd,
+                },
+                currentPage: options.currentPage.value,
+                isLoading: options.isLoading.value,
+                continuousScroll: options.continuousScroll.value,
+                viewer: options.summarizeViewerStateForLog(),
+            });
+        },
+    );
+
     watch(
         () => [
             options.currentPage.value,
             options.visibleRange.value.start,
             options.visibleRange.value.end,
+            options.isLoading.value,
         ] as const,
         (snapshot: TViewerDiagnosticSnapshot) => {
             logPdfRenderTrace('raster-scheduler-snapshot', () => ({
@@ -82,14 +135,9 @@ export const usePdfViewerNavigationDiagnostics = (options: IUsePdfViewerNavigati
                     start: snapshot[1],
                     end: snapshot[2],
                 },
-                isLoading: options.isLoading.value,
-                continuousScroll: options.continuousScroll.value,
-                fitMode: options.fitMode.value,
-                viewMode: options.viewMode.value,
-                zoom: options.zoom.value,
                 scheduler: options.getRasterSchedulerSnapshot(),
-                viewer: options.summarizeViewerStateForLog(),
             }));
         },
+        {immediate: true},
     );
 };

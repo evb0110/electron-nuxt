@@ -15,15 +15,15 @@ import {
     type IPdfDiagnosticsContext,
     runPdfDiagnosticScenario,
 } from '@scripts/diagnostics/runPdfDiagnosticScenario';
+import {
+    assertPdfNavigationBlinkTraceSummary,
+    MAX_ASSERTED_TARGET_FEEDBACK_GEOMETRY_DELTA_PX,
+} from '@scripts/diagnostics/assertPdfNavigationBlinkTraceSummary';
 
 const DEFAULT_TARGET_PDF_PATH = process.env.EVB_DIAGNOSTIC_PDF_PATH?.length
     ? process.env.EVB_DIAGNOSTIC_PDF_PATH
     : resolve(process.cwd(), '.devkit', 'manual-pdf-fixtures', 'page-jump-source.pdf');
 const DEFAULT_OUT_PATH = '.devkit/pdf-navigation-blink-trace.json';
-const MAX_ASSERTED_TOOLBAR_BODY_LAG_MS = 750;
-const MAX_ASSERTED_BLANK_RUN_MS = 250;
-const MAX_ASSERTED_INTERMEDIATE_VISUAL_AFTER_CLICK_RUN_MS = 120;
-const MAX_ASSERTED_TARGET_FEEDBACK_GEOMETRY_DELTA_PX = 2;
 const POST_CLICK_INTERMEDIATE_VISUAL_GRACE_MS = 80;
 
 export interface IPdfNavigationBlinkTraceOptions {
@@ -47,6 +47,8 @@ interface ITraceSummary {
     blankSampleCount: number;
     finalTargetPage: number | null;
     frameAnalysis: IFrameAnalysisSummary;
+    firstBlankSample: unknown;
+    firstCenteredBlankSample: unknown;
     firstCenteredBlankAfterClickSample: unknown;
     firstIntermediateVisualAfterClickSample: unknown;
     firstLatePostClickSwapSample: unknown;
@@ -81,6 +83,8 @@ interface ITraceSummary {
     targetFeedbackWidthDeltaPx: number;
     toolbarAheadOfBodySampleCount: number;
     toolbarPages: number[];
+    workspaceGoToPages: number[];
+    pagedTargets: number[];
 }
 
 interface IPageSampleGeometry {
@@ -1319,6 +1323,8 @@ export function summarizeTrace(payload: {
         blankSampleCount: blankSamples.length,
         finalTargetPage,
         frameAnalysis: analyzeTraceFrames(samples),
+        firstBlankSample: blankSamples[0] ?? null,
+        firstCenteredBlankSample: samples.find(sampleHasCenteredBlank) ?? null,
         firstCenteredBlankAfterClickSample: centeredBlankAfterClick.firstSample,
         firstIntermediateVisualAfterClickSample: intermediateVisualAfterClick.firstSample,
         firstLatePostClickSwapSample,
@@ -1353,70 +1359,9 @@ export function summarizeTrace(payload: {
         targetFeedbackWidthDeltaPx: targetFeedbackGeometry.maxWidthDeltaPx,
         toolbarAheadOfBodySampleCount: toolbarAheadOfBodySamples.length,
         toolbarPages,
+        workspaceGoToPages,
+        pagedTargets,
     };
-}
-
-function assertTraceSummary(summary: ITraceSummary) {
-    const failures: string[] = [];
-    if (summary.skeletonVisualOverlapSampleCount > 0) {
-        failures.push(`skeleton overlapped visual content in ${summary.skeletonVisualOverlapSampleCount} samples`);
-    }
-    if (summary.translucentSkeletonCanvasOverlapSampleCount > 0) {
-        failures.push(
-            'translucent skeleton overlapped mounted canvas in '
-            + `${summary.translucentSkeletonCanvasOverlapSampleCount} samples`,
-        );
-    }
-    if (summary.skeletonAfterVisualSampleCount > 0) {
-        failures.push(`skeleton appeared after visual readiness in ${summary.skeletonAfterVisualSampleCount} samples`);
-    }
-    if (summary.postReadyUnstableSampleCount > 0) {
-        failures.push(`body was unstable after final target became visual in ${summary.postReadyUnstableSampleCount} samples`);
-    }
-    if (summary.targetCanvasRegressionSampleCount > 0) {
-        failures.push(`target canvas regressed after readiness in ${summary.targetCanvasRegressionSampleCount} samples`);
-    }
-    if (summary.latePostClickSwapCount > 0) {
-        failures.push(`target visual signature changed after clicks stopped ${summary.latePostClickSwapCount} times`);
-    }
-    if (summary.nonFinalPagedCommitAfterFinalRequestCount > 0) {
-        failures.push(`non-final paged target committed after final request ${summary.nonFinalPagedCommitAfterFinalRequestCount} times`);
-    }
-    if (summary.nonFinalWorkspacePageAcceptAfterFinalRequestCount > 0) {
-        failures.push(`workspace accepted non-final viewer page after final request ${summary.nonFinalWorkspacePageAcceptAfterFinalRequestCount} times`);
-    }
-    if (summary.maxIntermediateVisualAfterClickRunMs > MAX_ASSERTED_INTERMEDIATE_VISUAL_AFTER_CLICK_RUN_MS) {
-        failures.push(
-            `intermediate centered visual page after clicks ran for ${summary.maxIntermediateVisualAfterClickRunMs}ms`
-            + ` exceeding ${MAX_ASSERTED_INTERMEDIATE_VISUAL_AFTER_CLICK_RUN_MS}ms`,
-        );
-    }
-    if (summary.maxToolbarBodyLagMs > MAX_ASSERTED_TOOLBAR_BODY_LAG_MS) {
-        failures.push(`toolbar/body feedback lag ${summary.maxToolbarBodyLagMs}ms exceeded ${MAX_ASSERTED_TOOLBAR_BODY_LAG_MS}ms`);
-    }
-    if (summary.maxCenteredBlankAfterClickRunMs > MAX_ASSERTED_BLANK_RUN_MS) {
-        failures.push(`centered blank visual run after clicks ${summary.maxCenteredBlankAfterClickRunMs}ms exceeded ${MAX_ASSERTED_BLANK_RUN_MS}ms`);
-    }
-    if (
-        summary.targetFeedbackHeightDeltaPx > MAX_ASSERTED_TARGET_FEEDBACK_GEOMETRY_DELTA_PX
-        || summary.targetFeedbackWidthDeltaPx > MAX_ASSERTED_TARGET_FEEDBACK_GEOMETRY_DELTA_PX
-    ) {
-        failures.push(
-            `target feedback geometry changed by width=${summary.targetFeedbackWidthDeltaPx}px`
-            + ` height=${summary.targetFeedbackHeightDeltaPx}px`
-            + ` exceeding ${MAX_ASSERTED_TARGET_FEEDBACK_GEOMETRY_DELTA_PX}px`,
-        );
-    }
-    if (summary.bodyVisualReadyAtMs === null) {
-        failures.push('final target was never observed with visual-ready body content');
-    }
-    if (summary.bodyCanvasReadyAtMs === null) {
-        failures.push('final target was never observed with centered canvas content');
-    }
-
-    if (failures.length > 0) {
-        throw new Error(`PDF navigation blink trace assertions failed:\n${failures.join('\n')}`);
-    }
 }
 
 function createVideoCapturePayload(videoCapture: IDiagnosticFrameCaptureResult | null) {
@@ -1517,7 +1462,7 @@ export function createPdfNavigationBlinkScenario(options = readOptions()) {
             console.log(`Wrote ${outPath}`);
             console.log(JSON.stringify(payload.summary, null, 2));
             if (options.assert) {
-                assertTraceSummary(payload.summary);
+                assertPdfNavigationBlinkTraceSummary(payload.summary);
             }
         },
     };
