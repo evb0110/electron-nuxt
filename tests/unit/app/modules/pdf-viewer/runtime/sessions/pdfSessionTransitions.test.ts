@@ -323,4 +323,44 @@ describe('PdfDocumentSession transitions', () => {
             'settled',
         ]);
     });
+
+    it('suppresses a superseded load rejection but emits the current load failure', async () => {
+        const staleLoad = Promise.withResolvers<ReturnType<typeof createDocumentProxy>>();
+        const currentFailure = new Error('current PDF parse failed');
+        pdfjsState.getDocument
+            .mockReturnValueOnce({
+                promise: staleLoad.promise,
+                destroy: vi.fn(async () => undefined),
+            })
+            .mockReturnValueOnce({
+                promise: Promise.resolve(createDocumentProxy('replacement')),
+                destroy: vi.fn(async () => undefined),
+            })
+            .mockImplementationOnce(() => ({
+                promise: Promise.reject(currentFailure),
+                destroy: vi.fn(async () => undefined),
+            }));
+        const source = computed(() => new Blob(['pdf'], {type: 'application/pdf'}) as never);
+        const emitLoadError = vi.fn();
+        const session = createPdfDocumentSession({
+            src: source,
+            emitLoadError,
+        });
+
+        const superseded = session.load();
+        await vi.waitFor(() => {
+            expect(pdfjsState.getDocument).toHaveBeenCalledTimes(1);
+        });
+        await session.load();
+        staleLoad.reject(new Error('superseded PDF parse failed'));
+        await superseded;
+
+        expect(session.document.value).toMatchObject({id: 'replacement'});
+        expect(emitLoadError).not.toHaveBeenCalled();
+
+        await session.load();
+
+        expect(emitLoadError).toHaveBeenCalledExactlyOnceWith(currentFailure);
+        expect(session.loadError.value).toBe(currentFailure);
+    });
 });
