@@ -10,9 +10,9 @@ import type {
 } from '@app/types/annotations';
 import {
     buildNativeFreeTextNotesForSave,
-    isReplayableEditorOnlyFreeTextNote,
     toNativeFreeTextNote,
 } from '@app/modules/pdf-viewer/runtime/save/nativeFreeTextNotes';
+import { isReplayableEditorOnlyFreeTextNote } from '@app/modules/pdf-viewer/runtime/save/classifyPdfSaveRoute';
 import { buildNativeNoteTextUpdatesForSave } from '@app/modules/pdf-viewer/runtime/save/nativeNoteTextUpdates';
 import { buildNativeAnnotationDeletesForSave } from '@app/modules/pdf-viewer/runtime/save/buildNativeAnnotationDeletesForSave';
 import {
@@ -25,7 +25,10 @@ import {
     toNativeMarkupHint,
 } from '@app/modules/pdf-viewer/runtime/save/nativeMarkupMutations';
 import { projectNativePdfMutationsForSave } from '@app/modules/pdf-viewer/runtime/save/projectNativePdfMutationsForSave';
-import type { INativePdfMutationProjectionInput } from '@app/modules/pdf-viewer/runtime/save/nativePdfMutationProjectionTypes';
+import type {
+    INativeAppendSaveRoute,
+    INativePdfMutationProjectionInput,
+} from '@app/modules/pdf-viewer/runtime/save/nativePdfMutationProjectionTypes';
 
 function createComment(overrides: Partial<IAnnotationCommentSummary> = {}): IAnnotationCommentSummary {
     return {
@@ -95,29 +98,33 @@ function createShape(overrides: Partial<IShapeAnnotation> = {}): IShapeAnnotatio
     };
 }
 
-function createMutationProjectionInput(overrides: Partial<INativePdfMutationProjectionInput> = {}): INativePdfMutationProjectionInput {
+function createNativeAppendRoute(overrides: Partial<INativeAppendSaveRoute> = {}): INativeAppendSaveRoute {
     return {
-        mode: 'save',
-        canonicalAnnotationProgram: [],
-        pendingTexts: null,
-        pendingDeletes: null,
-        canonicalComments: [],
-        shapeStateDirty: false,
-        forcePdfjsMaterialize: false,
-        savedPdfjsAnnotationBaselineDirty: false,
-        includeManagedShapesForLiveSource: false,
-        forceRewrite: false,
-        pageLabelsDirty: false,
-        bookmarksDirty: false,
-        hasNativePdfMutationCapability: true,
-        annotationSavePlan: {
+        route: 'native-append',
+        annotationRoute: {
             route: 'source-replay',
             reason: 'test-source-replay',
         },
-        annotationDirty: false,
-        hasAnnotationChanges: false,
+        replayableAnnotationMutationsAllowed: true,
+        metadataMutationsAllowed: true,
+        annotationWorkDirty: false,
+        pdfjsMaterializeForced: false,
+        ...overrides,
+    };
+}
+
+function createMutationProjectionInput(overrides: Partial<INativePdfMutationProjectionInput> = {}): INativePdfMutationProjectionInput {
+    return {
+        route: createNativeAppendRoute(),
+        canonicalAnnotationProgram: [],
+        pendingTexts: new Map(),
+        pendingDeletes: [],
+        canonicalComments: [],
+        shapeStateDirty: false,
+        savedPdfjsAnnotationBaselineDirty: false,
+        pageLabelsDirty: false,
+        bookmarksDirty: false,
         hasLivePdfJsAnnotationChanges: false,
-        canPersistNativeMetadataMutations: true,
         totalPageCount: 2,
         pageLabelRanges: null,
         bookmarkItems: null,
@@ -407,8 +414,7 @@ describe('native PDF mutation projection', () => {
         };
 
         const result = projectNativePdfMutationsForSave(createMutationProjectionInput({
-            annotationDirty: true,
-            hasAnnotationChanges: true,
+            route: createNativeAppendRoute({annotationWorkDirty: true}),
             canonicalComments: [
                 editorNote,
                 createComment({
@@ -475,8 +481,7 @@ describe('native PDF mutation projection', () => {
                 'Updated note',
             ]]),
             canonicalComments: [createComment()],
-            annotationDirty: true,
-            hasAnnotationChanges: true,
+            route: createNativeAppendRoute({annotationWorkDirty: true}),
         }));
 
         expect(result.projection).toBeNull();
@@ -494,8 +499,7 @@ describe('native PDF mutation projection', () => {
                 'Updated note',
             ]]),
             canonicalComments: [createComment({subtype: 'FreeText'})],
-            annotationDirty: true,
-            hasAnnotationChanges: true,
+            route: createNativeAppendRoute({annotationWorkDirty: true}),
         }));
 
         expect(result.projection).toBeNull();
@@ -514,8 +518,7 @@ describe('native PDF mutation projection', () => {
                 'Updated note',
             ]]),
             canonicalComments: [createComment()],
-            annotationDirty: true,
-            hasAnnotationChanges: true,
+            route: createNativeAppendRoute({annotationWorkDirty: true}),
         }));
 
         expect(result.projection).toBeNull();
@@ -532,8 +535,7 @@ describe('native PDF mutation projection', () => {
             savedPdfjsAnnotationBaselineDirty: true,
             pendingDeletes: [deletedComment],
             canonicalComments: [],
-            annotationDirty: true,
-            hasAnnotationChanges: true,
+            route: createNativeAppendRoute({annotationWorkDirty: true}),
             hasLivePdfJsAnnotationChanges: true,
         }));
 
@@ -546,14 +548,15 @@ describe('native PDF mutation projection', () => {
 
     it('uses native note updates when PDF.js materialization is requested but source replay covers the work', () => {
         const result = projectNativePdfMutationsForSave(createMutationProjectionInput({
-            forcePdfjsMaterialize: true,
+            route: createNativeAppendRoute({
+                pdfjsMaterializeForced: true,
+                annotationWorkDirty: true,
+            }),
             pendingTexts: new Map([[
                 'ann:0:12R0',
                 'Updated note',
             ]]),
             canonicalComments: [createComment()],
-            annotationDirty: true,
-            hasAnnotationChanges: true,
         }));
 
         expect(result.projection?.mutations.updates).toEqual([{
@@ -567,11 +570,12 @@ describe('native PDF mutation projection', () => {
     it('uses native FreeText note upserts and deletes when source replay covers materialized work', () => {
         const editorNote = createEditorFreeTextComment();
         const result = projectNativePdfMutationsForSave(createMutationProjectionInput({
-            forcePdfjsMaterialize: true,
+            route: createNativeAppendRoute({
+                pdfjsMaterializeForced: true,
+                annotationWorkDirty: true,
+            }),
             pendingDeletes: [createComment()],
             canonicalComments: [editorNote],
-            annotationDirty: true,
-            hasAnnotationChanges: true,
         }));
 
         expect(result.projection?.mutations.freeTextNotes).toEqual([expect.objectContaining({stableKey: editorNote.stableKey})]);
@@ -584,11 +588,10 @@ describe('native PDF mutation projection', () => {
     });
 
     it('keeps PDF.js materialization required when the flag is set without native-covered work', () => {
-        const result = projectNativePdfMutationsForSave(createMutationProjectionInput({
-            forcePdfjsMaterialize: true,
-            annotationDirty: true,
-            hasAnnotationChanges: true,
-        }));
+        const result = projectNativePdfMutationsForSave(createMutationProjectionInput({route: createNativeAppendRoute({
+            pdfjsMaterializeForced: true,
+            annotationWorkDirty: true,
+        })}));
 
         expect(result.projection).toBeNull();
         expect(result.skipEvents).toContainEqual({

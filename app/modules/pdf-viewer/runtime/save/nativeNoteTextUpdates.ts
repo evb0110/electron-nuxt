@@ -9,10 +9,7 @@ import type {
     IPdfNativeFreeTextNote,
     IPdfNoteTextUpdate,
 } from '@contracts/electronApiDocuments';
-import type {
-    INativePdfMutationBuildResult,
-    INativePdfMutationProjectionCommonInput,
-} from '@app/modules/pdf-viewer/runtime/save/nativePdfMutationProjectionTypes';
+import type { INativePdfMutationBuildResult } from '@app/modules/pdf-viewer/runtime/save/nativePdfMutationProjectionTypes';
 
 const NATIVE_NOTE_TEXT_UPDATE_SUBTYPES = new Set([
     'text',
@@ -60,10 +57,16 @@ function isNativeNoteTextUpdateSubtype(comment: IAnnotationCommentSummary) {
     return NATIVE_NOTE_TEXT_UPDATE_SUBTYPES.has(normalizedSubtype);
 }
 
-export interface IBuildNativeNoteTextUpdatesForSaveInput extends INativePdfMutationProjectionCommonInput {canonicalComments: IAnnotationCommentSummary[];}
-
+/**
+ * Reachable only through a native-append grant whose annotation route is source-replay,
+ * and all-or-nothing: updates are produced only when every pending text resolves to a
+ * native-eligible ref, which is what makes coverage a set membership test downstream.
+ */
 export function buildNativeNoteTextUpdatesForSave(
-    opts: IBuildNativeNoteTextUpdatesForSaveInput,
+    opts: {
+        pendingTexts: ReadonlyMap<string, string>;
+        canonicalComments: IAnnotationCommentSummary[];
+    },
 ): INativePdfMutationBuildResult<IPdfNoteTextUpdate[]> {
     const skip = (reason: string, details: Record<string, unknown> = {}) => {
         return {
@@ -75,29 +78,6 @@ export function buildNativeNoteTextUpdatesForSave(
             }],
         };
     };
-
-    if (opts.mode !== 'save') {
-        return skip('not-save-mode', {mode: opts.mode});
-    }
-    if (!opts.hasNativePdfMutationCapability) {
-        return skip('native-save-capability-unavailable');
-    }
-    if (!opts.pendingTexts?.size) {
-        return skip('no-pending-text-updates');
-    }
-    if (opts.includeManagedShapesForLiveSource) {
-        return skip('managed-shapes-require-materialization');
-    }
-    if (opts.forceRewrite) {
-        return skip('rewrite-forced');
-    }
-    const plan = opts.annotationSavePlan;
-    if (plan.route !== 'source-replay') {
-        return skip('annotation-save-route-not-source-replay', {
-            route: plan.route,
-            reason: plan.reason,
-        });
-    }
 
     const commentsByStableKey = buildNativeNoteTextCommentLookup(opts.canonicalComments);
     const updatesByRef = new Map<string, IPdfNoteTextUpdate>();
@@ -150,49 +130,25 @@ export function buildNativeNoteTextUpdatesForSave(
     };
 }
 
+/**
+ * Note-text updates are all-or-nothing, so anything they did not carry must be
+ * carried verbatim by a native FreeText note upsert.
+ */
 export function arePendingTextsCoveredByNativeChanges(opts: {
-    pendingTexts: Map<string, string> | null;
-    canonicalComments: IAnnotationCommentSummary[];
+    pendingTexts: ReadonlyMap<string, string>;
     nativeNoteTextUpdates: IPdfNoteTextUpdate[] | null;
     nativeFreeTextNotes: IPdfNativeFreeTextNote[] | null;
 }) {
-    if (!opts.pendingTexts?.size) {
+    if (!opts.pendingTexts.size || opts.nativeNoteTextUpdates) {
         return true;
     }
 
-    const freeTextNotesByStableKey = new Map(
-        (opts.nativeFreeTextNotes ?? []).map(note => [
-            note.stableKey,
-            note,
-        ]),
-    );
-    const updateRefs = new Set(
-        (opts.nativeNoteTextUpdates ?? []).map(update =>
-            `${update.objectNumber}R${update.generationNumber}`,
-        ),
-    );
-    const commentsByStableKey = buildNativeNoteTextCommentLookup(opts.canonicalComments);
-
-    for (const [
+    const freeTextByStableKey = new Map((opts.nativeFreeTextNotes ?? []).map(note => [
+        note.stableKey,
+        note.text,
+    ]));
+    return [...opts.pendingTexts].every(([
         stableKey,
         text,
-    ] of opts.pendingTexts.entries()) {
-        const freeTextNote = freeTextNotesByStableKey.get(stableKey.trim());
-        if (freeTextNote?.text === text) {
-            continue;
-        }
-
-        const comment = commentsByStableKey.get(stableKey);
-        const targetRef = comment ? resolveNativeNoteTextUpdateRef(stableKey, comment) : null;
-        if (
-            targetRef
-            && updateRefs.has(`${targetRef.objectNumber}R${targetRef.generationNumber}`)
-        ) {
-            continue;
-        }
-
-        return false;
-    }
-
-    return true;
+    ]) => freeTextByStableKey.get(stableKey.trim()) === text);
 }

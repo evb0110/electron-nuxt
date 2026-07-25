@@ -868,13 +868,13 @@ describe('dependency graph', () => {
 
         expect(checkAnnotationDependencyEdge({
             source: 'app/modules/workspace-shell/composables/file-operations/useWorkspaceSaveService.ts',
-            target: 'app/modules/pdf-viewer/runtime/save/buildPdfAnnotationSavePlan.ts',
-            specifier: '@app/modules/pdf-viewer/runtime/save/buildPdfAnnotationSavePlan',
+            target: 'app/modules/pdf-viewer/runtime/save/classifyPdfSaveRoute.ts',
+            specifier: '@app/modules/pdf-viewer/runtime/save/classifyPdfSaveRoute',
         })).toEqual([{
             rule: 'annotation-save-public-entrypoint',
             source: 'app/modules/workspace-shell/composables/file-operations/useWorkspaceSaveService.ts',
-            target: 'app/modules/pdf-viewer/runtime/save/buildPdfAnnotationSavePlan.ts',
-            specifier: '@app/modules/pdf-viewer/runtime/save/buildPdfAnnotationSavePlan',
+            target: 'app/modules/pdf-viewer/runtime/save/classifyPdfSaveRoute.ts',
+            specifier: '@app/modules/pdf-viewer/runtime/save/classifyPdfSaveRoute',
             message: 'Annotation save internals must be consumed through app/modules/pdf-viewer/public.',
         }]);
     });

@@ -3,59 +3,51 @@ import { delay } from 'es-toolkit/promise';
 import { isTimeoutError } from '@contracts/isTimeoutError';
 import { PDF_SAVE_TIMEOUT_MS } from '@app/constants/timeouts';
 import type {
-    IAnnotationCommentSummary,
     IShapeAnnotation,
     TMarkupSubtype,
 } from '@app/types/annotations';
 import { BrowserLogger } from '@app/utils/browserLogger';
-import {
-    normalizePdfJsAnnotationId,
-    parsePdfJsAnnotationRef,
-} from '@app/utils/pdfAnnotationRefs';
-import { getPdfAnnotationIdFromStableKey } from '@app/modules/pdf-viewer/engine/pdf-serialization-refs/parsePdfAnnotationStableKey';
-import {
-    buildPdfAnnotationSavePlan,
-    type IPdfAnnotationSavePlanInput,
-} from '@app/modules/pdf-viewer/runtime/save/buildPdfAnnotationSavePlan';
+import { normalizePdfJsAnnotationId } from '@app/utils/pdfAnnotationRefs';
 import { projectNativePdfMutationsForSave } from '@app/modules/pdf-viewer/runtime/save/projectNativePdfMutationsForSave';
 import type { IMarkupSubtypeHint } from '@app/modules/pdf-viewer/engine/pdf-serialization-subtype-hints/pdfSerializationSubtypeHintsTypes';
-import { isReplayableEditorOnlyFreeTextNote } from '@app/modules/pdf-viewer/runtime/save/nativeFreeTextNotes';
 import {
     collectNewPdfJsAnnotationStorageEditorOrder,
     collectLivePdfJsAnnotationChangeIds,
-    type IPdfLiveAnnotationChangeSummary,
+    mergeLivePdfJsAnnotationChanges,
 } from '@app/modules/pdf-viewer/runtime/save/pdfAnnotationStorageChanges';
 import type {
-    IPdfViewerAnnotationSavePlan,
+    IPdfSaveByteRouteDecision,
+    IPdfSaveNativeRouteDecision,
+    TPdfSaveRouteDecision,
+} from '@app/modules/pdf-viewer/runtime/save/classifyPdfSaveRoute';
+import { classifyPdfSaveRoute } from '@app/modules/pdf-viewer/runtime/save/classifyPdfSaveRoute';
+import type {
     IPdfViewerSaveTransactionRequest,
     IPdfViewerSaveTransactionResult,
     IPdfViewerSaveTransactionSerializedResult,
     TPdfViewerSaveTransactionSource,
 } from '@app/modules/pdf-viewer/runtime/save/pdfViewerSaveTransaction.types';
+import type { INativePdfMutationProjectionInput } from '@app/modules/pdf-viewer/runtime/save/nativePdfMutationProjectionTypes';
 import type {
-    INativePdfMutationProjection,
-    INativePdfMutationProjectionInput,
-} from '@app/modules/pdf-viewer/runtime/save/nativePdfMutationProjectionTypes';
-import type { AnnotationEntity } from '@app/modules/pdf-viewer/annotations/domain/annotationEntity';
-import type { ISerializationPlan } from '@app/modules/pdf-viewer/serialization/serializationPlan';
-import {
-    buildSerializationPlan,
-    selectSerializationBackend,
-    withSerializationBackendProjection,
+    ISerializationPlan,
+    ISerializationPlanInputs,
 } from '@app/modules/pdf-viewer/serialization/serializationPlan';
 import {
-    assertAnnotationBackendSemanticConformance,
-    projectAnnotationBackendMutations,
-} from '@app/modules/pdf-viewer/annotations/persistence/annotationBackendConformance';
-import {computeSummaryStableKey} from '@app/modules/pdf-viewer/annotations/domain/annotationSummaryIdentity';
+    buildSerializationPlan,
+    withSerializationBackendProjection,
+} from '@app/modules/pdf-viewer/serialization/serializationPlan';
+import { projectAnnotationBackendMutations } from '@app/modules/pdf-viewer/annotations/persistence/annotationBackendConformance';
 import type {ICanonicalAnnotationIdentityBinding} from '@app/modules/pdf-viewer/engine/serialization/pdf-serialization-annotations/applyCanonicalAnnotationIdentityBindings';
 import {bindCanonicalAnnotationIdentitiesOffThread} from '@app/modules/pdf-viewer/engine/pdf-serialization-worker-client/bindCanonicalAnnotationIdentitiesOffThread';
 import type {IAnnotationSaveVerificationOptions} from '@app/modules/pdf-viewer/annotations/annotationApplication';
 
 const PDF_SAVE_TIMEOUT_QUIESCE_MS = 2_000;
 const DEFAULT_TRANSACTION_SAVE_MODE = 'rewrite';
-
-type TPdfAnnotationSavePlan = IPdfViewerAnnotationSavePlan;
+const AVAILABLE_SERIALIZATION_BACKENDS = [
+    'native-append',
+    'pdfjs-save-document',
+    'pdf-lib-rewrite',
+] as const;
 
 interface IUsePdfViewerSaveTransactionOptions {
     materializePdfJsDocumentForInternalUse: () => Promise<Uint8Array | null>;
@@ -107,170 +99,6 @@ async function collectPreexistingPdfAnnotationRefs(
     return Array.from(refs);
 }
 
-function entitySummary(entity: AnnotationEntity): IAnnotationCommentSummary {
-    const source = entity.identity.pdfRef || entity.identity.pdfName ? 'pdf' : 'editor';
-    const id = entity.identity.elementId ?? entity.identity.pdfjsUid ?? entity.identity.pdfRef ?? entity.identity.id;
-    const annotationId = entity.identity.pdfRef ?? null;
-    const uid = entity.identity.pdfjsUid ?? null;
-    const common = {
-        appAnnotationId: entity.identity.id,
-        id,
-        stableKey: computeSummaryStableKey({
-            id,
-            pageIndex: entity.pageIndex,
-            source,
-            uid,
-            annotationId,
-            ...(entity.identity.pdfName ? {annotationName: entity.identity.pdfName} : {}),
-        }),
-        pageIndex: entity.pageIndex,
-        pageNumber: entity.pageIndex + 1,
-        author: entity.author,
-        createdAt: entity.createdAt,
-        modifiedAt: entity.modifiedAt,
-        uid,
-        annotationId,
-        ...(entity.identity.pdfName ? {annotationName: entity.identity.pdfName} : {}),
-        source,
-    } as const;
-    if (entity.kind === 'sticky-note') {
-        return {
-            ...common,
-            text: entity.text,
-            subtype: 'FreeText',
-            color: entity.color,
-            hasNote: true,
-            markerRect: structuredClone(entity.anchor),
-        };
-    }
-    if (entity.kind === 'text-markup') {
-        return {
-            ...common,
-            text: entity.text,
-            subtype: entity.subtype,
-            color: entity.color,
-            opacity: entity.opacity,
-            hasNote: Boolean(entity.text),
-            markerRect: structuredClone(entity.geometry[0] ?? null),
-        };
-    }
-    return {
-        ...common,
-        source: 'shape',
-        id: entity.geometry.id,
-        stableKey: computeSummaryStableKey({
-            id: entity.geometry.id,
-            pageIndex: entity.pageIndex,
-            source: 'shape',
-        }),
-        text: '',
-        color: entity.geometry.color,
-        hasNote: false,
-        markerRect: null,
-    };
-}
-
-function projectCanonicalSaveInputs(plan: ISerializationPlan | undefined) {
-    if (!plan) {
-        return {
-            plan,
-            comments: [],
-            pendingTexts: new Map<string, string>(),
-            pendingDeletes: [],
-        };
-    }
-    assertAnnotationBackendSemanticConformance(plan);
-    // Once a frontier has been captured, every downstream backend is projected
-    // solely from that immutable plan. Reading/merging a second live-state route
-    // here made save selection depend on mutations that happened after capture.
-    const comments = plan.entities
-        .filter(entity => !entity.deleted)
-        .map(entitySummary);
-    const pendingTexts = new Map<string, string>();
-    const pendingDeletes: IAnnotationCommentSummary[] = [];
-    plan.expected.forEach((entity) => {
-        const summary = entitySummary(entity);
-        if (entity.deleted) {
-            pendingDeletes.push(summary);
-            return;
-        }
-        if (entity.kind === 'sticky-note' && (entity.identity.pdfRef || entity.identity.pdfName)) {
-            pendingTexts.set(summary.stableKey, entity.text);
-        }
-    });
-    return {
-        plan,
-        comments,
-        pendingTexts,
-        pendingDeletes,
-    };
-}
-
-function summarizeCanonicalLiveChanges(plan: ISerializationPlan): IPdfLiveAnnotationChangeSummary {
-    const ids = new Set<string>();
-    const replayableEditorNoteIds = new Set<string>();
-    plan.expected.forEach((entity) => {
-        const candidates = [
-            entity.identity.id,
-            entity.identity.elementId,
-            entity.identity.pdfjsUid,
-            entity.identity.pdfRef,
-        ];
-        candidates.forEach((candidate) => {
-            const normalized = normalizePdfJsAnnotationId(candidate);
-            if (!normalized) {
-                return;
-            }
-            ids.add(normalized);
-            if (entity.kind === 'sticky-note') replayableEditorNoteIds.add(normalized);
-        });
-    });
-    return {
-        ids,
-        replayableEditorNoteIds,
-        hasChanges: plan.steps.length > 0,
-        hasUnknownChanges: false,
-        fingerprint: `frontier:${plan.frontier.epoch}:${plan.frontier.entityBaselineHash}:${Array.from(ids).sort().join(',')}`,
-    };
-}
-
-function mergeLiveAnnotationChanges(
-    canonical: IPdfLiveAnnotationChangeSummary,
-    pdfjs: IPdfLiveAnnotationChangeSummary,
-): IPdfLiveAnnotationChangeSummary {
-    const ids = new Set([
-        ...canonical.ids,
-        ...pdfjs.ids,
-    ]);
-    const replayableEditorNoteIds = new Set([
-        ...canonical.replayableEditorNoteIds,
-        ...pdfjs.replayableEditorNoteIds,
-    ]);
-    return {
-        ids,
-        replayableEditorNoteIds,
-        hasChanges: canonical.hasChanges || pdfjs.hasChanges,
-        hasUnknownChanges: canonical.hasUnknownChanges || pdfjs.hasUnknownChanges,
-        fingerprint: `${canonical.fingerprint}|pdfjs:${pdfjs.fingerprint}`,
-    };
-}
-
-function preserveDeclaredLiveAnnotationChanges(
-    liveChanges: IPdfLiveAnnotationChangeSummary,
-    declaredLiveChanges: boolean,
-): IPdfLiveAnnotationChangeSummary {
-    if (!declaredLiveChanges || liveChanges.hasChanges) {
-        return liveChanges;
-    }
-
-    return {
-        ...liveChanges,
-        hasChanges: true,
-        hasUnknownChanges: true,
-        fingerprint: `${liveChanges.fingerprint}|declared-live-pdfjs-changes`,
-    };
-}
-
 class PdfViewerSaveDocumentTimeoutError extends Error {
     constructor(public readonly settlePromise: Promise<void>) {
         super('PDF.js saveDocument timed out');
@@ -278,163 +106,28 @@ class PdfViewerSaveDocumentTimeoutError extends Error {
     }
 }
 
-function hasUnreplayableEditorOnlyAnnotationsPendingMaterialization(
-    comments: IAnnotationCommentSummary[],
+function logSaveRouteDecision(
+    request: IPdfViewerSaveTransactionRequest,
+    decision: TPdfSaveRouteDecision,
 ) {
-    return comments.some(comment =>
-        comment.source === 'editor'
-        && !parsePdfJsAnnotationRef(comment.annotationId)
-        && !isReplayableEditorOnlyFreeTextNote(comment),
-    );
-}
-
-function addExistingPdfAnnotationIdFromStableKey(ids: Set<string>, stableKey: string) {
-    const normalized = normalizePdfJsAnnotationId(getPdfAnnotationIdFromStableKey(stableKey));
-    if (normalized) {
-        ids.add(normalized);
-    }
-}
-
-function addReplayableAnnotationId(ids: Set<string>, id: string | null | undefined) {
-    const normalized = normalizePdfJsAnnotationId(id);
-    if (!normalized) {
-        return;
-    }
-
-    ids.add(normalized);
-
-    const nestedEditorId = normalized.match(/^editor:\d+:(.+)$/u)?.[1];
-    if (nestedEditorId && nestedEditorId !== normalized) {
-        addReplayableAnnotationId(ids, nestedEditorId);
-    }
-}
-
-function addEditorRuntimeAnnotationIdFromStableKey(ids: Set<string>, stableKey: string) {
-    const trimmed = stableKey.trim();
-    const match = trimmed.match(/^(?:uid|editor):\d+:(.+)$/u)
-        ?? trimmed.match(/^src:editor:\d+:(.+)$/u);
-    addReplayableAnnotationId(ids, match?.[1]);
-}
-
-function collectReplayableEmbeddedAnnotationIds(input: {
-    pendingTexts: Map<string, string>;
-    pendingDeletes: IAnnotationCommentSummary[];
-    canonicalComments: IAnnotationCommentSummary[];
-    liveChanges: IPdfLiveAnnotationChangeSummary;
-}) {
-    const ids = new Set<string>();
-    input.pendingTexts.forEach((_text, stableKey) => {
-        addExistingPdfAnnotationIdFromStableKey(ids, stableKey);
-        addEditorRuntimeAnnotationIdFromStableKey(ids, stableKey);
-    });
-    input.pendingDeletes.forEach((comment) => {
-        [
-            comment.appAnnotationId,
-            comment.annotationId,
-            comment.uid,
-            comment.id,
-        ].forEach(id => addReplayableAnnotationId(ids, id));
-        addExistingPdfAnnotationIdFromStableKey(ids, comment.stableKey);
-        addEditorRuntimeAnnotationIdFromStableKey(ids, comment.stableKey);
-    });
-    input.canonicalComments
-        .filter(isReplayableEditorOnlyFreeTextNote)
-        .forEach((comment) => {
-            [
-                comment.annotationId,
-                comment.uid,
-                comment.id,
-            ].forEach((id) => {
-                addReplayableAnnotationId(ids, id);
-            });
-            addEditorRuntimeAnnotationIdFromStableKey(ids, comment.stableKey);
-        });
-    if (ids.size > 0) {
-        input.liveChanges.replayableEditorNoteIds.forEach((id) => {
-            addReplayableAnnotationId(ids, id);
-        });
-    }
-    return ids;
-}
-
-function buildAnnotationSavePlan(input: {
-    request: IPdfViewerSaveTransactionRequest;
-    canonicalComments: IAnnotationCommentSummary[];
-    liveChanges: IPdfLiveAnnotationChangeSummary;
-    pendingTexts: Map<string, string>;
-    pendingDeletes: IAnnotationCommentSummary[];
-}): IPdfViewerAnnotationSavePlan {
-    const replayableIds = collectReplayableEmbeddedAnnotationIds(input);
-    if (input.request.forcePdfjsMaterialize) {
-        return {
-            route: 'pdfjs-materialize',
-            expectedCost: 'full-document',
-            reason: input.liveChanges.hasChanges
-                ? 'live-pdfjs-annotation-baseline-diverged'
-                : 'saved-pdfjs-annotation-baseline-diverged',
-            unreplayableLiveAnnotationIds: Array.from(input.liveChanges.ids),
-        };
-    }
-
-    return buildPdfAnnotationSavePlan({
-        hasPendingReplayableEmbeddedChanges: input.pendingTexts.size > 0
-            || input.pendingDeletes.length > 0
-            || replayableIds.size > 0,
-        hasEditorOnlyAnnotationsPendingMaterialization: hasUnreplayableEditorOnlyAnnotationsPendingMaterialization(
-            input.canonicalComments,
-        ),
-        liveAnnotationChanges: input.liveChanges,
-        replayableEmbeddedAnnotationIds: replayableIds,
-    } satisfies IPdfAnnotationSavePlanInput);
-}
-
-function logAnnotationSavePlan(input: {
-    request: IPdfViewerSaveTransactionRequest;
-    annotationSavePlan: TPdfAnnotationSavePlan;
-    liveChanges: IPdfLiveAnnotationChangeSummary;
-    replayableIds: Set<string>;
-    pendingTexts: Map<string, string>;
-    pendingDeletes: IAnnotationCommentSummary[];
-}) {
+    const {
+        canonical,
+        annotationPlan,
+    } = decision;
     BrowserLogger.debug('workspace', 'Planned PDF annotation save route', {
-        route: input.annotationSavePlan.route,
-        expectedCost: input.annotationSavePlan.expectedCost,
-        reason: input.annotationSavePlan.reason,
-        liveAnnotationIds: Array.from(input.liveChanges.ids),
-        replayableLiveEditorNoteIds: Array.from(input.liveChanges.replayableEditorNoteIds),
-        replayableAnnotationIds: Array.from(input.replayableIds),
-        unreplayableLiveAnnotationIds: input.annotationSavePlan.unreplayableLiveAnnotationIds,
-        pendingTexts: input.pendingTexts.size,
-        pendingDeletes: input.pendingDeletes.length,
-        forcePdfjsMaterialize: input.request.forcePdfjsMaterialize === true,
+        route: decision.route,
+        annotationRoute: annotationPlan.route,
+        expectedCost: annotationPlan.expectedCost,
+        reason: annotationPlan.reason,
+        nativeRejection: decision.route === 'native-append' ? null : decision.nativeRejection,
+        liveAnnotationIds: Array.from(canonical.liveAnnotationChanges.ids),
+        replayableLiveEditorNoteIds: Array.from(canonical.liveAnnotationChanges.replayableEditorNoteIds),
+        replayableAnnotationIds: Array.from(canonical.replayableEmbeddedAnnotationIds),
+        unreplayableLiveAnnotationIds: annotationPlan.unreplayableLiveAnnotationIds,
+        pendingTexts: canonical.pendingTexts.size,
+        pendingDeletes: canonical.pendingDeletes.length,
+        forcePdfjsMaterialize: request.forcePdfjsMaterialize === true,
     });
-}
-
-function resolveResultSource(
-    annotationSavePlan: TPdfAnnotationSavePlan,
-    serializedBytes: Uint8Array | null,
-    nativeMutationProjection: INativePdfMutationProjection | null,
-): TPdfViewerSaveTransactionSource {
-    if (nativeMutationProjection) {
-        return 'native-mutation-projection';
-    }
-    if (serializedBytes) {
-        return 'serialized-rewrite';
-    }
-    return resolveAnnotationPlanSource(annotationSavePlan);
-}
-
-function resolveAnnotationPlanSource(
-    annotationSavePlan: TPdfAnnotationSavePlan,
-): TPdfViewerSaveTransactionSource {
-    if (
-        annotationSavePlan.route === 'source-clean'
-        || annotationSavePlan.route === 'source-replay'
-        || annotationSavePlan.route === 'pdfjs-materialize'
-    ) {
-        return annotationSavePlan.route;
-    }
-    return 'pdfjs-materialize';
 }
 
 function createSerializedResult(input: {
@@ -539,53 +232,28 @@ export const usePdfViewerSaveTransaction = (
         throw new Error('saveDocument failed');
     }
 
-    function completeNativeProjectionPlan(input: {
-        plan: ISerializationPlan;
-        request: IPdfViewerSaveTransactionRequest;
-        annotationSavePlan: TPdfAnnotationSavePlan;
-        canonicalComments: IAnnotationCommentSummary[];
-        pendingTexts: Map<string, string>;
-        pendingDeletes: IAnnotationCommentSummary[];
-    }): ISerializationPlan<INativePdfMutationProjectionInput> | null {
-        if (selectSerializationBackend(input.plan, [
-            'native-append',
-            'pdfjs-save-document',
-            'pdf-lib-rewrite',
-        ]) !== 'native-append') {
-            return null;
-        }
+    /** Consumes the granted native route; it never re-derives eligibility. */
+    function projectNativeMutations(
+        plan: ISerializationPlan,
+        request: IPdfViewerSaveTransactionRequest,
+        route: IPdfSaveNativeRouteDecision,
+    ) {
         const {
             dirtyState,
             documentStructure,
-            nativeCapabilities,
-        } = input.request;
-        if (!dirtyState || !documentStructure || !nativeCapabilities) {
-            return null;
-        }
-
-        const annotationWorkDirty = dirtyState.annotationDirty
-            || (dirtyState.hasAnnotationChanges && !dirtyState.shapeStateDirty);
-        return withSerializationBackendProjection(input.plan, {
-            canonicalAnnotationProgram: input.request.annotationSerializationPlan
-                ? projectAnnotationBackendMutations(input.request.annotationSerializationPlan, 'native-append')
-                : [],
-            mode: input.request.saveFlowMode ?? 'save',
-            pendingTexts: input.pendingTexts,
-            pendingDeletes: input.pendingDeletes,
+            canonical,
+        } = route;
+        const opts: INativePdfMutationProjectionInput = {
+            route,
+            canonicalAnnotationProgram: projectAnnotationBackendMutations(plan, 'native-append'),
+            canonicalComments: canonical.comments,
+            pendingTexts: canonical.pendingTexts,
+            pendingDeletes: canonical.pendingDeletes,
             shapeStateDirty: dirtyState.shapeStateDirty,
-            forcePdfjsMaterialize: input.request.forcePdfjsMaterialize === true,
-            includeManagedShapesForLiveSource: input.request.includeManagedShapes === true,
-            forceRewrite: input.request.forceRewrite === true,
             pageLabelsDirty: documentStructure.pageLabelsDirty,
             bookmarksDirty: documentStructure.bookmarksDirty,
-            canonicalComments: input.canonicalComments,
             savedPdfjsAnnotationBaselineDirty: dirtyState.savedPdfjsAnnotationBaselineDirty,
-            annotationDirty: dirtyState.annotationDirty,
-            hasAnnotationChanges: dirtyState.hasAnnotationChanges,
             hasLivePdfJsAnnotationChanges: dirtyState.hasLivePdfJsAnnotationChanges,
-            hasNativePdfMutationCapability: nativeCapabilities.hasNativePdfMutationCapability,
-            canPersistNativeMetadataMutations: nativeCapabilities.canPersistNativeMetadataMutations,
-            annotationSavePlan: input.annotationSavePlan,
             totalPageCount: Math.max(documentStructure.totalPages, options.getPdfDocument?.()?.numPages ?? 0),
             pageLabelRanges: documentStructure.pageLabelRanges,
             bookmarkItems: documentStructure.bookmarkItems,
@@ -597,21 +265,16 @@ export const usePdfViewerSaveTransaction = (
             deletedEmbeddedShapeStableKeys: dirtyState.shapeStateDirty
                 ? options.getDeletedEmbeddedShapeStableKeys?.() ?? []
                 : [],
-            markupSubtypeOverrides: annotationWorkDirty
-                ? input.request.markupSubtypeOverrides ?? options.getMarkupSubtypeOverrides?.()
+            markupSubtypeOverrides: route.annotationWorkDirty
+                ? request.markupSubtypeOverrides ?? options.getMarkupSubtypeOverrides?.()
                 : undefined,
-            markupSubtypeHints: annotationWorkDirty
-                ? input.request.markupSubtypeHints ?? options.getMarkupSubtypeHints?.() ?? []
+            markupSubtypeHints: route.annotationWorkDirty
+                ? request.markupSubtypeHints ?? options.getMarkupSubtypeHints?.() ?? []
                 : [],
-        });
-    }
-
-    function projectNativeMutations(plan: ISerializationPlan<INativePdfMutationProjectionInput>) {
-        const opts = plan.backendProjection;
-        if (!opts) {
-            return null;
-        }
-        const nativeMutationProjectionResult = projectNativePdfMutationsForSave(opts);
+        };
+        const nativeMutationProjectionResult = projectNativePdfMutationsForSave(
+            withSerializationBackendProjection(plan, opts).backendProjection,
+        );
         nativeMutationProjectionResult.skipEvents.forEach(({
             event,
             reason,
@@ -619,13 +282,10 @@ export const usePdfViewerSaveTransaction = (
         }) => {
             BrowserLogger.diagnostic('workspace', event, () => ({
                 reason,
-                pendingTexts: opts.pendingTexts?.size ?? 0,
-                pendingDeletes: opts.pendingDeletes?.length ?? 0,
+                pendingTexts: opts.pendingTexts.size,
+                pendingDeletes: opts.pendingDeletes.length,
                 shapeStateDirty: opts.shapeStateDirty,
-                forcePdfjsMaterialize: opts.forcePdfjsMaterialize,
                 savedPdfjsAnnotationBaselineDirty: opts.savedPdfjsAnnotationBaselineDirty,
-                includeManagedShapesForLiveSource: opts.includeManagedShapesForLiveSource,
-                forceRewrite: opts.forceRewrite,
                 pageLabelsDirty: opts.pageLabelsDirty,
                 bookmarksDirty: opts.bookmarksDirty,
                 ...details,
@@ -692,24 +352,17 @@ export const usePdfViewerSaveTransaction = (
 
     async function selectBaseBytes(input: {
         request: IPdfViewerSaveTransactionRequest;
-        annotationSavePlan: TPdfAnnotationSavePlan;
-        sourceFallbackAllowed: boolean;
+        byteRoute: IPdfSaveByteRouteDecision;
         onIdentityBound?: ((binding: ICanonicalAnnotationIdentityBinding) => void) | undefined;
     }) {
-        if (
-            input.request.source
-            && (
-                input.annotationSavePlan.route === 'source-replay'
-                || input.annotationSavePlan.route === 'source-clean'
-            )
-        ) {
+        if (input.byteRoute.baseBytes === 'loaded-source') {
             return readSourcePdfBytes(input.request);
         }
 
         return materializePdfJsBytesWithFallback({
             request: input.request,
             onIdentityBound: input.onIdentityBound,
-            sourceFallbackAllowed: input.sourceFallbackAllowed,
+            sourceFallbackAllowed: input.byteRoute.sourceFallbackAllowed,
         });
     }
 
@@ -755,41 +408,7 @@ export const usePdfViewerSaveTransaction = (
         // Complete the annotation frontier into the global immutable save plan
         // before route selection. From this point onward no backend is allowed to
         // sample metadata or route constraints from mutable UI state.
-        const serializationPlan = canonicalSave?.plan
-            ? buildSerializationPlan(
-                canonicalSave.plan.frontier,
-                canonicalSave.plan.expected,
-                canonicalSave.plan.entities,
-                {
-                    metadata: {
-                        pageLabels: request.documentStructure?.pageLabelsDirty
-                            ? request.documentStructure.pageLabelRanges
-                            : null,
-                        bookmarks: request.documentStructure?.bookmarksDirty
-                            ? request.documentStructure.bookmarkItems
-                            : null,
-                    },
-                    routeConstraints: {
-                        forceRewrite: request.forceRewrite === true,
-                        preserveLoadedSource: request.mode !== 'persist',
-                        allowedBackends: request.forceRewrite
-                            ? ['pdf-lib-rewrite']
-                            : [
-                                'native-append',
-                                'pdfjs-save-document',
-                                'pdf-lib-rewrite',
-                            ],
-                    },
-                    postconditions: {expectedPageCount: request.documentStructure?.totalPages ?? null},
-                },
-            )
-            : undefined;
-        const globalSerializationPlan = serializationPlan ?? buildSerializationPlan({
-            documentRevisionToken: null,
-            epoch: 0,
-            entityBaselineHash: 'no-canonical-annotation-frontier',
-            revisions: new Map(),
-        }, [], [], {
+        const planInputs: ISerializationPlanInputs = {
             metadata: {
                 pageLabels: request.documentStructure?.pageLabelsDirty
                     ? request.documentStructure.pageLabelRanges
@@ -803,14 +422,23 @@ export const usePdfViewerSaveTransaction = (
                 preserveLoadedSource: request.mode !== 'persist',
                 allowedBackends: request.forceRewrite
                     ? ['pdf-lib-rewrite']
-                    : [
-                        'native-append',
-                        'pdfjs-save-document',
-                        'pdf-lib-rewrite',
-                    ],
+                    : AVAILABLE_SERIALIZATION_BACKENDS,
             },
             postconditions: {expectedPageCount: request.documentStructure?.totalPages ?? null},
-        });
+        };
+        const frontierPlan = canonicalSave?.plan;
+        const globalSerializationPlan = frontierPlan
+            ? buildSerializationPlan(frontierPlan.frontier, frontierPlan.expected, frontierPlan.entities, planInputs)
+            : buildSerializationPlan({
+                documentRevisionToken: null,
+                epoch: 0,
+                entityBaselineHash: 'no-canonical-annotation-frontier',
+                revisions: new Map(),
+            }, [], [], planInputs);
+        request = {
+            ...request,
+            annotationSerializationPlan: globalSerializationPlan,
+        };
         let nativeVerificationOptions: IAnnotationSaveVerificationOptions | undefined;
         const canonicalSaveCallbacks = {
             verifyAnnotationSave: (bytes: Uint8Array) => canonicalSave?.verify(bytes) ?? Promise.resolve(),
@@ -829,82 +457,32 @@ export const usePdfViewerSaveTransaction = (
                 }
             },
         };
-        const capturedPdfjsSaveWork = mergeLiveAnnotationChanges(
-            pdfjsLiveChangesBeforeCommit,
-            capturedPdfjsLiveChanges,
-        );
-        const liveChangesFromFrontier = serializationPlan
-            ? mergeLiveAnnotationChanges(
-                summarizeCanonicalLiveChanges(serializationPlan),
-                capturedPdfjsSaveWork,
-            )
-            : capturedPdfjsSaveWork;
-        const liveChanges = preserveDeclaredLiveAnnotationChanges(
-            liveChangesFromFrontier,
-            request.dirtyState?.hasLivePdfJsAnnotationChanges === true,
-        );
-        const canonicalInputs = projectCanonicalSaveInputs(globalSerializationPlan);
-        const canonicalComments = canonicalInputs.comments;
-        request = {
-            ...request,
-            ...(canonicalInputs.plan ? {annotationSerializationPlan: canonicalInputs.plan} : {}),
-        };
-        const {
-            pendingTexts,
-            pendingDeletes,
-        } = canonicalInputs;
-        const replayableIds = collectReplayableEmbeddedAnnotationIds({
-            pendingTexts,
-            pendingDeletes,
-            canonicalComments,
-            liveChanges,
+        // Routing is decided exactly once, here; every projector below consumes the result.
+        const decision = classifyPdfSaveRoute(globalSerializationPlan, {
+            saveFlowMode: request.saveFlowMode ?? 'save',
+            availableBackends: AVAILABLE_SERIALIZATION_BACKENDS,
+            nativeCapabilities: request.nativeCapabilities,
+            dirtyState: request.dirtyState,
+            documentStructure: request.documentStructure,
+            liveAnnotationChanges: mergeLivePdfJsAnnotationChanges(
+                pdfjsLiveChangesBeforeCommit,
+                capturedPdfjsLiveChanges,
+            ),
+            hasLoadedSource: Boolean(request.source),
+            forcePdfjsMaterialize: request.forcePdfjsMaterialize === true,
+            includeManagedShapesForLiveSource: request.includeManagedShapes === true,
         });
-        const annotationSavePlan = buildAnnotationSavePlan({
-            request,
-            canonicalComments,
-            liveChanges,
-            pendingTexts,
-            pendingDeletes,
-        });
-        logAnnotationSavePlan({
-            request,
-            annotationSavePlan,
-            liveChanges,
-            replayableIds,
-            pendingTexts,
-            pendingDeletes,
-        });
-
-        const nativeAnnotationSavePlan = buildAnnotationSavePlan({
-            request: {
-                ...request,
-                forcePdfjsMaterialize: false,
-            },
-            canonicalComments,
-            liveChanges,
-            pendingTexts,
-            pendingDeletes,
-        });
-        const nativeProjectionPlan = canonicalInputs.plan
-            ? completeNativeProjectionPlan({
-                plan: canonicalInputs.plan,
-                request,
-                annotationSavePlan: nativeAnnotationSavePlan,
-                canonicalComments,
-                pendingTexts,
-                pendingDeletes,
-            })
-            : null;
-        const nativeMutationProjection = nativeProjectionPlan
-            ? projectNativeMutations(nativeProjectionPlan)
+        const annotationSavePlan = decision.annotationPlan;
+        logSaveRouteDecision(request, decision);
+        const nativeMutationProjection = decision.route === 'native-append'
+            ? projectNativeMutations(globalSerializationPlan, request, decision)
             : null;
         if (!nativeMutationProjection && request.planOnly && request.dirtyState?.annotationDirty) {
             BrowserLogger.diagnostic('workspace', 'Native PDF mutation projection unavailable for dirty annotation save', () => ({
-                canonicalPlanPresent: canonicalInputs.plan !== undefined,
-                expectedEntityCount: canonicalInputs.plan?.expected.length ?? 0,
-                canonicalEntityCount: canonicalInputs.plan?.entities.length ?? 0,
-                canonicalCommentCount: canonicalComments.length,
-                canonicalComments: canonicalComments.map(comment => ({
+                expectedEntityCount: globalSerializationPlan.expected.length,
+                canonicalEntityCount: globalSerializationPlan.entities.length,
+                canonicalCommentCount: decision.canonical.comments.length,
+                canonicalComments: decision.canonical.comments.map(comment => ({
                     appAnnotationId: comment.appAnnotationId ?? null,
                     annotationId: comment.annotationId ?? null,
                     hasMarkerRect: Boolean(comment.markerRect),
@@ -913,7 +491,9 @@ export const usePdfViewerSaveTransaction = (
                     stableKey: comment.stableKey,
                     subtype: comment.subtype ?? null,
                 })),
-                annotationSavePlan: nativeAnnotationSavePlan,
+                saveRoute: decision.route,
+                nativeRejection: decision.route === 'native-append' ? null : decision.nativeRejection,
+                annotationSavePlan,
                 dirtyState: request.dirtyState,
                 nativeCapabilities: request.nativeCapabilities ?? null,
                 includeManagedShapes: request.includeManagedShapes === true,
@@ -921,12 +501,10 @@ export const usePdfViewerSaveTransaction = (
             }));
         }
         if (nativeMutationProjection) {
-            nativeVerificationOptions = {preexistingPdfAnnotationRefs: canonicalInputs.plan
-                ? await collectPreexistingPdfAnnotationRefs(
-                    options.getPdfDocument?.(),
-                    canonicalInputs.plan,
-                )
-                : []};
+            nativeVerificationOptions = {preexistingPdfAnnotationRefs: await collectPreexistingPdfAnnotationRefs(
+                options.getPdfDocument?.(),
+                globalSerializationPlan,
+            )};
             return {
                 source: 'native-mutation-projection',
                 baseBytes: null,
@@ -938,9 +516,10 @@ export const usePdfViewerSaveTransaction = (
             };
         }
 
+        const byteRoute = decision.route === 'native-append' ? decision.fallback : decision;
         if (request.planOnly) {
             return {
-                source: resolveAnnotationPlanSource(annotationSavePlan),
+                source: byteRoute.route,
                 baseBytes: null,
                 serializedBytes: null,
                 serializedResult: null,
@@ -950,29 +529,17 @@ export const usePdfViewerSaveTransaction = (
             };
         }
 
-        const sourceFallbackPlan = buildAnnotationSavePlan({
-            request: {
-                ...request,
-                forcePdfjsMaterialize: false,
-            },
-            canonicalComments,
-            liveChanges,
-            pendingTexts,
-            pendingDeletes,
-        });
         const baseBytes = await selectBaseBytes({
             request,
-            annotationSavePlan,
+            byteRoute,
             onIdentityBound: canonicalSave?.recordMaterializedIdentityBinding,
-            sourceFallbackAllowed: request.forcePdfjsMaterialize !== true
-                && sourceFallbackPlan.route === 'source-replay',
         });
         const serializedBytes = await serializeResultBytes({
             request,
             baseBytes,
         });
-        const resultSource = request.source
-            ? resolveResultSource(annotationSavePlan, serializedBytes, null)
+        const resultSource: TPdfViewerSaveTransactionSource = request.source
+            ? serializedBytes ? 'serialized-rewrite' : byteRoute.route
             : 'pdfjs-materialize';
         const serializedResult = createSerializedResult({
             request,

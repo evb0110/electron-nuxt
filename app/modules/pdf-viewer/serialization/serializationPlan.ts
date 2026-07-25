@@ -302,7 +302,7 @@ export function buildSerializationPlan(
 export function withSerializationBackendProjection<TBackendProjection>(
     plan: ISerializationPlan,
     projection: TBackendProjection,
-): ISerializationPlan<TBackendProjection> {
+): ISerializationPlan<TBackendProjection> & {readonly backendProjection: TBackendProjection} {
     return Object.freeze({
         ...plan,
         // Callers construct a detached DTO while completing the plan. Avoid

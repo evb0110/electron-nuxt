@@ -24,18 +24,18 @@ export interface INativePdfMutationAnnotationSavePlan {
     reason: string;
 }
 
-export interface INativePdfMutationProjectionCommonInput {
-    mode: TNativePdfMutationSaveMode;
-    pendingTexts: Map<string, string> | null;
-    pendingDeletes: IAnnotationCommentSummary[] | null;
-    shapeStateDirty: boolean;
-    forcePdfjsMaterialize: boolean;
-    includeManagedShapesForLiveSource: boolean;
-    forceRewrite: boolean;
-    pageLabelsDirty: boolean;
-    bookmarksDirty: boolean;
-    hasNativePdfMutationCapability: boolean;
-    annotationSavePlan: INativePdfMutationAnnotationSavePlan;
+/**
+ * The native-append grant emitted once by `classifyPdfSaveRoute`. Native projectors
+ * assert it and read its flags; they never re-derive a mode, capability, or route.
+ */
+export interface INativeAppendSaveRoute {
+    readonly route: 'native-append';
+    /** Only `source-replay` admits replayable annotation mutations onto this route. */
+    readonly annotationRoute: INativePdfMutationAnnotationSavePlan;
+    readonly replayableAnnotationMutationsAllowed: boolean;
+    readonly metadataMutationsAllowed: boolean;
+    readonly annotationWorkDirty: boolean;
+    readonly pdfjsMaterializeForced: boolean;
 }
 
 export interface INativePdfMutationSkipEvent {
@@ -66,14 +66,17 @@ export interface INativePdfMutationProjectionResult {
     skipEvents: INativePdfMutationSkipEvent[];
 }
 
-export interface INativePdfMutationProjectionInput extends INativePdfMutationProjectionCommonInput {
+export interface INativePdfMutationProjectionInput {
+    route: INativeAppendSaveRoute;
     canonicalAnnotationProgram: readonly IBackendAnnotationMutation[];
     canonicalComments: IAnnotationCommentSummary[];
+    pendingTexts: Map<string, string>;
+    pendingDeletes: IAnnotationCommentSummary[];
+    shapeStateDirty: boolean;
+    pageLabelsDirty: boolean;
+    bookmarksDirty: boolean;
     savedPdfjsAnnotationBaselineDirty: boolean;
-    annotationDirty: boolean;
-    hasAnnotationChanges: boolean;
     hasLivePdfJsAnnotationChanges: boolean;
-    canPersistNativeMetadataMutations: boolean;
     totalPageCount: number;
     pageLabelRanges: IPdfPageLabelRange[] | null;
     bookmarkItems: IPdfBookmarkEntry[] | null;
