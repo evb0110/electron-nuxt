@@ -33,6 +33,7 @@ import {
 } from '@scripts/electron-run/electronRunE2ESharedRenderer';
 import {
     checkNuxtHttpReadiness,
+    resolveNuxtForceCleanCachePaths,
     resolveNuxtPortStrategy,
     shouldCleanupOrphanedProjectNuxtRoots,
     warmupElectronAppDependencies,
@@ -145,6 +146,21 @@ describe('sessionManager automation launch args', () => {
             buildDir: '/tmp/custom-nuxt',
             viteCacheDir: '/tmp/custom-vite',
         });
+    });
+
+    it('force-cleans only the active isolated Nuxt artifacts', () => {
+        expect(resolveNuxtForceCleanCachePaths('/repo', {
+            buildDir: '/repo/.devkit/sessions/e2e-clean/nuxt-build',
+            viteCacheDir: '/repo/.devkit/sessions/e2e-clean/vite-cache',
+        })).toEqual([
+            '/repo/.devkit/sessions/e2e-clean/nuxt-build',
+            '/repo/.devkit/sessions/e2e-clean/vite-cache',
+        ]);
+        expect(resolveNuxtForceCleanCachePaths('/repo', null)).toEqual([
+            '/repo/node_modules/.vite',
+            '/repo/node_modules/.cache/vite',
+            '/repo/.nuxt',
+        ]);
     });
 
     it('wires isolated artifact directories into Nuxt and Vite configuration', async () => {

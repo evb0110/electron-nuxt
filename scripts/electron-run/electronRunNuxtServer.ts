@@ -7,7 +7,10 @@ import { rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { uniq } from 'es-toolkit/array';
 import { delay } from 'es-toolkit/promise';
-import { buildNuxtDevServerEnv } from '@scripts/electron-run/electronRunLaunchConfig';
+import {
+    buildNuxtDevServerEnv,
+    resolveNuxtDevServerArtifactDirs,
+} from '@scripts/electron-run/electronRunLaunchConfig';
 import { getActiveDevServerOutputTee } from '@scripts/electron-run/devServerOutputTee';
 import { isReusableNuxtResponse } from '@scripts/electron-run/isReusableNuxtResponse';
 import {
@@ -137,14 +140,24 @@ export async function killExistingNuxt() {
     } catch {}
 }
 
-function clearViteCache() {
-    const cachePaths = [
-        join(projectRoot, 'node_modules', '.vite'),
-        join(projectRoot, 'node_modules', '.cache', 'vite'),
-        join(projectRoot, '.nuxt'),
-    ];
+export function resolveNuxtForceCleanCachePaths(
+    rootDir = projectRoot,
+    artifactDirs = resolveNuxtDevServerArtifactDirs(),
+) {
+    return artifactDirs
+        ? [
+            artifactDirs.buildDir,
+            artifactDirs.viteCacheDir,
+        ]
+        : [
+            join(rootDir, 'node_modules', '.vite'),
+            join(rootDir, 'node_modules', '.cache', 'vite'),
+            join(rootDir, '.nuxt'),
+        ];
+}
 
-    for (const cachePath of cachePaths) {
+function clearViteCache() {
+    for (const cachePath of resolveNuxtForceCleanCachePaths()) {
         try {
             rmSync(cachePath, {
                 recursive: true,
