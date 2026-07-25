@@ -7,6 +7,8 @@ import type {PDFDocumentProxy} from '@app/types/pdfContracts';
 import type {TDocumentRevisionToken} from '@contracts/documentRevision';
 import type {IPageIdentityDelta} from '@contracts/electronApiPageOps';
 import type {
+    ITextMarkupOverlapCandidate,
+    ITextMarkupSelectionProjection,
     AnnotationEntity,
     AnnotationId,
     IShapeEntity,
@@ -66,6 +68,7 @@ export interface IAnnotationSaveVerificationOptions {readonly preexistingPdfAnno
 
 type TCreateStickyNote = Omit<IStickyNoteEntity, 'identity' | 'revision' | 'persistedRevision' | 'deleted'>;
 type TCreateTextMarkup = Omit<ITextMarkupEntity, 'identity' | 'revision' | 'persistedRevision' | 'deleted'>;
+export interface ITextMarkupSelectionInput extends TCreateTextMarkup {readonly overlapCandidates: readonly ITextMarkupOverlapCandidate[];}
 
 interface IPdfjsReopenedAnnotation {
     readonly id?: string;
@@ -430,6 +433,38 @@ export class AnnotationApplication {
         });
     }
 
+    applyTextMarkupSelection(input: ITextMarkupSelectionInput): ITextMarkupSelectionProjection {
+        const {
+            overlapCandidates,
+            ...created
+        } = input;
+        return this.store.applyTextMarkupSelection({
+            ...created,
+            identity: {id: mintAnnotationId()},
+            revision: 0,
+            persistedRevision: -1,
+            deleted: false,
+        }, overlapCandidates);
+    }
+
+    bindEditorSummaryIdentity(annotationId: AnnotationId, summary: IAnnotationCommentSummary) {
+        const entity = this.store.get(annotationId);
+        if (!entity) {
+            return false;
+        }
+        this.store.bindIdentity({
+            annotationId,
+            expectedRevision: entity.revision,
+            bindings: {
+                ...(summary.annotationId ? {pdfRef: summary.annotationId} : {}),
+                ...(summary.annotationName ? {pdfName: summary.annotationName} : {}),
+                ...(summary.uid ? {pdfjsUid: summary.uid} : {}),
+                ...(summary.id ? {elementId: summary.id} : {}),
+            },
+        });
+        return true;
+    }
+
     annotationIdForShape(shape: Pick<IShapeAnnotation, 'id' | 'annotationId'>) {
         return this.store.resolveExternal({
             ...(shape.annotationId ? {pdfRef: shape.annotationId} : {}),
@@ -518,9 +553,14 @@ export class AnnotationApplication {
         session: IAnnotationSaveSession,
         bytes: Uint8Array,
         reader: IAnnotationReopenReader,
+        currentDocumentRevisionToken: TDocumentRevisionToken | null = session.frontier.documentRevisionToken,
     ) {
         await verifyAnnotationSave(bytes, session.plan, reader);
-        this.store.acknowledgeSave(session.frontier, session.materializedPdfRefs);
+        this.store.acknowledgeSave(
+            session.frontier,
+            session.materializedPdfRefs,
+            currentDocumentRevisionToken,
+        );
     }
 
     async verifySaveBytes(
@@ -757,8 +797,15 @@ export class AnnotationApplication {
         await verifyAnnotationSave(verificationToken, session.plan, {reopen: () => Promise.resolve(reopened)});
     }
 
-    acknowledgeSave(session: IAnnotationSaveSession) {
-        this.store.acknowledgeSave(session.frontier, session.materializedPdfRefs);
+    acknowledgeSave(
+        session: IAnnotationSaveSession,
+        currentDocumentRevisionToken: TDocumentRevisionToken | null = session.frontier.documentRevisionToken,
+    ) {
+        this.store.acknowledgeSave(
+            session.frontier,
+            session.materializedPdfRefs,
+            currentDocumentRevisionToken,
+        );
     }
 
     /** Reports whether this authority still owned the failed save's frontier. */
@@ -766,8 +813,11 @@ export class AnnotationApplication {
         return this.store.rollbackToSaveFrontier(session.frontier);
     }
 
-    assertSaveCurrent(session: IAnnotationSaveSession) {
-        this.store.assertSaveFrontierCurrent(session.frontier);
+    assertSaveCurrent(
+        session: IAnnotationSaveSession,
+        currentDocumentRevisionToken: TDocumentRevisionToken | null = session.frontier.documentRevisionToken,
+    ) {
+        this.store.assertSaveFrontierCurrent(session.frontier, currentDocumentRevisionToken);
     }
 
     #normalizePdfRect(rect: readonly number[] | undefined, view: readonly number[]) {

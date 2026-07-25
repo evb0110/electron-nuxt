@@ -28,7 +28,10 @@ import { toCssColor } from '@app/modules/pdf-viewer/engine/annotation-css-utils/
 import { getOptionalFunction } from '@app/services/pdfjs/runtime';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { runGuardedTask } from '@app/utils/asyncGuard';
-import { getEditorsOnPage } from '@app/modules/pdf-viewer/annotations/bridge/pdfjsAnnotationFacade';
+import {
+    getEditorsOnPage,
+    getPdfjsEditorFacadeState,
+} from '@app/modules/pdf-viewer/annotations/bridge/pdfjsAnnotationFacade';
 import { collectPagePdfSnapshotEntries } from '@app/modules/pdf-viewer/engine/annotations/annotation-sync-helpers/collectPagePdfSnapshotEntries';
 import { loadPdfPageAnnotations } from '@app/modules/pdf-viewer/engine/annotations/annotation-sync-helpers/loadPdfPageAnnotations';
 import { leasePdfDocumentPage } from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
@@ -447,7 +450,9 @@ export const useAnnotationSync = (options: IUseAnnotationSyncOptions) => {
         const rectResult = resolveEditorMarkerRect(editor);
         logPendingAnchorSummary(pageIndex, id, uid, annotationId, resolvedSubtype, hasNote, text, rectResult);
 
+        const canonicalAnnotationId = getPdfjsEditorFacadeState(editor).canonicalAnnotationId;
         return {
+            ...(canonicalAnnotationId ? {appAnnotationId: canonicalAnnotationId} : {}),
             id,
             stableKey: identity.computeSummaryStableKey({
                 id,

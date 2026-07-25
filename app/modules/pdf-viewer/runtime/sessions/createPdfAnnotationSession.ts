@@ -28,6 +28,7 @@ import type {
     IAnnotationSettings,
     IShapeAnnotation,
     TAnnotationTool,
+    TMarkupSubtype,
     ILinkAnnotation,
     TAnnotationSettingChange,
 } from '@app/types/annotations';
@@ -45,13 +46,17 @@ import type { TPdfViewportSession } from '@app/modules/pdf-viewer/runtime/sessio
 import type { TPdfRenderingSession } from '@app/modules/pdf-viewer/runtime/sessions/createPdfRenderingSession';
 import type { IAnnotationContextMenuPayload } from '@app/modules/pdf-viewer/engine/annotationContextMenuPayload';
 import { annotationIdForSummary } from '@app/modules/pdf-viewer/annotations/domain/annotationSummaryIdentity';
-import { normalizeAnnotationText } from '@app/modules/pdf-viewer/annotations/domain/annotationEntity';
+import {
+    asAnnotationId,
+    normalizeAnnotationText,
+} from '@app/modules/pdf-viewer/annotations/domain/annotationEntity';
 import { groupBy } from 'es-toolkit/array';
 import { useAnnotationIdentity } from '@app/modules/pdf-viewer/annotations/bridge/pdfjs-runtime/useAnnotationIdentity';
 import { useAnnotationSync } from '@app/modules/pdf-viewer/annotations/bridge/pdfjs-runtime/useAnnotationSync';
 import { useAnnotationEditorBridge } from '@app/modules/pdf-viewer/annotations/bridge/pdfjs-runtime/useAnnotationEditorBridge';
 import { useAnnotationToolState } from '@app/modules/pdf-viewer/annotations/bridge/pdfjs-runtime/useAnnotationToolState';
 import { useAnnotationHighlight } from '@app/modules/pdf-viewer/annotations/bridge/pdfjs-runtime/useAnnotationHighlight';
+import type { IHighlightAnnotationCommands } from '@app/modules/pdf-viewer/annotations/bridge/pdfjs-runtime/annotationHighlightBridge.types';
 import { useAnnotationCrud } from '@app/modules/pdf-viewer/annotations/bridge/pdfjs-runtime/useAnnotationCrud';
 import { useFreeTextResize } from '@app/modules/pdf-viewer/annotations/bridge/pdfjs-runtime/useFreeTextResize';
 import { useAnnotationMarkerViewModel } from '@app/modules/pdf-viewer/runtime/annotations/useAnnotationMarkerViewModel';
@@ -401,6 +406,119 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
         getMarkupSubtypeHints: toolState.getMarkupSubtypeHints,
         ensureFreeTextEditorCanResize: freeTextResize.ensureFreeTextEditorCanResize,
     };
+    function selectionMarkupStyle(subtype: TMarkupSubtype) {
+        const settings = options.annotationSettings.value;
+        if (!settings) {
+            return {
+                color: null,
+                opacity: null,
+            };
+        }
+        switch (subtype) {
+            case 'Underline':
+                return {
+                    color: settings.underlineColor,
+                    opacity: settings.underlineOpacity,
+                };
+            case 'StrikeOut':
+                return {
+                    color: settings.strikethroughColor,
+                    opacity: settings.strikethroughOpacity,
+                };
+            case 'Squiggly':
+                return {
+                    color: settings.squigglyColor,
+                    opacity: settings.squigglyOpacity,
+                };
+            case 'Highlight':
+                return {
+                    color: settings.highlightColor,
+                    opacity: settings.highlightOpacity,
+                };
+        }
+    }
+    function getHighlightAnnotationCommands(): IHighlightAnnotationCommands {
+        const application = annotationApplication.value;
+        const normalizedAuthor = options.authorName.value?.trim();
+        const author = normalizedAuthor?.length ? normalizedAuthor : null;
+        function canonicalComment(annotationId: string) {
+            const comment = application.listCommentSummaries().find(candidate => (
+                candidate.appAnnotationId === annotationId
+            ));
+            if (!comment) {
+                throw new Error(`Canonical annotation ${annotationId} has no comment projection`);
+            }
+            return comment;
+        }
+        return {
+            applySelectionMarkup: (input) => {
+                const resolvedCandidates = input.overlapCandidates.flatMap((candidate) => {
+                    let annotationId = application.annotationIdForSummary(candidate.summary);
+                    if (!annotationId) {
+                        application.ingestLegacySummaries([candidate.summary]);
+                        annotationId = application.annotationIdForSummary(candidate.summary);
+                    }
+                    return annotationId
+                        ? [{
+                            annotationId,
+                            sourceStableKey: candidate.summary.stableKey,
+                            observedGeometry: candidate.observedGeometry,
+                        }]
+                        : [];
+                });
+                const now = Date.now();
+                const style = selectionMarkupStyle(input.subtype);
+                const projection = application.applyTextMarkupSelection({
+                    kind: 'text-markup',
+                    pageIndex: input.pageIndex,
+                    subtype: input.subtype,
+                    text: '',
+                    geometry: input.geometry,
+                    color: style.color,
+                    opacity: style.opacity,
+                    author,
+                    createdAt: now,
+                    modifiedAt: now,
+                    overlapCandidates: resolvedCandidates,
+                });
+                return {
+                    annotationId: projection.created.identity.id,
+                    comment: canonicalComment(projection.created.identity.id),
+                    replacements: projection.replacements.flatMap((replacement) => {
+                        const source = resolvedCandidates.find(candidate => (
+                            candidate.annotationId === replacement.annotationId
+                        ));
+                        return source
+                            ? [{
+                                ...replacement,
+                                sourceStableKey: source.sourceStableKey,
+                            }]
+                            : [];
+                    }),
+                };
+            },
+            createStickyNote: (input) => {
+                const now = Date.now();
+                const created = application.createStickyNote({
+                    kind: 'sticky-note',
+                    pageIndex: input.pageIndex,
+                    text: '',
+                    anchor: input.anchor,
+                    color: options.annotationSettings.value?.textColor ?? null,
+                    author,
+                    createdAt: now,
+                    modifiedAt: now,
+                });
+                return {
+                    annotationId: created.identity.id,
+                    comment: canonicalComment(created.identity.id),
+                };
+            },
+            bindEditorIdentity: (annotationId: string, summary: IAnnotationCommentSummary) => {
+                application.bindEditorSummaryIdentity(asAnnotationId(annotationId), summary);
+            },
+        };
+    }
     const highlight = useAnnotationHighlight({
         viewerContainer: options.viewerContainer,
         annotationUiManager,
@@ -411,6 +529,7 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
         getMarkupSubtype: () => toolState,
         getSync: () => commentSync,
         getToolManager: () => toolState,
+        getAnnotationCommands: getHighlightAnnotationCommands,
         deferCreatedEditorUndoToStorage: true,
         stopDrag: options.stopDrag,
         emitAnnotationOpenNote: emitAnnotationOpenNoteWithReconciliation,
@@ -537,18 +656,18 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
         setCanonicalNoteText: (id, text) => {
             const entity = annotationApplication.value.store.get(id);
             if (entity && entity.kind !== 'shape' && entity.text !== normalizeAnnotationText(text)) {
-                annotationApplication.value.store.setNoteText(id, text);
+                annotationApplication.value.setNoteText(id, text);
             }
         },
         deleteCanonicalAnnotation: id => {
             if (!annotationApplication.value.store.get(id)?.deleted) {
-                annotationApplication.value.store.delete(id);
+                annotationApplication.value.delete(id);
             }
         },
         setCanonicalColor: (id, color) => {
             const entity = annotationApplication.value.store.get(id);
             if (entity && entity.kind !== 'shape' && entity.color !== color) {
-                annotationApplication.value.store.setStyle(id, {color});
+                annotationApplication.value.setStyle(id, {color});
             }
         },
         moveCanonicalAnchor: (id, rect) => {
@@ -562,7 +681,7 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
                     || entity.anchor.height !== rect.height
                 )
             ) {
-                annotationApplication.value.store.moveAnchor(id, rect);
+                annotationApplication.value.moveAnchor(id, rect);
             }
         },
     });
@@ -718,6 +837,7 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
         annotationUiManager,
         annotationApplication,
         documentRevisionToken: options.documentRevisionToken,
+        documentSession,
         flushAnnotationMutationsForSave: annotationMutationService.flushForSave,
         getMarkupSubtypeOverrides: annotations.editor.getMarkupSubtypeOverrides,
         getMarkupSubtypeHints: annotations.editor.getMarkupSubtypeHints,

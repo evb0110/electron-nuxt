@@ -12,9 +12,21 @@ import type {
     IShapeEntity,
     IStickyNoteEntity,
     ITextMarkupEntity,
+    ISavedSemanticEntry,
+    ITextMarkupOverlapCandidate,
+    ITextMarkupSelectionProjection,
     TAnnotationStyle,
 } from '@app/modules/pdf-viewer/annotations/domain/annotationEntity';
-import { normalizeAnnotationText } from '@app/modules/pdf-viewer/annotations/domain/annotationEntity';
+import {
+    buildTextMarkupSelectionPlan,
+    normalizeAnnotationText,
+    remapSavedSemanticFingerprint,
+    saveFrontierEntityBaseline,
+    semanticEntityFingerprint,
+    semanticSnapshot,
+    semanticSnapshotsEqual,
+    snapshotOfKind,
+} from '@app/modules/pdf-viewer/annotations/domain/annotationEntity';
 import { ExternalIdentityIndex } from '@app/modules/pdf-viewer/annotations/domain/externalIdentityIndex';
 import {
     findImportedShapeMatchIndex,
@@ -22,7 +34,6 @@ import {
     shapeStableRefsMatch,
 } from '@app/modules/pdf-viewer/engine/annotations/shape-annotation-identity/shapeAnnotationIdentity';
 import { normalizePdfJsAnnotationId } from '@app/utils/pdfAnnotationRefs';
-
 interface IHistoryEntry {
     before: AnnotationEntity | null;
     after: AnnotationEntity | null
@@ -73,20 +84,6 @@ function cloneEntity<T extends AnnotationEntity>(entity: T): T {
     return structuredClone(entity);
 }
 
-function semanticEntityFingerprint(entity: AnnotationEntity) {
-    const {
-        revision: _revision,
-        persistedRevision: _persistedRevision,
-        ...semanticEntity
-    } = entity;
-    return JSON.stringify(semanticEntity);
-}
-
-interface ISavedSemanticEntry {
-    readonly kind: AnnotationEntity['kind'];
-    readonly fingerprint: string;
-}
-
 interface ISavePreparationChange {
     readonly beforeIdentity: AnnotationEntity['identity'];
     readonly afterIdentity: AnnotationEntity['identity'];
@@ -99,76 +96,6 @@ interface ISaveFrontierState {readonly preparedChanges: Map<AnnotationId, ISaveP
 interface IPendingMarkupSubtypeIntent {
     readonly aliases: ReadonlySet<string>;
     readonly subtype: TMarkupSubtype;
-}
-
-function semanticSnapshot(entities: Iterable<AnnotationEntity>) {
-    return new Map(Array.from(entities, entity => (
-        [
-            entity.identity.id,
-            {
-                kind: entity.kind,
-                fingerprint: semanticEntityFingerprint(entity),
-            },
-        ] as const
-    )));
-}
-
-function snapshotOfKind(
-    snapshot: ReadonlyMap<AnnotationId, ISavedSemanticEntry>,
-    kind: AnnotationEntity['kind'] | undefined,
-) {
-    if (!kind) {
-        return snapshot;
-    }
-    return new Map(Array.from(snapshot).filter(([
-        , entry,
-    ]) => entry.kind === kind));
-}
-
-function saveFrontierEntityBaseline(entities: readonly AnnotationEntity[]) {
-    return JSON.stringify(entities.map(entity => [
-        entity.identity.id,
-        entity.revision,
-        entity.deleted,
-        entity.pageIndex,
-    ]));
-}
-
-function remapSavedSemanticFingerprint(
-    fingerprint: string,
-    nextPageIndex: number | undefined,
-) {
-    const saved = JSON.parse(fingerprint) as Record<string, unknown>;
-    if (nextPageIndex === undefined) {
-        return JSON.stringify({
-            ...saved,
-            deleted: true,
-        });
-    }
-    return JSON.stringify(saved.kind === 'shape'
-        ? {
-            ...saved,
-            pageIndex: nextPageIndex,
-            geometry: {
-                ...(saved.geometry as Record<string, unknown>),
-                pageIndex: nextPageIndex,
-            },
-        }
-        : {
-            ...saved,
-            pageIndex: nextPageIndex,
-        });
-}
-
-function semanticSnapshotsEqual(
-    left: ReadonlyMap<AnnotationId, ISavedSemanticEntry>,
-    right: ReadonlyMap<AnnotationId, ISavedSemanticEntry>,
-) {
-    return left.size === right.size
-        && Array.from(left).every(([
-            id,
-            entry,
-        ]) => right.get(id)?.fingerprint === entry.fingerprint);
 }
 
 class LocalAnnotationHistoryAuthority implements IAnnotationHistoryAuthority {
@@ -271,6 +198,34 @@ export class AnnotationStore {
     createTextMarkup(entity: ITextMarkupEntity) { return this.#create(entity); }
     createShape(entity: IShapeEntity) { return this.#create(entity); }
 
+    applyTextMarkupSelection(
+        created: ITextMarkupEntity,
+        overlapCandidates: readonly ITextMarkupOverlapCandidate[],
+    ): ITextMarkupSelectionProjection {
+        if (this.#entities.has(created.identity.id)) {
+            throw new Error(`Duplicate AnnotationId ${created.identity.id}`);
+        }
+        if (created.revision !== 0 || created.persistedRevision !== -1) {
+            throw new Error('New annotations must start at revision 0 with persistedRevision -1');
+        }
+        const plan = buildTextMarkupSelectionPlan({
+            created,
+            overlapCandidates,
+            entities: Array.from(this.#entities.values()),
+        });
+        const entries: IHistoryEntry[] = plan.replacements.map(replacement => ({
+            before: cloneEntity(replacement.before),
+            after: cloneEntity(replacement.after),
+        }));
+        entries.push({
+            before: null,
+            after: cloneEntity(created),
+        });
+        this.#identities.bind(created.identity);
+        this.#commitBatch(entries);
+        return plan.projection;
+    }
+
     /**
      * Hard-removes entities this authority no longer recognises: shapes replaced
      * by a new source import, and tombstones whose annotation is gone from the
@@ -298,7 +253,7 @@ export class AnnotationStore {
 
     setNoteText(id: AnnotationId, text: string) {
         return this.#update(id, (entity) => {
-            if (entity.kind !== 'sticky-note') throw new Error('setNoteText requires a sticky note');
+            if (entity.kind === 'shape') throw new Error('setNoteText requires a note-bearing annotation');
             return {
                 ...entity,
                 text: normalizeAnnotationText(text),
@@ -805,8 +760,9 @@ export class AnnotationStore {
     acknowledgeSave(
         frontier: IAnnotationSaveFrontier,
         materializedPdfRefs: ReadonlyMap<AnnotationId, string> = new Map(),
+        currentDocumentRevisionToken: TDocumentRevisionToken | null = frontier.documentRevisionToken,
     ) {
-        this.assertSaveFrontierCurrent(frontier);
+        this.assertSaveFrontierCurrent(frontier, currentDocumentRevisionToken);
         frontier.revisions.forEach((revision, id) => {
             const entity = this.#entities.get(id);
             if (entity?.revision === revision) {
@@ -856,9 +812,15 @@ export class AnnotationStore {
             .length;
     }
 
-    assertSaveFrontierCurrent(frontier: IAnnotationSaveFrontier) {
+    assertSaveFrontierCurrent(
+        frontier: IAnnotationSaveFrontier,
+        currentDocumentRevisionToken: TDocumentRevisionToken | null = frontier.documentRevisionToken,
+    ) {
         if (!this.#saveFrontiers.has(frontier)) {
             throw new Error('staleRevisionError: annotation save frontier belongs to another store');
+        }
+        if (frontier.documentRevisionToken !== currentDocumentRevisionToken) {
+            throw new Error('staleRevisionError: document revision changed after the annotation save frontier was captured');
         }
         // External identity reconciliation can legitimately complete while a
         // path-backed native save is being verified. The initial PDF.js scan
@@ -947,6 +909,28 @@ export class AnnotationStore {
         this.#history.registerCommand({
             cmd: () => apply(entry.after),
             undo: () => apply(entry.before),
+        });
+    }
+
+    #commitBatch(entries: readonly IHistoryEntry[]) {
+        const apply = (side: 'before' | 'after') => {
+            const ordered = side === 'before' ? [...entries].reverse() : entries;
+            ordered.forEach((entry) => {
+                const value = entry[side];
+                const id = (entry.before ?? entry.after)?.identity.id;
+                if (!id) {
+                    throw new Error('History entry has no annotation identity');
+                }
+                if (value) this.#entities.set(id, cloneEntity(value));
+                else this.#entities.delete(id);
+            });
+            this.#mutationEpoch += 1;
+            this.#emit();
+        };
+        apply('after');
+        this.#history.registerCommand({
+            cmd: () => apply('after'),
+            undo: () => apply('before'),
         });
     }
 

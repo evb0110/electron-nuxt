@@ -4,6 +4,7 @@ import type {
     ShallowRef,
 } from 'vue';
 import type {
+    IAnnotationMarkerRect,
     IAnnotationCommentSummary,
     TAnnotationTool,
     TMarkupSubtype,
@@ -40,6 +41,38 @@ export interface IHighlightToolManager {
     maybeAutoResetAnnotationTool: () => void;
 }
 
+export interface IHighlightAnnotationCommands {
+    applySelectionMarkup: (input: {
+        pageIndex: number;
+        subtype: TMarkupSubtype;
+        geometry: readonly IAnnotationMarkerRect[];
+        overlapCandidates: ReadonlyArray<{
+            summary: IAnnotationCommentSummary;
+            observedGeometry: readonly IAnnotationMarkerRect[];
+        }>;
+    }) => {
+        annotationId: string;
+        comment: IAnnotationCommentSummary;
+        replacements: ReadonlyArray<{
+            annotationId: string;
+            sourceStableKey: string;
+            geometry: readonly IAnnotationMarkerRect[];
+            deleted: boolean;
+        }>;
+    };
+    createStickyNote: (input: {
+        pageIndex: number;
+        anchor: IAnnotationMarkerRect;
+    }) => {
+        annotationId: string;
+        comment: IAnnotationCommentSummary;
+    };
+    bindEditorIdentity: (
+        annotationId: string,
+        summary: IAnnotationCommentSummary,
+    ) => void;
+}
+
 export interface IUseAnnotationHighlightOptions {
     viewerContainer: Ref<HTMLElement | null>;
     annotationUiManager: ShallowRef<AnnotationEditorUIManager | null>;
@@ -50,6 +83,7 @@ export interface IUseAnnotationHighlightOptions {
     getMarkupSubtype: () => IHighlightMarkupSubtype;
     getSync: () => IHighlightSync;
     getToolManager: () => IHighlightToolManager;
+    getAnnotationCommands: () => IHighlightAnnotationCommands;
     ensureAnnotationEditorLayerReady?: (pageNumber: number) => Promise<void>;
     deferCreatedEditorUndoToStorage?: boolean;
     stopDrag: () => void;
@@ -58,19 +92,3 @@ export interface IUseAnnotationHighlightOptions {
 }
 
 export interface IEditorSnapshot {editorsBeforeIds: Set<string>;}
-
-export interface IHighlightCommentContext {
-    targetEditor: IPdfjsEditor | null;
-    pageIndex: number;
-    selectionPreviewText: string;
-    editorSnapshot: IEditorSnapshot;
-    getEditorsForPage: (pageIndex: number) => IPdfjsEditor[];
-    identity: IHighlightIdentity;
-    markupSubtypeOverride: TMarkupSubtype | null;
-    markupSubtype: IHighlightMarkupSubtype;
-    commentSync: IHighlightSync;
-    modeRestoredPromise: Promise<void>;
-    registerCreatedEditorUndo: (editor: IPdfjsEditor | null) => boolean;
-    applySubtypeOverrideToEditor: (editor: IPdfjsEditor | null) => boolean;
-    clearEditorSelectionVisuals: (editor: IPdfjsEditor | null) => void;
-}

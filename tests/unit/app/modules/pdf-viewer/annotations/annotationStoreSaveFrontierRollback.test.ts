@@ -6,6 +6,7 @@ import {
 import {asAnnotationId} from '@app/modules/pdf-viewer/annotations/domain/annotationEntity';
 import {AnnotationStore} from '@app/modules/pdf-viewer/annotations/domain/annotationStore';
 import {AnnotationApplication} from '@app/modules/pdf-viewer/annotations/annotationApplication';
+import {requireDocumentRevisionToken} from '@contracts';
 
 function importPersistedHighlight(store: AnnotationStore) {
     const annotationId = asAnnotationId('persisted-highlight');
@@ -37,6 +38,18 @@ function importPersistedHighlight(store: AnnotationStore) {
 }
 
 describe('AnnotationStore save frontier rollback', () => {
+    it('rejects currentness and acknowledgement after the document revision changes', () => {
+        const store = new AnnotationStore();
+        const firstRevision = requireDocumentRevisionToken('revision-1');
+        const replacementRevision = requireDocumentRevisionToken('revision-2');
+        const frontier = store.beginSave(firstRevision);
+
+        expect(() => store.assertSaveFrontierCurrent(frontier, replacementRevision))
+            .toThrow('document revision changed');
+        expect(() => store.acknowledgeSave(frontier, new Map(), replacementRevision))
+            .toThrow('document revision changed');
+    });
+
     it('owns pending markup subtype intent so an immediate save can observe it', () => {
         const store = new AnnotationStore();
         store.setPendingMarkupSubtype([

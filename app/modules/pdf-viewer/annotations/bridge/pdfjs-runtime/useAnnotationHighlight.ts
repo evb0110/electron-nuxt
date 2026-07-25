@@ -20,13 +20,10 @@ import type {
 } from '@app/modules/pdf-viewer/runtime/contracts/pdfViewerExpose.types';
 import type {
     IEditorSnapshot,
-    IHighlightCommentContext,
     IHighlightToolManager,
     IUseAnnotationHighlightOptions,
 } from '@app/modules/pdf-viewer/annotations/bridge/pdfjs-runtime/annotationHighlightBridge.types';
-import { markerRectCenterDistance } from '@app/modules/pdf-viewer/engine/annotations/annotation-rules/markerRectCenterDistance';
 import { getCommentText } from '@app/modules/pdf-viewer/engine/pdf-annotation-editor-utils/getCommentText';
-import { toMarkerRectFromEditor } from '@app/modules/pdf-viewer/engine/pdf-annotation-editor-utils/toMarkerRectFromEditor';
 import type { IAnnotationContextMenuPayload } from '@app/modules/pdf-viewer/engine/annotationContextMenuPayload';
 import { clamp01 } from '@app/modules/pdf-viewer/engine/annotation-geometry/clamp01';
 import { errorToLogText } from '@app/modules/pdf-viewer/engine/annotation-css-utils/errorToLogText';
@@ -46,7 +43,10 @@ import {
     isEditorCommentDeleted,
     isPdfjsEditorWithEditComment,
 } from '@app/modules/pdf-viewer/annotations/bridge/pdfjsAnnotationFacade';
-import { replaceOverlappingSelectionMarkup } from '@app/services/pdfjs/replaceOverlappingSelectionMarkup';
+import {
+    deleteEditor,
+    removeEditor,
+} from '@app/services/pdfjs/annotationEditorAdapter';
 import { createPdfPagePointResolver } from '@app/modules/pdf-viewer/engine/annotations/pdf-page-point-resolver/createPdfPagePointResolver';
 import { markerRectFromPoint } from '@app/modules/pdf-viewer/engine/annotations/pdf-page-point-resolver/markerRectFromPoint';
 import type { INotePlacementDiagnosticsContext } from '@app/modules/pdf-viewer/engine/annotations/pdf-page-point-resolver/notePlacementDiagnosticsContext';
@@ -61,7 +61,6 @@ import { useAnnotationTextSelectionCache } from '@app/modules/pdf-viewer/runtime
 
 const ANNOTATION_EDITOR_RETRY_ATTEMPTS = 12;
 const ANNOTATION_EDITOR_RETRY_DELAY_MS = 80;
-const ANNOTATION_EDITOR_MARKER_RECT_RETRY_DELAY_MS = 16;
 const SELECTION_CLEAR_FALLBACK_DELAY_MS = 80;
 const CREATED_EDITOR_SETTLE_DELAY_MS = 60;
 
@@ -76,6 +75,7 @@ export const useAnnotationHighlight = (options: IUseAnnotationHighlightOptions) 
         getMarkupSubtype,
         getSync,
         getToolManager,
+        getAnnotationCommands,
         ensureAnnotationEditorLayerReady,
         deferCreatedEditorUndoToStorage = false,
         stopDrag,
@@ -130,13 +130,55 @@ export const useAnnotationHighlight = (options: IUseAnnotationHighlightOptions) 
         return boxes.map(box => ({ ...box }));
     }
 
-    function createModeRestoredDeferred() {
-        let resolve: () => void = () => {};
-        const promise = new Promise<void>((promiseResolve) => { resolve = promiseResolve; });
-        return {
-            promise,
-            resolve,
-        };
+    function markerRectsFromBoxes(boxes: readonly IPdfjsHighlightBox[]) {
+        return boxes.map(box => ({
+            left: box.x,
+            top: box.y,
+            width: box.width,
+            height: box.height,
+        }));
+    }
+
+    function boxesFromMarkerRects(rects: readonly IAnnotationMarkerRect[]) {
+        return rects.map(rect => ({
+            x: rect.left,
+            y: rect.top,
+            width: rect.width,
+            height: rect.height,
+        }));
+    }
+
+    function getEditorMarkupBoxes(editor: IPdfjsEditor) {
+        const editorState = getPdfjsEditorFacadeState(editor);
+        if (editorState.markupBoxes?.length) {
+            return editorState.markupBoxes;
+        }
+        if (
+            Number.isFinite(editor.x)
+            && Number.isFinite(editor.y)
+            && Number.isFinite(editor.width)
+            && Number.isFinite(editor.height)
+            && (editor.width ?? 0) > 0
+            && (editor.height ?? 0) > 0
+        ) {
+            return [{
+                x: editor.x!,
+                y: editor.y!,
+                width: editor.width!,
+                height: editor.height!,
+            }];
+        }
+        return null;
+    }
+
+    function removeProjectedEditor(editor: IPdfjsEditor) {
+        try {
+            if (!removeEditor(editor)) {
+                deleteEditor(editor);
+            }
+        } catch (error) {
+            BrowserLogger.debug('annotations', `Failed to remove replaced markup editor: ${errorToLogText(error)}`);
+        }
     }
 
     async function restoreHighlightModeAfterSelection(
@@ -157,49 +199,6 @@ export const useAnnotationHighlight = (options: IUseAnnotationHighlightOptions) 
             return;
         }
         getPdfjsEditorFacadeState(editor).selectionText = previewText;
-    }
-
-    function emitHighlightCommentLater(context: IHighlightCommentContext) {
-        let attempts = 0;
-        const tryEmitLater = () => {
-            const lateEditor = pickCreatedEditorCandidate(
-                context.pageIndex,
-                context.editorSnapshot,
-                context.getEditorsForPage,
-                context.identity.getEditorIdentity,
-            );
-            if (!lateEditor) {
-                attempts += 1;
-                if (attempts < ANNOTATION_EDITOR_RETRY_ATTEMPTS) {
-                    scheduleSubtypeRetry(tryEmitLater, ANNOTATION_EDITOR_RETRY_DELAY_MS);
-                }
-                return;
-            }
-            attachSelectionPreviewText(lateEditor, context.selectionPreviewText);
-            context.registerCreatedEditorUndo(lateEditor);
-            context.applySubtypeOverrideToEditor(lateEditor);
-            const summary = context.commentSync.toEditorSummary(lateEditor, context.pageIndex, getCommentText(lateEditor));
-            context.clearEditorSelectionVisuals(lateEditor);
-            void context.modeRestoredPromise.then(() => {
-                emitAnnotationOpenNote(summary);
-            });
-        };
-        scheduleSubtypeRetry(tryEmitLater, ANNOTATION_EDITOR_RETRY_DELAY_MS);
-    }
-
-    function handleCreatedHighlightComment(context: IHighlightCommentContext) {
-        if (!context.targetEditor) {
-            emitHighlightCommentLater(context);
-            return null;
-        }
-        attachSelectionPreviewText(context.targetEditor, context.selectionPreviewText);
-        const summary = context.commentSync.toEditorSummary(
-            context.targetEditor,
-            context.pageIndex,
-            getCommentText(context.targetEditor),
-        );
-        context.clearEditorSelectionVisuals(context.targetEditor);
-        return summary;
     }
 
     async function highlightSelectionInternal(
@@ -254,10 +253,34 @@ export const useAnnotationHighlight = (options: IUseAnnotationHighlightOptions) 
         const markupSubtypeOverride = selectionOptions.markupSubtype
             ?? markupSubtype.toolToMarkupSubtype[annotationTool.value]
             ?? null;
-        let createdAnnotation = false;
-        let deferredNoteSummary: IAnnotationCommentSummary | null = null;
+        const canonicalSubtype = markupSubtypeOverride ?? 'Highlight';
+        const overlapEditors = canonicalSubtype === 'Highlight'
+            ? []
+            : getEditorsForPage(pageIndex).flatMap((editor) => {
+                const existingSubtype = markupSubtype.resolveEditorMarkupSubtypeOverride(editor, pageIndex)
+                    ?? markupSubtype.resolveEditorSubtypeFromPresentation(editor);
+                const editorBoxes = getEditorMarkupBoxes(editor);
+                if (existingSubtype !== canonicalSubtype || !editorBoxes) {
+                    return [];
+                }
+                return [{
+                    editor,
+                    summary: commentSync.toEditorSummary(editor, pageIndex, getCommentText(editor)),
+                    observedGeometry: markerRectsFromBoxes(editorBoxes),
+                }];
+            });
+        const annotationCommands = getAnnotationCommands();
+        const canonicalPlan = annotationCommands.applySelectionMarkup({
+            pageIndex,
+            subtype: canonicalSubtype,
+            geometry: markerRectsFromBoxes(boxes),
+            overlapCandidates: overlapEditors.map(candidate => ({
+                summary: candidate.summary,
+                observedGeometry: candidate.observedGeometry,
+            })),
+        });
+        const createdAnnotation = true;
         let editorSnapshot = captureEditorSnapshot(pageIndex, getEditorsForPage, identity.getEditorIdentity);
-        const modeRestored = createModeRestoredDeferred();
 
         const resolveCreatedEditor = async (createdEditor: IPdfjsEditor | null) => {
             if (createdEditor) {
@@ -277,6 +300,17 @@ export const useAnnotationHighlight = (options: IUseAnnotationHighlightOptions) 
                 return null;
             }
             return pickCreatedEditorCandidate(pageIndex, editorSnapshot, getEditorsForPage, identity.getEditorIdentity);
+        };
+        const bindCanonicalEditor = (editor: IPdfjsEditor | null, annotationId: string) => {
+            if (!editor || !isAnnotationUiManagerCurrent(uiManager)) {
+                return false;
+            }
+            getPdfjsEditorFacadeState(editor).canonicalAnnotationId = annotationId;
+            annotationCommands.bindEditorIdentity(
+                annotationId,
+                commentSync.toEditorSummary(editor, pageIndex, getCommentText(editor)),
+            );
+            return true;
         };
         const applySubtypeOverrideToEditor = (editor: IPdfjsEditor | null) => {
             if (!editor || !isAnnotationUiManagerCurrent(uiManager)) {
@@ -349,7 +383,7 @@ export const useAnnotationHighlight = (options: IUseAnnotationHighlightOptions) 
             await switchToAnnotationModeOrThrow(toolManager, uiManager, AnnotationEditorType.HIGHLIGHT, pageNumber);
             await uiManager.waitForEditorsRendered(pageNumber);
             if (!isAnnotationUiManagerCurrent(uiManager)) {
-                return false;
+                return createdAnnotation;
             }
 
             const layer = getAnnotationEditorLayer(uiManager, pageNumber - 1);
@@ -379,14 +413,37 @@ export const useAnnotationHighlight = (options: IUseAnnotationHighlightOptions) 
                     return false;
                 }
             };
-            replaceOverlappingSelectionMarkup(
-                pageIndex,
-                boxes,
-                markupSubtypeOverride,
-                getEditorsForPage,
-                layer,
-                markupSubtype,
-            );
+            canonicalPlan.replacements.forEach((replacement) => {
+                const source = overlapEditors.find(candidate => (
+                    candidate.summary.stableKey === replacement.sourceStableKey
+                ))?.editor;
+                if (!source) {
+                    return;
+                }
+                if (!replacement.deleted && replacement.geometry.length > 0) {
+                    const replacementBoxes = boxesFromMarkerRects(replacement.geometry);
+                    const replacementEditor = createAnnotationEditorWithSyntheticPointer(layer, {
+                        methodOfCreation: 'toolbar',
+                        boxes: replacementBoxes,
+                        color: source.color,
+                        opacity: source.opacity,
+                        text: '',
+                    });
+                    if (replacementEditor) {
+                        const replacementState = getPdfjsEditorFacadeState(replacementEditor);
+                        replacementState.markupBoxes = replacementBoxes;
+                        replacementState.markupSubtypeColor
+                            = getPdfjsEditorFacadeState(source).markupSubtypeColor ?? null;
+                        markupSubtype.setEditorMarkupSubtypeOverride(
+                            replacementEditor,
+                            pageIndex,
+                            canonicalSubtype,
+                        );
+                        bindCanonicalEditor(replacementEditor, replacement.annotationId);
+                    }
+                }
+                removeProjectedEditor(source);
+            });
             editorSnapshot = captureEditorSnapshot(pageIndex, getEditorsForPage, identity.getEditorIdentity);
             const createdEditor = createAnnotationEditorWithSyntheticPointer(layer, {
                 methodOfCreation: 'toolbar',
@@ -397,13 +454,13 @@ export const useAnnotationHighlight = (options: IUseAnnotationHighlightOptions) 
                 focusOffset: endOffset,
                 text,
             });
-            createdAnnotation = true;
             const targetEditor = await resolveCreatedEditor(createdEditor);
             registerCreatedEditorUndo(targetEditor);
             attachSelectionPreviewText(targetEditor, selectionPreviewText);
             applySubtypeOverrideToEditor(targetEditor);
+            bindCanonicalEditor(targetEditor, canonicalPlan.annotationId);
 
-            if (!targetEditor && !withComment) {
+            if (!targetEditor) {
                 let attempts = 0;
                 const hydrateEditorLater = () => {
                     if (!isAnnotationUiManagerCurrent(uiManager)) {
@@ -412,10 +469,8 @@ export const useAnnotationHighlight = (options: IUseAnnotationHighlightOptions) 
                     const lateEditor = pickCreatedEditorCandidate(pageIndex, editorSnapshot, getEditorsForPage, identity.getEditorIdentity);
                     registerCreatedEditorUndo(lateEditor);
                     attachSelectionPreviewText(lateEditor, selectionPreviewText);
-                    if (applySubtypeOverrideToEditor(lateEditor)) {
-                        return;
-                    }
-                    if (lateEditor && !markupSubtypeOverride) {
+                    applySubtypeOverrideToEditor(lateEditor);
+                    if (bindCanonicalEditor(lateEditor, canonicalPlan.annotationId)) {
                         return;
                     }
                     attempts += 1;
@@ -426,28 +481,9 @@ export const useAnnotationHighlight = (options: IUseAnnotationHighlightOptions) 
                 scheduleSubtypeRetry(hydrateEditorLater, ANNOTATION_EDITOR_RETRY_DELAY_MS);
             }
 
-            if (withComment) {
-                deferredNoteSummary = handleCreatedHighlightComment({
-                    targetEditor,
-                    pageIndex,
-                    selectionPreviewText,
-                    editorSnapshot,
-                    getEditorsForPage,
-                    identity,
-                    markupSubtypeOverride,
-                    markupSubtype,
-                    commentSync,
-                    modeRestoredPromise: modeRestored.promise,
-                    registerCreatedEditorUndo,
-                    applySubtypeOverrideToEditor,
-                    clearEditorSelectionVisuals,
-                });
-            } else {
-                clearEditorSelectionVisuals(targetEditor);
-            }
+            clearEditorSelectionVisuals(targetEditor);
         } catch (error) {
             BrowserLogger.warn('annotations', `Failed to highlight selection: ${errorToLogText(error)}`);
-            modeRestored.resolve();
         }
 
         if (createdAnnotation) {
@@ -456,10 +492,8 @@ export const useAnnotationHighlight = (options: IUseAnnotationHighlightOptions) 
 
         await restoreHighlightModeAfterSelection(toolManager, uiManager, previousMode, pageNumber);
 
-        modeRestored.resolve();
-
-        if (deferredNoteSummary && isAnnotationUiManagerCurrent(uiManager)) {
-            emitAnnotationOpenNote(deferredNoteSummary);
+        if (withComment && isAnnotationUiManagerCurrent(uiManager)) {
+            emitAnnotationOpenNote(canonicalPlan.comment);
         }
 
         return createdAnnotation;
@@ -517,22 +551,6 @@ export const useAnnotationHighlight = (options: IUseAnnotationHighlightOptions) 
         if ((editor.height ?? 0) < minNoteEditorSize) {
             editor.height = minNoteEditorSize;
         }
-    }
-
-    async function waitForEditorMarkerRect(resolveEditor: () => IPdfjsEditor | null) {
-        for (let attempt = 0; attempt < ANNOTATION_EDITOR_RETRY_ATTEMPTS; attempt += 1) {
-            const editor = resolveEditor();
-            if (!editor) {
-                return null;
-            }
-            const markerRect = toMarkerRectFromEditor(editor);
-            if (markerRect) {
-                return editor;
-            }
-            await delay(ANNOTATION_EDITOR_MARKER_RECT_RETRY_DELAY_MS);
-            await nextTick();
-        }
-        return resolveEditor();
     }
 
     function preparePointNoteEditor(
@@ -745,37 +763,6 @@ export const useAnnotationHighlight = (options: IUseAnnotationHighlightOptions) 
             : false;
     }
 
-    function pickPointNoteMarkerRect(summary: IAnnotationCommentSummary, clickMarkerRect: IAnnotationMarkerRect | null) {
-        const centerDistance = markerRectCenterDistance(summary.markerRect, clickMarkerRect);
-        const shouldUseClickAnchor = Boolean(
-            clickMarkerRect
-            && (!summary.markerRect || centerDistance > 0.14),
-        );
-        return shouldUseClickAnchor
-            ? clickMarkerRect
-            : (summary.markerRect ?? clickMarkerRect);
-    }
-
-    function warnOnPointNotePageMismatch(
-        summary: IAnnotationCommentSummary,
-        pageNumber: number,
-        diagnosticsContext?: INotePlacementDiagnosticsContext,
-    ) {
-        const summaryPageNumber = Number.isFinite(summary.pageNumber)
-            ? summary.pageNumber
-            : (summary.pageIndex + 1);
-        if (!diagnosticsContext || summaryPageNumber === pageNumber) {
-            return;
-        }
-        BrowserLogger.diagnostic(NOTE_PLACEMENT_LOG_SECTION, 'Quick-note page mismatch: summary page differs from requested page', {
-            attemptId: diagnosticsContext.attemptId ?? null,
-            requestedPageNumber: pageNumber,
-            summaryPageNumber,
-            summaryPageIndex: summary.pageIndex,
-            summaryStableKey: summary.stableKey,
-        });
-    }
-
     function pinViewerScrollAroundEditorComment(editor: IPdfjsEditor) {
         if (!isPdfjsEditorWithEditComment(editor)) {
             return;
@@ -860,6 +847,15 @@ export const useAnnotationHighlight = (options: IUseAnnotationHighlightOptions) 
         }
 
         const pageIndex = Math.max(0, pageNumber - 1);
+        const clickMarkerRect = markerRectFromPoint(pageX, pageY);
+        if (!clickMarkerRect) {
+            return false;
+        }
+        const annotationCommands = getAnnotationCommands();
+        const canonicalNote = annotationCommands.createStickyNote({
+            pageIndex,
+            anchor: clickMarkerRect,
+        });
         const getEditorsForPage = (editorPageIndex: number) => getEditorsOnPage(uiManager, editorPageIndex);
         const editorSnapshot = captureEditorSnapshot(pageIndex, getEditorsForPage, identity.getEditorIdentity);
 
@@ -891,71 +887,80 @@ export const useAnnotationHighlight = (options: IUseAnnotationHighlightOptions) 
             if (!editor) {
                 return null;
             }
-            const editorKey = identity.getEditorIdentity(editor, pageIndex);
             preparePointNoteEditor(editor, pageIndex, diagnosticsContext);
-            return () => getEditorsForPage(pageIndex).find(candidate => (
-                identity.getEditorIdentity(candidate, pageIndex) === editorKey
-            )) ?? null;
+            return editor;
+        };
+        const bindCanonicalPointEditor = (editor: IPdfjsEditor | null) => {
+            if (!editor || !isAnnotationUiManagerCurrent(uiManager)) {
+                return false;
+            }
+            getPdfjsEditorFacadeState(editor).canonicalAnnotationId = canonicalNote.annotationId;
+            annotationCommands.bindEditorIdentity(
+                canonicalNote.annotationId,
+                commentSync.toEditorSummary(editor, pageIndex, getCommentText(editor)),
+            );
+            return true;
         };
 
         const previousMode = uiManager.getMode();
+        let preparedEditor: IPdfjsEditor | null = null;
         try {
             await switchToAnnotationModeOrThrow(toolManager, uiManager, AnnotationEditorType.FREETEXT, pageNumber);
-            if (!isAnnotationUiManagerCurrent(uiManager)) {
-                return false;
+            if (isAnnotationUiManagerCurrent(uiManager)) {
+                const layerDiv = await ensureEditorLayerDivReady(uiManager, pageNumber, diagnosticsContext);
+                if (layerDiv) {
+                    const directlyCreatedEditor = createAnnotationEditorAtPoint(
+                        uiManager,
+                        pageIndex,
+                        layerDiv,
+                        pageClientPoint.x,
+                        pageClientPoint.y,
+                    );
+                    if (!directlyCreatedEditor) {
+                        dispatchAnnotationEditorPointerTap(layerDiv, pageClientPoint.x, pageClientPoint.y);
+                    }
+                    preparedEditor = await prepareCreatedEditor(directlyCreatedEditor);
+                    if (preparedEditor && isAnnotationUiManagerCurrent(uiManager)) {
+                        syncCommentMarkerAnchorEditor(preparedEditor, clickMarkerRect);
+                        bindCanonicalPointEditor(preparedEditor);
+                    }
+                }
             }
-            const layerDiv = await ensureEditorLayerDivReady(uiManager, pageNumber, diagnosticsContext);
-            if (!layerDiv) {
-                return false;
-            }
-
-            const directlyCreatedEditor = createAnnotationEditorAtPoint(
-                uiManager,
-                pageIndex,
-                layerDiv,
-                pageClientPoint.x,
-                pageClientPoint.y,
-            );
-            if (!directlyCreatedEditor) {
-                dispatchAnnotationEditorPointerTap(layerDiv, pageClientPoint.x, pageClientPoint.y);
-            }
-
-            const resolveCurrentEditor = await prepareCreatedEditor(directlyCreatedEditor);
-            if (!resolveCurrentEditor) {
-                return false;
-            }
-            const preparedEditor = await waitForEditorMarkerRect(resolveCurrentEditor);
-            if (!preparedEditor || !isAnnotationUiManagerCurrent(uiManager)) {
-                return false;
-            }
-
-            const clickMarkerRect = markerRectFromPoint(pageX, pageY);
-            syncCommentMarkerAnchorEditor(preparedEditor, clickMarkerRect);
-
-            const summary = commentSync.toEditorSummary(preparedEditor, pageIndex, getCommentText(preparedEditor));
-            const finalMarkerRect = pickPointNoteMarkerRect(summary, clickMarkerRect);
-            warnOnPointNotePageMismatch(summary, pageNumber, diagnosticsContext);
-            const summaryForNote = {
-                ...summary,
-                markerRect: finalMarkerRect,
-            };
-
-            openPointNoteSummary(preparedEditor, summaryForNote);
-            return true;
         } catch (error) {
-            if (diagnosticsContext) {
-                BrowserLogger.diagnostic(NOTE_PLACEMENT_LOG_SECTION, 'commentAtPoint threw while creating quick-note annotation', {
-                    attemptId: diagnosticsContext.attemptId ?? null,
-                    pageNumber,
-                    error: errorToLogText(error),
-                });
-            }
-            throw error instanceof Error
-                ? error
-                : new Error(String(error));
+            BrowserLogger.diagnostic(NOTE_PLACEMENT_LOG_SECTION, 'Point-note projection failed after canonical creation', {
+                attemptId: diagnosticsContext?.attemptId ?? null,
+                pageNumber,
+                error: errorToLogText(error),
+            });
         } finally {
             await restorePreviousAnnotationMode(toolManager, uiManager, previousMode, pageNumber);
         }
+        if (!preparedEditor) {
+            let attempts = 0;
+            const bindLateEditor = () => {
+                const lateEditor = pickCreatedEditorCandidate(
+                    pageIndex,
+                    editorSnapshot,
+                    getEditorsForPage,
+                    identity.getEditorIdentity,
+                );
+                if (lateEditor) {
+                    preparePointNoteEditor(lateEditor, pageIndex, diagnosticsContext);
+                    syncCommentMarkerAnchorEditor(lateEditor, clickMarkerRect);
+                    bindCanonicalPointEditor(lateEditor);
+                    return;
+                }
+                attempts += 1;
+                if (attempts < ANNOTATION_EDITOR_RETRY_ATTEMPTS) {
+                    scheduleSubtypeRetry(bindLateEditor, ANNOTATION_EDITOR_RETRY_DELAY_MS);
+                }
+            };
+            scheduleSubtypeRetry(bindLateEditor, ANNOTATION_EDITOR_RETRY_DELAY_MS);
+            emitAnnotationOpenNote(canonicalNote.comment);
+        } else {
+            openPointNoteSummary(preparedEditor, canonicalNote.comment);
+        }
+        return true;
     }
 
     function setCommentPlacementMode(active: boolean) {

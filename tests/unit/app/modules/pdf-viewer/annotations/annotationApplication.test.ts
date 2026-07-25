@@ -9,6 +9,7 @@ import { AnnotationApplication } from '@app/modules/pdf-viewer/annotations/annot
 import {
     asAnnotationId,
     type IStickyNoteEntity,
+    type ITextMarkupEntity,
 } from '@app/modules/pdf-viewer/annotations/domain/annotationEntity';
 import type { IShapeAnnotation } from '@app/types/annotations';
 
@@ -83,6 +84,34 @@ function shape(overrides: Partial<IShapeAnnotation> = {}): IShapeAnnotation {
         opacity: 1,
         strokeWidth: 2,
         source: 'local',
+        ...overrides,
+    };
+}
+
+function textMarkup(overrides: Partial<ITextMarkupEntity> = {}): ITextMarkupEntity {
+    return {
+        kind: 'text-markup',
+        identity: {
+            id: asAnnotationId('persisted-underline'),
+            pdfRef: 'underline-ref',
+        },
+        pageIndex: 0,
+        revision: 0,
+        persistedRevision: 0,
+        deleted: false,
+        createdAt: 1,
+        modifiedAt: 1,
+        author: 'Tester',
+        subtype: 'Underline',
+        text: '',
+        geometry: [{
+            left: 0.1,
+            top: 0.2,
+            width: 0.4,
+            height: 0.03,
+        }],
+        color: '#ffff00',
+        opacity: 1,
         ...overrides,
     };
 }
@@ -478,6 +507,106 @@ describe('AnnotationApplication', () => {
             deleted: false,
             revision: 0,
         });
+    });
+
+    it('replaces overlapping markup in one observable and undoable Store command', () => {
+        const application = new AnnotationApplication('document');
+        const existing = textMarkup();
+        application.store.import(existing);
+        let emissions = 0;
+        application.store.subscribe(() => {
+            emissions += 1;
+        });
+        emissions = 0;
+
+        const projection = application.applyTextMarkupSelection({
+            kind: 'text-markup',
+            pageIndex: 0,
+            subtype: 'Underline',
+            text: '',
+            geometry: [{
+                left: 0.2,
+                top: 0.2,
+                width: 0.1,
+                height: 0.03,
+            }],
+            color: '#00ff00',
+            opacity: 1,
+            author: 'Tester',
+            createdAt: 2,
+            modifiedAt: 2,
+            overlapCandidates: [{
+                annotationId: existing.identity.id,
+                observedGeometry: existing.geometry,
+            }],
+        });
+
+        expect(emissions).toBe(1);
+        expect(projection.replacements).toHaveLength(1);
+        expect(projection.replacements[0]).toMatchObject({
+            annotationId: existing.identity.id,
+            deleted: false,
+        });
+        expect(projection.replacements[0]?.geometry).toHaveLength(2);
+        expect(projection.replacements[0]?.geometry[0]).toEqual({
+            left: 0.1,
+            top: 0.2,
+            width: 0.1,
+            height: 0.03,
+        });
+        expect(projection.replacements[0]?.geometry[1]?.left).toBeCloseTo(0.3);
+        expect(projection.replacements[0]?.geometry[1]?.width).toBeCloseTo(0.2);
+        expect(application.store.list()).toHaveLength(2);
+
+        expect(application.undo()).toBe(true);
+        expect(application.store.list()).toEqual([existing]);
+        expect(application.redo()).toBe(true);
+        expect(application.store.list()).toHaveLength(2);
+    });
+
+    it('binds a created editor to its canonical markup without duplicate legacy ingestion', () => {
+        const application = new AnnotationApplication('document');
+        const projection = application.applyTextMarkupSelection({
+            kind: 'text-markup',
+            pageIndex: 0,
+            subtype: 'Highlight',
+            text: '',
+            geometry: [{
+                left: 0.1,
+                top: 0.2,
+                width: 0.2,
+                height: 0.03,
+            }],
+            color: '#ffff00',
+            opacity: 1,
+            author: null,
+            createdAt: 1,
+            modifiedAt: 1,
+            overlapCandidates: [],
+        });
+        const summary = {
+            appAnnotationId: projection.created.identity.id,
+            id: 'editor-1',
+            stableKey: 'src:editor:0:editor-1' as const,
+            pageIndex: 0,
+            pageNumber: 1,
+            text: '',
+            subtype: 'Highlight' as const,
+            author: null,
+            modifiedAt: null,
+            color: '#ffff00',
+            uid: 'uid-1',
+            annotationId: null,
+            source: 'editor' as const,
+            hasNote: false,
+            markerRect: projection.created.geometry[0]!,
+        };
+
+        application.bindEditorSummaryIdentity(projection.created.identity.id, summary);
+        application.ingestLegacySummaries([summary]);
+
+        expect(application.store.list()).toHaveLength(1);
+        expect(application.annotationIdForSummary(summary)).toBe(projection.created.identity.id);
     });
 
     it('rejects reopen results with stale text or geometry', async () => {

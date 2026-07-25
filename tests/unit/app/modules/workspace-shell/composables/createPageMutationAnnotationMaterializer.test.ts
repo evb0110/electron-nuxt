@@ -7,6 +7,7 @@ import {
 import {ref} from 'vue';
 import {createPageMutationAnnotationMaterializer} from '@app/modules/workspace-shell/composables/createPageMutationAnnotationMaterializer';
 import {TEST_PDF_SAVE_BYTE_ROUTE_DECISION} from '@tests/unit/app/modules/pdf-viewer/runtime/save/testPdfSaveByteRouteDecision';
+import {requireDocumentRevisionToken} from '@contracts';
 
 describe('createPageMutationAnnotationMaterializer', () => {
     it('commits the captured annotation frontier while conserving sidebar and annotation selection state', async () => {
@@ -35,7 +36,7 @@ describe('createPageMutationAnnotationMaterializer', () => {
             commitAnnotationSave: () => callOrder.push('commit-frontier'),
         }));
         const workingCopyPath = ref('/tmp/document.pdf');
-        const documentRevisionToken = ref('revision-1');
+        const documentRevisionToken = ref(requireDocumentRevisionToken('revision-1'));
         const materialize = createPageMutationAnnotationMaterializer({
             annotationDirty: ref(true),
             hasAnnotationChanges: () => true,
@@ -66,13 +67,13 @@ describe('createPageMutationAnnotationMaterializer', () => {
     it('rejects stale bytes and acknowledgement when the same path receives another revision', async () => {
         const bytes = new Uint8Array([1]);
         const workingCopyPath = ref('/tmp/document.pdf');
-        const documentRevisionToken = ref('revision-1');
+        const documentRevisionToken = ref(requireDocumentRevisionToken('revision-1'));
         const verifyAnnotationSave = vi.fn(async () => undefined);
         const assertAnnotationSaveCurrent = vi.fn(async () => undefined);
         const commitAnnotationSave = vi.fn();
         const loadPdfFromData = vi.fn(async () => undefined);
         const viewer = {runSaveTransaction: vi.fn(async () => {
-            documentRevisionToken.value = 'revision-2';
+            documentRevisionToken.value = requireDocumentRevisionToken('revision-2');
             return {
                 source: 'pdfjs-materialize' as const,
                 baseBytes: bytes,

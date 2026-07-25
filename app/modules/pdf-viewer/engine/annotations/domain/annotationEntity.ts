@@ -76,6 +76,30 @@ export interface IIdentityBindingEvent {
     readonly bindings: Omit<IAnnotationIdentity, 'id'>;
 }
 
+export interface ISavedSemanticEntry {
+    readonly kind: AnnotationEntity['kind'];
+    readonly fingerprint: string;
+}
+
+export interface ITextMarkupOverlapCandidate {
+    readonly annotationId: AnnotationId;
+    readonly observedGeometry: readonly IAnnotationMarkerRect[];
+}
+
+export interface ITextMarkupSelectionProjection {
+    readonly created: ITextMarkupEntity;
+    readonly replacements: ReadonlyArray<{
+        readonly annotationId: AnnotationId;
+        readonly geometry: readonly IAnnotationMarkerRect[];
+        readonly deleted: boolean;
+    }>;
+}
+
+interface ITextMarkupReplacement {
+    readonly before: ITextMarkupEntity;
+    readonly after: ITextMarkupEntity;
+}
+
 export function asAnnotationId(value: string): AnnotationId {
     const normalized = value.trim();
     if (!normalized) throw new Error('AnnotationId must not be empty');
@@ -102,4 +126,209 @@ export function mintAnnotationId(randomUuid = globalThis.crypto?.randomUUID?.bin
 
 export function normalizeAnnotationText(text: string) {
     return text.replace(/[\u200B\uFEFF]/gu, '');
+}
+
+export function semanticEntityFingerprint(entity: AnnotationEntity) {
+    const {
+        revision: _revision,
+        persistedRevision: _persistedRevision,
+        ...semanticEntity
+    } = entity;
+    return JSON.stringify(semanticEntity);
+}
+
+export function semanticSnapshot(entities: Iterable<AnnotationEntity>) {
+    return new Map(Array.from(entities, entity => (
+        [
+            entity.identity.id,
+            {
+                kind: entity.kind,
+                fingerprint: semanticEntityFingerprint(entity),
+            },
+        ] as const
+    )));
+}
+
+export function snapshotOfKind(
+    snapshot: ReadonlyMap<AnnotationId, ISavedSemanticEntry>,
+    kind: AnnotationEntity['kind'] | undefined,
+) {
+    if (!kind) {
+        return snapshot;
+    }
+    return new Map(Array.from(snapshot).filter(([
+        , entry,
+    ]) => entry.kind === kind));
+}
+
+export function saveFrontierEntityBaseline(entities: readonly AnnotationEntity[]) {
+    return JSON.stringify(entities.map(entity => [
+        entity.identity.id,
+        entity.revision,
+        entity.deleted,
+        entity.pageIndex,
+    ]));
+}
+
+export function remapSavedSemanticFingerprint(
+    fingerprint: string,
+    nextPageIndex: number | undefined,
+) {
+    const saved = JSON.parse(fingerprint) as Record<string, unknown>;
+    if (nextPageIndex === undefined) {
+        return JSON.stringify({
+            ...saved,
+            deleted: true,
+        });
+    }
+    return JSON.stringify(saved.kind === 'shape'
+        ? {
+            ...saved,
+            pageIndex: nextPageIndex,
+            geometry: {
+                ...(saved.geometry as Record<string, unknown>),
+                pageIndex: nextPageIndex,
+            },
+        }
+        : {
+            ...saved,
+            pageIndex: nextPageIndex,
+        });
+}
+
+export function semanticSnapshotsEqual(
+    left: ReadonlyMap<AnnotationId, ISavedSemanticEntry>,
+    right: ReadonlyMap<AnnotationId, ISavedSemanticEntry>,
+) {
+    return left.size === right.size
+        && Array.from(left).every(([
+            id,
+            entry,
+        ]) => right.get(id)?.fingerprint === entry.fingerprint);
+}
+
+function subtractRect(
+    source: IAnnotationMarkerRect,
+    replacements: readonly IAnnotationMarkerRect[],
+) {
+    const intervals: Array<[number, number]> = [[
+        source.left,
+        source.left + source.width,
+    ]];
+    replacements.forEach((replacement) => {
+        if (Math.min(source.top + source.height, replacement.top + replacement.height)
+            <= Math.max(source.top, replacement.top)) {
+            return;
+        }
+        const overlapLeft = Math.max(source.left, replacement.left);
+        const overlapRight = Math.min(source.left + source.width, replacement.left + replacement.width);
+        if (overlapRight <= overlapLeft) {
+            return;
+        }
+        for (let index = intervals.length - 1; index >= 0; index -= 1) {
+            const [
+                left,
+                right,
+            ] = intervals[index]!;
+            if (overlapRight <= left || overlapLeft >= right) {
+                continue;
+            }
+            intervals.splice(index, 1);
+            if (overlapRight < right) intervals.splice(index, 0, [
+                overlapRight,
+                right,
+            ]);
+            if (overlapLeft > left) intervals.splice(index, 0, [
+                left,
+                overlapLeft,
+            ]);
+        }
+    });
+    return intervals
+        .filter(([
+            left,
+            right,
+        ]) => right - left >= 0.0005)
+        .map(([
+            left,
+            right,
+        ]) => ({
+            ...source,
+            left,
+            width: right - left,
+        }));
+}
+
+function subtractGeometry(
+    source: readonly IAnnotationMarkerRect[],
+    replacements: readonly IAnnotationMarkerRect[],
+) {
+    return source.flatMap(rect => subtractRect(rect, replacements));
+}
+
+function geometryEqual(
+    left: readonly IAnnotationMarkerRect[],
+    right: readonly IAnnotationMarkerRect[],
+) {
+    return left.length === right.length && left.every((rect, index) => {
+        const candidate = right[index];
+        return candidate?.left === rect.left
+            && candidate.top === rect.top
+            && candidate.width === rect.width
+            && candidate.height === rect.height;
+    });
+}
+
+export function buildTextMarkupSelectionPlan(input: {
+    created: ITextMarkupEntity;
+    overlapCandidates: readonly ITextMarkupOverlapCandidate[];
+    entities: readonly AnnotationEntity[];
+}) {
+    const byId = new Map(input.entities.map(entity => [
+        entity.identity.id,
+        entity,
+    ]));
+    const seen = new Set<AnnotationId>();
+    const replacements: ITextMarkupReplacement[] = [];
+    if (input.created.subtype !== 'Highlight') {
+        input.overlapCandidates.forEach((candidate) => {
+            if (seen.has(candidate.annotationId)) {
+                return;
+            }
+            seen.add(candidate.annotationId);
+            const current = byId.get(candidate.annotationId);
+            if (!current
+                || current.deleted
+                || current.kind !== 'text-markup'
+                || current.pageIndex !== input.created.pageIndex
+                || current.subtype !== input.created.subtype) {
+                return;
+            }
+            const geometry = subtractGeometry(candidate.observedGeometry, input.created.geometry);
+            if (geometryEqual(geometry, candidate.observedGeometry)) {
+                return;
+            }
+            replacements.push({
+                before: current,
+                after: {
+                    ...current,
+                    geometry,
+                    deleted: geometry.length === 0,
+                    revision: current.revision + 1,
+                    modifiedAt: input.created.modifiedAt,
+                },
+            });
+        });
+    }
+    return {
+        replacements,
+        projection: {
+            created: structuredClone(input.created),
+            replacements: replacements.map(({after}) => ({
+                annotationId: after.identity.id,
+                geometry: structuredClone(after.geometry),
+                deleted: after.deleted,
+            })),
+        } satisfies ITextMarkupSelectionProjection,
+    };
 }
