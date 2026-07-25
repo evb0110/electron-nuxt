@@ -5,6 +5,9 @@ import type { PDFPageProxy } from 'pdfjs-dist';
 import { AnnotationMode } from '@app/services/pdfjs/runtimeLib';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { createHiddenAnnotationOperationsFilter } from '@app/modules/pdf-viewer/engine/pdf-hidden-annotation-operations/createHiddenAnnotationOperationsFilter';
+import { PDF_PAGE_RENDER_TIMEOUT_MS } from '@app/constants/timeouts';
+import { withPageStageTimeout } from '@app/modules/pdf-viewer/engine/pdf-page-render-timeout/withPageStageTimeout';
+import type { IPageRenderStallPayload } from '@app/modules/pdf-viewer/engine/pdf-page-render-timeout/pdfPageRenderTimeoutTypes';
 
 interface ICanvasRenderResult {
     canvas: HTMLCanvasElement;
@@ -33,6 +36,7 @@ interface IRenderCanvasOptions {
     sourceMaxPixels?: number;
     onRenderTask?: (task: ICancelableRenderTask) => void;
     hiddenAnnotationIds?: Set<string>;
+    onRenderStall?: (payload: IPageRenderStallPayload) => void;
     contentIntent?: TPdfPageRenderContentIntent;
     reserveSurface?: ((bytes: number) => {release: () => void;} | null) | undefined;
     pageRenderCoordination?: {
@@ -270,7 +274,27 @@ export const usePdfCanvasRenderer = (deps: {
             return null;
         }
 
-        const annotationOptions = await createAnnotationRenderOptions(pdfPage, options);
+        const annotationOptions = await withPageStageTimeout(
+            createAnnotationRenderOptions(pdfPage, options),
+            {
+                pageNumber: pdfPage.pageNumber,
+                stage: 'canvas-prepare',
+                timeoutMs: PDF_PAGE_RENDER_TIMEOUT_MS,
+            },
+            () => shouldContinueCanvasPreparation(options),
+            undefined,
+            options?.onRenderStall,
+            undefined,
+            options?.pageRenderCoordination?.signal,
+        ).catch((error: unknown) => {
+            if (error instanceof Error && error.name === 'AbortError') {
+                return null;
+            }
+            throw error;
+        });
+        if (!annotationOptions) {
+            return null;
+        }
         if (!shouldContinueCanvasPreparation(options)) {
             return null;
         }

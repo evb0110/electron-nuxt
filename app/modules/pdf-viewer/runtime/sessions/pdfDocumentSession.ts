@@ -91,6 +91,16 @@ export interface IPdfDocumentTransition extends IDocumentTransition<IPdfDocument
     readonly reason: string;
 }
 
+/**
+ * A transition subscriber's returned promise is part of document lifecycle
+ * settlement. In particular, an `invalidated` subscriber must return its
+ * render/task cancellation promise rather than detach it: document cleanup
+ * and PDF.js destruction start only after every subscriber has settled.
+ */
+export type TPdfDocumentTransitionSubscriber = (
+    transition: IPdfDocumentTransition,
+) => void | Promise<void>;
+
 export interface ICreatePdfDocumentSessionOptions {
     chassisAuthority?: IDocumentViewerChassisAuthority | null | undefined;
     openSurfaceDocumentId?: (() => string) | undefined;
@@ -236,7 +246,9 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
         IPdfDocumentTransition
     >(isFenceCurrent);
 
-    const subscribe = transitions.subscribe;
+    function subscribe(subscriber: TPdfDocumentTransitionSubscriber) {
+        return transitions.subscribe(subscriber);
+    }
 
     async function emitTransition(
         phase: TPdfDocumentPhase,
@@ -270,10 +282,12 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
         message: string,
         lifecycleKey = activeLifecycleKey,
     ) {
-        disposePdfPageRasterScheduler(document);
         pdfjsDocumentTeardownCoordinator.track(lifecycleKey, {
             message,
-            run: () => document.destroy(),
+            run: async () => {
+                await disposePdfPageRasterScheduler(document);
+                await document.destroy();
+            },
         });
     }
 

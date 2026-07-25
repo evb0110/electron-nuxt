@@ -909,55 +909,6 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
         }
     }
 
-    function consumeAuthorityScroll() {
-        const container = options.viewerContainer.value;
-        return container ? options.viewportWritePort.consumeAuthorityScroll(container) : false;
-    }
-
-    function handleScroll(event?: Event, authorityScrollConsumed = false) {
-        const container = options.viewerContainer.value;
-        if (!container) {
-            return;
-        }
-        if (authorityScrollConsumed || consumeAuthorityScroll()) {
-            options.updateVisibleRange(container, options.numPages.value);
-            options.emitCurrentPage(viewportAuthority.currentPage.value);
-            return;
-        }
-        // Layout changes can adjust a programmatically written scroll offset
-        // before the browser dispatches the rest of its trusted scroll burst.
-        // The active viewport intent still owns that burst. Genuine wheel,
-        // pointer, and keyboard interactions cancel through their input
-        // boundaries before reaching this observer.
-        if (
-            viewportAuthority.activeIntent.value !== null
-            || options.isResizeTransitionActive?.value === true
-        ) {
-            options.updateVisibleRange(container, options.numPages.value);
-            options.emitCurrentPage(viewportAuthority.currentPage.value);
-            return;
-        }
-        // Scripted/synthetic scroll events are not evidence of user intent.
-        if (!event || !event.isTrusted) {
-            options.updateVisibleRange(container, options.numPages.value);
-            options.emitCurrentPage(viewportAuthority.currentPage.value);
-            return;
-        }
-        const page = observeNativeUserScroll();
-        options.updateVisibleRange(container, options.numPages.value);
-        // Semantic viewport observation must not depend on the position fence
-        // below. Fast scrolling can advance layout geometry between reading
-        // the live anchor and serializing its pixel position; rejecting that
-        // stale position must not also leave the toolbar/session page stale.
-        options.onUserViewportPageObserved?.(page);
-        commitCurrentViewportPosition(
-            page,
-            `native-user-scroll-${String(++intentSequence)}`,
-            'user-scroll',
-        );
-        options.emitCurrentPage(page);
-    }
-
     function handleWheel(event: IPdfSinglePageWheelEvent) {
         if (
             event.deltaY === 0
@@ -1161,8 +1112,6 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
         navigationState,
         currentPageAuthority,
         handleWheel,
-        handleScroll,
-        consumeAuthorityScroll,
         scrollToPage: submitPageNavigation,
         snapToPage: (page: number, _anchor?: unknown, scrollOptions?: IScrollToPageOptions) => submitPageNavigation(page, scrollOptions),
         beginSearchNavigation: (page: number) => submitPageNavigation(page, {navigationSource: 'search'}),

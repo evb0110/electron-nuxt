@@ -14,6 +14,7 @@ import { usePdfRenderViewModel } from '@app/modules/pdf-viewer/runtime/rendering
 import type { PDFDocumentProxy } from '@app/types/pdfContracts';
 import type { TPdfSource } from '@app/types/pdfUi';
 import { cast } from '@tests/helpers/cast';
+import { createDocumentOpenSurfaceSession } from '@app/utils/document-viewer/chassis/documentOpenSurfaceSession';
 
 function createHarness(options?: {
     hasMountedPageCanvas?: (page: number) => boolean;
@@ -37,7 +38,7 @@ function createHarness(options?: {
         isLoading: ref(false),
         pdfDocument: shallowRef<PDFDocumentProxy | null>(cast({})),
         getPage: vi.fn(async () => cast({})),
-        viewerContainer: ref(null),
+        openSurface: createDocumentOpenSurfaceSession(),
         isVisualReloadTransitionActive: ref(false),
         suppressLoadingOverlay: computed(() => options?.suppressLoadingOverlay ?? false),
         skeletonContentInsets: ref(null),

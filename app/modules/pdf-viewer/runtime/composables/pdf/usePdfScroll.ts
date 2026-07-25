@@ -4,18 +4,12 @@ import { logPdfNav } from '@app/utils/logPdfNav';
 import type { IScrollToPageOptions } from '@app/modules/pdf-viewer/engine/pdf-outline-navigation/scrollToPageOptions';
 import { getPageContainerByNumber } from '@app/modules/pdf-viewer/engine/pdf-scroll-visibility/getPageContainerByNumber';
 import {
-    getViewportIntersectionLength,
     getViewportVisibilityFromDom,
+    getViewportVisibilityFromLayout,
 } from '@app/modules/pdf-viewer/engine/pdf-scroll-visibility/getViewportVisibilityFromDom';
 import type { IViewportVisibilityResult } from '@app/modules/pdf-viewer/engine/pdf-scroll-visibility/pdfScrollVisibilityTypes';
 import type { IPdfPageLayoutMetrics } from '@app/modules/pdf-viewer/engine/pdf-page-layout/pdfPageLayoutMetrics';
-import {
-    getLayoutPageHeight,
-    getLayoutPageTop as getResolvedLayoutPageTop,
-    getLayoutPageWidth,
-    getLayoutRowHeight,
-    getLayoutRowTop as getResolvedLayoutRowTop,
-} from '@app/modules/pdf-viewer/engine/pdf-page-layout/pdfPageLayoutMetrics';
+import { getLayoutPageWidth } from '@app/modules/pdf-viewer/engine/pdf-page-layout/pdfPageLayoutMetrics';
 import { getPageHeight } from '@app/modules/pdf-viewer/engine/pdf-page-layout/getPageHeight';
 import { getPageTop } from '@app/modules/pdf-viewer/engine/pdf-page-layout/getPageTop';
 import { resolvePageBoundedHorizontalScroll } from '@app/modules/pdf-viewer/engine/pdf-horizontal-scroll-clamp/resolvePageBoundedHorizontalScroll';
@@ -39,29 +33,6 @@ interface IViewportVisibilityCacheEntry {
     clientHeight: number;
     layoutMetrics: TPageLayoutMetrics | null;
     result: IViewportVisibilityResult;
-}
-
-function getLayoutPageTop(
-    metrics: TPageLayoutMetrics,
-    index: number,
-) {
-    return Math.max(0, (getResolvedLayoutPageTop(metrics, index) ?? 0) - metrics.paddingTop);
-}
-
-function getLayoutRowTop(
-    metrics: TPageLayoutMetrics,
-    rowIndex: number,
-) {
-    return Math.max(0, getResolvedLayoutRowTop(metrics, rowIndex) - metrics.paddingTop);
-}
-
-function getLayoutRowBottom(
-    metrics: TPageLayoutMetrics,
-    rowIndex: number,
-) {
-    const rowTop = getLayoutRowTop(metrics, rowIndex);
-    const rowHeight = getLayoutRowHeight(metrics, rowIndex);
-    return rowTop + rowHeight;
 }
 
 function getLayoutRowWidth(
@@ -180,48 +151,6 @@ function resolveMarkerScrollLeft(options: {
     });
 
     return scrollClamp?.scrollLeft ?? markerTargetLeft;
-}
-
-function findFirstVisibleLayoutRowIndex(
-    metrics: TPageLayoutMetrics,
-    viewportTop: number,
-) {
-    let low = 0;
-    let high = metrics.base.rowHeights.length - 1;
-    let result = -1;
-
-    while (low <= high) {
-        const mid = low + Math.floor((high - low) / 2);
-        if (getLayoutRowBottom(metrics, mid) > viewportTop) {
-            result = mid;
-            high = mid - 1;
-        } else {
-            low = mid + 1;
-        }
-    }
-
-    return result;
-}
-
-function findLastVisibleLayoutRowIndex(
-    metrics: TPageLayoutMetrics,
-    viewportBottom: number,
-) {
-    let low = 0;
-    let high = metrics.base.rowHeights.length - 1;
-    let result = -1;
-
-    while (low <= high) {
-        const mid = low + Math.floor((high - low) / 2);
-        if (getLayoutRowTop(metrics, mid) < viewportBottom) {
-            result = mid;
-            low = mid + 1;
-        } else {
-            high = mid - 1;
-        }
-    }
-
-    return result;
 }
 
 export const usePdfScroll = (options: IUsePdfScrollOptions) => {
@@ -356,110 +285,7 @@ export const usePdfScroll = (options: IUsePdfScrollOptions) => {
         const domVisibility = getViewportVisibilityFromDom(container, totalPages);
         return domVisibility.range || domVisibility.mostVisiblePage !== null
             ? domVisibility
-            : getViewportVisibilityFromLayout(container, totalPages) ?? domVisibility;
-    }
-
-    function getViewportVisibilityFromLayout(
-        container: HTMLElement,
-        totalPages: number,
-    ): IViewportVisibilityResult | null {
-        const metrics = pageLayoutMetrics.value;
-        if (!metrics || metrics.base.totalPages !== totalPages) {
-            return null;
-        }
-
-        const viewportTop = Math.max(0, container.scrollTop - metrics.paddingTop);
-        const viewportBottom = viewportTop + container.clientHeight;
-        const layoutPageCount = Math.min(
-            totalPages,
-            metrics.base.pageRowIndices.length,
-            metrics.base.pageHeights.length,
-        );
-        if (layoutPageCount <= 0) {
-            return null;
-        }
-
-        const firstVisibleRowIndex = findFirstVisibleLayoutRowIndex(
-            metrics,
-            viewportTop,
-        );
-        if (firstVisibleRowIndex === -1) {
-            return null;
-        }
-
-        const lastVisibleRowIndex = findLastVisibleLayoutRowIndex(
-            metrics,
-            viewportBottom,
-        );
-        if (
-            lastVisibleRowIndex === -1
-            || lastVisibleRowIndex < firstVisibleRowIndex
-        ) {
-            return null;
-        }
-
-        const viewportLeft = Math.max(0, container.scrollLeft);
-        const viewportRight = viewportLeft + container.clientWidth;
-        let firstVisiblePage: number | null = null;
-        let lastVisiblePage: number | null = null;
-        let mostVisiblePage: number | null = null;
-        let maxVisibleArea = 0;
-
-        const firstVisibleIndex = clamp(
-            (metrics.base.rowStartPages[firstVisibleRowIndex] ?? 1) - 1,
-            0,
-            layoutPageCount - 1,
-        );
-        const lastVisibleIndex = clamp(
-            (metrics.base.rowEndPages[lastVisibleRowIndex] ?? layoutPageCount) - 1,
-            0,
-            layoutPageCount - 1,
-        );
-
-        for (let index = firstVisibleIndex; index <= lastVisibleIndex; index += 1) {
-            const pageTop = getLayoutPageTop(metrics, index);
-            const pageHeight = getLayoutPageHeight(metrics, index);
-            const pageBottom = pageTop + pageHeight;
-            const pageLeft = getLayoutPageLeft(metrics, index, container.clientWidth);
-            const pageWidth = getLayoutPageWidth(metrics, index);
-            const pageRight = pageLeft + pageWidth;
-            const visibleArea = getViewportIntersectionLength(
-                pageTop,
-                pageBottom,
-                viewportTop,
-                viewportBottom,
-            ) * getViewportIntersectionLength(
-                pageLeft,
-                pageRight,
-                viewportLeft,
-                viewportRight,
-            );
-
-            if (visibleArea > 0) {
-                firstVisiblePage ??= index + 1;
-                lastVisiblePage = index + 1;
-
-                if (visibleArea > maxVisibleArea) {
-                    maxVisibleArea = visibleArea;
-                    mostVisiblePage = index + 1;
-                }
-            }
-        }
-
-        if (firstVisiblePage === null || lastVisiblePage === null) {
-            return null;
-        }
-
-        return {
-            range: {
-                start: clamp(firstVisiblePage, 1, totalPages),
-                end: clamp(lastVisiblePage, 1, totalPages),
-            },
-            mostVisiblePage:
-                maxVisibleArea > 0 && mostVisiblePage !== null
-                    ? clamp(mostVisiblePage, 1, totalPages)
-                    : null,
-        };
+            : getViewportVisibilityFromLayout(container, totalPages, pageLayoutMetrics.value) ?? domVisibility;
     }
 
     function getVisiblePageRange(

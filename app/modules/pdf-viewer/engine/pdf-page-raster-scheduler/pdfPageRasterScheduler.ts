@@ -594,7 +594,12 @@ export function createPdfPageRasterScheduler(
         resolve: ((outcome: TPdfRasterOutcome) => void) | null,
     ) {
         const key = createWorkKey(target.id, demand);
-        if (residents.has(key)) {
+        const resident = residents.get(key);
+        if (resident) {
+            if (resident.demand.lane !== demand.lane) {
+                resident.reservation.setPriority?.(LANE_ORDER[demand.lane]);
+            }
+            resident.demand = demand;
             resolve?.({
                 status: 'committed',
                 demand,
@@ -885,7 +890,8 @@ export function ensurePdfPageRasterScheduler(
     return scheduler;
 }
 
-export function disposePdfPageRasterScheduler(document: PDFDocumentProxy) {
-    void pdfDocumentRasterSchedulers.get(document)?.dispose();
+export async function disposePdfPageRasterScheduler(document: PDFDocumentProxy) {
+    const scheduler = pdfDocumentRasterSchedulers.get(document);
     pdfDocumentRasterSchedulers.delete(document);
+    await scheduler?.dispose();
 }
