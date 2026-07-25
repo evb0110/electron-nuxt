@@ -29,7 +29,7 @@ import type {
     ICrudSync,
     ICrudToolManager,
     IUseAnnotationCrudOptions,
-} from '@app/modules/pdf-viewer/runtime/annotations/annotationCrudTypes';
+} from '@app/modules/pdf-viewer/annotations/bridge/pdfjs-runtime/annotationCrudBridge.types';
 import { getCommentCandidateIds } from '@app/modules/pdf-viewer/annotations/domain/annotationSummaryIdentity';
 import { runGuardedTask } from '@app/utils/asyncGuard';
 import {

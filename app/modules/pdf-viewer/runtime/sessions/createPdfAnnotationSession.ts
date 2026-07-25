@@ -45,14 +45,15 @@ import type { TPdfViewportSession } from '@app/modules/pdf-viewer/runtime/sessio
 import type { TPdfRenderingSession } from '@app/modules/pdf-viewer/runtime/sessions/createPdfRenderingSession';
 import type { IAnnotationContextMenuPayload } from '@app/modules/pdf-viewer/engine/annotationContextMenuPayload';
 import { annotationIdForSummary } from '@app/modules/pdf-viewer/annotations/domain/annotationSummaryIdentity';
+import { normalizeAnnotationText } from '@app/modules/pdf-viewer/annotations/domain/annotationEntity';
 import { groupBy } from 'es-toolkit/array';
-import { useAnnotationIdentity } from '@app/modules/pdf-viewer/runtime/annotations/useAnnotationIdentity';
-import { useAnnotationSync } from '@app/modules/pdf-viewer/runtime/annotations/useAnnotationSync';
-import { useAnnotationEditorBridge } from '@app/modules/pdf-viewer/runtime/annotations/useAnnotationEditorBridge';
-import { useAnnotationToolState } from '@app/modules/pdf-viewer/runtime/annotations/useAnnotationToolState';
-import { useAnnotationHighlight } from '@app/modules/pdf-viewer/runtime/annotations/useAnnotationHighlight';
-import { useAnnotationCrud } from '@app/modules/pdf-viewer/runtime/annotations/useAnnotationCrud';
-import { useFreeTextResize } from '@app/modules/pdf-viewer/runtime/annotations/useFreeTextResize';
+import { useAnnotationIdentity } from '@app/modules/pdf-viewer/annotations/bridge/pdfjs-runtime/useAnnotationIdentity';
+import { useAnnotationSync } from '@app/modules/pdf-viewer/annotations/bridge/pdfjs-runtime/useAnnotationSync';
+import { useAnnotationEditorBridge } from '@app/modules/pdf-viewer/annotations/bridge/pdfjs-runtime/useAnnotationEditorBridge';
+import { useAnnotationToolState } from '@app/modules/pdf-viewer/annotations/bridge/pdfjs-runtime/useAnnotationToolState';
+import { useAnnotationHighlight } from '@app/modules/pdf-viewer/annotations/bridge/pdfjs-runtime/useAnnotationHighlight';
+import { useAnnotationCrud } from '@app/modules/pdf-viewer/annotations/bridge/pdfjs-runtime/useAnnotationCrud';
+import { useFreeTextResize } from '@app/modules/pdf-viewer/annotations/bridge/pdfjs-runtime/useFreeTextResize';
 import { useAnnotationMarkerViewModel } from '@app/modules/pdf-viewer/runtime/annotations/useAnnotationMarkerViewModel';
 import { getPerformanceProfile } from '@app/utils/performanceProfile';
 import { resolveOpenPathSecondaryPerformancePolicy } from '@app/utils/openPathSecondaryPerformancePolicy';
@@ -533,10 +534,37 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
         markModified: emitForcedAnnotationMutation,
         flushAnnotationCommentsForSave: annotations.commentSync.syncAnnotationComments,
         resolveCanonicalAnnotationId: comment => annotationApplication.value.annotationIdForSummary(comment),
-        setCanonicalNoteText: (id, text) => annotationApplication.value.setNoteText(id, text),
-        deleteCanonicalAnnotation: id => annotationApplication.value.delete(id),
-        setCanonicalColor: (id, color) => annotationApplication.value.store.setStyle(id, {color}),
-        moveCanonicalAnchor: (id, rect) => annotationApplication.value.store.moveAnchor(id, rect),
+        setCanonicalNoteText: (id, text) => {
+            const entity = annotationApplication.value.store.get(id);
+            if (entity && entity.kind !== 'shape' && entity.text !== normalizeAnnotationText(text)) {
+                annotationApplication.value.store.setNoteText(id, text);
+            }
+        },
+        deleteCanonicalAnnotation: id => {
+            if (!annotationApplication.value.store.get(id)?.deleted) {
+                annotationApplication.value.store.delete(id);
+            }
+        },
+        setCanonicalColor: (id, color) => {
+            const entity = annotationApplication.value.store.get(id);
+            if (entity && entity.kind !== 'shape' && entity.color !== color) {
+                annotationApplication.value.store.setStyle(id, {color});
+            }
+        },
+        moveCanonicalAnchor: (id, rect) => {
+            const entity = annotationApplication.value.store.get(id);
+            if (
+                entity?.kind === 'sticky-note'
+                && (
+                    entity.anchor.left !== rect.left
+                    || entity.anchor.top !== rect.top
+                    || entity.anchor.width !== rect.width
+                    || entity.anchor.height !== rect.height
+                )
+            ) {
+                annotationApplication.value.store.moveAnchor(id, rect);
+            }
+        },
     });
     annotationMutationVisualEffects = annotationMutationService.visualEffects;
 

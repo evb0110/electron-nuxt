@@ -8,7 +8,7 @@ import {
     vi,
 } from 'vitest';
 import { effectScope } from 'vue';
-import { useFreeTextResize } from '@app/modules/pdf-viewer/runtime/annotations/useFreeTextResize';
+import { useFreeTextResize } from '@app/modules/pdf-viewer/annotations/bridge/pdfjs-runtime/useFreeTextResize';
 import type { IPdfjsEditor } from '@app/types/pdfjs';
 import { cast } from '@tests/helpers/cast';
 

@@ -163,7 +163,7 @@ interface IAnnotationToolStateTestManager {
 }
 
 async function loadUseAnnotationToolState(): Promise<(options: unknown) => IAnnotationToolStateTestManager> {
-    const module = await import('@app/modules/pdf-viewer/runtime/annotations/useAnnotationToolState');
+    const module = await import('@app/modules/pdf-viewer/annotations/bridge/pdfjs-runtime/useAnnotationToolState');
     return module.useAnnotationToolState as (options: unknown) => IAnnotationToolStateTestManager;
 }
 

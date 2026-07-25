@@ -452,7 +452,10 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
 
     function applySelectedTextMarkupColorUpdate(color: string) {
         const selectedMarkup = selectedTextMarkupForProperties.value;
-        const didUpdate = pdfViewerRef.value?.updateSelectedTextMarkupAnnotationColor?.(color) === true;
+        const didUpdate = Boolean(
+            selectedMarkup
+            && pdfViewerRef.value?.updateSelectedTextMarkupAnnotationColor?.(color, selectedMarkup) === true,
+        );
         if (!didUpdate) {
             return false;
         }

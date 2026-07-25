@@ -185,7 +185,10 @@ export interface IPdfViewerAnnotationCommentExpose {
     getMarkupSubtypeOverrides: () => Map<string, TMarkupSubtype>;
     getMarkupSubtypeHints?: () => IMarkupSubtypeHint[];
     getSelectedTextMarkupAnnotationProperties?: () => ITextMarkupAnnotationProperties | null;
-    updateSelectedTextMarkupAnnotationColor?: (color: string) => boolean;
+    updateSelectedTextMarkupAnnotationColor?: (
+        color: string,
+        selected: ITextMarkupAnnotationProperties,
+    ) => boolean;
     updateTextMarkupAnnotationColor?: (comment: IAnnotationCommentSummary, color: string) => boolean;
 }
 

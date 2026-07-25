@@ -12,7 +12,7 @@ import {
     ref,
     shallowRef,
 } from 'vue';
-import { useAnnotationHighlight } from '@app/modules/pdf-viewer/runtime/annotations/useAnnotationHighlight';
+import { useAnnotationHighlight } from '@app/modules/pdf-viewer/annotations/bridge/pdfjs-runtime/useAnnotationHighlight';
 
 vi.mock('pdfjs-dist', () => ({AnnotationEditorType: {FREETEXT: 3}}));
 

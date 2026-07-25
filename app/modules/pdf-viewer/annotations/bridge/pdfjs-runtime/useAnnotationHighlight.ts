@@ -23,7 +23,7 @@ import type {
     IHighlightCommentContext,
     IHighlightToolManager,
     IUseAnnotationHighlightOptions,
-} from '@app/modules/pdf-viewer/runtime/annotations/annotationHighlightTypes';
+} from '@app/modules/pdf-viewer/annotations/bridge/pdfjs-runtime/annotationHighlightBridge.types';
 import { markerRectCenterDistance } from '@app/modules/pdf-viewer/engine/annotations/annotation-rules/markerRectCenterDistance';
 import { getCommentText } from '@app/modules/pdf-viewer/engine/pdf-annotation-editor-utils/getCommentText';
 import { toMarkerRectFromEditor } from '@app/modules/pdf-viewer/engine/pdf-annotation-editor-utils/toMarkerRectFromEditor';

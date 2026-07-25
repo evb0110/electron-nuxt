@@ -814,7 +814,7 @@ describe('dependency graph', () => {
         )).toEqual([]);
 
         expect(checkArchitectureBoundarySource(
-            'app/modules/pdf-viewer/runtime/annotations/useAnnotationEditorBridge.ts',
+            'app/modules/pdf-viewer/annotations/bridge/pdfjs-runtime/useAnnotationEditorBridge.ts',
             'annotationStorage.onSetModified = handler;',
         )).toEqual([]);
     });
@@ -844,13 +844,13 @@ describe('dependency graph', () => {
     it('blocks new hidden annotation runtime/tool crossings', () => {
         expect(checkAnnotationDependencyEdge({
             source: 'app/modules/pdf-viewer/tools/usePdfShapeTool.ts',
-            target: 'app/modules/pdf-viewer/runtime/annotations/useAnnotationCrud.ts',
-            specifier: '@app/modules/pdf-viewer/runtime/annotations/useAnnotationCrud',
+            target: 'app/modules/pdf-viewer/runtime/annotations/fixtureRuntime.ts',
+            specifier: '@app/modules/pdf-viewer/annotations/bridge/pdfjs-runtime/useAnnotationCrud',
         })).toEqual([{
             rule: 'annotation-tools-to-runtime',
             source: 'app/modules/pdf-viewer/tools/usePdfShapeTool.ts',
-            target: 'app/modules/pdf-viewer/runtime/annotations/useAnnotationCrud.ts',
-            specifier: '@app/modules/pdf-viewer/runtime/annotations/useAnnotationCrud',
+            target: 'app/modules/pdf-viewer/runtime/annotations/fixtureRuntime.ts',
+            specifier: '@app/modules/pdf-viewer/annotations/bridge/pdfjs-runtime/useAnnotationCrud',
             message: 'PDF annotation tools must not import runtime annotation composables; share pure helpers through engine/types ports.',
         }]);
 
@@ -882,13 +882,13 @@ describe('dependency graph', () => {
     it('reports annotation cycle paths for negative fixtures', () => {
         const fixtureGraph = { edges: [
             {
-                source: 'app/modules/pdf-viewer/runtime/annotations/useAnnotationCrud.ts',
-                target: 'app/modules/pdf-viewer/runtime/annotations/useAnnotationHighlight.ts',
+                source: 'app/modules/pdf-viewer/annotations/bridge/pdfjs-runtime/useAnnotationCrud.ts',
+                target: 'app/modules/pdf-viewer/annotations/bridge/pdfjs-runtime/useAnnotationHighlight.ts',
                 specifier: 'fixture-crud-to-highlight',
             },
             {
-                source: 'app/modules/pdf-viewer/runtime/annotations/useAnnotationHighlight.ts',
-                target: 'app/modules/pdf-viewer/runtime/annotations/useAnnotationCrud.ts',
+                source: 'app/modules/pdf-viewer/annotations/bridge/pdfjs-runtime/useAnnotationHighlight.ts',
+                target: 'app/modules/pdf-viewer/annotations/bridge/pdfjs-runtime/useAnnotationCrud.ts',
                 specifier: 'fixture-highlight-to-crud',
             },
         ] };
@@ -896,10 +896,10 @@ describe('dependency graph', () => {
 
         expect(result.violations).toEqual([{
             rule: 'annotation-dependency-cycle',
-            source: 'app/modules/pdf-viewer/runtime/annotations/useAnnotationCrud.ts',
-            target: 'app/modules/pdf-viewer/runtime/annotations/useAnnotationHighlight.ts',
+            source: 'app/modules/pdf-viewer/annotations/bridge/pdfjs-runtime/useAnnotationCrud.ts',
+            target: 'app/modules/pdf-viewer/annotations/bridge/pdfjs-runtime/useAnnotationHighlight.ts',
             specifier: 'direct import / late-bound annotation dependency graph',
-            message: 'Disallowed annotation dependency cycle: app/modules/pdf-viewer/runtime/annotations/useAnnotationCrud.ts -> app/modules/pdf-viewer/runtime/annotations/useAnnotationHighlight.ts -> app/modules/pdf-viewer/runtime/annotations/useAnnotationCrud.ts',
+            message: 'Disallowed annotation dependency cycle: app/modules/pdf-viewer/annotations/bridge/pdfjs-runtime/useAnnotationCrud.ts -> app/modules/pdf-viewer/annotations/bridge/pdfjs-runtime/useAnnotationHighlight.ts -> app/modules/pdf-viewer/annotations/bridge/pdfjs-runtime/useAnnotationCrud.ts',
         }]);
     });
 });

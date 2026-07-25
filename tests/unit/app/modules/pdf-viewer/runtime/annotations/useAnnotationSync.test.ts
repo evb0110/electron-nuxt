@@ -12,7 +12,7 @@ import {
 } from 'vue';
 import type { Ref } from 'vue';
 import type {IAnnotationCommentSummary} from '@app/types/annotations';
-import { useAnnotationIdentity } from '@app/modules/pdf-viewer/runtime/annotations/useAnnotationIdentity';
+import { useAnnotationIdentity } from '@app/modules/pdf-viewer/annotations/bridge/pdfjs-runtime/useAnnotationIdentity';
 import type { IPdfPageAnnotationBundle } from '@app/modules/pdf-viewer/engine/annotations/annotation-sync-helpers/annotationSyncHelpersTypes';
 import { resolvePerformanceProfile } from '@app/utils/performanceProfile';
 import { resolveOpenPathSecondaryPerformancePolicy } from '@app/utils/openPathSecondaryPerformancePolicy';
@@ -135,7 +135,7 @@ async function createSyncHarness(options: {
         annotationCommentsCache.value = comments;
         return comments;
     });
-    const { useAnnotationSync } = await import('@app/modules/pdf-viewer/runtime/annotations/useAnnotationSync');
+    const { useAnnotationSync } = await import('@app/modules/pdf-viewer/annotations/bridge/pdfjs-runtime/useAnnotationSync');
     const sync = useAnnotationSync({
         pdfDocument: shallowRef(options.pdfDocument ?? {}),
         documentIdentity: options.documentIdentity ?? ref('document'),

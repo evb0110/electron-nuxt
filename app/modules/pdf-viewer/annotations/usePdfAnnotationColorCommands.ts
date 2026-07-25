@@ -6,8 +6,8 @@ import type {
 } from '@app/types/annotations';
 import { computeSummaryStableKey } from '@app/modules/pdf-viewer/annotations/domain/annotationSummaryIdentity';
 import type { usePdfAnnotationCommentModel } from '@app/modules/pdf-viewer/annotations/usePdfAnnotationCommentModel';
-import type { useAnnotationCrud } from '@app/modules/pdf-viewer/runtime/annotations/useAnnotationCrud';
-import type { useAnnotationToolState } from '@app/modules/pdf-viewer/runtime/annotations/useAnnotationToolState';
+import type { useAnnotationCrud } from '@app/modules/pdf-viewer/annotations/bridge/pdfjs-runtime/useAnnotationCrud';
+import type { useAnnotationToolState } from '@app/modules/pdf-viewer/annotations/bridge/pdfjs-runtime/useAnnotationToolState';
 import { getStoredAnnotationEditor } from '@app/modules/pdf-viewer/annotations/bridge/pdfjsAnnotationFacade';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { resetLivePdfJsAnnotationStorageModifiedIds } from '@app/modules/pdf-viewer/runtime/save/pdfAnnotationStorageChanges';
@@ -105,29 +105,6 @@ export const usePdfAnnotationColorCommands = (options: IUsePdfAnnotationColorCom
                 colorEdited: options.colorEdited ?? comment.colorEdited,
             },
             sourceColor: options.sourceColor,
-        };
-    }
-
-    function toSelectedTextMarkupComment(markup: ITextMarkupAnnotationProperties): IAnnotationCommentSummary {
-        return {
-            id: markup.id,
-            stableKey: computeSummaryStableKey({
-                id: markup.id,
-                pageIndex: markup.pageIndex,
-                source: 'editor',
-                annotationId: markup.id,
-            }),
-            pageIndex: markup.pageIndex,
-            pageNumber: markup.pageIndex + 1,
-            text: '',
-            author: null,
-            modifiedAt: null,
-            color: markup.color,
-            uid: null,
-            annotationId: markup.id,
-            source: 'editor',
-            subtype: markup.subtype,
-            markerRect: markup.markerRect,
         };
     }
 
@@ -236,3 +213,26 @@ export const usePdfAnnotationColorCommands = (options: IUsePdfAnnotationColorCom
         updateTextMarkupAnnotationColor,
     };
 };
+
+export function toSelectedTextMarkupComment(markup: ITextMarkupAnnotationProperties): IAnnotationCommentSummary {
+    return {
+        id: markup.id,
+        stableKey: computeSummaryStableKey({
+            id: markup.id,
+            pageIndex: markup.pageIndex,
+            source: 'editor',
+            annotationId: markup.id,
+        }),
+        pageIndex: markup.pageIndex,
+        pageNumber: markup.pageIndex + 1,
+        text: '',
+        author: null,
+        modifiedAt: null,
+        color: markup.color,
+        uid: null,
+        annotationId: markup.id,
+        source: 'editor',
+        subtype: markup.subtype,
+        markerRect: markup.markerRect,
+    };
+}

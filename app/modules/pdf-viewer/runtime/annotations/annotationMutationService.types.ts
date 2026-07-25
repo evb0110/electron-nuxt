@@ -91,8 +91,8 @@ export interface IUseAnnotationMutationServiceOptions {
     markModified: () => void;
     flushAnnotationCommentsForSave: () => Promise<unknown>;
     resolveCanonicalAnnotationId?: (comment: IAnnotationCommentSummary) => AnnotationId | null;
-    setCanonicalNoteText?: (id: AnnotationId, text: string) => void;
-    deleteCanonicalAnnotation?: (id: AnnotationId) => void;
-    setCanonicalColor?: (id: AnnotationId, color: string) => void;
-    moveCanonicalAnchor?: (id: AnnotationId, rect: IAnnotationMarkerRect) => void;
+    setCanonicalNoteText: (id: AnnotationId, text: string) => void;
+    deleteCanonicalAnnotation: (id: AnnotationId) => void;
+    setCanonicalColor: (id: AnnotationId, color: string) => void;
+    moveCanonicalAnchor: (id: AnnotationId, rect: IAnnotationMarkerRect) => void;
 }

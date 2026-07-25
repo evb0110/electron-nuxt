@@ -51,7 +51,6 @@ export const useAnnotationMutationService = (
     options: IUseAnnotationMutationServiceOptions,
 ): IAnnotationMutationService => {
     const visualEffects = createAnnotationMutationVisualEffectsState();
-
     function runHistoryTransaction<T>(action: () => T) {
         return options.runHistoryTransaction?.(action) ?? action();
     }
@@ -71,9 +70,12 @@ export const useAnnotationMutationService = (
     ) {
         return runHistoryTransaction(() => {
             const id = options.resolveCanonicalAnnotationId?.(input.comment);
-            const updated = options.updateAnnotationComment(input.comment, input.text);
-            if (updated && id) options.setCanonicalNoteText?.(id, input.text);
-            return updated;
+            if (!id) {
+                return false;
+            }
+            options.setCanonicalNoteText(id, input.text);
+            options.updateAnnotationComment(input.comment, input.text);
+            return true;
         });
     }
 
@@ -86,17 +88,20 @@ export const useAnnotationMutationService = (
     ) {
         return runHistoryTransaction(async () => {
             const id = options.resolveCanonicalAnnotationId?.(input.comment);
+            if (!id) {
+                return false;
+            }
+            options.deleteCanonicalAnnotation(id);
             if (input.strategy === 'local-only') {
                 options.markAnnotationLocallyDeleted(input.comment);
                 enqueueAnnotationDomRemoval(input.comment);
                 return true;
             }
-            const deleted = await options.deleteAnnotationComment(input.comment);
-            if (deleted) {
-                enqueueAnnotationDomRemoval(input.comment);
-                if (id) options.deleteCanonicalAnnotation?.(id);
-            }
-            return deleted;
+            try {
+                await options.deleteAnnotationComment(input.comment);
+            } catch { /* canonical tombstone and removal effect remain authoritative */ }
+            enqueueAnnotationDomRemoval(input.comment);
+            return true;
         });
     }
 
@@ -108,34 +113,37 @@ export const useAnnotationMutationService = (
     }
 
     function updateColorInTransaction(input: IAnnotationUpdateColorInput) {
+        const comment = input.comment ?? null;
+        const id = comment ? options.resolveCanonicalAnnotationId?.(comment) : null;
+        if (!comment || !id) {
+            return false;
+        }
+        options.setCanonicalColor(id, input.color);
         const result = input.selected === true
             ? options.updateSelectedTextMarkupAnnotationColor(input.color)
-            : input.comment
-                ? options.updateTextMarkupAnnotationColor(input.comment, input.color)
-                : null;
-        if (!result?.updated || !result.comment) {
-            return result?.updated === true;
-        }
-        const id = options.resolveCanonicalAnnotationId?.(result.comment);
-        if (id) options.setCanonicalColor?.(id, input.color);
+            : options.updateTextMarkupAnnotationColor(comment, input.color);
+        const projectedComment = result.comment ?? {
+            ...comment,
+            color: input.color,
+        };
         if (result.shouldApplyTextMarkupColor) {
             visualEffects.enqueue({
                 kind: 'text-markup-color',
-                stableKey: result.comment.stableKey,
-                annotationId: result.comment.annotationId,
-                pageNumber: result.comment.pageNumber,
-                commentSnapshot: result.comment,
+                stableKey: projectedComment.stableKey,
+                annotationId: projectedComment.annotationId,
+                pageNumber: projectedComment.pageNumber,
+                commentSnapshot: projectedComment,
                 color: input.color,
                 sourceColor: result.sourceColor,
             });
         }
-        if (result.shouldRefreshPage) {
+        if (result.shouldRefreshPage || !result.updated) {
             visualEffects.enqueue({
                 kind: 'render-page-text-markup',
-                stableKey: result.comment.stableKey,
-                annotationId: result.comment.annotationId,
-                pageNumber: result.comment.pageNumber,
-                commentSnapshot: result.comment,
+                stableKey: projectedComment.stableKey,
+                annotationId: projectedComment.annotationId,
+                pageNumber: projectedComment.pageNumber,
+                commentSnapshot: projectedComment,
             });
         }
         return true;
@@ -193,7 +201,11 @@ export const useAnnotationMutationService = (
 
     function moveMarkerInTransaction(input: IAnnotationMoveMarkerInput) {
         const id = options.resolveCanonicalAnnotationId?.(input.comment);
-        const moved = options.handleMarkerMove(input.comment, input.rect, {
+        if (!id) {
+            return false;
+        }
+        options.moveCanonicalAnchor(id, input.rect);
+        options.handleMarkerMove(input.comment, input.rect, {
             markEditorPending: (updated, original, markerRect) => {
                 const editor = options.findEditorForComment(updated) ?? options.findEditorForComment(original);
                 if (!editor) {
@@ -203,8 +215,7 @@ export const useAnnotationMutationService = (
             },
             markModified: options.markModified,
         });
-        if (moved && id) options.moveCanonicalAnchor?.(id, input.rect);
-        return moved;
+        return true;
     }
 
     function restoreAnnotation(

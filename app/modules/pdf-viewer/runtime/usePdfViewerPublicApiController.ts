@@ -8,6 +8,7 @@ import type { IPdfViewerExpose } from '@app/modules/pdf-viewer/runtime/contracts
 import { DEFAULT_ANNOTATION_SETTINGS } from '@app/constants/annotationDefaults';
 import { toShapeAnnotationCommentSummary } from '@app/modules/pdf-viewer/engine/annotations/shape-annotation-comments/toShapeAnnotationCommentSummary';
 import { getPageContainerByNumber } from '@app/modules/pdf-viewer/engine/pdf-scroll-visibility/getPageContainerByNumber';
+import { toSelectedTextMarkupComment } from '@app/modules/pdf-viewer/annotations/usePdfAnnotationColorCommands';
 
 interface IUsePdfViewerPublicApiControllerOptions {
     viewerContainer: Ref<HTMLElement | null>;
@@ -238,19 +239,18 @@ export const usePdfViewerPublicApiController = (options: IUsePdfViewerPublicApiC
         ensurePdfAnnotationNameReconciliation: annotations.commentSync.ensurePdfAnnotationNameReconciliation,
         focusAnnotationComment,
         updateAnnotationComment: (comment, text) => {
-            const update = () => annotationMutationService.updateComment(
+            const updated = annotationMutationService.updateComment(
                 {
                     comment,
                     text,
                 },
                 { source: 'user' },
             );
-            if (comment.source !== 'pdf' || comment.annotationName) {
-                return update();
+            if (comment.source === 'pdf' && !comment.annotationName) {
+                void annotations.commentSync
+                    .ensurePdfAnnotationNameReconciliation('existing-annotation-mutation');
             }
-            return annotations.commentSync
-                .ensurePdfAnnotationNameReconciliation('existing-annotation-mutation')
-                .then(update);
+            return updated;
         },
         moveAnnotationMarker: (comment, rect) => annotationMutationService.moveMarker(
             {
@@ -268,9 +268,10 @@ export const usePdfViewerPublicApiController = (options: IUsePdfViewerPublicApiC
         getMarkupSubtypeOverrides: annotations.editor.getMarkupSubtypeOverrides,
         getMarkupSubtypeHints: annotations.editor.getMarkupSubtypeHints,
         getSelectedTextMarkupAnnotationProperties: annotations.editor.markupSubtype.getSelectedTextMarkupAnnotationProperties,
-        updateSelectedTextMarkupAnnotationColor: color => annotationMutationService.updateColor(
+        updateSelectedTextMarkupAnnotationColor: (color, selected) => annotationMutationService.updateColor(
             {
                 color,
+                comment: toSelectedTextMarkupComment(selected),
                 selected: true,
             },
             { source: 'user' },
