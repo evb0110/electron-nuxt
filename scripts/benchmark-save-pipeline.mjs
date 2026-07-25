@@ -44,13 +44,13 @@ export function parseSavePipelineBenchmarkArgs(argv) {
     for (let index = 0; index < argv.length; index += 1) {
         const argument = argv[index];
         const value = argv[index + 1];
-        if (argument === '--fixture') {
+        if (argument === '--fixture' || argument === '--pdf') {
             options.fixture = value ?? null;
             index += 1;
         } else if (argument === '--iterations') {
             options.iterations = Number.parseInt(value ?? '', 10);
             index += 1;
-        } else if (argument === '--output') {
+        } else if (argument === '--output' || argument === '--out') {
             options.output = value ?? null;
             index += 1;
         } else if (argument === '--warmups') {
@@ -169,8 +169,12 @@ export async function runSavePipelineBenchmark(rawOptions) {
             generatedAt: new Date().toISOString(),
             fixturePath: options.fixture,
             fixtureBytes: fixtureStat.size,
+            inputPath: options.fixture,
+            outputPath: options.output,
             warmups: options.warmups,
             iterations: options.iterations,
+            hostProfile: results[0]?.hostProfile ?? null,
+            hostTier: results[0]?.hostProfile?.tier ?? null,
             cloneMode: {
                 measured: 'auto',
                 forcedNoClone: 'unavailable',
@@ -191,7 +195,7 @@ export async function runSavePipelineBenchmark(rawOptions) {
 
 function printUsage() {
     process.stdout.write(
-        'Usage: node scripts/benchmark-save-pipeline.mjs --fixture /absolute/input.pdf --iterations 10 --output .devkit/analysis/wp4-save-pipeline.json [--warmups 5]\n',
+        'Usage: node scripts/benchmark-save-pipeline.mjs (--fixture|--pdf) /absolute/input.pdf --iterations 10 (--output|--out) .devkit/analysis/save-pipeline.json [--warmups 5]\n',
     );
 }
 

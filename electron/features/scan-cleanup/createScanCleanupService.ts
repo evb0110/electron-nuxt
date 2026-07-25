@@ -15,8 +15,11 @@ import type {
     TScanCleanupErrorCode,
     TScanCleanupJobState,
 } from '@contracts/electronApiScanCleanup';
+import type { IHostResourceProfileSnapshot } from '@contracts/hostResourceProfile';
+import type { IScanCleanupRuntimePolicy } from '@contracts/resourcePolicies';
 import { documentOutputService } from '@electron/output/documentOutputService';
 import { mainJobBroker } from '@electron/resources/jobBroker';
+import { getHostResourceProfileSnapshot } from '@electron/resources/hostResourceProfile';
 import { getPdfNativeToolPaths } from '@electron/pdf/nativeToolPaths';
 import { resolveNativeToolPath } from '@electron/native-tools/resolveNativeToolPath';
 import { resolveNativePdfImageCombinePath } from '@electron/image/tryCreatePdfWithNativeImageCombiner';
@@ -195,6 +198,14 @@ export interface IScanCleanupService {
     pruneGeneratedOutputs: (openPdfPaths: string[]) => Promise<number>;
 }
 
+function resolveScanCleanupRuntimePolicy(
+    profile: IHostResourceProfileSnapshot,
+): IScanCleanupRuntimePolicy {
+    return {rasterConcurrency: profile.tier === 'low'
+        ? 1
+        : profile.tier === 'medium' ? 2 : 3};
+}
+
 export function createScanCleanupService(): IScanCleanupService {
     const jobs = createScanCleanupJobRegistry();
     return {
@@ -214,6 +225,9 @@ export function createScanCleanupService(): IScanCleanupService {
                 ...request,
                 outputPdfPath,
             };
+            const runtimePolicy = resolveScanCleanupRuntimePolicy(
+                getHostResourceProfileSnapshot(),
+            );
             const progress: TScanCleanupProgress = {
                 stage: 'queued' as const,
                 completedUnits: 0,
@@ -253,9 +267,9 @@ export function createScanCleanupService(): IScanCleanupService {
                             kind: 'scan-cleanup',
                             priority: 'user',
                             resources: {
-                                cpuTokens: 2,
-                                estimatedResidentBytes: 384 * 1024 * 1024,
-                                nativeProcesses: 1,
+                                cpuTokens: runtimePolicy.rasterConcurrency,
+                                estimatedResidentBytes: runtimePolicy.rasterConcurrency * 128 * 1024 * 1024,
+                                nativeProcesses: runtimePolicy.rasterConcurrency,
                                 ioWeight: 4,
                             },
                             perOwnerLimit: 1,
@@ -288,6 +302,7 @@ export function createScanCleanupService(): IScanCleanupService {
                                 ...(pdfPageOpsBinary ? {pdfPageOpsBinary} : {}),
                                 tempDir: getAppTempDir(),
                             },
+                            runtimePolicy,
                             job.signal,
                             nextProgress => {
                                 job.publish({

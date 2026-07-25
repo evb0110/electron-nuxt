@@ -228,6 +228,9 @@
     --app-font-weight-medium: 500;
     --app-font-weight-semibold: 600;
     --app-font-weight-heading: 650;
+    --app-animation-duration-skeleton: 1.2s;
+    --app-backdrop-blur-sm: 6px;
+    --app-backdrop-blur-md: 8px;
     --app-transition-fast: 0.1s ease;
     --app-transition-quick: 0.12s ease;
     --app-transition-standard: 0.15s ease;

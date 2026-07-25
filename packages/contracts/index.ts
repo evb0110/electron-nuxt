@@ -91,6 +91,15 @@ export type {
     TPerformanceMode,
 } from '@contracts/hostResourceProfile';
 
+export {
+    decodeScanCleanupRuntimePolicy,
+    decodeSearchWorkerResourcePolicy,
+} from '@contracts/resourcePolicies';
+export type {
+    IScanCleanupRuntimePolicy,
+    ISearchWorkerResourcePolicy,
+} from '@contracts/resourcePolicies';
+
 export type {
     IDesktopMenuCapability,
     IDesktopWindowCapability,

@@ -58,9 +58,9 @@ import type {
     IDjvuTextSearchProgress,
 } from '@contracts/electronApiDjvu';
 import { mainJobBroker } from '@electron/resources/jobBroker';
+import { getHostResourceProfileSnapshot } from '@electron/resources/hostResourceProfile';
 
 const logger = createLogger('djvu-operations');
-const DJVU_PREVIEW_MAX_IN_FLIGHT_PER_SENDER = 2;
 export interface IDjvuOperationContext extends IPlatformMainSenderContext<WebContents> {}
 
 interface IDjvuPreviewSenderState {
@@ -428,6 +428,7 @@ async function runCoalescedPreviewRequest<TResult>(
     ) => Promise<TResult>,
 ) {
     const senderId = sender.id;
+    const maxInFlight = getHostResourceProfileSnapshot().tier === 'low' ? 1 : 2;
     const state = getPreviewState(senderId);
     const request: IDjvuPreviewRequest = {
         documentKey,
@@ -435,7 +436,7 @@ async function runCoalescedPreviewRequest<TResult>(
         requestId,
         requestKey,
     };
-    const hasImmediateReservation = state.reservedRequestIds.size < DJVU_PREVIEW_MAX_IN_FLIGHT_PER_SENDER;
+    const hasImmediateReservation = state.reservedRequestIds.size < maxInFlight;
     if (hasImmediateReservation) {
         state.reservedRequestIds.add(requestId);
     }
@@ -454,7 +455,7 @@ async function runCoalescedPreviewRequest<TResult>(
         ownerId: `djvu-preview:${senderId}`,
         kind: 'djvu-preview',
         priority: resolveDjvuPreviewBrokerPriority(priority),
-        perOwnerLimit: DJVU_PREVIEW_MAX_IN_FLIGHT_PER_SENDER,
+        perOwnerLimit: maxInFlight,
         resources: {
             cpuTokens: 1,
             estimatedResidentBytes: 64 * 1024 * 1024,

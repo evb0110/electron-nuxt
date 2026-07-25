@@ -1,4 +1,7 @@
-import { parentPort } from 'worker_threads';
+import {
+    parentPort,
+    workerData,
+} from 'worker_threads';
 import { stat } from 'fs/promises';
 import type { IPdfSearchIndex } from '@electron/search/indexBuilder';
 import type { TDocumentRevisionToken } from '@contracts/documentRevision';
@@ -24,6 +27,8 @@ import type { IResolvedSearchMatchOptions } from '@pdf-core';
 import type { ICachedIndex } from '@electron/search/worker/ensureSearchIndex';
 import { ensureSearchIndex } from '@electron/search/worker/ensureSearchIndex';
 import { collectSearchMatchWords } from '@pdf-core';
+import { decodeSearchWorkerResourcePolicy } from '@contracts/resourcePolicies';
+import { isRecord } from '@contracts/runtimeGuards';
 
 interface ISearchRequestContext extends IResolvedSearchMatchOptions {
     requestId: string;
@@ -43,20 +48,13 @@ interface ISearchExecutionResult {
 interface ISearchProgressResultBatch extends ISearchExecutionResult { resultsStartIndex?: number; }
 
 const PROGRESS_THROTTLE_MS = 60;
-const SEARCH_INDEX_CACHE_MAX_ENTRIES = (() => {
-    const parsed = Number.parseInt(process.env.EVB_SEARCH_INDEX_CACHE_MAX_ENTRIES ?? '2', 10);
-    if (!Number.isFinite(parsed) || parsed < 1) {
-        return 2;
-    }
-    return Math.min(parsed, 128);
-})();
-const SEARCH_INDEX_CACHE_TTL_MS = (() => {
-    const parsed = Number.parseInt(process.env.EVB_SEARCH_INDEX_CACHE_TTL_MS ?? `${2 * 60 * 1000}`, 10);
-    if (!Number.isFinite(parsed) || parsed < 30_000) {
-        return 2 * 60 * 1000;
-    }
-    return parsed;
-})();
+const DEFAULT_NATIVE_SERVICE_IDLE_TIMEOUT_MS = 5 * 60_000;
+const DEFAULT_SEARCH_WORKER_RESOURCE_POLICY = {
+    indexCacheMaxEntries: 2,
+    indexCacheTtlMs: 2 * 60_000,
+    maxPageTextBytes: 2 * 1024 * 1024,
+    maxTotalTextBytes: 96 * 1024 * 1024,
+};
 const CANCELLED_REQUESTS_MAX_ENTRIES = (() => {
     const parsed = Number.parseInt(process.env.EVB_SEARCH_CANCELLED_REQUESTS_MAX_ENTRIES ?? '256', 10);
     if (!Number.isFinite(parsed) || parsed < 1) {
@@ -71,27 +69,41 @@ const CANCELLED_REQUEST_TTL_MS = (() => {
     }
     return parsed;
 })();
-const SEARCH_WORKER_MAX_PAGE_TEXT_BYTES = (() => {
-    const parsed = Number.parseInt(process.env.EVB_SEARCH_MAX_PAGE_TEXT_BYTES ?? `${2 * 1024 * 1024}`, 10);
-    if (!Number.isFinite(parsed) || parsed < 16 * 1024) {
-        return 2 * 1024 * 1024;
+function resolveWorkerResourcePolicy(value: unknown) {
+    if (value == null) {
+        return {
+            nativeServiceIdleTimeoutMs: DEFAULT_NATIVE_SERVICE_IDLE_TIMEOUT_MS,
+            resourcePolicy: DEFAULT_SEARCH_WORKER_RESOURCE_POLICY,
+        };
     }
-    return Math.min(parsed, 32 * 1024 * 1024);
-})();
-const SEARCH_WORKER_MAX_TOTAL_TEXT_BYTES = (() => {
-    const parsed = Number.parseInt(process.env.EVB_SEARCH_MAX_TOTAL_TEXT_BYTES ?? `${96 * 1024 * 1024}`, 10);
-    if (!Number.isFinite(parsed) || parsed < 256 * 1024) {
-        return 96 * 1024 * 1024;
+    if (!isRecord(value)) {
+        throw new Error('Invalid search workerData');
     }
-    return Math.min(parsed, 1024 * 1024 * 1024);
-})();
+    const resourcePolicy = decodeSearchWorkerResourcePolicy(value.resourcePolicy);
+    if (!resourcePolicy) {
+        throw new Error('Invalid search workerData.resourcePolicy');
+    }
+    if (
+        !Number.isSafeInteger(value.nativeServiceIdleTimeoutMs)
+        || (value.nativeServiceIdleTimeoutMs as number) <= 0
+    ) {
+        throw new Error('Invalid search workerData.nativeServiceIdleTimeoutMs');
+    }
+    return {
+        nativeServiceIdleTimeoutMs: value.nativeServiceIdleTimeoutMs as number,
+        resourcePolicy,
+    };
+}
+
+const workerResourcePolicy = resolveWorkerResourcePolicy(workerData);
 const searchIndexCacheOptions = {
-    maxEntries: SEARCH_INDEX_CACHE_MAX_ENTRIES,
-    ttlMs: SEARCH_INDEX_CACHE_TTL_MS,
-    maxPageTextBytes: SEARCH_WORKER_MAX_PAGE_TEXT_BYTES,
-    maxTotalTextBytes: SEARCH_WORKER_MAX_TOTAL_TEXT_BYTES,
+    maxEntries: workerResourcePolicy.resourcePolicy.indexCacheMaxEntries,
+    ttlMs: workerResourcePolicy.resourcePolicy.indexCacheTtlMs,
+    maxPageTextBytes: workerResourcePolicy.resourcePolicy.maxPageTextBytes,
+    maxTotalTextBytes: workerResourcePolicy.resourcePolicy.maxTotalTextBytes,
 };
 const indexCache = new Map<string, ICachedIndex>();
+const retainedTextBytesByIndex = new WeakMap<IPdfSearchIndex, number>();
 const cancelledRequests = new Map<string, number>();
 const requestAbortControllers = new Map<string, AbortController>();
 const progressSentAt = new Map<string, number>();
@@ -245,6 +257,7 @@ async function tryCompleteWithNativeSearch(context: ISearchRequestContext) {
             matchCase: context.matchCase,
             wholeWord: context.wholeWord,
             useRegex: context.useRegex,
+            nativeServiceIdleTimeoutMs: workerResourcePolicy.nativeServiceIdleTimeoutMs,
             signal: context.signal,
             ...(context.pageCount !== undefined ? { pageCount: context.pageCount } : {}),
         });
@@ -356,8 +369,58 @@ async function getRequestSearchIndex(context: ISearchRequestContext) {
         searchIndexCacheOptions,
         ensureOptions,
     );
+    pruneRetainedTextCache(indexEntry);
     throwIfCancelled(requestId, signal);
     return indexEntry;
+}
+
+function getRetainedTextBytes(entry: ICachedIndex) {
+    const cachedTextBytes = retainedTextBytesByIndex.get(entry.index);
+    if (cachedTextBytes !== undefined) {
+        return cachedTextBytes;
+    }
+    const textBytes = entry.index.pages.reduce(
+        (total, page) => total + Buffer.byteLength(page.text ?? '', 'utf8'),
+        0,
+    );
+    retainedTextBytesByIndex.set(entry.index, textBytes);
+    return textBytes;
+}
+
+function pruneRetainedTextCache(retainedEntry: ICachedIndex) {
+    const cachedEntries = Array.from(indexCache.entries())
+        .map(([
+            cacheKey,
+            entry,
+        ]) => ({
+            cacheKey,
+            entry,
+            textBytes: getRetainedTextBytes(entry),
+        }))
+        .sort((left, right) => {
+            if (left.entry === right.entry) {
+                return 0;
+            }
+            if (left.entry === retainedEntry) {
+                return 1;
+            }
+            if (right.entry === retainedEntry) {
+                return -1;
+            }
+            return left.entry.accessedAt - right.entry.accessedAt;
+        });
+    let retainedTextBytes = cachedEntries.reduce(
+        (total, entry) => total + entry.textBytes,
+        0,
+    );
+
+    for (const entry of cachedEntries) {
+        if (retainedTextBytes <= searchIndexCacheOptions.maxTotalTextBytes) {
+            return;
+        }
+        indexCache.delete(entry.cacheKey);
+        retainedTextBytes -= entry.textBytes;
+    }
 }
 
 function getTotalPages(

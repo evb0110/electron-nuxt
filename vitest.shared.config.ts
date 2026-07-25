@@ -38,6 +38,7 @@ const unitPolicyTestFiles = [
 
 const electronE2ESmokeTestFiles = [
     'tests/e2e/electron/prBlockingSmoke.e2e.test.ts',
+    'tests/e2e/electron/performanceProfileVisuals.e2e.test.ts',
     'tests/e2e/electron/startupHydration.e2e.test.ts',
     'tests/e2e/electron/recentFiles.e2e.test.ts',
     'tests/e2e/electron/viewerSmoke.e2e.test.ts',

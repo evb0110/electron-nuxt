@@ -7,6 +7,7 @@ import type {
 } from '@contracts/electronApiScanCleanup';
 import {SCAN_CLEANUP_SUMMARY_SCHEMA} from '@contracts/scan-cleanup/ipc';
 import {SCAN_CLEANUP_PROGRESS_SCHEMA} from '@contracts/scan-cleanup/progress';
+import type { IScanCleanupRuntimePolicy } from '@contracts/resourcePolicies';
 import type {
     IRunScanCleanupPipelineRequest,
     IScanCleanupWorkerPaths,
@@ -42,6 +43,7 @@ function decodeSummary(value: unknown): TScanCleanupSummary | null {
 export async function runScanCleanupWorkerTask(
     request: IRunScanCleanupPipelineRequest,
     paths: IScanCleanupWorkerPaths,
+    runtimePolicy: IScanCleanupRuntimePolicy,
     signal: AbortSignal,
     onProgress: (progress: TScanCleanupProgress) => void,
 ) {
@@ -50,6 +52,7 @@ export async function runScanCleanupWorkerTask(
         workerData: {
             request,
             paths,
+            runtimePolicy,
         },
         invalidPayloadMessage: 'Scan cleanup worker returned an invalid payload',
         invalidResultMessage: 'Scan cleanup worker returned an invalid summary',

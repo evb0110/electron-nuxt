@@ -2,7 +2,6 @@ import { randomUUID } from 'node:crypto';
 import type { WebContents } from 'electron';
 import { Worker } from 'worker_threads';
 import { minBy } from 'es-toolkit/array';
-import { clamp } from 'es-toolkit/math';
 import { withTimeout } from 'es-toolkit/promise';
 import type {
     ISearchResponse,
@@ -35,6 +34,11 @@ import {
     type IMainJobRunContext,
     type TMainJobErrorKind,
 } from '@electron/operation-lifecycle/createMainJobRegistry';
+import {
+    type ISearchResourcePolicy,
+    resolveSearchResourcePolicy,
+} from '@electron/features/search/main/searchResourcePolicy';
+import { getHostResourceProfileSnapshot } from '@electron/resources/hostResourceProfile';
 
 type TSearchMatch = ISearchResponse['results'][number];
 type TSearchJobContext = IMainJobRunContext<IPdfSearchProgress, ISearchResponse, ISearchErrorEnvelope>;
@@ -198,10 +202,6 @@ function createWorkerSettlement(
 const log = createLogger('search-ipc');
 const DEFAULT_SEARCH_REQUEST_TIMEOUT_MS = SEARCH_PLATFORM_FEATURE.methods.run.ipc.timeoutMs;
 const MIN_SEARCH_REQUEST_TIMEOUT_MS = 5_000;
-const DEFAULT_SEARCH_WORKER_MAX_ACTIVE = 2;
-const MAX_SEARCH_WORKER_ACTIVE = 256;
-const DEFAULT_SEARCH_WORKER_IDLE_TTL_MS = 30 * 1000;
-const MIN_SEARCH_WORKER_IDLE_TTL_MS = 10_000;
 const DEFAULT_SEARCH_WORKER_TERMINATE_TIMEOUT_MS = 10_000;
 const MIN_SEARCH_WORKER_TERMINATE_TIMEOUT_MS = 1_000;
 const DEFAULT_SEARCH_CANCEL_ACK_TIMEOUT_MS = 5_000;
@@ -211,20 +211,6 @@ const SEARCH_REQUEST_TIMEOUT_MS = (() => {
     const parsed = Number.parseInt(process.env.EVB_SEARCH_REQUEST_TIMEOUT_MS ?? `${DEFAULT_SEARCH_REQUEST_TIMEOUT_MS}`, 10);
     if (!Number.isFinite(parsed) || parsed < MIN_SEARCH_REQUEST_TIMEOUT_MS) {
         return DEFAULT_SEARCH_REQUEST_TIMEOUT_MS;
-    }
-    return parsed;
-})();
-const SEARCH_WORKER_MAX_ACTIVE = (() => {
-    const parsed = Number.parseInt(process.env.EVB_SEARCH_WORKER_MAX_ACTIVE ?? `${DEFAULT_SEARCH_WORKER_MAX_ACTIVE}`, 10);
-    if (!Number.isFinite(parsed)) {
-        return DEFAULT_SEARCH_WORKER_MAX_ACTIVE;
-    }
-    return clamp(parsed, 1, MAX_SEARCH_WORKER_ACTIVE);
-})();
-const SEARCH_WORKER_IDLE_TTL_MS = (() => {
-    const parsed = Number.parseInt(process.env.EVB_SEARCH_WORKER_IDLE_TTL_MS ?? `${DEFAULT_SEARCH_WORKER_IDLE_TTL_MS}`, 10);
-    if (!Number.isFinite(parsed) || parsed < MIN_SEARCH_WORKER_IDLE_TTL_MS) {
-        return DEFAULT_SEARCH_WORKER_IDLE_TTL_MS;
     }
     return parsed;
 })();
@@ -249,21 +235,49 @@ const SEARCH_CANCEL_ACK_TIMEOUT_MS = (() => {
     return parsed;
 })();
 
-export function getSearchWorkerServiceConfig() {
-    return {
-        requestTimeoutMs: SEARCH_REQUEST_TIMEOUT_MS,
-        idleTtlMs: SEARCH_WORKER_IDLE_TTL_MS,
-        maxActive: SEARCH_WORKER_MAX_ACTIVE,
-    };
-}
-
 export class SearchWorkerService {
     private readonly searchJobs = createSearchJobRegistry();
     private readonly senderSearchStates = new Map<number, ISenderSearchState>();
     private readonly workerTerminationPromises = new Map<Worker, Promise<void>>();
     private readonly warmupSingleflightsByDocument = new Map<string, IWarmupSingleflight>();
+    private resourcePolicy: ISearchResourcePolicy | null;
+    private readonly resolveResourcePolicy: (() => ISearchResourcePolicy) | null;
 
-    constructor(private readonly resolveWorkerPath: () => string) {}
+    constructor(
+        private readonly resolveWorkerPath: () => string,
+        resourcePolicy: ISearchResourcePolicy | (() => ISearchResourcePolicy),
+    ) {
+        this.resourcePolicy = typeof resourcePolicy === 'function'
+            ? null
+            : resourcePolicy;
+        this.resolveResourcePolicy = typeof resourcePolicy === 'function'
+            ? resourcePolicy
+            : null;
+    }
+
+    static resolveCurrentHostResourcePolicy() {
+        return resolveSearchResourcePolicy(
+            getHostResourceProfileSnapshot(),
+            process.env,
+        );
+    }
+
+    private getResourcePolicy() {
+        this.resourcePolicy ??= this.resolveResourcePolicy?.() ?? null;
+        if (!this.resourcePolicy) {
+            throw new Error('Search worker resource policy was not resolved');
+        }
+        return this.resourcePolicy;
+    }
+
+    getConfig() {
+        const resourcePolicy = this.getResourcePolicy();
+        return {
+            requestTimeoutMs: SEARCH_REQUEST_TIMEOUT_MS,
+            idleTtlMs: resourcePolicy.workerIdleTtlMs,
+            maxActive: resourcePolicy.maxActiveSenderWorkers,
+        };
+    }
 
     private normalizeOperationContext(context: ISearchSenderContext): ISearchOperationContext {
         return {
@@ -509,6 +523,7 @@ export class SearchWorkerService {
     }
 
     private scheduleIdleCleanup(state: ISenderSearchState) {
+        const {workerIdleTtlMs} = this.getResourcePolicy();
         this.clearIdleCleanupTimer(state);
         if (!this.isStateIdle(state)) {
             return;
@@ -522,9 +537,13 @@ export class SearchWorkerService {
                 terminateWorker: true,
                 reason: 'Search worker idle timeout',
             });
-        }, SEARCH_WORKER_IDLE_TTL_MS);
+        }, workerIdleTtlMs);
         state.idleCleanupTimer.unref?.();
-        log.debug(`Search worker lifecycle: sender ${state.senderId} scheduled idle cleanup in ${SEARCH_WORKER_IDLE_TTL_MS}ms`);
+        log.debug(
+            `Search worker lifecycle: sender ${state.senderId} scheduled idle cleanup in ${
+                workerIdleTtlMs
+            }ms`,
+        );
     }
 
     private removeWorkerRequest(state: ISenderSearchState, request: IWorkerSearchRequest) {
@@ -787,7 +806,12 @@ export class SearchWorkerService {
     }
 
     private createSenderSearchState(senderId: number): ISenderSearchState {
-        const worker = new Worker(this.resolveWorkerPath());
+        const resourcePolicy = this.getResourcePolicy();
+        const workerData = {
+            nativeServiceIdleTimeoutMs: resourcePolicy.nativeServiceIdleTimeoutMs,
+            resourcePolicy: resourcePolicy.workerResourcePolicy,
+        };
+        const worker = new Worker(this.resolveWorkerPath(), {workerData});
         const state: ISenderSearchState = {
             senderId,
             worker,
@@ -849,13 +873,14 @@ export class SearchWorkerService {
     }
 
     private ensureSenderState(senderId: number) {
+        const {maxActiveSenderWorkers} = this.getResourcePolicy();
         let state = this.senderSearchStates.get(senderId);
         if (state) {
             this.markStateActivity(state);
             this.clearIdleCleanupTimer(state);
             return state;
         }
-        if (this.senderSearchStates.size >= SEARCH_WORKER_MAX_ACTIVE) {
+        if (this.senderSearchStates.size >= maxActiveSenderWorkers) {
             const reusableState = this.findReusableIdleState();
             if (reusableState) {
                 const previousSenderId = reusableState.senderId;
@@ -867,17 +892,19 @@ export class SearchWorkerService {
                 this.senderSearchStates.set(senderId, reusableState);
                 log.warn(
                     `Search worker cap pressure: reusing idle worker from sender ${previousSenderId} for sender ${senderId} `
-                    + `(max active: ${SEARCH_WORKER_MAX_ACTIVE})`,
+                    + `(max active: ${maxActiveSenderWorkers})`,
                 );
                 return reusableState;
             }
             log.warn(
                 `Search worker cap pressure: rejecting sender ${senderId}; no idle workers available `
-                + `(max active: ${SEARCH_WORKER_MAX_ACTIVE})`,
+                + `(max active: ${maxActiveSenderWorkers})`,
             );
             throw new SearchIpcError(buildSearchErrorEnvelope(
                 'SEARCH_WORKER_LIMIT',
-                `Search worker limit reached (${SEARCH_WORKER_MAX_ACTIVE} active senders). Please retry shortly.`,
+                `Search worker limit reached (${
+                    maxActiveSenderWorkers
+                } active senders). Please retry shortly.`,
                 {retryable: true},
             ));
         }
@@ -885,7 +912,7 @@ export class SearchWorkerService {
         this.senderSearchStates.set(senderId, state);
         log.info(
             `Search worker lifecycle: sender ${senderId} worker active `
-            + `(${this.senderSearchStates.size}/${SEARCH_WORKER_MAX_ACTIVE})`,
+            + `(${this.senderSearchStates.size}/${maxActiveSenderWorkers})`,
         );
         return state;
     }

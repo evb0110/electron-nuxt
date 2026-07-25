@@ -25,10 +25,16 @@ const mocks = vi.hoisted(() => {
         loadSearchIndex: vi.fn(),
         buildSearchIndex: vi.fn(),
         tryRunNativeSearch: vi.fn(),
+        workerData: undefined as unknown,
     };
 });
 
-vi.mock('worker_threads', () => ({parentPort: mocks.parentPort}));
+vi.mock('worker_threads', () => ({
+    parentPort: mocks.parentPort,
+    get workerData() {
+        return mocks.workerData;
+    },
+}));
 vi.mock('fs/promises', () => ({stat: mocks.stat}));
 vi.mock('@electron/search/indexBuilder', () => ({
     SEARCH_INDEX_SCHEMA_VERSION: 7,
@@ -72,6 +78,7 @@ describe('search worker warmup and cache behavior', () => {
         vi.clearAllMocks();
         mocks.postedMessages.length = 0;
         mocks.messageHandlers.clear();
+        mocks.workerData = undefined;
         delete process.env.EVB_PDF_SEARCH_ENABLE;
         delete process.env.EVB_PDF_SEARCH_DISABLE;
 
@@ -154,6 +161,7 @@ describe('search worker warmup and cache behavior', () => {
             query: 'needle',
             useRegex: false,
             wholeWord: false,
+            nativeServiceIdleTimeoutMs: 5 * 60_000,
         }));
         expect(mocks.loadSearchIndex).not.toHaveBeenCalled();
         expect(mocks.buildSearchIndex).not.toHaveBeenCalled();
@@ -387,6 +395,78 @@ describe('search worker warmup and cache behavior', () => {
         }
 
         expect(mocks.buildSearchIndex).toHaveBeenCalledTimes(4);
+    });
+
+    it('validates workerData and evicts retained text above the low-tier 48 MiB budget', async () => {
+        const MIB = 1024 * 1024;
+        mocks.workerData = {
+            nativeServiceIdleTimeoutMs: 60_000,
+            resourcePolicy: {
+                indexCacheMaxEntries: 2,
+                indexCacheTtlMs: 120_000,
+                maxPageTextBytes: 2 * MIB,
+                maxTotalTextBytes: 48 * MIB,
+            },
+        };
+        const pageText = 'x'.repeat(MIB);
+        mocks.buildSearchIndex.mockImplementation(async (pdfPath: string) => ({
+            schemaVersion: 7,
+            documentRevision: {token: DOCUMENT_REVISION},
+            pdfPath,
+            createdAt: Date.now(),
+            pageCount: 25,
+            pages: Array.from({length: 25}, (_, index) => ({
+                pageNumber: index + 1,
+                text: pageText,
+            })),
+        }));
+
+        await import('@electron/search/worker');
+        const handleMessage = mocks.messageHandlers.get('message');
+        for (const [
+            index,
+            pdfPath,
+        ] of [
+                '/tmp/search-budget-a.pdf',
+                '/tmp/search-budget-b.pdf',
+                '/tmp/search-budget-a.pdf',
+            ].entries()) {
+            handleMessage?.({
+                type: 'search',
+                payload: {
+                    requestId: `budget-${index}`,
+                    pdfPath,
+                    documentRevision: DOCUMENT_REVISION,
+                    query: '',
+                    pageCount: 25,
+                    warmup: true,
+                },
+            });
+            await vi.waitFor(() => {
+                expect(mocks.postedMessages).toContainEqual(expect.objectContaining({
+                    type: 'complete',
+                    requestId: `budget-${index}`,
+                }));
+            });
+        }
+
+        expect(mocks.buildSearchIndex).toHaveBeenCalledTimes(3);
+    });
+
+    it('rejects malformed workerData instead of applying in-process defaults', async () => {
+        mocks.workerData = {
+            nativeServiceIdleTimeoutMs: 60_000,
+            resourcePolicy: {
+                indexCacheMaxEntries: 1,
+                indexCacheTtlMs: 120_000,
+                maxPageTextBytes: 2 * 1024 * 1024,
+                maxTotalTextBytes: 0,
+            },
+        };
+
+        await expect(import('@electron/search/worker'))
+            .rejects.toThrow('Invalid search workerData.resourcePolicy');
+        expect(mocks.parentPort.on).not.toHaveBeenCalled();
     });
 
     it('does not materialize lowercase page copies across repeated searches', async () => {

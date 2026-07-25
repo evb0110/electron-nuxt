@@ -9,7 +9,11 @@ const MAX_NORMAL_PAGE_SLOTS = 8;
 const LOW_MEMORY_PAGE_SLOTS = 2;
 const NORMAL_RENDERED_PAGE_BYTES = 33_660_000;
 
-export interface IOcrRuntimePolicy {globalPageSlots: number;}
+export interface IOcrRuntimePolicy {
+    globalPageSlots: number;
+    workerPoolSize: number;
+    modelDownloadConcurrency: number;
+}
 
 function parsePositiveInt(value: string | undefined) {
     if (!value) {
@@ -40,31 +44,42 @@ function getMemorySlotCount(memoryBytes: number) {
     );
 }
 
-export function resolveOcrResourcePolicy(
+export function resolveOcrRuntimePolicy(
     profile: IHostResourceProfileSnapshot,
     env: NodeJS.ProcessEnv,
 ): IOcrRuntimePolicy {
-    const configuredPageSlots = parsePositiveInt(env.OCR_GLOBAL_PAGE_SLOTS);
-    const globalPageSlots = configuredPageSlots === null
-        ? profile.tier === 'low'
-            ? 1
-            : profile.totalRamBytes > 0 && profile.totalRamBytes < LOW_MEMORY_BYTES
-                ? LOW_MEMORY_PAGE_SLOTS
-                : clamp(
-                    Math.min(
-                        getCpuSlotCount(profile.logicalCpus),
-                        getMemorySlotCount(profile.totalRamBytes),
-                    ),
-                    1,
-                    MAX_NORMAL_PAGE_SLOTS,
-                )
-        : clamp(configuredPageSlots, 1, MAX_NORMAL_PAGE_SLOTS);
+    const isLowTier = profile.tier === 'low';
+    const defaultGlobalPageSlots = isLowTier
+        ? 1
+        : profile.totalRamBytes > 0 && profile.totalRamBytes < LOW_MEMORY_BYTES
+            ? LOW_MEMORY_PAGE_SLOTS
+            : Math.min(
+                getCpuSlotCount(profile.logicalCpus),
+                getMemorySlotCount(profile.totalRamBytes),
+            );
+    const globalPageSlots = clamp(
+        parsePositiveInt(env.OCR_GLOBAL_PAGE_SLOTS) ?? defaultGlobalPageSlots,
+        1,
+        MAX_NORMAL_PAGE_SLOTS,
+    );
+    const workerPoolSize = parsePositiveInt(env.EVB_OCR_WORKER_POOL_SIZE)
+        ?? (isLowTier ? 1 : 2);
+    const modelDownloadConcurrency = clamp(
+        parsePositiveInt(env.EVB_OCR_MODEL_DOWNLOAD_CONCURRENCY)
+            ?? (isLowTier ? 1 : 3),
+        1,
+        8,
+    );
 
-    return {globalPageSlots};
+    return {
+        globalPageSlots,
+        workerPoolSize,
+        modelDownloadConcurrency,
+    };
 }
 
 export function getOcrRuntimePolicy() {
-    return resolveOcrResourcePolicy(
+    return resolveOcrRuntimePolicy(
         getHostResourceProfileSnapshot(),
         process.env,
     );

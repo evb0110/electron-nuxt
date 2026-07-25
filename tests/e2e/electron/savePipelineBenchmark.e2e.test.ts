@@ -92,6 +92,8 @@ async function runSave(page: Page, path: string, text: string) {
         path,
         timeoutMs: SAVE_TIMEOUT_MS,
     });
+    const beforeBytes = (await stat(path)).size;
+    const timestamp = new Date().toISOString();
     const startedAt = performance.now();
     const result = await callWorkspaceCommand<boolean>(page, 'handleSave');
     const durationMs = performance.now() - startedAt;
@@ -100,7 +102,13 @@ async function runSave(page: Page, path: string, text: string) {
         value: true,
     });
     await committed;
-    return durationMs;
+    const afterBytes = (await stat(path)).size;
+    return {
+        afterBytes,
+        beforeBytes,
+        durationMs,
+        timestamp,
+    };
 }
 
 async function readResidentBytes(pid: number | null) {
@@ -153,14 +161,19 @@ benchmarkDescribe('Electron E2E - save pipeline benchmark', () => {
         );
         try {
             await waitForOpenedPdf(session.page, workingFixture);
+            const hostProfile = await session.page.evaluate(() => (
+                window.electronAPI?.host.getResourceProfile() ?? null
+            ));
+            expect(hostProfile).toMatchObject({tier});
             if (mode === 'serialized-fallback') {
                 await forceSerializedFallback(session.page);
             }
             const totalRuns = warmups + iterations;
             const timings: number[] = [];
+            const iterationMeasurements = [];
             let peakRssBytes: number | null = null;
             for (let index = 0; index < totalRuns; index += 1) {
-                const durationMs = await runSave(
+                const measurement = await runSave(
                     session.page,
                     workingFixture,
                     `save benchmark ${mode} ${tier} ${String(index)}`,
@@ -172,7 +185,11 @@ benchmarkDescribe('Electron E2E - save pipeline benchmark', () => {
                     peakRssBytes = Math.max(peakRssBytes ?? 0, rssBytes);
                 }
                 if (index >= warmups) {
-                    timings.push(durationMs);
+                    timings.push(measurement.durationMs);
+                    iterationMeasurements.push({
+                        iteration: index - warmups + 1,
+                        ...measurement,
+                    });
                 }
             }
             const outputBytes = await readFile(workingFixture);
@@ -182,9 +199,13 @@ benchmarkDescribe('Electron E2E - save pipeline benchmark', () => {
                 scenario: `${mode}-${tier}`,
                 mode,
                 tier,
+                hostProfile,
                 fixturePath,
+                inputPath: fixturePath,
+                outputPath: workingFixture,
                 warmups,
                 iterations,
+                iterationMeasurements,
                 totalMs: {
                     p50: percentile(timings, 0.5),
                     p95: percentile(timings, 0.95),

@@ -52,6 +52,7 @@ const mocks = vi.hoisted(() => ({
     searchDjvuText: vi.fn(),
     safeSendToWindow: vi.fn(),
     senderSend: vi.fn(),
+    hostResourceTier: 'high' as 'low' | 'medium' | 'high',
 }));
 
 vi.mock('electron', () => ({
@@ -101,6 +102,14 @@ vi.mock('@electron/djvu/textSearch', () => ({
     searchDjvuText: mocks.searchDjvuText,
 }));
 vi.mock('@electron/djvu/safeSendToWindow', () => ({safeSendToWindow: mocks.safeSendToWindow}));
+vi.mock('@electron/resources/hostResourceProfile', () => ({getHostResourceProfileSnapshot: () => ({
+    logicalCpus: 8,
+    totalRamBytes: 16 * 1024 * 1024 * 1024,
+    safeMode: false,
+    detectedTier: mocks.hostResourceTier,
+    performanceMode: 'auto',
+    tier: mocks.hostResourceTier,
+})}));
 vi.mock('@electron/utils/createLogger', () => ({createLogger: () => ({
     debug: vi.fn(),
     info: vi.fn(),
@@ -209,6 +218,7 @@ describe('registerDjvuIpcAdapter', () => {
         mocks.handlers.clear();
         vi.clearAllMocks();
         delete process.env.EVB_DJVU_SWEEP_STALE_TEMP;
+        mocks.hostResourceTier = 'high';
 
         mocks.getDjvuPageCount.mockResolvedValue(1);
         mocks.getDjvuResolution.mockResolvedValue(300);
@@ -802,6 +812,59 @@ describe('registerDjvuIpcAdapter', () => {
                 }),
             );
             expect(mocks.getDjvuPageCount).not.toHaveBeenCalled();
+        } finally {
+            rmSync(tempRoot, {
+                force: true,
+                recursive: true,
+            });
+        }
+    });
+
+    it.each([
+        [
+            'low',
+            1,
+        ],
+        [
+            'medium',
+            2,
+        ],
+        [
+            'high',
+            2,
+        ],
+    ] as const)('caps %s-tier native previews at %i per sender', async (tier, maxInFlight) => {
+        const tempRoot = mkdtempSync(join(tmpdir(), `evb-djvu-${tier}-preview-cap-test-`));
+        try {
+            mocks.hostResourceTier = tier;
+            const realPath = join(tempRoot, 'real.djvu');
+            writeFileSync(realPath, new Uint8Array([1]));
+            const previews = createPendingPreviews(maxInFlight + 1);
+            const { allowOpenPath } = await import('@electron/file-access/openPathCapabilities');
+            const event = createIpcEvent(30);
+            allowOpenPath(realPath, event.sender as never);
+            registerDjvuIpcAdapter();
+            const handler = getHandler('djvu:renderPagePreview');
+            const runs = previews.map((_preview, index) => handler(
+                event,
+                realPath,
+                index + 1,
+                {previewRequestId: `${tier}-preview-${index}`},
+            ));
+
+            await vi.waitFor(() => {
+                expect(mocks.renderDjvuPagePreview).toHaveBeenCalledTimes(maxInFlight);
+            });
+            expect(mocks.renderDjvuPagePreview).toHaveBeenCalledTimes(maxInFlight);
+
+            resolvePreview(previews[0]!, 1);
+            await vi.waitFor(() => {
+                expect(mocks.renderDjvuPagePreview).toHaveBeenCalledTimes(maxInFlight + 1);
+            });
+            previews.slice(1).forEach((preview, index) => {
+                resolvePreview(preview, index + 2);
+            });
+            await Promise.all(runs);
         } finally {
             rmSync(tempRoot, {
                 force: true,

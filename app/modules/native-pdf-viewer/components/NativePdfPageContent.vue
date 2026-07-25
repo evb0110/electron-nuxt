@@ -185,7 +185,11 @@ function handleImageError(objectUrl: string | null) {
     padding: var(--app-native-pdf-page-number-padding);
     font-size: var(--app-native-pdf-page-number-font-size);
     color: var(--ui-text-muted);
-    backdrop-filter: blur(6px);
+    backdrop-filter: blur(var(--app-backdrop-blur-sm));
+}
+
+:global(html.app-low-graphics) .native-pdf-page-number {
+    backdrop-filter: none;
 }
 
 </style>

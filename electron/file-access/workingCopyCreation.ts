@@ -62,6 +62,9 @@ interface IWorkingCopyPhaseTiming {
 
 type TWorkingCopyMaterializationMode = 'eager' | 'background' | 'lazy';
 
+// Permanent runtime kill-switch, not a compatibility shim: 'eager' restores
+// pre-lazy behavior for filesystems where background materialization
+// misbehaves; remove only if the lazy backing itself is ever removed.
 function getWorkingCopyMaterializationMode(): TWorkingCopyMaterializationMode {
     const configuredMode = process.env.EVB_WORKING_COPY_MATERIALIZATION_MODE ?? 'background';
     return configuredMode === 'eager' || configuredMode === 'lazy'

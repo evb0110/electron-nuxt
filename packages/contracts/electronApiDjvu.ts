@@ -1,5 +1,6 @@
 import type { TDocumentRef } from '@contracts/documentRef';
 import type { TDjvuPdfExportStrategy } from '@contracts/djvuConversionPolicy';
+import type { THostResourceTier } from '@contracts/hostResourceProfile';
 import type {
     TPdfViewMode,
     TPrintOrientation,
@@ -280,6 +281,7 @@ export interface IDjvuConvertOptions {
     pdfStrategy?: TDjvuPdfExportStrategy;
     requestId?: string;
     documentRef?: TDocumentRef;
+    hostTier?: THostResourceTier;
 }
 
 export interface IDjvuJobStartHandle {

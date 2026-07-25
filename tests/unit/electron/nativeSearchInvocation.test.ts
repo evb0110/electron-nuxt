@@ -256,6 +256,36 @@ describe('native search invocation', () => {
         expect(mocks.runNativeToolCommand).toHaveBeenCalledOnce();
     });
 
+    it('passes the resolved 60-second low-tier idle retention to the persistent service', async () => {
+        mocks.tryRunPersistentNativeSearch.mockResolvedValue({
+            pageCount: 1,
+            results: [],
+            truncated: false,
+        });
+        const { tryRunNativeSearch } = await import('@electron/search/nativeSearch');
+
+        await expect(tryRunNativeSearch({
+            pdfPath: '/tmp/doc.pdf',
+            documentRevision: DOCUMENT_REVISION,
+            query: 'needle',
+            matchCase: false,
+            wholeWord: false,
+            useRegex: false,
+            pageCount: 1,
+            nativeServiceIdleTimeoutMs: 60_000,
+        })).resolves.toMatchObject({totalPages: 1});
+
+        expect(mocks.tryRunPersistentNativeSearch).toHaveBeenCalledWith(
+            '/native/evb-pdf-search',
+            expect.any(Object),
+            expect.objectContaining({
+                idleTimeoutMs: 60_000,
+                timeoutMs: 30_000,
+            }),
+        );
+        expect(mocks.runNativeToolCommand).not.toHaveBeenCalled();
+    });
+
     it('runs native search when the legacy JSON index has text but no word geometry', async () => {
         mocks.loadSearchIndex.mockResolvedValue({
             schemaVersion: 7,

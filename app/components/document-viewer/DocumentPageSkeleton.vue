@@ -214,6 +214,10 @@ const repeatParagraphs = computed(() => {
     }
 }
 
+:global(html.app-low-graphics) .inner {
+    animation: none;
+}
+
 @media (prefers-reduced-motion: reduce) {
     .inner {
         animation: none;

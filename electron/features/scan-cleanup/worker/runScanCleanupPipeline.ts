@@ -23,6 +23,7 @@ import type {
     TScanCleanupSummary,
     TScanCleanupOutputMode,
 } from '@contracts/electronApiScanCleanup';
+import type { IScanCleanupRuntimePolicy } from '@contracts/resourcePolicies';
 import {getScanCleanupPageOverride} from '@contracts/scanCleanupPageOverrides';
 import { getPdfPageCount } from '@electron/pdf/pdfPageCount';
 import { detectSourceDpiDetails } from '@electron/pdf/sourceDpiDetection';
@@ -436,6 +437,7 @@ async function runLosslessScanCleanup(
     signal: AbortSignal,
     onProgress: (progress: TScanCleanupProgress) => void,
     log: TWorkerLog,
+    policy: IScanCleanupRuntimePolicy,
     dependencies: IRunScanCleanupPipelineDependencies,
 ) {
     if (!paths.pdfPageOpsBinary) throw new Error('evb-pdf-page-ops is unavailable for lossless scan cleanup');
@@ -477,7 +479,7 @@ async function runLosslessScanCleanup(
     let rasterizedCount = 0;
     const rasterizedPageNumbers = new Set<number>();
     emitProgress(onProgress, 'rasterizing', 0, pageNumbers.length, 5, []);
-    const pageInputs = await mapScanCleanupRasterPages(rasterPlans, 3, async plan => {
+    const pageInputs = await mapScanCleanupRasterPages(rasterPlans, policy.rasterConcurrency, async plan => {
         signal.throwIfAborted();
         const extension = rasterHandoff.format;
         const inputPath = join(scratch, `analysis-${plan.pageNumber}.${extension}`);
@@ -651,6 +653,7 @@ export async function runScanCleanupPipeline(
     paths: IScanCleanupWorkerPaths,
     signal: AbortSignal,
     onProgress: (progress: TScanCleanupProgress) => void,
+    policy: IScanCleanupRuntimePolicy,
     log: TWorkerLog = () => undefined,
     dependencies: IRunScanCleanupPipelineDependencies = defaultDependencies,
 ): Promise<TScanCleanupSummary> {
@@ -714,6 +717,7 @@ export async function runScanCleanupPipeline(
                 signal,
                 onProgress,
                 log,
+                policy,
                 dependencies,
             );
             if ((await stat(stagedPdfPath)).size <= 0) throw new Error('Lossless PDF assembler produced an empty file');
@@ -777,7 +781,7 @@ export async function runScanCleanupPipeline(
         if (probePages.length > 0) {
             const probedPageNumbers = new Set<number>();
             emitProgress(onProgress, 'probing', 0, probePages.length, 8, []);
-            await mapScanCleanupRasterPages(probePages, 3, async pageNumber => {
+            await mapScanCleanupRasterPages(probePages, policy.rasterConcurrency, async pageNumber => {
                 signal.throwIfAborted();
                 const probePath = join(scratch, `size-probe-${pageNumber}.png`);
                 await dependencies.renderPage(
@@ -837,7 +841,7 @@ export async function runScanCleanupPipeline(
         let rasterizedCount = 0;
         const rasterizedPageNumbers = new Set<number>();
         emitProgress(onProgress, 'rasterizing', 0, pageCount, 15, []);
-        const pageInputs = await mapScanCleanupRasterPages(rasterPlans, 3, async plan => {
+        const pageInputs = await mapScanCleanupRasterPages(rasterPlans, policy.rasterConcurrency, async plan => {
             signal.throwIfAborted();
             pageDpi.set(plan.pageNumber, plan.dpi);
             const extension = rasterHandoff.format;

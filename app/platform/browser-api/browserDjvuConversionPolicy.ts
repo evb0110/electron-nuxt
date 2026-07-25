@@ -1,4 +1,5 @@
 import type { IDjvuConvertOptions } from '@contracts/electronApiDjvu';
+import type { THostResourceTier } from '@contracts/hostResourceProfile';
 import {
     normalizeDjvuPdfSubsample,
     resolveDjvuPdfExportStrategy,
@@ -40,6 +41,7 @@ export function resolveBrowserDjvuPdfRenderConcurrency(
     pageSizes: ReadonlyArray<Pick<IBrowserDjvuPageMetrics, 'width' | 'height'>>,
     hardwareConcurrency = typeof navigator === 'undefined' ? undefined : navigator.hardwareConcurrency,
     sourceBytes = 0,
+    tier: THostResourceTier = 'medium',
 ) {
     const pageCount = Math.max(1, pageSizes.length);
     const normalizedHardwareConcurrency = typeof hardwareConcurrency === 'number'
@@ -64,7 +66,14 @@ export function resolveBrowserDjvuPdfRenderConcurrency(
     const sourceCopyLimit = sourceBytes > 0
         ? Math.max(1, Math.floor(WORKER_COPY_BUDGET_BYTES / sourceBytes))
         : PDF_RENDER_WORKER_LIMIT;
-    return Math.min(pageCount, PDF_RENDER_WORKER_LIMIT, pixelWorkerLimit, sourceCopyLimit, hardwareWorkerCount);
+    const tierWorkerLimit = tier === 'low' ? 1 : PDF_RENDER_WORKER_LIMIT;
+    return Math.min(
+        pageCount,
+        tierWorkerLimit,
+        pixelWorkerLimit,
+        sourceCopyLimit,
+        hardwareWorkerCount,
+    );
 }
 
 export interface IBrowserDjvuPageMetrics {

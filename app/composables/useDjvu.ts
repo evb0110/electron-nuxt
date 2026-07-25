@@ -1,4 +1,5 @@
 import type { TDocumentRef } from '@contracts/documentRef';
+import { getPerformanceProfile } from '@app/utils/performanceProfile';
 import type {
     IDjvuProgress,
     IDjvuPageSize,
@@ -583,6 +584,7 @@ export const useDjvu = (config: {openSurface?: IDocumentOpenSurfaceSession | und
                     pdfStrategy,
                     requestId,
                     documentRef: sourcePath,
+                    hostTier: getPerformanceProfile().tier,
                 },
             );
             if (!isCurrentConversion(generation, sourcePath)) {

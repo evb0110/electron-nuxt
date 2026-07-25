@@ -77,15 +77,18 @@ export const useWorkspaceViewerDefaults = (options: IUseWorkspaceViewerDefaultsO
     }
 
     const defaultsSourceKey = computed(() => options.documentSourceKey?.value ?? options.pdfSrc.value);
-    let shouldPreserveInitialState = options.preserveInitialStateForFirstSource === true;
+    let shouldPreserveInitialState = options.preserveInitialStateForFirstSource === true
+        || defaultsSourceKey.value !== null;
 
     watch(defaultsSourceKey, (sourceKey) => {
-        if (sourceKey && shouldPreserveInitialState) {
-            shouldPreserveInitialState = false;
+        if (shouldPreserveInitialState) {
+            if (sourceKey !== null) {
+                shouldPreserveInitialState = false;
+            }
             return;
         }
         applyWorkspaceViewerDefaults();
-    });
+    }, {immediate: true});
 
     return {
         resolveDisplayZoom,

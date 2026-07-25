@@ -18,6 +18,7 @@ import type {
     IScanCleanupOptions,
     TScanCleanupProgress,
 } from '@contracts/electronApiScanCleanup';
+import type { IScanCleanupRuntimePolicy } from '@contracts/resourcePolicies';
 import {
     classifyScanCleanupError,
     grantScanCleanupOutputAccess,
@@ -136,6 +137,7 @@ const options: IScanCleanupOptions = {
     skipBlankPages: false,
     pageOverrides: {},
 };
+const highTierPolicy: IScanCleanupRuntimePolicy = {rasterConcurrency: 3};
 
 async function setup() {
     const dir = await mkdtemp(join(tmpdir(), 'scan-cleanup-test-'));
@@ -259,6 +261,144 @@ async function writeCleanupOutput(
         },
         warnings: [],
     }));
+}
+
+type TScanCleanupFanOutSite = 'lossless' | 'probe' | 'final';
+
+async function measurePipelineRasterPeak(
+    site: TScanCleanupFanOutSite,
+    rasterConcurrency: IScanCleanupRuntimePolicy['rasterConcurrency'],
+) {
+    const fixture = await setup();
+    const pageNumbers = [
+        1,
+        2,
+        3,
+        4,
+    ];
+    let activeRasters = 0;
+    let peakRasters = 0;
+    const trackRaster = async (render: () => Promise<void>) => {
+        activeRasters += 1;
+        peakRasters = Math.max(peakRasters, activeRasters);
+        try {
+            await new Promise(resolve => setTimeout(resolve, 5));
+            await render();
+        } finally {
+            activeRasters -= 1;
+        }
+    };
+    const runSidecar: IRunScanCleanupPipelineDependencies['runSidecar'] = vi.fn(async (_binary, manifestPath) => {
+        if (site === 'lossless') {
+            const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as {pages: Array<{pageMetadataPath: string}>};
+            await Promise.all(manifest.pages.map(page => writeFile(page.pageMetadataPath, JSON.stringify({
+                layoutClassification: 'single-uncut-page',
+                cutterXPx: null,
+                rotationDegrees: 0,
+                excluded: false,
+                blankOutputsSkipped: 0,
+                outputCount: 1,
+                outputs: [{
+                    half: 'full',
+                    cropRect: {
+                        xPx: 0,
+                        yPx: 0,
+                        widthPx: 100,
+                        heightPx: 100,
+                    },
+                    inputWidthPx: 100,
+                    inputHeightPx: 100,
+                }],
+            }))));
+            return;
+        }
+        const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as {pages: Array<{
+            pageMetadataPath: string;
+            options: {dpi: number};
+            outputs: ICleanupOutput[]
+        }>};
+        await Promise.all(manifest.pages.map(async page => {
+            await writeFile(page.pageMetadataPath, JSON.stringify({
+                layoutClassification: 'single-uncut-page',
+                cutterXPx: null,
+                rotationDegrees: 0,
+                excluded: false,
+                blankOutputsSkipped: 0,
+                outputCount: 1,
+            }));
+            await writeCleanupOutput(
+                page.outputs[0]!,
+                'single-uncut-page',
+                true,
+                site === 'probe',
+                page.options.dpi,
+            );
+        }));
+    });
+    const pipelineDependencies = dependencies(runSidecar);
+    pipelineDependencies.getPageCount = vi.fn(async () => pageNumbers.length);
+    pipelineDependencies.detectSourceDpi = vi.fn(async () => site === 'probe'
+        ? dpiDetails(300, [])
+        : dpiDetails(300, pageNumbers.map(pageNumber => [
+            pageNumber,
+            300,
+        ])));
+    const renderPage = pipelineDependencies.renderPage;
+    const renderPagePpm = pipelineDependencies.renderPagePpm;
+    if (site === 'probe') {
+        pipelineDependencies.renderPage = vi.fn(async (
+            ...args: Parameters<IRunScanCleanupPipelineDependencies['renderPage']>
+        ) => trackRaster(
+            () => renderPage(...args),
+        ));
+    } else {
+        pipelineDependencies.renderPagePpm = vi.fn(async (
+            ...args: Parameters<IRunScanCleanupPipelineDependencies['renderPagePpm']>
+        ) => trackRaster(
+            () => renderPagePpm(...args),
+        ));
+    }
+    if (site === 'lossless') {
+        pipelineDependencies.runCommand = vi.fn(async (_command, args) => {
+            const outputPath = args[args.indexOf('--output') + 1]!;
+            if (args[0] === 'page-sizes') {
+                await writeFile(outputPath, JSON.stringify({pages: pageNumbers.map(pageNumber => ({
+                    pageNumber,
+                    xPoints: 0,
+                    yPoints: 0,
+                    widthPoints: 100,
+                    heightPoints: 100,
+                    rotation: 0,
+                }))}));
+            } else {
+                await writeFile(outputPath, '%PDF-1.7\n%%EOF\n');
+            }
+            return {
+                exitCode: 0,
+                stdout: '',
+                stderr: '',
+            };
+        });
+    }
+
+    await runScanCleanupPipeline(
+        {
+            sourcePdfPath: fixture.sourcePdfPath,
+            outputPdfPath: fixture.outputPdfPath,
+            options: {
+                ...options,
+                preserveOriginalQuality: site === 'lossless',
+                outputMode: site === 'final' ? 'color' : 'bw',
+            },
+        },
+        pipelinePaths(fixture.dir, site === 'lossless'),
+        new AbortController().signal,
+        vi.fn(),
+        {rasterConcurrency},
+        undefined,
+        pipelineDependencies,
+    );
+    return peakRasters;
 }
 
 afterEach(async () => {
@@ -441,7 +581,7 @@ describe('scan cleanup pipeline', () => {
             sourcePdfPath: fixture.sourcePdfPath,
             outputPdfPath: fixture.outputPdfPath,
             options: losslessOptions,
-        }, pipelinePaths(fixture.dir, true), new AbortController().signal, vi.fn(), undefined, pipelineDependencies);
+        }, pipelinePaths(fixture.dir, true), new AbortController().signal, vi.fn(), highTierPolicy, undefined, pipelineDependencies);
 
         expect(analyzedOptions).toMatchObject({
             outputMode: 'color',
@@ -525,6 +665,21 @@ describe('scan cleanup pipeline', () => {
         expect(peak).toBe(3);
     });
 
+    it.each([
+        'lossless',
+        'probe',
+        'final',
+    ] as const)('%s raster fan-out honors policy concurrency 1/2/3', async site => {
+        for (const rasterConcurrency of [
+            1,
+            2,
+            3,
+        ] as const) {
+            await expect(measurePipelineRasterPeak(site, rasterConcurrency))
+                .resolves.toBe(rasterConcurrency);
+        }
+    });
+
     it('renders unresolved Auto pages once at source DPI and assembles from native mode metadata', async () => {
         const fixture = await setup();
         let cleanupManifest: {pages: Array<{
@@ -602,6 +757,7 @@ describe('scan cleanup pipeline', () => {
             pipelinePaths(fixture.dir),
             new AbortController().signal,
             progress,
+            highTierPolicy,
             undefined,
             pipelineDependencies,
         );
@@ -723,6 +879,7 @@ describe('scan cleanup pipeline', () => {
             pipelinePaths(fixture.dir),
             new AbortController().signal,
             vi.fn(),
+            highTierPolicy,
             log,
             pipelineDependencies,
         );
@@ -843,7 +1000,7 @@ describe('scan cleanup pipeline', () => {
                 ...options,
                 outputMode: 'color',
             },
-        }, pipelinePaths(fixture.dir), new AbortController().signal, value => progress.push(value), undefined, pipelineDependencies);
+        }, pipelinePaths(fixture.dir), new AbortController().signal, value => progress.push(value), highTierPolicy, undefined, pipelineDependencies);
 
         expect(summary).toMatchObject({
             inputPages: 2,
@@ -931,6 +1088,7 @@ describe('scan cleanup pipeline', () => {
             pipelinePaths(fixture.dir),
             new AbortController().signal,
             vi.fn(),
+            highTierPolicy,
             log,
             pipelineDependencies,
         );
@@ -1003,6 +1161,7 @@ describe('scan cleanup pipeline', () => {
             pipelinePaths(fixture.dir),
             new AbortController().signal,
             vi.fn(),
+            highTierPolicy,
             undefined,
             pipelineDependencies,
         );
@@ -1072,6 +1231,7 @@ describe('scan cleanup pipeline', () => {
             pipelinePaths(fixture.dir),
             new AbortController().signal,
             vi.fn(),
+            highTierPolicy,
             log,
             pipelineDependencies,
         );
@@ -1144,6 +1304,7 @@ describe('scan cleanup pipeline', () => {
             pipelinePaths(fixture.dir),
             new AbortController().signal,
             vi.fn(),
+            highTierPolicy,
             log,
             pipelineDependencies,
         );
@@ -1220,7 +1381,7 @@ describe('scan cleanup pipeline', () => {
             sourcePdfPath: fixture.sourcePdfPath,
             outputPdfPath: fixture.outputPdfPath,
             options,
-        }, pipelinePaths(fixture.dir), new AbortController().signal, vi.fn(), undefined, pipelineDependencies);
+        }, pipelinePaths(fixture.dir), new AbortController().signal, vi.fn(), highTierPolicy, undefined, pipelineDependencies);
 
         expect(pipelineDependencies.renderPage).not.toHaveBeenCalled();
         expect(finalOptions).toEqual([
@@ -1294,7 +1455,7 @@ describe('scan cleanup pipeline', () => {
             sourcePdfPath: fixture.sourcePdfPath,
             outputPdfPath: fixture.outputPdfPath,
             options,
-        }, pipelinePaths(fixture.dir), new AbortController().signal, vi.fn(), undefined, pipelineDependencies);
+        }, pipelinePaths(fixture.dir), new AbortController().signal, vi.fn(), highTierPolicy, undefined, pipelineDependencies);
 
         expect(pipelineDependencies.renderPage).not.toHaveBeenCalled();
         expect(requestedRenderDpi).toBe(1_200);
@@ -1345,7 +1506,7 @@ describe('scan cleanup pipeline', () => {
             sourcePdfPath: fixture.sourcePdfPath,
             outputPdfPath: fixture.outputPdfPath,
             options,
-        }, pipelinePaths(fixture.dir), new AbortController().signal, vi.fn(), undefined, pipelineDependencies);
+        }, pipelinePaths(fixture.dir), new AbortController().signal, vi.fn(), highTierPolicy, undefined, pipelineDependencies);
 
         // Undetected binary-capable pages keep the bounded 72-DPI guardrail
         // probe before rendering at the synthesis floor.
@@ -1397,7 +1558,7 @@ describe('scan cleanup pipeline', () => {
             sourcePdfPath: fixture.sourcePdfPath,
             outputPdfPath: fixture.outputPdfPath,
             options,
-        }, pipelinePaths(fixture.dir), new AbortController().signal, vi.fn(), undefined, pipelineDependencies);
+        }, pipelinePaths(fixture.dir), new AbortController().signal, vi.fn(), highTierPolicy, undefined, pipelineDependencies);
 
         expect(requestedRenderDpi).toBe(200);
         expect(finalDpi).toBe(200);
@@ -1490,7 +1651,7 @@ describe('scan cleanup pipeline', () => {
                 '3': 'bw',
                 '4': 'mixed',
             },
-        }, pipelinePaths(fixture.dir), new AbortController().signal, vi.fn(), undefined, pipelineDependencies);
+        }, pipelinePaths(fixture.dir), new AbortController().signal, vi.fn(), highTierPolicy, undefined, pipelineDependencies);
 
         expect(pipelineDependencies.renderPage).not.toHaveBeenCalled();
         expect(renderedDpis).toEqual([
@@ -1599,7 +1760,7 @@ describe('scan cleanup pipeline', () => {
             },
             sourcePageNumbers: [3],
             outputModeRecommendations: {'3': 'grayscale'},
-        }, pipelinePaths(fixture.dir), new AbortController().signal, vi.fn(), undefined, pipelineDependencies);
+        }, pipelinePaths(fixture.dir), new AbortController().signal, vi.fn(), highTierPolicy, undefined, pipelineDependencies);
 
         const record = combineManifest.trim().split('\t');
         expect(record[0]).toBe('image-jpeg');
@@ -1623,6 +1784,7 @@ describe('scan cleanup pipeline', () => {
             pipelinePaths(fixture.dir),
             controller.signal,
             vi.fn(),
+            highTierPolicy,
             undefined,
             dependencies(runSidecar),
         );
@@ -1680,6 +1842,7 @@ describe('scan cleanup pipeline', () => {
             pipelinePaths(fixture.dir, true),
             controller.signal,
             vi.fn(),
+            highTierPolicy,
             undefined,
             pipelineDependencies,
         );
@@ -1702,6 +1865,7 @@ describe('scan cleanup pipeline', () => {
             pipelinePaths(fixture.dir),
             new AbortController().signal,
             vi.fn(),
+            highTierPolicy,
             undefined,
             dependencies(vi.fn(async () => { throw new NativeScanCleanupError('native-failure', 'fixture'); })),
         );

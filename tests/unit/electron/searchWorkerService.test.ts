@@ -7,9 +7,11 @@ import {
     vi,
 } from 'vitest';
 import type { SearchWorkerService } from '@electron/features/search/main/searchWorkerService';
+import type { ISearchResourcePolicy } from '@electron/features/search/main/searchResourcePolicy';
 import {requireDocumentRevisionToken} from '@contracts';
 
 const workerMocks = vi.hoisted(() => ({instances: [] as Array<{
+    options: {workerData?: unknown};
     postMessage: ReturnType<typeof vi.fn>;
     terminate: ReturnType<typeof vi.fn>;
     emit: (event: string, payload: unknown) => void;
@@ -36,9 +38,10 @@ vi.mock('worker_threads', async () => {
         postMessage = vi.fn();
         terminate = vi.fn(async () => undefined);
 
-        constructor() {
+        constructor(_path: string, options: {workerData?: unknown} = {}) {
             super();
             workerMocks.instances.push({
+                options,
                 postMessage: this.postMessage,
                 terminate: this.terminate,
                 emit: (event, payload) => void this.emit(event, payload),
@@ -56,7 +59,27 @@ const EMPTY_SEARCH_RESULT = {
 
 async function createSearchService() {
     const { SearchWorkerService } = await import('@electron/features/search/main/searchWorkerService');
-    return new SearchWorkerService(() => '/tmp/search-worker.js');
+    return new SearchWorkerService(
+        () => '/tmp/search-worker.js',
+        createSearchResourcePolicy(),
+    );
+}
+
+function createSearchResourcePolicy(
+    overrides: Partial<ISearchResourcePolicy> = {},
+): ISearchResourcePolicy {
+    return {
+        maxActiveSenderWorkers: 2,
+        workerIdleTtlMs: 30_000,
+        nativeServiceIdleTimeoutMs: 5 * 60_000,
+        workerResourcePolicy: {
+            indexCacheMaxEntries: 2,
+            indexCacheTtlMs: 2 * 60_000,
+            maxPageTextBytes: 2 * 1024 * 1024,
+            maxTotalTextBytes: 96 * 1024 * 1024,
+        },
+        ...overrides,
+    };
 }
 
 function createSender(id: number): Electron.WebContents {
@@ -121,7 +144,6 @@ describe('SearchWorkerService', () => {
         vi.clearAllMocks();
         workerMocks.instances.splice(0, workerMocks.instances.length);
         delete process.env.EVB_SEARCH_CANCEL_ACK_TIMEOUT_MS;
-        delete process.env.EVB_SEARCH_WORKER_MAX_ACTIVE;
         delete process.env.EVB_SEARCH_WORKER_TERMINATE_TIMEOUT_MS;
     });
 
@@ -156,6 +178,33 @@ describe('SearchWorkerService', () => {
         });
 
         service.cleanupAll('test cleanup');
+    });
+
+    it('passes the resolved worker resource and native idle policies in workerData', async () => {
+        const resourcePolicy = createSearchResourcePolicy({
+            maxActiveSenderWorkers: 1,
+            nativeServiceIdleTimeoutMs: 60_000,
+            workerResourcePolicy: {
+                indexCacheMaxEntries: 1,
+                indexCacheTtlMs: 120_000,
+                maxPageTextBytes: 2 * 1024 * 1024,
+                maxTotalTextBytes: 48 * 1024 * 1024,
+            },
+        });
+        const { SearchWorkerService } = await import('@electron/features/search/main/searchWorkerService');
+        const service = new SearchWorkerService(
+            () => '/tmp/search-worker.js',
+            resourcePolicy,
+        );
+
+        const searchPromise = dispatchSearch(service, createSender(42), 'search-1');
+
+        expect(workerMocks.instances[0]?.options.workerData).toEqual({
+            nativeServiceIdleTimeoutMs: 60_000,
+            resourcePolicy: resourcePolicy.workerResourcePolicy,
+        });
+        emitWorkerComplete(0, 'search-1');
+        await expect(searchPromise).resolves.toEqual(EMPTY_SEARCH_RESULT);
     });
 
     it('settles cancellation through a bounded fallback when the worker does not acknowledge it', async () => {
@@ -329,8 +378,11 @@ describe('SearchWorkerService', () => {
     });
 
     it('leaves renderer lifecycle ownership with the registry when re-keying an idle worker', async () => {
-        process.env.EVB_SEARCH_WORKER_MAX_ACTIVE = '1';
-        const service = await createSearchService();
+        const { SearchWorkerService } = await import('@electron/features/search/main/searchWorkerService');
+        const service = new SearchWorkerService(
+            () => '/tmp/search-worker.js',
+            createSearchResourcePolicy({maxActiveSenderWorkers: 1}),
+        );
         const firstSender = createSender(41);
         const secondSender = createSender(42);
 
@@ -349,5 +401,25 @@ describe('SearchWorkerService', () => {
 
         emitWorkerComplete(0, 'search-2');
         await expect(secondSearch).resolves.toEqual(EMPTY_SEARCH_RESULT);
+    });
+
+    it('admits only one active sender under the low-tier policy', async () => {
+        const { SearchWorkerService } = await import('@electron/features/search/main/searchWorkerService');
+        const service = new SearchWorkerService(
+            () => '/tmp/search-worker.js',
+            createSearchResourcePolicy({maxActiveSenderWorkers: 1}),
+        );
+        const firstSearch = dispatchSearch(service, createSender(41), 'search-1', {senderId: 41});
+
+        await expect(dispatchSearch(
+            service,
+            createSender(42),
+            'search-2',
+            {senderId: 42},
+        )).rejects.toThrow('Search worker limit reached (1 active senders)');
+        expect(workerMocks.instances).toHaveLength(1);
+
+        emitWorkerComplete(0, 'search-1');
+        await expect(firstSearch).resolves.toEqual(EMPTY_SEARCH_RESULT);
     });
 });

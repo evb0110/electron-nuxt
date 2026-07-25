@@ -1,9 +1,10 @@
 import { getSystemCapability } from '@app/utils/getSystemCapability';
 import { getHostCapability } from '@app/utils/getHostCapability';
 import { readBrowserPerformanceModeSnapshot } from '@app/utils/browserSettingsPersistence';
-import type {
-    THostResourceTier,
-    TPerformanceMode,
+import {
+    resolveDetectedHostResourceTier,
+    type THostResourceTier,
+    type TPerformanceMode,
 } from '@contracts/hostResourceProfile';
 
 export const PDF_SETTLED_MAX_CANVAS_PIXELS_DEFAULT = 2 ** 25;
@@ -186,11 +187,19 @@ export function resolvePerformanceProfile(
     const lowCpu = (hardwareConcurrency ?? 4) <= 4;
     const workstationCpu = hardwareConcurrency !== null && hardwareConcurrency >= 12;
     const workstationProfile = workstationMemory && workstationCpu;
-    const tier: THostResourceTier = lowMemory
-        ? 'low'
-        : highCanvasMemory
-            ? 'high'
-            : 'medium';
+    // The tier itself always comes from the canonical detection table so the
+    // browser fallback can never drift from the host classifier; the flags
+    // below stay as renderer-only canvas refinements.
+    const tier: THostResourceTier = hardwareConcurrency !== null && totalMemoryBytes !== null
+        ? resolveDetectedHostResourceTier({
+            logicalCpus: hardwareConcurrency,
+            totalRamBytes: totalMemoryBytes,
+        })
+        : lowMemory
+            ? 'low'
+            : highCanvasMemory
+                ? 'high'
+                : 'medium';
     const concurrentPdfRenders = workstationProfile
         ? Math.min(
             PDF_RENDER_CONCURRENCY_WORKSTATION_MAX,

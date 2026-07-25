@@ -314,6 +314,7 @@ async function connectToSessionPage(sessionName: string) {
 
 export async function startElectronE2ESession(sessionName: string, options?: {
     clean?: boolean;
+    extraEnv?: Record<string, string>;
     initialOpenPaths?: string[];
     windowMode?: TElectronE2EWindowMode;
 }): Promise<IElectronE2ESession> {
@@ -335,6 +336,7 @@ export async function startElectronE2ESession(sessionName: string, options?: {
         env: {
             ...buildElectronE2EAutomationEnv(process.env, options?.windowMode),
             ...buildStrictE2ERunEnv(process.env),
+            ...(options?.extraEnv ?? {}),
         },
         ...(options?.initialOpenPaths ? { initialOpenPaths: options.initialOpenPaths } : {}),
     };

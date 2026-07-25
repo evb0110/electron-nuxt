@@ -15,6 +15,7 @@ export function resolvePdfPreparedOpeningFitScale(
         || !isOpening
         || !frame
         || !geometry
+        || !frame.ownerId.startsWith('document-viewer-chassis:')
         || frame.generation !== snapshot.generation
         || frame.pageNumber !== geometry.pageNumber
         || geometry.width <= 0
@@ -22,9 +23,10 @@ export function resolvePdfPreparedOpeningFitScale(
         return null;
     }
 
-    // The prepared frame is the synchronous layout authority. Seed the
-    // renderer from that exact geometry so its first canonical canvas occupies
-    // the same box; normal metric calculation verifies it once metadata exists.
+    // Only the host-prepared frame is an independent synchronous layout
+    // authority. A PDF.js-owned frame is derived from this renderer's current
+    // scale; feeding it back here would turn a cold-open scale-1 placeholder
+    // into the canonical fit scale once page geometry arrives.
     const preparedWidth = Number.parseFloat(frame.style.width ?? '');
     return Number.isFinite(preparedWidth) && preparedWidth > 0
         ? preparedWidth / geometry.width

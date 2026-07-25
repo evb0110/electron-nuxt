@@ -27,7 +27,10 @@ const mocks = vi.hoisted(() => {
     };
 });
 
-vi.mock('worker_threads', () => ({parentPort: mocks.parentPort}));
+vi.mock('worker_threads', () => ({
+    parentPort: mocks.parentPort,
+    workerData: undefined,
+}));
 
 vi.mock('fs/promises', () => ({stat: mocks.stat}));
 
@@ -42,6 +45,14 @@ vi.mock('@electron/config/constants', () => ({
     SEARCH_RESULT_LIMIT: 100,
 }));
 
+vi.mock('@electron/resources/hostResourceProfile', () => ({getHostResourceProfileSnapshot: () => ({
+    logicalCpus: 4,
+    totalRamBytes: 16 * 1024 ** 3,
+    safeMode: false,
+    detectedTier: 'high',
+    performanceMode: 'auto',
+    tier: 'high',
+})}));
 vi.mock('@electron/utils/createLogger', () => ({createLogger: () => ({debug: vi.fn()})}));
 
 const DOCUMENT_REVISION = 'revision-token';
