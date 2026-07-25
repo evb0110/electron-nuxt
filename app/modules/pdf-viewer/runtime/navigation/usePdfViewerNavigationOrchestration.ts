@@ -66,7 +66,10 @@ export const usePdfViewerNavigationOrchestration = (
                 return;
             }
             if (singlePageScroll.commitCurrentViewportIfSettled(committedRender.pageNumber)) {
-                options.initialCanvasCommit.tryComplete(committedRender.pageNumber, options.commitInitialVisualReady);
+                options.initialCanvasCommit.tryComplete(
+                    committedRender.pageNumber,
+                    options.commitInitialVisualReady,
+                );
             }
         },
         { flush: 'sync' },

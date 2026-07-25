@@ -54,7 +54,7 @@ vi.mock('@electron/native-tools/resolveNativeToolPath', () => ({resolveNativeToo
 vi.mock('@electron/image/tryCreatePdfWithNativeImageCombiner', () => (
     {resolveNativePdfImageCombinePath: () => '/pdf-image-combine'}
 ));
-vi.mock('@electron/features/scan-cleanup/scanCleanupGeneratedOutputs', () => {
+vi.mock('@electron/features/scan-cleanup/public/generatedOutputs', () => {
     const createScanCleanupGeneratedOutputPath = async () => '/managed/cleaned.pdf';
     const pruneScanCleanupGeneratedOutputs = async () => 0;
     return {

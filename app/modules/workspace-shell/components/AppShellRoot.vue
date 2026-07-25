@@ -71,6 +71,7 @@
                 :active-pane-id="activePaneId"
                 :is-startup-open-claim-pending="isStartupOpenClaimPending"
                 :is-tab-transition-busy="isTabTransitionBusy"
+                :presentation-fallback-tab-id="presentationFallbackTabId"
                 :tab-context-availability-by-pane="tabContextAvailabilityByPane"
                 :start-section-by-tab-id="startSectionByTabId"
                 :tab-lifecycle-by-id="tabLifecycleById"
@@ -341,12 +342,11 @@ const {
 function updateTabViewState(tabId: string, state: IWorkspaceDocumentRecord['viewState']) {
     applySessionViewState(tabId, state);
 }
-
 function setWorkspaceRef(tabId: string, el: unknown) {
     setSessionWorkspaceRef(tabId, el);
 }
-
 const globalToolbarHostRef = ref<HTMLElement | null>(null);
+const presentationFallbackTabId = ref<string | null>(null);
 const { hasWorkspaceToolbarContent } = useWorkspaceToolbarContentPresence(globalToolbarHostRef);
 function activateTab(paneId: string, tabId: string) {
     activateEditorTab(paneId, tabId);
@@ -594,6 +594,7 @@ const {
     activePaneId,
     activeTabId,
     activeWorkspace,
+    presentationFallbackTabId,
     workspaceRefs,
     waitForWorkspace,
     getDocumentRecord,
@@ -619,7 +620,6 @@ useScanCleanupRunCoordinator(
 function createTabInPane(paneId: string) {
     createTabInPaneFromRouting(paneId);
 }
-
 function setTabStartSection(tabId: string, section: TStartSection) {
     startSectionByTabId.value = {
         ...startSectionByTabId.value,

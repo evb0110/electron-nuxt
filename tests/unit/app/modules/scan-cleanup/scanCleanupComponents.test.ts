@@ -695,6 +695,12 @@ function domRect(left: number, top: number, width: number, height: number): DOMR
     };
 }
 
+function previewZoomWheel(init: WheelEventInit) {
+    const event = new WheelEvent('wheel', init);
+    Object.defineProperty(event, 'metaKey', {value: true});
+    return event;
+}
+
 function mockPointerCapture(element: HTMLElement) {
     const captured = new Set<number>();
     element.setPointerCapture = vi.fn(pointerId => captured.add(pointerId));
@@ -720,7 +726,6 @@ function mockPreviewGeometry(host: HTMLElement, canvasRects: DOMRect[]) {
 function mountPreviewZoomHarness(options: {
     canvasRect?: (index: number, scale: number, panX: number, panY: number) => DOMRect;
     detailResult?: IScanCleanupPreviewResult | null;
-    detailLoading?: boolean;
     onRequestDetail?: (
         viewports: NonNullable<IScanCleanupPreviewRequest['detail']>['viewports'],
     ) => void;
@@ -743,7 +748,6 @@ function mountPreviewZoomHarness(options: {
         totalPages: 3,
         manualSplit: null,
         readingOrder: 'ltr',
-        detailLoading: options.detailLoading ?? false,
         detailResult: options.detailResult ?? null,
         ...(options.onRequestDetail ? {onRequestDetail: options.onRequestDetail} : {}),
         'onUpdate:manualSplit': (value: IScanCleanupNormalizedSplit | null) => {
@@ -2143,12 +2147,13 @@ describe('Scan cleanup components', () => {
         const harness = mountPreviewZoomHarness();
         expect(harness.host.querySelector('.preview-zoom-value')?.getAttribute('aria-label'))
             .toBe('Zoom Fit, toggle fit and 100%');
-        const wheel = new WheelEvent('wheel', {
+        const wheel = previewZoomWheel({
             bubbles: true,
             cancelable: true,
             clientX: 400,
             clientY: 200,
             deltaY: -240,
+            metaKey: true,
         });
         Object.defineProperties(wheel, {
             clientX: {value: 400},
@@ -2162,15 +2167,14 @@ describe('Scan cleanup components', () => {
         expect(harness.surface.dataset.previewZoomMode).toBe('custom');
         expect(Number(harness.surface.dataset.previewZoomPercent)).toBeGreaterThan(50);
         expect(harness.stage.style.transform).toMatch(/translate3d\(-\d/);
-        expect(harness.stage.style.transform).toMatch(/scale\(1\.\d+/);
-        expect(harness.surface.classList).not.toContain('is-pixelated-preview');
-
-        const zoomPastActualSize = new WheelEvent('wheel', {
+        expect(Number(harness.stage.style.transform.match(/scale\(([\d.]+)/u)?.[1])).toBeGreaterThan(1);
+        const zoomPastActualSize = previewZoomWheel({
             bubbles: true,
             cancelable: true,
             clientX: 400,
             clientY: 200,
             deltaY: -400,
+            metaKey: true,
         });
         Object.defineProperties(zoomPastActualSize, {
             clientX: {value: 400},
@@ -2179,7 +2183,98 @@ describe('Scan cleanup components', () => {
         harness.surface.dispatchEvent(zoomPastActualSize);
         await nextTick();
         expect(Number(harness.surface.dataset.previewZoomPercent)).toBeGreaterThan(100);
-        expect(harness.surface.classList).toContain('is-pixelated-preview');
+    });
+
+    it('leaves plain and macOS platform-scroll wheel gestures to the shared viewer policy', async () => {
+        const platformDescriptor = Object.getOwnPropertyDescriptor(navigator, 'platform');
+        Object.defineProperty(navigator, 'platform', {
+            configurable: true,
+            value: 'MacIntel',
+        });
+        try {
+            const harness = mountPreviewZoomHarness();
+            const plainWheel = new WheelEvent('wheel', {
+                bubbles: true,
+                cancelable: true,
+                deltaY: -240,
+            });
+            const platformScroll = new WheelEvent('wheel', {
+                bubbles: true,
+                cancelable: true,
+                ctrlKey: true,
+                deltaY: -240,
+            });
+
+            harness.surface.dispatchEvent(plainWheel);
+            harness.surface.dispatchEvent(platformScroll);
+            await nextTick();
+
+            expect(plainWheel.defaultPrevented).toBe(false);
+            expect(platformScroll.defaultPrevented).toBe(false);
+            expect(harness.surface.dataset.previewZoomMode).toBe('fit');
+        } finally {
+            if (platformDescriptor) {
+                Object.defineProperty(navigator, 'platform', platformDescriptor);
+            } else {
+                Reflect.deleteProperty(navigator, 'platform');
+            }
+        }
+    });
+
+    it('accumulates fine wheel packets below fit without a zoom dead zone', async () => {
+        const harness = mountPreviewZoomHarness();
+        const firstPacket = previewZoomWheel({
+            bubbles: true,
+            cancelable: true,
+            clientX: 250,
+            clientY: 200,
+            deltaY: -1,
+            metaKey: true,
+        });
+        const secondPacket = previewZoomWheel({
+            bubbles: true,
+            cancelable: true,
+            clientX: 250,
+            clientY: 200,
+            deltaY: -1,
+            metaKey: true,
+        });
+
+        harness.surface.dispatchEvent(firstPacket);
+        harness.surface.dispatchEvent(secondPacket);
+        await nextTick();
+
+        expect(firstPacket.defaultPrevented).toBe(true);
+        expect(secondPacket.defaultPrevented).toBe(true);
+        expect(harness.surface.dataset.previewZoomMode).toBe('custom');
+        expect(Number(harness.surface.dataset.previewZoomPercent)).toBeGreaterThan(50);
+    });
+
+    it('keeps trailing packets in the shared modifier-wheel gesture', async () => {
+        const harness = mountPreviewZoomHarness();
+        const start = previewZoomWheel({
+            bubbles: true,
+            cancelable: true,
+            clientX: 250,
+            clientY: 200,
+            deltaY: -240,
+            metaKey: true,
+        });
+        const continuation = new WheelEvent('wheel', {
+            bubbles: true,
+            cancelable: true,
+            clientX: 250,
+            clientY: 200,
+            deltaY: -240,
+        });
+
+        harness.surface.dispatchEvent(start);
+        const firstZoom = Number(harness.surface.dataset.previewZoomPercent);
+        harness.surface.dispatchEvent(continuation);
+        await nextTick();
+
+        expect(continuation.defaultPrevented).toBe(true);
+        expect(Number(harness.surface.dataset.previewZoomPercent)).toBeGreaterThan(firstZoom);
     });
 
     it('keeps wheel and double-click zoom available while only the original raster is ready', async () => {
@@ -2194,12 +2289,13 @@ describe('Scan cleanup components', () => {
             rawResult,
             result: null,
         });
-        const wheel = new WheelEvent('wheel', {
+        const wheel = previewZoomWheel({
             bubbles: true,
             cancelable: true,
             clientX: 250,
             clientY: 200,
             deltaY: -240,
+            metaKey: true,
         });
         wheelHarness.surface.dispatchEvent(wheel);
         await nextTick();
@@ -2300,24 +2396,24 @@ describe('Scan cleanup components', () => {
         }
     });
 
-    it('debounces a non-blocking high-detail viewport request and shimmers over the base preview', async () => {
+    it('debounces a non-blocking high-detail viewport request while keeping the base preview visible', async () => {
         vi.useFakeTimers();
         try {
             const requestDetail = vi.fn<(
                 viewports: NonNullable<IScanCleanupPreviewRequest['detail']>['viewports'],
             ) => void>();
             const harness = mountPreviewZoomHarness({
-                detailLoading: true,
                 onRequestDetail: requestDetail,
                 result: rotatedSinglePreviewResult(),
                 viewMode: 'cleaned',
             });
-            const zoom = new WheelEvent('wheel', {
+            const zoom = previewZoomWheel({
                 bubbles: true,
                 cancelable: true,
                 clientX: 250,
                 clientY: 200,
                 deltaY: -1_200,
+                metaKey: true,
             });
             Object.defineProperties(zoom, {
                 clientX: {value: 250},
@@ -2327,7 +2423,8 @@ describe('Scan cleanup components', () => {
             harness.surface.dispatchEvent(zoom);
             await nextTick();
             expect(Number(harness.surface.dataset.previewZoomPercent)).toBeGreaterThanOrEqual(150);
-            expect(harness.host.querySelectorAll('.preview-detail-shimmer')).toHaveLength(1);
+            expect(harness.host.querySelectorAll('.preview-detail-shimmer')).toHaveLength(0);
+            expect(harness.host.querySelectorAll('.cleaned-image')).toHaveLength(1);
             expect(requestDetail).not.toHaveBeenCalled();
 
             vi.advanceTimersByTime(299);
@@ -2342,7 +2439,7 @@ describe('Scan cleanup components', () => {
             expect(viewport.yNormalized).toBeGreaterThanOrEqual(0);
             expect(viewport.xNormalized + viewport.widthNormalized).toBeLessThanOrEqual(1);
             expect(viewport.yNormalized + viewport.heightNormalized).toBeLessThanOrEqual(1);
-            expect(viewport.widthNormalized).toBeGreaterThan(0.3);
+            expect(viewport.widthNormalized).toBeGreaterThan(0.2);
         } finally {
             vi.useRealTimers();
         }
@@ -2363,12 +2460,13 @@ describe('Scan cleanup components', () => {
             viewMode: 'cleaned',
         });
 
-        harness.surface.dispatchEvent(new WheelEvent('wheel', {
+        harness.surface.dispatchEvent(previewZoomWheel({
             bubbles: true,
             cancelable: true,
             clientX: 250,
             clientY: 200,
             deltaY: -1_200,
+            metaKey: true,
         }));
         await nextTick();
 
@@ -2386,17 +2484,17 @@ describe('Scan cleanup components', () => {
                 viewports: NonNullable<IScanCleanupPreviewRequest['detail']>['viewports'],
             ) => void>();
             const harness = mountPreviewZoomHarness({
-                detailLoading: true,
                 onRequestDetail: requestDetail,
                 viewMode: 'cleaned',
             });
 
-            harness.surface.dispatchEvent(new WheelEvent('wheel', {
+            harness.surface.dispatchEvent(previewZoomWheel({
                 bubbles: true,
                 cancelable: true,
                 clientX: 250,
                 clientY: 200,
                 deltaY: -1_200,
+                metaKey: true,
             }));
             await nextTick();
             vi.advanceTimersByTime(300);
@@ -2408,7 +2506,7 @@ describe('Scan cleanup components', () => {
             expect(viewports.right).toBeDefined();
             expect(viewports.left?.xNormalized).toBeGreaterThan(viewports.right?.xNormalized ?? 1);
             expect(viewports.left?.xNormalized).not.toBe(viewports.right?.xNormalized);
-            expect(harness.host.querySelectorAll('.preview-detail-shimmer')).toHaveLength(2);
+            expect(harness.host.querySelectorAll('.preview-detail-shimmer')).toHaveLength(0);
             expect(harness.host.querySelectorAll('.cleaned-image:not(.preview-detail-pixel)')).toHaveLength(2);
         } finally {
             vi.useRealTimers();
@@ -2429,12 +2527,13 @@ describe('Scan cleanup components', () => {
                 viewMode: 'cleaned',
             });
 
-            harness.surface.dispatchEvent(new WheelEvent('wheel', {
+            harness.surface.dispatchEvent(previewZoomWheel({
                 bubbles: true,
                 cancelable: true,
                 clientX: 250,
                 clientY: 200,
                 deltaY: -1_200,
+                metaKey: true,
             }));
             await nextTick();
             vi.advanceTimersByTime(300);
@@ -2596,8 +2695,6 @@ describe('Scan cleanup components', () => {
         expect(harness.surface.dataset.previewZoomMode).toBe('custom');
         expect(harness.surface.dataset.previewZoomPercent).toBe('100');
         expect(harness.stage.style.transform).toContain('scale(2)');
-        expect(harness.surface.classList).not.toContain('is-pixelated-preview');
-
         harness.surface.dispatchEvent(new MouseEvent('dblclick', {
             bubbles: true,
             cancelable: true,

@@ -194,7 +194,7 @@ describe('usePdfInitialCanvasCommitCoordinator', () => {
         harness.scope.stop();
     });
 
-    it('retries initial readiness emission after the surface terminalizes', () => {
+    it('does not let a rejected legacy notification veto an authoritative ready surface', () => {
         const harness = createHarness();
         const generation = harness.authority.openSurface.begin({
             documentId: 'scan.pdf',
@@ -205,14 +205,37 @@ describe('usePdfInitialCanvasCommitCoordinator', () => {
         harness.authority.openSurface.commitCanvas(fence);
         harness.coordinator.resolveCanvas(generation, 1);
         harness.authority.openSurface.commitViewport(createViewportCommit(fence));
-        const emitted = vi.fn()
-            .mockReturnValueOnce(false)
-            .mockReturnValueOnce(true);
+        const emitted = vi.fn(() => false);
 
-        expect(harness.coordinator.tryComplete(1, emitted)).toBe(false);
-        expect(harness.authority.openSurface.snapshot.value.phase).toBe('ready');
         expect(harness.coordinator.tryComplete(1, emitted)).toBe(true);
-        expect(emitted).toHaveBeenCalledTimes(2);
+        expect(harness.authority.openSurface.snapshot.value.phase).toBe('ready');
+        expect(emitted).toHaveBeenCalledOnce();
+        harness.scope.stop();
+    });
+
+    it('does not let a stale completion terminalize a successor generation', () => {
+        const harness = createHarness();
+        const firstGeneration = harness.authority.openSurface.begin({
+            documentId: 'first.pdf',
+            documentRevision: 'revision-1',
+        });
+        harness.coordinator.begin(firstGeneration);
+        const firstFence = commitGeometryAndCreateFence(harness, firstGeneration);
+        harness.authority.openSurface.commitCanvas(firstFence);
+        harness.coordinator.resolveCanvas(firstGeneration, 1);
+        harness.authority.openSurface.commitViewport(createViewportCommit(firstFence));
+        const emitted = vi.fn(() => true);
+
+        const secondGeneration = harness.authority.openSurface.begin({
+            documentId: 'second.pdf',
+            documentRevision: 'revision-2',
+        });
+        harness.coordinator.begin(secondGeneration);
+        expect(harness.coordinator.tryComplete(1, emitted)).toBe(false);
+
+        expect(harness.authority.openSurface.snapshot.value.generation).toBe(secondGeneration);
+        expect(harness.authority.openSurface.snapshot.value.phase).toBe('pending');
+        expect(emitted).not.toHaveBeenCalled();
         harness.scope.stop();
     });
 });

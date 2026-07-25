@@ -17,7 +17,10 @@ import type {
     TWorkspaceViewerChunkTarget,
 } from '@app/modules/workspace-shell/viewers/workspaceViewerChunkLoaders';
 import { shouldShowWorkspaceHostLoader } from '@app/modules/workspace-shell/host/shouldShowWorkspaceHostLoader';
-import { shouldShowWorkspacePlaceholder } from '@app/modules/workspace-shell/host/shouldShowWorkspacePlaceholder';
+import {
+    shouldKeepWorkspacePendingDocumentHint,
+    shouldShowWorkspacePlaceholder,
+} from '@app/modules/workspace-shell/host/shouldShowWorkspacePlaceholder';
 import { tabHasDocumentHint } from '@app/modules/workspace-shell/tabs/tabHasDocumentHint';
 
 function createRecordingViewerChunkLoaders(loadedChunks: string[]) {
@@ -315,18 +318,18 @@ describe('workspace host startup visibility', () => {
         })).toBe(false);
     });
 
-    it('retains the committed empty placeholder while a hinted document has not committed', () => {
+    it('hides the Recent placeholder while a hinted document has not committed', () => {
         expect(shouldShowWorkspacePlaceholder({
             ...emptyPlaceholderSignals,
             hasPendingDocumentHint: true,
             isDocumentOpenInFlight: true,
-        })).toBe(true);
+        })).toBe(false);
         expect(shouldShowWorkspaceHostLoader({
             ...emptyPlaceholderSignals,
             hasHostError: false,
             hasPendingDocumentHint: true,
             isStartupOpenClaimPending: true,
-        })).toBe(false);
+        })).toBe(true);
     });
 
     it('hides the startup loader once startup open claim settles', () => {
@@ -335,6 +338,26 @@ describe('workspace host startup visibility', () => {
             hasHostError: false,
             hasPendingDocumentHint: true,
             isStartupOpenClaimPending: false,
+        })).toBe(false);
+    });
+
+    it('hides the Recent placeholder for a title-only pending record before open ownership', () => {
+        expect(shouldShowWorkspacePlaceholder({
+            ...emptyPlaceholderSignals,
+            hasPendingDocumentHint: true,
+        })).toBe(false);
+    });
+
+    it('releases a title-only pending hint from live committed workspace evidence', () => {
+        expect(shouldKeepWorkspacePendingDocumentHint({
+            hasDocumentHint: true,
+            hasMountedOpenError: false,
+            hasMountedSuccessfulVisual: false,
+        })).toBe(true);
+        expect(shouldKeepWorkspacePendingDocumentHint({
+            hasDocumentHint: true,
+            hasMountedOpenError: false,
+            hasMountedSuccessfulVisual: true,
         })).toBe(false);
     });
 

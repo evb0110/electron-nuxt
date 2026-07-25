@@ -30,7 +30,7 @@ import { runScanCleanupWorkerTask } from '@electron/features/scan-cleanup/runSca
 import {
     createScanCleanupGeneratedOutputPath,
     pruneScanCleanupGeneratedOutputs,
-} from '@electron/features/scan-cleanup/scanCleanupGeneratedOutputs';
+} from '@electron/features/scan-cleanup/public/generatedOutputs';
 import {allowOpenPath} from '@electron/file-access/openPathCapabilities';
 import {resolveNativePageOpsPath} from '@electron/features/page-ops/public';
 import {hasNativeErrorCode} from '@contracts/nativeErrors';
