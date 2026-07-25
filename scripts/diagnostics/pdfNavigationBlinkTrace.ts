@@ -47,8 +47,6 @@ interface ITraceSummary {
     blankSampleCount: number;
     finalTargetPage: number | null;
     frameAnalysis: IFrameAnalysisSummary;
-    firstBlankSample: unknown;
-    firstCenteredBlankSample: unknown;
     firstCenteredBlankAfterClickSample: unknown;
     firstIntermediateVisualAfterClickSample: unknown;
     firstLatePostClickSwapSample: unknown;
@@ -72,6 +70,7 @@ interface ITraceSummary {
     nonFinalPagedCommitAfterFinalRequestCount: number;
     nonFinalWorkspacePageAcceptAfterFinalRequestCount: number;
     postReadyUnstableSampleCount: number;
+    rasterSchedulerSnapshots: unknown[];
     skeletonAfterVisualSampleCount: number;
     skeletonSampleCount: number;
     translucentSkeletonCanvasOverlapSampleCount: number;
@@ -82,8 +81,6 @@ interface ITraceSummary {
     targetFeedbackWidthDeltaPx: number;
     toolbarAheadOfBodySampleCount: number;
     toolbarPages: number[];
-    workspaceGoToPages: number[];
-    pagedTargets: number[];
 }
 
 interface IPageSampleGeometry {
@@ -1168,6 +1165,12 @@ export function summarizeTrace(payload: {
     const pagedTargets = uniqueNumbers(payload.renderTrace
         .filter(entry => entry.event === 'single-page-set-paged-target')
         .map(entry => entry.payload?.targetPage));
+    const rasterSchedulerSnapshots = payload.renderTrace
+        .filter(entry => entry.event === 'raster-scheduler-snapshot')
+        .map(entry => entry.payload?.scheduler)
+        .filter(snapshot => (
+            typeof snapshot === 'object' && snapshot !== null
+        ));
     const finalTargetPage = workspaceGoToPages.at(-1) ?? toolbarPages.at(-1) ?? pagedTargets.at(-1) ?? null;
     const lastClickAtMs = getLastEventAtMs(payload.trace.events ?? [], [
         'after-next-click',
@@ -1316,8 +1319,6 @@ export function summarizeTrace(payload: {
         blankSampleCount: blankSamples.length,
         finalTargetPage,
         frameAnalysis: analyzeTraceFrames(samples),
-        firstBlankSample: blankSamples[0] ?? null,
-        firstCenteredBlankSample: samples.find(sampleHasCenteredBlank) ?? null,
         firstCenteredBlankAfterClickSample: centeredBlankAfterClick.firstSample,
         firstIntermediateVisualAfterClickSample: intermediateVisualAfterClick.firstSample,
         firstLatePostClickSwapSample,
@@ -1341,6 +1342,7 @@ export function summarizeTrace(payload: {
         nonFinalPagedCommitAfterFinalRequestCount: nonFinalPagedCommitsAfterFinalRequest.length,
         nonFinalWorkspacePageAcceptAfterFinalRequestCount: nonFinalWorkspacePageAcceptsAfterFinalRequest.length,
         postReadyUnstableSampleCount: postReadyUnstableSamples.length,
+        rasterSchedulerSnapshots,
         skeletonAfterVisualSampleCount: skeletonAfterVisualSamples.length,
         skeletonSampleCount: skeletonSamples.length,
         translucentSkeletonCanvasOverlapSampleCount: translucentSkeletonCanvasOverlapSamples.length,
@@ -1351,8 +1353,6 @@ export function summarizeTrace(payload: {
         targetFeedbackWidthDeltaPx: targetFeedbackGeometry.maxWidthDeltaPx,
         toolbarAheadOfBodySampleCount: toolbarAheadOfBodySamples.length,
         toolbarPages,
-        workspaceGoToPages,
-        pagedTargets,
     };
 }
 

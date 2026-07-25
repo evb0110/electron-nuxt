@@ -336,6 +336,7 @@ export const usePdfViewerFeatureController = (props: IPdfViewerProps, emit: IPdf
         isPageLayerReady,
         getRenderAuthorityCursor,
         cancelRasterDemand,
+        getRasterSchedulerSnapshot,
     } = usePdfViewerRenderingRuntime({
         performancePolicy,
         viewerContainer,
@@ -648,7 +649,6 @@ export const usePdfViewerFeatureController = (props: IPdfViewerProps, emit: IPdf
         navigationAnchorWindow,
         virtualWindowStart,
         virtualWindowEnd,
-        topVirtualSpacerStyle,
         bottomVirtualSpacerStyle: virtualizedBottomVirtualSpacerStyle,
         pagesToRender,
         virtualPageSegments,
@@ -1063,6 +1063,7 @@ export const usePdfViewerFeatureController = (props: IPdfViewerProps, emit: IPdf
         virtualWindowEnd,
         searchNavigationTargetPage: singlePageScroll.searchNavigationTargetPage,
         searchNavigationState: singlePageScroll.searchNavigationState,
+        getRasterSchedulerSnapshot,
         summarizeViewerStateForLog,
     });
     function isSpreadSingle(page: number) {
@@ -1183,7 +1184,6 @@ export const usePdfViewerFeatureController = (props: IPdfViewerProps, emit: IPdf
         isPageVisualReadyForShapeOverlay,
         getPagePlaceholderStyle,
         getExactPagePlaceholderStyle,
-        topVirtualSpacerStyle,
         bottomVirtualSpacerStyle,
         pendingImagePlacement,
         isPendingImagePlacementFinalizing,

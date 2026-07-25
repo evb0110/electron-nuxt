@@ -66,6 +66,43 @@ describe('pdf navigation blink trace options', () => {
 });
 
 describe('pdf navigation blink trace summary', () => {
+    it('summarizes raster scheduler snapshots emitted by viewer diagnostics', () => {
+        const summary = summarizeTrace({
+            trace: {},
+            renderTrace: [
+                {
+                    event: 'raster-scheduler-snapshot',
+                    payload: {scheduler: {
+                        accepting: true,
+                        queueDepth: 2,
+                        reservedPixels: 120,
+                    }},
+                },
+                {
+                    event: 'raster-scheduler-snapshot',
+                    payload: {scheduler: {
+                        accepting: true,
+                        queueDepth: 5,
+                        reservedPixels: 480,
+                    }},
+                },
+            ],
+        });
+
+        expect(summary.rasterSchedulerSnapshots).toEqual([
+            {
+                accepting: true,
+                queueDepth: 2,
+                reservedPixels: 120,
+            },
+            {
+                accepting: true,
+                queueDepth: 5,
+                reservedPixels: 480,
+            },
+        ]);
+    });
+
     it('summarizes visual ownership and post-click instability', () => {
         const summary = summarizeTrace({
             trace: {
