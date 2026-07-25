@@ -2527,4 +2527,178 @@ mod tests {
         }
         source
     }
+
+    fn gradient_page(width: usize, height: usize) -> GrayImage {
+        let mut page = GrayImage::new(width, height, 255);
+        for y in 0..height {
+            for x in 0..width {
+                page.set(x, y, ((x * 7 + y * 13) % 251) as u8);
+            }
+        }
+        page
+    }
+
+    fn rotate_gray_reference(source: &GrayImage, rotation: OrthogonalRotation) -> GrayImage {
+        let (width, height) = (source.width(), source.height());
+        let (output_width, output_height) = match rotation {
+            OrthogonalRotation::None | OrthogonalRotation::Clockwise180 => (width, height),
+            OrthogonalRotation::Clockwise90 | OrthogonalRotation::Clockwise270 => (height, width),
+        };
+        let mut output = GrayImage::new(output_width, output_height, 255);
+        for y in 0..height {
+            for x in 0..width {
+                let (target_x, target_y) = match rotation {
+                    OrthogonalRotation::None => (x, y),
+                    OrthogonalRotation::Clockwise90 => (height - 1 - y, x),
+                    OrthogonalRotation::Clockwise180 => (width - 1 - x, height - 1 - y),
+                    OrthogonalRotation::Clockwise270 => (y, width - 1 - x),
+                };
+                output.set(target_x, target_y, source.get(x, y));
+            }
+        }
+        output
+    }
+
+    #[test]
+    fn orthogonal_rotation_places_every_pixel_where_the_quarter_turn_says() {
+        let gray = gradient_page(37, 23);
+        let mut color = RgbImage::new(37, 23, [0; 3]);
+        for y in 0..color.height() {
+            for x in 0..color.width() {
+                let value = gray.get(x, y);
+                color.set(x, y, [value, value.wrapping_add(61), value.wrapping_mul(3)]);
+            }
+        }
+
+        for rotation in [
+            OrthogonalRotation::None,
+            OrthogonalRotation::Clockwise90,
+            OrthogonalRotation::Clockwise180,
+            OrthogonalRotation::Clockwise270,
+        ] {
+            let rotated_gray = rotate_orthogonal(&gray, rotation);
+            assert_eq!(
+                rotated_gray,
+                rotate_gray_reference(&gray, rotation),
+                "gray rotation {rotation:?}"
+            );
+
+            let rotated_color = rotate_rgb_orthogonal(&color, rotation);
+            assert_eq!(
+                (rotated_color.width(), rotated_color.height()),
+                (rotated_gray.width(), rotated_gray.height()),
+                "colour rotation {rotation:?} geometry"
+            );
+            for y in 0..rotated_color.height() {
+                for x in 0..rotated_color.width() {
+                    let value = rotated_gray.get(x, y);
+                    assert_eq!(
+                        rotated_color.get(x, y),
+                        [value, value.wrapping_add(61), value.wrapping_mul(3)],
+                        "colour rotation {rotation:?} at {x},{y}"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn crop_gray_keeps_the_requested_geometry_and_pads_past_the_source_edge() {
+        let page = gradient_page(40, 30);
+
+        let inside = crop_gray(&page, Rect::new(6.0, 4.0, 12.0, 9.0));
+        assert_eq!((inside.width(), inside.height()), (12, 9));
+        for y in 0..inside.height() {
+            for x in 0..inside.width() {
+                assert_eq!(inside.get(x, y), page.get(6 + x, 4 + y), "at {x},{y}");
+            }
+        }
+
+        // clean_region derives its working geometry from the region alone, so a
+        // region that runs past the source must still report the requested size
+        // and pad the overhang with white.
+        let overhanging = Rect::new(34.0, 26.0, 12.0, 9.0);
+        let past_edge = crop_gray(&page, overhanging);
+        assert_eq!(
+            (past_edge.width(), past_edge.height()),
+            (
+                overhanging.width.round().max(1.0) as usize,
+                overhanging.height.round().max(1.0) as usize
+            )
+        );
+        assert_eq!(past_edge.get(0, 0), page.get(34, 26));
+        assert_eq!(past_edge.get(11, 8), 255);
+    }
+
+    #[test]
+    fn preparing_an_unrotated_page_borrows_the_source_instead_of_copying_it() {
+        let source = gradient_page(320, 240);
+        let options = CleanupOptions {
+            dpi: 300.0,
+            output_mode: OutputMode::Grayscale,
+            ..CleanupOptions::default()
+        };
+
+        let prepared = prepare_page(
+            &source,
+            None,
+            &options,
+            CalibrationConfig::default(),
+            None,
+            None,
+            PageRenderPolicy {
+                create_mixed_layers: false,
+                recommend_output_mode: false,
+                analyze_layout: true,
+            },
+            &mut PageStageTimings::default(),
+        );
+
+        match prepared.rotated_source {
+            Some(Cow::Borrowed(borrowed)) => assert!(
+                std::ptr::eq(borrowed, &source),
+                "an unrotated page must borrow the caller's buffer"
+            ),
+            _ => panic!("an unrotated page must not allocate a rotated copy"),
+        }
+    }
+
+    #[test]
+    fn a_page_prepared_without_illumination_normalization_keeps_one_full_size_buffer() {
+        let source = gradient_page(320, 240);
+        for rotation in [OrthogonalRotation::None, OrthogonalRotation::Clockwise90] {
+            let options = CleanupOptions {
+                dpi: 300.0,
+                output_mode: OutputMode::Grayscale,
+                normalize_illumination: false,
+                rotation,
+                ..CleanupOptions::default()
+            };
+
+            let prepared = prepare_page(
+                &source,
+                None,
+                &options,
+                CalibrationConfig::default(),
+                None,
+                None,
+                PageRenderPolicy {
+                    create_mixed_layers: false,
+                    recommend_output_mode: false,
+                    analyze_layout: true,
+                },
+                &mut PageStageTimings::default(),
+            );
+
+            assert!(
+                prepared.rotated_source.is_none(),
+                "rotation {rotation:?}: the rotated page and the normalized page must be one buffer"
+            );
+            assert_eq!(
+                *prepared.normalized,
+                rotate_gray_reference(&source, rotation),
+                "rotation {rotation:?}: the shared buffer must hold the rotated page"
+            );
+        }
+    }
 }
