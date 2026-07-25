@@ -758,6 +758,26 @@ async function usingPreparedSourcePdf<T>(
     });
 }
 
+async function planExportRender(preparedSourcePdf: string, options: IExportPdfOptions) {
+    const requestedPageCount = getRequestedPageCount(options);
+    const pageCount = requestedPageCount ?? await getPdfPageCount(preparedSourcePdf, {
+        ...(options.signal ? { signal: options.signal } : {}),
+        ...(options.cancelGroup ? { cancelGroup: options.cancelGroup } : {}),
+    });
+    assertExportPageCountWithinLimit(pageCount);
+
+    return {
+        pageCount,
+        renderDpi: await detectExportRenderDpi(
+            preparedSourcePdf,
+            getPdfNativeToolPaths(),
+            pageCount,
+            options.signal,
+            options.cancelGroup,
+        ),
+    };
+}
+
 function createPageRanges(pageCount: number, chunkPages = PDF_EXPORT_RENDER_CHUNK_PAGES) {
     return range(1, pageCount + 1, chunkPages)
         .map(firstPage => ({
@@ -783,19 +803,10 @@ export async function exportPdfPagesAsImages(
     await mkdir(outputDirectory, { recursive: true });
 
     return usingPreparedSourcePdf(pdfPath, options, async preparedSourcePdf => {
-        const requestedPageCount = getRequestedPageCount(options);
-        const pageCount = requestedPageCount ?? await getPdfPageCount(preparedSourcePdf, {
-            ...(options.signal ? { signal: options.signal } : {}),
-            ...(options.cancelGroup ? { cancelGroup: options.cancelGroup } : {}),
-        });
-        assertExportPageCountWithinLimit(pageCount);
-        const renderDpi = await detectExportRenderDpi(
-            preparedSourcePdf,
-            getPdfNativeToolPaths(),
+        const {
             pageCount,
-            options.signal,
-            options.cancelGroup,
-        );
+            renderDpi,
+        } = await planExportRender(preparedSourcePdf, options);
         const exportedPaths = resolveOutputPathConflicts(buildImageExportOutputPaths(
             normalizedPath,
             pageCount,
@@ -1033,19 +1044,10 @@ export async function exportPdfAsMultiPageTiff(
         options,
         'pdfExport-',
         async tempDir => {
-            const requestedPageCount = getRequestedPageCount(options);
-            const pageCount = requestedPageCount ?? await getPdfPageCount(preparedSourcePdf, {
-                ...(options.signal ? { signal: options.signal } : {}),
-                ...(options.cancelGroup ? { cancelGroup: options.cancelGroup } : {}),
-            });
-            assertExportPageCountWithinLimit(pageCount);
-            const renderDpi = await detectExportRenderDpi(
-                preparedSourcePdf,
-                getPdfNativeToolPaths(),
+            const {
                 pageCount,
-                options.signal,
-                options.cancelGroup,
-            );
+                renderDpi,
+            } = await planExportRender(preparedSourcePdf, options);
             const pageFiles: IRenderedPageFile[] = [];
             let stagedPageBytes = 0;
             let renderedPageCount = 0;
