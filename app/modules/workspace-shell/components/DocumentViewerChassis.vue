@@ -428,12 +428,16 @@ watch(
         () => chassisAuthority.openSurface.snapshot.value.identity?.documentId ?? '',
         () => chassisAuthority.openSurface.snapshot.value.phase,
         () => chassisAuthority.openSurface.snapshot.value.openingPageGeometry,
+        // Frame preparation needs a measurable viewport. When geometry is already
+        // known before this chassis lays out — a preflighted native-preview open
+        // resolves it during setup — the first attempt has nothing to measure, so
+        // the layout revision is the retry signal that lands the frame.
+        () => openingFrameLayoutRevision.value,
     ],
     ([
         generation,
         documentId,
         phase,
-        _openingPageGeometry,
     ]) => {
         const snapshot = chassisAuthority.openSurface.snapshot.value;
         if (

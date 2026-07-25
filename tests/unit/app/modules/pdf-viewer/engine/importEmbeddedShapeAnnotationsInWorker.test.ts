@@ -202,7 +202,7 @@ describe('importEmbeddedShapeAnnotationsUsingWorker', () => {
         ]);
     });
 
-    it('preserves the oversized-input cap unless an automation caller explicitly overrides it', async () => {
+    it('refuses an oversized document before any worker work starts', async () => {
         const documentSize = 96 * 1024 * 1024 + 1;
         documentMocks.statFile.mockResolvedValue({size: documentSize});
         documentMocks.readFileRange.mockImplementation(async (_path, _offset, length) => new Uint8Array(length));
@@ -229,14 +229,12 @@ describe('importEmbeddedShapeAnnotationsUsingWorker', () => {
         vi.stubGlobal('Worker', FakeWorker);
 
         await expect(importEmbeddedShapeAnnotationsFromPathInWorker('/tmp/oversized.pdf'))
-            .rejects.toThrow('larger than 96 MiB');
-        await expect(importEmbeddedShapeAnnotationsFromPathInWorker(
-            '/tmp/oversized.pdf',
-            {allowOversizedInput: true},
-        )).resolves.toEqual([]);
+            .rejects.toThrow(RangeError);
+        await expect(importEmbeddedShapeAnnotationsUsingWorker(new Uint8Array(documentSize)))
+            .rejects.toThrow(RangeError);
 
-        expect(postedTypes.at(0)).toBe('path-start');
-        expect(postedTypes.at(-1)).toBe('path-finish');
+        expect(postedTypes).toEqual([]);
+        expect(documentMocks.readFileRange).not.toHaveBeenCalled();
     });
 
     it('terminates superseded worker parsing immediately', async () => {

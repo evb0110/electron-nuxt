@@ -140,10 +140,6 @@ afterAll(() => {
     } else {
         process.env.CODEX_CLI_PATH = previousCodexCliPath;
     }
-    rmSync(sessionDir(SCOPED_SESSION_NAME), {
-        recursive: true,
-        force: true,
-    });
 });
 
 describe('assistant auth fallback', () => {

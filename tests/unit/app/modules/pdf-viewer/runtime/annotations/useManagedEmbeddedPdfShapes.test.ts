@@ -592,13 +592,53 @@ describe('useManagedEmbeddedPdfShapes', () => {
 
         await expect(managedShapes.ensureManagedShapeBaselineReady())
             .rejects.toThrow('Failed to establish embedded PDF shape baseline');
-        await expect(managedShapes.ensureManagedShapeBaselineReady()).resolves.toBeUndefined();
+        await expect(managedShapes.ensureManagedShapeBaselineReady()).resolves.toBe(true);
 
         expect(importEmbeddedShapeAnnotations).toHaveBeenCalledTimes(2);
         expect(shapeComposable.importEmbeddedShapes).toHaveBeenCalledWith(
             [expect.objectContaining({annotationId: '92R'})],
             expect.objectContaining({path: '/tmp/retry-shapes.pdf'}),
         );
+    });
+
+    it('keeps the session usable when the shape layer is too large to scan', async () => {
+        vi.mocked(importEmbeddedShapeAnnotations)
+            .mockReset()
+            .mockRejectedValue(new RangeError('Embedded shape import is unavailable for PDFs larger than 96 MiB'));
+        const shapeComposable = createManagedShapeStorePort();
+        const managedShapes = useManagedEmbeddedPdfShapes({
+            viewerContainer: ref(createRenderedViewerContainer()),
+            workingCopyPath: ref('/tmp/oversized-shapes.pdf'),
+            sourcePdfData: ref(new Uint8Array([
+                1,
+                2,
+                3,
+            ])),
+            documentRevisionToken: ref(null),
+            visibleRange: ref({
+                start: 1,
+                end: 1,
+            }),
+            bufferPages: ref(0),
+            shapeComposable,
+            logger: {
+                debug: vi.fn(),
+                warn: vi.fn(),
+            },
+            runGuardedTask: task => void Promise.resolve(task()),
+            nextTick,
+            isPageRendered: () => true,
+            invalidatePages: vi.fn(),
+            renderVisiblePages: vi.fn(async () => undefined),
+            hideManagedAnnotationEditors: vi.fn(),
+            currentPage: ref(1),
+        });
+
+        // A resource refusal is not a defective document: the save path must be
+        // told the layer is unknown rather than blocked outright.
+        await expect(managedShapes.ensureManagedShapeBaselineReady()).resolves.toBe(false);
+        expect(shapeComposable.importEmbeddedShapes).not.toHaveBeenCalled();
+        expect(shapeComposable.clearPendingShapeImportAdoption).toHaveBeenCalled();
     });
 
     it('parses saved bytes before priming a shape-free baseline', async () => {
@@ -994,8 +1034,8 @@ describe('useManagedEmbeddedPdfShapes', () => {
         firstScope.stop();
         imported.resolve([createEmbeddedInkShape({annotationId: 'shared-1'})]);
 
-        await expect(firstBaseline).resolves.toBeUndefined();
-        await expect(secondBaseline).resolves.toBeUndefined();
+        await expect(firstBaseline).resolves.toBe(true);
+        await expect(secondBaseline).resolves.toBe(true);
         expect(firstShapeComposable.importEmbeddedShapes).not.toHaveBeenCalled();
         expect(secondShapeComposable.importEmbeddedShapes).toHaveBeenCalledWith(
             [expect.objectContaining({annotationId: 'shared-1'})],

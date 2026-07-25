@@ -70,6 +70,7 @@ export interface IPdfSaveRouteCapabilities {
     readonly hasLoadedSource: boolean;
     readonly forcePdfjsMaterialize: boolean;
     readonly includeManagedShapesForLiveSource: boolean;
+    readonly rewriteShapeState: boolean;
     readonly totalPageCount: number;
     readonly shapes: IShapeAnnotation[] | null;
     readonly deletedEmbeddedShapeAnnotationIds: string[];
@@ -426,6 +427,15 @@ function admitNativeAppendRoute(
     };
 }
 
+/**
+ * Shapes are canonical annotation entities, so the coarse annotation revision
+ * counters cannot tell shape work apart from note and markup work. The plan
+ * owns what this save actually changes, so ask it instead.
+ */
+function hasNonShapeAnnotationWork(plan: ISerializationPlan) {
+    return plan.expected.some(entity => entity.kind !== 'shape');
+}
+
 function buildClassifiedNativeMutationProjection(
     plan: ISerializationPlan,
     canonical: IPdfSaveCanonicalInputs,
@@ -456,8 +466,7 @@ function buildClassifiedNativeMutationProjection(
         return 'saved-pdfjs-baseline-dirty-requires-materialization';
     }
 
-    const annotationWorkDirty = admitted.dirtyState.annotationDirty
-        || (admitted.dirtyState.hasAnnotationChanges && !admitted.dirtyState.shapeStateDirty);
+    const annotationWorkDirty = hasNonShapeAnnotationWork(plan);
     const markup = buildNativeMarkupMutationForSave({
         canonicalComments: canonical.comments,
         annotationWorkDirty,
@@ -487,6 +496,7 @@ function buildClassifiedNativeMutationProjection(
 
     const shapes = buildNativeShapesMutationForSave({
         shapeStateDirty: admitted.dirtyState.shapeStateDirty,
+        rewriteShapeState: capabilities.rewriteShapeState,
         totalPageCount: capabilities.totalPageCount,
         shapes: capabilities.shapes,
         deletedAnnotationIds: capabilities.deletedEmbeddedShapeAnnotationIds,
@@ -599,8 +609,7 @@ export function classifyPdfSaveRoute(
         annotationRoute: replayPlan,
         replayableAnnotationMutationsAllowed: replayPlan.route === 'source-replay',
         metadataMutationsAllowed: admitted.nativeCapabilities.canPersistNativeMetadataMutations,
-        annotationWorkDirty: admitted.dirtyState.annotationDirty
-            || (admitted.dirtyState.hasAnnotationChanges && !admitted.dirtyState.shapeStateDirty),
+        annotationWorkDirty: hasNonShapeAnnotationWork(plan),
         pdfjsMaterializeForced: capabilities.forcePdfjsMaterialize,
         nativeMutationProjection: nativeProjection,
         annotationPlan,

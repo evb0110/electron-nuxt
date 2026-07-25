@@ -141,7 +141,6 @@ export const usePageSaveOrchestration = (deps: IPageSaveOrchestrationDeps) => {
         getSourcePdfData,
         serializePdfForSave,
         rewriteMarkupSubtypes,
-        serializeShapeAnnotations,
         embedPlacedImageToPage,
         updateEmbeddedAnnotationByRef: updateEmbeddedByRef,
         deleteEmbeddedAnnotationByRef: deleteEmbeddedByRef,
@@ -162,7 +161,7 @@ export const usePageSaveOrchestration = (deps: IPageSaveOrchestrationDeps) => {
         getDeletedEmbeddedShapeAnnotationIds: () => pdfViewerRef.value?.getDeletedEmbeddedShapeAnnotationIds() ?? [],
         getDeletedEmbeddedShapeStableKeys: () => pdfViewerRef.value?.getDeletedEmbeddedShapeStableKeys?.() ?? [],
         ensureManagedShapeBaselineReady: () => (
-            pdfViewerRef.value?.ensureManagedShapeBaselineReady?.() ?? Promise.resolve()
+            pdfViewerRef.value?.ensureManagedShapeBaselineReady?.() ?? Promise.resolve(true)
         ),
     });
 
@@ -367,7 +366,6 @@ export const usePageSaveOrchestration = (deps: IPageSaveOrchestrationDeps) => {
         getEmbeddedMutationBaseData,
         serializePdfForSave,
         rewriteMarkupSubtypes,
-        serializeShapeAnnotations,
         embedPlacedImageToPage,
         updateEmbeddedByRef,
         deleteEmbeddedByRef,

@@ -167,18 +167,17 @@ describe('usePdfViewerSaveTransaction', () => {
         const getSourcePdfData = vi.fn(async () => new Uint8Array([9]));
         const materializePdfJsDocumentForInternalUse = vi.fn(async () => new Uint8Array([8]));
         const verifyPath = vi.fn(async () => undefined);
-        let editorWasCommitted = false;
-        const commitPdfEditorsForSave = vi.fn(async () => {
-            editorWasCommitted = true;
+        const capturedFrontierSteps: string[] = [];
+        const flushAnnotationMutationsForSave = vi.fn(async () => {
+            capturedFrontierSteps.push('flush');
         });
-        const flushAnnotationMutationsForSave = vi.fn(async () => undefined);
         const {runSaveTransaction} = usePdfViewerSaveTransaction({
             materializePdfJsDocumentForInternalUse,
-            commitPdfEditorsForSave,
+            annotationUiManager: shallowRef({commitOrRemove: () => {
+                capturedFrontierSteps.push('commit');
+            }} as never),
             flushAnnotationMutationsForSave,
             prepareAnnotationSave: () => ({
-                // Mirrors the authoritative sync after PDF.js removes a
-                // committed transient editor from the live editor snapshot.
                 plan: buildSerializationPlan({
                     epoch: 1,
                     entityBaselineHash: 'large-pdf-note-baseline',
@@ -187,10 +186,7 @@ describe('usePdfViewerSaveTransaction', () => {
                         note.identity.id,
                         note.revision,
                     ]]),
-                }, editorWasCommitted ? [] : [note], [{
-                    ...note,
-                    deleted: editorWasCommitted,
-                }]),
+                }, [note], [note]),
                 verify: vi.fn(async () => undefined),
                 verifyPath,
                 commit: vi.fn(),
@@ -231,8 +227,12 @@ describe('usePdfViewerSaveTransaction', () => {
             })]},
         });
         expect(result.verifyAnnotationSavePath).toBeTypeOf('function');
-        expect(flushAnnotationMutationsForSave).not.toHaveBeenCalled();
-        expect(commitPdfEditorsForSave).not.toHaveBeenCalled();
+        // The classification pass owns the frontier capture because the frozen
+        // plan it returns is the only plan the deferred fallback will execute.
+        expect(capturedFrontierSteps).toEqual([
+            'flush',
+            'commit',
+        ]);
         expect(getSourcePdfData).not.toHaveBeenCalled();
         expect(materializePdfJsDocumentForInternalUse).not.toHaveBeenCalled();
     });
@@ -264,6 +264,7 @@ describe('usePdfViewerSaveTransaction', () => {
         const planned = await runSaveTransaction({
             mode: 'persist',
             planOnly: true,
+            serializeResult: true,
             source: {
                 getSourcePdfData: vi.fn(async () => new Uint8Array([1])),
                 serializePdfForSave,
@@ -448,9 +449,9 @@ describe('usePdfViewerSaveTransaction', () => {
         const {runSaveTransaction} = usePdfViewerSaveTransaction({
             materializePdfJsDocumentForInternalUse,
             getPdfDocument,
-            commitPdfEditorsForSave: vi.fn(async () => {
+            annotationUiManager: shallowRef({commitOrRemove: () => {
                 serializableMap.clear();
-            }),
+            }} as never),
         });
 
         const result = await runSaveTransaction({
@@ -572,9 +573,9 @@ describe('usePdfViewerSaveTransaction', () => {
             flushAnnotationMutationsForSave: vi.fn(async () => {
                 events.push('flush');
             }),
-            commitPdfEditorsForSave: vi.fn(async () => {
+            annotationUiManager: shallowRef({commitOrRemove: () => {
                 events.push('commit');
-            }),
+            }} as never),
             materializePdfJsDocumentForInternalUse: vi.fn(async () => {
                 events.push('materialize');
                 return new Uint8Array([1]);
@@ -721,7 +722,7 @@ describe('usePdfViewerSaveTransaction', () => {
     });
 
     it('awaits the managed-shape baseline before any rewrite source is sampled', async () => {
-        const baseline = Promise.withResolvers<undefined>();
+        const baseline = Promise.withResolvers<boolean>();
         const getSourcePdfData = vi.fn(async () => new Uint8Array([1]));
         const ensureManagedShapeBaselineReady = vi.fn(() => baseline.promise);
         const { runSaveTransaction } = usePdfViewerSaveTransaction({
@@ -744,7 +745,7 @@ describe('usePdfViewerSaveTransaction', () => {
         expect(ensureManagedShapeBaselineReady).toHaveBeenCalledOnce();
         expect(getSourcePdfData).not.toHaveBeenCalled();
 
-        baseline.resolve(undefined);
+        baseline.resolve(true);
         await transaction;
         expect(getSourcePdfData).toHaveBeenCalledOnce();
     });

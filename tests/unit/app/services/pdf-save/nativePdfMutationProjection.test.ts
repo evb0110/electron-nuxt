@@ -242,6 +242,7 @@ describe('native shape builders', () => {
     it('returns null when any dirty shape is not native-eligible', () => {
         const mutation = buildNativeShapesMutationForSave({
             shapeStateDirty: true,
+            rewriteShapeState: true,
             totalPageCount: 1,
             shapes: [
                 createShape(),

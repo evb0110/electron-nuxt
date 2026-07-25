@@ -50,7 +50,7 @@ export interface IPdfSerializationDeps {
     getAllShapes: () => IShapeAnnotation[];
     getDeletedEmbeddedShapeAnnotationIds?: () => string[];
     getDeletedEmbeddedShapeStableKeys?: () => string[];
-    ensureManagedShapeBaselineReady?: () => Promise<void>;
+    ensureManagedShapeBaselineReady?: () => Promise<boolean>;
 }
 
 interface ISerializePdfForSaveOptions {
@@ -351,9 +351,14 @@ export const usePdfSerialization = (deps: IPdfSerializationDeps) => {
     function applyShapePayload(
         payload: IPdfSerializationSavePayload,
         options?: Pick<ISerializePdfForSaveOptions, 'includeShapes' | 'rewriteShapeState'>,
+        shapeBaselineReady = true,
     ) {
-        payload.rewriteShapeState = options?.rewriteShapeState ?? false;
-        payload.shapes = (options?.includeShapes ?? true) ? getAllShapes() : [];
+        // Rewriting the shape layer garbage-collects every managed shape missing
+        // from the payload, so it is only sound once this session has scanned the
+        // document's own shapes. Without that baseline the save stays additive.
+        const rewriteShapeState = shapeBaselineReady && (options?.rewriteShapeState ?? false);
+        payload.rewriteShapeState = rewriteShapeState;
+        payload.shapes = rewriteShapeState || (options?.includeShapes ?? true) ? getAllShapes() : [];
         payload.deletedShapeAnnotationIds = getDeletedEmbeddedShapeAnnotationIds?.() ?? [];
         payload.deletedShapeStableKeys = getDeletedEmbeddedShapeStableKeys?.() ?? [];
     }
@@ -416,19 +421,19 @@ export const usePdfSerialization = (deps: IPdfSerializationDeps) => {
     async function buildSavePayload(
         options?: ISerializePdfForSaveOptions,
     ): Promise<IPdfSerializationSavePayload> {
-        if (
+        const shapeBaselineReady = (
             options?.includeShapes === true
             || options?.rewriteShapeState === true
             || options?.forceRewrite === true
-        ) {
-            await ensureManagedShapeBaselineReady?.();
-        }
+        )
+            ? await ensureManagedShapeBaselineReady?.() ?? true
+            : true;
         const payload = createEmptySavePayload();
         payload.canonicalAnnotationProgram = options?.annotationSerializationPlan
             ? projectAnnotationBackendMutations(options.annotationSerializationPlan, 'pdf-lib-rewrite')
             : [];
         applyMarkupPayload(payload);
-        applyShapePayload(payload, options);
+        applyShapePayload(payload, options, shapeBaselineReady);
         applyDocumentStructurePayload(payload);
         payload.forceRewrite = options?.forceRewrite === true;
         payload.placedImage = await toSerializedPlacedImagePayload(options?.placedImage);
@@ -449,15 +454,6 @@ export const usePdfSerialization = (deps: IPdfSerializationDeps) => {
     ) {
         const payload = createEmptySavePayload();
         applyMarkupPayload(payload, additionalComments);
-        return runSerializedEdit(data, payload);
-    }
-
-    async function serializeShapeAnnotations(data: Uint8Array) {
-        const payload = createEmptySavePayload();
-        applyShapePayload(payload, {
-            includeShapes: true,
-            rewriteShapeState: true,
-        });
         return runSerializedEdit(data, payload);
     }
 
@@ -521,7 +517,6 @@ export const usePdfSerialization = (deps: IPdfSerializationDeps) => {
         getSourcePdfData,
         serializePdfForSave,
         rewriteMarkupSubtypes,
-        serializeShapeAnnotations,
         embedPlacedImageToPage,
         updateEmbeddedAnnotationByRef,
         deleteEmbeddedAnnotationByRef,

@@ -166,12 +166,6 @@ afterAll(() => {
     } else {
         process.env.CODEX_CLI_PATH = previousCodexCliPath;
     }
-    rmSync(sessionDir(SCOPED_SESSION_NAME), {
-        recursive: true,
-        force: true,
-        maxRetries: 10,
-        retryDelay: 100,
-    });
 });
 
 async function openAssistantPanel() {

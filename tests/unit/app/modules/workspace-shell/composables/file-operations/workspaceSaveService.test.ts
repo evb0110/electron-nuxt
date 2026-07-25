@@ -911,10 +911,7 @@ describe('workspaceSaveService', () => {
         const result = await handleSave();
 
         expect(result).toBe(true);
-        expect(deps.runSaveTransaction).toHaveBeenCalledWith(expect.objectContaining({
-            planOnly: true,
-            serializeResult: false,
-        }));
+        expect(deps.runSaveTransaction).toHaveBeenCalledWith(expect.objectContaining({planOnly: true}));
         expect(trySavePdfNativeMutations).toHaveBeenCalledWith(
             {
                 pageLabels: {

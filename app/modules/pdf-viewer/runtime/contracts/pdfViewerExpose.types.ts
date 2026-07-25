@@ -103,7 +103,7 @@ export interface IPdfViewerCropExpose {
 export interface IPdfViewerShapePersistenceExpose {
     adoptPersistedManagedShapesOnNextImport?: () => void;
     clearPendingManagedShapeImportAdoption?: () => void;
-    ensureManagedShapeBaselineReady?: () => Promise<void>;
+    ensureManagedShapeBaselineReady?: () => Promise<boolean>;
     preparePersistedManagedShapesForSave?: (data: Uint8Array) => Promise<unknown>;
     restorePreparedManagedShapesAfterFailedSave?: (snapshot: unknown) => Promise<void>;
 }

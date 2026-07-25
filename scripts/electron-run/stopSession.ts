@@ -189,7 +189,7 @@ export async function stopSingleSession(name: string, options: {keepNuxt?: boole
         const orphanResult = await killOrphanedSessionElectron(name);
         if (orphanResult.refused > 0) {
             throw new Error(
-                `Session '${name}' stop refused ${orphanResult.refused} Electron process(es) whose identity changed before termination.`,
+                `Session '${name}' could not terminate ${orphanResult.refused} Electron process(es): identity did not match session ownership, or the process outlived termination.`,
             );
         }
         if (orphanResult.terminated > 0) {

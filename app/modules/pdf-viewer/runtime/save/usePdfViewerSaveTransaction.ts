@@ -67,14 +67,13 @@ interface IUsePdfViewerSaveTransactionOptions {
     documentRevisionToken?: ComputedRef<TDocumentRevisionToken | null>;
     documentSession?: Pick<TPdfDocumentSession, 'captureFence' | 'isCurrent'>;
     flushAnnotationMutationsForSave?: () => Promise<unknown>;
-    commitPdfEditorsForSave?: () => Promise<void>;
     getPdfDocument?: () => PDFDocumentProxy | null;
     getMarkupSubtypeOverrides?: () => Map<string, TMarkupSubtype> | undefined;
     getMarkupSubtypeHints?: () => IMarkupSubtypeHint[] | undefined;
     getAllShapes?: () => IShapeAnnotation[];
     getDeletedEmbeddedShapeAnnotationIds?: () => string[];
     getDeletedEmbeddedShapeStableKeys?: () => string[];
-    ensureManagedShapeBaselineReady?: () => Promise<void>;
+    ensureManagedShapeBaselineReady?: () => Promise<boolean>;
     prepareAnnotationSave?: () => {
         plan?: ISerializationPlan;
         verify(bytes: Uint8Array): Promise<void>;
@@ -206,6 +205,8 @@ function logSaveRouteDecision(
         pendingTexts: canonical.pendingTexts.size,
         pendingDeletes: canonical.pendingDeletes.length,
         forcePdfjsMaterialize: request.forcePdfjsMaterialize === true,
+        dirtyState: request.dirtyState,
+        includeManagedShapes: request.includeManagedShapes === true,
     });
 }
 
@@ -500,20 +501,21 @@ export const usePdfViewerSaveTransaction = (
             || request.rewriteShapeState === true
             || request.forceRewrite === true
         ) {
-            await options.ensureManagedShapeBaselineReady?.();
-            assertSaveTargetCurrent();
-        }
-        const pdfjsLiveChangesBeforeCommit = collectLivePdfJsAnnotationChangeIds(getPdfDocument());
-        if (!request.planOnly) {
-            await options.flushAnnotationMutationsForSave?.();
-            assertSaveTargetCurrent();
-            if (options.annotationUiManager) {
-                await commitPdfEditorsForSave(options.annotationUiManager.value);
-            } else {
-                await options.commitPdfEditorsForSave?.();
+            // An unscanned shape layer cannot be rewritten without discarding the
+            // managed shapes this session never saw, so the save stays additive.
+            if (await options.ensureManagedShapeBaselineReady?.() === false) {
+                request = {
+                    ...request,
+                    rewriteShapeState: false,
+                };
             }
             assertSaveTargetCurrent();
         }
+        const pdfjsLiveChangesBeforeCommit = collectLivePdfJsAnnotationChangeIds(getPdfDocument());
+        await options.flushAnnotationMutationsForSave?.();
+        assertSaveTargetCurrent();
+        await commitPdfEditorsForSave(options.annotationUiManager?.value ?? null);
+        assertSaveTargetCurrent();
         const capturedPdfjsLiveChanges = collectLivePdfJsAnnotationChangeIds(getPdfDocument());
         const canonicalSave = prepareAnnotationSave(capturedTarget);
         // Complete the annotation frontier into the global immutable save plan
@@ -609,6 +611,7 @@ export const usePdfViewerSaveTransaction = (
             hasLoadedSource: Boolean(request.source),
             forcePdfjsMaterialize: request.forcePdfjsMaterialize === true,
             includeManagedShapesForLiveSource: request.includeManagedShapes === true,
+            rewriteShapeState: request.rewriteShapeState !== false,
             totalPageCount: Math.max(
                 request.documentStructure?.totalPages ?? 0,
                 getPdfDocument()?.numPages ?? 0,
@@ -693,7 +696,6 @@ export const usePdfViewerSaveTransaction = (
             const fallbackExecutionRequest = {
                 ...request,
                 planOnly: false,
-                serializeResult: true,
             };
             let fallbackExecution: Promise<IPdfViewerSaveTransactionResult> | null = null;
             return {
@@ -728,7 +730,6 @@ export const usePdfViewerSaveTransaction = (
                     fallbackExecution ??= executeByteRoute(byteRoute, {
                         ...request,
                         planOnly: false,
-                        serializeResult: true,
                     })
                 ),
             };

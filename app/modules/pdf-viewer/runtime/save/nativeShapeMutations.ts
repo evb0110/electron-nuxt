@@ -127,6 +127,7 @@ export function toNativeShapeAnnotation(shape: IShapeAnnotation): IPdfNativeShap
 
 export function buildNativeShapesMutationForSave(opts: {
     shapeStateDirty: boolean;
+    rewriteShapeState: boolean;
     totalPageCount: number;
     shapes: IShapeAnnotation[] | null;
     deletedAnnotationIds: string[];
@@ -144,7 +145,7 @@ export function buildNativeShapesMutationForSave(opts: {
 
     return {
         totalPages: opts.totalPageCount,
-        rewriteShapeState: true,
+        rewriteShapeState: opts.rewriteShapeState,
         shapes: opts.shapes.map(toNativeShapeAnnotation),
         deletedAnnotationIds: opts.deletedAnnotationIds,
         deletedStableKeys: opts.deletedStableKeys,

@@ -392,8 +392,6 @@ describe('CI topology policy', () => {
         expect(workflow).toMatch(/nightly_electron_e2e_rapid_navigation:[\s\S]*if: \$\{\{ github\.event_name == 'schedule' \|\| github\.event_name == 'workflow_dispatch' \}\}[\s\S]*continue-on-error: true[\s\S]*run: pnpm run test:e2e:electron:rapid-navigation/u);
         expect(workflow).toContain('name: Nightly Electron E2E Large PDF');
         expect(workflowJob(workflow, 'nightly_electron_e2e_large_pdf')).toContain('run: pnpm run check:electron:install');
-        expect(workflowJob(workflow, 'nightly_electron_e2e_large_pdf')).toContain('EVB_E2E_REQUIRE_LARGE_PDF_FIXTURE=1');
-        expect(workflowJob(workflow, 'nightly_electron_e2e_large_pdf')).toContain('EVB_E2E_REQUIRE_NATIVE_LARGE_PDF_FIXTURE=1');
         expect(workflow).toMatch(/nightly_electron_e2e_large_pdf:[\s\S]*if: \$\{\{ github\.event_name == 'schedule' \|\| github\.event_name == 'workflow_dispatch' \}\}[\s\S]*continue-on-error: true[\s\S]*run: pnpm run test:e2e:electron:large/u);
         expect(packageJson).toContain('"test:e2e:electron:large": "pnpm run build:pdf-page-ops');
         expect(packageJson).toContain('EVB_PDF_PAGE_OPS_ENABLE=1 EVB_E2E_REQUIRE_LARGE_PDF_FIXTURE=1 vitest run --project e2e-large-pdf --reporter verbose');

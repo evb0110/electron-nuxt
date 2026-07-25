@@ -1,4 +1,3 @@
-import { statSync } from 'node:fs';
 import { decode } from 'fast-png';
 import { delay } from 'es-toolkit/promise';
 import {
@@ -6,10 +5,8 @@ import {
     expect,
     it,
 } from 'vitest';
-import { PDFJS_NATIVE_PREVIEW_MIN_BYTES } from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfNativePreviewRouting';
 import {
-    type IFixtureAvailability,
-    resolveLargePdfFixtureAvailability,
+    resolveNativeLargePdfFixtureAvailability,
     selectFixtureDescribe,
 } from '@tests/e2e/electron/helpers/fixtures';
 import { createElectronE2ESessionFixture } from '@tests/e2e/electron/helpers/createElectronE2ESessionFixture';
@@ -27,7 +24,6 @@ import {
 import { waitForFunctionInPage } from '@tests/e2e/electron/helpers/pageRuntime';
 
 const LARGE_PDF_TIMEOUT_MS = 360_000;
-const NATIVE_LARGE_PDF_REQUIRE_ENV_VAR = 'EVB_E2E_REQUIRE_NATIVE_LARGE_PDF_FIXTURE';
 const largePdfFixture = resolveNativeLargePdfFixtureAvailability();
 const largePdfDescribe = selectFixtureDescribe(describe, largePdfFixture);
 
@@ -44,41 +40,6 @@ interface IViewportLike {
 }
 
 type TNativePdfLoadingSample = Awaited<ReturnType<typeof readNativePdfPreviewLoadingState>> & { contrast: ReturnType<typeof measurePngRectContrast>; };
-
-function isNativeLargePdfFixtureRequired() {
-    return process.env[NATIVE_LARGE_PDF_REQUIRE_ENV_VAR] === '1';
-}
-
-function formatBytes(value: number) {
-    const mib = value / 1024 / 1024;
-    return `${Math.round(mib * 10) / 10} MiB`;
-}
-
-function resolveNativeLargePdfFixtureAvailability(): IFixtureAvailability {
-    const fixture = resolveLargePdfFixtureAvailability();
-    const required = isNativeLargePdfFixtureRequired();
-    if (!fixture.path) {
-        return {
-            ...fixture,
-            required,
-        };
-    }
-
-    const size = statSync(fixture.path).size;
-    if (size < PDFJS_NATIVE_PREVIEW_MIN_BYTES) {
-        return {
-            path: null,
-            reason: `Native large PDF fixture is ${formatBytes(size)}; native preview E2E requires at least ${formatBytes(PDFJS_NATIVE_PREVIEW_MIN_BYTES)}. Set EVB_E2E_LARGE_PDF_FIXTURE to an oversized PDF (generate one in under a second with scripts/generate-large-pdf-e2e-fixture.mjs) and ${NATIVE_LARGE_PDF_REQUIRE_ENV_VAR}=1 to require this lane.`,
-            required,
-        };
-    }
-
-    return {
-        path: fixture.path,
-        reason: `Using native large PDF fixture: ${fixture.path} (${formatBytes(size)})`,
-        required,
-    };
-}
 
 function measurePngRectContrast(
     pngBuffer: Uint8Array,

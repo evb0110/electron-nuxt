@@ -29,7 +29,10 @@ export const usePageLabelState = (deps: {
     } = deps;
 
     const pageLabels = ref<string[] | null>(null);
-    const pageLabelRanges = ref<IPdfPageLabelRange[]>([]);
+    // Replaced wholesale, never mutated in place, and posted to the
+    // serialization worker: deep reactivity would hand out a Proxy that
+    // structured clone refuses.
+    const pageLabelRanges = shallowRef<IPdfPageLabelRange[]>([]);
     const pageLabelsDirty = ref(false);
     const pageLabelsResolved = ref(true);
     let pageLabelSyncGeneration = 0;

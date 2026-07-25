@@ -39,7 +39,7 @@ const rendererFixture = vi.hoisted(() => {
         }) => undefined),
         renderLayerPromotions: vi.fn(async () => undefined),
         resolveLayerPromotionDemand: vi.fn(() => null),
-        resolveCanvasHiddenAnnotationIds: vi.fn(() => new Set<string>()),
+        canvasHiddenAnnotationIds: {value: new Set<string>()},
         requestScrollToCurrentResult: vi.fn(),
     };
     return {

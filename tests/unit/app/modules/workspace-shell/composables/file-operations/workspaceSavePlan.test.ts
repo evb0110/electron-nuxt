@@ -49,7 +49,6 @@ function buildPlan(options: {
             annotations: 'annotations-1',
             pageLabels: 'labels-1',
             bookmarks: 'bookmarks-1',
-            shapes: options.dirtyState?.shapes ?? false,
         },
         dirtyState: options.dirtyState ?? CLEAN_DIRTY_STATE,
         hasManagedShapes: options.hasManagedShapes ?? false,

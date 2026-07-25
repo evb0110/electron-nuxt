@@ -26,7 +26,6 @@ export interface IWorkspaceSaveBaseline {
     annotations: unknown;
     pageLabels: unknown;
     bookmarks: unknown;
-    shapes: boolean;
 }
 
 export interface IWorkspaceSaveDirtyState {

@@ -21,7 +21,6 @@ import { clearPdfSelectionForLayerTeardown } from '@app/modules/pdf-viewer/engin
 import { createPdfRenderSupervisor } from '@app/modules/pdf-viewer/engine/pdf-render-supervisor/pdfRenderSupervisor';
 import { PDF_PAGE_RENDER_TIMEOUT_MS } from '@app/constants/timeouts';
 import { withPageStageTimeout } from '@app/modules/pdf-viewer/engine/pdf-page-render-timeout/withPageStageTimeout';
-import { resolveHiddenEmbeddedAnnotationIdsForPageContainer } from '@app/modules/pdf-viewer/engine/pdf-embedded-shape-refresh/syncHiddenEmbeddedAnnotationDom';
 import type {
     IPdfLayerRenderResult,
     IPdfPageLayerRenderContext,
@@ -612,14 +611,11 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
         requestScrollToCurrentResult: searchController.requestScrollToCurrentResult,
         cancelPendingSearchScroll: searchController.invalidatePendingRequests,
         renderAnnotationEditorLayerForPage,
-        resolveCanvasHiddenAnnotationIds(pageNumber: number, container: HTMLElement | null) {
-            const hidden = canvasHiddenAnnotationIds.value;
-            return hidden.size === 0 ? hidden : resolveHiddenEmbeddedAnnotationIdsForPageContainer({
-                hiddenAnnotationIds: hidden,
-                managedAnnotationIds: managedAnnotationIds.value,
-                pageContainer: container,
-            });
-        },
+        // The raster bakes pixels that survive until the page is re-rendered, so it
+        // must follow the store alone. Deferring suppression until a managed shape's
+        // overlay is mounted — as the annotation layer does, where the decision is
+        // revisited on every DOM sync — would bake native ink under the overlay.
+        canvasHiddenAnnotationIds,
         attachAnnotationProjection(
             attached: IPdfAnnotationProjection,
             presentation?: Ref<IPdfAnnotationProjection['textMarkupPresentation'] | null>,

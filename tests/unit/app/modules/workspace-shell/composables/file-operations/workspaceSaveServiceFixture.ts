@@ -55,7 +55,6 @@ type TFileOperationsSaveControllerTestDeps =
         runSaveTransaction: IWorkspaceSaveDependencies['pdf']['runSaveTransaction'];
         saveDocument: () => Promise<Uint8Array | null>;
         getSourcePdfData: IWorkspaceSaveDependencies['pdf']['getSourceData'];
-        commitPdfEditorsForSave?: () => Promise<void>;
         serializePdfForSave: IWorkspaceSaveDependencies['pdf']['serializeForSave'];
         validatePdfPath: IWorkspaceSaveDependencies['persistence']['validatePdfPath'];
         saveFile: IWorkspaceSaveDependencies['persistence']['saveSerialized'];
@@ -382,7 +381,6 @@ export function createDeps(overrides: Partial<Parameters<typeof useWorkspaceSave
             || overrides.captureCanonicalPendingAnnotationDeletes !== undefined;
         const transaction = usePdfViewerSaveTransaction({
             materializePdfJsDocumentForInternalUse: deps.saveDocument,
-            ...(deps.commitPdfEditorsForSave ? {commitPdfEditorsForSave: deps.commitPdfEditorsForSave} : {}),
             getPdfDocument: () => deps.pdfDocument.value,
             ...(hasCanonicalAnnotationPlan
                 ? {prepareAnnotationSave: () => ({

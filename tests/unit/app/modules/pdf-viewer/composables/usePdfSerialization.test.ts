@@ -514,7 +514,10 @@ describe('usePdfSerialization embedded shapes', () => {
             getDeletedEmbeddedShapeAnnotationIds: () => [`${lineRef.objectNumber}R${lineRef.generationNumber}`],
         });
 
-        const result = await serializer.serializeShapeAnnotations(bytes);
+        const result = await serializer.serializePdfForSave(bytes, {
+            includeShapes: true,
+            rewriteShapeState: true,
+        });
         const doc = await PDFDocument.load(result, { updateMetadata: false });
         const annotRefs = getPageAnnotRefs(doc);
         const annotTags = annotRefs.map(ref => ref.toString());
@@ -870,6 +873,85 @@ describe('usePdfSerialization embedded shapes', () => {
             stableKey: 'evb-shape:stable-keep',
             pdfSubtype: 'Ink',
         });
+    });
+
+    it('keeps a shape rewrite additive while the shape layer is too large to scan', async () => {
+        const createRectShape = (overrides: Partial<IShapeAnnotation>): IShapeAnnotation => ({
+            id: 'shape-rect',
+            stableKey: 'evb-shape:rect',
+            type: 'rectangle',
+            pageIndex: 0,
+            x: 0.1,
+            y: 0.2,
+            width: 0.2,
+            height: 0.15,
+            color: '#336699',
+            opacity: 0.8,
+            strokeWidth: 2,
+            source: 'local',
+            ...overrides,
+        });
+        const persisted = [
+            createRectShape({
+                id: 'shape-unscanned',
+                stableKey: 'evb-shape:unscanned',
+            }),
+            createRectShape({
+                id: 'shape-unscanned-2',
+                stableKey: 'evb-shape:unscanned-2',
+                x: 0.5,
+            }),
+        ];
+        const drawnThisSession = createRectShape({
+            id: 'shape-drawn',
+            stableKey: 'evb-shape:drawn',
+            y: 0.6,
+        });
+        const createSerializer = (
+            bytes: Uint8Array,
+            shapes: IShapeAnnotation[],
+            shapeBaselineReady: boolean,
+        ) => usePdfSerialization({
+            pdfData: ref(bytes),
+            workingCopyPath: ref(null),
+            totalPages: ref(1),
+            pageLabelsDirty: ref(false),
+            pageLabelRanges: ref([]),
+            getMarkupSubtypeOverrides: () => undefined,
+            getAllShapes: () => shapes,
+            ensureManagedShapeBaselineReady: async () => shapeBaselineReady,
+        });
+
+        const source = await createPdfDataWithSinglePage();
+        const withPersistedShapes = await createSerializer(source, persisted, true)
+            .serializePdfForSave(source, {
+                includeShapes: true,
+                rewriteShapeState: true,
+            });
+
+        // The session never scanned the document, so it only knows the shape it
+        // just drew. A rewrite would discard the other two.
+        const unscannedSave = await createSerializer(withPersistedShapes, [drawnThisSession], false)
+            .serializePdfForSave(withPersistedShapes, {
+                includeShapes: true,
+                rewriteShapeState: true,
+            });
+
+        expect((await importEmbeddedShapeAnnotations(unscannedSave)).map(shape => shape.stableKey).sort())
+            .toEqual([
+                'evb-shape:drawn',
+                'evb-shape:unscanned',
+                'evb-shape:unscanned-2',
+            ]);
+
+        const scannedSave = await createSerializer(withPersistedShapes, [drawnThisSession], true)
+            .serializePdfForSave(withPersistedShapes, {
+                includeShapes: true,
+                rewriteShapeState: true,
+            });
+
+        expect((await importEmbeddedShapeAnnotations(scannedSave)).map(shape => shape.stableKey))
+            .toEqual(['evb-shape:drawn']);
     });
 
     it('keeps managed draw shapes stable across repeated save, delete, and redraw reconciliation cycles', async () => {

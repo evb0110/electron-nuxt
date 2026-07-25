@@ -67,7 +67,6 @@ interface IUsePdfViewerZoomRerenderQueueOptions {
     buildResizeAnchorContext: () => IResizeAnchorContext;
     scheduleEndResizeTransition?: (token: number, reason: string, page: number | null) => void;
     isZoomInteractionLocked?: (() => boolean) | undefined;
-    isZoomGestureSessionLocked?: (() => boolean) | undefined;
     setZoomRerenderBusy?: TPdfZoomRerenderBusySetter | undefined;
     transactionController?: IZoomQueueTransactionController | undefined;
 }
@@ -81,7 +80,6 @@ export const usePdfViewerZoomRerenderQueue = (options: IUsePdfViewerZoomRerender
         reRenderVisiblePagesAndSyncCurrentPage,
         scheduleEndResizeTransition,
         isZoomInteractionLocked,
-        isZoomGestureSessionLocked,
         setZoomRerenderBusy,
         transactionController,
     } = options;
@@ -445,7 +443,7 @@ export const usePdfViewerZoomRerenderQueue = (options: IUsePdfViewerZoomRerender
             scheduleZoomRerender();
         } else if (
             options.performancePolicy.zoomGestureRasterMode === 'eager'
-            && isZoomGestureSessionLocked?.() !== true
+            && isZoomInteractionLocked?.() !== true
         ) {
             resetStableZoomGesture();
         }

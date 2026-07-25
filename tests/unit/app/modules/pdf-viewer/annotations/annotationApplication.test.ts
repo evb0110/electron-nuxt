@@ -671,6 +671,16 @@ describe('AnnotationApplication', () => {
         expect(application.annotationIdForSummary(summary)).toBe(projection.created.identity.id);
     });
 
+    it('keeps a locally created note saveable after its own read model is ingested again', () => {
+        const application = new AnnotationApplication('document');
+        application.store.createStickyNote(note({identity: {id: asAnnotationId('anno_local_note')}}));
+
+        application.ingestLegacySummaries(application.listCommentSummaries());
+
+        expect(application.store.list()).toHaveLength(1);
+        expect(() => application.beginSave()).not.toThrow();
+    });
+
     it('rejects reopen results with stale text or geometry', async () => {
         const application = new AnnotationApplication('document');
         application.store.createStickyNote(note());

@@ -13,7 +13,10 @@ export const useBookmarkState = (deps: {
         onBookmarksSaved,
     } = deps;
 
-    const bookmarkItems = ref<IPdfBookmarkEntry[]>([]);
+    // Replaced wholesale, never mutated in place, and posted to the
+    // serialization worker: deep reactivity would hand out a Proxy that
+    // structured clone refuses.
+    const bookmarkItems = shallowRef<IPdfBookmarkEntry[]>([]);
     const bookmarksDirty = ref(false);
     const bookmarkEditMode = ref(false);
     let bookmarkRevision = 0;

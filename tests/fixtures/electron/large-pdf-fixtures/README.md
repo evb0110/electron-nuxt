@@ -5,8 +5,9 @@ directory are intentionally not committed because they are too large for the
 repository and are only needed for opt-in regression coverage. The fixture-policy
 unit suite enforces that only this README (`*.md`) ever lands here.
 
-Two opt-in Electron e2e lanes read fixtures from here, and each resolves a fixture
-independently.
+Two Electron e2e lanes cover large PDFs. Only the annotation-save lane reads a
+fixture from here; its native-preview sibling generates its own oversized file
+because the two lanes need opposite sides of the same size threshold.
 
 ## Annotation-save lane
 
@@ -30,7 +31,12 @@ The resolver also supports these alternatives:
 - Place the same relative path under `.devkit/`, for example
   `.devkit/large-pdf-fixtures/turkish-english-lexicon-letter-bookmarks.pdf`.
 - Set `EVB_E2E_REQUIRE_LARGE_PDF_FIXTURE=1` to make a missing fixture fail the
-  lane instead of skipping it.
+  lane instead of skipping it. `pnpm run test:e2e:electron:large` sets it.
+
+The fixture must stay below `PDFJS_NATIVE_PREVIEW_MIN_BYTES` (512 MiB). At or
+above that cap the document opens through the native preview and never reaches
+the PDF.js annotation surface this lane covers, so the resolver refuses it with
+that explanation rather than letting the lane time out.
 
 Known local provenance is limited to the fixture filename and the audit note that
 identifies this as a local-only large PDF fixture, about 172 MB, for the
@@ -43,34 +49,24 @@ suite to add, save, reopen, and verify another FreeText popup note.
 
 `tests/e2e/electron/largePdfNativePreview.e2e.test.ts` proves that a path-backed
 PDF above the PDF.js size cap opens through the native preview instead of failing
-allocation. It requires a fixture **at least `PDFJS_NATIVE_PREVIEW_MIN_BYTES`
-(512 MiB)**; the 172 MB annotation-save fixture is well below that. Below the
-threshold this lane **skips permanently and by design** — it is never expected to
-run against a committed artifact, because a >512 MiB binary must not enter the
-repository.
+allocation. Only the byte count decides that route, so this lane needs *size*, not
+content, and it never reads `EVB_E2E_LARGE_PDF_FIXTURE`: the annotation-save
+document is far below the cap, and a document above the cap could not drive the
+annotation-save lane at all.
 
-To run it locally, point it at an oversized PDF and require the lane explicitly:
-
-- `EVB_E2E_LARGE_PDF_FIXTURE` — absolute path to a ≥512 MiB PDF.
-- `EVB_E2E_REQUIRE_NATIVE_LARGE_PDF_FIXTURE=1` — turn the skip into a hard failure
-  so a misconfigured run cannot silently pass.
-
-You do not need to store or download such a file. `scripts/generate-large-pdf-e2e-fixture.mjs`
-produces a valid, deterministic ≥512 MiB PDF in well under a second by writing a
-small pdf-lib document with an existing FreeText note and sparse-padding it to the
-target size. The note also satisfies the annotation-save sibling in the combined
-large-PDF project, while the sparse padding costs a few hundred KiB of real disk
-rather than 512 MiB:
+Instead the lane provisions its own fixture with
+`scripts/generate-large-pdf-e2e-fixture.mjs`, which writes a small pdf-lib
+document and sparse-pads it to `PDFJS_NATIVE_PREVIEW_MIN_BYTES + 1 MiB`. It runs
+in well under a second, costs a few hundred KiB of real disk, and is cached under
+`.devkit/tmp/e2e-fixture-cache/`. The lane therefore cannot be handed an
+undersized PDF, and it needs no local binary and no CI download step:
 
 ```sh
-fixture_dir="$(mktemp -d)"
-fixture="$fixture_dir/native-preview.pdf"
-node scripts/generate-large-pdf-e2e-fixture.mjs --output="$fixture"
-EVB_E2E_LARGE_PDF_FIXTURE="$fixture" \
-EVB_E2E_REQUIRE_NATIVE_LARGE_PDF_FIXTURE=1 \
-  pnpm run test:e2e:electron:large
+pnpm run test:e2e:electron:large
 ```
 
-This is exactly how the nightly `nightly_electron_e2e_large_pdf` CI job
-self-provisions the fixture into the runner's temp directory, so the lane runs on
-every nightly build without committing a binary.
+Generate one by hand only when inspecting the fixture:
+
+```sh
+node scripts/generate-large-pdf-e2e-fixture.mjs --output=/tmp/native-preview.pdf
+```

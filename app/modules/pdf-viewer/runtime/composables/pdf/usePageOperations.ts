@@ -150,7 +150,7 @@ export const usePageOperations = (deps: {
         const metadataSnapshot = pageLabels && bookmarkItems
             ? {
                 pageLabels: pageLabels.value ? [...pageLabels.value] : null,
-                bookmarks: structuredClone(toRaw(bookmarkItems.value)),
+                bookmarks: structuredClone(bookmarkItems.value),
                 untitledBookmarkLabel: t('bookmarks.untitled', undefined),
             }
             : undefined;

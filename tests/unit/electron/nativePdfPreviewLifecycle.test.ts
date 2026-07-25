@@ -343,6 +343,79 @@ describe('native PDF preview lifecycle', () => {
         );
     });
 
+    it('discovers lazy-original page sizes through the witnessed source', async () => {
+        const sender = new FakeSender();
+        const read = vi.fn(async (reader: (physicalPath: string) => Promise<unknown>) =>
+            reader('/Users/alice/Documents/input.pdf'));
+        mocks.resolveExistingReadablePdfPath.mockResolvedValueOnce('/tmp/pdf-work/input.pdf');
+        mocks.resolveOriginalBackedReadTransport.mockReturnValueOnce({
+            identity: {
+                size: 28_000_000,
+                modifiedAt: 1_720_000_000_000,
+            },
+            read,
+        });
+        mocks.runNativeToolCommand
+            .mockResolvedValueOnce({
+                exitCode: 0,
+                stderr: '',
+                stdout: 'Pages: 1\nPage size: 612 x 792 pts\n',
+            })
+            .mockResolvedValueOnce({
+                exitCode: 0,
+                stderr: '',
+                stdout: 'Pages: 1\nPage 1 size: 612 x 792 pts\nPage 1 rot: 0\n',
+            });
+        const { handlePdfNativePageSizes } = await import('@electron/features/documents/main/nativePdfPreview');
+
+        await expect(handlePdfNativePageSizes({
+            sender: sender as never,
+            senderId: sender.id,
+        }, '/tmp/pdf-work/input.pdf')).resolves.toEqual([expect.objectContaining({
+            width: 612,
+            height: 792,
+        })]);
+
+        expect(read).toHaveBeenCalledOnce();
+        for (const [
+            , args,
+        ] of mocks.runNativeToolCommand.mock.calls) {
+            expect(args).toContain('/Users/alice/Documents/input.pdf');
+            expect(args).not.toContain('/tmp/pdf-work/input.pdf');
+        }
+    });
+
+    it('renders a lazy-original page preview through the witnessed source', async () => {
+        const sender = new FakeSender();
+        const read = vi.fn(async (reader: (physicalPath: string) => Promise<unknown>) =>
+            reader('/Users/alice/Documents/input.pdf'));
+        mocks.resolveExistingReadablePdfPath.mockResolvedValueOnce('/tmp/pdf-work/input.pdf');
+        mocks.resolveOriginalBackedReadTransport.mockReturnValueOnce({
+            identity: {
+                size: 28_000_000,
+                modifiedAt: 1_720_000_000_000,
+            },
+            read,
+        });
+        mocks.stat.mockResolvedValueOnce({size: 4_096});
+        const { handlePdfNativePagePreview } = await import('@electron/features/documents/main/nativePdfPreview');
+
+        await expect(handlePdfNativePagePreview({
+            sender: sender as never,
+            senderId: sender.id,
+        }, '/tmp/pdf-work/input.pdf', 1)).resolves.toMatchObject({
+            width: 640,
+            height: 480,
+        });
+
+        expect(read).toHaveBeenCalledOnce();
+        expect(mocks.runNativeToolCommand).toHaveBeenCalledWith(
+            '/mock/pdftoppm',
+            expect.arrayContaining(['/Users/alice/Documents/input.pdf']),
+            expect.objectContaining({commandLabel: 'pdftoppm'}),
+        );
+    });
+
     it('preserves a typed backing error when the lazy source swaps during geometry discovery', async () => {
         const backingError = Object.assign(
             new Error('Working-copy registration changed during the read'),

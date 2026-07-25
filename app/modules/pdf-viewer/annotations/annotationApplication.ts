@@ -66,7 +66,6 @@ export interface IAnnotationSaveVerificationOptions {readonly preexistingPdfAnno
 
 interface IPdfjsReopenedAnnotation {
     readonly id?: string;
-    readonly annotationName?: string;
     readonly subtype?: string;
     readonly contents?: string;
     readonly contentsObj?: { readonly str?: string };
@@ -134,7 +133,12 @@ export class AnnotationApplication {
             const existing = this.store.get(annotationId);
             if (existing) {
                 const identifiesSameRecord = Boolean(
-                    (Boolean(comment.annotationId) && existing.identity.pdfRef === comment.annotationId)
+                    // A summary carrying the canonical id names the record outright —
+                    // nothing was inferred from external keys, so there is nothing to
+                    // disambiguate. The external-key comparisons below only guard
+                    // identities this ingest had to guess.
+                    Boolean(comment.appAnnotationId)
+                    || (Boolean(comment.annotationId) && existing.identity.pdfRef === comment.annotationId)
                     || (Boolean(comment.annotationName) && existing.identity.id === comment.annotationName)
                     || (Boolean(comment.uid) && existing.identity.pdfjsUid === comment.uid)
                     || (Boolean(comment.id) && existing.identity.elementId === comment.id),
@@ -262,11 +266,13 @@ export class AnnotationApplication {
     }
 
     createShapeFromGeometry(geometry: IShapeAnnotation) {
+        const stableKey = getNormalizedShapeStableKey(geometry);
         return this.store.createShape({
             kind: 'shape',
             identity: {
                 id: mintAnnotationId(),
                 elementId: geometry.id,
+                ...(stableKey ? {pdfName: stableKey} : {}),
             },
             pageIndex: geometry.pageIndex,
             revision: 0,
@@ -609,24 +615,29 @@ export class AnnotationApplication {
             }
             const page = await document.getPage(expected.pageIndex + 1);
             const records: readonly IPdfjsReopenedAnnotation[] = await page.getAnnotations();
+            // The plan freezes expected content, not identity: bindings still
+            // advance while the save runs (the managed-shape rescan of the
+            // saved bytes learns each shape's ref before commit). The store
+            // owns those bindings, so bind against it rather than the snapshot.
+            const identity = this.store.get(expected.identity.id)?.identity ?? expected.identity;
             const externalIds = new Set([
-                expected.identity.id,
-                expected.identity.pdfRef,
-                expected.identity.pdfName,
-                expected.identity.pdfjsUid,
-                expected.identity.elementId,
+                identity.id,
+                identity.pdfRef,
+                identity.pdfName,
+                identity.pdfjsUid,
+                identity.elementId,
                 session.materializedPdfRefs.get(expected.identity.id),
             ].filter((value): value is string => Boolean(value)));
-            if (expected.kind === 'sticky-note' && !expected.identity.pdfRef && !expected.identity.pdfName) {
-                const id = expected.identity.elementId
-                    ?? expected.identity.pdfjsUid
-                    ?? expected.identity.id;
+            if (expected.kind === 'sticky-note' && !identity.pdfRef && !identity.pdfName) {
+                const id = identity.elementId
+                    ?? identity.pdfjsUid
+                    ?? identity.id;
                 const nativeName = getReplayableFreeTextNoteName({
                     stableKey: computeSummaryStableKey({
                         id,
                         pageIndex: expected.pageIndex,
                         source: 'editor',
-                        uid: expected.identity.pdfjsUid ?? null,
+                        uid: identity.pdfjsUid ?? null,
                         annotationId: null,
                     }),
                     createdAt: expected.createdAt,
@@ -635,15 +646,14 @@ export class AnnotationApplication {
             }
             let record = records.find(candidate => !matchedRecords.has(candidate) && (
                 (typeof candidate.id === 'string' && externalIds.has(candidate.id))
-                || (typeof candidate.annotationName === 'string' && externalIds.has(candidate.annotationName))
                 || (typeof candidate.id === 'string' && externalIds.has(candidate.id.replace(/R0$/u, 'R')))
             ));
             if (
                 !record
                 && preexistingPdfRefs
                 && expected.kind === 'sticky-note'
-                && !expected.identity.pdfRef
-                && !expected.identity.pdfName
+                && !identity.pdfRef
+                && !identity.pdfName
             ) {
                 const semanticCandidates = records.filter((candidate) => {
                     if (matchedRecords.has(candidate) || candidate.subtype !== 'FreeText') {
@@ -671,7 +681,7 @@ export class AnnotationApplication {
             if (record) {
                 matchedRecords.add(record);
                 if (
-                    !expected.identity.pdfRef
+                    !identity.pdfRef
                     && typeof record.id === 'string'
                     && normalizePdfJsAnnotationId(record.id)
                 ) {

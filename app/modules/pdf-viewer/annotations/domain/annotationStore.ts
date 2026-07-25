@@ -952,6 +952,15 @@ export class AnnotationStore {
             return;
         }
 
+        if (mode === 'prime') {
+            // A pdfRef names an object inside one document revision, and a save
+            // that rematerializes the shapes renumbers them: a deleted shape's
+            // number is free for a survivor to take. The previous revision's
+            // numbering is therefore retired wholesale and re-derived from the
+            // bytes below, so delete verification cannot mistake whichever
+            // annotation inherited a removed shape's number.
+            this.#releasePersistedShapeRefs(shapes, frontier);
+        }
         const remaining = proposals.map(proposal => ({
             annotationId: proposal.annotationId,
             geometry: structuredClone(proposal.geometry),
@@ -970,15 +979,16 @@ export class AnnotationStore {
         const tombstones = shapes.filter(entity => entity.deleted);
         const survivingTombstones = mode === 'prime'
             ? tombstones
-            : mode === 'adopt-self-saved'
-                ? []
-                : tombstones.filter(entity => proposals.some(
-                    proposal => shapeStableRefsMatch(proposal.geometry, entity.geometry),
-                ));
+            : tombstones.filter(entity => proposals.some(
+                proposal => shapeStableRefsMatch(proposal.geometry, entity.geometry),
+            ));
         // Unmatched embedded shapes are gone from the document; local drafts and
-        // tombstones the scan still carries survive it. Priming removes nothing
-        // at all: it runs against bytes whose save is not acknowledged yet, and
-        // dropping a captured entity would break the save frontier.
+        // tombstones the scan still carries survive it. A tombstone the scanned
+        // bytes still contain outlived them: the delete landed after those bytes
+        // were written, so it is the newer truth and must not be adopted away.
+        // Priming removes nothing at all: it runs against bytes whose save is not
+        // acknowledged yet, and dropping a captured entity would break the save
+        // frontier.
         this.forget(mode === 'prime' ? new Set() : new Set([
             ...shapes
                 .filter(entity => !entity.deleted
@@ -1008,16 +1018,16 @@ export class AnnotationStore {
         mode: TShapeApplyMode,
         frontier?: IAnnotationSaveFrontier,
     ) {
+        const stableKey = getNormalizedShapeStableKey(imported);
+        const identity = {
+            ...entity.identity,
+            ...(imported.annotationId ? {pdfRef: imported.annotationId} : {}),
+            ...(stableKey ? {pdfName: stableKey} : {}),
+        };
         if (mode === 'reconcile') {
             this.import({
                 ...entity,
-                identity: {
-                    ...entity.identity,
-                    ...(imported.annotationId ? {pdfRef: imported.annotationId} : {}),
-                    ...(getNormalizedShapeStableKey(imported)
-                        ? {pdfName: getNormalizedShapeStableKey(imported)!}
-                        : {}),
-                },
+                identity,
                 geometry: {
                     ...imported,
                     id: entity.geometry.id,
@@ -1030,20 +1040,43 @@ export class AnnotationStore {
         }
         // Saved-bytes scans only carry identity for shapes the user still owns;
         // adopting their geometry here would discard edits made while the save ran.
-        this.#reconcilePersistedShapeIdentity(entity, imported, frontier);
+        this.#writePersistedShapeIdentity(entity, identity, frontier);
+        this.#identities.bind(identity);
+        this.#mutationEpoch += 1;
+        this.#emit();
     }
 
-    #reconcilePersistedShapeIdentity(
-        entity: IShapeEntity,
-        imported: IShapeEntity['geometry'],
+    #releasePersistedShapeRefs(
+        entities: readonly IShapeEntity[],
         frontier?: IAnnotationSaveFrontier,
     ) {
-        const stableKey = getNormalizedShapeStableKey(imported);
-        const identity = {
-            ...entity.identity,
-            ...(imported.annotationId ? {pdfRef: imported.annotationId} : {}),
-            ...(stableKey ? {pdfName: stableKey} : {}),
-        };
+        const stale = entities.filter(entity => entity.identity.pdfRef);
+        if (!stale.length) {
+            return;
+        }
+        stale.forEach((entity) => {
+            const {
+                pdfRef: _released,
+                ...identity
+            } = entity.identity;
+            this.#writePersistedShapeIdentity(entity, identity, frontier);
+        });
+        // Dropping a binding is a removal, which the index only expresses by
+        // rebuilding from the entities that now own the revision's numbers.
+        this.#rebindIdentities();
+        this.#mutationEpoch += 1;
+        this.#emit();
+    }
+
+    /**
+     * Writes an identity the bytes being persisted assign, recording the value it
+     * replaces on the save frontier so a failed persist restores it.
+     */
+    #writePersistedShapeIdentity(
+        entity: IShapeEntity,
+        identity: IShapeEntity['identity'],
+        frontier?: IAnnotationSaveFrontier,
+    ) {
         const persistedRevision = Math.max(entity.persistedRevision, 0);
         const frontierState = frontier ? this.#saveFrontiers.get(frontier) : undefined;
         const previousPreparation = frontierState?.preparedChanges.get(entity.identity.id);
@@ -1055,14 +1088,11 @@ export class AnnotationStore {
                 afterPersistedRevision: persistedRevision,
             });
         }
-        this.#identities.bind(identity);
         this.#entities.set(entity.identity.id, {
             ...entity,
             identity,
             persistedRevision,
         });
-        this.#mutationEpoch += 1;
-        this.#emit();
     }
 
     #importShape(proposal: IShapeImportProposal) {

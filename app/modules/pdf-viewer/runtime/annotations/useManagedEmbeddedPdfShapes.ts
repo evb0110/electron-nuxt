@@ -348,6 +348,7 @@ export const useManagedEmbeddedPdfShapes = ({
         | { status: 'empty' }
         | { status: 'failed' }
         | { status: 'stale' }
+        | { status: 'unscannable' }
         | {
             status: 'imported';
             shapes: IShapeAnnotation[]
@@ -387,22 +388,9 @@ export const useManagedEmbeddedPdfShapes = ({
                 } = await import(
                     '@app/modules/pdf-viewer/engine/pdf-embedded-shape-annotations/embeddedShapeAnnotationsWorkerClient'
                 );
-                const {isLargeSerializedSaveAllowedForAutomation} = await import(
-                    '@app/utils/isLargeSerializedSaveAllowedForAutomation'
-                );
-                const allowOversizedInput = isLargeSerializedSaveAllowedForAutomation();
                 return data && data.length > 0
-                    ? importEmbeddedShapeAnnotationsUsingWorker(data, {
-                        signal: sharedSignal,
-                        allowOversizedInput,
-                    })
-                    : importEmbeddedShapeAnnotationsFromPathInWorker(
-                        path!,
-                        {
-                            signal: sharedSignal,
-                            allowOversizedInput,
-                        },
-                    );
+                    ? importEmbeddedShapeAnnotationsUsingWorker(data, {signal: sharedSignal})
+                    : importEmbeddedShapeAnnotationsFromPathInWorker(path!, {signal: sharedSignal});
             }, signal);
             if (isStaleEmbeddedShapeImport(token, path)) {
                 logStaleEmbeddedShapeImport(token, path);
@@ -415,6 +403,13 @@ export const useManagedEmbeddedPdfShapes = ({
         } catch (error) {
             if (signal.aborted || isStaleEmbeddedShapeImport(token, path)) {
                 return { status: 'stale' };
+            }
+            // A size refusal is a resource policy, not a defective document: the
+            // shape layer stays unscanned and the session keeps saving, with the
+            // shape rewrite disabled so unseen managed shapes survive untouched.
+            if (error instanceof RangeError) {
+                logger.warn('pdf-shapes', 'Embedded PDF shape layer is too large to scan; leaving it unmanaged', error);
+                return { status: 'unscannable' };
             }
             logger.warn('pdf-shapes', 'Failed to import embedded PDF shapes', error);
             return { status: 'failed' };
@@ -544,6 +539,12 @@ export const useManagedEmbeddedPdfShapes = ({
                 shapeComposable.clearPendingShapeImportAdoption();
                 throw new Error('Failed to establish embedded PDF shape baseline');
             }
+            if (result.status === 'unscannable') {
+                // No baseline is established, so the document stays openable and
+                // savable while every shape write stays additive.
+                shapeComposable.clearPendingShapeImportAdoption();
+                return;
+            }
             if (result.status === 'stale') {
                 return;
             }
@@ -614,16 +615,23 @@ export const useManagedEmbeddedPdfShapes = ({
         return embeddedShapeImportPromise;
     }
 
+    /**
+     * Resolves to whether this session knows the document's whole shape layer.
+     * A `false` result is not an error: the layer was too large to scan, so
+     * callers must keep shape writes additive instead of rewriting the layer.
+     */
     async function ensureManagedShapeBaselineReady() {
         if (!sourcePdfData.value && !workingCopyPath.value) {
-            return;
+            return true;
         }
         const data = sourcePdfData.value;
         const path = workingCopyPath.value;
         const revision = documentRevisionToken.value;
         await ensureEmbeddedShapesImportedForCurrentSource();
         if (disposed) {
-            return;
+            // Disposal says nothing about the shape layer, and a save racing it
+            // is rejected by its own staleness guards.
+            return true;
         }
         if (
             sourcePdfData.value !== data
@@ -632,9 +640,7 @@ export const useManagedEmbeddedPdfShapes = ({
         ) {
             throw new Error('PDF source changed while establishing embedded shape baseline');
         }
-        if (!shapeComposable.isShapeImportBaselineReady()) {
-            throw new Error('Embedded PDF shape baseline is unavailable');
-        }
+        return shapeComposable.isShapeImportBaselineReady();
     }
 
     async function clearManagedShapesForDeferredImport() {

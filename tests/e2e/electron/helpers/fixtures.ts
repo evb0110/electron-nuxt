@@ -31,6 +31,8 @@ import { runNativeCommand } from '@electron/native-tools/runNativeCommand';
 import { resolveNativeToolPath } from '@electron/native-tools/resolveNativeToolPath';
 import { prependDirectoryToPath } from '@electron/native-tools/toolRegistry';
 import { resolvePlatformArchTag } from '@electron/utils/platformArch';
+import { PDFJS_NATIVE_PREVIEW_MIN_BYTES } from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfNativePreviewRouting';
+import { EMBEDDED_SHAPE_IMPORT_MAX_INPUT_BYTES } from '@app/modules/pdf-viewer/engine/pdf-embedded-shape-annotations/embeddedShapeImportLimit';
 
 const FIXTURE_ROOT_DIR = resolve(process.cwd(), '.devkit', 'tmp', 'e2e-fixtures');
 const FIXTURE_CACHE_DIR = resolve(process.cwd(), '.devkit', 'tmp', 'e2e-fixture-cache');
@@ -40,6 +42,11 @@ const PROJECT_ROOT_FIXTURE_DIR = resolve(process.cwd(), '.devkit');
 const LARGE_PDF_FIXTURE_ENV_VAR = 'EVB_E2E_LARGE_PDF_FIXTURE';
 const LARGE_PDF_REQUIRE_ENV_VAR = 'EVB_E2E_REQUIRE_LARGE_PDF_FIXTURE';
 const DEFAULT_LARGE_PDF_FIXTURE = 'large-pdf-fixtures/turkish-english-lexicon-letter-bookmarks.pdf';
+const NATIVE_LARGE_PDF_FIXTURE_BYTES = PDFJS_NATIVE_PREVIEW_MIN_BYTES + (1024 * 1024);
+// Above the shape-scan cap, so the annotation-save lane covers saving a document
+// whose embedded shape layer is too large to scan, and far below the
+// native-preview cap so it still opens through the PDF.js annotation surface.
+const ANNOTATION_LARGE_PDF_FIXTURE_BYTES = EMBEDDED_SHAPE_IMPORT_MAX_INPUT_BYTES * 2;
 const DJVU_FIXTURE_ENV_VAR = 'EVB_E2E_DJVU_FIXTURE';
 const DEFAULT_DJVU_FIXTURE = 'djvu-fixtures/viewer-smoke.djvu';
 const TRACKED_DJVU_CORPUS_FIXTURE = resolve(
@@ -397,36 +404,103 @@ function resolveLargePdfFixturePath() {
     return candidatePath;
 }
 
+function formatFixtureSize(value: number) {
+    return value < 1024 * 1024
+        ? `${value} bytes`
+        : `${Math.round(value / 1024 / 1024 * 10) / 10} MiB`;
+}
+
+// Both large-PDF lanes need a document larger than anything that may enter the
+// repository, so they provision one instead of skipping. The generator writes a
+// small pdf-lib document — including the existing FreeText note the
+// annotation-save lane asserts — and sparse-pads it, so the file costs a few
+// hundred KiB of real disk whatever its declared size.
+function provisionLargePdfFixture(label: string, targetBytes: number): IFixtureAvailability {
+    const required = isEnvFlagEnabled(LARGE_PDF_REQUIRE_ENV_VAR);
+    const fixturePath = join(FIXTURE_CACHE_DIR, `${label}-${targetBytes}.pdf`);
+
+    try {
+        if (!existsSync(fixturePath) || statSync(fixturePath).size !== targetBytes) {
+            mkdirSync(FIXTURE_CACHE_DIR, {recursive: true});
+            execFileSync(process.execPath, [
+                resolve(process.cwd(), 'scripts', 'generate-large-pdf-e2e-fixture.mjs'),
+                `--output=${fixturePath}`,
+                `--bytes=${targetBytes}`,
+            ], {stdio: 'pipe'});
+        }
+
+        const size = statSync(fixturePath).size;
+        if (size !== targetBytes) {
+            throw new Error(`generated ${formatFixtureSize(size)} instead of ${formatFixtureSize(targetBytes)}`);
+        }
+        return {
+            path: fixturePath,
+            reason: `Using generated ${label} large PDF fixture: ${fixturePath} (${formatFixtureSize(size)})`,
+            required,
+        };
+    } catch (error) {
+        return {
+            path: null,
+            reason: `Generated ${label} large PDF fixture is not available`
+                + ` (scripts/generate-large-pdf-e2e-fixture.mjs): ${error instanceof Error ? error.message : String(error)}`,
+            required,
+        };
+    }
+}
+
+// The two large-PDF lanes sit on opposite sides of the same threshold: the
+// native-preview lane only takes the route it covers above the PDF.js size cap,
+// while the annotation-save lane edits through PDF.js and is therefore only
+// meaningful below it. One document cannot serve both, so they no longer share a
+// fixture. This env override names the realistic document for the annotation-save
+// lane; when it is absent the lane provisions a synthetic stand-in rather than
+// skipping, and the native-preview lane always provisions its own.
 export function resolveLargePdfFixtureAvailability(): IFixtureAvailability {
     const fixturePath = resolveLargePdfFixturePath();
     const required = isEnvFlagEnabled(LARGE_PDF_REQUIRE_ENV_VAR);
 
     if (fixturePath) {
+        const size = statSync(fixturePath).size;
+        if (size >= PDFJS_NATIVE_PREVIEW_MIN_BYTES) {
+            return {
+                path: null,
+                reason: `Large PDF fixture is ${formatFixtureSize(size)}, at or above the`
+                    + ` ${formatFixtureSize(PDFJS_NATIVE_PREVIEW_MIN_BYTES)} native-preview cap, so it opens through the`
+                    + ' native preview instead of the PDF.js annotation surface this lane covers. Set'
+                    + ` ${LARGE_PDF_FIXTURE_ENV_VAR} to a large PDF below that cap; the native-preview lane provisions`
+                    + ' its own oversized fixture.',
+                required,
+            };
+        }
+
         return {
             path: fixturePath,
-            reason: `Using large PDF fixture: ${fixturePath}`,
+            reason: `Using large PDF fixture: ${fixturePath} (${formatFixtureSize(size)})`,
             required,
         };
     }
 
     const overridePath = process.env[LARGE_PDF_FIXTURE_ENV_VAR]?.trim();
-    return {
-        path: null,
-        reason: overridePath
-            ? `${LARGE_PDF_FIXTURE_ENV_VAR} points to a missing fixture: ${resolve(overridePath)}`
-            : `Large PDF fixture is not available. Set ${LARGE_PDF_FIXTURE_ENV_VAR}`
-                + ` or place ${DEFAULT_LARGE_PDF_FIXTURE} under tests/fixtures/electron or .devkit.`,
-        required,
-    };
+    if (overridePath) {
+        return {
+            path: null,
+            reason: `${LARGE_PDF_FIXTURE_ENV_VAR} points to a missing fixture: ${resolve(overridePath)}`,
+            required,
+        };
+    }
+
+    return provisionLargePdfFixture('annotation-save', ANNOTATION_LARGE_PDF_FIXTURE_BYTES);
+}
+
+export function resolveNativeLargePdfFixtureAvailability(): IFixtureAvailability {
+    return provisionLargePdfFixture('native-preview', NATIVE_LARGE_PDF_FIXTURE_BYTES);
 }
 
 export function copyLargePdfFixture(targetFilename?: string) {
-    const sourcePath = resolveLargePdfFixturePath();
+    const fixture = resolveLargePdfFixtureAvailability();
+    const sourcePath = fixture.path;
     if (!sourcePath) {
-        throw new Error(
-            `Large PDF fixture is not available. Set ${LARGE_PDF_FIXTURE_ENV_VAR}`
-            + ` or place ${DEFAULT_LARGE_PDF_FIXTURE} under tests/fixtures/electron or .devkit.`,
-        );
+        throw new Error(`Large PDF fixture is not available: ${fixture.reason}`);
     }
     ensureFixtureDir();
     const targetPath = join(getFixtureDir(), targetFilename ?? basename(sourcePath));

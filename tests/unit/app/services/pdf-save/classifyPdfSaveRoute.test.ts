@@ -154,6 +154,7 @@ function liveChanges(overrides: Partial<IPdfLiveAnnotationChangeSummary> = {}): 
 function capabilities(overrides: Partial<IPdfSaveRouteCapabilities> = {}): IPdfSaveRouteCapabilities {
     return {
         saveFlowMode: 'save',
+        rewriteShapeState: true,
         availableBackends: [
             'native-append',
             'pdfjs-save-document',

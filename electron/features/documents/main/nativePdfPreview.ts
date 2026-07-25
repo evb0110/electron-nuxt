@@ -321,6 +321,7 @@ export async function handlePdfNativePageSizes(
     filePath: unknown,
 ): Promise<IPdfNativePageSize[]> {
     const resolvedPath = await resolvePdfPath(context, filePath);
+    const originalBackedRead = resolveOriginalBackedReadTransport(resolvedPath, context.senderId);
     const tools = getPdfNativeToolPaths();
     const env = buildPopplerEnv(tools);
     const abortController = new AbortController();
@@ -348,10 +349,10 @@ export async function handlePdfNativePageSizes(
     );
     mainOperation.signal.addEventListener('abort', handleMainAbort, { once: true });
 
-    try {
+    const readPageSizes = async (physicalPath: string) => {
         const overview = await runNativeToolCommand(
             tools.pdfinfo,
-            [resolvedPath],
+            [physicalPath],
             withPopplerEnv(env, {
                 timeoutMs: PDFINFO_TIMEOUT_MS,
                 maxStdoutBytes: PDFINFO_BASE_STDOUT_BYTES,
@@ -376,7 +377,7 @@ export async function handlePdfNativePageSizes(
                 '1',
                 '-l',
                 String(pageCount),
-                resolvedPath,
+                physicalPath,
             ],
             withPopplerEnv(env, {
                 timeoutMs: PDFINFO_TIMEOUT_MS,
@@ -394,6 +395,12 @@ export async function handlePdfNativePageSizes(
             pageCount,
             parseDefaultPageSize(detailed.stdout) ?? fallbackPageSize,
         );
+    };
+
+    try {
+        return originalBackedRead
+            ? await originalBackedRead.read(readPageSizes)
+            : await readPageSizes(resolvedPath);
     } finally {
         mainOperation.signal.removeEventListener('abort', handleMainAbort);
         unregisterSenderCleanup();
@@ -548,6 +555,7 @@ async function runPdfNativePagePreview(
     const targetWidthPx = normalizePreviewTargetWidth(options);
     const previewRequestId = normalizePreviewRequestId(options);
     const ownerId = getPreviewRequestOwnerId(context);
+    const originalBackedRead = resolveOriginalBackedReadTransport(resolvedPath, context.senderId);
     const tools = getPdfNativeToolPaths();
     const env = buildPopplerEnv(tools);
     const abortController = new AbortController();
@@ -625,7 +633,7 @@ async function runPdfNativePagePreview(
             previewRequestId,
             targetWidthPx,
         })}`);
-        await runNativeToolCommand(
+        const renderPage = (physicalPath: string) => runNativeToolCommand(
             tools.pdftoppm,
             [
                 '-png',
@@ -638,7 +646,7 @@ async function runPdfNativePagePreview(
                 String(page),
                 '-l',
                 String(page),
-                resolvedPath,
+                physicalPath,
                 outputPrefix,
             ],
             withPopplerEnv(env, {
@@ -650,6 +658,11 @@ async function runPdfNativePagePreview(
                 cancelGroup,
             }),
         );
+        if (originalBackedRead) {
+            await originalBackedRead.read(renderPage);
+        } else {
+            await renderPage(resolvedPath);
+        }
         const outputStat = await stat(outputPath);
         if (outputStat.size > PDF_RENDER_MAX_OUTPUT_BYTES) {
             throw new RangeError('Native PDF preview exceeds the 64 MiB output limit');

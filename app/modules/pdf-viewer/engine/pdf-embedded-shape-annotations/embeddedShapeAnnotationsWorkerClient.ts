@@ -1,12 +1,12 @@
 import type { IShapeAnnotation } from '@app/types/annotations';
 import type { TDocumentRef } from '@contracts/documentRef';
 import { importEmbeddedShapeAnnotations } from '@app/modules/pdf-viewer/engine/pdf-embedded-shape-annotations/importEmbeddedShapeAnnotations';
+import { assertEmbeddedShapeImportSize } from '@app/modules/pdf-viewer/engine/pdf-embedded-shape-annotations/embeddedShapeImportLimit';
 import { readDocumentBytes } from '@app/utils/documentBytes';
 import { getDocumentFilesCapability } from '@app/utils/platformDocuments';
 
 const EMBEDDED_SHAPE_IMPORT_TIMEOUT_MS = 90_000;
 const EMBEDDED_SHAPE_IMPORT_PATH_CHUNK_BYTES = 4 * 1024 * 1024;
-const EMBEDDED_SHAPE_IMPORT_MAX_INPUT_BYTES = 96 * 1024 * 1024;
 
 interface IEmbeddedShapeImportWorkerResponse {
     ok: boolean;
@@ -77,18 +77,12 @@ function createEmbeddedShapeImportWorker(
 export async function importEmbeddedShapeAnnotationsUsingWorker(
     data: Uint8Array,
     options: {
-        allowOversizedInput?: boolean;
         signal?: AbortSignal;
         transferOwnership?: boolean;
     } = {},
 ): Promise<IShapeAnnotation[]> {
     options.signal?.throwIfAborted();
-    if (
-        data.byteLength > EMBEDDED_SHAPE_IMPORT_MAX_INPUT_BYTES
-        && options.allowOversizedInput !== true
-    ) {
-        throw new RangeError('Embedded shape import is unavailable for PDFs larger than 96 MiB');
-    }
+    assertEmbeddedShapeImportSize(data.byteLength);
     if (!canUseEmbeddedShapeImportWorker()) {
         return importEmbeddedShapeAnnotations(data);
     }
@@ -102,17 +96,13 @@ export async function importEmbeddedShapeAnnotationsUsingWorker(
         worker.postMessage({
             type: 'bytes',
             data: transferableData,
-            allowOversizedInput: options.allowOversizedInput === true,
         }, [transferableData.buffer]);
     });
 }
 
 export async function importEmbeddedShapeAnnotationsFromPathInWorker(
     path: TDocumentRef,
-    options: {
-        allowOversizedInput?: boolean;
-        signal?: AbortSignal;
-    } = {},
+    options: {signal?: AbortSignal} = {},
 ): Promise<IShapeAnnotation[]> {
     options.signal?.throwIfAborted();
     if (!canUseEmbeddedShapeImportWorker()) {
@@ -124,18 +114,12 @@ export async function importEmbeddedShapeAnnotationsFromPathInWorker(
 
     const files = getDocumentFilesCapability();
     const {size} = await files.statFile(path);
-    if (
-        size > EMBEDDED_SHAPE_IMPORT_MAX_INPUT_BYTES
-        && options.allowOversizedInput !== true
-    ) {
-        throw new RangeError('Embedded shape import is unavailable for PDFs larger than 96 MiB');
-    }
+    assertEmbeddedShapeImportSize(size);
     options.signal?.throwIfAborted();
     return createEmbeddedShapeImportWorker(options.signal, async worker => {
         worker.postMessage({
             type: 'path-start',
             size,
-            allowOversizedInput: options.allowOversizedInput === true,
         });
         for (let offset = 0; offset < size; offset += EMBEDDED_SHAPE_IMPORT_PATH_CHUNK_BYTES) {
             options.signal?.throwIfAborted();

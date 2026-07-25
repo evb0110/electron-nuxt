@@ -46,7 +46,6 @@ vi.mock(
         getSourcePdfData: vi.fn(async () => new Uint8Array([1])),
         serializePdfForSave: vi.fn(async (data: Uint8Array) => data),
         rewriteMarkupSubtypes: vi.fn(),
-        serializeShapeAnnotations: vi.fn(),
         embedPlacedImageToPage: vi.fn(),
         updateEmbeddedAnnotationByRef: vi.fn(),
         deleteEmbeddedAnnotationByRef: vi.fn(),

@@ -317,7 +317,7 @@ async function validateWorkingCopy(
 }
 
 function armPersistedShapeState(plan: TWorkspaceSavePlan, deps: IWorkspaceSaveDependencies) {
-    if (plan.baseline.shapes) {
+    if (plan.dirtyState.shapes) {
         deps.shapes.adoptPersistedStateOnReload?.();
     }
 }
@@ -456,7 +456,7 @@ function buildSaveTransactionRequest(
         forcePdfjsMaterialize: plan.dirtyState.preservedAnnotationSource
             || plan.dirtyState.savedPdfjsAnnotationBaseline,
         includeManagedShapes: body.includeManagedShapes,
-        rewriteShapeState: plan.baseline.shapes,
+        rewriteShapeState: plan.dirtyState.shapes,
         forceRewrite: body.forceRewrite,
         ...(options.planOnly !== undefined ? {planOnly: options.planOnly} : {}),
         dirtyState: {
@@ -489,7 +489,7 @@ function buildSaveTransactionRequest(
             getSourcePdfData: deps.pdf.getSourceData,
             serializePdfForSave: deps.pdf.serializeForSave,
         },
-        serializeResult: options.planOnly !== true,
+        serializeResult: true,
     };
 }
 
@@ -555,7 +555,7 @@ async function executeSerializedBytesSave(
 
     let preparedShapeStateSnapshot: unknown = null;
     try {
-        if (plan.baseline.shapes) {
+        if (plan.dirtyState.shapes) {
             preparedShapeStateSnapshot = await deps.shapes.preparePersistedState?.(finalBytes) ?? null;
         }
         armPersistedShapeState(plan, deps);
@@ -974,7 +974,6 @@ function captureBaseline(deps: IWorkspaceSaveDependencies): IWorkspaceSaveBaseli
         annotations: deps.annotations.getSaveStateToken?.(),
         pageLabels: deps.metadata.getPageLabelsSaveStateToken?.(),
         bookmarks: deps.metadata.getBookmarksSaveStateToken?.(),
-        shapes: deps.shapes.hasChanges(),
     };
 }
 

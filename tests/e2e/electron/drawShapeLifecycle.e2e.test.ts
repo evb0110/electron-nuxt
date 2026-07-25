@@ -2316,7 +2316,14 @@ async function runSavedShapeDeleteScenario(page: Page, scenario: ISavedShapeDele
 describe('Electron E2E - Draw Shape Lifecycle', () => {
     let rendererErrorTracker: IRendererErrorTracker | null = null;
 
-    const sessionFixture = createElectronE2ESessionFixture({sessionName: () => `e2e-draw-shapes-${Date.now()}`});
+    // Every draw-shape test owns a full session relaunch: it starts one under a
+    // fresh name and stops it in afterEach so managed-shape state cannot leak
+    // between save cycles. The fixture must not also reset a session this suite
+    // has already stopped.
+    const sessionFixture = createElectronE2ESessionFixture({
+        restartBeforeEach: false,
+        sessionName: () => `e2e-draw-shapes-${Date.now()}`,
+    });
 
     const startDrawShapeSession = async () => {
         const session = await sessionFixture.start({sessionName: () => `e2e-draw-shapes-${Date.now()}`});

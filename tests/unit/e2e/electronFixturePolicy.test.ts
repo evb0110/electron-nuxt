@@ -20,6 +20,9 @@ import {
     PDFRef,
 } from 'pdf-lib';
 import { join } from 'node:path';
+import { statSync } from 'node:fs';
+import { PDFJS_NATIVE_PREVIEW_MIN_BYTES } from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfNativePreviewRouting';
+import { EMBEDDED_SHAPE_IMPORT_MAX_INPUT_BYTES } from '@app/modules/pdf-viewer/engine/pdf-embedded-shape-annotations/embeddedShapeImportLimit';
 import { resolveE2EGlobalSetupSessionName } from '@tests/e2e/electron/resolveE2EGlobalSetupSessionName';
 import {
     electronUserDataPath,
@@ -45,6 +48,8 @@ import {
     type IFixtureDescribeSelector,
     resolveScannedFixturePageMarkerRgb,
     resolveDjvuFixturePath,
+    resolveLargePdfFixtureAvailability,
+    resolveNativeLargePdfFixtureAvailability,
     resolvePathFixtureAvailability,
     selectFixtureDescribe,
 } from '@tests/e2e/electron/helpers/fixtures';
@@ -63,6 +68,14 @@ async function collectFiles(directory: string): Promise<string[]> {
         return entry.isFile() ? [path] : [];
     }));
     return files.flat();
+}
+
+function restoreEnvVar(name: string, previousValue: string | undefined) {
+    if (previousValue === undefined) {
+        Reflect.deleteProperty(process.env, name);
+    } else {
+        process.env[name] = previousValue;
+    }
 }
 
 function createDescribeSelectorDouble() {
@@ -332,11 +345,14 @@ describe('Electron E2E fixture policy', () => {
     it('keeps nightly large-PDF CI required and self-provisioning', async () => {
         const workflow = await readFile('.github/workflows/ci.yml', 'utf8');
         const job = workflow.slice(workflow.indexOf('  nightly_electron_e2e_large_pdf:'), workflow.indexOf('  nightly_electron_e2e_quarantine:'));
+        const packageScripts = JSON.parse(await readFile('package.json', 'utf8')).scripts as Record<string, string>;
 
-        expect(job).toContain('generate-large-pdf-e2e-fixture.mjs');
-        expect(job).toContain('EVB_E2E_REQUIRE_LARGE_PDF_FIXTURE=1');
-        expect(job).toContain('EVB_E2E_REQUIRE_NATIVE_LARGE_PDF_FIXTURE=1');
         expect(job).toContain('pnpm run test:e2e:electron:large');
+        expect(packageScripts['test:e2e:electron:large']).toContain('EVB_E2E_REQUIRE_LARGE_PDF_FIXTURE=1');
+        // Both lanes provision their own fixtures now, so a CI staging step could
+        // only hand one of them a document outside its band.
+        expect(job).not.toContain('generate-large-pdf-e2e-fixture.mjs');
+        expect(job).not.toContain('EVB_E2E_LARGE_PDF_FIXTURE');
         expect(job).not.toContain('pnpm exec vitest run --project e2e-large-pdf');
     });
 
@@ -379,11 +395,7 @@ describe('Electron E2E fixture policy', () => {
                 /Required fixture missing: required unit-test fixture does not exist:/,
             );
         } finally {
-            if (previousValue === undefined) {
-                delete process.env.EVB_UNIT_REQUIRE_MISSING_FIXTURE;
-            } else {
-                process.env.EVB_UNIT_REQUIRE_MISSING_FIXTURE = previousValue;
-            }
+            restoreEnvVar('EVB_UNIT_REQUIRE_MISSING_FIXTURE', previousValue);
         }
     });
 
@@ -537,25 +549,76 @@ describe('Electron E2E fixture policy', () => {
         expect(samplerSource).not.toContain('|| ownsPageFrameStyle(');
     });
 
-    it('keeps large native preview explicitly opt-in instead of requiring a huge tracked PDF', async () => {
-        const source = await readFile('tests/e2e/electron/largePdfNativePreview.e2e.test.ts', 'utf8');
+    it('provisions its own oversized native-preview fixture instead of borrowing the annotation-save one', async () => {
+        const undersizedPath = await createMultiPageTextFixturePdf('unit-native-preview-undersized.pdf', 1);
+        const previousFixture = process.env.EVB_E2E_LARGE_PDF_FIXTURE;
+        process.env.EVB_E2E_LARGE_PDF_FIXTURE = undersizedPath;
 
-        expect(source).toContain('PDFJS_NATIVE_PREVIEW_MIN_BYTES');
-        expect(source).toContain('EVB_E2E_REQUIRE_NATIVE_LARGE_PDF_FIXTURE');
-        expect(source).toContain('Set EVB_E2E_LARGE_PDF_FIXTURE to an oversized PDF');
-        expect(source).toContain('scripts/generate-large-pdf-e2e-fixture.mjs');
+        try {
+            const fixture = resolveNativeLargePdfFixtureAvailability();
+
+            expect(fixture.path).not.toBeNull();
+            expect(fixture.path).not.toBe(undersizedPath);
+            expect(statSync(fixture.path!).size).toBeGreaterThanOrEqual(PDFJS_NATIVE_PREVIEW_MIN_BYTES);
+            const describeLike = createDescribeSelectorDouble();
+            expect(selectFixtureDescribe(describeLike, fixture)).toBe(describeLike);
+        } finally {
+            restoreEnvVar('EVB_E2E_LARGE_PDF_FIXTURE', previousFixture);
+            await rm(undersizedPath, {force: true});
+        }
     });
 
-    it('documents the native-preview lane skip and its self-provisioning fixture in the lane README', async () => {
+    it('resolves an annotation-save fixture inside its band without a manually supplied binary', () => {
+        const previousFixture = process.env.EVB_E2E_LARGE_PDF_FIXTURE;
+        delete process.env.EVB_E2E_LARGE_PDF_FIXTURE;
+
+        try {
+            const fixture = resolveLargePdfFixtureAvailability();
+
+            expect(fixture.path).not.toBeNull();
+            const size = statSync(fixture.path!).size;
+            // Above the shape-scan cap the lane covers saving an unscannable shape
+            // layer; below the native-preview cap it still reaches PDF.js.
+            expect(size).toBeGreaterThan(EMBEDDED_SHAPE_IMPORT_MAX_INPUT_BYTES);
+            expect(size).toBeLessThan(PDFJS_NATIVE_PREVIEW_MIN_BYTES);
+        } finally {
+            restoreEnvVar('EVB_E2E_LARGE_PDF_FIXTURE', previousFixture);
+        }
+    });
+
+    it('refuses an annotation-save fixture that would open through the native preview', async () => {
+        const previousFixture = process.env.EVB_E2E_LARGE_PDF_FIXTURE;
+        const previousRequire = process.env.EVB_E2E_REQUIRE_LARGE_PDF_FIXTURE;
+        // The oversized native-preview fixture is the cheapest oversized PDF on
+        // hand, and pointing the annotation-save lane at it is exactly the
+        // mistake this precondition exists to catch.
+        const oversizedPath = resolveNativeLargePdfFixtureAvailability().path;
+        expect(oversizedPath).not.toBeNull();
+        process.env.EVB_E2E_LARGE_PDF_FIXTURE = oversizedPath!;
+
+        try {
+            process.env.EVB_E2E_REQUIRE_LARGE_PDF_FIXTURE = '1';
+            const fixture = resolveLargePdfFixtureAvailability();
+
+            expect(fixture.path).toBeNull();
+            expect(fixture.reason).toContain('native-preview cap');
+            expect(() => selectFixtureDescribe(createDescribeSelectorDouble(), fixture))
+                .toThrow(/Required fixture missing/u);
+        } finally {
+            restoreEnvVar('EVB_E2E_LARGE_PDF_FIXTURE', previousFixture);
+            restoreEnvVar('EVB_E2E_REQUIRE_LARGE_PDF_FIXTURE', previousRequire);
+        }
+    });
+
+    it('documents the native-preview lane requirement and its self-provisioning fixture in the lane README', async () => {
         const readme = await readFile(
             'tests/fixtures/electron/large-pdf-fixtures/README.md',
             'utf8',
         );
 
         expect(readme).toContain('EVB_E2E_LARGE_PDF_FIXTURE');
-        expect(readme).toContain('EVB_E2E_REQUIRE_NATIVE_LARGE_PDF_FIXTURE=1');
+        expect(readme).toContain('EVB_E2E_REQUIRE_LARGE_PDF_FIXTURE=1');
         expect(readme).toContain('scripts/generate-large-pdf-e2e-fixture.mjs');
-        expect(readme).toMatch(/skips? permanently/i);
     });
 });
 

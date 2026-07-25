@@ -1,0 +1,134 @@
+import type { Ref } from 'vue';
+import { markStartupMetricOnce } from '@app/utils/startupMetrics';
+import type { IDocumentViewerChassisAuthority } from '@app/utils/document-viewer/chassis/documentViewerChassisAuthority';
+import type { IDocumentOpenSurfaceRenderOwner } from '@app/utils/document-viewer/chassis/documentOpenSurfaceSession';
+import type { IPdfCanvasDomCommit } from '@app/modules/pdf-viewer/runtime/rendering/pdfRendererTypes';
+import { isPdfInitialVisualCanvasReady } from '@app/modules/pdf-viewer/runtime/lifecycle/isPdfInitialVisualCanvasReady';
+import { commitPdfPageSkeletonGeometry } from '@app/modules/pdf-viewer/runtime/lifecycle/commitPdfInitialPageSkeletonGeometry';
+import type { TPdfViewportSession } from '@app/modules/pdf-viewer/runtime/sessions/createPdfViewportSession';
+export interface ICreatePdfInitialVisualCommitOptions {
+    chassisAuthority: IDocumentViewerChassisAuthority | null;
+    openSurfaceRenderOwner: IDocumentOpenSurfaceRenderOwner | undefined;
+    viewport: TPdfViewportSession;
+    viewerContainer: Ref<HTMLElement | null>;
+    renderedPageStateVersion: Ref<number>;
+    isCommittedVisual: (pageNumber: number) => boolean;
+    queueFrame: () => void;
+    emitInitialVisualReady: (payload: {pageNumber: number}) => void;
+}
+export const createPdfInitialVisualCommit = (options: ICreatePdfInitialVisualCommitOptions) => {
+    const chassisAuthority = options.chassisAuthority;
+    const viewport = options.viewport;
+    let pendingReadyToken: number | null = null;
+    function readExactInitialCommit(requireViewport: boolean) {
+        const surface = chassisAuthority?.openSurface;
+        const snapshot = surface?.snapshot.value;
+        const render = snapshot?.committedRender;
+        const pageNumber = viewport.currentPage.value;
+        if (!surface || !snapshot || !render
+            || render.generation !== snapshot.generation
+            || render.documentRevision !== snapshot.identity?.documentRevision
+            || render.pageNumber !== pageNumber
+            || surface.viewportSession.value.requestedPage !== pageNumber
+            || requireViewport && snapshot.committedViewport?.pageNumber !== pageNumber
+        ) {
+            return null;
+        }
+        return {
+            surface,
+            snapshot,
+            render,
+            pageNumber,
+        };
+    }
+    function reconcileInitialVisual() {
+        const current = readExactInitialCommit(true);
+        if (!current
+            || current.snapshot.phase === 'viewport-committed' && !current.surface.markReady(current.render)
+        ) {
+            return;
+        }
+        const ready = readExactInitialCommit(true);
+        if (!ready
+            || ready.snapshot.phase !== 'ready'
+            || pendingReadyToken === null
+            || !isPdfInitialVisualCanvasReady(
+                options.viewerContainer.value,
+                ready.pageNumber,
+                viewport.currentPage.value,
+            )
+        ) {
+            return;
+        }
+        pendingReadyToken = null;
+        markStartupMetricOnce('evb:first-page-painted');
+        options.emitInitialVisualReady({pageNumber: ready.pageNumber});
+    }
+    function adoptResidentCanvas(pageNumber: number) {
+        if (!chassisAuthority || !options.openSurfaceRenderOwner || !options.isCommittedVisual(pageNumber)) {
+            return;
+        }
+        const surface = chassisAuthority.openSurface;
+        const snapshot = surface.snapshot.value;
+        if (snapshot.identity === null || surface.viewportSession.value.requestedPage !== pageNumber) {
+            return;
+        }
+        const fence = surface.createOwnedResidentRenderFence(options.openSurfaceRenderOwner, {
+            generation: snapshot.generation,
+            documentRevision: snapshot.identity.documentRevision,
+            pageNumber,
+        });
+        if (!fence || !surface.commitCanvas(fence)) {
+            return;
+        }
+        reconcileInitialVisual();
+    }
+    function handlePageCanvasMounted(commit: IPdfCanvasDomCommit) {
+        options.renderedPageStateVersion.value += 1;
+        options.queueFrame();
+        if (!chassisAuthority) {
+            return;
+        }
+        const surface = chassisAuthority.openSurface;
+        const authoritativePageNumber = surface.viewportSession.value.requestedPage;
+        if (commit.pageNumber !== authoritativePageNumber) {
+            return;
+        }
+        const fence = options.openSurfaceRenderOwner && surface.createOwnedRenderFence(options.openSurfaceRenderOwner, {
+            generation: commit.openSurfaceGeneration,
+            documentRevision: commit.documentRevision,
+            rendererVersion: commit.renderVersion,
+            rendererRequestId: commit.requestId,
+            pageNumber: commit.pageNumber,
+        });
+        if (!fence) {
+            return;
+        }
+        commitPdfPageSkeletonGeometry(
+            chassisAuthority,
+            options.viewerContainer,
+            viewport.currentPage,
+            viewport.scale.scaledMargin,
+            commit.pageNumber,
+            {
+                authoritativePageNumber,
+                expectedGeneration: surface.snapshot.value.generation,
+                minimumScrollHeight: viewport.openVirtualSurfaceGeometry.openingVirtualExtentMinimumScrollHeight.value,
+                requireVisibleSkeleton: false,
+            },
+        );
+        if (surface.commitCanvas(fence)) {
+            viewport.singlePageScroll.commitCurrentViewportIfSettled(commit.pageNumber);
+            reconcileInitialVisual();
+        }
+    }
+    return {
+        readExactInitialCommit,
+        reconcileInitialVisual,
+        adoptResidentCanvas,
+        handlePageCanvasMounted,
+        setPendingReadyToken: (token: number | null) => {
+            pendingReadyToken = token;
+        },
+    };
+};
