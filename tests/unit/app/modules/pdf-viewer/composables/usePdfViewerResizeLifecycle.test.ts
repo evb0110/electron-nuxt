@@ -283,7 +283,8 @@ describe('usePdfViewerResizeLifecycle inactive behavior', () => {
         document.body.replaceChildren();
     });
 
-    it('retains the resize snapshot until the replacement canvas is presentation-ready', () => {
+    it('renews a zoom snapshot lease until the final replacement canvas is presentation-ready', async () => {
+        vi.useFakeTimers();
         vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue({drawImage: vi.fn()} as never);
         const animationFrames: FrameRequestCallback[] = [];
         const requestAnimationFrame = vi.spyOn(window, 'requestAnimationFrame')
@@ -310,7 +311,7 @@ describe('usePdfViewerResizeLifecycle inactive behavior', () => {
         const { lifecycle } = createResizeLifecycle(ref(true), {viewerContainer: ref(viewer)});
         const anchor = lifecycle.buildResizeAnchorContext();
 
-        lifecycle.captureResizeVisualSnapshots(anchor);
+        lifecycle.captureResizeVisualSnapshots(anchor, 180);
         page.classList.remove('page_container--rendered');
         const replacementCanvas = document.createElement('canvas');
         replacementCanvas.width = 640;
@@ -324,8 +325,20 @@ describe('usePdfViewerResizeLifecycle inactive behavior', () => {
         expect(pageCanvas.querySelector('.pdf-resize-canvas-snapshot')).not.toBeNull();
 
         page.classList.add('page_container--rendered');
+        lifecycle.captureResizeVisualSnapshots(anchor, 180);
         animationFrames.shift()?.(32);
 
+        expect(pageCanvas.classList.contains('page_canvas--resize-visual-snapshot')).toBe(true);
+        expect(pageCanvas.querySelector('.pdf-resize-canvas-snapshot')).not.toBeNull();
+
+        await vi.advanceTimersByTimeAsync(179);
+        animationFrames.shift()?.(211);
+        expect(pageCanvas.querySelector('.pdf-resize-canvas-snapshot')).not.toBeNull();
+
+        await vi.advanceTimersByTimeAsync(1);
+        for (let frame = 0; frame < 3 && animationFrames.length > 0; frame += 1) {
+            animationFrames.shift()?.(212 + frame);
+        }
         expect(pageCanvas.classList.contains('page_canvas--resize-visual-snapshot')).toBe(false);
         expect(pageCanvas.querySelector('.pdf-resize-canvas-snapshot')).toBeNull();
 

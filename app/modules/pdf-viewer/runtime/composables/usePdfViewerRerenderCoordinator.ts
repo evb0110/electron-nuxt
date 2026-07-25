@@ -467,8 +467,8 @@ export const usePdfViewerRerenderCoordinator = (options: IUsePdfViewerRerenderCo
                 cancelDestinationNavigationTarget?.();
                 void cancelInFlightPageRenders?.();
                 const zoomViewportAnchor = consumeZoomViewportAnchor?.() ?? null;
-                const trustCurrentPageAnchor = !zoomViewportAnchor && canTrustCurrentPageAsZoomAnchor();
-                const zoomAnchor = buildResizeAnchorContext({
+                const trustCurrentPageAnchor = canTrustCurrentPageAsZoomAnchor();
+                const zoomAnchor = zoomViewportAnchor?.resizeAnchor ?? buildResizeAnchorContext({
                     preferredAnchorPage: currentPage.value,
                     trustPreferredAnchorPage: trustCurrentPageAnchor,
                 });
@@ -671,11 +671,11 @@ export const usePdfViewerRerenderCoordinator = (options: IUsePdfViewerRerenderCo
             cancelDestinationNavigationTarget?.();
             void cancelInFlightPageRenders?.();
             const zoomViewportAnchor = consumeZoomViewportAnchor?.() ?? null;
-            const trustCurrentPageAnchor = !zoomViewportAnchor && canTrustCurrentPageAsZoomAnchor();
+            const trustCurrentPageAnchor = canTrustCurrentPageAsZoomAnchor();
             const zoomRerenderSource = zoomViewportAnchor
                 ? PDF_RERENDER_SOURCE.ZoomGestureChange
                 : PDF_RERENDER_SOURCE.ZoomChange;
-            const zoomAnchor = buildResizeAnchorContext({
+            const zoomAnchor = zoomViewportAnchor?.resizeAnchor ?? buildResizeAnchorContext({
                 preferredAnchorPage: currentPage.value,
                 trustPreferredAnchorPage: trustCurrentPageAnchor,
             });

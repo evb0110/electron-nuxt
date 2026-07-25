@@ -111,7 +111,17 @@ describe('usePdfViewerWheelZoom', () => {
         });
         const emit = vi.fn();
         const submitZoomIntent = vi.fn();
-        const captureZoomVisualSnapshots = vi.fn();
+        const capturedResizeAnchor = {
+            page: 4,
+            capturedAtMs: 1_000,
+            transitionToken: 1,
+            visibleRange: {
+                start: 4,
+                end: 6,
+            },
+            viewerMetrics: null,
+        };
+        const captureZoomVisualSnapshots = vi.fn(() => capturedResizeAnchor);
 
         const scope = effectScope();
         const wheelZoom = scope.run(() => usePdfViewerWheelZoom({
@@ -162,6 +172,7 @@ describe('usePdfViewerWheelZoom', () => {
             emit,
             submitZoomIntent,
             captureZoomVisualSnapshots,
+            capturedResizeAnchor,
             handleWheel,
             wheelZoom,
         };
@@ -195,6 +206,11 @@ describe('usePdfViewerWheelZoom', () => {
             expect(emittedZoom).toBeGreaterThan(1);
             expect(setup.captureZoomVisualSnapshots).toHaveBeenCalledOnce();
             expect(setup.captureZoomVisualSnapshots.mock.invocationCallOrder[0]).toBeLessThan(
+                setup.emit.mock.invocationCallOrder[0] ?? Number.POSITIVE_INFINITY,
+            );
+            expect(setup.wheelZoom.consumeZoomViewportAnchor()?.resizeAnchor)
+                .toStrictEqual(setup.capturedResizeAnchor);
+            expect(setup.submitZoomIntent.mock.invocationCallOrder[0]).toBeLessThan(
                 setup.emit.mock.invocationCallOrder[0] ?? Number.POSITIVE_INFINITY,
             );
             expect(setup.zoomVirtualizationFreeze.value).toEqual(expect.objectContaining({

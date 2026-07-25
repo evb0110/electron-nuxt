@@ -320,6 +320,39 @@ describe('PdfViewportSession behavior', () => {
         }
     });
 
+    it('releases a retained navigation row when a direct scroll moves the viewport', async () => {
+        const fixture = createViewportFixture({
+            bufferPages: 0,
+            pageCount: 100,
+        });
+        try {
+            fixture.documentSession.basePageHeight.value = 100;
+            fixture.documentSession.pageMetrics.value = Array.from({length: 100}, () => ({
+                width: 600,
+                height: 100,
+            }));
+            fixture.documentSession.pageMetricsVersion.value += 1;
+            await nextTick();
+
+            fixture.viewport.singlePageScroll.scrollToPage(1);
+            await vi.waitFor(() => {
+                expect(fixture.viewport.singlePageScroll.navigationAnchorPage.value).toBe(1);
+            });
+
+            fixture.container.scrollTop = 10_000;
+            fixture.viewport.handleTrustedScroll({isTrusted: true} as Event);
+
+            expect(fixture.viewport.singlePageScroll.navigationAnchorPage.value).toBeNull();
+            expect(fixture.viewport.currentPage.value).toBeGreaterThan(1);
+            expect(fixture.viewport.visibleRange.value.start).toBeGreaterThan(1);
+            expect(fixture.viewport.viewModel.pagesToRender.value)
+                .toContain(fixture.viewport.visibleRange.value.start);
+            expect(fixture.viewport.viewModel.pagesToRender.value).not.toContain(1);
+        } finally {
+            fixture.app.unmount();
+        }
+    });
+
     it('keeps authority and wheel-zoom scroll passive until their fences clear', async () => {
         const fixture = createViewportFixture({
             bufferPages: 0,

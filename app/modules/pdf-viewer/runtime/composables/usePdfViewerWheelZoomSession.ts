@@ -10,6 +10,7 @@ import type {
     IZoomVirtualizationLogOptions,
     TZoomInteractionLockOperationId,
 } from '@app/modules/pdf-viewer/runtime/zoom/pdfViewerZoomTypes';
+import type { IResizeAnchorContext } from '@app/modules/pdf-viewer/runtime/composables/usePdfViewerCurrentPageSync';
 
 interface IZoomViewportAnchorIntent {
     id: number;
@@ -18,6 +19,7 @@ interface IZoomViewportAnchorIntent {
     x: number;
     y: number;
     capturedAtMs: number;
+    resizeAnchor?: IResizeAnchorContext | null;
 }
 
 interface IWheelZoomSession {
@@ -36,6 +38,7 @@ interface IWheelZoomSession {
     emittedCount: number;
     startScrollTop: number | null;
     startScrollLeft: number | null;
+    resizeAnchor: IResizeAnchorContext | null;
 }
 
 interface IUsePdfViewerWheelZoomSessionOptions extends IZoomVirtualizationLogOptions {
@@ -195,6 +198,7 @@ export const usePdfViewerWheelZoomSession = (options: IUsePdfViewerWheelZoomSess
             emittedCount: 0,
             startScrollTop: viewerContainer.value ? Math.round(viewerContainer.value.scrollTop) : null,
             startScrollLeft: viewerContainer.value ? Math.round(viewerContainer.value.scrollLeft) : null,
+            resizeAnchor: null,
         };
         activeWheelZoomSession = nextSession;
         captureZoomVirtualizationFreeze(nextSession.id, 'session-start');
@@ -226,6 +230,7 @@ export const usePdfViewerWheelZoomSession = (options: IUsePdfViewerWheelZoomSess
                     x: activeSession.anchorX,
                     y: activeSession.anchorY,
                     capturedAtMs: activeSession.lastPacketAtMs,
+                    resizeAnchor: activeSession.resizeAnchor,
                 };
                 BrowserLogger.diagnosticThrottled(
                     'pdf-zoom-debug',

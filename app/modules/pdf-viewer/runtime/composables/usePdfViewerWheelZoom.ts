@@ -19,6 +19,7 @@ import {
     type IDocumentWheelInteraction,
     type IDocumentWheelSourceEvent,
 } from '@app/utils/document-viewer/input/documentWheelInteraction';
+import type { IResizeAnchorContext } from '@app/modules/pdf-viewer/runtime/composables/usePdfViewerCurrentPageSync';
 
 const WHEEL_DISPATCH_LOG_THROTTLE_MS = 420;
 
@@ -53,7 +54,7 @@ interface IUsePdfViewerWheelZoomOptions {
     };
     cancelPendingSearchScroll: () => void;
     markUserViewportInteraction?: (() => void) | undefined;
-    captureZoomVisualSnapshots?: (() => void) | undefined;
+    captureZoomVisualSnapshots?: (() => IResizeAnchorContext | null | undefined) | undefined;
     submitZoomIntent: (intent: {
         zoom: number;
         x: number;
@@ -207,6 +208,7 @@ export const usePdfViewerWheelZoom = (options: IUsePdfViewerWheelZoomOptions) =>
         anchorX: number,
         anchorY: number,
         nowMs: number,
+        resizeAnchor: IResizeAnchorContext | null,
     ) {
         pendingZoomViewportAnchor.value = {
             id: debugId,
@@ -215,6 +217,7 @@ export const usePdfViewerWheelZoom = (options: IUsePdfViewerWheelZoomOptions) =>
             x: anchorX,
             y: anchorY,
             capturedAtMs: nowMs,
+            resizeAnchor,
         };
     }
 
@@ -409,6 +412,11 @@ export const usePdfViewerWheelZoom = (options: IUsePdfViewerWheelZoomOptions) =>
             );
             return true;
         }
+        if (markUserViewportInteraction) {
+            markUserViewportInteraction();
+        } else {
+            singlePageScroll.cancelProgrammaticNavigation('wheel-zoom-interaction');
+        }
 
         const eventAnchor = getWheelZoomEventAnchor(event, container);
         const {
@@ -473,7 +481,17 @@ export const usePdfViewerWheelZoom = (options: IUsePdfViewerWheelZoomOptions) =>
             return true;
         }
         updateWheelZoomSessionAfterEmit(session, zoomTarget.nextEffectiveZoom, nowMs);
-        setPendingZoomAnchors(debugId, session.id, zoomLockOperationId, anchorX, anchorY, nowMs);
+        const capturedResizeAnchor = captureZoomVisualSnapshots?.() ?? null;
+        session.resizeAnchor ??= capturedResizeAnchor;
+        setPendingZoomAnchors(
+            debugId,
+            session.id,
+            zoomLockOperationId,
+            anchorX,
+            anchorY,
+            nowMs,
+            session.resizeAnchor,
+        );
         BrowserLogger.diagnosticThrottled('pdf-zoom-debug', 'wheel-zoom-emit', wheelDetailLogThrottleMs, `[wheel-zoom] emit id=${debugId}`, {
             id: debugId,
             sessionId: session.id,
@@ -499,17 +517,20 @@ export const usePdfViewerWheelZoom = (options: IUsePdfViewerWheelZoomOptions) =>
         // captures at its boundary, but that is intentionally downstream of
         // this synchronous wheel packet and is too late to cover the first
         // geometry frame of a rapid modifier-wheel gesture.
-        captureZoomVisualSnapshots?.();
-        if (zoomMode.value !== 'custom') {
-            emit('update:zoomMode', 'custom');
-        }
-        emit('update:effectiveZoom', zoomTarget.nextEffectiveZoom);
-        emit('update:zoom', zoomTarget.nextZoom);
+        // Establish the semantic viewport owner while the DOM still describes
+        // the committed scale. Once the reactive zoom emits below patch page
+        // geometry, the same pixel scroll offset can resolve to an earlier
+        // page and must not become the new gesture anchor.
         submitZoomIntent({
             zoom: zoomTarget.nextZoom,
             x: anchorX,
             y: anchorY,
         });
+        if (zoomMode.value !== 'custom') {
+            emit('update:zoomMode', 'custom');
+        }
+        emit('update:effectiveZoom', zoomTarget.nextEffectiveZoom);
+        emit('update:zoom', zoomTarget.nextZoom);
         markExpectedZoomScroll(wheelZoomExpectedScrollWindowMs, {
             operationId: zoomLockOperationId,
             reason: 'wheel-zoom-emitted',
@@ -534,12 +555,14 @@ export const usePdfViewerWheelZoom = (options: IUsePdfViewerWheelZoomOptions) =>
             singlePageScroll.cancelProgrammaticNavigation('wheel-interaction');
         }
 
+        if (routePlatformModifiedWheelToScroll(interaction)) {
+            markWheelViewportInteraction();
+            return;
+        }
         if (
-            routePlatformModifiedWheelToScroll(interaction)
-            || routeModifierWheelZoom(interaction)
+            routeModifierWheelZoom(interaction)
             || suppressWheelDuringActiveZoom(event, context)
         ) {
-            markWheelViewportInteraction();
             return;
         }
 

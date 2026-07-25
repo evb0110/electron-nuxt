@@ -88,6 +88,8 @@ interface IResizeLifecycleTransactionController {
 
 interface IActiveResizeVisualSnapshotLease {
     document: unknown;
+    holdForMs: number;
+    lastCaptureAtMs: number;
     pageContainer: HTMLElement;
     released: boolean;
     snapshot: IPdfResizeCanvasVisualSnapshot;
@@ -363,11 +365,18 @@ export const usePdfViewerResizeLifecycle = (options: IUsePdfViewerResizeLifecycl
         );
     }
 
-    function captureResizeVisualSnapshots(anchor: IResizeAnchorContext) {
+    function captureResizeVisualSnapshots(
+        anchor: IResizeAnchorContext,
+        holdForMs = 0,
+    ) {
         const container = viewerContainer.value;
         if (!container) {
             return;
         }
+        const capturedAtMs = Date.now();
+        const normalizedHoldForMs = Number.isFinite(holdForMs)
+            ? Math.max(0, holdForMs)
+            : 0;
         const candidatePages = new Set<number>();
         container.querySelectorAll<HTMLElement>('.page_container[data-page]').forEach((pageContainer) => {
             const page = Number(pageContainer.dataset.page);
@@ -392,6 +401,8 @@ export const usePdfViewerResizeLifecycle = (options: IUsePdfViewerResizeLifecycl
                 && activeLease.snapshot.isValid(),
             );
             if (isActiveLeaseValid) {
+                activeLease!.holdForMs = Math.max(activeLease!.holdForMs, normalizedHoldForMs);
+                activeLease!.lastCaptureAtMs = capturedAtMs;
                 continue;
             }
             activeLease?.snapshot.release();
@@ -410,6 +421,8 @@ export const usePdfViewerResizeLifecycle = (options: IUsePdfViewerResizeLifecycl
             }
             const lease: IActiveResizeVisualSnapshotLease = {
                 document: pdfDocument.value,
+                holdForMs: normalizedHoldForMs,
+                lastCaptureAtMs: capturedAtMs,
                 pageContainer,
                 released: false,
                 snapshot,
@@ -428,7 +441,8 @@ export const usePdfViewerResizeLifecycle = (options: IUsePdfViewerResizeLifecycl
                 waitFor: () => (
                     !snapshot.isValid()
                     || (
-                        snapshot.hasReplacementCanvas()
+                        Date.now() - lease.lastCaptureAtMs >= lease.holdForMs
+                        && snapshot.hasReplacementCanvas()
                         && pageContainer.classList.contains(pdfViewerDomClasses.renderedPageContainer)
                     )
                 ),

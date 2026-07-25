@@ -60,11 +60,6 @@ import type {
     IPdfDocumentTransition,
     TPdfDocumentSession,
 } from '@app/modules/pdf-viewer/runtime/sessions/pdfDocumentSession';
-import {
-    createPdfViewportGeometryFromLayout,
-    resolveRetainedAnchorFromScroll,
-    type IPdfSemanticAnchor,
-} from '@app/modules/pdf-viewer/runtime/viewport/pdfViewportGeometry';
 const RELOAD_RECOVERY_PAGE_PIN_MS = 900;
 export interface IPdfViewportDemand {
     readonly revision: number;
@@ -774,56 +769,7 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
             },
         });
     }
-    function resolveTrustedScrollAnchor(container: HTMLElement): IPdfSemanticAnchor {
-        const authority = singlePageScroll.viewportAuthority;
-        const metrics = viewportLayoutMetrics.value;
-        if (options.continuousScroll.value && metrics) {
-            const geometry = createPdfViewportGeometryFromLayout(metrics, {
-                width: container.clientWidth,
-                height: container.clientHeight,
-            }, pageMetricsVersion.value + 1);
-            return resolveRetainedAnchorFromScroll(
-                geometry,
-                {
-                    left: container.scrollLeft,
-                    top: container.scrollTop,
-                },
-                authority.committedAnchor.value,
-            );
-        }
-        const page = Math.max(1, Math.min(Math.max(1, numPages.value), Math.trunc(authority.currentPage.value)));
-        const pageElement = container.querySelector<HTMLElement>(
-            `.page_container[data-page="${String(page)}"]`,
-        );
-        if (!pageElement) {
-            return authority.committedAnchor.value?.page === page
-                ? authority.committedAnchor.value
-                : {
-                    page,
-                    pageXFraction: 0.5,
-                    pageYFraction: 0.5,
-                    viewportXFraction: 0.5,
-                    viewportYFraction: 0.5,
-                    affinity: 'center',
-                };
-        }
-        const viewportRect = container.getBoundingClientRect();
-        const pageRect = pageElement.getBoundingClientRect();
-        const clampFraction = (value: number) => Math.max(0, Math.min(1, value));
-        return {
-            page,
-            pageXFraction: clampFraction(
-                (viewportRect.left + container.clientWidth / 2 - pageRect.left) / Math.max(1, pageRect.width),
-            ),
-            pageYFraction: clampFraction(
-                (viewportRect.top + container.clientHeight / 2 - pageRect.top) / Math.max(1, pageRect.height),
-            ),
-            viewportXFraction: 0.5,
-            viewportYFraction: 0.5,
-            affinity: 'center',
-        };
-    }
-    function handleTrustedScroll(event: Event) {
+    function handleTrustedScroll(_event: Event) {
         const container = options.viewerContainer.value;
         if (!container) {
             return;
@@ -832,33 +778,22 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
         const authority = singlePageScroll.viewportAuthority;
         if (
             viewportWritePort.consumeAuthorityScroll(container)
-            || authority.activeIntent.value !== null
             || options.isResizing.value
             || resizeTransitionVisible.value
             || zoomSnapSuppressedForClass.value
-            || !event.isTrusted
         ) {
             projectViewportVisibleRange(container, numPages.value);
             options.emitCurrentPage(authority.currentPage.value);
             return;
         }
         userViewportInteractionEpoch.value += 1;
-        const anchor = resolveTrustedScrollAnchor(container);
-        authority.observeUserScroll(anchor);
-        viewportWritePort.observeUserScroll(container);
+        // A direct scroll can arrive without a preceding wheel/pointer event
+        // (scrollbar drags, accessibility input, or automation). Clear the
+        // retained navigation row at the scroll boundary so virtualization
+        // follows the live offset instead of remaining pinned to an already
+        // settled destination.
+        singlePageScroll.cancelProgrammaticNavigation('viewer-scroll-interaction');
         projectViewportVisibleRange(container, numPages.value);
-        openSurfaceViewportCallbacks.onUserViewportPageObserved(anchor.page);
-        authority.commitSettledPosition({
-            intentId: `native-user-scroll-${String(userViewportInteractionEpoch.value)}`,
-            intentKind: 'user-scroll',
-            documentRevision: documentSession.captureFence().loadToken,
-            geometryRevision: pageMetricsVersion.value + 1,
-            page: anchor.page,
-            left: container.scrollLeft,
-            top: container.scrollTop,
-            anchor,
-        });
-        options.emitCurrentPage(anchor.page);
     }
     watch(
         () => [

@@ -245,7 +245,7 @@ describe('usePdfViewerRerenderCoordinator', () => {
         }));
     });
 
-    it('uses a viewport-anchored source for gesture zoom rerenders', async () => {
+    it('keeps the visible page owner while gesture geometry changes', async () => {
         const zoom = ref(1);
         const pdfDocument = shallowRef<PDFDocumentProxy | null>(cast({}));
         const currentPage = ref(157);
@@ -255,6 +255,7 @@ describe('usePdfViewerRerenderCoordinator', () => {
         });
         const buildResizeAnchorContext = vi.fn(() => createResizeAnchor(157));
         const enqueueZoomSync = vi.fn();
+        const gestureAnchor = createResizeAnchor(157);
 
         usePdfViewerRerenderCoordinator(createDeps({
             pdfDocument,
@@ -270,6 +271,7 @@ describe('usePdfViewerRerenderCoordinator', () => {
                 x: 80,
                 y: 120,
                 capturedAtMs: 1_000,
+                resizeAnchor: gestureAnchor,
             })),
             getMostVisiblePage: vi.fn(() => 157),
         }));
@@ -277,14 +279,11 @@ describe('usePdfViewerRerenderCoordinator', () => {
         zoom.value = 1.43;
         await nextTick();
 
-        expect(buildResizeAnchorContext).toHaveBeenCalledWith({
-            preferredAnchorPage: 157,
-            trustPreferredAnchorPage: false,
-        });
+        expect(buildResizeAnchorContext).not.toHaveBeenCalled();
         expect(enqueueZoomSync).toHaveBeenCalledWith(expect.objectContaining({
             source: 'zoom-gesture-change',
             stabilize: true,
-            resizeAnchor: expect.objectContaining({ page: 157 }),
+            resizeAnchor: gestureAnchor,
         }));
     });
 
