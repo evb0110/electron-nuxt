@@ -42,7 +42,7 @@ use scan_primitives::{
     GrayImage, Point, Polygon, Rect,
 };
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
-use std::{sync::Arc, time::Instant};
+use std::{borrow::Cow, sync::Arc, time::Instant};
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -164,15 +164,81 @@ pub enum MatchedCanvasPolicy {
 }
 
 pub struct CleanupResult {
-    pub image: GrayImage,
+    pub image: CleanupRaster,
     pub color_image: Option<RgbImage>,
     pub metadata: CleanupMetadata,
     pub(crate) mixed_layers: Option<MixedLayers>,
     effectively_blank: bool,
 }
 
+/// The rendered page, in whichever representation produced it. A binarized page
+/// stays in the binarizer's packed bits all the way to the PBM writer, which is
+/// the same MSB-first layout; only consumers that need 8-bit samples widen it.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum CleanupRaster {
+    Gray(GrayImage),
+    Bilevel(BinaryImage),
+}
+
+impl CleanupRaster {
+    pub fn width(&self) -> usize {
+        match self {
+            Self::Gray(image) => image.width(),
+            Self::Bilevel(image) => image.width(),
+        }
+    }
+
+    pub fn height(&self) -> usize {
+        match self {
+            Self::Gray(image) => image.height(),
+            Self::Bilevel(image) => image.height(),
+        }
+    }
+
+    pub fn get(&self, x: usize, y: usize) -> u8 {
+        match self {
+            Self::Gray(image) => image.get(x, y),
+            Self::Bilevel(image) => {
+                if image.get(x, y) {
+                    0
+                } else {
+                    255
+                }
+            }
+        }
+    }
+
+    pub fn bilevel(&self) -> Option<&BinaryImage> {
+        match self {
+            Self::Gray(_) => None,
+            Self::Bilevel(image) => Some(image),
+        }
+    }
+
+    pub fn to_gray(&self) -> Cow<'_, GrayImage> {
+        match self {
+            Self::Gray(image) => Cow::Borrowed(image),
+            Self::Bilevel(image) => Cow::Owned(binary_to_gray(image)),
+        }
+    }
+
+    pub fn into_gray(self) -> GrayImage {
+        match self {
+            Self::Gray(image) => image,
+            Self::Bilevel(image) => binary_to_gray(&image),
+        }
+    }
+
+    fn cropped(&self, rect: Rect) -> Self {
+        match self {
+            Self::Gray(image) => Self::Gray(crop_gray(image, rect)),
+            Self::Bilevel(image) => Self::Bilevel(crop_binary(image, rect)),
+        }
+    }
+}
+
 pub(crate) struct MixedLayers {
-    pub foreground_mask: GrayImage,
+    pub foreground_mask: BinaryImage,
     pub background: GrayImage,
     pub color_background: Option<RgbImage>,
 }
@@ -315,12 +381,12 @@ pub(crate) fn clean_detail_page_with_color(
         render_region.width,
         render_region.height,
     );
-    output.image = crop_gray(&output.image, payload_rect);
+    output.image = output.image.cropped(payload_rect);
     output.color_image = output
         .color_image
         .map(|image| crop_rgb(&image, payload_rect));
     output.mixed_layers = output.mixed_layers.map(|layers| MixedLayers {
-        foreground_mask: crop_gray(&layers.foreground_mask, payload_rect),
+        foreground_mask: crop_binary(&layers.foreground_mask, payload_rect),
         background: crop_gray(&layers.background, payload_rect),
         color_background: layers
             .color_background
@@ -2018,7 +2084,11 @@ fn clean_region(
         mut mixed_layers,
     ) = if fail_closed_blank {
         (
-            GrayImage::new(rendered_width, rendered_height, 255),
+            if matches!(options.output_mode, OutputMode::Bw | OutputMode::Mixed) {
+                CleanupRaster::Bilevel(BinaryImage::new(rendered_width, rendered_height))
+            } else {
+                CleanupRaster::Gray(GrayImage::new(rendered_width, rendered_height, 255))
+            },
             if options.output_mode == OutputMode::Color && rendered_color.is_some() {
                 Some(RgbImage::new(rendered_width, rendered_height, [255; 3]))
             } else {
@@ -2065,7 +2135,7 @@ fn clean_region(
                     (fresh_binary, fresh_despeckle_fallback)
                 };
                 (
-                    binary_to_gray(&binary),
+                    CleanupRaster::Bilevel(binary),
                     None,
                     Some(mode),
                     Some(diagnostics),
@@ -2088,7 +2158,7 @@ fn clean_region(
                         );
                     let mode = diagnostics.route;
                     (
-                        binary_to_gray(&binary),
+                        CleanupRaster::Bilevel(binary),
                         None,
                         Some(mode),
                         Some(diagnostics),
@@ -2113,7 +2183,7 @@ fn clean_region(
                         create_mixed_layers,
                     );
                     (
-                        mixed_gray,
+                        CleanupRaster::Gray(mixed_gray),
                         mixed_color,
                         Some(mode),
                         Some(diagnostics),
@@ -2122,8 +2192,22 @@ fn clean_region(
                     )
                 }
             }
-            OutputMode::Grayscale => (rendered_gray, None, None, None, false, None),
-            OutputMode::Color => (rendered_gray, rendered_color, None, None, false, None),
+            OutputMode::Grayscale => (
+                CleanupRaster::Gray(rendered_gray),
+                None,
+                None,
+                None,
+                false,
+                None,
+            ),
+            OutputMode::Color => (
+                CleanupRaster::Gray(rendered_gray),
+                rendered_color,
+                None,
+                None,
+                false,
+                None,
+            ),
             OutputMode::Auto => unreachable!("automatic output mode is resolved before render"),
         }
     };
@@ -2134,10 +2218,10 @@ fn clean_region(
             requested.width,
             requested.height,
         );
-        image = crop_gray(&image, payload_rect);
+        image = image.cropped(payload_rect);
         color_image = color_image.map(|source| crop_rgb(&source, payload_rect));
         mixed_layers = mixed_layers.map(|layers| MixedLayers {
-            foreground_mask: crop_gray(&layers.foreground_mask, payload_rect),
+            foreground_mask: crop_binary(&layers.foreground_mask, payload_rect),
             background: crop_gray(&layers.background, payload_rect),
             color_background: layers
                 .color_background
@@ -2332,7 +2416,7 @@ fn compose_mixed(
         }
     }
     let layers = create_layers.then(|| {
-        let foreground_mask = binary_to_gray(binary);
+        let foreground_mask = binary.clone();
         let mut background = mixed_gray.clone();
         let mut color_background = mixed_color.clone();
         for y in 0..gray.height() {

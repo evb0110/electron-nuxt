@@ -2,7 +2,7 @@ use std::io::{self, Read, Write};
 
 use crc32fast::Hasher;
 use flate2::{read::ZlibDecoder, write::ZlibEncoder, Compression};
-use scan_primitives::{GrayImage, RgbImage};
+use scan_primitives::{BinaryImage, GrayImage, RgbImage};
 use thiserror::Error;
 const PNG_SIGNATURE: &[u8; 8] = b"\x89PNG\r\n\x1a\n";
 const METERS_PER_INCH: f64 = 0.0254;
@@ -256,21 +256,28 @@ pub fn decode_p4(
     }
     Ok(image)
 }
-pub fn encode_p4(image: &GrayImage) -> Result<Vec<u8>, RasterError> {
-    if image.width() == 0 || image.height() == 0 {
-        return Err(RasterError::invalid("PBM P4 dimensions must be positive"));
+/// Writes packed bits straight out: `BinaryImage` and PBM P4 are both MSB-first
+/// with one as black, so a row is a byte-order shuffle of its words rather than a
+/// per-pixel decision.
+pub fn encode_p4_bilevel(image: &BinaryImage) -> Result<Vec<u8>, RasterError> {
+    let (mut bytes, row_stride) = start_p4(image.width(), image.height())?;
+    let words_per_line = image.words_per_line();
+    let tail_bits = image.width() % 8;
+    for row in image.words().chunks_exact(words_per_line) {
+        let row_start = bytes.len();
+        for word in row {
+            bytes.extend_from_slice(&word.to_be_bytes());
+        }
+        bytes.truncate(row_start + row_stride);
+        if tail_bits != 0 {
+            let last = bytes.len() - 1;
+            bytes[last] &= u8::MAX << (8 - tail_bits);
+        }
     }
-    let row_stride = image
-        .width()
-        .checked_add(7)
-        .ok_or_else(|| RasterError::invalid("PBM P4 row stride overflow"))?
-        / 8;
-    let bitmap_len = row_stride
-        .checked_mul(image.height())
-        .ok_or_else(|| RasterError::invalid("PBM P4 payload size overflow"))?;
-    let header = format!("P4\n{} {}\n", image.width(), image.height());
-    let mut bytes = Vec::with_capacity(header.len().saturating_add(bitmap_len));
-    bytes.extend_from_slice(header.as_bytes());
+    Ok(bytes)
+}
+pub fn encode_p4(image: &GrayImage) -> Result<Vec<u8>, RasterError> {
+    let (mut bytes, row_stride) = start_p4(image.width(), image.height())?;
     for y in 0..image.height() {
         let row_start = bytes.len();
         bytes.resize(row_start + row_stride, 0);
@@ -287,6 +294,22 @@ pub fn encode_p4(image: &GrayImage) -> Result<Vec<u8>, RasterError> {
         }
     }
     Ok(bytes)
+}
+fn start_p4(width: usize, height: usize) -> Result<(Vec<u8>, usize), RasterError> {
+    if width == 0 || height == 0 {
+        return Err(RasterError::invalid("PBM P4 dimensions must be positive"));
+    }
+    let row_stride = width
+        .checked_add(7)
+        .ok_or_else(|| RasterError::invalid("PBM P4 row stride overflow"))?
+        / 8;
+    let bitmap_len = row_stride
+        .checked_mul(height)
+        .ok_or_else(|| RasterError::invalid("PBM P4 payload size overflow"))?;
+    let header = format!("P4\n{width} {height}\n");
+    let mut bytes = Vec::with_capacity(header.len().saturating_add(bitmap_len));
+    bytes.extend_from_slice(header.as_bytes());
+    Ok((bytes, row_stride))
 }
 const PPM_SIGNATURE: &[u8; 2] = b"P6";
 

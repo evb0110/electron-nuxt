@@ -85,6 +85,7 @@ mod tests {
         .outputs
         .remove(0)
         .image
+        .into_gray()
     }
 
     #[test]
@@ -173,7 +174,8 @@ mod tests {
             .unwrap()
             .outputs
             .remove(0)
-            .image;
+            .image
+            .into_gray();
         let mismatches = actual
             .data()
             .iter()
@@ -237,7 +239,8 @@ mod tests {
             .unwrap()
             .outputs
             .remove(0)
-            .image;
+            .image
+            .into_gray();
         assert_eq!(actual, expected);
     }
 
@@ -563,6 +566,7 @@ mod tests {
         .unwrap();
         assert!(result.outputs[0]
             .image
+            .to_gray()
             .data()
             .iter()
             .any(|value| (1..255).contains(value)));
@@ -743,7 +747,7 @@ mod tests {
         }
         assert_eq!(
             ink_bounds(&color_luminance, 220),
-            ink_bounds(&grayscale.image, 220)
+            ink_bounds(&grayscale.image.to_gray(), 220)
         );
         let patch = color_image.get(70, 50);
         assert!(patch[0] > 180 && patch[0] > patch[1] * 3 && patch[0] > patch[2] * 3);
@@ -781,9 +785,10 @@ mod tests {
             output.metadata.detected_skew_degrees
         );
         assert!((output.metadata.detected_skew_degrees - 3.0).abs() < 0.2);
-        let (left, top, right, bottom) = ink_bounds(&output.image, 128).unwrap();
-        let right_margin = output.image.width() - 1 - right;
-        let bottom_margin = output.image.height() - 1 - bottom;
+        let image = output.image.to_gray();
+        let (left, top, right, bottom) = ink_bounds(&image, 128).unwrap();
+        let right_margin = image.width() - 1 - right;
+        let bottom_margin = image.height() - 1 - bottom;
         assert!(left >= 12 && top >= 12 && right_margin >= 12 && bottom_margin >= 12);
         assert!(
             left.abs_diff(right_margin) <= 2,
@@ -793,14 +798,12 @@ mod tests {
             top.abs_diff(bottom_margin) <= 2,
             "top={top} bottom={bottom_margin}"
         );
-        assert!(output.image.data()[..output.image.width()]
+        assert!(image.data()[..image.width()]
             .iter()
             .all(|&value| value == 255));
-        assert!(
-            output.image.data()[output.image.data().len() - output.image.width()..]
-                .iter()
-                .all(|&value| value == 255)
-        );
+        assert!(image.data()[image.data().len() - image.width()..]
+            .iter()
+            .all(|&value| value == 255));
     }
 
     #[test]
@@ -1470,8 +1473,9 @@ mod tests {
         assert_eq!(blank.metadata.half, PageHalf::Left);
         assert!(blank.metadata.content_box.is_none());
         assert!(blank.effectively_blank);
-        assert!(blank.image.data().iter().all(|&value| value == 255));
-        assert!(!blank.image.data().iter().all(|&value| value == 0));
+        let blank_image = blank.image.to_gray();
+        assert!(blank_image.data().iter().all(|&value| value == 255));
+        assert!(!blank_image.data().iter().all(|&value| value == 0));
     }
 
     fn normalized_box_polygon(
@@ -1522,6 +1526,40 @@ mod tests {
         assert_eq!(mixed.image, bw);
         assert!(mixed.color_image.is_none());
         assert!(mixed.mixed_layers.is_none());
+    }
+
+    #[test]
+    fn binarized_output_keeps_the_packed_bits_and_widens_losslessly() {
+        let (source, _) = thin_stroke_fixture();
+        let output = clean_page(
+            &source,
+            &CleanupOptions {
+                dpi: 300.0,
+                crop_content: false,
+                layout: crate::LayoutMode::Single,
+                ..CleanupOptions::default()
+            },
+            0,
+        )
+        .unwrap()
+        .outputs
+        .remove(0);
+        let CleanupRaster::Bilevel(binary) = &output.image else {
+            panic!("a black-and-white render must keep the binarizer's packed bits");
+        };
+        assert!(binary.count_black() > 0, "the fixture produced no ink");
+        assert_eq!(
+            (binary.width(), binary.height()),
+            (output.image.width(), output.image.height())
+        );
+        let widened = output.image.to_gray();
+        for y in 0..binary.height() {
+            for x in 0..binary.width() {
+                let expected = if binary.get(x, y) { 0 } else { 255 };
+                assert_eq!(widened.get(x, y), expected, "widened sample at ({x}, {y})");
+                assert_eq!(output.image.get(x, y), expected, "sample at ({x}, {y})");
+            }
+        }
     }
 
     #[test]
@@ -1590,7 +1628,10 @@ mod tests {
         }
         assert!(tonal_pixels > 4_000, "picture tones were not retained");
         assert!(matches!(output.image.get(20, 20), 0 | 255));
-        assert_eq!(layers.foreground_mask.get(20, 20), output.image.get(20, 20));
+        assert_eq!(
+            layers.foreground_mask.get(20, 20),
+            output.image.get(20, 20) == 0
+        );
         assert_eq!(layers.background.get(20, 20), 255);
         assert!(layers.color_background.is_some());
     }
@@ -1676,7 +1717,7 @@ mod tests {
         assert_eq!(mixed.get(60, 40), 112);
         assert_eq!(mixed.get(29, 40), 255);
         assert_eq!(mixed.get(12, 36), 0);
-        assert_eq!(layers.foreground_mask.get(12, 36), 0);
+        assert!(layers.foreground_mask.get(12, 36));
         assert_eq!(
             layers.background.get(12, 36),
             255,
@@ -1879,9 +1920,10 @@ mod tests {
         .remove(0);
 
         assert!(output.mixed_layers.is_none());
+        let composite = output.image.to_gray();
         assert!(
-            output.image.data().contains(&0)
-                && output.image.data().iter().any(|&value| !matches!(value, 0 | 255)),
+            composite.data().contains(&0)
+                && composite.data().iter().any(|&value| !matches!(value, 0 | 255)),
             "preview keeps the mixed composite without retaining layer buffers"
         );
     }
@@ -2210,15 +2252,15 @@ mod tests {
             .unwrap()
             .outputs
             .remove(0);
-        let expected = crop_gray(&full.image, render_region);
-        let mean_error = detail
-            .image
+        let expected = crop_gray(&full.image.to_gray(), render_region);
+        let detail_image = detail.image.to_gray();
+        let mean_error = detail_image
             .data()
             .iter()
             .zip(expected.data())
             .map(|(&actual, &expected)| f64::from(actual.abs_diff(expected)))
             .sum::<f64>()
-            / detail.image.data().len() as f64;
+            / detail_image.data().len() as f64;
         assert!(
             mean_error <= 2.0,
             "detail source crop must preserve normalized non-identity geometry, mean error={mean_error:.3}",
@@ -2438,15 +2480,15 @@ mod tests {
             .unwrap()
             .outputs
             .remove(0);
-        let expected = crop_gray(&full.image, render_region);
+        let expected = crop_gray(&full.image.to_gray(), render_region);
         assert_eq!(detail.image.width(), expected.width());
         assert_eq!(detail.image.height(), expected.height());
         assert!(
             expected.data().contains(&0) && expected.data().contains(&255),
             "the compared region must carry both ink and paper",
         );
-        let mismatched = detail
-            .image
+        let detail_image = detail.image.to_gray();
+        let mismatched = detail_image
             .data()
             .iter()
             .zip(expected.data())

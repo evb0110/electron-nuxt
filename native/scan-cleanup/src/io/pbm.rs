@@ -1,9 +1,14 @@
 use super::write_atomic;
-use scan_primitives::GrayImage;
+use scan_primitives::{BinaryImage, GrayImage};
 use std::{fs, path::Path};
 
 pub fn write_p4_atomic(path: &Path, image: &GrayImage) -> Result<(), String> {
     let bytes = evb_raster_io::encode_p4(image).map_err(|error| error.to_string())?;
+    write_atomic(path, &bytes)
+}
+
+pub fn write_p4_bilevel_atomic(path: &Path, image: &BinaryImage) -> Result<(), String> {
+    let bytes = evb_raster_io::encode_p4_bilevel(image).map_err(|error| error.to_string())?;
     write_atomic(path, &bytes)
 }
 

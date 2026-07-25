@@ -958,29 +958,27 @@ fn run_page(
     let write_started = Instant::now();
     let publication_result = (|| -> Result<(), Box<dyn Error>> {
         for (output, destination) in result.outputs.iter_mut().zip(&destinations) {
-            let bilevel_destination = (matches!(
-                output.metadata.output_mode,
-                OutputMode::Bw | OutputMode::Mixed
-            ) && output.color_image.is_none()
-                && output.mixed_layers.is_none())
-            .then_some(destination.bilevel_output_path.as_ref())
-            .flatten();
-            let bilevel_output_path = if let Some(path) = bilevel_destination {
-                match pbm::write_p4_atomic(path, &output.image) {
-                    Ok(()) => {
-                        output.metadata.bilevel_written = true;
-                        Some(path.clone())
-                    }
-                    Err(error) => {
-                        let _ = fs::remove_file(path);
-                        output.metadata.warnings.push(format!(
-                            "Bilevel output was not written; the composite fallback was published instead: {error}"
-                        ));
-                        None
-                    }
+            // A binarized page is already packed bits, and PBM P4 is the same
+            // layout: the raster itself decides whether this page has a bilevel
+            // primary, so no mode/layer combination has to be re-derived here.
+            let bilevel_write = destination
+                .bilevel_output_path
+                .as_ref()
+                .zip(output.image.bilevel())
+                .map(|(path, binary)| (path, pbm::write_p4_bilevel_atomic(path, binary)));
+            let bilevel_output_path = match bilevel_write {
+                Some((path, Ok(()))) => {
+                    output.metadata.bilevel_written = true;
+                    Some(path.clone())
                 }
-            } else {
-                None
+                Some((path, Err(error))) => {
+                    let _ = fs::remove_file(path);
+                    output.metadata.warnings.push(format!(
+                        "Bilevel output was not written; the composite fallback was published instead: {error}"
+                    ));
+                    None
+                }
+                None => None,
             };
             let layer_paths = final_render.then(|| {
                 destination
@@ -1023,7 +1021,7 @@ fn run_page(
                     } else {
                         png::write_gray_atomic(background_path, &layers.background)?;
                     }
-                    pbm::write_p4_atomic(mask_path, &layers.foreground_mask)
+                    pbm::write_p4_bilevel_atomic(mask_path, &layers.foreground_mask)
                 })();
                 if let Err(error) = layer_result {
                     let _ = fs::remove_file(background_path);
@@ -1049,7 +1047,7 @@ fn run_page(
                     png::write_rgb_atomic(&destination.output_path, color)
                         .map_err(|message| NativeError::new(NativeErrorCode::Io, message))?;
                 } else {
-                    png::write_gray_atomic(&destination.output_path, &output.image)
+                    png::write_gray_atomic(&destination.output_path, &output.image.to_gray())
                         .map_err(|message| NativeError::new(NativeErrorCode::Io, message))?;
                 }
             }
