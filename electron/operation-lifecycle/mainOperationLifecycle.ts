@@ -99,24 +99,50 @@ export function beginMainOperationShutdown(message = 'Main process is shutting d
     shutdownAdmissionMessage ??= message;
 }
 
+function requestOperationCancel(operation: IMainOperationRecord, reason: string) {
+    if (!operation.controller.signal.aborted) {
+        operation.controller.abort(new Error(reason));
+    }
+    if (operation.cancel) {
+        runDetached(
+            () => operation.cancel?.(reason),
+            {
+                label: `cancel ${operation.kind} operation ${operation.id}`,
+                logger: log,
+            },
+        );
+    }
+}
+
 export function cancelAllMainOperations(reason: string): void {
     for (const operation of operations.values()) {
         if (operation.kind === 'critical-write' && operation.commitStarted) {
             continue;
         }
-        if (!operation.controller.signal.aborted) {
-            operation.controller.abort(new Error(reason));
-        }
-        if (operation.cancel) {
-            runDetached(
-                () => operation.cancel?.(reason),
-                {
-                    label: `cancel ${operation.kind} operation ${operation.id}`,
-                    logger: log,
-                },
-            );
-        }
+        requestOperationCancel(operation, reason);
     }
+}
+
+// A working copy that is being retired can still be the source of long native
+// work such as scan cleanup, OCR, or search indexing. Cancelling that work is
+// what lets the close finish instead of deleting the file out from under a job
+// that keeps burning CPU for minutes afterwards. Only operations that carry
+// their own cancel hook qualify: a materialization flight registers without one
+// because the close path decides on its own whether to join or cancel it.
+export function cancelAbortableMainOperationsForWorkingCopy(workingCopyPath: string, reason: string) {
+    let canceled = 0;
+    for (const operation of operations.values()) {
+        if (
+            operation.kind !== 'abortable-work'
+            || operation.workingCopyPath !== workingCopyPath
+            || !operation.cancel
+        ) {
+            continue;
+        }
+        requestOperationCancel(operation, reason);
+        canceled += 1;
+    }
+    return canceled;
 }
 
 export async function drainCriticalMainOperations(options: {timeoutMs: number}): Promise<{

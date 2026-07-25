@@ -108,7 +108,7 @@ function handleKeydown(event: KeyboardEvent, index: number) {
         color var(--app-transition-fast);
 }
 
-.scan-cleanup-segmented-option:hover {
+.scan-cleanup-segmented-option:hover:not(:disabled) {
     background: var(--app-toolbar-control-hover-bg);
     color: var(--ui-text);
 }

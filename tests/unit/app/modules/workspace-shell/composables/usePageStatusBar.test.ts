@@ -233,4 +233,45 @@ describe('usePageStatusBar', () => {
         });
         expect(statusBar.statusMaterializationLabel.value).toBeNull();
     });
+
+    it('keeps the streamed materialization state when the initial read resolves late', async () => {
+        let listener: ((status: {
+            documentRef: string;
+            failure: null;
+            progress: number;
+            state: 'lazy-original' | 'materializing' | 'materialized';
+        }) => void) | undefined;
+        onWorkingCopyBackingStatusChangedMock.mockImplementation((callback) => {
+            listener = callback;
+            return vi.fn();
+        });
+        let resolveInitialRead: (() => void) | undefined;
+        getWorkingCopyBackingStatusMock.mockReturnValue(new Promise((resolve) => {
+            resolveInitialRead = () => resolve({
+                documentRef: '/tmp/managed.pdf',
+                failure: null,
+                progress: 0,
+                state: 'materializing',
+            });
+        }));
+        vi.stubGlobal('useTypedI18n', () => ({ t: (key: string) => key }));
+        const statusBar = usePageStatusBar(createDeps({workingCopyPath: ref('/tmp/managed.pdf')}));
+
+        await vi.waitFor(() => {
+            expect(listener).toBeDefined();
+        });
+        listener?.({
+            documentRef: '/tmp/managed.pdf',
+            failure: null,
+            progress: 1,
+            state: 'materialized',
+        });
+        resolveInitialRead?.();
+        await vi.waitFor(() => {
+            expect(getWorkingCopyBackingStatusMock).toHaveBeenCalledWith('/tmp/managed.pdf');
+        });
+        await Promise.resolve();
+
+        expect(statusBar.statusMaterializationLabel.value).toBeNull();
+    });
 });

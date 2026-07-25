@@ -674,7 +674,7 @@
 }
 
 .preview-zoom-button:hover:not(:disabled),
-.preview-zoom-value:hover {
+.preview-zoom-value:hover:not(:disabled) {
     background: var(--app-toolbar-control-hover-bg);
     color: var(--app-toolbar-control-hover-fg);
 }
@@ -691,7 +691,8 @@
     box-shadow: inset 0 0 0 var(--app-hairline-height) var(--app-toolbar-focus-ring);
 }
 
-.preview-zoom-button:disabled {
+.preview-zoom-button:disabled,
+.preview-zoom-value:disabled {
     color: var(--app-toolbar-control-disabled-fg);
     cursor: default;
     opacity: var(--app-toolbar-control-disabled-opacity);

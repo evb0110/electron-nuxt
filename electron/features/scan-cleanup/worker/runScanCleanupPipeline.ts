@@ -44,6 +44,11 @@ import {
 } from '@electron/features/scan-cleanup/worker/rasterLayerDimensions';
 import type { TEmitScanCleanupProgress } from '@electron/features/scan-cleanup/worker/createScanCleanupProgressReporter';
 import { createScanCleanupProgressReporter } from '@electron/features/scan-cleanup/worker/createScanCleanupProgressReporter';
+import {
+    logRasterHandoff,
+    readAvailableScratchBytes,
+    resolveRasterHandoff,
+} from '@electron/features/scan-cleanup/worker/resolveRasterHandoff';
 
 export interface IScanCleanupWorkerPaths {
     qpdfBinary: string;
@@ -139,6 +144,7 @@ export interface IRunScanCleanupPipelineDependencies {
     renderPagePpm: typeof renderPdfPageToPpm;
     runSidecar: typeof runScanCleanupSidecar;
     runCommand: typeof runNativeToolCommand;
+    getAvailableScratchBytes: typeof readAvailableScratchBytes;
 }
 
 const defaultDependencies: IRunScanCleanupPipelineDependencies = {
@@ -149,17 +155,12 @@ const defaultDependencies: IRunScanCleanupPipelineDependencies = {
     renderPagePpm: renderPdfPageToPpm,
     runSidecar: runScanCleanupSidecar,
     runCommand: runNativeToolCommand,
+    getAvailableScratchBytes: readAvailableScratchBytes,
 };
 
 const SCAN_CLEANUP_MAX_DIMENSION_PX = 40_000;
 const SIZE_PROBE_DPI = 72;
 const SCAN_CLEANUP_BILEVEL_FALLBACK_DPI = 600;
-// PPM removes the costly PNG encode/decode step for small cleanup scopes, but
-// retaining one uncompressed RGB raster for every page of a large book can
-// consume several gigabytes. Keep the fast handoff only when the complete
-// manifest has a known, bounded footprint; otherwise use compressed PNG.
-const SCAN_CLEANUP_RAW_RASTER_BUDGET_BYTES = 512 * 1024 * 1024;
-const PPM_HEADER_ESTIMATE_BYTES = 64;
 // Rome p1/p7/p49 at source DPI retained scan texture, fine text, and mixed
 // illustration edges at these settings. Color gets two extra quality points
 // for chroma detail; grayscale and mixed pages do not spend bytes on it.
@@ -204,74 +205,6 @@ function resolveSafeRenderDpi(
         maxDimensionDpi,
         maxPixelDpi,
     )));
-}
-
-interface IScanCleanupRasterHandoffPlan {
-    renderDpi: number;
-    raster: {
-        dpi: number;
-        width: number;
-        height: number
-    } | undefined;
-}
-
-function resolveRasterHandoff(
-    plans: readonly IScanCleanupRasterHandoffPlan[],
-) {
-    let estimatedBytes = 0;
-    for (const plan of plans) {
-        const raster = plan.raster;
-        if (
-            raster === undefined
-            || !Number.isFinite(plan.renderDpi)
-            || plan.renderDpi <= 0
-            || !Number.isFinite(raster.dpi)
-            || raster.dpi <= 0
-            || !Number.isFinite(raster.width)
-            || raster.width <= 0
-            || !Number.isFinite(raster.height)
-            || raster.height <= 0
-        ) {
-            return {
-                format: 'png' as const,
-                estimatedBytes: null,
-            };
-        }
-        const width = Math.max(1, Math.ceil(raster.width * plan.renderDpi / raster.dpi));
-        const height = Math.max(1, Math.ceil(raster.height * plan.renderDpi / raster.dpi));
-        const pageBytes = width * height * 3 + PPM_HEADER_ESTIMATE_BYTES;
-        if (!Number.isSafeInteger(pageBytes)) {
-            return {
-                format: 'png' as const,
-                estimatedBytes: null,
-            };
-        }
-        estimatedBytes += pageBytes;
-        if (
-            !Number.isSafeInteger(estimatedBytes)
-            || estimatedBytes > SCAN_CLEANUP_RAW_RASTER_BUDGET_BYTES
-        ) {
-            return {
-                format: 'png' as const,
-                estimatedBytes,
-            };
-        }
-    }
-    return {
-        format: 'ppm' as const,
-        estimatedBytes,
-    };
-}
-
-function logRasterHandoff(
-    log: TWorkerLog,
-    scope: string,
-    handoff: ReturnType<typeof resolveRasterHandoff>,
-) {
-    const footprint = handoff.estimatedBytes === null
-        ? 'unknown footprint'
-        : `${Math.ceil(handoff.estimatedBytes / (1024 * 1024))} MiB estimated footprint`;
-    log('debug', `Scan cleanup ${scope} raster handoff uses ${handoff.format.toUpperCase()} (${footprint})`);
 }
 
 const COMBINE_OUTPUT_BYTES_PER_PAGE = 8 * 1024 * 1024;
@@ -464,10 +397,10 @@ async function runLosslessScanCleanup(
                 },
         };
     });
-    const rasterHandoff = resolveRasterHandoff(rasterPlans.map(plan => ({
+    const rasterHandoff = await resolveRasterHandoff(rasterPlans.map(plan => ({
         renderDpi: plan.dpi,
         raster: plan.raster,
-    })));
+    })), scratch, dependencies.getAvailableScratchBytes);
     logRasterHandoff(log, 'lossless analysis', rasterHandoff);
     let rasterizedCount = 0;
     const rasterizedPageNumbers = new Set<number>();
@@ -812,10 +745,10 @@ export async function runScanCleanupPipeline(
                 guardrail,
             };
         });
-        const rasterHandoff = resolveRasterHandoff(rasterPlans.map(plan => ({
+        const rasterHandoff = await resolveRasterHandoff(rasterPlans.map(plan => ({
             renderDpi: plan.dpi,
             raster: plan.guardrail,
-        })));
+        })), scratch, dependencies.getAvailableScratchBytes);
         logRasterHandoff(log, 'final', rasterHandoff);
         const pageDpi = new Map<number, number>();
         let rasterizedCount = 0;

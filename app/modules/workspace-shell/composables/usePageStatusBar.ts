@@ -59,12 +59,18 @@ export const usePageStatusBar = (deps: IPageStatusBarDeps) => {
     const { t } = useTypedI18n();
     const documentFiles = getDocumentFilesCapability();
     const workingCopyBackingStatus = shallowRef<IWorkingCopyBackingStatus | null>(null);
+    // The change stream owns this state and the initial read only seeds it. A read
+    // that resolves after the terminal event would otherwise pin the status bar to
+    // "Preparing document" for a document that finished materializing, because
+    // nothing is left to emit afterwards.
+    let appliedBackingStatusRef: string | null = null;
 
     function applyWorkingCopyBackingStatus(status: IWorkingCopyBackingStatus | null) {
         const documentRef = workingCopyPath.value;
         if (!status || status.documentRef !== documentRef) {
             return;
         }
+        appliedBackingStatusRef = documentRef;
         const current = workingCopyBackingStatus.value;
         workingCopyBackingStatus.value = current?.documentRef === status.documentRef
             && current.state !== 'materialized'
@@ -84,12 +90,13 @@ export const usePageStatusBar = (deps: IPageStatusBarDeps) => {
     }
     watch(workingCopyPath, async (documentRef) => {
         workingCopyBackingStatus.value = null;
+        appliedBackingStatusRef = null;
         if (!documentRef || !documentFiles.getWorkingCopyBackingStatus) {
             return;
         }
         try {
             const status = await documentFiles.getWorkingCopyBackingStatus(documentRef);
-            if (workingCopyPath.value === documentRef) {
+            if (workingCopyPath.value === documentRef && appliedBackingStatusRef !== documentRef) {
                 applyWorkingCopyBackingStatus(status);
             }
         } catch {

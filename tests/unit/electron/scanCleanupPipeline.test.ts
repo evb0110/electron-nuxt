@@ -189,6 +189,7 @@ function dependencies(
             await writeFile(outputPath, PPM);
         }),
         runSidecar,
+        getAvailableScratchBytes: vi.fn(async () => null),
         runCommand: vi.fn(async (_command, args) => {
             const outputIndex = args.indexOf('--output');
             await writeFile(args[outputIndex + 1]!, '%PDF-1.7\n%%EOF\n');
@@ -820,7 +821,7 @@ describe('scan cleanup pipeline', () => {
         expect(new Set(pageSizes.map(size => size.join('x')))).toEqual(new Set(['240.000000x336.000000']));
     });
 
-    it('falls back to compressed handoff when the full-scope PPM footprint exceeds its scratch budget', async () => {
+    async function runOversizedRasterPipeline(availableScratchBytes: number | null) {
         const fixture = await setup();
         let inputPaths: string[] = [];
         const runSidecar: IRunScanCleanupPipelineDependencies['runSidecar'] = vi.fn(async (_binary, manifestPath) => {
@@ -850,6 +851,7 @@ describe('scan cleanup pipeline', () => {
             }
         });
         const pipelineDependencies = dependencies(runSidecar);
+        pipelineDependencies.getAvailableScratchBytes = vi.fn(async () => availableScratchBytes);
         pipelineDependencies.detectSourceDpi = vi.fn(async () => dpiDetails(300, [
             [
                 1,
@@ -884,15 +886,40 @@ describe('scan cleanup pipeline', () => {
             pipelineDependencies,
         );
 
-        expect(pipelineDependencies.renderPagePpm).not.toHaveBeenCalled();
-        expect(pipelineDependencies.renderPage).toHaveBeenCalledTimes(2);
-        expect(inputPaths).toEqual([
+        return {
+            inputPaths,
+            log,
+            pipelineDependencies,
+        };
+    }
+
+    it('falls back to compressed handoff when the full-scope PPM footprint exceeds its scratch budget', async () => {
+        const run = await runOversizedRasterPipeline(1024 * 1024 * 1024);
+
+        expect(run.pipelineDependencies.renderPagePpm).not.toHaveBeenCalled();
+        expect(run.pipelineDependencies.renderPage).toHaveBeenCalledTimes(2);
+        expect(run.inputPaths).toEqual([
             expect.stringMatching(/source-1\.png$/u),
             expect.stringMatching(/source-2\.png$/u),
         ]);
-        expect(log).toHaveBeenCalledWith(
+        expect(run.log).toHaveBeenCalledWith(
             'debug',
             expect.stringContaining('final raster handoff uses PNG'),
+        );
+    });
+
+    it('keeps the raw handoff for a large footprint when the scratch volume has room for it', async () => {
+        const run = await runOversizedRasterPipeline(400 * 1024 * 1024 * 1024);
+
+        expect(run.pipelineDependencies.renderPage).not.toHaveBeenCalled();
+        expect(run.pipelineDependencies.renderPagePpm).toHaveBeenCalledTimes(2);
+        expect(run.inputPaths).toEqual([
+            expect.stringMatching(/source-1\.ppm$/u),
+            expect.stringMatching(/source-2\.ppm$/u),
+        ]);
+        expect(run.log).toHaveBeenCalledWith(
+            'debug',
+            expect.stringContaining('final raster handoff uses PPM'),
         );
     });
 
