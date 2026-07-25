@@ -456,6 +456,7 @@ async function runLosslessScanCleanup(
         renderMode: 'final',
         canvasScope: 'document',
         qualityPath: 'lossless',
+        hostMemoryBytes: policy.totalRamBytes,
         options: request.options,
         experimental: {
             autoDewarp: request.options.autoDewarp ?? false,
@@ -820,6 +821,7 @@ export async function runScanCleanupPipeline(
             renderMode: 'final',
             canvasScope: 'document',
             qualityPath: 'raster',
+            hostMemoryBytes: policy.totalRamBytes,
             options: request.options,
             experimental: {
                 autoDewarp: request.options.autoDewarp ?? false,
@@ -832,35 +834,12 @@ export async function runScanCleanupPipeline(
         const pages = manifest.pages;
         const manifestPath = join(scratch, 'cleanup-manifest.json');
         await writeFile(manifestPath, JSON.stringify(manifest));
-        emitProgress('classifying', 0, pageCount, []);
-        const classifiedPageNumbers = new Set<number>();
+        emitProgress('rendering', 0, pageCount, []);
         const renderedPageNumbers = new Set<number>();
-        let renderingStarted = false;
-        const startRendering = () => {
-            if (renderingStarted) {
-                return;
-            }
-            renderingStarted = true;
-            emitProgress('rendering', 0, pageCount, []);
-        };
         await dependencies.runSidecar(paths.scanCleanupBinary, manifestPath, signal, log, (_progress, nativeProgress) => {
-            if (nativeProgress.stage === 'page-analyzed') {
-                if (nativeProgress.pageNumber !== undefined) {
-                    classifiedPageNumbers.add(pageNumbers[nativeProgress.pageNumber - 1]!);
-                }
-                if (classifiedPageNumbers.size >= pageCount) {
-                    startRendering();
-                    return;
-                }
-                if (!renderingStarted) {
-                    emitProgress('classifying', classifiedPageNumbers.size, pageCount, classifiedPageNumbers);
-                }
-                return;
-            }
             if (nativeProgress.stage !== 'page-complete') {
                 return;
             }
-            startRendering();
             if (nativeProgress.pageNumber !== undefined) {
                 renderedPageNumbers.add(pageNumbers[nativeProgress.pageNumber - 1]!);
             }

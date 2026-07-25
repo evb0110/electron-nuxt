@@ -168,8 +168,6 @@ describe('usePdfScroll page layout fallback', () => {
             gap: 20,
             paddingTop: 20,
             paddingBottom: 20,
-            fallbackWidth: 200,
-            fallbackHeight: 100,
         }));
 
         scroll.scrollToPage(container, 3, 3, 20);
@@ -246,8 +244,6 @@ describe('usePdfScroll page layout fallback', () => {
                 gap: 20,
                 paddingTop: 20,
                 paddingBottom: 20,
-                fallbackWidth: 200,
-                fallbackHeight: 100,
             }));
 
             scroll.scrollToPage(container, 2, 3, 20, { markerRect });
@@ -323,8 +319,6 @@ describe('usePdfScroll page layout fallback', () => {
                 gap: 20,
                 paddingTop: 20,
                 paddingBottom: 20,
-                fallbackWidth: 200,
-                fallbackHeight: 100,
             }));
 
             const markerRect = {
@@ -412,8 +406,6 @@ describe('usePdfScroll page layout fallback', () => {
                 gap: 20,
                 paddingTop: 20,
                 paddingBottom: 20,
-                fallbackWidth: 200,
-                fallbackHeight: 100,
             }));
 
             const markerRect = {
@@ -474,8 +466,6 @@ describe('usePdfScroll page layout fallback', () => {
             gap: 0,
             paddingTop: 0,
             paddingBottom: 0,
-            fallbackWidth: 200,
-            fallbackHeight: 100,
         }));
 
         expect(scroll.getVisiblePageRange(container, 10)).toEqual({
@@ -564,8 +554,6 @@ describe('usePdfScroll page layout fallback', () => {
             gap: 20,
             paddingTop: 0,
             paddingBottom: 0,
-            fallbackWidth: 200,
-            fallbackHeight: 200,
         }));
 
         expect(scroll.getVisiblePageRange(container, 2)).toEqual({
@@ -602,8 +590,6 @@ describe('usePdfScroll page layout fallback', () => {
             gap: 20,
             paddingTop: 0,
             paddingBottom: 0,
-            fallbackWidth: 200,
-            fallbackHeight: 100,
         }));
 
         container.scrollTop = 250;
@@ -651,8 +637,6 @@ describe('usePdfScroll page layout fallback', () => {
             gap: 20,
             paddingTop: 20,
             paddingBottom: 20,
-            fallbackWidth: 240,
-            fallbackHeight: 110,
         }));
 
         scroll.scrollToPage(container, 3, 5, 20);
@@ -781,8 +765,6 @@ describe('usePdfScroll page layout fallback', () => {
             gap: 20,
             paddingTop: 0,
             paddingBottom: 0,
-            fallbackWidth: 200,
-            fallbackHeight: 200,
         }));
 
         scroll.scrollToPage(container, 2, 2, 20, {markerRect: {

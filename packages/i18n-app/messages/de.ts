@@ -788,11 +788,6 @@ export default {
         },
         'languagePicker': {
             'searchPlaceholder': 'Sprachen oder Codes suchen',
-            'groups': {
-                'selected': 'Ausgewählt',
-                'installed': 'Installiert',
-                'missing': 'Download',
-            },
             'downloadSizeHint': '~10 MB',
             'downloadFailed': 'Download fehlgeschlagen',
             'retryDownload': 'Starten Sie OCR erneut, um den Download des Sprachmodells zu wiederholen.',

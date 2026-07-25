@@ -27,10 +27,10 @@
             />
         </div>
 
-        <UInput
+        <AppSearchInput
             v-if="searchVisible"
             ref="searchInputRef"
-            v-model.trim="query"
+            v-model="query"
             type="search"
             class="notes-search"
             color="neutral"
@@ -168,6 +168,7 @@ import {
     annotationKindLabelFromSubtype,
     isTextMarkupSubtype,
 } from '@app/services/pdf/annotationSubtype';
+import AppSearchInput from '@app/components/AppSearchInput.vue';
 
 const POINT_NOTE_MARKER_MAX_SIZE = 0.02;
 
@@ -196,7 +197,7 @@ const emit = defineEmits<{
 
 const query = ref('');
 const searchVisible = ref(false);
-const searchInputRef = ref<{ inputRef: HTMLInputElement | null } | null>(null);
+const searchInputRef = useTemplateRef<{focus: () => void}>('searchInputRef');
 
 const timeFormatter = new Intl.DateTimeFormat(undefined, {
     dateStyle: 'medium',
@@ -230,7 +231,7 @@ async function onSearchButtonClick() {
         await nextTick();
     }
 
-    searchInputRef.value?.inputRef?.focus();
+    searchInputRef.value?.focus();
 }
 
 function commentTypeLabel(comment: IAnnotationCommentSummary) {

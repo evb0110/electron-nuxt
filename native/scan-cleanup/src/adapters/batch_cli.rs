@@ -92,7 +92,6 @@ struct PageRunResult {
     outputs: Vec<WrittenOutput>,
     metadata: PageResultMetadata,
     page_metadata_path: PathBuf,
-    classification_only: bool,
     timings: PageStageTimings,
 }
 
@@ -104,8 +103,10 @@ struct Tier1Provenance {
     whitespace_score: f64,
 }
 
-fn manifest_cache() -> Arc<Mutex<ByteLru>> {
-    Arc::new(Mutex::new(ByteLru::new(configured_cache_budget_bytes())))
+fn manifest_cache(host_memory_bytes: Option<u64>) -> Arc<Mutex<ByteLru>> {
+    Arc::new(Mutex::new(ByteLru::new(cache_budget_bytes(
+        host_memory_bytes,
+    ))))
 }
 
 fn page_cache_for(page: &Page, shared: &Arc<Mutex<ByteLru>>) -> Result<PageCache, NativeError> {
@@ -155,7 +156,7 @@ pub fn run(args: impl IntoIterator<Item = String>) -> Result<(), Box<dyn Error>>
         document_prior: None,
         detail_render_plan: None,
     };
-    let cache = manifest_cache();
+    let cache = manifest_cache(None);
     let page_cache = page_cache_for(&page, &cache)?;
     run_page(
         &page,
@@ -213,24 +214,59 @@ fn run_manifest_inner(manifest: &ManifestV3) -> Result<(), Box<dyn Error>> {
         recommended_output_mode_confidence: None,
         recommended_output_mode_reason: None,
     })?;
-    let cache = manifest_cache();
-    let analyzed_pages = Mutex::new((vec![false; manifest.pages.len()], 0usize));
-    let report_analyzed = |index: usize| -> Result<(), NativeError> {
-        let mut state = analyzed_pages.lock().map_err(|_| {
+    let cache = manifest_cache(manifest.host_memory_bytes);
+    let total_pages = manifest.pages.len();
+    // Pages finish out of order under the worker pool, but the progress stream is
+    // a monotone per-page sequence, so each page's event waits for its
+    // predecessors before it is published.
+    let pending_progress = Mutex::new((
+        manifest.pages.iter().map(|_| None).collect::<Vec<_>>(),
+        0usize,
+    ));
+    let report_page = |index: usize, progress: Progress| -> Result<(), NativeError> {
+        let mut state = pending_progress.lock().map_err(|_| {
             NativeError::new(
                 NativeErrorCode::NativeFailure,
                 "Unable to publish scan-cleanup page progress",
             )
         })?;
-        state.0[index] = true;
-        while state.1 < state.0.len() && state.0[state.1] {
-            let page_index = state.1;
-            state.1 += 1;
-            write_progress(Progress {
+        state.0[index] = Some(progress);
+        loop {
+            let cursor = state.1;
+            let Some(published) = state.0.get_mut(cursor).and_then(Option::take) else {
+                break;
+            };
+            state.1 = cursor + 1;
+            write_progress(published).map_err(|error| {
+                NativeError::new(
+                    NativeErrorCode::NativeFailure,
+                    format!("Unable to publish scan-cleanup page progress: {error}"),
+                )
+            })?;
+        }
+        Ok(())
+    };
+    let analyzing = manifest.operation == Operation::Analyze;
+    let run_analysis = |(index, page): (usize, &Page)| -> Result<PageRunResult, NativeError> {
+        let page_cache = page_cache_for(page, &cache)?;
+        let result = run_classification(
+            page,
+            manifest.canvas_scope,
+            page.document_prior,
+            true,
+            &page_cache,
+        )
+        .map_err(|error| {
+            let envelope = NativeErrorEnvelope::from_error(error.as_ref());
+            NativeError::new(envelope.code, envelope.message)
+        })?;
+        report_page(
+            index,
+            Progress {
                 stage: ProgressStage::PageAnalyzed,
-                completed_pages: state.1,
-                total_pages: manifest.pages.len(),
-                page_number: Some(page_index + 1),
+                completed_pages: index + 1,
+                total_pages,
+                page_number: Some(index + 1),
                 output_paths: None,
                 classification: None,
                 confidence: None,
@@ -244,51 +280,37 @@ fn run_manifest_inner(manifest: &ManifestV3) -> Result<(), Box<dyn Error>> {
                 recommended_output_mode: None,
                 recommended_output_mode_confidence: None,
                 recommended_output_mode_reason: None,
-            })
-            .map_err(|error| {
-                NativeError::new(
-                    NativeErrorCode::NativeFailure,
-                    format!("Unable to publish scan-cleanup page progress: {error}"),
-                )
-            })?;
-        }
-        Ok(())
+            },
+        )?;
+        Ok(result)
     };
-    let run_analysis = |(index, page): (usize, &Page)| -> Result<PageRunResult, NativeError> {
+    let run_one = |(index, page): (usize, &Page)| -> Result<PageRunResult, NativeError> {
         let page_cache = page_cache_for(page, &cache)?;
-        let result = run_classification(
+        let result = run_page(
             page,
             manifest.canvas_scope,
-            page.document_prior,
-            manifest.operation == Operation::Analyze
-                || page.options.output_mode == OutputMode::Auto,
+            manifest.render_mode == RenderMode::Final,
+            None,
             &page_cache,
         )
         .map_err(|error| {
             let envelope = NativeErrorEnvelope::from_error(error.as_ref());
             NativeError::new(envelope.code, envelope.message)
         })?;
-        report_analyzed(index)?;
+        report_page(index, page_complete_progress(&result, index, total_pages))?;
         Ok(result)
     };
-    let run_one = |(index, page): (usize, &Page)| -> Result<PageRunResult, NativeError> {
-        let page_cache = page_cache_for(page, &cache)?;
-        run_manifest_page(manifest, page, index, &page_cache).map_err(|error| {
-            let envelope = NativeErrorEnvelope::from_error(error.as_ref());
-            NativeError::new(envelope.code, envelope.message)
-        })
-    };
-    let page_results = if manifest.operation == Operation::Analyze {
+    let mut page_results = if analyzing {
         run_page_jobs(manifest, run_analysis)?
     } else {
-        if manifest.render_mode == RenderMode::Final {
-            run_page_jobs(manifest, run_analysis)?;
-        }
         run_page_jobs(manifest, run_one)?
     };
 
-    let mut page_results = page_results;
-    reconcile_classification_batch(manifest, &mut page_results, &cache)?;
+    // Reconciliation only ever revises classification-pass results; a render pass
+    // has already published its pages by the time it returns.
+    if analyzing {
+        reconcile_classification_batch(manifest, &mut page_results, &cache)?;
+    }
     let mut written_outputs = Vec::new();
     for (index, page_result) in page_results.into_iter().enumerate() {
         if let Err(error) =
@@ -310,36 +332,10 @@ fn run_manifest_inner(manifest: &ManifestV3) -> Result<(), Box<dyn Error>> {
             let _ = fs::remove_file(&page_result.page_metadata_path);
             return Err(error);
         }
-        let output_paths = page_result
-            .outputs
-            .iter()
-            .map(|output| output.output_path.clone())
-            .collect::<Vec<_>>();
+        if analyzing {
+            write_progress(page_complete_progress(&page_result, index, total_pages))?;
+        }
         written_outputs.extend(page_result.outputs);
-        write_progress(Progress {
-            stage: ProgressStage::PageComplete,
-            completed_pages: index + 1,
-            total_pages: manifest.pages.len(),
-            page_number: Some(index + 1),
-            output_paths: Some(output_paths),
-            classification: Some(page_result.metadata.layout_classification),
-            confidence: Some(page_result.metadata.layout_confidence),
-            cutter_x_px: (page_result.metadata.layout_classification
-                == crate::split::LayoutClassification::TwoPageSpread)
-                .then_some(page_result.metadata.cutter_x_px)
-                .flatten(),
-            tier1_verdict: Some(page_result.metadata.tier1_verdict),
-            reconciled: Some(page_result.metadata.reconciled),
-            cluster_agreement: Some(page_result.metadata.cluster_agreement),
-            document_prior: page_result.metadata.document_prior,
-            text_axis: page_result.metadata.text_axis,
-            stage_timings: (!page_result.timings.is_empty()).then_some(page_result.timings),
-            recommended_output_mode: page_result.metadata.recommended_output_mode,
-            recommended_output_mode_confidence: page_result
-                .metadata
-                .recommended_output_mode_confidence,
-            recommended_output_mode_reason: page_result.metadata.recommended_output_mode_reason,
-        })?;
     }
     match_page_sizes(
         &written_outputs,
@@ -406,9 +402,7 @@ fn reconcile_classification_batch(
         .iter()
         .enumerate()
         .filter(|(_, result)| {
-            result.classification_only
-                && result.metadata.reconciliation_eligible
-                && result.metadata.document_prior.is_none()
+            result.metadata.reconciliation_eligible && result.metadata.document_prior.is_none()
         })
         .map(|(index, _)| index)
         .collect::<Vec<_>>();
@@ -644,28 +638,34 @@ fn write_progress(progress: Progress) -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-fn run_manifest_page(
-    manifest: &ManifestV3,
-    page: &Page,
-    _index: usize,
-    cache: &PageCache,
-) -> Result<PageRunResult, Box<dyn Error>> {
-    if manifest.operation == Operation::Analyze {
-        run_classification(
-            page,
-            manifest.canvas_scope,
-            page.document_prior,
-            true,
-            cache,
-        )
-    } else {
-        run_page(
-            page,
-            manifest.canvas_scope,
-            manifest.render_mode == RenderMode::Final,
-            None,
-            cache,
-        )
+fn page_complete_progress(result: &PageRunResult, index: usize, total_pages: usize) -> Progress {
+    let metadata = &result.metadata;
+    Progress {
+        stage: ProgressStage::PageComplete,
+        completed_pages: index + 1,
+        total_pages,
+        page_number: Some(index + 1),
+        output_paths: Some(
+            result
+                .outputs
+                .iter()
+                .map(|output| output.output_path.clone())
+                .collect(),
+        ),
+        classification: Some(metadata.layout_classification),
+        confidence: Some(metadata.layout_confidence),
+        cutter_x_px: (metadata.layout_classification == LayoutClassification::TwoPageSpread)
+            .then_some(metadata.cutter_x_px)
+            .flatten(),
+        tier1_verdict: Some(metadata.tier1_verdict),
+        reconciled: Some(metadata.reconciled),
+        cluster_agreement: Some(metadata.cluster_agreement),
+        document_prior: metadata.document_prior,
+        text_axis: metadata.text_axis,
+        stage_timings: (!result.timings.is_empty()).then_some(result.timings),
+        recommended_output_mode: metadata.recommended_output_mode,
+        recommended_output_mode_confidence: metadata.recommended_output_mode_confidence,
+        recommended_output_mode_reason: metadata.recommended_output_mode_reason,
     }
 }
 
@@ -693,6 +693,10 @@ fn pages_have_disjoint_destinations(manifest: &ManifestV3) -> bool {
     })
 }
 
+/// Used only when a manifest does not report the host's memory — direct CLI
+/// invocations and the single-page adapter. Every manifest written by the
+/// application carries `hostMemoryBytes`, so this is a conservative floor for
+/// standalone use rather than a guess about the machine.
 const FALLBACK_SYSTEM_MEMORY_BYTES: u64 = 4 * 1024 * 1024 * 1024;
 const GRAY_PEAK_BYTES_PER_PIXEL: u64 = 12;
 const COLOR_PEAK_BYTES_PER_PIXEL: u64 = 24;
@@ -723,9 +727,12 @@ fn manifest_worker_threads(manifest: &ManifestV3) -> Result<usize, NativeError> 
         .into_iter()
         .max()
         .unwrap_or(1);
-    let total_memory = system_memory_bytes().unwrap_or(FALLBACK_SYSTEM_MEMORY_BYTES);
+    let total_memory = manifest
+        .host_memory_bytes
+        .unwrap_or(FALLBACK_SYSTEM_MEMORY_BYTES);
     let process_budget = total_memory.saturating_mul(40) / 100;
-    let worker_budget = process_budget.saturating_sub(configured_cache_budget_bytes() as u64);
+    let worker_budget =
+        process_budget.saturating_sub(cache_budget_bytes(manifest.host_memory_bytes) as u64);
     Ok(adaptive_thread_count(
         available,
         manifest.pages.len(),
@@ -767,20 +774,8 @@ fn adaptive_thread_count(
     cpu_limit.min(memory_limit).min(page_count).max(1)
 }
 
-fn system_memory_bytes() -> Option<u64> {
-    let meminfo = fs::read_to_string("/proc/meminfo").ok()?;
-    let kibibytes = meminfo
-        .lines()
-        .find_map(|line| line.strip_prefix("MemTotal:"))?
-        .split_ascii_whitespace()
-        .next()?
-        .parse::<u64>()
-        .ok()?;
-    Some(kibibytes.saturating_mul(1024))
-}
-
-fn configured_cache_budget_bytes() -> usize {
-    let total_memory = system_memory_bytes().unwrap_or(FALLBACK_SYSTEM_MEMORY_BYTES);
+fn cache_budget_bytes(host_memory_bytes: Option<u64>) -> usize {
+    let total_memory = host_memory_bytes.unwrap_or(FALLBACK_SYSTEM_MEMORY_BYTES);
     DEFAULT_CACHE_BUDGET_BYTES.min((total_memory / 10) as usize)
 }
 
@@ -1095,7 +1090,6 @@ fn run_page(
         outputs: written,
         metadata: page_metadata,
         page_metadata_path: page.page_metadata_path.clone(),
-        classification_only: false,
         timings,
     })
 }
@@ -1231,7 +1225,6 @@ fn run_classification(
         outputs: Vec::new(),
         metadata: page_metadata,
         page_metadata_path: page.page_metadata_path.clone(),
-        classification_only: true,
         timings,
     })
 }
@@ -1585,15 +1578,19 @@ fn map_image_error(message: String) -> NativeError {
 #[cfg(test)]
 mod tests {
     use super::{
-        adaptive_thread_count, estimate_peak_page_bytes, preserve_tier1_provenance_after_rerun,
-        robust_quantile_dimension, PageResultMetadata, Tier1Provenance,
+        adaptive_thread_count, estimate_peak_page_bytes, manifest_worker_threads,
+        preserve_tier1_provenance_after_rerun, robust_quantile_dimension, PageResultMetadata,
+        Tier1Provenance, FALLBACK_SYSTEM_MEMORY_BYTES,
     };
     use crate::{
-        protocol::manifest_v3::{CanvasScope, SplitSeamPolyline},
+        protocol::manifest_v3::{
+            CanvasScope, ManifestV3, Operation, Page, RenderMode, SplitSeamPolyline, VERSION,
+        },
         split::{ClusterDimensions, DocumentPrior, LayoutClassification},
-        OrthogonalRotation, OutputMode,
+        CleanupOptions, OrthogonalRotation, OutputMode,
     };
-    use scan_primitives::Point;
+    use scan_primitives::{GrayImage, Point};
+    use std::{fs, path::PathBuf};
 
     #[test]
     fn matched_canvas_dimension_uses_nearest_rank_ninetieth_percentile() {
@@ -1611,6 +1608,54 @@ mod tests {
         assert_eq!(adaptive_thread_count(2, 20, 10_000, 1_000), 2);
         assert_eq!(adaptive_thread_count(16, 20, 1_500, 1_000), 1);
         assert_eq!(adaptive_thread_count(16, 0, 10_000, 1_000), 1);
+    }
+
+    #[test]
+    fn worker_sizing_follows_the_host_memory_the_manifest_reports() {
+        let dir = std::env::temp_dir().join(format!(
+            "evb-scan-cleanup-worker-sizing-{}",
+            std::process::id()
+        ));
+        fs::create_dir_all(&dir).unwrap();
+        let input = dir.join("page.png");
+        fs::write(
+            &input,
+            crate::png::encode_gray(&GrayImage::new(2_000, 1_500, 240)).unwrap(),
+        )
+        .unwrap();
+        let manifest = |host_memory_bytes| ManifestV3 {
+            version: VERSION,
+            operation: Operation::Render,
+            render_mode: RenderMode::Final,
+            canvas_scope: CanvasScope::default(),
+            document_canvas: None,
+            host_memory_bytes,
+            pages: (0..8)
+                .map(|index| Page {
+                    input_path: input.clone(),
+                    source_page_index: index,
+                    page_metadata_path: PathBuf::from("page.json"),
+                    options: CleanupOptions::default(),
+                    document_prior: None,
+                    detail_render_plan: None,
+                    outputs: Vec::new(),
+                })
+                .collect(),
+        };
+        let constrained = manifest_worker_threads(&manifest(Some(64 * 1024 * 1024))).unwrap();
+        let roomy = manifest_worker_threads(&manifest(Some(32 * 1024 * 1024 * 1024))).unwrap();
+
+        assert_eq!(constrained, 1);
+        assert!(
+            roomy > constrained,
+            "a roomy host must not be sized like a 64 MiB one (roomy={roomy})"
+        );
+        assert_eq!(
+            manifest_worker_threads(&manifest(None)).unwrap(),
+            manifest_worker_threads(&manifest(Some(FALLBACK_SYSTEM_MEMORY_BYTES))).unwrap()
+        );
+
+        let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]

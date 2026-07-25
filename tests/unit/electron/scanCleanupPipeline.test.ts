@@ -1056,7 +1056,6 @@ describe('scan cleanup pipeline', () => {
         for (const stage of [
             'probing',
             'rasterizing',
-            'classifying',
             'rendering',
         ] as const) {
             expect(progress).toContainEqual(expect.objectContaining({
@@ -1064,6 +1063,7 @@ describe('scan cleanup pipeline', () => {
                 totalUnits: 2,
             }));
         }
+        expect(progress.map(entry => entry.stage)).not.toContain('classifying');
         expect(progress.at(-1)).toMatchObject({
             stage: 'handoff',
             completedPageNumbers: [

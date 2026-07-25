@@ -198,13 +198,26 @@ export interface IScanCleanupService {
     pruneGeneratedOutputs: (openPdfPaths: string[]) => Promise<number>;
 }
 
+export const SCAN_CLEANUP_RASTER_SLOT_RESIDENT_BYTES = 128 * 1024 * 1024;
+const SCAN_CLEANUP_RASTER_BROKER_PROCESS_RESERVE = 1;
+
+export function resolveScanCleanupRasterConcurrency() {
+    const {capacity} = mainJobBroker.getSnapshot();
+    return Math.max(
+        1,
+        Math.min(
+            Math.floor(capacity.cpuTokens),
+            capacity.nativeProcesses - SCAN_CLEANUP_RASTER_BROKER_PROCESS_RESERVE,
+            Math.floor(capacity.estimatedResidentBytes / SCAN_CLEANUP_RASTER_SLOT_RESIDENT_BYTES),
+        ),
+    );
+}
+
 function resolveScanCleanupRuntimePolicy(
     profile: IHostResourceProfileSnapshot,
 ): IScanCleanupRuntimePolicy {
     return {
-        rasterConcurrency: profile.tier === 'low'
-            ? 1
-            : profile.tier === 'medium' ? 2 : 3,
+        rasterConcurrency: resolveScanCleanupRasterConcurrency(),
         logicalCpus: profile.logicalCpus,
         totalRamBytes: profile.totalRamBytes,
     };
@@ -272,7 +285,7 @@ export function createScanCleanupService(): IScanCleanupService {
                             priority: 'user',
                             resources: {
                                 cpuTokens: runtimePolicy.rasterConcurrency,
-                                estimatedResidentBytes: runtimePolicy.rasterConcurrency * 128 * 1024 * 1024,
+                                estimatedResidentBytes: runtimePolicy.rasterConcurrency * SCAN_CLEANUP_RASTER_SLOT_RESIDENT_BYTES,
                                 nativeProcesses: runtimePolicy.rasterConcurrency,
                                 ioWeight: 4,
                             },

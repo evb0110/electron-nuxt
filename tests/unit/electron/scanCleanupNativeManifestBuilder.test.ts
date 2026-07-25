@@ -383,4 +383,29 @@ describe('native scan-cleanup manifest builder', () => {
             },
         });
     });
+
+    it('reports the host memory the sidecar cannot read for itself, and omits it when unknown', () => {
+        const build = (hostMemoryBytes?: number) => buildNativeScanCleanupManifest({
+            operation: 'render',
+            renderMode: 'final',
+            canvasScope: 'document',
+            qualityPath: 'raster',
+            options,
+            ...(hostMemoryBytes === undefined ? {} : {hostMemoryBytes}),
+            pages: [{
+                inputPath: '/fixtures/input/page-1.png',
+                pageNumber: 1,
+                dpi: 300,
+                pageMetadataPath: '/fixtures/output/page-1.json',
+                outputs: [{
+                    outputPath: '/fixtures/output/page-1.png',
+                    metadataPath: '/fixtures/output/page-1-output.json',
+                }],
+            }],
+        });
+
+        expect(build(34_359_738_368).hostMemoryBytes).toBe(34_359_738_368);
+        expect(build()).not.toHaveProperty('hostMemoryBytes');
+        expect(build(0)).not.toHaveProperty('hostMemoryBytes');
+    });
 });

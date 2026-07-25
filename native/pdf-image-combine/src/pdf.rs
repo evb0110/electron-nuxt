@@ -13,10 +13,7 @@ pub(crate) enum ImagePayload {
     Jpeg {
         data: Vec<u8>,
     },
-    Bilevel {
-        bitmap: Vec<u8>,
-        row_stride: usize,
-    },
+    Bilevel(BilevelStream),
 }
 
 pub(crate) struct ImagePage {
@@ -54,13 +51,34 @@ pub struct LayeredPdfImage {
 pub struct LayeredPdfPage {
     pub page_size: PdfPageSize,
     pub background: LayeredPdfImage,
-    pub foreground_mask: PbmP4Image,
+    pub foreground_mask: BilevelStream,
     pub foreground_color: Option<[u8; 3]>,
 }
 
 pub struct MaskPdfPage {
     pub page_size: PdfPageSize,
-    pub foreground_mask: PbmP4Image,
+    pub foreground_mask: BilevelStream,
+}
+
+/// A validated bilevel bitmap already reduced to the single PDF stream that
+/// will be written for it. Encoding happens while pages are prepared, so page
+/// preparation can run off the writer's thread and the writer only serializes
+/// bytes.
+pub struct BilevelStream {
+    width: u32,
+    height: u32,
+    payload: BilevelPayload,
+}
+
+impl BilevelStream {
+    pub(crate) fn encode(mask: &PbmP4Image) -> Result<Self> {
+        validate_image_mask(mask)?;
+        Ok(Self {
+            width: mask.width,
+            height: mask.height,
+            payload: encode_mask_payload(mask)?,
+        })
+    }
 }
 
 #[cfg(test)]
@@ -311,13 +329,31 @@ impl<W: IoWrite> PdfWriter<W> {
         page: &ImagePage,
         icc_object: Option<usize>,
     ) -> Result<()> {
+        let payload = match &page.payload {
+            ImagePayload::Bilevel(stream) => {
+                let dict = bilevel_image_dictionary(stream.width, stream.height, &stream.payload);
+                return self.push_stream_object(
+                    object_number,
+                    dict.as_bytes(),
+                    stream.payload.data(),
+                );
+            }
+            ImagePayload::RawFlate {
+                data,
+                decode_params,
+            } => ColorImagePayloadRef::RawFlate {
+                data,
+                decode_params,
+            },
+            ImagePayload::Jpeg { data } => ColorImagePayloadRef::Jpeg { data },
+        };
         self.push_color_image_stream(
             object_number,
             page.width,
             page.height,
             page.color_space,
             icc_object,
-            ColorImagePayloadRef::from(&page.payload),
+            payload,
         )
     }
 
@@ -373,19 +409,12 @@ impl<W: IoWrite> PdfWriter<W> {
                 );
                 self.push_stream_object(object_number, dict.as_bytes(), data)
             }
-            ColorImagePayloadRef::Bilevel { bitmap, row_stride } => {
-                let payload = encode_bilevel_payload(width, height, row_stride, bitmap)?;
-                let dict = bilevel_image_dictionary(width, height, &payload);
-                self.push_stream_object(object_number, dict.as_bytes(), payload.data())
-            }
         }
     }
 
-    fn push_image_mask_object(&mut self, object_number: usize, mask: &PbmP4Image) -> Result<()> {
-        validate_image_mask(mask)?;
-        let payload = encode_mask_payload(mask)?;
-        let dict = image_mask_dictionary(mask.width, mask.height, &payload);
-        self.push_stream_object(object_number, dict.as_bytes(), payload.data())
+    fn push_image_mask_object(&mut self, object_number: usize, mask: &BilevelStream) -> Result<()> {
+        let dict = image_mask_dictionary(mask.width, mask.height, &mask.payload);
+        self.push_stream_object(object_number, dict.as_bytes(), mask.payload.data())
     }
 
     fn push_object(&mut self, object_number: usize, body: &[u8]) -> Result<()> {
@@ -495,42 +524,16 @@ impl BilevelPayload {
     }
 }
 
-fn encode_bilevel_payload(
-    width: u32,
-    height: u32,
-    row_stride: usize,
-    bitmap: &[u8],
-) -> Result<BilevelPayload> {
-    let image = PbmP4Image {
-        width,
-        height,
-        row_stride,
-        bitmap: bitmap.to_vec(),
-    };
-    validate_image_mask(&image)?;
-    encode_mask_payload(&image)
-}
-
 fn encode_mask_payload(mask: &PbmP4Image) -> Result<BilevelPayload> {
     let width = mask.width;
     let height = mask.height;
     #[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
     let jbig2_started_at = std::time::Instant::now();
-    let jbig2 = match jbig2_codec::encode_pdf_generic_verified(Bilevel {
+    let jbig2 = jbig2_codec::encode_pdf_generic_verified(Bilevel {
         width,
         height,
         rows: &mask.bitmap,
-    }) {
-        Ok(data) => Some(data),
-        Err(error) => {
-            // Keep the verified source stencil and select a lossless CCITT/Flate
-            // payload below; a JBIG2 failure is not a reason to discard valid MRC layers.
-            eprintln!(
-                "warning: verified JBIG2 encoding failed for {width}x{height} bilevel image; falling back: {error}"
-            );
-            None
-        }
-    };
+    });
     #[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
     if std::env::var_os("EVB_PDF_COMBINE_TIMING").is_some() {
         eprintln!(
@@ -539,37 +542,35 @@ fn encode_mask_payload(mask: &PbmP4Image) -> Result<BilevelPayload> {
         );
     }
 
+    match jbig2 {
+        Ok(data) => Ok(BilevelPayload::Jbig2(data)),
+        Err(error) => {
+            // Keep the verified source stencil and select a lossless CCITT/Flate
+            // payload; a JBIG2 failure is not a reason to discard valid MRC layers.
+            eprintln!(
+                "warning: verified JBIG2 encoding failed for {width}x{height} bilevel image; falling back: {error}"
+            );
+            encode_fallback_bilevel_payload(mask)
+        }
+    }
+}
+
+fn encode_fallback_bilevel_payload(mask: &PbmP4Image) -> Result<BilevelPayload> {
     let flate = deflate_bytes(&mask.bitmap)?;
     let ccitt = match encode_mask_ccitt_g4(mask) {
         Ok(data) => data,
         Err(error) => {
             eprintln!(
-                "warning: CCITT Group 4 encoding failed for {width}x{height} bilevel image; falling back: {error}"
+                "warning: CCITT Group 4 encoding failed for {}x{} bilevel image; falling back: {error}",
+                mask.width, mask.height
             );
             None
         }
     };
-    Ok(select_bilevel_payload(jbig2, ccitt, flate))
-}
-
-fn select_bilevel_payload(
-    jbig2: Option<Vec<u8>>,
-    ccitt: Option<Vec<u8>>,
-    flate: Vec<u8>,
-) -> BilevelPayload {
-    let mut selected = jbig2
-        .map(BilevelPayload::Jbig2)
-        .or_else(|| ccitt.clone().map(BilevelPayload::CcittG4))
-        .unwrap_or_else(|| BilevelPayload::Flate(flate.clone()));
-    if let Some(data) = ccitt {
-        if data.len() < selected.data().len() {
-            selected = BilevelPayload::CcittG4(data);
-        }
-    }
-    if flate.len() < selected.data().len() {
-        selected = BilevelPayload::Flate(flate);
-    }
-    selected
+    Ok(match ccitt {
+        Some(ccitt) if ccitt.len() < flate.len() => BilevelPayload::CcittG4(ccitt),
+        _ => BilevelPayload::Flate(flate),
+    })
 }
 
 fn bilevel_image_dictionary(width: u32, height: u32, payload: &BilevelPayload) -> String {
@@ -636,29 +637,6 @@ enum ColorImagePayloadRef<'a> {
     Jpeg {
         data: &'a [u8],
     },
-    Bilevel {
-        bitmap: &'a [u8],
-        row_stride: usize,
-    },
-}
-
-impl<'a> From<&'a ImagePayload> for ColorImagePayloadRef<'a> {
-    fn from(payload: &'a ImagePayload) -> Self {
-        match payload {
-            ImagePayload::RawFlate {
-                data,
-                decode_params,
-            } => Self::RawFlate {
-                data,
-                decode_params,
-            },
-            ImagePayload::Jpeg { data } => Self::Jpeg { data },
-            ImagePayload::Bilevel { bitmap, row_stride } => Self::Bilevel {
-                bitmap,
-                row_stride: *row_stride,
-            },
-        }
-    }
 }
 
 impl<'a> From<&'a LayeredImagePayload> for ColorImagePayloadRef<'a> {
@@ -733,9 +711,6 @@ mod tests {
         assert!(text.contains("/FgMask1"));
         assert!(text.contains("/ImageMask true"));
         assert!(text.contains("/BitsPerComponent 1"));
-        assert!(text.contains("/Decode [1 0]"));
-        assert!(text.contains("/Filter /FlateDecode") || text.contains("/Filter /CCITTFaxDecode"));
-        assert!(!text.contains("/JBIG2Decode"));
         assert!(!mask_object_dictionary(&text).contains("/ColorSpace"));
     }
 
@@ -746,12 +721,7 @@ mod tests {
                 width_points: 144.0,
                 height_points: 72.0,
             },
-            foreground_mask: PbmP4Image {
-                width: 8,
-                height: 2,
-                row_stride: 1,
-                bitmap: vec![0b1000_0000, 0b0100_0000],
-            },
+            foreground_mask: sample_mask(),
         };
 
         let pdf = build_mask_pdf_page(&page).unwrap();
@@ -781,9 +751,12 @@ mod tests {
 
     #[test]
     fn layered_jpeg_uses_jbig2_when_it_is_the_smallest_verified_mask_payload() {
-        let foreground_mask = crate::netpbm::parse_pbm_p4(include_bytes!(
-            "../../jbig2-codec/tests/fixtures/scan-page-000-body.pbm"
-        ))
+        let foreground_mask = BilevelStream::encode(
+            &crate::netpbm::parse_pbm_p4(include_bytes!(
+                "../../jbig2-codec/tests/fixtures/scan-page-000-body.pbm"
+            ))
+            .unwrap(),
+        )
         .unwrap();
         let page = LayeredPdfPage {
             page_size: PdfPageSize {
@@ -845,12 +818,13 @@ mod tests {
                     data: vec![0xff, 0xd8, 0xff, 0xd9],
                 },
             },
-            foreground_mask: PbmP4Image {
+            foreground_mask: BilevelStream::encode(&PbmP4Image {
                 width: 2550,
                 height: 3300,
                 row_stride: 319,
                 bitmap: vec![0; 319 * 3300],
-            },
+            })
+            .unwrap(),
             foreground_color: None,
         };
 
@@ -878,48 +852,62 @@ mod tests {
 
     #[test]
     fn rejects_inconsistent_manual_layered_mask() {
-        let mut page = sample_layered_page(LayeredImagePayload::Jpeg {
-            data: vec![0xff, 0xd8, 0xff, 0xd9],
-        });
-        page.foreground_mask.row_stride = 2;
-        assert!(build_layered_pdf_page(&page).is_err());
+        let mut mask = PbmP4Image {
+            width: 8,
+            height: 2,
+            row_stride: 1,
+            bitmap: vec![0b1000_0000, 0b0100_0000],
+        };
+        mask.row_stride = 2;
+        assert!(BilevelStream::encode(&mask).is_err());
 
-        let mut page = sample_layered_page(LayeredImagePayload::Jpeg {
-            data: vec![0xff, 0xd8, 0xff, 0xd9],
-        });
-        page.foreground_mask.bitmap.pop();
-        assert!(build_layered_pdf_page(&page).is_err());
+        let mut mask = PbmP4Image {
+            width: 8,
+            height: 2,
+            row_stride: 1,
+            bitmap: vec![0b1000_0000, 0b0100_0000],
+        };
+        mask.bitmap.pop();
+        assert!(BilevelStream::encode(&mask).is_err());
     }
 
     #[test]
-    fn selects_the_smallest_successful_bilevel_candidate() {
+    fn a_verified_jbig2_stream_ends_the_search_even_when_deflate_would_be_smaller() {
+        let mask = PbmP4Image {
+            width: 8,
+            height: 2,
+            row_stride: 1,
+            bitmap: vec![0b1000_0000, 0b0100_0000],
+        };
+
+        let jbig2 = jbig2_codec::encode_pdf_generic_verified(Bilevel {
+            width: mask.width,
+            height: mask.height,
+            rows: &mask.bitmap,
+        })
+        .unwrap();
+        assert!(
+            deflate_bytes(&mask.bitmap).unwrap().len() < jbig2.len(),
+            "the fixture must be one where the discarded candidates would have won"
+        );
+
         assert!(matches!(
-            select_bilevel_payload(Some(vec![1]), Some(vec![2; 2]), vec![3; 3]),
+            encode_mask_payload(&mask).unwrap(),
             BilevelPayload::Jbig2(_)
         ));
-        assert!(matches!(
-            select_bilevel_payload(Some(vec![1; 3]), Some(vec![2]), vec![3; 2]),
-            BilevelPayload::CcittG4(_)
-        ));
-        assert!(matches!(
-            select_bilevel_payload(Some(vec![1; 3]), Some(vec![2; 2]), vec![3]),
-            BilevelPayload::Flate(_)
-        ));
-        assert!(matches!(
-            select_bilevel_payload(None, None, vec![3]),
-            BilevelPayload::Flate(_)
-        ));
     }
 
     #[test]
-    fn ccitt_failure_path_retains_the_flate_candidate() {
-        // fax 0.2.7's VecWriter has Infallible as its error type, so a validated
-        // PBM cannot construct a real encoder failure. None models the caught
-        // error after encode_bilevel_payload logs it.
-        assert_eq!(
-            select_bilevel_payload(None, None, vec![1, 2, 3]),
-            BilevelPayload::Flate(vec![1, 2, 3])
-        );
+    fn the_fallback_payload_prefers_group4_over_deflate_when_it_is_smaller() {
+        let mask = crate::netpbm::parse_pbm_p4(include_bytes!(
+            "../../jbig2-codec/tests/fixtures/scan-page-000-body.pbm"
+        ))
+        .unwrap();
+
+        let payload = encode_fallback_bilevel_payload(&mask).unwrap();
+
+        assert!(payload.data().len() < deflate_bytes(&mask.bitmap).unwrap().len());
+        assert!(matches!(payload, BilevelPayload::CcittG4(_)));
     }
 
     #[test]
@@ -1250,14 +1238,19 @@ mod tests {
                 color_space: "DeviceGray",
                 payload,
             },
-            foreground_mask: PbmP4Image {
-                width: 8,
-                height: 2,
-                row_stride: 1,
-                bitmap: vec![0b1000_0000, 0b0100_0000],
-            },
+            foreground_mask: sample_mask(),
             foreground_color: None,
         }
+    }
+
+    fn sample_mask() -> BilevelStream {
+        BilevelStream::encode(&PbmP4Image {
+            width: 8,
+            height: 2,
+            row_stride: 1,
+            bitmap: vec![0b1000_0000, 0b0100_0000],
+        })
+        .unwrap()
     }
 
     fn mask_object_dictionary(pdf: &str) -> &str {

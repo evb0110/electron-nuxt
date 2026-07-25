@@ -46,6 +46,15 @@ import {
 const HIGHLIGHT_REFRESH_BUDGET_MS = 8;
 const HIGHLIGHT_REFRESH_MAX_PAGES_PER_SLICE = 4;
 
+interface IRenderedTextLayer {
+    textLayer: ReturnType<typeof createPdfjsTextLayer>;
+    pdfPage: PDFPageProxy;
+    workingCopyPath: string | null;
+    documentRevisionToken: TDocumentRevisionToken | null;
+}
+
+const renderedTextLayers = new WeakMap<HTMLElement, IRenderedTextLayer>();
+
 const createAbortError = () => new DOMException('Text layer rendering was cancelled', 'AbortError');
 
 function throwIfAborted(signal?: AbortSignal) {
@@ -775,8 +784,26 @@ export const usePdfTextLayerRenderer = (deps: {
         _userUnit: number,
         _totalScaleFactor: number,
         signal?: AbortSignal,
+        onBeforeRebuild?: () => void,
     ) {
         throwIfAborted(signal);
+
+        const currentWorkingCopyPath = toValue(deps.workingCopyPath);
+        const currentDocumentRevisionToken = toValue(deps.documentRevisionToken);
+
+        const rendered = renderedTextLayers.get(textLayerDiv);
+        if (
+            rendered
+            && rendered.pdfPage === pdfPage
+            && rendered.workingCopyPath === currentWorkingCopyPath
+            && rendered.documentRevisionToken === currentDocumentRevisionToken
+        ) {
+            rendered.textLayer.update({ viewport });
+            return;
+        }
+
+        onBeforeRebuild?.();
+        renderedTextLayers.delete(textLayerDiv);
         textLayerDiv.dataset.pdfTextLayerRendering = 'true';
         textLayerDiv.dataset.pdfTextLayerReady = 'false';
         clearHighlights(textLayerDiv);
@@ -788,8 +815,6 @@ export const usePdfTextLayerRenderer = (deps: {
         textLayerDiv.style.removeProperty('--user-unit');
         textLayerDiv.style.removeProperty('--total-scale-factor');
 
-        const currentWorkingCopyPath = toValue(deps.workingCopyPath);
-        const currentDocumentRevisionToken = toValue(deps.documentRevisionToken);
         let textContentSource: TTextLayerTextContentSource | null = null;
         let hasOcrFallbackForPage = false;
 
@@ -857,6 +882,12 @@ export const usePdfTextLayerRenderer = (deps: {
         registerTextLayerTextMapping(textLayerDiv, {
             textDivs: textLayer.textDivs,
             textContentItemsStr: textLayer.textContentItemsStr,
+        });
+        renderedTextLayers.set(textLayerDiv, {
+            textLayer,
+            pdfPage,
+            workingCopyPath: currentWorkingCopyPath,
+            documentRevisionToken: currentDocumentRevisionToken,
         });
         textLayerDiv.style.width = '';
         textLayerDiv.style.height = '';
@@ -1165,6 +1196,7 @@ export const usePdfTextLayerRenderer = (deps: {
     }
 
     function cleanupTextLayerDom(textLayerDiv: HTMLElement) {
+        renderedTextLayers.delete(textLayerDiv);
         clearHighlights(textLayerDiv);
         textLayerDiv.innerHTML = '';
         clearTextLayerTextMapping(textLayerDiv);

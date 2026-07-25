@@ -186,6 +186,11 @@ export interface INativeScanCleanupManifestV3 {
         widthPoints: number;
         heightPoints: number;
     };
+    /**
+     * Physical memory of this host. The sidecar has no portable way to read it,
+     * so it sizes its worker pool and stage cache from this figure instead.
+     */
+    hostMemoryBytes?: number;
     pages: INativeScanCleanupPageV3[];
 }
 

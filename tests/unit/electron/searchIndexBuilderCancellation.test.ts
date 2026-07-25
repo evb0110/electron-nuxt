@@ -130,6 +130,7 @@ describe('buildSearchIndex cancellation', () => {
         mocks.persistCompactSearchIndexBestEffort.mockResolvedValue(undefined);
         mocks.assertWorkingCopyRevisionCurrent.mockResolvedValue(undefined);
         mocks.extractTextFromPdf.mockResolvedValue([]);
+        mocks.extractTextWithPdfjs.mockResolvedValue([]);
         mocks.extractTextWithPdfjsWordBoxes.mockResolvedValue([]);
         mocks.resolveDocumentTextCatalogSnapshot.mockRejectedValue(new Error('catalog unavailable'));
         mocks.visitDocumentOcrCatalogPages.mockRejectedValue(new Error('catalog unavailable'));
@@ -154,7 +155,7 @@ describe('buildSearchIndex cancellation', () => {
             signal: controller.signal,
         });
 
-        expect(mocks.extractTextWithPdfjsWordBoxes).toHaveBeenCalledWith('/tmp/file.pdf', {
+        expect(mocks.extractTextWithPdfjs).toHaveBeenCalledWith('/tmp/file.pdf', {
             signal: controller.signal,
             collectPages: false,
             onPageText: expect.any(Function),
@@ -190,7 +191,7 @@ describe('buildSearchIndex cancellation', () => {
     it('rethrows AbortError from pdfjs extraction and skips fallback extraction', async () => {
         const { buildSearchIndex } = await import('@electron/search/indexBuilder');
         const abortError = createAbortError();
-        mocks.extractTextWithPdfjsWordBoxes.mockRejectedValue(abortError);
+        mocks.extractTextWithPdfjs.mockRejectedValue(abortError);
 
         await expect(
             buildSearchIndex('/tmp/file.pdf', [], {
@@ -199,8 +200,8 @@ describe('buildSearchIndex cancellation', () => {
                 signal: new AbortController().signal,
             }),
         ).rejects.toBe(abortError);
-        expect(mocks.extractTextWithPdfjs).not.toHaveBeenCalled();
         expect(mocks.extractTextFromPdf).not.toHaveBeenCalled();
+        expect(mocks.extractTextWithPdfjsWordBoxes).not.toHaveBeenCalled();
     });
 });
 
@@ -215,6 +216,7 @@ describe('buildSearchIndex assembly', () => {
         mocks.persistCompactSearchIndexBestEffort.mockResolvedValue(undefined);
         mocks.assertWorkingCopyRevisionCurrent.mockResolvedValue(undefined);
         mocks.extractTextFromPdf.mockResolvedValue([]);
+        mocks.extractTextWithPdfjs.mockResolvedValue([]);
         mocks.extractTextWithPdfjsWordBoxes.mockResolvedValue([]);
         mocks.resolveDocumentTextCatalogSnapshot.mockRejectedValue(new Error('catalog unavailable'));
         mocks.visitDocumentOcrCatalogPages.mockRejectedValue(new Error('catalog unavailable'));
@@ -318,93 +320,73 @@ describe('buildSearchIndex assembly', () => {
         expect(result.pageCount).toBe(3);
     });
 
-    it('uses pdftotext before pdfjs for large PDFs', async () => {
+    it('never builds a pdfjs operator list for a document without a text layer', async () => {
         const { buildSearchIndex } = await import('@electron/search/indexBuilder');
-        mocks.stat.mockResolvedValue({ size: 128 * 1024 * 1024 });
-        mocks.extractTextFromPdf.mockResolvedValue([{
-            pageNumber: 1,
-            text: 'from-pdftotext',
-        }]);
+        mocks.stat.mockResolvedValue({ size: 4 * 1024 * 1024 });
+        mocks.extractTextWithPdfjs.mockResolvedValue([]);
+        mocks.extractTextFromPdf.mockResolvedValue([
+            {
+                pageNumber: 1,
+                text: '',
+            },
+            {
+                pageNumber: 2,
+                text: '',
+            },
+        ]);
 
-        const result = await buildSearchIndex('/tmp/file.pdf', [], {
+        const result = await buildSearchIndex('/tmp/scan.pdf', [], {
             documentRevision: DOCUMENT_REVISION,
-            pageCount: 1,
+            pageCount: 2,
         });
 
-        expect(mocks.extractTextFromPdf).toHaveBeenCalledWith('/tmp/file.pdf', {
-            pageCount: 1,
-            pages: [1],
-        });
+        expect(mocks.extractTextWithPdfjs).toHaveBeenCalledOnce();
+        expect(mocks.extractTextFromPdf).toHaveBeenCalled();
         expect(mocks.extractTextWithPdfjsWordBoxes).not.toHaveBeenCalled();
-        expect(mocks.extractTextWithPdfjs).not.toHaveBeenCalled();
-        expect(result.pages).toEqual([expect.objectContaining({
-            pageNumber: 1,
-            text: 'from-pdftotext',
-        })]);
+        expect(result.pages).toEqual([
+            expect.objectContaining({
+                pageNumber: 1,
+                text: '',
+            }),
+            expect.objectContaining({
+                pageNumber: 2,
+                text: '',
+            }),
+        ]);
     });
 
-    it('uses pdftotext before pdfjs for high page-count PDFs below the byte threshold', async () => {
+    it('never builds a pdfjs operator list for a document that has a text layer', async () => {
         const { buildSearchIndex } = await import('@electron/search/indexBuilder');
-        mocks.stat.mockResolvedValue({ size: 87 * 1024 * 1024 });
-        mocks.extractTextFromPdf.mockResolvedValue([{
-            pageNumber: 7,
-            text: 'kurdan',
-        }]);
-
-        const result = await buildSearchIndex('/tmp/file.pdf', [], {
-            documentRevision: DOCUMENT_REVISION,
-            pageCount: 2136,
-        });
-
-        expect(mocks.extractTextFromPdf).toHaveBeenCalledTimes(34);
-        expect(mocks.extractTextFromPdf.mock.calls.every(([
-            , options,
-        ]) => (
-            Array.isArray(options.pages) && options.pages.length <= 64
-        ))).toBe(true);
-        expect(mocks.extractTextWithPdfjsWordBoxes).not.toHaveBeenCalled();
-        expect(mocks.extractTextWithPdfjs).not.toHaveBeenCalled();
-        expect(result.pageCount).toBe(2136);
-        expect(result.pages).toHaveLength(2136);
-        expect(result.pages[6]).toEqual(expect.objectContaining({
-            pageNumber: 7,
-            text: 'kurdan',
-        }));
-    });
-
-    it('carries pdfjs word-box rotation into the search index', async () => {
-        const { buildSearchIndex } = await import('@electron/search/indexBuilder');
-        mocks.extractTextWithPdfjsWordBoxes.mockImplementation(async (_path: string, options: IPdfjsMockOptions) => {
+        mocks.stat.mockResolvedValue({ size: 4 * 1024 * 1024 });
+        mocks.extractTextWithPdfjs.mockImplementation(async (_path: string, options: IPdfjsMockOptions) => {
             options.onPageText?.({
                 pageNumber: 1,
-                text: 'rotated \n',
-                pageWidth: 200,
-                pageHeight: 100,
-                rotation: 90,
-                words: [{
-                    text: 'rotated',
-                    x: 10,
-                    y: 20,
-                    width: 30,
-                    height: 40,
-                }],
+                text: 'embedded page one',
+            });
+            options.onPageText?.({
+                pageNumber: 2,
+                text: 'embedded page two',
             });
             return [];
         });
 
-        const result = await buildSearchIndex('/tmp/file.pdf', [], {
+        const result = await buildSearchIndex('/tmp/text-layer.pdf', [], {
             documentRevision: DOCUMENT_REVISION,
-            pageCount: 1,
+            pageCount: 2,
         });
 
-        expect(result.pages).toEqual([expect.objectContaining({
-            pageNumber: 1,
-            text: 'rotated \n',
-            pageWidth: 200,
-            pageHeight: 100,
-            rotation: 90,
-            words: [expect.objectContaining({ text: 'rotated' })],
-        })]);
+        expect(mocks.extractTextWithPdfjsWordBoxes).not.toHaveBeenCalled();
+        expect(mocks.extractTextFromPdf).not.toHaveBeenCalled();
+        expect(result.pages).toEqual([
+            expect.objectContaining({
+                pageNumber: 1,
+                text: 'embedded page one',
+            }),
+            expect.objectContaining({
+                pageNumber: 2,
+                text: 'embedded page two',
+            }),
+        ]);
     });
 
     it('prefers OCR pageData words over previously extracted text and raw OCR text', async () => {
@@ -499,24 +481,22 @@ describe('buildSearchIndex assembly', () => {
 
         try {
             const { buildSearchIndex } = await import('@electron/search/indexBuilder');
-            mocks.extractTextWithPdfjsWordBoxes.mockImplementation(async (_path: string, options: IPdfjsMockOptions) => {
-                options.onPageText?.({
-                    pageNumber: 1,
-                    text: 'alpha beta gamma \n',
-                    pageWidth: 100,
-                    pageHeight: 200,
-                    words: Array.from({length: 1001}, (_, index) => ({
-                        text: index === 0 ? 'alpha' : `word-${index}`,
-                        x: index,
-                        y: index,
-                        width: 3,
-                        height: 4,
-                    })),
-                });
-                return [];
-            });
+            const { buildOcrTextLayerIndexText } = await import('@contracts/ocrText');
+            const words = Array.from({length: 1001}, (_, index) => ({
+                text: index === 0 ? 'alpha' : `word-${index}`,
+                x: index,
+                y: index,
+                width: 3,
+                height: 4,
+            }));
+            const expectedText = buildOcrTextLayerIndexText(words);
 
-            const result = await buildSearchIndex('/tmp/file.pdf', [], {
+            const result = await buildSearchIndex('/tmp/file.pdf', [{
+                pageNumber: 1,
+                words,
+                pageWidth: 100,
+                pageHeight: 200,
+            }], {
                 documentRevision: DOCUMENT_REVISION,
                 pageCount: 1,
             });
@@ -525,21 +505,21 @@ describe('buildSearchIndex assembly', () => {
 
             expect(result.pages[0]).toEqual(expect.objectContaining({
                 pageNumber: 1,
-                text: 'alpha beta gamma \n',
+                text: expectedText,
                 pageWidth: 100,
                 pageHeight: 200,
                 words: expect.arrayContaining([expect.objectContaining({ text: 'alpha' })]),
             }));
             expect(JSON.parse(String(legacyJsonPayload)).pages).toEqual([{
                 pageNumber: 1,
-                text: 'alpha beta gamma \n',
+                text: expectedText,
             }]);
             expect(mocks.persistCompactSearchIndex).toHaveBeenCalledWith('/tmp/file.pdf', {
                 documentRevision: DOCUMENT_REVISION,
                 pageCount: 1,
                 pages: [expect.objectContaining({
                     pageNumber: 1,
-                    text: 'alpha beta gamma \n',
+                    text: expectedText,
                 })],
             }, undefined);
         } finally {
@@ -550,22 +530,6 @@ describe('buildSearchIndex assembly', () => {
 
     it('retries legacy JSON persistence without geometry after an invalid string length error', async () => {
         const { buildSearchIndex } = await import('@electron/search/indexBuilder');
-        mocks.extractTextWithPdfjsWordBoxes.mockImplementation(async (_path: string, options: IPdfjsMockOptions) => {
-            options.onPageText?.({
-                pageNumber: 1,
-                text: 'alpha beta \n',
-                pageWidth: 100,
-                pageHeight: 200,
-                words: [{
-                    text: 'alpha',
-                    x: 1,
-                    y: 2,
-                    width: 3,
-                    height: 4,
-                }],
-            });
-            return [];
-        });
 
         const originalStringify = JSON.stringify;
         let failedFullGeometryStringify = false;
@@ -590,7 +554,18 @@ describe('buildSearchIndex assembly', () => {
         });
 
         try {
-            const result = await buildSearchIndex('/tmp/file.pdf', [], {
+            const result = await buildSearchIndex('/tmp/file.pdf', [{
+                pageNumber: 1,
+                words: [{
+                    text: 'alpha',
+                    x: 1,
+                    y: 2,
+                    width: 3,
+                    height: 4,
+                }],
+                pageWidth: 100,
+                pageHeight: 200,
+            }], {
                 documentRevision: DOCUMENT_REVISION,
                 pageCount: 1,
             });
@@ -599,14 +574,14 @@ describe('buildSearchIndex assembly', () => {
             expect(failedFullGeometryStringify).toBe(true);
             expect(result.pages[0]).toEqual(expect.objectContaining({
                 pageNumber: 1,
-                text: 'alpha beta \n',
+                text: 'alpha \n',
                 pageWidth: 100,
                 pageHeight: 200,
                 words: [expect.objectContaining({ text: 'alpha' })],
             }));
             expect(JSON.parse(String(legacyJsonPayload)).pages).toEqual([{
                 pageNumber: 1,
-                text: 'alpha beta \n',
+                text: 'alpha \n',
             }]);
         } finally {
             stringifySpy.mockRestore();
@@ -1020,7 +995,6 @@ describe('buildSearchIndex assembly', () => {
         const result = await buildSearchIndex('/tmp/large.pdf', [], {documentRevision: DOCUMENT_REVISION});
 
         expect(mocks.extractTextWithPdfjsWordBoxes).not.toHaveBeenCalled();
-        expect(mocks.extractTextWithPdfjs).not.toHaveBeenCalled();
         expect(mocks.extractTextFromPdf).toHaveBeenCalled();
         expect(mocks.extractTextFromPdf.mock.calls.every(([
             , options,

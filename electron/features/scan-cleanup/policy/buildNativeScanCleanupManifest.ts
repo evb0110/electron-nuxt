@@ -41,6 +41,7 @@ export interface IBuildNativeScanCleanupManifestInput {
     pages: IScanCleanupManifestPageInput[];
     documentCanvas?: IScanCleanupDocumentCanvasPlan;
     experimental?: IScanCleanupExperimentalOptions;
+    hostMemoryBytes?: number;
 }
 
 export function serializeNativeScanCleanupOptions(
@@ -69,6 +70,7 @@ export function buildNativeScanCleanupManifest({
     pages,
     documentCanvas,
     experimental,
+    hostMemoryBytes,
 }: IBuildNativeScanCleanupManifestInput): INativeScanCleanupManifestV3 {
     return {
         version: SCAN_CLEANUP_NATIVE_PROTOCOL_VERSION,
@@ -76,6 +78,7 @@ export function buildNativeScanCleanupManifest({
         renderMode,
         canvasScope,
         ...(documentCanvas === undefined ? {} : {documentCanvas}),
+        ...(hostMemoryBytes !== undefined && hostMemoryBytes > 0 ? {hostMemoryBytes} : {}),
         pages: pages.map(page => ({
             inputPath: page.inputPath,
             sourcePageIndex: page.pageNumber - 1,

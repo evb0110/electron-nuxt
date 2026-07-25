@@ -3,7 +3,7 @@
         v-model:open="isOpen"
         :title="t('ocr.runTitle')"
         :dismissible="!progress.isRunning"
-        :ui="{ content: 'sm:max-w-lg top-16 translate-y-0 max-h-[calc(100dvh-5rem)]', footer: 'justify-end gap-2' }"
+        :ui="{ content: 'sm:max-w-3xl top-16 translate-y-0 max-h-[calc(100dvh-5rem)]', footer: 'justify-end gap-2' }"
     >
         <template #description>
             <span class="sr-only">
@@ -124,21 +124,15 @@
                         <p class="policy-hint" aria-live="polite">
                             {{ selectedSupersessionDescription }}
                         </p>
-                        <Transition name="reveal">
-                            <div
-                                v-if="settings.supersessionPolicy === 'replace-all'"
-                                class="acknowledgement-reveal"
-                            >
-                                <div class="acknowledgement-reveal-inner">
-                                    <div class="supersession-acknowledgement">
-                                        <UCheckbox
-                                            v-model="settings.replaceAllAcknowledged"
-                                            :label="t('ocr.supersession.replaceAllAcknowledgement')"
-                                        />
-                                    </div>
-                                </div>
-                            </div>
-                        </Transition>
+                        <div
+                            class="supersession-acknowledgement"
+                            :class="{ 'is-hidden': settings.supersessionPolicy !== 'replace-all' }"
+                        >
+                            <UCheckbox
+                                v-model="settings.replaceAllAcknowledged"
+                                :label="t('ocr.supersession.replaceAllAcknowledgement')"
+                            />
+                        </div>
                     </div>
 
                     <!-- Quality Profile Selection -->
@@ -218,7 +212,7 @@
                     <div class="section language-picker">
                         <div class="language-picker-header">
                             <span class="label">{{ t('ocr.languages') }}</span>
-                            <UInput
+                            <AppSearchInput
                                 v-if="showLanguageSearch"
                                 v-model="languageSearchQuery"
                                 icon="i-ph-magnifying-glass"
@@ -228,52 +222,48 @@
                                 class="language-search"
                             />
                         </div>
-                        <UCheckboxGroup
-                            v-if="languagePickerItems.length > 0"
-                            v-model="selectedLanguagesModel"
-                            :legend="t('ocr.languages')"
-                            :items="languagePickerItems"
-                            value-key="value"
-                            size="sm"
-                            variant="card"
-                            orientation="horizontal"
-                            indicator="hidden"
-                            :ui="languageChipGroupUi"
-                        >
-                            <template #label="{ item }">
-                                <span
-                                    v-if="item.startsGroup"
-                                    class="chip-group"
-                                    aria-hidden="true"
-                                >
-                                    {{ t(getLanguagePickerGroupKey(item.group), undefined) }}
-                                </span>
-                                <span class="chip-name">{{ item.label }}</span>
-                                <span
-                                    v-if="item.modelState === 'missing'"
-                                    class="chip-state"
-                                >
-                                    <UIcon name="i-ph-download-simple" class="size-3" />
-                                    {{ t('ocr.languagePicker.downloadSizeHint') }}
-                                </span>
-                                <UIcon
-                                    v-else-if="item.modelState === 'downloading'"
-                                    name="i-ph-circle-notch"
-                                    class="chip-spinner size-3 animate-spin"
-                                    :aria-label="t('ocr.languageModelState.downloading')"
-                                />
-                                <span
-                                    v-else-if="item.modelState === 'error'"
-                                    class="chip-state is-error"
-                                >
-                                    <UIcon name="i-ph-warning-circle" class="size-3" />
-                                    {{ t('ocr.languagePicker.downloadFailed') }}
-                                </span>
-                            </template>
-                        </UCheckboxGroup>
-                        <p v-else class="language-empty">
-                            {{ t('ocr.languagePicker.noResults') }}
-                        </p>
+                        <div class="language-picker-list app-scrollbar app-scroll-region--balanced">
+                            <UCheckboxGroup
+                                v-if="languagePickerItems.length > 0"
+                                v-model="selectedLanguagesModel"
+                                :legend="t('ocr.languages')"
+                                :items="languagePickerItems"
+                                value-key="value"
+                                size="sm"
+                                variant="card"
+                                orientation="horizontal"
+                                indicator="hidden"
+                                :ui="languageChipGroupUi"
+                            >
+                                <template #label="{ item }">
+                                    <span class="chip-name">{{ item.label }}</span>
+                                    <span class="chip-code">{{ item.value }}</span>
+                                    <span
+                                        v-if="item.modelState === 'missing'"
+                                        class="chip-state"
+                                    >
+                                        <UIcon name="i-ph-download-simple" class="size-3" />
+                                        {{ t('ocr.languagePicker.downloadSizeHint') }}
+                                    </span>
+                                    <UIcon
+                                        v-else-if="item.modelState === 'downloading'"
+                                        name="i-ph-circle-notch"
+                                        class="chip-spinner size-3 animate-spin"
+                                        :aria-label="t('ocr.languageModelState.downloading')"
+                                    />
+                                    <span
+                                        v-else-if="item.modelState === 'error'"
+                                        class="chip-state is-error"
+                                    >
+                                        <UIcon name="i-ph-warning-circle" class="size-3" />
+                                        {{ t('ocr.languagePicker.downloadFailed') }}
+                                    </span>
+                                </template>
+                            </UCheckboxGroup>
+                            <p v-else class="language-empty">
+                                {{ t('ocr.languagePicker.noResults') }}
+                            </p>
+                        </div>
                         <p
                             v-if="showMultipleLanguagesHint"
                             class="language-accuracy-hint"
@@ -395,15 +385,13 @@ import AppProgressBar from '@app/components/AppProgressBar.vue';
 import OcrSettingHelpTooltip from '@app/modules/ocr-panel/components/OcrSettingHelpTooltip.vue';
 import type { IOcrPopupAgentExpose } from '@app/types/ocrAgent';
 import { OCR_PAGE_SEGMENTATION_AUTOMATIC_VALUE } from '@app/modules/ocr-panel/runtime/ocrPopupSettings';
-import {
-    useOcrPopupPresenter,
-    type TOcrLanguagePickerGroup,
-} from '@app/modules/ocr-panel/runtime/useOcrPopupPresenter';
+import { useOcrPopupPresenter } from '@app/modules/ocr-panel/runtime/useOcrPopupPresenter';
 import { getReaderCommandToolbarIcon } from '@app/utils/readerCommandIcons';
 import type {
     IOcrSearchablePdfResult,
     TOcrPageRange,
 } from '@app/utils/ocr/ocrTypes';
+import AppSearchInput from '@app/components/AppSearchInput.vue';
 
 const { t } = useTypedI18n();
 type TOcrQualityProfileLabelKey = Extract<TTranslationKey, `ocr.qualityProfile.options.${string}`>;
@@ -463,11 +451,11 @@ const listRadioGroupUi = {
 const segmentedRadioGroupUi = {
     fieldset: 'w-full gap-x-1',
     legend: 'label ocr-setting-legend',
-    item: 'flex-1 cursor-pointer justify-center px-2 py-1.5',
+    item: 'flex-1 cursor-pointer items-center justify-center px-2 py-1.5',
     label: 'w-full truncate text-center text-xs font-medium',
 } as const;
 const languageChipGroupUi = {
-    fieldset: 'language-picker-list app-scrollbar app-scroll-region--balanced w-full flex-wrap gap-1.5',
+    fieldset: 'w-full flex-wrap gap-1.5',
     legend: 'sr-only',
     item: 'language-chip',
     label: 'language-chip-label font-normal text-xs',
@@ -633,16 +621,6 @@ const pageSegmentationHelpItems = computed(() => ocrPageSegmentationOptions.map(
     label: t(option.labelKey, undefined),
     description: t(option.helpKey, undefined),
 })));
-const ocrLanguagePickerGroupKeys = {
-    selected: 'ocr.languagePicker.groups.selected',
-    installed: 'ocr.languagePicker.groups.installed',
-    missing: 'ocr.languagePicker.groups.missing',
-} as const satisfies Record<TOcrLanguagePickerGroup, TTranslationKey>;
-
-function getLanguagePickerGroupKey(group: TOcrLanguagePickerGroup) {
-    return ocrLanguagePickerGroupKeys[group];
-}
-
 function getQualityProfileLabelKey(profile: TOcrQualityProfile): TOcrQualityProfileLabelKey {
     return `ocr.qualityProfile.options.${profile}`;
 }
@@ -730,32 +708,20 @@ defineExpose<IOcrPopupAgentExpose>({
     width: 100%;
 }
 
-.acknowledgement-reveal {
-    display: grid;
-    grid-template-rows: 1fr;
-}
-
-.reveal-enter-active,
-.reveal-leave-active {
-    transition: grid-template-rows 0.18s ease;
-}
-
-.reveal-enter-from,
-.reveal-leave-to {
-    grid-template-rows: 0fr;
-}
-
-.acknowledgement-reveal-inner {
-    overflow: hidden;
-    min-height: 0;
-}
-
 .supersession-acknowledgement {
     margin-top: var(--app-space-3xl);
     padding: var(--app-space-lg);
     border: 1px solid var(--ui-warning);
     border-radius: var(--app-radius-md);
     background: color-mix(in srgb, var(--ui-warning) 8%, transparent);
+    transition: opacity 0.18s ease;
+}
+
+/* Kept in layout at every policy so choosing "replace all" reveals the
+   acknowledgement without moving the controls below it. */
+.supersession-acknowledgement.is-hidden {
+    visibility: hidden;
+    opacity: 0;
 }
 
 .section-row {
@@ -792,9 +758,13 @@ defineExpose<IOcrPopupAgentExpose>({
     max-width: var(--app-settings-select-max-size);
 }
 
-:deep(.language-picker-list) {
+/* The scroll region must stay on this element rather than the checkbox group's
+   <fieldset>: a scrollable fieldset ignores the wheel everywhere except over a
+   chip, so the gaps and padding swallowed it. */
+.language-picker-list {
     max-height: var(--app-ocr-language-picker-max-height);
     overflow-y: auto;
+    overscroll-behavior: contain;
     padding: var(--app-space-3xs);
 }
 
@@ -828,14 +798,13 @@ defineExpose<IOcrPopupAgentExpose>({
     white-space: nowrap;
 }
 
-.chip-group {
-    padding-inline-end: var(--app-space-sm);
-    border-inline-end: var(--app-hairline-height) solid var(--ui-border);
+.chip-code {
+    padding-inline-start: var(--app-space-sm);
+    border-inline-start: var(--app-hairline-height) solid var(--ui-border);
     color: var(--ui-text-dimmed);
     font-size: var(--app-text-size-tiny);
-    font-weight: 600;
+    font-variant-numeric: tabular-nums;
     letter-spacing: 0.04em;
-    text-transform: uppercase;
 }
 
 .chip-state {
