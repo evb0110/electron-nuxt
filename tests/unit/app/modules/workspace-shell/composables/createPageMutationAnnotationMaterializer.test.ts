@@ -35,6 +35,7 @@ describe('createPageMutationAnnotationMaterializer', () => {
             commitAnnotationSave: () => callOrder.push('commit-frontier'),
         }));
         const workingCopyPath = ref('/tmp/document.pdf');
+        const documentRevisionToken = ref('revision-1');
         const materialize = createPageMutationAnnotationMaterializer({
             annotationDirty: ref(true),
             hasAnnotationChanges: () => true,
@@ -43,6 +44,7 @@ describe('createPageMutationAnnotationMaterializer', () => {
             pendingEmbeddedAnnotationDeleteCount: ref(0),
             preservedAnnotationSourceDirty: ref(false),
             workingCopyPath,
+            documentRevisionToken,
             pdfViewerRef: ref({runSaveTransaction}),
             currentPage: ref(2),
             waitForPdfReload: async () => { callOrder.push('reload'); },
@@ -59,5 +61,51 @@ describe('createPageMutationAnnotationMaterializer', () => {
         ]);
         expect(selectedAnnotationStableKey.value).toBe('ann:page-id:note-a');
         expect(sidebarTab.value).toBe('annotations');
+    });
+
+    it('rejects stale bytes and acknowledgement when the same path receives another revision', async () => {
+        const bytes = new Uint8Array([1]);
+        const workingCopyPath = ref('/tmp/document.pdf');
+        const documentRevisionToken = ref('revision-1');
+        const verifyAnnotationSave = vi.fn(async () => undefined);
+        const assertAnnotationSaveCurrent = vi.fn(async () => undefined);
+        const commitAnnotationSave = vi.fn();
+        const loadPdfFromData = vi.fn(async () => undefined);
+        const viewer = {runSaveTransaction: vi.fn(async () => {
+            documentRevisionToken.value = 'revision-2';
+            return {
+                source: 'pdfjs-materialize' as const,
+                baseBytes: bytes,
+                serializedBytes: null,
+                serializedResult: null,
+                nativeMutationProjection: null,
+                fallbackDecision: TEST_PDF_SAVE_BYTE_ROUTE_DECISION,
+                annotationSavePlan: TEST_PDF_SAVE_BYTE_ROUTE_DECISION.annotationPlan,
+                verifyAnnotationSave,
+                assertAnnotationSaveCurrent,
+                commitAnnotationSave,
+            };
+        })};
+        const materialize = createPageMutationAnnotationMaterializer({
+            annotationDirty: ref(true),
+            hasAnnotationChanges: () => true,
+            hasLivePdfJsAnnotationChanges: () => false,
+            hasSavedPdfJsAnnotationBaselineChanges: () => false,
+            pendingEmbeddedAnnotationDeleteCount: ref(0),
+            preservedAnnotationSourceDirty: ref(false),
+            workingCopyPath,
+            documentRevisionToken,
+            pdfViewerRef: ref(viewer),
+            currentPage: ref(1),
+            waitForPdfReload: vi.fn(async () => undefined),
+            loadPdfFromData,
+        });
+
+        await expect(materialize()).resolves.toBe(false);
+
+        expect(assertAnnotationSaveCurrent).not.toHaveBeenCalled();
+        expect(verifyAnnotationSave).not.toHaveBeenCalled();
+        expect(loadPdfFromData).not.toHaveBeenCalled();
+        expect(commitAnnotationSave).not.toHaveBeenCalled();
     });
 });

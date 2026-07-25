@@ -5,6 +5,7 @@ import type {
 } from '@app/modules/pdf-viewer/public';
 import { resolvePdfViewerSaveTransactionFinalBytes } from '@app/modules/pdf-viewer/public';
 import type { TDocumentRef } from '@contracts/documentRef';
+import type { TDocumentRevisionToken } from '@contracts/documentRevision';
 
 interface IPageMutationSaveViewer {runSaveTransaction(request: IPdfViewerSaveTransactionRequest): Promise<IPdfViewerSaveTransactionResult>;}
 
@@ -16,6 +17,7 @@ export function createPageMutationAnnotationMaterializer(deps: {
     pendingEmbeddedAnnotationDeleteCount: Readonly<Ref<number>>;
     preservedAnnotationSourceDirty: Readonly<Ref<boolean>>;
     workingCopyPath: Readonly<Ref<TDocumentRef | null>>;
+    documentRevisionToken: Readonly<Ref<TDocumentRevisionToken | null>>;
     pdfViewerRef: Readonly<Ref<IPageMutationSaveViewer | null>>;
     currentPage: Readonly<Ref<number>>;
     waitForPdfReload: (page: number) => Promise<unknown>;
@@ -37,25 +39,46 @@ export function createPageMutationAnnotationMaterializer(deps: {
 
         const capturedWorkingCopyPath = deps.workingCopyPath.value;
         const viewer = deps.pdfViewerRef.value;
+        const capturedDocumentRevisionToken = deps.documentRevisionToken.value;
+        const capturedPage = deps.currentPage.value;
         if (!capturedWorkingCopyPath || !viewer) {
             return false;
         }
+        const isCapturedTargetCurrent = (includeRevision = true) => (
+            deps.workingCopyPath.value === capturedWorkingCopyPath
+            && deps.pdfViewerRef.value === viewer
+            && (!includeRevision || deps.documentRevisionToken.value === capturedDocumentRevisionToken)
+        );
         const transaction = await viewer.runSaveTransaction({
             mode: 'embedded-mutation',
             forcePdfjsMaterialize: true,
         });
         const bytes = resolvePdfViewerSaveTransactionFinalBytes(transaction);
-        if (!bytes || deps.workingCopyPath.value !== capturedWorkingCopyPath) {
+        if (!bytes || !isCapturedTargetCurrent()) {
+            return false;
+        }
+        await transaction.assertAnnotationSaveCurrent?.();
+        if (!isCapturedTargetCurrent()) {
             return false;
         }
         await transaction.verifyAnnotationSave?.(bytes);
-        const reloadPromise = deps.waitForPdfReload(deps.currentPage.value);
+        await transaction.assertAnnotationSaveCurrent?.();
+        if (!isCapturedTargetCurrent()) {
+            return false;
+        }
+        const reloadPromise = deps.waitForPdfReload(capturedPage);
+        await transaction.assertAnnotationSaveCurrent?.();
+        if (!isCapturedTargetCurrent()) {
+            return false;
+        }
         await deps.loadPdfFromData(bytes, {
             pushHistory: true,
             persistWorkingCopy: true,
         });
         await reloadPromise;
-        if (deps.workingCopyPath.value !== capturedWorkingCopyPath) {
+        // The controlled write/reload may advance the revision and open fence.
+        // Path and viewer identity must still belong to the captured document.
+        if (!isCapturedTargetCurrent(false)) {
             return false;
         }
         transaction.commitAnnotationSave?.();

@@ -1,5 +1,6 @@
 import {
     computed,
+    ref,
     shallowRef,
 } from 'vue';
 import {
@@ -230,6 +231,154 @@ describe('usePdfViewerSaveTransaction', () => {
         expect(commitPdfEditorsForSave).not.toHaveBeenCalled();
         expect(getSourcePdfData).not.toHaveBeenCalled();
         expect(materializePdfJsDocumentForInternalUse).not.toHaveBeenCalled();
+    });
+
+    it('executes the exact frozen plan and fallback identity after native decline', async () => {
+        const prepareAnnotationSave = vi.fn(() => ({
+            plan: buildSerializationPlan({
+                epoch: 1,
+                entityBaselineHash: 'frozen-native-plan',
+                documentRevisionToken: requireDocumentRevisionToken('revision-frozen'),
+                revisions: new Map(),
+            }, []),
+            verify: vi.fn(async () => undefined),
+            assertCurrent: vi.fn(),
+            commit: vi.fn(),
+        }));
+        const pageLabelRanges = [{
+            startPage: 1,
+            style: 'D' as const,
+            prefix: 'captured-',
+            startNumber: 1,
+        }];
+        const serializePdfForSave = vi.fn(async (data: Uint8Array) => data);
+        const {runSaveTransaction} = usePdfViewerSaveTransaction({
+            prepareAnnotationSave,
+            materializePdfJsDocumentForInternalUse: vi.fn(async () => new Uint8Array([8])),
+        });
+
+        const planned = await runSaveTransaction({
+            mode: 'persist',
+            planOnly: true,
+            source: {
+                getSourcePdfData: vi.fn(async () => new Uint8Array([1])),
+                serializePdfForSave,
+            },
+            nativeCapabilities: {
+                hasNativePdfMutationCapability: true,
+                canPersistNativeMetadataMutations: true,
+            },
+            dirtyState: {
+                annotationDirty: false,
+                hasAnnotationChanges: false,
+                hasLivePdfJsAnnotationChanges: false,
+                savedPdfjsAnnotationBaselineDirty: false,
+                shapeStateDirty: false,
+            },
+            documentStructure: {
+                pageLabelsDirty: true,
+                pageLabelRanges,
+                bookmarksDirty: false,
+                bookmarkItems: [],
+                untitledBookmarkLabel: 'Untitled',
+                totalPages: 3,
+            },
+        });
+        expect(planned.source).toBe('native-mutation-projection');
+        pageLabelRanges[0]!.prefix = 'mutated-after-native-decline-';
+
+        const fallbackPromise = planned.executeFallback?.();
+        expect(planned.executeFallback?.()).toBe(fallbackPromise);
+        const fallback = await fallbackPromise;
+
+        expect(fallback?.fallbackDecision).toBe(planned.fallbackDecision);
+        expect(prepareAnnotationSave).toHaveBeenCalledOnce();
+        expect(serializePdfForSave).toHaveBeenCalledWith(
+            expect.any(Uint8Array),
+            expect.objectContaining({annotationSerializationPlan: expect.objectContaining({metadata: {
+                pageLabels: [{
+                    startPage: 1,
+                    style: 'D',
+                    prefix: 'captured-',
+                    startNumber: 1,
+                }],
+                bookmarks: null,
+            }})}),
+        );
+        expect(fallback?.serializedResult?.finalBytes).toEqual(new Uint8Array([1]));
+    });
+
+    it('fences the save package by application, PDF proxy, revision, and document owner', async () => {
+        const application = new AnnotationApplication('currentness-document');
+        const applicationRef = shallowRef(application);
+        const pdfDocument = shallowRef({numPages: 3} as never);
+        const revision = ref(requireDocumentRevisionToken('revision-current'));
+        const fence = {
+            loadToken: 1,
+            documentVersion: 1,
+            documentRevision: 'revision-current',
+            openSurfaceGeneration: 1,
+        };
+        let fenceCurrent = true;
+        const {runSaveTransaction} = usePdfViewerSaveTransaction({
+            annotationApplication: applicationRef,
+            pdfDocument,
+            documentRevisionToken: computed(() => revision.value),
+            documentSession: {
+                captureFence: () => fence,
+                isCurrent: captured => captured === fence && fenceCurrent,
+            },
+        });
+        const request = {
+            mode: 'persist' as const,
+            planOnly: true,
+            source: {getSourcePdfData: vi.fn(async () => new Uint8Array([1]))},
+            nativeCapabilities: {
+                hasNativePdfMutationCapability: true,
+                canPersistNativeMetadataMutations: true,
+            },
+            dirtyState: {
+                annotationDirty: false,
+                hasAnnotationChanges: false,
+                hasLivePdfJsAnnotationChanges: false,
+                savedPdfjsAnnotationBaselineDirty: false,
+                shapeStateDirty: false,
+            },
+            documentStructure: {
+                pageLabelsDirty: true,
+                pageLabelRanges: [{
+                    startPage: 1,
+                    style: 'D' as const,
+                    prefix: '',
+                    startNumber: 1,
+                }],
+                bookmarksDirty: false,
+                bookmarkItems: [],
+                untitledBookmarkLabel: 'Untitled',
+                totalPages: 3,
+            },
+        };
+
+        const revisionResult = await runSaveTransaction(request);
+        revision.value = requireDocumentRevisionToken('revision-replaced');
+        await expect(revisionResult.assertAnnotationSaveCurrent?.()).rejects.toThrow(/document revision changed/iu);
+        revision.value = requireDocumentRevisionToken('revision-current');
+
+        const proxyResult = await runSaveTransaction(request);
+        const capturedPdfDocument = pdfDocument.value;
+        pdfDocument.value = {numPages: 3} as never;
+        await expect(proxyResult.assertAnnotationSaveCurrent?.()).rejects.toThrow(/PDF document changed/iu);
+        pdfDocument.value = capturedPdfDocument;
+
+        const applicationResult = await runSaveTransaction(request);
+        applicationRef.value = new AnnotationApplication('replacement-document');
+        await expect(applicationResult.assertAnnotationSaveCurrent?.()).rejects.toThrow(/annotation application changed/iu);
+        expect(() => applicationResult.commitAnnotationSave?.()).not.toThrow();
+        applicationRef.value = application;
+
+        const fenceResult = await runSaveTransaction(request);
+        fenceCurrent = false;
+        await expect(fenceResult.assertAnnotationSaveCurrent?.()).rejects.toThrow(/document open fence changed/iu);
     });
 
     it('combines the captured canonical frontier with live PDF.js editor storage', async () => {

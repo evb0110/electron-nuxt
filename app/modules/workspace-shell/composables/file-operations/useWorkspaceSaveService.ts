@@ -27,8 +27,8 @@ import {
     isStaleRevisionError,
 } from '@contracts/documentMutationErrors';
 import type {
-    IPdfSaveByteRouteDecision,
     IPdfViewerSaveExpose,
+    IPdfViewerSaveTransactionResult,
     INativePdfMutationProjection,
 } from '@app/modules/pdf-viewer/public';
 import { resetLivePdfJsAnnotationStorageModifiedState } from '@app/modules/pdf-viewer/public';
@@ -446,7 +446,6 @@ function buildSaveTransactionRequest(
     options: {
         allowNativeMutationPlan: boolean;
         planOnly?: boolean;
-        routeDecision?: IPdfSaveByteRouteDecision;
     },
 ) {
     return {
@@ -459,7 +458,6 @@ function buildSaveTransactionRequest(
         rewriteShapeState: plan.baseline.shapes,
         forceRewrite: body.forceRewrite,
         ...(options.planOnly !== undefined ? {planOnly: options.planOnly} : {}),
-        ...(options.routeDecision ? {routeDecision: options.routeDecision} : {}),
         dirtyState: {
             annotationDirty: plan.dirtyState.annotationDirty,
             hasAnnotationChanges: plan.dirtyState.annotationChanges,
@@ -537,14 +535,11 @@ async function executeSerializedBytesSave(
     body: IWorkspaceSerializedSaveBody,
     deps: IWorkspaceSaveDependencies,
     reloadWaiter: IPostSaveReloadWaiter | null,
-    routeDecision?: IPdfSaveByteRouteDecision,
+    frozenTransaction?: IPdfViewerSaveTransactionResult,
 ): Promise<TWorkspaceSaveExecutionResult> {
     await assertRendererSerializedSaveAllowed(plan, body, deps);
-    const saveTransaction = await deps.pdf.runSaveTransaction(
-        buildSaveTransactionRequest(plan, deps, body, {
-            allowNativeMutationPlan: false,
-            ...(routeDecision ? {routeDecision} : {}),
-        }),
+    const saveTransaction = frozenTransaction ?? await deps.pdf.runSaveTransaction(
+        buildSaveTransactionRequest(plan, deps, body, {allowNativeMutationPlan: false}),
     );
     const finalBytes = saveTransaction.serializedResult?.finalBytes
         ?? saveTransaction.serializedBytes
@@ -699,12 +694,16 @@ async function executeNativeMutationSave(
     );
     const projection = saveTransaction.nativeMutationProjection;
     if (!projection) {
+        const fallbackTransaction = await saveTransaction.executeFallback?.();
+        if (!fallbackTransaction) {
+            throw new Error('Classifier-owned PDF save fallback is unavailable');
+        }
         return executeSerializedBytesSave(
             plan,
             plan.serializedFallback,
             deps,
             getReloadWaiter(),
-            saveTransaction.fallbackDecision,
+            fallbackTransaction,
         );
     }
 
@@ -716,12 +715,16 @@ async function executeNativeMutationSave(
         saveTransaction.assertAnnotationSaveCurrent,
     );
     if (!persisted) {
+        const fallbackTransaction = await saveTransaction.executeFallback?.();
+        if (!fallbackTransaction) {
+            throw new Error('Classifier-owned PDF save fallback is unavailable');
+        }
         return executeSerializedBytesSave(
             plan,
             plan.serializedFallback,
             deps,
             getReloadWaiter(),
-            saveTransaction.fallbackDecision,
+            fallbackTransaction,
         );
     }
     if (!persisted.success) {

@@ -157,8 +157,6 @@ export interface IPdfViewerSaveTransactionRequest {
     dirtyState?: IPdfViewerSaveTransactionDirtyState;
     documentStructure?: IPdfViewerSaveTransactionDocumentStructure;
     source?: IPdfViewerSaveTransactionSource;
-    /** Executes an already-classified byte route without selecting another route. */
-    routeDecision?: IPdfSaveByteRouteDecision;
 }
 
 export interface IPdfViewerSaveTransactionSerializedResult {
@@ -181,6 +179,12 @@ export interface IPdfViewerSaveTransactionResult {
     verifyAnnotationSavePath?(path: string, knownSize: number): Promise<void>;
     assertAnnotationSaveCurrent?(): Promise<void> | void;
     commitAnnotationSave?(): void;
+    /**
+     * Executes the exact classifier-owned fallback captured by a plan-only
+     * transaction. It retains the same annotation frontier and serialization
+     * plan; callers must never start another transaction after native decline.
+     */
+    executeFallback?(): Promise<IPdfViewerSaveTransactionResult>;
 }
 
 export function resolvePdfViewerSaveTransactionFinalBytes(

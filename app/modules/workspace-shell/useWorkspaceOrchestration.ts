@@ -657,6 +657,7 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         pendingEmbeddedAnnotationDeleteCount,
         preservedAnnotationSourceDirty,
         workingCopyPath,
+        documentRevisionToken,
         pdfViewerRef,
         currentPage,
         waitForPdfReload,
