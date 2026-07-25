@@ -619,7 +619,7 @@ describe('serializePdfEdits embedded geometric shapes', () => {
         expect(getAnnotDict(doc, lineRef)).toBeInstanceOf(PDFDict);
     });
 
-    it('leaves canonical shape deletes to the shape channel', async () => {
+    it('applies a canonical shape delete through the shape backend without the live shape channel', async () => {
         const {
             bytes,
             squareRef,
@@ -627,7 +627,6 @@ describe('serializePdfEdits embedded geometric shapes', () => {
         } = await createPdfWithSquareAndLineAnnotations();
         const lineId = `${lineRef.objectNumber}R${lineRef.generationNumber}`;
         const payload = createEmptyPayload();
-        payload.deletedShapeAnnotationIds = [lineId];
         payload.canonicalAnnotationProgram = [{
             backend: 'pdf-lib-rewrite',
             order: 0,

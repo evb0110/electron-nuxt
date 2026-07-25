@@ -11,17 +11,33 @@ import { applyShapeAnnotations } from '@app/modules/pdf-viewer/engine/serializat
 import type { IPdfSerializationSavePayload } from '@app/modules/pdf-viewer/engine/pdf-serialization-operations/pdfSerializationSavePayload';
 import {applyCanonicalAnnotationIdentityBindings} from '@app/modules/pdf-viewer/engine/serialization/pdf-serialization-annotations/applyCanonicalAnnotationIdentityBindings';
 import type {IAnnotationCommentSummary} from '@app/types/annotations';
+import type {IBackendAnnotationMutation} from '@app/modules/pdf-viewer/engine/annotations/persistence/backendAnnotationMutation';
+
+function canonicalDeletePdfRef(mutation: IBackendAnnotationMutation) {
+    const identity = mutation.fields.identity;
+    const pdfRef = identity && typeof identity === 'object'
+        ? (identity as Record<string, unknown>).pdfRef
+        : null;
+    return typeof pdfRef === 'string' ? pdfRef : null;
+}
+
+function canonicalShapeDeleteRefs(payload: IPdfSerializationSavePayload) {
+    return (payload.canonicalAnnotationProgram ?? []).flatMap((mutation) => {
+        if (mutation.operation !== 'delete-annotation' || mutation.fields.kind !== 'shape') {
+            return [];
+        }
+        const pdfRef = canonicalDeletePdfRef(mutation);
+        return pdfRef ? [pdfRef] : [];
+    });
+}
 
 function canonicalEmbeddedDeletes(payload: IPdfSerializationSavePayload): IAnnotationCommentSummary[] {
     return (payload.canonicalAnnotationProgram ?? []).flatMap((mutation) => {
         if (mutation.operation !== 'delete-annotation' || mutation.fields.kind === 'shape') {
             return [];
         }
-        const identity = mutation.fields.identity;
         const pageIndex = mutation.fields.pageIndex;
-        const pdfRef = identity && typeof identity === 'object'
-            ? (identity as Record<string, unknown>).pdfRef
-            : null;
+        const pdfRef = canonicalDeletePdfRef(mutation);
         if (typeof pdfRef !== 'string' || typeof pageIndex !== 'number') {
             return [];
         }
@@ -75,7 +91,10 @@ export async function serializePdfEdits(
     modified = applyShapeAnnotations(
         doc,
         payload.shapes,
-        payload.deletedShapeAnnotationIds,
+        [
+            ...payload.deletedShapeAnnotationIds,
+            ...canonicalShapeDeleteRefs(payload),
+        ],
         payload.deletedShapeStableKeys,
         payload.rewriteShapeState,
     ) || modified;
