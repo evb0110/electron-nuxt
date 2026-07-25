@@ -17,19 +17,7 @@
                     :to="runtime.getChassisOpeningShellTarget(pageNumber)!"
                 >
                     <DocumentPageSourcePageVisual
-                        :content-height="runtime.pageLayouts[pageNumber - 1]?.height ?? 760"
-                        :current-search-result-index="currentSearchResultIndex"
-                        :document-load-generation="runtime.loadGeneration"
-                        :error-message="runtime.getVisualError(pageNumber)"
-                        host-owns-skeleton
-                        :open-surface-generation="runtime.activeOpenSurfaceGeneration"
-                        :page-number="pageNumber"
-                        :render-generation="runtime.getRenderGeneration(pageNumber)"
-                        :search-results="searchResults"
-                        :surface="runtime.getSurface(pageNumber)"
-                        :visual="runtime.getVisual(pageNumber)"
-                        @surface-load="(surface, event) => runtime.handleSurfaceLoad(pageNumber, surface, event)"
-                        @surface-error="(surface, event) => runtime.handleSurfaceError(pageNumber, surface, event)"
+                        v-bind="getPageVisualProps(pageNumber, true)"
                     />
                 </Teleport>
                 <section
@@ -43,18 +31,7 @@
                     data-testid="document-page-source-page"
                 >
                     <DocumentPageSourcePageVisual
-                        :content-height="runtime.pageLayouts[pageNumber - 1]?.height ?? 760"
-                        :current-search-result-index="currentSearchResultIndex"
-                        :document-load-generation="runtime.loadGeneration"
-                        :error-message="runtime.getVisualError(pageNumber)"
-                        :open-surface-generation="runtime.activeOpenSurfaceGeneration"
-                        :page-number="pageNumber"
-                        :render-generation="runtime.getRenderGeneration(pageNumber)"
-                        :search-results="searchResults"
-                        :surface="runtime.getSurface(pageNumber)"
-                        :visual="runtime.getVisual(pageNumber)"
-                        @surface-load="(surface, event) => runtime.handleSurfaceLoad(pageNumber, surface, event)"
-                        @surface-error="(surface, event) => runtime.handleSurfaceError(pageNumber, surface, event)"
+                        v-bind="getPageVisualProps(pageNumber)"
                     />
                 </section>
             </template>
@@ -72,17 +49,17 @@ import type { IDocumentViewerExpose } from '@app/modules/pdf-viewer/public';
 
 defineOptions({inheritAttrs: false});
 const {
-    src,
-    zoom = 1,
-    zoomMode = 'fit-width',
-    viewMode = 'single',
     continuousScroll = true,
+    currentPage = 1,
+    currentSearchResultIndex = -1,
     documentRevisionToken = null,
     isActive = true,
     isResizing = false,
-    currentPage = 1,
     searchResults = [],
-    currentSearchResultIndex = -1,
+    src,
+    viewMode = 'single',
+    zoom = 1,
+    zoomMode = 'fit-width',
 } = defineProps<IDocumentPageSourceFeaturePackProps>();
 const emit = defineEmits<IDocumentPageSourceFeaturePackEmit>();
 const runtime = reactive(useDocumentPageSourceRuntime({
@@ -99,6 +76,23 @@ const runtime = reactive(useDocumentPageSourceRuntime({
         zoomMode,
     }),
 }));
+function getPageVisualProps(pageNumber: number, hostOwnsSkeleton = false) {
+    return {
+        contentHeight: runtime.pageLayouts[pageNumber - 1]?.height ?? 760,
+        currentSearchResultIndex,
+        documentLoadGeneration: runtime.loadGeneration,
+        errorMessage: runtime.getVisualError(pageNumber),
+        hostOwnsSkeleton,
+        onSurfaceError: (surface: string, event: Event) => runtime.handleSurfaceError(pageNumber, surface, event),
+        onSurfaceLoad: (surface: string, event: Event) => runtime.handleSurfaceLoad(pageNumber, surface, event),
+        openSurfaceGeneration: runtime.activeOpenSurfaceGeneration,
+        pageNumber,
+        renderGeneration: runtime.getRenderGeneration(pageNumber),
+        searchResults,
+        surface: runtime.getSurface(pageNumber),
+        visual: runtime.getVisual(pageNumber),
+    };
+}
 
 defineExpose<IDocumentViewerExpose & {
     captureScrollSnapshot: () => unknown;

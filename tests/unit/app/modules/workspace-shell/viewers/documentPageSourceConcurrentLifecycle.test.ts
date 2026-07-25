@@ -80,6 +80,7 @@ function createFeaturePackHost(
     loadErrors: Ref<unknown[]>,
     settleHarness: IWorkspaceOpenSettleHarness,
     isResizing: Ref<boolean>,
+    isActive: Ref<boolean> = ref(true),
 ) {
     return defineComponent({
         name: 'DocumentPageSourceFeaturePackHost',
@@ -125,7 +126,7 @@ function createFeaturePackHost(
                     h(DocumentPageSourceFeaturePack, {
                         currentPage: 1,
                         documentRevisionToken: `revision:${documentRef}`,
-                        isActive: true,
+                        isActive: isActive.value,
                         isResizing: isResizing.value,
                         onInitialVisualPending: settle.handlePdfInitialVisualPending,
                         onInitialVisualReady: settle.handlePdfInitialVisualReady,
@@ -270,5 +271,134 @@ describe('DocumentPageSourceFeaturePack concurrent open surfaces', () => {
         expect(secondGeometryCommit.mock.results.map(result => result.value)).toEqual([true]);
         expect(firstLoadErrors.value).toEqual([]);
         expect(secondLoadErrors.value).toEqual([]);
+    });
+
+    it('restores a remounted successor after its predecessor wedges mid-open', async () => {
+        vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(900);
+        vi.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockReturnValue(700);
+        vi.spyOn(HTMLImageElement.prototype, 'complete', 'get').mockReturnValue(true);
+        vi.spyOn(HTMLImageElement.prototype, 'naturalWidth', 'get').mockReturnValue(600);
+        vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({
+            bottom: 1_146,
+            height: 1_146,
+            left: 0,
+            right: 860,
+            top: 0,
+            width: 860,
+            x: 0,
+            y: 0,
+            toJSON: () => ({}),
+        });
+        const predecessorRef = '/documents/wedged.djvu' as TDocumentRef;
+        const successorRef = '/documents/successor.djvu' as TDocumentRef;
+        let resolvePredecessorMetric!: () => void;
+        const predecessorMetric = new Promise<void>((resolve) => {
+            resolvePredecessorMetric = resolve;
+        });
+        const predecessorSource = createPageSource(predecessorRef);
+        predecessorSource.getPageMetrics = vi.fn(async () => {
+            await predecessorMetric;
+            return {
+                heightPoints: 800,
+                rotation: 0 as const,
+                widthPoints: 600,
+            };
+        });
+        const successorSources: IDocumentPageSource[] = [];
+        mocks.createDjvuPagePreviewSourceFromPath.mockImplementation(async (path: TDocumentRef) => ({path}));
+        mocks.createDjvuPageSource.mockImplementation(async (path: TDocumentRef) => {
+            if (path === predecessorRef) {
+                return predecessorSource;
+            }
+            const source = createPageSource(path);
+            successorSources.push(source);
+            return source;
+        });
+        const predecessorSurface = createDocumentOpenSurfaceSession();
+        predecessorSurface.begin({
+            documentId: predecessorRef,
+            documentRevision: 'open-intent:predecessor',
+        });
+        const successorSurface = createDocumentOpenSurfaceSession();
+        successorSurface.begin({
+            documentId: successorRef,
+            documentRevision: 'open-intent:successor',
+        });
+        const predecessorErrors = ref<unknown[]>([]);
+        const successorErrors = ref<unknown[]>([]);
+        const predecessorSettle = createWorkspaceOpenSettleHarness();
+        const successorSettle = createWorkspaceOpenSettleHarness();
+        const predecessorResizing = ref(false);
+        const successorResizing = ref(false);
+        const successorActive = ref(true);
+        const PredecessorHost = createFeaturePackHost(
+            predecessorSurface,
+            predecessorRef,
+            predecessorErrors,
+            predecessorSettle,
+            predecessorResizing,
+        );
+        const SuccessorHost = createFeaturePackHost(
+            successorSurface,
+            successorRef,
+            successorErrors,
+            successorSettle,
+            successorResizing,
+            successorActive,
+        );
+        const activeTab = ref<'predecessor' | 'successor'>('predecessor');
+        const showSuccessor = ref(true);
+        const root = document.createElement('div');
+        document.body.append(root);
+        const app = createApp(defineComponent({setup: () => () => (
+            activeTab.value === 'predecessor'
+                ? h(PredecessorHost)
+                : showSuccessor.value ? h(SuccessorHost) : null
+        )}));
+        app.component('USkeleton', defineComponent({setup: () => () => h('span')}));
+        app.mount(root);
+        const unmount = () => {
+            app.unmount();
+            root.remove();
+            mountedApps.delete(unmount);
+        };
+        mountedApps.add(unmount);
+        await vi.waitFor(() => expect(predecessorSource.getPageMetrics).toHaveBeenCalled());
+
+        activeTab.value = 'successor';
+        await nextTick();
+        const settleSuccessor = async () => {
+            const image = await vi.waitFor(() => {
+                const candidate = root.querySelector<HTMLImageElement>(
+                    '[data-document-ref="/documents/successor.djvu"] [data-testid="document-page-source-image"]',
+                );
+                expect(candidate).not.toBeNull();
+                return candidate!;
+            });
+            image.dispatchEvent(new Event('load'));
+            await vi.waitFor(() => expect(successorSurface.snapshot.value.phase).toBe('ready'));
+            return image;
+        };
+        await settleSuccessor();
+        expect(predecessorSource.dispose).toHaveBeenCalledOnce();
+
+        showSuccessor.value = false;
+        await nextTick();
+        showSuccessor.value = true;
+        await nextTick();
+        const restoredImage = await settleSuccessor();
+        successorActive.value = false;
+        await nextTick();
+        successorActive.value = true;
+        await nextTick();
+        restoredImage.dispatchEvent(new Event('load'));
+        await vi.waitFor(() => expect(restoredImage.dataset.documentPageVisual).toBe('committed'));
+
+        resolvePredecessorMetric();
+        await nextTick();
+        expect(successorSources).toHaveLength(2);
+        expect(successorSurface.snapshot.value.phase).toBe('ready');
+        expect(predecessorErrors.value).toEqual([]);
+        expect(successorErrors.value).toEqual([]);
     });
 });

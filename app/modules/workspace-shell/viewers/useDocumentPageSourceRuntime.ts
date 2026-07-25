@@ -6,6 +6,7 @@ import type {
 } from '@app/utils/document-viewer/source/documentPageSource';
 import { createRafCoalescedCallback } from '@app/utils/createRafCoalescedCallback';
 import { workspaceSurfaceBudgetController } from '@app/modules/workspace-shell/memory/workspaceSurfaceBudgetController';
+import type { TWorkspaceResourcePressureLevel } from '@app/modules/workspace-shell/memory/workspaceSurfaceBudgetController';
 import { injectDocumentViewerChassisAuthority } from '@app/utils/document-viewer/chassis/documentViewerChassisAuthority';
 import { shouldProjectDocumentViewportScroll } from '@app/utils/document-viewer/chassis/documentOpenSurfaceSession';
 import { createDocumentViewportWritePort } from '@app/utils/document-viewer/chassis/documentViewportWritePort';
@@ -48,7 +49,16 @@ const DOCUMENT_SOURCE_CONTINUOUS_MOUNT_RADIUS = 12;
 const DOCUMENT_SOURCE_MAX_MOUNTED_PAGES = 40;
 const DOCUMENT_SOURCE_MAX_RESIDENT_PAGES = 5;
 const DOCUMENT_SOURCE_RENDER_CONCURRENCY = 2;
-const DOCUMENT_SOURCE_INACTIVE_LEASE_GRACE_MS = 1_500;
+export const DOCUMENT_SOURCE_INACTIVE_LEASE_GRACE_MS = 1_500;
+export function shouldRetainInactiveDocumentPageSourceLease(
+    retainWarmLease: boolean,
+    pressureLevel: TWorkspaceResourcePressureLevel,
+) {
+    return retainWarmLease && [
+        'healthy',
+        'guarded',
+    ].includes(pressureLevel);
+}
 export const useDocumentPageSourceRuntime = (options: {
     emit: IDocumentPageSourceFeaturePackEmit;
     readProps: () => TDocumentPageSourceRuntimeProps;
@@ -315,7 +325,6 @@ export const useDocumentPageSourceRuntime = (options: {
         ensureExactPageMetric,
         flushMetricPublication: metricPublication.flush,
         getOpeningTarget: getChassisOpeningShellTarget,
-        hasPendingMetric: metricPublication.hasPending,
         isFenceCurrent: transitions.isCurrent,
         openSurfaceRenderOwner,
         readContinuousScroll: () => props.value.continuousScroll,
@@ -336,12 +345,6 @@ export const useDocumentPageSourceRuntime = (options: {
         scheduleRender: () => scheduleRender.schedule(),
     });
     const renderPage = presentation.renderPage;
-    const getVisual = presentation.getVisual;
-    const getVisualError = presentation.getVisualError;
-    const getSurface = presentation.getSurface;
-    const getRenderGeneration = presentation.getRenderGeneration;
-    const handleSurfaceLoad = presentation.handleSurfaceLoad;
-    const handleSurfaceError = presentation.handleSurfaceError;
     async function renderMountedPages() {
         if (props.value.isResizing) {
             return;
@@ -355,7 +358,7 @@ export const useDocumentPageSourceRuntime = (options: {
             inFlightPages: [...presentation.renderControllers.keys()],
             mountedPages: mountedPages.value,
             needsRender: (pageNumber) => {
-                const state = presentation.getState(pageNumber);
+                const state = presentation.pageStates.get(pageNumber);
                 const metric = pageMetrics.value[pageNumber - 1];
                 return !state?.lease || !state.ready || !metric || state.widthPx !== resolveDocumentPageSourceRenderWidthPx(
                     metric,
@@ -458,7 +461,7 @@ export const useDocumentPageSourceRuntime = (options: {
         }
         const normalized = chassisAuthority?.navigate(pageNumber)
             ?? Math.max(1, Math.min(source.value?.pageCount ?? 1, Math.trunc(pageNumber)));
-        const readyState = presentation.getState(normalized);
+        const readyState = presentation.pageStates.get(normalized);
         if (readyState?.ready) {
             void nextTick(() => presentation.commitReady(normalized, readyState));
         }
@@ -477,7 +480,13 @@ export const useDocumentPageSourceRuntime = (options: {
                 signal,
                 () => transitions.isCurrent(metricFence),
             ).then(() => scheduleRender.schedule()).catch((error: unknown) => {
-                if (!(error instanceof DOMException && error.name === 'AbortError')) {
+                if (
+                    transitions.isCurrent(metricFence)
+                    && props.value.isActive
+                    && source.value === activeSource
+                    && !signal.aborted
+                    && !(error instanceof DOMException && error.name === 'AbortError')
+                ) {
                     const message = presentation.commitTerminalError(normalized);
                     if (normalized === props.value.currentPage) {
                         emit('loadError', error instanceof Error ? error : new Error(message));
@@ -511,21 +520,19 @@ export const useDocumentPageSourceRuntime = (options: {
             clearTimeout(inactiveLeaseReleaseTimer);
             inactiveLeaseReleaseTimer = null;
         }
-        const inactiveLeasePolicy = resolveOpenPathSecondaryPerformancePolicy(rasterBufferProfile);
-        const pressureLevel = surfaceBudget.getSnapshot().pressureLevel;
-        const retainedPageNumber = (
-            inactiveLeasePolicy.inactiveDjvuLeasePolicy === 'release-immediately'
-            || (pressureLevel !== 'healthy' && pressureLevel !== 'guarded')
-        )
-            ? null
-            : props.value.currentPage;
+        const retainCurrentPage = shouldRetainInactiveDocumentPageSourceLease(
+            resolveOpenPathSecondaryPerformancePolicy(rasterBufferProfile)
+                .inactiveDjvuLeasePolicy === 'warm-grace',
+            surfaceBudget.getSnapshot().pressureLevel,
+        );
+        const retainedPageNumber = retainCurrentPage ? props.value.currentPage : null;
         for (const pageNumber of [...presentation.pageStates.keys()]) {
             if (pageNumber === retainedPageNumber) {
                 continue;
             }
             presentation.releasePage(pageNumber);
         }
-        const retainedState = retainedPageNumber === null ? null : presentation.getState(retainedPageNumber);
+        const retainedState = retainedPageNumber === null ? null : presentation.pageStates.get(retainedPageNumber);
         const retainedLease = retainedState?.lease;
         if (retainedPageNumber === null || !retainedState || !retainedLease) {
             return;
@@ -534,7 +541,7 @@ export const useDocumentPageSourceRuntime = (options: {
         retainedState.priority = 'prefetch';
         inactiveLeaseReleaseTimer = setTimeout(() => {
             inactiveLeaseReleaseTimer = null;
-            if (!props.value.isActive && presentation.getState(retainedPageNumber)?.lease === retainedLease) {
+            if (!props.value.isActive && presentation.pageStates.get(retainedPageNumber)?.lease === retainedLease) {
                 presentation.releasePage(retainedPageNumber);
             }
         }, DOCUMENT_SOURCE_INACTIVE_LEASE_GRACE_MS);
@@ -632,7 +639,7 @@ export const useDocumentPageSourceRuntime = (options: {
             clearTimeout(inactiveLeaseReleaseTimer);
             inactiveLeaseReleaseTimer = null;
         }
-        const retainedState = presentation.getState(props.value.currentPage);
+        const retainedState = presentation.pageStates.get(props.value.currentPage);
         retainedState?.lease?.setPriority?.('navigation');
         if (retainedState?.lease) {
             retainedState.priority = 'navigation';
@@ -701,7 +708,7 @@ export const useDocumentPageSourceRuntime = (options: {
         }
         releaseViewportFeature?.();
         scheduleRender.cancel();
-        metricPublication.dispose();
+        metricPublication.clear();
         renderSession?.dispose();
         if (chassisOpeningSlotPage !== null) {
             pageSlots?.markUnmounted(chassisOpeningSlotPage);
@@ -720,12 +727,12 @@ export const useDocumentPageSourceRuntime = (options: {
         activeOpenSurfaceGeneration: transitions.openSurfaceGeneration,
         getChassisOpeningShellTarget,
         getPageStyle,
-        getRenderGeneration,
-        getSurface,
-        getVisual,
-        getVisualError,
-        handleSurfaceError,
-        handleSurfaceLoad,
+        getRenderGeneration: presentation.getRenderGeneration,
+        getSurface: presentation.getSurface,
+        getVisual: presentation.getVisual,
+        getVisualError: presentation.getVisualError,
+        handleSurfaceError: presentation.handleSurfaceError,
+        handleSurfaceLoad: presentation.handleSurfaceLoad,
         loadGeneration: transitions.loadGeneration,
         mountedPages,
         pageLayouts,

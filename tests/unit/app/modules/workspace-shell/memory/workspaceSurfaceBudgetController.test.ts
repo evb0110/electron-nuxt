@@ -7,8 +7,66 @@ import {
     createWorkspaceSurfaceBudgetController,
     estimateCanvasSurfaceBytes,
 } from '@app/modules/workspace-shell/memory/workspaceSurfaceBudgetController';
+import {
+    DOCUMENT_SOURCE_INACTIVE_LEASE_GRACE_MS,
+    shouldRetainInactiveDocumentPageSourceLease,
+} from '@app/modules/workspace-shell/viewers/useDocumentPageSourceRuntime';
+import { resolvePerformanceProfile } from '@app/utils/performanceProfile';
+import { resolveOpenPathSecondaryPerformancePolicy } from '@app/utils/openPathSecondaryPerformancePolicy';
 
 describe('workspace surface budget controller', () => {
+    it.each([
+        [
+            'medium',
+            'healthy',
+            true,
+        ],
+        [
+            'high',
+            'guarded',
+            true,
+        ],
+        [
+            'low',
+            'healthy',
+            false,
+        ],
+        [
+            'medium',
+            'moderate',
+            false,
+        ],
+        [
+            'medium',
+            'critical',
+            false,
+        ],
+        [
+            'medium',
+            'emergency',
+            false,
+        ],
+        [
+            'medium',
+            'post-crash-safe-mode',
+            false,
+        ],
+    ] as const)('plans inactive DjVu residency for %s tier under %s pressure', (
+        tier,
+        pressure,
+        expected,
+    ) => {
+        const policy = resolveOpenPathSecondaryPerformancePolicy(resolvePerformanceProfile({tier}));
+        expect(shouldRetainInactiveDocumentPageSourceLease(
+            policy.inactiveDjvuLeasePolicy === 'warm-grace',
+            pressure,
+        )).toEqual(expected);
+    });
+
+    it('retains the inactive current page for exactly 1.5 seconds', () => {
+        expect(DOCUMENT_SOURCE_INACTIVE_LEASE_GRACE_MS).toBe(1_500);
+    });
+
     it('accounts and releases every decoded surface category', () => {
         const controller = createWorkspaceSurfaceBudgetController(10_000);
         const categories = [

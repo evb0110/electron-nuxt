@@ -172,10 +172,8 @@ export interface IDocumentPageSourceFeaturePackProps {
     src: TDocumentRef | null;
     zoom?: number;
     zoomMode?: 'custom' | 'fit-width' | 'fit-height';
-    fitMode?: 'width' | 'height';
     viewMode?: TDocumentViewMode;
     continuousScroll?: boolean;
-    dragMode?: boolean;
     documentRevisionToken?: TDocumentRevisionToken | null;
     isActive?: boolean;
     isResizing?: boolean;
@@ -193,7 +191,6 @@ export interface IDocumentPageSourceFeaturePackEmit {
     (event: 'update:effectiveZoom', value: number): void;
     (event: 'update:currentPage', value: number): void;
     (event: 'update:totalPages', value: number): void;
-    (event: 'update:document', value: null): void;
     (event: 'update:sourceCapabilities', value: IDocumentSourceCapabilities): void;
     (event: 'update:pageSource', value: IDocumentPageSource | null): void;
     (event: 'loading', value: boolean): void;
@@ -213,8 +210,8 @@ export async function openDocumentPageSource(
         ) => Promise<IDocumentPageMetrics>;
         getOpeningShellTarget: (pageNumber: number) => HTMLElement | null;
         layoutLifecycle: {
-            beginLayoutTransaction: () => void;
-            endLayoutTransaction: () => Promise<void>;
+            beginLayoutTransaction: () => number;
+            endLayoutTransaction: (transaction: number, restore: boolean) => Promise<void>;
             preserveLayoutMutation: (mutate: () => void) => void;
         };
         loadController: AbortController;
@@ -386,7 +383,7 @@ export async function openDocumentPageSource(
             return false;
         }
         void (async () => {
-            context.layoutLifecycle.beginLayoutTransaction();
+            const layoutTransaction = context.layoutLifecycle.beginLayoutTransaction();
             try {
                 const metrics = await hydrateRemainingDocumentPageMetrics({
                     source: nextSource,
@@ -421,7 +418,10 @@ export async function openDocumentPageSource(
                     context.emit('loadError', error);
                 }
             } finally {
-                await context.layoutLifecycle.endLayoutTransaction();
+                await context.layoutLifecycle.endLayoutTransaction(
+                    layoutTransaction,
+                    transition.isCurrent() && !context.loadController.signal.aborted,
+                );
             }
         })();
         return true;

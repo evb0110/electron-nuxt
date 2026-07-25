@@ -11,7 +11,6 @@
         aria-hidden="true"
     >
         <DocumentPageSkeleton
-            :padding="DOCUMENT_PAGE_SKELETON_PADDING"
             :content-height="contentHeight"
         />
     </div>
@@ -51,10 +50,7 @@
 import type { IDocumentSearchMatch } from '@app/utils/document-viewer/search/documentSearch';
 import DocumentPageSkeleton from '@app/components/document-viewer/DocumentPageSkeleton.vue';
 import DocumentPageSourceSearchLayer from '@app/modules/workspace-shell/components/DocumentPageSourceSearchLayer.vue';
-import {
-    DOCUMENT_PAGE_SKELETON_PADDING,
-    type TDocumentPageSourceVisual,
-} from '@app/modules/workspace-shell/viewers/documentPageSourcePresentation';
+import type { TDocumentPageSourceVisual } from '@app/modules/workspace-shell/viewers/documentPageSourcePresentation';
 
 const {
     contentHeight,
@@ -101,32 +97,29 @@ const emit = defineEmits<{
     visibility: visible;
 }
 
-.document-source-viewer__pending-frame {
+.document-source-viewer__pending-frame,
+.document-source-viewer__skeleton,
+.document-source-viewer__error {
     position: absolute;
-    z-index: var(--app-z-local-overlay);
     inset: 0;
     background: var(--app-document-page-bg);
     border-radius: inherit;
+}
+
+.document-source-viewer__pending-frame {
+    z-index: var(--app-z-local-overlay);
 }
 
 .document-source-viewer__skeleton {
-    position: absolute;
-    inset: 0;
-    background: var(--app-document-page-bg);
     box-shadow: none;
-    border-radius: inherit;
 }
 
 .document-source-viewer__error {
-    position: absolute;
     z-index: var(--app-z-local-overlay);
-    inset: 0;
     display: grid;
     place-items: center;
     padding: var(--app-document-page-error-padding);
     color: var(--ui-error);
     text-align: center;
-    background: var(--app-document-page-bg);
-    border-radius: inherit;
 }
 </style>
