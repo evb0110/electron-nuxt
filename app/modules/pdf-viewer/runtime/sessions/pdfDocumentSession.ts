@@ -97,7 +97,7 @@ export interface IPdfDocumentTransition extends IDocumentTransition<IPdfDocument
  * render/task cancellation promise rather than detach it: document cleanup
  * and PDF.js destruction start only after every subscriber has settled.
  */
-export type TPdfDocumentTransitionSubscriber = (
+type TPdfDocumentTransitionSubscriber = (
     transition: IPdfDocumentTransition,
 ) => void | Promise<void>;
 

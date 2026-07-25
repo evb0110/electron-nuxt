@@ -119,7 +119,7 @@ function isSaveTargetCurrent(
         && options.isPdfDocumentCurrent?.(pdfDocument) !== false;
 }
 
-export async function commitPdfEditorsForSave(annotationUiManager: AnnotationEditorUIManager | null) {
+async function commitPdfEditorsForSave(annotationUiManager: AnnotationEditorUIManager | null) {
     annotationUiManager?.commitOrRemove();
     await waitForCommittedEditorsToSettle();
 }

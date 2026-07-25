@@ -76,12 +76,6 @@ export interface ICancelableRenderTask {
     onContinue?: RenderTask['onContinue'];
 }
 
-export interface IActivePdfRenderTask {
-    version: number;
-    requestId: number;
-    task: ICancelableRenderTask;
-}
-
 export interface IActivePdfTextLayerTask {
     version: number;
     requestId: number;

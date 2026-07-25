@@ -41,7 +41,7 @@ export function resolveDocumentPageSourceRenderWidthPx(
 ) {
     return Math.max(1, Math.round(metrics.widthPoints * effectiveZoom * pixelRatio));
 }
-export function isOwnedConnectedDocumentPageImage(
+function isOwnedConnectedDocumentPageImage(
     image: HTMLImageElement,
     pageNumber: number,
     openingTarget: HTMLElement | null,
@@ -52,7 +52,7 @@ export function isOwnedConnectedDocumentPageImage(
     const page = image.closest<HTMLElement>('[data-testid="document-page-source-page"]');
     return Boolean(page?.isConnected && page.dataset.pageNumber === String(pageNumber));
 }
-export function waitForDocumentPageImagePaint(image: HTMLImageElement, signal: AbortSignal) {
+function waitForDocumentPageImagePaint(image: HTMLImageElement, signal: AbortSignal) {
     if (signal.aborted || !image.isConnected) {
         return Promise.resolve(false);
     }

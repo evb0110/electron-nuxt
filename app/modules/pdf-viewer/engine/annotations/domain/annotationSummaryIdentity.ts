@@ -142,7 +142,7 @@ export function commentMergePriority(comment: IAnnotationCommentSummary) {
     return 1;
 }
 
-export function selectPreferredAnnotationComment(left: IAnnotationCommentSummary, right: IAnnotationCommentSummary) {
+function selectPreferredAnnotationComment(left: IAnnotationCommentSummary, right: IAnnotationCommentSummary) {
     const identityDelta = commentMergePriority(left) - commentMergePriority(right);
     if (identityDelta !== 0) {
         return identityDelta > 0 ? left : right;

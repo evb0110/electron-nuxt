@@ -170,7 +170,7 @@ const LANE_ORDER: Record<TPdfRasterLane, number> = {
     'thumbnail-visible': 200,
     'prefetch': 100,
 };
-export const LANE_CONTINUATION_PRIORITY: Record<TPdfRasterLane, TPdfRenderContinuationPriority> = {
+const LANE_CONTINUATION_PRIORITY: Record<TPdfRasterLane, TPdfRenderContinuationPriority> = {
     'navigation-target': 'navigation-target',
     'viewport-visible': 'visible',
     'viewport-nearby': 'nearby',

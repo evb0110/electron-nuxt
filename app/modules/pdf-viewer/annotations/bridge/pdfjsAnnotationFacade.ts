@@ -1,11 +1,7 @@
 import type { AnnotationId } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
-import type { AnnotationEditorUIManager } from 'pdfjs-dist';
 import type { IAnnotationMarkerRect } from '@app/types/annotations';
 import { syncCommentMarkerAnchorEditor } from '@app/modules/pdf-viewer/engine/pdf-annotation-editor-utils/commentMarkerAnchorEditor';
 export { getPdfjsEditorFacadeState } from '@app/modules/pdf-viewer/engine/annotations/bridge/getPdfjsEditorFacadeState';
-
-/** Opaque outside the annotation bridge; feature code imports this port type. */
-export type TPdfjsAnnotationManager = AnnotationEditorUIManager;
 
 // Annotation features import PDF.js capabilities only through this boundary.
 // The low-level adapters remain implementation details of the facade.

@@ -40,7 +40,7 @@ export function isBufferedPageElement(element: HTMLElement) {
     return element.classList?.contains('page_container--buffered') === true;
 }
 
-export function getViewportIntersectionLength(
+function getViewportIntersectionLength(
     start: number,
     end: number,
     viewportStart: number,

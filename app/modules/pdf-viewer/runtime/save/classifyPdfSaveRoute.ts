@@ -57,7 +57,6 @@ import {buildNativeShapesMutationForSave} from '@app/modules/pdf-viewer/runtime/
 export type {
     IPdfSaveByteRouteDecision,
     IPdfSaveCanonicalInputs,
-    TNativeSaveRouteRejection,
 } from '@app/modules/pdf-viewer/runtime/save/pdfViewerSaveTransaction.types';
 
 /** Everything outside the frozen plan that save routing is allowed to depend on. */
