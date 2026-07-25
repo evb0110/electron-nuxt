@@ -31,8 +31,6 @@ describe('pdfPageLayout', () => {
             gap: 17,
             paddingTop: 19,
             paddingBottom: 23,
-            fallbackWidth: null,
-            fallbackHeight: null,
         });
 
         const first = createLayout(1);
@@ -76,8 +74,6 @@ describe('pdfPageLayout', () => {
             gap: 20,
             paddingTop: 20,
             paddingBottom: 20,
-            fallbackWidth: 400,
-            fallbackHeight: 100,
         });
 
         expect(layout).not.toBeNull();
@@ -123,8 +119,6 @@ describe('pdfPageLayout', () => {
             gap: 20,
             paddingTop: 20,
             paddingBottom: 20,
-            fallbackWidth: 240,
-            fallbackHeight: 110,
         });
 
         expect(layout).not.toBeNull();

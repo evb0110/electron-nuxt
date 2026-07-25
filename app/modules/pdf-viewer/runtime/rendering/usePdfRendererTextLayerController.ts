@@ -92,10 +92,17 @@ export const usePdfRendererTextLayerController = (options: IUsePdfRendererTextLa
             totalScaleFactor,
         } = renderResult;
 
-        clearSelectionBeforePageLayerTeardown(pageNumber);
-        cleanupTextLayer(pageNumber);
         cancelActiveTextLayerRender(pageNumber);
         let isTextLayerRendered = false;
+        // A pure scale or rotation step reuses the mounted spans, so the
+        // selection and the interaction handlers that hang off them survive.
+        // Only a content rebuild may tear them down.
+        let didRebuildTextLayer = false;
+        const teardownBeforeTextLayerRebuild = () => {
+            didRebuildTextLayer = true;
+            clearSelectionBeforePageLayerTeardown(pageNumber);
+            cleanupTextLayer(pageNumber);
+        };
 
         try {
             const controller = new AbortController();
@@ -113,6 +120,7 @@ export const usePdfRendererTextLayerController = (options: IUsePdfRendererTextLa
                     userUnit,
                     totalScaleFactor,
                     controller.signal,
+                    teardownBeforeTextLayerRebuild,
                 ),
                 {
                     pageNumber,
@@ -203,18 +211,20 @@ export const usePdfRendererTextLayerController = (options: IUsePdfRendererTextLa
             return true;
         }
 
-        try {
-            const cleanup =
-                textLayerRenderer.setupTextLayerInteraction(textLayerDiv);
-            if (typeof cleanup === 'function') {
-                textLayerCleanupFns.set(pageNumber, cleanup);
+        if (didRebuildTextLayer) {
+            try {
+                const cleanup =
+                    textLayerRenderer.setupTextLayerInteraction(textLayerDiv);
+                if (typeof cleanup === 'function') {
+                    textLayerCleanupFns.set(pageNumber, cleanup);
+                }
+            } catch (textLayerInteractionError) {
+                logNonCriticalStageError(
+                    pageNumber,
+                    'text layer interaction',
+                    textLayerInteractionError,
+                );
             }
-        } catch (textLayerInteractionError) {
-            logNonCriticalStageError(
-                pageNumber,
-                'text layer interaction',
-                textLayerInteractionError,
-            );
         }
 
         try {

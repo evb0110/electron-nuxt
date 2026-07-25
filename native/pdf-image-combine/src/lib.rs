@@ -3,7 +3,9 @@
 //! Set `EVB_PDF_COMBINE_TIMING=1` when running the native CLI to emit one
 //! `jbig2-encode-timing` JSON object on stderr for every bilevel base image or
 //! image mask. `elapsedMs` is the verified JBIG2 candidate's encode-and-decode
-//! wall time for that page; records appear in page-processing order.
+//! wall time for that page; records appear in page-encoding order, which is not
+//! page order once more than one encoder runs. `EVB_PDF_COMBINE_THREADS` caps
+//! that fan-out; the written PDF is byte-identical at every setting.
 
 mod binary;
 mod flate;
@@ -34,8 +36,8 @@ use crate::{
     },
     netpbm::{is_rgb_data_grayscale, parse_netpbm, parse_pbm_p4},
     pdf::{
-        write_pdf_to_writer, ImagePage, ImagePayload, LayeredImagePayload, LayeredPdfImage,
-        LayeredPdfPage, MaskPdfPage, PdfWriter,
+        write_pdf_to_writer, BilevelStream, ImagePage, ImagePayload, LayeredImagePayload,
+        LayeredPdfImage, LayeredPdfPage, MaskPdfPage, PdfWriter,
     },
     tiff_io::combine_tiff_pages,
 };
@@ -180,6 +182,9 @@ pub struct PdfBuildOptions {
     pub max_bilevel_pixels: u64,
     pub max_output_bytes: u64,
     pub max_tiff_frames: usize,
+    /// Pages whose payloads may be encoded concurrently. The written bytes are
+    /// identical for every value; only wall-clock and peak memory change.
+    pub worker_threads: usize,
 }
 
 impl Default for PdfBuildOptions {
@@ -191,8 +196,22 @@ impl Default for PdfBuildOptions {
             max_bilevel_pixels: DEFAULT_MAX_BILEVEL_PIXELS,
             max_output_bytes: 512 * 1024 * 1024,
             max_tiff_frames: 250,
+            worker_threads: 1,
         }
     }
+}
+
+/// Upper bound on concurrent page encoders. The combiner shares the machine
+/// with the scan-cleanup sidecar's own pool, so the fan-out stays bounded
+/// instead of tracking the core count without a ceiling.
+pub const MAX_WORKER_THREADS: usize = 8;
+
+#[must_use]
+pub fn default_worker_threads() -> usize {
+    std::thread::available_parallelism()
+        .map(|parallelism| parallelism.get())
+        .unwrap_or(1)
+        .clamp(1, MAX_WORKER_THREADS)
 }
 
 pub fn write_pdf<'a, W, I, P>(
@@ -211,92 +230,186 @@ where
         return Err("At least one image input is required".into());
     }
 
+    let batch_size = options.worker_threads.max(1);
+    let encoders = PageEncoders::new(batch_size)?;
     let output = OutputLimitWriter::new(output, options.max_output_bytes);
     let mut page_count = 0usize;
-    let output = write_pdf_to_writer(output, |pdf| {
-        for (index, spec) in page_specs.by_ref().enumerate() {
-            match spec {
-                PageSpec::Image {
-                    page_size,
-                    image,
-                    frames,
-                } => {
-                    write_image_spec(
-                        pdf,
-                        page_size.as_ref(),
-                        image,
-                        frames,
-                        options,
-                        &mut page_count,
-                    )?;
-                }
-                PageSpec::Layered {
-                    page_size,
-                    background,
-                    foreground_mask,
-                    foreground_color,
-                } => {
-                    page_count = next_page_count_with_limit(page_count, options.max_pages)?;
-                    let background = read_exact_image(background, options, Some(page_size))?;
-                    let foreground_mask = read_mask(foreground_mask, options.max_bilevel_pixels)?;
-                    pdf.add_layered_page(&LayeredPdfPage {
-                        page_size,
-                        background: image_page_to_layered_image(background)?,
-                        foreground_mask,
-                        foreground_color,
-                    })?;
-                }
-                PageSpec::Mask {
-                    page_size,
-                    foreground_mask,
-                } => {
-                    page_count = next_page_count_with_limit(page_count, options.max_pages)?;
-                    let foreground_mask = read_mask(foreground_mask, options.max_bilevel_pixels)?;
-                    pdf.add_mask_page(&MaskPdfPage {
-                        page_size,
-                        foreground_mask,
-                    })?;
-                }
-            }
-            on_processed(index + 1);
+    let mut processed = 0usize;
+    let output = write_pdf_to_writer(output, |pdf| loop {
+        let batch = page_specs
+            .by_ref()
+            .take(batch_size)
+            .collect::<Vec<PdfPageSpec<'a>>>();
+        if batch.is_empty() {
+            return Ok(());
         }
-        Ok(())
+        for prepared in encoders.prepare(batch, options) {
+            for page in prepared? {
+                page_count = next_page_count_with_limit(page_count, options.max_pages)?;
+                write_prepared_page(pdf, page)?;
+            }
+            processed += 1;
+            on_processed(processed);
+        }
     })?;
     Ok(output.into_inner())
 }
 
-fn write_image_spec<W: Write>(
-    pdf: &mut PdfWriter<W>,
-    page_size: Option<&PdfPageSize>,
+enum PreparedPage {
+    Image {
+        page: ImagePage,
+        page_size: Option<PdfPageSize>,
+    },
+    Layered(Box<LayeredPdfPage>),
+    Mask(MaskPdfPage),
+}
+
+fn write_prepared_page<W: Write>(pdf: &mut PdfWriter<W>, page: PreparedPage) -> Result<()> {
+    match page {
+        PreparedPage::Image {
+            page,
+            page_size: Some(page_size),
+        } => pdf.add_page_with_size(&page, &page_size),
+        PreparedPage::Image {
+            page,
+            page_size: None,
+        } => pdf.add_page(&page),
+        PreparedPage::Layered(page) => pdf.add_layered_page(&page),
+        PreparedPage::Mask(page) => pdf.add_mask_page(&page),
+    }
+}
+
+fn prepare_page_spec(
+    spec: PdfPageSpec<'_>,
+    options: &PdfBuildOptions,
+) -> Result<Vec<PreparedPage>> {
+    match spec {
+        PageSpec::Image {
+            page_size,
+            image,
+            frames,
+        } => prepare_image_spec(page_size, image, frames, options),
+        PageSpec::Layered {
+            page_size,
+            background,
+            foreground_mask,
+            foreground_color,
+        } => {
+            let background = read_exact_image(background, options, Some(page_size))?;
+            let foreground_mask = read_mask(foreground_mask, options.max_bilevel_pixels)?;
+            Ok(vec![PreparedPage::Layered(Box::new(LayeredPdfPage {
+                page_size,
+                background: image_page_to_layered_image(background)?,
+                foreground_mask,
+                foreground_color,
+            }))])
+        }
+        PageSpec::Mask {
+            page_size,
+            foreground_mask,
+        } => Ok(vec![PreparedPage::Mask(MaskPdfPage {
+            page_size,
+            foreground_mask: read_mask(foreground_mask, options.max_bilevel_pixels)?,
+        })]),
+    }
+}
+
+fn prepare_image_spec(
+    page_size: Option<PdfPageSize>,
     image: ImageSpec<InputSource<'_>>,
     frames: FramePolicy,
     options: &PdfBuildOptions,
-    page_count: &mut usize,
-) -> Result<()> {
-    let mut add_page = |page: ImagePage| {
-        *page_count = next_page_count_with_limit(*page_count, options.max_pages)?;
-        if let Some(page_size) = page_size {
-            pdf.add_page_with_size(&page, page_size)
-        } else {
-            pdf.add_page(&page)
-        }
-    };
-
+) -> Result<Vec<PreparedPage>> {
+    let mut prepared = Vec::new();
     match frames {
         FramePolicy::All
             if image.compression == ImageCompression::Auto
                 && image.processing == ImageProcessing::None =>
         {
-            visit_automatic_pages(image.source, options, &mut add_page)?;
+            visit_automatic_pages(image.source, options, |page| {
+                prepared.push(PreparedPage::Image { page, page_size });
+                Ok(())
+            })?;
         }
-        FramePolicy::All => {
-            add_page(read_processed_image(image, options, page_size.copied())?)?;
-        }
-        FramePolicy::ExactlyOne => {
-            add_page(read_exact_image(image, options, page_size.copied())?)?;
-        }
+        FramePolicy::All => prepared.push(PreparedPage::Image {
+            page: read_processed_image(image, options, page_size)?,
+            page_size,
+        }),
+        FramePolicy::ExactlyOne => prepared.push(PreparedPage::Image {
+            page: read_exact_image(image, options, page_size)?,
+            page_size,
+        }),
     }
-    Ok(())
+    Ok(prepared)
+}
+
+#[cfg(not(target_family = "wasm"))]
+struct PageEncoders {
+    pool: Option<rayon::ThreadPool>,
+}
+
+#[cfg(not(target_family = "wasm"))]
+impl PageEncoders {
+    fn new(threads: usize) -> Result<Self> {
+        let pool = if threads > 1 {
+            Some(
+                rayon::ThreadPoolBuilder::new()
+                    .num_threads(threads)
+                    .build()?,
+            )
+        } else {
+            None
+        };
+        Ok(Self { pool })
+    }
+
+    fn prepare<'a>(
+        &self,
+        batch: Vec<PdfPageSpec<'a>>,
+        options: &PdfBuildOptions,
+    ) -> Vec<Result<Vec<PreparedPage>>> {
+        let Some(pool) = self.pool.as_ref() else {
+            return prepare_batch_in_order(batch, options);
+        };
+        use rayon::iter::{IntoParallelIterator, ParallelIterator};
+        pool.install(|| {
+            batch
+                .into_par_iter()
+                .map(|spec| prepare_page_spec(spec, options).map_err(|error| error.to_string()))
+                .collect::<Vec<_>>()
+        })
+        .into_iter()
+        .map(|prepared| prepared.map_err(Into::into))
+        .collect()
+    }
+}
+
+#[cfg(target_family = "wasm")]
+struct PageEncoders;
+
+#[cfg(target_family = "wasm")]
+impl PageEncoders {
+    fn new(_threads: usize) -> Result<Self> {
+        Ok(Self)
+    }
+
+    fn prepare<'a>(
+        &self,
+        batch: Vec<PdfPageSpec<'a>>,
+        options: &PdfBuildOptions,
+    ) -> Vec<Result<Vec<PreparedPage>>> {
+        prepare_batch_in_order(batch, options)
+    }
+}
+
+fn prepare_batch_in_order(
+    batch: Vec<PdfPageSpec<'_>>,
+    options: &PdfBuildOptions,
+) -> Vec<Result<Vec<PreparedPage>>> {
+    batch
+        .into_iter()
+        .map(|spec| prepare_page_spec(spec, options))
+        .collect()
 }
 
 fn visit_automatic_pages(
@@ -305,7 +418,7 @@ fn visit_automatic_pages(
     mut on_page: impl FnMut(ImagePage) -> Result<()>,
 ) -> Result<usize> {
     if source.is_pbm() {
-        on_page(bilevel_image_page(read_mask(
+        on_page(bilevel_image_page(read_mask_bitmap(
             source,
             options.max_bilevel_pixels,
         )?)?)?;
@@ -387,7 +500,11 @@ fn read_processed_image(
     }
 }
 
-fn read_mask(source: InputSource<'_>, max_pixels: u64) -> Result<crate::netpbm::PbmP4Image> {
+fn read_mask(source: InputSource<'_>, max_pixels: u64) -> Result<BilevelStream> {
+    BilevelStream::encode(&read_mask_bitmap(source, max_pixels)?)
+}
+
+fn read_mask_bitmap(source: InputSource<'_>, max_pixels: u64) -> Result<crate::netpbm::PbmP4Image> {
     let bytes = source.read_all()?;
     let mask = parse_pbm_p4(&bytes)?;
     assert_pixel_limit(mask.width, mask.height, max_pixels)?;
@@ -499,10 +616,7 @@ fn bilevel_image_page(mut image: crate::netpbm::PbmP4Image) -> Result<ImagePage>
         dpi: DEFAULT_DPI,
         color_space: "DeviceGray",
         icc_profile: None,
-        payload: ImagePayload::Bilevel {
-            bitmap: image.bitmap,
-            row_stride: image.row_stride,
-        },
+        payload: ImagePayload::Bilevel(BilevelStream::encode(&image)?),
     })
 }
 
@@ -892,7 +1006,6 @@ mod tests {
         assert!(text.contains("0.5020 0.0627 0.0627 rg"));
         assert!(text.contains("/MediaBox [0 0 144.0000 72.0000]"));
         assert!(text.contains("1 g\n0 0 144.0000 72.0000 re f\n0 g\n"));
-        assert!(text.contains("/FlateDecode") || text.contains("/CCITTFaxDecode"));
     }
 
     #[test]

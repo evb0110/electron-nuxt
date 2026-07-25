@@ -125,8 +125,6 @@ export const usePdfViewerVirtualization = (options: IUsePdfViewerVirtualizationO
             gap: scaledMargin.value,
             paddingTop: scaledMargin.value,
             paddingBottom: scaledMargin.value,
-            fallbackWidth: basePageWidth.value,
-            fallbackHeight: basePageHeight.value,
         });
     });
 
