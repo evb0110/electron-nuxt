@@ -37,6 +37,7 @@ import { BrowserLogger } from '@app/utils/browserLogger';
 import { getErrorMessage } from '@app/utils/error';
 import { toPdfDateString } from '@app/utils/pdfDate';
 import { useAnalytics } from '@app/composables/useAnalytics';
+import { isLargeSerializedSaveAllowedForAutomation } from '@app/utils/isLargeSerializedSaveAllowedForAutomation';
 import {
     createWorkspaceSavePlan,
     type IWorkspaceSaveBaseline,
@@ -519,6 +520,7 @@ async function assertRendererSerializedSaveAllowed(
     if (
         typeof workingCopySize !== 'number'
         || workingCopySize <= RENDERER_SERIALIZED_SAVE_MAX_WORKING_COPY_BYTES
+        || isLargeSerializedSaveAllowedForAutomation()
     ) {
         return;
     }

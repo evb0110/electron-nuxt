@@ -209,6 +209,9 @@ benchmarkDescribe('Electron E2E - save pipeline benchmark', () => {
             [],
         );
         try {
+            await session.page.evaluate((allowLargeSerializedSave: boolean) => {
+                window.__allowLargeSerializedSaveForAutomation = allowLargeSerializedSave;
+            }, mode === 'serialized-fallback');
             await session.page.waitForFunction(
                 (expectedTier: TPerformanceMode) => (
                     document.documentElement.classList.contains(`performance-tier-${expectedTier}`)

@@ -382,11 +382,21 @@ export const useManagedEmbeddedPdfShapes = ({
                 } = await import(
                     '@app/modules/pdf-viewer/engine/pdf-embedded-shape-annotations/embeddedShapeAnnotationsWorkerClient'
                 );
+                const {isLargeSerializedSaveAllowedForAutomation} = await import(
+                    '@app/utils/isLargeSerializedSaveAllowedForAutomation'
+                );
+                const allowOversizedInput = isLargeSerializedSaveAllowedForAutomation();
                 return data && data.length > 0
-                    ? importEmbeddedShapeAnnotationsUsingWorker(data, {signal: sharedSignal})
+                    ? importEmbeddedShapeAnnotationsUsingWorker(data, {
+                        signal: sharedSignal,
+                        allowOversizedInput,
+                    })
                     : importEmbeddedShapeAnnotationsFromPathInWorker(
                         path!,
-                        {signal: sharedSignal},
+                        {
+                            signal: sharedSignal,
+                            allowOversizedInput,
+                        },
                     );
             }, signal);
             if (isStaleEmbeddedShapeImport(token, path)) {

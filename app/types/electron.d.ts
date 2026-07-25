@@ -13,6 +13,7 @@ declare global {
         __stagedPdfNativeMutationCommitBarrierForAutomation?: (
             stagedArtifact: ITypedStagedArtifact,
         ) => Promise<void> | void;
+        __allowLargeSerializedSaveForAutomation?: boolean;
         __openFileDirect?: (path: TDocumentRef) => Promise<boolean>;
         __handleSave?: () => Promise<unknown>;
         __appReady?: boolean;

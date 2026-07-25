@@ -3,6 +3,7 @@ import type { TPdfSource } from '@app/types/pdfUi';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { getDocumentFilesCapability } from '@app/utils/platformDocuments';
 import { logPdfRenderTrace } from '@app/utils/pdfRenderTrace';
+import { isLargeSerializedSaveAllowedForAutomation } from '@app/utils/isLargeSerializedSaveAllowedForAutomation';
 
 const PDF_RANGE_SUBREAD_BYTES = 8 * 1024 * 1024;
 const MAX_AGGREGATE_PDF_RANGE_BYTES = 64 * 1024 * 1024;
@@ -73,7 +74,10 @@ export function createPdfRangeRequestBridge({
         if (!Number.isSafeInteger(totalLength) || totalLength <= 0) {
             throw new Error(`Invalid PDF range request ${begin}..${end}`);
         }
-        if (totalLength > MAX_AGGREGATE_PDF_RANGE_BYTES) {
+        if (
+            totalLength > MAX_AGGREGATE_PDF_RANGE_BYTES
+            && !isLargeSerializedSaveAllowedForAutomation()
+        ) {
             throw new Error(`PDF range request ${begin}..${end} exceeds ${MAX_AGGREGATE_PDF_RANGE_BYTES} byte limit`);
         }
         if (version !== getRenderVersion()) {

@@ -6,11 +6,13 @@ const EMBEDDED_SHAPE_IMPORT_MAX_INPUT_BYTES = 96 * 1024 * 1024;
 type TEmbeddedShapeImportWorkerRequest =
     | {
         type: 'bytes';
-        data: Uint8Array
+        data: Uint8Array;
+        allowOversizedInput?: boolean
     }
     | {
         type: 'path-start';
-        size: number
+        size: number;
+        allowOversizedInput?: boolean
     }
     | {
         type: 'path-chunk';
@@ -20,6 +22,7 @@ type TEmbeddedShapeImportWorkerRequest =
     | {type: 'path-finish'};
 
 let pathData: Uint8Array | null = null;
+let allowOversizedPathInput = false;
 
 self.addEventListener('message', async (event: MessageEvent<TEmbeddedShapeImportWorkerRequest>) => {
     try {
@@ -27,10 +30,14 @@ self.addEventListener('message', async (event: MessageEvent<TEmbeddedShapeImport
             if (
                 !Number.isSafeInteger(event.data.size)
                 || event.data.size < 0
-                || event.data.size > EMBEDDED_SHAPE_IMPORT_MAX_INPUT_BYTES
+                || (
+                    event.data.size > EMBEDDED_SHAPE_IMPORT_MAX_INPUT_BYTES
+                    && event.data.allowOversizedInput !== true
+                )
             ) {
                 throw new RangeError('Embedded shape import input exceeds the 96 MiB limit');
             }
+            allowOversizedPathInput = event.data.allowOversizedInput === true;
             pathData = new Uint8Array(event.data.size);
             return;
         }
@@ -52,10 +59,17 @@ self.addEventListener('message', async (event: MessageEvent<TEmbeddedShapeImport
         if (!data) {
             throw new Error('Embedded shape path import has no data');
         }
-        if (data.byteLength > EMBEDDED_SHAPE_IMPORT_MAX_INPUT_BYTES) {
+        const allowOversizedInput = event.data.type === 'bytes'
+            ? event.data.allowOversizedInput === true
+            : allowOversizedPathInput;
+        if (
+            data.byteLength > EMBEDDED_SHAPE_IMPORT_MAX_INPUT_BYTES
+            && !allowOversizedInput
+        ) {
             throw new RangeError('Embedded shape import input exceeds the 96 MiB limit');
         }
         pathData = null;
+        allowOversizedPathInput = false;
         const shapes = await importEmbeddedShapeAnnotations(data);
         self.postMessage({
             ok: true,

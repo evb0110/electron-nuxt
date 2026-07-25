@@ -77,12 +77,16 @@ function createEmbeddedShapeImportWorker(
 export async function importEmbeddedShapeAnnotationsUsingWorker(
     data: Uint8Array,
     options: {
+        allowOversizedInput?: boolean;
         signal?: AbortSignal;
         transferOwnership?: boolean;
     } = {},
 ): Promise<IShapeAnnotation[]> {
     options.signal?.throwIfAborted();
-    if (data.byteLength > EMBEDDED_SHAPE_IMPORT_MAX_INPUT_BYTES) {
+    if (
+        data.byteLength > EMBEDDED_SHAPE_IMPORT_MAX_INPUT_BYTES
+        && options.allowOversizedInput !== true
+    ) {
         throw new RangeError('Embedded shape import is unavailable for PDFs larger than 96 MiB');
     }
     if (!canUseEmbeddedShapeImportWorker()) {
@@ -98,13 +102,17 @@ export async function importEmbeddedShapeAnnotationsUsingWorker(
         worker.postMessage({
             type: 'bytes',
             data: transferableData,
+            allowOversizedInput: options.allowOversizedInput === true,
         }, [transferableData.buffer]);
     });
 }
 
 export async function importEmbeddedShapeAnnotationsFromPathInWorker(
     path: TDocumentRef,
-    options: {signal?: AbortSignal} = {},
+    options: {
+        allowOversizedInput?: boolean;
+        signal?: AbortSignal;
+    } = {},
 ): Promise<IShapeAnnotation[]> {
     options.signal?.throwIfAborted();
     if (!canUseEmbeddedShapeImportWorker()) {
@@ -116,7 +124,10 @@ export async function importEmbeddedShapeAnnotationsFromPathInWorker(
 
     const files = getDocumentFilesCapability();
     const {size} = await files.statFile(path);
-    if (size > EMBEDDED_SHAPE_IMPORT_MAX_INPUT_BYTES) {
+    if (
+        size > EMBEDDED_SHAPE_IMPORT_MAX_INPUT_BYTES
+        && options.allowOversizedInput !== true
+    ) {
         throw new RangeError('Embedded shape import is unavailable for PDFs larger than 96 MiB');
     }
     options.signal?.throwIfAborted();
@@ -124,6 +135,7 @@ export async function importEmbeddedShapeAnnotationsFromPathInWorker(
         worker.postMessage({
             type: 'path-start',
             size,
+            allowOversizedInput: options.allowOversizedInput === true,
         });
         for (let offset = 0; offset < size; offset += EMBEDDED_SHAPE_IMPORT_PATH_CHUNK_BYTES) {
             options.signal?.throwIfAborted();
