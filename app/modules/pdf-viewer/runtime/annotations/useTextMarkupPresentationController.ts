@@ -162,9 +162,38 @@ export const useTextMarkupPresentationController = <TEditorPresentation extends 
         }));
     }
 
-    function applyPresentation(container: HTMLElement, pageNumber: number | null) {
+    function applyCommentColor(
+        container: HTMLElement,
+        comment: IAnnotationCommentSummary,
+        color: string | null,
+        sourceColor?: string | null,
+    ) {
+        const displayColor = resolveDisplayColor(comment, color);
+        const applied = !displayColor || applyAnnotationCommentTextMarkupColor(
+            container,
+            comment,
+            displayColor,
+            {
+                ...(sourceColor !== undefined ? {sourceColor} : {}),
+                suppressNativeTextMarkupDecoration: true,
+            },
+        );
+        return !applied && isPageSurfaceMounted(container, comment.pageNumber)
+            ? comment.pageNumber
+            : null;
+    }
+
+    function applyPresentation(
+        container: HTMLElement,
+        pageNumber: number | null,
+        mutations: Map<string, Extract<TTextMarkupPresentationSignal, {kind: 'comment-color-mutated'}>>,
+    ) {
         const unresolvedPages = new Set<number>();
         const comments = options.annotationCommentsCache.value;
+        const foldedMutations = new Map<string, Extract<
+            TTextMarkupPresentationSignal,
+            {kind: 'comment-color-mutated'}
+        >>();
         for (const comment of comments) {
             if (
                 !isRepairableTextMarkupComment(comment)
@@ -173,23 +202,26 @@ export const useTextMarkupPresentationController = <TEditorPresentation extends 
             ) {
                 continue;
             }
-            const color = resolveDisplayColor(comment, comment.color ?? null);
-            if (
-                color
-                && !applyAnnotationCommentTextMarkupColor(
-                    container,
-                    comment,
-                    color,
-                    { suppressNativeTextMarkupDecoration: true },
-                )
-            ) {
-                unresolvedPages.add(comment.pageNumber);
+            const mutation = mutations.get(comment.stableKey);
+            const unresolvedPage = applyCommentColor(
+                container,
+                comment,
+                mutation?.color ?? comment.color ?? null,
+                mutation?.sourceColor,
+            );
+            if (unresolvedPage !== null) unresolvedPages.add(unresolvedPage);
+            if (mutation) {
+                foldedMutations.set(comment.stableKey, mutation);
             }
+            mutations.delete(comment.stableKey);
         }
 
         syncAnnotationCommentTextMarkupVisualOverlays(container, comments, {
             ...(pageNumber === null ? {} : {pageNumber}),
-            resolveColor: resolveOverlayColor,
+            resolveColor: (comment) => {
+                const mutationColor = foldedMutations.get(comment.stableKey)?.color?.trim();
+                return mutationColor?.length ? mutationColor : resolveOverlayColor(comment);
+            },
             resolveHighlightOpacity: comment => isHighlightComment(comment)
                 ? resolveHighlightOpacity()
                 : null,
@@ -211,19 +243,12 @@ export const useTextMarkupPresentationController = <TEditorPresentation extends 
         container: HTMLElement,
         signal: Extract<TTextMarkupPresentationSignal, {kind: 'comment-color-mutated'}>,
     ) {
-        const displayColor = resolveDisplayColor(signal.comment, signal.color);
-        let applied = true;
-        if (displayColor) {
-            applied = applyAnnotationCommentTextMarkupColor(
-                container,
-                signal.comment,
-                displayColor,
-                {
-                    sourceColor: signal.sourceColor,
-                    suppressNativeTextMarkupDecoration: true,
-                },
-            );
-        }
+        const unresolvedPage = applyCommentColor(
+            container,
+            signal.comment,
+            signal.color,
+            signal.sourceColor,
+        );
         const overlayColor = signal.color?.trim();
         if (overlayColor) {
             applyAnnotationCommentTextMarkupVisualOverlay(
@@ -233,10 +258,7 @@ export const useTextMarkupPresentationController = <TEditorPresentation extends 
                 { highlightOpacity: isHighlightComment(signal.comment) ? resolveHighlightOpacity() : null },
             );
         }
-        if (!applied && isPageSurfaceMounted(container, signal.comment.pageNumber)) {
-            return signal.comment.pageNumber;
-        }
-        return null;
+        return unresolvedPage;
     }
 
     function runFrame(frameGeneration: number) {
@@ -247,7 +269,7 @@ export const useTextMarkupPresentationController = <TEditorPresentation extends 
         }
         const applyAllPages = pendingAllPages;
         const pages = Array.from(pendingPages);
-        const mutations = Array.from(pendingMutations.values());
+        const mutations = new Map(pendingMutations);
         pendingAllPages = false;
         pendingPages.clear();
         pendingMutations.clear();
@@ -257,9 +279,9 @@ export const useTextMarkupPresentationController = <TEditorPresentation extends 
             return;
         }
         const unresolvedPages = applyAllPages
-            ? applyPresentation(container, null)
+            ? applyPresentation(container, null, mutations)
             : pages.reduce((accumulated, pageNumber) => {
-                applyPresentation(container, pageNumber).forEach(page => accumulated.add(page));
+                applyPresentation(container, pageNumber, mutations).forEach(page => accumulated.add(page));
                 return accumulated;
             }, new Set<number>());
         mutations.forEach((mutation) => {
@@ -276,7 +298,7 @@ export const useTextMarkupPresentationController = <TEditorPresentation extends 
             ])
             : new Set([
                 ...pages,
-                ...mutations.map(mutation => mutation.comment.pageNumber),
+                ...Array.from(mutations.values(), mutation => mutation.comment.pageNumber),
             ]);
         attemptedPages.forEach((pageNumber) => {
             if (!unresolvedPages.has(pageNumber)) {

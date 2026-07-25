@@ -20,6 +20,24 @@ import { DEFAULT_ANNOTATION_SETTINGS } from '@app/constants/annotationDefaults';
 import { toOpaqueHighlightDisplayColor } from '@app/modules/pdf-viewer/engine/text-markup-color/toOpaqueHighlightDisplayColor';
 import { useTextMarkupPresentationController } from '@app/modules/pdf-viewer/runtime/annotations/useTextMarkupPresentationController';
 import { setTestElementRect } from '@tests/helpers/domGeometryTestHarness';
+import type * as TextMarkupColorApplicator from '@app/modules/pdf-viewer/engine/annotations/annotation-dom-removal/applyAnnotationCommentTextMarkupColor';
+
+const textMarkupColorApplicator = vi.hoisted(() => ({apply: vi.fn()}));
+vi.mock(
+    '@app/modules/pdf-viewer/engine/annotations/annotation-dom-removal/applyAnnotationCommentTextMarkupColor',
+    async (importOriginal) => {
+        const original = await importOriginal<typeof TextMarkupColorApplicator>();
+        return {
+            ...original,
+            applyAnnotationCommentTextMarkupColor: (
+                ...args: Parameters<typeof original.applyAnnotationCommentTextMarkupColor>
+            ) => {
+                textMarkupColorApplicator.apply(...args);
+                return original.applyAnnotationCommentTextMarkupColor(...args);
+            },
+        };
+    },
+);
 
 const SVG_NAMESPACE = 'http://www.w3.org/2000/svg';
 
@@ -170,6 +188,7 @@ async function settleFrame() {
 
 beforeEach(() => {
     vi.useFakeTimers();
+    textMarkupColorApplicator.apply.mockClear();
     document.body.replaceChildren();
 });
 
@@ -425,6 +444,41 @@ describe('useTextMarkupPresentationController', () => {
         expect(markupFill(pages, 1)).toBe('#ffd400');
         await settleFrame();
         expect(markupFill(pages, 1)).toBe(expectedHighlightFill('#22c55e'));
+        harness.scope.stop();
+    });
+
+    it('folds a matching cache update and color mutation into one presentation write', async () => {
+        const {
+            pages,
+            viewer,
+        } = createViewerWithPages([1]);
+        const harness = createController({
+            comments: [createComment()],
+            viewer,
+        });
+        const updated = createComment({color: '#22c55e'});
+
+        harness.annotationCommentsCache.value = [updated];
+        harness.controller.notify({
+            kind: 'comment-color-mutated',
+            color: '#22c55e',
+            comment: updated,
+            sourceColor: '#ec4899',
+        });
+        await settleFrame();
+
+        expect(textMarkupColorApplicator.apply).toHaveBeenCalledOnce();
+        expect(textMarkupColorApplicator.apply).toHaveBeenCalledWith(
+            viewer,
+            updated,
+            expectedHighlightFill('#22c55e'),
+            {
+                sourceColor: '#ec4899',
+                suppressNativeTextMarkupDecoration: true,
+            },
+        );
+        expect(markupFill(pages, 1)).toBe(expectedHighlightFill('#22c55e'));
+        expect(harness.syncEditorPresentation).toHaveBeenCalledOnce();
         harness.scope.stop();
     });
 
