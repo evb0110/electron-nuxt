@@ -13,7 +13,10 @@ import type {
     Ref,
 } from 'vue';
 import {createScanCleanupPreviewPrefetcher} from '@app/modules/scan-cleanup/runtime/scanCleanupPreviewPrefetcher';
-import {createScanCleanupPreviewCache} from '@app/modules/scan-cleanup/runtime/createScanCleanupPreviewCache';
+import {
+    createScanCleanupPreviewCache,
+    SCAN_CLEANUP_PREVIEW_CACHE_KEY_SEPARATOR,
+} from '@app/modules/scan-cleanup/runtime/createScanCleanupPreviewCache';
 import {toPlainScanCleanupOptions} from '@app/modules/scan-cleanup/persistence/preferencesRepository';
 import {getScanCleanupCapability} from '@app/utils/getScanCleanupCapability';
 import {toBridgeSafeScanCleanupPayload} from '@app/modules/scan-cleanup/runtime/toBridgeSafeScanCleanupPayload';
@@ -46,11 +49,18 @@ export function createScanCleanupPreviewCacheKey(
     documentCanvasPlan: IScanCleanupDocumentCanvasPlan | null = null,
 ) {
     const pageOverride = getScanCleanupPageOverride(previewOptions.pageOverrides, pageNumber);
-    return JSON.stringify({
+    // Detection's contribution is keyed separately from the page's identity: it
+    // lands for the whole document at once, and the cache revalidates an entry
+    // against it instead of orphaning it. The plan reaches the sidecar only
+    // under matchPageSize (createScanCleanupPreviewService.ts:1117-1123), so a
+    // plan the render cannot consume must not re-key the page.
+    const validity = JSON.stringify({
+        documentPrior,
+        documentCanvasPlan: previewOptions.matchPageSize ? documentCanvasPlan : null,
+    });
+    const identity = JSON.stringify({
         sourcePath: previewSourcePath,
         documentRevision,
-        documentPrior,
-        documentCanvasPlan,
         page: pageNumber,
         documentOptions: {
             preserveOriginalQuality: previewOptions.preserveOriginalQuality === true,
@@ -85,6 +95,7 @@ export function createScanCleanupPreviewCacheKey(
             marginsMm: pageOverride.marginsMm,
         },
     });
+    return `${identity}${SCAN_CLEANUP_PREVIEW_CACHE_KEY_SEPARATOR}${validity}`;
 }
 
 export function createScanCleanupDetailTileCacheKey(

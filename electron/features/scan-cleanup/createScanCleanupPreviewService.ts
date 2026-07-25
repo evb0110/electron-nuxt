@@ -495,7 +495,9 @@ function baseAnalysisKey(request: Omit<IScanCleanupPreviewRequest, 'detail'>) {
         pageNumber: request.pageNumber,
         options: request.options,
         documentPrior: request.documentPrior ?? null,
-        documentCanvasPlan: request.documentCanvasPlan ?? null,
+        // The plan reaches the sidecar only under matchPageSize (:1117-1123), so a
+        // plan the render cannot consume must not re-key the stored geometry.
+        documentCanvasPlan: request.options.matchPageSize ? request.documentCanvasPlan ?? null : null,
     });
 }
 

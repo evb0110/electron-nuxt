@@ -1,17 +1,45 @@
 import type {IScanCleanupPreviewResult} from '@contracts/electronApiScanCleanup';
 
 /**
- * Preview payloads can be tens of MiB. Eight entries cover the visible page and
- * a useful navigation window; 96 MiB matches the IPC payload ceiling without
- * allowing a long document to retain an unbounded second copy in the renderer.
+ * 96 MiB matches the IPC payload ceiling and is the bound that is meant to
+ * bind: an interior page of the 392-page reference scan measures 1.03 MiB, so
+ * the budget holds ~93 of them. The entry count only guards against a
+ * degenerate stream of tiny payloads growing the map without limit. At eight it
+ * bound first instead — the largest occupancy observed across the eight replay
+ * scenarios was 8.45 MiB of 96 MiB, an effective history of two to three pages,
+ * because one navigation inserts up to three entries.
  */
-const SCAN_CLEANUP_PREVIEW_CACHE_MAX_ENTRIES = 8;
+const SCAN_CLEANUP_PREVIEW_CACHE_MAX_ENTRIES = 128;
 const SCAN_CLEANUP_PREVIEW_CACHE_MAX_BYTES = 96 * 1024 * 1024;
+
+/**
+ * A preview cache key is `<identity>\u0000<validity>`. The identity names the
+ * page and the settings it was rendered from; the validity names the detection
+ * evidence folded into that render, which arrives for the whole document at
+ * once. Entries are stored under the identity, so a page holds one entry and a
+ * validity change revalidates it on next access instead of leaving it
+ * unreachable under a key nobody will ask for again.
+ */
+export const SCAN_CLEANUP_PREVIEW_CACHE_KEY_SEPARATOR = '\u0000';
 
 interface ICachedPreview {
     byteLength: number;
     rawOutputIndex: number | null;
     result: Omit<IScanCleanupPreviewResult, 'rawImageData'> & {rawImageData?: Uint8Array};
+    validity: string;
+}
+
+function splitCacheKey(key: string) {
+    const separator = key.indexOf(SCAN_CLEANUP_PREVIEW_CACHE_KEY_SEPARATOR);
+    return separator < 0
+        ? {
+            identity: key,
+            validity: '',
+        }
+        : {
+            identity: key.slice(0, separator),
+            validity: key.slice(separator + 1),
+        };
 }
 
 function sameBytes(left: Uint8Array, right: Uint8Array) {
@@ -20,7 +48,7 @@ function sameBytes(left: Uint8Array, right: Uint8Array) {
         && left.byteLength === right.byteLength;
 }
 
-function compactPreview(result: IScanCleanupPreviewResult): ICachedPreview {
+function compactPreview(result: IScanCleanupPreviewResult, validity: string): ICachedPreview {
     const rawOutputIndex = result.outputs.findIndex(output => sameBytes(output.imageData, result.rawImageData));
     const retainedBuffers = new Set<ArrayBufferLike>();
     let byteLength = 0;
@@ -43,6 +71,7 @@ function compactPreview(result: IScanCleanupPreviewResult): ICachedPreview {
             ...rest,
             rawImageData,
         } : rest,
+        validity,
     };
 }
 
@@ -75,14 +104,35 @@ export function createScanCleanupPreviewCache(options: {
     const maxBytes = options.maxBytes ?? SCAN_CLEANUP_PREVIEW_CACHE_MAX_BYTES;
     const entries = new Map<string, ICachedPreview>();
     let totalBytes = 0;
-    const remove = (key: string) => {
-        const entry = entries.get(key);
+    const remove = (identity: string) => {
+        const entry = entries.get(identity);
         if (!entry) {
             return false;
         }
-        entries.delete(key);
+        entries.delete(identity);
         totalBytes -= entry.byteLength;
         return true;
+    };
+    // An entry whose validity no longer matches can never be served again, so a
+    // lookup that finds one drops it there and then rather than leaving its
+    // bytes for LRU pressure to reclaim.
+    const revalidate = (key: string, dropStale: boolean) => {
+        const {
+            identity,
+            validity,
+        } = splitCacheKey(key);
+        const entry = entries.get(identity);
+        if (!entry) {
+            return null;
+        }
+        if (entry.validity !== validity) {
+            if (dropStale) remove(identity);
+            return null;
+        }
+        return {
+            identity,
+            entry,
+        };
     };
     return {
         get byteLength() {
@@ -95,26 +145,30 @@ export function createScanCleanupPreviewCache(options: {
             entries.clear();
             totalBytes = 0;
         },
-        delete: remove,
+        delete: key => remove(splitCacheKey(key).identity),
         get(key) {
-            const entry = entries.get(key);
-            if (!entry) {
+            const current = revalidate(key, true);
+            if (!current) {
                 return undefined;
             }
-            entries.delete(key);
-            entries.set(key, entry);
-            return materializePreview(entry);
+            entries.delete(current.identity);
+            entries.set(current.identity, current.entry);
+            return materializePreview(current.entry);
         },
-        has: key => entries.has(key),
+        has: key => revalidate(key, false) !== null,
         set(key, result) {
-            remove(key);
-            const entry = compactPreview(result);
-            entries.set(key, entry);
+            const {
+                identity,
+                validity,
+            } = splitCacheKey(key);
+            remove(identity);
+            const entry = compactPreview(result, validity);
+            entries.set(identity, entry);
             totalBytes += entry.byteLength;
             while (entries.size > maxEntries || totalBytes > maxBytes) {
-                const oldestKey = entries.keys().next().value;
-                if (oldestKey === undefined) break;
-                remove(oldestKey);
+                const oldestIdentity = entries.keys().next().value;
+                if (oldestIdentity === undefined) break;
+                remove(oldestIdentity);
             }
         },
     };
