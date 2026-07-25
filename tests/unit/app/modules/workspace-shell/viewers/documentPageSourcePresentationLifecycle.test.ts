@@ -49,9 +49,15 @@ function createPresentationHarness() {
     });
     const loadController = new AbortController();
     const oldRelease = vi.fn();
+    const oldUnsubscribeInvalidation = vi.fn();
+    let invalidateOldLease = () => {};
     const oldLease: IDocumentSurfaceLease = {
         bytes: 40_000,
         heightPx: 100,
+        onInvalidated(listener) {
+            invalidateOldLease = listener;
+            return oldUnsubscribeInvalidation;
+        },
         release: oldRelease,
         surface: 'old-surface',
         widthPx: 100,
@@ -90,6 +96,7 @@ function createPresentationHarness() {
     const renderMountedPages = vi.fn(async () => {});
     const emit = vi.fn();
     const scheduleRender = vi.fn();
+    let pageScale = 2;
     const presentation = createDocumentPageSourcePresentation({
         chassisAuthority: null,
         emit,
@@ -112,7 +119,7 @@ function createPresentationHarness() {
             rotation: 0,
             widthPoints: 100,
         }),
-        readPageScale: () => 2,
+        readPageScale: () => pageScale,
         readPixelRatio: () => 1,
         readRenderDemand: () => ({
             bufferPages: [],
@@ -140,13 +147,18 @@ function createPresentationHarness() {
         emit,
         fence,
         image,
+        invalidateOldLease: () => invalidateOldLease(),
         oldLease,
         oldRelease,
+        oldUnsubscribeInvalidation,
         presentation,
         page,
         renderMountedPages,
         resolveReplacement,
         scheduleRender,
+        setPageScale: (value: number) => {
+            pageScale = value;
+        },
         source,
         viewport,
     };
@@ -212,6 +224,73 @@ describe('document page-source presentation lifecycle', () => {
         expect(replacementImage.isConnected).toBe(true);
         expect(harness.presentation.getVisual(1)).toBe('fresh');
         expect(harness.renderMountedPages).toHaveBeenCalledOnce();
+    });
+
+    it('ignores an old lease invalidation during the replacement commit window', async () => {
+        const harness = createPresentationHarness();
+        const renderPage = vi.mocked(harness.source.renderPage);
+        renderPage.mockResolvedValueOnce(harness.oldLease);
+        harness.presentation.beginSourceGeneration();
+        harness.oldRelease.mockClear();
+
+        await harness.presentation.renderPage(1);
+        harness.image.dataset.pageRenderGeneration = '2';
+        await harness.presentation.handleSurfaceLoad(
+            1,
+            'old-surface',
+            cast<Event>({currentTarget: harness.image}),
+        );
+        expect(harness.presentation.pageStates.get(1)?.ready).toBe(true);
+
+        let resolveDecode!: () => void;
+        vi.spyOn(HTMLImageElement.prototype, 'decode').mockImplementation(() => new Promise((resolve) => {
+            resolveDecode = resolve;
+        }));
+        const replacementUnsubscribe = vi.fn();
+        const replacementRelease = vi.fn();
+        const replacementLease: IDocumentSurfaceLease = {
+            bytes: 360_000,
+            heightPx: 300,
+            onInvalidated: vi.fn(() => {
+                harness.invalidateOldLease();
+                return replacementUnsubscribe;
+            }),
+            release: replacementRelease,
+            surface: 'replacement-surface',
+            widthPx: 300,
+        };
+        harness.setPageScale(3);
+        const replacementRender = harness.presentation.renderPage(1);
+        await vi.waitFor(() => expect(renderPage).toHaveBeenCalledTimes(2));
+        harness.resolveReplacement(replacementLease);
+        const replacementImage = await vi.waitFor(() => {
+            const candidate = harness.page.querySelector<HTMLImageElement>(
+                '[data-page-source-candidate]',
+            );
+            expect(candidate?.dataset.pageRenderGeneration).toBe('3');
+            return candidate!;
+        });
+        Object.defineProperties(replacementImage, {
+            complete: {
+                configurable: true,
+                value: true,
+            },
+            naturalWidth: {
+                configurable: true,
+                value: 300,
+            },
+        });
+        resolveDecode();
+        await replacementRender;
+
+        const state = harness.presentation.pageStates.get(1);
+        expect(state?.lease).toBe(replacementLease);
+        expect(state?.ready).toBe(true);
+        expect(replacementImage.isConnected).toBe(true);
+        expect(harness.oldUnsubscribeInvalidation).toHaveBeenCalledOnce();
+        expect(harness.oldRelease).toHaveBeenCalledOnce();
+        expect(replacementRelease).not.toHaveBeenCalled();
+        expect(replacementUnsubscribe).not.toHaveBeenCalled();
     });
 
     it('exhausts render failures without resetting or rescheduling terminal work', async () => {

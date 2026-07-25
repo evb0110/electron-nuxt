@@ -133,7 +133,7 @@ export function createDocumentPageSourcePresentation(options: {
         lease: IDocumentSurfaceLease,
     ) => lease.onInvalidated?.(() => {
         const invalidated = pageStates.get(pageNumber);
-        if (invalidated !== state) {
+        if (invalidated !== state || invalidated.lease !== lease) {
             return;
         }
         const image = getConnectedImage(pageNumber, invalidated);
