@@ -888,6 +888,7 @@ async function processOcrJob(
             pages,
             supersessionPolicy,
             ...(paths.pdftotextBinary ? {pdftotextBinary: paths.pdftotextBinary} : {}),
+            log,
             signal: abortController.signal,
         });
         jobWarnings.push(...selection.warnings);
