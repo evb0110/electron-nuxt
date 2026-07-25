@@ -1,8 +1,11 @@
 import {
+    mkdir,
     mkdtemp,
+    readFile,
     rm,
     writeFile,
 } from 'node:fs/promises';
+import type * as TFsPromises from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { PDFDocument } from 'pdf-lib';
@@ -47,7 +50,34 @@ const probe = vi.hoisted(() => {
 
 vi.mock('@electron/ocr/worker/runOcrCommand', () => ({runOcrCommand: probe.runPdftotext}));
 
+const catalogReads = vi.hoisted(() => ({
+    files: [] as string[],
+    recording: false,
+}));
+
+vi.mock('node:fs/promises', async (importActual) => {
+    const actual = await importActual<typeof TFsPromises>();
+    const readFile = ((...args: Parameters<typeof actual.readFile>) => {
+        const target = String(args[0]);
+        if (catalogReads.recording && /\.ocr[\\/]/u.test(target)) {
+            catalogReads.files.push(target.split(/[\\/]/u).at(-1) ?? target);
+        }
+        return actual.readFile(...args);
+    }) as typeof actual.readFile;
+    return {
+        ...actual,
+        default: {
+            ...actual,
+            readFile,
+        },
+        readFile,
+    };
+});
+
+vi.mock('@electron/file-access/documentRevisionSidecar', () => ({assertWorkingCopyRevisionSidecarCurrent: () => Promise.resolve()}));
+
 const { selectOcrPagesForSupersession } = await import('@electron/ocr/worker/selectOcrPagesForSupersession');
+const { writeOcrIndexV3 } = await import('@electron/ocr/worker/indexWriter');
 
 let tempDir: string | null = null;
 
@@ -93,10 +123,128 @@ function runSelection(
     });
 }
 
+const CURRENT_REVISION = requireDocumentRevisionToken('revision-1');
+
+async function writeCatalogWithOcrWorker(
+    sourcePdfPath: string,
+    pageNumbers: readonly number[],
+    pageCount = pageNumbers.length,
+) {
+    await writeOcrIndexV3(
+        sourcePdfPath,
+        {
+            version: 1,
+            documentRef: sourcePdfPath,
+            authority: 'electron-working-copy',
+            token: CURRENT_REVISION,
+            contentRevision: 1,
+            mintedAt: 1,
+        },
+        pageNumbers.map(pageNumber => ({
+            pageNumber,
+            text: `evb ocr text ${pageNumber}`,
+            words: [{
+                text: 'evb',
+                x: 10,
+                y: 20,
+                width: 30,
+                height: 12,
+            }],
+            imageWidth: 1200,
+            imageHeight: 1600,
+        })),
+        pageCount,
+        ['eng'],
+        300,
+        () => {},
+    );
+}
+
+async function readManifestGenerations(sourcePdfPath: string) {
+    const manifest = JSON.parse(await readFile(join(`${sourcePdfPath}.ocr`, 'manifest.json'), 'utf8')) as {pages: Record<string, {
+        path: string;
+        generation?: string;
+    }>;};
+    return Object.fromEntries(Object.entries(manifest.pages)
+        .map(([
+            pageNumber,
+            mapping,
+        ]) => [
+            Number(pageNumber),
+            mapping.generation,
+        ]));
+}
+
+async function readArtifactGenerations(sourcePdfPath: string) {
+    const manifest = JSON.parse(await readFile(join(`${sourcePdfPath}.ocr`, 'manifest.json'), 'utf8')) as {pages: Record<string, {path: string}>;};
+    const generations: Record<number, string | undefined> = {};
+    for (const [
+        pageNumber,
+        mapping,
+    ] of Object.entries(manifest.pages)) {
+        const artifact = JSON.parse(await readFile(join(`${sourcePdfPath}.ocr`, mapping.path), 'utf8')) as {canonicalText?: {generation?: string};};
+        generations[Number(pageNumber)] = artifact.canonicalText?.generation;
+    }
+    return generations;
+}
+
+/** A v3 catalog as written before the manifest carried per-page generations. */
+async function writeCatalogWithoutManifestGenerations(
+    sourcePdfPath: string,
+    pageNumbers: readonly number[],
+    revisionToken: string,
+) {
+    const catalogDir = `${sourcePdfPath}.ocr`;
+    await mkdir(catalogDir, {recursive: true});
+    const pages: Record<number, {path: string}> = {};
+    for (const pageNumber of pageNumbers) {
+        const pageFile = `page-${String(pageNumber).padStart(4, '0')}.json`;
+        pages[pageNumber] = {path: pageFile};
+        await writeFile(join(catalogDir, pageFile), JSON.stringify({
+            rotation: 0,
+            render: {
+                dpi: 300,
+                imagePx: {
+                    w: 1200,
+                    h: 1600,
+                },
+            },
+            text: `evb ocr text ${pageNumber}`,
+            words: [],
+            canonicalText: {
+                source: 'evb-ocr',
+                generation: 'legacy-run',
+                contentDigest: 'a'.repeat(64),
+            },
+        }));
+    }
+    await writeFile(join(catalogDir, 'manifest.json'), JSON.stringify({
+        version: 3,
+        documentRevision: {token: revisionToken},
+        createdAt: 1753500000000,
+        source: {pdfPath: sourcePdfPath},
+        pageCount: pageNumbers.length,
+        pageBox: 'crop',
+        ocr: {
+            engine: 'tesseract',
+            languages: ['eng'],
+            renderDpi: 300,
+        },
+        pages,
+    }));
+}
+
+function recordCatalogReads() {
+    catalogReads.files = [];
+    catalogReads.recording = true;
+}
+
 afterEach(async () => {
     probe.state.invocations = [];
     probe.state.textByPage = new Map();
     probe.state.fail = false;
+    catalogReads.files = [];
+    catalogReads.recording = false;
     if (tempDir) {
         await rm(tempDir, {
             recursive: true,
@@ -200,6 +348,93 @@ describe('OCR supersession page selection', () => {
             message,
         ]) => level === 'warn' && message.includes('pdftotext exploded'))).toBe(true);
         expect(selection.warnings.some(warning => warning.includes('pdftotext exploded'))).toBe(true);
+    });
+
+    it('recognises its own OCR output from the manifest without opening page artifacts', async () => {
+        const sourcePdfPath = await createSourcePdf(3);
+        await writeCatalogWithOcrWorker(sourcePdfPath, [
+            1,
+            2,
+            3,
+        ]);
+        recordCatalogReads();
+
+        const selection = await runSelection(sourcePdfPath, [
+            1,
+            2,
+            3,
+        ], []);
+
+        expect(selection.pages).toEqual([]);
+        expect(selection.diagnostics.map(diagnostic => diagnostic.pageNumber)).toEqual([
+            1,
+            2,
+            3,
+        ]);
+        expect(catalogReads.files).toEqual(['manifest.json']);
+    });
+
+    it('keeps pages from an earlier run current after a partial re-OCR', async () => {
+        const sourcePdfPath = await createSourcePdf(3);
+        await writeCatalogWithOcrWorker(sourcePdfPath, [
+            1,
+            2,
+            3,
+        ]);
+        await writeCatalogWithOcrWorker(sourcePdfPath, [2], 3);
+        recordCatalogReads();
+
+        const selection = await runSelection(sourcePdfPath, [
+            1,
+            2,
+            3,
+        ], []);
+
+        expect(selection.pages).toEqual([]);
+        expect(catalogReads.files).toEqual(['manifest.json']);
+        const generations = await readManifestGenerations(sourcePdfPath);
+        expect(generations[2]).not.toBe(generations[1]);
+        expect(generations[3]).toBe(generations[1]);
+        expect(generations).toEqual(await readArtifactGenerations(sourcePdfPath));
+    });
+
+    it('keeps a catalog written before the manifest carried generations from forcing a re-OCR', async () => {
+        const sourcePdfPath = await createSourcePdf(3);
+        await writeCatalogWithoutManifestGenerations(sourcePdfPath, [
+            1,
+            2,
+            3,
+        ], CURRENT_REVISION);
+        recordCatalogReads();
+
+        const selection = await runSelection(sourcePdfPath, [
+            1,
+            2,
+            3,
+        ], []);
+
+        expect(selection.pages).toEqual([]);
+        expect(catalogReads.files).toEqual(['manifest.json']);
+    });
+
+    it('ignores a catalog left behind by an earlier document revision', async () => {
+        const sourcePdfPath = await createSourcePdf(2);
+        await writeCatalogWithoutManifestGenerations(sourcePdfPath, [
+            1,
+            2,
+        ], requireDocumentRevisionToken('revision-0'));
+        recordCatalogReads();
+
+        const selection = await runSelection(sourcePdfPath, [
+            1,
+            2,
+        ], []);
+
+        expect(selection.pages.map(page => page.pageNumber)).toEqual([
+            1,
+            2,
+        ]);
+        expect(catalogReads.files).toEqual(['manifest.json']);
     });
 
     it('reports a failed text visibility inspection instead of swallowing it', async () => {

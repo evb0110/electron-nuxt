@@ -6,6 +6,18 @@ import { isRecord } from '@contracts/runtimeGuards';
 
 export type TOcrIndexRotation = 0 | 90 | 180 | 270;
 
+interface IOcrIndexV3PageMapping {
+    path: string;
+    /**
+     * Mirrors `canonicalText.generation` of the artifact at `path` so callers can
+     * tell evb-written pages from foreign text by reading the manifest alone.
+     * Optional because v3 catalogs written before 2026-07-26 omit it; those fall
+     * back to a catalog-wide stamp rather than invalidating. Make it required
+     * once the manifest version moves past 3.
+     */
+    generation?: string;
+}
+
 /**
  * The manifest is the sole owner of the catalog's revision and page ordering.
  * Page artifacts are position- and revision-independent so a revision bump or a
@@ -23,7 +35,7 @@ export interface IOcrIndexV3Manifest {
         languages: string[];
         renderDpi: number;
     };
-    pages: Record<number, { path: string }>;
+    pages: Record<number, IOcrIndexV3PageMapping>;
 }
 
 export interface IOcrIndexV3Page {
@@ -100,7 +112,7 @@ export function parseOcrIndexV3Manifest(
     ) {
         return null;
     }
-    const pages: Record<number, {path: string}> = {};
+    const pages: Record<number, IOcrIndexV3PageMapping> = {};
     for (const [
         rawPageNumber,
         rawMapping,
@@ -120,7 +132,15 @@ export function parseOcrIndexV3Manifest(
             }
             continue;
         }
-        pages[pageNumber] = {path};
+        const generation = isRecord(rawMapping)
+            && typeof rawMapping.generation === 'string'
+            && rawMapping.generation.length > 0
+            ? rawMapping.generation
+            : null;
+        pages[pageNumber] = {
+            path,
+            ...(generation === null ? {} : {generation}),
+        };
     }
     return {
         version: 3,

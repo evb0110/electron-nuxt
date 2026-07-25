@@ -877,6 +877,7 @@ fn run_page(
             page.source_page_index,
             detail_plan,
             &base_metadata,
+            &mut timings,
         )
         .map_err(invalid)?
     } else {

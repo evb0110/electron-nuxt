@@ -198,10 +198,14 @@ pub(crate) fn clean_detail_page_with_color(
     source_page_index: usize,
     plan: &DetailRenderPlan,
     base_metadata: &CleanupMetadata,
+    timings: &mut PageStageTimings,
 ) -> Result<PageCleanupResult, String> {
     options.validate()?;
     if options.output_mode == OutputMode::Mixed {
         return Err("Mixed-mode detail rendering requires the full-page picture mask".into());
+    }
+    if options.output_mode == OutputMode::Auto {
+        return Err("Detail rendering requires an output mode resolved from the full page".into());
     }
     if !options.manual_zones.picture.is_empty() || !options.manual_zones.fill.is_empty() {
         return Err("Detail rendering with manual zones requires the full-page source".into());
@@ -270,9 +274,10 @@ pub(crate) fn clean_detail_page_with_color(
     });
 
     // Geometry is replayed from the trusted base metadata above. Reuse the
-    // ordinary cleanup pipeline for tonal normalization, mixed routing,
-    // binarization, thickness, and despeckle so detail tiles cannot grow a
-    // second processing implementation.
+    // ordinary cleanup pipeline for tonal normalization, binarization,
+    // thickness, and despeckle so detail tiles cannot grow a second processing
+    // implementation, but skip the layout analysis the replayed geometry
+    // already answers.
     let mut tile_options = options.clone();
     tile_options.render_crop = None;
     tile_options.rotation = OrthogonalRotation::None;
@@ -289,11 +294,16 @@ pub(crate) fn clean_detail_page_with_color(
     tile_options.dewarp = None;
     tile_options.experimental = Default::default();
     tile_options.skip_blank_pages = false;
-    let mut processed = clean_page_with_color(
+    let mut processed = clean_page_with_color_and_calibration_config(
         &mapped_gray,
         mapped_color.as_ref(),
         &tile_options,
         source_page_index,
+        CalibrationConfig::default(),
+        None,
+        None,
+        PageRenderPolicy::DETAIL_TILE,
+        timings,
     )?;
     let mut output = processed
         .outputs
@@ -683,7 +693,7 @@ struct AnalysisArtifact {
     content_picture_mask: Option<Arc<BinaryImage>>,
     output_mode_recommendation: Option<OutputModeRecommendation>,
     resolved_output_mode: OutputMode,
-    analysis_threshold: u8,
+    analysis_threshold: Option<u8>,
     text_axis: Option<TextAxisHint>,
 }
 
@@ -723,7 +733,11 @@ fn classify_page_with_document_prior_impl(
         None,
         options,
         false,
-        true,
+        PageRenderPolicy {
+            create_mixed_layers: false,
+            recommend_output_mode: true,
+            analyze_layout: true,
+        },
         document_prior,
         CalibrationConfig::default(),
         cache,
@@ -855,7 +869,11 @@ fn analyze_page_with_color_and_document_prior_impl(
         color_source,
         options,
         true,
-        recommend_output_mode,
+        PageRenderPolicy {
+            create_mixed_layers: false,
+            recommend_output_mode,
+            analyze_layout: true,
+        },
         document_prior,
         CalibrationConfig::default(),
         cache,
@@ -967,12 +985,24 @@ fn analyze_page_with_color_and_document_prior_impl(
 struct PageRenderPolicy {
     create_mixed_layers: bool,
     recommend_output_mode: bool,
+    /// Picture mask, mode recommendation, text axis and split detection. A
+    /// caller that already knows the page layout keeps calibration and
+    /// binarization without paying for them. Only legal when the layout is
+    /// already resolved to a single region.
+    analyze_layout: bool,
 }
 
 impl PageRenderPolicy {
     const COMPLETE: Self = Self {
         create_mixed_layers: true,
         recommend_output_mode: true,
+        analyze_layout: true,
+    };
+
+    const DETAIL_TILE: Self = Self {
+        create_mixed_layers: false,
+        recommend_output_mode: false,
+        analyze_layout: false,
     };
 }
 
@@ -1079,6 +1109,7 @@ pub(crate) fn clean_page_with_color_and_document_prior_cached(
         PageRenderPolicy {
             create_mixed_layers,
             recommend_output_mode,
+            analyze_layout: true,
         },
         timings,
     )
@@ -1121,7 +1152,7 @@ fn clean_page_with_color_and_calibration_config(
         calibration_config,
         document_prior,
         cache,
-        render_policy.recommend_output_mode,
+        render_policy,
         timings,
     );
     let mut resolved_options;
@@ -1203,7 +1234,7 @@ fn prepare_page(
     calibration_config: CalibrationConfig,
     document_prior: Option<DocumentPrior>,
     cache: Option<&PageCache>,
-    recommend_output_mode: bool,
+    render_policy: PageRenderPolicy,
     timings: &mut PageStageTimings,
 ) -> PreparedPage {
     let PreparedAnalysis {
@@ -1225,7 +1256,7 @@ fn prepare_page(
         color_source,
         options,
         true,
-        recommend_output_mode,
+        render_policy,
         document_prior,
         calibration_config,
         cache,
@@ -1309,18 +1340,25 @@ fn prepare_analysis_page(
     color_source: Option<&RgbImage>,
     options: &CleanupOptions,
     prepare_quality_raster: bool,
-    recommend_output_mode: bool,
+    render_policy: PageRenderPolicy,
     document_prior: Option<DocumentPrior>,
     calibration_config: CalibrationConfig,
     cache: Option<&PageCache>,
     timings: &mut PageStageTimings,
 ) -> PreparedAnalysis {
+    debug_assert!(
+        render_policy.analyze_layout
+            || matches!(options.layout, crate::LayoutMode::Single)
+                && options.manual_split_x.is_none(),
+        "skipping layout analysis requires an already-resolved single-region layout",
+    );
     let analysis_key = cache.map(|cache| {
         StageCacheKey::analysis(
             &cache.source,
             options,
             prepare_quality_raster,
-            recommend_output_mode,
+            render_policy.recommend_output_mode,
+            render_policy.analyze_layout,
             calibration_config,
         )
     });
@@ -1360,35 +1398,36 @@ fn prepare_analysis_page(
         };
         let calibration =
             PageCalibration::estimate(&layout_normalized, effective_dpi, calibration_config);
-        let picture_mask = {
+        let picture_mask = render_policy.analyze_layout.then(|| {
             let mut mask = detect_picture_mask(&rotated, effective_dpi, calibration);
             apply_manual_zones(&mut mask, options);
-            Some(Arc::new(mask))
-        };
+            Arc::new(mask)
+        });
         let content_picture_mask = picture_mask
             .as_deref()
             .map(|mask| Arc::new(extend_picture_mask_for_content(&rotated, mask, calibration)));
-        let output_mode_recommendation = recommend_output_mode.then(|| {
-            let text_line_count = detect_content_and_margins_calibrated(
-                &layout_normalized,
-                picture_mask.as_deref(),
-                effective_dpi,
-                None,
-                Some([0.0; 4]),
-                calibration,
-            )
-            .diagnostics
-            .map(|diagnostics| diagnostics.text_mask.line_count)
-            .unwrap_or(0);
-            crate::mode_select::recommend_output_mode(PreparedModeEvidence {
-                analysis: &rotated,
-                analysis_rgb: analysis_rgb.as_ref(),
-                picture_mask: picture_mask
-                    .as_deref()
-                    .expect("analysis always prepares a picture mask"),
-                text_line_count,
-            })
-        });
+        let output_mode_recommendation = picture_mask
+            .as_deref()
+            .filter(|_| render_policy.recommend_output_mode)
+            .map(|picture_mask| {
+                let text_line_count = detect_content_and_margins_calibrated(
+                    &layout_normalized,
+                    Some(picture_mask),
+                    effective_dpi,
+                    None,
+                    Some([0.0; 4]),
+                    calibration,
+                )
+                .diagnostics
+                .map(|diagnostics| diagnostics.text_mask.line_count)
+                .unwrap_or(0);
+                crate::mode_select::recommend_output_mode(PreparedModeEvidence {
+                    analysis: &rotated,
+                    analysis_rgb: analysis_rgb.as_ref(),
+                    picture_mask,
+                    text_line_count,
+                })
+            });
         let resolved_output_mode = if options.output_mode == OutputMode::Auto {
             output_mode_recommendation
                 .map(|recommendation| recommendation.mode)
@@ -1412,8 +1451,11 @@ fn prepare_analysis_page(
         } else {
             rotated
         };
-        let analysis_threshold = otsu_threshold(&layout_normalized);
-        let text_axis = detect_text_axis(&layout_normalized, analysis_threshold);
+        let analysis_threshold = render_policy
+            .analyze_layout
+            .then(|| otsu_threshold(&layout_normalized));
+        let text_axis = analysis_threshold
+            .and_then(|threshold| detect_text_axis(&layout_normalized, threshold));
         let artifact = Arc::new(AnalysisArtifact {
             normalized: Arc::new(normalized),
             layout_normalized: Arc::new(layout_normalized),
@@ -1446,7 +1488,8 @@ fn prepare_analysis_page(
             &cache.source,
             options,
             prepare_quality_raster,
-            recommend_output_mode,
+            render_policy.recommend_output_mode,
+            render_policy.analyze_layout,
             calibration_config,
             document_prior,
         )
@@ -1458,24 +1501,29 @@ fn prepare_analysis_page(
     let analysis_threshold = analysis.analysis_threshold;
     let text_axis = analysis.text_axis;
     let split = cached_split.as_deref().cloned().unwrap_or_else(|| {
-        let mut split = if options.ocr_mode {
-            detect_split_at_analysis_level_with_threshold(
-                &analysis.layout_normalized,
-                analysis.effective_dpi,
-                crate::LayoutMode::Single,
-                None,
-                analysis_threshold,
-                None,
-            )
-        } else {
-            detect_split_at_analysis_level_with_threshold(
+        let mut split = match analysis_threshold {
+            None => crate::split::single_page(
+                analysis.layout_normalized.width(),
+                analysis.layout_normalized.height(),
+            ),
+            Some(analysis_threshold) if options.ocr_mode => {
+                detect_split_at_analysis_level_with_threshold(
+                    &analysis.layout_normalized,
+                    analysis.effective_dpi,
+                    crate::LayoutMode::Single,
+                    None,
+                    analysis_threshold,
+                    None,
+                )
+            }
+            Some(analysis_threshold) => detect_split_at_analysis_level_with_threshold(
                 &analysis.layout_normalized,
                 analysis.effective_dpi,
                 options.layout,
                 options.resolved_manual_split_x(analysis.normalized.width()),
                 analysis_threshold,
                 applicable_prior,
-            )
+            ),
         };
         if matches!(options.layout, crate::LayoutMode::Auto) && options.manual_split_x.is_none() {
             if let Some(prior) = applicable_prior {

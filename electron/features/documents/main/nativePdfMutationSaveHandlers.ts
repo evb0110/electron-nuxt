@@ -66,7 +66,6 @@ import {
 import {fingerprintFileWithUtilityProcess} from '@electron/features/documents/main/fingerprintFileWithUtilityProcess';
 
 const PDF_NATIVE_MUTATION_TIMEOUT_MS = 2 * 60 * 1000;
-const TAIL_ONLY_INCREMENTAL_VALIDATION_ENV = {EVB_PDF_PAGE_OPS_FULL_INCREMENTAL_VALIDATE: '0'} satisfies NodeJS.ProcessEnv;
 const log = createLogger('native-note-text-save');
 
 interface INativeNoteCommandOptions {
@@ -75,7 +74,6 @@ interface INativeNoteCommandOptions {
     payloadFlag: '--updates-file' | '--changes-file' | '--mutations-file';
     payload: unknown;
     commandLabel: string;
-    tailOnlyIncrementalValidation?: boolean;
 }
 
 interface INativeNotePhaseTiming {
@@ -160,17 +158,6 @@ function normalizeWorkingCopyExpectation(rawExpectedBase: unknown): IPdfNativeWo
 
 function normalizeNativeMutationSet(rawMutations: unknown): IPdfNativeMutationSet {
     return normalizePdfNativeMutationSet(rawMutations, 'native PDF mutations', {errorKind: 'error'});
-}
-
-function shouldUseTailOnlyIncrementalValidation(mutations: IPdfNativeMutationSet): boolean {
-    const hasMetadataMutation = Boolean(mutations.pageLabels) || Boolean(mutations.bookmarks);
-    return hasMetadataMutation
-        && !mutations.updates?.length
-        && !mutations.freeTextNotes?.length
-        && !mutations.deletes?.length
-        && !mutations.shapes
-        && !mutations.markup
-        && !mutations.placedImages?.length;
 }
 
 async function workingCopyMatchesExpectation(
@@ -261,9 +248,6 @@ async function prepareNativeNoteMutation(options: {
         ], {
             timeoutMs: PDF_NATIVE_MUTATION_TIMEOUT_MS,
             commandLabel: options.command.commandLabel,
-            ...(options.command.tailOnlyIncrementalValidation
-                ? {env: TAIL_ONLY_INCREMENTAL_VALIDATION_ENV}
-                : {}),
             signal: options.mutationOperation.signal,
             cancelGroup: options.mutationOperation.cancelGroup,
         }));
@@ -605,7 +589,6 @@ export async function handleNativePdfMutationsSave(
         payloadFlag: '--mutations-file',
         payload: mutations,
         commandLabel: 'evb-pdf-page-ops(save-mutations)',
-        tailOnlyIncrementalValidation: shouldUseTailOnlyIncrementalValidation(mutations),
     });
 }
 
@@ -624,6 +607,5 @@ export async function handleNativePdfMutationsApplyToWorkingCopy(
         payloadFlag: '--mutations-file',
         payload: mutations,
         commandLabel: 'evb-pdf-page-ops(save-mutations-working-copy)',
-        tailOnlyIncrementalValidation: shouldUseTailOnlyIncrementalValidation(mutations),
     });
 }

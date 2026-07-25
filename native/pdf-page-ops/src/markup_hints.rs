@@ -67,13 +67,6 @@ pub(crate) fn canonical_markup_subtype(dict: &Dictionary) -> Option<String> {
     }
 }
 
-pub(crate) fn resolve_object<'a>(document: &'a Document, object: &'a Object) -> Option<&'a Object> {
-    document
-        .dereference(object)
-        .ok()
-        .map(|(_, resolved)| resolved)
-}
-
 pub(crate) fn object_to_markup_color_channel(
     value: f64,
     all_channels_are_unit_range: bool,
@@ -89,9 +82,12 @@ pub(crate) fn object_to_markup_color_channel(
     Some(scaled.round().clamp(0.0, 255.0) as u8)
 }
 
-pub(crate) fn read_markup_color(document: &Document, dict: &Dictionary) -> Option<RgbColor> {
+pub(crate) fn read_markup_color(
+    document: &impl PdfObjectSource,
+    dict: &Dictionary,
+) -> Option<RgbColor> {
     let object = dict.get(b"C").ok()?;
-    let resolved = resolve_object(document, object)?;
+    let resolved = document.resolved(object).ok()?;
     let values = resolved.as_array().ok()?;
     if values.len() < 3 {
         return None;
@@ -109,9 +105,12 @@ pub(crate) fn read_markup_color(document: &Document, dict: &Dictionary) -> Optio
     })
 }
 
-pub(crate) fn read_pdf_rect_from_dict(document: &Document, dict: &Dictionary) -> Option<PdfRect> {
+pub(crate) fn read_pdf_rect_from_dict(
+    document: &impl PdfObjectSource,
+    dict: &Dictionary,
+) -> Option<PdfRect> {
     let object = dict.get(b"Rect").ok()?;
-    let resolved = resolve_object(document, object)?;
+    let resolved = document.resolved(object).ok()?;
     let values = resolved.as_array().ok()?;
     if values.len() < 4 {
         return None;
@@ -132,9 +131,12 @@ pub(crate) fn read_pdf_rect_from_dict(document: &Document, dict: &Dictionary) ->
     Some(rect)
 }
 
-pub(crate) fn read_markup_quad_points(document: &Document, dict: &Dictionary) -> Option<Vec<f64>> {
+pub(crate) fn read_markup_quad_points(
+    document: &impl PdfObjectSource,
+    dict: &Dictionary,
+) -> Option<Vec<f64>> {
     let object = dict.get(b"QuadPoints").ok()?;
-    let resolved = resolve_object(document, object)?;
+    let resolved = document.resolved(object).ok()?;
     let values = resolved.as_array().ok()?;
     if values.is_empty() || values.len() % 8 != 0 {
         return None;

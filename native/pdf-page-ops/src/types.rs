@@ -43,10 +43,93 @@ impl PdfRect {
     }
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum IncrementalValidationMode {
-    Full,
-    TailOnly,
+const PDF_REFERENCE_LIMIT: usize = 128;
+
+pub(crate) trait PdfObjectSource {
+    fn stored_object(&self, object_id: ObjectId) -> Option<&Object>;
+
+    fn page_ids(&self) -> BTreeMap<u32, ObjectId>;
+
+    fn root_id(&self) -> Result<ObjectId>;
+
+    fn resolved<'a>(&'a self, object: &'a Object) -> Result<&'a Object> {
+        let mut object = object;
+        for _ in 0..PDF_REFERENCE_LIMIT {
+            let Ok(object_id) = object.as_reference() else {
+                return Ok(object);
+            };
+            object = self
+                .stored_object(object_id)
+                .ok_or_else(|| missing_object_message(object_id))?;
+        }
+        Err("PDF reference chain exceeded the dereference limit".into())
+    }
+
+    fn object(&self, object_id: ObjectId) -> Result<&Object> {
+        let object = self
+            .stored_object(object_id)
+            .ok_or_else(|| missing_object_message(object_id))?;
+        self.resolved(object)
+    }
+
+    fn dictionary(&self, object_id: ObjectId) -> Result<&Dictionary> {
+        Ok(self.object(object_id)?.as_dict()?)
+    }
+}
+
+fn missing_object_message(object_id: ObjectId) -> String {
+    format!("Object {}R{} was not found", object_id.0, object_id.1)
+}
+
+impl PdfObjectSource for Document {
+    fn stored_object(&self, object_id: ObjectId) -> Option<&Object> {
+        self.objects.get(&object_id)
+    }
+
+    fn page_ids(&self) -> BTreeMap<u32, ObjectId> {
+        self.get_pages()
+    }
+
+    fn root_id(&self) -> Result<ObjectId> {
+        Ok(self.trailer.get(b"Root")?.as_reference()?)
+    }
+}
+
+/// What a fresh reader sees after an incremental append: the objects the
+/// appended revision rewrote, over the base revision that is still in memory.
+pub(crate) struct AppendedRevision<'a> {
+    base: &'a Document,
+    appended: &'a Document,
+}
+
+impl<'a> AppendedRevision<'a> {
+    pub(crate) fn new(incremental: &'a IncrementalDocument) -> Self {
+        Self {
+            base: incremental.get_prev_documents(),
+            appended: &incremental.new_document,
+        }
+    }
+}
+
+impl PdfObjectSource for AppendedRevision<'_> {
+    fn stored_object(&self, object_id: ObjectId) -> Option<&Object> {
+        self.appended
+            .objects
+            .get(&object_id)
+            .or_else(|| self.base.objects.get(&object_id))
+    }
+
+    /// Appends rewrite page dictionaries, the catalog and annotation objects but
+    /// never restructure the page tree, so page identity comes from the base
+    /// revision. A mutation that adds or removes pages would have to walk the
+    /// appended tree instead.
+    fn page_ids(&self) -> BTreeMap<u32, ObjectId> {
+        self.base.get_pages()
+    }
+
+    fn root_id(&self) -> Result<ObjectId> {
+        Ok(self.appended.trailer.get(b"Root")?.as_reference()?)
+    }
 }
 
 pub(crate) enum Operation {
@@ -64,19 +147,16 @@ pub(crate) enum Operation {
         updates_file: PathBuf,
         modified_at: String,
         append: bool,
-        incremental_validation: IncrementalValidationMode,
     },
     SaveNoteChanges {
         changes_file: PathBuf,
         modified_at: String,
         append: bool,
-        incremental_validation: IncrementalValidationMode,
     },
     SaveMutations {
         mutations_file: PathBuf,
         modified_at: String,
         append: bool,
-        incremental_validation: IncrementalValidationMode,
     },
     PageSizes,
 }
@@ -133,7 +213,7 @@ pub(crate) struct NoteChangesFile {
     pub(crate) deletes: Vec<AnnotationDelete>,
 }
 
-#[derive(Deserialize)]
+#[derive(Default, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(crate) struct NativeMutationsFile {
     #[serde(default)]

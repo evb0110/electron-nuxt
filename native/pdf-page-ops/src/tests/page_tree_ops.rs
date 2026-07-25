@@ -94,7 +94,7 @@
             "Author" => Object::string_literal("EVB"),
         });
         document.trailer.set("Info", info_id);
-        let catalog_id = catalog_id(&document).unwrap();
+        let catalog_id = document.root_id().unwrap();
         let catalog = document.get_dictionary_mut(catalog_id).unwrap();
         catalog.set("PageMode", Object::Name(b"UseOutlines".to_vec()));
         catalog.set("PageLayout", Object::Name(b"TwoColumnLeft".to_vec()));

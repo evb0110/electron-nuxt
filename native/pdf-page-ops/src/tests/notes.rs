@@ -81,16 +81,18 @@
         write(&input_path, &original_bytes).unwrap();
         write(&output_path, &original_bytes).unwrap();
 
-        append_note_text_update(
+        append_native_mutations(
             &input_path,
             &output_path,
-            &[NoteTextUpdate {
-                object_number: target_id.0,
-                generation_number: target_id.1,
-                text: "incremental hello".to_string(),
-            }],
+            &NativeMutationsFile {
+                updates: vec![NoteTextUpdate {
+                    object_number: target_id.0,
+                    generation_number: target_id.1,
+                    text: "incremental hello".to_string(),
+                }],
+                ..NativeMutationsFile::default()
+            },
             "D:20260609123456+03'00'",
-            IncrementalValidationMode::Full,
         )
         .unwrap();
 
@@ -126,16 +128,18 @@
         write(&output_path, &original_bytes).unwrap();
         let previous_document = Document::load(&input_path).unwrap();
 
-        append_note_text_update(
+        append_native_mutations(
             &input_path,
             &output_path,
-            &[NoteTextUpdate {
-                object_number: target_id.0,
-                generation_number: target_id.1,
-                text: "tail validation".to_string(),
-            }],
+            &NativeMutationsFile {
+                updates: vec![NoteTextUpdate {
+                    object_number: target_id.0,
+                    generation_number: target_id.1,
+                    text: "tail validation".to_string(),
+                }],
+                ..NativeMutationsFile::default()
+            },
             "D:20260609123456+03'00'",
-            IncrementalValidationMode::Full,
         )
         .unwrap();
 
@@ -152,108 +156,6 @@
     }
 
     #[test]
-    fn incremental_validation_mode_defaults_to_full_with_environment_fallback() {
-        assert_eq!(
-            incremental_validation_mode_from_environment_value(None),
-            IncrementalValidationMode::Full
-        );
-        assert_eq!(
-            incremental_validation_mode_from_environment_value(Some("1")),
-            IncrementalValidationMode::Full
-        );
-        assert_eq!(
-            incremental_validation_mode_from_environment_value(Some("0")),
-            IncrementalValidationMode::TailOnly
-        );
-        assert_eq!(
-            incremental_validation_mode_from_environment_value(Some("false")),
-            IncrementalValidationMode::TailOnly
-        );
-        assert_eq!(
-            incremental_validation_mode_from_environment_value(Some("no")),
-            IncrementalValidationMode::TailOnly
-        );
-    }
-
-    #[test]
-    fn parses_explicit_append_incremental_validation_mode() {
-        let config = parse_args(
-            [
-                "save-mutations",
-                "--input",
-                "input.pdf",
-                "--output",
-                "output.pdf",
-                "--mutations-file",
-                "mutations.json",
-                "--modified-at",
-                "D:20260609123456Z",
-                "--append",
-                "--incremental-validation",
-                "tail-only",
-            ]
-            .into_iter()
-            .map(String::from),
-        )
-        .unwrap();
-        assert!(matches!(
-            config.operation,
-            Operation::SaveMutations {
-                append: true,
-                incremental_validation: IncrementalValidationMode::TailOnly,
-                ..
-            }
-        ));
-    }
-
-    #[test]
-    fn rejects_incremental_validation_for_non_append_operations() {
-        let error = parse_args(
-            [
-                "page-sizes",
-                "--input",
-                "input.pdf",
-                "--output",
-                "output.json",
-                "--incremental-validation",
-                "tail-only",
-            ]
-            .into_iter()
-            .map(String::from),
-        )
-        .err()
-        .unwrap()
-        .to_string();
-        assert!(error.contains("requires an append operation"));
-    }
-
-    #[test]
-    fn rejects_invalid_incremental_validation_mode() {
-        let error = parse_args(
-            [
-                "save-mutations",
-                "--input",
-                "input.pdf",
-                "--output",
-                "output.pdf",
-                "--mutations-file",
-                "mutations.json",
-                "--modified-at",
-                "D:20260609123456Z",
-                "--append",
-                "--incremental-validation",
-                "fast",
-            ]
-            .into_iter()
-            .map(String::from),
-        )
-        .err()
-        .unwrap()
-        .to_string();
-        assert!(error.contains("Invalid --incremental-validation value"));
-    }
-
-    #[test]
     fn rejects_incremental_append_tail_with_corrupt_object_header() {
         let (mut document, target_id, popup_id) = create_test_note_pdf();
         document.reference_table.cross_reference_type = lopdf::xref::XrefType::CrossReferenceTable;
@@ -265,16 +167,18 @@
         write(&output_path, &original_bytes).unwrap();
         let previous_document = Document::load(&input_path).unwrap();
 
-        append_note_text_update(
+        append_native_mutations(
             &input_path,
             &output_path,
-            &[NoteTextUpdate {
-                object_number: target_id.0,
-                generation_number: target_id.1,
-                text: "tail corruption".to_string(),
-            }],
+            &NativeMutationsFile {
+                updates: vec![NoteTextUpdate {
+                    object_number: target_id.0,
+                    generation_number: target_id.1,
+                    text: "tail corruption".to_string(),
+                }],
+                ..NativeMutationsFile::default()
+            },
             "D:20260609123456+03'00'",
-            IncrementalValidationMode::Full,
         )
         .unwrap();
 
@@ -315,17 +219,19 @@
         write(&input_path, &original_bytes).unwrap();
         write(&output_path, &wrong_same_size_bytes).unwrap();
 
-        let error = append_note_text_update(
-            &input_path,
-            &output_path,
-            &[NoteTextUpdate {
-                object_number: target_id.0,
-                generation_number: target_id.1,
-                text: "incremental hello".to_string(),
-            }],
-            "D:20260609123456+03'00'",
-            IncrementalValidationMode::Full,
-        )
+        let error = append_native_mutations(
+                        &input_path,
+                        &output_path,
+                        &NativeMutationsFile {
+                            updates: vec![NoteTextUpdate {
+                    object_number: target_id.0,
+                    generation_number: target_id.1,
+                    text: "incremental hello".to_string(),
+                }],
+                            ..NativeMutationsFile::default()
+                        },
+                        "D:20260609123456+03'00'",
+                    )
         .unwrap_err()
         .to_string();
 
@@ -363,16 +269,18 @@
         document.save_to(&mut original_bytes).unwrap();
         write(&pdf_path, &original_bytes).unwrap();
 
-        append_note_text_update(
+        append_native_mutations(
             &pdf_path,
             &pdf_path,
-            &[NoteTextUpdate {
-                object_number: target_id.0,
-                generation_number: target_id.1,
-                text: "same path update".to_string(),
-            }],
+            &NativeMutationsFile {
+                updates: vec![NoteTextUpdate {
+                    object_number: target_id.0,
+                    generation_number: target_id.1,
+                    text: "same path update".to_string(),
+                }],
+                ..NativeMutationsFile::default()
+            },
             "D:20260609123456+03'00'",
-            IncrementalValidationMode::Full,
         )
         .unwrap();
 
@@ -424,10 +332,10 @@
         write(&input_path, &original_bytes).unwrap();
         write(&output_path, &original_bytes).unwrap();
 
-        append_note_changes(
+        append_native_mutations(
             &input_path,
             &output_path,
-            &NoteChangesFile {
+            &NativeMutationsFile {
                 updates: Vec::new(),
                 free_text_notes: Vec::new(),
                 deletes: vec![AnnotationDelete {
@@ -437,9 +345,9 @@
                     stable_key: None,
                     created_at: None,
                 }],
+                ..NativeMutationsFile::default()
             },
             "D:20260609123456+03'00'",
-            IncrementalValidationMode::Full,
         )
         .unwrap();
 
@@ -469,10 +377,10 @@
         document.save_to(&mut original_bytes).unwrap();
         write(&pdf_path, &original_bytes).unwrap();
 
-        append_note_changes(
+        append_native_mutations(
             &pdf_path,
             &pdf_path,
-            &NoteChangesFile {
+            &NativeMutationsFile {
                 updates: Vec::new(),
                 free_text_notes: vec![FreeTextNote {
                     page_index: 0,
@@ -489,16 +397,16 @@
                     created_at: Some(1781009077000),
                 }],
                 deletes: Vec::new(),
+                ..NativeMutationsFile::default()
             },
             "D:20260609123456+03'00'",
-            IncrementalValidationMode::Full,
         )
         .unwrap();
 
-        append_note_changes(
+        append_native_mutations(
             &pdf_path,
             &pdf_path,
-            &NoteChangesFile {
+            &NativeMutationsFile {
                 updates: Vec::new(),
                 free_text_notes: Vec::new(),
                 deletes: vec![AnnotationDelete {
@@ -508,9 +416,9 @@
                     stable_key: Some("uid:0:pdfjs_internal_editor_0".to_string()),
                     created_at: Some(1781009077000),
                 }],
+                ..NativeMutationsFile::default()
             },
             "D:20260609123500+03'00'",
-            IncrementalValidationMode::Full,
         )
         .unwrap();
 
@@ -548,10 +456,10 @@
         write(&input_path, &original_bytes).unwrap();
         write(&output_path, &original_bytes).unwrap();
 
-        append_note_changes(
+        append_native_mutations(
             &input_path,
             &output_path,
-            &NoteChangesFile {
+            &NativeMutationsFile {
                 updates: Vec::new(),
                 free_text_notes: vec![FreeTextNote {
                     page_index: 0,
@@ -568,9 +476,9 @@
                     created_at: Some(1781009077000),
                 }],
                 deletes: Vec::new(),
+                ..NativeMutationsFile::default()
             },
             "D:20260609123456+03'00'",
-            IncrementalValidationMode::Full,
         )
         .unwrap();
 
@@ -639,10 +547,10 @@
         document.save_to(&mut original_bytes).unwrap();
         write(&pdf_path, &original_bytes).unwrap();
 
-        append_note_changes(
+        append_native_mutations(
             &pdf_path,
             &pdf_path,
-            &NoteChangesFile {
+            &NativeMutationsFile {
                 updates: Vec::new(),
                 free_text_notes: vec![FreeTextNote {
                     page_index: 0,
@@ -659,15 +567,15 @@
                     created_at: None,
                 }],
                 deletes: Vec::new(),
+                ..NativeMutationsFile::default()
             },
             "D:20260609123456+03'00'",
-            IncrementalValidationMode::Full,
         )
         .unwrap();
-        append_note_changes(
+        append_native_mutations(
             &pdf_path,
             &pdf_path,
-            &NoteChangesFile {
+            &NativeMutationsFile {
                 updates: Vec::new(),
                 free_text_notes: vec![FreeTextNote {
                     page_index: 0,
@@ -684,9 +592,9 @@
                     created_at: None,
                 }],
                 deletes: Vec::new(),
+                ..NativeMutationsFile::default()
             },
             "D:20260609123500+03'00'",
-            IncrementalValidationMode::Full,
         )
         .unwrap();
 
@@ -710,4 +618,197 @@
         );
 
         let _ = remove_file(pdf_path);
+    }
+
+    #[test]
+    fn appended_revision_reads_written_objects_over_the_untouched_base_revision() {
+        let (mut document, target_id, _) = create_test_note_pdf();
+        let pdf_path = temp_pdf_path("appended-revision-overlay");
+        let mut original_bytes = Vec::new();
+        document.save_to(&mut original_bytes).unwrap();
+        write(&pdf_path, &original_bytes).unwrap();
+
+        let mut incremental = IncrementalDocument::load(&pdf_path).unwrap();
+        update_note_text_incremental(
+            &mut incremental,
+            &[NoteTextUpdate {
+                object_number: target_id.0,
+                generation_number: target_id.1,
+                text: "overlaid text".to_string(),
+            }],
+            "D:20260609123456Z",
+        )
+        .unwrap();
+
+        let revision = AppendedRevision::new(&incremental);
+        let catalog_id = revision.root_id().unwrap();
+        assert!(!incremental.new_document.objects.contains_key(&catalog_id));
+        assert_eq!(
+            revision
+                .dictionary(catalog_id)
+                .unwrap()
+                .get(b"Type")
+                .unwrap()
+                .as_name()
+                .unwrap(),
+            b"Catalog"
+        );
+        assert_eq!(
+            revision
+                .dictionary(target_id)
+                .unwrap()
+                .get(b"Contents")
+                .unwrap()
+                .as_str()
+                .unwrap(),
+            encode_pdf_text_string("overlaid text").as_slice()
+        );
+        assert_eq!(revision.page_ids().len(), 1);
+
+        let _ = remove_file(pdf_path);
+    }
+
+    #[test]
+    fn appended_revision_postconditions_reject_text_that_was_not_written() {
+        let (mut document, target_id, _) = create_test_note_pdf();
+        let pdf_path = temp_pdf_path("appended-revision-mismatch");
+        let mut original_bytes = Vec::new();
+        document.save_to(&mut original_bytes).unwrap();
+        write(&pdf_path, &original_bytes).unwrap();
+
+        let mut incremental = IncrementalDocument::load(&pdf_path).unwrap();
+        update_note_text_incremental(
+            &mut incremental,
+            &[NoteTextUpdate {
+                object_number: target_id.0,
+                generation_number: target_id.1,
+                text: "written text".to_string(),
+            }],
+            "D:20260609123456Z",
+        )
+        .unwrap();
+
+        let error = validate_appended_revision_postconditions(
+            &AppendedRevision::new(&incremental),
+            &NativeMutationsFile {
+                updates: vec![NoteTextUpdate {
+                    object_number: target_id.0,
+                    generation_number: target_id.1,
+                    text: "some other text".to_string(),
+                }],
+                ..NativeMutationsFile::default()
+            },
+            "D:20260609123456Z",
+        )
+        .unwrap_err()
+        .to_string();
+        assert!(error.contains("Contents did not match requested text"));
+
+        let _ = remove_file(pdf_path);
+    }
+
+    #[test]
+    fn rejects_the_removed_incremental_validation_flag() {
+        let error = parse_args(
+            [
+                "save-mutations",
+                "--input",
+                "input.pdf",
+                "--output",
+                "output.pdf",
+                "--mutations-file",
+                "mutations.json",
+                "--modified-at",
+                "D:20260609123456Z",
+                "--append",
+                "--incremental-validation",
+                "tail-only",
+            ]
+            .into_iter()
+            .map(String::from),
+        )
+        .err()
+        .unwrap()
+        .to_string();
+        assert!(error.contains("Unknown argument: --incremental-validation"));
+    }
+
+    #[test]
+    fn append_compares_a_seeded_output_past_the_first_read_chunk() {
+        let (mut document, target_id, _) = create_test_note_pdf();
+        document.add_object(Object::Stream(Stream::new(
+            dictionary! {},
+            vec![b'p'; 96 * 1024],
+        )));
+        let input_path = temp_pdf_path("append-seed-chunked-input");
+        let output_path = temp_pdf_path("append-seed-chunked-output");
+        let mut original_bytes = Vec::new();
+        document.save_to(&mut original_bytes).unwrap();
+        assert!(original_bytes.len() > 64 * 1024);
+        write(&input_path, &original_bytes).unwrap();
+
+        let mut divergent_bytes = original_bytes.clone();
+        divergent_bytes[70 * 1024] ^= 0xff;
+        write(&output_path, &divergent_bytes).unwrap();
+        let mutations = NativeMutationsFile {
+            updates: vec![NoteTextUpdate {
+                object_number: target_id.0,
+                generation_number: target_id.1,
+                text: "chunked seed".to_string(),
+            }],
+            ..NativeMutationsFile::default()
+        };
+        let error = append_native_mutations(
+            &input_path,
+            &output_path,
+            &mutations,
+            "D:20260609123456Z",
+        )
+        .unwrap_err()
+        .to_string();
+        assert!(error.contains("byte-for-byte copy"));
+
+        write(&output_path, &original_bytes).unwrap();
+        append_native_mutations(
+            &input_path,
+            &output_path,
+            &mutations,
+            "D:20260609123456Z",
+        )
+        .unwrap();
+        let appended_bytes = read(&output_path).unwrap();
+        assert!(appended_bytes.starts_with(&original_bytes));
+        assert!(appended_bytes.len() > original_bytes.len());
+
+        let _ = remove_file(input_path);
+        let _ = remove_file(output_path);
+    }
+
+    #[test]
+    fn reports_an_unreadable_append_payload_as_an_invalid_request() {
+        let (mut document, _, _) = create_test_note_pdf();
+        let pdf_path = temp_pdf_path("append-invalid-payload");
+        let mut original_bytes = Vec::new();
+        document.save_to(&mut original_bytes).unwrap();
+        write(&pdf_path, &original_bytes).unwrap();
+        let mutations_path = pdf_path.with_extension("mutations.json");
+        write(&mutations_path, b"{\"updates\":\"not-a-list\"}").unwrap();
+
+        let error = mutate_pdf(Config {
+            operation: Operation::SaveMutations {
+                mutations_file: mutations_path.clone(),
+                modified_at: "D:20260609123456Z".to_string(),
+                append: true,
+            },
+            input_path: pdf_path.clone(),
+            output_path: pdf_path.clone(),
+        })
+        .unwrap_err();
+        assert_eq!(
+            evb_native_support::NativeErrorEnvelope::from_error(error.as_ref()).code,
+            NativeErrorCode::InvalidRequest
+        );
+
+        let _ = remove_file(pdf_path);
+        let _ = remove_file(mutations_path);
     }

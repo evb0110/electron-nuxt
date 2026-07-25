@@ -221,7 +221,7 @@ mod tests {
             None,
             &options,
             true,
-            true,
+            PageRenderPolicy::COMPLETE,
             None,
             CalibrationConfig::default(),
             None,
@@ -1870,6 +1870,7 @@ mod tests {
             PageRenderPolicy {
                 create_mixed_layers: false,
                 recommend_output_mode: true,
+                analyze_layout: true,
             },
             &mut timings,
         )
@@ -2200,6 +2201,7 @@ mod tests {
             0,
             &detail_plan,
             &base_metadata,
+            &mut PageStageTimings::default(),
         )
         .unwrap()
         .outputs
@@ -2245,13 +2247,14 @@ mod tests {
             0,
             &detail_plan,
             &base_metadata,
+            &mut PageStageTimings::default(),
         )
         .err()
         .expect("detail rendering with manual zones must fail closed")
         .contains("manual zones requires the full-page source"));
         let mixed_options = CleanupOptions {
             output_mode: OutputMode::Mixed,
-            ..detail_options
+            ..detail_options.clone()
         };
         assert!(clean_detail_page_with_color(
             &cropped_source,
@@ -2261,9 +2264,225 @@ mod tests {
             0,
             &detail_plan,
             &base_metadata,
+            &mut PageStageTimings::default(),
         )
         .err()
         .expect("mixed detail must fail closed")
         .contains("full-page picture mask"));
+        let auto_options = CleanupOptions {
+            output_mode: OutputMode::Auto,
+            ..detail_options
+        };
+        assert!(clean_detail_page_with_color(
+            &cropped_source,
+            None,
+            &base_source,
+            &auto_options,
+            0,
+            &detail_plan,
+            &base_metadata,
+            &mut PageStageTimings::default(),
+        )
+        .err()
+        .expect("an unresolved output mode must fail closed rather than be chosen per tile")
+        .contains("resolved from the full page"));
+    }
+
+    #[test]
+    fn detail_tile_policy_skips_layout_analysis_and_keeps_calibration() {
+        let source = illustrated_text_page();
+        let options = CleanupOptions {
+            dpi: 300.0,
+            output_mode: OutputMode::Bw,
+            normalize_illumination: false,
+            crop_content: false,
+            match_page_size: false,
+            margins_mm: None,
+            manual_skew_degrees: Some(0.0),
+            layout: crate::LayoutMode::Single,
+            ..CleanupOptions::default()
+        };
+        let prepare = |policy| {
+            let mut timings = PageStageTimings::default();
+            let prepared = prepare_analysis_page(
+                &source,
+                None,
+                &options,
+                true,
+                policy,
+                None,
+                CalibrationConfig::default(),
+                None,
+                &mut timings,
+            );
+            (prepared, timings)
+        };
+        let (complete, complete_timings) = prepare(PageRenderPolicy::COMPLETE);
+        let (tile, tile_timings) = prepare(PageRenderPolicy::DETAIL_TILE);
+
+        assert!(
+            complete
+                .picture_mask
+                .as_deref()
+                .expect("the complete policy detects a picture mask")
+                .count_black()
+                > 0,
+            "the fixture must exercise the layout stack the tile policy skips",
+        );
+        assert!(complete.content_picture_mask.is_some());
+        assert!(complete.text_axis.is_some());
+
+        assert!(tile.picture_mask.is_none());
+        assert!(tile.content_picture_mask.is_none());
+        assert!(tile.text_axis.is_none());
+        assert!(tile.output_mode_recommendation.is_none());
+        assert_eq!(
+            tile.split.classification,
+            LayoutClassification::SingleUncutPage
+        );
+        assert_eq!(tile.split.cutter_x, None);
+        assert_eq!(tile.split.pages.len(), 1);
+
+        // Calibration and the raster the tile binarizes are exactly what the
+        // complete policy produced; only the discarded layout work is gone.
+        assert_eq!(tile.normalized.data(), complete.normalized.data());
+        assert_eq!(tile.full_width, complete.full_width);
+        assert_eq!(tile.full_height, complete.full_height);
+        assert_eq!(
+            tile.calibration.stroke_width_px,
+            complete.calibration.stroke_width_px
+        );
+        assert_eq!(tile.calibration.x_height_px, complete.calibration.x_height_px);
+        assert_eq!(tile.calibration.valid, complete.calibration.valid);
+        assert!(
+            tile_timings.normalization_ms < complete_timings.normalization_ms,
+            "skipping the layout stack must cost less, not more: {tile_timings:?} vs {complete_timings:?}",
+        );
+    }
+
+    #[test]
+    fn bw_detail_tile_reproduces_the_full_page_render_it_replaces() {
+        let base_source = illustrated_text_page();
+        let mut detail_source = GrayImage::new(base_source.width() * 2, base_source.height() * 2, 255);
+        for y in 0..detail_source.height() {
+            for x in 0..detail_source.width() {
+                detail_source.set(x, y, base_source.get(x / 2, y / 2));
+            }
+        }
+        let base_options = CleanupOptions {
+            dpi: 150.0,
+            source_dpi: Some(150.0),
+            requested_render_dpi: Some(150.0),
+            output_mode: OutputMode::Bw,
+            normalize_illumination: false,
+            crop_content: false,
+            match_page_size: false,
+            margins_mm: None,
+            margins_pixels: Some([0.0; 4]),
+            manual_skew_degrees: Some(0.0),
+            layout: crate::LayoutMode::Single,
+            ..CleanupOptions::default()
+        };
+        let base_metadata = clean_page(&base_source, &base_options, 0)
+            .unwrap()
+            .outputs
+            .remove(0)
+            .metadata;
+        let detail_options = CleanupOptions {
+            dpi: 300.0,
+            requested_render_dpi: Some(300.0),
+            ..base_options
+        };
+        // The apron the preview service samples around the visible viewport.
+        let sampled_region = Rect::new(24.0, 40.0, 220.0, 200.0);
+        let render_region = Rect::new(80.0, 96.0, 108.0, 88.0);
+        let detail_plan = DetailRenderPlan {
+            base_metadata_path: std::path::PathBuf::from("unused-in-engine-test.json"),
+            base_raster_path: std::path::PathBuf::from("unused-in-engine-test.png"),
+            source_crop: crate::protocol::manifest_v3::DetailPixelRect {
+                x_px: sampled_region.x,
+                y_px: sampled_region.y,
+                width_px: sampled_region.width,
+                height_px: sampled_region.height,
+            },
+            full_source_width_px: detail_source.width(),
+            full_source_height_px: detail_source.height(),
+            scale: 2.0,
+            render_region: crate::protocol::manifest_v3::DetailPixelRect {
+                x_px: render_region.x,
+                y_px: render_region.y,
+                width_px: render_region.width,
+                height_px: render_region.height,
+            },
+            sampled_region: crate::protocol::manifest_v3::DetailPixelRect {
+                x_px: sampled_region.x,
+                y_px: sampled_region.y,
+                width_px: sampled_region.width,
+                height_px: sampled_region.height,
+            },
+        };
+        let detail = clean_detail_page_with_color(
+            &crop_gray(&detail_source, sampled_region),
+            None,
+            &base_source,
+            &detail_options,
+            0,
+            &detail_plan,
+            &base_metadata,
+            &mut PageStageTimings::default(),
+        )
+        .unwrap()
+        .outputs
+        .remove(0);
+        let full = clean_page(&detail_source, &detail_options, 0)
+            .unwrap()
+            .outputs
+            .remove(0);
+        let expected = crop_gray(&full.image, render_region);
+        assert_eq!(detail.image.width(), expected.width());
+        assert_eq!(detail.image.height(), expected.height());
+        assert!(
+            expected.data().contains(&0) && expected.data().contains(&255),
+            "the compared region must carry both ink and paper",
+        );
+        let mismatched = detail
+            .image
+            .data()
+            .iter()
+            .zip(expected.data())
+            .filter(|(actual, expected)| actual != expected)
+            .count();
+        let mismatch_ratio = mismatched as f64 / expected.data().len() as f64;
+        assert!(
+            mismatch_ratio < 0.005,
+            "a binarized detail tile must reproduce the full-page render, mismatch={mismatch_ratio:.4}",
+        );
+    }
+
+    fn illustrated_text_page() -> GrayImage {
+        let mut source = GrayImage::new(420, 560, 248);
+        for y in 0..source.height() {
+            for x in 0..source.width() {
+                let shade = 248 - (x * 6 / source.width()) - (y * 4 / source.height());
+                source.set(x, y, shade as u8);
+            }
+        }
+        for line in 0..14 {
+            let top = 40 + line * 18;
+            for y in top..top + 8 {
+                for x in 40..380 {
+                    if (x / 34 + line) % 5 != 4 && (x * 5 + y * 3) % 7 > 1 {
+                        source.set(x, y, 28);
+                    }
+                }
+            }
+        }
+        for y in 330..520 {
+            for x in 70..350 {
+                let halftone = ((x % 4) + (y % 4)) * 14;
+                source.set(x, y, (52 + halftone) as u8);
+            }
+        }
+        source
     }
 }

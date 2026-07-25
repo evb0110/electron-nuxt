@@ -436,13 +436,16 @@ pub(crate) fn find_existing_free_text_note(
     Ok(None)
 }
 
-pub(crate) fn get_page_annots(document: &Document, page_id: ObjectId) -> Result<Vec<Object>> {
-    let page = document.get_dictionary(page_id)?;
+pub(crate) fn get_page_annots(
+    document: &impl PdfObjectSource,
+    page_id: ObjectId,
+) -> Result<Vec<Object>> {
+    let page = document.dictionary(page_id)?;
     let annots = match page.get(b"Annots") {
         Ok(object) => object,
         Err(_) => return Ok(Vec::new()),
     };
-    let (_, resolved) = document.dereference(annots)?;
+    let resolved = document.resolved(annots)?;
     Ok(resolved.as_array().cloned().unwrap_or_default())
 }
 
@@ -475,10 +478,10 @@ pub(crate) fn append_annots_to_page_incremental(
 }
 
 pub(crate) fn collect_annotation_refs_to_delete(
-    document: &Document,
+    document: &impl PdfObjectSource,
     target_id: ObjectId,
 ) -> Result<Vec<ObjectId>> {
-    if document.get_dictionary(target_id).is_err() {
+    if document.dictionary(target_id).is_err() {
         return Err(format!(
             "Annotation delete target {}R{} was not found",
             target_id.0, target_id.1
@@ -495,7 +498,7 @@ pub(crate) fn collect_annotation_refs_to_delete(
         }
         refs.push(object_id);
 
-        let dict = match document.get_dictionary(object_id) {
+        let dict = match document.dictionary(object_id) {
             Ok(dict) => dict,
             Err(_) => continue,
         };
@@ -503,7 +506,7 @@ pub(crate) fn collect_annotation_refs_to_delete(
             pending.push(popup_id);
         }
         if let Some(parent_id) = annotation_related_ref(dict, b"Parent") {
-            if let Ok(parent_dict) = document.get_dictionary(parent_id) {
+            if let Ok(parent_dict) = document.dictionary(parent_id) {
                 let parent_subtype = annotation_subtype(parent_dict);
                 if parent_subtype == "freetext" || parent_subtype == "popup" {
                     pending.push(parent_id);
@@ -516,7 +519,7 @@ pub(crate) fn collect_annotation_refs_to_delete(
 }
 
 pub(crate) fn annotation_matches_stable_delete_name(
-    document: &Document,
+    document: &impl PdfObjectSource,
     object_id: ObjectId,
     delete: &AnnotationDelete,
 ) -> Result<bool> {
@@ -524,13 +527,13 @@ pub(crate) fn annotation_matches_stable_delete_name(
         Some(stable_key) if !stable_key.is_empty() => stable_key,
         _ => return Ok(false),
     };
-    let dict = match document.get_dictionary(object_id) {
+    let dict = match document.dictionary(object_id) {
         Ok(dict) => dict,
         Err(_) => return Ok(false),
     };
     let target_dict = if annotation_subtype(dict) == "popup" {
         match annotation_related_ref(dict, b"Parent") {
-            Some(parent_id) => match document.get_dictionary(parent_id) {
+            Some(parent_id) => match document.dictionary(parent_id) {
                 Ok(parent_dict) => parent_dict,
                 Err(_) => return Ok(false),
             },
@@ -560,7 +563,7 @@ pub(crate) fn annotation_matches_stable_delete_name(
 }
 
 pub(crate) fn resolve_annotation_delete_target_refs(
-    document: &Document,
+    document: &impl PdfObjectSource,
     page_id: ObjectId,
     delete: &AnnotationDelete,
 ) -> Result<Vec<ObjectId>> {
@@ -576,7 +579,7 @@ pub(crate) fn resolve_annotation_delete_target_refs(
         .filter_map(|object| object.as_reference().ok())
         .filter_map(|object_id| {
             let is_free_text = document
-                .get_dictionary(object_id)
+                .dictionary(object_id)
                 .map(|dict| annotation_subtype(dict) == "freetext")
                 .unwrap_or(false);
             if !is_free_text {

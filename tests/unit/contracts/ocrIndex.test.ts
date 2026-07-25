@@ -51,6 +51,53 @@ describe('OCR index codecs', () => {
         })).toBeNull();
     });
 
+    it('carries the page generation and drops an unusable one instead of the mapping', () => {
+        const manifest = {
+            version: 3,
+            documentRevision: {token: revision},
+            createdAt: 1,
+            source: {pdfPath: '/tmp/work.pdf'},
+            pageCount: 2,
+            pageBox: 'crop',
+            ocr: {
+                engine: 'tesseract',
+                languages: ['eng'],
+                renderDpi: 300,
+            },
+            pages: {
+                1: {
+                    path: 'page-1.json',
+                    generation: 'run-a',
+                },
+                2: {path: 'page-2.json'},
+            },
+        };
+
+        expect(parseOcrIndexV3Manifest(manifest)?.pages).toEqual({
+            1: {
+                path: 'page-1.json',
+                generation: 'run-a',
+            },
+            2: {path: 'page-2.json'},
+        });
+        expect(parseOcrIndexV3Manifest({
+            ...manifest,
+            pages: {
+                1: {
+                    path: 'page-1.json',
+                    generation: '',
+                },
+                2: {
+                    path: 'page-2.json',
+                    generation: 7,
+                },
+            },
+        })?.pages).toEqual({
+            1: {path: 'page-1.json'},
+            2: {path: 'page-2.json'},
+        });
+    });
+
     it('reads a page artifact written under the per-page revision schema', () => {
         expect(decodeOcrPage(createPage({
             pageNumber: 7,

@@ -2,6 +2,7 @@ use lopdf::{dictionary, Document, Object, Stream};
 use std::{
     env,
     fs::{remove_file, write},
+    path::Path,
     process::Command,
     time::{SystemTime, UNIX_EPOCH},
 };
@@ -12,6 +13,23 @@ fn path(label: &str, extension: &str) -> std::path::PathBuf {
         .unwrap()
         .as_nanos();
     env::temp_dir().join(format!("evb-pdf-page-ops-{label}-{nonce}.{extension}"))
+}
+
+fn run_split_pages(input: &Path, output: &Path, instructions: &Path) {
+    let result = Command::new(env!("CARGO_BIN_EXE_evb-pdf-page-ops"))
+        .args(["split-pages", "--input"])
+        .arg(input)
+        .arg("--output")
+        .arg(output)
+        .arg("--instructions-file")
+        .arg(instructions)
+        .output()
+        .unwrap();
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
 }
 
 #[test]
@@ -49,20 +67,7 @@ fn split_pages_preserves_vector_objects_and_applies_boxes_and_rotation() {
     document.save(&input).unwrap();
     write(&instructions, r#"{"pages":[{"sourcePageIndex":0,"rotationQuarterTurns":1,"outputs":[{"cropRect":{"x":0,"y":0,"width":100,"height":120}},{"cropRect":{"x":100,"y":0,"width":100,"height":120}}]}]}"#).unwrap();
 
-    let result = Command::new(env!("CARGO_BIN_EXE_evb-pdf-page-ops"))
-        .args(["split-pages", "--input"])
-        .arg(&input)
-        .arg("--output")
-        .arg(&output)
-        .arg("--instructions-file")
-        .arg(&instructions)
-        .output()
-        .unwrap();
-    assert!(
-        result.status.success(),
-        "{}",
-        String::from_utf8_lossy(&result.stderr)
-    );
+    run_split_pages(&input, &output, &instructions);
 
     let split = Document::load(&output).unwrap();
     let pages = split.get_pages();
@@ -150,20 +155,7 @@ fn split_pages_preserves_valid_optional_content_properties() {
     document.save(&input).unwrap();
     write(&instructions, r#"{"pages":[{"sourcePageIndex":0,"rotationQuarterTurns":0,"outputs":[{"cropRect":{"x":0,"y":0,"width":100,"height":120}}]}]}"#).unwrap();
 
-    let result = Command::new(env!("CARGO_BIN_EXE_evb-pdf-page-ops"))
-        .args(["split-pages", "--input"])
-        .arg(&input)
-        .arg("--output")
-        .arg(&output)
-        .arg("--instructions-file")
-        .arg(&instructions)
-        .output()
-        .unwrap();
-    assert!(
-        result.status.success(),
-        "{}",
-        String::from_utf8_lossy(&result.stderr)
-    );
+    run_split_pages(&input, &output, &instructions);
 
     let split = Document::load(&output).unwrap();
     let split_catalog_id = split.trailer.get(b"Root").unwrap().as_reference().unwrap();
@@ -222,25 +214,140 @@ fn split_pages_drops_incomplete_optional_content_properties() {
     document.save(&input).unwrap();
     write(&instructions, r#"{"pages":[{"sourcePageIndex":0,"rotationQuarterTurns":0,"outputs":[{"cropRect":{"x":0,"y":0,"width":100,"height":120}}]}]}"#).unwrap();
 
-    let result = Command::new(env!("CARGO_BIN_EXE_evb-pdf-page-ops"))
-        .args(["split-pages", "--input"])
-        .arg(&input)
-        .arg("--output")
-        .arg(&output)
-        .arg("--instructions-file")
-        .arg(&instructions)
-        .output()
-        .unwrap();
-    assert!(
-        result.status.success(),
-        "{}",
-        String::from_utf8_lossy(&result.stderr)
-    );
+    run_split_pages(&input, &output, &instructions);
 
     let split = Document::load(&output).unwrap();
     let split_catalog_id = split.trailer.get(b"Root").unwrap().as_reference().unwrap();
     let split_catalog = split.get_dictionary(split_catalog_id).unwrap();
     assert!(split_catalog.get(b"OCProperties").is_err());
+
+    let _ = remove_file(input);
+    let _ = remove_file(output);
+    let _ = remove_file(instructions);
+}
+
+#[test]
+fn split_pages_prunes_objects_reachable_only_from_unselected_source_pages() {
+    let input = path("split-prune-input", "pdf");
+    let output = path("split-prune-output", "pdf");
+    let instructions = path("split-prune-instructions", "json");
+    let mut document = Document::with_version("1.7");
+    let pages_id = document.new_object_id();
+    let kept_content = b"BT (Kept page) Tj ET".to_vec();
+    let unselected_content = b"BT (Unselected page) Tj ET".to_vec();
+    let kept_content_id = document.add_object(Stream::new(dictionary! {}, kept_content.clone()));
+    let unselected_content_id =
+        document.add_object(Stream::new(dictionary! {}, unselected_content.clone()));
+    let kept_page_id = document.add_object(dictionary! {
+        "Type" => "Page",
+        "Parent" => pages_id,
+        "MediaBox" => vec![0.into(), 0.into(), 200.into(), 120.into()],
+        "Contents" => kept_content_id,
+    });
+    let unselected_page_id = document.add_object(dictionary! {
+        "Type" => "Page",
+        "Parent" => pages_id,
+        "MediaBox" => vec![0.into(), 0.into(), 200.into(), 120.into()],
+        "Contents" => unselected_content_id,
+    });
+    document.objects.insert(
+        pages_id,
+        dictionary! {
+            "Type" => "Pages",
+            "Kids" => vec![Object::Reference(kept_page_id), Object::Reference(unselected_page_id)],
+            "Count" => 2,
+        }
+        .into(),
+    );
+    let catalog_id = document.add_object(dictionary! {"Type" => "Catalog", "Pages" => pages_id});
+    document.trailer.set("Root", catalog_id);
+    document.save(&input).unwrap();
+    write(&instructions, r#"{"pages":[{"sourcePageIndex":0,"rotationQuarterTurns":0,"outputs":[{"cropRect":{"x":0,"y":0,"width":200,"height":120}}]}]}"#).unwrap();
+
+    run_split_pages(&input, &output, &instructions);
+
+    let split = Document::load(&output).unwrap();
+    assert_eq!(split.get_pages().len(), 1);
+    let contents = split
+        .objects
+        .values()
+        .filter_map(|object| object.as_stream().ok())
+        .map(|stream| stream.content.clone())
+        .collect::<Vec<_>>();
+    assert!(contents.contains(&kept_content));
+    assert!(
+        !contents.contains(&unselected_content),
+        "the unselected source page's content stream survived pruning"
+    );
+
+    let _ = remove_file(input);
+    let _ = remove_file(output);
+    let _ = remove_file(instructions);
+}
+
+#[test]
+fn split_pages_prunes_optional_content_objects_orphaned_by_the_dropped_catalog_entry() {
+    let input = path("split-orphan-ocg-input", "pdf");
+    let output = path("split-orphan-ocg-output", "pdf");
+    let instructions = path("split-orphan-ocg-instructions", "json");
+    let mut document = Document::with_version("1.7");
+    let pages_id = document.new_object_id();
+    let content_id = document.add_object(Stream::new(dictionary! {}, Vec::new()));
+    let page_id = document.add_object(dictionary! {
+        "Type" => "Page",
+        "Parent" => pages_id,
+        "MediaBox" => vec![0.into(), 0.into(), 200.into(), 120.into()],
+        "Contents" => content_id,
+    });
+    document.objects.insert(
+        pages_id,
+        dictionary! {
+            "Type" => "Pages",
+            "Kids" => vec![Object::Reference(page_id)],
+            "Count" => 1,
+        }
+        .into(),
+    );
+    let group_id = document.add_object(dictionary! {
+        "Type" => "Annot",
+        "Name" => Object::string_literal("Orphaned layer"),
+    });
+    let properties_id = document.add_object(dictionary! {
+        "OCGs" => vec![Object::Reference(group_id)],
+    });
+    let catalog_id = document.add_object(dictionary! {
+        "Type" => "Catalog",
+        "Pages" => pages_id,
+        "OCProperties" => properties_id,
+    });
+    document.trailer.set("Root", catalog_id);
+    document.save(&input).unwrap();
+    write(&instructions, r#"{"pages":[{"sourcePageIndex":0,"rotationQuarterTurns":0,"outputs":[{"cropRect":{"x":0,"y":0,"width":100,"height":120}}]}]}"#).unwrap();
+
+    run_split_pages(&input, &output, &instructions);
+
+    let split = Document::load(&output).unwrap();
+    let split_catalog_id = split.trailer.get(b"Root").unwrap().as_reference().unwrap();
+    let split_catalog = split.get_dictionary(split_catalog_id).unwrap();
+    assert!(split_catalog.get(b"OCProperties").is_err());
+    let dictionaries = split
+        .objects
+        .values()
+        .filter_map(|object| object.as_dict().ok())
+        .collect::<Vec<_>>();
+    assert!(
+        !dictionaries
+            .iter()
+            .any(|dictionary| dictionary.get(b"OCGs").is_ok()),
+        "the optional-content properties dictionary survived pruning"
+    );
+    assert!(
+        !dictionaries.iter().any(|dictionary| dictionary
+            .get(b"Name")
+            .and_then(Object::as_str)
+            .is_ok_and(|name| name == b"Orphaned layer")),
+        "the optional-content group survived pruning"
+    );
 
     let _ = remove_file(input);
     let _ = remove_file(output);

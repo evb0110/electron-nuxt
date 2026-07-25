@@ -80,14 +80,17 @@ impl StageCacheKey {
     /// Analysis-level construction and layout normalization consume source DPI,
     /// orthogonal rotation, illumination normalization, and calibration policy.
     /// Mixed output additionally builds a picture mask, so output mode and
-    /// manual picture/fill zones are conservatively included. Margins,
-    /// placement, crop, binarization, thickness, and despeckling are later-stage
-    /// concerns and intentionally do not invalidate this artifact.
+    /// manual picture/fill zones are conservatively included. The quality
+    /// raster, layout analysis, and recommendation flags decide which artifact
+    /// fields are computed at all, so all three belong in the key. Margins,
+    /// placement, crop, binarization, thickness, and despeckling are
+    /// later-stage concerns and intentionally do not invalidate this artifact.
     pub(crate) fn analysis(
         source: &SourceFingerprint,
         options: &CleanupOptions,
         prepare_quality_raster: bool,
         recommend_output_mode: bool,
+        analyze_layout: bool,
         calibration: CalibrationConfig,
     ) -> Self {
         let manual_zones =
@@ -103,6 +106,7 @@ impl StageCacheKey {
                 manual_zones,
                 prepare_quality_raster,
                 recommend_output_mode,
+                analyze_layout,
                 calibration_key(calibration),
             )),
         }
@@ -116,6 +120,7 @@ impl StageCacheKey {
         options: &CleanupOptions,
         prepare_quality_raster: bool,
         recommend_output_mode: bool,
+        analyze_layout: bool,
         calibration: CalibrationConfig,
         document_prior: Option<crate::split::DocumentPrior>,
     ) -> Self {
@@ -128,6 +133,7 @@ impl StageCacheKey {
                     options,
                     prepare_quality_raster,
                     recommend_output_mode,
+                    analyze_layout,
                     calibration,
                 )
                 .options,
@@ -345,24 +351,64 @@ mod tests {
     fn analysis_key_ignores_margins_but_not_rotation() {
         let source = source(0);
         let mut options = CleanupOptions::default();
-        let baseline =
-            StageCacheKey::analysis(&source, &options, true, true, CalibrationConfig::default());
+        let baseline = StageCacheKey::analysis(
+            &source,
+            &options,
+            true,
+            true,
+            true,
+            CalibrationConfig::default(),
+        );
         options.margins_mm = Some(MarginsMm {
             left_mm: 25.0,
             ..MarginsMm::default()
         });
         assert_eq!(
             baseline,
-            StageCacheKey::analysis(&source, &options, true, true, CalibrationConfig::default())
+            StageCacheKey::analysis(
+                &source,
+                &options,
+                true,
+                true,
+                true,
+                CalibrationConfig::default()
+            )
         );
         assert_ne!(
             baseline,
-            StageCacheKey::analysis(&source, &options, true, false, CalibrationConfig::default())
+            StageCacheKey::analysis(
+                &source,
+                &options,
+                true,
+                false,
+                true,
+                CalibrationConfig::default()
+            )
+        );
+        // A layout-free artifact carries no picture mask, text axis or split,
+        // so it must never be served to a caller that asked for them.
+        assert_ne!(
+            baseline,
+            StageCacheKey::analysis(
+                &source,
+                &options,
+                true,
+                true,
+                false,
+                CalibrationConfig::default()
+            )
         );
         options.rotation = OrthogonalRotation::Clockwise90;
         assert_ne!(
             baseline,
-            StageCacheKey::analysis(&source, &options, true, true, CalibrationConfig::default())
+            StageCacheKey::analysis(
+                &source,
+                &options,
+                true,
+                true,
+                true,
+                CalibrationConfig::default()
+            )
         );
     }
 

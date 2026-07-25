@@ -1,8 +1,4 @@
 import { readFile } from 'node:fs/promises';
-import {
-    basename,
-    join,
-} from 'node:path';
 import { parseOcrIndexV3Manifest } from '@contracts/ocrIndex';
 import type {
     IOcrDiagnostic,
@@ -43,26 +39,16 @@ async function readCurrentEvbGenerations(
         return generations;
     }
 
+    // A page listed under the current revision was written by this app, so the
+    // manifest alone answers the question. Catalogs written before the manifest
+    // carried per-page generations fall back to the catalog-wide stamp, which
+    // marks the page as evb-written exactly as the per-page value would.
+    const catalogGeneration = `manifest-${manifest.createdAt}`;
     for (const [
         rawPageNumber,
         mapping,
     ] of Object.entries(manifest.pages)) {
-        const generation = basename(mapping.path) === mapping.path
-            ? await readFile(join(`${sourcePdfPath}.ocr`, mapping.path), 'utf8')
-                .then((raw) => {
-                    const parsed: unknown = JSON.parse(raw);
-                    if (!parsed || typeof parsed !== 'object' || !('canonicalText' in parsed)) {
-                        return null;
-                    }
-                    const canonicalText: unknown = parsed.canonicalText;
-                    if (!canonicalText || typeof canonicalText !== 'object' || !('generation' in canonicalText)) {
-                        return null;
-                    }
-                    return typeof canonicalText.generation === 'string' ? canonicalText.generation : null;
-                })
-                .catch(() => null)
-            : null;
-        generations.set(Number(rawPageNumber), generation ?? `manifest-${manifest.createdAt}`);
+        generations.set(Number(rawPageNumber), mapping.generation ?? catalogGeneration);
     }
     return generations;
 }

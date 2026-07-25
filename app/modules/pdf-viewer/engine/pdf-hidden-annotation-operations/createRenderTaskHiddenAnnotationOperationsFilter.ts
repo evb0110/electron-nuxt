@@ -40,21 +40,18 @@ export function createRenderTaskHiddenAnnotationOperationsFilter(hiddenAnnotatio
             normalizedHiddenIds.add(normalizedId);
         }
     });
-    let renderTask: RenderTask | null = null;
+    let operatorList: IRuntimeOperatorList | null = null;
     const annotationStack: boolean[] = [];
     let hiddenDepth = 0;
-    let callCount = 0;
-    let hiddenMatchCount = 0;
-    const seenAnnotationIds = new Set<string>();
 
     return {
         bindTask(task: RenderTask) {
-            renderTask = task;
-            return Boolean(resolveRuntimeOperatorList(renderTask));
+            // pdf.js grows the render task's operator list in place, so the private
+            // arrays resolved here stay valid for the whole render.
+            operatorList = resolveRuntimeOperatorList(task);
+            return operatorList !== null;
         },
         filter(index: number) {
-            callCount += 1;
-            const operatorList = resolveRuntimeOperatorList(renderTask);
             if (!operatorList) {
                 return true;
             }
@@ -64,13 +61,7 @@ export function createRenderTaskHiddenAnnotationOperationsFilter(hiddenAnnotatio
                 const annotationId = Array.isArray(args) && typeof args[0] === 'string'
                     ? normalizePdfJsAnnotationId(args[0])
                     : null;
-                if (annotationId) {
-                    seenAnnotationIds.add(annotationId);
-                }
                 const isHidden = Boolean(annotationId && normalizedHiddenIds.has(annotationId));
-                if (isHidden) {
-                    hiddenMatchCount += 1;
-                }
                 annotationStack.push(isHidden);
                 if (isHidden) {
                     hiddenDepth += 1;
@@ -83,17 +74,8 @@ export function createRenderTaskHiddenAnnotationOperationsFilter(hiddenAnnotatio
                 if (wasHidden) {
                     hiddenDepth = Math.max(0, hiddenDepth - 1);
                 }
-                return shouldInclude;
             }
             return shouldInclude;
-        },
-        getDiagnostics() {
-            return {
-                callCount,
-                hiddenMatchCount,
-                hiddenAnnotationIds: Array.from(normalizedHiddenIds),
-                seenAnnotationIds: Array.from(seenAnnotationIds),
-            };
         },
     };
 }

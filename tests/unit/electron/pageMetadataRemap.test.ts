@@ -86,7 +86,7 @@ describe('page metadata remap', () => {
         ]);
     });
 
-    it('uses explicit tail-only validation for the metadata-only append', async () => {
+    it('writes the remapped metadata as an incremental append', async () => {
         await applyPageMetadataRemap({
             workingCopyPath: '/managed/working.pdf',
             delta: {
@@ -103,10 +103,8 @@ describe('page metadata remap', () => {
         });
 
         const args = mocks.runNativeToolCommand.mock.calls[0]?.[1] as string[];
-        expect(args.slice(-3)).toEqual([
-            '--append',
-            '--incremental-validation',
-            'tail-only',
-        ]);
+        expect(args[0]).toBe('save-mutations');
+        expect(args).toContain('--append');
+        expect(args.some(arg => arg.startsWith('--incremental-validation'))).toBe(false);
     });
 });

@@ -39,7 +39,6 @@
                 placed_images: Vec::new(),
             },
             "D:20260609123456+03'00'",
-            IncrementalValidationMode::Full,
         )
         .unwrap();
 
@@ -106,7 +105,6 @@
                 placed_images: Vec::new(),
             },
             "D:20260609123456+03'00'",
-            IncrementalValidationMode::Full,
         )
         .unwrap();
 
@@ -151,7 +149,6 @@
                 placed_images: Vec::new(),
             },
             "D:20260609123456+03'00'",
-            IncrementalValidationMode::Full,
         )
         .unwrap();
 
@@ -383,7 +380,6 @@
                 placed_images: Vec::new(),
             },
             "D:20260609123456+03'00'",
-            IncrementalValidationMode::Full,
         )
         .unwrap();
 
@@ -410,7 +406,6 @@
                 placed_images: Vec::new(),
             },
             "D:20260609123500+03'00'",
-            IncrementalValidationMode::Full,
         )
         .unwrap();
 

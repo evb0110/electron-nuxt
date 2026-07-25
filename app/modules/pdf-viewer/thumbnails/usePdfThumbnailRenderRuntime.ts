@@ -1,8 +1,8 @@
+import { groupBy } from 'es-toolkit/array';
 import { clamp } from 'es-toolkit/math';
 import type {
     PDFDocumentProxy,
     PDFPageProxy,
-    RenderTask,
 } from 'pdfjs-dist';
 import { THUMBNAIL_WIDTH } from '@app/constants/pdfLayout';
 import { createRenderTaskHiddenAnnotationOperationsFilter } from '@app/modules/pdf-viewer/engine/pdf-hidden-annotation-operations/createRenderTaskHiddenAnnotationOperationsFilter';
@@ -28,7 +28,13 @@ import {
     resolvePdfThumbnailItemChromeHeight,
     resolvePdfThumbnailRenderWidth,
 } from '@app/modules/pdf-viewer/thumbnails/pdfThumbnailDomMetrics';
-import { drawEditedTextMarkupThumbnailVisuals } from '@app/modules/pdf-viewer/thumbnails/pdfThumbnailTextMarkupVisuals';
+import {
+    createEditedTextMarkupThumbnailVisualSignature,
+    createHiddenAnnotationIdsSignature,
+    drawEditedTextMarkupThumbnailVisuals,
+    getEditedTextMarkupThumbnailComments,
+} from '@app/modules/pdf-viewer/thumbnails/pdfThumbnailTextMarkupVisuals';
+import { collectEditedTextMarkupCanvasSuppressionIds } from '@app/modules/pdf-viewer/annotations/edited-text-markup-canvas-suppression/collectEditedTextMarkupCanvasSuppressionIds';
 import { resolveThumbnailItemHeightFromAspect } from '@app/modules/pdf-viewer/thumbnails/pdfThumbnailLayout';
 import type { IUsePdfThumbnailRenderRuntimeOptions } from '@app/modules/pdf-viewer/thumbnails/usePdfThumbnailRenderRuntimeOptions';
 import { createThumbnailRenderFrameScheduler } from '@app/modules/pdf-viewer/thumbnails/createThumbnailRenderFrameScheduler';
@@ -133,77 +139,38 @@ const thumbnailDemandPolicy: IPdfRasterDemandPolicy<IPdfThumbnailDemandInput> = 
     compareWithinLane: (left, right) => left.ordinal - right.ordinal,
 };
 
-function createCompositeThumbnailRenderTask(
+function startThumbnailRenderTask(
     prepared: IPreparedThumbnailRaster,
     annotationMode: number,
 ) {
-    let activeTask: RenderTask | null = null;
-    let continuation: RenderTask['onContinue'];
-    const start = (disableAnnotations: boolean) => {
-        const renderOptions = {
-            annotationMode: disableAnnotations
-                ? AnnotationMode?.DISABLE ?? 0
-                : annotationMode,
-            canvas: prepared.renderCanvas,
-            canvasContext: prepared.context,
-            transform: buildThumbnailRenderTransform(
-                prepared.metrics.scaleX,
-                prepared.metrics.scaleY,
-            ),
-            viewport: prepared.metrics.scaledViewport,
-        };
-        if (disableAnnotations || !prepared.hiddenAnnotationFilter) {
-            return prepared.page.render(renderOptions);
-        }
-        const guardedTask = prepared.page.render({
-            ...renderOptions,
-            operationsFilter: prepared.hiddenAnnotationFilter.filter,
-        });
-        if (prepared.hiddenAnnotationFilter.bindTask(guardedTask)) {
-            return guardedTask;
-        }
-        guardedTask.cancel();
-        return prepared.page.render({
-            ...renderOptions,
-            annotationMode: AnnotationMode?.DISABLE ?? 0,
-        });
+    const renderOptions = {
+        annotationMode,
+        canvas: prepared.renderCanvas,
+        canvasContext: prepared.context,
+        transform: buildThumbnailRenderTransform(
+            prepared.metrics.scaleX,
+            prepared.metrics.scaleY,
+        ),
+        viewport: prepared.metrics.scaledViewport,
     };
-    const run = async () => {
-        activeTask = start(false);
-        activeTask.onContinue = continuation;
-        await activeTask.promise;
-        const diagnostics = prepared.hiddenAnnotationFilter?.getDiagnostics();
-        if (
-            !diagnostics
-            || diagnostics.callCount === 0
-            || diagnostics.hiddenMatchCount > 0
-        ) {
-            return;
-        }
-        prepared.context.clearRect(
-            0,
-            0,
-            prepared.renderCanvas.width,
-            prepared.renderCanvas.height,
-        );
-        activeTask = start(true);
-        activeTask.onContinue = continuation;
-        await activeTask.promise;
-    };
-    const task = {
-        cancel: () => activeTask?.cancel(),
-        promise: run(),
-        get onContinue() {
-            return continuation;
-        },
-        set onContinue(next: RenderTask['onContinue']) {
-            continuation = next;
-            if (activeTask) {
-                activeTask.onContinue = next;
-            }
-        },
-    };
-    return task as RenderTask;
+    if (!prepared.hiddenAnnotationFilter) {
+        return prepared.page.render(renderOptions);
+    }
+    const guardedTask = prepared.page.render({
+        ...renderOptions,
+        operationsFilter: prepared.hiddenAnnotationFilter.filter,
+    });
+    if (prepared.hiddenAnnotationFilter.bindTask(guardedTask)) {
+        return guardedTask;
+    }
+    // The private render-task shape pdf.js exposes the operator list through is
+    // unreachable, so nothing can be suppressed selectively. Fail closed and drop
+    // every annotation rather than showing the stale source of an edited one.
+    guardedTask.cancel();
+    return prepared.page.render({
+        ...renderOptions,
+        annotationMode: AnnotationMode?.DISABLE ?? 0,
+    });
 }
 
 export const usePdfThumbnailRenderRuntime = (
@@ -225,6 +192,44 @@ export const usePdfThumbnailRenderRuntime = (
     let reloadTransition = false;
     let pendingInvalidation: number[] | null = null;
 
+    const editedTextMarkupCommentsByPage = computed(() => groupBy(
+        getEditedTextMarkupThumbnailComments(visuals.annotationComments.value),
+        comment => Math.floor(comment.pageNumber),
+    ));
+    // Deleted-source tombstones arrive without a page, so they stay document-wide;
+    // only the edited text-markup half can be attributed to a page today.
+    const documentHiddenAnnotationIds = computed(
+        () => collectEditedTextMarkupCanvasSuppressionIds([], visuals.hiddenAnnotationIds.value),
+    );
+    const documentVisualSignature = computed(() => [
+        createHiddenAnnotationIdsSignature(documentHiddenAnnotationIds.value),
+        createEditedTextMarkupThumbnailVisualSignature(
+            Object.values(editedTextMarkupCommentsByPage.value).flat(),
+            visuals.annotationSettings.value,
+        ),
+    ].join('\u0002'));
+
+    function resolvePageVisualSignature(pageNumber: number) {
+        return [
+            createHiddenAnnotationIdsSignature(documentHiddenAnnotationIds.value),
+            createEditedTextMarkupThumbnailVisualSignature(
+                editedTextMarkupCommentsByPage.value[pageNumber] ?? [],
+                visuals.annotationSettings.value,
+            ),
+        ].join('\u0002');
+    }
+
+    function resolveHiddenAnnotationIdsForPage(pageNumber: number) {
+        const pageComments = editedTextMarkupCommentsByPage.value[pageNumber];
+        if (!pageComments) {
+            return documentHiddenAnnotationIds.value;
+        }
+        return collectEditedTextMarkupCanvasSuppressionIds(
+            pageComments,
+            documentHiddenAnnotationIds.value,
+        );
+    }
+
     function isThumbnailPaneActive() {
         return source.isActive.value !== false;
     }
@@ -244,8 +249,7 @@ export const usePdfThumbnailRenderRuntime = (
             Math.round(layout.thumbnailRenderWidth.value),
             resolveThumbnailOutputScale().toFixed(3),
             pageRenderEpochs.get(pageNumber) ?? 0,
-            visuals.hiddenAnnotationIdsSignature.value,
-            visuals.editedTextMarkupVisualSignature.value,
+            resolvePageVisualSignature(pageNumber),
         ].join(':');
     }
 
@@ -400,13 +404,12 @@ export const usePdfThumbnailRenderRuntime = (
                 }
                 return Promise.resolve(null);
             }
+            const pageHiddenAnnotationIds = resolveHiddenAnnotationIdsForPage(demand.pageNumber);
             return Promise.resolve({
                 canvas,
                 context,
-                hiddenAnnotationFilter: visuals.hiddenAnnotationIdSet.value.size > 0
-                    ? createRenderTaskHiddenAnnotationOperationsFilter(
-                        visuals.hiddenAnnotationIdSet.value,
-                    )
+                hiddenAnnotationFilter: pageHiddenAnnotationIds.size > 0
+                    ? createRenderTaskHiddenAnnotationOperationsFilter(pageHiddenAnnotationIds)
                     : null,
                 metrics,
                 page,
@@ -420,7 +423,7 @@ export const usePdfThumbnailRenderRuntime = (
                 ?? AnnotationMode?.ENABLE_FORMS
                 ?? AnnotationMode?.ENABLE
                 ?? 1;
-            return createCompositeThumbnailRenderTask(prepared, annotationMode);
+            return startThumbnailRenderTask(prepared, annotationMode);
         },
         commit(prepared) {
             if (
@@ -437,7 +440,7 @@ export const usePdfThumbnailRenderRuntime = (
             drawEditedTextMarkupThumbnailVisuals({
                 annotationSettings: visuals.annotationSettings.value,
                 canvas: prepared.renderCanvas,
-                comments: visuals.editedTextMarkupComments.value,
+                comments: editedTextMarkupCommentsByPage.value[prepared.pageNumber] ?? [],
                 context: prepared.context,
                 pageNum: prepared.pageNumber,
             });
@@ -778,22 +781,16 @@ export const usePdfThumbnailRenderRuntime = (
     );
 
     watch(
-        () => [
-            visuals.hiddenAnnotationIdsSignature.value,
-            visuals.editedTextMarkupVisualSignature.value,
-        ],
+        () => documentVisualSignature.value,
         (nextSignature, previousSignature) => {
-            if (
-                nextSignature[0] === previousSignature?.[0]
-                && nextSignature[1] === previousSignature?.[1]
-            ) {
+            if (nextSignature === previousSignature) {
                 return;
             }
-            invalidatePages(
-                layout.virtualPages.value.length > 0
-                    ? layout.virtualPages.value
-                    : [source.currentPage.value],
-            );
+            // Every mounted page re-derives its own render key, so only the pages
+            // whose annotation visuals actually changed fall out of the scheduler's
+            // resident set and re-render.
+            thumbnailKeySignal.value += 1;
+            void scheduleVisibleThumbnailRender();
         },
     );
 
