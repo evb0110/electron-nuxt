@@ -61,6 +61,7 @@ import {
     syncCommentMarkerAnchorEditor,
 } from '@app/modules/pdf-viewer/engine/pdf-annotation-editor-utils/commentMarkerAnchorEditor';
 import { useAnnotationTextSelectionCache } from '@app/modules/pdf-viewer/runtime/annotations/useAnnotationTextSelectionCache';
+import type { ITextMarkupPresentationController } from '@app/modules/pdf-viewer/runtime/annotations/useTextMarkupPresentationController';
 
 interface IHighlightIdentity {getEditorIdentity: (editor: IPdfjsEditor, pageIndex: number) => string;}
 
@@ -75,7 +76,6 @@ interface IHighlightMarkupSubtype {
     ) => void;
     resolveEditorMarkupSubtypeOverride: (editor: IPdfjsEditor, pageIndex: number) => TMarkupSubtype | null;
     resolveEditorSubtypeFromPresentation: (editor: IPdfjsEditor) => TMarkupSubtype | null;
-    syncMarkupSubtypePresentationForEditors: () => void;
 }
 
 interface IHighlightSync {
@@ -103,6 +103,7 @@ interface IUseAnnotationHighlightOptions {
     getMarkupSubtype: () => IHighlightMarkupSubtype;
     getSync: () => IHighlightSync;
     getToolManager: () => IHighlightToolManager;
+    textMarkupPresentation: ITextMarkupPresentationController;
     annotationIntentSink: {
         submitSelectionMarkupIntent: (input: {
             pageIndex: number;
@@ -162,6 +163,7 @@ export const useAnnotationHighlight = (options: IUseAnnotationHighlightOptions) 
         getMarkupSubtype,
         getSync,
         getToolManager,
+        textMarkupPresentation,
         annotationIntentSink,
         ensureAnnotationEditorLayerReady,
         deferCreatedEditorUndoToStorage = false,
@@ -407,12 +409,7 @@ export const useAnnotationHighlight = (options: IUseAnnotationHighlightOptions) 
                 projectedSubtype,
                 { preferEditorColor: false },
             );
-            queueMicrotask(() => {
-                if (!isAnnotationUiManagerCurrent(uiManager)) {
-                    return;
-                }
-                markupSubtype.syncMarkupSubtypePresentationForEditors();
-            });
+            textMarkupPresentation.notify({kind: 'editors-changed'});
             return true;
         };
 

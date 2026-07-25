@@ -37,7 +37,7 @@ import {
 } from '@app/modules/pdf-viewer/runtime/annotations/pdfjsAnnotationState';
 import { AnnotationStore } from '@app/modules/pdf-viewer/annotations/domain/annotationStore';
 import type { TDocumentRevisionToken } from '@contracts/documentRevision';
-import { useEditedTextMarkupVisualSync } from '@app/modules/pdf-viewer/runtime/annotations/useEditedTextMarkupVisualSync';
+import { collectEditedTextMarkupCanvasSuppressionIds } from '@app/modules/pdf-viewer/annotations/edited-text-markup-canvas-suppression/collectEditedTextMarkupCanvasSuppressionIds';
 import { usePdfViewerAnnotationRuntimeBridge } from '@app/modules/pdf-viewer/annotations/bridge/pdfjs-runtime/usePdfViewerAnnotationRuntimeBridge';
 import type { TPdfDocumentSession } from '@app/modules/pdf-viewer/runtime/sessions/pdfDocumentSession';
 import type { TPdfViewportSession } from '@app/modules/pdf-viewer/runtime/sessions/createPdfViewportSession';
@@ -61,6 +61,7 @@ import { useAnnotationMarkerViewModel } from '@app/modules/pdf-viewer/runtime/an
 import { getPerformanceProfile } from '@app/utils/performanceProfile';
 import { resolveOpenPathSecondaryPerformancePolicy } from '@app/utils/openPathSecondaryPerformancePolicy';
 import { usePdfViewerSaveTransaction } from '@app/modules/pdf-viewer/runtime/save/usePdfViewerSaveTransaction';
+import { useTextMarkupPresentationController } from '@app/modules/pdf-viewer/runtime/annotations/useTextMarkupPresentationController';
 
 
 export interface ICreatePdfAnnotationSessionOptions {
@@ -298,6 +299,17 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
         getFreeTextResize: () => freeTextResize,
         emitAnnotationToolAutoReset: options.emitAnnotationToolAutoReset,
     });
+    const textMarkupPresentation = useTextMarkupPresentationController({
+        annotationCommentsCache,
+        annotationSettings: options.annotationSettings,
+        clearEditorPresentation: toolState.clearMarkupSubtypeEditorPresentation,
+        effectiveScale: viewport.scale.effectiveScale,
+        isActive: options.isActive,
+        presentEditor: toolState.presentMarkupSubtypeEditor,
+        readEditorPresentation: toolState.readMarkupSubtypeEditorPresentation,
+        resetEditorPresentation: toolState.resetMarkupSubtypeEditorPresentation,
+        viewerContainer: options.viewerContainer,
+    });
     const {
         markersByPage,
         inlineIndicators,
@@ -340,6 +352,7 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
             },
         }),
         syncInlineCommentIndicators: inlineIndicators.syncInlineCommentIndicators,
+        textMarkupPresentation,
         getAnnotationNameReadLimits: () => {
             const policy = resolveOpenPathSecondaryPerformancePolicy(getPerformanceProfile());
             return {
@@ -391,6 +404,7 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
         routeAnnotationHistoryUndo: () => appAnnotationHistory.undo(),
         routeAnnotationHistoryRedo: () => appAnnotationHistory.redo(),
         emitAnnotationOpenNote: emitAnnotationOpenNoteWithReconciliation,
+        textMarkupPresentation,
     });
     const editor = {
         ...bridge,
@@ -557,6 +571,7 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
         getMarkupSubtype: () => toolState,
         getSync: () => commentSync,
         getToolManager: () => toolState,
+        textMarkupPresentation,
         annotationIntentSink: highlightIntentSink,
         deferCreatedEditorUndoToStorage: true,
         stopDrag: options.stopDrag,
@@ -593,6 +608,7 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
         getToolManager: () => toolState,
         getInlineIndicators: () => inlineIndicators,
         getHighlight: () => highlight,
+        textMarkupPresentation,
         scrollToPage: (pageNumber, scrollOptions) => viewport.singlePageScroll.scrollToPage(pageNumber, scrollOptions),
         renderVisiblePages: rendering.renderVisiblePages,
         updateVisibleRange: viewport.scroll.updateVisibleRange,
@@ -718,7 +734,7 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
     useAnnotationMutationVisualEffects({
         viewerContainer: options.viewerContainer,
         annotationCommentsCache,
-        annotationSettings: options.annotationSettings,
+        textMarkupPresentation,
         invalidatePages: rendering.invalidatePages,
         renderVisiblePages: rendering.renderVisiblePages,
         visualEffects: annotationMutationService.visualEffects,
@@ -752,31 +768,25 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
         );
     }
 
-    const {
-        canvasHiddenAnnotationIds,
-        applyEditedTextMarkupColorsForRenderedPage,
-    } = useEditedTextMarkupVisualSync({
-        viewerContainer: options.viewerContainer,
-        annotationCommentsCache,
-        hiddenEmbeddedAnnotationIds: managedEmbeddedPdfShapes.renderHiddenEmbeddedAnnotationIds,
-        annotationSettings: options.annotationSettings,
-    });
+    const canvasHiddenAnnotationIds = computed(() => collectEditedTextMarkupCanvasSuppressionIds(
+        annotationCommentsCache.value,
+        managedEmbeddedPdfShapes.renderHiddenEmbeddedAnnotationIds.value,
+    ));
     const detachProjection = rendering.attachAnnotationProjection({
         annotationUiManager,
         annotationL10n,
         hiddenAnnotationIds: managedEmbeddedPdfShapes.renderHiddenEmbeddedAnnotationIds,
         canvasHiddenAnnotationIds,
+        textMarkupPresentation,
         managedAnnotationIds: managedEmbeddedPdfShapes.managedEmbeddedAnnotationIds,
         replaceAnnotationUiManager: (manager) => {
             if (annotationUiManager.value === manager) {
                 annotations.editor.initAnnotationEditor();
             }
         },
-        pageLayersRendered: applyEditedTextMarkupColorsForRenderedPage,
         pageCommitted: managedEmbeddedPdfShapes.syncAfterPageRendered,
     });
     const { scheduleSetAnnotationTool } = usePdfViewerAnnotationRuntimeBridge({
-        viewerContainer: options.viewerContainer,
         isActive: options.isActive,
         currentPage: viewport.currentPage,
         effectiveScale: viewport.scale.effectiveScale,

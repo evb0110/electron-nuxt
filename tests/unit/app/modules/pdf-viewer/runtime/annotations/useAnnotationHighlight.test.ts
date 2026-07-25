@@ -75,7 +75,6 @@ function createHighlightHarness(viewerContainer: HTMLElement) {
             setEditorMarkupSubtypeOverride: () => {},
             resolveEditorMarkupSubtypeOverride: () => null,
             resolveEditorSubtypeFromPresentation: () => null,
-            syncMarkupSubtypePresentationForEditors: () => {},
         }),
         getSync: () => ({
             scheduleAnnotationCommentsSync: () => {},
@@ -87,6 +86,7 @@ function createHighlightHarness(viewerContainer: HTMLElement) {
             updateModeWithRetry: async () => null,
             maybeAutoResetAnnotationTool: () => {},
         }),
+        textMarkupPresentation: {notify: vi.fn()},
         annotationIntentSink: {
             submitSelectionMarkupIntent: () => {
                 throw new Error('not used in resolvePagePointTarget tests');
@@ -278,7 +278,6 @@ describe('useAnnotationHighlight commentAtPoint', () => {
                 setEditorMarkupSubtypeOverride: () => {},
                 resolveEditorMarkupSubtypeOverride: () => null,
                 resolveEditorSubtypeFromPresentation: () => null,
-                syncMarkupSubtypePresentationForEditors: () => {},
             }),
             getSync: () => ({
                 scheduleAnnotationCommentsSync: () => {},
@@ -305,6 +304,7 @@ describe('useAnnotationHighlight commentAtPoint', () => {
                 },
                 maybeAutoResetAnnotationTool: () => {},
             }),
+            textMarkupPresentation: {notify: vi.fn()},
             annotationIntentSink: {
                 submitSelectionMarkupIntent: () => {
                     throw new Error('not used in point note test');
@@ -405,7 +405,6 @@ describe('useAnnotationHighlight highlightSelectionInternal', () => {
                 setEditorMarkupSubtypeOverride: () => {},
                 resolveEditorMarkupSubtypeOverride: () => null,
                 resolveEditorSubtypeFromPresentation: () => null,
-                syncMarkupSubtypePresentationForEditors: () => {},
             }),
             getSync: () => ({
                 scheduleAnnotationCommentsSync: () => {},
@@ -429,6 +428,7 @@ describe('useAnnotationHighlight highlightSelectionInternal', () => {
                 updateModeWithRetry: async () => null,
                 maybeAutoResetAnnotationTool: () => {},
             }),
+            textMarkupPresentation: {notify: vi.fn()},
             annotationIntentSink: {
                 submitSelectionMarkupIntent: () => {
                     order.push('store-command');

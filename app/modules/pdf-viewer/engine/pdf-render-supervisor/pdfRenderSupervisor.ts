@@ -12,7 +12,8 @@ export type TPdfRenderSupervisorWatchdogCause =
     | 'navigation-hold-recovery'
     | 'navigation-hold-abandon'
     | 'navigation-hold-still-waiting'
-    | 'navigation-programmatic-release';
+    | 'navigation-programmatic-release'
+    | 'text-markup-presentation-repair';
 
 export type TPdfRenderSupervisorExplicitCause =
     | 'annotation-editor-layer-render-failed'

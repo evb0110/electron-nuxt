@@ -103,7 +103,6 @@ function createMarkupSubtypeStore() {
                 }
                 colorOverrides.set(annotationId, color);
             }),
-            syncMarkupSubtypePresentationForEditors: vi.fn(),
             forgetMarkupSubtypeOverride: vi.fn((annotationId: string | null | undefined) => {
                 if (!annotationId) {
                     return;
@@ -136,6 +135,7 @@ async function createSyncHarness(options: {
         return comments;
     });
     const { useAnnotationSync } = await import('@app/modules/pdf-viewer/annotations/bridge/pdfjs-runtime/useAnnotationSync');
+    const textMarkupPresentation = {notify: vi.fn()};
     const sync = useAnnotationSync({
         pdfDocument: shallowRef(options.pdfDocument ?? {}),
         documentIdentity: options.documentIdentity ?? ref('document'),
@@ -152,6 +152,7 @@ async function createSyncHarness(options: {
             setActiveKey: vi.fn(),
         }),
         syncInlineCommentIndicators: vi.fn(),
+        textMarkupPresentation,
         getAnnotationNameReadLimits: () => options.limits ?? resolvePdfAnnotationNameReadLimits('medium'),
         getPdfSourceByteSize: options.getPdfSourceByteSize ?? (() => null),
         isPdfSourceBlob: options.isPdfSourceBlob ?? (() => false),
@@ -161,6 +162,7 @@ async function createSyncHarness(options: {
         ...markupSubtypeStore,
         setAnnotations,
         sync,
+        textMarkupPresentation,
     };
 }
 
@@ -356,8 +358,8 @@ describe('useAnnotationSync', () => {
             });
             const {
                 colorOverrides,
-                markupSubtype,
                 sync,
+                textMarkupPresentation,
             } = await createSyncHarness({
                 annotationCommentsCache,
                 documentIdentity,
@@ -406,7 +408,8 @@ describe('useAnnotationSync', () => {
                 },
             );
             expect(colorOverrides.get('12R0')).toBe(appliedColor);
-            expect(markupSubtype.syncMarkupSubtypePresentationForEditors).toHaveBeenCalledTimes(3);
+            expect(textMarkupPresentation.notify).toHaveBeenCalledTimes(3);
+            expect(textMarkupPresentation.notify).toHaveBeenLastCalledWith({kind: 'editors-changed'});
         });
     });
 

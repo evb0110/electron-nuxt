@@ -62,6 +62,7 @@ import {
 } from '@app/modules/pdf-viewer/runtime/annotations/pdfjsAnnotationState';
 import type { IPdfjsAnnotationEditorState } from '@app/modules/pdf-viewer/runtime/annotations/pdfjsAnnotationState';
 import { deriveAnnotationId } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
+import type { ITextMarkupPresentationController } from '@app/modules/pdf-viewer/runtime/annotations/useTextMarkupPresentationController';
 
 type TEditorParamType = Parameters<TAnnotationEditorUIManager['updateParams']>[0];
 type TEditorParamValue = unknown;
@@ -119,9 +120,6 @@ interface IEditorBridgeDeps {
             s: TMarkupSubtype,
             opts?: { preferEditorColor?: boolean },
         ) => void;
-        clearMarkupSubtypeEditorClass: (e: IPdfjsEditor) => void;
-        applyEditorMarkupSubtypePresentation: (e: IPdfjsEditor, s: TMarkupSubtype | null) => void;
-        syncMarkupSubtypePresentationForEditors: () => void;
         clearOverrides: () => void;
     };
     getFreeTextResize: () => {
@@ -138,6 +136,7 @@ interface IEditorBridgeDeps {
     isPdfjsHistoryRouted?: () => boolean;
     routeAnnotationHistoryUndo?: () => boolean;
     routeAnnotationHistoryRedo?: () => boolean;
+    textMarkupPresentation: ITextMarkupPresentationController;
 }
 
 export const useAnnotationEditorBridge = (deps: IEditorBridgeDeps) => {
@@ -162,6 +161,7 @@ export const useAnnotationEditorBridge = (deps: IEditorBridgeDeps) => {
         isPdfjsHistoryRouted,
         routeAnnotationHistoryUndo,
         routeAnnotationHistoryRedo,
+        textMarkupPresentation,
     } = deps;
 
     const annotationEventBus = shallowRef<TEventBus | null>(null);
@@ -591,9 +591,7 @@ export const useAnnotationEditorBridge = (deps: IEditorBridgeDeps) => {
                         );
                         knownSubtype = toolSubtype;
                     }
-                    if (knownSubtype) {
-                        markupSubtype.applyEditorMarkupSubtypePresentation(normalizedEditor, knownSubtype);
-                    }
+                    textMarkupPresentation.notify({kind: 'editors-changed'});
                     if (
                         resolvedEditorSubtype === 'Highlight'
                         && isNewStorageEditor
@@ -609,14 +607,15 @@ export const useAnnotationEditorBridge = (deps: IEditorBridgeDeps) => {
                             skipAppHistory: true,
                             resolveEditor: () => resolveEditorByAnnotationId(annotationId),
                             // Our subtype SVGs are drawLayer-owned, not editor DOM children.
-                            beforeUndo: editorForUndo => markupSubtype.clearMarkupSubtypeEditorClass(editorForUndo),
+                            beforeUndo: editorForUndo => textMarkupPresentation.notify({
+                                editor: editorForUndo,
+                                kind: 'editor-presentation-cleared',
+                            }),
                             afterRedo: (editorForRedo) => {
                                 const subtypeForRedo = markupSubtype.resolveEditorMarkupSubtypeOverride(editorForRedo, pageIndex)
                                     ?? knownSubtype
                                     ?? markupSubtype.resolveEditorSubtypeFromPresentation(editorForRedo);
-                                if (subtypeForRedo) {
-                                    markupSubtype.applyEditorMarkupSubtypePresentation(editorForRedo, subtypeForRedo);
-                                }
+                                if (subtypeForRedo) textMarkupPresentation.notify({kind: 'editors-changed'});
                             },
                         });
                         if (undoRegistered) {

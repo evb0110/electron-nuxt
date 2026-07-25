@@ -64,6 +64,7 @@ export const useAnnotationCrud = (options: IUseAnnotationCrudOptions) => {
         getToolManager,
         getInlineIndicators,
         getHighlight,
+        textMarkupPresentation,
         scrollToPage,
         renderVisiblePages,
         updateVisibleRange,
@@ -450,7 +451,10 @@ export const useAnnotationCrud = (options: IUseAnnotationCrudOptions) => {
     ) {
         if (editor) {
             try {
-                getToolManager().clearMarkupSubtypeEditorClass?.(editor);
+                textMarkupPresentation.notify({
+                    editor,
+                    kind: 'editor-presentation-cleared',
+                });
             } catch (error) {
                 logCrudDebug('Failed to clear markup subtype visuals before annotation delete', error);
             }

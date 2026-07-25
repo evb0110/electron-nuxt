@@ -13,6 +13,7 @@ import type { PDFDocumentProxy } from '@app/types/pdfContracts';
 import type { IAnnotationContextMenuPayload } from '@app/modules/pdf-viewer/engine/annotationContextMenuPayload';
 import type { IRenderVisiblePagesOptions } from '@app/modules/pdf-viewer/runtime/rendering/pdfRendererTypes';
 import type { IPageRange } from '@app/types/pdfUi';
+import type { ITextMarkupPresentationController } from '@app/modules/pdf-viewer/runtime/annotations/useTextMarkupPresentationController';
 
 export interface ICrudIdentity {
     resolveCommentFromCache: (comment: IAnnotationCommentSummary) => IAnnotationCommentSummary | null;
@@ -41,14 +42,11 @@ export interface ICrudSync {
 
 export interface ICrudFreeTextResize {ensureFreeTextEditorCanResize: (editor: IPdfjsEditor) => void;}
 
-export interface ICrudToolManager {
-    updateModeWithRetry: (
-        uiManager: AnnotationEditorUIManager,
-        mode: Parameters<AnnotationEditorUIManager['updateMode']>[0],
-        pageNumber?: number,
-    ) => Promise<unknown>;
-    clearMarkupSubtypeEditorClass?: (editor: IPdfjsEditor) => void;
-}
+export interface ICrudToolManager {updateModeWithRetry: (
+    uiManager: AnnotationEditorUIManager,
+    mode: Parameters<AnnotationEditorUIManager['updateMode']>[0],
+    pageNumber?: number,
+) => Promise<unknown>;}
 
 export interface ICrudInlineIndicators {
     debouncedSyncInlineCommentIndicators: () => void;
@@ -93,6 +91,7 @@ export interface IUseAnnotationCrudOptions {
     getToolManager: () => ICrudToolManager;
     getInlineIndicators: () => ICrudInlineIndicators;
     getHighlight: () => ICrudHighlight;
+    textMarkupPresentation: ITextMarkupPresentationController;
     scrollToPage: (
         pageNumber: number,
         options?: {

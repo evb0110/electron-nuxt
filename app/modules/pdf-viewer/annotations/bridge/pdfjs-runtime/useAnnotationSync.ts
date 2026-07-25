@@ -42,6 +42,7 @@ import { tracePdfAnnotationSaveEvent } from '@app/modules/pdf-viewer/engine/pdf-
 import type { IPdfCommentSummaryDeps } from '@app/modules/pdf-viewer/engine/annotations/annotation-sync-helpers/annotationSyncHelpersTypes';
 import type { TComputeSummaryStableKey } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationSummaryIdentity';
 import type { TDocumentRevisionToken } from '@contracts/documentRevision';
+import type { ITextMarkupPresentationController } from '@app/modules/pdf-viewer/runtime/annotations/useTextMarkupPresentationController';
 
 interface ISyncIdentity {
     getEditorIdentity: (editor: IPdfjsEditor, pageIndex: number) => string;
@@ -59,7 +60,6 @@ interface ISyncMarkupSubtype {
     resolveEditorSubtypeFromPresentation: (editor: IPdfjsEditor) => TMarkupSubtype | null;
     resolveEditorMarkupSubtypeColor: (editor: IPdfjsEditor, subtype: TMarkupSubtype, pageIndex: number) => string;
     rememberMarkupSubtypeColorOverride: (annotationId: string | null | undefined, color: string | null | undefined) => void;
-    syncMarkupSubtypePresentationForEditors: () => void;
     forgetMarkupSubtypeOverride: (annotationId: string | null | undefined) => void;
     clearOverrides: () => void;
 }
@@ -88,6 +88,7 @@ interface IUseAnnotationSyncOptions {
     getMarkupSubtype: () => ISyncMarkupSubtype;
     getStore: () => ISyncStore;
     syncInlineCommentIndicators: () => void;
+    textMarkupPresentation: ITextMarkupPresentationController;
     debounceMs?: number;
     getAnnotationNameReadLimits: () => {
         eagerMaxBytes: number;
@@ -173,6 +174,7 @@ export const useAnnotationSync = (options: IUseAnnotationSyncOptions) => {
         getMarkupSubtype,
         getStore,
         syncInlineCommentIndicators,
+        textMarkupPresentation,
         debounceMs = 140,
         getAnnotationNameReadLimits,
         getPdfSourceByteSize,
@@ -972,7 +974,7 @@ export const useAnnotationSync = (options: IUseAnnotationSyncOptions) => {
         });
         rememberMarkupSubtypeColors(appliedComments, markupSubtype);
         store.setLinkAnnotations(links);
-        markupSubtype.syncMarkupSubtypePresentationForEditors();
+        textMarkupPresentation.notify({kind: 'editors-changed'});
         syncInlineCommentIndicators();
     }
 

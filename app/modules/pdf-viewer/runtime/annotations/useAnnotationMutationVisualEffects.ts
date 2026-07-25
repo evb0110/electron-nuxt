@@ -1,16 +1,7 @@
-import type {
-    ComputedRef,
-    Ref,
-} from 'vue';
-import type {
-    IAnnotationCommentSummary,
-    IAnnotationSettings,
-} from '@app/types/annotations';
-import { DEFAULT_ANNOTATION_SETTINGS } from '@app/constants/annotationDefaults';
-import { applyAnnotationCommentTextMarkupColor } from '@app/modules/pdf-viewer/engine/annotations/annotation-dom-removal/applyAnnotationCommentTextMarkupColor';
-import { applyAnnotationCommentTextMarkupVisualOverlay } from '@app/modules/pdf-viewer/engine/annotations/annotation-dom-removal/applyAnnotationCommentTextMarkupVisualOverlay';
+import type { Ref } from 'vue';
+import type { IAnnotationCommentSummary } from '@app/types/annotations';
 import { removeAnnotationCommentDom } from '@app/modules/pdf-viewer/engine/annotations/annotation-dom-removal/removeAnnotationCommentDom';
-import { toOpaqueHighlightDisplayColor } from '@app/modules/pdf-viewer/engine/text-markup-color/toOpaqueHighlightDisplayColor';
+import type { ITextMarkupPresentationController } from '@app/modules/pdf-viewer/runtime/annotations/useTextMarkupPresentationController';
 import { normalizePdfJsAnnotationId } from '@app/utils/pdfAnnotationRefs';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import type {
@@ -22,7 +13,7 @@ import { tryOnScopeDispose } from '@vueuse/core';
 interface IUseAnnotationMutationVisualEffectsOptions {
     viewerContainer: Ref<HTMLElement | null>;
     annotationCommentsCache: Ref<IAnnotationCommentSummary[]>;
-    annotationSettings: ComputedRef<IAnnotationSettings | null>;
+    textMarkupPresentation: ITextMarkupPresentationController;
     renderVisiblePages: (
         range: {
             start: number;
@@ -36,10 +27,6 @@ interface IUseAnnotationMutationVisualEffectsOptions {
     ) => Promise<void>;
     invalidatePages: (pages: number[]) => void;
     visualEffects: IAnnotationMutationVisualEffectsState;
-}
-
-function isHighlightComment(comment: IAnnotationCommentSummary) {
-    return (comment.subtype ?? '').trim().toLowerCase() === 'highlight';
 }
 
 export const useAnnotationMutationVisualEffects = (options: IUseAnnotationMutationVisualEffectsOptions) => {
@@ -70,58 +57,19 @@ export const useAnnotationMutationVisualEffects = (options: IUseAnnotationMutati
         return effect.commentSnapshot ?? null;
     }
 
-    function resolveColor(effect: IAnnotationMutationVisualEffect, comment: IAnnotationCommentSummary) {
-        const color = (effect.color ?? comment.color)?.trim();
-        return color && color.length > 0 ? color : null;
-    }
-
-    function resolveDisplayColor(effect: IAnnotationMutationVisualEffect, comment: IAnnotationCommentSummary) {
-        const color = resolveColor(effect, comment);
-        if (!color) {
-            return null;
-        }
-        if (!isHighlightComment(comment)) {
-            return color;
-        }
-        return toOpaqueHighlightDisplayColor(
-            color,
-            options.annotationSettings.value?.highlightOpacity ?? DEFAULT_ANNOTATION_SETTINGS.highlightOpacity,
-        );
-    }
-
-    function resolveHighlightOpacity(comment: IAnnotationCommentSummary) {
-        return isHighlightComment(comment)
-            ? options.annotationSettings.value?.highlightOpacity ?? DEFAULT_ANNOTATION_SETTINGS.highlightOpacity
-            : null;
-    }
-
+    // Colour resolution and DOM application belong to the text-markup presentation
+    // controller; a mutation only hands it the resolved intent.
     function applyTextMarkupColorEffect(effect: IAnnotationMutationVisualEffect) {
-        const container = options.viewerContainer.value;
         const comment = resolveComment(effect);
-        if (!container || !comment) {
+        if (!comment) {
             return;
         }
-        const displayColor = resolveDisplayColor(effect, comment);
-        const overlayColor = resolveColor(effect, comment);
-        if (displayColor) {
-            applyAnnotationCommentTextMarkupColor(
-                container,
-                comment,
-                displayColor,
-                {
-                    sourceColor: effect.sourceColor ?? effect.commentSnapshot?.color ?? null,
-                    suppressNativeTextMarkupDecoration: true,
-                },
-            );
-        }
-        if (overlayColor) {
-            applyAnnotationCommentTextMarkupVisualOverlay(
-                container,
-                comment,
-                overlayColor,
-                { highlightOpacity: resolveHighlightOpacity(comment) },
-            );
-        }
+        options.textMarkupPresentation.notify({
+            kind: 'comment-color-mutated',
+            color: effect.color ?? comment.color ?? null,
+            comment,
+            sourceColor: effect.sourceColor ?? effect.commentSnapshot?.color ?? null,
+        });
     }
 
     async function renderPageTextMarkupEffect(effect: IAnnotationMutationVisualEffect) {

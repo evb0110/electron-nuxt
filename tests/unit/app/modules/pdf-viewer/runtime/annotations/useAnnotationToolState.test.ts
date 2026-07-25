@@ -146,6 +146,15 @@ interface IAnnotationToolStateTestManager {
     getSelectedTextMarkupAnnotationProperties: () => unknown;
     maybeAutoResetAnnotationTool: () => void;
     rememberMarkupSubtypeColorOverride: (annotationId: string, color: string) => void;
+    readMarkupSubtypeEditorPresentation: (pageNumbers?: readonly number[]) => {
+        editors: Array<{
+            color: string | null;
+            editor: unknown;
+            pageNumber: number;
+            subtype: string | null;
+        }>;
+        unresolvedPageNumbers: number[];
+    };
     resolveEditorMarkupSubtypeColor: (editor: unknown, subtype: string, pageIndex: number) => string;
     resolveEditorMarkupSubtypeOverride: (editor: unknown, pageIndex: number) => string | null;
     resolveHighlightColorForTool: (settings: IAnnotationSettings, tool: string) => string;
@@ -372,7 +381,7 @@ describe('useAnnotationToolState', () => {
         expect(selectedEditor.updateParams).not.toHaveBeenCalledWith(6, '#00ff00');
     });
 
-    it('keeps each existing underline painted with its captured editor color when defaults change', async () => {
+    it('keeps each existing underline color in the controller read model when defaults change', async () => {
         const useAnnotationToolState = await loadUseAnnotationToolState();
         const settings = ref(createAnnotationSettings());
         const firstEditor = {
@@ -403,8 +412,28 @@ describe('useAnnotationToolState', () => {
         };
         manager.applyAnnotationSettings(settings.value);
 
-        expect(firstEditor.div.style.getPropertyValue('--pdf-markup-subtype-color')).toBe('#f59e0b');
-        expect(secondEditor.div.style.getPropertyValue('--pdf-markup-subtype-color')).toBe('#22c55e');
+        expect(manager.readMarkupSubtypeEditorPresentation([1]).editors.map(entry => entry.color)).toEqual([
+            '#f59e0b',
+            '#22c55e',
+        ]);
+    });
+
+    it('reports a markup editor without its delayed root as unresolved', async () => {
+        const useAnnotationToolState = await loadUseAnnotationToolState();
+        const editor = {
+            id: 'underline-delayed-root',
+            color: '#f59e0b',
+        };
+        const uiManager = createUiManager({getEditors: vi.fn(() => [editor])});
+        const manager = useAnnotationToolState(createToolStateOptions(uiManager, {
+            getEditorIdentity: (candidate: {id?: string}) => candidate.id ?? 'missing-id',
+            tool: 'underline',
+        }));
+        manager.setEditorMarkupSubtypeOverride(editor, 0, 'Underline');
+
+        const read = manager.readMarkupSubtypeEditorPresentation([1]);
+        expect(read.editors).toHaveLength(1);
+        expect(read.unresolvedPageNumbers).toEqual([1]);
     });
 
     it('updates selected highlights with an opaque display color and raw persisted color', async () => {
@@ -437,8 +466,13 @@ describe('useAnnotationToolState', () => {
         expect(manager.updateSelectedTextMarkupAnnotationColor('#336699')).toBe(true);
         expect(highlightEditor.color).toBe('#85a3c2');
         expect(highlightEditor.opacity).toBe(1);
-        expect(highlightEditor.onUpdatedColor).toHaveBeenCalledTimes(1);
+        expect(highlightEditor.onUpdatedColor).not.toHaveBeenCalled();
         expect(highlightEditor.addToAnnotationStorage).toHaveBeenCalledTimes(1);
+        expect(manager.readMarkupSubtypeEditorPresentation([1]).editors[0]).toMatchObject({
+            color: '#336699',
+            editor: highlightEditor,
+            subtype: 'Highlight',
+        });
         expect(manager.getSelectedTextMarkupAnnotationProperties()).toMatchObject({
             id: 'highlight-1',
             color: '#336699',
@@ -490,7 +524,7 @@ describe('useAnnotationToolState', () => {
         expect(addChangedExistingAnnotation).toHaveBeenCalledWith(highlightEditor);
     });
 
-    it('reapplies underline presentation after PDF.js updates editor color', async () => {
+    it('publishes updated underline color without painting from tool state', async () => {
         const useAnnotationToolState = await loadUseAnnotationToolState();
         const div = createMarkupElement();
         const underlineEditor = {
@@ -521,9 +555,14 @@ describe('useAnnotationToolState', () => {
         underlineEditor.addToAnnotationStorage.mockClear();
 
         expect(manager.updateSelectedTextMarkupAnnotationColor('#ef4444')).toBe(true);
-        expect(underlineEditor.onUpdatedColor).toHaveBeenCalledTimes(1);
-        expect(underlineEditor.div.dataset.markupSubtypeColor).toBe('#ef4444');
-        expect(underlineEditor.div.style.getPropertyValue('--pdf-markup-subtype-color')).toBe('#ef4444');
+        expect(underlineEditor.onUpdatedColor).not.toHaveBeenCalled();
+        expect(underlineEditor.div.dataset.markupSubtypeColor).toBeUndefined();
+        expect(underlineEditor.div.style.getPropertyValue('--pdf-markup-subtype-color')).toBe('');
+        expect(manager.readMarkupSubtypeEditorPresentation([1]).editors[0]).toMatchObject({
+            color: '#ef4444',
+            editor: underlineEditor,
+            subtype: 'Underline',
+        });
         expect(underlineEditor.addToAnnotationStorage).toHaveBeenCalledTimes(1);
     });
 

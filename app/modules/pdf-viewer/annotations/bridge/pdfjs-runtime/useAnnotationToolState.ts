@@ -45,7 +45,6 @@ import { normalizePdfJsAnnotationId } from '@app/utils/pdfAnnotationRefs';
 import { createAnnotationMarkupSubtypeDrawLayer } from '@app/modules/pdf-viewer/engine/annotations/annotation-markup-subtype-draw-layer/createAnnotationMarkupSubtypeDrawLayer';
 import { findClosestHighlightDrawLayerSvg } from '@app/modules/pdf-viewer/engine/annotations/annotation-markup-subtype-draw-layer/findClosestHighlightDrawLayerSvg';
 import { resolveEditorHighlightClipPathId } from '@app/modules/pdf-viewer/engine/annotations/annotation-markup-subtype-draw-layer/resolveEditorHighlightClipPathId';
-import { createAnnotationEditorPresentation } from '@app/modules/pdf-viewer/engine/annotations/annotation-editor-presentation/createAnnotationEditorPresentation';
 import { toOpaqueHighlightDisplayColor } from '@app/modules/pdf-viewer/engine/text-markup-color/toOpaqueHighlightDisplayColor';
 import { DEFAULT_ANNOTATION_SETTINGS } from '@app/constants/annotationDefaults';
 import { BrowserLogger } from '@app/utils/browserLogger';
@@ -54,8 +53,31 @@ import type { PDFDocumentProxy } from '@app/types/pdfContracts';
 const ANNOTATION_MODE_RETRY_RENDER_WAIT_TIMEOUT_MS = 500;
 
 const OPAQUE_HIGHLIGHT_OPACITY = 1;
+const MARKUP_EDITOR_CLASS_PREFIX = 'pdf-markup-subtype-';
+const MARKUP_FRAGMENTED_EDITOR_CLASS = 'pdf-markup-subtype-fragmented';
+const MARKUP_VISUAL_READY_CLASS = 'pdf-markup-subtype-visual-ready';
 
 type TAnnotationEditorMode = Parameters<AnnotationEditorUIManager['updateMode']>[0];
+
+function resolveEditorSubtypeFromPresentation(editor: IPdfjsEditor): TMarkupSubtype | null {
+    const div = editor.div;
+    if (!div) {
+        return null;
+    }
+    const explicit = div.dataset.markupSubtype?.trim().toLowerCase() ?? '';
+    const explicitSubtype = ({
+        highlight: 'Highlight',
+        squiggly: 'Squiggly',
+        strikeout: 'StrikeOut',
+        strikethrough: 'StrikeOut',
+        underline: 'Underline',
+    } as const)[explicit as 'highlight' | 'squiggly' | 'strikeout' | 'strikethrough' | 'underline'];
+    const classNames = Array.from(div.classList);
+    return explicitSubtype
+        ?? (classNames.some(name => name.includes(`${MARKUP_EDITOR_CLASS_PREFIX}underline`)) ? 'Underline' : null)
+        ?? (classNames.some(name => name.includes(`${MARKUP_EDITOR_CLASS_PREFIX}strikeout`)) ? 'StrikeOut' : null)
+        ?? (classNames.some(name => name.includes(`${MARKUP_EDITOR_CLASS_PREFIX}squiggly`)) ? 'Squiggly' : null);
+}
 
 const ANNOTATION_TOOL_MODES: Partial<Record<TAnnotationTool, TAnnotationEditorMode>> = {
     text: AnnotationEditorType.FREETEXT,
@@ -119,48 +141,6 @@ export const useAnnotationToolState = (options: IUseAnnotationToolStateOptions) 
         subtype: TMarkupSubtype;
     } | null = null;
     const markupSubtypeDrawLayer = createAnnotationMarkupSubtypeDrawLayer();
-    const {
-        resolveEditorDrawLayerHighlight,
-        recolorEditorHighlightDrawLayer,
-        suppressEditorHighlightDrawLayerFill,
-        clearMarkupSubtypeDrawLayerClass,
-        applyMarkupSubtypeDrawLayerClass,
-    } = markupSubtypeDrawLayer;
-    const {
-        clearMarkupSubtypeEditorClass,
-        applyEditorMarkupSubtypePresentation: applyEditorMarkupSubtypePresentationForPage,
-        resolveEditorSubtypeFromPresentation,
-    } = createAnnotationEditorPresentation({
-        resolveEditorMarkupSubtypeHintRect,
-        resolveEditorMarkupSubtypeColor,
-        clearMarkupSubtypeDrawLayerClass,
-        applyMarkupSubtypeDrawLayerClass,
-    });
-
-    function applyEditorMarkupSubtypePresentation(
-        editor: IPdfjsEditor,
-        subtype: TMarkupSubtype | null,
-        pageIndex = currentPage.value - 1,
-    ) {
-        applyEditorMarkupSubtypePresentationForPage(editor, subtype, pageIndex);
-    }
-
-    function refreshEditorTextMarkupColor(
-        editor: IPdfjsEditor,
-        color: string,
-        subtype: TMarkupSubtype,
-        pageIndex = currentPage.value - 1,
-    ) {
-        // PDF.js may recreate its base highlight SVG when color changes, so run
-        // its refresh first and then reapply our subtype-specific presentation.
-        editor.onUpdatedColor?.();
-        applyEditorMarkupSubtypePresentation(editor, subtype, pageIndex);
-        if (subtype === 'Highlight') {
-            recolorEditorHighlightDrawLayer(editor, color);
-            return;
-        }
-        suppressEditorHighlightDrawLayerFill(editor);
-    }
 
     function isFinitePositiveRect(rect: IAnnotationMarkerRect | null | undefined): rect is IAnnotationMarkerRect {
         return Boolean(
@@ -532,7 +512,6 @@ export const useAnnotationToolState = (options: IUseAnnotationToolStateOptions) 
         applyToolbarDefaultParam(uiManager, AnnotationEditorParamsType.FREETEXT_COLOR, settings.textColor);
         applyToolbarDefaultParam(uiManager, AnnotationEditorParamsType.FREETEXT_SIZE, settings.textSize);
         getFreeTextResize().patchResizableFreeTextEditors(uiManager);
-        syncMarkupSubtypePresentationForEditors();
     }
 
     async function waitForEditorsRenderedBeforeModeRetry(
@@ -687,20 +666,100 @@ export const useAnnotationToolState = (options: IUseAnnotationToolStateOptions) 
         });
     }
 
-    function syncMarkupSubtypePresentationForEditors() {
+    function readMarkupSubtypeEditorPresentation(pageNumbers?: readonly number[]) {
         const uiManager = annotationUiManager.value;
+        const requestedPages = pageNumbers
+            ?? Array.from({length: numPages.value}, (_unused, pageIndex) => pageIndex + 1);
         if (!uiManager) {
-            return;
+            return {
+                editors: [],
+                unresolvedPageNumbers: requestedPages,
+            };
         }
-        for (let pageIndex = 0; pageIndex < numPages.value; pageIndex += 1) {
-            for (const normalizedEditor of getEditorsOnPage(uiManager, pageIndex)) {
-                const subtype = (
-                    resolveEditorMarkupSubtypeOverride(normalizedEditor, pageIndex)
-                    ?? resolveEditorSubtypeFromPresentation(normalizedEditor)
-                );
-                applyEditorMarkupSubtypePresentation(normalizedEditor, subtype, pageIndex);
+        const editors = requestedPages.flatMap((pageNumber) => {
+            const pageIndex = pageNumber - 1;
+            return getEditorsOnPage(uiManager, pageIndex)
+                .filter(editor => isMarkupEditorCandidate(editor, pageIndex))
+                .map(editor => ({
+                    color: (() => {
+                        const subtype = resolveEditorMarkupSubtypeOverride(editor, pageIndex)
+                            ?? resolveEditorSubtypeFromPresentation(editor);
+                        return subtype ? resolveEditorMarkupSubtypeColor(editor, subtype, pageIndex) : null;
+                    })(),
+                    editor,
+                    pageNumber,
+                    subtype: resolveEditorMarkupSubtypeOverride(editor, pageIndex)
+                        ?? resolveEditorSubtypeFromPresentation(editor),
+                }));
+        });
+        const unresolvedPageNumbers: number[] = [];
+        for (const pageNumber of requestedPages) {
+            const pageIndex = pageNumber - 1;
+            if (getEditorsOnPage(uiManager, pageIndex).some(editor => (
+                isMarkupEditorCandidate(editor, pageIndex) && !editor.div
+            ))) {
+                unresolvedPageNumbers.push(pageNumber);
             }
         }
+        return {
+            editors,
+            unresolvedPageNumbers,
+        };
+    }
+
+    function clearMarkupSubtypeEditorPresentation(editor: object) {
+        const div = 'div' in editor ? editor.div as HTMLElement | undefined : undefined;
+        div?.classList.remove(
+            `${MARKUP_EDITOR_CLASS_PREFIX}highlight`,
+            `${MARKUP_EDITOR_CLASS_PREFIX}underline`,
+            `${MARKUP_EDITOR_CLASS_PREFIX}strikeout`,
+            `${MARKUP_EDITOR_CLASS_PREFIX}squiggly`,
+            MARKUP_FRAGMENTED_EDITOR_CLASS,
+            MARKUP_VISUAL_READY_CLASS,
+        );
+        if (div) {
+            delete div.dataset.markupSubtype;
+            delete div.dataset.markupSubtypeColor;
+            div.style.removeProperty('--pdf-markup-subtype-color');
+        }
+        markupSubtypeDrawLayer.clearMarkupSubtypeDrawLayerClass(editor);
+    }
+
+    function presentMarkupSubtypeEditor(entry: ReturnType<typeof readMarkupSubtypeEditorPresentation>['editors'][number]) {
+        const {
+            color,
+            editor,
+            subtype,
+        } = entry;
+        clearMarkupSubtypeEditorPresentation(editor);
+        if (!editor.div) {
+            return false;
+        }
+        if (subtype === 'Highlight') {
+            const sourceColor = color?.trim();
+            if (!sourceColor) {
+                return true;
+            }
+            const visualColor = resolveTextMarkupVisualColor(subtype, sourceColor);
+            editor.color = visualColor;
+            editor.opacity = OPAQUE_HIGHLIGHT_OPACITY;
+            editor.onUpdatedColor?.();
+            return markupSubtypeDrawLayer.recolorEditorHighlightDrawLayer(editor, visualColor);
+        }
+        if (!subtype) {
+            return true;
+        }
+        const normalizedSubtype = subtype.toLowerCase();
+        editor.div.classList.add(`${MARKUP_EDITOR_CLASS_PREFIX}${normalizedSubtype}`);
+        editor.div.dataset.markupSubtype = normalizedSubtype;
+        if (color) {
+            editor.div.dataset.markupSubtypeColor = color;
+            editor.div.style.setProperty('--pdf-markup-subtype-color', color);
+        }
+        const applied = markupSubtypeDrawLayer.applyMarkupSubtypeDrawLayerClass(editor, subtype, color);
+        editor.div.classList.toggle(MARKUP_FRAGMENTED_EDITOR_CLASS, applied);
+        editor.div.classList.toggle(MARKUP_VISUAL_READY_CLASS, applied);
+        return applied;
     }
 
     function resolveInitialMarkupSubtypeColor(
@@ -736,8 +795,7 @@ export const useAnnotationToolState = (options: IUseAnnotationToolStateOptions) 
         const identity = getEditorIdentity(editor, pageIndex);
         recordCanonicalMarkupSubtype(getEditorMarkupSubtypeKeys(editor, pageIndex), subtype);
         const color = resolveInitialMarkupSubtypeColor(editor, subtype, options);
-        const visualColor = resolveTextMarkupVisualColor(subtype, color);
-        editor.color = visualColor;
+        editor.color = resolveTextMarkupVisualColor(subtype, color);
         if (subtype === 'Highlight') {
             editor.opacity = OPAQUE_HIGHLIGHT_OPACITY;
         }
@@ -759,7 +817,6 @@ export const useAnnotationToolState = (options: IUseAnnotationToolStateOptions) 
             });
         }
         storeEditorMarkupSubtypeColor(editor, pageIndex, color);
-        refreshEditorTextMarkupColor(editor, visualColor, subtype, pageIndex);
         syncEditorToAnnotationStorage(editor);
     }
 
@@ -870,14 +927,12 @@ export const useAnnotationToolState = (options: IUseAnnotationToolStateOptions) 
         subtype: TMarkupSubtype,
         color: string,
     ) {
-        const visualColor = resolveTextMarkupVisualColor(subtype, color);
-        editor.color = visualColor;
+        editor.color = resolveTextMarkupVisualColor(subtype, color);
         if (subtype === 'Highlight') {
             editor.opacity = OPAQUE_HIGHLIGHT_OPACITY;
         }
         storeEditorMarkupSubtypeColor(editor, pageIndex, color);
         updateMarkupSubtypeGeometryHintColor(editor, pageIndex, color);
-        refreshEditorTextMarkupColor(editor, visualColor, subtype, pageIndex);
         syncEditorToAnnotationStorage(editor);
         markExistingEditorAnnotationChanged(editor);
     }
@@ -966,7 +1021,6 @@ export const useAnnotationToolState = (options: IUseAnnotationToolStateOptions) 
         markupSubtypeGeometryHints.clear();
         lastSelectedMarkupEditor = null;
         editorObjectMarkupSubtypeColorOverrides = new WeakMap();
-        markupSubtypeDrawLayer.clearDrawLayerState();
     }
 
     return {
@@ -988,12 +1042,12 @@ export const useAnnotationToolState = (options: IUseAnnotationToolStateOptions) 
         updateModeWithRetry,
         maybeAutoResetAnnotationTool,
         resolveEditorHighlightClipPathId,
-        resolveEditorDrawLayerHighlight,
         findClosestHighlightDrawLayerSvg,
-        clearMarkupSubtypeEditorClass,
-        applyEditorMarkupSubtypePresentation,
         resolveEditorSubtypeFromPresentation,
-        syncMarkupSubtypePresentationForEditors,
+        readMarkupSubtypeEditorPresentation,
+        presentMarkupSubtypeEditor,
+        clearMarkupSubtypeEditorPresentation,
+        resetMarkupSubtypeEditorPresentation: markupSubtypeDrawLayer.clearDrawLayerState,
         setEditorMarkupSubtypeOverride,
         resolveEditorMarkupSubtypeOverride,
         resolveEditorMarkupSubtypeColor,

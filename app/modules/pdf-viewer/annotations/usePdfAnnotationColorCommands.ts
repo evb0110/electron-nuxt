@@ -25,7 +25,6 @@ interface IUsePdfAnnotationColorCommandsOptions {
             ReturnType<typeof useAnnotationToolState>,
                 | 'getSelectedTextMarkupAnnotationProperties'
                 | 'rememberMarkupSubtypeColorOverride'
-                | 'syncMarkupSubtypePresentationForEditors'
                 | 'updateSelectedTextMarkupAnnotationColor'
                 | 'updateTextMarkupAnnotationColor'
         >;};

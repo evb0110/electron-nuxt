@@ -241,6 +241,7 @@ async function createHarness(overrides: IHarnessOverrides = {}) {
             findPageContainerFromClientPoint: vi.fn(() => null),
             buildAnnotationContextMenuPayload: vi.fn(() => cast<never>({})),
         }),
+        textMarkupPresentation: {notify: vi.fn()},
         scrollToPage: vi.fn(),
         renderVisiblePages: vi.fn(async () => {}),
         updateVisibleRange: vi.fn(),

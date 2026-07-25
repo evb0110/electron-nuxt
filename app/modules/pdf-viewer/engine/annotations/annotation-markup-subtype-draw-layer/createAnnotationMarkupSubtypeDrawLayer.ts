@@ -1,4 +1,3 @@
-import { tryOnScopeDispose } from '@vueuse/core';
 import type { TMarkupSubtype } from '@app/types/annotations';
 import type {
     IPdfjsDrawLayer,
@@ -29,10 +28,6 @@ const STANDALONE_MARKUP_DRAW_LAYER_VISUAL_SELECTOR = [
 ].join(', ');
 
 const MAX_HIGHLIGHT_DRAW_LAYER_FALLBACK_DISTANCE = 40;
-
-const DRAW_LAYER_RETRY_LIMIT = 18;
-
-const DRAW_LAYER_RETRY_DELAY_MS = 50;
 
 const SUPPRESSED_TEXT_MARKUP_FILL = 'transparent';
 
@@ -209,47 +204,8 @@ export function createAnnotationMarkupSubtypeDrawLayer() {
         drawLayer: IPdfjsDrawLayer;
         ids: number[];
     }>();
-    let presentationToken = 0;
-    let drawLayerStateVersion = 0;
     const knownHighlightSvgs = new Set<SVGElement>();
     const knownSubtypeDrawLayerVisuals = new Map<number, IPdfjsDrawLayer>();
-    const editorPresentationTokens = new WeakMap<IPdfjsEditor, number>();
-    const markupSubtypeRetryTimers = new Set<ReturnType<typeof setTimeout>>();
-
-    tryOnScopeDispose(() => {
-        markupSubtypeRetryTimers.forEach(timer => clearTimeout(timer));
-        markupSubtypeRetryTimers.clear();
-    });
-
-    function scheduleMarkupSubtypeRetry(run: () => void, delayMs: number) {
-        const timer = setTimeout(() => {
-            markupSubtypeRetryTimers.delete(timer);
-            run();
-        }, delayMs);
-        markupSubtypeRetryTimers.add(timer);
-    }
-
-    function scheduleEditorRetry(editor: IPdfjsEditor, run: (current: IPdfjsEditor) => void) {
-        const editorRef = new WeakRef(editor);
-        scheduleMarkupSubtypeRetry(() => {
-            const current = editorRef.deref();
-            if (current) {
-                run(current);
-            }
-        }, DRAW_LAYER_RETRY_DELAY_MS);
-    }
-
-    function beginEditorPresentation(editor: IPdfjsEditor) {
-        presentationToken += 1;
-        editorPresentationTokens.set(editor, presentationToken);
-        return presentationToken;
-    }
-
-    function isEditorPresentationCurrent(editor: IPdfjsEditor, token: number, version: number) {
-        return editorPresentationTokens.get(editor) === token
-            && drawLayerStateVersion === version;
-    }
-
     function resolveEditorDrawLayerHighlight(editor: IPdfjsEditor) {
         const cached = editorDrawLayerHighlightRefs.get(editor);
         if (cached?.isConnected) {
@@ -340,7 +296,6 @@ export function createAnnotationMarkupSubtypeDrawLayer() {
     }
 
     function clearMarkupSubtypeDrawLayerClass(editor: IPdfjsEditor) {
-        beginEditorPresentation(editor);
         editor.div?.classList.remove(MARKUP_VISUAL_READY_CLASS);
         clearEditorSubtypeDrawLayerVisuals(editor);
         const highlightSvg = resolveEditorDrawLayerHighlight(editor);
@@ -408,25 +363,16 @@ export function createAnnotationMarkupSubtypeDrawLayer() {
         });
     }
 
+    // Returns false when the PDF.js draw layer is not presentable yet; the
+    // text-markup presentation controller owns the single bounded retry for that.
     function applyMarkupSubtypeDrawLayerClass(
         editor: IPdfjsEditor,
         subtype: TMarkupSubtype | null,
         color: string | null,
-        attempt = 0,
-        token = beginEditorPresentation(editor),
-        stateVersion = drawLayerStateVersion,
     ) {
-        if (!isEditorPresentationCurrent(editor, token, stateVersion)) {
-            return false;
-        }
         clearEditorSubtypeDrawLayerVisuals(editor);
         const highlightSvg = resolveEditorDrawLayerHighlight(editor);
         if (!highlightSvg) {
-            if (attempt < DRAW_LAYER_RETRY_LIMIT && editor.div?.isConnected) {
-                scheduleEditorRetry(editor, current => {
-                    applyMarkupSubtypeDrawLayerClass(current, subtype, color, attempt + 1, token, stateVersion);
-                });
-            }
             return false;
         }
         clearMarkupSubtypeDrawLayerVisual(highlightSvg);
@@ -441,11 +387,6 @@ export function createAnnotationMarkupSubtypeDrawLayer() {
         const drawLayer = resolveEditorDrawLayer(editor);
         const editorState = getPdfjsEditorFacadeState(editor);
         if (!drawLayer || !drawLayerRect || !pageDimensions || !editorState.markupBoxes?.length) {
-            if (attempt < DRAW_LAYER_RETRY_LIMIT && editor.div?.isConnected) {
-                scheduleEditorRetry(editor, current => {
-                    applyMarkupSubtypeDrawLayerClass(current, subtype, color, attempt + 1, token, stateVersion);
-                });
-            }
             editor.div?.classList.remove(MARKUP_VISUAL_READY_CLASS);
             return false;
         }
@@ -462,26 +403,17 @@ export function createAnnotationMarkupSubtypeDrawLayer() {
         }
 
         appendMarkupSubtypeDrawLayerVisual(editor, drawLayer, drawLayerRect, highlightSvg, subtype, color, plan);
-        if (!isEditorPresentationCurrent(editor, token, stateVersion)) {
-            clearMarkupSubtypeDrawLayerVisual(highlightSvg);
-            clearEditorSubtypeDrawLayerVisuals(editor);
-            editor.div?.classList.remove(MARKUP_VISUAL_READY_CLASS);
-            return false;
-        }
         editor.div?.classList.add(MARKUP_VISUAL_READY_CLASS);
         return true;
     }
 
     function clearDrawLayerState() {
-        drawLayerStateVersion += 1;
         editorDrawLayerHighlightRefs = new WeakMap();
         editorSubtypeDrawLayerRefs = new WeakMap();
         knownHighlightSvgs.forEach(clearMarkupSubtypeDrawLayerVisual);
         knownHighlightSvgs.clear();
         knownSubtypeDrawLayerVisuals.forEach((drawLayer, id) => removeSubtypeDrawLayerVisual(drawLayer, id));
         knownSubtypeDrawLayerVisuals.clear();
-        markupSubtypeRetryTimers.forEach(timer => clearTimeout(timer));
-        markupSubtypeRetryTimers.clear();
     }
 
     return {

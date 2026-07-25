@@ -1,5 +1,4 @@
 import {
-    computed,
     effectScope,
     ref,
 } from 'vue';
@@ -9,15 +8,12 @@ import {
     it,
     vi,
 } from 'vitest';
-import { DEFAULT_ANNOTATION_SETTINGS } from '@app/constants/annotationDefaults';
 import { useAnnotationMutationVisualEffects } from '@app/modules/pdf-viewer/runtime/annotations/useAnnotationMutationVisualEffects';
 import type {
     IAnnotationMutationVisualEffect,
     IAnnotationMutationVisualEffectsState,
 } from '@app/modules/pdf-viewer/runtime/annotations/annotationMutationVisualEffects.types';
 
-vi.mock('@app/modules/pdf-viewer/engine/annotations/annotation-dom-removal/applyAnnotationCommentTextMarkupColor', () => ({applyAnnotationCommentTextMarkupColor: vi.fn()}));
-vi.mock('@app/modules/pdf-viewer/engine/annotations/annotation-dom-removal/applyAnnotationCommentTextMarkupVisualOverlay', () => ({applyAnnotationCommentTextMarkupVisualOverlay: vi.fn()}));
 vi.mock('@app/modules/pdf-viewer/engine/annotations/annotation-dom-removal/removeAnnotationCommentDom', () => ({removeAnnotationCommentDom: vi.fn()}));
 
 function createVisualEffectsState(): IAnnotationMutationVisualEffectsState {
@@ -49,7 +45,7 @@ describe('useAnnotationMutationVisualEffects lifecycle', () => {
         const runner = scope.run(() => useAnnotationMutationVisualEffects({
             viewerContainer: ref({} as HTMLElement),
             annotationCommentsCache: ref([]),
-            annotationSettings: computed(() => DEFAULT_ANNOTATION_SETTINGS),
+            textMarkupPresentation: {notify: vi.fn()},
             invalidatePages: vi.fn(),
             renderVisiblePages,
             visualEffects: state,
