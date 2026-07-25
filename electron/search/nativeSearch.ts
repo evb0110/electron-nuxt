@@ -378,8 +378,6 @@ export async function tryRunNativeSearch(options: INativeSearchOptions): Promise
     }
 
     const startedAt = Date.now();
-    const searchIndex = await loadSearchIndex(options.pdfPath, options.documentRevision);
-
     const commandOptions: Parameters<typeof runNativeToolCommand>[2] = {
         timeoutMs: NATIVE_SEARCH_TIMEOUT_MS,
         maxStdoutBytes: NATIVE_SEARCH_MAX_STDOUT_BYTES,
@@ -418,13 +416,19 @@ export async function tryRunNativeSearch(options: INativeSearchOptions): Promise
         parsed = JSON.parse(result.stdout ?? '');
     }
     const nativeResult = parseNativeSearchResponse(parsed);
-    if (nativeResult) {
-        log.debug(
-            `Native search completed for ${options.pdfPath} in ${Math.max(0, Date.now() - startedAt)}ms `
-            + `(results=${nativeResult.response.results.length}, totalPages=${nativeResult.totalPages})`,
-        );
+    if (!nativeResult) {
+        return null;
     }
-    return nativeResult && hasSearchIndexGeometry(searchIndex)
+    log.debug(
+        `Native search completed for ${options.pdfPath} in ${Math.max(0, Date.now() - startedAt)}ms `
+        + `(results=${nativeResult.response.results.length}, totalPages=${nativeResult.totalPages})`,
+    );
+    if (nativeResult.response.results.length === 0) {
+        return nativeResult;
+    }
+
+    const searchIndex = await loadSearchIndex(options.pdfPath, options.documentRevision);
+    return hasSearchIndexGeometry(searchIndex)
         ? attachGeometryToNativeResponse(nativeResult, searchIndex)
         : nativeResult;
 }

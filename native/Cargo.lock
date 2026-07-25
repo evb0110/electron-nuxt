@@ -247,6 +247,7 @@ dependencies = [
  "flate2",
  "jbig2-codec",
  "jpeg-encoder",
+ "rayon",
  "serde",
  "serde_json",
  "tiff",

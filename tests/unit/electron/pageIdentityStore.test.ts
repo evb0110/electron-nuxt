@@ -1,8 +1,10 @@
 import {
     mkdir,
     mkdtemp,
+    readdir,
     readFile,
     rm,
+    stat,
     writeFile,
 } from 'node:fs/promises';
 import {join} from 'node:path';
@@ -24,8 +26,10 @@ import {
     forgetPageIdentityStoreInitialization,
     schedulePageIdentityStoreInitialization,
 } from '@electron/file-access/pageIdentityStore';
+import type {TDocumentRevisionToken} from '@contracts/documentRevision';
 import {requireDocumentRevisionToken} from '@contracts/documentRevision';
 import {writeWorkingCopyRevisionSidecar} from '@electron/file-access/documentRevisionSidecar';
+import {resolveDocumentOcrPage} from '@electron/ocr/documentTextCatalog';
 import {
     loadCompactSearchIndex,
     persistCompactSearchIndex,
@@ -35,8 +39,128 @@ import {getPdfPageCount} from '@electron/pdf/pdfPageCount';
 
 vi.mock('@electron/pdf/pdfPageCount', () => ({getPdfPageCount: vi.fn(async () => 3)}));
 
+const OLD_TOKEN = requireDocumentRevisionToken('drt1:test:old');
+const NEW_TOKEN = requireDocumentRevisionToken('drt1:test:new');
+const OCR_PAGE_TEXTS = [
+    'one',
+    'two',
+    'three',
+];
+
+/** Identifies every page artifact by name and inode so a rewrite cannot hide. */
+async function describeOcrPageFiles(ocrPath: string) {
+    const names = (await readdir(ocrPath)).filter(name => name !== 'manifest.json').sort();
+    const described = await Promise.all(names.map(async name => [
+        name,
+        (await stat(join(ocrPath, name))).ino,
+    ] as const));
+    return Object.fromEntries(described);
+}
+
 describe('page identity deltas', () => {
     let root = '';
+
+    async function publishRevisionSidecar(path: string, token: TDocumentRevisionToken) {
+        await writeWorkingCopyRevisionSidecar(path, {
+            sidecarVersion: 1,
+            version: 1,
+            documentRef: path,
+            authority: 'electron-working-copy',
+            token,
+            contentRevision: token === OLD_TOKEN ? 1 : 2,
+            mintedAt: 1,
+            updatedAt: 1,
+        });
+    }
+
+    function nextRevisionInfo(path: string) {
+        return {
+            version: 1 as const,
+            documentRef: path,
+            authority: 'electron-working-copy' as const,
+            token: NEW_TOKEN,
+            contentRevision: 2,
+            mintedAt: 2,
+        };
+    }
+
+    /** Seeds a three-page working copy carrying an OCR catalog and both search indexes. */
+    async function seedOcrdWorkingCopy() {
+        root = await mkdtemp(join(tmpdir(), 'evb-page-identity-'));
+        const path = join(root, 'working.pdf');
+        const ocrPath = `${path}.ocr`;
+        await Promise.all([
+            writeFile(path, '%PDF fixture'),
+            mkdir(ocrPath),
+            writeFile(`${path}.evb-pages.json`, JSON.stringify({
+                version: 1,
+                documentRevisionToken: OLD_TOKEN,
+                pageIds: [
+                    'page-a',
+                    'page-b',
+                    'page-c',
+                ],
+            })),
+            publishRevisionSidecar(path, OLD_TOKEN),
+        ]);
+        await Promise.all(OCR_PAGE_TEXTS.map((text, index) => writeFile(
+            join(ocrPath, `page-${index + 1}.json`),
+            JSON.stringify({
+                rotation: 0,
+                render: {
+                    dpi: 300,
+                    imagePx: {
+                        w: 1200,
+                        h: 1600,
+                    },
+                },
+                text,
+                words: [],
+            }),
+        )));
+        await writeFile(join(ocrPath, 'manifest.json'), JSON.stringify({
+            version: 3,
+            documentRevision: {token: OLD_TOKEN},
+            createdAt: 1,
+            source: {pdfPath: path},
+            pageCount: 3,
+            pageBox: 'crop',
+            ocr: {
+                engine: 'tesseract',
+                languages: ['eng'],
+                renderDpi: 300,
+            },
+            pages: {
+                1: {path: 'page-1.json'},
+                2: {path: 'page-2.json'},
+                3: {path: 'page-3.json'},
+            },
+        }));
+        await writeFile(`${path}.index.json`, JSON.stringify({
+            schemaVersion: 7,
+            documentRevision: {token: OLD_TOKEN},
+            pdfPath: path,
+            createdAt: 1,
+            pageCount: 3,
+            pages: OCR_PAGE_TEXTS.map((text, index) => ({
+                pageNumber: index + 1,
+                text,
+            })),
+        }));
+        await persistCompactSearchIndex(path, {
+            documentRevision: OLD_TOKEN,
+            pageCount: 3,
+            pages: OCR_PAGE_TEXTS.map((text, index) => ({
+                pageNumber: index + 1,
+                text,
+            })),
+        });
+        return {
+            path,
+            ocrPath,
+            newToken: NEW_TOKEN,
+        };
+    }
 
     afterEach(async () => {
         await rm(root, {
@@ -115,97 +239,17 @@ describe('page identity deltas', () => {
     });
 
     it('conserves page IDs, OCR, and both search indexes through one structural delta', async () => {
-        root = await mkdtemp(join(tmpdir(), 'evb-page-identity-'));
-        const path = join(root, 'working.pdf');
-        const oldToken = requireDocumentRevisionToken('drt1:test:old');
-        const newToken = requireDocumentRevisionToken('drt1:test:new');
-        const ocrPath = `${path}.ocr`;
-        await Promise.all([
-            writeFile(path, '%PDF fixture'),
-            mkdir(ocrPath),
-            writeFile(`${path}.evb-pages.json`, JSON.stringify({
-                version: 1,
-                documentRevisionToken: oldToken,
-                pageIds: [
-                    'page-a',
-                    'page-b',
-                    'page-c',
-                ],
-            })),
-            writeWorkingCopyRevisionSidecar(path, {
-                sidecarVersion: 1,
-                version: 1,
-                documentRef: path,
-                authority: 'electron-working-copy',
-                token: oldToken,
-                contentRevision: 1,
-                mintedAt: 1,
-                updatedAt: 1,
-            }),
-        ]);
-        const ocrPages = [
-            'one',
-            'two',
-            'three',
-        ];
-        await Promise.all(ocrPages.map((text, index) => writeFile(
-            join(ocrPath, `page-${index + 1}.json`),
-            JSON.stringify({
-                pageNumber: index + 1,
-                documentRevision: {token: oldToken},
-                text,
-            }),
-        )));
-        await writeFile(join(ocrPath, 'manifest.json'), JSON.stringify({
-            version: 3,
-            documentRevision: {token: oldToken},
-            createdAt: 1,
-            source: {pdfPath: path},
-            pageCount: 3,
-            pageBox: 'crop',
-            ocr: {
-                engine: 'tesseract',
-                languages: ['eng'],
-                renderDpi: 300,
-            },
-            pages: {
-                1: {path: 'page-1.json'},
-                2: {path: 'page-2.json'},
-                3: {path: 'page-3.json'},
-            },
-        }));
-        await writeFile(`${path}.index.json`, JSON.stringify({
-            schemaVersion: 7,
-            documentRevision: {token: oldToken},
-            pdfPath: path,
-            createdAt: 1,
-            pageCount: 3,
-            pages: ocrPages.map((text, index) => ({
-                pageNumber: index + 1,
-                text,
-            })),
-        }));
-        await persistCompactSearchIndex(path, {
-            documentRevision: oldToken,
-            pageCount: 3,
-            pages: ocrPages.map((text, index) => ({
-                pageNumber: index + 1,
-                text,
-            })),
-        });
+        const {
+            path,
+            ocrPath,
+            newToken,
+        } = await seedOcrdWorkingCopy();
 
         await commitPageIdentityDelta(path, createReorderIdentityDelta(3, [
             3,
             1,
             2,
-        ]), {
-            version: 1,
-            documentRef: path,
-            authority: 'electron-working-copy',
-            token: newToken,
-            contentRevision: 2,
-            mintedAt: 2,
-        });
+        ]), nextRevisionInfo(path));
 
         const pageIdentity = JSON.parse(await readFile(`${path}.evb-pages.json`, 'utf8')) as {pageIds: string[]};
         expect(pageIdentity.pageIds).toEqual([
@@ -215,7 +259,8 @@ describe('page identity deltas', () => {
         ]);
         const ocrManifest = JSON.parse(await readFile(join(ocrPath, 'manifest.json'), 'utf8')) as {documentRevision: {token: string}};
         expect(ocrManifest.documentRevision.token).toBe(newToken);
-        await expect(readFile(join(ocrPath, 'page-0001.json'), 'utf8')).resolves.toContain('three');
+        await publishRevisionSidecar(path, newToken);
+        await expect(resolveDocumentOcrPage(path, newToken, 1)).resolves.toMatchObject({page: {text: 'three'}});
         await expect(loadSearchIndex(path, newToken)).resolves.toMatchObject({
             pageCount: 3,
             pages: [
@@ -249,6 +294,27 @@ describe('page identity deltas', () => {
                     text: 'two',
                 },
             ],
+        });
+    });
+
+    it('leaves every OCR page file untouched when rotate or crop bumps the revision', async () => {
+        const {
+            path,
+            ocrPath,
+            newToken,
+        } = await seedOcrdWorkingCopy();
+        const before = await describeOcrPageFiles(ocrPath);
+
+        await commitPageIdentityDelta(path, createIdentityDelta(3), nextRevisionInfo(path));
+
+        expect(await describeOcrPageFiles(ocrPath)).toEqual(before);
+        await publishRevisionSidecar(path, newToken);
+        await expect(resolveDocumentOcrPage(path, newToken, 2)).resolves.toMatchObject({
+            pageCount: 3,
+            page: {
+                pageNumber: 2,
+                text: 'two',
+            },
         });
     });
 });

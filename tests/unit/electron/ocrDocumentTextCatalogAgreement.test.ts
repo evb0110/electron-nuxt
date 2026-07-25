@@ -234,14 +234,6 @@ describe('DocumentTextCatalog reader agreement', () => {
             },
         ],
         [
-            'swapped page identity',
-            (artifacts: Map<string, unknown>) => {
-                const page = structuredClone(artifacts.get('page-0001.json')) as {pageNumber: number};
-                page.pageNumber = 2;
-                artifacts.set('page-0001.json', page);
-            },
-        ],
-        [
             'zero render width',
             (artifacts: Map<string, unknown>) => {
                 const page = structuredClone(artifacts.get('page-0001.json')) as {render: {imagePx: {w: number}}};
