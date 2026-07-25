@@ -245,7 +245,8 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
         } : null;
     }
     function isCommittedVisual(pageNumber: number, requireCurrent = true) {
-        const target = getMountedRasterTarget(pageNumber), canvas = pageCanvases.get(pageNumber);
+        const target = getMountedRasterTarget(pageNumber);
+        const canvas = pageCanvases.get(pageNumber);
         if (!target || !canvas) {
             return false;
         }
@@ -483,7 +484,9 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
         const outputScale = options.outputScale.value;
         const jobs: IViewportRasterJob[] = [];
         for (let pageNumber = start; pageNumber <= end; pageNumber += 1) {
-            if (renderOptions.rasterDemandPages && !renderOptions.rasterDemandPages.includes(pageNumber)) continue;
+            if (renderOptions.rasterDemandPages && !renderOptions.rasterDemandPages.includes(pageNumber)) {
+                continue;
+            }
             const metric = documentSession.pageMetrics.value[pageNumber - 1];
             const width = metric?.width ?? documentSession.basePageWidth.value ?? 1;
             const height = metric?.height ?? documentSession.basePageHeight.value ?? 1;
@@ -514,9 +517,9 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
                 estimatedPixels: Math.min(requestedPixels,
                     pageRenderOptions.maxCanvasPixels ?? performanceProfile.settledMaxCanvasPixels),
                 lane,
-                ordinal: lane === 'viewport-visible' || lane === 'navigation-target'
+                ordinal: visible
                     ? pageNumber - range.start
-                    : Math.min(Math.abs(pageNumber - range.start), Math.abs(pageNumber - range.end)),
+                    : distance,
                 pageNumber,
                 renderKey: retainedJob?.demand.renderKey ?? [
                     renderVersion,
@@ -539,7 +542,9 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
             };
             Object.assign(job.demand, demand);
             job.renderOptions = pageRenderOptions;
-            if (rasterState !== 'in-flight') job.rasterState = rasterState;
+            if (rasterState !== 'in-flight') {
+                job.rasterState = rasterState;
+            }
             viewportRasterJobs.set(demand.renderKey, job);
             jobs.push(job);
         }
@@ -905,10 +910,8 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
         flush: 'sync',
         immediate: true,
     });
-    const stopCancelRasterWatch = watch(viewport.cancelRasterRevision, (revision, previous) => {
-        if (revision !== previous) {
-            void cancelInFlightRenders();
-        }
+    const stopCancelRasterWatch = watch(viewport.cancelRasterRevision, () => {
+        void cancelInFlightRenders();
     }, {flush: 'sync'});
     const stopVisualReadyWatch = watch(viewport.visualReadySignal, (signal, previous) => {
         if (signal.revision !== previous?.revision) {
@@ -1069,8 +1072,8 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
         isPageRendered: (pageNumber: number) => pageRenderState.getSlot(pageNumber).canvasReadiness === 'ready',
         applySearchHighlights: pageRenderer.applySearchHighlights,
     });
-    watch(options.outputScale, (nextScale, previousScale) => {
-        if (nextScale === previousScale || !documentSession.pdfDocument.value || documentSession.isLoading.value
+    watch(options.outputScale, () => {
+        if (!documentSession.pdfDocument.value || documentSession.isLoading.value
             || shouldDeferPdfDprRerenderForResize(options.isResizing.value)) {
             return;
         }
@@ -1138,13 +1141,11 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
         stopNavigationCommitWatch();
         if (frameId !== null) {
             window.cancelAnimationFrame(frameId);
-            frameId = null;
         }
         clearQualityRefineIdleTimer();
         if (latestDemand.mandatoryRaster) {
             viewport.settleMandatoryRaster(latestDemand.mandatoryRaster.id);
         }
-        activeMandatoryRasterId = null;
         resetRenderStallRecoveryState();
         pendingInitialVisualReadyToken = null;
         zoomRerenderQueue.cleanupZoomRerenderQueue();
