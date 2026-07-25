@@ -11,7 +11,8 @@ import type {
 import type { IPdfjsEditor } from '@app/types/pdfjs';
 import type { PDFDocumentProxy } from '@app/types/pdfContracts';
 import type { IAnnotationContextMenuPayload } from '@app/modules/pdf-viewer/engine/annotationContextMenuPayload';
-import type { IPdfAnnotationRenderingPort } from '@app/modules/pdf-viewer/runtime/annotations/createAttachablePdfAnnotationRenderingPort';
+import type { IRenderVisiblePagesOptions } from '@app/modules/pdf-viewer/runtime/rendering/pdfRendererTypes';
+import type { IPageRange } from '@app/types/pdfUi';
 
 export interface ICrudIdentity {
     resolveCommentFromCache: (comment: IAnnotationCommentSummary) => IAnnotationCommentSummary | null;
@@ -99,7 +100,13 @@ export interface IUseAnnotationCrudOptions {
             preferExactDom?: boolean;
         },
     ) => void;
-    renderVisiblePages: IPdfAnnotationRenderingPort['renderVisiblePages'];
+    renderVisiblePages: (
+        range: IPageRange,
+        options?: Pick<
+            IRenderVisiblePagesOptions,
+            'preserveRenderedPages' | 'forceRerender' | 'bufferOverride'
+        >,
+    ) => Promise<void>;
     updateVisibleRange: (container: HTMLElement | null, numPages: number) => void;
     emitAnnotationModified: () => void;
     emitAnnotationOpenNote: (comment: IAnnotationCommentSummary) => void;

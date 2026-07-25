@@ -76,7 +76,7 @@ describe('annotation architecture boundaries', () => {
         const shapeReadModel = read('app/modules/pdf-viewer/tools/useAnnotationShapes.ts');
         const shapeCommands = read('app/modules/pdf-viewer/tools/usePdfShapeTool.ts');
         const shapeContext = read('app/modules/pdf-viewer/tools/usePdfShapeContext.ts');
-        const runtime = read('app/modules/pdf-viewer/runtime/annotations/usePdfViewerAnnotationRuntime.ts');
+        const runtime = read('app/modules/pdf-viewer/runtime/sessions/createPdfAnnotationSession.ts');
         const facade = read('app/modules/pdf-viewer/annotations/bridge/pdfjsAnnotationFacade.ts');
 
         expect(commentModel).not.toMatch(/commentSummaryMemory|pendingMarkerMoves|deletedAnnotationsById/);
