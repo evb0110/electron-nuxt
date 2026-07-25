@@ -24,6 +24,7 @@ import {
     getSessionInfo,
     getSessionStartingInfo,
     readSessionLogTail,
+    waitForSessionReady,
 } from '@scripts/electron-run/electronRunSessionArtifacts';
 import {
     sessionDir,
@@ -36,11 +37,8 @@ import {
 import type { TElectronRunCommand } from '@scripts/electron-run/electronRunProtocol';
 import {DEFAULT_SETTINGS} from '@contracts/settings';
 import type { IE2EWindow } from '@tests/e2e/electron/helpers/e2EWindow';
-import {
-    startSessionDetached,
-    stopSingleSession,
-    waitForSessionReady,
-} from '@scripts/electron-run/sessionManager';
+import { startSessionDetached } from '@scripts/electron-run/startSessionDetached';
+import { stopSingleSession } from '@scripts/electron-run/stopSession';
 import { cleanupSessionFixtures } from '@tests/e2e/electron/helpers/fixtures';
 import {
     installPageEvaluationShims,
@@ -338,6 +336,7 @@ export async function startElectronE2ESession(sessionName: string, options?: {
             ...buildStrictE2ERunEnv(process.env),
             ...(options?.extraEnv ?? {}),
         },
+        owner: 'e2e' as const,
         ...(options?.initialOpenPaths ? { initialOpenPaths: options.initialOpenPaths } : {}),
     };
     await withSessionTimeout(

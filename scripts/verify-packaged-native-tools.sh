@@ -13,14 +13,31 @@ arch="$2"
 release_dir="${3:-release}"
 resolve_release_target_platform_arch "$platform" "$arch"
 platform_arch="$RELEASE_PLATFORM_ARCH"
-exe_suffix="$RELEASE_EXE_SUFFIX"
+
+release_entries_file="$(mktemp)"
+trap 'rm -f "$release_entries_file"' EXIT
+if ! node --import tsx scripts/nativeResourceManifestCli.ts packaged-entries "$platform_arch" > "$release_entries_file"; then
+  echo "Error: Unable to load packaged release targets"
+  exit 1
+fi
+sentinel_family_root=""
+while IFS=$'\t' read -r entry_scope staged_root _relative_path _entry_type _entry_label _entry_id; do
+  if [ "$entry_scope" = "native" ] && [ -n "$staged_root" ]; then
+    sentinel_family_root="$staged_root"
+    break
+  fi
+done < "$release_entries_file"
+if [ -z "$sentinel_family_root" ]; then
+  echo "Error: Release target manifest has no native tool families"
+  exit 1
+fi
 
 resource_root=""
 native_tool_root=""
 mac_app_path=""
 if [ "$platform" = "mac" ]; then
   while IFS= read -r -d '' candidate; do
-    if [ -d "$candidate/tesseract/$platform_arch" ]; then
+    if [ -d "$candidate/$sentinel_family_root/$platform_arch" ]; then
       native_tool_root="$candidate"
       contents_dir="$(dirname "$(dirname "$candidate")")"
       resource_root="$contents_dir/Resources"
@@ -30,7 +47,7 @@ if [ "$platform" = "mac" ]; then
   done < <(find "$release_dir" -path "*/Contents/MacOS/native-tools" -type d -print0)
 else
   while IFS= read -r -d '' candidate; do
-    if [ -d "$candidate/tesseract/$platform_arch" ]; then
+    if [ -d "$candidate/$sentinel_family_root/$platform_arch" ]; then
       resource_root="$candidate"
       native_tool_root="$candidate"
       break
@@ -44,6 +61,16 @@ if [ -z "$resource_root" ] || [ -z "$native_tool_root" ]; then
 fi
 
 echo "Verifying packaged native tools in: $native_tool_root"
+
+# Derive the packaged native tool family roots and generated binaries from the single
+# release-target manifest (scripts/nativeResourceManifest.ts) so this verifier, the
+# staging generator, and the afterPack hook never drift on their target lists.
+packaged_family_roots=()
+while IFS=$'\t' read -r entry_scope staged_root _relative_path _entry_type _entry_label _entry_id; do
+  if [ "$entry_scope" = "native" ] && [[ " ${packaged_family_roots[*]} " != *" $staged_root "* ]]; then
+    packaged_family_roots+=("$staged_root")
+  fi
+done < "$release_entries_file"
 
 check_file() {
   local path="$1"
@@ -166,16 +193,24 @@ is_macos_app_adhoc_signed() {
   echo "$sign_info" | grep -Eq 'Signature=adhoc|TeamIdentifier=not set'
 }
 
-check_file "$native_tool_root/tesseract/$platform_arch/bin/tesseract$exe_suffix" "tesseract binary"
-if [ "$platform" != "win" ]; then
-  check_file "$native_tool_root/tesseract/$platform_arch/bin/unpaper$exe_suffix" "unpaper binary"
-else
-  echo "Windows unpaper preprocessing is explicitly unavailable in this package; OCR preprocessing validation must report it missing."
-fi
-
-tessdata_dir="$resource_root/tesseract/tessdata"
-if [ ! -d "$tessdata_dir" ]; then
-  echo "Error: Missing tessdata directory ($tessdata_dir)"
+tessdata_dir=""
+while IFS=$'\t' read -r entry_scope staged_root relative_path entry_type entry_label entry_id; do
+  if [ "$entry_scope" = "native" ]; then
+    entry_path="$native_tool_root/$staged_root/$platform_arch/$relative_path"
+  else
+    entry_path="$resource_root/$relative_path"
+  fi
+  if [ "$entry_type" = "file" ]; then
+    check_file "$entry_path" "$entry_label"
+  else
+    check_dir "$entry_path" "$entry_label"
+  fi
+  if [ "$entry_id" = "tessdata" ]; then
+    tessdata_dir="$entry_path"
+  fi
+done < "$release_entries_file"
+if [ -z "$tessdata_dir" ]; then
+  echo "Error: Release target manifest has no tessdata resource"
   exit 1
 fi
 if ! find "$tessdata_dir" -maxdepth 1 -type f -name '*.traineddata' -print -quit | grep -q .; then
@@ -184,42 +219,31 @@ if ! find "$tessdata_dir" -maxdepth 1 -type f -name '*.traineddata' -print -quit
 fi
 verify_tessdata_bundle_complete "$tessdata_dir"
 
-check_file "$native_tool_root/poppler/$platform_arch/bin/pdfinfo$exe_suffix" "pdfinfo binary"
-check_file "$native_tool_root/poppler/$platform_arch/bin/pdftoppm$exe_suffix" "pdftoppm binary"
-check_file "$native_tool_root/poppler/$platform_arch/bin/pdftotext$exe_suffix" "pdftotext binary"
-if [ "$platform" = "win" ]; then
-  check_file "$native_tool_root/poppler/$platform_arch/bin/pdftocairo$exe_suffix" "pdftocairo binary"
-  check_dir "$native_tool_root/poppler/$platform_arch/share/poppler" "poppler data directory"
-fi
-if [ "$platform" = "linux" ]; then
-  check_dir "$native_tool_root/poppler/$platform_arch/share/poppler" "poppler data directory"
-  check_dir "$native_tool_root/poppler/$platform_arch/etc/fonts" "fontconfig directory"
-  check_file "$native_tool_root/poppler/$platform_arch/etc/fonts/fonts.conf" "fontconfig configuration"
-fi
-check_file "$native_tool_root/qpdf/$platform_arch/bin/qpdf$exe_suffix" "qpdf binary"
-check_file "$native_tool_root/djvulibre/$platform_arch/bin/ddjvu$exe_suffix" "ddjvu binary"
-check_file "$native_tool_root/djvulibre/$platform_arch/bin/djvused$exe_suffix" "djvused binary"
-check_file "$native_tool_root/djvulibre/$platform_arch/bin/djvudump$exe_suffix" "djvudump binary"
-check_file "$native_tool_root/pdf-image-combine/$platform_arch/bin/evb-pdf-image-combine$exe_suffix" "pdf image combine binary"
-check_file "$native_tool_root/pdf-page-ops/$platform_arch/bin/evb-pdf-page-ops$exe_suffix" "pdf page ops binary"
-check_file "$native_tool_root/pdf-search/$platform_arch/bin/evb-pdf-search$exe_suffix" "pdf search binary"
-check_file "$native_tool_root/scan-cleanup/$platform_arch/bin/evb-scan-cleanup$exe_suffix" "scan cleanup binary"
+packaged_entry_path() {
+  local requested_id="$1"
+  local entry_scope
+  local staged_root
+  local relative_path
+  local entry_type
+  local entry_label
+  local entry_id
+  while IFS=$'\t' read -r entry_scope staged_root relative_path entry_type entry_label entry_id; do
+    if [ "$entry_scope" = "native" ] && [ "$entry_id" = "$requested_id" ]; then
+      echo "$native_tool_root/$staged_root/$platform_arch/$relative_path"
+      return
+    fi
+  done < "$release_entries_file"
+  echo "Error: Release target manifest has no packaged entry '$requested_id'" >&2
+  return 1
+}
 
 find_tool_files() {
   local tag="$1"
   local kind="$2"
-  local dirs=(
-    "$native_tool_root/tesseract/$tag/$kind"
-    "$native_tool_root/poppler/$tag/$kind"
-    "$native_tool_root/pdf-image-combine/$tag/$kind"
-    "$native_tool_root/pdf-page-ops/$tag/$kind"
-    "$native_tool_root/pdf-search/$tag/$kind"
-    "$native_tool_root/scan-cleanup/$tag/$kind"
-    "$native_tool_root/qpdf/$tag/$kind"
-    "$native_tool_root/djvulibre/$tag/$kind"
-  )
+  local staged_root
 
-  for dir in "${dirs[@]}"; do
+  for staged_root in "${packaged_family_roots[@]}"; do
+    local dir="$native_tool_root/$staged_root/$tag/$kind"
     if [ -d "$dir" ]; then
       find "$dir" -type f
     fi
@@ -470,9 +494,6 @@ if [ "$platform" = "mac" ]; then
       arch_mismatch=1
     fi
   done < <(
-    if [ -f "$native_tool_root/tesseract/$platform_arch/bin/tesseract" ]; then
-      echo "$native_tool_root/tesseract/$platform_arch/bin/tesseract"
-    fi
     find_tool_files "$platform_arch" "bin"
     find_tool_files "$platform_arch" "lib"
   )
@@ -484,23 +505,23 @@ if [ "$platform" = "mac" ]; then
     exit 1
   fi
 
-  run_macos_packaged_tool_smoke "djvused" "$native_tool_root/djvulibre/$platform_arch/bin/djvused" --help
-  run_macos_packaged_tool_smoke "djvudump" "$native_tool_root/djvulibre/$platform_arch/bin/djvudump" --help
+  run_macos_packaged_tool_smoke "djvused" "$(packaged_entry_path djvused)" --help
+  run_macos_packaged_tool_smoke "djvudump" "$(packaged_entry_path djvudump)" --help
   # ddjvu prints usage to stdout and exits 1 for --help on healthy builds.
-  run_macos_packaged_tool_smoke "ddjvu" "$native_tool_root/djvulibre/$platform_arch/bin/ddjvu" --help
-  run_macos_packaged_tool_smoke "qpdf" "$native_tool_root/qpdf/$platform_arch/bin/qpdf" --version
-  run_macos_packaged_tool_smoke "pdfinfo" "$native_tool_root/poppler/$platform_arch/bin/pdfinfo" -v
-  run_macos_packaged_tool_smoke "pdftoppm" "$native_tool_root/poppler/$platform_arch/bin/pdftoppm" -v
-  run_macos_packaged_tool_smoke "pdftotext" "$native_tool_root/poppler/$platform_arch/bin/pdftotext" -v
-  run_macos_packaged_tool_smoke "evb-pdf-image-combine" "$native_tool_root/pdf-image-combine/$platform_arch/bin/evb-pdf-image-combine" --version
-  run_macos_packaged_tool_smoke "evb-pdf-image-combine-protocol" "$native_tool_root/pdf-image-combine/$platform_arch/bin/evb-pdf-image-combine" --protocol-version
-  run_macos_packaged_tool_smoke "evb-pdf-image-combine-compact-manifest" "$native_tool_root/pdf-image-combine/$platform_arch/bin/evb-pdf-image-combine" --compact-manifest
-  run_macos_packaged_tool_smoke "evb-pdf-page-ops" "$native_tool_root/pdf-page-ops/$platform_arch/bin/evb-pdf-page-ops" --version
-  run_macos_packaged_tool_smoke "evb-pdf-search" "$native_tool_root/pdf-search/$platform_arch/bin/evb-pdf-search" --version
-  run_macos_packaged_tool_smoke "evb-scan-cleanup" "$native_tool_root/scan-cleanup/$platform_arch/bin/evb-scan-cleanup" --version
-  run_macos_packaged_tool_smoke "evb-scan-cleanup-protocol" "$native_tool_root/scan-cleanup/$platform_arch/bin/evb-scan-cleanup" --protocol-version
-  run_macos_packaged_tool_smoke "tesseract" "$native_tool_root/tesseract/$platform_arch/bin/tesseract" --version
-  run_macos_packaged_tool_smoke "unpaper" "$native_tool_root/tesseract/$platform_arch/bin/unpaper" --help
+  run_macos_packaged_tool_smoke "ddjvu" "$(packaged_entry_path ddjvu)" --help
+  run_macos_packaged_tool_smoke "qpdf" "$(packaged_entry_path qpdf)" --version
+  run_macos_packaged_tool_smoke "pdfinfo" "$(packaged_entry_path pdfinfo)" -v
+  run_macos_packaged_tool_smoke "pdftoppm" "$(packaged_entry_path pdftoppm)" -v
+  run_macos_packaged_tool_smoke "pdftotext" "$(packaged_entry_path pdftotext)" -v
+  run_macos_packaged_tool_smoke "evb-pdf-image-combine" "$(packaged_entry_path evb-pdf-image-combine)" --version
+  run_macos_packaged_tool_smoke "evb-pdf-image-combine-protocol" "$(packaged_entry_path evb-pdf-image-combine)" --protocol-version
+  run_macos_packaged_tool_smoke "evb-pdf-image-combine-compact-manifest" "$(packaged_entry_path evb-pdf-image-combine)" --compact-manifest
+  run_macos_packaged_tool_smoke "evb-pdf-page-ops" "$(packaged_entry_path evb-pdf-page-ops)" --version
+  run_macos_packaged_tool_smoke "evb-pdf-search" "$(packaged_entry_path evb-pdf-search)" --version
+  run_macos_packaged_tool_smoke "evb-scan-cleanup" "$(packaged_entry_path evb-scan-cleanup)" --version
+  run_macos_packaged_tool_smoke "evb-scan-cleanup-protocol" "$(packaged_entry_path evb-scan-cleanup)" --protocol-version
+  run_macos_packaged_tool_smoke "tesseract" "$(packaged_entry_path tesseract)" --version
+  run_macos_packaged_tool_smoke "unpaper" "$(packaged_entry_path unpaper)" --help
 fi
 
 if [ "$platform" = "linux" ]; then
@@ -531,8 +552,8 @@ if [ "$platform" = "linux" ]; then
   fi
 
   if host_can_execute_target "$platform" "$arch"; then
-    run_host_packaged_tool_smoke "tesseract" "tesseract" "$native_tool_root/tesseract/$platform_arch/bin/tesseract" --version
-    run_host_packaged_tool_smoke "unpaper" "unpaper|usage" "$native_tool_root/tesseract/$platform_arch/bin/unpaper" --help
+    run_host_packaged_tool_smoke "tesseract" "tesseract" "$(packaged_entry_path tesseract)" --version
+    run_host_packaged_tool_smoke "unpaper" "unpaper|usage" "$(packaged_entry_path unpaper)" --help
   else
     echo "Skipping Linux OCR native tool smoke: host cannot execute $platform_arch"
   fi
@@ -541,7 +562,7 @@ fi
 if [ "$platform" = "win" ]; then
   script_dir="$(cd "$(dirname "$0")" && pwd)"
   node "$script_dir/release/windows-tesseract-payload-policy.mjs" \
-    "$native_tool_root/tesseract/$platform_arch/bin"
+    "$(dirname "$(packaged_entry_path tesseract)")"
   windows_pe_files="$(mktemp)"
   trap 'rm -f "$windows_pe_files"' EXIT
   find_tool_files "$platform_arch" "bin" | grep -Ei '\.(exe|dll)$' > "$windows_pe_files" || true
@@ -558,7 +579,7 @@ if [ "$platform" = "win" ]; then
   trap - EXIT
 
   if host_can_execute_target "$platform" "$arch"; then
-    run_host_packaged_tool_smoke "tesseract" "tesseract" "$native_tool_root/tesseract/$platform_arch/bin/tesseract$exe_suffix" --version
+    run_host_packaged_tool_smoke "tesseract" "tesseract" "$(packaged_entry_path tesseract)" --version
   else
     echo "Skipping Windows OCR native tool smoke: host cannot execute $platform_arch"
   fi

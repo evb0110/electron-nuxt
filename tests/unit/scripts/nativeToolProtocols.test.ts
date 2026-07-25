@@ -17,7 +17,6 @@ import {
 } from '@contracts/nativeToolProtocols';
 import {
     generateNativeToolProtocols,
-    renderReleaseNativeToolProtocols,
     renderRustNativeToolProtocols,
 } from '@scripts/generateNativeToolProtocols';
 
@@ -30,21 +29,17 @@ const fixtureProtocols = [{
 }] as const satisfies readonly IGeneratedRustNativeToolProtocol[];
 
 describe('native tool protocol generator', () => {
-    it('renders deterministic Rust and release descriptors from one registry', () => {
+    it('renders deterministic Rust descriptors from one registry', () => {
         const firstRust = renderRustNativeToolProtocols(fixtureProtocols);
-        const firstRelease = renderReleaseNativeToolProtocols(fixtureProtocols);
 
         expect(renderRustNativeToolProtocols(fixtureProtocols)).toBe(firstRust);
-        expect(renderReleaseNativeToolProtocols(fixtureProtocols)).toBe(firstRelease);
         expect(firstRust).toContain(
             'NativeToolDescriptor::new("evb-fixture-tool", 7);',
         );
-        expect(firstRelease).toContain('protocolVersion: 7');
     });
 
-    it('writes both artifacts byte-stably and repairs generated drift', async () => {
+    it('writes the Rust artifact byte-stably and repairs generated drift', async () => {
         const root = await mkdtemp(path.join(tmpdir(), 'evb-native-protocols-'));
-        const releasePath = path.join(root, 'scripts/release/generated-native-tool-protocols.mjs');
         const rustPath = path.join(
             root,
             'native/evb-native-support/src/generated_native_tool_protocols.rs',
@@ -61,17 +56,14 @@ describe('native tool protocol generator', () => {
             expect(await readFile(rustPath, 'utf8')).toBe(
                 renderRustNativeToolProtocols(fixtureProtocols),
             );
-            expect(await readFile(releasePath, 'utf8')).toBe(
-                renderReleaseNativeToolProtocols(fixtureProtocols),
-            );
 
-            await writeFile(releasePath, '// stale\n', 'utf8');
+            await writeFile(rustPath, '// stale\n', 'utf8');
             await expect(generateNativeToolProtocols({
                 projectRoot: root,
                 protocols: fixtureProtocols,
             })).resolves.toBe(true);
-            expect(await readFile(releasePath, 'utf8')).toBe(
-                renderReleaseNativeToolProtocols(fixtureProtocols),
+            expect(await readFile(rustPath, 'utf8')).toBe(
+                renderRustNativeToolProtocols(fixtureProtocols),
             );
         } finally {
             await rm(root, {

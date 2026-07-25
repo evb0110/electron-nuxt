@@ -455,6 +455,42 @@ describe('Electron E2E fixture policy', () => {
 });
 
 describe('Electron E2E deterministic isolation policy', () => {
+    it('gives dev, E2E, and diagnostics distinct entry ownership over one internal controller', async () => {
+        const [
+            devSupervisor,
+            sessionController,
+            ephemeralEntry,
+            fixture,
+            diagnostics,
+            diagnosticsAdapter,
+            launchOwner,
+        ] = await Promise.all([
+            readFile('scripts/electron-run/devSupervisor.ts', 'utf8'),
+            readFile('scripts/electron-run/sessionController.ts', 'utf8'),
+            readFile('scripts/electron-run/ephemeralSessionEntry.ts', 'utf8'),
+            readFile('tests/e2e/electron/helpers/startElectronE2ESession.ts', 'utf8'),
+            readFile('scripts/diagnostics/runPdfDiagnosticScenario.ts', 'utf8'),
+            readFile('scripts/diagnostics/startPdfDiagnosticsElectronSession.ts', 'utf8'),
+            readFile('scripts/electron-run/electronLaunch.ts', 'utf8'),
+        ]);
+
+        expect(devSupervisor).toContain('@scripts/electron-run/sessionController');
+        expect(devSupervisor).toContain('cannot own an ephemeral E2E session');
+        expect(sessionController).toContain('@scripts/electron-run/electronLaunch');
+        expect(ephemeralEntry).toContain('assertE2ESessionName(sessionName)');
+        expect(ephemeralEntry).toContain('@scripts/electron-run/sessionController');
+        expect(fixture).toContain('@scripts/electron-run/startSessionDetached');
+        expect(fixture).toContain('owner: \'e2e\'');
+        expect(diagnostics).toContain('startPdfDiagnosticsElectronSession');
+        expect(diagnosticsAdapter).toContain('startElectronE2ESession');
+        expect(launchOwner).toContain('export async function launchAutomationSessionWithRecovery');
+
+        expect(fixture).not.toContain('electron-run/devSupervisor');
+        expect(diagnostics).not.toContain('electron-run/devSupervisor');
+        expect(ephemeralEntry).not.toContain('electron-run/devSupervisor');
+        expect(fixture).toContain('assertE2ESessionName(createE2ERunScopedSessionName(sessionName');
+    });
+
     it('keeps shared renderer and requested default sessions run-scoped with separate profiles', () => {
         const env = {[E2E_RUN_ID_ENV]: 'coexistence'};
         const sharedRendererSession = resolveE2EGlobalSetupSessionName(env);

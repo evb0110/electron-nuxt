@@ -211,7 +211,7 @@ pnpm run check:static:assets
 pnpm typecheck
 
 # Unit tests
-pnpm test
+pnpm run test:unit
 
 # Coverage ratchet, run in nightly CI
 pnpm run test:coverage

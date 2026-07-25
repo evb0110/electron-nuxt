@@ -25,6 +25,10 @@ import {
     createPlatformApiArtifactPlan,
     generatePlatformApiArtifacts,
 } from '@scripts/platform-api/generatePlatformApiArtifacts';
+import {
+    generateReleaseTargetManifest,
+    renderReleaseTargetManifest,
+} from '@scripts/generateReleaseTargetManifest';
 import { NATIVE_TOOL_RESOURCE_FAMILIES } from '@scripts/nativeResourceManifest';
 
 describe('build artifact generation', () => {
@@ -124,5 +128,28 @@ describe('build artifact generation', () => {
             }
         }
         expect(rendered).toContain('!share/poppler/CMakeLists.txt');
+    });
+
+    it('writes the release target manifest byte-stably and repairs generated drift', async () => {
+        await expect(readFile(
+            path.join(process.cwd(), 'scripts/release/generated-release-targets.cjs'),
+            'utf8',
+        )).resolves.toBe(renderReleaseTargetManifest());
+
+        const root = await mkdtemp(path.join(tmpdir(), 'evb-release-targets-'));
+        try {
+            await expect(generateReleaseTargetManifest({projectRoot: root})).resolves.toBe(true);
+            await expect(generateReleaseTargetManifest({projectRoot: root})).resolves.toBe(false);
+
+            const outputPath = path.join(root, 'scripts/release/generated-release-targets.cjs');
+            await writeFile(outputPath, '{"families":[]}\n', 'utf8');
+            await expect(generateReleaseTargetManifest({projectRoot: root})).resolves.toBe(true);
+            await expect(readFile(outputPath, 'utf8')).resolves.toBe(renderReleaseTargetManifest());
+        } finally {
+            await rm(root, {
+                force: true,
+                recursive: true,
+            });
+        }
     });
 });

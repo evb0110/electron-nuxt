@@ -60,7 +60,6 @@
     "packages/contracts/agentPlatformFeature.ts:1363-1379|packages/contracts/ocrPlatformFeature.ts:135-151",
     "packages/contracts/nativePdfMutations.ts:1032-1042|packages/contracts/nativePdfMutations.ts:989-998",
     "scripts/diagnostics/runPdfSkeletonNavigationDiagnostics.ts:469-483|scripts/diagnostics/runPdfSkeletonNavigationDiagnostics.ts:512-526",
-    "scripts/diagnostics/runPdfSkeletonNavigationDiagnostics.ts:530-541|scripts/diagnostics/runPdfSkeletonNavigationDiagnostics.ts:594-605",
-    "scripts/electron-run/electronRunNuxtServer.ts:51-64|scripts/electron-run/sessionManager.ts:142-155"
+    "scripts/diagnostics/runPdfSkeletonNavigationDiagnostics.ts:530-541|scripts/diagnostics/runPdfSkeletonNavigationDiagnostics.ts:594-605"
   ]
 }

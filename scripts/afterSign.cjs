@@ -5,7 +5,12 @@ const {
 const fs = require('fs');
 const path = require('path');
 
-const HARDENED_RUNTIME_ENTITLEMENTS = path.resolve(__dirname, '..', 'build', 'entitlements.mac.plist');
+const {manifest: RELEASE_TARGET_MANIFEST} = require('./release/generated-release-targets.cjs');
+const HARDENED_RUNTIME_ENTITLEMENTS = path.resolve(
+    __dirname,
+    '..',
+    ...RELEASE_TARGET_MANIFEST.signing.entitlementsPathSegments,
+);
 
 function hasDeveloperIdCredentials() {
     return Boolean(process.env.CSC_LINK && process.env.CSC_KEY_PASSWORD);
@@ -272,16 +277,8 @@ function resignEmbeddedAppCode(appPath, identity) {
 
 function resignBundledNativeToolPayloads(appPath, identity) {
     const nativeToolsDir = path.join(appPath, 'Contents', 'MacOS', 'native-tools');
-    const toolRoots = [
-        path.join(nativeToolsDir, 'djvulibre'),
-        path.join(nativeToolsDir, 'poppler'),
-        path.join(nativeToolsDir, 'pdf-image-combine'),
-        path.join(nativeToolsDir, 'pdf-page-ops'),
-        path.join(nativeToolsDir, 'pdf-search'),
-        path.join(nativeToolsDir, 'scan-cleanup'),
-        path.join(nativeToolsDir, 'qpdf'),
-        path.join(nativeToolsDir, 'tesseract'),
-    ];
+    const toolRoots = RELEASE_TARGET_MANIFEST.signing.executableRoots
+        .map(rootSegments => path.join(nativeToolsDir, ...rootSegments));
 
     const sharedLibraries = [];
     const executables = [];
@@ -327,7 +324,7 @@ function resignBundledNativeToolPayloads(appPath, identity) {
 }
 
 exports.default = async function afterSign(context) {
-    if (context.electronPlatformName !== 'darwin') {
+    if (!RELEASE_TARGET_MANIFEST.signing.platforms.includes(context.electronPlatformName)) {
         return;
     }
 

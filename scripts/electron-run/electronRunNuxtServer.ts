@@ -397,6 +397,25 @@ export function hasOtherAliveSessionUsingNuxt(
     );
 }
 
+export function readNuxtSessionShareMetadata(): INuxtSessionShareMetadata[] {
+    return listAllSessionNames().flatMap((name) => {
+        const info = getSessionInfo(name);
+        if (!info) {
+            return [];
+        }
+
+        return [{
+            name,
+            sessionAlive: isVerifiedSessionProcess(info.pid, {
+                kind: 'controller',
+                sessionName: name,
+            }),
+            nuxtPid: info.nuxtPid,
+            nuxtPort: info.nuxtPort,
+        }];
+    });
+}
+
 export function selectStaleNuxtPortOwnerCleanupTargets(
     pidsOnPort: number[],
     sessions: INuxtPortOwnerSessionMetadata[],

@@ -3,7 +3,7 @@ import {
     beforeAll,
     beforeEach,
 } from 'vitest';
-import { stopSingleSession } from '@scripts/electron-run/sessionManager';
+import { stopSingleSession } from '@scripts/electron-run/stopSession';
 import {startElectronE2ESession} from '@tests/e2e/electron/helpers/startElectronE2ESession';
 import type {IElectronE2ESession} from '@tests/e2e/electron/helpers/startElectronE2ESession';
 import type { TElectronE2EWindowMode } from '@scripts/electron-run/electronRunLaunchConfig';

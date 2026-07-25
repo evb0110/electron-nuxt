@@ -23,12 +23,12 @@ import {
 } from '@scripts/electron-run/electronRunSessionPaths';
 import { isProcessAlive } from '@scripts/electron-run/electronRunProcessTree';
 import { projectRoot } from '@scripts/electron-run/projectRoot';
+import { devSupervisor } from '@scripts/electron-run/devSupervisor';
+import { startSessionDetached } from '@scripts/electron-run/startSessionDetached';
 import {
-    startSession,
-    startSessionDetached,
     stopSession,
     stopSingleSession,
-} from '@scripts/electron-run/sessionManager';
+} from '@scripts/electron-run/stopSession';
 
 const CLI_COMMANDS = [
     'start',
@@ -372,7 +372,7 @@ async function restartSession(detached: boolean) {
     if (detached) {
         await startSessionDetached();
     } else {
-        await startSession(false);
+        await devSupervisor(false);
     }
 }
 
@@ -381,11 +381,11 @@ type TCliCommandHandler = (args: string[], parsed: IParsedCliArgs) => Promise<vo
 const CLI_COMMAND_HANDLERS: Record<TCliCommand, TCliCommandHandler> = {
     async start() {
         console.log(`Starting session '${getCurrentSessionName()}'...`);
-        await startSession(false);
+        await devSupervisor(false);
     },
     async cleanstart() {
         console.log(`Starting fresh session '${getCurrentSessionName()}'...`);
-        await startSession(true);
+        await devSupervisor(true);
     },
     async startd() {
         await startSessionDetached();

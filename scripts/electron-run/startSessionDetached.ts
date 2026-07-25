@@ -12,6 +12,7 @@ import {
     isSessionRunning,
     isSessionStarting,
     readSessionLogTail,
+    waitForSessionReady,
 } from '@scripts/electron-run/electronRunSessionArtifacts';
 import {
     getCurrentSessionName,
@@ -22,27 +23,16 @@ import {
     isProcessAlive,
     killProcessTree,
 } from '@scripts/electron-run/electronRunProcessTree';
+import {
+    INITIAL_OPEN_PATHS_ENV,
+    normalizeInitialOpenPaths,
+} from '@scripts/electron-run/electronLaunch';
 
-const INITIAL_OPEN_PATHS_ENV = 'EVB_AUTOMATION_INITIAL_OPEN_PATHS';
 const PNPM_COMMAND = process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm';
-
-function normalizeInitialOpenPaths(paths: string[] | undefined) {
-    return (paths ?? []).map(path => path.trim()).filter(Boolean);
-}
-
-async function waitForSessionReady(timeoutMs: number) {
-    const start = Date.now();
-    while (Date.now() - start < timeoutMs) {
-        if (await isSessionRunning()) {
-            return true;
-        }
-        await delay(250);
-    }
-    return false;
-}
 
 export async function startSessionDetached(options: {
     env?: NodeJS.ProcessEnv;
+    owner?: 'dev' | 'e2e';
     initialOpenPaths?: string[];
 } = {}) {
     await cleanupStaleSessionArtifacts();
@@ -63,11 +53,21 @@ export async function startSessionDetached(options: {
 
     mkdirSync(sessionDir(), { recursive: true });
     const logFd = openSync(sessionLogFilePath(), 'w');
-    const child = spawn(PNPM_COMMAND, [
-        'electron:run',
-        `--session=${getCurrentSessionName()}`,
-        'start',
-    ], {
+    const isEphemeral = options.owner === 'e2e';
+    const command = isEphemeral ? process.execPath : PNPM_COMMAND;
+    const args = isEphemeral
+        ? [
+            '--import',
+            'tsx',
+            'scripts/electron-run/ephemeralSessionEntry.ts',
+            getCurrentSessionName(),
+        ]
+        : [
+            'electron:run',
+            `--session=${getCurrentSessionName()}`,
+            'start',
+        ];
+    const child = spawn(command, args, {
         cwd: projectRoot,
         detached: true,
         shell: false,

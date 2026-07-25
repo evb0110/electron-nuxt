@@ -5,6 +5,7 @@ import {
     expect,
     it,
 } from 'vitest';
+import { getNativeSourceMatrixCheckEntries } from '@scripts/nativeResourceManifest';
 
 describe('linux Poppler packaging', () => {
     it('bundles and verifies Poppler runtime data and fontconfig resources', async () => {
@@ -19,9 +20,29 @@ describe('linux Poppler packaging', () => {
         expect(bundleScript).toContain('Error: Bundle verification failed');
 
         const verifyScript = await readFile(resolve(process.cwd(), 'scripts/verify-packaged-native-tools.sh'), 'utf8');
-        expect(verifyScript).toContain('check_dir "$native_tool_root/poppler/$platform_arch/share/poppler" "poppler data directory"');
-        expect(verifyScript).toContain('check_dir "$native_tool_root/poppler/$platform_arch/etc/fonts" "fontconfig directory"');
-        expect(verifyScript).toContain('check_file "$native_tool_root/poppler/$platform_arch/etc/fonts/fonts.conf" "fontconfig configuration"');
+        expect(getNativeSourceMatrixCheckEntries('linux-x64')).toEqual(expect.arrayContaining([
+            {
+                kind: 'required',
+                label: 'poppler data directory',
+                path: 'resources/poppler/linux-x64/share/poppler',
+                type: 'directory',
+            },
+            {
+                kind: 'required',
+                label: 'fontconfig directory',
+                path: 'resources/poppler/linux-x64/etc/fonts',
+                type: 'directory',
+            },
+            {
+                kind: 'required',
+                label: 'fontconfig configuration',
+                path: 'resources/poppler/linux-x64/etc/fonts/fonts.conf',
+                type: 'file',
+            },
+        ]));
+        expect(verifyScript).toContain('nativeResourceManifestCli.ts packaged-entries "$platform_arch"');
+        expect(verifyScript).toContain('check_dir "$entry_path" "$entry_label"');
+        expect(verifyScript).toContain('check_file "$entry_path" "$entry_label"');
     });
 
     it('builds Linux unpaper against the pinned minimal FFmpeg closure', async () => {

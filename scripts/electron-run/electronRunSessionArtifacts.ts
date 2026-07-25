@@ -6,8 +6,10 @@ import {
     unlinkSync,
     writeFileSync,
 } from 'node:fs';
+import { delay } from 'es-toolkit/promise';
 import { safeJsonParse } from '@contracts/safeJsonParse';
 import { DEFAULT_NUXT_PORT } from '@scripts/electron-run/electronRunPortConfig';
+import { SESSION_WAIT_TIMEOUT_MS } from '@scripts/electron-run/electronRunTimeouts';
 import {
     parseElectronRunCommandResponse,
     type TElectronRunCommand,
@@ -341,6 +343,17 @@ export async function isSessionRunning(name = getCurrentSessionName()) {
         }
         return false;
     }
+}
+
+export async function waitForSessionReady(timeoutMs = SESSION_WAIT_TIMEOUT_MS) {
+    const start = Date.now();
+    while (Date.now() - start < timeoutMs) {
+        if (await isSessionRunning()) {
+            return true;
+        }
+        await delay(250);
+    }
+    return false;
 }
 
 export function listAllSessionNames() {

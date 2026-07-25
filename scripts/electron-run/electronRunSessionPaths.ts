@@ -42,6 +42,15 @@ export function sessionLogFilePath(name = getCurrentSessionName()) {
     return join(sessionDir(name), 'session.log');
 }
 
+/**
+ * Marker the external stop path writes and the supervisor's own shutdown reads to
+ * keep a session's Nuxt server alive for a fast restart. One owner for the name so
+ * the writer and the reader cannot drift apart.
+ */
+export function sessionKeepNuxtMarkerPath(name = getCurrentSessionName()) {
+    return join(sessionDir(name), 'keep-nuxt-on-stop');
+}
+
 export function electronUserDataPath(name = getCurrentSessionName()) {
     return join(sessionDir(name), 'electron-user-data');
 }
