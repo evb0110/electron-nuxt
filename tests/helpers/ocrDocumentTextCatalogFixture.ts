@@ -25,8 +25,6 @@ export function createOcrDocumentTextCatalogFixture(
         const path = `page-${String(page.pageNumber).padStart(4, '0')}.json`;
         manifestPages[page.pageNumber] = {path};
         const pageArtifact: IOcrIndexV3Page = {
-            pageNumber: page.pageNumber,
-            documentRevision: {token: revision},
             rotation: 0,
             render: {
                 dpi: 300,
