@@ -1,7 +1,9 @@
 import {spawn} from 'child_process';
+import {basename} from 'path';
 import {createInterface} from 'readline';
 import type {TNativeErrorCode} from '@contracts/nativeErrors';
 import type {
+    TNativeScanCleanupPageStageTimingsV3,
     TNativeScanCleanupProgressV3,
     TScanCleanupProgress,
 } from '@contracts/electronApiScanCleanup';
@@ -30,6 +32,38 @@ function throwIfError(error: Error | null) {
     }
 }
 
+type TScanCleanupStageTotalsMs = Record<
+    'decode' | 'analysisLevel' | 'normalization' | 'split' | 'deskew' | 'content' | 'render' | 'write',
+    number
+>;
+
+function addStageTimings(totals: TScanCleanupStageTotalsMs, timings: TNativeScanCleanupPageStageTimingsV3) {
+    totals.decode += timings.decodeMs ?? 0;
+    totals.analysisLevel += timings.analysisLevelMs ?? 0;
+    totals.normalization += timings.normalizationMs ?? 0;
+    totals.split += timings.splitMs ?? 0;
+    totals.deskew += timings.deskewMs ?? 0;
+    totals.content += timings.contentMs ?? 0;
+    totals.render += timings.renderMs ?? 0;
+    totals.write += timings.writeMs ?? 0;
+}
+
+function formatSeconds(milliseconds: number) {
+    return `${(milliseconds / 1_000).toFixed(3)}s`;
+}
+
+function describeStageTotals(totals: TScanCleanupStageTotalsMs) {
+    return Object.entries(totals)
+        .filter(([
+            ,
+            milliseconds,
+        ]) => milliseconds > 0)
+        .map(([
+            stage,
+            milliseconds,
+        ]) => `${stage}=${formatSeconds(milliseconds)}`);
+}
+
 export async function runScanCleanupSidecar(
     binaryPath: string,
     manifestPath: string,
@@ -50,10 +84,22 @@ export async function runScanCleanupSidecar(
         'pipe',
         'pipe',
     ]}));
+    const startedAt = performance.now();
     let stderr = '';
     let terminalResult: 'success' | 'failure' | null = null;
     let protocolError: Error | null = null;
     let nativeFailure: NativeScanCleanupError | null = null;
+    let timedPages = 0;
+    const stageTotalsMs: TScanCleanupStageTotalsMs = {
+        decode: 0,
+        analysisLevel: 0,
+        normalization: 0,
+        split: 0,
+        deskew: 0,
+        content: 0,
+        render: 0,
+        write: 0,
+    };
     const completedPageNumbers = new Set<number>();
     child.stderr?.setEncoding('utf8');
     child.stderr?.on('data', (chunk: string) => {
@@ -73,6 +119,10 @@ export async function runScanCleanupSidecar(
                     && nativeProgress.pageNumber !== undefined
                 ) {
                     completedPageNumbers.add(nativeProgress.pageNumber);
+                }
+                if (nativeProgress.stageTimings !== undefined) {
+                    addStageTimings(stageTotalsMs, nativeProgress.stageTimings);
+                    timedPages += 1;
                 }
                 onProgress({
                     stage: nativeProgress.stage === 'page-analyzed' ? 'classifying' : 'rendering',
@@ -130,5 +180,11 @@ export async function runScanCleanupSidecar(
     } finally {
         signal.removeEventListener('abort', handleAbort);
         lines.close();
+        log('debug', [
+            `evb-scan-cleanup timings ${basename(manifestPath)}:`,
+            `wall=${formatSeconds(performance.now() - startedAt)}`,
+            `timedPages=${timedPages}`,
+            ...describeStageTotals(stageTotalsMs),
+        ].join(' '));
     }
 }
