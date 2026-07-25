@@ -27,12 +27,38 @@ import {
     waitForWorkspaceToolbarSnapshot,
 } from '@tests/e2e/electron/helpers/workspaceExpose';
 
+async function waitForVisibleTextSpans(page: Page) {
+    await page.waitForFunction(() => {
+        const host = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
+        const spans = Array.from(host?.querySelectorAll<HTMLElement>(
+            '.page_container .text-layer span, .page_container .textLayer span',
+        ) ?? []);
+        return spans.filter((span) => {
+            const rect = span.getBoundingClientRect();
+            const style = window.getComputedStyle(span);
+            return (span.textContent ?? '').trim().length > 0
+                && rect.width > 0
+                && rect.height > 0
+                && style.display !== 'none'
+                && style.visibility !== 'hidden';
+        }).length >= 2;
+    }, {timeout: 20_000});
+}
+
 async function dragOverFirstTwoSpans(page: Page) {
     const dragPoints = await page.evaluate(() => {
         const host = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
         const spans = Array.from(host?.querySelectorAll<HTMLElement>(
             '.page_container .text-layer span, .page_container .textLayer span',
-        ) ?? []).filter(span => (span.textContent ?? '').trim().length > 0);
+        ) ?? []).filter((span) => {
+            const rect = span.getBoundingClientRect();
+            const style = window.getComputedStyle(span);
+            return (span.textContent ?? '').trim().length > 0
+                && rect.width > 0
+                && rect.height > 0
+                && style.display !== 'none'
+                && style.visibility !== 'hidden';
+        });
         const first = spans[0]?.getBoundingClientRect();
         const second = (spans[1] ?? spans[0])?.getBoundingClientRect();
         if (!first || !second) {
@@ -91,6 +117,9 @@ async function readMarkupPresentationState(page: Page) {
 
 async function createSquigglyOverFirstSpans(page: Page) {
     const before = await getHighlightEditorCount(page);
+    // Entering markup mode before the first text layer has committed can leave
+    // the layer intentionally unmaterialized for that interaction.
+    await waitForVisibleTextSpans(page);
     await clickAnnotationTool(page, 'Squiggly');
     await dragOverFirstTwoSpans(page);
     await page.waitForFunction((previousCount: number) => {

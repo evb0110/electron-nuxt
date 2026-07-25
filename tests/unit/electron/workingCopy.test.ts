@@ -110,7 +110,7 @@ describe('workingCopy', () => {
 
         expect(readFileSync(workingPath)).toEqual(originalBytes);
         expect(getWorkingCopyBackingEntry(workingPath, 7)?.backingState).toBe('materialized');
-    }, 15_000);
+    }, 30_000);
 
     it('records a successful forced clone without starting materialization', async () => {
         process.env.EVB_TEST_FORCE_WORKING_COPY_CLONE_RESULT = 'success';

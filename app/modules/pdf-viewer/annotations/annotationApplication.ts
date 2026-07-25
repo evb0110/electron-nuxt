@@ -1,5 +1,6 @@
 import type {
     IAnnotationCommentSummary,
+    IAnnotationMarkerRect,
     IShapeAnnotation,
     TMarkupSubtype,
 } from '@app/types/annotations';
@@ -42,6 +43,7 @@ import {
     computeSummaryStableKey,
     getReplayableFreeTextNoteName,
 } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationSummaryIdentity';
+import {toMarkerRectFromPdfRect} from '@app/modules/pdf-viewer/engine/annotation-geometry/toMarkerRectFromPdfRect';
 
 const ANNOTATION_VERIFICATION_RANGE_BYTES = 1024 * 1024;
 
@@ -69,6 +71,7 @@ interface IPdfjsReopenedAnnotation {
     readonly contents?: string;
     readonly contentsObj?: { readonly str?: string };
     readonly rect?: readonly number[];
+    readonly quadPoints?: ArrayLike<number>;
 }
 
 function persistentIdentity(comment: IAnnotationCommentSummary) {
@@ -693,11 +696,16 @@ export class AnnotationApplication {
             } else if (expected.kind === 'text-markup') {
                 const subtype = toMarkupSubtype(record.subtype);
                 if (!subtype) continue;
+                const quadGeometry = this.#normalizePdfQuadPoints(record.quadPoints, page.view);
                 reopened.push({
                     ...expected,
                     subtype,
                     text: normalizeAnnotationText(record.contentsObj?.str ?? record.contents ?? ''),
-                    ...(rect ? {geometry: [rect]} : {}),
+                    ...(quadGeometry.length
+                        ? {geometry: quadGeometry}
+                        : rect
+                            ? {geometry: [rect]}
+                            : {}),
                 });
             } else {
                 reopened.push(expected);
@@ -730,28 +738,44 @@ export class AnnotationApplication {
     }
 
     #normalizePdfRect(rect: readonly number[] | undefined, view: readonly number[]) {
-        if (!rect || rect.length < 4 || view.length < 4) {
-            return null;
+        return toMarkerRectFromPdfRect(
+            rect ? [...rect] : undefined,
+            [...view],
+        );
+    }
+
+    #normalizePdfQuadPoints(quadPoints: ArrayLike<number> | undefined, view: readonly number[]) {
+        const geometry: IAnnotationMarkerRect[] = [];
+        if (!quadPoints || quadPoints.length < 8) {
+            return geometry;
         }
-        const [
-            x1 = 0,
-            y1 = 0,
-            x2 = 0,
-            y2 = 0,
-        ] = rect;
-        const [
-            vx1 = 0,
-            vy1 = 0,
-            vx2 = 1,
-            vy2 = 1,
-        ] = view;
-        const width = Math.abs(vx2 - vx1) || 1;
-        const height = Math.abs(vy2 - vy1) || 1;
-        return {
-            left: (Math.min(x1, x2) - vx1) / width,
-            top: (vy2 - Math.max(y1, y2)) / height,
-            width: Math.abs(x2 - x1) / width,
-            height: Math.abs(y2 - y1) / height,
-        };
+        for (let index = 0; index + 7 < quadPoints.length; index += 8) {
+            const points = Array.from({length: 8}, (_unused, offset) => quadPoints[index + offset]);
+            if (!points.every(value => typeof value === 'number' && Number.isFinite(value))) {
+                continue;
+            }
+            const xs = [
+                points[0]!,
+                points[2]!,
+                points[4]!,
+                points[6]!,
+            ];
+            const ys = [
+                points[1]!,
+                points[3]!,
+                points[5]!,
+                points[7]!,
+            ];
+            const rect = this.#normalizePdfRect([
+                Math.min(...xs),
+                Math.min(...ys),
+                Math.max(...xs),
+                Math.max(...ys),
+            ], view);
+            if (rect) {
+                geometry.push(rect);
+            }
+        }
+        return geometry;
     }
 }

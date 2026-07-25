@@ -328,6 +328,75 @@ describe('AnnotationApplication', () => {
         expect(application.store.hasChangesSinceSavedBaseline()).toBe(false);
     });
 
+    it('verifies every text-markup QuadPoints region instead of its bounding rectangle', async () => {
+        const application = new AnnotationApplication('document');
+        application.store.createTextMarkup(textMarkup({
+            identity: {
+                id: asAnnotationId('anno_multi_quad'),
+                pdfRef: '21R',
+            },
+            persistedRevision: -1,
+            geometry: [
+                {
+                    left: 0.1,
+                    top: 0.2,
+                    width: 0.2,
+                    height: 0.03,
+                },
+                {
+                    left: 0.1,
+                    top: 0.3,
+                    width: 0.25,
+                    height: 0.04,
+                },
+            ],
+        }));
+        pdfjsMocks.getDocument.mockReturnValue({promise: Promise.resolve({
+            destroy: pdfjsMocks.destroy,
+            getPage: vi.fn(async () => ({
+                view: [
+                    0,
+                    0,
+                    100,
+                    100,
+                ],
+                getAnnotations: vi.fn(async () => [{
+                    id: '21R',
+                    subtype: 'Underline',
+                    rect: [
+                        10,
+                        66,
+                        35,
+                        80,
+                    ],
+                    quadPoints: [
+                        10,
+                        80,
+                        30,
+                        80,
+                        10,
+                        77,
+                        30,
+                        77,
+                        10,
+                        70,
+                        35,
+                        70,
+                        10,
+                        66,
+                        35,
+                        66,
+                    ],
+                }]),
+            })),
+        })});
+
+        await expect(application.verifySaveBytes(
+            application.beginSave(),
+            new Uint8Array([1]),
+        )).resolves.toBeUndefined();
+    });
+
     it('semantically verifies and binds a newly appended native FreeText note when PDF.js omits its annotation name', async () => {
         const application = new AnnotationApplication('document');
         const editorNote = note({
