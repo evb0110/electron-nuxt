@@ -336,8 +336,39 @@ The Stage-I cleanup commit `9875e3da8` removed 23 production lines while adding 
 (net -16) and deleted a 211-line unused test helper; its all-source textual delta is
 therefore -227 without reclassifying that work into Stage D.
 
-Final `pnpm validate`, sequential isolated headless Electron lanes, release corpus,
-native workspace, resource-matrix, release-dry-run, and duplicate gates are recorded
-as pending until the closure runner supplies their final outputs. The ephemeral E2E
-session-controller detection blocker was fixed in `c44279007`; its rerun remains part
-of that pending matrix.
+### Closure verification
+
+Measured at `3ad275842`, this program merged with `origin/main` `cdc2f6848`.
+
+`pnpm validate` passes: 894 test files, 6,441 passed, 7 skipped, 0 failed; type
+coverage 99.58% app, 99.43% electron, 99.16% tests, 99.16% scripts, all above floor;
+`build:strict` green; fallow reports 0 dead-code issues across 2,394 entry points and
+no new clone groups. `pnpm test:coverage` passes at 68.39% statements, 61.21%
+branches, 70.32% functions, 68.73% lines with the ratchet green. `pnpm release:verify`
+passes end to end, including electron-builder packaging, all 16 packaged native tool
+smoke tests, and the resource-matrix and asar checks it drives. The ephemeral E2E
+session-controller detection blocker fixed in `c44279007` is green in the rerun.
+
+Five of the seven sequential isolated headless Electron lanes are green
+(`blocking-smoke`, `draw-shapes`, `large`, `rapid-navigation`, `save-pipeline`). Two
+scan-cleanup e2e tests and one scan-cleanup corpus size envelope fail; all three were
+reproduced unchanged on a clean `origin/main` worktree with none of this program's
+commits present, so they are inherited from the concurrent scan-cleanup rewrite rather
+than caused here. The corpus passes 52 of 53 assertions, including every semantic and
+rendered check. `.devkit/analysis/consolidation-remaining-program-ledger.md` records
+the reproductions and the exact evidence paths.
+
+Two `release:verify` failures surfaced during closure and were fixed at their cause,
+not waited out: an AbortSignal listener subscribed after an `await` could never
+receive a cancel that had already fired (`e7f9d278a`, which also reverts an earlier
+timeout extension rather than raising it again), and packaged release manifest rows
+encoded with a tab lost their empty staged-root column to IFS whitespace collapsing,
+so the verifier checked paths that were never in the manifest (`ec67d5c98`).
+
+At `3ad275842` the repository holds **642,370 authored source LOC** across **3,179
+source files** — 373,131 product/runtime, 235,814 test-purpose, 33,425
+tooling/automation. Against the `c6cebbc27` baseline that is **+34,183 source LOC**
+and **-53 source files**; the file count is the program's own consolidation result,
+while the line growth is dominated by concurrent feature work merged in from
+`origin/main` during the program, not by this program's stages, which total -6,521
+production lines as tabulated above.
