@@ -179,7 +179,8 @@
                 "app/modules/djvu-viewer/components/DjvuConversionOverlay.vue",
                 "app/modules/djvu-viewer/components/DjvuConvertDialog.vue",
                 "app/modules/native-pdf-viewer/components/NativePdfViewer.vue",
-                "app/modules/ocr-panel/components/OcrPopup.vue"
+                "app/modules/ocr-panel/components/OcrPopup.vue",
+                "app/modules/pdf-viewer/components/PdfViewer.vue"
             ],
             "rules": {
                 "unrendered-components": "off"
