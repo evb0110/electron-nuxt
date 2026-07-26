@@ -2021,6 +2021,11 @@ fn clean_region(
     let rendered_height = render_plan.output_height();
 
     let render_started = Instant::now();
+    // A colour page publishes its RGB raster; the gray twin is never encoded, so
+    // the only question it answered — blankness — moves to the analysis level.
+    let skips_gray_twin = options.output_mode == OutputMode::Color
+        && color_source.is_some()
+        && !render_plan.has_dewarp();
     let (rendered_gray, rendered_color, forward_transform, inverse_transform, dewarp_mapping) =
         if render_plan.has_dewarp() {
             let gray =
@@ -2061,7 +2066,11 @@ fn clean_region(
                 .inverse()
                 .ok_or("Cleanup transform is not invertible")?;
             (
-                render_affine_gray(normalized, rendered_width, rendered_height, inverse),
+                if skips_gray_twin {
+                    GrayImage::new(rendered_width, rendered_height, 255)
+                } else {
+                    render_affine_gray(normalized, rendered_width, rendered_height, inverse)
+                },
                 color_source.map(|color| {
                     render_affine_rgb(color, rendered_width, rendered_height, inverse)
                 }),
@@ -2082,7 +2091,11 @@ fn clean_region(
             render_plan.output_to_source(point)
         })
     });
-    let effectively_blank = is_effectively_blank(&rendered_gray, options.dpi);
+    let effectively_blank = if skips_gray_twin {
+        is_effectively_blank(content_analysis, calibration.effective_dpi)
+    } else {
+        is_effectively_blank(&rendered_gray, options.dpi)
+    };
     let fail_closed_blank = content.content.is_none() && effectively_blank;
     let (
         mut image,
@@ -2781,20 +2794,58 @@ fn render_affine_gray(
         return output;
     }
     let sample_offsets = adaptive_sample_offsets(inverse);
+    let taps = sample_offsets.len();
+    let matrix = inverse.matrix;
+    let (step_x, step_y) = (matrix[0][0], matrix[1][0]);
+    let source_data = source.data();
+    let source_stride = source.stride();
     output
         .data_mut()
         .par_chunks_mut(width)
         .enumerate()
         .for_each(|(y, row)| {
+            let mut mapped = [(0.0, 0.0); MAX_SAMPLE_OFFSETS];
+            for (slot, &(offset_x, offset_y)) in mapped.iter_mut().zip(sample_offsets) {
+                let source_y = y as f64 + offset_y;
+                *slot = (
+                    matrix[0][0] * offset_x + matrix[0][1] * source_y + matrix[0][2],
+                    matrix[1][0] * offset_x + matrix[1][1] * source_y + matrix[1][2],
+                );
+            }
+            let (interior_start, interior_end) = interior_column_span(
+                &mapped[..taps],
+                step_x,
+                step_y,
+                width,
+                source.width(),
+                source.height(),
+            );
             for (x, target) in row.iter_mut().enumerate() {
-                let sum = sample_offsets
-                    .iter()
-                    .map(|&(ox, oy)| {
-                        let mapped = inverse.apply(Point::new(x as f64 + ox, y as f64 + oy));
-                        u32::from(sample_bilinear_white(source, mapped.x, mapped.y))
-                    })
-                    .sum::<u32>();
-                *target = (sum / sample_offsets.len() as u32) as u8;
+                let interior = x >= interior_start && x < interior_end;
+                let mut sum = 0u32;
+                for (sample_x, sample_y) in mapped.iter_mut().take(taps) {
+                    sum += if interior {
+                        let position_x = *sample_x - 0.5;
+                        let position_y = *sample_y - 0.5;
+                        let column = position_x as usize;
+                        let line = position_y as usize;
+                        let fraction_x = (position_x - column as f64) as f32;
+                        let fraction_y = (position_y - line as f64) as f32;
+                        let base = line * source_stride + column;
+                        let top = &source_data[base..base + 2];
+                        let bottom = &source_data[base + source_stride..base + source_stride + 2];
+                        let top_value = f32::from(top[0])
+                            + (f32::from(top[1]) - f32::from(top[0])) * fraction_x;
+                        let bottom_value = f32::from(bottom[0])
+                            + (f32::from(bottom[1]) - f32::from(bottom[0])) * fraction_x;
+                        (top_value + (bottom_value - top_value) * fraction_y + 0.5) as u32
+                    } else {
+                        u32::from(sample_bilinear_white(source, *sample_x, *sample_y))
+                    };
+                    *sample_x += step_x;
+                    *sample_y += step_y;
+                }
+                *target = (sum / taps as u32) as u8;
             }
         });
     output
@@ -2822,22 +2873,67 @@ fn render_affine_rgb(source: &RgbImage, width: usize, height: usize, inverse: Af
         return output;
     }
     let sample_offsets = adaptive_sample_offsets(inverse);
+    let taps = sample_offsets.len();
+    let matrix = inverse.matrix;
+    let (step_x, step_y) = (matrix[0][0], matrix[1][0]);
+    let source_data = source.data();
+    let source_stride = source.width() * 3;
     output
         .data_mut()
         .par_chunks_mut(width * 3)
         .enumerate()
         .for_each(|(y, row)| {
+            let mut mapped = [(0.0, 0.0); MAX_SAMPLE_OFFSETS];
+            for (slot, &(offset_x, offset_y)) in mapped.iter_mut().zip(sample_offsets) {
+                let source_y = y as f64 + offset_y;
+                *slot = (
+                    matrix[0][0] * offset_x + matrix[0][1] * source_y + matrix[0][2],
+                    matrix[1][0] * offset_x + matrix[1][1] * source_y + matrix[1][2],
+                );
+            }
+            let (interior_start, interior_end) = interior_column_span(
+                &mapped[..taps],
+                step_x,
+                step_y,
+                width,
+                source.width(),
+                source.height(),
+            );
             for (x, target) in row.chunks_exact_mut(3).enumerate() {
+                let interior = x >= interior_start && x < interior_end;
                 let mut sum = [0u32; 3];
-                for &(ox, oy) in sample_offsets {
-                    let mapped = inverse.apply(Point::new(x as f64 + ox, y as f64 + oy));
-                    let sample = sample_bilinear_rgb_white(source, mapped.x, mapped.y);
-                    for channel in 0..3 {
-                        sum[channel] += u32::from(sample[channel]);
+                for (sample_x, sample_y) in mapped.iter_mut().take(taps) {
+                    if interior {
+                        let position_x = *sample_x - 0.5;
+                        let position_y = *sample_y - 0.5;
+                        let column = position_x as usize;
+                        let line = position_y as usize;
+                        let fraction_x = (position_x - column as f64) as f32;
+                        let fraction_y = (position_y - line as f64) as f32;
+                        let base = line * source_stride + column * 3;
+                        let top = &source_data[base..base + 6];
+                        let bottom = &source_data[base + source_stride..base + source_stride + 6];
+                        for (channel, total) in sum.iter_mut().enumerate() {
+                            let top_value = f32::from(top[channel])
+                                + (f32::from(top[channel + 3]) - f32::from(top[channel]))
+                                    * fraction_x;
+                            let bottom_value = f32::from(bottom[channel])
+                                + (f32::from(bottom[channel + 3]) - f32::from(bottom[channel]))
+                                    * fraction_x;
+                            *total +=
+                                (top_value + (bottom_value - top_value) * fraction_y + 0.5) as u32;
+                        }
+                    } else {
+                        let sample = sample_bilinear_rgb_white(source, *sample_x, *sample_y);
+                        for (channel, total) in sum.iter_mut().enumerate() {
+                            *total += u32::from(sample[channel]);
+                        }
                     }
+                    *sample_x += step_x;
+                    *sample_y += step_y;
                 }
-                for channel in 0..3 {
-                    target[channel] = (sum[channel] / sample_offsets.len() as u32) as u8;
+                for (value, total) in target.iter_mut().zip(sum) {
+                    *value = (total / taps as u32) as u8;
                 }
             }
         });
@@ -2854,6 +2950,57 @@ fn integer_translation(transform: Affine) -> Option<(isize, isize)> {
     let ty = matrix[1][2].round();
     (linear_is_identity && (matrix[0][2] - tx).abs() <= 1e-12 && (matrix[1][2] - ty).abs() <= 1e-12)
         .then_some((tx as isize, ty as isize))
+}
+
+const MAX_SAMPLE_OFFSETS: usize = 4;
+
+fn interior_column_span(
+    starts: &[(f64, f64)],
+    step_x: f64,
+    step_y: f64,
+    width: usize,
+    source_width: usize,
+    source_height: usize,
+) -> (usize, usize) {
+    let axis_span = |start: f64, step: f64, high: f64| -> Option<(f64, f64)> {
+        if high < 0.5 {
+            return None;
+        }
+        if step == 0.0 {
+            return (start >= 0.5 && start <= high).then_some((f64::NEG_INFINITY, f64::INFINITY));
+        }
+        let first = (0.5 - start) / step;
+        let second = (high - start) / step;
+        Some(if step > 0.0 {
+            (first, second)
+        } else {
+            (second, first)
+        })
+    };
+    let mut low = 0.0_f64;
+    let mut high = width as f64;
+    for &(start_x, start_y) in starts {
+        match (
+            axis_span(start_x, step_x, source_width as f64 - 1.5),
+            axis_span(start_y, step_y, source_height as f64 - 1.5),
+        ) {
+            (Some(x_span), Some(y_span)) => {
+                low = low.max(x_span.0).max(y_span.0);
+                high = high.min(x_span.1).min(y_span.1);
+            }
+            _ => return (0, 0),
+        }
+    }
+    // One column of slack on each side absorbs the rounding of the span itself.
+    let first = (low.ceil().max(0.0) as usize).saturating_add(1);
+    let last = (high.floor().max(0.0) as usize)
+        .min(width)
+        .saturating_sub(1);
+    if first < last {
+        (first, last)
+    } else {
+        (0, 0)
+    }
 }
 
 fn adaptive_sample_offsets(inverse: Affine) -> &'static [(f64, f64)] {
