@@ -338,7 +338,20 @@ therefore -227 without reclassifying that work into Stage D.
 
 ### Closure verification
 
-Measured at `3ad275842`, this program merged with `origin/main` `cdc2f6848`.
+Measured at `3ad275842`, this program merged with `origin/main` `cdc2f6848` and
+published its closure as `e9cffc6c7`. The subsequent audit integrations are published
+through `59abb3778`, confirmed as the remote `main` object on 2026-07-26.
+
+The last scan-cleanup concurrency unit deliberately landed only its independently
+supported half at `59abb3778`: the peak-memory model now matches the measured
+resident high-water mark and a one-worker batch no longer serialises intra-page work
+inside a one-thread Rayon pool. The proposed CPU-cap widening remains unmerged because
+the required idle-host comparison could not be obtained; a 30-minute control saw load
+2.51–5.20 and never met its quiet gate. The optional
+`workingCopyMaterialization` load-sensitivity control and the raster fan-out curve are
+likewise recorded as idle-host blocked rather than replaced with contaminated
+measurements. These post-closure dispositions do not supersede or re-label the sparse
+gate results below.
 
 `pnpm validate` passes: 894 test files, 6,441 passed, 7 skipped, 0 failed; type
 coverage 99.58% app, 99.43% electron, 99.16% tests, 99.16% scripts, all above floor;
