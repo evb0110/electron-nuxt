@@ -200,6 +200,9 @@ const translations: Record<string, string> = {
     'scanCleanup.preview.loadingPage': 'Loading page {page}…',
     'scanCleanup.preview.loading': 'Building cleanup preview…',
     'scanCleanup.preview.cleanedAlt': 'Cleaned scan preview for page {page}, {half}',
+    'scanCleanup.preview.originalAlt': 'Original scan preview for page {page}',
+    'scanCleanup.preview.cleaningPage': 'Cleaning page {page}… showing the original scan',
+    'scanCleanup.preview.cleaningAlt': 'Original scan of page {page}, shown while cleanup is still running',
     'scanCleanup.preview.outputHalf.left': 'left half',
     'scanCleanup.preview.outputHalf.right': 'right half',
     'scanCleanup.preview.outputHalf.full': 'full page',
@@ -513,6 +516,16 @@ const TabsStub = defineComponent({
 });
 
 const activeUnmounts = new Set<() => void>();
+
+function rawPreviewResult(pageNumber: number): IScanCleanupRawPreviewResult {
+    return {
+        pageNumber,
+        totalPages: 3,
+        rawImageData: new Uint8Array([1]),
+        rawWidthPx: 1000,
+        rawHeightPx: 800,
+    };
+}
 
 function spreadPreviewResult(pageNumber = 1): IScanCleanupPreviewResult {
     const output = (half: 'left' | 'right', x: number) => ({
@@ -2176,6 +2189,122 @@ describe('Scan cleanup components', () => {
         expect(harness.host.querySelector('.cutter-stage')?.classList.contains('is-stale-content')).toBe(true);
         expect(harness.host.querySelector('.page-loading-overlay')?.textContent).toContain('Loading page 2…');
         expect(harness.host.querySelector('.refresh-indicator')).toBeNull();
+    });
+
+    it('shows the requested page raw raster under a cleaning notice instead of hiding it', () => {
+        const harness = mount(defineComponent({setup: () => () => h(ScanCleanupPreviewPane, {
+            result: spreadPreviewResult(1),
+            rawResult: rawPreviewResult(2),
+            loading: true,
+            error: '',
+            viewMode: 'cleaned',
+            matchPageSize: true,
+            alignment: 'top-center',
+            pageNumber: 2,
+            totalPages: 3,
+            stalePage: true,
+            manualSplit: null,
+            readingOrder: 'ltr',
+        })}));
+
+        expect(harness.host.querySelector('.raw-preview')).not.toBeNull();
+        expect(harness.host.querySelector('.cleaned-outputs')).toBeNull();
+        expect(harness.host.querySelector('.page-loading-overlay')).toBeNull();
+        expect(harness.host.querySelector('.preview-surface')?.classList.contains('is-stale-page')).toBe(false);
+        expect(harness.host.querySelector('.cutter-stage')?.classList.contains('is-stale-content')).toBe(false);
+        const caption = harness.host.querySelector('.preview-viewport-caption');
+        expect(caption?.textContent).toContain('Cleaning page 2… showing the original scan');
+        expect(caption?.getAttribute('aria-hidden')).toBe('false');
+        expect(harness.host.querySelector<HTMLImageElement>('.raw-preview .preview-pixel')?.alt)
+            .toBe('Original scan of page 2, shown while cleanup is still running');
+        expect(harness.host.querySelector('.drag-overlay-layer')).toBeNull();
+    });
+
+    it('keeps the previous page ghost until the requested page raster exists', () => {
+        const harness = mount(defineComponent({setup: () => () => h(ScanCleanupPreviewPane, {
+            result: spreadPreviewResult(1),
+            rawResult: rawPreviewResult(1),
+            loading: true,
+            error: '',
+            viewMode: 'cleaned',
+            matchPageSize: true,
+            alignment: 'top-center',
+            pageNumber: 2,
+            totalPages: 3,
+            stalePage: true,
+            manualSplit: null,
+            readingOrder: 'ltr',
+        })}));
+
+        expect(harness.host.querySelector('.raw-preview')).toBeNull();
+        expect(harness.host.querySelector('.cutter-stage')?.classList.contains('is-stale-content')).toBe(true);
+        expect(harness.host.querySelector('.page-loading-overlay')?.textContent).toContain('Loading page 2…');
+        expect(harness.host.querySelector('.preview-viewport-caption')?.getAttribute('aria-hidden')).toBe('true');
+    });
+
+    it('replaces the raw raster with the cleaned result inside the same viewport stage', async () => {
+        const result = shallowRef<IScanCleanupPreviewResult | null>(spreadPreviewResult(1));
+        const loading = ref(true);
+        const harness = mount(defineComponent({setup: () => () => h(ScanCleanupPreviewPane, {
+            result: result.value,
+            rawResult: rawPreviewResult(2),
+            loading: loading.value,
+            error: '',
+            viewMode: 'cleaned',
+            matchPageSize: true,
+            alignment: 'top-center',
+            pageNumber: 2,
+            totalPages: 3,
+            stalePage: result.value?.pageNumber !== 2,
+            manualSplit: null,
+            readingOrder: 'ltr',
+        })}));
+
+        const layout = harness.host.querySelector('.preview-viewport-layout');
+        const stage = harness.host.querySelector('.cutter-stage');
+        expect(harness.host.querySelector('.raw-preview')).not.toBeNull();
+
+        result.value = spreadPreviewResult(2);
+        loading.value = false;
+        await nextTick();
+
+        expect(harness.host.querySelector('.preview-viewport-layout')).toBe(layout);
+        expect(harness.host.querySelector('.cutter-stage')).toBe(stage);
+        expect(harness.host.querySelector('.raw-preview')).toBeNull();
+        expect(harness.host.querySelector('.cleaned-outputs')).not.toBeNull();
+        expect(harness.host.querySelector('.preview-viewport-caption')?.textContent?.trim()).toBe('');
+    });
+
+    it('leaves Original mode and cleaned-preview failures untouched while a page loads', async () => {
+        const viewMode = ref<'original' | 'cleaned'>('original');
+        const error = ref('');
+        const harness = mount(defineComponent({setup: () => () => h(ScanCleanupPreviewPane, {
+            result: spreadPreviewResult(1),
+            rawResult: rawPreviewResult(2),
+            loading: true,
+            error: error.value,
+            viewMode: viewMode.value,
+            matchPageSize: true,
+            alignment: 'top-center',
+            pageNumber: 2,
+            totalPages: 3,
+            stalePage: true,
+            manualSplit: null,
+            readingOrder: 'ltr',
+        })}));
+
+        expect(harness.host.querySelector<HTMLImageElement>('.raw-preview .preview-pixel')?.alt)
+            .toBe('Original scan preview for page 1');
+        expect(harness.host.querySelector('.preview-viewport-caption')?.getAttribute('aria-hidden')).toBe('true');
+        expect(harness.host.querySelector('.page-loading-overlay')?.textContent).toContain('Loading page 2…');
+
+        viewMode.value = 'cleaned';
+        error.value = 'cleaned preview failed';
+        await nextTick();
+
+        expect(harness.host.querySelector('.raw-preview')).toBeNull();
+        expect(harness.host.querySelector('.preview-refresh-error')?.textContent)
+            .toContain('Preview isn\'t available. You can still run cleanup.');
     });
 
     it('removes visual half labels while preserving each output half in image alternatives', () => {

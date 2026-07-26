@@ -336,6 +336,8 @@ export default {
             'technicalDetails': 'Technische Details',
             'originalAlt': 'Originalscanvorschau für Seite {page}',
             'cleanedAlt': 'Bereinigte Scanvorschau für Seite {page}, {half}',
+            'cleaningPage': 'Seite {page} wird bereinigt… der Originalscan wird angezeigt',
+            'cleaningAlt': 'Originalscan von Seite {page}, angezeigt während die Bereinigung läuft',
             'outputHalf': {
                 'left': 'linke Hälfte',
                 'right': 'rechte Hälfte',

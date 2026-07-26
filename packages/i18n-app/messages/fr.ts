@@ -336,6 +336,8 @@ export default {
             'technicalDetails': 'Détails techniques',
             'originalAlt': 'Aperçu de la numérisation originale pour la page {page}',
             'cleanedAlt': 'Aperçu de numérisation nettoyé pour la page {page}, {half}',
+            'cleaningPage': 'Nettoyage de la page {page}… la numérisation originale est affichée',
+            'cleaningAlt': 'Numérisation originale de la page {page}, affichée pendant le nettoyage',
             'outputHalf': {
                 'left': 'moitié gauche',
                 'right': 'moitié droite',

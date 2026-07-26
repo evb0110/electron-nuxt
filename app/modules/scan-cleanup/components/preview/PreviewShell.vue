@@ -102,7 +102,7 @@
             ref="previewSurface"
             class="preview-surface"
             :class="{
-                'is-stale-page': isStalePage,
+                'is-stale-page': staleContentVisible,
                 'can-pan-preview': canPanPreview,
                 'is-panning-preview': panGesture !== null,
             }"
@@ -118,18 +118,18 @@
             @wheel="handlePreviewWheel"
         >
             <div
-                v-if="result || (rawResult && effectiveViewMode === 'original')"
+                v-if="result || rawLayerVisible"
                 class="preview-result-layer"
                 :data-testid="result ? undefined : 'scan-cleanup-original-only'"
                 :class="{
-                    'is-cutter-source-dimmed': cutterSourceUnderlayVisible,
-                    'is-source-underlay-dimmed': sourceUnderlayVisible,
+                    'is-cutter-source-dimmed': cutterSourceUnderlayVisible && !rawCleaningVisible,
+                    'is-source-underlay-dimmed': sourceUnderlayVisible && !rawCleaningVisible,
                 }"
             >
                 <div
-                    v-if="result && result.outputs.length === 0 && effectiveViewMode === 'cleaned'"
+                    v-if="result && result.outputs.length === 0 && effectiveViewMode === 'cleaned' && !rawCleaningVisible"
                     class="preview-message"
-                    :class="{'is-stale-content': isStalePage}"
+                    :class="{'is-stale-content': staleContentVisible}"
                 >
                     <span>{{ result.pageMetadata.excluded
                         ? t('scanCleanup.preview.excluded')
@@ -139,12 +139,14 @@
                     <div
                         ref="cutterStage"
                         class="cutter-stage"
-                        :class="{'is-stale-content': isStalePage}"
+                        :class="{'is-stale-content': staleContentVisible}"
                         :style="previewTransformStyle"
                     >
                         <OriginalCanvas
-                            v-if="effectiveViewMode === 'original'"
-                            :alt="t('scanCleanup.preview.originalAlt', {page: result?.pageNumber ?? pageNumber})"
+                            v-if="effectiveViewMode === 'original' || rawCleaningVisible"
+                            :alt="rawCleaningVisible
+                                ? t('scanCleanup.preview.cleaningAlt', {page: pageNumber})
+                                : t('scanCleanup.preview.originalAlt', {page: result?.pageNumber ?? pageNumber})"
                             :crop-overlay-styles="losslessCropOverlayStyles"
                             :pixel-swap="rawPixelSwap"
                             @complete="completeRawPixelSwap"
@@ -194,13 +196,22 @@
                             </template>
                         </CleanedCanvas>
                     </div>
-                    <span class="preview-viewport-caption" aria-hidden="true" />
+                    <span
+                        class="preview-viewport-caption"
+                        :class="{'is-cleaning': cleaningNoticeVisible}"
+                        :aria-hidden="!cleaningNoticeVisible"
+                    >
+                        <template v-if="cleaningNoticeVisible">
+                            <UIcon name="i-ph-circle-notch" class="size-4 is-spinning" />
+                            {{ t('scanCleanup.preview.cleaningPage', {page: pageNumber}) }}
+                        </template>
+                    </span>
                 </div>
-                <div v-if="loading && isStalePage" class="page-loading-overlay" role="status">
+                <div v-if="loading && staleContentVisible" class="page-loading-overlay" role="status">
                     <UIcon name="i-ph-circle-notch" class="size-6 is-spinning" />
                     <span>{{ t('scanCleanup.preview.loadingPage', {page: pageNumber}) }}</span>
                 </div>
-                <div v-else-if="loading" class="refresh-indicator">
+                <div v-else-if="loading && !rawCleaningVisible" class="refresh-indicator">
                     <UIcon name="i-ph-circle-notch" class="size-4 is-spinning" />
                     <span class="sr-only">{{ t('scanCleanup.preview.refreshing') }}</span>
                 </div>
@@ -220,7 +231,7 @@
                     </details>
                 </div>
             </div>
-            <div v-if="!result && !(rawResult && effectiveViewMode === 'original')" class="preview-empty-layer">
+            <div v-if="!result && !rawLayerVisible" class="preview-empty-layer">
                 <div v-if="!error" class="preview-viewport-layout preview-loading" role="status">
                     <div ref="cutterStage" class="cutter-stage">
                         <div
@@ -269,7 +280,7 @@
                 </div>
             </div>
             <div
-                v-if="result && !disabled"
+                v-if="result && !disabled && !rawCleaningVisible"
                 class="drag-overlay-layer"
                 :style="[dragOverlayStyle, previewTransformStyle]"
             >
@@ -310,7 +321,7 @@
                 />
             </div>
             <ZoneEditorControls
-                v-if="result && zoneEditing && !disabled"
+                v-if="result && zoneEditing && !disabled && !rawCleaningVisible"
                 :output-mode="outputMode ?? 'bw'"
                 :selected-layer="selectedPictureLayer"
                 :zone-count="zoneCount"
@@ -618,6 +629,14 @@ const detailRegionStyles = computed<Partial<Record<TScanCleanupOutputHalf, CSSPr
 });
 const isStalePage = computed(() => props.stalePage
     ?? Boolean(props.result && props.result.pageNumber !== props.pageNumber));
+const rawCleaningVisible = computed(() => effectiveViewMode.value === 'cleaned'
+    && props.error === ''
+    && props.rawResult?.pageNumber === props.pageNumber
+    && props.result?.pageNumber !== props.pageNumber);
+const rawLayerVisible = computed(() => Boolean(props.rawResult)
+    && (effectiveViewMode.value === 'original' || rawCleaningVisible.value));
+const cleaningNoticeVisible = computed(() => rawCleaningVisible.value && props.loading);
+const staleContentVisible = computed(() => isStalePage.value && !rawCleaningVisible.value);
 const viewModes = computed(() => props.lossless ? [{
     value: 'original' as const,
     label: t('scanCleanup.preview.preview'),

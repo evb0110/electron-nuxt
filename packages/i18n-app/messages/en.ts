@@ -741,6 +741,8 @@ export default {
             'technicalDetails': 'Technical details',
             'originalAlt': 'Original scan preview for page {page}',
             'cleanedAlt': 'Cleaned scan preview for page {page}, {half}',
+            'cleaningPage': 'Cleaning page {page}… showing the original scan',
+            'cleaningAlt': 'Original scan of page {page}, shown while cleanup is still running',
             'outputHalf': {
                 'left': 'left half',
                 'right': 'right half',

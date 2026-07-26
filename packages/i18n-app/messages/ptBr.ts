@@ -336,6 +336,8 @@ export default {
             'technicalDetails': 'Detalhes técnicos',
             'originalAlt': 'Pré-visualização da digitalização original da página {page}',
             'cleanedAlt': 'Pré-visualização da digitalização limpa da página {page}, {half}',
+            'cleaningPage': 'Limpando a página {page}… a digitalização original está visível',
+            'cleaningAlt': 'Digitalização original da página {page}, mostrada enquanto a limpeza é executada',
             'outputHalf': {
                 'left': 'metade esquerda',
                 'right': 'metade direita',

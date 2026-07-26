@@ -120,6 +120,14 @@
     text-align: center;
 }
 
+.preview-viewport-caption.is-cleaning {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--app-space-sm);
+    color: var(--ui-text);
+}
+
 .is-stale-content {
     opacity: var(--app-scan-preview-stale-opacity);
     pointer-events: none;
