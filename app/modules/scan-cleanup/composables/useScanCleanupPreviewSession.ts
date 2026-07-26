@@ -24,6 +24,13 @@ import type {TScanCleanupSelectionIntent} from '@app/modules/scan-cleanup/runtim
 
 type TScanCleanupLayoutClassification = IScanCleanupPreviewResult['pageMetadata']['layoutClassification'];
 
+/**
+ * Longer than the ~400-500 ms cadence of a rail flick measured in the user's
+ * recording, so a burst of navigations coalesces into the page it ends on,
+ * and only ever applied while a preview is already rendering.
+ */
+const SCAN_CLEANUP_PREVIEW_BURST_DEBOUNCE_MS = 600;
+
 interface IUseScanCleanupPreviewSessionOptions {
     active: () => boolean;
     authoritativeLayoutByPage: ComputedRef<ReadonlyMap<number, TScanCleanupLayoutClassification>>;
@@ -134,6 +141,9 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
     let timer: ReturnType<typeof setTimeout> | null = null;
     let detailRetryTimer: ReturnType<typeof setTimeout> | null = null;
     let detailRetriesRemaining = 0;
+    let scheduledPage: number | null = null;
+    let scheduledKey: string | null = null;
+    const inFlightPreviewPages: number[] = [];
 
     const totalPages = computed(() => rawResult.value?.totalPages
         ?? result.value?.totalPages
@@ -277,13 +287,6 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
             error.value = t('scanCleanup.preview.unavailable');
             return;
         }
-        prefetcher.supersede();
-        void capability.cancelPreview({
-            sourcePdfPath: options.sourcePath.value,
-            ownerId: options.ownerId,
-            documentRevision: options.documentRevision.value,
-            invalidateRawCache: false,
-        }).catch(() => undefined);
         const requestSequence = ++sequence;
         clearTimer();
         const requestPage = options.previewPage.value;
@@ -291,12 +294,42 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
         const requestSourcePath = options.sourcePath.value;
         const documentPrior = options.documentPriorByPage.get(requestPage);
         const key = cacheKey(requestPage, requestOptions, requestSourcePath);
+        // A navigation reaches the previous page's key unchanged; anything else
+        // — a settings change, a new document prior, another source — makes
+        // every page's work stale and keeps no window.
+        const navigated = scheduledPage !== null
+            && scheduledKey === cacheKey(scheduledPage, requestOptions, requestSourcePath);
+        scheduledPage = requestPage;
+        scheduledKey = key;
         const activeDetailSourceKey = detailSourceKey(key, resolveDetailOutputMode(requestPage));
         if (displayedDetailSourceKey !== activeDetailSourceKey) {
             detailResult.value = null;
             displayedDetailSourceKey = null;
         }
+        // Look the page up before cancelling anything: a navigation that the
+        // cache can answer has no reason to disturb work in flight at all.
         const cached = cache.get(key);
+        if (!navigated) prefetcher.supersede();
+        void capability.cancelPreview({
+            sourcePdfPath: requestSourcePath,
+            ownerId: options.ownerId,
+            documentRevision: options.documentRevision.value,
+            invalidateRawCache: false,
+            // The page being opened, its neighbours, and the page still
+            // rendering: the adjacent prefetch of the page the user is about to
+            // reach used to be the first casualty of reaching it. Only the most
+            // recent render is held, so a sustained walk retires the older one
+            // instead of accumulating pipelines. Anything that is not a
+            // navigation names no window and cancels the document, as before.
+            ...(navigated
+                ? {retainPages: [...new Set([
+                    ...inFlightPreviewPages.slice(-1),
+                    requestPage - 1,
+                    requestPage,
+                    requestPage + 1,
+                ])].filter(pageNumber => pageNumber >= 1 && pageNumber <= totalPages.value)}
+                : {}),
+        }).catch(() => undefined);
         if (cached) {
             result.value = cached;
             rawResult.value = cached;
@@ -332,10 +365,14 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
                         ? {}
                         : {documentCanvasPlan: options.documentCanvasPlan.value}),
                 }));
+                // Cached before the staleness check: the key names the page and
+                // the options that produced this result, so a preview that
+                // outlived the navigation that asked for it is still exactly
+                // what the next visit to that page needs.
+                cachePreview(key, previewResult);
                 if (requestSequence !== sequence) {
                     return;
                 }
-                cachePreview(key, previewResult);
                 result.value = previewResult;
                 resultKey.value = key;
                 scheduleAdjacentPrefetch(previewResult, requestOptions, requestSourcePath);
@@ -348,7 +385,21 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
                 if (requestSequence === sequence) loading.value = false;
             }
         };
-        timer = setTimeout(() => { void runPreview(); }, result.value && result.value.pageNumber !== requestPage ? 0 : 250);
+        // A deliberate page turn goes straight through: nothing is rendering, so
+        // waiting would only delay the page. A turn made while a page is still
+        // rendering is a burst — every navigation restarts this timer, so a
+        // flick issues one request for the page it stops on instead of one per
+        // page it passes. Everything else is an options change and keeps the
+        // settled debounce it has always had.
+        timer = setTimeout(() => {
+            inFlightPreviewPages.push(requestPage);
+            void runPreview().finally(() => {
+                const index = inFlightPreviewPages.indexOf(requestPage);
+                if (index >= 0) inFlightPreviewPages.splice(index, 1);
+            });
+        }, navigated
+            ? (inFlightPreviewPages.length === 0 ? 0 : SCAN_CLEANUP_PREVIEW_BURST_DEBOUNCE_MS)
+            : 250);
     }
 
     function resolveDetailOutputMode(pageNumber = options.previewPage.value) {

@@ -38,6 +38,22 @@ function requireIpcArgumentCount(
     }
 }
 
+// A retained window is the navigation window plus whatever the renderer still
+// has in flight; it can never legitimately name more pages than that.
+const SCAN_CLEANUP_RETAIN_PAGES_MAX = 16;
+
+function decodeRetainedPages(value: unknown) {
+    if (value === undefined) {
+        return undefined;
+    }
+    if (
+        !Array.isArray(value)
+        || value.length > SCAN_CLEANUP_RETAIN_PAGES_MAX
+        || value.some(page => !Number.isSafeInteger(page) || Number(page) < 1)
+    ) throw new Error('invalid scan-cleanup retained preview pages');
+    return value.map(Number);
+}
+
 export function decodePreviewCancelArgs(args: readonly unknown[]) {
     requireIpcArgumentCount(args, {
         min: 1,
@@ -50,10 +66,12 @@ export function decodePreviewCancelArgs(args: readonly unknown[]) {
         || value.sourcePdfPath.trim().length === 0
         || (value.invalidateRawCache !== undefined && typeof value.invalidateRawCache !== 'boolean')
     ) throw new Error('invalid scan-cleanup preview cancellation');
+    const retainPages = decodeRetainedPages(value.retainPages);
     return [{
         sourcePdfPath: value.sourcePdfPath,
         ...decodeOwnerContext(value),
         ...(value.invalidateRawCache === undefined ? {} : {invalidateRawCache: value.invalidateRawCache}),
+        ...(retainPages === undefined ? {} : {retainPages}),
     }] as [IScanCleanupPreviewCancelRequest];
 }
 

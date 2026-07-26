@@ -127,6 +127,7 @@ interface IBasePreviewAnalysis {
 interface IPreviewEntry {
     controller: AbortController;
     generation: number;
+    pageNumber: number;
     tail: Promise<IScanCleanupPreviewResult>;
 }
 
@@ -1681,6 +1682,22 @@ export function createScanCleanupPreviewService(
         );
         return documentPrefix;
     };
+    const previewLanePrefix = (
+        documentPrefix: string,
+        request: IScanCleanupPreviewRequest,
+    ) => `${documentPrefix}${request.detail === undefined ? 'base' : 'detail'}\u0000`;
+    // Request identity is the page and the content that would be rendered, not
+    // just the document and the lane. Two requests that would produce the same
+    // result now share one run instead of the second aborting the first.
+    const previewRequestKey = (documentPrefix: string, request: IScanCleanupPreviewRequest) => {
+        const {
+            detail,
+            ...base
+        } = request;
+        return `${previewLanePrefix(documentPrefix, request)}${baseAnalysisKey(base)}\u0000${
+            detail === undefined ? '' : JSON.stringify(detail)
+        }`;
+    };
     return {
         previewRaw(sender, request) {
             const documentPrefix = abortStalePreviewRequests(sender, request);
@@ -1712,17 +1729,37 @@ export function createScanCleanupPreviewService(
             return tail;
         },
         preview(sender, request) {
-            // Adjacent base prefetches share the visible base lane so navigation
-            // preempts them. Detail tiles have a separate lane and never abort
-            // or queue behind the visible base preview.
-            const lane = request.detail === undefined ? 'base' : 'detail';
             const documentPrefix = abortStalePreviewRequests(sender, request);
-            const activeKey = `${documentPrefix}${lane}`;
-            const previous = active.get(activeKey);
-            previous?.controller.abort(new DOMException('Superseded scan cleanup preview', 'AbortError'));
+            const activeKey = previewRequestKey(documentPrefix, request);
+            // Navigating onto a page whose prefetch is still running adopts that
+            // run: no second raster, no second sidecar, and the caller inherits
+            // the progress already made rather than restarting it.
+            const adopted = active.get(activeKey);
+            if (adopted) {
+                return adopted.tail;
+            }
+            // A base request only supersedes work for its own page: a stale
+            // options generation for the page being rendered. Adjacent prefetches
+            // for other pages are the renderer's to retire, through `cancel`.
+            // A detail tile is the one visible viewport, so it supersedes the
+            // whole detail lane and still never touches the base lane.
+            const lanePrefix = previewLanePrefix(documentPrefix, request);
+            const superseded: IPreviewEntry[] = [];
+            for (const [
+                key,
+                entry,
+            ] of active) {
+                if (
+                    key.startsWith(lanePrefix)
+                    && (request.detail !== undefined || entry.pageNumber === request.pageNumber)
+                ) {
+                    superseded.push(entry);
+                    entry.controller.abort(new DOMException('Superseded scan cleanup preview', 'AbortError'));
+                }
+            }
             const controller = new AbortController();
-            const generation = (previous?.generation ?? 0) + 1;
-            const priorTail = previous?.tail.catch(() => undefined) ?? Promise.resolve();
+            const generation = (superseded[0]?.generation ?? 0) + 1;
+            const priorTail = Promise.all(superseded.map(entry => entry.tail.catch(() => undefined)));
             const tail = priorTail.then(async () => runPreview(
                 await materializeScanCleanupPreviewRequest(
                     request,
@@ -1738,6 +1775,7 @@ export function createScanCleanupPreviewService(
             active.set(activeKey, {
                 controller,
                 generation,
+                pageNumber: request.pageNumber,
                 tail,
             });
             void tail.finally(() => {
@@ -1747,23 +1785,33 @@ export function createScanCleanupPreviewService(
         },
         cancel(sender, request) {
             const documentPrefix = previewDocumentPrefix(sender, request);
+            // A navigation names the pages it is moving into; only work for
+            // pages outside that window is discarded. Without a window the
+            // caller means the whole document: a settings change, a new
+            // revision, or a session shutting down.
+            const retained = new Set(request.retainPages ?? []);
             let canceled = false;
             for (const [
                 key,
                 entry,
             ] of active) {
-                if (key.startsWith(documentPrefix)) {
+                if (key.startsWith(documentPrefix) && !retained.has(entry.pageNumber)) {
                     entry.controller.abort(new DOMException('Canceled scan cleanup preview', 'AbortError'));
                     canceled = true;
                 }
             }
-            for (const [
-                key,
-                entry,
-            ] of activeRaw) {
-                if (key.startsWith(documentPrefix)) {
-                    entry.controller.abort(new DOMException('Canceled scan cleanup raw preview', 'AbortError'));
-                    canceled = true;
+            // The raw lane holds at most the visible page's raster, and a
+            // windowed cancellation is always issued for a navigation that still
+            // wants it, so only a whole-document cancellation retires it.
+            if (request.retainPages === undefined) {
+                for (const [
+                    key,
+                    entry,
+                ] of activeRaw) {
+                    if (key.startsWith(documentPrefix)) {
+                        entry.controller.abort(new DOMException('Canceled scan cleanup raw preview', 'AbortError'));
+                        canceled = true;
+                    }
                 }
             }
             if (request.invalidateRawCache !== false) {

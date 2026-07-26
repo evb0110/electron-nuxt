@@ -513,6 +513,35 @@ describe('scan cleanup preview', () => {
         }])).toThrow('invalid scan-cleanup detail preview request');
     });
 
+    it('validates the retained navigation window on a preview cancellation', () => {
+        const codec = SCAN_CLEANUP_IPC_CODECS[SCAN_CLEANUP_CHANNELS.cancelPreview];
+        const cancelRequest = {
+            sourcePdfPath: request.sourcePdfPath,
+            ownerId: request.ownerId,
+            documentRevision: request.documentRevision,
+            invalidateRawCache: false,
+            retainPages: [
+                199,
+                200,
+                201,
+            ],
+        };
+
+        expect(codec.decodeArgs([cancelRequest])).toEqual([cancelRequest]);
+        for (const retainPages of [
+            [0],
+            [1.5],
+            ['200'],
+            Array.from({length: 17}, (_unused, index) => index + 1),
+            'all',
+        ]) {
+            expect(() => codec.decodeArgs([{
+                ...cancelRequest,
+                retainPages,
+            }])).toThrow('invalid scan-cleanup retained preview pages');
+        }
+    });
+
     it('serializes nested reactive page overrides for every IPC request', () => {
         const reactiveOptions = reactive({
             ...request.options,
@@ -1278,37 +1307,243 @@ describe('scan cleanup preview', () => {
         ]});
     });
 
-    it('preempts an in-flight adjacent base prefetch before running the visible request', async () => {
+    it('lets a visible request run beside the adjacent prefetch instead of aborting it', async () => {
         const dir = await setup();
         const deps = dependencies(dir);
         const entered = Promise.withResolvers<undefined>();
+        const releasePrefetch = Promise.withResolvers<undefined>();
+        const originalRenderPage = deps.renderPage;
         let calls = 0;
-        deps.renderPage = vi.fn(async (_paths, _log, _page, _source, outputPath, _dpi, _env, signal) => {
+        deps.renderPage = vi.fn(async (...args: Parameters<typeof originalRenderPage>) => {
             calls += 1;
             if (calls === 1) {
                 entered.resolve(undefined);
-                await waitForRelease(Promise.withResolvers<never>().promise, signal!);
-                return;
+                await waitForRelease(releasePrefetch.promise, args[7]!);
             }
-            await writeFile(outputPath, PNG);
+            await originalRenderPage(...args);
         });
         const service = createScanCleanupPreviewService(deps);
         const previewSender = sender();
-        const older = service.preview(previewSender, {
+        const prefetch = service.preview(previewSender, {
             ...request,
             pageNumber: 2,
         });
         await entered.promise;
-        const newer = service.preview(previewSender, {
+        const visible = service.preview(previewSender, {
             ...request,
             options: {
                 ...request.options,
                 thickness: 1,
             },
         });
-        await expect(older).rejects.toMatchObject({name: 'AbortError'});
-        await expect(newer).resolves.toMatchObject({pageNumber: 1});
+
+        // The visible page does not queue behind the neighbour's raster.
+        await expect(visible).resolves.toMatchObject({pageNumber: 1});
+        releasePrefetch.resolve(undefined);
+        await expect(prefetch).resolves.toMatchObject({pageNumber: 2});
+    });
+
+    it('adopts an identical in-flight preview instead of rendering the page a second time', async () => {
+        const dir = await setup();
+        const deps = dependencies(dir);
+        const entered = Promise.withResolvers<undefined>();
+        const release = Promise.withResolvers<undefined>();
+        const originalRenderPage = deps.renderPage;
+        deps.renderPage = vi.fn(async (...args: Parameters<typeof originalRenderPage>) => {
+            entered.resolve(undefined);
+            await release.promise;
+            await originalRenderPage(...args);
+        });
+        const service = createScanCleanupPreviewService(deps);
+        const previewSender = sender();
+        const prefetch = service.preview(previewSender, {
+            ...request,
+            pageNumber: 2,
+        });
+        await entered.promise;
+        const navigatedTo = service.preview(previewSender, {
+            ...request,
+            pageNumber: 2,
+        });
+
+        release.resolve(undefined);
+        await expect(prefetch).resolves.toMatchObject({pageNumber: 2});
+        await expect(navigatedTo).resolves.toMatchObject({pageNumber: 2});
+        expect(deps.renderPage).toHaveBeenCalledOnce();
         expect(deps.runSidecar).toHaveBeenCalledOnce();
+    });
+
+    it('adopts across a document canvas plan the options make irrelevant, and supersedes when it matters', async () => {
+        const adoption = async (matchPageSize: boolean) => {
+            const dir = await setup();
+            const deps = dependencies(dir);
+            const entered = Promise.withResolvers<undefined>();
+            const release = Promise.withResolvers<undefined>();
+            const originalRenderPage = deps.renderPage;
+            let calls = 0;
+            deps.renderPage = vi.fn(async (...args: Parameters<typeof originalRenderPage>) => {
+                calls += 1;
+                if (calls === 1) {
+                    entered.resolve(undefined);
+                    await release.promise;
+                }
+                await originalRenderPage(...args);
+            });
+            const service = createScanCleanupPreviewService(deps);
+            const previewSender = sender();
+            const planned = {
+                ...request,
+                options: {
+                    ...request.options,
+                    matchPageSize,
+                },
+                documentCanvasPlan: {
+                    widthPoints: 595,
+                    heightPoints: 842,
+                },
+            };
+            const first = service.preview(previewSender, planned);
+            await entered.promise;
+            const second = service.preview(previewSender, {
+                ...planned,
+                documentCanvasPlan: {
+                    widthPoints: 612,
+                    heightPoints: 792,
+                },
+            });
+
+            release.resolve(undefined);
+            const settled = await Promise.allSettled([
+                first,
+                second,
+            ]);
+            return {
+                renderPageCalls: calls,
+                settled,
+            };
+        };
+
+        const irrelevant = await adoption(false);
+        expect(irrelevant.renderPageCalls).toBe(1);
+        expect(irrelevant.settled.map(entry => entry.status)).toEqual([
+            'fulfilled',
+            'fulfilled',
+        ]);
+
+        const significant = await adoption(true);
+        expect(significant.renderPageCalls).toBe(2);
+        expect(significant.settled[0]).toMatchObject({
+            status: 'rejected',
+            reason: {name: 'AbortError'},
+        });
+        expect(significant.settled[1]).toMatchObject({status: 'fulfilled'});
+    });
+
+    it('supersedes a stale options generation for the page it is rendering', async () => {
+        const dir = await setup();
+        const deps = dependencies(dir);
+        const entered = Promise.withResolvers<undefined>();
+        const originalRenderPage = deps.renderPage;
+        let calls = 0;
+        deps.renderPage = vi.fn(async (...args: Parameters<typeof originalRenderPage>) => {
+            calls += 1;
+            if (calls === 1) {
+                entered.resolve(undefined);
+                await waitForRelease(Promise.withResolvers<never>().promise, args[7]!);
+                return;
+            }
+            await originalRenderPage(...args);
+        });
+        const service = createScanCleanupPreviewService(deps);
+        const previewSender = sender();
+        const stale = service.preview(previewSender, request);
+        await entered.promise;
+        const current = service.preview(previewSender, {
+            ...request,
+            options: {
+                ...request.options,
+                thickness: 1,
+            },
+        });
+
+        await expect(stale).rejects.toMatchObject({name: 'AbortError'});
+        await expect(current).resolves.toMatchObject({pageNumber: 1});
+    });
+
+    it('cancels only the preview pages a navigation no longer wants', async () => {
+        const dir = await setup();
+        const deps = dependencies(dir);
+        const entered: Array<Promise<undefined>> = [];
+        const enteredPages = new Map<number, PromiseWithResolvers<undefined>>();
+        deps.renderPage = vi.fn(async (_paths, _log, pageNumber, _source, _outputPath, _dpi, _env, signal) => {
+            enteredPages.get(pageNumber)?.resolve(undefined);
+            await waitForRelease(Promise.withResolvers<never>().promise, signal!);
+        });
+        for (const pageNumber of [
+            1,
+            2,
+            3,
+        ]) {
+            const resolvers = Promise.withResolvers<undefined>();
+            enteredPages.set(pageNumber, resolvers);
+            entered.push(resolvers.promise);
+        }
+        const service = createScanCleanupPreviewService(deps);
+        const previewSender = sender();
+        const pages = [
+            1,
+            2,
+            3,
+        ].map(pageNumber => service.preview(previewSender, {
+            ...request,
+            pageNumber,
+        }));
+        await Promise.all(entered);
+
+        expect(service.cancel(previewSender, {
+            ...request,
+            invalidateRawCache: false,
+            retainPages: [
+                2,
+                3,
+            ],
+        })).toBe(true);
+
+        await expect(pages[0]).rejects.toMatchObject({name: 'AbortError'});
+        expect(await Promise.race([
+            pages[1]!.then(() => 'settled', () => 'settled'),
+            Promise.resolve('pending'),
+        ])).toBe('pending');
+        expect(service.cancel(previewSender, request)).toBe(true);
+        await expect(pages[1]).rejects.toMatchObject({name: 'AbortError'});
+        await expect(pages[2]).rejects.toMatchObject({name: 'AbortError'});
+    });
+
+    it('leaves the raw raster of a retained navigation alone and retires it on a full cancellation', async () => {
+        const dir = await setup();
+        const deps = dependencies(dir);
+        const entered = Promise.withResolvers<undefined>();
+        deps.renderPage = vi.fn(async (_paths, _log, _page, _source, _outputPath, _dpi, _env, signal) => {
+            entered.resolve(undefined);
+            await waitForRelease(Promise.withResolvers<never>().promise, signal!);
+        });
+        const service = createScanCleanupPreviewService(deps);
+        const previewSender = sender();
+        const raw = service.previewRaw(previewSender, request);
+        await entered.promise;
+
+        service.cancel(previewSender, {
+            ...request,
+            invalidateRawCache: false,
+            retainPages: [1],
+        });
+        expect(await Promise.race([
+            raw.then(() => 'settled', () => 'settled'),
+            Promise.resolve('pending'),
+        ])).toBe('pending');
+
+        expect(service.cancel(previewSender, request)).toBe(true);
+        await expect(raw).rejects.toMatchObject({name: 'AbortError'});
     });
 
     it('runs detail tiles in a separate lane that never cancels the visible base preview', async () => {
