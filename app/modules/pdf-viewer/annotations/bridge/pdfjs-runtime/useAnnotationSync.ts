@@ -38,7 +38,6 @@ import { leasePdfDocumentPage } from '@app/modules/pdf-viewer/engine/pdf-documen
 import { resolveEditorMarkerRect } from '@app/modules/pdf-viewer/engine/annotations/annotation-sync-helpers/resolveEditorMarkerRect';
 import { resolveMarkupSubtypeOverrideRegistration } from '@app/modules/pdf-viewer/engine/annotations/annotation-sync-helpers/resolveMarkupSubtypeOverrideRegistration';
 import { safeReadEditorData } from '@app/modules/pdf-viewer/engine/annotations/annotation-sync-helpers/safeReadEditorData';
-import { tracePdfAnnotationSaveEvent } from '@app/modules/pdf-viewer/engine/pdf-annotation-save-trace/tracePdfAnnotationSaveEvent';
 import type { IPdfCommentSummaryDeps } from '@app/modules/pdf-viewer/engine/annotations/annotation-sync-helpers/annotationSyncHelpersTypes';
 import type { TComputeSummaryStableKey } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationSummaryIdentity';
 import type { TDocumentRevisionToken } from '@contracts/documentRevision';
@@ -248,37 +247,6 @@ export const useAnnotationSync = (options: IUseAnnotationSyncOptions) => {
             }
             setTimeout(resolve, 0);
         });
-    }
-
-    function summarizeCommentForTrace(comment: IAnnotationCommentSummary) {
-        return {
-            annotationId: comment.annotationId,
-            displayText: comment.displayText,
-            pageNumber: comment.pageNumber,
-            previewText: comment.previewText,
-            source: comment.source,
-            stableKey: comment.stableKey,
-            subtype: comment.subtype,
-            text: comment.text,
-            uid: comment.uid,
-        };
-    }
-
-    function summarizeCommentsForTrace(comments: IAnnotationCommentSummary[]) {
-        const bySource: Record<string, number> = {};
-        const bySubtype: Record<string, number> = {};
-        comments.forEach((comment) => {
-            bySource[comment.source] = (bySource[comment.source] ?? 0) + 1;
-            const subtype = comment.subtype ?? 'none';
-            bySubtype[subtype] = (bySubtype[subtype] ?? 0) + 1;
-        });
-
-        return {
-            bySource,
-            bySubtype,
-            sample: comments.slice(0, 8).map(summarizeCommentForTrace),
-            total: comments.length,
-        };
     }
 
     function resetPdfAnnotationSnapshot() {
@@ -531,43 +499,25 @@ export const useAnnotationSync = (options: IUseAnnotationSyncOptions) => {
 
         const pageOrder = getVisibleFirstPageOrder(pageCount);
         let completedPages = 0;
-        tracePdfAnnotationSaveEvent('annotation-sync:inventory-start', {
-            pageCount,
-            firstPage: Math.min(pageCount, Math.max(1, Math.trunc(currentPage.value))),
-            generation: localToken,
-        });
+        
         let orderIndex = 0;
         for (const pageNumber of pageOrder) {
             if (
                 completedPages >= MAX_BACKGROUND_PDF_ANNOTATION_PAGES
                 || comments.length + links.length >= MAX_BACKGROUND_PDF_ANNOTATION_RECORDS
             ) {
-                tracePdfAnnotationSaveEvent('annotation-sync:inventory-truncated', {
-                    completedPages,
-                    pageCount,
-                    commentCount: comments.length,
-                    linkCount: links.length,
-                    generation: localToken,
-                });
+                
                 break;
             }
             if (localToken !== syncToken) {
-                tracePdfAnnotationSaveEvent('annotation-sync:inventory-cancelled', {
-                    completedPages,
-                    pageCount,
-                    generation: localToken,
-                });
+                
                 return null;
             }
 
             if (orderIndex > 0) {
                 await waitForAnnotationSyncIdleOpportunity();
                 if (localToken !== syncToken) {
-                    tracePdfAnnotationSaveEvent('annotation-sync:inventory-cancelled', {
-                        completedPages,
-                        pageCount,
-                        generation: localToken,
-                    });
+                    
                     return null;
                 }
             }
@@ -598,13 +548,7 @@ export const useAnnotationSync = (options: IUseAnnotationSyncOptions) => {
             completedPages += 1;
         }
 
-        tracePdfAnnotationSaveEvent('annotation-sync:inventory-complete', {
-            completedPages,
-            pageCount,
-            commentCount: comments.length,
-            linkCount: links.length,
-            generation: localToken,
-        });
+        
 
         return {
             doc,
@@ -739,7 +683,7 @@ export const useAnnotationSync = (options: IUseAnnotationSyncOptions) => {
         markupSubtype: ISyncMarkupSubtype,
         store: ISyncStore,
     ) {
-        tracePdfAnnotationSaveEvent('annotation-sync:empty-state');
+        
         identity.clearMemory();
         markupSubtype.clearOverrides();
         store.setAnnotations([], {reconcileMissingTransient: false});
@@ -771,18 +715,13 @@ export const useAnnotationSync = (options: IUseAnnotationSyncOptions) => {
         let sourceOrder = 0;
         let hasPostOpenUserMutation = false;
         if (!uiManager) {
-            tracePdfAnnotationSaveEvent('annotation-sync:collected-editors', {
-                count: 0,
-                hasUiManager: false,
-            });
+            
             return {
                 sourceOrder,
                 hasPostOpenUserMutation,
             };
         }
 
-        const collected: IAnnotationCommentSummary[] = [];
-        let skipped = 0;
         for (let pageIndex = 0; pageIndex < numPages.value; pageIndex += 1) {
             for (const editor of getEditorsOnPage(uiManager, pageIndex)) {
                 hasPostOpenUserMutation ||= trackedCreatedEditors.has(editor);
@@ -790,19 +729,13 @@ export const useAnnotationSync = (options: IUseAnnotationSyncOptions) => {
                 const summary = toEditorSummary(editor, pageIndex, text, sourceOrder);
                 sourceOrder += 1;
                 if (shouldSkipEditorCommentSummary(summary)) {
-                    skipped += 1;
                     continue;
                 }
                 const hydrated = identity.hydrateSummaryFromMemory(summary);
                 commentsByKey.set(identity.toSummaryKey(hydrated), hydrated);
-                collected.push(hydrated);
             }
         }
 
-        tracePdfAnnotationSaveEvent('annotation-sync:collected-editors', () => ({
-            skipped,
-            ...summarizeCommentsForTrace(collected),
-        }));
         return {
             sourceOrder,
             hasPostOpenUserMutation,
@@ -926,11 +859,7 @@ export const useAnnotationSync = (options: IUseAnnotationSyncOptions) => {
             mergeHydratedSummary(identity, commentsByKey, summaryWithSortIndex);
         }
 
-        tracePdfAnnotationSaveEvent('annotation-sync:merged-pdf-snapshot', () => ({
-            nextSourceOrder,
-            pdfSnapshot: summarizeCommentsForTrace(pdfSnapshot.comments),
-            visibleCommentsByKey: commentsByKey.size,
-        }));
+        
         return nextSourceOrder;
     }
 
@@ -953,10 +882,7 @@ export const useAnnotationSync = (options: IUseAnnotationSyncOptions) => {
         const comments = identity.dedupeAnnotationCommentSummaries(
             Array.from(commentsByKey.values()),
         );
-        tracePdfAnnotationSaveEvent('annotation-sync:apply-state', () => ({
-            comments: summarizeCommentsForTrace(comments),
-            links: links.length,
-        }));
+        
         const appliedComments = store.setAnnotations(
             comments,
             {
@@ -1007,18 +933,10 @@ export const useAnnotationSync = (options: IUseAnnotationSyncOptions) => {
             annotationNameReadIntent,
         );
         if (!pdfSnapshot || localToken !== syncToken) {
-            tracePdfAnnotationSaveEvent('annotation-sync:pdf-snapshot-stale', {
-                hasSnapshot: Boolean(pdfSnapshot),
-                localToken,
-                syncToken,
-            });
+            
             return null;
         }
-        tracePdfAnnotationSaveEvent('annotation-sync:pdf-snapshot', () => ({
-            comments: summarizeCommentsForTrace(pdfSnapshot.comments),
-            links: pdfSnapshot.links.length,
-            pageCount: pdfSnapshot.pageCount,
-        }));
+        
         mergePdfCommentSummaries(
             identity,
             pdfSnapshot,
@@ -1078,11 +996,7 @@ export const useAnnotationSync = (options: IUseAnnotationSyncOptions) => {
             return annotationNameReconciliationPromise.promise;
         }
 
-        tracePdfAnnotationSaveEvent('annotation-sync:name-reconciliation-start', {
-            pageCount,
-            reason,
-            sourceSize,
-        });
+        
         const promise = syncAnnotationCommentsInternal('interactive')
             .then((snapshot): TPdfAnnotationNameReconciliationResult => {
                 if (

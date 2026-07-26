@@ -1,6 +1,4 @@
 import type { Ref } from 'vue';
-import { tracePdfAnnotationSaveDom } from '@app/modules/pdf-viewer/engine/pdf-annotation-save-trace/tracePdfAnnotationSaveDom';
-import { tracePdfAnnotationSaveEvent } from '@app/modules/pdf-viewer/engine/pdf-annotation-save-trace/tracePdfAnnotationSaveEvent';
 import { hasPdfPageAnnotationVisualContentForSnapshotRelease } from '@app/modules/pdf-viewer/engine/pdf-layer-visual-snapshot/hasPdfPageAnnotationVisualContentForSnapshotRelease';
 import type { TPdfLayerVisualSnapshotRelease } from '@app/modules/pdf-viewer/engine/pdf-layer-visual-snapshot/pdfLayerVisualSnapshotRelease';
 import { preservePdfPageAnnotationVisualSnapshot } from '@app/modules/pdf-viewer/engine/pdf-layer-visual-snapshot/preservePdfPageAnnotationVisualSnapshot';
@@ -55,10 +53,8 @@ export const usePdfViewerPreservedVisibleContent = (options: IUsePdfViewerPreser
         );
     }
 
-    function createTracedPreservedVisualSnapshotRelease(
+    function createSingleUsePreservedVisualSnapshotRelease(
         release: TPdfLayerVisualSnapshotRelease | null,
-        pageNumber: number | null,
-        pageContainer: HTMLElement | null,
     ) {
         if (!release) {
             return null;
@@ -70,11 +66,6 @@ export const usePdfViewerPreservedVisibleContent = (options: IUsePdfViewerPreser
                 return;
             }
             released = true;
-            tracePdfAnnotationSaveDom(
-                'document-lifecycle:preserved-visual-snapshot:release',
-                pageContainer,
-                { pageNumber },
-            );
             release();
         };
     }
@@ -82,18 +73,8 @@ export const usePdfViewerPreservedVisibleContent = (options: IUsePdfViewerPreser
     function capturePreservedVisualSnapshot(pageNumber: number | null) {
         const snapshotPage = normalizePreservedPageNumber(pageNumber) ?? options.currentPage.value;
         const pageContainer = findPreservedPageContainer(snapshotPage);
-        const release = createTracedPreservedVisualSnapshotRelease(
+        const release = createSingleUsePreservedVisualSnapshotRelease(
             preservePdfPageAnnotationVisualSnapshot(pageContainer, null),
-            snapshotPage,
-            pageContainer,
-        );
-        tracePdfAnnotationSaveDom(
-            'document-lifecycle:preserved-visual-snapshot:capture',
-            pageContainer,
-            {
-                hasSnapshot: Boolean(release),
-                pageNumber: snapshotPage,
-            },
         );
         schedulePdfLayerVisualSnapshotRelease(release, {
             maxDelayMs: PRESERVED_VISUAL_SNAPSHOT_CAPTURE_MAX_DELAY_MS,
@@ -130,28 +111,15 @@ export const usePdfViewerPreservedVisibleContent = (options: IUsePdfViewerPreser
         };
     }
 
-    function releasePreservedVisualSnapshotNow(
-        state: IPreservedVisibleContentState | null,
-        reason: string,
-    ) {
+    function releasePreservedVisualSnapshotNow(state: IPreservedVisibleContentState | null) {
         if (!state?.visualSnapshotRelease) {
             return;
         }
-        tracePdfAnnotationSaveEvent(
-            'document-lifecycle:preserved-visual-snapshot:release-now',
-            {
-                pageNumber: state.pageToRestore,
-                reason,
-            },
-        );
         state.visualSnapshotRelease();
         state.visualSnapshotRelease = null;
     }
 
-    function schedulePreservedVisualSnapshotRelease(
-        plan: IPreservedVisibleContentReleasePlan,
-        reason: string,
-    ) {
+    function schedulePreservedVisualSnapshotRelease(plan: IPreservedVisibleContentReleasePlan) {
         const state = plan.preservedVisibleContent;
         if (!state?.visualSnapshotRelease) {
             return;
@@ -160,14 +128,6 @@ export const usePdfViewerPreservedVisibleContent = (options: IUsePdfViewerPreser
         const release = state.visualSnapshotRelease;
         state.visualSnapshotRelease = null;
         const pageNumber = plan.resolvedPageToRestore;
-        tracePdfAnnotationSaveDom(
-            'document-lifecycle:preserved-visual-snapshot:schedule-release',
-            findPreservedPageContainer(pageNumber),
-            {
-                pageNumber,
-                reason,
-            },
-        );
         schedulePdfLayerVisualSnapshotRelease(release, {
             maxDelayMs: PRESERVED_VISUAL_SNAPSHOT_RELEASE_MAX_DELAY_MS,
             minFrames: 1,

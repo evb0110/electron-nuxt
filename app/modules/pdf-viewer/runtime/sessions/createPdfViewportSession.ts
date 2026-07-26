@@ -639,10 +639,7 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
         const plan = transition.plan;
         const preservedRequest = plan.preserveVisibleContent ? nextPreservedVisibleContentState : null;
         if (nextPreservedVisibleContentState && !preservedRequest) {
-            releasePreservedVisualSnapshotNow(
-                nextPreservedVisibleContentState,
-                plan.isSelectiveReload ? 'selective-reload' : 'non-reload-load',
-            );
+            releasePreservedVisualSnapshotNow(nextPreservedVisibleContentState);
         }
         nextPreservedVisibleContentState = null;
         activePreservedVisibleContent = preservedRequest;
@@ -978,13 +975,10 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
                     }
                     : {}),
             });
-            schedulePreservedVisualSnapshotRelease(
-                {
-                    preservedVisibleContent: preserved,
-                    resolvedPageToRestore,
-                },
-                'preserved-render-visible-done',
-            );
+            schedulePreservedVisualSnapshotRelease({
+                preservedVisibleContent: preserved,
+                resolvedPageToRestore,
+            });
         }
         if (placement.shouldPinReloadPage) {
             pinCurrentPageToRestoreTarget();
@@ -1018,7 +1012,7 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
             cancelMandatoryRaster();
             const preserved = activePreservedVisibleContent;
             if (preserved) {
-                releasePreservedVisualSnapshotNow(preserved, transition.reason);
+                releasePreservedVisualSnapshotNow(preserved);
             }
             settleVisualReloadTransition(transition.reason);
             const transactionId = activeReloadTransactionId;

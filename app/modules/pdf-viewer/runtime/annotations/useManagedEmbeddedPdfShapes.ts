@@ -6,7 +6,6 @@ import { rerenderRenderedManagedEmbeddedShapePages } from '@app/modules/pdf-view
 import { shouldRefreshManagedShapePage } from '@app/modules/pdf-viewer/engine/pdf-embedded-shape-refresh/shouldRefreshManagedShapePage';
 import { syncHiddenEmbeddedAnnotationDom as syncHiddenEmbeddedAnnotationDomForContainer } from '@app/modules/pdf-viewer/engine/pdf-embedded-shape-refresh/syncHiddenEmbeddedAnnotationDom';
 import { normalizePdfJsAnnotationId } from '@app/utils/pdfAnnotationRefs';
-import { tracePdfAnnotationSaveEvent } from '@app/modules/pdf-viewer/engine/pdf-annotation-save-trace/tracePdfAnnotationSaveEvent';
 import { logPdfRenderTrace } from '@app/utils/pdfRenderTrace';
 import type { IGuardAsyncOptions } from '@app/utils/asyncGuard';
 import { tryOnScopeDispose } from '@vueuse/core';
@@ -868,11 +867,7 @@ export const useManagedEmbeddedPdfShapes = ({
     }
 
     watch(hiddenEmbeddedAnnotationIds, (hiddenIds, previouslyHiddenIds) => {
-        tracePdfAnnotationSaveEvent('managed-embedded-shapes:hidden-ids-changed', () => ({
-            hiddenIds: Array.from(hiddenEmbeddedAnnotationIds.value).slice(0, 30),
-            hiddenIdsCount: hiddenEmbeddedAnnotationIds.value.size,
-            managedIdsCount: normalizedManagedEmbeddedAnnotationIds.value.size,
-        }));
+        
         // Suppression removes the element from the annotation layer outright, so
         // an id leaving the set cannot be repaired by syncing again — the page has
         // to repaint from the document. Undoing a delete is the path that gets

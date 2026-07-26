@@ -25,8 +25,6 @@ import { hasPdfPageDrawLayerVisualContent } from '@app/modules/pdf-viewer/engine
 import { preservePdfLayerVisualSnapshot } from '@app/modules/pdf-viewer/engine/pdf-layer-visual-snapshot/preservePdfLayerVisualSnapshot';
 import { preservePdfPageAnnotationVisualSnapshot } from '@app/modules/pdf-viewer/engine/pdf-layer-visual-snapshot/preservePdfPageAnnotationVisualSnapshot';
 import { schedulePdfLayerVisualSnapshotRelease } from '@app/modules/pdf-viewer/engine/pdf-layer-visual-snapshot/schedulePdfLayerVisualSnapshotRelease';
-import { tracePdfAnnotationSaveDom } from '@app/modules/pdf-viewer/engine/pdf-annotation-save-trace/tracePdfAnnotationSaveDom';
-import { tracePdfAnnotationSaveEvent } from '@app/modules/pdf-viewer/engine/pdf-annotation-save-trace/tracePdfAnnotationSaveEvent';
 import { clearPdfSelectionForLayerTeardown } from '@app/modules/pdf-viewer/engine/pdf-selection-cleanup/clearPdfSelectionForLayerTeardown';
 import { createPdfAnnotationEditorCompatibilityAdapter } from '@app/modules/pdf-viewer/annotations/bridge/pdfjsAnnotationFacade';
 import {
@@ -342,14 +340,7 @@ export const usePdfAnnotationLayerRenderer = (deps: {
         ) {
             return null;
         }
-        tracePdfAnnotationSaveDom(
-            'editor-layer:document-ui-manager-changed:before-clear',
-            pageContainer ?? null,
-            {
-                hasCurrentDocument: Boolean(currentDocument),
-                hasCurrentUiManager: Boolean(currentUiManager),
-            },
-        );
+        
         const snapshotRelease = preservePdfPageAnnotationVisualSnapshot(
             pageContainer ?? null,
             annotationEditorLayerDiv ?? null,
@@ -358,10 +349,7 @@ export const usePdfAnnotationLayerRenderer = (deps: {
         activeAnnotationUiManager = currentUiManager;
         annotationEditorLayerFailures.clear();
         clearAllLayers();
-        tracePdfAnnotationSaveDom(
-            'editor-layer:document-ui-manager-changed:after-clear',
-            pageContainer ?? null,
-        );
+        
         return snapshotRelease;
     }
 
@@ -451,40 +439,19 @@ export const usePdfAnnotationLayerRenderer = (deps: {
         const pageContainer = getPageContainerForLayer(annotationLayerDiv);
         const annotationLayerSnapshotRelease =
             preservePdfLayerVisualSnapshot(annotationLayerDiv);
-        tracePdfAnnotationSaveDom(
-            'annotation-layer:get-annotations:start',
-            pageContainer,
-            {
-                pageNumber,
-                renderToken,
-            },
-        );
+        
         try {
             const annotations = await raceWithAnnotationAbort(
                 getParsedPageAnnotations(pdfPage),
                 pageNumber,
                 options,
             );
-            tracePdfAnnotationSaveEvent(
-                'annotation-layer:get-annotations:resolved',
-                {
-                    annotations: annotations.length,
-                    pageNumber,
-                    renderToken,
-                },
-            );
+            
             if (
                 annotationLayerPageRenderTokens.get(pageNumber) !== renderToken
                 || !shouldContinueLayerRender(options)
             ) {
-                tracePdfAnnotationSaveDom(
-                    'annotation-layer:get-annotations:stale-token',
-                    pageContainer,
-                    {
-                        pageNumber,
-                        renderToken,
-                    },
-                );
+                
                 return null;
             }
             const hiddenAnnotationIds = getNormalizedHiddenAnnotationIds();
@@ -581,17 +548,7 @@ export const usePdfAnnotationLayerRenderer = (deps: {
                 return null;
             }
 
-            tracePdfAnnotationSaveDom(
-                'annotation-layer:render:start',
-                pageContainer,
-                {
-                    annotations: annotations.length,
-                    hiddenAnnotations: hiddenAnnotationIds.size,
-                    hiddenAnnotationIds: Array.from(hiddenAnnotationIds).slice(0, 30),
-                    pageNumber,
-                    visibleAnnotations: visibleAnnotations.length,
-                },
-            );
+            
             const didRenderAnnotationLayer = await withHiddenAnnotationRenderGuards(
                 annotationUiManager,
                 pageContainer,
@@ -626,28 +583,13 @@ export const usePdfAnnotationLayerRenderer = (deps: {
                 }
                 return null;
             }
-            tracePdfAnnotationSaveDom(
-                'annotation-layer:render:done',
-                pageContainer,
-                {
-                    pageNumber,
-                    visibleAnnotations: visibleAnnotations.length,
-                },
-            );
+            
             if (visibleAnnotations.length === 0) {
                 annotationLayerDiv.innerHTML = '';
-                tracePdfAnnotationSaveDom(
-                    'annotation-layer:render:cleared-empty',
-                    pageContainer,
-                    { pageNumber },
-                );
+                
             }
             removeHiddenAnnotations(annotationLayerDiv);
-            tracePdfAnnotationSaveDom(
-                'annotation-layer:render:after-hidden-filter',
-                pageContainer,
-                { pageNumber },
-            );
+            
 
             return applyHiddenEditableAnnotationFilter(annotationLayerInstance, pageContainer);
         } finally {
@@ -729,14 +671,7 @@ export const usePdfAnnotationLayerRenderer = (deps: {
                 }
             }
         }
-        tracePdfAnnotationSaveDom(
-            'editor-layer:render:start',
-            container,
-            {
-                pageNumber,
-                renderToken,
-            },
-        );
+        
 
         try {
             const annotationUiManager = getAnnotationUiManager();
@@ -750,11 +685,7 @@ export const usePdfAnnotationLayerRenderer = (deps: {
             }
             if (!annotationUiManager) {
                 hideAnnotationEditorLayer(annotationEditorLayerDiv);
-                tracePdfAnnotationSaveDom(
-                    'editor-layer:render:hidden-no-ui-manager',
-                    container,
-                    { pageNumber },
-                );
+                
                 return {
                     ok: true,
                     rendered: false,
@@ -762,11 +693,7 @@ export const usePdfAnnotationLayerRenderer = (deps: {
                 } satisfies TAnnotationEditorLayerRenderResult;
             }
             if (quarantinedHiddenAnnotationGuards.has(annotationUiManager)) {
-                tracePdfAnnotationSaveDom(
-                    'editor-layer:render:skipped-manager-quarantine',
-                    container,
-                    { pageNumber },
-                );
+                
                 return {
                     ok: true,
                     rendered: false,
@@ -794,11 +721,7 @@ export const usePdfAnnotationLayerRenderer = (deps: {
             }
             if (isAnnotationEditorLayerQuarantined(pageNumber)) {
                 hideAnnotationEditorLayer(annotationEditorLayerDiv);
-                tracePdfAnnotationSaveDom(
-                    'editor-layer:render:quarantined',
-                    container,
-                    { pageNumber },
-                );
+                
                 return {
                     ok: true,
                     rendered: false,
@@ -816,11 +739,7 @@ export const usePdfAnnotationLayerRenderer = (deps: {
                 } satisfies TAnnotationEditorLayerRenderResult;
             }
             if (willReplaceAnnotationEditorLayer(pageNumber, signatures)) {
-                tracePdfAnnotationSaveDom(
-                    'editor-layer:render:will-replace',
-                    container,
-                    { pageNumber },
-                );
+                
                 shouldWaitForDrawLayerVisuals ||= hasPdfPageDrawLayerVisualContent(container);
                 snapshotRelease = combinePdfLayerVisualSnapshotReleases([
                     snapshotRelease,
@@ -838,11 +757,7 @@ export const usePdfAnnotationLayerRenderer = (deps: {
             renderDrawLayer = drawLayer;
 
             if (!editorLayer) {
-                tracePdfAnnotationSaveDom(
-                    'editor-layer:render:create-layer',
-                    container,
-                    { pageNumber },
-                );
+                
                 shouldWaitForDrawLayerVisuals ||= hasPdfPageDrawLayerVisualContent(container);
                 snapshotRelease = combinePdfLayerVisualSnapshotReleases([
                     snapshotRelease,
@@ -912,11 +827,7 @@ export const usePdfAnnotationLayerRenderer = (deps: {
                 annotationUiManager,
                 activeLayer,
             );
-            tracePdfAnnotationSaveDom(
-                'editor-layer:render:done',
-                container,
-                { pageNumber },
-            );
+            
             saveAnnotationEditorSignatures(pageNumber, signatures);
             annotationEditorLayerContainers.set(pageNumber, container);
             hideHiddenManagedEditors(pageNumber);
@@ -962,14 +873,7 @@ export const usePdfAnnotationLayerRenderer = (deps: {
                     reason: 'stale',
                 } satisfies TAnnotationEditorLayerRenderResult;
             }
-            tracePdfAnnotationSaveDom(
-                'editor-layer:render:error',
-                container,
-                {
-                    error: error instanceof Error ? error.message : String(error),
-                    pageNumber,
-                },
-            );
+            
             const failure = recordAnnotationEditorLayerFailure(
                 pageNumber,
                 'render-error',
@@ -1013,14 +917,7 @@ export const usePdfAnnotationLayerRenderer = (deps: {
                 retryable: failure.retryable,
             } satisfies TAnnotationEditorLayerRenderResult;
         } finally {
-            tracePdfAnnotationSaveDom(
-                'editor-layer:render:release-snapshot',
-                container,
-                {
-                    pageNumber,
-                    shouldWaitForDrawLayerVisuals,
-                },
-            );
+            
             if (shouldWaitForDrawLayerVisuals) {
                 schedulePdfLayerVisualSnapshotRelease(snapshotRelease, {
                     maxDelayMs: 1200,
