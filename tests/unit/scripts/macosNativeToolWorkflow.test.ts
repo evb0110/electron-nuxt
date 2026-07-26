@@ -53,7 +53,7 @@ function resolveReleasePlatformArch(platform: string, arch: string) {
     return execFileSync(
         '/bin/bash',
         [
-            '-lc',
+            '-c',
             [
                 'source "$1"',
                 'resolve_release_target_platform_arch "$2" "$3"',

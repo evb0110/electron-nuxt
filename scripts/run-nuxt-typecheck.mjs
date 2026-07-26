@@ -1,4 +1,8 @@
 import { spawn } from 'node:child_process';
+import {
+    mkdirSync,
+    rmSync,
+} from 'node:fs';
 import { createRequire } from 'node:module';
 import {
     dirname,
@@ -11,7 +15,15 @@ const require = createRequire(import.meta.url);
 // typecheck toolchain instead of npm fetching a newer transient version.
 require.resolve('vue-tsc/package.json');
 
-const workspaceDir = process.argv[2] ? resolve(process.argv[2]) : process.cwd();
+const argv = process.argv.slice(2);
+const cold = argv.includes('--cold') || process.env.EVB_TYPECHECK_COLD === '1';
+const workspaceArg = argv.find(argument => !argument.startsWith('-'));
+const workspaceDir = workspaceArg ? resolve(workspaceArg) : process.cwd();
+const cacheDir = resolve(workspaceDir, '.devkit', 'cache', 'typecheck');
+mkdirSync(cacheDir, {recursive: true});
+if (cold) {
+    rmSync(resolve(cacheDir, 'nuxt.tsbuildinfo'), {force: true});
+}
 const env = { ...process.env };
 
 // pnpm injects npm-specific config vars that newer npm versions warn about when

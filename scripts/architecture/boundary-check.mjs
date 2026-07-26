@@ -1,5 +1,4 @@
 #!/usr/bin/env node
-import fs from 'node:fs/promises';
 import path from 'node:path';
 import process from 'node:process';
 import { fileURLToPath } from 'node:url';
@@ -766,7 +765,19 @@ function hasPlatformRuntimeGetterCall(sourceFile, directBindings, namespaceBindi
     return hasCall;
 }
 
-function checkPlatformApiRuntimeGetterCall(filePath, sourceText = '') {
+function parseSourceFiles(filePath, sourceText) {
+    return collectParsableSourceTexts(filePath, sourceText).map((sourceBlock, index) => (
+        ts.createSourceFile(
+            `${filePath}#${index}`,
+            sourceBlock.sourceText,
+            ts.ScriptTarget.Latest,
+            true,
+            sourceBlock.scriptKind,
+        )
+    ));
+}
+
+function checkPlatformApiRuntimeGetterCall(filePath, sourceFiles = []) {
     if (
         !isAppProductionSource(filePath)
         || PLATFORM_API_RUNTIME_GETTER_ALLOWED_FILES.has(filePath)
@@ -774,18 +785,7 @@ function checkPlatformApiRuntimeGetterCall(filePath, sourceText = '') {
         return [];
     }
 
-    const sourceBlocks = collectParsableSourceTexts(filePath, sourceText);
-    for (const [
-        index,
-        sourceBlock,
-    ] of sourceBlocks.entries()) {
-        const sourceFile = ts.createSourceFile(
-            `${filePath}#${index}`,
-            sourceBlock.sourceText,
-            ts.ScriptTarget.Latest,
-            true,
-            sourceBlock.scriptKind,
-        );
+    for (const sourceFile of sourceFiles) {
         const {
             directBindings,
             namespaceBindings,
@@ -911,7 +911,7 @@ function collectContractCompatibilityPolicyImportViolations(filePath, sourceFile
     return violations;
 }
 
-function checkContractCompatibilityPolicyImports(filePath, sourceText = '') {
+function checkContractCompatibilityPolicyImports(filePath, sourceFiles = []) {
     if (
         !isProductionAppOrElectronSource(filePath)
         || isContractCompatibilityPolicyAllowedSource(filePath)
@@ -919,16 +919,9 @@ function checkContractCompatibilityPolicyImports(filePath, sourceText = '') {
         return [];
     }
 
-    return collectParsableSourceTexts(filePath, sourceText).flatMap((sourceBlock, index) => {
-        const sourceFile = ts.createSourceFile(
-            `${filePath}#${index}`,
-            sourceBlock.sourceText,
-            ts.ScriptTarget.Latest,
-            true,
-            sourceBlock.scriptKind,
-        );
-        return collectContractCompatibilityPolicyImportViolations(filePath, sourceFile);
-    });
+    return sourceFiles.flatMap(sourceFile => (
+        collectContractCompatibilityPolicyImportViolations(filePath, sourceFile)
+    ));
 }
 
 function checkElectronLegacyFeatureReexportShim(filePath, sourceText = '') {
@@ -1118,10 +1111,11 @@ function checkNode(filePath) {
 }
 
 function checkSource(filePath, sourceText) {
+    const sourceFiles = parseSourceFiles(filePath, sourceText);
     return [
         ...checkAnnotationStoragePrivateAccess(filePath, sourceText),
-        ...checkPlatformApiRuntimeGetterCall(filePath, sourceText),
-        ...checkContractCompatibilityPolicyImports(filePath, sourceText),
+        ...checkPlatformApiRuntimeGetterCall(filePath, sourceFiles),
+        ...checkContractCompatibilityPolicyImports(filePath, sourceFiles),
         ...checkElectronLegacyFeatureReexportShim(filePath, sourceText),
     ];
 }
@@ -1178,12 +1172,14 @@ async function run() {
         ...(roots === null ? {} : {roots}),
     });
 
-    const sourceViolations = (
-        await Promise.all(graph.nodes.map(async node => {
-            const sourceText = await fs.readFile(path.join(process.cwd(), node.file), 'utf8');
-            return checkSource(node.file, sourceText);
-        }))
-    ).flat();
+    const sourceViolations = graph.nodes.flatMap((node) => {
+        if (typeof node.sourceText !== 'string') {
+            throw new Error(
+                `Dependency graph node ${node.file} is missing source text; boundary checks cannot safely continue.`,
+            );
+        }
+        return checkSource(node.file, node.sourceText);
+    });
 
     const violations = [
         ...graph.edges.flatMap(checkEdge),

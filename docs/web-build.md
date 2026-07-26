@@ -10,9 +10,10 @@
 - `pnpm lint && pnpm typecheck && pnpm build`
 - `pnpm run test:electron-bundle-static-integrity:no-build`
 - `pnpm exec vitest run --project unit-policy tests/unit/scripts/releasePolicy.test.ts`
-- `pnpm exec vitest run --changed origin/main --project unit-core --project unit-app --project unit-electron --project unit-scripts --project unit-policy --passWithNoTests`
-- `pnpm exec fallow dead-code --changed-since origin/main`
+- `pnpm run validate:iteration`
 - `pnpm validate`
+- `pnpm run validate:integration`
+- `pnpm run validate:nightly`
 
 ## Intended Use
 
@@ -42,13 +43,20 @@
 ## Broader Gates
 
 - `pnpm run check:architecture` validates app/module boundaries. Normal `lint` runs the same focused import/boundary subset directly.
-- `pnpm validate` is the broad local gate: lint, split static report/assets
-  checks, typecheck, unit tests, type coverage, strict build, and fallow checks.
-- Changed or fast loops are for iteration only: use Vitest's `--changed origin/main`
-  runs cached ESLint, changed Vitest tests, and changed fallow checks;
-  `pnpm exec vitest run --project unit-policy tests/unit/scripts/releasePolicy.test.ts`
-  keeps release/local policy edits tight. Run the broader gate before relying
-  on the result for release or merge confidence.
+- `pnpm run validate:iteration` classifies the current diff, runs content-cached
+  changed-file lint, affected TypeScript configs, and related Vitest tests.
+- `pnpm validate` is affected worktree acceptance: it expands to the relevant
+  full Vitest projects, dead-code proof, path-gated deploy/native/build checks,
+  and a targeted isolated Electron smoke when desktop behavior changed.
+- `pnpm run validate:integration` is the clean, full-repository serialized proof
+  for batched integration: uncached lint/typecheck, unit baseline, strict build,
+  and the applicable headless Electron regression lane.
+- `pnpm run validate:nightly` adds informational reports, type and test coverage,
+  duplicate analysis, Rust/resource matrices, and quarantine E2E. It is not a
+  per-worktree requirement.
+- Gate timings and input/cache evidence are written below the ignored
+  `.devkit/analysis/gates/` directory. Heavy builds, full unit runs, Rust work,
+  and Electron E2E share a cross-worktree weighted host semaphore.
 
 ## Dependency graph
 

@@ -7,7 +7,7 @@ import type {
     TLocale,
     TTranslateFn,
 } from '@i18n-app';
-import { EN_MESSAGE_SCHEMA } from '@i18n-app';
+import EN_MESSAGE_SCHEMA from '@i18n-app/messages/en';
 import { flattenObject } from 'es-toolkit/object';
 
 const EN_TRANSLATION_KEYS = new Set(

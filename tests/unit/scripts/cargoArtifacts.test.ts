@@ -14,12 +14,27 @@ import {
     it,
     vi,
 } from 'vitest';
-import { createNativeToolBuildPlan } from '@scripts/build-native-tool.mjs';
+import {
+    createNativeToolBuildPlan,
+    getCargoBuildEnvironment,
+    getCargoFingerprintEnvironment,
+    parseNativeToolBuildRequest,
+} from '@scripts/build-native-tool.mjs';
 import { createWasmToolBuildPlan } from '@scripts/build-wasm-tool.mjs';
 import { getGeneratedNativeToolResource } from '@scripts/nativeResourceManifest';
 import { getWasmArtifactByCrateName } from '@scripts/wasm-artifacts.mjs';
 
 interface ICargoArtifactsModule {
+    computeCargoInputFingerprint: (options: {
+        cargoArgs: string[];
+        environment?: Record<string, string>;
+        projectRoot: string;
+        sourcePaths: string[];
+        toolchain: Record<string, string>;
+    }) => Promise<{
+        fileCount: number;
+        fingerprint: string;
+    }>;
     copyCargoArtifactVerified: (sourcePath: string, destinationPath: string) => Promise<{
         byteLength: number;
         sha256: string;
@@ -36,6 +51,11 @@ interface ICargoArtifactsModule {
         toolId?: string;
     };
     parseCargoTargetDirectory: (metadataOutput: string) => string;
+    readValidCargoBuildReceipt: (options: {
+        binaryPath: string;
+        fingerprint: string;
+        receiptPath: string;
+    }) => Promise<unknown | null>;
     resolveCargoTargetDirectory: (options: {
         env?: NodeJS.ProcessEnv;
         manifestPath: string;
@@ -50,14 +70,28 @@ interface ICargoArtifactsModule {
             stdout: string;
         };
     }) => string;
+    writeCargoBuildReceipt: (options: {
+        artifact: {
+            byteLength: number;
+            sha256: string;
+        };
+        binaryPath: string;
+        fileCount: number;
+        fingerprint: string;
+        receiptPath: string;
+        toolchain: Record<string, string>;
+    }) => Promise<unknown>;
 }
 
 const {
+    computeCargoInputFingerprint,
     copyCargoArtifactVerified,
     getCargoArtifactPath,
     parseCargoToolBuildRequest,
     parseCargoTargetDirectory,
+    readValidCargoBuildReceipt,
     resolveCargoTargetDirectory,
+    writeCargoBuildReceipt,
 } = await import(
     pathToFileURL(path.join(process.cwd(), 'scripts/cargo-artifacts.mjs')).href
 ) as ICargoArtifactsModule;
@@ -87,6 +121,94 @@ describe('Cargo artifact staging', () => {
             'two',
         ], 'expected usage'))
             .toThrow('expected usage');
+    });
+
+    it('accepts native batches while rejecting ambiguous all-plus-explicit requests', () => {
+        expect(parseNativeToolBuildRequest([
+            'pdf-search',
+            'scan-cleanup',
+        ])).toEqual({
+            all: false,
+            dryRun: false,
+            help: false,
+            toolIds: [
+                'pdf-search',
+                'scan-cleanup',
+            ],
+        });
+        expect(parseNativeToolBuildRequest([
+            '--all',
+            '--dry-run',
+        ])).toEqual({
+            all: true,
+            dryRun: true,
+            help: false,
+            toolIds: [],
+        });
+        expect(() => parseNativeToolBuildRequest([
+            '--all',
+            'pdf-search',
+        ])).toThrow('Usage:');
+    });
+
+    it('uses an existing Rust wrapper, probes sccache, and safely degrades when unavailable', () => {
+        const existing = {RUSTC_WRAPPER: '/custom/wrapper'};
+        expect(getCargoBuildEnvironment({
+            env: existing,
+            runCommand: vi.fn(),
+        })).toEqual({
+            env: existing,
+            sccache: 'configured (/custom/wrapper)',
+        });
+        expect(getCargoBuildEnvironment({
+            env: {
+                CARGO_HOME: '/cargo',
+                EVB_RUST_SCCACHE: '1',
+            },
+            runCommand: vi.fn(() => ({
+                status: 0,
+                stdout: 'sccache 0.10.0\n',
+            })),
+        })).toEqual({
+            env: {
+                CARGO_HOME: '/cargo',
+                EVB_RUST_SCCACHE: '1',
+                RUSTC_WRAPPER: 'sccache',
+            },
+            sccache: 'sccache 0.10.0',
+        });
+        expect(getCargoBuildEnvironment({
+            env: {
+                CARGO_HOME: '/cargo',
+                EVB_RUST_SCCACHE: '1',
+            },
+            runCommand: vi.fn(() => ({
+                status: null,
+                stdout: '',
+            })),
+        })).toEqual({
+            env: {
+                CARGO_HOME: '/cargo',
+                EVB_RUST_SCCACHE: '1',
+            },
+            sccache: 'unavailable',
+        });
+        expect(getCargoBuildEnvironment({
+            env: {CARGO_HOME: '/cargo'},
+            runCommand: vi.fn(),
+        })).toEqual({
+            env: {CARGO_HOME: '/cargo'},
+            sccache: 'disabled',
+        });
+        expect(getCargoFingerprintEnvironment({
+            CARGO_TARGET_DIR: '/target',
+            PATH: '/bin',
+            RUSTFLAGS: '--cfg receipt',
+            SECRET_TOKEN: 'must-not-be-recorded',
+        })).toEqual({
+            CARGO_TARGET_DIR: '/target',
+            RUSTFLAGS: '--cfg receipt',
+        });
     });
 
     it('uses Cargo metadata as the authority for a shared workspace target directory', () => {
@@ -154,6 +276,94 @@ describe('Cargo artifact staging', () => {
                 sha256: 'e409a299ecb918b9fada7382ed9437d1f7f2918c4ba3e6984be9a2737aff0625',
             });
             await expect(readFile(destinationPath)).resolves.toEqual(sourceBytes);
+        } finally {
+            await rm(tempRoot, {
+                force: true,
+                recursive: true,
+            });
+        }
+    });
+
+    it('reuses staged Cargo outputs only for matching content, toolchain, and bytes', async () => {
+        const tempRoot = await mkdtemp(path.join(tmpdir(), 'evb-cargo-receipt-'));
+        const sourcePath = path.join(tempRoot, 'native', 'crate', 'src', 'main.rs');
+        const binaryPath = path.join(tempRoot, '.tmp', 'tool', 'platform', 'bin', 'tool');
+        const receiptPath = path.join(tempRoot, '.tmp', 'tool', 'platform', 'build-receipt.json');
+        const toolchain = {
+            cargo: 'cargo 1',
+            rustc: 'rustc 1',
+            target: 'host',
+        };
+
+        try {
+            await mkdir(path.dirname(sourcePath), {recursive: true});
+            await mkdir(path.dirname(binaryPath), {recursive: true});
+            await writeFile(sourcePath, 'fn main() {}');
+            await writeFile(binaryPath, 'binary');
+            const input = await computeCargoInputFingerprint({
+                cargoArgs: [
+                    'build',
+                    '--release',
+                ],
+                projectRoot: tempRoot,
+                sourcePaths: [path.dirname(sourcePath)],
+                toolchain,
+            });
+            const artifact = {
+                byteLength: 6,
+                sha256: '9a3a45d01531a20e89ac6ae10b0b0beb0492acd7216a368aa062d1a5fecaf9cd',
+            };
+            await writeCargoBuildReceipt({
+                artifact,
+                binaryPath,
+                fileCount: input.fileCount,
+                fingerprint: input.fingerprint,
+                receiptPath,
+                toolchain,
+            });
+            await expect(readValidCargoBuildReceipt({
+                binaryPath,
+                fingerprint: input.fingerprint,
+                receiptPath,
+            })).resolves.toMatchObject({
+                artifact,
+                inputFingerprint: input.fingerprint,
+            });
+
+            await writeFile(sourcePath, 'fn main() { println!("changed"); }');
+            const changedInput = await computeCargoInputFingerprint({
+                cargoArgs: [
+                    'build',
+                    '--release',
+                ],
+                projectRoot: tempRoot,
+                sourcePaths: [path.dirname(sourcePath)],
+                toolchain,
+            });
+            expect(changedInput.fingerprint).not.toBe(input.fingerprint);
+            const environmentChanged = await computeCargoInputFingerprint({
+                cargoArgs: [
+                    'build',
+                    '--release',
+                ],
+                environment: {RUSTFLAGS: '--cfg changed'},
+                projectRoot: tempRoot,
+                sourcePaths: [path.dirname(sourcePath)],
+                toolchain,
+            });
+            expect(environmentChanged.fingerprint).not.toBe(changedInput.fingerprint);
+            await expect(readValidCargoBuildReceipt({
+                binaryPath,
+                fingerprint: changedInput.fingerprint,
+                receiptPath,
+            })).resolves.toBeNull();
+
+            await writeFile(binaryPath, 'tampered');
+            await expect(readValidCargoBuildReceipt({
+                binaryPath,
+                fingerprint: input.fingerprint,
+                receiptPath,
+            })).resolves.toBeNull();
         } finally {
             await rm(tempRoot, {
                 force: true,

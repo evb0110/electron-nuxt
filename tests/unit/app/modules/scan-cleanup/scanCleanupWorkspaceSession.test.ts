@@ -669,7 +669,7 @@ describe('scan cleanup workspace session detection guidance', () => {
         first.unmount();
 
         const reopened = mountSession(documentKey);
-        await new Promise(resolve => setTimeout(resolve, 20));
+        await nextTick();
         expect(harness.value.detectAll).toHaveBeenCalledOnce();
         expect(reopened.session.detection.pending.value).toBe(false);
         reopened.unmount();
@@ -955,7 +955,7 @@ describe('scan cleanup workspace session detection guidance', () => {
         // guard clears, or it races the output handoff.
         scanCleanupRun.inFlight = false;
         await nextTick();
-        await new Promise(resolve => setTimeout(resolve, 20));
+        await nextTick();
 
         expect(harness.value.detectAll).toHaveBeenCalledOnce();
         expect(mounted.session.detection.pending.value).toBe(false);
@@ -1349,14 +1349,19 @@ describe('scan cleanup workspace session detection guidance', () => {
         capability.value = harness.value;
         const mounted = mountSession(`placement-${Date.now()}`);
         await vi.waitFor(() => expect(harness.value.preview).toHaveBeenCalled());
-        await new Promise(resolve => setTimeout(resolve, 300));
-        const previewCalls = vi.mocked(harness.value.preview).mock.calls.length;
+        vi.useFakeTimers();
+        try {
+            await vi.advanceTimersByTimeAsync(300);
+            const previewCalls = vi.mocked(harness.value.preview).mock.calls.length;
 
-        mounted.session.selection.updateCurrentPlacement('full', 'bottom-right');
-        await new Promise(resolve => setTimeout(resolve, 300));
+            mounted.session.selection.updateCurrentPlacement('full', 'bottom-right');
+            await vi.advanceTimersByTimeAsync(300);
 
-        expect(vi.mocked(harness.value.preview).mock.calls.slice(previewCalls)).toEqual([]);
-        mounted.unmount();
+            expect(vi.mocked(harness.value.preview).mock.calls.slice(previewCalls)).toEqual([]);
+        } finally {
+            vi.useRealTimers();
+            mounted.unmount();
+        }
     });
 
     it('keeps the output estimate unchanged when a differing page preview arrives', async () => {
@@ -1525,23 +1530,28 @@ describe('scan cleanup workspace session detection guidance', () => {
         const cachedPageB = mounted.session.preview.result.value;
         const previewCallsBeforeEdit = vi.mocked(harness.value.preview).mock.calls.length;
 
-        mounted.session.selection.updatePageOverride(1, {
-            rotationDegrees: 0,
-            layoutOverride: 'auto',
-            excluded: false,
-            manualSplit: null,
-            manualContentBoxes: {full: {
-                xNormalized: 0.1,
-                yNormalized: 0.1,
-                widthNormalized: 0.8,
-                heightNormalized: 0.8,
+        vi.useFakeTimers();
+        try {
+            mounted.session.selection.updatePageOverride(1, {
                 rotationDegrees: 0,
-            }},
-        });
-        await new Promise(resolve => setTimeout(resolve, 300));
+                layoutOverride: 'auto',
+                excluded: false,
+                manualSplit: null,
+                manualContentBoxes: {full: {
+                    xNormalized: 0.1,
+                    yNormalized: 0.1,
+                    widthNormalized: 0.8,
+                    heightNormalized: 0.8,
+                    rotationDegrees: 0,
+                }},
+            });
+            await vi.advanceTimersByTimeAsync(300);
 
-        expect(vi.mocked(harness.value.preview)).toHaveBeenCalledTimes(previewCallsBeforeEdit);
-        expect(mounted.session.preview.result.value).toBe(cachedPageB);
-        mounted.unmount();
+            expect(vi.mocked(harness.value.preview)).toHaveBeenCalledTimes(previewCallsBeforeEdit);
+            expect(mounted.session.preview.result.value).toBe(cachedPageB);
+        } finally {
+            vi.useRealTimers();
+            mounted.unmount();
+        }
     });
 });

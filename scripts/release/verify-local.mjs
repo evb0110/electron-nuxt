@@ -1,3 +1,4 @@
+import { rmSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
@@ -5,6 +6,7 @@ import {
     difference,
 } from 'es-toolkit/array';
 import { run } from './shared.mjs';
+import { RELEASE_BUILD_RECEIPT_ENV_VAR } from './build-receipt.mjs';
 import { getLocalReleaseVerifyGateCommands } from './policy.mjs';
 
 const RELEASE_VERIFY_DIFF_BUFFER_BYTES = 128 * 1024 * 1024;
@@ -75,13 +77,23 @@ export function assertReleaseVerifyDidNotMutateWorktree(before, after) {
 }
 
 export function runLocalReleaseVerify({
+    env = process.env,
+    receiptPath = path.resolve('.devkit/analysis/release-build-receipt.json'),
     runCommand = run,
     snapshotGetter = getReleaseVerifyMutationSnapshot,
 } = {}) {
     const before = snapshotGetter({runCommand});
+    rmSync(receiptPath, {force: true});
+    const releaseEnv = {
+        ...env,
+        [RELEASE_BUILD_RECEIPT_ENV_VAR]: receiptPath,
+    };
 
     for (const command of getLocalReleaseVerifyCommands()) {
-        runCommand(command.command, command.args, {stdio: 'inherit'});
+        runCommand(command.command, command.args, {
+            env: releaseEnv,
+            stdio: 'inherit',
+        });
     }
 
     const after = snapshotGetter({runCommand});

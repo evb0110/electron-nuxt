@@ -12,6 +12,10 @@ import path, {
 import { fileURLToPath } from 'node:url';
 import { run } from './shared.mjs';
 import {
+    RELEASE_BUILD_RECEIPT_ENV_VAR,
+    validateReleaseBuildReceipt,
+} from './build-receipt.mjs';
+import {
     getReleaseCiEnv,
     expectsUpdaterMetadata,
     getLocalReleaseTargets,
@@ -186,11 +190,28 @@ function main() {
     const distDir = resolve(process.cwd(), RELEASE_DIR);
     const releaseCiEnv = getReleaseCiEnv(process.env);
     const buildCommand = getLocalReleaseBuildCommand();
-
-    run(buildCommand.command, buildCommand.args, {
-        env: releaseCiEnv,
-        stdio: 'inherit',
-    });
+    const receiptPath = releaseCiEnv[RELEASE_BUILD_RECEIPT_ENV_VAR];
+    const receiptResult = receiptPath
+        ? validateReleaseBuildReceipt(receiptPath, {env: releaseCiEnv})
+        : {
+            reason: 'not-requested',
+            valid: false,
+        };
+    if (receiptResult.valid) {
+        process.stdout.write(
+            `Reusing strict build proven fresh by ${receiptPath}.\n`,
+        );
+    } else {
+        if (receiptPath) {
+            process.stdout.write(
+                `Strict-build receipt is not reusable (${receiptResult.reason}); rebuilding.\n`,
+            );
+        }
+        run(buildCommand.command, buildCommand.args, {
+            env: releaseCiEnv,
+            stdio: 'inherit',
+        });
+    }
 
     for (const target of targets) {
         rmSync(distDir, {

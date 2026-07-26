@@ -113,6 +113,7 @@ describe('CI topology policy', () => {
         const workflow = await readProjectFile('.github/workflows/ci.yml');
         const releaseWorkflow = await readProjectFile('.github/workflows/release.yml');
         const packageJson = await readProjectFile('package.json');
+        const packageScripts = (JSON.parse(packageJson) as {scripts: Record<string, string>;}).scripts;
         const prQuality = workflowJob(workflow, 'pr_quality');
 
         expect(workflow).toContain('push:');
@@ -124,6 +125,11 @@ describe('CI topology policy', () => {
         expect(workflow).toContain('name: Quality Gates');
         expect(prQuality).toContain('if: ${{ github.event_name == \'pull_request\' || github.event_name == \'push\' }}');
         expect(prQuality).toContain('run: node scripts/ci-install-dependencies.mjs --frozen-lockfile');
+        expect(prQuality).toContain('uses: actions/cache@v5');
+        expect(prQuality).toContain('.devkit/cache/lint');
+        expect(prQuality).toContain('.devkit/cache/typecheck');
+        expect(prQuality).toContain('key: quality-');
+        expect(prQuality).not.toContain('restore-keys:');
         expect(workflow).not.toContain('landing/pnpm-lock.yaml');
         expect(workflow).not.toContain('pnpm --dir landing install');
         expect(prQuality).not.toContain('playwright install');
@@ -135,20 +141,26 @@ describe('CI topology policy', () => {
         expect(prQuality).toContain('run: pnpm run lint');
         expect(prQuality).not.toContain('run: pnpm run check:static:reports');
         expect(prQuality).not.toContain('run: pnpm run check:static:assets');
-        expect(packageJson).toContain('"lint": "eslint app electron packages scripts server tests eslint-plugin-custom.mjs');
-        expect(packageJson).toContain('stylelint \\"app/**/*.{vue,scss,css}\\"');
-        expect(packageJson).toContain('"generate:build-artifacts": "node --import tsx scripts/generateBuildArtifacts.ts"');
-        expect(packageJson).toContain('"prepare": "pnpm run generate:build-artifacts && husky"');
-        expect(packageJson).toContain('node --import tsx scripts/checkGithubActionsSyntax.ts');
-        expect(packageJson).toContain('node --import tsx scripts/checkStyleAssetConventions.ts --target=app');
+        expect(packageScripts.lint).toBe('node scripts/validation-gates.mjs lint');
+        expect(packageScripts['generate:build-artifacts']).toContain('scripts/generateBuildArtifacts.ts');
+        expect(packageScripts.prepare).toContain('pnpm run generate:build-artifacts');
         expect(packageJson).not.toContain('check:native-tool-protocols');
         expect(packageJson).not.toContain('check:platform-api-generated');
         expect(packageJson).not.toContain('check:pdfjs-viewer-css');
-        expect(packageJson).toContain('"check:static:reports": "pnpm exec tsx scripts/reportPlatformManifestConsumers.ts"');
-        expect(packageJson).toContain('"check:static:assets": "node scripts/check-web-deploy-source.mjs"');
+        expect(packageScripts['check:static:reports']).toContain('reportPlatformManifestConsumers.ts');
+        expect(packageScripts['check:static:assets']).toContain('check-web-deploy-source.mjs');
         expect(prQuality).toContain('run: pnpm run typecheck');
         expect(prQuality).toContain('run: pnpm run test:unit');
-        expect(packageJson).toContain('"test:unit": "vitest run --project unit-core --project unit-app --project unit-electron --project unit-scripts --project unit-policy"');
+        expect(packageScripts['test:unit']).toContain('validation-gates.mjs heavy');
+        for (const project of [
+            'unit-core',
+            'unit-app',
+            'unit-electron',
+            'unit-scripts',
+            'unit-policy',
+        ]) {
+            expect(packageScripts['test:unit']).toContain(`--project ${project}`);
+        }
         expect(packageJson).not.toContain('"test:unit:core"');
         expect(packageJson).not.toContain('"test:unit:app"');
         expect(packageJson).not.toContain('"test:unit:electron"');
@@ -165,13 +177,15 @@ describe('CI topology policy', () => {
         expect(prQuality).not.toContain('run: pnpm run diag:pdf-tabs:ci');
         expect(prQuality).not.toContain('pnpm exec electron-builder');
         expect(workflow).toContain('name: Manual Quality Gates');
-        expect(workflowJob(workflow, 'manual_quality')).toContain('if: ${{ github.event_name == \'workflow_dispatch\' }}');
-        expect(workflowJob(workflow, 'manual_quality')).toContain('run: rustup target add wasm32-unknown-unknown');
-        expect(workflowJob(workflow, 'manual_quality')).toContain('run: pnpm run check:wasm:portable');
-        expectSplitQualitySteps(workflowJob(workflow, 'manual_quality'));
-        expect(workflowJob(workflow, 'manual_quality')).toContain('run: pnpm run test:coverage');
-        expect(workflowJob(workflow, 'manual_quality')).toContain('run: node scripts/ci-install-dependencies.mjs --frozen-lockfile');
-        expect(workflowJob(workflow, 'manual_quality')).not.toContain('playwright install');
+        const manualQuality = workflowJob(workflow, 'manual_quality');
+        expect(manualQuality).toContain('if: ${{ github.event_name == \'workflow_dispatch\' }}');
+        expect(manualQuality).toContain('run: rustup target add wasm32-unknown-unknown');
+        expect(manualQuality).toContain('run: pnpm run check:wasm:portable');
+        expectSplitQualitySteps(manualQuality);
+        expect(manualQuality).toContain('run: pnpm run test:coverage');
+        expect(manualQuality).toContain('run: node scripts/ci-install-dependencies.mjs --frozen-lockfile');
+        expect(manualQuality).not.toContain('playwright install');
+        expect(manualQuality).not.toContain('Restore validation caches');
         expect(releaseWorkflow).not.toContain('test:coverage');
         expect(packageJson).not.toMatch(/"gate:commit":\s*"[^"]*coverage/u);
     });
@@ -426,10 +440,16 @@ describe('CI topology policy', () => {
         expect(workflowJob(workflow, 'nightly_pdf_tabs_diagnostics')).toContain('run: pnpm run check:electron:install');
         expect(workflow).toMatch(/nightly_pdf_tabs_diagnostics:[\s\S]*if: \$\{\{ github\.event_name == 'schedule' \|\| github\.event_name == 'workflow_dispatch' \}\}[\s\S]*continue-on-error: true[\s\S]*run: pnpm run diag:pdf-tabs:ci/u);
         expect(workflow).toContain('run: pnpm run diag:pdf-tabs:ci');
-        expect(packageJson).toContain('"test:e2e:electron:regression": "pnpm run build:pdf-image-combine && pnpm run build:scan-cleanup && pnpm run build:electron && vitest run --project e2e-regression --reporter verbose"');
+        const packageScripts = JSON.parse(packageJson).scripts as Record<string, string>;
+        expect(packageScripts['test:e2e:electron:regression']).toContain('pnpm run build:native:e2e');
+        expect(packageScripts['test:e2e:electron:regression']).toContain('vitest run --project e2e-regression');
         expect(packageJson).not.toContain('"test:e2e:electron:smoke:no-build"');
-        expect(packageJson).toContain('"test:e2e:electron:quarantine": "pnpm run build:pdf-image-combine && pnpm run build:scan-cleanup && pnpm run build:electron && vitest run --project e2e-quarantine --passWithNoTests --reporter verbose"');
-        expect(sharedVitestConfig).toContain('retry: process.env.CI ? 2 : 1');
+        expect(packageScripts['test:e2e:electron:quarantine']).toContain('pnpm run build:native:e2e');
+        expect(packageScripts['test:e2e:electron:quarantine']).toContain(
+            'vitest run --project e2e-quarantine --passWithNoTests',
+        );
+        expect(sharedVitestConfig).toContain('condition: /\\[INFRA\\]/u');
+        expect(sharedVitestConfig).toContain('count: 2');
         expect(sharedVitestConfig).toContain('electronE2ERegression: \'e2e-regression\'');
         expect(sharedVitestConfig).not.toContain('electronE2ESmoke: \'e2e-smoke\'');
         expect(releaseWorkflow).not.toContain('test:e2e:electron');

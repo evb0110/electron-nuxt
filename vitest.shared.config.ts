@@ -134,7 +134,12 @@ function createElectronE2ETestProject(
             globals: false,
             fileParallelism: false,
             maxWorkers: 1,
-            retry: process.env.CI ? 2 : 1,
+            retry: process.env.CI
+                ? {
+                    condition: /\[INFRA\]/u,
+                    count: 2,
+                }
+                : 0,
             testTimeout: 90_000,
             hookTimeout: 150_000,
             sequence: { concurrent: false },

@@ -134,6 +134,7 @@ interface IReleaseChecksModule {
         runCommand?: TRunCommand;
         skipList?: string;
         stderr?: { write: (message: string) => void };
+        writeBuildReceipt?: (receiptPath: string, options: { env: TReleaseEnv }) => unknown;
     }) => void;
 }
 
@@ -796,7 +797,7 @@ describe('release policy', () => {
         const releaseCriticalTestGate = manifest.release.localChecks.gateGroups.find(group => group.id === 'release-critical-tests');
         const scriptNames = manifest.release.localChecks.gateGroups.flatMap(group => group.scripts);
 
-        expect(manifest.schemaVersion).toBe(1);
+        expect(manifest.schemaVersion).toBe(2);
         expect(manifest.release.localChecks.owner).toBe('release');
         expect(manifest.release.localChecks.gateGroups.map(group => group.id)).toEqual([
             'lint-static',
@@ -804,11 +805,10 @@ describe('release policy', () => {
         ]);
         expect(lintAndStaticGate?.owner).toBe('release');
         expect(lintAndStaticGate?.scripts).toEqual([
-            'lint',
+            'lint:clean',
             'check:static:reports',
             'check:static:assets',
-            'check:architecture:source-size',
-            'typecheck',
+            'typecheck:clean',
             'typecheck:coverage',
             'check:drizzle-schema',
             'check:electron:install',
@@ -1117,6 +1117,38 @@ describe('release policy', () => {
         expect(calls.every(call => call.env?.CI === 'true')).toBe(true);
         expect(calls.every(call => call.env?.EVB_AUTOMATION_HIDE_WINDOW === undefined)).toBe(true);
         expect(calls.every(call => call.env?.EVB_AUTOMATION_NO_FOCUS === undefined)).toBe(true);
+    });
+
+    it('builds once and substitutes no-build checks when combined release verification requests a receipt', () => {
+        const scripts: string[] = [];
+        const receipts: string[] = [];
+
+        runLocalReleaseChecks({
+            env: {
+                CI: 'true',
+                EVB_RELEASE_BUILD_RECEIPT: '/tmp/release-build-receipt.json',
+            },
+            runCommand: (_command: string, args: string[]) => {
+                scripts.push(args[1] ?? args[0] ?? '');
+            },
+            stderr: {write: () => {}},
+            writeBuildReceipt: receiptPath => receipts.push(receiptPath),
+        });
+
+        expect(scripts.indexOf('build:strict')).toBeGreaterThan(
+            scripts.indexOf('test:coverage'),
+        );
+        expect(scripts.indexOf('build:strict')).toBeLessThan(
+            scripts.indexOf('test:electron-bundle-static-integrity:no-build'),
+        );
+        expect(scripts).not.toContain('build:pdf-image-combine');
+        expect(scripts).not.toContain('build:pdf-page-ops');
+        expect(scripts).not.toContain('build:pdf-search');
+        expect(scripts).not.toContain('build:scan-cleanup');
+        expect(scripts).not.toContain('check:wasm:portable');
+        expect(scripts).not.toContain('test:electron-bundle-static-integrity');
+        expect(scripts).toContain('test:electron-bundle-static-integrity:no-build');
+        expect(receipts).toEqual(['/tmp/release-build-receipt.json']);
     });
 
     it('skips explicitly listed release gates without changing the default gate list', () => {

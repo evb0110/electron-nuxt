@@ -228,11 +228,17 @@ pnpm exec vitest run --project unit-policy tests/unit/scripts/releasePolicy.test
 # Manual Electron E2E diagnostics
 pnpm run test:e2e:electron
 
-# Changed-file local loop
-pnpm run validate:changed
+# Changed/related local loop
+pnpm run validate:iteration
 
-# Full contributor validation
+# Affected worktree acceptance
 pnpm validate
+
+# Clean full-repository integration proof
+pnpm run validate:integration
+
+# Exhaustive maintenance/soak tier
+pnpm run validate:nightly
 
 # Native-resource sanity check
 pnpm run check:resources:matrix
@@ -259,13 +265,14 @@ Root app checks are intentionally scoped to the browser/Electron app and shared
 packages. The landing site is checked from `landing/` with its own dependency
 install and build commands.
 
-Release-critical checks intentionally stop at linting, typechecking, Electron
-install verification, strict artifact builds, current-platform packaging, and
-the fast unit suite. `pnpm run release:verify` is the full host-side proof: it
-runs the CI-mode lint/static/test gate first, then the current-platform
-build/package gate. Broader maintenance checks stay in
-`pnpm validate` and scheduled nightly CI. For local iteration, use changed or
-file-scoped loops such as `pnpm run validate:changed`,
+`pnpm run release:verify` is the full host-side release proof. Its checks phase
+produces one strict build and a source/toolchain/target-fingerprinted receipt;
+the package phase reuses those exact outputs only while both the inputs and
+artifact hashes still match. Standalone package verification builds normally.
+Broader reports, type coverage, duplicate analysis, coverage instrumentation,
+native matrices, and quarantine E2E stay in `pnpm run validate:nightly` or
+release-specific lanes. For local iteration, use affected or file-scoped loops
+such as `pnpm run validate:iteration -- --file=app/path/to/change.ts`,
 `pnpm exec vitest run --project unit-policy tests/unit/scripts/releasePolicy.test.ts`, or
 `pnpm run test:electron-bundle-static-integrity:no-build` after
 `dist-electron/` already exists. Direct pushes to `main` run

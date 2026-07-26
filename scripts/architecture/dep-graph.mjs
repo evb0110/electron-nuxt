@@ -185,7 +185,11 @@ function extractImportSpecifiers(sourceText) {
     return specifiers;
 }
 
-async function resolveWithExtensions(projectRoot, basePath) {
+async function resolveWithExtensions(projectRoot, basePath, resolutionCache) {
+    const cacheKey = `${projectRoot}\0${basePath}`;
+    if (resolutionCache?.has(cacheKey)) {
+        return resolutionCache.get(cacheKey);
+    }
     const candidates = [
         basePath,
         ...SOURCE_EXTENSIONS.map(extension => `${basePath}${extension}`),
@@ -195,10 +199,13 @@ async function resolveWithExtensions(projectRoot, basePath) {
     for (const candidate of candidates) {
         const absoluteCandidate = path.join(projectRoot, candidate);
         if (await pathExists(absoluteCandidate)) {
-            return toPosixPath(candidate);
+            const resolved = toPosixPath(candidate);
+            resolutionCache?.set(cacheKey, resolved);
+            return resolved;
         }
     }
 
+    resolutionCache?.set(cacheKey, null);
     return null;
 }
 
@@ -329,7 +336,7 @@ const ROOT_SPECIFIER_PREFIXES = [
     'packages/release-selection/',
 ];
 
-function resolvePackageAliasSpecifier(projectRoot, specifier) {
+function resolvePackageAliasSpecifier(projectRoot, specifier, resolutionCache) {
     const aliasRule = PACKAGE_ALIAS_RULES.find(rule => (
         specifier === rule.exact
         || (rule.prefix && specifier.startsWith(rule.prefix))
@@ -341,10 +348,10 @@ function resolvePackageAliasSpecifier(projectRoot, specifier) {
     const candidate = specifier === aliasRule.exact
         ? aliasRule.exactTarget
         : specifier.replace(aliasRule.prefix, aliasRule.prefixTarget);
-    return resolveWithExtensions(projectRoot, candidate);
+    return resolveWithExtensions(projectRoot, candidate, resolutionCache);
 }
 
-function resolveNuxtAliasSpecifier(projectRoot, sourceFile, specifier) {
+function resolveNuxtAliasSpecifier(projectRoot, sourceFile, specifier, resolutionCache) {
     const sourceRoot = getNuxtSourceRootForFile(sourceFile);
     if (!sourceRoot) {
         return null;
@@ -354,32 +361,32 @@ function resolveNuxtAliasSpecifier(projectRoot, sourceFile, specifier) {
         const target = sourceRoot === 'landing'
             ? `landing/app/${specifier.slice(2)}`
             : `app/${specifier.slice(2)}`;
-        return resolveWithExtensions(projectRoot, target);
+        return resolveWithExtensions(projectRoot, target, resolutionCache);
     }
 
     if (specifier.startsWith('~~/')) {
         const target = sourceRoot === 'landing'
             ? `landing/${specifier.slice(3)}`
             : specifier.slice(3);
-        return resolveWithExtensions(projectRoot, target);
+        return resolveWithExtensions(projectRoot, target, resolutionCache);
     }
 
     return null;
 }
 
-function resolveRelativeSpecifier(projectRoot, sourceFile, specifier) {
+function resolveRelativeSpecifier(projectRoot, sourceFile, specifier, resolutionCache) {
     if (!specifier.startsWith('./') && !specifier.startsWith('../')) {
         return null;
     }
 
     const sourceDir = path.dirname(sourceFile);
     const resolved = toPosixPath(path.normalize(path.join(sourceDir, specifier)));
-    return resolveWithExtensions(projectRoot, resolved);
+    return resolveWithExtensions(projectRoot, resolved, resolutionCache);
 }
 
-function resolveRootSpecifier(projectRoot, specifier) {
+function resolveRootSpecifier(projectRoot, specifier, resolutionCache) {
     return ROOT_SPECIFIER_PREFIXES.some(prefix => specifier.startsWith(prefix))
-        ? resolveWithExtensions(projectRoot, specifier)
+        ? resolveWithExtensions(projectRoot, specifier, resolutionCache)
         : null;
 }
 
@@ -387,23 +394,34 @@ async function resolveSpecifier({
     sourceFile,
     specifier,
     projectRoot,
+    resolutionCache,
 }) {
-    const resolvedPackageAlias = await resolvePackageAliasSpecifier(projectRoot, specifier);
+    const resolvedPackageAlias = await resolvePackageAliasSpecifier(projectRoot, specifier, resolutionCache);
     if (resolvedPackageAlias) {
         return resolvedPackageAlias;
     }
 
-    const resolvedNuxtAlias = await resolveNuxtAliasSpecifier(projectRoot, sourceFile, specifier);
+    const resolvedNuxtAlias = await resolveNuxtAliasSpecifier(
+        projectRoot,
+        sourceFile,
+        specifier,
+        resolutionCache,
+    );
     if (resolvedNuxtAlias) {
         return resolvedNuxtAlias;
     }
 
-    const resolvedRelative = await resolveRelativeSpecifier(projectRoot, sourceFile, specifier);
+    const resolvedRelative = await resolveRelativeSpecifier(
+        projectRoot,
+        sourceFile,
+        specifier,
+        resolutionCache,
+    );
     if (resolvedRelative) {
         return resolvedRelative;
     }
 
-    return resolveRootSpecifier(projectRoot, specifier);
+    return resolveRootSpecifier(projectRoot, specifier, resolutionCache);
 }
 
 function collectRootsFromArgv(argv, {projectRoot}) {
@@ -542,6 +560,7 @@ export async function buildDependencyGraph({
     const nodes = [];
     const edges = [];
     const unresolvedInternalImports = [];
+    const resolutionCache = new Map();
 
     for (const file of files) {
         const absFile = path.join(projectRoot, file);
@@ -552,6 +571,7 @@ export async function buildDependencyGraph({
                 sourceFile: file,
                 specifier,
                 projectRoot,
+                resolutionCache,
             });
             return {
                 specifier,
@@ -562,10 +582,15 @@ export async function buildDependencyGraph({
         const internalImports = resolvedImports.filter(
             entry => entry.target && isInternalPath(entry.target, internalRoots),
         );
-        nodes.push({
+        const node = {
             file,
             imports: internalImports,
+        };
+        Object.defineProperty(node, 'sourceText', {
+            enumerable: false,
+            value: sourceText,
         });
+        nodes.push(node);
 
         for (const item of resolvedImports) {
             if (item.target) {

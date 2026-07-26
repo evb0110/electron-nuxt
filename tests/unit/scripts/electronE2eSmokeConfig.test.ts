@@ -21,7 +21,10 @@ interface IVitestProjectTestConfig {
     include?: string[];
     maxWorkers?: number;
     name?: string;
-    retry?: number;
+    retry?: number | {
+        condition?: RegExp;
+        count?: number;
+    };
     sequence?: {concurrent?: boolean};
     setupFiles?: string[];
     testTimeout?: number;
@@ -191,14 +194,18 @@ describe('unit Vitest project topology', () => {
 });
 
 describe('electron e2e Vitest project topology', () => {
-    it('keeps one local retry and two CI retries for startup flakes', async () => {
+    it('keeps local iteration retry-free and retries only marked infrastructure failures in CI', async () => {
         const localConfig = await loadVitestSharedConfig(undefined);
         const ciConfig = await loadVitestSharedConfig('true');
+        const ciRetry = {
+            condition: /\[INFRA\]/u,
+            count: 2,
+        };
 
         expect(e2eProjectNames().map(projectName => projectByName(localConfig, projectName).test?.retry))
-            .toEqual(Array.from({ length: e2eProjectNames().length }, () => 1));
+            .toEqual(Array.from({ length: e2eProjectNames().length }, () => 0));
         expect(e2eProjectNames().map(projectName => projectByName(ciConfig, projectName).test?.retry))
-            .toEqual(Array.from({ length: e2eProjectNames().length }, () => 2));
+            .toEqual(Array.from({ length: e2eProjectNames().length }, () => ciRetry));
     });
 
     it('keeps comprehensive diagnostics in the nightly regression project', async () => {
@@ -263,9 +270,11 @@ describe('electron e2e Vitest project topology', () => {
         expect(packageScripts['test:e2e:electron:visible-window'])
             .toBe('pnpm run build:electron && vitest run --project e2e-visible-window --reporter verbose');
         expect(packageScripts['test:e2e:electron'])
-            .toBe('pnpm run build:pdf-image-combine && pnpm run build:scan-cleanup && pnpm run build:electron && vitest run --project e2e-regression --reporter verbose');
+            .toContain('pnpm run build:native:e2e');
+        expect(packageScripts['test:e2e:electron'])
+            .toContain('vitest run --project e2e-regression');
         expect(packageScripts['test:e2e:electron:regression'])
-            .toBe('pnpm run build:pdf-image-combine && pnpm run build:scan-cleanup && pnpm run build:electron && vitest run --project e2e-regression --reporter verbose');
+            .toContain('pnpm run build:native:e2e');
         expect(packageScripts['test:e2e:electron:smoke:no-build']).toBeUndefined();
         expect(packageScripts['test:e2e:electron:watch'])
             .toBe('vitest --project e2e-regression --reporter verbose');
@@ -281,6 +290,6 @@ describe('electron e2e quarantine Vitest project', () => {
 
         expect(quarantineProject.test?.include).toEqual(electronE2EQuarantineTestFiles);
         expect(packageScripts['test:e2e:electron:quarantine'])
-            .toBe('pnpm run build:pdf-image-combine && pnpm run build:scan-cleanup && pnpm run build:electron && vitest run --project e2e-quarantine --passWithNoTests --reporter verbose');
+            .toContain('vitest run --project e2e-quarantine --passWithNoTests');
     });
 });

@@ -2,6 +2,7 @@
 set -euo pipefail
 
 platform="$(uname -s)"
+target_script="${1:-test:e2e:electron}"
 
 export EVB_AUTOMATION_DISABLE_SANDBOX=1
 export EVB_AUTOMATION_NO_FOCUS=1
@@ -12,7 +13,8 @@ if [ "$platform" = "Linux" ]; then
     exit 1
   fi
   export EVB_AUTOMATION_HIDE_WINDOW=0
-  exec xvfb-run -a pnpm run test:e2e:electron
+  exec node scripts/validation-gates.mjs heavy --id="electron-${target_script//:/-}" --weight=2 -- \
+    xvfb-run -a pnpm run "$target_script"
 fi
 
 export EVB_AUTOMATION_HIDE_WINDOW=1
@@ -20,4 +22,5 @@ if [ "$platform" = "Darwin" ]; then
   export EVB_AUTOMATION_USE_HIDDEN_APP_BUNDLE=1
 fi
 
-exec pnpm run test:e2e:electron
+exec node scripts/validation-gates.mjs heavy --id="electron-${target_script//:/-}" --weight=2 -- \
+  pnpm run "$target_script"

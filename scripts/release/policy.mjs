@@ -103,6 +103,89 @@ const GATE_POLICY_MANIFEST = Object.freeze({
             ],
         },
     }},
+    validation: {
+        impacts: {
+            app: {paths: [
+                'app/**',
+                'nuxt.config.ts',
+                'tsconfig.json',
+                'tsconfig.base.json',
+                'tsconfig.workspace-paths.json',
+            ]},
+            build: {paths: [
+                'electron-builder.yml',
+                'nuxt.config.ts',
+                'resources/**',
+                'scripts/build-*.mjs',
+                'scripts/generateBuildArtifacts.ts',
+                'scripts/generateElectronBuilderResources.ts',
+                'scripts/prune-build-artifacts.mjs',
+                'scripts/release/**',
+                'scripts/run-build-strict.mjs',
+            ]},
+            docs: {paths: [
+                '*.md',
+                'docs/**',
+            ]},
+            electron: {paths: [
+                'electron/**',
+                'scripts/electron-run/**',
+                'scripts/electron-run-headless.sh',
+                'scripts/electronRun.ts',
+                'tests/e2e/electron/**',
+            ]},
+            landing: {paths: ['landing/**']},
+            native: {paths: [
+                'native/**',
+                'rust-toolchain.toml',
+                'scripts/build-native-tool.mjs',
+                'scripts/cargo-artifacts.mjs',
+                'scripts/check-native-tools-source-matrix.sh',
+                'scripts/generateNativeToolProtocols.ts',
+                'scripts/native-rust-targets.mjs',
+                'scripts/nativeResourceManifest.ts',
+                'scripts/nativeResourceManifestCli.ts',
+                'scripts/verify-packaged-native-tools.sh',
+            ]},
+            packages: {paths: ['packages/**']},
+            policy: {paths: [
+                '.github/**',
+                '.fallowrc.json',
+                '.vercelignore',
+                'eslint-plugin-custom.mjs',
+                'eslint.config.mjs',
+                'package.json',
+                'pnpm-lock.yaml',
+                'pnpm-workspace.yaml',
+                'scripts/ci/**',
+                'scripts/release/policy.mjs',
+                'scripts/run-nuxt-typecheck.mjs',
+                'scripts/run-ts7-typecheck.mjs',
+                'scripts/run-workspace-package-typecheck.mjs',
+                'scripts/validation-gates.mjs',
+                'stylelint.config.mjs',
+                'tsconfig*.json',
+                'vitest.config.ts',
+                'vitest.shared.config.ts',
+            ]},
+            scripts: {paths: ['scripts/**']},
+            server: {paths: ['server/**']},
+            tests: {paths: ['tests/**']},
+            webDeploy: {paths: [
+                '.vercelignore',
+                'app/**',
+                'nuxt.config.ts',
+                'package.json',
+                'pnpm-lock.yaml',
+                'public/**',
+                'scripts/check-web-deploy-source.mjs',
+                'scripts/deployVercelPrivate.mjs',
+                'server/**',
+                'vercel.json',
+            ]},
+        },
+        owner: 'validation',
+    },
     release: {
         localChecks: {
             gateGroups: [
@@ -110,11 +193,10 @@ const GATE_POLICY_MANIFEST = Object.freeze({
                     id: 'lint-static',
                     owner: 'release',
                     scripts: [
-                        'lint',
+                        'lint:clean',
                         'check:static:reports',
                         'check:static:assets',
-                        'check:architecture:source-size',
-                        'typecheck',
+                        'typecheck:clean',
                         'typecheck:coverage',
                         'check:drizzle-schema',
                         'check:electron:install',
@@ -164,7 +246,7 @@ const GATE_POLICY_MANIFEST = Object.freeze({
             owner: 'release',
         },
     },
-    schemaVersion: 1,
+    schemaVersion: 2,
 });
 
 function cloneGateCommand(gate) {
@@ -207,6 +289,18 @@ export function getGatePolicyManifest() {
                 owner: GATE_POLICY_MANIFEST.release.localVerify.owner,
             },
         },
+        validation: {
+            impacts: Object.fromEntries(
+                Object.entries(GATE_POLICY_MANIFEST.validation.impacts).map(([
+                    impact,
+                    policy,
+                ]) => [
+                    impact,
+                    {paths: [...policy.paths]},
+                ]),
+            ),
+            owner: GATE_POLICY_MANIFEST.validation.owner,
+        },
         schemaVersion: GATE_POLICY_MANIFEST.schemaVersion,
     };
 }
@@ -217,6 +311,10 @@ export function getNativeOrBuildChangedAreaPaths() {
 
 export function getCiChangedAreaPolicy() {
     return getGatePolicyManifest().ci.changedAreas;
+}
+
+export function getValidationImpactPolicy() {
+    return getGatePolicyManifest().validation.impacts;
 }
 
 export function getLocalReleaseCheckGateScripts() {

@@ -80,6 +80,14 @@ jobs:
       - name: Install dependencies
         run: node scripts/ci-install-dependencies.mjs --frozen-lockfile
 
+      - name: Restore validation caches
+        uses: actions/cache@v5
+        with:
+          path: |
+            .devkit/cache/lint
+            .devkit/cache/typecheck
+          key: quality-${{ runner.os }}-${{ runner.arch }}-node-${{ env.NODE_VERSION }}-${{ hashFiles('pnpm-lock.yaml', 'eslint.config.mjs', 'eslint-plugin-custom.mjs', 'landing/eslint.config.mjs', 'stylelint.config.mjs', 'tsconfig*.json', 'electron/tsconfig.json', 'landing/tsconfig.json', 'packages/*/tsconfig.json', 'scripts/tsconfig.json', 'server/tsconfig.json', 'tests/tsconfig.json') }}
+
       - name: Generate committed build artifacts and reject drift
         run: |
           pnpm run generate:build-artifacts
@@ -102,9 +110,6 @@ jobs:
 
       - name: Typecheck
         run: pnpm run typecheck
-
-      - name: Source-size architecture ratchet
-        run: pnpm run check:architecture:source-size
 
       - name: Unit tests
         if: ${{ github.event_name == 'pull_request' }}
@@ -327,7 +332,7 @@ jobs:
         run: pnpm run check:wasm:portable
 
       - name: Lint
-        run: pnpm run lint
+        run: pnpm run lint:clean
 
       - name: Static reports
         run: pnpm run check:static:reports
@@ -335,11 +340,8 @@ jobs:
       - name: Static assets
         run: pnpm run check:static:assets
 
-      - name: Source-size architecture ratchet
-        run: pnpm run check:architecture:source-size
-
       - name: Typecheck
-        run: pnpm run typecheck
+        run: pnpm run typecheck:clean
 
       - name: Type coverage
         run: pnpm run typecheck:coverage

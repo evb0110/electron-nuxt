@@ -19,10 +19,10 @@ import {
 interface IWorkspaceTypecheckModule {
     TYPECHECK_EXEMPT_WORKSPACE_PACKAGES: Record<string, string>;
     getWorkspacePackageTypecheckPlan: (options?: { projectRoot?: string }) => {
-        commands: Array<{
+        command: {
             args: string[];
             command: string;
-        }>;
+        };
         skipped: Array<{
             packageRoot: string;
             reason: string;
@@ -59,10 +59,9 @@ async function writeProjectFile(projectRoot: string, filePath: string, text = ''
 describe('workspace package typecheck helper', () => {
     it('typechecks repo workspace packages and skips the checked-in JS-only exemption', () => {
         const plan = getWorkspacePackageTypecheckPlan();
-        const tsconfigTargets = plan.commands.map((command) => {
-            const projectArgumentIndex = command.args.indexOf('-p');
-            return command.args[projectArgumentIndex + 1];
-        });
+        const tsconfigTargets = plan.command.args.flatMap((argument, index, args) => (
+            argument === '-p' && args[index + 1] ? [args[index + 1]] : []
+        ));
 
         expect(tsconfigTargets).toEqual(expect.arrayContaining([
             'packages/contracts/tsconfig.json',

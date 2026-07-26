@@ -2,11 +2,22 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { run } from './shared.mjs';
 import {
+    RELEASE_BUILD_RECEIPT_ENV_VAR,
+    writeReleaseBuildReceipt,
+} from './build-receipt.mjs';
+import {
     getLocalReleaseCheckGateScripts,
     getReleaseCiEnv,
 } from './policy.mjs';
 
 const SKIP_ACK_ENV_VAR = 'EVB_RELEASE_VERIFY_SKIP_ACK';
+const STRICT_BUILD_DUPLICATE_GATES = new Set([
+    'build:pdf-image-combine',
+    'build:pdf-page-ops',
+    'build:pdf-search',
+    'build:scan-cleanup',
+    'check:wasm:portable',
+]);
 
 export function parseReleaseVerifySkipList(rawSkipList, {knownScripts} = {}) {
     const requested = (rawSkipList ?? '')
@@ -83,6 +94,7 @@ export function runLocalReleaseChecks({
     runCommand = run,
     skipList = env.EVB_RELEASE_VERIFY_SKIP,
     stderr = process.stderr,
+    writeBuildReceipt = writeReleaseBuildReceipt,
 } = {}) {
     const commands = getLocalReleaseCheckCommands();
     const knownScripts = commands
@@ -92,19 +104,61 @@ export function runLocalReleaseChecks({
 
     assertReleaseVerifySkipAcknowledged(skippedScripts, {allowSkip});
     writeSkippedGateSummary(skippedScripts, stderr);
+    const receiptPath = env[RELEASE_BUILD_RECEIPT_ENV_VAR];
+    const canHandoffStrictBuild = Boolean(receiptPath)
+        && skippedScripts.every(script => !STRICT_BUILD_DUPLICATE_GATES.has(script));
+    let strictBuildPrepared = false;
+    const prepareStrictBuild = () => {
+        if (!canHandoffStrictBuild || strictBuildPrepared) {
+            return;
+        }
+        runCommand('pnpm', [
+            'run',
+            'build:strict',
+        ], {
+            env,
+            stdio: 'inherit',
+        });
+        writeBuildReceipt(receiptPath, {env});
+        stderr.write(
+            `Recorded strict-build receipt for the packaging phase: ${receiptPath}\n`,
+        );
+        strictBuildPrepared = true;
+    };
 
     // Run the local release gate under CI-mode test semantics so runner-only
     // behavior is more likely to fail before we ever push a release tag.
     for (const command of commands) {
-        if (command.args[0] === 'run' && skippedScripts.includes(command.args[1])) {
+        const scriptName = command.args[0] === 'run' ? command.args[1] : undefined;
+        if (scriptName && skippedScripts.includes(scriptName)) {
             continue;
         }
+        if (canHandoffStrictBuild && scriptName && STRICT_BUILD_DUPLICATE_GATES.has(scriptName)) {
+            continue;
+        }
+        const effectiveCommand = canHandoffStrictBuild
+            && scriptName === 'test:electron-bundle-static-integrity'
+            ? {
+                args: [
+                    'run',
+                    'test:electron-bundle-static-integrity:no-build',
+                ],
+                command: 'pnpm',
+            }
+            : command;
+        if (
+            canHandoffStrictBuild
+            && scriptName === 'test:electron-bundle-static-integrity'
+        ) {
+            prepareStrictBuild();
+        }
 
-        runCommand(command.command, command.args, {
+        runCommand(effectiveCommand.command, effectiveCommand.args, {
             env,
             stdio: 'inherit',
         });
     }
+    prepareStrictBuild();
 }
 
 const isDirectCliRun = process.argv[1]

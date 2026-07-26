@@ -25,18 +25,23 @@ import {
 import type * as FsPromises from 'node:fs/promises';
 
 let tempRoot = '';
+let resetModulesAfterTest = false;
+const MULTI_CHUNK_FIXTURE_BYTES = 1024 * 1024 + 17;
 
 vi.mock('electron', () => ({app: {getPath: vi.fn(() => tempRoot)}}));
 
 describe('workingCopyMaterialization', () => {
     beforeEach(() => {
-        vi.resetModules();
         tempRoot = mkdtempSync(join(tmpdir(), 'evb-materialization-test-'));
     });
 
     afterEach(async () => {
         vi.doUnmock('node:fs/promises');
         vi.doUnmock('fs/promises');
+        if (resetModulesAfterTest) {
+            vi.resetModules();
+            resetModulesAfterTest = false;
+        }
         const {resetMainOperationLifecycleForTests} = await import(
             '@electron/operation-lifecycle/mainOperationLifecycle'
         );
@@ -48,7 +53,7 @@ describe('workingCopyMaterialization', () => {
     });
 
     it('publishes verified bytes after cache invalidation without changing the document revision', async () => {
-        const fixture = await registerLazyWorkingCopy(Buffer.alloc(2 * 1024 * 1024 + 17, 41));
+        const fixture = await registerLazyWorkingCopy(Buffer.alloc(MULTI_CHUNK_FIXTURE_BYTES, 41));
         const {
             getWorkingCopyRevision,
             initializeFreshWorkingCopyRevision,
@@ -116,7 +121,7 @@ describe('workingCopyMaterialization', () => {
     }, 15_000);
 
     it('shares one flight across concurrent demand waiters', async () => {
-        const fixture = await registerLazyWorkingCopy(Buffer.alloc(3 * 1024 * 1024, 19));
+        const fixture = await registerLazyWorkingCopy(Buffer.alloc(MULTI_CHUNK_FIXTURE_BYTES, 19));
         const {
             ensureWorkingCopyMaterialized,
             onWorkingCopyBackingSwapCacheInvalidation,
@@ -154,7 +159,7 @@ describe('workingCopyMaterialization', () => {
     });
 
     it('cancels one waiter without aborting a flight retained by another waiter', async () => {
-        const fixture = await registerLazyWorkingCopy(Buffer.alloc(2 * 1024 * 1024, 23));
+        const fixture = await registerLazyWorkingCopy(Buffer.alloc(MULTI_CHUNK_FIXTURE_BYTES, 23));
         const {
             ensureWorkingCopyMaterialized,
             onWorkingCopyMaterializationProgress,
@@ -196,7 +201,7 @@ describe('workingCopyMaterialization', () => {
     }, 15_000);
 
     it('keeps a flight background-leased when the lease attaches after a demand waiter', async () => {
-        const fixture = await registerLazyWorkingCopy(Buffer.alloc(2 * 1024 * 1024, 27));
+        const fixture = await registerLazyWorkingCopy(Buffer.alloc(MULTI_CHUNK_FIXTURE_BYTES, 27));
         const {
             ensureWorkingCopyMaterialized,
             startBackgroundWorkingCopyMaterialization,
@@ -229,7 +234,7 @@ describe('workingCopyMaterialization', () => {
     }, 15_000);
 
     it('explicitly cancels shared work, removes its partial, and permits retry', async () => {
-        const fixture = await registerLazyWorkingCopy(Buffer.alloc(2 * 1024 * 1024, 29));
+        const fixture = await registerLazyWorkingCopy(Buffer.alloc(MULTI_CHUNK_FIXTURE_BYTES, 29));
         const {
             cancelWorkingCopyMaterialization,
             ensureWorkingCopyMaterialized,
@@ -277,6 +282,7 @@ describe('workingCopyMaterialization', () => {
                 },
             };
         });
+        resetModulesAfterTest = true;
         vi.resetModules();
         const fixture = await registerLazyWorkingCopy(Buffer.alloc(1024 * 1024, 31));
         const {ensureWorkingCopyMaterialized} = await import(
@@ -322,7 +328,7 @@ describe('workingCopyMaterialization', () => {
     });
 
     it('discards copied bytes when the source changes during streaming', async () => {
-        const fixture = await registerLazyWorkingCopy(Buffer.alloc(4 * 1024 * 1024, 43));
+        const fixture = await registerLazyWorkingCopy(Buffer.alloc(MULTI_CHUNK_FIXTURE_BYTES, 43));
         const {
             ensureWorkingCopyMaterialized,
             onWorkingCopyMaterializationProgress,
@@ -384,7 +390,7 @@ describe('workingCopyMaterialization', () => {
     });
 
     it('registration-ID fences prevent an old flight publishing into a replacement registration', async () => {
-        const firstFixture = await registerLazyWorkingCopy(Buffer.alloc(4 * 1024 * 1024, 53));
+        const firstFixture = await registerLazyWorkingCopy(Buffer.alloc(MULTI_CHUNK_FIXTURE_BYTES, 53));
         const secondOriginalPath = join(tempRoot, 'replacement-original.pdf');
         writeFileSync(secondOriginalPath, Buffer.alloc(256, 59));
         const {

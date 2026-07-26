@@ -20,21 +20,25 @@ function toPosixPath(filePath) {
     return filePath.split(path.sep).join('/');
 }
 
-export function getWorkspacePackageTypecheckPlan({projectRoot = process.cwd()} = {}) {
-    const commands = [];
+export function getWorkspacePackageTypecheckPlan({
+    cold = false,
+    projectRoot = process.cwd(),
+    projects = [],
+} = {}) {
+    const args = [
+        'scripts/run-ts7-typecheck.mjs',
+        ...(cold ? ['--cold'] : []),
+        ...projects.flatMap(project => [
+            '-p',
+            project,
+        ]),
+    ];
     const skipped = [];
 
     for (const packageRoot of getWorkspacePackageRoots({ projectRoot })) {
         const tsconfigPath = toPosixPath(path.join(packageRoot, 'tsconfig.json'));
         if (existsSync(path.join(projectRoot, tsconfigPath))) {
-            commands.push({
-                args: [
-                    'scripts/run-ts7-typecheck.mjs',
-                    '-p',
-                    tsconfigPath,
-                ],
-                command: 'node',
-            });
+            args.push('-p', tsconfigPath);
             continue;
         }
 
@@ -53,20 +57,29 @@ export function getWorkspacePackageTypecheckPlan({projectRoot = process.cwd()} =
     }
 
     return {
-        commands,
+        command: {
+            args,
+            command: 'node',
+        },
         skipped,
     };
 }
 
 export function runWorkspacePackageTypecheck({
+    cold = false,
     projectRoot = process.cwd(),
+    projects = [],
     runCommand = defaultRun,
     stdout = process.stdout,
 } = {}) {
     const {
-        commands,
+        command,
         skipped,
-    } = getWorkspacePackageTypecheckPlan({ projectRoot });
+    } = getWorkspacePackageTypecheckPlan({
+        cold,
+        projectRoot,
+        projects,
+    });
 
     if (skipped.length > 0) {
         stdout.write(
@@ -79,17 +92,28 @@ export function runWorkspacePackageTypecheck({
         );
     }
 
-    for (const command of commands) {
-        runCommand(command.command, command.args, {
-            cwd: projectRoot,
-            stdio: 'inherit',
-        });
-    }
+    runCommand(command.command, command.args, {
+        cwd: projectRoot,
+        stdio: 'inherit',
+    });
 }
 
 const isDirectCliRun = process.argv[1]
     && path.resolve(process.argv[1]) === path.resolve(fileURLToPath(import.meta.url));
 
 if (isDirectCliRun) {
-    runWorkspacePackageTypecheck();
+    const args = process.argv.slice(2);
+    const cold = args.includes('--cold');
+    const projectArgs = args.filter(argument => argument !== '--cold');
+    const projects = [];
+    for (let index = 0; index < projectArgs.length; index += 2) {
+        if (projectArgs[index] !== '-p' || projectArgs[index + 1] === undefined) {
+            throw new Error('Usage: node scripts/run-workspace-package-typecheck.mjs [--cold] [-p <tsconfig> ...]');
+        }
+        projects.push(projectArgs[index + 1]);
+    }
+    runWorkspacePackageTypecheck({
+        cold,
+        projects,
+    });
 }

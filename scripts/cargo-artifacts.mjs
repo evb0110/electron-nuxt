@@ -1,10 +1,14 @@
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
+import { existsSync } from 'node:fs';
 import {
     copyFile,
+    mkdir,
     readdir,
     readFile,
+    rename,
     stat,
+    writeFile,
 } from 'node:fs/promises';
 import path from 'node:path';
 
@@ -89,6 +93,105 @@ function sha256(bytes) {
     return createHash('sha256').update(bytes).digest('hex');
 }
 
+async function collectFiles(sourcePaths) {
+    const files = [];
+
+    async function visit(sourcePath) {
+        const metadata = await stat(sourcePath);
+        if (metadata.isDirectory()) {
+            const entries = await readdir(sourcePath, {withFileTypes: true});
+            await Promise.all(entries.map(entry => visit(path.join(sourcePath, entry.name))));
+            return;
+        }
+        if (metadata.isFile()) {
+            files.push(sourcePath);
+        }
+    }
+
+    await Promise.all(sourcePaths.map(visit));
+    return files.sort();
+}
+
+export async function computeCargoInputFingerprint({
+    cargoArgs,
+    environment = {},
+    projectRoot,
+    sourcePaths,
+    toolchain,
+}) {
+    const hash = createHash('sha256');
+    hash.update(JSON.stringify({
+        cargoArgs,
+        environment,
+        toolchain,
+    }));
+    const files = await collectFiles(sourcePaths);
+    for (const filePath of files) {
+        const relativePath = path.relative(projectRoot, filePath).split(path.sep).join('/');
+        hash.update(relativePath);
+        hash.update('\0');
+        hash.update(await readFile(filePath));
+        hash.update('\0');
+    }
+    return {
+        fileCount: files.length,
+        fingerprint: hash.digest('hex'),
+    };
+}
+
+export async function readValidCargoBuildReceipt({
+    binaryPath,
+    fingerprint,
+    receiptPath,
+}) {
+    try {
+        const receipt = JSON.parse(await readFile(receiptPath, 'utf8'));
+        if (
+            receipt?.schemaVersion !== 1
+            || receipt.inputFingerprint !== fingerprint
+            || receipt.binaryPath !== binaryPath
+        ) {
+            return null;
+        }
+        const bytes = await readFile(binaryPath);
+        if (
+            receipt.artifact?.byteLength !== bytes.byteLength
+            || receipt.artifact?.sha256 !== sha256(bytes)
+        ) {
+            return null;
+        }
+        return receipt;
+    } catch (error) {
+        if (error?.code === 'ENOENT' || error instanceof SyntaxError) {
+            return null;
+        }
+        throw error;
+    }
+}
+
+export async function writeCargoBuildReceipt({
+    artifact,
+    binaryPath,
+    fileCount,
+    fingerprint,
+    receiptPath,
+    toolchain,
+}) {
+    const receipt = {
+        artifact,
+        binaryPath,
+        inputFileCount: fileCount,
+        inputFingerprint: fingerprint,
+        schemaVersion: 1,
+        toolchain,
+    };
+    await mkdir(path.dirname(receiptPath), {recursive: true});
+    const temporaryPath = `${receiptPath}.${process.pid}.tmp`;
+    await writeFile(temporaryPath, `${JSON.stringify(receipt, null, 2)}\n`);
+    await rename(temporaryPath, receiptPath);
+    return receipt;
+}
+
 export async function copyCargoArtifactVerified(sourcePath, destinationPath) {
     await copyFile(sourcePath, destinationPath);
     const [
@@ -132,6 +235,10 @@ export function collectCargoSourceInputs(metadata, rootManifestPath) {
         path.join(workspaceRoot, 'Cargo.toml'),
         path.join(workspaceRoot, 'Cargo.lock'),
     ];
+    const workspaceToolchain = path.join(workspaceRoot, 'rust-toolchain.toml');
+    if (existsSync(workspaceToolchain)) {
+        sourceInputs.push(workspaceToolchain);
+    }
 
     while (pendingRoots.length > 0) {
         const packageRoot = pendingRoots.pop();
@@ -147,12 +254,20 @@ export function collectCargoSourceInputs(metadata, rootManifestPath) {
             path.resolve(pkg.manifest_path),
             path.join(packageRoot, 'src'),
         );
+        const buildScript = path.join(packageRoot, 'build.rs');
+        if (existsSync(buildScript)) {
+            sourceInputs.push(buildScript);
+        }
         for (const dependency of pkg.dependencies ?? []) {
             if (typeof dependency?.path === 'string') {
                 pendingRoots.push(path.resolve(dependency.path));
             }
         }
     }
+    sourceInputs.push(...[
+        path.join(workspaceRoot, '.cargo', 'config'),
+        path.join(workspaceRoot, '.cargo', 'config.toml'),
+    ].filter(sourcePath => existsSync(sourcePath)));
     return [...new Set(sourceInputs)];
 }
 

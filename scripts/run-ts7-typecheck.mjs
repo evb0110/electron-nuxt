@@ -1,7 +1,17 @@
 #!/usr/bin/env node
 
-import { spawnSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import {
+    spawn,
+    spawnSync,
+} from 'node:child_process';
+import { createHash } from 'node:crypto';
+import {
+    mkdirSync,
+    readFileSync,
+    readdirSync,
+    rmSync,
+    statSync,
+} from 'node:fs';
 import { createRequire } from 'node:module';
 import path from 'node:path';
 
@@ -77,8 +87,90 @@ function parseProjectArguments(args) {
     return projects;
 }
 
-function run() {
-    const args = process.argv.slice(2);
+function getBuildInfoPath(project, version) {
+    const fingerprint = createHash('sha256')
+        .update(project)
+        .update('\0')
+        .update(version)
+        .update('\0')
+        .update(readFileSync(path.resolve(project)))
+        .digest('hex')
+        .slice(0, 20);
+    const cacheDir = path.resolve('.devkit', 'cache', 'typecheck', 'ts7');
+    mkdirSync(cacheDir, {recursive: true});
+    return path.join(cacheDir, `${fingerprint}.tsbuildinfo`);
+}
+
+function pruneBuildInfoCache(protectedPaths) {
+    const cacheDir = path.resolve('.devkit', 'cache', 'typecheck', 'ts7');
+    const protectedNames = new Set(protectedPaths.map(filePath => path.basename(filePath)));
+    const candidates = readdirSync(cacheDir)
+        .filter(name => name.endsWith('.tsbuildinfo') && !protectedNames.has(name))
+        .map(name => ({
+            modifiedAtMs: statSync(path.join(cacheDir, name)).mtimeMs,
+            name,
+        }))
+        .sort((left, right) => right.modifiedAtMs - left.modifiedAtMs);
+    const cutoffMs = Date.now() - 60 * 60_000;
+    for (const candidate of candidates.slice(50)) {
+        if (candidate.modifiedAtMs < cutoffMs) {
+            rmSync(path.join(cacheDir, candidate.name), {force: true});
+        }
+    }
+}
+
+function runProject(tscPath, version, project, buildInfoPath, {cold = false} = {}) {
+    if (cold) {
+        rmSync(buildInfoPath, {force: true});
+    }
+    return new Promise((resolve, reject) => {
+        const child = spawn(tscPath, [
+            '-p',
+            project,
+            '--noEmit',
+            '--incremental',
+            '--tsBuildInfoFile',
+            buildInfoPath,
+        ], {stdio: 'inherit'});
+        activeChildren.add(child);
+        child.on('error', error => {
+            activeChildren.delete(child);
+            terminateActiveChildren(child);
+            reject(new Error(
+                `Could not typecheck ${project} with TypeScript ${version}.`,
+                {cause: error},
+            ));
+        });
+        child.on('close', (status, signal) => {
+            activeChildren.delete(child);
+            if (status === 0) {
+                resolve();
+                return;
+            }
+            terminateActiveChildren(child);
+            reject(new Error(
+                signal
+                    ? `TypeScript ${version} typecheck for ${project} exited after signal ${signal}.`
+                    : `TypeScript ${version} typecheck for ${project} failed with status ${status ?? 1}.`,
+            ));
+        });
+    });
+}
+
+const activeChildren = new Set();
+
+function terminateActiveChildren(except) {
+    for (const child of activeChildren) {
+        if (child !== except && child.exitCode === null && child.signalCode === null) {
+            child.kill('SIGTERM');
+        }
+    }
+}
+
+async function run() {
+    const rawArgs = process.argv.slice(2);
+    const cold = rawArgs.includes('--cold') || process.env.EVB_TYPECHECK_COLD === '1';
+    const args = rawArgs.filter(argument => argument !== '--cold');
     const {
         tscPath,
         version,
@@ -89,23 +181,32 @@ function run() {
         return;
     }
 
-    for (const project of parseProjectArguments(args)) {
-        const result = spawnSync(tscPath, [
-            '-p',
-            project,
-            '--noEmit',
-        ], {stdio: 'inherit'});
-        if (result.error) {
-            throw new Error(`Could not typecheck ${project} with TypeScript ${version}.`, {cause: result.error});
+    const projects = parseProjectArguments(args);
+    const buildInfoPaths = projects.map(project => getBuildInfoPath(project, version));
+    pruneBuildInfoCache(buildInfoPaths);
+    const requestedWorkers = Number.parseInt(process.env.EVB_TYPECHECK_WORKERS ?? '2', 10);
+    const workerCount = Number.isFinite(requestedWorkers) && requestedWorkers > 0
+        ? Math.min(requestedWorkers, projects.length)
+        : 1;
+    let nextProjectIndex = 0;
+
+    await Promise.all(Array.from({length: workerCount}, async () => {
+        while (nextProjectIndex < projects.length) {
+            const projectIndex = nextProjectIndex;
+            nextProjectIndex += 1;
+            await runProject(
+                tscPath,
+                version,
+                projects[projectIndex],
+                buildInfoPaths[projectIndex],
+                {cold},
+            );
         }
-        if (result.status !== 0) {
-            process.exit(result.status ?? 1);
-        }
-    }
+    }));
 }
 
 try {
-    run();
+    await run();
 } catch (error) {
     console.error(error instanceof Error ? error.message : String(error));
     process.exit(1);
