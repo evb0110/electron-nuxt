@@ -39,12 +39,17 @@ import {
 import {getPdfPageCount} from '@electron/pdf/pdfPageCount';
 import {getPdfNativeToolPaths} from '@electron/pdf/nativeToolPaths';
 import {detectSourceDpiDetails} from '@electron/pdf/sourceDpiDetection';
-import {renderPdfPageToPng} from '@electron/ocr/worker/popplerStage';
+import {
+    renderPdfPageToPng,
+    renderPdfPageToPpm,
+} from '@electron/ocr/worker/popplerStage';
 import {runScanCleanupSidecar} from '@electron/features/scan-cleanup/worker/runScanCleanupSidecar';
 import {
+    logRasterHandoff,
     readAvailableScratchBytes,
     resolveRasterHandoff,
 } from '@electron/features/scan-cleanup/worker/resolveRasterHandoff';
+import {readPpmDimensions} from '@electron/features/scan-cleanup/worker/rasterLayerDimensions';
 import {
     SCAN_CLEANUP_RASTER_SLOT_RESIDENT_BYTES,
     classifyScanCleanupError,
@@ -149,6 +154,7 @@ export interface IScanCleanupDetectionSubscriber extends IMainJobSender {id: num
 export interface IScanCleanupPreviewDependencies {
     getPageCount: typeof getPdfPageCount;
     renderPage: typeof renderPdfPageToPng;
+    renderPagePpm: typeof renderPdfPageToPpm;
     runSidecar: typeof runScanCleanupSidecar;
     resolveBinary: () => string | null;
     getTempDir: () => string;
@@ -162,6 +168,7 @@ export interface IScanCleanupPreviewDependencies {
 const defaultDependencies: IScanCleanupPreviewDependencies = {
     getPageCount: getPdfPageCount,
     renderPage: renderPdfPageToPng,
+    renderPagePpm: renderPdfPageToPpm,
     runSidecar: runScanCleanupSidecar,
     resolveBinary: resolveScanCleanupPath,
     getTempDir: getAppTempDir,
@@ -781,8 +788,14 @@ async function renderRasterToDisk(
         width: number;
         height: number;
     },
+    // PNG is the format of a raster something displays. A raster only the
+    // sidecar reads is handed over raw, so nothing spends a second per page in
+    // deflate for a pipe on this machine. Detection's rasters are retained as
+    // the base preview's displayed original and stay PNG until that payload
+    // stops being an <img> source; the tile crop is read by native only.
+    format: 'png' | 'ppm' = 'png',
 ) {
-    await dependencies.renderPage(
+    await (format === 'ppm' ? dependencies.renderPagePpm : dependencies.renderPage)(
         {pdftoppmBinary: dependencies.getPdftoppmBinary()},
         (level, message) => logger[level](message),
         pageNumber,
@@ -793,6 +806,15 @@ async function renderRasterToDisk(
         signal,
         crop,
     );
+    if (format === 'ppm') {
+        const dimensions = await readPpmDimensions(outputPath);
+        if (maxPixels !== undefined && dimensions.width * dimensions.height > maxPixels) {
+            throw new Error(
+                `Scan cleanup raster dimensions ${dimensions.width}x${dimensions.height} exceed limits`,
+            );
+        }
+        return dimensions;
+    }
     const handle = await open(outputPath, 'r');
     try {
         const header = Buffer.alloc(24);
@@ -926,7 +948,19 @@ async function runDetailPreview(
                 `Scan cleanup detail source crop ${sourceCrop.width}x${sourceCrop.height} exceeds native limits`,
             );
         }
-        const inputPath = join(scratch, `detail-source-${half}.png`);
+        // The tile crop is the sidecar's input and nothing else reads it, so it
+        // takes the same handoff the final run takes: raw when the crop fits the
+        // scratch budget, PNG when it does not.
+        const handoff = await resolveRasterHandoff([{
+            renderDpi,
+            raster: {
+                dpi: renderDpi,
+                width: sourceCrop.width,
+                height: sourceCrop.height,
+            },
+        }], scratch, readAvailableScratchBytes);
+        logRasterHandoff((level, message) => logger[level](message), 'detail tile', handoff);
+        const inputPath = join(scratch, `detail-source-${half}.${handoff.format}`);
         const renderedSource = await renderRasterToDisk(
             request.sourcePdfPath,
             request.pageNumber,
@@ -936,10 +970,11 @@ async function runDetailPreview(
             renderDpi,
             maxSourcePixels,
             sourceCrop,
+            handoff.format,
         );
         // Poppler clips -W/-H at the physical page edge. The 150-DPI base
         // dimensions can round up by a few scaled pixels, so trust the actual
-        // cropped PNG dimensions passed to native.
+        // cropped raster dimensions passed to native.
         sourceCrop.width = renderedSource.width;
         sourceCrop.height = renderedSource.height;
         const baseMetadataPath = join(scratch, `base-metadata-${half}.json`);

@@ -52,8 +52,9 @@ export async function renderPdfPageToPpm(
     dpi: number,
     popplerEnv?: NodeJS.ProcessEnv,
     signal?: AbortSignal,
+    crop?: IPopplerPixelCrop,
 ) {
-    await renderPdfPage('ppm', paths, log, pageNumber, sourcePdfPath, outputPpmPath, dpi, popplerEnv, signal);
+    await renderPdfPage('ppm', paths, log, pageNumber, sourcePdfPath, outputPpmPath, dpi, popplerEnv, signal, crop);
 }
 
 async function renderPdfPage(

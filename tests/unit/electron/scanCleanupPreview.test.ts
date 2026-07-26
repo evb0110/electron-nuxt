@@ -83,6 +83,37 @@ function pngWithDimensions(width: number, height: number) {
     view.setUint32(20, height);
     return png;
 }
+
+// pdftoppm rasterizes the same pixels whichever container it is asked for, so
+// the fake renderers write one deterministic pattern in either format.
+function rasterPixels(width: number, height: number) {
+    const pixels = Buffer.alloc(width * height * 3);
+    for (let index = 0; index < width * height; index += 1) {
+        pixels[index * 3] = index % 251;
+        pixels[index * 3 + 1] = (index * 7) % 253;
+        pixels[index * 3 + 2] = (index * 13) % 257 % 256;
+    }
+    return pixels;
+}
+
+function ppmWithDimensions(width: number, height: number) {
+    return Buffer.concat([
+        Buffer.from(`P6\n${width} ${height}\n255\n`, 'ascii'),
+        rasterPixels(width, height),
+    ]);
+}
+
+function decodePpm(bytes: Buffer) {
+    const match = /^P6\s+(\d+)\s+(\d+)\s+(\d+)\s/.exec(bytes.subarray(0, 64).toString('ascii'));
+    if (!match) throw new Error('not a P6 raster');
+    const width = Number(match[1]);
+    const height = Number(match[2]);
+    return {
+        width,
+        height,
+        pixels: bytes.subarray(match[0].length, match[0].length + width * height * 3),
+    };
+}
 const dirs: string[] = [];
 const request: IScanCleanupPreviewRequest = {
     ownerId: 'preview-owner',
@@ -168,6 +199,9 @@ function dependencies(dir: string): IScanCleanupPreviewDependencies {
         getPageCount: vi.fn(async () => 3),
         renderPage: vi.fn(async (_paths, _log, _page, _source, outputPath) => {
             await writeFile(outputPath, PNG);
+        }),
+        renderPagePpm: vi.fn(async (_paths, _log, _page, _source, outputPath, _dpi, _env, _signal, crop) => {
+            await writeFile(outputPath, ppmWithDimensions(crop?.width ?? 1, crop?.height ?? 1));
         }),
         runSidecar: vi.fn(async (_binary, manifestPath) => {
             const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as {pages: Array<{
@@ -837,6 +871,26 @@ describe('scan cleanup preview', () => {
                 crop?.height ?? Math.round(1_500 * dpi / 150),
             ));
         });
+        deps.renderPagePpm = vi.fn(async (
+            _paths,
+            _log,
+            _page,
+            _source,
+            outputPath,
+            dpi,
+            _environment,
+            _signal,
+            crop,
+        ) => {
+            renderCalls.push({
+                dpi,
+                ...(crop === undefined ? {} : {crop}),
+            });
+            await writeFile(outputPath, ppmWithDimensions(
+                crop?.width ?? Math.round(1_000 * dpi / 150),
+                crop?.height ?? Math.round(1_500 * dpi / 150),
+            ));
+        });
         const originalSidecar = deps.runSidecar;
         let manifestOptions: Record<string, unknown> | undefined;
         let detailPlan: TDetailPreviewManifest['pages'][number]['detailRenderPlan'];
@@ -1159,6 +1213,107 @@ describe('scan cleanup preview', () => {
                 },
             })),
         })).toThrow('render region');
+    });
+
+    it('hands the detail tile to the sidecar through the shared raster handoff', async () => {
+        const dir = await setup();
+        const deps = dependencies(dir);
+        deps.detectSourceDpi = vi.fn(async () => 300);
+        deps.renderPage = vi.fn(async (_paths, _log, _page, _source, outputPath, dpi, _environment, _signal, crop) => {
+            await writeFile(outputPath, pngWithDimensions(
+                crop?.width ?? Math.round(1_000 * dpi / 150),
+                crop?.height ?? Math.round(1_500 * dpi / 150),
+            ));
+        });
+        const originalSidecar = deps.runSidecar;
+        let detailPlan: TDetailPreviewManifest['pages'][number]['detailRenderPlan'];
+        let tileInputPath: string | undefined;
+        let tileInputBytes: Buffer | undefined;
+        deps.runSidecar = vi.fn(async (binary, manifestPath, signal, log, onProgress) => {
+            const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as TDetailPreviewManifest & {pages: Array<{inputPath: string}>;};
+            await originalSidecar(binary, manifestPath, signal, log, onProgress);
+            const page = manifest.pages[0]!;
+            const output = page.outputs[0]!;
+            const metadata = JSON.parse(await readFile(output.metadataPath, 'utf8')) as Record<string, unknown>;
+            detailPlan = page.detailRenderPlan;
+            if (!detailPlan) {
+                await writeFile(output.outputPath, pngWithDimensions(1_000, 1_500));
+                await writeFile(output.metadataPath, JSON.stringify({
+                    ...metadata,
+                    sourceRegion: {
+                        xPx: 0,
+                        yPx: 0,
+                        widthPx: 1_000,
+                        heightPx: 1_500,
+                    },
+                    contentBox: {
+                        xPx: 0,
+                        yPx: 0,
+                        widthPx: 1_000,
+                        heightPx: 1_500,
+                    },
+                    outputWidthPx: 1_000,
+                    outputHeightPx: 1_500,
+                    canvasWidthPx: 1_000,
+                    canvasHeightPx: 1_500,
+                    inputWidthPx: 1_000,
+                    inputHeightPx: 1_500,
+                }));
+                return;
+            }
+            tileInputPath = page.inputPath;
+            tileInputBytes = await readFile(page.inputPath);
+            const region = detailPlan.renderRegion;
+            await writeFile(output.outputPath, pngWithDimensions(region.widthPx, region.heightPx));
+            await writeFile(output.metadataPath, JSON.stringify({
+                ...metadata,
+                outputWidthPx: 2_000,
+                outputHeightPx: 3_000,
+                canvasWidthPx: 2_000,
+                canvasHeightPx: 3_000,
+                sourceDpi: 300,
+                renderDpi: 300,
+                requestedRenderDpi: 300,
+                renderRegion: region,
+            }));
+        });
+
+        const service = createScanCleanupPreviewService(deps);
+        const previewSender = sender();
+        await service.preview(previewSender, request);
+        const result = await service.preview(previewSender, {
+            ...request,
+            detail: {
+                viewports: {full: {
+                    xNormalized: 0.25,
+                    yNormalized: 0.2,
+                    widthNormalized: 0.5,
+                    heightNormalized: 0.45,
+                    rotationDegrees: 0,
+                }},
+                outputMode: 'bw',
+            },
+        });
+
+        // The tile crop is sidecar input only: it reaches native raw, and the
+        // dimensions the render plan carries come from that raw header.
+        expect(tileInputPath).toMatch(/\.ppm$/);
+        const decoded = decodePpm(tileInputBytes!);
+        expect(detailPlan?.sourceCrop).toMatchObject({
+            widthPx: decoded.width,
+            heightPx: decoded.height,
+        });
+        expect(decoded.pixels.equals(rasterPixels(decoded.width, decoded.height))).toBe(true);
+        expect(vi.mocked(deps.renderPagePpm).mock.calls).toHaveLength(1);
+        expect(vi.mocked(deps.renderPagePpm).mock.calls[0]?.[8]).toEqual({
+            x: expect.any(Number),
+            y: expect.any(Number),
+            width: decoded.width,
+            height: decoded.height,
+        });
+        // The base page still renders in the format the renderer displays.
+        expect(vi.mocked(deps.renderPage).mock.calls.map(call => call[8])).toEqual([undefined]);
+        expect(result.outputs[0]?.metadata.renderRegion).toEqual(detailPlan?.renderRegion);
     });
 
     it('uses an intrinsic provisional frame before detect-all supplies a canvas plan', async () => {
@@ -1570,6 +1725,9 @@ describe('scan cleanup preview', () => {
                 throw new Error('detail lane executed');
             }
             await originalRenderPage(...args);
+        });
+        deps.renderPagePpm = vi.fn(async () => {
+            throw new Error('detail lane executed');
         });
         const service = createScanCleanupPreviewService(deps);
         const previewSender = sender();
