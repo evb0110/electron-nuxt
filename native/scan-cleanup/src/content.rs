@@ -110,7 +110,8 @@ fn detect_content_at_analysis_scale(
     let mut candidates = Vec::new();
     let (neighborhood_x, neighborhood_y) = calibration.content_neighborhood();
     let dirt_radius_squared = calibration.content_dirt_radius_squared();
-    for component in map.components() {
+    let centers = ComponentCenterGrid::build(map.components(), neighborhood_x, neighborhood_y);
+    for (index, component) in map.components().iter().enumerate() {
         let width = component.right - component.left + 1;
         let height = component.bottom - component.top + 1;
         let solid_rule =
@@ -119,21 +120,7 @@ fn detect_content_at_analysis_scale(
             || component.top == 0
             || component.right + 1 == working.width()
             || component.bottom + 1 == working.height();
-        let center_x = (component.left + component.right) / 2;
-        let center_y = (component.top + component.bottom) / 2;
-        let nearby_components = map
-            .components()
-            .iter()
-            .filter(|other| {
-                if other.label == component.label {
-                    return false;
-                }
-                let other_x = (other.left + other.right) / 2;
-                let other_y = (other.top + other.bottom) / 2;
-                center_x.abs_diff(other_x) <= neighborhood_x
-                    && center_y.abs_diff(other_y) <= neighborhood_y
-            })
-            .count();
+        let nearby_components = centers.neighbor_count(map.components(), index);
         let mut maximum_inscribed_radius_squared = 0u32;
         for y in component.top..=component.bottom {
             for x in component.left..=component.right {
@@ -209,6 +196,95 @@ fn detect_content_at_analysis_scale(
         }),
         diagnostics,
     )
+}
+
+fn component_center(component: &Component) -> (usize, usize) {
+    (
+        (component.left + component.right) / 2,
+        (component.top + component.bottom) / 2,
+    )
+}
+
+/// Uniform grid over component centres, bucketed at exactly the neighbourhood
+/// extent. The neighbour test is a box test of half-extent `(neighborhood_x,
+/// neighborhood_y)`, so with that cell size every match lies in the 3x3 cell
+/// block around the query cell: the counts are exact, not approximate, and the
+/// scan stops being quadratic in the component count.
+struct ComponentCenterGrid {
+    neighborhood_x: usize,
+    neighborhood_y: usize,
+    columns: usize,
+    rows: usize,
+    cell_starts: Vec<u32>,
+    entries: Vec<u32>,
+}
+
+impl ComponentCenterGrid {
+    fn build(components: &[Component], neighborhood_x: usize, neighborhood_y: usize) -> Self {
+        let cell_width = neighborhood_x.max(1);
+        let cell_height = neighborhood_y.max(1);
+        let mut columns = 1;
+        let mut rows = 1;
+        let mut placements = Vec::with_capacity(components.len());
+        for component in components {
+            let (center_x, center_y) = component_center(component);
+            let column = center_x / cell_width;
+            let row = center_y / cell_height;
+            columns = columns.max(column + 1);
+            rows = rows.max(row + 1);
+            placements.push((column, row));
+        }
+        let mut cell_starts = vec![0u32; columns * rows + 1];
+        for &(column, row) in &placements {
+            cell_starts[row * columns + column + 1] += 1;
+        }
+        for cell in 1..cell_starts.len() {
+            cell_starts[cell] += cell_starts[cell - 1];
+        }
+        let mut cursors = cell_starts.clone();
+        let mut entries = vec![0u32; components.len()];
+        for (index, &(column, row)) in placements.iter().enumerate() {
+            let cell = row * columns + column;
+            entries[cursors[cell] as usize] = index as u32;
+            cursors[cell] += 1;
+        }
+        Self {
+            neighborhood_x,
+            neighborhood_y,
+            columns,
+            rows,
+            cell_starts,
+            entries,
+        }
+    }
+
+    fn neighbor_count(&self, components: &[Component], index: usize) -> usize {
+        let component = &components[index];
+        let (center_x, center_y) = component_center(component);
+        let column = center_x / self.neighborhood_x.max(1);
+        let row = center_y / self.neighborhood_y.max(1);
+        let mut nearby = 0;
+        for cell_row in row.saturating_sub(1)..=(row + 1).min(self.rows - 1) {
+            for cell_column in column.saturating_sub(1)..=(column + 1).min(self.columns - 1) {
+                let cell = cell_row * self.columns + cell_column;
+                let occupants = &self.entries
+                    [self.cell_starts[cell] as usize..self.cell_starts[cell + 1] as usize];
+                for &entry in occupants {
+                    let other = &components[entry as usize];
+                    if other.label == component.label {
+                        continue;
+                    }
+                    let (other_x, other_y) = component_center(other);
+                    if center_x.abs_diff(other_x) <= self.neighborhood_x
+                        && center_y.abs_diff(other_y) <= self.neighborhood_y
+                    {
+                        nearby += 1;
+                    }
+                }
+            }
+        }
+        nearby
+    }
 }
 
 /// Reconstructs the long, edge-attached objects used by content detection as
@@ -1279,6 +1355,142 @@ pub fn content_with_margins(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::{
+        sync::mpsc,
+        thread,
+        time::{Duration, Instant},
+    };
+
+    const CENSUS_NEIGHBORHOOD: (usize, usize) = (40, 24);
+
+    fn component_census(columns: usize, rows: usize) -> Vec<Component> {
+        let mut components = Vec::with_capacity(columns * rows);
+        let mut state = 0x2545_f491_4f6c_dd1du64;
+        let mut jitter = |bound: u64| {
+            state = state
+                .wrapping_mul(6_364_136_223_846_793_005)
+                .wrapping_add(1_442_695_040_888_963_407);
+            ((state >> 33) % bound) as usize
+        };
+        for row in 0..rows {
+            for column in 0..columns {
+                let left = column * 9 + jitter(5);
+                let top = row * 7 + jitter(4);
+                components.push(Component {
+                    label: components.len() as u32 + 1,
+                    area: 4,
+                    left,
+                    top,
+                    right: left + 1,
+                    bottom: top + 1,
+                });
+            }
+        }
+        components
+    }
+
+    fn all_pairs_neighbor_count(components: &[Component], index: usize) -> usize {
+        let component = &components[index];
+        let (center_x, center_y) = component_center(component);
+        components
+            .iter()
+            .filter(|other| {
+                if other.label == component.label {
+                    return false;
+                }
+                let (other_x, other_y) = component_center(other);
+                center_x.abs_diff(other_x) <= CENSUS_NEIGHBORHOOD.0
+                    && center_y.abs_diff(other_y) <= CENSUS_NEIGHBORHOOD.1
+            })
+            .count()
+    }
+
+    #[test]
+    fn grid_neighbor_counts_match_the_all_pairs_scan() {
+        let components = component_census(102, 102);
+        assert!(components.len() > 10_000);
+        let grid =
+            ComponentCenterGrid::build(&components, CENSUS_NEIGHBORHOOD.0, CENSUS_NEIGHBORHOOD.1);
+        for index in 0..components.len() {
+            assert_eq!(
+                grid.neighbor_count(&components, index),
+                all_pairs_neighbor_count(&components, index),
+                "component {index} at {:?}",
+                component_center(&components[index])
+            );
+        }
+    }
+
+    #[test]
+    fn grid_neighbor_counts_survive_degenerate_geometries() {
+        let empty: Vec<Component> = Vec::new();
+        ComponentCenterGrid::build(&empty, 40, 24);
+
+        let stacked = vec![
+            Component {
+                label: 1,
+                area: 1,
+                left: 0,
+                top: 0,
+                right: 0,
+                bottom: 0,
+            },
+            Component {
+                label: 2,
+                area: 1,
+                left: 0,
+                top: 0,
+                right: 0,
+                bottom: 0,
+            },
+            Component {
+                label: 3,
+                area: 1,
+                left: 4_000,
+                top: 3_000,
+                right: 4_000,
+                bottom: 3_000,
+            },
+        ];
+        for (neighborhood_x, neighborhood_y) in [(0usize, 0usize), (1, 1), (40, 24)] {
+            let grid = ComponentCenterGrid::build(&stacked, neighborhood_x, neighborhood_y);
+            assert_eq!(grid.neighbor_count(&stacked, 0), 1);
+            assert_eq!(grid.neighbor_count(&stacked, 1), 1);
+            assert_eq!(grid.neighbor_count(&stacked, 2), 0);
+        }
+    }
+
+    #[test]
+    fn a_dense_component_census_does_not_pay_an_all_pairs_neighbor_scan() {
+        const DEADLINE: Duration = Duration::from_secs(60);
+        let (sender, receiver) = mpsc::channel();
+        thread::spawn(move || {
+            let components = component_census(500, 400);
+            let started = Instant::now();
+            let grid = ComponentCenterGrid::build(
+                &components,
+                CENSUS_NEIGHBORHOOD.0,
+                CENSUS_NEIGHBORHOOD.1,
+            );
+            let mut nearby = 0usize;
+            for index in 0..components.len() {
+                nearby += grid.neighbor_count(&components, index);
+            }
+            let _ = sender.send((components.len(), nearby, started.elapsed()));
+        });
+        let (count, nearby, elapsed) = receiver.recv_timeout(DEADLINE).unwrap_or_else(|_| {
+            panic!(
+                "counting neighbours for 200 000 components did not finish within {DEADLINE:?}: \
+                 the query is scanning every component for every component \
+                 (4 x 10^10 centre comparisons) instead of a 3x3 block of centre-bucketed cells"
+            )
+        });
+        assert!(nearby > count * 10, "the census produced no neighbours");
+        assert!(
+            elapsed < DEADLINE,
+            "{count} components took {elapsed:?} to count neighbours"
+        );
+    }
 
     fn draw_glyph_line(
         image: &mut GrayImage,
