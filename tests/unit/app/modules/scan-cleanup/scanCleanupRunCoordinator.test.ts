@@ -42,7 +42,6 @@ describe('scan cleanup run coordinator', () => {
         }>();
         capability.value = {
             preview: vi.fn(),
-            previewRaw: vi.fn(),
             cancelPreview: vi.fn(),
             detectAll: vi.fn(),
             cancelDetection: vi.fn(),
@@ -59,6 +58,7 @@ describe('scan cleanup run coordinator', () => {
             })),
             reconnectJob: vi.fn(),
             pruneGeneratedOutputs: vi.fn(),
+            onPreviewRaw: vi.fn(() => () => undefined),
             onJobState: vi.fn(() => () => undefined),
             onDetectionJobState: vi.fn(() => () => undefined),
         };
@@ -96,7 +96,6 @@ describe('scan cleanup run coordinator', () => {
         const toastAdd = vi.fn();
         capability.value = {
             preview: vi.fn(),
-            previewRaw: vi.fn(),
             cancelPreview: vi.fn(),
             detectAll: vi.fn(),
             cancelDetection: vi.fn(),
@@ -108,6 +107,7 @@ describe('scan cleanup run coordinator', () => {
             subscribeJob: vi.fn(),
             reconnectJob: vi.fn(),
             pruneGeneratedOutputs: vi.fn(),
+            onPreviewRaw: vi.fn(() => () => undefined),
             onJobState: vi.fn(() => () => undefined),
             onDetectionJobState: vi.fn(() => () => undefined),
         };
@@ -141,7 +141,6 @@ describe('scan cleanup run coordinator', () => {
         let nextJob = 0;
         capability.value = {
             preview: vi.fn(),
-            previewRaw: vi.fn(),
             cancelPreview: vi.fn(),
             detectAll: vi.fn(),
             cancelDetection: vi.fn(),
@@ -162,6 +161,7 @@ describe('scan cleanup run coordinator', () => {
             })),
             reconnectJob: vi.fn(async () => null),
             pruneGeneratedOutputs: vi.fn(async () => 0),
+            onPreviewRaw: vi.fn(() => () => undefined),
             onJobState: vi.fn(callback => {
                 listener = callback;
                 return () => { listener = () => undefined; };
@@ -311,7 +311,6 @@ describe('scan cleanup run coordinator', () => {
         let listener: (state: TScanCleanupJobState) => void = () => undefined;
         capability.value = {
             preview: vi.fn(),
-            previewRaw: vi.fn(),
             cancelPreview: vi.fn(),
             detectAll: vi.fn(),
             cancelDetection: vi.fn(),
@@ -332,6 +331,7 @@ describe('scan cleanup run coordinator', () => {
             })),
             reconnectJob: vi.fn(async () => null),
             pruneGeneratedOutputs: vi.fn(async () => 0),
+            onPreviewRaw: vi.fn(() => () => undefined),
             onJobState: vi.fn(callback => {
                 listener = callback;
                 return () => undefined;
@@ -383,7 +383,6 @@ describe('scan cleanup run coordinator', () => {
         const openGate = Promise.withResolvers<boolean>();
         capability.value = {
             preview: vi.fn(),
-            previewRaw: vi.fn(),
             cancelPreview: vi.fn(),
             detectAll: vi.fn(),
             cancelDetection: vi.fn(),
@@ -404,6 +403,7 @@ describe('scan cleanup run coordinator', () => {
             })),
             reconnectJob: vi.fn(async () => null),
             pruneGeneratedOutputs: vi.fn(async () => 0),
+            onPreviewRaw: vi.fn(() => () => undefined),
             onJobState: vi.fn(callback => {
                 listener = callback;
                 return () => undefined;
@@ -469,7 +469,6 @@ describe('scan cleanup run coordinator', () => {
         let listener: (state: TScanCleanupJobState) => void = () => undefined;
         capability.value = {
             preview: vi.fn(),
-            previewRaw: vi.fn(),
             cancelPreview: vi.fn(),
             detectAll: vi.fn(),
             cancelDetection: vi.fn(),
@@ -490,6 +489,7 @@ describe('scan cleanup run coordinator', () => {
             })),
             reconnectJob: vi.fn(async () => null),
             pruneGeneratedOutputs: vi.fn(async () => 0),
+            onPreviewRaw: vi.fn(() => () => undefined),
             onJobState: vi.fn(callback => {
                 listener = callback;
                 return () => undefined;
@@ -565,7 +565,6 @@ describe('scan cleanup run coordinator', () => {
         const subscribeJob = vi.fn(async () => completed);
         capability.value = {
             preview: vi.fn(),
-            previewRaw: vi.fn(),
             cancelPreview: vi.fn(),
             detectAll: vi.fn(),
             cancelDetection: vi.fn(),
@@ -584,6 +583,7 @@ describe('scan cleanup run coordinator', () => {
             subscribeJob,
             reconnectJob: vi.fn(async () => null),
             pruneGeneratedOutputs: vi.fn(async () => 0),
+            onPreviewRaw: vi.fn(() => () => undefined),
             onJobState: vi.fn(callback => {
                 listener = callback;
                 return () => undefined;
@@ -625,8 +625,8 @@ describe('scan cleanup run coordinator', () => {
         const firstCleanup = coordinator.installScanCleanupRunCoordinator(dependencies);
         const onJobState = vi.fn(() => () => undefined);
         capability.value = {
+            onPreviewRaw: vi.fn(() => () => undefined),
             preview: vi.fn(),
-            previewRaw: vi.fn(),
             cancelPreview: vi.fn(),
             detectAll: vi.fn(),
             cancelDetection: vi.fn(),

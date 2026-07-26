@@ -4,8 +4,9 @@ import {SCAN_CLEANUP_SUMMARY_SCHEMA} from '@contracts/scan-cleanup/ipc';
 import {SCAN_CLEANUP_PROGRESS_SCHEMA} from '@contracts/scan-cleanup/progress';
 import type {
     IScanCleanupPreviewMetadata,
-    IScanCleanupRawPreviewResult,
+    IScanCleanupRawPreviewEvent,
     IScanCleanupPreviewResult,
+    TScanCleanupPreviewWireResult,
     TScanCleanupErrorCode,
     TScanCleanupDetectionJobState,
     TScanCleanupJobState,
@@ -395,14 +396,17 @@ function decodeUnitInterval(value: unknown, label: string) {
     return decoded;
 }
 
-export function decodeScanCleanupPreviewResult(value: unknown): IScanCleanupPreviewResult {
+export function decodeScanCleanupPreviewResult(value: unknown): TScanCleanupPreviewWireResult {
     if (
         !isRecord(value)
         || !Array.isArray(value.outputs)
         || value.outputs.length > 2
     ) throw new Error('invalid scan-cleanup preview result');
-    const rawImageData = decodePreviewBytes(value.rawImageData, 'raw image');
-    let totalBytes = rawImageData.byteLength;
+    // Absent exactly when the request streamed the raster ahead of this result.
+    const rawImageData = value.rawImageData === undefined
+        ? undefined
+        : decodePreviewBytes(value.rawImageData, 'raw image');
+    let totalBytes = rawImageData?.byteLength ?? 0;
     const outputs = value.outputs.map(output => {
         if (!isRecord(output) || !isRecord(output.metadata)) throw new Error('invalid scan-cleanup preview output');
         const imageData = decodePreviewBytes(output.imageData, 'output image');
@@ -419,7 +423,7 @@ export function decodeScanCleanupPreviewResult(value: unknown): IScanCleanupPrev
     return {
         pageNumber,
         totalPages,
-        rawImageData,
+        ...(rawImageData === undefined ? {} : {rawImageData}),
         rawWidthPx: decodePositiveInteger(value.rawWidthPx, 'raw width'),
         rawHeightPx: decodePositiveInteger(value.rawHeightPx, 'raw height'),
         pageMetadata: decodePreviewPageMetadata(value.pageMetadata),
@@ -427,12 +431,20 @@ export function decodeScanCleanupPreviewResult(value: unknown): IScanCleanupPrev
     };
 }
 
-export function decodeScanCleanupRawPreviewResult(value: unknown): IScanCleanupRawPreviewResult {
-    if (!isRecord(value)) throw new Error('invalid scan-cleanup raw preview result');
+export function decodeScanCleanupRawPreviewEvent(value: unknown): IScanCleanupRawPreviewEvent {
+    if (
+        !isRecord(value)
+        || typeof value.ownerId !== 'string'
+        || value.ownerId.trim().length === 0
+        || typeof value.documentRevision !== 'string'
+        || value.documentRevision.trim().length === 0
+    ) throw new Error('invalid scan-cleanup raw preview result');
     const pageNumber = decodePositiveInteger(value.pageNumber, 'raw page number');
     const totalPages = decodePositiveInteger(value.totalPages, 'raw total pages');
     if (pageNumber > totalPages) throw new Error('invalid scan-cleanup raw preview page number');
     return {
+        ownerId: value.ownerId,
+        documentRevision: value.documentRevision,
         pageNumber,
         totalPages,
         rawImageData: decodePreviewBytes(value.rawImageData, 'raw image'),

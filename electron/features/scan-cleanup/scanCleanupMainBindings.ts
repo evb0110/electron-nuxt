@@ -8,7 +8,6 @@ const previewService = createScanCleanupPreviewService();
 const service = createScanCleanupService();
 
 export const scanCleanupMainBindings = {
-    previewRaw: (context, request) => previewService.previewRaw(context.sender, request),
     preview: (context, request) => previewService.preview(context.sender, request),
     cancelPreview: (context, request) => previewService.cancel(context.sender, request),
     detectAll: (context, request) => previewService.detectAll(context.sender, request),

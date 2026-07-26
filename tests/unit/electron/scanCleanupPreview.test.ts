@@ -709,12 +709,6 @@ describe('scan cleanup preview', () => {
         const service = createScanCleanupPreviewService();
 
         await expect(service.preview(sender(), request)).rejects.toMatchObject({name: 'AbortError'});
-        await expect(service.previewRaw(sender(), {
-            ownerId: request.ownerId,
-            documentRevision: request.documentRevision,
-            sourcePdfPath: request.sourcePdfPath,
-            pageNumber: request.pageNumber,
-        })).rejects.toMatchObject({name: 'AbortError'});
     });
 
     it('skips materialization for queued preview work canceled before it dequeues', async () => {
@@ -1674,7 +1668,7 @@ describe('scan cleanup preview', () => {
         await expect(pages[2]).rejects.toMatchObject({name: 'AbortError'});
     });
 
-    it('leaves the raw raster of a retained navigation alone and retires it on a full cancellation', async () => {
+    it('leaves the raster of a retained navigation alone and retires it on a full cancellation', async () => {
         const dir = await setup();
         const deps = dependencies(dir);
         const entered = Promise.withResolvers<undefined>();
@@ -1684,7 +1678,10 @@ describe('scan cleanup preview', () => {
         });
         const service = createScanCleanupPreviewService(deps);
         const previewSender = sender();
-        const raw = service.previewRaw(previewSender, request);
+        const raw = service.preview(previewSender, {
+            ...request,
+            visible: true,
+        });
         await entered.promise;
 
         service.cancel(previewSender, {
@@ -1778,13 +1775,13 @@ describe('scan cleanup preview', () => {
         });
         const service = createScanCleanupPreviewService(deps);
         const previewSender = sender();
-        const pending = service.previewRaw(previewSender, request);
+        const pending = service.preview(previewSender, request);
         await rasterEntered.promise;
 
         expect(service.cancel(previewSender, request)).toBe(true);
         releaseRaster.resolve(undefined);
         await expect(pending).rejects.toMatchObject({name: 'AbortError'});
-        await expect(service.previewRaw(previewSender, request)).resolves.toMatchObject({pageNumber: 1});
+        await expect(service.preview(previewSender, request)).resolves.toMatchObject({pageNumber: 1});
 
         expect(deps.renderPage).toHaveBeenCalledTimes(2);
     });
@@ -1853,7 +1850,7 @@ describe('scan cleanup preview', () => {
             ...request,
             sourcePdfPath: '/replacement.pdf',
         };
-        const current = service.previewRaw(previewSender, currentRequest);
+        const current = service.preview(previewSender, currentRequest);
         await currentEntered.promise;
 
         await expect(stale).rejects.toMatchObject({name: 'AbortError'});
@@ -1863,7 +1860,7 @@ describe('scan cleanup preview', () => {
         await expect(current).resolves.toMatchObject({pageNumber: 1});
     });
 
-    it('aborts a raw request when the same owner moves to another document revision', async () => {
+    it('aborts an in-flight request when the same owner moves to another document revision', async () => {
         const dir = await setup();
         const deps = dependencies(dir);
         const originalRenderPage = deps.renderPage;
@@ -1880,7 +1877,7 @@ describe('scan cleanup preview', () => {
         });
         const service = createScanCleanupPreviewService(deps);
         const previewSender = sender();
-        const stale = service.previewRaw(previewSender, request);
+        const stale = service.preview(previewSender, request);
         await staleEntered.promise;
         const current = service.preview(previewSender, {
             ...request,
@@ -1923,21 +1920,28 @@ describe('scan cleanup preview', () => {
         expect(deps.renderPage).toHaveBeenCalledTimes(2);
     });
 
-    it('keeps the independently cached raw preview available when cleaned rendering fails', async () => {
+    it('has already published the raw page when cleaned rendering fails', async () => {
         const dir = await setup();
         const deps = dependencies(dir);
         deps.runSidecar = vi.fn(async () => {
             throw new Error('invalid cleaned preview');
         });
         const service = createScanCleanupPreviewService(deps);
+        const previewSender = sender();
 
-        await expect(service.previewRaw(sender(), request)).resolves.toMatchObject({
-            pageNumber: 1,
-            totalPages: 3,
-            rawWidthPx: 1,
-            rawHeightPx: 1,
-        });
-        await expect(service.preview(sender(), request)).rejects.toThrow('invalid cleaned preview');
+        await expect(service.preview(previewSender, {
+            ...request,
+            visible: true,
+        })).rejects.toThrow('invalid cleaned preview');
+        expect(previewSender.send).toHaveBeenCalledWith(
+            SCAN_CLEANUP_PLATFORM_FEATURE.eventChannels.onPreviewRaw,
+            expect.objectContaining({
+                pageNumber: 1,
+                totalPages: 3,
+                rawWidthPx: 1,
+                rawHeightPx: 1,
+            }),
+        );
         expect(deps.renderPage).toHaveBeenCalledOnce();
     });
 
@@ -2426,10 +2430,9 @@ describe('scan cleanup preview', () => {
         expect(deps.renderPage).toHaveBeenCalledTimes(3);
         expect(deps.getPageCount).toHaveBeenCalledOnce();
 
-        const rawRequest = (pageNumber: number, documentRevision = request.documentRevision) => ({
-            ownerId: request.ownerId,
+        const pageRequest = (pageNumber: number, documentRevision = request.documentRevision) => ({
+            ...request,
             documentRevision,
-            sourcePdfPath: request.sourcePdfPath,
             pageNumber,
         });
         for (const pageNumber of [
@@ -2437,7 +2440,7 @@ describe('scan cleanup preview', () => {
             2,
             3,
         ]) {
-            await expect(service.previewRaw(sender(), rawRequest(pageNumber))).resolves.toMatchObject({
+            await expect(service.preview(sender(), pageRequest(pageNumber))).resolves.toMatchObject({
                 pageNumber,
                 totalPages: 3,
                 rawWidthPx: 1,
@@ -2447,7 +2450,7 @@ describe('scan cleanup preview', () => {
         expect(deps.renderPage).toHaveBeenCalledTimes(3);
         expect(deps.getPageCount).toHaveBeenCalledOnce();
 
-        await service.previewRaw(sender(), rawRequest(1, 'revision-2'));
+        await service.preview(sender(), pageRequest(1, 'revision-2'));
         expect(deps.renderPage).toHaveBeenCalledTimes(4);
         expect(deps.getPageCount).toHaveBeenCalledTimes(2);
 
@@ -2613,14 +2616,11 @@ describe('scan cleanup preview', () => {
         expect(deps.renderPage).toHaveBeenCalledTimes(3);
         expect(peakRasters).toBe(2);
 
-        const rawRequest = (pageNumber: number) => ({
-            ownerId: request.ownerId,
-            documentRevision: request.documentRevision,
-            sourcePdfPath: request.sourcePdfPath,
-            pageNumber,
+        await service.preview(sender(), {
+            ...request,
+            pageNumber: 2,
         });
-        await service.previewRaw(sender(), rawRequest(2));
-        await service.previewRaw(sender(), rawRequest(1));
+        await service.preview(sender(), request);
         expect(deps.renderPage).toHaveBeenCalledTimes(3);
     });
 
@@ -3193,20 +3193,19 @@ describe('scan cleanup preview', () => {
         const started = await service.detectAll(owner, detectionRequest);
         await vi.waitFor(() => expect(liveNatives).toBe(capacity.nativeProcesses - 1));
 
-        // The page the user navigates onto is served while detection still holds
-        // its lease: the raw raster lands without waiting for the job.
-        const raw = await service.previewRaw(owner, {
-            ownerId: request.ownerId,
-            documentRevision: request.documentRevision,
-            sourcePdfPath: request.sourcePdfPath,
-            pageNumber: 1,
-        });
-        expect(raw.pageNumber).toBe(1);
-        const previewPage = (pageNumber: number) => service.preview(owner, {
+        const previewPage = (pageNumber: number, visible = false) => service.preview(owner, {
             ...request,
             pageNumber,
+            ...(visible ? {visible: true} : {}),
         });
-        const visiblePreview = previewPage(1);
+        const visiblePreview = previewPage(1, true);
+        // The page the user navigates onto is served while detection still holds
+        // its lease: its raw raster reaches the renderer without waiting for the
+        // job, and a whole sidecar run before the cleaned outputs.
+        await vi.waitFor(() => expect(owner.send).toHaveBeenCalledWith(
+            SCAN_CLEANUP_PLATFORM_FEATURE.eventChannels.onPreviewRaw,
+            expect.objectContaining({pageNumber: 1}),
+        ));
         const prefetched = [
             previewPage(2),
             previewPage(3),
@@ -3240,13 +3239,10 @@ describe('scan cleanup preview', () => {
         const acquire = vi.spyOn(mainJobBroker, 'acquire');
         const service = createScanCleanupPreviewService(deps);
         const owner = sender();
-        await service.previewRaw(owner, {
-            ownerId: request.ownerId,
-            documentRevision: request.documentRevision,
-            sourcePdfPath: request.sourcePdfPath,
-            pageNumber: 1,
+        await service.preview(owner, {
+            ...request,
+            visible: true,
         });
-        await service.preview(owner, request);
         await service.preview(owner, {
             ...request,
             pageNumber: 2,
@@ -3259,10 +3255,6 @@ describe('scan cleanup preview', () => {
                 nativeProcesses: request_.resources.nativeProcesses,
             }));
         expect(priorities).toEqual([
-            {
-                priority: 'visible',
-                nativeProcesses: 1,
-            },
             {
                 priority: 'visible',
                 nativeProcesses: 1,

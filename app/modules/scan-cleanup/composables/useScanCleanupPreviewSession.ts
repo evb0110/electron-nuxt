@@ -2,9 +2,11 @@ import type {
     IScanCleanupOptions,
     IScanCleanupDocumentPrior,
     IScanCleanupDocumentCanvasPlan,
+    IScanCleanupRawPreviewEvent,
     IScanCleanupRawPreviewResult,
     IScanCleanupPreviewRequest,
     IScanCleanupPreviewResult,
+    TScanCleanupPreviewWireResult,
 } from '@contracts/electronApiScanCleanup';
 import type {TDocumentRef} from '@contracts/documentRef';
 import {getScanCleanupPageOverride} from '@contracts/scanCleanupPageOverrides';
@@ -119,6 +121,10 @@ export function createScanCleanupDetailTileCacheKey(
     });
 }
 
+function carriesRaster(value: TScanCleanupPreviewWireResult): value is IScanCleanupPreviewResult {
+    return value.rawImageData !== undefined;
+}
+
 export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSessionOptions) => {
     const {t} = useTypedI18n();
     const result = shallowRef<IScanCleanupPreviewResult | null>(null);
@@ -144,6 +150,15 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
     let scheduledPage: number | null = null;
     let scheduledKey: string | null = null;
     const inFlightPreviewPages: number[] = [];
+    // A base preview pushes its page's raster the moment it exists and leaves
+    // it out of the result it resolves with, so the bytes cross once. They wait
+    // here for the result they belong to — which two callers can share, when a
+    // navigation adopts a prefetch — and the window covers the visible page,
+    // its two neighbours and the one still rendering. A retained entry is the
+    // same buffer the cached result holds, so it costs nothing while that page
+    // is cached.
+    const streamedRawByPage = new Map<number, IScanCleanupRawPreviewEvent>();
+    const STREAMED_RAW_PAGES_MAX = 4;
 
     const totalPages = computed(() => rawResult.value?.totalPages
         ?? result.value?.totalPages
@@ -169,10 +184,43 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
             if (!capability) {
                 return Promise.reject(new Error('Scan cleanup preview is unavailable'));
             }
-            return capability.preview(toBridgeSafeScanCleanupPayload(request));
+            return capability.preview(toBridgeSafeScanCleanupPayload(request)).then(withStreamedRaw);
         },
         store: cachePreview,
     });
+
+    function acceptStreamedRaw(raw: IScanCleanupRawPreviewEvent) {
+        if (raw.ownerId !== options.ownerId || raw.documentRevision !== options.documentRevision.value) {
+            return;
+        }
+        streamedRawByPage.delete(raw.pageNumber);
+        streamedRawByPage.set(raw.pageNumber, raw);
+        while (streamedRawByPage.size > STREAMED_RAW_PAGES_MAX) {
+            const oldest = streamedRawByPage.keys().next().value;
+            if (oldest === undefined) break;
+            streamedRawByPage.delete(oldest);
+        }
+        // The raw page is shown while its cleanup runs, so it becomes the
+        // displayed raster as soon as it lands — but only for the page the user
+        // is actually on. A prefetched neighbour just waits for its result.
+        if (raw.pageNumber === options.previewPage.value) rawResult.value = raw;
+    }
+
+    /**
+     * Puts the streamed raster back on the result it was rendered from. A
+     * detail tile answers with its own raster and needs nothing.
+     */
+    function withStreamedRaw(previewResult: TScanCleanupPreviewWireResult): IScanCleanupPreviewResult {
+        if (carriesRaster(previewResult)) {
+            return previewResult;
+        }
+        const streamed = streamedRawByPage.get(previewResult.pageNumber);
+        if (!streamed) throw new Error('Scan cleanup preview arrived without its page raster');
+        return {
+            ...previewResult,
+            rawImageData: streamed.rawImageData,
+        };
+    }
 
     function cacheKey(
         pageNumber = options.previewPage.value,
@@ -229,6 +277,8 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
         prefetcher.supersede();
         clearTimer();
         invalidateDetailRequest();
+        // Every request a streamed raster could still belong to is superseded.
+        streamedRawByPage.clear();
         loading.value = false;
         if (!options.sourcePath.value) {
             return;
@@ -344,27 +394,22 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
         const runPreview = async () => {
             timer = null;
             try {
-                const nextRawResult = await capability.previewRaw({
-                    sourcePdfPath: requestSourcePath,
-                    ownerId: options.ownerId,
-                    documentRevision: options.documentRevision.value,
-                    pageNumber: requestPage,
-                });
-                if (requestSequence !== sequence) {
-                    return;
-                }
-                rawResult.value = nextRawResult;
-                const previewResult = await capability.preview(toBridgeSafeScanCleanupPayload({
+                // One request per page switch. Its raw raster arrives over
+                // `onPreviewRaw` a sidecar run ahead of the cleaned outputs and
+                // is displayed there; this promise settles with the cleaned
+                // result that supersedes it.
+                const previewResult = withStreamedRaw(await capability.preview(toBridgeSafeScanCleanupPayload({
                     sourcePdfPath: requestSourcePath,
                     ownerId: options.ownerId,
                     documentRevision: options.documentRevision.value,
                     pageNumber: requestPage,
                     options: requestOptions,
+                    visible: true,
                     ...(documentPrior === undefined ? {} : {documentPrior}),
                     ...(options.documentCanvasPlan.value === undefined
                         ? {}
                         : {documentCanvasPlan: options.documentCanvasPlan.value}),
-                }));
+                })));
                 // Cached before the staleness check: the key names the page and
                 // the options that produced this result, so a preview that
                 // outlived the navigation that asked for it is still exactly
@@ -466,7 +511,7 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
         detailLoading.value = true;
         try {
             const documentPrior = options.documentPriorByPage.get(requestPage);
-            const next = await capability.preview(toBridgeSafeScanCleanupPayload({
+            const next = withStreamedRaw(await capability.preview(toBridgeSafeScanCleanupPayload({
                 sourcePdfPath: requestSourcePath,
                 ownerId: options.ownerId,
                 documentRevision: options.documentRevision.value,
@@ -480,7 +525,7 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
                     viewports,
                     outputMode,
                 },
-            }));
+            })));
             if (requestSequence !== detailSequence || baseKey !== cacheKey()) {
                 return;
             }
@@ -516,6 +561,8 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
         options.selectPage(page, 'single', Array.from({length: totalPages.value}, (_, index) => index + 1));
     }
 
+    const stopRawStream = getScanCleanupCapability()?.onPreviewRaw(acceptStreamedRaw) ?? null;
+
     watch(options.active, active => {
         if (active) schedule();
         else cancel();
@@ -525,6 +572,7 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
         cache.clear();
         detailSourceCache.clear();
         metadataByPage.clear();
+        streamedRawByPage.clear();
         result.value = null;
         rawResult.value = null;
         resultKey.value = null;
@@ -532,7 +580,10 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
         displayedDetailSourceKey = null;
     });
     watch(cacheKey, schedule);
-    onBeforeUnmount(() => cancel());
+    onBeforeUnmount(() => {
+        stopRawStream?.();
+        cancel();
+    });
 
     return {
         cancel,

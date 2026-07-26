@@ -205,7 +205,6 @@ export const browserPlatformPathDescriptorsGenerated = {
         onMenuConvertToPdf: {kind: 'event', path: ["djvu","onMenuConvertToPdf"]},
     },
     scanCleanup: {
-        previewRaw: {kind: 'async', path: ["scanCleanup","previewRaw"]},
         preview: {kind: 'async', path: ["scanCleanup","preview"]},
         cancelPreview: {kind: 'async', path: ["scanCleanup","cancelPreview"]},
         detectAll: {kind: 'async', path: ["scanCleanup","detectAll"]},
@@ -218,6 +217,7 @@ export const browserPlatformPathDescriptorsGenerated = {
         subscribeJob: {kind: 'async', path: ["scanCleanup","subscribeJob"]},
         reconnectJob: {kind: 'async', path: ["scanCleanup","reconnectJob"]},
         pruneGeneratedOutputs: {kind: 'async', path: ["scanCleanup","pruneGeneratedOutputs"]},
+        onPreviewRaw: {kind: 'event', path: ["scanCleanup","onPreviewRaw"]},
         onJobState: {kind: 'event', path: ["scanCleanup","onJobState"]},
         onDetectionJobState: {kind: 'event', path: ["scanCleanup","onDetectionJobState"]},
     },

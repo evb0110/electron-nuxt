@@ -152,17 +152,6 @@ function previewResult(): IScanCleanupPreviewResult {
 type TScanCleanupChannel = keyof IScanCleanupInvokeMap;
 
 const responses: {[TChannel in TScanCleanupChannel]: unknown} = {
-    [SCAN_CLEANUP_CHANNELS.previewRaw]: {
-        pageNumber: 2,
-        totalPages: 4,
-        rawImageData: new Uint8Array([
-            1,
-            2,
-            3,
-        ]),
-        rawWidthPx: 2400,
-        rawHeightPx: 1700,
-    },
     [SCAN_CLEANUP_CHANNELS.preview]: previewResult(),
     [SCAN_CLEANUP_CHANNELS.cancelPreview]: true,
     [SCAN_CLEANUP_CHANNELS.detectAll]: {
@@ -226,17 +215,13 @@ describe('scan-cleanup IPC structured-clone contract', () => {
         );
 
         const decodedResponses = await Promise.all([
-            client.previewRaw({
-                ...owner,
-                sourcePdfPath: '/documents/source.pdf',
-                pageNumber: 2,
-            }),
             client.preview({
                 ...owner,
                 sourcePdfPath: '/documents/source.pdf',
                 pageNumber: 2,
                 options: reactiveOptions,
                 documentPrior: reactiveDocumentPrior,
+                visible: true,
             }),
             client.cancelPreview({
                 ...reactiveOwner,
@@ -275,6 +260,7 @@ describe('scan-cleanup IPC structured-clone contract', () => {
         expect(encodedByChannel.get(SCAN_CLEANUP_CHANNELS.preview)?.[0]).toMatchObject({
             documentPrior,
             options: plainOptions,
+            visible: true,
         });
         for (const decoded of decodedResponses) {
             expect(() => structuredClone(decoded)).not.toThrow();

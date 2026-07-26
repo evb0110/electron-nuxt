@@ -25,15 +25,15 @@ import type {
     IScanCleanupOptions,
     IScanCleanupPreviewCancelRequest,
     IScanCleanupPreviewRequest,
-    IScanCleanupPreviewResult,
-    IScanCleanupRawPreviewRequest,
+    IScanCleanupRawPreviewEvent,
+    TScanCleanupPreviewWireResult,
 } from '@contracts/electronApiScanCleanup';
 import type * as scanCleanupPreviewCacheModule from '@app/modules/scan-cleanup/runtime/createScanCleanupPreviewCache';
 import type {IScanCleanupPreviewCache} from '@app/modules/scan-cleanup/runtime/createScanCleanupPreviewCache';
 import {useScanCleanupPreviewSession} from '@app/modules/scan-cleanup/composables/useScanCleanupPreviewSession';
 
 // M2 (U21), page 200 of the reference document, cold: one cleaned preview costs
-// 2412 ms. M1: its raw PNG is 1 056 837 B. The raw leg is modelled as free, the
+// 2412 ms. M1: its raw PNG is 1 056 837 B. The raster is modelled as free, the
 // same simplification U21's m6-cache-behaviour.ts made, so the rows below stay
 // comparable with the baseline it recorded.
 const PREVIEW_MS = 2412;
@@ -89,12 +89,13 @@ const pixelRect = {
     heightPx: 1335,
 };
 
-function previewResult(pageNumber: number): IScanCleanupPreviewResult {
+// A base preview answers without the raster: those bytes crossed once already,
+// as the `onPreviewRaw` this backend pushes when the request starts.
+function previewResult(pageNumber: number): TScanCleanupPreviewWireResult {
     const bytes = new Uint8Array(new ArrayBuffer(PAGE_BYTES));
     return {
         pageNumber,
         totalPages: TOTAL_PAGES,
-        rawImageData: bytes,
         rawWidthPx: 883,
         rawHeightPx: 1335,
         pageMetadata: {
@@ -161,7 +162,7 @@ function previewResult(pageNumber: number): IScanCleanupPreviewResult {
 interface IPendingPreview {
     identity: string;
     pageNumber: number;
-    promise: Promise<IScanCleanupPreviewResult>;
+    promise: Promise<TScanCleanupPreviewWireResult>;
     readyAtMs: number;
     startedAtMs: number;
     resolve: () => void;
@@ -171,18 +172,22 @@ interface IPendingPreview {
 /**
  * Stands in for createScanCleanupPreviewService over the IPC boundary: base
  * requests are identified by page and content, an identical request joins the
- * one already running instead of spawning again, and a cancellation only aborts
+ * one already running instead of spawning again, a spawned request pushes its
+ * page raster back before it renders anything, and a cancellation only aborts
  * the pages it was not told to retain.
  */
 function previewBackend() {
     let pending: IPendingPreview[] = [];
+    const rawListeners = new Set<(raw: IScanCleanupRawPreviewEvent) => void>();
     const counters = {
         spawns: 0,
         joins: 0,
         aborted: 0,
         completed: 0,
-        rawCalls: 0,
     };
+    // Every full-page raster this backend puts on the wire, in order. A base
+    // result carries none: the raster is the event above.
+    const rasterPayloadPages: number[] = [];
     const identityOf = (request: IScanCleanupPreviewRequest) => JSON.stringify([
         request.pageNumber,
         request.options,
@@ -198,7 +203,21 @@ function previewBackend() {
             return joined.promise;
         }
         counters.spawns += 1;
-        const settled = Promise.withResolvers<IScanCleanupPreviewResult>();
+        // The service materializes the page raster and pushes it a whole
+        // sidecar run before the cleaned outputs it eventually answers with.
+        rasterPayloadPages.push(request.pageNumber);
+        for (const listener of rawListeners) {
+            listener({
+                ownerId: request.ownerId,
+                documentRevision: request.documentRevision,
+                pageNumber: request.pageNumber,
+                totalPages: TOTAL_PAGES,
+                rawImageData: new Uint8Array(new ArrayBuffer(PAGE_BYTES)),
+                rawWidthPx: 883,
+                rawHeightPx: 1335,
+            });
+        }
+        const settled = Promise.withResolvers<TScanCleanupPreviewWireResult>();
         const entry: IPendingPreview = {
             identity,
             pageNumber: request.pageNumber,
@@ -219,16 +238,6 @@ function previewBackend() {
     };
     const previewCalls = vi.fn(preview);
     const value: IScanCleanupCapability = {
-        previewRaw: vi.fn(async (request: IScanCleanupRawPreviewRequest) => {
-            counters.rawCalls += 1;
-            return {
-                pageNumber: request.pageNumber,
-                totalPages: TOTAL_PAGES,
-                rawImageData: new Uint8Array(1),
-                rawWidthPx: 883,
-                rawHeightPx: 1335,
-            };
-        }),
         preview: previewCalls,
         cancelPreview: vi.fn(async (request: IScanCleanupPreviewCancelRequest) => {
             const retained = new Set(request.retainPages ?? []);
@@ -247,6 +256,10 @@ function previewBackend() {
         subscribeJob: vi.fn(),
         reconnectJob: vi.fn(),
         pruneGeneratedOutputs: vi.fn(),
+        onPreviewRaw: vi.fn((listener: (raw: IScanCleanupRawPreviewEvent) => void) => {
+            rawListeners.add(listener);
+            return () => rawListeners.delete(listener);
+        }),
         onJobState: vi.fn(),
         onDetectionJobState: vi.fn(),
     };
@@ -254,6 +267,7 @@ function previewBackend() {
         capability: value,
         counters,
         previewCalls,
+        rasterPayloadPages,
         get inFlightPages() {
             return pending.map(entry => entry.pageNumber);
         },
@@ -280,7 +294,11 @@ function previewBackend() {
     };
 }
 
-function mountPreviewSession(previewPage: Ref<number>, documentPriorByPage: Map<number, IScanCleanupDocumentPrior>) {
+function mountPreviewSession(
+    previewPage: Ref<number>,
+    documentPriorByPage: Map<number, IScanCleanupDocumentPrior>,
+    initialViewMode?: 'original' | 'cleaned',
+) {
     let session: ReturnType<typeof useScanCleanupPreviewSession> | null = null;
     const host = document.createElement('div');
     document.body.append(host);
@@ -291,6 +309,7 @@ function mountPreviewSession(previewPage: Ref<number>, documentPriorByPage: Map<
             documentRevision: computed(() => 'revision-1'),
             documentPriorByPage,
             documentCanvasPlan: computed(() => undefined),
+            ...(initialViewMode === undefined ? {} : {initialViewMode}),
             lifecycleDocumentKey: computed(() => 'reference.pdf'),
             ownerId: 'owner-1',
             previewPage,
@@ -586,6 +605,59 @@ describe('scan cleanup preview navigation', () => {
         expect(backend.counters.aborted).toBe(abortedBeforeNavigation);
         expect(backend.startedAtMsFor(101)).toBe(prefetchStartedAtMs);
         mounted.unmount();
+    });
+
+    it.each([
+        'cleaned' as const,
+        'original' as const,
+    ])('spends one request and one raster on a page switch in %s view, raw first', async (viewMode) => {
+        const backend = previewBackend();
+        capability.value = backend.capability;
+        const previewPage = ref(100);
+        const mounted = mountPreviewSession(previewPage, reactive(new Map()), viewMode);
+        expect(mounted.session.viewMode.value).toBe(viewMode);
+
+        await backend.advanceBy(PREVIEW_MS + 4_000);
+        expect(mounted.session.result.value?.pageNumber).toBe(100);
+        const requestsFor = (pageNumber: number) => backend.previewCalls.mock.calls
+            .filter(([request]) => request.pageNumber === pageNumber).length;
+        const rastersFor = (pageNumber: number) => backend.rasterPayloadPages
+            .filter(page => page === pageNumber).length;
+        expect(requestsFor(200)).toBe(0);
+
+        previewPage.value = 200;
+        await nextTick();
+        vi.advanceTimersByTime(1);
+        for (let turn = 0; turn < 8; turn += 1) await Promise.resolve();
+
+        // C1: the switch costs one preview invocation, not a raw leg and then a
+        // cleaned one. C2: and the page's raster crosses once for it.
+        expect(requestsFor(200)).toBe(1);
+        expect(rastersFor(200)).toBe(1);
+        // The raw page is on screen while its cleanup runs, in either view
+        // mode, and the page being replaced is still the cleaned result.
+        expect(mounted.session.rawResult.value?.pageNumber).toBe(200);
+        expect(mounted.session.rawResult.value?.rawImageData.byteLength).toBe(PAGE_BYTES);
+        expect(mounted.session.result.value?.pageNumber).toBe(100);
+        expect(mounted.session.loading.value).toBe(true);
+
+        await backend.advanceBy(PREVIEW_MS + 100);
+
+        // The cleaned result supersedes it and keeps the raster it was shown
+        // with, so the entry cached for this page can still answer Original.
+        expect(mounted.session.result.value?.pageNumber).toBe(200);
+        expect(mounted.session.result.value?.rawImageData.byteLength).toBe(PAGE_BYTES);
+        expect(requestsFor(200)).toBe(1);
+        expect(rastersFor(200)).toBe(1);
+
+        previewPage.value = 100;
+        await nextTick();
+        expect(mounted.session.result.value?.pageNumber).toBe(100);
+        expect(mounted.session.rawResult.value?.rawImageData.byteLength).toBe(PAGE_BYTES);
+        expect(requestsFor(100)).toBe(1);
+        expect(rastersFor(100)).toBe(1);
+        mounted.unmount();
+        capability.value = null;
     });
 
     it('keeps a deliberate page turn immediate when nothing is in flight', async () => {
