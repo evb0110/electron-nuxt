@@ -1552,7 +1552,7 @@ export function createScanCleanupPreviewService(
     // set. Without this cursor the coalescing pump would ship the growing result
     // array once per rasterized and analysed page.
     const deliveredDetectionResults = new Map<string, number>();
-    const detectionDeliveryKey = (senderId: number, jobId: string) => `${senderId} ${jobId}`;
+    const detectionDeliveryKey = (senderId: number, jobId: string) => `${senderId}\u0000${jobId}`;
     const detectionJobs = createMainJobRegistry<
         TScanCleanupDetectionJobState,
         IDetectionResult,
