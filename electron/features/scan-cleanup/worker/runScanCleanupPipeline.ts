@@ -816,6 +816,11 @@ export async function runScanCleanupPipeline(
             emitProgress('rasterizing', rasterizedCount, pageCount, rasterizedPageNumbers);
             return page;
         });
+        // One manifest for the whole document, and the rasterization barrier
+        // above it stays. This run names no document canvas, so the sidecar
+        // takes the matched page size to be the largest output it produced from
+        // this manifest; a chunked run would pad every window to its own
+        // maximum and hand the assembler pages of differing size.
         const manifest = buildNativeScanCleanupManifest({
             operation: 'render',
             renderMode: 'final',

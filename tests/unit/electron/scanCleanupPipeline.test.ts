@@ -1074,6 +1074,107 @@ describe('scan cleanup pipeline', () => {
         });
     });
 
+    it('sizes every final page against the whole document rather than a window of it', async () => {
+        const fixture = await setup();
+        const pageCount = 4;
+        let combineManifest = '';
+        const manifestPageCounts: number[] = [];
+        // Stands in for match_page_sizes: this run names no document canvas, so
+        // the uniform page size is the largest output of the manifest the
+        // sidecar was handed.
+        const intrinsicPoints = (sourcePageIndex: number) => ({
+            widthPoints: 240 + sourcePageIndex * 10,
+            heightPoints: 336 + sourcePageIndex * 10,
+        });
+        const runSidecar: IRunScanCleanupPipelineDependencies['runSidecar'] = vi.fn(async (_binary, manifestPath) => {
+            const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as {pages: Array<{
+                sourcePageIndex: number;
+                pageMetadataPath: string;
+                options: {dpi: number};
+                outputs: ICleanupOutput[];
+            }>};
+            manifestPageCounts.push(manifest.pages.length);
+            const target = manifest.pages.reduce((widest, page) => {
+                const intrinsic = intrinsicPoints(page.sourcePageIndex);
+                return {
+                    widthPoints: Math.max(widest.widthPoints, intrinsic.widthPoints),
+                    heightPoints: Math.max(widest.heightPoints, intrinsic.heightPoints),
+                };
+            }, {
+                widthPoints: 0,
+                heightPoints: 0,
+            });
+            for (const page of manifest.pages) {
+                await writeFile(page.pageMetadataPath, JSON.stringify({
+                    layoutClassification: 'single-uncut-page',
+                    cutterXPx: null,
+                    rotationDegrees: 0,
+                    excluded: false,
+                    blankOutputsSkipped: 0,
+                    outputCount: 1,
+                }));
+                const output = page.outputs[0]!;
+                const intrinsic = intrinsicPoints(page.sourcePageIndex);
+                const {dpi} = page.options;
+                await writeFile(output.outputPath, 'PNG-CLEAN');
+                await writeFile(output.metadataPath, JSON.stringify({
+                    outputWidthPx: Math.round(intrinsic.widthPoints / 72 * dpi),
+                    outputHeightPx: Math.round(intrinsic.heightPoints / 72 * dpi),
+                    canvasWidthPx: Math.round(target.widthPoints / 72 * dpi),
+                    canvasHeightPx: Math.round(target.heightPoints / 72 * dpi),
+                    renderDpi: dpi,
+                    matchedCanvasTargetWidthPoints: target.widthPoints,
+                    matchedCanvasTargetHeightPoints: target.heightPoints,
+                    layoutClassification: 'single-uncut-page',
+                    skewApplied: true,
+                    bilevelWritten: false,
+                    layeredWritten: false,
+                    contentBox: {
+                        x: 1,
+                        y: 1,
+                        width: 10,
+                        height: 10,
+                    },
+                    warnings: [],
+                }));
+            }
+        });
+        const pipelineDependencies = dependencies(runSidecar);
+        pipelineDependencies.getPageCount = vi.fn(async () => pageCount);
+        pipelineDependencies.detectSourceDpi = vi.fn(async () => dpiDetails(
+            300,
+            Array.from({length: pageCount}, (_value, index) => [
+                index + 1,
+                300,
+            ]),
+        ));
+        pipelineDependencies.runCommand = vi.fn(async (_command, args) => {
+            const manifestIndex = args.indexOf('--compact-manifest');
+            if (manifestIndex !== -1) combineManifest = await readFile(args[manifestIndex + 1]!, 'utf8');
+            const outputIndex = args.indexOf('--output');
+            await writeFile(args[outputIndex + 1]!, '%PDF-1.7\n%%EOF\n');
+            return {
+                exitCode: 0,
+                stdout: '',
+                stderr: '',
+            };
+        });
+
+        await runScanCleanupPipeline({
+            sourcePdfPath: fixture.sourcePdfPath,
+            outputPdfPath: fixture.outputPdfPath,
+            options: {
+                ...options,
+                outputMode: 'color',
+                matchPageSize: true,
+            },
+        }, pipelinePaths(fixture.dir), new AbortController().signal, vi.fn(), highTierPolicy, undefined, pipelineDependencies);
+
+        const pageSizes = combineManifest.trim().split('\n').map(line => line.split('\t').slice(1, 3).join('x'));
+        expect(pageSizes).toEqual(Array.from({length: pageCount}, () => '270.000000x366.000000'));
+        expect(manifestPageCounts).toEqual([pageCount]);
+    });
+
     it('records the composite for pages whose bilevel raster the sidecar could not publish', async () => {
         const fixture = await setup();
         let combineManifest = '';

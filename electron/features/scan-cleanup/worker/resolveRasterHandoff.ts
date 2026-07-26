@@ -6,6 +6,13 @@ import type { TWorkerLog } from '@electron/ocr/worker/types';
 // same page spends five more seconds in deflate. The cost is scratch space, so
 // the fast handoff stays available for as long as the scratch volume can hold
 // the whole manifest without crowding the run's own outputs.
+//
+// The whole manifest is the unit because it is what is actually resident: both
+// batch paths rasterize every page before their sidecar starts and delete
+// nothing until the run ends. Narrow this estimate to the rasterizer's window
+// only together with a design that streams pages into the sidecar; against
+// today's sequencing a per-window estimate would choose PPM for a document the
+// scratch volume cannot hold.
 const RAW_RASTER_BUDGET_FLOOR_BYTES = 512 * 1024 * 1024;
 const RAW_RASTER_FREE_SPACE_SHARE = 0.25;
 const PPM_HEADER_ESTIMATE_BYTES = 64;

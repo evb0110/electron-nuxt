@@ -1464,6 +1464,16 @@ async function runDetection(
             });
         });
         if (signal.aborted) throw signal.reason;
+        // Every page goes into one analyze manifest, and the rasterization
+        // barrier above it stays. The sidecar reconciles classification by
+        // clustering the manifest's pages on their dimensions and rewriting
+        // each verdict against that cluster's consensus, cutter median and
+        // derived document prior, so a page's published classification is a
+        // function of which pages share its manifest: on the reference scan a
+        // two-page window already drops page 2's document prior and its
+        // cluster agreement. Chunking would also buy nothing here, because the
+        // sidecar publishes no classification until reconciliation has run,
+        // which is after the last page of the manifest is analyzed.
         const manifestPath = join(scratch, 'classify-manifest.json');
         await writeFile(manifestPath, JSON.stringify(buildNativeScanCleanupManifest({
             operation: 'analyze',

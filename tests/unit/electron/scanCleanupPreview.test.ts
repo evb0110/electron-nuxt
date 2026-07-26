@@ -2280,6 +2280,69 @@ describe('scan cleanup preview', () => {
         });
     });
 
+    it('reconciles every detection classification against the whole document, not a window of it', async () => {
+        const dir = await setup();
+        const totalPages = 8;
+        const deps = dependencies(dir);
+        deps.getPageCount = vi.fn(async () => totalPages);
+        deps.acquireDetectionLease = vi.fn(async () => ({release: vi.fn(() => true)}));
+        // Stands in for reconcile_classification_batch: the cluster consensus a
+        // page is judged against, and the cutter the sidecar then publishes, are
+        // derived from the pages that share its manifest.
+        deps.runSidecar = vi.fn(async (_binary, manifestPath, _signal, _log, onProgress) => {
+            const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as {pages: Array<{
+                sourcePageIndex: number;
+                pageMetadataPath: string;
+            }>};
+            await writeDetectionMetadata(manifestPath);
+            const reconciledPages = manifest.pages.map(page => page.sourcePageIndex + 1);
+            const clusterAgreement = reconciledPages.length / totalPages;
+            const cutterXPx = Math.max(...reconciledPages);
+            for (const [
+                index,
+                pageNumber,
+            ] of reconciledPages.entries()) {
+                onProgress({
+                    stage: 'detecting',
+                    completedUnits: index + 1,
+                    totalUnits: reconciledPages.length,
+                    percent: (index + 1) / reconciledPages.length * 100,
+                    completedPageNumbers: reconciledPages.slice(0, index + 1),
+                }, {
+                    stage: 'page-complete',
+                    completedPages: index + 1,
+                    totalPages: reconciledPages.length,
+                    pageNumber,
+                    classification: 'two-page-spread',
+                    confidence: 0.9,
+                    cutterXPx,
+                    clusterAgreement,
+                    documentPrior: {
+                        ...documentPrior,
+                        agreementStrength: clusterAgreement,
+                    },
+                });
+            }
+        });
+        const service = createScanCleanupPreviewService(deps);
+        const owner = sender();
+        const started = await service.detectAll(owner, detectionRequest);
+        await vi.waitFor(() => expect(service.getDetectionJobState(
+            owner,
+            started.jobId,
+            detectionRequest,
+        )?.status).toBe('completed'));
+
+        const results = service.getDetectionJobState(owner, started.jobId, detectionRequest)?.results ?? [];
+        expect(results.map(result => result.pageNumber)).toEqual(Array.from(
+            {length: totalPages},
+            (_value, index) => index + 1,
+        ));
+        expect([...new Set(results.map(result => result.clusterAgreement))]).toEqual([1]);
+        expect([...new Set(results.map(result => result.cutterXPx))]).toEqual([totalPages]);
+        expect([...new Set(results.map(result => result.documentPrior?.agreementStrength))]).toEqual([1]);
+    });
+
     it('rasterizes detection pages straight to disk instead of buffering them', async () => {
         const dir = await setup();
         const deps = dependencies(dir);
