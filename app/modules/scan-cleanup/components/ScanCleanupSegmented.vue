@@ -25,7 +25,7 @@
 </template>
 
 <script setup lang="ts">
-export interface IScanCleanupSegmentedItem {
+interface IScanCleanupSegmentedItem {
     ariaLabel?: string;
     label: string;
     value: string;

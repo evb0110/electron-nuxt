@@ -6,7 +6,10 @@ import {
     rm,
     writeFile,
 } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import {
+    devNull,
+    tmpdir,
+} from 'node:os';
 import path, { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import {
@@ -64,6 +67,14 @@ function runGit(cwd: string, arguments_: string[]) {
     const result = spawnSync('git', arguments_, {
         cwd,
         encoding: 'utf8',
+        // These fixtures assert git's own behavior, so they must not inherit the
+        // developer's global config. `tag.gpgsign = true`, for one, turns the
+        // lightweight `git tag` below into a signed tag and fails the run.
+        env: {
+            ...process.env,
+            GIT_CONFIG_GLOBAL: devNull,
+            GIT_CONFIG_SYSTEM: devNull,
+        },
     });
     if (result.status !== 0) {
         throw new Error(`git ${arguments_.join(' ')} failed: ${result.stderr}`);
