@@ -226,6 +226,172 @@ describe('scan cleanup workspace session detection guidance', () => {
         capability.value = null;
     });
 
+    it('accumulates settled pages across the reading and detecting stages of one job', async () => {
+        const harness = capabilityHarness();
+        capability.value = harness.value;
+        const mounted = mountSession('settled-pages');
+        await vi.waitFor(() => expect(harness.value.detectAll).toHaveBeenCalledOnce());
+        const settled = mounted.session.detection.settledPages;
+
+        // Reading the source reports pages one by one and carries no results at
+        // all; without this signal every thumbnail spun for the whole stage.
+        harness.emitDetection({
+            ...detectionState('detect-1', 'queued'),
+            status: 'running',
+            progress: {
+                stage: 'rasterizing',
+                completedUnits: 2,
+                totalUnits: 3,
+                percent: 66,
+                completedPageNumbers: [
+                    1,
+                    3,
+                ],
+            },
+            updatedAtMs: Date.now() + 1_000,
+        });
+        await vi.waitFor(() => expect(settled.has(1)).toBe(true));
+        expect([...settled].sort((left, right) => left - right)).toEqual([
+            1,
+            3,
+        ]);
+
+        // The analysis stage reports a different set; neither replaces the other.
+        harness.emitDetection({
+            ...detectionState('detect-1', 'queued'),
+            status: 'running',
+            progress: {
+                stage: 'detecting',
+                completedUnits: 1,
+                totalUnits: 3,
+                percent: 33,
+                completedPageNumbers: [2],
+            },
+            updatedAtMs: Date.now() + 2_000,
+        });
+        await vi.waitFor(() => expect(settled.has(2)).toBe(true));
+        expect([...settled].sort((left, right) => left - right)).toEqual([
+            1,
+            2,
+            3,
+        ]);
+
+        mounted.unmount();
+    });
+
+    it('settles every page a coalesced snapshot reports, not one page per event', async () => {
+        const harness = capabilityHarness();
+        capability.value = harness.value;
+        const mounted = mountSession('coalesced-settled-pages');
+        await vi.waitFor(() => expect(harness.value.detectAll).toHaveBeenCalledOnce());
+        const settled = mounted.session.detection.settledPages;
+
+        // The progress pump coalesces: a snapshot supersedes the pending ones it
+        // replaces, so the events that reported pages 2 and 3 on their own are
+        // never delivered. Each snapshot carries the whole completed set, and a
+        // consumer that counted events would leave those pages spinning.
+        harness.emitDetection({
+            ...detectionState('detect-1', 'queued', 4),
+            status: 'running',
+            progress: {
+                stage: 'rasterizing',
+                completedUnits: 1,
+                totalUnits: 4,
+                percent: 25,
+                completedPageNumbers: [1],
+            },
+            updatedAtMs: Date.now() + 1_000,
+        });
+        await vi.waitFor(() => expect(settled.has(1)).toBe(true));
+
+        harness.emitDetection({
+            ...detectionState('detect-1', 'queued', 4),
+            status: 'running',
+            progress: {
+                stage: 'rasterizing',
+                completedUnits: 4,
+                totalUnits: 4,
+                percent: 100,
+                completedPageNumbers: [
+                    1,
+                    2,
+                    3,
+                    4,
+                ],
+            },
+            updatedAtMs: Date.now() + 2_000,
+        });
+        await vi.waitFor(() => expect(settled.size).toBe(4));
+        expect([...settled].sort((left, right) => left - right)).toEqual([
+            1,
+            2,
+            3,
+            4,
+        ]);
+
+        // Analysis streams only the classifications this subscriber has not seen
+        // yet, so a snapshot's results are a delta while its progress stays
+        // whole: the earlier page keeps its classification and stays settled.
+        harness.emitDetection({
+            jobId: 'detect-1',
+            status: 'running',
+            progress: {
+                stage: 'detecting',
+                completedUnits: 1,
+                totalUnits: 4,
+                percent: 25,
+                completedPageNumbers: [1],
+            },
+            results: [{
+                pageNumber: 1,
+                classification: 'two-page-spread',
+                confidence: 0.9,
+                cutterXPx: null,
+                tier1Verdict: 'two-page-spread',
+                reconciled: false,
+                clusterAgreement: 0,
+                documentPrior: null,
+            }],
+            updatedAtMs: Date.now() + 3_000,
+        });
+        await vi.waitFor(() => expect(
+            mounted.session.detection.authoritativeLayoutByPage.value.get(1),
+        ).toBe('two-page-spread'));
+
+        harness.emitDetection({
+            jobId: 'detect-1',
+            status: 'running',
+            progress: {
+                stage: 'detecting',
+                completedUnits: 2,
+                totalUnits: 4,
+                percent: 50,
+                completedPageNumbers: [
+                    1,
+                    2,
+                ],
+            },
+            results: [{
+                pageNumber: 2,
+                classification: 'page-with-offcut',
+                confidence: 0.9,
+                cutterXPx: null,
+                tier1Verdict: 'page-with-offcut',
+                reconciled: false,
+                clusterAgreement: 0,
+                documentPrior: null,
+            }],
+            updatedAtMs: Date.now() + 4_000,
+        });
+        await vi.waitFor(() => expect(
+            mounted.session.detection.authoritativeLayoutByPage.value.get(2),
+        ).toBe('page-with-offcut'));
+        expect(mounted.session.detection.authoritativeLayoutByPage.value.get(1)).toBe('two-page-spread');
+        expect(settled.size).toBe(4);
+
+        mounted.unmount();
+    });
+
     it('starts a fresh session on the reader current page when no cleanup page is restored', () => {
         capability.value = capabilityHarness().value;
         const mounted = mountSession(`fresh-preview-page-${Date.now()}`, {
@@ -432,6 +598,61 @@ describe('scan cleanup workspace session detection guidance', () => {
             vi.useRealTimers();
             mounted.unmount();
         }
+    });
+
+    it('accumulates the classifications a detection streams one progress event at a time', async () => {
+        const harness = capabilityHarness();
+        capability.value = harness.value;
+        const mounted = mountSession(`incremental-detection-${Date.now()}`);
+
+        await vi.waitFor(() => expect(mounted.session.detection.isDetecting.value).toBe(true));
+        const classifications = [
+            'two-page-spread',
+            'page-with-offcut',
+            'single-uncut-page',
+        ] as const;
+        classifications.forEach((classification, index) => {
+            const pageNumber = index + 1;
+            harness.emitDetection({
+                jobId: 'detect-1',
+                status: 'running',
+                progress: {
+                    stage: 'detecting',
+                    completedUnits: pageNumber,
+                    totalUnits: 3,
+                    percent: pageNumber / 3 * 100,
+                    completedPageNumbers: Array.from({length: pageNumber}, (_, page) => page + 1),
+                },
+                results: [{
+                    pageNumber,
+                    classification,
+                    confidence: 0.9,
+                    cutterXPx: null,
+                    tier1Verdict: classification,
+                    reconciled: false,
+                    clusterAgreement: 0,
+                    documentPrior: null,
+                }],
+                updatedAtMs: Date.now() + pageNumber,
+            });
+        });
+        await nextTick();
+
+        expect([...mounted.session.detection.authoritativeLayoutByPage.value]).toEqual([
+            [
+                1,
+                'two-page-spread',
+            ],
+            [
+                2,
+                'page-with-offcut',
+            ],
+            [
+                3,
+                'single-uncut-page',
+            ],
+        ]);
+        mounted.unmount();
     });
 
     it('auto-detects on open and does not auto-restart a document after user cancellation', async () => {

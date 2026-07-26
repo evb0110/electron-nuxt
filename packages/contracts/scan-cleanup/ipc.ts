@@ -68,6 +68,13 @@ export interface IScanCleanupRawPreviewResult {
 export interface IScanCleanupPreviewCancelRequest extends IScanCleanupOwnerContext {
     sourcePdfPath: string;
     invalidateRawCache?: boolean;
+    /**
+     * Pages whose cleaned preview work the renderer still wants. A navigation
+     * names the window it is moving into so the work already running for those
+     * pages survives instead of being restarted; omitting it cancels the whole
+     * document, which is what a settings change or a closing session means.
+     */
+    retainPages?: readonly number[];
 }
 
 export type TScanCleanupCanvasPolicy = 'intrinsic' | 'strict-maximum';

@@ -80,26 +80,28 @@
                 </AppTooltip>
                 <div class="scan-cleanup-toolbar-status-slot">
                     <template v-if="isDetecting">
-                        <span
+                        <ScanCleanupStableWidthText
                             class="scan-cleanup-toolbar-count"
                             role="status"
                             aria-live="polite"
                             :aria-label="detectionProgressText"
-                        >{{ detectionProgressText }}</span>
-                        <UButton
-                            class="scan-cleanup-toolbar-cancel-detection"
-                            type="button"
-                            color="neutral"
-                            variant="ghost"
-                            size="xs"
-                            square
-                            :icon="detectionCancelRequested ? 'i-ph-circle-notch' : 'i-ph-x'"
-                            :aria-label="detectionCancelRequested
-                                ? t('scanCleanup.detectAll.canceling')
-                                : t('scanCleanup.detectAll.cancel')"
-                            :disabled="detectionCancelRequested"
-                            @click="emit('cancel-detection')"
+                            :text="detectionProgressText"
+                            :widest="detectionProgressWidestText"
                         />
+                        <AppTooltip :text="detectionCancelLabel" usefulness="always">
+                            <UButton
+                                class="scan-cleanup-toolbar-cancel-detection"
+                                type="button"
+                                color="neutral"
+                                variant="ghost"
+                                size="xs"
+                                square
+                                :icon="detectionCancelRequested ? 'i-ph-circle-notch' : 'i-ph-x'"
+                                :aria-label="detectionCancelLabel"
+                                :disabled="detectionCancelRequested"
+                                @click="emit('cancel-detection')"
+                            />
+                        </AppTooltip>
                     </template>
                     <span v-else-if="detectionError" class="scan-cleanup-toolbar-error" role="alert">
                         {{ detectionError }}
@@ -147,6 +149,8 @@
 </template>
 
 <script setup lang="ts">
+import ScanCleanupStableWidthText from '@app/modules/scan-cleanup/components/ScanCleanupStableWidthText.vue';
+
 const {
     canDetectAll,
     canRun,
@@ -154,6 +158,7 @@ const {
     detectionCancelRequested,
     detectionError,
     detectionProgressText,
+    detectionProgressWidestText,
     isDetecting,
     isRunning,
     outputEstimate,
@@ -173,6 +178,7 @@ const {
     detectionCancelRequested: boolean;
     detectionError: string;
     detectionProgressText: string;
+    detectionProgressWidestText: string;
     isDetecting: boolean;
     isRunning: boolean;
     outputEstimate: string;
@@ -196,6 +202,11 @@ const emit = defineEmits<{
 }>();
 const {t} = useTypedI18n();
 const normalizedPercent = computed(() => Math.min(100, Math.max(0, Math.round(percent))));
+// Cancelling detection is not destructive: pages already detected keep their
+// results, so the control names that outcome instead of a bare “Cancel”.
+const detectionCancelLabel = computed(() => t(detectionCancelRequested
+    ? 'scanCleanup.detectAll.canceling'
+    : 'scanCleanup.detectAll.cancelDetection'));
 </script>
 
 <style scoped>

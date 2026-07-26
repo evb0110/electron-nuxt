@@ -16,13 +16,6 @@ export function applyScanCleanupDetectionResults(
     recommendedModeConfidences?: Map<number, number>,
     recommendedModeReasons?: Map<number, NonNullable<IScanCleanupDetectionResult['recommendedOutputModeReason']>>,
 ) {
-    classifications.clear();
-    confidences.clear();
-    documentPriors?.clear();
-    textAxes?.clear();
-    recommendedModes?.clear();
-    recommendedModeConfidences?.clear();
-    recommendedModeReasons?.clear();
     for (const result of results) {
         if (!accepts(result.pageNumber)) {
             continue;

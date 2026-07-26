@@ -2,7 +2,7 @@ use std::io::{self, Read, Write};
 
 use crc32fast::Hasher;
 use flate2::{read::ZlibDecoder, write::ZlibEncoder, Compression};
-use scan_primitives::{GrayImage, RgbImage};
+use scan_primitives::{BinaryImage, GrayImage, RgbImage};
 use thiserror::Error;
 const PNG_SIGNATURE: &[u8; 8] = b"\x89PNG\r\n\x1a\n";
 const METERS_PER_INCH: f64 = 0.0254;
@@ -100,54 +100,114 @@ pub fn read_png_dimensions<R: Read>(
     Ok((header.width as usize, header.height as usize))
 }
 pub fn decode_png<R: Read>(reader: R, limits: DecodeLimits) -> Result<DecodedRaster, RasterError> {
-    let parsed = walk_chunks(reader, WalkMode::Decode(limits))?;
-    let header = parsed.header;
-    let channels = header.color_type.channels();
-    let row_bytes = (header.width as usize)
-        .checked_mul(channels)
-        .ok_or_else(|| RasterError::invalid("PNG row overflow"))?;
-    let expected = header.expected_data_len()?;
-    let mut filtered = Vec::with_capacity(expected);
-    ZlibDecoder::new(parsed.idat.as_slice())
-        .take(expected.saturating_add(1) as u64)
-        .read_to_end(&mut filtered)?;
-    if filtered.len() != expected {
-        return Err(RasterError::invalid(format!(
-            "PNG decompressed payload length mismatch: expected {expected} bytes, got {}",
-            filtered.len()
-        )));
-    }
-    let width = header.width as usize;
-    let height = header.height as usize;
+    let pixels = PngPixels::read(reader, limits)?;
+    let (width, height, color_type) = (pixels.width, pixels.height, pixels.color_type);
     let mut gray = GrayImage::new(width, height, 255);
     let mut rgb = RgbImage::new(width, height, [255; 3]);
-    let mut current = vec![0; row_bytes];
-    let mut previous = vec![0; row_bytes];
-    let mut position = 0usize;
-    for y in 0..height {
-        let filter = filtered[position];
-        position += 1;
-        current.copy_from_slice(&filtered[position..position + row_bytes]);
-        position += row_bytes;
-        unfilter(&mut current, &previous, channels, filter)?;
-        for (x, pixel) in current.chunks_exact(channels).enumerate() {
-            let (gray_value, rgb_value) = match header.color_type {
-                PngColorType::Gray8 | PngColorType::GrayAlpha8 => (pixel[0], [pixel[0]; 3]),
-                PngColorType::Rgb8 | PngColorType::Rgba8 => (
-                    ((u32::from(pixel[0]) * 77
-                        + u32::from(pixel[1]) * 150
-                        + u32::from(pixel[2]) * 29
-                        + 128)
-                        >> 8) as u8,
-                    [pixel[0], pixel[1], pixel[2]],
-                ),
-            };
-            gray.set(x, y, gray_value);
-            rgb.set(x, y, rgb_value);
-        }
-        std::mem::swap(&mut current, &mut previous);
-    }
+    pixels.for_each_row(|y, row| {
+        let rgb_row = &mut rgb.data_mut()[y * width * 3..(y + 1) * width * 3];
+        write_png_row(gray.row_mut(y), Some(rgb_row), row, color_type);
+    })?;
     Ok(DecodedRaster { gray, rgb })
+}
+/// Decodes the same gray plane as `decode_png(..).gray` without allocating the
+/// colour plane the bilevel and grayscale lanes discard.
+pub fn decode_png_gray<R: Read>(reader: R, limits: DecodeLimits) -> Result<GrayImage, RasterError> {
+    let pixels = PngPixels::read(reader, limits)?;
+    let (width, height, color_type) = (pixels.width, pixels.height, pixels.color_type);
+    let mut gray = GrayImage::new(width, height, 255);
+    pixels.for_each_row(|y, row| write_png_row(gray.row_mut(y), None, row, color_type))?;
+    Ok(gray)
+}
+/// Inflated, still-filtered PNG samples: everything both decoders share before
+/// they differ in which planes they materialize.
+struct PngPixels {
+    width: usize,
+    height: usize,
+    color_type: PngColorType,
+    row_bytes: usize,
+    filtered: Vec<u8>,
+}
+impl PngPixels {
+    fn read<R: Read>(reader: R, limits: DecodeLimits) -> Result<Self, RasterError> {
+        let parsed = walk_chunks(reader, WalkMode::Decode(limits))?;
+        let header = parsed.header;
+        let row_bytes = (header.width as usize)
+            .checked_mul(header.color_type.channels())
+            .ok_or_else(|| RasterError::invalid("PNG row overflow"))?;
+        let expected = header.expected_data_len()?;
+        let mut filtered = Vec::with_capacity(expected);
+        ZlibDecoder::new(parsed.idat.as_slice())
+            .take(expected.saturating_add(1) as u64)
+            .read_to_end(&mut filtered)?;
+        if filtered.len() != expected {
+            return Err(RasterError::invalid(format!(
+                "PNG decompressed payload length mismatch: expected {expected} bytes, got {}",
+                filtered.len()
+            )));
+        }
+        Ok(Self {
+            width: header.width as usize,
+            height: header.height as usize,
+            color_type: header.color_type,
+            row_bytes,
+            filtered,
+        })
+    }
+
+    fn for_each_row(self, mut row: impl FnMut(usize, &[u8])) -> Result<(), RasterError> {
+        let channels = self.color_type.channels();
+        let mut current = vec![0; self.row_bytes];
+        let mut previous = vec![0; self.row_bytes];
+        let mut position = 0usize;
+        for y in 0..self.height {
+            let filter = self.filtered[position];
+            position += 1;
+            current.copy_from_slice(&self.filtered[position..position + self.row_bytes]);
+            position += self.row_bytes;
+            unfilter(&mut current, &previous, channels, filter)?;
+            row(y, &current);
+            std::mem::swap(&mut current, &mut previous);
+        }
+        Ok(())
+    }
+}
+fn write_png_row(
+    gray_row: &mut [u8],
+    rgb_row: Option<&mut [u8]>,
+    source: &[u8],
+    color_type: PngColorType,
+) {
+    let channels = color_type.channels();
+    match color_type {
+        PngColorType::Gray8 | PngColorType::GrayAlpha8 => {
+            for (target, pixel) in gray_row.iter_mut().zip(source.chunks_exact(channels)) {
+                *target = pixel[0];
+            }
+            if let Some(rgb_row) = rgb_row {
+                for (target, value) in rgb_row.chunks_exact_mut(3).zip(gray_row.iter().copied()) {
+                    target.fill(value);
+                }
+            }
+        }
+        PngColorType::Rgb8 | PngColorType::Rgba8 => {
+            for (target, pixel) in gray_row.iter_mut().zip(source.chunks_exact(channels)) {
+                *target = luma(pixel);
+            }
+            if let Some(rgb_row) = rgb_row {
+                for (target, pixel) in rgb_row
+                    .chunks_exact_mut(3)
+                    .zip(source.chunks_exact(channels))
+                {
+                    target.copy_from_slice(&pixel[..3]);
+                }
+            }
+        }
+    }
+}
+fn luma(pixel: &[u8]) -> u8 {
+    ((u32::from(pixel[0]) * 77 + u32::from(pixel[1]) * 150 + u32::from(pixel[2]) * 29 + 128) >> 8)
+        as u8
 }
 pub fn write_png<W: Write>(mut writer: W, pixels: PixelBuffer<'_>) -> Result<W, RasterError> {
     let (width, height, stride, data, color_type) = match pixels {
@@ -256,21 +316,28 @@ pub fn decode_p4(
     }
     Ok(image)
 }
-pub fn encode_p4(image: &GrayImage) -> Result<Vec<u8>, RasterError> {
-    if image.width() == 0 || image.height() == 0 {
-        return Err(RasterError::invalid("PBM P4 dimensions must be positive"));
+/// Writes packed bits straight out: `BinaryImage` and PBM P4 are both MSB-first
+/// with one as black, so a row is a byte-order shuffle of its words rather than a
+/// per-pixel decision.
+pub fn encode_p4_bilevel(image: &BinaryImage) -> Result<Vec<u8>, RasterError> {
+    let (mut bytes, row_stride) = start_p4(image.width(), image.height())?;
+    let words_per_line = image.words_per_line();
+    let tail_bits = image.width() % 8;
+    for row in image.words().chunks_exact(words_per_line) {
+        let row_start = bytes.len();
+        for word in row {
+            bytes.extend_from_slice(&word.to_be_bytes());
+        }
+        bytes.truncate(row_start + row_stride);
+        if tail_bits != 0 {
+            let last = bytes.len() - 1;
+            bytes[last] &= u8::MAX << (8 - tail_bits);
+        }
     }
-    let row_stride = image
-        .width()
-        .checked_add(7)
-        .ok_or_else(|| RasterError::invalid("PBM P4 row stride overflow"))?
-        / 8;
-    let bitmap_len = row_stride
-        .checked_mul(image.height())
-        .ok_or_else(|| RasterError::invalid("PBM P4 payload size overflow"))?;
-    let header = format!("P4\n{} {}\n", image.width(), image.height());
-    let mut bytes = Vec::with_capacity(header.len().saturating_add(bitmap_len));
-    bytes.extend_from_slice(header.as_bytes());
+    Ok(bytes)
+}
+pub fn encode_p4(image: &GrayImage) -> Result<Vec<u8>, RasterError> {
+    let (mut bytes, row_stride) = start_p4(image.width(), image.height())?;
     for y in 0..image.height() {
         let row_start = bytes.len();
         bytes.resize(row_start + row_stride, 0);
@@ -287,6 +354,22 @@ pub fn encode_p4(image: &GrayImage) -> Result<Vec<u8>, RasterError> {
         }
     }
     Ok(bytes)
+}
+fn start_p4(width: usize, height: usize) -> Result<(Vec<u8>, usize), RasterError> {
+    if width == 0 || height == 0 {
+        return Err(RasterError::invalid("PBM P4 dimensions must be positive"));
+    }
+    let row_stride = width
+        .checked_add(7)
+        .ok_or_else(|| RasterError::invalid("PBM P4 row stride overflow"))?
+        / 8;
+    let bitmap_len = row_stride
+        .checked_mul(height)
+        .ok_or_else(|| RasterError::invalid("PBM P4 payload size overflow"))?;
+    let header = format!("P4\n{width} {height}\n");
+    let mut bytes = Vec::with_capacity(header.len().saturating_add(bitmap_len));
+    bytes.extend_from_slice(header.as_bytes());
+    Ok((bytes, row_stride))
 }
 const PPM_SIGNATURE: &[u8; 2] = b"P6";
 
@@ -308,50 +391,109 @@ pub fn decode_ppm<R: Read>(
     mut reader: R,
     limits: DecodeLimits,
 ) -> Result<DecodedRaster, RasterError> {
-    let header = parse_ppm_header(&mut reader, limits)?;
-    let row_bytes = header
-        .width
-        .checked_mul(3)
-        .ok_or_else(|| RasterError::invalid("PPM P6 row overflow"))?;
-    let expected = row_bytes
-        .checked_mul(header.height)
-        .ok_or_else(|| RasterError::invalid("PPM P6 payload size overflow"))?;
-    let mut data = Vec::new();
-    data.try_reserve_exact(expected)
-        .map_err(|_| RasterError::invalid("Unable to reserve PPM P6 image data"))?;
-    data.resize(expected, 0);
-    reader.read_exact(&mut data).map_err(|error| {
-        if error.kind() == io::ErrorKind::UnexpectedEof {
-            RasterError::invalid("Truncated PPM P6 payload")
-        } else {
-            error.into()
-        }
-    })?;
-    if reader.read(&mut [0u8; 1])? != 0 {
-        return Err(RasterError::invalid("PPM P6 payload has trailing bytes"));
-    }
-    let max_value = header.max_value;
-    let scale = |sample: u8| -> u8 {
-        if max_value == 255 {
-            sample
-        } else {
-            let clamped = u32::from(sample).min(max_value);
-            ((clamped * 255 + max_value / 2) / max_value) as u8
-        }
-    };
-    let mut gray = GrayImage::new(header.width, header.height, 255);
-    let mut rgb = RgbImage::new(header.width, header.height, [255; 3]);
-    for y in 0..header.height {
-        let row = &data[y * row_bytes..(y + 1) * row_bytes];
-        for (x, pixel) in row.chunks_exact(3).enumerate() {
-            let (r, g, b) = (scale(pixel[0]), scale(pixel[1]), scale(pixel[2]));
-            let gray_value =
-                ((u32::from(r) * 77 + u32::from(g) * 150 + u32::from(b) * 29 + 128) >> 8) as u8;
-            gray.set(x, y, gray_value);
-            rgb.set(x, y, [r, g, b]);
-        }
-    }
+    let pixels = PpmPixels::read(&mut reader, limits)?;
+    let (width, height) = (pixels.width, pixels.height);
+    let mut gray = GrayImage::new(width, height, 255);
+    let mut rgb = RgbImage::new(width, height, [255; 3]);
+    pixels.for_each_row(|y, row, max_value| {
+        let rgb_row = &mut rgb.data_mut()[y * width * 3..(y + 1) * width * 3];
+        write_ppm_row(gray.row_mut(y), Some(rgb_row), row, max_value);
+    });
     Ok(DecodedRaster { gray, rgb })
+}
+/// Decodes the same gray plane as `decode_ppm(..).gray` without allocating the
+/// colour plane the bilevel and grayscale lanes discard.
+pub fn decode_ppm_gray<R: Read>(
+    mut reader: R,
+    limits: DecodeLimits,
+) -> Result<GrayImage, RasterError> {
+    let pixels = PpmPixels::read(&mut reader, limits)?;
+    let mut gray = GrayImage::new(pixels.width, pixels.height, 255);
+    pixels.for_each_row(|y, row, max_value| write_ppm_row(gray.row_mut(y), None, row, max_value));
+    Ok(gray)
+}
+/// The validated PPM P6 payload: everything both decoders share before they
+/// differ in which planes they materialize.
+struct PpmPixels {
+    width: usize,
+    height: usize,
+    max_value: u32,
+    row_bytes: usize,
+    data: Vec<u8>,
+}
+impl PpmPixels {
+    fn read<R: Read>(reader: &mut R, limits: DecodeLimits) -> Result<Self, RasterError> {
+        let header = parse_ppm_header(reader, limits)?;
+        let row_bytes = header
+            .width
+            .checked_mul(3)
+            .ok_or_else(|| RasterError::invalid("PPM P6 row overflow"))?;
+        let expected = row_bytes
+            .checked_mul(header.height)
+            .ok_or_else(|| RasterError::invalid("PPM P6 payload size overflow"))?;
+        let mut data = Vec::new();
+        data.try_reserve_exact(expected)
+            .map_err(|_| RasterError::invalid("Unable to reserve PPM P6 image data"))?;
+        data.resize(expected, 0);
+        reader.read_exact(&mut data).map_err(|error| {
+            if error.kind() == io::ErrorKind::UnexpectedEof {
+                RasterError::invalid("Truncated PPM P6 payload")
+            } else {
+                error.into()
+            }
+        })?;
+        if reader.read(&mut [0u8; 1])? != 0 {
+            return Err(RasterError::invalid("PPM P6 payload has trailing bytes"));
+        }
+        Ok(Self {
+            width: header.width,
+            height: header.height,
+            max_value: header.max_value,
+            row_bytes,
+            data,
+        })
+    }
+
+    fn for_each_row(self, mut row: impl FnMut(usize, &[u8], u32)) {
+        for y in 0..self.height {
+            row(
+                y,
+                &self.data[y * self.row_bytes..(y + 1) * self.row_bytes],
+                self.max_value,
+            );
+        }
+    }
+}
+fn write_ppm_row(gray_row: &mut [u8], rgb_row: Option<&mut [u8]>, source: &[u8], max_value: u32) {
+    match rgb_row {
+        Some(rgb_row) => {
+            for (target, pixel) in rgb_row.chunks_exact_mut(3).zip(source.chunks_exact(3)) {
+                for (sample, source) in target.iter_mut().zip(pixel) {
+                    *sample = scale_ppm_sample(*source, max_value);
+                }
+            }
+            for (target, pixel) in gray_row.iter_mut().zip(rgb_row.chunks_exact(3)) {
+                *target = luma(pixel);
+            }
+        }
+        None => {
+            for (target, pixel) in gray_row.iter_mut().zip(source.chunks_exact(3)) {
+                *target = luma(&[
+                    scale_ppm_sample(pixel[0], max_value),
+                    scale_ppm_sample(pixel[1], max_value),
+                    scale_ppm_sample(pixel[2], max_value),
+                ]);
+            }
+        }
+    }
+}
+fn scale_ppm_sample(sample: u8, max_value: u32) -> u8 {
+    if max_value == 255 {
+        sample
+    } else {
+        let clamped = u32::from(sample).min(max_value);
+        ((clamped * 255 + max_value / 2) / max_value) as u8
+    }
 }
 
 fn parse_ppm_header<R: Read>(

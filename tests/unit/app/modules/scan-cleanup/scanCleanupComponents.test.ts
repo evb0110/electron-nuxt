@@ -36,7 +36,9 @@ import ScanCleanupPreviewPane from '@app/modules/scan-cleanup/components/preview
 import ScanCleanupToolbar from '@app/modules/scan-cleanup/components/ScanCleanupToolbar.vue';
 import ScanCleanupWorkspace from '@app/modules/scan-cleanup/components/ScanCleanupWorkspace.vue';
 import ScanCleanupAutoValueRow from '@app/modules/scan-cleanup/components/settings/ScanCleanupAutoValueRow.vue';
+import ScanCleanupSettingsPanel from '@app/modules/scan-cleanup/components/settings/ScanCleanupSettingsPanel.vue';
 import ToolbarOverflowMenu from '@app/components/toolbar/ToolbarOverflowMenu.vue';
+import {readFileSync} from 'node:fs';
 import {useScanCleanupDocumentSettings} from '@app/modules/scan-cleanup/composables/useScanCleanupDocumentSettings';
 import {resetScanCleanupPreferencesStore} from '@app/modules/scan-cleanup/runtime/scanCleanupPreferencesStore';
 import type {IScanCleanupTabSessionState} from '@app/modules/workspace-shell/tabs/tabSessionStoreTypes';
@@ -143,6 +145,11 @@ vi.mock('@app/modules/scan-cleanup/composables/useScanCleanupWorkspaceSession', 
                 }}).value;
                 return `Analyzing ${String(progress.completedUnits)} / ${String(progress.totalUnits)}`;
             }),
+            progressWidestText: session.detectionProgressWidestText ?? computed(() => {
+                const progress = (session.detectionProgress as {value: {totalUnits: number}}).value;
+                return `Analyzing ${String(progress.totalUnits)} / ${String(progress.totalUnits)}`;
+            }),
+            settledPages: session.detectionSettledPages ?? reactive(new Set()),
             recommendedOutputModeByPage: session.recommendedOutputModeByPage ?? reactive(new Map()),
             recommendedOutputModeConfidenceByPage: session.recommendedOutputModeConfidenceByPage ?? reactive(new Map()),
             recommendedOutputModeReasonByPage: session.recommendedOutputModeReasonByPage ?? reactive(new Map()),
@@ -193,6 +200,9 @@ const translations: Record<string, string> = {
     'scanCleanup.preview.loadingPage': 'Loading page {page}…',
     'scanCleanup.preview.loading': 'Building cleanup preview…',
     'scanCleanup.preview.cleanedAlt': 'Cleaned scan preview for page {page}, {half}',
+    'scanCleanup.preview.originalAlt': 'Original scan preview for page {page}',
+    'scanCleanup.preview.cleaningPage': 'Cleaning page {page}… showing the original scan',
+    'scanCleanup.preview.cleaningAlt': 'Original scan of page {page}, shown while cleanup is still running',
     'scanCleanup.preview.outputHalf.left': 'left half',
     'scanCleanup.preview.outputHalf.right': 'right half',
     'scanCleanup.preview.outputHalf.full': 'full page',
@@ -202,7 +212,7 @@ const translations: Record<string, string> = {
     'scanCleanup.preview.zoomOut': 'Zoom out',
     'scanCleanup.preview.zoomFit': 'Fit',
     'scanCleanup.preview.zoomValue': '{zoom}%',
-    'scanCleanup.preview.fit': 'Fit preview',
+    'scanCleanup.preview.fitPage': 'Fit whole page in view',
     'scanCleanup.preview.toggleZoom': 'Zoom {zoom}, toggle fit and 100%',
     'scanCleanup.output.label': 'Output mode',
     'scanCleanup.output.pageLabel': 'Output mode for pages',
@@ -242,6 +252,11 @@ const translations: Record<string, string> = {
     'scanCleanup.settings.contentBox': 'Content box',
     'scanCleanup.settings.reset': 'Reset',
     'scanCleanup.settings.automatic': 'Automatic',
+    'scanCleanup.preview.page': 'Page {page} of {total}',
+    'scanCleanup.settings.manualSkew': 'Deskew angle ({min}° to {max}°)',
+    'scanCleanup.thickness.label': 'Text thickness ({value})',
+    'scanCleanup.thickness.control': 'Text thickness',
+
     'scanCleanup.settings.manual': 'Manual',
     'scanCleanup.settings.returnToAutomatic': 'Return to automatic',
     'scanCleanup.settings.selectionAlignment': 'Content placement for selected pages',
@@ -281,7 +296,7 @@ const translations: Record<string, string> = {
     'scanCleanup.detectAll.action': 'Detect layout for all pages',
     'scanCleanup.detectAll.redetect': 'Re-detect',
     'scanCleanup.detectAll.progressAria': 'Detecting layout: {detected} of {total} pages',
-    'scanCleanup.detectAll.cancel': 'Cancel detection',
+    'scanCleanup.detectAll.cancelDetection': 'Stop detecting pages — pages already detected keep their results',
     'scanCleanup.detectAll.canceling': 'Canceling…',
     'scanCleanup.pages.resetAll': 'Reset overrides…',
     'scanCleanup.pages.resetConfirm': 'Reset all page overrides?',
@@ -502,6 +517,16 @@ const TabsStub = defineComponent({
 
 const activeUnmounts = new Set<() => void>();
 
+function rawPreviewResult(pageNumber: number): IScanCleanupRawPreviewResult {
+    return {
+        pageNumber,
+        totalPages: 3,
+        rawImageData: new Uint8Array([1]),
+        rawWidthPx: 1000,
+        rawHeightPx: 800,
+    };
+}
+
 function spreadPreviewResult(pageNumber = 1): IScanCleanupPreviewResult {
     const output = (half: 'left' | 'right', x: number) => ({
         imageData: new Uint8Array([1]),
@@ -721,6 +746,80 @@ function mockPreviewGeometry(host: HTMLElement, canvasRects: DOMRect[]) {
     host.querySelectorAll<HTMLElement>('.uniform-canvas').forEach((canvas, index) => {
         vi.spyOn(canvas, 'getBoundingClientRect').mockReturnValue(canvasRects[index] ?? domRect(0, 0, 500, 800));
     });
+}
+
+const previewShellStyleSource = readFileSync(
+    'app/modules/scan-cleanup/components/preview/PreviewShell.css',
+    'utf8',
+);
+const scanCleanupSegmentedSource = readFileSync(
+    'app/modules/scan-cleanup/components/ScanCleanupSegmented.vue',
+    'utf8',
+);
+const scanCleanupToolbarSource = readFileSync(
+    'app/modules/scan-cleanup/components/ScanCleanupToolbar.vue',
+    'utf8',
+);
+
+function settingsPanelProps(
+    settings: Record<string, unknown>,
+    scope: 'all' | 'page' | 'selected',
+    overrides: Record<string, unknown> = {},
+) {
+    const single = <TValue>(value: TValue) => ({
+        empty: false,
+        mixed: false,
+        value,
+    });
+    return {
+        alignmentItems: [],
+        applyScopeItems: [],
+        contentBoxes: single({}),
+        customizedCounts: {
+            all: 0,
+            page: 0,
+            selected: 0,
+        },
+        detectedSkewDegrees: undefined,
+        excluded: single(false),
+        hasScopeOverrides: false,
+        highlightedScope: null,
+        inclusionItems: [],
+        inlineError: '',
+        layout: single('auto'),
+        layoutItems: [],
+        manualSplit: single(null),
+        manualSkew: single(undefined),
+        margins: single({
+            leftMm: 0,
+            topMm: 0,
+            rightMm: 0,
+            bottomMm: 0,
+        }),
+        marginsLinked: true,
+        outputItems: [],
+        outputModeOverride: single(undefined),
+        outputModeOverrideItems: [],
+        overrideCounts: {
+            inclusion: 0,
+            layout: 0,
+            margins: 0,
+            outputMode: 0,
+            placement: 0,
+            rotation: 0,
+        },
+        pageNumber: 1,
+        placementAlignment: single('center'),
+        readingOrderItems: [],
+        rotation: single(0),
+        rotationItems: [],
+        scope,
+        selectedCount: 1,
+        settings,
+        thicknessLabel: '0',
+        totalPages: 392,
+        ...overrides,
+    } as never;
 }
 
 function mountPreviewZoomHarness(options: {
@@ -1502,7 +1601,8 @@ describe('Scan cleanup components', () => {
         await nextTick();
         expect(harness.host.querySelector('.scan-cleanup-toolbar')?.textContent).toContain('2 / 12');
         const cancelDetectionButton = Array.from(harness.host.querySelectorAll<HTMLButtonElement>('button'))
-            .find(button => button.getAttribute('aria-label') === 'Cancel detection');
+            .find(button => button.getAttribute('aria-label')
+                === 'Stop detecting pages — pages already detected keep their results');
         cancelDetectionButton?.click();
         expect(cancelDetection).toHaveBeenCalledOnce();
         isDetecting.value = false;
@@ -1597,6 +1697,7 @@ describe('Scan cleanup components', () => {
             detectionCancelRequested: false,
             detectionError: '',
             detectionProgressText: 'Analyzing 17 / 120',
+            detectionProgressWidestText: 'Analyzing 120 / 120',
             isDetecting: state.detecting,
             isRunning: state.running,
             outputEstimate: '120 source pages → about 145 output pages',
@@ -1925,7 +2026,7 @@ describe('Scan cleanup components', () => {
         expect(harness.host.querySelector('[data-customized-scope="page"] .sr-only')?.textContent)
             .toBe('This page has custom settings');
         expect(harness.host.querySelector('[aria-label="Output mode for pages"]')).not.toBeNull();
-        expect(harness.host.querySelector('#scan-cleanup-apply-page-hint')).toBeNull();
+        expect(harness.host.querySelector('#scan-cleanup-apply-page-hint')?.textContent?.trim()).toBe('');
         layout.value = 'keep-left';
         layout.dispatchEvent(new Event('change', {bubbles: true}));
         await nextTick();
@@ -2088,6 +2189,122 @@ describe('Scan cleanup components', () => {
         expect(harness.host.querySelector('.cutter-stage')?.classList.contains('is-stale-content')).toBe(true);
         expect(harness.host.querySelector('.page-loading-overlay')?.textContent).toContain('Loading page 2…');
         expect(harness.host.querySelector('.refresh-indicator')).toBeNull();
+    });
+
+    it('shows the requested page raw raster under a cleaning notice instead of hiding it', () => {
+        const harness = mount(defineComponent({setup: () => () => h(ScanCleanupPreviewPane, {
+            result: spreadPreviewResult(1),
+            rawResult: rawPreviewResult(2),
+            loading: true,
+            error: '',
+            viewMode: 'cleaned',
+            matchPageSize: true,
+            alignment: 'top-center',
+            pageNumber: 2,
+            totalPages: 3,
+            stalePage: true,
+            manualSplit: null,
+            readingOrder: 'ltr',
+        })}));
+
+        expect(harness.host.querySelector('.raw-preview')).not.toBeNull();
+        expect(harness.host.querySelector('.cleaned-outputs')).toBeNull();
+        expect(harness.host.querySelector('.page-loading-overlay')).toBeNull();
+        expect(harness.host.querySelector('.preview-surface')?.classList.contains('is-stale-page')).toBe(false);
+        expect(harness.host.querySelector('.cutter-stage')?.classList.contains('is-stale-content')).toBe(false);
+        const caption = harness.host.querySelector('.preview-viewport-caption');
+        expect(caption?.textContent).toContain('Cleaning page 2… showing the original scan');
+        expect(caption?.getAttribute('aria-hidden')).toBe('false');
+        expect(harness.host.querySelector<HTMLImageElement>('.raw-preview .preview-pixel')?.alt)
+            .toBe('Original scan of page 2, shown while cleanup is still running');
+        expect(harness.host.querySelector('.drag-overlay-layer')).toBeNull();
+    });
+
+    it('keeps the previous page ghost until the requested page raster exists', () => {
+        const harness = mount(defineComponent({setup: () => () => h(ScanCleanupPreviewPane, {
+            result: spreadPreviewResult(1),
+            rawResult: rawPreviewResult(1),
+            loading: true,
+            error: '',
+            viewMode: 'cleaned',
+            matchPageSize: true,
+            alignment: 'top-center',
+            pageNumber: 2,
+            totalPages: 3,
+            stalePage: true,
+            manualSplit: null,
+            readingOrder: 'ltr',
+        })}));
+
+        expect(harness.host.querySelector('.raw-preview')).toBeNull();
+        expect(harness.host.querySelector('.cutter-stage')?.classList.contains('is-stale-content')).toBe(true);
+        expect(harness.host.querySelector('.page-loading-overlay')?.textContent).toContain('Loading page 2…');
+        expect(harness.host.querySelector('.preview-viewport-caption')?.getAttribute('aria-hidden')).toBe('true');
+    });
+
+    it('replaces the raw raster with the cleaned result inside the same viewport stage', async () => {
+        const result = shallowRef<IScanCleanupPreviewResult | null>(spreadPreviewResult(1));
+        const loading = ref(true);
+        const harness = mount(defineComponent({setup: () => () => h(ScanCleanupPreviewPane, {
+            result: result.value,
+            rawResult: rawPreviewResult(2),
+            loading: loading.value,
+            error: '',
+            viewMode: 'cleaned',
+            matchPageSize: true,
+            alignment: 'top-center',
+            pageNumber: 2,
+            totalPages: 3,
+            stalePage: result.value?.pageNumber !== 2,
+            manualSplit: null,
+            readingOrder: 'ltr',
+        })}));
+
+        const layout = harness.host.querySelector('.preview-viewport-layout');
+        const stage = harness.host.querySelector('.cutter-stage');
+        expect(harness.host.querySelector('.raw-preview')).not.toBeNull();
+
+        result.value = spreadPreviewResult(2);
+        loading.value = false;
+        await nextTick();
+
+        expect(harness.host.querySelector('.preview-viewport-layout')).toBe(layout);
+        expect(harness.host.querySelector('.cutter-stage')).toBe(stage);
+        expect(harness.host.querySelector('.raw-preview')).toBeNull();
+        expect(harness.host.querySelector('.cleaned-outputs')).not.toBeNull();
+        expect(harness.host.querySelector('.preview-viewport-caption')?.textContent?.trim()).toBe('');
+    });
+
+    it('leaves Original mode and cleaned-preview failures untouched while a page loads', async () => {
+        const viewMode = ref<'original' | 'cleaned'>('original');
+        const error = ref('');
+        const harness = mount(defineComponent({setup: () => () => h(ScanCleanupPreviewPane, {
+            result: spreadPreviewResult(1),
+            rawResult: rawPreviewResult(2),
+            loading: true,
+            error: error.value,
+            viewMode: viewMode.value,
+            matchPageSize: true,
+            alignment: 'top-center',
+            pageNumber: 2,
+            totalPages: 3,
+            stalePage: true,
+            manualSplit: null,
+            readingOrder: 'ltr',
+        })}));
+
+        expect(harness.host.querySelector<HTMLImageElement>('.raw-preview .preview-pixel')?.alt)
+            .toBe('Original scan preview for page 1');
+        expect(harness.host.querySelector('.preview-viewport-caption')?.getAttribute('aria-hidden')).toBe('true');
+        expect(harness.host.querySelector('.page-loading-overlay')?.textContent).toContain('Loading page 2…');
+
+        viewMode.value = 'cleaned';
+        error.value = 'cleaned preview failed';
+        await nextTick();
+
+        expect(harness.host.querySelector('.raw-preview')).toBeNull();
+        expect(harness.host.querySelector('.preview-refresh-error')?.textContent)
+            .toContain('Preview isn\'t available. You can still run cleanup.');
     });
 
     it('removes visual half labels while preserving each output half in image alternatives', () => {
@@ -3669,4 +3886,279 @@ describe('Scan cleanup components', () => {
         expect(placed?.style.left).toBe('40%');
         expect(placed?.style.top).toBe('25%');
     });
+
+    it('names the preview fit control after fitting the whole page and marks it pressed', async () => {
+        const harness = mountPreviewZoomHarness();
+        await nextTick();
+        const fit = harness.host.querySelector<HTMLButtonElement>(
+            '[aria-label="Fit whole page in view"]',
+        );
+        expect(fit).not.toBeNull();
+        expect(fit?.querySelector('[data-ui-icon]')?.getAttribute('name')).toBe('i-ph-frame-corners');
+        expect(fit?.getAttribute('aria-pressed')).toBe('true');
+        expect(harness.host.querySelector('[aria-label="Fit preview"]')).toBeNull();
+        expect(harness.host.querySelector('[name="i-ph-arrows-out"]')).toBeNull();
+    });
+
+    it('borrows the app-wide active-control tokens for the preview zoom and comparison controls', () => {
+        expect(previewShellStyleSource).toMatch(
+            /\.preview-zoom-button\.is-active\s*\{[^}]*--app-toolbar-control-active-bg[^}]*--app-control-active-border[^}]*\}/,
+        );
+        expect(previewShellStyleSource).not.toMatch(
+            /\.preview-zoom-button\.is-active\s*\{[^}]*--ui-primary/,
+        );
+        expect(scanCleanupSegmentedSource).toMatch(
+            /\.scan-cleanup-segmented-option\.is-selected\s*\{[^}]*--app-control-active-bg[^}]*--app-control-active-border[^}]*\}/,
+        );
+        expect(scanCleanupSegmentedSource).not.toMatch(
+            /\.scan-cleanup-segmented-option\.is-selected\s*\{[^}]*--ui-primary/,
+        );
+    });
+
+    it('keeps the preview zoom group, legend row and every legend entry mounted in every view state', async () => {
+        const viewMode = ref<'original' | 'cleaned'>('cleaned');
+        const matchPageSize = ref(true);
+        const result = ref<IScanCleanupPreviewResult | null>(null);
+        const harness = mount(defineComponent({setup: () => () => h(ScanCleanupPreviewPane, {
+            result: result.value,
+            rawResult: null,
+            loading: false,
+            error: '',
+            viewMode: viewMode.value,
+            matchPageSize: matchPageSize.value,
+            alignment: 'top-left',
+            pageNumber: 9,
+            totalPages: 392,
+            manualSplit: null,
+            readingOrder: 'ltr',
+        })}));
+
+        const legendEntries = () => harness.host.querySelectorAll('.overlay-legend > span').length;
+        const zoomGroup = () => harness.host.querySelector('.preview-zoom-controls');
+
+        // No result at all: the zoom group still holds its place, disabled.
+        expect(zoomGroup()).not.toBeNull();
+        expect(harness.host.querySelector<HTMLButtonElement>('.preview-zoom-value')?.disabled).toBe(true);
+        expect(legendEntries()).toBe(3);
+        expect(harness.host.querySelector('.overlay-legend')).not.toBeNull();
+
+        result.value = spreadPreviewResult();
+        await nextTick();
+        expect(harness.host.querySelector<HTMLButtonElement>('.preview-zoom-value')?.disabled).toBe(false);
+        expect(legendEntries()).toBe(3);
+
+        // Switching comparison mode hides the ink but keeps the row and its divider.
+        viewMode.value = 'original';
+        await nextTick();
+        expect(harness.host.querySelector('.overlay-legend')?.classList.contains('is-space-reserved')).toBe(true);
+        expect(legendEntries()).toBe(3);
+
+        // Turning off "match page size" must not remove a legend entry either.
+        matchPageSize.value = false;
+        viewMode.value = 'cleaned';
+        await nextTick();
+        expect(legendEntries()).toBe(3);
+        expect(harness.host.querySelectorAll('.overlay-legend > span.is-hidden-entry')).toHaveLength(1);
+    });
+
+    it('reserves the widest page counter and detection counter so their neighbours never move', async () => {
+        const pageNumber = ref(9);
+        const harness = mount(defineComponent({setup: () => () => h(ScanCleanupPreviewPane, {
+            result: null,
+            rawResult: null,
+            loading: false,
+            error: '',
+            matchPageSize: true,
+            alignment: 'top-left',
+            pageNumber: pageNumber.value,
+            totalPages: 392,
+            manualSplit: null,
+            readingOrder: 'ltr',
+        })}));
+        const sizer = () => harness.host
+            .querySelector('.page-label .scan-cleanup-stable-width-sizer')?.textContent;
+        const value = () => harness.host
+            .querySelector('.page-label .scan-cleanup-stable-width-value')?.textContent;
+
+        expect(value()).toBe('Page 9 of 392');
+        expect(sizer()).toBe('Page 392 of 392');
+        pageNumber.value = 10;
+        await nextTick();
+        expect(value()).toBe('Page 10 of 392');
+        // The reserved box is driven by the total, so it does not grow with the page.
+        expect(sizer()).toBe('Page 392 of 392');
+
+        const toolbar = mount(defineComponent(() => () => h(ScanCleanupToolbar, {
+            canDetectAll: false,
+            canRun: true,
+            cancelRequested: false,
+            detectionCancelRequested: false,
+            detectionError: '',
+            detectionProgressText: 'Detecting pages — 9 / 392',
+            detectionProgressWidestText: 'Detecting pages — 392 / 392',
+            isDetecting: true,
+            isRunning: false,
+            outputEstimate: '',
+            percent: 2,
+            progressCountText: '',
+            progressPercentText: '',
+            progressPhaseText: '',
+            progressText: '',
+            runLabel: 'Clean up',
+            runDisabledReason: '',
+            transitionText: '',
+        })));
+        expect(toolbar.host.querySelector('.scan-cleanup-toolbar-count .scan-cleanup-stable-width-sizer')?.textContent)
+            .toBe('Detecting pages — 392 / 392');
+    });
+
+    it('says what stopping detection costs and offers it as a tooltip, not a bare X', () => {
+        const cancelLabel = 'Stop detecting pages — pages already detected keep their results';
+        const harness = mount(defineComponent(() => () => h(ScanCleanupToolbar, {
+            canDetectAll: false,
+            canRun: true,
+            cancelRequested: false,
+            detectionCancelRequested: false,
+            detectionError: '',
+            detectionProgressText: 'Detecting pages — 36 / 392',
+            detectionProgressWidestText: 'Detecting pages — 392 / 392',
+            isDetecting: true,
+            isRunning: false,
+            outputEstimate: '',
+            percent: 9,
+            progressCountText: '',
+            progressPercentText: '',
+            progressPhaseText: '',
+            progressText: '',
+            runLabel: 'Clean up',
+            runDisabledReason: '',
+            transitionText: '',
+        })));
+        const cancel = harness.host.querySelector<HTMLButtonElement>('.scan-cleanup-toolbar-cancel-detection');
+        expect(cancel?.getAttribute('aria-label')).toBe(cancelLabel);
+        expect(scanCleanupToolbarSource).toContain(':text="detectionCancelLabel"');
+        expect(scanCleanupToolbarSource).toContain(':aria-label="detectionCancelLabel"');
+    });
+
+    it('keeps every state-gated setting mounted so switching modes never moves the panel', async () => {
+        const settings = reactive({
+            preserveOriginalQuality: false,
+            layoutMode: 'auto' as const,
+            outputMode: 'bw' as 'auto' | 'bw' | 'grayscale' | 'color' | 'mixed',
+            readingOrder: 'ltr' as const,
+            thickness: 0,
+            crop: true,
+            matchPageSize: true,
+            pageAlignment: 'center' as const,
+            marginsMm: {
+                leftMm: 0,
+                topMm: 0,
+                rightMm: 0,
+                bottomMm: 0,
+            },
+            despeckle: true,
+            skipBlankPages: false,
+            pageOverrides: {},
+        });
+        const scope = ref<'all' | 'page' | 'selected'>('all');
+        const harness = mount(defineComponent({setup: () => () => h(
+            ScanCleanupSettingsPanel,
+            settingsPanelProps(settings, scope.value),
+        )}));
+
+        const thicknessSlider = () => harness.host.querySelector('[aria-label="Text thickness"]');
+        const placementHint = () => harness.host.querySelector('.scan-cleanup-selection-hint.is-reserved');
+        const applyHint = () => harness.host.querySelector('#scan-cleanup-apply-page-hint');
+
+        expect(thicknessSlider()).not.toBeNull();
+        expect(placementHint()).not.toBeNull();
+        expect(applyHint()).not.toBeNull();
+
+        // B&W -> grayscale used to unmount the thickness field and pull every
+        // control below it upwards; now it only disables.
+        settings.outputMode = 'grayscale';
+        await nextTick();
+        expect(thicknessSlider()).not.toBeNull();
+        expect(harness.host.querySelector('.scan-cleanup-field-disabled')).not.toBeNull();
+
+        settings.outputMode = 'color';
+        await nextTick();
+        expect(thicknessSlider()).not.toBeNull();
+
+        // The placement help text is gated by a checkbox; its line stays.
+        settings.matchPageSize = false;
+        await nextTick();
+        expect(placementHint()?.textContent).toContain('Enable match page size');
+        settings.matchPageSize = true;
+        await nextTick();
+        expect(placementHint()).not.toBeNull();
+        expect(placementHint()?.textContent?.trim()).toBe('');
+
+        scope.value = 'page';
+        await nextTick();
+        expect(applyHint()).not.toBeNull();
+        expect(applyHint()?.textContent?.trim()).toBe('');
+    });
+
+    it('starts the deskew stepper at the neutral angle and states the range it accepts', async () => {
+        const settings = reactive({
+            preserveOriginalQuality: false,
+            layoutMode: 'auto' as const,
+            outputMode: 'auto' as const,
+            readingOrder: 'ltr' as const,
+            thickness: 0,
+            crop: true,
+            matchPageSize: true,
+            pageAlignment: 'center' as const,
+            marginsMm: {
+                leftMm: 0,
+                topMm: 0,
+                rightMm: 0,
+                bottomMm: 0,
+            },
+            despeckle: true,
+            skipBlankPages: false,
+            pageOverrides: {},
+        });
+        const manualSkew = ref<{
+            empty: boolean;
+            mixed: boolean;
+            value: number | undefined;
+        }>({
+            empty: false,
+            mixed: false,
+            value: undefined,
+        });
+        const harness = mount(defineComponent({setup: () => () => h(
+            ScanCleanupSettingsPanel,
+            settingsPanelProps(settings, 'page', {manualSkew: manualSkew.value}),
+        )}));
+
+        const entry = () => harness.host
+            .querySelector<HTMLInputElement>('[aria-label="Deskew angle (-15° to 15°)"]');
+        expect(entry()).not.toBeNull();
+        // Automatic used to bind null, and a null number field steps to its
+        // minimum: the first press landed on -15° and never came back.
+        expect(entry()?.value).toBe('0');
+        expect(entry()?.getAttribute('placeholder')).toBeNull();
+
+        manualSkew.value = {
+            empty: false,
+            mixed: false,
+            value: 4.2,
+        };
+        await nextTick();
+        expect(entry()?.value).toBe('4.2');
+        expect(harness.host.querySelector('[data-auto-value-state="manual"]')?.textContent).toContain('+4.2°');
+
+        manualSkew.value = {
+            empty: false,
+            mixed: true,
+            value: undefined,
+        };
+        await nextTick();
+        expect(entry()?.value).toBe('');
+        expect(entry()?.getAttribute('increment-disabled')).toBe('true');
+    });
+
 });

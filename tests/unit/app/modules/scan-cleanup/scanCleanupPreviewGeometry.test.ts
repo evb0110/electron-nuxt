@@ -441,7 +441,7 @@ describe('scan cleanup preview geometry', () => {
         expect(resolvePreviewSpreadCutterCenter(renderedBoxes)).toBe(400);
     });
 
-    it('supersedes an in-flight adjacent prefetch when user navigation takes priority', async () => {
+    it('keeps a prefetch that finishes after navigation superseded it, and starts no more', async () => {
         const prefetchResult = Promise.withResolvers<{pageNumber: number}>();
         const preview = vi.fn((request: {pageNumber: number}) => request.pageNumber === 2
             ? prefetchResult.promise
@@ -465,13 +465,15 @@ describe('scan cleanup preview geometry', () => {
         expect(preview).toHaveBeenCalledTimes(1);
 
         prefetcher.supersede();
-        await preview({pageNumber: 3});
         prefetchResult.resolve({pageNumber: 2});
-        await prefetchResult.promise;
-        await Promise.resolve();
+        for (let turn = 0; turn < 8; turn += 1) await Promise.resolve();
 
-        expect(preview).toHaveBeenCalledTimes(2);
-        expect(store).not.toHaveBeenCalled();
+        // The page is already rendered and the cache key names its content, so
+        // keeping it costs nothing and re-rendering it costs a whole preview.
+        expect(store).toHaveBeenCalledTimes(1);
+        expect(store).toHaveBeenCalledWith('page-2', {pageNumber: 2});
+        // The rest of the superseded queue still never starts.
+        expect(preview).toHaveBeenCalledTimes(1);
     });
 
     it('keeps comparison, spread rendering, cancellation, debounce, and cleaned-cache wiring in the workspace', () => {
@@ -519,7 +521,8 @@ describe('scan cleanup preview geometry', () => {
         expect(scopeSelector).toContain('role="radiogroup"');
         expect(previewSession).toContain('const cache = createScanCleanupPreviewCache()');
         expect(previewSession).toContain('capability.cancelPreview({');
-        expect(previewSession).toContain('result.value && result.value.pageNumber !== requestPage ? 0 : 250');
+        expect(previewSession).toContain('inFlightPreviewPages.length === 0 ? 0 : SCAN_CLEANUP_PREVIEW_BURST_DEBOUNCE_MS');
+        expect(previewSession).toContain('...(navigated');
         expect(previewSession).toContain('requestSequence !== sequence');
         expect(previewSession).not.toContain('options.active() || options.isRunning.value');
         expect(workspace).toContain('@update:manual-split="updateCurrentManualSplit"');

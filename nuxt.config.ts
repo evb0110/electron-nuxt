@@ -368,7 +368,7 @@ export default defineNuxtConfig({
             'ph:x',
             'ph:magnifying-glass-plus',
             'ph:play',
-            'ph:arrows-out',
+            'ph:frame-corners',
             'ph:magic-wand',
             'ph:arrow-u-up-right',
             'ph:text-underline',

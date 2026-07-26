@@ -239,6 +239,92 @@ describe('scan cleanup renderer preview cache', () => {
         expect(withOutputModeOverride).not.toBe(base);
     });
 
+    it('leaves a plan the render cannot consume out of the key', () => {
+        const plan = {
+            widthPoints: 595,
+            heightPoints: 842,
+        };
+        const withoutMatchedPages = {
+            ...previewOptions,
+            matchPageSize: false,
+        };
+        expect(createScanCleanupPreviewCacheKey(1, withoutMatchedPages, '/tmp/source.pdf', 'rev', null, plan))
+            .toBe(createScanCleanupPreviewCacheKey(1, withoutMatchedPages, '/tmp/source.pdf', 'rev', null, null));
+        expect(createScanCleanupPreviewCacheKey(1, previewOptions, '/tmp/source.pdf', 'rev', null, plan))
+            .not.toBe(createScanCleanupPreviewCacheKey(1, previewOptions, '/tmp/source.pdf', 'rev', null, null));
+    });
+
+    it('revalidates every cached page across the detection-completed transition instead of orphaning it', () => {
+        const pages = [
+            200,
+            201,
+            202,
+            203,
+            204,
+            205,
+            206,
+            207,
+        ];
+        const prior = {
+            dominantLayout: 'single-uncut-page' as const,
+            cutterRatioMedian: null,
+            clusterDims: {
+                widthPx: 2119,
+                heightPx: 3204,
+            },
+            agreementStrength: 0.74,
+        };
+        const plan = {
+            widthPoints: 595,
+            heightPoints: 842,
+        };
+        const keyFor = (pageNumber: number, detected: boolean) => createScanCleanupPreviewCacheKey(
+            pageNumber,
+            previewOptions,
+            '/tmp/source.pdf',
+            'rev',
+            detected ? prior : null,
+            detected ? plan : null,
+        );
+
+        const cache = createScanCleanupPreviewCache();
+        for (const pageNumber of pages) cache.set(keyFor(pageNumber, false), result(new Uint8Array(1024), []));
+        expect(cache.size).toBe(pages.length);
+        const bytesBeforeDetection = cache.byteLength;
+
+        // Detection completes: the prior and the plan land for the whole
+        // document in one burst, so every key changes at once.
+        for (const pageNumber of pages) {
+            expect(cache.has(keyFor(pageNumber, true))).toBe(false);
+        }
+        expect(cache.size).toBe(pages.length);
+        expect(cache.byteLength).toBe(bytesBeforeDetection);
+
+        // Revisiting a page reclaims its superseded entry rather than adding a
+        // second generation beside it.
+        expect(cache.get(keyFor(pages[0]!, true))).toBeUndefined();
+        expect(cache.size).toBe(pages.length - 1);
+        for (const pageNumber of pages) cache.set(keyFor(pageNumber, true), result(new Uint8Array(1024), []));
+        expect(cache.size).toBe(pages.length);
+        expect(cache.byteLength).toBe(bytesBeforeDetection);
+        for (const pageNumber of pages) {
+            expect(cache.has(keyFor(pageNumber, true))).toBe(true);
+            expect(cache.has(keyFor(pageNumber, false))).toBe(false);
+        }
+    });
+
+    it('lets the byte budget bind before the entry count', () => {
+        const cache = createScanCleanupPreviewCache();
+        const pageBytes = 1_056_837; // An interior page of the 392-page reference scan.
+        const pages = Array.from({length: 96}, (_unused, index) => 100 + index);
+        for (const pageNumber of pages) {
+            cache.set(`page-${pageNumber}`, result(new Uint8Array(pageBytes), []));
+        }
+        expect(cache.byteLength).toBeLessThanOrEqual(96 * 1024 * 1024);
+        expect(cache.size).toBe(Math.floor(96 * 1024 * 1024 / pageBytes));
+        expect(cache.size).toBeGreaterThan(10);
+    });
+
     it('evicts by bytes and count while accounting for derivable shared input bytes once', () => {
         const cache = createScanCleanupPreviewCache({
             maxEntries: 2,

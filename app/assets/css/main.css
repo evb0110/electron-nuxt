@@ -133,7 +133,6 @@
     --app-progress-card-gap: var(--app-space-9xl);
     --app-progress-card-padding: 2rem 3rem;
     --app-progress-card-radius: var(--app-radius-3xl);
-    --app-scan-preview-page-label-width: 7rem;
     --app-scan-preview-surface-height: 24rem;
     --app-scan-preview-content-height: 21rem;
     --app-scan-preview-page-width: 14rem;
@@ -143,6 +142,7 @@
     --app-scan-preview-compact-content-height: 15rem;
     --app-scan-dialog-rail-width: 20rem;
     --app-scan-header-height: 3.5rem;
+    --app-scan-settings-affordance-height: var(--app-control-height-xs);
     --app-scan-page-list-width: 25rem;
     --app-scan-page-list-collapsed-width: 3rem;
     --app-scan-reset-confirmation-width: 17rem;

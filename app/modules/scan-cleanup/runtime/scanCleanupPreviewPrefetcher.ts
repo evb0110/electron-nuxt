@@ -34,12 +34,17 @@ export function createScanCleanupPreviewPrefetcher<TRequest, TResult>(
                 if (current.generation !== generation) break;
                 if (dependencies.isCached(candidate.key)) continue;
                 try {
-                    const result = await dependencies.preview(candidate.request);
-                    if (current.generation !== generation) break;
-                    dependencies.store(candidate.key, result);
+                    // A prefetch that reached the renderer is stored even when
+                    // navigation has already moved past it. The key names the
+                    // page and the options that produced it, so a late entry is
+                    // never stale, and discarding it threw away the whole cost
+                    // of the request for nothing.
+                    dependencies.store(candidate.key, await dependencies.preview(candidate.request));
                 } catch {
-                    if (current.generation !== generation) break;
+                    // Aborted or failed: the next schedule re-queues whatever
+                    // the user still wants.
                 }
+                if (current.generation !== generation) break;
             }
         }
     }

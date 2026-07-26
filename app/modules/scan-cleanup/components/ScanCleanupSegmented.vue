@@ -113,10 +113,18 @@ function handleKeydown(event: KeyboardEvent, index: number) {
     color: var(--ui-text);
 }
 
+/* Selected reads like every other selected control in the app (toolbar buttons,
+   sidebar tabs): the elevated surface plus the active border, default ink. */
 .scan-cleanup-segmented-option.is-selected {
-    background: var(--ui-bg);
-    color: var(--ui-primary);
-    box-shadow: var(--shadow-sm);
+    background: var(--app-control-active-bg);
+    box-shadow: inset 0 0 0 var(--app-hairline-height) var(--app-control-active-border);
+    color: var(--ui-text);
+}
+
+.scan-cleanup-segmented-option.is-selected:hover:not(:disabled) {
+    background: var(--app-control-active-hover-bg);
+    box-shadow: inset 0 0 0 var(--app-hairline-height) var(--app-control-active-hover-border);
+    color: var(--ui-text);
 }
 
 .scan-cleanup-segmented-option:focus-visible {

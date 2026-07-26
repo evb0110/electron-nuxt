@@ -49,15 +49,16 @@ export async function readPngDimensions(path: string) {
     }
 }
 
-export async function readPbmDimensions(path: string) {
+async function readNetpbmDimensions(path: string, magic: 'P4' | 'P6') {
+    const format = magic === 'P4' ? 'PBM' : 'PPM';
     const fileStats = await stat(path);
     const handle = await open(path, 'r');
     try {
         const header = Buffer.alloc(Math.min(fileStats.size, 4_096));
         const {bytesRead} = await handle.read(header, 0, header.byteLength, 0);
         const data = header.subarray(0, bytesRead);
-        if (data.subarray(0, 2).toString('ascii') !== 'P4') {
-            throw new Error(`Unsupported PBM header for ${path}`);
+        if (data.subarray(0, 2).toString('ascii') !== magic) {
+            throw new Error(`Unsupported ${format} header for ${path}`);
         }
         const state = {offset: 2};
         function readNumber(label: string) {
@@ -82,24 +83,29 @@ export async function readPbmDimensions(path: string) {
                 state.offset += 1;
             }
             if (start === state.offset) {
-                throw new Error(`Invalid PBM ${label} for ${path}`);
+                throw new Error(`Invalid ${format} ${label} for ${path}`);
             }
             const value = Number.parseInt(data.subarray(start, state.offset).toString('ascii'), 10);
             if (!Number.isSafeInteger(value) || value <= 0) {
-                throw new Error(`Invalid PBM ${label} for ${path}`);
+                throw new Error(`Invalid ${format} ${label} for ${path}`);
             }
             return value;
         }
         const width = readNumber('width');
         const height = readNumber('height');
+        const maxValue = magic === 'P6' ? readNumber('max value') : 1;
+        if (maxValue > 65_535) {
+            throw new Error(`Invalid ${format} max value for ${path}`);
+        }
         const terminator = data[state.offset];
         if (terminator !== 0x09 && terminator !== 0x0a && terminator !== 0x0d && terminator !== 0x20) {
-            throw new Error(`Invalid PBM header terminator for ${path}`);
+            throw new Error(`Invalid ${format} header terminator for ${path}`);
         }
         state.offset += terminator === 0x0d && data[state.offset + 1] === 0x0a ? 2 : 1;
-        const expectedBytes = state.offset + Math.ceil(width / 8) * height;
+        const rowBytes = magic === 'P4' ? Math.ceil(width / 8) : width * 3 * (maxValue > 255 ? 2 : 1);
+        const expectedBytes = state.offset + rowBytes * height;
         if (!Number.isSafeInteger(expectedBytes) || fileStats.size < expectedBytes) {
-            throw new Error(`Truncated PBM payload for ${path}`);
+            throw new Error(`Truncated ${format} payload for ${path}`);
         }
         return {
             width,
@@ -108,4 +114,12 @@ export async function readPbmDimensions(path: string) {
     } finally {
         await handle.close();
     }
+}
+
+export function readPbmDimensions(path: string) {
+    return readNetpbmDimensions(path, 'P4');
+}
+
+export function readPpmDimensions(path: string) {
+    return readNetpbmDimensions(path, 'P6');
 }

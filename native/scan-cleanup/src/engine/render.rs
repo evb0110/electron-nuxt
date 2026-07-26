@@ -42,7 +42,7 @@ use scan_primitives::{
     GrayImage, Point, Polygon, Rect,
 };
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
-use std::{sync::Arc, time::Instant};
+use std::{borrow::Cow, sync::Arc, time::Instant};
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -164,15 +164,81 @@ pub enum MatchedCanvasPolicy {
 }
 
 pub struct CleanupResult {
-    pub image: GrayImage,
+    pub image: CleanupRaster,
     pub color_image: Option<RgbImage>,
     pub metadata: CleanupMetadata,
     pub(crate) mixed_layers: Option<MixedLayers>,
     effectively_blank: bool,
 }
 
+/// The rendered page, in whichever representation produced it. A binarized page
+/// stays in the binarizer's packed bits all the way to the PBM writer, which is
+/// the same MSB-first layout; only consumers that need 8-bit samples widen it.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum CleanupRaster {
+    Gray(GrayImage),
+    Bilevel(BinaryImage),
+}
+
+impl CleanupRaster {
+    pub fn width(&self) -> usize {
+        match self {
+            Self::Gray(image) => image.width(),
+            Self::Bilevel(image) => image.width(),
+        }
+    }
+
+    pub fn height(&self) -> usize {
+        match self {
+            Self::Gray(image) => image.height(),
+            Self::Bilevel(image) => image.height(),
+        }
+    }
+
+    pub fn get(&self, x: usize, y: usize) -> u8 {
+        match self {
+            Self::Gray(image) => image.get(x, y),
+            Self::Bilevel(image) => {
+                if image.get(x, y) {
+                    0
+                } else {
+                    255
+                }
+            }
+        }
+    }
+
+    pub fn bilevel(&self) -> Option<&BinaryImage> {
+        match self {
+            Self::Gray(_) => None,
+            Self::Bilevel(image) => Some(image),
+        }
+    }
+
+    pub fn to_gray(&self) -> Cow<'_, GrayImage> {
+        match self {
+            Self::Gray(image) => Cow::Borrowed(image),
+            Self::Bilevel(image) => Cow::Owned(binary_to_gray(image)),
+        }
+    }
+
+    pub fn into_gray(self) -> GrayImage {
+        match self {
+            Self::Gray(image) => image,
+            Self::Bilevel(image) => binary_to_gray(&image),
+        }
+    }
+
+    fn cropped(&self, rect: Rect) -> Self {
+        match self {
+            Self::Gray(image) => Self::Gray(crop_gray(image, rect)),
+            Self::Bilevel(image) => Self::Bilevel(crop_binary(image, rect)),
+        }
+    }
+}
+
 pub(crate) struct MixedLayers {
-    pub foreground_mask: GrayImage,
+    pub foreground_mask: BinaryImage,
     pub background: GrayImage,
     pub color_background: Option<RgbImage>,
 }
@@ -222,7 +288,7 @@ pub(crate) fn clean_detail_page_with_color(
     let normalized_gray;
     let normalized_color;
     let processing_source = if options.normalize_illumination {
-        let (rotated_base, _) = rotate_orthogonal(base_source, options.rotation);
+        let rotated_base = rotate_orthogonal(base_source, options.rotation);
         let model = reusable_illumination_model(&rotated_base);
         let coordinate = |x, y| {
             rotated_normalized_detail_coordinate(
@@ -315,12 +381,12 @@ pub(crate) fn clean_detail_page_with_color(
         render_region.width,
         render_region.height,
     );
-    output.image = crop_gray(&output.image, payload_rect);
+    output.image = output.image.cropped(payload_rect);
     output.color_image = output
         .color_image
         .map(|image| crop_rgb(&image, payload_rect));
     output.mixed_layers = output.mixed_layers.map(|layers| MixedLayers {
-        foreground_mask: crop_gray(&layers.foreground_mask, payload_rect),
+        foreground_mask: crop_binary(&layers.foreground_mask, payload_rect),
         background: crop_gray(&layers.background, payload_rect),
         color_background: layers
             .color_background
@@ -646,8 +712,9 @@ pub struct PageAnalysisResult {
     pub output_mode_recommendation: Option<OutputModeRecommendation>,
 }
 
-struct PreparedPage {
-    rotated_source: GrayImage,
+struct PreparedPage<'a> {
+    /// `None` when the rotated source and `normalized` are the same buffer.
+    rotated_source: Option<Cow<'a, GrayImage>>,
     normalized: Arc<GrayImage>,
     analysis_normalized: Option<Arc<GrayImage>>,
     analysis_scale_x: f64,
@@ -1188,7 +1255,7 @@ fn clean_page_with_color_and_calibration_config(
     for (region, half) in regions {
         outputs.push(clean_region(
             source,
-            &rotated_source,
+            rotated_source.as_deref().unwrap_or(&normalized),
             &normalized,
             analysis_normalized.as_deref().unwrap_or(&normalized),
             analysis_scale_x,
@@ -1227,8 +1294,8 @@ fn clean_page_with_color_and_calibration_config(
     })
 }
 
-fn prepare_page(
-    source: &GrayImage,
+fn prepare_page<'a>(
+    source: &'a GrayImage,
     color_source: Option<&RgbImage>,
     options: &CleanupOptions,
     calibration_config: CalibrationConfig,
@@ -1236,7 +1303,7 @@ fn prepare_page(
     cache: Option<&PageCache>,
     render_policy: PageRenderPolicy,
     timings: &mut PageStageTimings,
-) -> PreparedPage {
+) -> PreparedPage<'a> {
     let PreparedAnalysis {
         normalized: analysis_normalized,
         split,
@@ -1270,7 +1337,10 @@ fn prepare_page(
         resolved_options.output_mode = resolved_output_mode;
         &resolved_options
     };
-    let (rotated_source, _) = rotate_orthogonal(source, options.rotation);
+    let rotated_source = match options.rotation {
+        OrthogonalRotation::None => Cow::Borrowed(source),
+        rotation => Cow::Owned(rotate_orthogonal(source, rotation)),
+    };
     let analysis_is_full = analysis_normalized.width() == full_width
         && analysis_normalized.height() == full_height
         && scale_x == 1.0
@@ -1286,37 +1356,45 @@ fn prepare_page(
     } else {
         None
     };
-    let rotated_color = color_source
-        .map(|image| rotate_rgb_orthogonal(image, options.rotation))
-        .map(|image| {
-            if options.normalize_illumination {
-                if let Some(mask) = picture_mask.as_deref() {
-                    normalize_illumination_rgb_with_picture_mask(
-                        &rotated_source,
-                        &image,
-                        options.dpi,
-                        Some(mask),
-                    )
-                } else {
-                    normalize_illumination_rgb(&rotated_source, &image, options.dpi)
-                }
-            } else {
-                image
-            }
-        });
-    let (normalized, analysis_normalized) = if analysis_is_full {
-        (analysis_normalized, None)
-    } else {
-        let normalized = if options.normalize_illumination {
+    let rotated_color = color_source.map(|image| {
+        let rotated = match options.rotation {
+            OrthogonalRotation::None => Cow::Borrowed(image),
+            rotation => Cow::Owned(rotate_rgb_orthogonal(image, rotation)),
+        };
+        if options.normalize_illumination {
             if let Some(mask) = picture_mask.as_deref() {
-                normalize_illumination_with_picture_mask(&rotated_source, options.dpi, Some(mask))
+                normalize_illumination_rgb_with_picture_mask(
+                    &rotated_source,
+                    &rotated,
+                    options.dpi,
+                    Some(mask),
+                )
             } else {
-                normalize_illumination(&rotated_source, options.dpi)
+                normalize_illumination_rgb(&rotated_source, &rotated, options.dpi)
             }
         } else {
-            rotated_source.clone()
+            rotated.into_owned()
+        }
+    });
+    let (rotated_source, normalized, analysis_normalized) = if analysis_is_full {
+        (Some(rotated_source), analysis_normalized, None)
+    } else if options.normalize_illumination {
+        let normalized = if let Some(mask) = picture_mask.as_deref() {
+            normalize_illumination_with_picture_mask(&rotated_source, options.dpi, Some(mask))
+        } else {
+            normalize_illumination(&rotated_source, options.dpi)
         };
-        (Arc::new(normalized), Some(analysis_normalized))
+        (
+            Some(rotated_source),
+            Arc::new(normalized),
+            Some(analysis_normalized),
+        )
+    } else {
+        (
+            None,
+            Arc::new(rotated_source.into_owned()),
+            Some(analysis_normalized),
+        )
     };
     PreparedPage {
         rotated_source,
@@ -1373,7 +1451,7 @@ fn prepare_analysis_page(
             scale_x: source_scale_x,
             scale_y: source_scale_y,
         } = build_analysis_level(source, options.dpi, 150.0);
-        let (rotated, _) = rotate_orthogonal(&image, options.rotation);
+        let rotated = rotate_orthogonal(&image, options.rotation);
         let analysis_rgb = color_source
             .map(|rgb| downscale_rgb_to_dimensions(rgb, image.width(), image.height()))
             .map(|rgb| rotate_rgb_orthogonal(&rgb, options.rotation));
@@ -1670,7 +1748,8 @@ fn clean_region(
     create_mixed_layers: bool,
     timings: &mut PageStageTimings,
 ) -> Result<CleanupResult, String> {
-    let working = crop_gray(normalized, region);
+    let working_width = region.width.round().max(1.0) as usize;
+    let working_height = region.height.round().max(1.0) as usize;
     let analysis_region = Rect::new(
         region.x * analysis_scale_x,
         region.y * analysis_scale_y,
@@ -1680,8 +1759,8 @@ fn clean_region(
     let analysis_working = crop_gray(analysis_normalized, analysis_region);
     let analysis_picture_working =
         analysis_picture_mask.map(|mask| crop_binary(mask, analysis_region));
-    let local_scale_x = analysis_working.width() as f64 / working.width().max(1) as f64;
-    let local_scale_y = analysis_working.height() as f64 / working.height().max(1) as f64;
+    let local_scale_x = analysis_working.width() as f64 / working_width.max(1) as f64;
+    let local_scale_y = analysis_working.height() as f64 / working_height.max(1) as f64;
     let deskew_key = cache
         .zip(split_cache_key)
         .map(|(cache, split_key)| StageCacheKey::deskew(&cache.source, options, split_key, region));
@@ -1714,7 +1793,7 @@ fn clean_region(
             )
     };
     timings.deskew_ms += deskew_started.elapsed().as_secs_f64() * 1_000.0;
-    let local_deskew_forward = deskew_transform(working.width(), working.height(), deskew);
+    let local_deskew_forward = deskew_transform(working_width, working_height, deskew);
     let local_deskew_inverse = local_deskew_forward
         .inverse()
         .ok_or("Deskew transform is not invertible")?;
@@ -1746,7 +1825,7 @@ fn clean_region(
         Affine::translation(-region.x, -region.y).then(local_deskew_forward);
     let automatic_dewarp = if options.dewarp.is_none() && options.experimental.auto_dewarp {
         let mut detected = detect_curves_at_dpi_with_depth(
-            &working,
+            &crop_gray(normalized, region),
             calibration.effective_dpi,
             options.experimental.auto_dewarp_depth,
         );
@@ -1814,22 +1893,18 @@ fn clean_region(
         let detected = if let Some(manual) =
             options.resolved_manual_content_for(half, normalized.width(), normalized.height())
         {
-            let left = manual
-                .x
-                .clamp(0.0, working.width().saturating_sub(1) as f64);
-            let top = manual
-                .y
-                .clamp(0.0, working.height().saturating_sub(1) as f64);
-            let right = manual.right().clamp(left + 1.0, working.width() as f64);
-            let bottom = manual.bottom().clamp(top + 1.0, working.height() as f64);
+            let left = manual.x.clamp(0.0, working_width.saturating_sub(1) as f64);
+            let top = manual.y.clamp(0.0, working_height.saturating_sub(1) as f64);
+            let right = manual.right().clamp(left + 1.0, working_width as f64);
+            let bottom = manual.bottom().clamp(top + 1.0, working_height as f64);
             let source_content = Rect::new(left, top, right - left, bottom - top);
             let deskewed_content = transform_rect_bounds(source_content, local_deskew_forward);
             let output_content = if let Some(model) = &dewarp_model {
                 map_rect_bounds(deskewed_content, |point| {
                     model.map_source_to_unit_approx(point).map(|unit| {
                         Point::new(
-                            unit.x * working.width() as f64,
-                            unit.y * working.height() as f64,
+                            unit.x * working_width as f64,
+                            unit.y * working_height as f64,
                         )
                     })
                 })
@@ -1864,8 +1939,8 @@ fn clean_region(
                     map_rect_bounds(rect, |point| {
                         model
                             .map_unit_to_source(
-                                point.x / working.width() as f64,
-                                point.y / working.height() as f64,
+                                point.x / working_width as f64,
+                                point.y / working_height as f64,
                             )
                             .map(|deskewed| local_deskew_inverse.apply(deskewed))
                     })
@@ -1892,8 +1967,8 @@ fn clean_region(
     };
     timings.content_ms += content_started.elapsed().as_secs_f64() * 1_000.0;
     let content = content_result_for_dimensions(
-        working.width(),
-        working.height(),
+        working_width,
+        working_height,
         options.dpi,
         detected.detected_content,
         options.margins_mm.map(crate::MarginsMm::values),
@@ -1905,7 +1980,7 @@ fn clean_region(
     let output_rect = if crop_enabled {
         content.output_rect
     } else {
-        Rect::new(0.0, 0.0, working.width() as f64, working.height() as f64)
+        Rect::new(0.0, 0.0, working_width as f64, working_height as f64)
     };
     let output_width = output_rect.width.ceil().max(1.0) as usize;
     let output_height = output_rect.height.ceil().max(1.0) as usize;
@@ -1938,8 +2013,8 @@ fn clean_region(
         local_deskew_forward,
         local_deskew_inverse,
         dewarp_model.clone(),
-        working.width(),
-        working.height(),
+        working_width,
+        working_height,
         render_rect,
     );
     let rendered_width = render_plan.output_width();
@@ -1965,8 +2040,8 @@ fn clean_region(
                         local_deskew_forward,
                         local_deskew_inverse,
                         dewarp_model,
-                        working.width(),
-                        working.height(),
+                        working_width,
+                        working_height,
                         Rect::new(
                             output_rect.x + crop.x,
                             output_rect.y + crop.y,
@@ -2018,7 +2093,11 @@ fn clean_region(
         mut mixed_layers,
     ) = if fail_closed_blank {
         (
-            GrayImage::new(rendered_width, rendered_height, 255),
+            if matches!(options.output_mode, OutputMode::Bw | OutputMode::Mixed) {
+                CleanupRaster::Bilevel(BinaryImage::new(rendered_width, rendered_height))
+            } else {
+                CleanupRaster::Gray(GrayImage::new(rendered_width, rendered_height, 255))
+            },
             if options.output_mode == OutputMode::Color && rendered_color.is_some() {
                 Some(RgbImage::new(rendered_width, rendered_height, [255; 3]))
             } else {
@@ -2065,7 +2144,7 @@ fn clean_region(
                     (fresh_binary, fresh_despeckle_fallback)
                 };
                 (
-                    binary_to_gray(&binary),
+                    CleanupRaster::Bilevel(binary),
                     None,
                     Some(mode),
                     Some(diagnostics),
@@ -2088,7 +2167,7 @@ fn clean_region(
                         );
                     let mode = diagnostics.route;
                     (
-                        binary_to_gray(&binary),
+                        CleanupRaster::Bilevel(binary),
                         None,
                         Some(mode),
                         Some(diagnostics),
@@ -2113,7 +2192,7 @@ fn clean_region(
                         create_mixed_layers,
                     );
                     (
-                        mixed_gray,
+                        CleanupRaster::Gray(mixed_gray),
                         mixed_color,
                         Some(mode),
                         Some(diagnostics),
@@ -2122,8 +2201,22 @@ fn clean_region(
                     )
                 }
             }
-            OutputMode::Grayscale => (rendered_gray, None, None, None, false, None),
-            OutputMode::Color => (rendered_gray, rendered_color, None, None, false, None),
+            OutputMode::Grayscale => (
+                CleanupRaster::Gray(rendered_gray),
+                None,
+                None,
+                None,
+                false,
+                None,
+            ),
+            OutputMode::Color => (
+                CleanupRaster::Gray(rendered_gray),
+                rendered_color,
+                None,
+                None,
+                false,
+                None,
+            ),
             OutputMode::Auto => unreachable!("automatic output mode is resolved before render"),
         }
     };
@@ -2134,10 +2227,10 @@ fn clean_region(
             requested.width,
             requested.height,
         );
-        image = crop_gray(&image, payload_rect);
+        image = image.cropped(payload_rect);
         color_image = color_image.map(|source| crop_rgb(&source, payload_rect));
         mixed_layers = mixed_layers.map(|layers| MixedLayers {
-            foreground_mask: crop_gray(&layers.foreground_mask, payload_rect),
+            foreground_mask: crop_binary(&layers.foreground_mask, payload_rect),
             background: crop_gray(&layers.background, payload_rect),
             color_background: layers
                 .color_background
@@ -2332,7 +2425,7 @@ fn compose_mixed(
         }
     }
     let layers = create_layers.then(|| {
-        let foreground_mask = binary_to_gray(binary);
+        let foreground_mask = binary.clone();
         let mut background = mixed_gray.clone();
         let mut color_background = mixed_color.clone();
         for y in 0..gray.height() {
@@ -2412,68 +2505,83 @@ pub(crate) fn downscale_rgb_to_dimensions(
 
 fn rotate_rgb_orthogonal(source: &RgbImage, rotation: OrthogonalRotation) -> RgbImage {
     let (width, height) = (source.width(), source.height());
-    let (output_width, output_height) = match rotation {
-        OrthogonalRotation::None | OrthogonalRotation::Clockwise180 => (width, height),
-        OrthogonalRotation::Clockwise90 | OrthogonalRotation::Clockwise270 => (height, width),
-    };
-    let mut output = RgbImage::new(output_width, output_height, [255; 3]);
-    for y in 0..height {
-        for x in 0..width {
-            let (target_x, target_y) = match rotation {
-                OrthogonalRotation::None => (x, y),
-                OrthogonalRotation::Clockwise90 => (height - 1 - y, x),
-                OrthogonalRotation::Clockwise180 => (width - 1 - x, height - 1 - y),
-                OrthogonalRotation::Clockwise270 => (y, width - 1 - x),
-            };
-            output.set(target_x, target_y, source.get(x, y));
+    match rotation {
+        OrthogonalRotation::None => source.clone(),
+        OrthogonalRotation::Clockwise180 => {
+            let mut output = RgbImage::new(width, height, [255; 3]);
+            let pixels = source.data().chunks_exact(3);
+            for (target, value) in output.data_mut().chunks_exact_mut(3).rev().zip(pixels) {
+                target.copy_from_slice(value);
+            }
+            output
+        }
+        OrthogonalRotation::Clockwise90 => {
+            let mut output = RgbImage::new(height, width, [255; 3]);
+            for y in 0..height {
+                let target_x = height - 1 - y;
+                for (x, value) in source.row(y).chunks_exact(3).enumerate() {
+                    output.set(target_x, x, [value[0], value[1], value[2]]);
+                }
+            }
+            output
+        }
+        OrthogonalRotation::Clockwise270 => {
+            let mut output = RgbImage::new(height, width, [255; 3]);
+            for y in 0..height {
+                for (x, value) in source.row(y).chunks_exact(3).enumerate() {
+                    output.set(y, width - 1 - x, [value[0], value[1], value[2]]);
+                }
+            }
+            output
         }
     }
-    output
 }
 
-fn rotate_orthogonal(source: &GrayImage, rotation: OrthogonalRotation) -> (GrayImage, Affine) {
+fn rotate_orthogonal(source: &GrayImage, rotation: OrthogonalRotation) -> GrayImage {
     let (width, height) = (source.width(), source.height());
-    let (output_width, output_height, forward) = match rotation {
-        OrthogonalRotation::None => (width, height, Affine::IDENTITY),
-        OrthogonalRotation::Clockwise90 => (
-            height,
-            width,
-            Affine {
-                matrix: [[0.0, -1.0, height as f64], [1.0, 0.0, 0.0], [0.0, 0.0, 1.0]],
-            },
-        ),
-        OrthogonalRotation::Clockwise180 => (
-            width,
-            height,
-            Affine {
-                matrix: [
-                    [-1.0, 0.0, width as f64],
-                    [0.0, -1.0, height as f64],
-                    [0.0, 0.0, 1.0],
-                ],
-            },
-        ),
-        OrthogonalRotation::Clockwise270 => (
-            height,
-            width,
-            Affine {
-                matrix: [[0.0, 1.0, 0.0], [-1.0, 0.0, width as f64], [0.0, 0.0, 1.0]],
-            },
-        ),
-    };
-    let mut output = GrayImage::new(output_width, output_height, 255);
-    for y in 0..height {
-        for x in 0..width {
-            let (target_x, target_y) = match rotation {
-                OrthogonalRotation::None => (x, y),
-                OrthogonalRotation::Clockwise90 => (height - 1 - y, x),
-                OrthogonalRotation::Clockwise180 => (width - 1 - x, height - 1 - y),
-                OrthogonalRotation::Clockwise270 => (y, width - 1 - x),
-            };
-            output.set(target_x, target_y, source.get(x, y));
+    match rotation {
+        OrthogonalRotation::None => {
+            let mut output = GrayImage::new(width, height, 255);
+            for y in 0..height {
+                output.row_mut(y).copy_from_slice(source.row(y));
+            }
+            output
+        }
+        OrthogonalRotation::Clockwise180 => {
+            let mut output = GrayImage::new(width, height, 255);
+            for y in 0..height {
+                let source_row = source.row(y);
+                for (target, value) in output
+                    .row_mut(height - 1 - y)
+                    .iter_mut()
+                    .rev()
+                    .zip(source_row)
+                {
+                    *target = *value;
+                }
+            }
+            output
+        }
+        OrthogonalRotation::Clockwise90 => {
+            let mut output = GrayImage::new(height, width, 255);
+            for y in 0..height {
+                let target_x = height - 1 - y;
+                for (x, value) in source.row(y).iter().enumerate() {
+                    output.set(target_x, x, *value);
+                }
+            }
+            output
+        }
+        OrthogonalRotation::Clockwise270 => {
+            let mut output = GrayImage::new(height, width, 255);
+            for y in 0..height {
+                for (x, value) in source.row(y).iter().enumerate() {
+                    output.set(y, width - 1 - x, *value);
+                }
+            }
+            output
         }
     }
-    (output, forward)
 }
 
 fn is_effectively_blank(image: &GrayImage, dpi: f64) -> bool {
@@ -2490,10 +2598,11 @@ fn crop_gray(source: &GrayImage, rect: Rect) -> GrayImage {
     let width = rect.width.round().max(1.0) as usize;
     let height = rect.height.round().max(1.0) as usize;
     let mut output = GrayImage::new(width, height, 255);
-    for y in 0..height.min(source.height().saturating_sub(top)) {
-        for x in 0..width.min(source.width().saturating_sub(left)) {
-            output.set(x, y, source.get(left + x, top + y));
-        }
+    let copy_width = width.min(source.width().saturating_sub(left));
+    let copy_height = height.min(source.height().saturating_sub(top));
+    for y in 0..copy_height {
+        output.row_mut(y)[..copy_width]
+            .copy_from_slice(&source.row(top + y)[left..left + copy_width]);
     }
     output
 }
