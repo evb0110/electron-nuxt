@@ -114,7 +114,7 @@ function pumpNativeCommandAdmissionWaiters() {
     }
 }
 
-function acquireNativeCommandAdmission(signal?: AbortSignal) {
+export function acquireNativeCommandAdmission(signal?: AbortSignal) {
     if (signal?.aborted) {
         return Promise.reject(abortErrorFromSignal(signal));
     }

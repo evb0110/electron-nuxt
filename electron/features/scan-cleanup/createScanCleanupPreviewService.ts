@@ -151,6 +151,8 @@ type TDetectionError = IMainJobErrorEnvelope<TScanCleanupErrorCode>;
 type TDetectionSnapshot = TMainJobSnapshot<TScanCleanupDetectionJobState, IDetectionResult, TDetectionError>;
 export interface IScanCleanupDetectionSubscriber extends IMainJobSender {id: number;}
 
+type TPreviewVisibility = 'visible' | 'prefetch';
+
 export interface IScanCleanupPreviewDependencies {
     getPageCount: typeof getPdfPageCount;
     renderPage: typeof renderPdfPageToPng;
@@ -161,6 +163,11 @@ export interface IScanCleanupPreviewDependencies {
     getPdftoppmBinary: () => string;
     detectSourceDpi?: (sourcePdfPath: string, pageNumber: number, signal: AbortSignal) => Promise<number | null>;
     acquireDetectionLease?: (jobId: string, signal: AbortSignal) => Promise<{release: () => boolean}>;
+    acquirePreviewLease?: (
+        ownerId: string,
+        visibility: TPreviewVisibility,
+        signal: AbortSignal,
+    ) => Promise<{release: () => boolean}>;
     getSourceMtimeMs?: (sourcePdfPath: string) => Promise<number>;
     materializeWorkingCopy: typeof ensureWorkingCopyMaterialized;
 }
@@ -198,6 +205,28 @@ const defaultDependencies: IScanCleanupPreviewDependencies = {
                 ioWeight: 2,
             },
             perOwnerLimit: 1,
+            signal,
+        });
+    },
+    acquirePreviewLease: (ownerId, visibility, signal) => {
+        const {capacity} = mainJobBroker.getSnapshot();
+        // A preview run rasterizes a page and then hands it to one sidecar; it
+        // never runs both at once, so a single native process is its true peak.
+        // A prefetch additionally claims the slot the raster concurrency leaves
+        // free (SCAN_CLEANUP_RASTER_BROKER_PROCESS_RESERVE), so background work
+        // only starts when the machine has room beyond the one process a page
+        // switch must always be able to start immediately.
+        const nativeProcesses = visibility === 'visible' ? 1 : Math.min(2, capacity.nativeProcesses);
+        return mainJobBroker.acquire({
+            ownerId,
+            kind: 'scan-cleanup-preview',
+            priority: visibility === 'visible' ? 'visible' : 'background',
+            resources: {
+                cpuTokens: 1,
+                estimatedResidentBytes: SCAN_CLEANUP_RASTER_SLOT_RESIDENT_BYTES,
+                nativeProcesses,
+                ioWeight: 1,
+            },
             signal,
         });
     },
@@ -1731,6 +1760,24 @@ export function createScanCleanupPreviewService(
         documentPrefix: string,
         request: IScanCleanupPreviewRequest,
     ) => `${documentPrefix}${request.detail === undefined ? 'base' : 'detail'}\u0000`;
+    // The raw raster is only ever asked for the page the user just navigated
+    // onto, so it names the visible page for the cleaned run that follows it and
+    // for the adjacent prefetches that do not.
+    const visiblePages = new Map<string, number>();
+    const withPreviewLease = async <T>(
+        documentPrefix: string,
+        visibility: TPreviewVisibility,
+        signal: AbortSignal,
+        run: () => Promise<T>,
+    ) => {
+        const acquire = dependencies.acquirePreviewLease ?? defaultDependencies.acquirePreviewLease!;
+        const lease = await acquire(documentPrefix, visibility, signal);
+        try {
+            return await run();
+        } finally {
+            lease.release();
+        }
+    };
     // Request identity is the page and the content that would be rendered, not
     // just the document and the lane. Two requests that would produce the same
     // result now share one run instead of the second aborting the first.
@@ -1752,17 +1799,21 @@ export function createScanCleanupPreviewService(
             const controller = new AbortController();
             const generation = (previous?.generation ?? 0) + 1;
             const priorTail = previous?.tail.catch(() => undefined) ?? Promise.resolve();
-            const tail = priorTail.then(async () => runRawPreview(
-                await materializeScanCleanupPreviewRequest(
+            visiblePages.set(documentPrefix, request.pageNumber);
+            const tail = priorTail.then(async () => {
+                const materialized = await materializeScanCleanupPreviewRequest(
                     request,
                     sender.id,
                     controller.signal,
                     dependencies,
-                ),
-                controller.signal,
-                rawRasterRetention,
-                dependencies,
-            ));
+                );
+                return withPreviewLease(documentPrefix, 'visible', controller.signal, () => runRawPreview(
+                    materialized,
+                    controller.signal,
+                    rawRasterRetention,
+                    dependencies,
+                ));
+            });
             activeRaw.set(activeKey, {
                 controller,
                 generation,
@@ -1805,18 +1856,30 @@ export function createScanCleanupPreviewService(
             const controller = new AbortController();
             const generation = (superseded[0]?.generation ?? 0) + 1;
             const priorTail = Promise.all(superseded.map(entry => entry.tail.catch(() => undefined)));
-            const tail = priorTail.then(async () => runPreview(
-                await materializeScanCleanupPreviewRequest(
+            // A detail tile is the viewport the user is looking at, and a page
+            // the raw lane has not named is the first page of a session that has
+            // no visible page yet. Everything else is an adjacent prefetch.
+            const visiblePage = visiblePages.get(documentPrefix);
+            const visibility: TPreviewVisibility = request.detail !== undefined
+                || visiblePage === undefined
+                || visiblePage === request.pageNumber
+                ? 'visible'
+                : 'prefetch';
+            const tail = priorTail.then(async () => {
+                const materialized = await materializeScanCleanupPreviewRequest(
                     request,
                     sender.id,
                     controller.signal,
                     dependencies,
-                ),
-                controller.signal,
-                rawRasterRetention,
-                baseAnalysisCache,
-                dependencies,
-            ));
+                );
+                return withPreviewLease(documentPrefix, visibility, controller.signal, () => runPreview(
+                    materialized,
+                    controller.signal,
+                    rawRasterRetention,
+                    baseAnalysisCache,
+                    dependencies,
+                ));
+            });
             active.set(activeKey, {
                 controller,
                 generation,
@@ -1849,6 +1912,7 @@ export function createScanCleanupPreviewService(
             // windowed cancellation is always issued for a navigation that still
             // wants it, so only a whole-document cancellation retires it.
             if (request.retainPages === undefined) {
+                visiblePages.delete(documentPrefix);
                 for (const [
                     key,
                     entry,

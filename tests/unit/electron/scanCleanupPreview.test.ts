@@ -2961,6 +2961,164 @@ describe('scan cleanup preview', () => {
         expect(streamed.at(-1)?.results).toHaveLength(totalPages);
     });
 
+    it('schedules a page switch during detection instead of piling native processes onto the host', async () => {
+        const dir = await setup();
+        const deps = dependencies(dir);
+        const {capacity} = mainJobBroker.getSnapshot();
+        deps.getPageCount = vi.fn(async () => 8);
+        let liveNatives = 0;
+        let peakNatives = 0;
+        const trackNative = async <T>(run: () => Promise<T>) => {
+            liveNatives += 1;
+            peakNatives = Math.max(peakNatives, liveNatives);
+            try {
+                return await run();
+            } finally {
+                liveNatives -= 1;
+            }
+        };
+        // Detection parks on the pages the previews never ask for, so its lease
+        // is held by exactly `rasterConcurrency` live rasterisers while the page
+        // switch arrives.
+        const heldDetectionRasters = Promise.withResolvers<undefined>();
+        const originalRenderPage = deps.renderPage;
+        deps.renderPage = vi.fn((...args) => trackNative(async () => {
+            if (args[2] > 3) await heldDetectionRasters.promise;
+            await originalRenderPage(
+                args[0],
+                args[1],
+                args[2],
+                args[3],
+                args[4],
+                args[5],
+                args[6],
+                args[7],
+            );
+        }));
+        const originalRunSidecar = deps.runSidecar;
+        const heldPreviewSidecars = Promise.withResolvers<undefined>();
+        deps.runSidecar = vi.fn((...args) => trackNative(async () => {
+            const manifestPath = args[1];
+            const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as {
+                operation: string;
+                pages: unknown[];
+            };
+            if (manifest.operation !== 'analyze') {
+                await heldPreviewSidecars.promise;
+                await originalRunSidecar(
+                    args[0],
+                    args[1],
+                    args[2],
+                    args[3],
+                    args[4],
+                );
+                return;
+            }
+            await writeDetectionMetadata(manifestPath);
+            for (let pageNumber = 1; pageNumber <= manifest.pages.length; pageNumber += 1) {
+                args[4]({
+                    stage: 'rendering',
+                    completedUnits: pageNumber,
+                    totalUnits: manifest.pages.length,
+                    percent: pageNumber / manifest.pages.length * 100,
+                    completedPageNumbers: [pageNumber],
+                }, {
+                    stage: 'page-complete',
+                    completedPages: pageNumber,
+                    totalPages: manifest.pages.length,
+                    pageNumber,
+                    classification: 'single-uncut-page',
+                    confidence: 0.9,
+                });
+            }
+        }));
+        const service = createScanCleanupPreviewService(deps);
+        const owner = sender();
+        const started = await service.detectAll(owner, detectionRequest);
+        await vi.waitFor(() => expect(liveNatives).toBe(capacity.nativeProcesses - 1));
+
+        // The page the user navigates onto is served while detection still holds
+        // its lease: the raw raster lands without waiting for the job.
+        const raw = await service.previewRaw(owner, {
+            ownerId: request.ownerId,
+            documentRevision: request.documentRevision,
+            sourcePdfPath: request.sourcePdfPath,
+            pageNumber: 1,
+        });
+        expect(raw.pageNumber).toBe(1);
+        const previewPage = (pageNumber: number) => service.preview(owner, {
+            ...request,
+            pageNumber,
+        });
+        const visiblePreview = previewPage(1);
+        const prefetched = [
+            previewPage(2),
+            previewPage(3),
+        ];
+        // The visible page reaches its sidecar; the two prefetches are scheduled
+        // behind the machine rather than added to it.
+        await vi.waitFor(() => expect(deps.runSidecar).toHaveBeenCalledTimes(1));
+        expect(liveNatives).toBe(capacity.nativeProcesses);
+        expect(peakNatives).toBe(capacity.nativeProcesses);
+        expect(service.getDetectionJobState(owner, started.jobId, request)?.status).toBe('running');
+
+        heldPreviewSidecars.resolve(undefined);
+        expect((await visiblePreview).pageNumber).toBe(1);
+        expect(service.getDetectionJobState(owner, started.jobId, request)?.status).toBe('running');
+        heldDetectionRasters.resolve(undefined);
+        await vi.waitFor(() => expect(service.getDetectionJobState(
+            owner,
+            started.jobId,
+            request,
+        )?.status).toBe('completed'));
+        expect((await Promise.all(prefetched)).map(result => result.pageNumber)).toEqual([
+            2,
+            3,
+        ]);
+        expect(peakNatives).toBe(capacity.nativeProcesses);
+    });
+
+    it('leases a visible preview ahead of a prefetch of the same document', async () => {
+        const dir = await setup();
+        const deps = dependencies(dir);
+        const acquire = vi.spyOn(mainJobBroker, 'acquire');
+        const service = createScanCleanupPreviewService(deps);
+        const owner = sender();
+        await service.previewRaw(owner, {
+            ownerId: request.ownerId,
+            documentRevision: request.documentRevision,
+            sourcePdfPath: request.sourcePdfPath,
+            pageNumber: 1,
+        });
+        await service.preview(owner, request);
+        await service.preview(owner, {
+            ...request,
+            pageNumber: 2,
+        });
+
+        const priorities = acquire.mock.calls
+            .filter(([request_]) => request_.kind === 'scan-cleanup-preview')
+            .map(([request_]) => ({
+                priority: request_.priority,
+                nativeProcesses: request_.resources.nativeProcesses,
+            }));
+        expect(priorities).toEqual([
+            {
+                priority: 'visible',
+                nativeProcesses: 1,
+            },
+            {
+                priority: 'visible',
+                nativeProcesses: 1,
+            },
+            {
+                priority: 'background',
+                nativeProcesses: 2,
+            },
+        ]);
+        acquire.mockRestore();
+    });
+
     it('cancels detect-all through its signal and removes its scratch artifacts', async () => {
         const dir = await setup();
         const deps = dependencies(dir);
