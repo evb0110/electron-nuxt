@@ -318,7 +318,6 @@ export const useAnnotationShapes = ({
         getShapeById,
         getDeletedEmbeddedAnnotationIds,
         getDeletedEmbeddedShapeStableKeys,
-        deletedEmbeddedAnnotationIds,
         deletedEmbeddedShapeStableKeys,
         selectShape,
         focusShape,

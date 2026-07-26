@@ -305,6 +305,26 @@ export class AnnotationApplication {
         }));
     }
 
+    /**
+     * Normalized external ids of deleted annotations whose bytes the loaded
+     * document still paints. Render suppression derives from this one
+     * projection, so a delete of any kind — shape, sticky note or text markup —
+     * stops the native paint until a save rewrites the file, and an undo drops
+     * the tombstone so the annotation paints again.
+     */
+    deletedEmbeddedAnnotationIds(): ReadonlySet<string> {
+        const ids = new Set<string>();
+        this.store.list({includeDeleted: true}).forEach((entity) => {
+            const annotationId = entity.deleted
+                ? normalizePdfJsAnnotationId(entity.identity.pdfRef)
+                : null;
+            if (annotationId) {
+                ids.add(annotationId);
+            }
+        });
+        return ids;
+    }
+
     /** Immutable UI projection derived only from canonical entities. */
     listCommentSummaries(): readonly IAnnotationCommentSummary[] {
         return this.store.list().flatMap((entity) => {

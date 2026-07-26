@@ -455,24 +455,6 @@ export class AnnotationStore {
         }));
     }
 
-    restore(id: AnnotationId) {
-        const before = this.#require(id);
-        if (!before.deleted) {
-            return cloneEntity(before);
-        }
-        const after = {
-            ...before,
-            deleted: false,
-            revision: before.revision + 1,
-            modifiedAt: Date.now(),
-        };
-        this.#commit({
-            before: cloneEntity(before),
-            after,
-        });
-        return cloneEntity(after);
-    }
-
     bindIdentity(event: IIdentityBindingEvent) {
         const entity = this.#require(event.annotationId);
         if (entity.revision !== event.expectedRevision) {

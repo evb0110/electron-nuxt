@@ -52,7 +52,6 @@ interface IPendingPostPaintEmbeddedShapeImport {
  * save frontier all live in AnnotationStore behind these commands.
  */
 export interface IManagedEmbeddedPdfShapeProjectionPort {
-    deletedEmbeddedAnnotationIds: { readonly value: ReadonlySet<string> };
     getAllShapes: () => IShapeAnnotation[];
     getDeletedEmbeddedAnnotationIds: () => string[];
     getDeletedEmbeddedShapeStableKeys: () => string[];
@@ -91,6 +90,13 @@ interface IUseManagedEmbeddedPdfShapesOptions {
     visibleRange: Ref<IManagedEmbeddedPdfShapesPageRange>;
     bufferPages: Ref<number>;
     shapeComposable: IManagedEmbeddedPdfShapeProjectionPort;
+    /**
+     * Normalized ids AnnotationStore reports as deleted, for every annotation
+     * kind. Shapes are hidden because the app repaints them itself; these are
+     * hidden because the user removed them and the file has not been rewritten
+     * yet.
+     */
+    deletedEmbeddedAnnotationIds: Ref<ReadonlySet<string>>;
     logger: IManagedEmbeddedPdfShapesLogger;
     runGuardedTask: (
         task: () => Promise<unknown>,
@@ -116,6 +122,7 @@ export const useManagedEmbeddedPdfShapes = ({
     visibleRange,
     bufferPages,
     shapeComposable,
+    deletedEmbeddedAnnotationIds,
     logger,
     runGuardedTask,
     nextTick: waitForNextTick,
@@ -131,8 +138,8 @@ export const useManagedEmbeddedPdfShapes = ({
     let pendingEmbeddedShapeImportRevision: TDocumentRevisionToken | null = null;
     let embeddedShapeImportPromise: Promise<void> = Promise.resolve();
     let embeddedShapeImportAbortController: AbortController | null = null;
-    const pendingDeletedEmbeddedShapeRefreshPages = new Set<number>();
-    let isDeletedEmbeddedShapeRefreshScheduled = false;
+    const pendingEmbeddedAnnotationRefreshPages = new Set<number>();
+    let isEmbeddedAnnotationRefreshScheduled = false;
     let isDeferredHiddenEmbeddedAnnotationDomSyncScheduled = false;
     let deferredHiddenAnnotationSyncFrame: number | null = null;
     let disposed = false;
@@ -247,20 +254,9 @@ export const useManagedEmbeddedPdfShapes = ({
         });
         return ids;
     });
-    const forceHiddenEmbeddedAnnotationIds = computed(() => {
-        const ids = new Set<string>();
-        shapeComposable.deletedEmbeddedAnnotationIds.value.forEach((id) => {
-            const normalizedId = normalizePdfJsAnnotationId(id);
-            if (normalizedId) {
-                ids.add(normalizedId);
-            }
-        });
-        return ids;
-    });
-
     const hiddenEmbeddedAnnotationIds = computed(() => {
         const ids = new Set(normalizedManagedEmbeddedAnnotationIds.value);
-        forceHiddenEmbeddedAnnotationIds.value.forEach(id => ids.add(id));
+        deletedEmbeddedAnnotationIds.value.forEach(id => ids.add(id));
         return ids;
     });
 
@@ -749,20 +745,20 @@ export const useManagedEmbeddedPdfShapes = ({
         syncHiddenEmbeddedAnnotationDom();
     }
 
-    async function flushDeletedEmbeddedShapePageRefresh() {
-        if (isDeletedEmbeddedShapeRefreshScheduled) {
+    async function flushEmbeddedAnnotationPageRefresh() {
+        if (isEmbeddedAnnotationRefreshScheduled) {
             return;
         }
 
-        isDeletedEmbeddedShapeRefreshScheduled = true;
+        isEmbeddedAnnotationRefreshScheduled = true;
 
         try {
             await waitForNextTick();
 
-            while (pendingDeletedEmbeddedShapeRefreshPages.size > 0) {
-                const pageNumbers = Array.from(pendingDeletedEmbeddedShapeRefreshPages)
+            while (pendingEmbeddedAnnotationRefreshPages.size > 0) {
+                const pageNumbers = Array.from(pendingEmbeddedAnnotationRefreshPages)
                     .sort((left, right) => left - right);
-                pendingDeletedEmbeddedShapeRefreshPages.clear();
+                pendingEmbeddedAnnotationRefreshPages.clear();
 
                 const pagesToRefresh = pageNumbers.filter(pageNumber => shouldRefreshManagedShapePage({
                     pageNumber,
@@ -788,28 +784,28 @@ export const useManagedEmbeddedPdfShapes = ({
                 );
             }
         } finally {
-            isDeletedEmbeddedShapeRefreshScheduled = false;
+            isEmbeddedAnnotationRefreshScheduled = false;
 
-            if (pendingDeletedEmbeddedShapeRefreshPages.size > 0) {
-                runGuardedTask(() => flushDeletedEmbeddedShapePageRefresh(), {
+            if (pendingEmbeddedAnnotationRefreshPages.size > 0) {
+                runGuardedTask(() => flushEmbeddedAnnotationPageRefresh(), {
                     category: 'background-diagnostic',
                     scope: 'pdf-shapes',
-                    message: 'Failed to refresh deleted embedded shape pages',
+                    message: 'Failed to refresh embedded annotation pages',
                 });
             }
         }
     }
 
-    function queueDeletedEmbeddedShapePageRefresh(pageNumber: number) {
+    function queueEmbeddedAnnotationPageRefresh(pageNumber: number) {
         if (disposed || !Number.isFinite(pageNumber) || pageNumber < 1) {
             return;
         }
 
-        pendingDeletedEmbeddedShapeRefreshPages.add(Math.floor(pageNumber));
-        runGuardedTask(() => flushDeletedEmbeddedShapePageRefresh(), {
+        pendingEmbeddedAnnotationRefreshPages.add(Math.floor(pageNumber));
+        runGuardedTask(() => flushEmbeddedAnnotationPageRefresh(), {
             category: 'background-diagnostic',
             scope: 'pdf-shapes',
-            message: 'Failed to refresh deleted embedded shape pages',
+            message: 'Failed to refresh embedded annotation pages',
         });
     }
 
@@ -817,7 +813,7 @@ export const useManagedEmbeddedPdfShapes = ({
         const pageNumber = Number.isFinite(comment.pageNumber) && (comment.pageNumber ?? 0) > 0
             ? Math.floor(comment.pageNumber!)
             : currentPage.value;
-        queueDeletedEmbeddedShapePageRefresh(pageNumber);
+        queueEmbeddedAnnotationPageRefresh(pageNumber);
     }
 
     function refreshDeletedEmbeddedShape(shape: IShapeAnnotation | null) {
@@ -834,7 +830,7 @@ export const useManagedEmbeddedPdfShapes = ({
             shape,
             viewerContainer: viewerContainer.value,
             syncHiddenEmbeddedAnnotationDom,
-            rerenderEmbeddedShapePage: queueDeletedEmbeddedShapePageRefresh,
+            rerenderEmbeddedShapePage: queueEmbeddedAnnotationPageRefresh,
         });
     }
 
@@ -871,12 +867,24 @@ export const useManagedEmbeddedPdfShapes = ({
         hideManagedAnnotationEditors(pageNumber);
     }
 
-    watch(hiddenEmbeddedAnnotationIds, () => {
+    watch(hiddenEmbeddedAnnotationIds, (hiddenIds, previouslyHiddenIds) => {
         tracePdfAnnotationSaveEvent('managed-embedded-shapes:hidden-ids-changed', () => ({
             hiddenIds: Array.from(hiddenEmbeddedAnnotationIds.value).slice(0, 30),
             hiddenIdsCount: hiddenEmbeddedAnnotationIds.value.size,
             managedIdsCount: normalizedManagedEmbeddedAnnotationIds.value.size,
         }));
+        // Suppression removes the element from the annotation layer outright, so
+        // an id leaving the set cannot be repaired by syncing again — the page has
+        // to repaint from the document. Undoing a delete is the path that gets
+        // here, and only a rendered page can hold the annotation, which is what
+        // the refresh queue already filters for.
+        if (previouslyHiddenIds && Array.from(previouslyHiddenIds).some(id => !hiddenIds.has(id))) {
+            const buffer = Math.max(0, bufferPages.value);
+            const firstPage = Math.max(1, visibleRange.value.start - buffer);
+            for (let pageNumber = firstPage; pageNumber <= visibleRange.value.end + buffer; pageNumber += 1) {
+                queueEmbeddedAnnotationPageRefresh(pageNumber);
+            }
+        }
         const localToken = embeddedShapeImportToken;
         const path = workingCopyPath.value;
         void waitForNextTick().then(() => {
@@ -930,7 +938,7 @@ export const useManagedEmbeddedPdfShapes = ({
         pendingPostPaintImport = null;
         scheduledPostPaintImport = null;
         embeddedShapeImportToken += 1;
-        pendingDeletedEmbeddedShapeRefreshPages.clear();
+        pendingEmbeddedAnnotationRefreshPages.clear();
         if (deferredHiddenAnnotationSyncFrame !== null && typeof window !== 'undefined') {
             window.cancelAnimationFrame(deferredHiddenAnnotationSyncFrame);
             deferredHiddenAnnotationSyncFrame = null;

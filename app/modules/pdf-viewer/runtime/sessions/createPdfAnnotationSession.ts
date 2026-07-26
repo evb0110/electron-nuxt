@@ -152,6 +152,10 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
         selectedShapeCommands,
     } = shapeTool;
 
+    // Refreshed by the canonical projection below, which runs on every store
+    // emission; the store is the only judge of what counts as deleted.
+    const deletedEmbeddedAnnotationIds = shallowRef<ReadonlySet<string>>(new Set<string>());
+
     const managedEmbeddedPdfShapes = useManagedEmbeddedPdfShapes({
         viewerContainer: options.viewerContainer,
         originalPath: options.originalPath,
@@ -161,6 +165,7 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
         visibleRange: viewport.visibleRange,
         bufferPages: options.bufferPages,
         shapeComposable,
+        deletedEmbeddedAnnotationIds,
         logger: BrowserLogger,
         runGuardedTask,
         nextTick,
@@ -211,6 +216,7 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
     function projectCanonicalAnnotations() {
         const projected = annotationApplication.value.listCommentSummaries();
         annotationProjection.value = projected.map(comment => Object.freeze({...comment}));
+        deletedEmbeddedAnnotationIds.value = annotationApplication.value.deletedEmbeddedAnnotationIds();
         const nextColors = new Map<string, string | null>();
         annotationApplication.value.store.list().forEach((entity) => {
             if (entity.kind === 'shape') {
@@ -252,13 +258,35 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
             ? `path:${options.workingCopyPath.value}`
             : annotationDocumentKey(options.src.value)
     ));
-    watch(annotationDocumentIdentity, (documentKey) => {
+    function resetAnnotationApplication(documentKey: string) {
         stopAnnotationApplicationProjection();
         canonicalColors = new Map();
         annotationCommentModel.clearProjection();
         annotationApplication.value = createAnnotationApplication(documentKey);
         stopAnnotationApplicationProjection = annotationApplication.value.store.subscribe(projectCanonicalAnnotations);
-    }, {immediate: true});
+    }
+    watch(annotationDocumentIdentity, resetAnnotationApplication, {immediate: true});
+    // Canonical annotations record edits against the bytes PDF.js currently holds.
+    // A save that materializes pending deletes, and a file-history undo of one,
+    // rewrite the working copy in place and reload the document under the same
+    // path, so the path-keyed identity above cannot see it. Every record —
+    // delete tombstones included — then describes bytes that are gone, and the
+    // commands that produced them can no longer be inverted.
+    // A reload clears the proxy before publishing the next one, so the swap is
+    // only visible against the last document actually loaded.
+    let lastLoadedPdfDocument = documentSession.pdfDocument.value;
+    watch(documentSession.pdfDocument, (document) => {
+        if (!document || document === lastLoadedPdfDocument) {
+            return;
+        }
+        const replacesLoadedDocument = lastLoadedPdfDocument !== null;
+        lastLoadedPdfDocument = document;
+        if (!replacesLoadedDocument) {
+            return;
+        }
+        appAnnotationHistory.clear();
+        resetAnnotationApplication(annotationDocumentIdentity.value);
+    });
     onScopeDispose(() => stopAnnotationApplicationProjection());
     shapeCommentsChangedHandler = () => {
         annotationCommentModel.emitCommentsForSidebar(annotationCommentsCache.value);

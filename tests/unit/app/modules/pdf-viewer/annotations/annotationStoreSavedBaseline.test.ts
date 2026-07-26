@@ -486,3 +486,29 @@ describe('AnnotationStore saved semantic baseline', () => {
         })]);
     });
 });
+
+describe('AnnotationApplication deleted embedded annotation ids', () => {
+    it('reports a deleted file-resident annotation of any kind until it is restored', () => {
+        const application = new AnnotationApplication('document');
+        const annotationId = importPersistedHighlight(application.store);
+        expect(application.deletedEmbeddedAnnotationIds()).toEqual(new Set());
+
+        // Text markup lives in the file until a save rewrites it, so the
+        // annotation layer would repaint it from the document on the next
+        // render unless the deletion is reported here.
+        application.store.delete(annotationId);
+        expect(application.deletedEmbeddedAnnotationIds()).toEqual(new Set(['12R']));
+
+        expect(application.store.undo()).toBe(true);
+        expect(application.deletedEmbeddedAnnotationIds()).toEqual(new Set());
+    });
+
+    it('ignores a deleted annotation that the file never contained', () => {
+        const application = new AnnotationApplication('document');
+        const note = stickyNote('local-note', 'draft');
+        application.store.createStickyNote(note);
+
+        application.store.delete(note.identity.id);
+        expect(application.deletedEmbeddedAnnotationIds()).toEqual(new Set());
+    });
+});

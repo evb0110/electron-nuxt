@@ -188,7 +188,6 @@ function createEmbeddedInkShape(overrides: Partial<IShapeAnnotation>): IShapeAnn
 function createManagedShapeStorePort(overrides: Partial<IManagedEmbeddedPdfShapeProjectionPort> = {}): IManagedEmbeddedPdfShapeProjectionPort {
     let baselineReady = false;
     return {
-        deletedEmbeddedAnnotationIds: ref(new Set<string>()),
         getAllShapes: () => [],
         getDeletedEmbeddedAnnotationIds: () => [],
         getDeletedEmbeddedShapeStableKeys: () => [],
@@ -243,6 +242,7 @@ describe('useManagedEmbeddedPdfShapes', () => {
             }),
             bufferPages: ref(0),
             shapeComposable: createManagedShapeStorePort(),
+            deletedEmbeddedAnnotationIds: ref(new Set<string>()),
             logger: {
                 debug: vi.fn(),
                 warn: vi.fn(),
@@ -294,6 +294,7 @@ describe('useManagedEmbeddedPdfShapes', () => {
                 }),
                 bufferPages: ref(0),
                 shapeComposable: createManagedShapeStorePort(),
+                deletedEmbeddedAnnotationIds: ref(new Set<string>()),
                 logger: {
                     debug: vi.fn(),
                     warn: vi.fn(),
@@ -363,6 +364,7 @@ describe('useManagedEmbeddedPdfShapes', () => {
                 }),
                 bufferPages: ref(0),
                 shapeComposable: createManagedShapeStorePort(),
+                deletedEmbeddedAnnotationIds: ref(new Set<string>()),
                 logger: {
                     debug: vi.fn(),
                     warn: vi.fn(),
@@ -436,6 +438,7 @@ describe('useManagedEmbeddedPdfShapes', () => {
                 }),
                 bufferPages: ref(0),
                 shapeComposable: createManagedShapeStorePort(),
+                deletedEmbeddedAnnotationIds: ref(new Set<string>()),
                 logger: {
                     debug: vi.fn(),
                     warn: vi.fn(),
@@ -490,6 +493,7 @@ describe('useManagedEmbeddedPdfShapes', () => {
             }),
             bufferPages: ref(0),
             shapeComposable,
+            deletedEmbeddedAnnotationIds: ref(new Set<string>()),
             logger: {
                 debug: vi.fn(),
                 warn: vi.fn(),
@@ -533,6 +537,7 @@ describe('useManagedEmbeddedPdfShapes', () => {
             }),
             bufferPages: ref(0),
             shapeComposable,
+            deletedEmbeddedAnnotationIds: ref(new Set<string>()),
             logger: {
                 debug: vi.fn(),
                 warn: vi.fn(),
@@ -577,6 +582,7 @@ describe('useManagedEmbeddedPdfShapes', () => {
             }),
             bufferPages: ref(0),
             shapeComposable,
+            deletedEmbeddedAnnotationIds: ref(new Set<string>()),
             logger: {
                 debug: vi.fn(),
                 warn: vi.fn(),
@@ -621,6 +627,7 @@ describe('useManagedEmbeddedPdfShapes', () => {
             }),
             bufferPages: ref(0),
             shapeComposable,
+            deletedEmbeddedAnnotationIds: ref(new Set<string>()),
             logger: {
                 debug: vi.fn(),
                 warn: vi.fn(),
@@ -660,6 +667,7 @@ describe('useManagedEmbeddedPdfShapes', () => {
             }),
             bufferPages: ref(0),
             shapeComposable,
+            deletedEmbeddedAnnotationIds: ref(new Set<string>()),
             logger: {
                 debug: vi.fn(),
                 warn: vi.fn(),
@@ -729,6 +737,7 @@ describe('useManagedEmbeddedPdfShapes', () => {
             }),
             bufferPages: ref(0),
             shapeComposable,
+            deletedEmbeddedAnnotationIds: ref(new Set<string>()),
             logger: {
                 debug: vi.fn(),
                 warn: vi.fn(),
@@ -803,6 +812,7 @@ describe('useManagedEmbeddedPdfShapes', () => {
             }),
             bufferPages: ref(0),
             shapeComposable: createManagedShapeStorePort(),
+            deletedEmbeddedAnnotationIds: ref(new Set<string>()),
             logger: {
                 debug: vi.fn(),
                 warn: vi.fn(),
@@ -822,6 +832,62 @@ describe('useManagedEmbeddedPdfShapes', () => {
         await Promise.all(pendingTasks);
 
         expect(invalidatePages).not.toHaveBeenCalled();
+        expect(renderVisiblePages).toHaveBeenCalledWith(
+            {
+                start: 1,
+                end: 1,
+            },
+            {
+                preserveRenderedPages: true,
+                forceRerender: true,
+                bufferOverride: 0,
+            },
+        );
+    });
+
+    it('repaints the page when a deleted annotation stops being hidden', async () => {
+        vi.mocked(importEmbeddedShapeAnnotations).mockReset();
+        const pendingTasks: Array<Promise<unknown>> = [];
+        const renderVisiblePages = vi.fn(async () => {});
+        const deletedEmbeddedAnnotationIds = ref(new Set(['12R']));
+        useManagedEmbeddedPdfShapes({
+            viewerContainer: ref(null),
+            workingCopyPath: ref(null),
+            sourcePdfData: ref(null),
+            documentRevisionToken: ref(null),
+            visibleRange: ref({
+                start: 1,
+                end: 1,
+            }),
+            bufferPages: ref(0),
+            shapeComposable: createManagedShapeStorePort(),
+            deletedEmbeddedAnnotationIds,
+            logger: {
+                debug: vi.fn(),
+                warn: vi.fn(),
+            },
+            runGuardedTask: (task) => {
+                pendingTasks.push(Promise.resolve(task()));
+            },
+            nextTick,
+            isPageRendered: pageNumber => pageNumber === 1,
+            invalidatePages: vi.fn(),
+            renderVisiblePages,
+            hideManagedAnnotationEditors: vi.fn(),
+            currentPage: ref(1),
+        });
+        await nextTick();
+        await Promise.all(pendingTasks);
+        renderVisiblePages.mockClear();
+
+        // Undo drops the tombstone. Suppression had removed the element from the
+        // annotation layer outright, so only a repaint can bring it back.
+        deletedEmbeddedAnnotationIds.value = new Set<string>();
+        await nextTick();
+        await Promise.all(pendingTasks);
+        await nextTick();
+        await Promise.all(pendingTasks);
+
         expect(renderVisiblePages).toHaveBeenCalledWith(
             {
                 start: 1,
@@ -856,6 +922,7 @@ describe('useManagedEmbeddedPdfShapes', () => {
             }),
             bufferPages: ref(0),
             shapeComposable,
+            deletedEmbeddedAnnotationIds: ref(new Set<string>()),
             logger: {
                 debug: vi.fn(),
                 warn: vi.fn(),
@@ -916,6 +983,7 @@ describe('useManagedEmbeddedPdfShapes', () => {
             }),
             bufferPages: ref(0),
             shapeComposable,
+            deletedEmbeddedAnnotationIds: ref(new Set<string>()),
             logger: {
                 debug: vi.fn(),
                 warn: vi.fn(),
@@ -962,6 +1030,7 @@ describe('useManagedEmbeddedPdfShapes', () => {
             }),
             bufferPages: ref(0),
             shapeComposable,
+            deletedEmbeddedAnnotationIds: ref(new Set<string>()),
             logger: {
                 debug: vi.fn(),
                 warn: vi.fn(),
@@ -1013,6 +1082,7 @@ describe('useManagedEmbeddedPdfShapes', () => {
             }),
             bufferPages: ref(0),
             shapeComposable,
+            deletedEmbeddedAnnotationIds: ref(new Set<string>()),
             logger: {
                 debug: vi.fn(),
                 warn: vi.fn(),
